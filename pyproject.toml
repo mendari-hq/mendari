@@ -1,0 +1,69 @@
+[project]
+name = "openhealth"
+version = "0.1.0"
+description = "Open infrastructure for packaging, evaluating, governing and deploying healthcare decision logic as Decision Packs."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+authors = [{ name = "OpenHealth Hub contributors" }]
+keywords = ["healthcare", "fhir", "cds-hooks", "decision-support", "evaluation", "ai-governance"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Healthcare Industry",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+]
+dependencies = [
+    "pydantic>=2.7",
+    "pyyaml>=6.0",
+    "jsonschema>=4.21",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+server = ["fastapi>=0.110", "uvicorn>=0.29"]
+
+[project.scripts]
+openhealth = "openhealth.cli:main"
+
+[dependency-groups]
+dev = [
+    "openhealth[server]",
+    "pytest>=8.0",
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "types-PyYAML",
+    "types-jsonschema",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/openhealth"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"packs" = "openhealth/_packs"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
+ignore = ["RUF012"]
+
+[tool.mypy]
+python_version = "3.11"
+packages = ["openhealth"]
+mypy_path = "src"
+ignore_missing_imports = true
+warn_unused_ignores = true
+check_untyped_defs = true

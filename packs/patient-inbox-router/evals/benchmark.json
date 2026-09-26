@@ -1,0 +1,628 @@
+{
+  "format": "openhealth.eval/1",
+  "id": "54b4e218-b19f-457f-a52a-8592410bd06f",
+  "created_at": "2026-09-26T03:13:44+00:00",
+  "pack": {
+    "id": "openhealth/patient-inbox-router",
+    "version": "0.1.0",
+    "digest": "sha256:90686436256e24e3e52e97671919d6f90569f4b412ab4c23b2417caadbcb9a8c"
+  },
+  "providers": {
+    "safety_screen": {
+      "variant": "rules",
+      "type": "rules",
+      "model": "rules@4657a4b441ef"
+    },
+    "router": {
+      "variant": "naive_bayes",
+      "type": "naive_bayes",
+      "model": "naive_bayes@6b28c1ac77f0"
+    }
+  },
+  "policy": {
+    "risk_level": 0,
+    "thresholds": {
+      "auto": 0.9,
+      "review": 0.5
+    },
+    "governance_override": null
+  },
+  "dataset": {
+    "name": "test",
+    "sha256": "2997856d17a5e7d0f6b11a76b5ee5877811fe080c06d5fc15b17a1bbbd682d07",
+    "n": 600
+  },
+  "primary": "destination",
+  "questions": {
+    "destination": {
+      "n": 600,
+      "accuracy": 0.9933333333333333,
+      "macro_f1": 0.9916557591623036,
+      "per_label": {
+        "front_desk": {
+          "precision": 1.0,
+          "recall": 0.9792746113989638,
+          "f1": 0.9895287958115184,
+          "support": 193
+        },
+        "medical_assistant": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 161
+        },
+        "nurse": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 117
+        },
+        "physician": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 67
+        },
+        "billing": {
+          "precision": 0.9393939393939394,
+          "recall": 1.0,
+          "f1": 0.96875,
+          "support": 62
+        }
+      },
+      "confusion": {
+        "front_desk": {
+          "front_desk": 189,
+          "medical_assistant": 0,
+          "nurse": 0,
+          "physician": 0,
+          "billing": 4,
+          "none": 0
+        },
+        "medical_assistant": {
+          "front_desk": 0,
+          "medical_assistant": 161,
+          "nurse": 0,
+          "physician": 0,
+          "billing": 0,
+          "none": 0
+        },
+        "nurse": {
+          "front_desk": 0,
+          "medical_assistant": 0,
+          "nurse": 117,
+          "physician": 0,
+          "billing": 0,
+          "none": 0
+        },
+        "physician": {
+          "front_desk": 0,
+          "medical_assistant": 0,
+          "nurse": 0,
+          "physician": 67,
+          "billing": 0,
+          "none": 0
+        },
+        "billing": {
+          "front_desk": 0,
+          "medical_assistant": 0,
+          "nurse": 0,
+          "physician": 0,
+          "billing": 62,
+          "none": 0
+        }
+      },
+      "calibration": {
+        "ece": 0.0051302425069741225,
+        "bins": [
+          {
+            "low": 0.4,
+            "high": 0.5,
+            "n": 2,
+            "confidence": 0.46355427427006446,
+            "accuracy": 0.5
+          },
+          {
+            "low": 0.5,
+            "high": 0.6,
+            "n": 1,
+            "confidence": 0.5927642221765048,
+            "accuracy": 1.0
+          },
+          {
+            "low": 0.6,
+            "high": 0.7,
+            "n": 2,
+            "confidence": 0.6485859928173028,
+            "accuracy": 0.0
+          },
+          {
+            "low": 0.7,
+            "high": 0.8,
+            "n": 2,
+            "confidence": 0.7338553397183359,
+            "accuracy": 0.5
+          },
+          {
+            "low": 0.8,
+            "high": 0.9,
+            "n": 3,
+            "confidence": 0.8604478293896797,
+            "accuracy": 1.0
+          },
+          {
+            "low": 0.9,
+            "high": 1.0,
+            "n": 590,
+            "confidence": 0.9992974930542392,
+            "accuracy": 1.0
+          }
+        ]
+      },
+      "brier": 0.009050909800507007
+    },
+    "urgency": {
+      "n": 600,
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "per_label": {
+        "urgent": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 23
+        },
+        "routine": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 577
+        }
+      },
+      "confusion": {
+        "urgent": {
+          "urgent": 23,
+          "routine": 0,
+          "none": 0
+        },
+        "routine": {
+          "urgent": 0,
+          "routine": 577,
+          "none": 0
+        }
+      },
+      "calibration": {
+        "ece": 0.11921450563190666,
+        "bins": [
+          {
+            "low": 0.7,
+            "high": 0.8,
+            "n": 16,
+            "confidence": 0.7310585786300049,
+            "accuracy": 1.0
+          },
+          {
+            "low": 0.8,
+            "high": 0.9,
+            "n": 561,
+            "confidence": 0.8807970779778823,
+            "accuracy": 1.0
+          },
+          {
+            "low": 0.9,
+            "high": 1.0,
+            "n": 23,
+            "confidence": 0.9846608094427806,
+            "accuracy": 1.0
+          }
+        ]
+      },
+      "brier": 0.030449721424658207
+    }
+  },
+  "decisions": {
+    "outcome_counts": {
+      "AUTO": 567,
+      "HUMAN_REVIEW": 31,
+      "ABSTAIN": 2,
+      "BLOCK": 0
+    },
+    "outcome_rates": {
+      "AUTO": 0.945,
+      "HUMAN_REVIEW": 0.051666666666666666,
+      "ABSTAIN": 0.0033333333333333335,
+      "BLOCK": 0.0
+    },
+    "abstention_rate": 0.0033333333333333335,
+    "automation": {
+      "n": 567,
+      "accuracy": 1.0,
+      "false_automation_rate": 0.0,
+      "false_automation_share": 0.0
+    },
+    "review": {
+      "n": 31,
+      "expected_override_rate": 0.0967741935483871
+    },
+    "recommendation_accuracy": 0.9949832775919732,
+    "critical": [
+      {
+        "question": "urgency",
+        "label": "urgent",
+        "n": 23,
+        "detected": 23,
+        "detection_rate": 1.0,
+        "auto_missed": 0,
+        "missed_ids": []
+      }
+    ]
+  },
+  "threshold_sweep": [
+    {
+      "threshold": 0.5,
+      "coverage": 0.9966666666666667,
+      "accuracy": 0.9949832775919732,
+      "errors": 3
+    },
+    {
+      "threshold": 0.6,
+      "coverage": 0.995,
+      "accuracy": 0.9949748743718593,
+      "errors": 3
+    },
+    {
+      "threshold": 0.7,
+      "coverage": 0.9916666666666667,
+      "accuracy": 0.9983193277310924,
+      "errors": 1
+    },
+    {
+      "threshold": 0.8,
+      "coverage": 0.9883333333333333,
+      "accuracy": 1.0,
+      "errors": 0
+    },
+    {
+      "threshold": 0.85,
+      "coverage": 0.985,
+      "accuracy": 1.0,
+      "errors": 0
+    },
+    {
+      "threshold": 0.9,
+      "coverage": 0.9833333333333333,
+      "accuracy": 1.0,
+      "errors": 0
+    },
+    {
+      "threshold": 0.95,
+      "coverage": 0.9816666666666667,
+      "accuracy": 1.0,
+      "errors": 0
+    },
+    {
+      "threshold": 0.97,
+      "coverage": 0.9783333333333334,
+      "accuracy": 1.0,
+      "errors": 0
+    },
+    {
+      "threshold": 0.99,
+      "coverage": 0.9633333333333334,
+      "accuracy": 1.0,
+      "errors": 0
+    }
+  ],
+  "latency_ms": {
+    "mean": 0.1032345606169353,
+    "p50": 0.10075001046061516,
+    "p95": 0.13649999164044857,
+    "max": 0.3577079623937607
+  },
+  "cost": {
+    "total_usd": 0.0,
+    "per_decision_usd": 0.0,
+    "input_tokens": 0,
+    "output_tokens": 0
+  },
+  "errors": {},
+  "subgroups": {
+    "language": {
+      "en": {
+        "n": 548,
+        "accuracy": 1.0,
+        "auto_rate": 0.9562043795620438,
+        "abstention_rate": 0.0,
+        "false_automation_rate": 0.0
+      },
+      "es": {
+        "n": 52,
+        "accuracy": 0.9230769230769231,
+        "auto_rate": 0.8269230769230769,
+        "abstention_rate": 0.038461538461538464,
+        "false_automation_rate": 0.0
+      }
+    },
+    "channel": {
+      "portal": {
+        "n": 482,
+        "accuracy": 0.991701244813278,
+        "auto_rate": 0.941908713692946,
+        "abstention_rate": 0.004149377593360996,
+        "false_automation_rate": 0.0
+      },
+      "sms": {
+        "n": 118,
+        "accuracy": 1.0,
+        "auto_rate": 0.9576271186440678,
+        "abstention_rate": 0.0,
+        "false_automation_rate": 0.0
+      }
+    },
+    "age_band": {
+      "0-17": {
+        "n": 22,
+        "accuracy": 1.0,
+        "auto_rate": 0.9090909090909091,
+        "abstention_rate": 0.0,
+        "false_automation_rate": 0.0
+      },
+      "18-39": {
+        "n": 175,
+        "accuracy": 0.9942857142857143,
+        "auto_rate": 0.9371428571428572,
+        "abstention_rate": 0.0,
+        "false_automation_rate": 0.0
+      },
+      "40-64": {
+        "n": 246,
+        "accuracy": 0.991869918699187,
+        "auto_rate": 0.9512195121951219,
+        "abstention_rate": 0.0040650406504065045,
+        "false_automation_rate": 0.0
+      },
+      "65+": {
+        "n": 157,
+        "accuracy": 0.9936305732484076,
+        "auto_rate": 0.9490445859872612,
+        "abstention_rate": 0.006369426751592357,
+        "false_automation_rate": 0.0
+      }
+    },
+    "topic": {
+      "anaphylaxis": {
+        "n": 2,
+        "accuracy": 1.0,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      },
+      "bill": {
+        "n": 34,
+        "accuracy": 1.0,
+        "auto_rate": 1.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": 0.0
+      },
+      "bleeding": {
+        "n": 2,
+        "accuracy": 1.0,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      },
+      "breathing": {
+        "n": 10,
+        "accuracy": 1.0,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      },
+      "cancel": {
+        "n": 22,
+        "accuracy": 1.0,
+        "auto_rate": 1.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": 0.0
+      },
+      "chest_pain": {
+        "n": 5,
+        "accuracy": 1.0,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      },
+      "contact_update": {
+        "n": 14,
+        "accuracy": 1.0,
+        "auto_rate": 1.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": 0.0
+      },
+      "diagnosis": {
+        "n": 11,
+        "accuracy": 1.0,
+        "auto_rate": 1.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": 0.0
+      },
+      "forms": {
+        "n": 12,
+        "accuracy": 1.0,
+        "auto_rate": 1.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": 0.0
+      },
+      "infant_fever": {
+        "n": 2,
+        "accuracy": 1.0,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      },
+      "insurance": {
+        "n": 11,
+        "accuracy": 1.0,
+        "auto_rate": 1.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": 0.0
+      },
+      "logistics": {
+        "n": 22,
+        "accuracy": 1.0,
+        "auto_rate": 1.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": 0.0
+      },
+      "mixed_clinical": {
+        "n": 7,
+        "accuracy": 1.0,
+        "auto_rate": 1.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": 0.0
+      },
+      "order_status": {
+        "n": 17,
+        "accuracy": 1.0,
+        "auto_rate": 1.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": 0.0
+      },
+      "outside_records": {
+        "n": 24,
+        "accuracy": 1.0,
+        "auto_rate": 1.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": 0.0
+      },
+      "payment": {
+        "n": 17,
+        "accuracy": 1.0,
+        "auto_rate": 1.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": 0.0
+      },
+      "portal": {
+        "n": 20,
+        "accuracy": 1.0,
+        "auto_rate": 1.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": 0.0
+      },
+      "referral_status": {
+        "n": 20,
+        "accuracy": 1.0,
+        "auto_rate": 1.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": 0.0
+      },
+      "refill": {
+        "n": 88,
+        "accuracy": 1.0,
+        "auto_rate": 1.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": 0.0
+      },
+      "reschedule": {
+        "n": 37,
+        "accuracy": 1.0,
+        "auto_rate": 1.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": 0.0
+      },
+      "results": {
+        "n": 41,
+        "accuracy": 1.0,
+        "auto_rate": 1.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": 0.0
+      },
+      "schedule": {
+        "n": 59,
+        "accuracy": 0.9322033898305084,
+        "auto_rate": 0.847457627118644,
+        "abstention_rate": 0.03389830508474576,
+        "false_automation_rate": 0.0
+      },
+      "side_effects": {
+        "n": 23,
+        "accuracy": 1.0,
+        "auto_rate": 1.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": 0.0
+      },
+      "stroke": {
+        "n": 2,
+        "accuracy": 1.0,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      },
+      "symptoms": {
+        "n": 42,
+        "accuracy": 1.0,
+        "auto_rate": 1.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": 0.0
+      },
+      "treatment_change": {
+        "n": 15,
+        "accuracy": 1.0,
+        "auto_rate": 1.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": 0.0
+      },
+      "vaccines": {
+        "n": 11,
+        "accuracy": 1.0,
+        "auto_rate": 1.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": 0.0
+      },
+      "vague": {
+        "n": 19,
+        "accuracy": 1.0,
+        "auto_rate": 0.9473684210526315,
+        "abstention_rate": 0.0,
+        "false_automation_rate": 0.0
+      },
+      "wound_care": {
+        "n": 11,
+        "accuracy": 1.0,
+        "auto_rate": 1.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": 0.0
+      }
+    }
+  },
+  "misclassified": [
+    {
+      "id": "pub-02105",
+      "truth": "front_desk",
+      "predicted": "billing",
+      "confidence": 0.6733,
+      "outcome": "HUMAN_REVIEW"
+    },
+    {
+      "id": "pub-02212",
+      "truth": "front_desk",
+      "predicted": "billing",
+      "confidence": 0.6239,
+      "outcome": "HUMAN_REVIEW"
+    },
+    {
+      "id": "pub-02280",
+      "truth": "front_desk",
+      "predicted": "billing",
+      "confidence": 0.4897,
+      "outcome": "ABSTAIN"
+    },
+    {
+      "id": "pub-02356",
+      "truth": "front_desk",
+      "predicted": "billing",
+      "confidence": 0.7254,
+      "outcome": "HUMAN_REVIEW"
+    }
+  ]
+}

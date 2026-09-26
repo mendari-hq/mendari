@@ -1,0 +1,31 @@
+# FHIR R4 -> pack input. A patient message is a Communication; the sender is a Patient.
+fhir_version: R4
+focus: Communication
+
+resources:
+  Communication:
+    required: true
+  Patient:
+    required: false
+
+fields:
+  message.subject:
+    path: Communication.topic.text
+  message.body:
+    path: Communication.payload.contentString
+    transform: join
+  message.channel:
+    path: Communication.medium[0].coding[0].code
+    map: {portal: portal, sms: sms, email: email}
+  message.sent_at:
+    path: Communication.sent
+  patient.age_band:
+    path: Patient.birthDate
+    transform: age_band
+  patient.preferred_language:
+    path: Patient.communication[0].language.coding[0].code
+
+# Decision -> FHIR Task that puts the message in the right team's work queue.
+task:
+  code_text: Route patient message
+  performer_system: https://openhealth.dev/fhir/CodeSystem/inbox-destination

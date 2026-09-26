@@ -1,0 +1,58 @@
+# Synthetic behaviour tests shipped with the pack. `openhealth test` runs them against the
+# pack's default providers. They document, in reviewable form, what the pack must always do.
+#
+# expect keys: outcome, outcome_in, not_outcome, recommendation, priority, answers.<question>
+
+- name: possible cardiac emergency escalates to stat nurse review
+  input: {message: {body: "I've had crushing chest pain for 30 minutes and it's going down my left arm."}}
+  expect: {outcome: HUMAN_REVIEW, recommendation: nurse, priority: stat}
+
+- name: stroke signs in Spanish escalate
+  input:
+    message: {body: "Mi esposo tiene la cara caída de un lado y no puede hablar bien."}
+    patient: {preferred_language: es}
+  expect: {outcome: HUMAN_REVIEW, recommendation: nurse, priority: stat}
+
+- name: self-harm escalates
+  input: {message: {body: "I have been having thoughts of killing myself."}}
+  expect: {recommendation: nurse, priority: stat}
+
+- name: an emergency is never automated, even inside an administrative request
+  input: {message: {subject: "Appointment", body: "Can I reschedule to Friday? Also my throat feels like it's closing after the new medicine."}}
+  expect: {not_outcome: AUTO, recommendation: nurse, priority: stat}
+
+- name: negated red flags do not escalate
+  input: {message: {body: "No chest pain or trouble breathing, just a sore throat for two days. Should I come in?"}}
+  expect: {priority: routine, answers: {urgency: routine}}
+
+- name: negation does not cross a sentence boundary
+  input: {message: {body: "No fever. But since this morning I have chest pain and I'm sweating."}}
+  expect: {priority: stat, answers: {urgency: urgent}}
+
+- name: routine refill routes to a medical assistant
+  input: {message: {subject: "Refill request", body: "Hi, I need a refill on my lisinopril. I have about three pills left. Thanks"}}
+  expect: {recommendation: medical_assistant, outcome_in: [AUTO, HUMAN_REVIEW]}
+
+- name: billing question routes to billing
+  input: {message: {subject: "Billing question", body: "I got a bill for $120 for my visit on June 9, but I thought my insurance covered it."}}
+  expect: {recommendation: billing}
+
+- name: lab interpretation goes to the physician
+  input: {message: {body: "My A1c came back at 7.8. What does that mean? Do I need to change anything?"}}
+  expect: {recommendation: physician}
+
+- name: rescheduling goes to the front desk
+  input: {message: {body: "I need to reschedule my appointment on Tuesday at 10:30. Something came up at work."}}
+  expect: {recommendation: front_desk}
+
+- name: a content-free message is not automated
+  input: {message: {body: "hello?"}}
+  expect: {outcome_in: [HUMAN_REVIEW, ABSTAIN]}
+
+- name: whitespace-only message is blocked
+  input: {message: {body: "   "}}
+  expect: {outcome: BLOCK}
+
+- name: fields outside the input contract are blocked
+  input: {message: {body: "hello"}, member_id: "TEST-0001"}
+  expect: {outcome: BLOCK}

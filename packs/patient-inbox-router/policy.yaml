@@ -1,0 +1,34 @@
+# Decision policy for the Patient Inbox Router.
+#
+# Thresholds are not universal healthcare constants. They were chosen against this pack's
+# synthetic benchmark (see the threshold sweep in evals/benchmark.json) and every deploying
+# site should re-validate them on its own data before enabling AUTO.
+
+primary: destination
+
+thresholds:
+  auto: 0.90    # confidence at or above this may be routed without review
+  review: 0.50  # below this the router abstains and the message stays in the manual queue
+
+# The costly error is sending a clinical message to a non-clinical team, so routing *to* a
+# non-clinical team needs more confidence than routing to a clinical one.
+labels:
+  front_desk:
+    auto_threshold: 0.95
+  billing:
+    auto_threshold: 0.95
+
+rules:
+  - name: possible-emergency
+    when:
+      question: urgency
+      labels: [urgent]
+      # Deliberately low: a false alarm costs a nurse a minute; a miss can cost far more.
+      min_confidence: 0.35
+    outcome: HUMAN_REVIEW
+    recommendation: nurse
+    priority: stat
+    reason: Possible emergency symptoms. Nurse triage now; do not leave in a routine queue.
+
+fallback: Leave in the shared inbox for manual triage by the front desk (the existing workflow).
+default_priority: routine

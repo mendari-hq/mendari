@@ -1,0 +1,58 @@
+# Deterministic emergency screen (answers `urgency`).
+#
+# Deliberately sensitive: a false alarm costs a nurse a minute; a miss can cost far more.
+# Every pattern is named so the audit record says exactly why a message escalated.
+# Scores: routine starts at `default_score`; each matching pattern adds its weight to `urgent`;
+# softmax(scores) gives P(urgent). The policy escalates at P(urgent) >= 0.35, i.e. any single
+# pattern with weight >= ~1.4 above the routine score, or combinations of weaker ones.
+text_fields: [message.subject, message.body]
+temperature: 1.0
+negation_cues: ["no", "not", "denies", "denied", "without", "never", "sin"]
+negation_window: 40
+# Patients type fast when they are frightened: "chset pain" must still escalate.
+typo_tolerance:
+  min_length: 5
+
+questions:
+  urgency:
+    default: routine
+    default_score: 2.0
+    labels:
+      urgent:
+        - name: chest-pain
+          pattern: "chest (pain|pressure|tightness)|(tight|crushing|pressure in( my)?) chest|pain in (my|the) chest|dolor (de|en el) pecho"
+          weight: 6
+          negatable: true
+        - name: breathing-difficulty
+          pattern: "can'?t (catch (my|his|her) )?breathe?|(struggling|hard|difficult|trouble|difficulty) (to breathe|breathing)|short(ness)? of breath|out of breath|can barely (breathe|talk)|lips? (look |are |turning )?(a little )?blue|falta (el )?aire|no puedo respirar"
+          weight: 6
+          negatable: true
+        - name: stroke-signs
+          pattern: "face (is )?droop|drooping|slurred|can'?t find (my|his|her) words|sudden(ly)? (weak|numb|confus)|can'?t (lift|move) (my|his|her) (left |right )?(arm|leg)|cara ca[ií]da|no puede hablar"
+          weight: 6
+          negatable: true
+        - name: self-harm
+          pattern: "kill(ing)? myself|end (it|my life)|suicid|don'?t want to (be alive|live)|hurt(ing)? myself|quitarme la vida"
+          weight: 7
+        - name: intentional-overdose
+          pattern: "(took|taken) (a lot|way|much) more|on purpose|overdos"
+          weight: 5
+        - name: severe-bleeding
+          pattern: "won'?t stop bleeding|bleeding heavily|heavy bleeding|(throwing|vomiting|coughing) up blood"
+          weight: 6
+          negatable: true
+        - name: anaphylaxis
+          pattern: "throat (is |feels )?(like it'?s )?(closing|swelling)|swelling of (my |his |her )?(lips|tongue|throat)|(lips|tongue|throat) (is |are )?swelling"
+          weight: 6
+          negatable: true
+        - name: hard-to-wake
+          pattern: "hard to wake|won'?t wake|unresponsive|passed out|fainted"
+          weight: 5
+          negatable: true
+        - name: young-infant
+          pattern: "\\b\\d+ ?(week|day)s? old|newborn|infant"
+          weight: 1.2
+        - name: fever
+          pattern: "fever|temperature|\\b10[0-4](\\.\\d)?\\b|fiebre"
+          weight: 1.0
+          negatable: true
