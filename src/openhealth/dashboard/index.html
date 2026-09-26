@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OpenHealth Hub</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">◆</span>
+      <span>OpenHealth Hub</span>
+      <span class="tag">sandbox · synthetic data only</span>
+    </div>
+    <label class="pack-picker">
+      <span class="sr-only">Decision Pack</span>
+      <select id="pack-select"></select>
+    </label>
+  </header>
+  <div class="shell">
+    <nav class="nav" aria-label="Sections">
+      <a href="#overview" data-view="overview">Overview</a>
+      <a href="#review" data-view="review">Review queue <span class="count" id="review-count"></span></a>
+      <a href="#audit" data-view="audit">Audit trail</a>
+      <a href="#evals" data-view="evals">Evaluations</a>
+      <a href="#card" data-view="card">Decision Card</a>
+      <a href="#try" data-view="try">Try it</a>
+      <a href="/docs" class="external">API docs ↗</a>
+    </nav>
+    <main id="view" tabindex="-1" aria-live="polite"></main>
+  </div>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

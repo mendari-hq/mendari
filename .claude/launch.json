@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "openhealth",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "openhealth", "serve", "--port", "8391", "--db", "var/dev.db"],
+      "port": 8391
+    }
+  ]
+}

@@ -65,8 +65,8 @@ def resolve_pack(ref: str, paths: list[Path] | None = None) -> Pack:
             f"no pack {ref!r} on the search path "
             f"({', '.join(map(str, paths if paths is not None else search_paths())) or 'empty'})"
         )
-    return max(matches, key=lambda pack: _version_key(pack.version))
+    return max(matches, key=lambda pack: version_key(pack.version))
 
 
-def _version_key(version: str) -> tuple[int, ...]:
+def version_key(version: str) -> tuple[int, ...]:
     return tuple(int(part) for part in re.findall(r"\d+", version.split("-")[0]))
