@@ -50,6 +50,11 @@ packages = ["src/openhealth"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+filterwarnings = [
+    "error",
+    # Starlette's TestClient warns about its own httpx dependency; nothing we can act on.
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated",
+]
 
 [tool.ruff]
 line-length = 100

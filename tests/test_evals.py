@@ -1,0 +1,121 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from openhealth import Decision, Pack
+from openhealth.core.card import benchmark, render_card
+from openhealth.errors import OpenHealthError
+from openhealth.evals import (
+    compare,
+    evaluate,
+    load_dataset,
+    metrics,
+    resolve_dataset,
+    run_pack_tests,
+)
+from tests.conftest import LOCAL_DATASET
+
+
+def test_classification_metrics() -> None:
+    result = metrics.classification(["a", "a", "b", "b"], ["a", "b", "b", None], ["a", "b"])
+    assert result["accuracy"] == 0.5
+    assert result["per_label"]["a"] == {
+        "precision": 1.0,
+        "recall": 0.5,
+        "f1": pytest.approx(2 / 3),
+        "support": 2,
+    }
+    assert result["confusion"]["b"]["none"] == 1  # a failed answer counts as wrong
+
+
+def test_expected_calibration_error() -> None:
+    # Two bins: 0.9 confidence with 50% accuracy, 0.6 confidence with 100% accuracy.
+    calibration = metrics.calibration([0.9, 0.9, 0.6, 0.6], [True, False, True, True])
+    assert calibration["ece"] == pytest.approx(0.5 * 0.4 + 0.5 * 0.4)
+    assert [b["n"] for b in calibration["bins"]] == [2, 2]
+
+
+def test_brier_score() -> None:
+    assert metrics.brier([{"a": 1.0, "b": 0.0}], ["a"]) == 0.0
+    assert metrics.brier([{"a": 0.0, "b": 1.0}], ["a"]) == 2.0
+
+
+def test_threshold_sweep() -> None:
+    rows = metrics.threshold_sweep([0.95, 0.8, 0.6], [True, False, True], thresholds=(0.5, 0.9))
+    assert rows[0] == {
+        "threshold": 0.5,
+        "coverage": 1.0,
+        "accuracy": pytest.approx(2 / 3),
+        "errors": 1,
+    }
+    assert rows[1] == {
+        "threshold": 0.9,
+        "coverage": pytest.approx(1 / 3),
+        "accuracy": 1.0,
+        "errors": 0,
+    }
+
+
+def test_dataset_loading_errors(tmp_path: Path) -> None:
+    bad = tmp_path / "bad.jsonl"
+    bad.write_text('{"input": {}}\n{"labels": {}}\n')
+    with pytest.raises(OpenHealthError, match=r"bad\.jsonl:2"):
+        load_dataset(bad)
+
+
+def test_benchmark_report_shape(router: Decision) -> None:
+    dataset = resolve_dataset(router.pack, "calibration")
+    report = evaluate(router, dataset)
+    assert report["dataset"]["n"] == len(dataset.records) == 300
+    assert set(report["questions"]) == {"destination", "urgency"}
+    decisions = report["decisions"]
+    assert sum(decisions["outcome_counts"].values()) == 300
+    assert decisions["critical"][0]["auto_missed"] == 0
+    assert set(report["subgroups"]) == {"language", "channel", "age_band", "topic"}
+    json.dumps(report, allow_nan=False)  # reports must be strict JSON
+
+
+def test_reports_never_contain_case_text(router: Decision) -> None:
+    dataset = resolve_dataset(router.pack, "calibration")
+    serialized = json.dumps(evaluate(router, dataset))
+    assert dataset.records[0]["input"]["message"]["body"] not in serialized
+
+
+def test_local_validation_localises_degradation(inbox_pack: Pack) -> None:
+    baseline = benchmark(inbox_pack)
+    assert baseline is not None
+    local = evaluate(Decision(inbox_pack), load_dataset(LOCAL_DATASET))
+    comparison = compare(local, baseline, inbox_pack.manifest.evaluation.degradation_tolerance)
+    assert comparison["status"] == "degraded"
+    assert comparison["delta"] < -0.03
+    subjects = {finding["subject"] for finding in comparison["findings"]}
+    assert "language=es" in subjects
+    # Emergencies stay protected even where routing degrades.
+    assert local["decisions"]["critical"][0]["auto_missed"] == 0
+
+
+def test_comparison_with_itself_is_clean(inbox_pack: Pack) -> None:
+    baseline = benchmark(inbox_pack)
+    assert baseline is not None
+    comparison = compare(baseline, baseline, 0.03)
+    assert comparison["status"] == "ok" and comparison["findings"] == []
+
+
+def test_pack_behaviour_tests_pass(router: Decision) -> None:
+    outcomes = run_pack_tests(router)
+    assert outcomes and all(o.passed for o in outcomes), [o for o in outcomes if not o.passed]
+
+
+def test_decision_card_renders(inbox_pack: Pack) -> None:
+    card = render_card(inbox_pack)
+    for heading in (
+        "## Intended use",
+        "## Decision policy",
+        "## Validation",
+        "## Known failure modes",
+    ):
+        assert heading in card
+    assert inbox_pack.digest in card
