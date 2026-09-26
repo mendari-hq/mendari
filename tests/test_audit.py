@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Callable
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -85,7 +86,7 @@ def test_hash_chain_detects_tampering(store: AuditStore, decide: Decide) -> None
     decide(ROUTINE)
     assert store.verify() == {"ok": True, "events": 3, "head": store.verify()["head"]}
 
-    with sqlite3.connect(store.path) as db:
+    with closing(sqlite3.connect(store.path, isolation_level=None)) as db:
         db.execute(
             "UPDATE decisions SET record = replace(record, 'stat', 'routine') WHERE id = ?",
             (result.id,),
@@ -96,7 +97,7 @@ def test_hash_chain_detects_tampering(store: AuditStore, decide: Decide) -> None
 def test_hash_chain_detects_deleted_events(store: AuditStore, decide: Decide) -> None:
     for body in (ROUTINE, REVIEW, EMERGENCY):
         decide(body)
-    with sqlite3.connect(store.path) as db:
+    with closing(sqlite3.connect(store.path, isolation_level=None)) as db:
         db.execute("DELETE FROM audit_events WHERE seq = 2")
     assert store.verify() == {"ok": False, "events": 2, "broken_at": 3}
 

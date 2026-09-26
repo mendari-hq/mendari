@@ -19,7 +19,11 @@ def _section(title: str) -> None:
 
 
 def run_demo(datasets_dir: Path | None) -> None:
-    store = AuditStore(":memory:")
+    with AuditStore(":memory:") as store:
+        _run(store, datasets_dir)
+
+
+def _run(store: AuditStore, datasets_dir: Path | None) -> None:
     router = Decision.from_hub(PACK_ID, store=store)
     pack = router.pack
     m = pack.manifest

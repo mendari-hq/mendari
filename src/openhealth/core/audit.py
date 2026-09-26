@@ -93,6 +93,17 @@ class AuditStore:
         with self._connect() as db:
             db.executescript(_SCHEMA)
 
+    def close(self) -> None:
+        """Release the in-memory connection (file-backed stores hold no open connection)."""
+        if self._memory is not None:
+            self._memory.close()
+
+    def __enter__(self) -> AuditStore:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()
+
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
         if self._memory is not None:

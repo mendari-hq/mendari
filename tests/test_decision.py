@@ -53,10 +53,10 @@ def test_provider_failure_falls_back_safely(
 
 
 def test_decisions_are_recorded_when_a_store_is_attached(inbox_pack: Pack) -> None:
-    store = AuditStore(":memory:")
-    decision = Decision(inbox_pack, store=store)
-    result = decision(message("My A1c came back at 7.8, what does that mean?"))
-    stored = store.get(result.id)
+    with AuditStore(":memory:") as store:
+        decision = Decision(inbox_pack, store=store)
+        result = decision(message("My A1c came back at 7.8, what does that mean?"))
+        stored = store.get(result.id)
     assert stored is not None
     assert stored["record"]["input"]["message"]["body"].startswith("My A1c")
     assert stored["events"][0]["event"] == "decision.created"
