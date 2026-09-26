@@ -1,0 +1,48 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - run: uv sync --locked
+      - run: uv run ruff check src tests
+      - run: uv run ruff format --check src tests
+      - run: uv run mypy src tests
+      - run: uv run pytest
+      - run: uv run openhealth test openhealth/patient-inbox-router
+
+  reference-pack:
+    # Derived pack artifacts (synthetic data, trained model) must be reproducible from source.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv sync --locked
+      - run: ./scripts/build-reference-pack.sh
+      - name: Data and model are byte-identical
+        run: git diff --exit-code -- packs datasets ':!packs/*/evals/benchmark.json' ':!packs/*/DECISION_CARD.md'
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t openhealth-engine:ci .
+      - run: docker run --rm openhealth-engine:ci openhealth test openhealth/patient-inbox-router

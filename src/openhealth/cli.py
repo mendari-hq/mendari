@@ -14,17 +14,9 @@ from openhealth.core.audit import AuditStore
 from openhealth.core.decision import Decision
 from openhealth.core.registry import discover, resolve_pack
 from openhealth.errors import OpenHealthError
+from openhealth.sandbox import example_datasets_dir
 
 EXIT_DEGRADED = 2
-_PACKAGE_DIR = Path(__file__).resolve().parent
-
-
-def example_datasets_dir() -> Path | None:
-    """Datasets bundled with the distribution, or the repository's `datasets/` in a checkout."""
-    for candidate in (_PACKAGE_DIR / "_datasets", _PACKAGE_DIR.parents[1] / "datasets"):
-        if candidate.is_dir():
-            return candidate
-    return None
 
 
 def parse_providers(values: Sequence[str] | None) -> dict[str, str]:

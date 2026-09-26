@@ -46,6 +46,7 @@ packages = ["src/openhealth"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "packs" = "openhealth/_packs"
+"datasets" = "openhealth/_datasets"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
