@@ -274,7 +274,7 @@ function leaderboardView(board) {
   return `<div class="panel"><h2 style="margin-top:0">Provider comparison</h2>
     <p class="muted">Every configuration ran on the same records (updated ${esc(time(board.updated_at))}). Remote models are named because they are a deployment choice.</p>
     ${Object.entries(groups).map(([dataset, rows]) => `<h3>${esc(dataset)} <span class="muted">n=${Math.max(...rows.map((r) => r.n))}</span></h3>
-      <div class="table-wrap"><table>
+      <div class="table-wrap"><table class="board">
         <tr><th>Configuration</th><th>Accuracy</th><th>Macro-F1</th><th>ECE</th><th>AUTO</th><th>False automation</th><th>Critical detected</th><th>p50</th><th>Cost / decision</th><th>Errors</th></tr>
         ${rows.sort((a, b) => (b.accuracy ?? 0) - (a.accuracy ?? 0)).map((r) => `<tr><td>${esc(r.config)}</td><td>${pct(r.accuracy)}</td><td>${num(r.macro_f1)}</td>
           <td>${num(r.ece)}</td><td>${pct(r.auto_rate)}</td><td>${pct(r.false_automation_rate)}</td><td>${esc(critical(r))}</td>
