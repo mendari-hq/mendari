@@ -1,18 +1,50 @@
 from __future__ import annotations
 
+import os
 import shutil
-from collections.abc import Callable
+import uuid
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
 
-from openhealth import Decision, Pack, load_pack
+from openhealth import AuditStore, Decision, Pack, load_pack
 
 ROOT = Path(__file__).resolve().parents[1]
 INBOX_DIR = ROOT / "packs" / "patient-inbox-router"
 LOCAL_DATASET = ROOT / "datasets" / "local-site-example.jsonl"
+# Postgres tests run when this points at a disposable database, e.g.
+# postgresql://postgres:openhealth-test@127.0.0.1:56432/openhealth_test (see CLAUDE.md).
+POSTGRES_URL = os.environ.get("OPENHEALTH_TEST_DATABASE_URL", "").strip()
+
+
+@pytest.fixture(params=["sqlite", "postgres"])
+def db_target(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[str]:
+    """An empty audit database: a SQLite file, or a fresh Postgres schema dropped afterwards."""
+    if request.param == "sqlite":
+        yield str(tmp_path / "audit.db")
+        return
+    if not POSTGRES_URL:
+        pytest.skip("set OPENHEALTH_TEST_DATABASE_URL to run the Postgres backend tests")
+    import psycopg
+
+    schema = f"test_{uuid.uuid4().hex[:12]}"
+    with psycopg.connect(POSTGRES_URL, autocommit=True) as connection:
+        connection.execute(f'CREATE SCHEMA "{schema}"')
+    separator = "&" if "?" in POSTGRES_URL else "?"
+    try:
+        yield f"{POSTGRES_URL}{separator}options=-csearch_path%3D{schema}"
+    finally:
+        with psycopg.connect(POSTGRES_URL, autocommit=True) as connection:
+            connection.execute(f'DROP SCHEMA "{schema}" CASCADE')
+
+
+@pytest.fixture
+def store(db_target: str) -> Iterator[AuditStore]:
+    with AuditStore(db_target) as audit_store:
+        yield audit_store
 
 
 @pytest.fixture(scope="session")

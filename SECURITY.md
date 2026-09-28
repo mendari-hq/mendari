@@ -5,9 +5,10 @@
 OpenHealth Hub v0.1 is a research preview for **synthetic data only**.
 
 - It is not a medical device and makes no clinical claims.
-- The HTTP server has **no authentication or authorization**. It binds to `127.0.0.1` by
-  default, and the docker sandbox publishes ports on localhost only. Do not expose it to a
-  network.
+- The HTTP server has **no authentication or authorization of its own**. Locally it binds to
+  `127.0.0.1`, and the docker sandbox publishes ports on localhost only. On Vercel it must stay
+  behind Vercel Authentication (deployment protection). External machine callers, such as an
+  EHR calling CDS Hooks, would need Protection Bypass for Automation; that is not set up.
 - Do not send real protected health information (PHI) to it, to the sandbox FHIR server, or
   to remote providers.
 - Audit records store full inputs by default (`audit.store_input: full`). Use `hash` for any
@@ -15,7 +16,9 @@ OpenHealth Hub v0.1 is a research preview for **synthetic data only**.
 
 ## Remote providers
 
-The Jev adapter reads its key from `JEV_API_KEY`, sends only a pack's `state_fields`, requires
+The Jev adapter gets its key from a Vercel Connect connector (exchanged at runtime with the
+deployment's OIDC identity, cached in memory only) or, locally, from `JEV_API_KEY`. It sends
+only a pack's `state_fields`, requires
 HTTPS (plain HTTP is allowed only for localhost), refuses redirects, and caps response size.
 Credentials and provider error bodies are never written to audit records or error messages.
 

@@ -22,9 +22,10 @@ latency and cost.
 - [x] Step 13: Docs (README, spec, architecture, ADRs) and private GitHub repo
 
 ## Notes
-- Jev contract mirrored from ExpertsRising `packages/model_gateway/src/judgments.ts`
-  (POST `https://api.typesafe.ai/v1/systemone`, typed `choice` questions, ≤8 questions,
-  2–255 labels, probabilities must sum to 1, chosen label must be the argmax).
+- Jev adapter: typed `choice` questions, ≤8 per call, 2–255 labels, probabilities must sum
+  to 1, chosen label must be the argmax. Endpoint, model and key are deployment settings.
+- OpenHealth is fully separate from other projects: its own repo, Vercel project, connector
+  (`jev/openhealth-hub`), database and test containers. Nothing is shared.
 - Core abstraction: a pack declares *questions* (labels + criteria). Providers answer questions
   with probability distributions. Policy turns answers into an outcome (ADR-0001).
 - Risk caps live in the runtime; level 2–3 AUTO needs a deployer's GovernanceOverride (ADR-0002).
@@ -41,7 +42,7 @@ latency and cost.
   (4 stat escalations, 10 in the review queue), exactly once.
 
 ### Deferred (v0.2+)
-- [ ] Jev live verification: adapter is tested against a mock transport only; needs `JEV_API_KEY`.
+- [ ] Jev live verification: adapter is tested against mock transports only; needs `JEV_API_URL` + `JEV_MODEL`.
 - [ ] LLM provider, CQL provider.
 - [ ] Remote hub (`openhealth pull`, signed packs), server authentication, AuditEvent export.
 - [ ] Other four reference packs (Referral Router, PA Preflight, Trial Prescreener, AI Guard).

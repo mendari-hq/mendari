@@ -80,6 +80,23 @@ class DecisionResult:
         }
 
 
+class CallBudget:
+    """Daily call limits per provider type (e.g. {"jev": 500}), counted in the audit store.
+
+    A provider over budget fails like any other provider (`budget_exhausted`), so the policy
+    falls back safely instead of automating.
+    """
+
+    def __init__(self, store: AuditStore, limits: Mapping[str, int]):
+        self.store = store
+        self.limits = dict(limits)
+
+    def acquire(self, provider_type: str) -> None:
+        limit = self.limits.get(provider_type)
+        if limit is not None:
+            self.store.consume(provider_type, daily_limit=limit)
+
+
 class Decision:
     """A loaded Decision Pack bound to concrete providers. Call it with a pack input."""
 
@@ -90,6 +107,7 @@ class Decision:
         providers: Mapping[str, str] | None = None,
         governance: GovernanceOverride | None = None,
         store: AuditStore | None = None,
+        budget: CallBudget | None = None,
     ):
         overrides = dict(providers or {})
         unknown = set(overrides) - set(pack.manifest.providers)
@@ -98,6 +116,7 @@ class Decision:
         self.pack = pack
         self.governance = governance
         self.store = store
+        self.budget = budget
         self.providers: dict[str, Provider] = {
             slot: build_provider(pack, slot, overrides.get(slot))
             for slot in pack.manifest.providers
@@ -114,6 +133,10 @@ class Decision:
     @classmethod
     def from_path(cls, path: str | Path, **kwargs: Any) -> Decision:
         return cls(load_pack(path), **kwargs)
+
+    @property
+    def is_remote(self) -> bool:
+        return any(provider.remote for provider in self.providers.values())
 
     @property
     def provider_info(self) -> dict[str, ProviderInfo]:
@@ -145,6 +168,9 @@ class Decision:
         else:
             for slot, provider in self.providers.items():
                 try:
+                    provider.preflight()
+                    if self.budget is not None:
+                        self.budget.acquire(provider.info.type)
                     output = provider.answer(inputs)
                 except ProviderError as error:
                     failures.update(dict.fromkeys(manifest.providers[slot].answers, error.code))

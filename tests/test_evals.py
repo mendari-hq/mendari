@@ -119,3 +119,12 @@ def test_decision_card_renders(inbox_pack: Pack) -> None:
     ):
         assert heading in card
     assert inbox_pack.digest in card
+
+
+def test_parallel_evaluation_matches_sequential(router: Decision) -> None:
+    dataset = resolve_dataset(router.pack, "calibration").head(60)
+    sequential = evaluate(router, dataset)
+    parallel = evaluate(router, dataset, workers=4)
+    for key in ("questions", "decisions", "subgroups", "misclassified"):
+        assert parallel[key] == sequential[key]
+    assert parallel["dataset"] == {**sequential["dataset"], "limit": 60} == sequential["dataset"]

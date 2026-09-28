@@ -1,8 +1,11 @@
-"""Audit trail and human-review queue, backed by SQLite (standard library only).
+"""Audit trail and human-review queue, backed by SQLite (local) or Postgres (hosted).
 
 Every decision is written once as an immutable record. Later facts (a reviewer's final label,
 an observed downstream outcome) are *appended* as events, never edited into the record. Events
 form a hash chain, so `verify()` detects any row that was altered or removed after the fact.
+
+`AuditStore("var/openhealth.db")` uses SQLite; `AuditStore("postgresql://...")` uses Postgres.
+Both backends run the same SQL (written with `?` placeholders) and the same hash chain.
 """
 
 from __future__ import annotations
@@ -12,22 +15,25 @@ import json
 import sqlite3
 import statistics
 import threading
-from collections.abc import Iterator, Mapping
+from abc import ABC, abstractmethod
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from openhealth.core.spec import Outcome
-from openhealth.errors import ReviewError
+from openhealth.errors import ProviderError, ReviewError
 
 if TYPE_CHECKING:
     from openhealth.core.decision import DecisionResult
 
 GENESIS = "0" * 64
 _REVIEWABLE = (Outcome.HUMAN_REVIEW.value, Outcome.ABSTAIN.value)
+# Arbitrary constant key for the Postgres advisory lock that serialises hash-chain appends.
+_CHAIN_LOCK = 0x0E4_A0D17
 
-_SCHEMA = """
+_TABLES = """
 CREATE TABLE IF NOT EXISTS decisions (
     id              TEXT PRIMARY KEY,
     created_at      TEXT NOT NULL,
@@ -36,9 +42,9 @@ CREATE TABLE IF NOT EXISTS decisions (
     outcome         TEXT NOT NULL,
     recommendation  TEXT,
     priority        TEXT NOT NULL,
-    confidence      REAL,
-    latency_ms      REAL NOT NULL,
-    cost_usd        REAL,
+    confidence      {real},
+    latency_ms      {real} NOT NULL,
+    cost_usd        {real},
     record          TEXT NOT NULL,
     review_status   TEXT NOT NULL,
     final_label     TEXT,
@@ -49,7 +55,7 @@ CREATE TABLE IF NOT EXISTS decisions (
 CREATE INDEX IF NOT EXISTS decisions_queue ON decisions (review_status, priority, created_at);
 CREATE INDEX IF NOT EXISTS decisions_pack ON decisions (pack_id, created_at);
 CREATE TABLE IF NOT EXISTS audit_events (
-    seq         INTEGER PRIMARY KEY AUTOINCREMENT,
+    seq         {serial},
     decision_id TEXT NOT NULL,
     event       TEXT NOT NULL,
     payload     TEXT NOT NULL,
@@ -64,6 +70,12 @@ CREATE TABLE IF NOT EXISTS eval_reports (
     dataset     TEXT NOT NULL,
     report      TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS provider_usage (
+    day         TEXT NOT NULL,
+    provider    TEXT NOT NULL,
+    calls       INTEGER NOT NULL,
+    PRIMARY KEY (day, provider)
+)
 """
 
 _PRIORITY_ORDER = (
@@ -79,30 +91,56 @@ def _canonical(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
 
 
-class AuditStore:
-    def __init__(self, path: str | Path):
-        self.path = str(path)
-        if self.path != ":memory:":
-            Path(self.path).parent.mkdir(parents=True, exist_ok=True)
+# -- backends ------------------------------------------------------------------------------
+
+
+class _Session(ABC):
+    @abstractmethod
+    def all(self, sql: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
+        """Run a statement and return its rows as dicts (empty for statements without rows)."""
+
+    def one(self, sql: str, params: Sequence[Any] = ()) -> dict[str, Any] | None:
+        rows = self.all(sql, params)
+        return rows[0] if rows else None
+
+
+class _Backend(ABC):
+    kind: str
+
+    @abstractmethod
+    def session(self, *, exclusive: bool) -> Any:
+        """Context manager yielding a _Session. Exclusive sessions are transactions serialised
+        with every other exclusive session (required for hash-chain appends)."""
+
+    def close(self) -> None:  # noqa: B027 - optional hook
+        pass
+
+
+class _SqliteSession(_Session):
+    def __init__(self, connection: sqlite3.Connection):
+        self.connection = connection
+
+    def all(self, sql: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
+        return [dict(row) for row in self.connection.execute(sql, tuple(params)).fetchall()]
+
+
+class _SqliteBackend(_Backend):
+    kind = "sqlite"
+
+    def __init__(self, path: str):
+        self.path = path
+        if path != ":memory:":
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
         self._memory = (
             sqlite3.connect(":memory:", isolation_level=None, check_same_thread=False)
-            if self.path == ":memory:"
+            if path == ":memory:"
             else None
         )
         self._lock = threading.RLock()  # serialises access to the shared in-memory connection
-        with self._connect() as db:
-            db.executescript(_SCHEMA)
-
-    def close(self) -> None:
-        """Release the in-memory connection (file-backed stores hold no open connection)."""
-        if self._memory is not None:
-            self._memory.close()
-
-    def __enter__(self) -> AuditStore:
-        return self
-
-    def __exit__(self, *_: object) -> None:
-        self.close()
+        with self._connect() as connection:
+            connection.executescript(
+                _TABLES.format(real="REAL", serial="INTEGER PRIMARY KEY AUTOINCREMENT")
+            )
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -111,25 +149,107 @@ class AuditStore:
                 self._memory.row_factory = sqlite3.Row
                 yield self._memory
             return
-        db = sqlite3.connect(self.path, timeout=30, isolation_level=None)
-        db.row_factory = sqlite3.Row
+        connection = sqlite3.connect(self.path, timeout=30, isolation_level=None)
+        connection.row_factory = sqlite3.Row
         try:
-            db.execute("PRAGMA journal_mode=WAL")
-            yield db
+            connection.execute("PRAGMA journal_mode=WAL")
+            yield connection
         finally:
-            db.close()
+            connection.close()
 
     @contextmanager
-    def _transaction(self) -> Iterator[sqlite3.Connection]:
-        with self._connect() as db:
+    def session(self, *, exclusive: bool) -> Iterator[_Session]:
+        with self._connect() as connection:
+            if not exclusive:
+                yield _SqliteSession(connection)
+                return
             # IMMEDIATE takes the write lock up front so hash-chain appends are serialised.
-            db.execute("BEGIN IMMEDIATE")
+            connection.execute("BEGIN IMMEDIATE")
             try:
-                yield db
+                yield _SqliteSession(connection)
             except BaseException:
-                db.execute("ROLLBACK")
+                connection.execute("ROLLBACK")
                 raise
-            db.execute("COMMIT")
+            connection.execute("COMMIT")
+
+    def close(self) -> None:
+        if self._memory is not None:
+            self._memory.close()
+
+
+class _PostgresSession(_Session):
+    def __init__(self, connection: Any):
+        self.connection = connection
+
+    def all(self, sql: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
+        cursor = self.connection.execute(sql.replace("?", "%s"), tuple(params))
+        return list(cursor.fetchall()) if cursor.description else []
+
+
+class _PostgresBackend(_Backend):
+    kind = "postgres"
+
+    def __init__(self, url: str):
+        from psycopg.rows import dict_row
+        from psycopg_pool import ConnectionPool
+
+        # prepare_threshold=None: prepared statements break behind transaction-mode poolers
+        # (Neon's pooled endpoint, PgBouncer).
+        self._pool = ConnectionPool(
+            url,
+            min_size=1,
+            max_size=4,
+            max_idle=60,
+            kwargs={"row_factory": dict_row, "prepare_threshold": None},
+            open=True,
+        )
+        with self.session(exclusive=True) as session:
+            ddl = _TABLES.format(
+                real="DOUBLE PRECISION",
+                serial="BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY",
+            )
+            for statement in ddl.split(";"):
+                if statement.strip():
+                    session.all(statement)
+
+    @contextmanager
+    def session(self, *, exclusive: bool) -> Iterator[_Session]:
+        with self._pool.connection() as connection, connection.transaction():
+            if exclusive:
+                connection.execute("SELECT pg_advisory_xact_lock(%s)", (_CHAIN_LOCK,))
+            yield _PostgresSession(connection)
+
+    def close(self) -> None:
+        self._pool.close()
+
+
+def _backend(target: str) -> _Backend:
+    if target.startswith(("postgres://", "postgresql://")):
+        return _PostgresBackend(target)
+    return _SqliteBackend(target)
+
+
+# -- store ---------------------------------------------------------------------------------
+
+
+class AuditStore:
+    def __init__(self, target: str | Path):
+        """`target` is a SQLite path (or ":memory:") or a postgres:// / postgresql:// URL."""
+        self._db = _backend(str(target))
+        self.path = str(target) if self._db.kind == "sqlite" else None
+
+    @property
+    def backend(self) -> str:
+        return self._db.kind
+
+    def close(self) -> None:
+        self._db.close()
+
+    def __enter__(self) -> AuditStore:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()
 
     # -- writes ---------------------------------------------------------------------------
 
@@ -143,12 +263,11 @@ class AuditStore:
         record = result.to_dict()
         record["input"] = dict(inputs) if store_input == "full" else None
         status = "pending" if result.outcome.value in _REVIEWABLE else "not_required"
-        with self._transaction() as db:
-            db.execute(
+        with self._db.session(exclusive=True) as db:
+            db.all(
                 "INSERT INTO decisions (id, created_at, pack_id, pack_version, outcome, "
                 "recommendation, priority, confidence, latency_ms, cost_usd, record, "
-                "review_status) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "review_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     result.id,
                     result.created_at,
@@ -172,8 +291,8 @@ class AuditStore:
         """A human confirms or corrects a HUMAN_REVIEW / ABSTAIN decision."""
         if not reviewer.strip():
             raise ReviewError("a reviewer identity is required")
-        with self._transaction() as db:
-            row = db.execute("SELECT * FROM decisions WHERE id = ?", (decision_id,)).fetchone()
+        with self._db.session(exclusive=True) as db:
+            row = db.one("SELECT * FROM decisions WHERE id = ?", (decision_id,))
             if row is None:
                 raise ReviewError(f"unknown decision {decision_id}")
             if row["review_status"] != "pending":
@@ -183,14 +302,19 @@ class AuditStore:
             if labels and final_label not in labels:
                 raise ReviewError(f"{final_label!r} is not a valid label ({sorted(labels)})")
             # Overriding means disagreeing with a recommendation; an abstention made none.
-            override = (
-                None if row["recommendation"] is None else row["recommendation"] != final_label
-            )
+            recommendation = row["recommendation"]
+            override = None if recommendation is None else recommendation != final_label
             resolved_at = _now()
-            db.execute(
+            db.all(
                 "UPDATE decisions SET review_status = 'resolved', final_label = ?, "
                 "human_override = ?, reviewer = ?, resolved_at = ? WHERE id = ?",
-                (final_label, override, reviewer, resolved_at, decision_id),
+                (
+                    final_label,
+                    None if override is None else int(override),
+                    reviewer,
+                    resolved_at,
+                    decision_id,
+                ),
             )
             payload = {
                 "final_label": final_label,
@@ -204,25 +328,21 @@ class AuditStore:
     def record_outcome(self, decision_id: str, *, final_label: str, source: str) -> None:
         """Downstream ground truth for a decision that was not reviewed (e.g. staff re-routed an
         AUTO message). Feeds live accuracy and drift monitoring."""
-        with self._transaction() as db:
-            row = db.execute(
-                "SELECT review_status FROM decisions WHERE id = ?", (decision_id,)
-            ).fetchone()
+        with self._db.session(exclusive=True) as db:
+            row = db.one("SELECT review_status FROM decisions WHERE id = ?", (decision_id,))
             if row is None:
                 raise ReviewError(f"unknown decision {decision_id}")
             if row["review_status"] == "pending":
                 raise ReviewError("resolve the pending review instead of recording an outcome")
-            db.execute(
-                "UPDATE decisions SET final_label = ? WHERE id = ?", (final_label, decision_id)
-            )
+            db.all("UPDATE decisions SET final_label = ? WHERE id = ?", (final_label, decision_id))
             self._append(
                 db, decision_id, "outcome.recorded", {"final_label": final_label, "source": source}
             )
 
     def save_report(self, report: Mapping[str, Any]) -> None:
-        with self._transaction() as db:
-            db.execute(
-                "INSERT OR REPLACE INTO eval_reports (id, created_at, pack_id, dataset, report) "
+        with self._db.session(exclusive=False) as db:
+            db.all(
+                "INSERT INTO eval_reports (id, created_at, pack_id, dataset, report) "
                 "VALUES (?, ?, ?, ?, ?)",
                 (
                     report["id"],
@@ -233,13 +353,34 @@ class AuditStore:
                 ),
             )
 
-    def _append(self, db: sqlite3.Connection, decision_id: str, event: str, payload: Any) -> None:
-        last = db.execute("SELECT hash FROM audit_events ORDER BY seq DESC LIMIT 1").fetchone()
+    def consume(self, provider: str, *, daily_limit: int) -> None:
+        """Count one call to a metered provider; raise `budget_exhausted` past the daily limit."""
+        day = datetime.now(UTC).date().isoformat()
+        with self._db.session(exclusive=False) as db:
+            row = db.one(
+                "INSERT INTO provider_usage (day, provider, calls) VALUES (?, ?, 1) "
+                "ON CONFLICT (day, provider) DO UPDATE SET calls = provider_usage.calls + 1 "
+                "WHERE provider_usage.calls < ? RETURNING calls",
+                (day, provider, daily_limit),
+            )
+        if row is None or row["calls"] > daily_limit:
+            raise ProviderError("budget_exhausted", f"daily {provider} limit of {daily_limit}")
+
+    def usage(self, provider: str) -> int:
+        day = datetime.now(UTC).date().isoformat()
+        with self._db.session(exclusive=False) as db:
+            row = db.one(
+                "SELECT calls FROM provider_usage WHERE day = ? AND provider = ?", (day, provider)
+            )
+        return int(row["calls"]) if row else 0
+
+    def _append(self, db: _Session, decision_id: str, event: str, payload: Any) -> None:
+        last = db.one("SELECT hash FROM audit_events ORDER BY seq DESC LIMIT 1")
         prev = last["hash"] if last else GENESIS
         created_at = _now()
         body = _canonical(payload)
         digest = _chain_hash(prev, decision_id, event, body, created_at)
-        db.execute(
+        db.all(
             "INSERT INTO audit_events (decision_id, event, payload, created_at, prev_hash, hash) "
             "VALUES (?, ?, ?, ?, ?, ?)",
             (decision_id, event, body, created_at, prev, digest),
@@ -248,17 +389,17 @@ class AuditStore:
     # -- reads ----------------------------------------------------------------------------
 
     def get(self, decision_id: str) -> dict[str, Any] | None:
-        with self._connect() as db:
-            row = db.execute("SELECT * FROM decisions WHERE id = ?", (decision_id,)).fetchone()
+        with self._db.session(exclusive=False) as db:
+            row = db.one("SELECT * FROM decisions WHERE id = ?", (decision_id,))
             if row is None:
                 return None
-            events = db.execute(
+            events = db.all(
                 "SELECT seq, event, payload, created_at, hash FROM audit_events "
                 "WHERE decision_id = ? ORDER BY seq",
                 (decision_id,),
-            ).fetchall()
+            )
         item = _row(row)
-        item["events"] = [{**dict(e), "payload": json.loads(e["payload"])} for e in events]
+        item["events"] = [{**e, "payload": json.loads(e["payload"])} for e in events]
         return item
 
     def query(
@@ -283,11 +424,11 @@ class AuditStore:
         order = (
             f"{_PRIORITY_ORDER}, created_at" if review_status == "pending" else "created_at DESC"
         )
-        with self._connect() as db:
-            rows = db.execute(
+        with self._db.session(exclusive=False) as db:
+            rows = db.all(
                 f"SELECT * FROM decisions {where} ORDER BY {order} LIMIT ? OFFSET ?",
                 (*params, limit, offset),
-            ).fetchall()
+            )
         return [_row(row) for row in rows]
 
     def pending_reviews(self, pack_id: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
@@ -295,12 +436,12 @@ class AuditStore:
 
     def stats(self, pack_id: str | None = None) -> dict[str, Any]:
         where, params = ("WHERE pack_id = ?", (pack_id,)) if pack_id else ("", ())
-        with self._connect() as db:
-            rows = db.execute(
+        with self._db.session(exclusive=False) as db:
+            rows = db.all(
                 "SELECT outcome, recommendation, final_label, human_override, review_status, "
                 f"latency_ms, cost_usd, created_at FROM decisions {where}",
                 params,
-            ).fetchall()
+            )
         total = len(rows)
         outcomes = {outcome.value: 0 for outcome in Outcome}
         for row in rows:
@@ -342,19 +483,19 @@ class AuditStore:
 
     def reports(self, pack_id: str | None = None) -> list[dict[str, Any]]:
         where, params = ("WHERE pack_id = ?", (pack_id,)) if pack_id else ("", ())
-        with self._connect() as db:
-            rows = db.execute(
+        with self._db.session(exclusive=False) as db:
+            rows = db.all(
                 f"SELECT report FROM eval_reports {where} ORDER BY created_at DESC", params
-            ).fetchall()
+            )
         return [json.loads(row["report"]) for row in rows]
 
     def verify(self) -> dict[str, Any]:
         """Recompute the hash chain and each decision record's digest."""
-        with self._connect() as db:
-            events = db.execute("SELECT * FROM audit_events ORDER BY seq").fetchall()
+        with self._db.session(exclusive=False) as db:
+            events = db.all("SELECT * FROM audit_events ORDER BY seq")
             records = {
                 row["id"]: json.loads(row["record"])
-                for row in db.execute("SELECT id, record FROM decisions").fetchall()
+                for row in db.all("SELECT id, record FROM decisions")
             }
         prev = GENESIS
         for event in events:
@@ -371,7 +512,7 @@ class AuditStore:
         return {"ok": True, "events": len(events), "head": prev}
 
 
-def _row(row: sqlite3.Row) -> dict[str, Any]:
+def _row(row: Mapping[str, Any]) -> dict[str, Any]:
     item = dict(row)
     item["record"] = json.loads(item["record"])
     if item["human_override"] is not None:
@@ -384,9 +525,8 @@ def _sha(value: Any) -> str:
 
 
 def _chain_hash(prev: str, decision_id: str, event: str, payload: str, created_at: str) -> str:
-    return hashlib.sha256(
-        "\x1f".join((prev, decision_id, event, payload, created_at)).encode()
-    ).hexdigest()
+    joined = "\x1f".join((prev, decision_id, event, payload, created_at))
+    return hashlib.sha256(joined.encode()).hexdigest()
 
 
 def _percentile(sorted_values: list[float], pct: float) -> float | None:

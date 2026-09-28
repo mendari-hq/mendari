@@ -44,7 +44,10 @@ def test_swapping_providers_keeps_the_contract(inbox_pack: Pack) -> None:
 def test_provider_failure_falls_back_safely(
     inbox_pack: Pack, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setenv("JEV_API_URL", "https://jev.test/v1/decide")
+    monkeypatch.setenv("JEV_MODEL", "jev-test-model")
     monkeypatch.delenv("JEV_API_KEY", raising=False)
+    monkeypatch.delenv("JEV_CONNECTOR", raising=False)
     decision = Decision(inbox_pack, providers={"router": "jev"})
     result = decision(message("I need a refill"))
     assert result.outcome is Outcome.ABSTAIN

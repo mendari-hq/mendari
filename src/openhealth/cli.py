@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -15,22 +14,9 @@ from openhealth.core.decision import Decision
 from openhealth.core.registry import discover, resolve_pack
 from openhealth.errors import OpenHealthError
 from openhealth.sandbox import example_datasets_dir
+from openhealth.settings import daily_limits, parse_providers
 
 EXIT_DEGRADED = 2
-
-
-def parse_providers(values: Sequence[str] | None) -> dict[str, str]:
-    """`slot=variant` pairs from flags, falling back to $OPENHEALTH_PROVIDERS (comma-separated)."""
-    items = list(values or [])
-    if not items and os.environ.get("OPENHEALTH_PROVIDERS"):
-        items = [v for v in os.environ["OPENHEALTH_PROVIDERS"].split(",") if v.strip()]
-    overrides = {}
-    for item in items:
-        slot, sep, variant = item.partition("=")
-        if not sep or not slot.strip() or not variant.strip():
-            raise OpenHealthError(f"provider override {item!r} must look like slot=variant")
-        overrides[slot.strip()] = variant.strip()
-    return overrides
 
 
 def _decision(args: argparse.Namespace, **kwargs: Any) -> Decision:
@@ -106,7 +92,10 @@ def cmd_eval(args: argparse.Namespace) -> int:
     decision = _decision(args)
     pack = decision.pack
     dataset = resolve_dataset(pack, args.dataset)
-    report = evaluate(decision, dataset)
+    if args.limit:
+        dataset = dataset.head(args.limit)
+    workers = args.workers or (8 if decision.is_remote else 1)
+    report = evaluate(decision, dataset, workers=workers)
 
     comparison = None
     if args.baseline != "none":
@@ -205,6 +194,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
     app = create_app(
         db_path=args.db,
         providers=parse_providers(args.provider),
+        budget_limits=daily_limits(),
         datasets_dir=Path(args.datasets_dir) if args.datasets_dir else example_datasets_dir(),
     )
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")
@@ -302,6 +292,10 @@ def build_parser() -> argparse.ArgumentParser:
         default="auto",
         help="'auto' (pack benchmark), 'none', or a report JSON path",
     )
+    evaluate.add_argument("--limit", type=int, help="only evaluate the first N cases")
+    evaluate.add_argument(
+        "--workers", type=int, help="parallel decisions (default: 8 for remote providers, else 1)"
+    )
     evaluate.add_argument("--out", help="write the full JSON report here")
     evaluate.add_argument("--db", help="also store the report in this database (dashboard)")
     evaluate.add_argument("--json", action="store_true", help="print the JSON report")
@@ -325,7 +319,9 @@ def build_parser() -> argparse.ArgumentParser:
     serve = sub.add_parser("serve", help="run the API, CDS Hooks services and dashboard")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)
-    serve.add_argument("--db", default="var/openhealth.db", help="audit database path")
+    serve.add_argument(
+        "--db", default="var/openhealth.db", help="audit database: SQLite path or postgresql:// URL"
+    )
     serve.add_argument("--datasets-dir", help="extra evaluation datasets for the dashboard")
     serve.add_argument("--provider", action="append", metavar="SLOT=VARIANT")
     serve.set_defaults(handler=cmd_serve)
@@ -334,7 +330,9 @@ def build_parser() -> argparse.ArgumentParser:
         dest="audit_command", required=True
     )
     verify = audit.add_parser("verify", help="verify the audit hash chain")
-    verify.add_argument("--db", default="var/openhealth.db")
+    verify.add_argument(
+        "--db", default="var/openhealth.db", help="SQLite path or postgresql:// URL"
+    )
     verify.set_defaults(handler=cmd_audit_verify)
 
     sandbox = sub.add_parser("sandbox", help="synthetic sandbox tools").add_subparsers(

@@ -16,7 +16,8 @@ import hashlib
 import json
 import uuid
 from collections import Counter
-from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -36,7 +37,14 @@ class Dataset:
     name: str
     path: Path
     records: list[dict[str, Any]]
-    sha256: str
+    sha256: str  # of the whole file, even when only the first `limit` cases are used
+    limit: int | None = None
+
+    def head(self, limit: int) -> Dataset:
+        """The first `limit` cases (e.g. to fit a metered provider's time or cost budget)."""
+        if limit >= len(self.records):
+            return self
+        return replace(self, records=self.records[:limit], limit=limit)
 
 
 def load_dataset(path: str | Path, name: str | None = None) -> Dataset:
@@ -75,8 +83,14 @@ def resolve_dataset(pack: Pack, ref: str) -> Dataset:
     raise OpenHealthError(f"dataset {ref!r} is neither a file nor a pack dataset ({known})")
 
 
-def evaluate(decision: Decision, dataset: Dataset) -> dict[str, Any]:
-    results = [decision.decide(record["input"]) for record in dataset.records]
+def evaluate(decision: Decision, dataset: Dataset, *, workers: int = 1) -> dict[str, Any]:
+    """Run every case. `workers > 1` overlaps network-bound providers; order is preserved."""
+    inputs = [record["input"] for record in dataset.records]
+    if workers <= 1:
+        results = [decision.decide(case) for case in inputs]
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            results = list(pool.map(decision.decide, inputs))
     return build_report(decision, dataset, results)
 
 
@@ -180,7 +194,12 @@ def build_report(
             "thresholds": manifest.policy.thresholds.model_dump(),
             "governance_override": decision.governance.to_dict() if decision.governance else None,
         },
-        "dataset": {"name": dataset.name, "sha256": dataset.sha256, "n": len(records)},
+        "dataset": {
+            "name": dataset.name,
+            "sha256": dataset.sha256,
+            "n": len(records),
+            "limit": dataset.limit,
+        },
         "primary": primary,
         "questions": questions,
         "decisions": {
