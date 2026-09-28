@@ -257,10 +257,14 @@ def test_evals_cover_derived_questions() -> None:
     assert report["questions"]["eligibility"]["n"] == 5
 
 
-def test_inbox_pack_still_loads_as_spec_01() -> None:
-    pack = load_pack(INBOX_DIR)
-    assert pack.manifest.spec_version == "0.1"
-    assert pack.manifest.derived == {}
+def test_spec_01_manifests_still_load() -> None:
+    raw = yaml.safe_load((INBOX_DIR / "pack.yaml").read_text())
+    raw["spec_version"] = "0.1"
+    raw["policy"] = yaml.safe_load((INBOX_DIR / "policy.yaml").read_text())
+    rule = raw["policy"]["rules"][0]["when"]
+    rule["min_confidence"] = rule.pop("min_probability")  # the 0.1 shape of the rule
+    manifest = PackManifest.model_validate(raw)
+    assert manifest.spec_version == "0.1" and manifest.derived == {}
 
 
 def test_decision_card_shows_types_levels_and_tables() -> None:
@@ -270,3 +274,46 @@ def test_decision_card_shows_types_levels_and_tables() -> None:
     assert "1. any member is `no` → `not_eligible`" in card
     assert "3. otherwise → `candidate`" in card
     assert "Rule **severe-disease**: `severity` expected score ≥ 2.5 ⇒ `HUMAN_REVIEW`" in card
+
+
+# -- min_probability ---------------------------------------------------------------------------
+
+
+def test_min_probability_acts_on_a_labels_probability_not_on_the_winner() -> None:
+    maybe_urgent = answer("urgency", {"urgent": 0.40, "routine": 0.60})  # routine wins
+    condition = Condition(question="urgency", labels=["urgent"], min_probability=0.35)
+    assert matches(condition, maybe_urgent)
+    assert not matches(condition, answer("urgency", {"urgent": 0.30, "routine": 0.70}))
+    # The argmax test it replaces would have missed this case.
+    assert not matches(
+        Condition(question="urgency", labels=["urgent"], min_confidence=0.35), maybe_urgent
+    )
+    with pytest.raises(ValidationError, match="needs the `labels`"):
+        Condition(question="urgency", min_probability=0.3, min_score=1)
+    with pytest.raises(ValidationError, match="not both"):
+        Condition(question="urgency", labels=["urgent"], min_probability=0.3, min_confidence=0.2)
+
+
+def test_inbox_escalates_at_the_documented_threshold(inbox_pack: Any) -> None:
+    from openhealth.core.policy import apply_policy
+
+    answers = {
+        "destination": answer("destination", {"medical_assistant": 0.97, "nurse": 0.03}),
+        "urgency": answer("urgency", {"urgent": 0.40, "routine": 0.60}),
+    }
+    result = apply_policy(inbox_pack.manifest, answers, {}, None)
+    assert (result.outcome, result.priority.value, result.rule) == (
+        Outcome.HUMAN_REVIEW,
+        "stat",
+        "possible-emergency",
+    )
+    card = render_card(inbox_pack)
+    assert "P(`urgency` is `urgent`) ≥ 0.35" in card
+
+
+def test_spec_01_packs_cannot_use_min_probability() -> None:
+    raw = yaml.safe_load((INBOX_DIR / "pack.yaml").read_text())
+    raw["spec_version"] = "0.1"
+    raw["policy"] = yaml.safe_load((INBOX_DIR / "policy.yaml").read_text())
+    with pytest.raises(ValidationError, match="rule possible-emergency"):
+        PackManifest.model_validate(raw)

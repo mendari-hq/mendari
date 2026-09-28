@@ -2,9 +2,9 @@
   "format": "openhealth.leaderboard/1",
   "pack": {
     "id": "openhealth/patient-inbox-router",
-    "version": "0.2.0"
+    "version": "0.3.0"
   },
-  "updated_at": "2026-09-28T20:25:57+00:00",
+  "updated_at": "2026-09-28T20:43:48+00:00",
   "rows": [
     {
       "config": "safety_screen=llm (anthropic/claude-haiku-4.5) \u00b7 router=llm (anthropic/claude-haiku-4.5)",
@@ -22,13 +22,13 @@
       },
       "dataset": "red_flags",
       "n": 38,
-      "report_id": "8d257af5-46bd-4574-8269-7b39743fb331",
-      "created_at": "2026-09-28T19:49:18+00:00",
-      "pack_version": "0.2.0",
+      "report_id": "6cb58520-82e3-41c6-9755-022e7acef3a7",
+      "created_at": "2026-09-28T20:42:00+00:00",
+      "pack_version": "0.3.0",
       "accuracy": 1.0,
       "macro_f1": 1.0,
-      "ece": 0.06464285714285714,
-      "auto_rate": 0.10526315789473684,
+      "ece": 0.06857142857142856,
+      "auto_rate": 0.15789473684210525,
       "false_automation_rate": null,
       "critical": [
         {
@@ -39,9 +39,9 @@
           "auto_missed": 0
         }
       ],
-      "latency_p50_ms": 9736.279083183035,
-      "latency_p95_ms": 12417.14012506418,
-      "cost_per_decision_usd": 0.004579763157894737,
+      "latency_p50_ms": 9502.018707804382,
+      "latency_p95_ms": 12927.132375072688,
+      "cost_per_decision_usd": 0.0046140789473684204,
       "errors": 0,
       "error_codes": {}
     },
@@ -61,12 +61,12 @@
       },
       "dataset": "red_flags",
       "n": 38,
-      "report_id": "a8ce7cdb-6921-4538-8150-d676369e71be",
-      "created_at": "2026-09-28T19:50:44+00:00",
-      "pack_version": "0.2.0",
+      "report_id": "6586b100-ac68-415d-a63e-127d6d2a711b",
+      "created_at": "2026-09-28T20:35:58+00:00",
+      "pack_version": "0.3.0",
       "accuracy": 1.0,
       "macro_f1": 1.0,
-      "ece": 0.09684082655618645,
+      "ece": 0.07507135184901026,
       "auto_rate": 0.05263157894736842,
       "false_automation_rate": null,
       "critical": [
@@ -78,9 +78,9 @@
           "auto_missed": 0
         }
       ],
-      "latency_p50_ms": 2234.2660420108587,
-      "latency_p95_ms": 3000.867374939844,
-      "cost_per_decision_usd": 0.003262736842105263,
+      "latency_p50_ms": 2474.8360000085086,
+      "latency_p95_ms": 3018.518708180636,
+      "cost_per_decision_usd": 0.0035135263157894735,
       "errors": 0,
       "error_codes": {}
     },
@@ -100,12 +100,12 @@
       },
       "dataset": "red_flags",
       "n": 38,
-      "report_id": "19fb2c82-eb7e-47cb-88a7-0d644a763c05",
-      "created_at": "2026-09-28T19:42:52+00:00",
-      "pack_version": "0.2.0",
-      "accuracy": 0.8928571428571429,
-      "macro_f1": 0.9433962264150945,
-      "ece": 0.1549624060150376,
+      "report_id": "48f42d3b-8328-47e2-8d9b-7e26107a3286",
+      "created_at": "2026-09-28T20:43:37+00:00",
+      "pack_version": "0.3.0",
+      "accuracy": 0.7857142857142857,
+      "macro_f1": 0.88,
+      "ece": 0.1840740740740741,
       "auto_rate": 0.02631578947368421,
       "false_automation_rate": null,
       "critical": [
@@ -113,15 +113,17 @@
           "question": "urgency",
           "label": "urgent",
           "n": 28,
-          "detected": 28,
+          "detected": 27,
           "auto_missed": 0
         }
       ],
-      "latency_p50_ms": 1212.9350840114057,
-      "latency_p95_ms": 1603.7674159742892,
-      "cost_per_decision_usd": 0.00016136578947368422,
-      "errors": 0,
-      "error_codes": {}
+      "latency_p50_ms": 1256.580458022654,
+      "latency_p95_ms": 1542.1335001010448,
+      "cost_per_decision_usd": 0.0001677,
+      "errors": 1,
+      "error_codes": {
+        "invalid_response": 1
+      }
     },
     {
       "config": "safety_screen=rules \u00b7 router=naive_bayes",
@@ -139,9 +141,9 @@
       },
       "dataset": "red_flags",
       "n": 38,
-      "report_id": "b5930b88-be85-4103-890f-b42579905e4d",
-      "created_at": "2026-09-28T19:33:46+00:00",
-      "pack_version": "0.2.0",
+      "report_id": "8efd614f-c35c-4799-8962-239ca9ab3e00",
+      "created_at": "2026-09-28T20:34:19+00:00",
+      "pack_version": "0.3.0",
       "accuracy": 0.75,
       "macro_f1": 0.8571428571428571,
       "ece": 0.18050789527795594,
@@ -156,8 +158,8 @@
           "auto_missed": 0
         }
       ],
-      "latency_p50_ms": 0.07683294825255871,
-      "latency_p95_ms": 0.09562517516314983,
+      "latency_p50_ms": 0.07658288814127445,
+      "latency_p95_ms": 0.09750016033649445,
       "cost_per_decision_usd": 0.0,
       "errors": 0,
       "error_codes": {}
@@ -178,9 +180,9 @@
       },
       "dataset": "red_flags",
       "n": 38,
-      "report_id": "29e2211f-6f89-416b-8e91-71def8fb09e0",
-      "created_at": "2026-09-28T19:33:46+00:00",
-      "pack_version": "0.2.0",
+      "report_id": "6e73ed79-787e-48bb-a914-44d81aa148a8",
+      "created_at": "2026-09-28T20:34:19+00:00",
+      "pack_version": "0.3.0",
       "accuracy": 0.21428571428571427,
       "macro_f1": 0.35294117647058826,
       "ece": 0.3004344509346058,
@@ -195,48 +197,9 @@
           "auto_missed": 0
         }
       ],
-      "latency_p50_ms": 0.12120814062654972,
-      "latency_p95_ms": 0.1812500413507223,
+      "latency_p50_ms": 0.11437502689659595,
+      "latency_p95_ms": 0.14933384954929352,
       "cost_per_decision_usd": 0.0,
-      "errors": 0,
-      "error_codes": {}
-    },
-    {
-      "config": "safety_screen=rules_and_jev (jev-latest) \u00b7 router=jev (jev-latest)",
-      "providers": {
-        "safety_screen": {
-          "variant": "rules_and_jev",
-          "type": "any_of",
-          "model": "rules:rules@661449489daf + jev:jev-latest"
-        },
-        "router": {
-          "variant": "jev",
-          "type": "jev",
-          "model": "jev-latest"
-        }
-      },
-      "dataset": "red_flags",
-      "n": 38,
-      "report_id": "abefad64-60be-4864-9bcb-08bb7f18c7e9",
-      "created_at": "2026-09-28T20:25:42+00:00",
-      "pack_version": "0.2.0",
-      "accuracy": 1.0,
-      "macro_f1": 1.0,
-      "ece": 0.00642857142857145,
-      "auto_rate": 0.18421052631578946,
-      "false_automation_rate": null,
-      "critical": [
-        {
-          "question": "urgency",
-          "label": "urgent",
-          "n": 28,
-          "detected": 28,
-          "auto_missed": 0
-        }
-      ],
-      "latency_p50_ms": 188.85325599999447,
-      "latency_p95_ms": 241.65857200000573,
-      "cost_per_decision_usd": 2.7822789473684213e-05,
       "errors": 0,
       "error_codes": {}
     },
@@ -256,13 +219,13 @@
       },
       "dataset": "red_flags",
       "n": 38,
-      "report_id": "ee94424b-35df-4a72-9ba7-aa1ceb1bb92c",
-      "created_at": "2026-09-28T19:45:57+00:00",
-      "pack_version": "0.2.0",
+      "report_id": "a8e4142b-9628-465c-97c0-e65590617530",
+      "created_at": "2026-09-28T20:38:47+00:00",
+      "pack_version": "0.3.0",
       "accuracy": 1.0,
       "macro_f1": 1.0,
-      "ece": 0.0471428571428571,
-      "auto_rate": 0.10526315789473684,
+      "ece": 0.07142857142857145,
+      "auto_rate": 0.15789473684210525,
       "false_automation_rate": null,
       "critical": [
         {
@@ -273,9 +236,9 @@
           "auto_missed": 0
         }
       ],
-      "latency_p50_ms": 10121.986666927114,
-      "latency_p95_ms": 12415.251541184261,
-      "cost_per_decision_usd": 0.004627921052631579,
+      "latency_p50_ms": 10038.673124974594,
+      "latency_p95_ms": 15719.466750044376,
+      "cost_per_decision_usd": 0.004767631578947368,
       "errors": 0,
       "error_codes": {}
     },
@@ -295,13 +258,13 @@
       },
       "dataset": "red_flags",
       "n": 38,
-      "report_id": "7bb5593a-b2e4-42b9-bada-0826aa93b7ec",
-      "created_at": "2026-09-28T19:34:35+00:00",
-      "pack_version": "0.2.0",
-      "accuracy": 1.0,
-      "macro_f1": 1.0,
-      "ece": 0.08938393835547431,
-      "auto_rate": 0.02631578947368421,
+      "report_id": "d70ddd87-86cf-4dc8-94b6-f6620dac7504",
+      "created_at": "2026-09-28T20:35:04+00:00",
+      "pack_version": "0.3.0",
+      "accuracy": 0.9642857142857143,
+      "macro_f1": 0.9818181818181818,
+      "ece": 0.0747225205871822,
+      "auto_rate": 0.0,
       "false_automation_rate": null,
       "critical": [
         {
@@ -312,11 +275,13 @@
           "auto_missed": 0
         }
       ],
-      "latency_p50_ms": 2339.808249846101,
-      "latency_p95_ms": 2674.3785419967026,
-      "cost_per_decision_usd": 0.003239315789473684,
-      "errors": 0,
-      "error_codes": {}
+      "latency_p50_ms": 2385.7549999374896,
+      "latency_p95_ms": 2682.8653330449015,
+      "cost_per_decision_usd": 0.0035158947368421054,
+      "errors": 1,
+      "error_codes": {
+        "invalid_response": 1
+      }
     },
     {
       "config": "safety_screen=rules_and_llm (openai/gpt-oss-120b) \u00b7 router=llm (openai/gpt-oss-120b)",
@@ -334,12 +299,12 @@
       },
       "dataset": "red_flags",
       "n": 38,
-      "report_id": "1219db76-55da-4dab-ba08-7299679cdfce",
-      "created_at": "2026-09-28T19:42:22+00:00",
-      "pack_version": "0.2.0",
-      "accuracy": 0.9285714285714286,
-      "macro_f1": 0.962962962962963,
-      "ece": 0.20642857142857138,
+      "report_id": "81c67b66-ab99-4c44-b8e1-410ee2bd4d66",
+      "created_at": "2026-09-28T20:43:08+00:00",
+      "pack_version": "0.3.0",
+      "accuracy": 0.8571428571428571,
+      "macro_f1": 0.923076923076923,
+      "ece": 0.10373860182370818,
       "auto_rate": 0.02631578947368421,
       "false_automation_rate": null,
       "critical": [
@@ -351,9 +316,9 @@
           "auto_missed": 0
         }
       ],
-      "latency_p50_ms": 1398.6967499367893,
-      "latency_p95_ms": 1648.3571249991655,
-      "cost_per_decision_usd": 0.0001598,
+      "latency_p50_ms": 1276.4050420373678,
+      "latency_p95_ms": 1970.2635421417654,
+      "cost_per_decision_usd": 0.00016959473684210525,
       "errors": 0,
       "error_codes": {}
     },
@@ -373,13 +338,13 @@
       },
       "dataset": "red_flags_holdout",
       "n": 30,
-      "report_id": "728b3d94-92c1-406c-a28e-f8dd6a89a9c7",
-      "created_at": "2026-09-28T19:50:02+00:00",
-      "pack_version": "0.2.0",
-      "accuracy": 1.0,
-      "macro_f1": 1.0,
-      "ece": 0.09449999999999993,
-      "auto_rate": 0.23333333333333334,
+      "report_id": "fc4a5890-b77b-41ec-8cd0-cdebb25f143c",
+      "created_at": "2026-09-28T20:42:42+00:00",
+      "pack_version": "0.3.0",
+      "accuracy": 0.95,
+      "macro_f1": 0.9743589743589743,
+      "ece": 0.10300000000000004,
+      "auto_rate": 0.2,
       "false_automation_rate": null,
       "critical": [
         {
@@ -390,9 +355,9 @@
           "auto_missed": 0
         }
       ],
-      "latency_p50_ms": 10397.736083017662,
-      "latency_p95_ms": 15386.632290901616,
-      "cost_per_decision_usd": 0.004679233333333334,
+      "latency_p50_ms": 9111.71104107052,
+      "latency_p95_ms": 16240.44999992475,
+      "cost_per_decision_usd": 0.0045969,
       "errors": 0,
       "error_codes": {}
     },
@@ -412,13 +377,13 @@
       },
       "dataset": "red_flags_holdout",
       "n": 30,
-      "report_id": "e47e31d5-d94e-4899-ba6a-2101a28ee589",
-      "created_at": "2026-09-28T19:55:06+00:00",
-      "pack_version": "0.2.0",
+      "report_id": "ca0fc335-20c6-4a66-91be-6ad2e3a4a84d",
+      "created_at": "2026-09-28T20:36:08+00:00",
+      "pack_version": "0.3.0",
       "accuracy": 0.95,
       "macro_f1": 0.9743589743589743,
-      "ece": 0.052361919837186854,
-      "auto_rate": 0.06666666666666667,
+      "ece": 0.07149563930331634,
+      "auto_rate": 0.03333333333333333,
       "false_automation_rate": null,
       "critical": [
         {
@@ -429,9 +394,9 @@
           "auto_missed": 0
         }
       ],
-      "latency_p50_ms": 2399.085166165605,
-      "latency_p95_ms": 4907.162999967113,
-      "cost_per_decision_usd": 0.003271933333333333,
+      "latency_p50_ms": 2356.100582983345,
+      "latency_p95_ms": 2939.689166843891,
+      "cost_per_decision_usd": 0.0035389333333333333,
       "errors": 1,
       "error_codes": {
         "invalid_response": 1
@@ -453,13 +418,13 @@
       },
       "dataset": "red_flags_holdout",
       "n": 30,
-      "report_id": "baa78b2e-c181-4ac5-a70b-e004a1363cad",
-      "created_at": "2026-09-28T19:43:00+00:00",
-      "pack_version": "0.2.0",
-      "accuracy": 0.75,
-      "macro_f1": 0.8571428571428571,
-      "ece": 0.09899999999999998,
-      "auto_rate": 0.03333333333333333,
+      "report_id": "40775492-264e-4c77-bb49-ef000a286ae5",
+      "created_at": "2026-09-28T20:43:48+00:00",
+      "pack_version": "0.3.0",
+      "accuracy": 0.9,
+      "macro_f1": 0.9473684210526316,
+      "ece": 0.1395,
+      "auto_rate": 0.06666666666666667,
       "false_automation_rate": null,
       "critical": [
         {
@@ -470,9 +435,9 @@
           "auto_missed": 0
         }
       ],
-      "latency_p50_ms": 1305.2644170820713,
-      "latency_p95_ms": 2311.371332965791,
-      "cost_per_decision_usd": 0.00015861666666666666,
+      "latency_p50_ms": 1184.9442080128938,
+      "latency_p95_ms": 1790.829333011061,
+      "cost_per_decision_usd": 0.00016453333333333334,
       "errors": 0,
       "error_codes": {}
     },
@@ -492,9 +457,9 @@
       },
       "dataset": "red_flags_holdout",
       "n": 30,
-      "report_id": "ee4d8c46-ee0a-4fee-b1d7-f98bfbd5b0b8",
-      "created_at": "2026-09-28T19:33:46+00:00",
-      "pack_version": "0.2.0",
+      "report_id": "ab74d197-657f-4635-a7a8-66da4dc3dfe6",
+      "created_at": "2026-09-28T20:34:19+00:00",
+      "pack_version": "0.3.0",
       "accuracy": 0.95,
       "macro_f1": 0.9743589743589743,
       "ece": 0.1937955733190731,
@@ -509,8 +474,8 @@
           "auto_missed": 7
         }
       ],
-      "latency_p50_ms": 0.0972081907093525,
-      "latency_p95_ms": 0.11975015513598919,
+      "latency_p50_ms": 0.08695782162249088,
+      "latency_p95_ms": 0.16324990428984165,
       "cost_per_decision_usd": 0.0,
       "errors": 0,
       "error_codes": {}
@@ -531,9 +496,9 @@
       },
       "dataset": "red_flags_holdout",
       "n": 30,
-      "report_id": "60512aed-b867-4fa1-9777-c8c8ab460d54",
-      "created_at": "2026-09-28T19:33:46+00:00",
-      "pack_version": "0.2.0",
+      "report_id": "8cf847f9-a4d1-44a7-b285-a032f415c87b",
+      "created_at": "2026-09-28T20:34:19+00:00",
+      "pack_version": "0.3.0",
       "accuracy": 0.1,
       "macro_f1": 0.18181818181818182,
       "ece": 0.2781530945493027,
@@ -548,48 +513,9 @@
           "auto_missed": 0
         }
       ],
-      "latency_p50_ms": 0.13349996879696846,
-      "latency_p95_ms": 0.16245804727077484,
+      "latency_p50_ms": 0.12949993833899498,
+      "latency_p95_ms": 0.1705000177025795,
       "cost_per_decision_usd": 0.0,
-      "errors": 0,
-      "error_codes": {}
-    },
-    {
-      "config": "safety_screen=rules_and_jev (jev-latest) \u00b7 router=jev (jev-latest)",
-      "providers": {
-        "safety_screen": {
-          "variant": "rules_and_jev",
-          "type": "any_of",
-          "model": "rules:rules@661449489daf + jev:jev-latest"
-        },
-        "router": {
-          "variant": "jev",
-          "type": "jev",
-          "model": "jev-latest"
-        }
-      },
-      "dataset": "red_flags_holdout",
-      "n": 30,
-      "report_id": "caec2e20-168e-4811-a61e-710193c6d241",
-      "created_at": "2026-09-28T20:25:44+00:00",
-      "pack_version": "0.2.0",
-      "accuracy": 1.0,
-      "macro_f1": 1.0,
-      "ece": 0.008500000000000063,
-      "auto_rate": 0.26666666666666666,
-      "false_automation_rate": null,
-      "critical": [
-        {
-          "question": "urgency",
-          "label": "urgent",
-          "n": 20,
-          "detected": 20,
-          "auto_missed": 0
-        }
-      ],
-      "latency_p50_ms": 198.96753100000097,
-      "latency_p95_ms": 254.9642090000006,
-      "cost_per_decision_usd": 2.7889399999999998e-05,
       "errors": 0,
       "error_codes": {}
     },
@@ -609,13 +535,13 @@
       },
       "dataset": "red_flags_holdout",
       "n": 30,
-      "report_id": "96f90031-e30d-4e28-aff5-cb6df24b8720",
-      "created_at": "2026-09-28T19:46:40+00:00",
-      "pack_version": "0.2.0",
+      "report_id": "24399d1a-e0ea-4ca8-a279-ca488358d009",
+      "created_at": "2026-09-28T20:39:29+00:00",
+      "pack_version": "0.3.0",
       "accuracy": 0.95,
       "macro_f1": 0.9743589743589743,
-      "ece": 0.06099999999999997,
-      "auto_rate": 0.2,
+      "ece": 0.03100000000000001,
+      "auto_rate": 0.26666666666666666,
       "false_automation_rate": null,
       "critical": [
         {
@@ -626,9 +552,9 @@
           "auto_missed": 0
         }
       ],
-      "latency_p50_ms": 9841.445040889084,
-      "latency_p95_ms": 15296.410750132054,
-      "cost_per_decision_usd": 0.004677733333333334,
+      "latency_p50_ms": 10326.949124922976,
+      "latency_p95_ms": 13011.597707867622,
+      "cost_per_decision_usd": 0.0045249,
       "errors": 0,
       "error_codes": {}
     },
@@ -648,12 +574,12 @@
       },
       "dataset": "red_flags_holdout",
       "n": 30,
-      "report_id": "1e0a1551-f77b-4b36-b571-17b09c1d8e69",
-      "created_at": "2026-09-28T19:34:46+00:00",
-      "pack_version": "0.2.0",
+      "report_id": "58307e44-a183-42a1-88d1-812a8dbd93ff",
+      "created_at": "2026-09-28T20:35:14+00:00",
+      "pack_version": "0.3.0",
       "accuracy": 1.0,
       "macro_f1": 1.0,
-      "ece": 0.07177325890483786,
+      "ece": 0.04608754027926957,
       "auto_rate": 0.03333333333333333,
       "false_automation_rate": null,
       "critical": [
@@ -665,9 +591,9 @@
           "auto_missed": 0
         }
       ],
-      "latency_p50_ms": 2312.603499973193,
-      "latency_p95_ms": 2807.4051670264453,
-      "cost_per_decision_usd": 0.0032422666666666665,
+      "latency_p50_ms": 2407.112458953634,
+      "latency_p95_ms": 2907.7857909724116,
+      "cost_per_decision_usd": 0.0035166,
       "errors": 0,
       "error_codes": {}
     },
@@ -687,13 +613,13 @@
       },
       "dataset": "red_flags_holdout",
       "n": 30,
-      "report_id": "fc63a165-ac61-4ade-b6f7-ab7e2d19ea38",
-      "created_at": "2026-09-28T19:42:28+00:00",
-      "pack_version": "0.2.0",
-      "accuracy": 0.95,
-      "macro_f1": 0.9743589743589743,
-      "ece": 0.18200000000000002,
-      "auto_rate": 0.0,
+      "report_id": "b6f042d7-67df-4579-92e8-973c8899663d",
+      "created_at": "2026-09-28T20:43:14+00:00",
+      "pack_version": "0.3.0",
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "ece": 0.24795029239766078,
+      "auto_rate": 0.06666666666666667,
       "false_automation_rate": null,
       "critical": [
         {
@@ -704,9 +630,9 @@
           "auto_missed": 0
         }
       ],
-      "latency_p50_ms": 1339.287041919306,
-      "latency_p95_ms": 1916.3499579299241,
-      "cost_per_decision_usd": 0.00015765,
+      "latency_p50_ms": 1266.0046669188887,
+      "latency_p95_ms": 1716.51441603899,
+      "cost_per_decision_usd": 0.00016681666666666666,
       "errors": 0,
       "error_codes": {}
     },
@@ -726,14 +652,14 @@
       },
       "dataset": "test",
       "n": 100,
-      "report_id": "c57777b0-3e13-428e-bd04-27d9fcd4a3d3",
-      "created_at": "2026-09-28T19:48:27+00:00",
-      "pack_version": "0.2.0",
-      "accuracy": 0.99,
-      "macro_f1": 0.9917819706498952,
-      "ece": 0.06110000000000008,
-      "auto_rate": 0.76,
-      "false_automation_rate": 0.0,
+      "report_id": "fcd3d281-e0bb-44a3-8c31-53b279f36f49",
+      "created_at": "2026-09-28T20:41:08+00:00",
+      "pack_version": "0.3.0",
+      "accuracy": 0.97,
+      "macro_f1": 0.9683385623216016,
+      "ece": 0.033717171717171736,
+      "auto_rate": 0.85,
+      "false_automation_rate": 0.011764705882352941,
       "critical": [
         {
           "question": "urgency",
@@ -743,9 +669,9 @@
           "auto_missed": 0
         }
       ],
-      "latency_p50_ms": 6982.11295902729,
-      "latency_p95_ms": 14856.494500068948,
-      "cost_per_decision_usd": 0.004256380000000001,
+      "latency_p50_ms": 6205.572915961966,
+      "latency_p95_ms": 13770.22649999708,
+      "cost_per_decision_usd": 0.00412638,
       "errors": 0,
       "error_codes": {}
     },
@@ -765,13 +691,13 @@
       },
       "dataset": "test",
       "n": 100,
-      "report_id": "cf8ba0a2-aeaa-43f9-b556-e7095058d64b",
-      "created_at": "2026-09-28T19:50:33+00:00",
-      "pack_version": "0.2.0",
+      "report_id": "9cd137be-2b36-45b3-bd5f-12d00632eab5",
+      "created_at": "2026-09-28T20:35:45+00:00",
+      "pack_version": "0.3.0",
       "accuracy": 0.99,
       "macro_f1": 0.988956228956229,
-      "ece": 0.12402556390977446,
-      "auto_rate": 0.43,
+      "ece": 0.11238523038081216,
+      "auto_rate": 0.47,
       "false_automation_rate": 0.0,
       "critical": [
         {
@@ -782,9 +708,9 @@
           "auto_missed": 0
         }
       ],
-      "latency_p50_ms": 2353.0689168255776,
-      "latency_p95_ms": 2714.5344170276076,
-      "cost_per_decision_usd": 0.003348,
+      "latency_p50_ms": 2365.1019998360425,
+      "latency_p95_ms": 2926.444290904328,
+      "cost_per_decision_usd": 0.0036207,
       "errors": 0,
       "error_codes": {}
     },
@@ -804,14 +730,14 @@
       },
       "dataset": "test",
       "n": 100,
-      "report_id": "c357daa6-e5d1-4322-be69-db9247b213b9",
-      "created_at": "2026-09-28T19:42:45+00:00",
-      "pack_version": "0.2.0",
-      "accuracy": 0.99,
-      "macro_f1": 0.9927272727272728,
-      "ece": 0.11837873332226635,
-      "auto_rate": 0.46,
-      "false_automation_rate": 0.021739130434782608,
+      "report_id": "623b28c6-d7f3-44d7-b343-651010bf88b1",
+      "created_at": "2026-09-28T20:43:31+00:00",
+      "pack_version": "0.3.0",
+      "accuracy": 0.96,
+      "macro_f1": 0.9606768584432256,
+      "ece": 0.08633929172140606,
+      "auto_rate": 0.48,
+      "false_automation_rate": 0.041666666666666664,
       "critical": [
         {
           "question": "urgency",
@@ -821,48 +747,9 @@
           "auto_missed": 0
         }
       ],
-      "latency_p50_ms": 1232.3535832110792,
-      "latency_p95_ms": 1802.663709037006,
-      "cost_per_decision_usd": 0.000157558,
-      "errors": 0,
-      "error_codes": {}
-    },
-    {
-      "config": "safety_screen=rules \u00b7 router=cascade (jev-latest)",
-      "providers": {
-        "safety_screen": {
-          "variant": "rules",
-          "type": "rules",
-          "model": "rules@661449489daf"
-        },
-        "router": {
-          "variant": "cascade",
-          "type": "cascade",
-          "model": "naive_bayes:naive_bayes@6b28c1ac77f0 \u2192 jev:jev-latest"
-        }
-      },
-      "dataset": "test",
-      "n": 100,
-      "report_id": "6e221c5e-2915-4af3-a994-7c90918b0bc8",
-      "created_at": "2026-09-28T20:25:46+00:00",
-      "pack_version": "0.2.0",
-      "accuracy": 1.0,
-      "macro_f1": 1.0,
-      "ece": 0.0009227975432581914,
-      "auto_rate": 0.98,
-      "false_automation_rate": 0.0,
-      "critical": [
-        {
-          "question": "urgency",
-          "label": "urgent",
-          "n": 2,
-          "detected": 2,
-          "auto_missed": 0
-        }
-      ],
-      "latency_p50_ms": 0.4899070000021766,
-      "latency_p95_ms": 0.6680510000052209,
-      "cost_per_decision_usd": 0.0,
+      "latency_p50_ms": 1236.7874579504132,
+      "latency_p95_ms": 1856.0600420460105,
+      "cost_per_decision_usd": 0.000165043,
       "errors": 0,
       "error_codes": {}
     },
@@ -882,9 +769,9 @@
       },
       "dataset": "test",
       "n": 100,
-      "report_id": "f052c1dd-51b3-4d09-9be7-eaaad525e3d9",
-      "created_at": "2026-09-28T19:33:46+00:00",
-      "pack_version": "0.2.0",
+      "report_id": "9fed29d0-567b-4eeb-bdfa-fe54c2b63448",
+      "created_at": "2026-09-28T20:34:19+00:00",
+      "pack_version": "0.3.0",
       "accuracy": 1.0,
       "macro_f1": 1.0,
       "ece": 0.0009227975432581914,
@@ -899,8 +786,8 @@
           "auto_missed": 0
         }
       ],
-      "latency_p50_ms": 0.1460420899093151,
-      "latency_p95_ms": 0.19345898181200027,
+      "latency_p50_ms": 0.14166696928441525,
+      "latency_p95_ms": 0.19025010988116264,
       "cost_per_decision_usd": 0.0,
       "errors": 0,
       "error_codes": {}
@@ -921,9 +808,9 @@
       },
       "dataset": "test",
       "n": 100,
-      "report_id": "9abb30fb-a09c-4d4b-9011-56881b9b0f2a",
-      "created_at": "2026-09-28T19:33:46+00:00",
-      "pack_version": "0.2.0",
+      "report_id": "c0666d95-f123-47ac-baf5-fbc7d6860740",
+      "created_at": "2026-09-28T20:34:19+00:00",
+      "pack_version": "0.3.0",
       "accuracy": 0.89,
       "macro_f1": 0.8831435309973046,
       "ece": 0.2818902168843674,
@@ -938,48 +825,9 @@
           "auto_missed": 0
         }
       ],
-      "latency_p50_ms": 0.20783394575119019,
-      "latency_p95_ms": 0.2747909165918827,
+      "latency_p50_ms": 0.20616711117327213,
+      "latency_p95_ms": 0.27216714806854725,
       "cost_per_decision_usd": 0.0,
-      "errors": 0,
-      "error_codes": {}
-    },
-    {
-      "config": "safety_screen=rules_and_jev (jev-latest) \u00b7 router=jev (jev-latest)",
-      "providers": {
-        "safety_screen": {
-          "variant": "rules_and_jev",
-          "type": "any_of",
-          "model": "rules:rules@661449489daf + jev:jev-latest"
-        },
-        "router": {
-          "variant": "jev",
-          "type": "jev",
-          "model": "jev-latest"
-        }
-      },
-      "dataset": "test",
-      "n": 100,
-      "report_id": "75d283e8-e529-4525-b706-aa00f5b09ddb",
-      "created_at": "2026-09-28T20:25:39+00:00",
-      "pack_version": "0.2.0",
-      "accuracy": 0.99,
-      "macro_f1": 0.9837908496732026,
-      "ece": 0.016699999999999996,
-      "auto_rate": 0.91,
-      "false_automation_rate": 0.0,
-      "critical": [
-        {
-          "question": "urgency",
-          "label": "urgent",
-          "n": 2,
-          "detected": 2,
-          "auto_missed": 0
-        }
-      ],
-      "latency_p50_ms": 189.23480000000126,
-      "latency_p95_ms": 264.1131869999995,
-      "cost_per_decision_usd": 2.948232e-05,
       "errors": 0,
       "error_codes": {}
     },
@@ -999,13 +847,13 @@
       },
       "dataset": "test",
       "n": 100,
-      "report_id": "805439d8-32e1-4e93-9f3b-a475679c9692",
-      "created_at": "2026-09-28T19:45:06+00:00",
-      "pack_version": "0.2.0",
-      "accuracy": 0.97,
-      "macro_f1": 0.9683385623216016,
-      "ece": 0.04722934609250395,
-      "auto_rate": 0.82,
+      "report_id": "62113b81-b5be-4292-a4f0-08b866c605e9",
+      "created_at": "2026-09-28T20:37:51+00:00",
+      "pack_version": "0.3.0",
+      "accuracy": 0.99,
+      "macro_f1": 0.9837908496732026,
+      "ece": 0.04290000000000003,
+      "auto_rate": 0.84,
       "false_automation_rate": 0.0,
       "critical": [
         {
@@ -1016,9 +864,9 @@
           "auto_missed": 0
         }
       ],
-      "latency_p50_ms": 7904.837790876627,
-      "latency_p95_ms": 19202.73012504913,
-      "cost_per_decision_usd": 0.00433338,
+      "latency_p50_ms": 6915.510416962206,
+      "latency_p95_ms": 13279.340042034164,
+      "cost_per_decision_usd": 0.00423148,
       "errors": 0,
       "error_codes": {}
     },
@@ -1038,12 +886,12 @@
       },
       "dataset": "test",
       "n": 100,
-      "report_id": "6792d320-e0b4-4aff-aff0-5311bfd0ccb5",
-      "created_at": "2026-09-28T19:34:24+00:00",
-      "pack_version": "0.2.0",
-      "accuracy": 0.99,
-      "macro_f1": 0.988956228956229,
-      "ece": 0.12438421052631582,
+      "report_id": "feebc41c-3391-483a-8bab-c44fe6217a2f",
+      "created_at": "2026-09-28T20:34:52+00:00",
+      "pack_version": "0.3.0",
+      "accuracy": 0.98,
+      "macro_f1": 0.9737787503760575,
+      "ece": 0.11631254651780973,
       "auto_rate": 0.4,
       "false_automation_rate": 0.0,
       "critical": [
@@ -1055,9 +903,9 @@
           "auto_missed": 0
         }
       ],
-      "latency_p50_ms": 2397.0292499288917,
-      "latency_p95_ms": 2990.885708015412,
-      "cost_per_decision_usd": 0.0033472000000000003,
+      "latency_p50_ms": 2401.605499908328,
+      "latency_p95_ms": 3474.873957922682,
+      "cost_per_decision_usd": 0.0036097,
       "errors": 0,
       "error_codes": {}
     },
@@ -1077,14 +925,14 @@
       },
       "dataset": "test",
       "n": 100,
-      "report_id": "893f7b12-70a9-4394-a5f0-fb15104a8020",
-      "created_at": "2026-09-28T19:42:14+00:00",
-      "pack_version": "0.2.0",
-      "accuracy": 0.96,
-      "macro_f1": 0.9541366041366042,
-      "ece": 0.09760000000000002,
-      "auto_rate": 0.43,
-      "false_automation_rate": 0.023255813953488372,
+      "report_id": "175edba6-6809-45ff-91d9-0fe88c5a0183",
+      "created_at": "2026-09-28T20:43:01+00:00",
+      "pack_version": "0.3.0",
+      "accuracy": 0.95,
+      "macro_f1": 0.9365897145550109,
+      "ece": 0.0802252532090639,
+      "auto_rate": 0.47,
+      "false_automation_rate": 0.0425531914893617,
       "critical": [
         {
           "question": "urgency",
@@ -1094,9 +942,9 @@
           "auto_missed": 0
         }
       ],
-      "latency_p50_ms": 1250.0087080989033,
-      "latency_p95_ms": 1576.968374894932,
-      "cost_per_decision_usd": 0.000157328,
+      "latency_p50_ms": 1281.3912918791175,
+      "latency_p95_ms": 1876.0219579562545,
+      "cost_per_decision_usd": 0.000165653,
       "errors": 0,
       "error_codes": {}
     }

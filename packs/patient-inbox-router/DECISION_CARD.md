@@ -1,6 +1,6 @@
 # Decision Card: Patient Inbox Router
 
-`openhealth/patient-inbox-router` · version **0.2.0** · Apache-2.0 · published by OpenHealth Hub reference packs (community)
+`openhealth/patient-inbox-router` · version **0.3.0** · Apache-2.0 · published by OpenHealth Hub reference packs (community)
 
 > Routes patient portal and SMS messages to the front desk, a medical assistant, a nurse, a physician or billing, and escalates possible emergencies to stat nurse triage.
 
@@ -8,7 +8,7 @@
 |---|---|
 | Risk level | **0**, administrative |
 | Automation | AUTO permitted by policy thresholds. |
-| Pack digest | `sha256:70c12a78dccfa914a22e3b401dd5c496dc166ae19d86959cfff9e766fc03fdfb` |
+| Pack digest | `sha256:15058428b20562d5d10b537160be04a4b706f7bf08e37b7bc5dba5ada4e49ef2` |
 | Last validation | 2026-09-28 on `test` (n=600, sha256 `2997856d17a5…`) |
 
 ## Intended use
@@ -60,12 +60,12 @@ FHIR R4 mapping: `fhir/mapping.yaml`.
 | `physician` | Questions that need a physician's judgement: interpreting results, changing a diagnosis or treatment plan, dose changes, and requests for the physician's opinion. |
 | `billing` | Bills, statements, copays, charges, refunds, payment plans, insurance claims, coverage and cost estimates. |
 
-**`urgency`**: Does this message describe symptoms that may need emergency or same-day clinical attention? Answer "urgent" if in doubt.
+**`urgency`**: Could the situation in this message be a medical emergency that is happening now or getting worse?
 
 | Label | Criteria |
 |---|---|
-| `urgent` | Possible emergency: chest pain or pressure, trouble breathing, stroke signs, suicidal thoughts or intentional overdose, severe bleeding, severe allergic reaction, fever in a young infant, or a person who is hard to wake. |
-| `routine` | No sign of an emergency or time-critical clinical problem. |
+| `urgent` | Possibly an emergency now, even when described casually or with uncertainty: chest pain or pressure; trouble breathing; stroke signs such as face drooping, arm weakness or slurred speech; thoughts of suicide or self-harm, or an intentional overdose; heavy bleeding, including vomiting or coughing up blood, or bleeding in pregnancy; a severe allergic reaction; fever in a baby under 3 months; a person who is hard to wake, fainting or newly confused; a head injury followed by vomiting or confusion; sudden severe pain in the head or belly. |
+| `routine` | Not an emergency now: administrative requests, refills, questions, mild or long-standing symptoms, and past episodes that have already been treated or assessed, such as asking for records from an emergency room visit. |
 
 Every decision is one of `AUTO`, `HUMAN_REVIEW`, `ABSTAIN` or `BLOCK`, with a priority (`routine`, `urgent`, `asap`, `stat`) and an audit record.
 
@@ -74,7 +74,7 @@ Every decision is one of `AUTO`, `HUMAN_REVIEW`, `ABSTAIN` or `BLOCK`, with a pr
 - AUTO when `destination` confidence ≥ **0.90**; human review ≥ **0.50**; abstain below.
 - `front_desk` needs ≥ **0.95** for AUTO.
 - `billing` needs ≥ **0.95** for AUTO.
-- Rule **possible-emergency**: `urgency` is `urgent` (p ≥ 0.35) ⇒ `HUMAN_REVIEW` → `nurse`, priority `stat`. Possible emergency symptoms. Nurse triage now; do not leave in a routine queue.
+- Rule **possible-emergency**: P(`urgency` is `urgent`) ≥ 0.35 ⇒ `HUMAN_REVIEW` → `nurse`, priority `stat`. Possible emergency symptoms. Nurse triage now; do not leave in a routine queue.
 - Fallback (ABSTAIN / BLOCK): Leave in the shared inbox for manual triage by the front desk (the existing workflow).
 
 ## Providers
@@ -101,7 +101,7 @@ Benchmark `test` (n=600) with safety_screen=`rules`, router=`naive_bayes`:
 | Accuracy of AUTO decisions | 100.0% |
 | False automation rate | 0.0% |
 | Expected human override rate | 9.7% |
-| Latency p50 / p95 | 0.14 / 0.19 ms |
+| Latency p50 / p95 | 0.14 / 0.20 ms |
 | Cost per decision | $0.00000 |
 | Critical `urgency=urgent` | 23/23 detected, 0 automated |
 
@@ -246,6 +246,17 @@ Every configuration below ran on the same records. Remote models are named becau
 - **Routing principle**: Route to the least specialised team that can fully handle the request. Anything that needs clinical judgement goes to a clinical team, and possible emergencies go to nurse triage.
 
 ## Version history
+
+### 0.3.0
+
+- Safety: the `possible-emergency` rule now escalates when P(urgent) ≥ 0.35 (spec 0.2
+  `min_probability`). Before, `urgent` also had to be the most likely label, so the documented
+  0.35 threshold never applied and the effective threshold was 0.5.
+- `urgency` reworded so its instructions and criteria describe the same thing: a possible
+  emergency happening now. The old instructions also included "same-day" care and "answer
+  urgent if in doubt"; the doubt threshold now lives in the policy. The criteria list common
+  triage red flags and say that past, already-treated episodes are routine.
+- `spec_version: "0.2"`. Routing questions, data and the naive Bayes model are unchanged.
 
 ### 0.2.0
 

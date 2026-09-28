@@ -23,8 +23,9 @@ rules:
     when:
       question: urgency
       labels: [urgent]
-      # Deliberately low: a false alarm costs a nurse a minute; a miss can cost far more.
-      min_confidence: 0.35
+      # P(urgent), whichever label is most likely. Deliberately low: a false alarm costs a
+      # nurse a minute; a miss can cost far more.
+      min_probability: 0.35
     outcome: HUMAN_REVIEW
     recommendation: nurse
     priority: stat

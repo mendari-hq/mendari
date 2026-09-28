@@ -79,8 +79,8 @@ Validation rules (all MUST hold):
   questions and labels; `min_score`/`max_score` conditions reference score questions. Rule
   recommendations and `policy.labels` keys are labels of the primary question.
 - Derived questions satisfy §4.3.
-- A pack declaring `spec_version: "0.1"` MUST NOT use `type`, `levels`, `derive`, `min_score`
-  or `max_score`.
+- A pack declaring `spec_version: "0.1"` MUST NOT use `type`, `levels`, `derive`,
+  `min_probability`, `min_score` or `max_score`.
 - `thresholds.review ≤ thresholds.auto`, both in [0, 1].
 - Packs at risk level ≥ 2 MUST NOT contain policy rules whose outcome is `AUTO`.
 - Every referenced file exists inside the pack.
@@ -219,8 +219,12 @@ Evaluation order (MUST):
 3. Policy `rules` are evaluated in order over the available answers. A rule's condition
    matches an answer when the answer's confidence is ≥ `when.min_confidence`, its label is in
    `when.labels` (if given), and its expected score is ≥ `when.min_score` and ≤
-   `when.max_score` (if given; inclusive). A condition needs at least one of `labels`,
-   `min_score` or `max_score`. The first matching rule determines outcome, recommendation
+   `when.max_score` (if given; inclusive). With `when.min_probability`, the label test is
+   replaced by a probability test: the answer's total probability over `when.labels` MUST be
+   ≥ `min_probability`, whichever label is most likely. This is how a pack escalates on a
+   meaningful chance of a critical label (e.g. P(urgent) ≥ 0.35) rather than only when that
+   label wins; `min_probability` needs `labels` and cannot be combined with
+   `min_confidence`. A condition needs at least one of `labels`, `min_score` or `max_score`. The first matching rule determines outcome, recommendation
    (default: the primary answer's label) and priority.
 4. Otherwise, on the primary question: confidence ≥ the label's `auto_threshold` (default
    `thresholds.auto`) gives `AUTO`; ≥ `thresholds.review` gives `HUMAN_REVIEW`; else
@@ -316,6 +320,7 @@ produces identical decisions; it simply cannot use the new fields.
 | `type: boolean` and `type: score` questions; `levels`; `Answer.value` (expected score) | §4.1, §4.2 |
 | Derived questions (`derive:` decision tables with exact probabilities) | §4.3 |
 | `min_score` / `max_score` policy conditions; `labels` becomes optional | §6 |
+| `min_probability` policy conditions (a label's probability, not only the winning label) | §6 |
 | The decision output schema adds an optional `value` to each answer | §4.2 |
 
 To migrate a pack:
