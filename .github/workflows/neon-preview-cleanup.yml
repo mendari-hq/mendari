@@ -1,0 +1,35 @@
+name: Clean up Neon preview branch
+
+# The Vercel-managed Neon integration creates a database branch `preview/<git branch>` for every
+# preview deployment, but deletes it only when Vercel deletes the deployment (months later), so
+# branches pile up against the Neon plan's branch limit and previews start failing. Delete the
+# branch as soon as its pull request is merged or closed.
+on:
+  pull_request:
+    types: [closed]
+
+permissions: {}
+
+jobs:
+  delete-preview-branch:
+    if: vars.NEON_PROJECT_ID != '' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the branch name
+        id: name
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          # The action puts the name into a shell command, so only plain names are passed on.
+          if [[ "$HEAD_REF" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+            echo "branch=preview/$HEAD_REF" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Unusual branch name; not deleting a Neon branch for it."
+          fi
+      - name: Delete the Neon preview branch
+        if: steps.name.outputs.branch != ''
+        uses: neondatabase/delete-branch-action@4468d825d5a88ef4012f1705a82f02ec3072f776  # v3.2.1
+        with:
+          project_id: ${{ vars.NEON_PROJECT_ID }}
+          branch: ${{ steps.name.outputs.branch }}
+          api_key: ${{ secrets.NEON_API_KEY }}
