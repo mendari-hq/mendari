@@ -32,6 +32,7 @@ from openhealth.errors import (
 )
 from openhealth.evals import compare, evaluate, load_dataset, resolve_dataset
 from openhealth.evals.harness import Dataset
+from openhealth.providers import jev
 from openhealth.providers.credentials import key_source
 from openhealth.standards import cds_hooks
 
@@ -70,12 +71,13 @@ REMOTE_EVAL_WORKERS = 8
 def create_app(
     *,
     db_path: str | Path = "var/openhealth.db",
+    migrate_url: str | None = None,
     providers: Mapping[str, str] | None = None,
     datasets_dir: Path | None = None,
     packs_paths: list[Path] | None = None,
     budget_limits: Mapping[str, int] | None = None,
 ) -> FastAPI:
-    store = AuditStore(db_path)
+    store = AuditStore(db_path, migrate_url=migrate_url)
     budget = CallBudget(store, budget_limits) if budget_limits else None
     found = discover(packs_paths)
     packs: dict[str, Pack] = {}
@@ -147,6 +149,10 @@ def create_app(
                 "daily_limit": (budget_limits or {}).get("jev"),
             },
         }
+
+    @app.get("/api/providers/jev/models")
+    def jev_models() -> dict[str, Any]:
+        return {"models": jev.list_models()}
 
     @app.get("/api/packs")
     def list_packs() -> list[dict[str, Any]]:

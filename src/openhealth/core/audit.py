@@ -189,7 +189,8 @@ class _PostgresSession(_Session):
 class _PostgresBackend(_Backend):
     kind = "postgres"
 
-    def __init__(self, url: str):
+    def __init__(self, url: str, migrate_url: str | None = None):
+        import psycopg
         from psycopg.rows import dict_row
         from psycopg_pool import ConnectionPool
 
@@ -203,14 +204,19 @@ class _PostgresBackend(_Backend):
             kwargs={"row_factory": dict_row, "prepare_threshold": None},
             open=True,
         )
-        with self.session(exclusive=True) as session:
-            ddl = _TABLES.format(
-                real="DOUBLE PRECISION",
-                serial="BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY",
-            )
+        # Schema setup goes over the direct (unpooled) connection when one is given, as Neon
+        # recommends for DDL; the advisory lock serialises concurrent cold starts.
+        ddl = _TABLES.format(
+            real="DOUBLE PRECISION", serial="BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY"
+        )
+        with (
+            psycopg.connect(migrate_url or url, prepare_threshold=None) as connection,
+            connection.transaction(),
+        ):
+            connection.execute("SELECT pg_advisory_xact_lock(%s)", (_CHAIN_LOCK,))
             for statement in ddl.split(";"):
                 if statement.strip():
-                    session.all(statement)
+                    connection.execute(statement)
 
     @contextmanager
     def session(self, *, exclusive: bool) -> Iterator[_Session]:
@@ -223,9 +229,9 @@ class _PostgresBackend(_Backend):
         self._pool.close()
 
 
-def _backend(target: str) -> _Backend:
+def _backend(target: str, migrate_url: str | None) -> _Backend:
     if target.startswith(("postgres://", "postgresql://")):
-        return _PostgresBackend(target)
+        return _PostgresBackend(target, migrate_url)
     return _SqliteBackend(target)
 
 
@@ -233,9 +239,12 @@ def _backend(target: str) -> _Backend:
 
 
 class AuditStore:
-    def __init__(self, target: str | Path):
-        """`target` is a SQLite path (or ":memory:") or a postgres:// / postgresql:// URL."""
-        self._db = _backend(str(target))
+    def __init__(self, target: str | Path, *, migrate_url: str | None = None):
+        """`target` is a SQLite path (or ":memory:") or a postgres:// / postgresql:// URL.
+
+        `migrate_url` is an optional direct (unpooled) Postgres URL used only for schema setup.
+        """
+        self._db = _backend(str(target), migrate_url)
         self.path = str(target) if self._db.kind == "sqlite" else None
 
     @property

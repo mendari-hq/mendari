@@ -260,7 +260,8 @@ def test_jev_rejects_oversized_responses(inbox_pack: Pack, jev_env: pytest.Monke
 @pytest.mark.parametrize(
     "mutate",
     [
-        lambda b: b.update(model="some-other-model"),
+        lambda b: b.update(model=""),
+        lambda b: b.update(model=None),
         lambda b: b["answers"]["destination"].update(choice="pharmacist"),
         lambda b: b["answers"]["destination"].update(choice="billing"),  # not the argmax
         lambda b: b["answers"]["destination"]["probabilities"].update(nurse=0.9),  # sums to 1.1
@@ -276,4 +277,28 @@ def test_jev_response_validation_is_strict(inbox_pack: Pack, mutate: Any) -> Non
     mutate(body)
     questions = {"destination": inbox_pack.manifest.questions["destination"]}
     with pytest.raises(ProviderError, match="invalid_response"):
-        validate_response(body, questions, MODEL)
+        validate_response(body, questions)
+
+
+def test_jev_alias_records_the_model_that_actually_answered(
+    inbox_pack: Pack, jev_env: pytest.MonkeyPatch
+) -> None:
+    jev_env.setenv("JEV_MODEL", "jev-latest")
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["model"] = json.loads(request.content)["model"]
+        return httpx.Response(200, json=jev_body(model="jev-2.0.1"))
+
+    output = jev_provider(inbox_pack, handler).answer(message("rash on my arm"))
+    assert seen["model"] == "jev-latest"
+    assert output.answers["destination"].provider.model == "jev-2.0.1"
+    assert output.extra == {"requested_model": "jev-latest", "effective_model": "jev-2.0.1"}
+
+
+def test_jev_accepts_approximately_normalised_probabilities(inbox_pack: Pack) -> None:
+    body = jev_body()
+    body["answers"]["destination"]["probabilities"]["billing"] += 0.004  # sums to 1.004
+    questions = {"destination": inbox_pack.manifest.questions["destination"]}
+    effective, answers, _ = validate_response(body, questions)
+    assert effective == MODEL and answers["destination"]["choice"] == "nurse"

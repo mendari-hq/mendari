@@ -117,9 +117,10 @@ class JevProvider(Provider):
             raise ProviderError("invalid_input", "request exceeds Jev's size limit")
 
         raw = self._send(endpoint, token, body)
-        answers, usage = validate_response(raw, self.questions, model)
+        effective, answers, usage = validate_response(raw, self.questions)
         total = usage["input_tokens"] + usage["output_tokens"]
         price = self.settings.cost_per_1k_tokens_usd
+        answered_by = replace(self.info, model=effective)
         return ProviderOutput(
             answers={
                 key: Answer(
@@ -127,13 +128,14 @@ class JevProvider(Provider):
                     label=answer["choice"],
                     confidence=answer["confidence"],
                     probabilities=answer["probabilities"],
-                    provider=self.info,
+                    provider=answered_by,
                 )
                 for key, answer in answers.items()
             },
             input_tokens=usage["input_tokens"],
             output_tokens=usage["output_tokens"],
             cost_usd=None if price is None else total / 1000 * price,
+            extra={"requested_model": model, "effective_model": effective},
         )
 
     def _send(self, endpoint: str, token: str, body: dict[str, Any]) -> Any:
@@ -172,16 +174,60 @@ class JevProvider(Provider):
             raise ProviderError("invalid_response", "body is not JSON") from None
 
 
+def list_models(
+    *, endpoint_env: str = "JEV_API_URL", timeout_s: float = 10.0
+) -> list[dict[str, Any]]:
+    """Models and aliases available to this deployment's Jev account (GET /v1/models).
+
+    Useful for pinning a concrete model instead of an alias. Returns names and metadata only.
+    """
+    endpoint = os.environ.get(endpoint_env, "").strip()
+    if not endpoint:
+        raise ProviderError("not_configured", f"set {endpoint_env}")
+    _require_secure(endpoint)
+    parsed = urlparse(endpoint)
+    url = f"{parsed.scheme}://{parsed.netloc}/v1/models"
+    token = resolve_key(key_env="JEV_API_KEY", connector_env="JEV_CONNECTOR")
+    try:
+        with httpx.Client(timeout=timeout_s, follow_redirects=False) as client:
+            response = client.get(url, headers={"authorization": f"Bearer {token}"})
+    except httpx.HTTPError as error:
+        raise ProviderError("provider_unavailable", type(error).__name__) from None
+    if response.status_code in (401, 403):
+        raise ProviderError("credential_unavailable")
+    if not response.is_success:
+        raise ProviderError("provider_unavailable", f"HTTP {response.status_code}")
+    models = response.json().get("models")
+    if not isinstance(models, list):
+        raise ProviderError("invalid_response", "models must be a list")
+    return [
+        {k: m.get(k) for k in ("name", "description", "release_date")}
+        for m in models
+        if isinstance(m, dict)
+    ]
+
+
+PROBABILITY_SUM_TOLERANCE = 0.01  # Jev documents probabilities as summing to "approximately 1"
+
+
 def validate_response(
-    raw: Any, questions: Mapping[str, Any], model: str
-) -> tuple[dict[str, dict[str, Any]], dict[str, int]]:
-    """Strict validation, mirroring the reference gateway client. Raises `invalid_response`."""
+    raw: Any, questions: Mapping[str, Any]
+) -> tuple[str, dict[str, dict[str, Any]], dict[str, int]]:
+    """Strict validation against Jev's published schema. Raises `invalid_response`.
+
+    Returns (effective model, answers, usage). The effective model can differ from the one
+    requested when the request used an alias such as `jev-latest`; the effective one is what
+    gets recorded in audit provenance.
+    """
 
     def invalid(detail: str) -> ProviderError:
         return ProviderError("invalid_response", detail)
 
-    if not isinstance(raw, dict) or raw.get("model") != model:
-        raise invalid("missing or mismatched model")
+    if not isinstance(raw, dict):
+        raise invalid("response is not an object")
+    effective = raw.get("model")
+    if not isinstance(effective, str) or not re.match(MODEL_PATTERN, effective):
+        raise invalid("missing or malformed model")
     answers, usage = raw.get("answers"), raw.get("usage")
     if not isinstance(answers, dict) or not isinstance(usage, dict):
         raise invalid("answers and usage must be objects")
@@ -203,7 +249,7 @@ def validate_response(
         probabilities = answer["probabilities"]
         if set(probabilities) != labels or not all(map(_probability, probabilities.values())):
             raise invalid(f"answer {key!r} has malformed probabilities")
-        if abs(sum(probabilities.values()) - 1) > 0.001:
+        if abs(sum(probabilities.values()) - 1) > PROBABILITY_SUM_TOLERANCE:
             raise invalid(f"answer {key!r} probabilities do not sum to 1")
         if probabilities[answer["choice"]] < max(probabilities.values()) - 0.00001:
             raise invalid(f"answer {key!r} choice is not the most probable label")
@@ -224,7 +270,7 @@ def validate_response(
         or tokens_in + tokens_out > MAX_TOKENS
     ):
         raise invalid("usage is malformed")
-    return validated, {"input_tokens": tokens_in, "output_tokens": tokens_out}
+    return effective, validated, {"input_tokens": tokens_in, "output_tokens": tokens_out}
 
 
 def _probability(value: Any) -> bool:

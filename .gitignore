@@ -16,6 +16,4 @@ htmlcov/
 /var/
 .DS_Store
 .vercel/
-.env*.local
-.vercel
 .env*
