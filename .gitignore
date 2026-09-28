@@ -15,3 +15,9 @@ htmlcov/
 *.db-shm
 /var/
 .DS_Store
+.vercel/
+.env*
+# Local agent tooling installed by integrations (not part of the app)
+.agents/
+.claude/skills/
+skills-lock.json

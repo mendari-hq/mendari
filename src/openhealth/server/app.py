@@ -1,25 +1,27 @@
 """HTTP surface: REST decisions, FHIR in/out, CDS Hooks, review queue, audit, evals, dashboard.
 
-v0.1 has no authentication and is meant for the synthetic sandbox only. It binds to localhost
-by default; do not expose it to a network or send it real PHI.
+v0.1 has no authentication of its own and is meant for synthetic data only. Locally it binds
+to localhost; on Vercel it sits behind Vercel Authentication (deployment protection).
 """
 
 from __future__ import annotations
 
+import hashlib
+import os
 import re
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import Body, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from openhealth import __version__
 from openhealth.core.audit import AuditStore
 from openhealth.core.card import benchmark, render_card
-from openhealth.core.decision import Decision
+from openhealth.core.decision import CallBudget, Decision
 from openhealth.core.pack import Pack
 from openhealth.core.registry import discover, version_key
 from openhealth.errors import (
@@ -31,6 +33,8 @@ from openhealth.errors import (
 )
 from openhealth.evals import compare, evaluate, load_dataset, resolve_dataset
 from openhealth.evals.harness import Dataset
+from openhealth.providers import jev
+from openhealth.providers.credentials import key_source
 from openhealth.standards import cds_hooks
 
 DASHBOARD_DIR = Path(__file__).resolve().parents[1] / "dashboard"
@@ -57,16 +61,25 @@ class OutcomeRequest(BaseModel):
 
 class EvalRequest(BaseModel):
     dataset: str = Field(min_length=1, max_length=200)
+    limit: int | None = Field(default=None, ge=1)
+
+
+# Evaluations that call a metered, network-bound provider must fit one function invocation.
+REMOTE_EVAL_LIMIT = 200
+REMOTE_EVAL_WORKERS = 8
 
 
 def create_app(
     *,
     db_path: str | Path = "var/openhealth.db",
+    migrate_url: str | None = None,
     providers: Mapping[str, str] | None = None,
     datasets_dir: Path | None = None,
     packs_paths: list[Path] | None = None,
+    budget_limits: Mapping[str, int] | None = None,
 ) -> FastAPI:
-    store = AuditStore(db_path)
+    store = AuditStore(db_path, migrate_url=migrate_url)
+    budget = CallBudget(store, budget_limits) if budget_limits else None
     found = discover(packs_paths)
     packs: dict[str, Pack] = {}
     for pack in found.packs:
@@ -86,7 +99,7 @@ def create_app(
         if pack_id not in decisions:
             pack = pack_or_404(pack_id)
             chosen = {s: v for s, v in overrides.items() if s in pack.manifest.providers}
-            decisions[pack_id] = Decision(pack, providers=chosen, store=store)
+            decisions[pack_id] = Decision(pack, providers=chosen, store=store, budget=budget)
         return decisions[pack_id]
 
     def local_datasets() -> dict[str, Path]:
@@ -122,7 +135,25 @@ def create_app(
             "version": __version__,
             "packs": len(packs),
             "invalid": found.problems,
+            "storage": store.backend,
+            "providers": {
+                pack_id: {
+                    slot: info.variant for slot, info in decision_for(pack_id).provider_info.items()
+                }
+                for pack_id in sorted(packs)
+            },
+            "jev": {
+                "credentials": key_source(key_env="JEV_API_KEY", connector_env="JEV_CONNECTOR"),
+                "endpoint_configured": bool(os.environ.get("JEV_API_URL", "").strip()),
+                "model": os.environ.get("JEV_MODEL", "").strip() or None,
+                "calls_today": store.usage("jev"),
+                "daily_limit": (budget_limits or {}).get("jev"),
+            },
         }
+
+    @app.get("/api/providers/jev/models")
+    def jev_models() -> dict[str, Any]:
+        return {"models": jev.list_models()}
 
     @app.get("/api/packs")
     def list_packs() -> list[dict[str, Any]]:
@@ -165,7 +196,14 @@ def create_app(
         # A store-less Decision: evaluation traffic must not pollute the operational audit log.
         active = decision_for(pack_id)
         chosen = {slot: info.variant for slot, info in active.provider_info.items()}
-        report = evaluate(Decision(pack, providers=chosen), dataset_for(pack, request.dataset))
+        decision = Decision(pack, providers=chosen, budget=budget)
+        dataset = dataset_for(pack, request.dataset)
+        if decision.is_remote:
+            dataset = dataset.head(min(request.limit or REMOTE_EVAL_LIMIT, REMOTE_EVAL_LIMIT))
+        elif request.limit:
+            dataset = dataset.head(request.limit)
+        workers = REMOTE_EVAL_WORKERS if decision.is_remote else 1
+        report = evaluate(decision, dataset, workers=workers)
         baseline = benchmark(pack)
         if baseline is not None and request.dataset != pack.manifest.evaluation.benchmark_dataset:
             report["comparison"] = compare(
@@ -244,12 +282,24 @@ def create_app(
 
     # -- dashboard ---------------------------------------------------------------------------
 
+    page = versioned_dashboard()
+
     @app.get("/", include_in_schema=False)
-    def dashboard() -> FileResponse:
-        return FileResponse(DASHBOARD_DIR / "index.html")
+    def dashboard() -> HTMLResponse:
+        return HTMLResponse(page, headers={"cache-control": "no-cache"})
 
     app.mount("/static", StaticFiles(directory=DASHBOARD_DIR), name="static")
     return app
+
+
+def versioned_dashboard() -> str:
+    """index.html with each asset URL stamped by a hash of its content, so a deploy that
+    changes app.js or style.css can never be served stale from a browser or CDN cache."""
+    page = (DASHBOARD_DIR / "index.html").read_text(encoding="utf-8")
+    for asset in ("app.js", "style.css"):
+        digest = hashlib.sha256((DASHBOARD_DIR / asset).read_bytes()).hexdigest()[:12]
+        page = page.replace(f"/static/{asset}", f"/static/{asset}?v={digest}")
+    return page
 
 
 def _summary(pack: Pack) -> dict[str, Any]:

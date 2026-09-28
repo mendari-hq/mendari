@@ -105,7 +105,6 @@ providers:
         config: logic/red_flags.yaml
       jev:
         type: jev
-        model: jev-1.13.0
         timeout_ms: 5000
         state_fields: [message.subject, message.body]
   router:
@@ -121,7 +120,6 @@ providers:
         config: logic/routing_rules.yaml
       jev:
         type: jev
-        model: jev-1.13.0
         timeout_ms: 5000
         state_fields: [message.subject, message.body, message.channel, patient.preferred_language]
 

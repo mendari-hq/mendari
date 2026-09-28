@@ -8,8 +8,8 @@
 |---|---|
 | Risk level | **0**, administrative |
 | Automation | AUTO permitted by policy thresholds. |
-| Pack digest | `sha256:90686436256e24e3e52e97671919d6f90569f4b412ab4c23b2417caadbcb9a8c` |
-| Last validation | 2026-09-26 on `test` (n=600, sha256 `2997856d17a5…`) |
+| Pack digest | `sha256:2f5821762581cdcd997636b448ca20c819438bc3694391e618819231f8c9f68d` |
+| Last validation | 2026-09-28 on `test` (n=600, sha256 `2997856d17a5…`) |
 
 ## Intended use
 
@@ -203,8 +203,9 @@ Threshold sweep (if everything ≥ threshold were automated):
 - First release.
 - Questions: `destination` (5 teams) and `urgency` (urgent / routine).
 - Providers: deterministic red-flag screen (`rules`); naive Bayes router trained and
-  temperature-calibrated on synthetic data (default); keyword router (`rules`) and Jev
-  (`jev-1.13.0`) variants for both slots.
+  temperature-calibrated on synthetic data (default); keyword router (`rules`) and Jev variants
+  for both slots. The Jev endpoint and model are deployment settings (`JEV_API_URL`,
+  `JEV_MODEL`), not part of the pack.
 - Policy: stat nurse review for possible emergencies; AUTO at ≥0.90 confidence (≥0.95 for
   non-clinical destinations); abstain below 0.50.
 

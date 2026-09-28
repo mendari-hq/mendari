@@ -52,6 +52,8 @@ class ProviderOutput:
 
 class Provider(ABC):
     type: ClassVar[str]
+    # Remote providers make network calls: they are metered, rate-limited and parallelised.
+    remote: ClassVar[bool] = False
 
     def __init__(
         self,
@@ -64,6 +66,11 @@ class Provider(ABC):
         self.info = info
         self.questions = dict(questions)
         self.config = dict(config)
+
+    def preflight(self) -> None:  # noqa: B027 - optional hook
+        """Raise ProviderError if the provider cannot be called at all (e.g. not configured).
+
+        Runs before any call is counted against a budget."""
 
     @abstractmethod
     def answer(self, inputs: Mapping[str, Any]) -> ProviderOutput:

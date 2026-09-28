@@ -170,22 +170,50 @@ share an evaluation of its local data without sharing the data.
 
 ## Jev
 
-Jev (`api.typesafe.ai/v1/systemone`) answers bounded, typed choice questions ("which team?",
-"is documentation missing?", "does this need review?") and returns a probability for every
-label. That makes it a natural decision primitive for packs. The adapter:
+Jev answers bounded, typed choice questions ("which team?", "is documentation missing?",
+"does this need review?") and returns a probability for every label. That makes it a natural
+decision primitive for packs. The adapter:
 
 - maps pack questions 1:1 onto Jev `choice` questions (≤ 8 per call, 2–255 labels);
-- sends only `state_fields` (minimum necessary), over HTTPS, with a bearer token from
-  `JEV_API_KEY`;
+- sends only `state_fields` (minimum necessary), over HTTPS;
 - validates responses strictly: model match, label sets, probabilities sum to 1, choice is the
   argmax, token usage bounds, 64 KB cap;
-- turns every failure (`timeout`, `rate_limited`, `credential_unavailable`,
-  `invalid_response`, …) into a safe policy outcome, never an automated guess.
+- turns every failure (`not_configured`, `timeout`, `rate_limited`,
+  `credential_unavailable`, `budget_exhausted`, `invalid_response`, …) into a safe policy
+  outcome, never an automated guess.
+
+The endpoint and model are deployment settings, not part of any pack:
+
+| Variable | Purpose |
+|---|---|
+| `JEV_API_URL` | Endpoint to call (required) |
+| `JEV_MODEL` | Model id (required; recorded in every answer's provenance) |
+| `JEV_CONNECTOR` | Vercel Connect connector that supplies the key, e.g. `jev/openhealth-hub` |
+| `JEV_API_KEY` | Key for local use instead of a connector |
+| `OPENHEALTH_JEV_DAILY_LIMIT` | Daily call budget (default 500) |
 
 ```bash
-JEV_API_KEY=... uv run openhealth eval openhealth/patient-inbox-router \
-  --dataset test --provider router=jev --provider safety_screen=jev
+JEV_API_URL=... JEV_MODEL=... JEV_API_KEY=... \
+  uv run openhealth eval openhealth/patient-inbox-router --dataset test --provider router=jev
 ```
+
+## Deploying to Vercel
+
+The whole engine (API, FHIR endpoints, CDS Hooks, review queue, audit, dashboard) deploys as one
+FastAPI function (`[tool.vercel] entrypoint = "openhealth.server.vercel:app"`).
+
+1. Connect a Postgres database (Neon via the Vercel Marketplace) for Production and Preview.
+   It provides `DATABASE_URL`. On Vercel the app refuses to start without it, because functions
+   have no persistent disk.
+2. Attach the Jev connector to the project and set `JEV_CONNECTOR`, `JEV_API_URL`, `JEV_MODEL`
+   and `OPENHEALTH_PROVIDERS=router=jev`. The key is fetched at runtime with the deployment's
+   OIDC identity; it is never stored in the project's environment variables.
+3. Keep Vercel Authentication on: the app has no login of its own.
+4. Push a branch to get a preview deployment, check it with
+   `vercel curl /api/health --deployment <url>`, then merge to `main` for production.
+
+`/api/health` reports the storage backend, active providers, Jev configuration and today's Jev
+usage (never secrets). The FHIR sandbox (HAPI) stays in local `docker compose`.
 
 ## Project layout
 

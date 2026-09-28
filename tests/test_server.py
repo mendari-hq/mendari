@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
+import re
 
 import pytest
 from fastapi.testclient import TestClient
@@ -13,8 +13,8 @@ PACK = "/api/packs/openhealth/patient-inbox-router"
 
 
 @pytest.fixture
-def client(tmp_path: Path) -> TestClient:
-    return TestClient(create_app(db_path=tmp_path / "server.db", datasets_dir=LOCAL_DATASET.parent))
+def client(db_target: str) -> TestClient:
+    return TestClient(create_app(db_path=db_target, datasets_dir=LOCAL_DATASET.parent))
 
 
 def test_packs_and_card(client: TestClient) -> None:
@@ -92,4 +92,38 @@ def test_local_validation_via_api(client: TestClient) -> None:
 def test_dashboard_is_served(client: TestClient) -> None:
     page = client.get("/")
     assert page.status_code == 200 and "OpenHealth Hub" in page.text
+    # Asset URLs carry a content hash so a deploy never serves stale JS/CSS.
+    assert re.search(r'/static/app\.js\?v=[0-9a-f]{12}"', page.text)
+    assert re.search(r'/static/style\.css\?v=[0-9a-f]{12}"', page.text)
     assert client.get("/static/app.js").status_code == 200
+
+
+def test_health_reports_deployment_state(client: TestClient) -> None:
+    health = client.get("/api/health").json()
+    assert health["storage"] in {"sqlite", "postgres"}
+    assert health["providers"]["openhealth/patient-inbox-router"] == {
+        "safety_screen": "rules",
+        "router": "naive_bayes",
+    }
+    assert set(health["jev"]) >= {"credentials", "endpoint_configured", "calls_today"}
+
+
+def test_remote_evaluations_are_capped_and_budgeted(
+    db_target: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("JEV_API_URL", "https://jev.test/v1/decide")
+    monkeypatch.setenv("JEV_MODEL", "jev-test-model")
+    monkeypatch.delenv("JEV_API_KEY", raising=False)
+    monkeypatch.delenv("JEV_CONNECTOR", raising=False)
+    app = create_app(
+        db_path=db_target,
+        providers={"router": "jev"},
+        datasets_dir=LOCAL_DATASET.parent,
+        budget_limits={"jev": 5},
+    )
+    report = TestClient(app).post(f"{PACK}/evals", json={"dataset": "test"}).json()
+    assert report["dataset"]["n"] == 200 and report["dataset"]["limit"] == 200
+    assert report["providers"]["router"]["model"] == "jev-test-model"
+    # Five calls fit the budget (and fail on credentials); the rest are refused by the budget.
+    assert report["errors"] == {"credential_unavailable": 5, "budget_exhausted": 195}
+    assert report["decisions"]["automation"]["n"] == 0  # nothing automated without Jev

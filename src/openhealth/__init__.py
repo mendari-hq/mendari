@@ -8,7 +8,7 @@ result.outcome, result.recommendation
 """
 
 from openhealth.core.audit import AuditStore
-from openhealth.core.decision import Decision, DecisionResult
+from openhealth.core.decision import CallBudget, Decision, DecisionResult
 from openhealth.core.pack import Pack, load_pack
 from openhealth.core.policy import GovernanceOverride
 from openhealth.core.registry import resolve_pack
@@ -18,6 +18,7 @@ __version__ = "0.1.0"
 
 __all__ = [
     "AuditStore",
+    "CallBudget",
     "Decision",
     "DecisionResult",
     "GovernanceOverride",

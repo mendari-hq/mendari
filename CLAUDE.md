@@ -1,12 +1,16 @@
 # OpenHealth Hub: project notes for Claude
 
-Python 3.11+ · uv · pydantic v2 · FastAPI · SQLite (stdlib) · no frontend build step.
+Python 3.11+ · uv · pydantic v2 · FastAPI · SQLite (local) or Postgres (Vercel) · no frontend build step.
 
 ## Commands
 
 ```bash
 uv sync                                   # install (dev group included)
-uv run pytest                             # full suite, < 2 s, warnings are errors
+uv run pytest                             # full suite, < 3 s, warnings are errors
+# Postgres backend tests (OpenHealth's own container; never reuse another project's database):
+docker run -d --name openhealth-pg-test -e POSTGRES_PASSWORD=openhealth-test \
+  -e POSTGRES_DB=openhealth_test -p 127.0.0.1:56432:5432 postgres:16-alpine
+OPENHEALTH_TEST_DATABASE_URL=postgresql://postgres:openhealth-test@127.0.0.1:56432/openhealth_test uv run pytest
 uv run ruff check src tests && uv run ruff format --check src tests
 uv run mypy src tests
 uv run openhealth demo                    # end-to-end smoke test on synthetic data
@@ -17,6 +21,9 @@ docker compose up --build                 # HAPI FHIR + engine + worker sandbox
 ## Rules of the codebase
 
 - **No real PHI, ever.** Test data comes from `openhealth.sandbox.synthetic_inbox`.
+- **OpenHealth is a separate project.** Never reuse another project's code, connectors,
+  credentials, databases, containers or configuration defaults. Before connecting to a local
+  port, check which container owns it (`docker ps`).
 - **Pack artifacts are derived.** Editing templates in `synthetic_inbox.py`, `pack.yaml`, rules,
   or policy changes the pack digest and possibly the data and model. Rerun
   `scripts/build-reference-pack.sh` and commit the regenerated `data/`, `models/`,

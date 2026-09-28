@@ -19,10 +19,14 @@ dependencies = [
     "pyyaml>=6.0",
     "jsonschema>=4.21",
     "httpx>=0.27",
+    "fastapi>=0.110",
+    "psycopg[binary,pool]>=3.2",
+    "vercel-oidc>=0.9",
 ]
 
 [project.optional-dependencies]
-server = ["fastapi>=0.110", "uvicorn>=0.29"]
+# Only needed to run the server yourself (`openhealth serve`); Vercel runs the ASGI app directly.
+server = ["uvicorn>=0.29"]
 
 [project.scripts]
 openhealth = "openhealth.cli:main"

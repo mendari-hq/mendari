@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-import sqlite3
 from collections.abc import Callable
-from contextlib import closing
-from pathlib import Path
+from typing import Any
 
 import pytest
 
-from openhealth import AuditStore, Decision, DecisionResult, Pack
-from openhealth.errors import ReviewError
+from openhealth import AuditStore, CallBudget, Decision, DecisionResult, Outcome, Pack
+from openhealth.errors import ProviderError, ReviewError
 from tests.conftest import message
 
 Decide = Callable[[str], DecisionResult]
@@ -18,9 +16,10 @@ EMERGENCY = "Crushing chest pain and my left arm is numb"  # stat HUMAN_REVIEW -
 ROUTINE = "Can you send a refill for metformin to my pharmacy on Main Street?"  # AUTO
 
 
-@pytest.fixture
-def store(tmp_path: Path) -> AuditStore:
-    return AuditStore(tmp_path / "audit.db")
+def tamper(store: AuditStore, sql: str, params: tuple[Any, ...] = ()) -> None:
+    """Edit the database behind the store's back, as an attacker with DB access could."""
+    with store._db.session(exclusive=True) as db:
+        db.all(sql, params)
 
 
 @pytest.fixture
@@ -86,19 +85,18 @@ def test_hash_chain_detects_tampering(store: AuditStore, decide: Decide) -> None
     decide(ROUTINE)
     assert store.verify() == {"ok": True, "events": 3, "head": store.verify()["head"]}
 
-    with closing(sqlite3.connect(store.path, isolation_level=None)) as db:
-        db.execute(
-            "UPDATE decisions SET record = replace(record, 'stat', 'routine') WHERE id = ?",
-            (result.id,),
-        )
+    tamper(
+        store,
+        "UPDATE decisions SET record = replace(record, 'stat', 'routine') WHERE id = ?",
+        (result.id,),
+    )
     assert store.verify()["ok"] is False
 
 
 def test_hash_chain_detects_deleted_events(store: AuditStore, decide: Decide) -> None:
     for body in (ROUTINE, REVIEW, EMERGENCY):
         decide(body)
-    with closing(sqlite3.connect(store.path, isolation_level=None)) as db:
-        db.execute("DELETE FROM audit_events WHERE seq = 2")
+    tamper(store, "DELETE FROM audit_events WHERE seq = 2")
     assert store.verify() == {"ok": False, "events": 2, "broken_at": 3}
 
 
@@ -108,3 +106,37 @@ def test_hash_only_input_storage(inbox_pack: Pack, store: AuditStore) -> None:
     record = store.get(result.id)
     assert record is not None and record["record"]["input"] is None
     assert record["record"]["input_hash"] == result.input_hash
+
+
+def test_daily_budget_is_enforced(store: AuditStore) -> None:
+    for _ in range(3):
+        store.consume("jev", daily_limit=3)
+    with pytest.raises(ProviderError, match="budget_exhausted"):
+        store.consume("jev", daily_limit=3)
+    assert store.usage("jev") == 3
+    assert store.usage("other") == 0
+
+
+def test_exhausted_budget_falls_back_instead_of_automating(
+    inbox_pack: Pack, store: AuditStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("JEV_API_URL", "https://jev.test/v1/decide")
+    monkeypatch.setenv("JEV_MODEL", "jev-test-model")
+    decision = Decision(
+        inbox_pack, providers={"router": "jev"}, budget=CallBudget(store, {"jev": 0})
+    )
+    result = decision(message(ROUTINE))
+    assert result.outcome is Outcome.ABSTAIN
+    assert result.errors == {"destination": "budget_exhausted"}
+
+
+def test_unconfigured_provider_does_not_spend_budget(
+    inbox_pack: Pack, store: AuditStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("JEV_API_URL", raising=False)
+    monkeypatch.setenv("JEV_MODEL", "jev-test-model")
+    decision = Decision(
+        inbox_pack, providers={"router": "jev"}, budget=CallBudget(store, {"jev": 10})
+    )
+    assert decision(message(ROUTINE)).errors == {"destination": "not_configured"}
+    assert store.usage("jev") == 0
