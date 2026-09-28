@@ -88,6 +88,7 @@ views.overview = async (main) => {
       ${tile("Latency p95", stats.latency_ms.p95 === null ? "n/a" : `${num(stats.latency_ms.p95, 2)} ms`)}
       ${tile("Cost / decision", stats.cost_usd.per_decision === null ? "n/a" : `$${num(stats.cost_usd.per_decision, 5)}`)}
       ${tile("Audit chain", chain.ok ? "verified" : "BROKEN", `${chain.events} events`)}
+      ${tile("Feedback", `👍 ${stats.feedback.up} · 👎 ${stats.feedback.down}`, `${stats.feedback.down_on_auto} 👎 on AUTO decisions`)}
     </div>
     <div class="panel">
       <h3 style="margin-top:0">Outcome mix</h3>
@@ -197,12 +198,12 @@ views.audit = async (main) => {
     storageSet("oh.audit.outcome", filter);
     const rows = await api(`/api/audit?pack_id=${encodeURIComponent(state.packId)}&limit=100${filter ? `&outcome=${filter}` : ""}`);
     $("#audit-table").innerHTML = rows.length ? `<table>
-      <tr><th>Time</th><th>Outcome</th><th>Recommendation</th><th>Priority</th><th>Confidence</th><th>Latency</th><th>Review</th><th>ID</th></tr>
+      <tr><th>Time</th><th>Outcome</th><th>Recommendation</th><th>Priority</th><th>Confidence</th><th>Latency</th><th>Review</th><th>ID</th><th>Right?</th></tr>
       ${rows.map((r) => `<tr class="clickable" data-id="${esc(r.id)}">
         <td>${esc(time(r.created_at))}</td><td>${outcomeBadge(r.outcome)}</td><td>${esc(r.recommendation ?? "-")}</td>
         <td>${priorityBadge(r.priority)}</td><td>${pct(r.confidence)}</td><td>${num(r.latency_ms, 2)} ms</td>
         <td>${esc(r.review_status === "resolved" ? `${r.final_label}${r.human_override ? " (override)" : ""}` : r.review_status.replace("_", " "))}</td>
-        <td class="mono">${esc(r.id.slice(0, 8))}</td></tr>`).join("")}
+        <td class="mono">${esc(r.id.slice(0, 8))}</td><td>${feedbackControls(r.id, true)}</td></tr>`).join("")}
     </table>` : `<div class="empty">No decisions recorded.</div>`;
     $("#audit-table").querySelectorAll("tr[data-id]").forEach((tr) => tr.addEventListener("click", () => showRecord(tr.dataset.id)));
   };
@@ -225,6 +226,7 @@ async function showRecord(id) {
       ${record.events.map((e) => `<tr><td>${e.seq}</td><td>${esc(e.event)}</td><td>${esc(time(e.created_at))}</td>
         <td class="mono">${esc(e.hash.slice(0, 16))}…</td><td class="mono">${esc(JSON.stringify(e.payload))}</td></tr>`).join("")}
     </table>
+    <h3>Was this right?</h3>${feedbackControls(id)}
     <h3>Record</h3><pre class="json">${esc(JSON.stringify(record.record, null, 2))}</pre></div>`;
   $("#audit-detail").scrollIntoView({ behavior: "smooth" });
 }
@@ -328,6 +330,58 @@ function reliability(bins) {
     <text x="${size / 2 - 26}" y="${size - 8}">confidence</text>
     <text x="4" y="${pad + 4}">1</text><text x="4" y="${size / 2}">acc</text>
   </svg><p class="muted">Dots on the dashed line are perfectly calibrated; dot size is bin volume.</p>`;
+}
+
+// ---- feedback view ---------------------------------------------------------------------------
+
+views.feedback = async (main) => {
+  const rating = storageGet("oh.feedback.rating", "down");
+  const [items, stats] = await Promise.all([
+    api(`/api/feedback?pack_id=${encodeURIComponent(state.packId)}${rating ? `&rating=${rating}` : ""}&limit=200`),
+    api(`/api/stats?pack_id=${encodeURIComponent(state.packId)}`),
+  ]);
+  main.innerHTML = `
+    <h1>Feedback</h1>
+    <p class="muted">👍 / 👎 from anyone using the system. Thumbs-down cases are where the pack is wrong:
+      download them, fill in the right answers, and they become tests and evaluation data for the next version.</p>
+    <div class="tiles">
+      ${tile("Thumbs up", stats.feedback.up)}
+      ${tile("Thumbs down", stats.feedback.down)}
+      ${tile("👎 on AUTO", stats.feedback.down_on_auto, "confidently wrong: automated, then rated wrong")}
+    </div>
+    <div class="row panel">
+      <label for="rating-filter">Show</label>
+      <select id="rating-filter">
+        <option value="down" ${rating === "down" ? "selected" : ""}>Thumbs down</option>
+        <option value="up" ${rating === "up" ? "selected" : ""}>Thumbs up</option>
+        <option value="" ${rating === "" ? "selected" : ""}>All</option>
+      </select>
+      <span class="grow"></span>
+      <a class="button" href="${packPath()}/feedback/export?rating=down" download>Download 👎 cases (JSONL)</a>
+    </div>
+    ${items.length ? items.map(feedbackCard).join("") : `<div class="panel empty">No feedback yet. Rate decisions with 👍 / 👎 in Try it or the Audit trail.</div>`}`;
+  $("#rating-filter").addEventListener("change", (e) => {
+    storageSet("oh.feedback.rating", e.target.value);
+    render();
+  });
+};
+
+function feedbackCard(item) {
+  const r = item.record;
+  const message = (r.input && r.input.message) || {};
+  const urgency = r.answers.urgency ? ` · urgency ${esc(r.answers.urgency.label)}` : "";
+  return `<article class="panel">
+    <div class="row">
+      <span class="badge ${item.rating === "down" ? "s-degraded" : "s-ok"}">${item.rating === "down" ? "👎 wrong" : "👍 right"}</span>
+      ${outcomeBadge(r.outcome)} ${priorityBadge(r.priority)}
+      <span>→ <b>${esc(r.recommendation ?? "no recommendation")}</b>${urgency}</span>
+      <span class="grow"></span>
+      <span class="muted">${esc(time(item.created_at))}${item.reporter ? ` · ${esc(item.reporter)}` : ""}</span>
+    </div>
+    <div class="message">${esc(message.body ?? "(input not stored: audit.store_input = hash)")}</div>
+    ${item.note ? `<p><b>Note:</b> ${esc(item.note)}</p>` : ""}
+    <span class="mono muted">decision ${esc(item.decision_id)}</span>
+  </article>`;
 }
 
 // ---- decision card ---------------------------------------------------------------------------
@@ -434,8 +488,42 @@ function decisionView(r) {
       <div class="bars">${Object.entries(a.probabilities).sort((x, y) => y[1] - x[1]).map(([label, p]) =>
         `<span>${esc(label)}</span><div class="bar ${label === a.label ? "chosen" : ""}"><span style="width:${(p * 100).toFixed(1)}%"></span></div><span class="mono">${pct(p)}</span>`).join("")}</div>
       ${a.evidence.length ? `<div class="chips" style="margin-top:8px">${a.evidence.map((e) => `<span class="chip">${esc(e)}</span>`).join("")}</div>` : ""}`).join("")}
+    <h3>Was this right?</h3>${feedbackControls(r.id)}
   </div>`;
 }
+
+// ---- feedback (thumbs up / down) -------------------------------------------------------------
+
+function feedbackControls(decisionId, compact = false) {
+  const note = compact ? "" : `<input class="fb-note" maxlength="1000" placeholder="What was wrong? (optional)">`;
+  return `<div class="fb ${compact ? "compact" : ""}" data-decision="${esc(decisionId)}">${note}
+    <button type="button" data-rating="up" title="Right" aria-label="Thumbs up">👍</button>
+    <button type="button" data-rating="down" title="Wrong" aria-label="Thumbs down">👎</button></div>`;
+}
+
+document.addEventListener("click", async (event) => {
+  const button = event.target.closest("button[data-rating]");
+  if (!button) return;
+  event.stopPropagation();
+  const box = button.closest(".fb");
+  const note = box.querySelector(".fb-note");
+  box.querySelectorAll("button").forEach((b) => (b.disabled = true));
+  try {
+    await api(`/api/audit/${box.dataset.decision}/feedback`, {
+      method: "POST",
+      body: JSON.stringify({
+        rating: button.dataset.rating,
+        reporter: storageGet("oh.reviewer", "") || null,
+        note: note && note.value.trim() ? note.value.trim() : null,
+      }),
+    });
+    box.innerHTML = `<span class="fb-done">${button.dataset.rating === "up" ? "👍 Thanks" : "👎 Recorded"}</span>`;
+    toast(button.dataset.rating === "up" ? "Thanks for the feedback" : "Thumbs down recorded. It's in the Feedback list.");
+  } catch (error) {
+    toast(error.message);
+    box.querySelectorAll("button").forEach((b) => (b.disabled = false));
+  }
+}, true);
 
 // ---- boot ------------------------------------------------------------------------------------
 

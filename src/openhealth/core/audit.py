@@ -15,6 +15,7 @@ import json
 import sqlite3
 import statistics
 import threading
+import uuid
 from abc import ABC, abstractmethod
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
@@ -24,6 +25,8 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from openhealth.core.spec import Outcome
 from openhealth.errors import ProviderError, ReviewError
+
+Rating = Literal["up", "down"]
 
 if TYPE_CHECKING:
     from openhealth.core.decision import DecisionResult
@@ -75,7 +78,17 @@ CREATE TABLE IF NOT EXISTS provider_usage (
     provider    TEXT NOT NULL,
     calls       INTEGER NOT NULL,
     PRIMARY KEY (day, provider)
-)
+);
+CREATE TABLE IF NOT EXISTS feedback (
+    id          TEXT PRIMARY KEY,
+    decision_id TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    pack_id     TEXT NOT NULL,
+    rating      TEXT NOT NULL,
+    reporter    TEXT,
+    note        TEXT
+);
+CREATE INDEX IF NOT EXISTS feedback_pack ON feedback (pack_id, rating, created_at)
 """
 
 _PRIORITY_ORDER = (
@@ -355,6 +368,40 @@ class AuditStore:
                 db, decision_id, "outcome.recorded", {"final_label": final_label, "source": source}
             )
 
+    def record_feedback(
+        self,
+        decision_id: str,
+        *,
+        rating: Rating,
+        reporter: str | None = None,
+        note: str | None = None,
+    ) -> dict[str, Any]:
+        """A person's thumbs up / thumbs down on any decision (AUTO included), with an optional
+        note. Appended to the hash chain like every other fact about a decision."""
+        if rating not in ("up", "down"):
+            raise ReviewError("rating must be 'up' or 'down'")
+        reporter = (reporter or "").strip() or None
+        note = (note or "").strip() or None
+        feedback_id = str(uuid.uuid4())
+        created_at = _now()
+        with self._db.session(exclusive=True) as db:
+            row = db.one("SELECT pack_id FROM decisions WHERE id = ?", (decision_id,))
+            if row is None:
+                raise ReviewError(f"unknown decision {decision_id}")
+            db.all(
+                "INSERT INTO feedback (id, decision_id, created_at, pack_id, rating, reporter, "
+                "note) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (feedback_id, decision_id, created_at, row["pack_id"], rating, reporter, note),
+            )
+            payload = {
+                "feedback_id": feedback_id,
+                "rating": rating,
+                "reporter": reporter,
+                "note": note,
+            }
+            self._append(db, decision_id, "feedback.recorded", payload)
+        return {"id": feedback_id, "decision_id": decision_id, "created_at": created_at, **payload}
+
     def save_report(self, report: Mapping[str, Any]) -> None:
         with self._db.session(exclusive=False) as db:
             db.all(
@@ -458,6 +505,12 @@ class AuditStore:
                 f"latency_ms, cost_usd, created_at FROM decisions {where}",
                 params,
             )
+            fb_where = "WHERE f.pack_id = ?" if pack_id else ""
+            ratings = db.all(
+                "SELECT f.rating, d.outcome FROM feedback f "
+                f"JOIN decisions d ON d.id = f.decision_id {fb_where}",
+                params,
+            )
         total = len(rows)
         outcomes = {outcome.value: 0 for outcome in Outcome}
         for row in rows:
@@ -495,7 +548,34 @@ class AuditStore:
                 ),
             },
             "daily": [{"date": day, **counts} for day, counts in sorted(daily.items())],
+            "feedback": {
+                "up": sum(r["rating"] == "up" for r in ratings),
+                "down": sum(r["rating"] == "down" for r in ratings),
+                # Thumbs down on an automated decision: the system was confidently wrong.
+                "down_on_auto": sum(
+                    r["rating"] == "down" and r["outcome"] == Outcome.AUTO.value for r in ratings
+                ),
+            },
         }
+
+    def feedback(
+        self, *, pack_id: str | None = None, rating: Rating | None = None, limit: int = 100
+    ) -> list[dict[str, Any]]:
+        """Feedback, newest first, each with the decision it rates."""
+        clauses, params = [], []
+        for column, value in (("f.pack_id", pack_id), ("f.rating", rating)):
+            if value is not None:
+                clauses.append(f"{column} = ?")
+                params.append(value)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        with self._db.session(exclusive=False) as db:
+            rows = db.all(
+                "SELECT f.id, f.decision_id, f.created_at, f.pack_id, f.rating, f.reporter, "
+                "f.note, d.record FROM feedback f JOIN decisions d ON d.id = f.decision_id "
+                f"{where} ORDER BY f.created_at DESC LIMIT ?",
+                (*params, limit),
+            )
+        return [{**row, "record": json.loads(row["record"])} for row in rows]
 
     def reports(self, pack_id: str | None = None) -> list[dict[str, Any]]:
         where, params = ("WHERE pack_id = ?", (pack_id,)) if pack_id else ("", ())

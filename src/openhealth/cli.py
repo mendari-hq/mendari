@@ -207,6 +207,21 @@ def cmd_audit_verify(args: argparse.Namespace) -> int:
     return 0 if status["ok"] else 1
 
 
+def cmd_feedback_export(args: argparse.Namespace) -> int:
+    from openhealth.evals.feedback import feedback_dataset
+
+    pack = resolve_pack(args.pack)
+    with AuditStore(args.db) as store:
+        records, skipped = feedback_dataset(store, pack_id=pack.id, rating=args.rating)
+    _write_jsonl(Path(args.out), records)
+    print(
+        f"{len(records)} rated decisions -> {args.out}"
+        + (f" ({skipped} skipped: input stored as hash only)" if skipped else "")
+    )
+    print("Fill in each record's `labels`, then use the file with `openhealth eval --dataset`.")
+    return 0
+
+
 def cmd_sandbox_generate(args: argparse.Namespace) -> int:
     from openhealth.sandbox import synthetic_inbox
 
@@ -334,6 +349,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--db", default="var/openhealth.db", help="SQLite path or postgresql:// URL"
     )
     verify.set_defaults(handler=cmd_audit_verify)
+
+    feedback = sub.add_parser("feedback", help="thumbs up / down feedback").add_subparsers(
+        dest="feedback_command", required=True
+    )
+    export = feedback.add_parser("export", help="export rated decisions as a dataset to label")
+    export.add_argument("pack", help="pack id or directory")
+    export.add_argument(
+        "--db", default="var/openhealth.db", help="SQLite path or postgresql:// URL"
+    )
+    export.add_argument("--rating", choices=["down", "up"], default="down")
+    export.add_argument("--out", required=True, help="JSONL file to write")
+    export.set_defaults(handler=cmd_feedback_export)
 
     sandbox = sub.add_parser("sandbox", help="synthetic sandbox tools").add_subparsers(
         dest="sandbox_command", required=True
