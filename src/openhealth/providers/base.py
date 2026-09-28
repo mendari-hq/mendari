@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import math
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Hashable, Iterator, Mapping
 from dataclasses import asdict, dataclass, field
 from typing import Any, ClassVar
 
@@ -89,6 +89,23 @@ class Provider(ABC):
         """Raise ProviderError if the provider cannot be called at all (e.g. not configured).
 
         Runs before any call is counted against a budget."""
+
+    # Batching (see `providers.batch`): providers of one type with equal keys may share a call.
+    max_batch_questions: ClassVar[int] = 0
+
+    def leaves(self) -> Iterator[Provider]:
+        """The providers that make calls: this one, or a composite's members."""
+        yield self
+
+    def batch_key(self) -> Hashable | None:
+        """A key shared by providers that can be asked in one call, or None (never batched)."""
+        return None
+
+    def answer_batch(
+        self, providers: list[Provider], inputs: Mapping[str, Any]
+    ) -> list[ProviderOutput]:
+        """Answer for `providers` (this one first) in one call, one output each."""
+        raise NotImplementedError(f"{self.type} providers do not batch")
 
     @abstractmethod
     def answer(self, inputs: Mapping[str, Any]) -> ProviderOutput:

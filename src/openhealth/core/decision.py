@@ -21,6 +21,7 @@ from openhealth.core.registry import resolve_pack
 from openhealth.core.spec import Outcome, Priority
 from openhealth.errors import PackValidationError, ProviderError
 from openhealth.providers import Answer, Provider, ProviderInfo, build_provider
+from openhealth.providers.batch import batching
 
 if TYPE_CHECKING:
     from openhealth.core.audit import AuditStore
@@ -170,18 +171,21 @@ class Decision:
                 reasons=tuple(f"input rejected: {problem}" for problem in problems),
             )
         else:
-            for slot, provider in self.providers.items():
-                try:
-                    provider.preflight()
-                    output = provider.answer(inputs)
-                except ProviderError as error:
-                    failures.update(dict.fromkeys(manifest.providers[slot].answers, error.code))
-                    continue
-                answers.update(output.answers)
-                failures.update(output.failures)
-                tokens_in += output.input_tokens
-                tokens_out += output.output_tokens
-                cost = None if cost is None or output.cost_usd is None else cost + output.cost_usd
+            with batching(self.providers.values()):
+                for slot, provider in self.providers.items():
+                    try:
+                        provider.preflight()
+                        output = provider.answer(inputs)
+                    except ProviderError as error:
+                        failed = dict.fromkeys(manifest.providers[slot].answers, error.code)
+                        failures.update(failed)
+                        continue
+                    answers.update(output.answers)
+                    failures.update(output.failures)
+                    tokens_in += output.input_tokens
+                    tokens_out += output.output_tokens
+                    if cost is not None:
+                        cost = None if output.cost_usd is None else cost + output.cost_usd
             complete_answers(manifest, answers, failures)
             policy = apply_policy(manifest, answers, failures, self.governance)
 

@@ -1,9 +1,14 @@
-"""Jev adapter: fast, bounded probabilistic answers to typed choice questions.
+"""Jev adapter: fast, bounded probabilistic answers to typed questions.
 
-A pack's questions map one-to-one onto Jev `choice` questions (instructions + label criteria),
-and Jev returns a probability for every label, so no prompt engineering or output parsing is
-needed. Responses are validated strictly; anything unexpected is an `invalid_response`, never a
+A pack's questions map one-to-one onto Jev questions (instructions + label criteria):
+`choice` → `choice`, `boolean` → `noul` (P(yes)), `score` → `score` (ordered levels). Jev
+returns a probability for every label, so no prompt engineering or output parsing is needed.
+Responses are validated strictly; anything unexpected is an `invalid_response`, never a
 best-effort guess.
+
+All the Jev questions of one decision go in one call (see `providers.batch`): variants that
+share endpoint, model and credentials are merged, and the state sent is the union of their
+`state_fields`. A variant opts out with `batch: false`.
 
 Deployment configuration (none of it lives in the pack):
 - `JEV_API_URL`: the endpoint to call (required; https, or http for localhost only).
@@ -18,7 +23,7 @@ import json
 import math
 import os
 import re
-from collections.abc import Mapping
+from collections.abc import Hashable, Mapping
 from dataclasses import replace
 from typing import Any
 from urllib.parse import urlparse
@@ -26,8 +31,10 @@ from urllib.parse import urlparse
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from openhealth.core.spec import Question
 from openhealth.errors import PackValidationError, ProviderError
 from openhealth.providers.base import Answer, Provider, ProviderOutput, get_path
+from openhealth.providers.batch import batched_answer
 from openhealth.providers.credentials import resolve_key
 
 MODEL_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}$"
@@ -49,11 +56,14 @@ class JevConfig(BaseModel):
     endpoint_env: str = "JEV_API_URL"
     model_env: str = "JEV_MODEL"
     cost_per_1k_tokens_usd: float | None = Field(default=None, ge=0)
+    # Share one call with the decision's other Jev questions (union of state_fields).
+    batch: bool = True
 
 
 class JevProvider(Provider):
     type = "jev"
     remote = True
+    max_batch_questions = MAX_QUESTIONS
 
     def __init__(self, *args: Any, client: httpx.Client | None = None, **kwargs: Any):
         super().__init__(*args, **kwargs)
@@ -90,54 +100,72 @@ class JevProvider(Provider):
         _require_secure(endpoint)
         return self.model, endpoint
 
-    def request_body(self, inputs: Mapping[str, Any]) -> dict[str, Any]:
-        fields = self.settings.state_fields
-        state = dict(inputs) if fields is None else _select(inputs, fields)
-        return {
-            "model": self.model,
-            "state": state,
-            "questions": {
-                key: {
-                    "type": "choice",
-                    "instructions": q.instructions,
-                    "criteria": dict(q.criteria),
-                }
-                for key, q in self.questions.items()
-            },
-        }
+    def batch_key(self) -> Hashable | None:
+        if not self.settings.batch:
+            return None
+        settings = self.settings
+        return (
+            os.environ.get(settings.endpoint_env, "").strip(),
+            self.model,
+            settings.api_key_env,
+            settings.connector_env,
+            settings.timeout_ms,
+            settings.cost_per_1k_tokens_usd,
+        )
 
     def answer(self, inputs: Mapping[str, Any]) -> ProviderOutput:
+        shared = batched_answer(self, inputs)
+        return shared if shared is not None else self.answer_batch([self], inputs)[0]
+
+    def answer_batch(
+        self, providers: list[Provider], inputs: Mapping[str, Any]
+    ) -> list[ProviderOutput]:
+        """One Jev call for `providers` (this one first). The call's usage and cost are
+        reported by this provider only, so a decision's totals count them once."""
+        batch = [provider for provider in providers if isinstance(provider, JevProvider)]
+        if len(batch) != len(providers):
+            raise TypeError("a Jev batch holds only Jev providers")
         model, endpoint = self._configured()
         self.charge()
         token = resolve_key(
             key_env=self.settings.api_key_env, connector_env=self.settings.connector_env
         )
 
-        body = self.request_body(inputs)
+        questions = {key: q for provider in batch for key, q in provider.questions.items()}
+        body = request_body(model, batch, questions, inputs)
         if len(json.dumps(body)) > MAX_REQUEST_CHARS:
             raise ProviderError("invalid_input", "request exceeds Jev's size limit")
 
         raw = self._send(endpoint, token, body)
-        effective, answers, usage = validate_response(raw, self.questions)
-        total = usage["input_tokens"] + usage["output_tokens"]
+        effective, answers, usage = validate_response(raw, questions)
+        tokens = usage["input_tokens"] + usage["output_tokens"]
         price = self.settings.cost_per_1k_tokens_usd
-        answered_by = replace(self.info, model=effective)
-        return ProviderOutput(
-            answers={
-                key: Answer(
-                    question=key,
-                    label=answer["choice"],
-                    confidence=answer["confidence"],
-                    probabilities=answer["probabilities"],
-                    provider=answered_by,
+        extra: dict[str, Any] = {"requested_model": model, "effective_model": effective}
+        if len(batch) > 1:
+            extra["batch"] = [f"{p.info.slot}/{p.info.variant}" for p in batch]
+        outputs = []
+        for provider in batch:
+            lead = provider is self
+            answered_by = replace(provider.info, model=effective)
+            outputs.append(
+                ProviderOutput(
+                    answers={
+                        key: Answer(
+                            question=key,
+                            label=answers[key]["label"],
+                            confidence=answers[key]["confidence"],
+                            probabilities=answers[key]["probabilities"],
+                            provider=answered_by,
+                        )
+                        for key in provider.questions
+                    },
+                    input_tokens=usage["input_tokens"] if lead else 0,
+                    output_tokens=usage["output_tokens"] if lead else 0,
+                    cost_usd=None if price is None else (tokens / 1000 * price if lead else 0.0),
+                    extra=extra,
                 )
-                for key, answer in answers.items()
-            },
-            input_tokens=usage["input_tokens"],
-            output_tokens=usage["output_tokens"],
-            cost_usd=None if price is None else total / 1000 * price,
-            extra={"requested_model": model, "effective_model": effective},
-        )
+            )
+        return outputs
 
     def _send(self, endpoint: str, token: str, body: dict[str, Any]) -> Any:
         timeout = httpx.Timeout(self.settings.timeout_ms / 1000)
@@ -208,11 +236,48 @@ def list_models(
     ]
 
 
+def request_body(
+    model: str,
+    providers: list[JevProvider],
+    questions: Mapping[str, Question],
+    inputs: Mapping[str, Any],
+) -> dict[str, Any]:
+    """The request for one call. The state is the union of the providers' `state_fields`
+    (the whole input if any of them sends everything)."""
+    selections = [provider.settings.state_fields for provider in providers]
+    if any(fields is None for fields in selections):
+        state = dict(inputs)
+    else:
+        state = _select(
+            inputs, list(dict.fromkeys(f for fields in selections for f in fields or []))
+        )
+    return {
+        "model": model,
+        "state": state,
+        "questions": {key: jev_question(question) for key, question in questions.items()},
+    }
+
+
+def jev_question(question: Question) -> dict[str, Any]:
+    if question.type == "boolean":
+        criteria = {"true": question.criteria["yes"], "false": question.criteria["no"]}
+        return {"type": "noul", "instructions": question.instructions, "criteria": criteria}
+    if question.type == "score":
+        # Jev scores levels by position (0, 1, ...); `labels` is ordered by score.
+        levels = [question.criteria[label] for label in question.labels]
+        return {"type": "score", "instructions": question.instructions, "criteria": levels}
+    return {
+        "type": "choice",
+        "instructions": question.instructions,
+        "criteria": dict(question.criteria),
+    }
+
+
 PROBABILITY_SUM_TOLERANCE = 0.01  # Jev documents probabilities as summing to "approximately 1"
 
 
 def validate_response(
-    raw: Any, questions: Mapping[str, Any]
+    raw: Any, questions: Mapping[str, Question]
 ) -> tuple[str, dict[str, dict[str, Any]], dict[str, int]]:
     """Strict validation against Jev's published schema. Raises `invalid_response`.
 
@@ -220,45 +285,29 @@ def validate_response(
     requested when the request used an alias such as `jev-latest`; the effective one is what
     gets recorded in audit provenance.
     """
-
-    def invalid(detail: str) -> ProviderError:
-        return ProviderError("invalid_response", detail)
-
     if not isinstance(raw, dict):
-        raise invalid("response is not an object")
+        raise _invalid("response is not an object")
     effective = raw.get("model")
     if not isinstance(effective, str) or not re.match(MODEL_PATTERN, effective):
-        raise invalid("missing or malformed model")
+        raise _invalid("missing or malformed model")
     answers, usage = raw.get("answers"), raw.get("usage")
     if not isinstance(answers, dict) or not isinstance(usage, dict):
-        raise invalid("answers and usage must be objects")
+        raise _invalid("answers and usage must be objects")
     if set(answers) != set(questions):
-        raise invalid("answers do not match the questions asked")
+        raise _invalid("answers do not match the questions asked")
 
     validated = {}
     for key, question in questions.items():
         answer = answers[key]
-        labels = set(question.criteria)
-        if (
-            not isinstance(answer, dict)
-            or answer.get("type") != "choice"
-            or answer.get("choice") not in labels
-            or not _probability(answer.get("confidence"))
-            or not isinstance(answer.get("probabilities"), dict)
-        ):
-            raise invalid(f"answer {key!r} is malformed")
-        probabilities = answer["probabilities"]
-        if set(probabilities) != labels or not all(map(_probability, probabilities.values())):
-            raise invalid(f"answer {key!r} has malformed probabilities")
-        if abs(sum(probabilities.values()) - 1) > PROBABILITY_SUM_TOLERANCE:
-            raise invalid(f"answer {key!r} probabilities do not sum to 1")
-        if probabilities[answer["choice"]] < max(probabilities.values()) - 0.00001:
-            raise invalid(f"answer {key!r} choice is not the most probable label")
-        validated[key] = {
-            "choice": answer["choice"],
-            "confidence": float(answer["confidence"]),
-            "probabilities": {label: float(p) for label, p in probabilities.items()},
-        }
+        expected = {"boolean": "noul", "score": "score"}.get(question.type, "choice")
+        if not isinstance(answer, dict) or answer.get("type") != expected:
+            raise _invalid(f"answer {key!r} is malformed")
+        if expected == "noul":
+            validated[key] = _noul(key, answer)
+        elif expected == "score":
+            validated[key] = _score(key, question, answer)
+        else:
+            validated[key] = _choice(key, question, answer)
 
     tokens_in, tokens_out = usage.get("input_tokens"), usage.get("output_tokens")
     if (
@@ -270,8 +319,92 @@ def validate_response(
         or tokens_out < 0
         or tokens_in + tokens_out > MAX_TOKENS
     ):
-        raise invalid("usage is malformed")
+        raise _invalid("usage is malformed")
     return effective, validated, {"input_tokens": tokens_in, "output_tokens": tokens_out}
+
+
+def _invalid(detail: str) -> ProviderError:
+    return ProviderError("invalid_response", detail)
+
+
+def _choice(key: str, question: Question, answer: dict[str, Any]) -> dict[str, Any]:
+    labels = set(question.criteria)
+    if (
+        answer.get("choice") not in labels
+        or not _probability(answer.get("confidence"))
+        or not isinstance(answer.get("probabilities"), dict)
+    ):
+        raise _invalid(f"answer {key!r} is malformed")
+    probabilities = answer["probabilities"]
+    if set(probabilities) != labels:
+        raise _invalid(f"answer {key!r} has malformed probabilities")
+    probabilities = _distribution(key, probabilities)
+    if probabilities[answer["choice"]] < max(probabilities.values()) - 0.00001:
+        raise _invalid(f"answer {key!r} choice is not the most probable label")
+    return {
+        "label": answer["choice"],
+        "confidence": float(answer["confidence"]),
+        "probabilities": probabilities,
+    }
+
+
+def _noul(key: str, answer: dict[str, Any]) -> dict[str, Any]:
+    p_yes = answer.get("noul")
+    if not isinstance(p_yes, int | float) or not _probability(p_yes):
+        raise _invalid(f"answer {key!r} is malformed")
+    probabilities = {"yes": float(p_yes), "no": 1.0 - float(p_yes)}
+    label = "yes" if probabilities["yes"] >= 0.5 else "no"
+    return {"label": label, "confidence": probabilities[label], "probabilities": probabilities}
+
+
+def _score(key: str, question: Question, answer: dict[str, Any]) -> dict[str, Any]:
+    """Jev keys score levels by position; `legend` maps its keys to our ordered levels."""
+    labels = question.labels
+    levels = [question.criteria[label] for label in labels]
+    legend, probabilities = answer.get("legend"), answer.get("probabilities")
+    score = answer.get("score")
+    if (
+        not isinstance(legend, dict)
+        or not isinstance(probabilities, dict)
+        or set(probabilities) != set(legend)
+        or not _probability(answer.get("confidence"))
+        or not isinstance(score, int | float)
+        or isinstance(score, bool)
+        or not math.isfinite(score)
+        or not 0 <= score <= len(labels) - 1
+    ):
+        raise _invalid(f"answer {key!r} is malformed")
+    positions = _legend_positions(legend, levels)
+    if positions is None:
+        raise _invalid(f"answer {key!r} legend does not match the requested levels")
+    by_label = {labels[positions[k]]: p for k, p in probabilities.items()}
+    distribution = _distribution(key, by_label)
+    label = max(distribution, key=lambda item: distribution[item])
+    # Confidence is the probability of the most likely level, as for every other provider.
+    return {"label": label, "confidence": distribution[label], "probabilities": distribution}
+
+
+def _legend_positions(legend: dict[str, Any], levels: list[str]) -> dict[str, int] | None:
+    """Accepts {"0": <criterion>, ...} or {<criterion>: 0, ...}; anything else is None."""
+    count = len(levels)
+    if set(legend) == {str(i) for i in range(count)}:
+        return {k: int(k) for k in legend}
+    if len(set(levels)) == count and set(legend) == set(levels):
+        positions = {text: levels.index(text) for text in legend}
+        if all(
+            isinstance(v, int | float) and not isinstance(v, bool) and v == positions[k]
+            for k, v in legend.items()
+        ):
+            return positions
+    return None
+
+
+def _distribution(key: str, probabilities: dict[str, Any]) -> dict[str, float]:
+    if not all(map(_probability, probabilities.values())):
+        raise _invalid(f"answer {key!r} has malformed probabilities")
+    if abs(sum(probabilities.values()) - 1) > PROBABILITY_SUM_TOLERANCE:
+        raise _invalid(f"answer {key!r} probabilities do not sum to 1")
+    return {label: float(p) for label, p in probabilities.items()}
 
 
 def _probability(value: Any) -> bool:

@@ -9,7 +9,8 @@ Roadmap to the full goal: [`docs/roadmap.md`](../docs/roadmap.md).
   `tests/fixtures/packs/trial-mini`
 - [ ] LLM provider via Vercel AI Gateway (Claude default; OpenAI-compatible local models)
 - [ ] Composition: `cascade` and weighted voting
-- [ ] Jev: one call per decision, parallel slots, `noul` / `score`
+- [x] Jev: one call per decision (per-decision batching, one budget unit), `noul` / `score`
+  mapping (live check of `score`/`noul` deferred to the trial pack in v0.3)
 - [ ] Harder inbox benchmark + held-out splits for every critical label
 - [ ] Exit: inbox provider leaderboard; red-flag sets fully caught with the deployed mix
 

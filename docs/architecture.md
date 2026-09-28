@@ -30,6 +30,9 @@
 - **Policy** (`core/policy.py`): a pure function from answers and failures to an outcome. It
   holds all automation limits, including risk-level caps and governance overrides.
 - **Providers** (`providers/`): a common `answer(inputs) -> ProviderOutput` contract.
+  Within one decision, remote providers that share an endpoint and model are merged into a
+  single call (`providers/batch.py`): the inbox router and the Jev half of its safety screen
+  make one Jev call and use one budget unit.
 - **Audit** (`core/audit.py`): write-once decision records. Reviews and outcomes are appended
   as events, the hash chain is verifiable, and the store also serves the review queue and
   live statistics.
@@ -59,7 +62,9 @@
   identified by digest and SHOULD be reviewed like code. v0.1 loads packs only from local
   paths.
 - **Remote providers** (Jev) receive only `state_fields` over HTTPS, with credentials read
-  from the environment. Their responses are validated strictly and bounded in size.
+  from the environment. Their responses are validated strictly and bounded in size. A batched
+  call sends the union of its variants' `state_fields`; a variant that must not share its
+  state sets `batch: false`.
 - **The server** has no authentication in v0.1 and binds to localhost by default. The docker
   sandbox publishes ports on 127.0.0.1 only.
 - **CDS Hooks** does not call back into caller-supplied FHIR servers, which avoids SSRF. Data

@@ -11,7 +11,7 @@ policy never automates a decision whose safety screen ran incomplete.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import replace
 from typing import Any
 
@@ -77,6 +77,10 @@ class AnyOfProvider(Provider):
         super().use_budget(acquire)
         for member in self.members.values():
             member.use_budget(acquire)
+
+    def leaves(self) -> Iterator[Provider]:
+        for member in self.members.values():
+            yield from member.leaves()
 
     def answer(self, inputs: Mapping[str, Any]) -> ProviderOutput:
         outputs: dict[str, ProviderOutput] = {}
