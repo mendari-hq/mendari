@@ -77,6 +77,7 @@ class Pack:
                         },
                     },
                     "provider": {"type": "object"},
+                    "value": {"type": "number"},
                 },
             }
             for key, question in m.questions.items()

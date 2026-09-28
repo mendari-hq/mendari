@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 from jsonschema import Draft202012Validator
 
+from openhealth.core.derive import complete_answers
 from openhealth.core.pack import Pack, load_pack
 from openhealth.core.policy import GovernanceOverride, PolicyResult, apply_policy
 from openhealth.core.registry import resolve_pack
@@ -181,6 +182,7 @@ class Decision:
                 tokens_in += output.input_tokens
                 tokens_out += output.output_tokens
                 cost = None if cost is None or output.cost_usd is None else cost + output.cost_usd
+            complete_answers(manifest, answers, failures)
             policy = apply_policy(manifest, answers, failures, self.governance)
 
         result = DecisionResult(

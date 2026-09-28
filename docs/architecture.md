@@ -24,6 +24,9 @@
   `OPENHEALTH_PACKS_PATH` and the bundled packs.
 - **Runtime** (`core/decision.py`): binds a pack to concrete provider variants. It validates
   input, collects answers, applies policy and optionally records the result.
+- **Derived questions** (`core/derive.py`): computes decision-table questions from their
+  members' answers with exact probabilities (spec 0.2 §4.3), and adds expected values to score
+  answers.
 - **Policy** (`core/policy.py`): a pure function from answers and failures to an outcome. It
   holds all automation limits, including risk-level caps and governance overrides.
 - **Providers** (`providers/`): a common `answer(inputs) -> ProviderOutput` contract.
@@ -41,7 +44,8 @@
    mapped onto the pack input by `fhir/mapping.yaml`.
 2. JSON Schema validation. Invalid input becomes `BLOCK`, and no provider sees it.
 3. Each provider slot answers its questions. A provider error is recorded per question and
-   never raised to the caller.
+   never raised to the caller. Derived questions are then computed from their members'
+   answers, and score answers get their expected value.
 4. Policy: rules, then thresholds, then caps.
 5. The `DecisionResult` is returned. With a store attached, the record is written and
    `decision.created` is chained. `HUMAN_REVIEW` and `ABSTAIN` enter the review queue.

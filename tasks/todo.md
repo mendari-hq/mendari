@@ -3,8 +3,10 @@
 Roadmap to the full goal: [`docs/roadmap.md`](../docs/roadmap.md).
 
 ## Current milestone: v0.2 Model-agnostic core
-- [ ] Detailed v0.2 plan approved
-- [ ] Spec 0.2: `boolean` / `score` question types, question groups with aggregation, derived outputs
+- [x] Detailed v0.2 plan approved (5 PRs: spec, Jev batching, composition, LLM, leaderboard)
+- [x] Spec 0.2: `boolean` / `score` question types, derived questions (decision tables with exact
+  probabilities), `min_score`/`max_score` rules; `docs/spec/decision-pack-0.2.md`; fixture pack
+  `tests/fixtures/packs/trial-mini`
 - [ ] LLM provider via Vercel AI Gateway (Claude default; OpenAI-compatible local models)
 - [ ] Composition: `cascade` and weighted voting
 - [ ] Jev: one call per decision, parallel slots, `noul` / `score`

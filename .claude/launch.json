@@ -6,6 +6,12 @@
       "runtimeExecutable": "uv",
       "runtimeArgs": ["run", "openhealth", "serve", "--port", "8391", "--db", "var/dev.db"],
       "port": 8391
+    },
+    {
+      "name": "openhealth-fixtures",
+      "runtimeExecutable": "env",
+      "runtimeArgs": ["OPENHEALTH_PACKS_PATH=tests/fixtures/packs", "uv", "run", "openhealth", "serve", "--port", "8392", "--db", "var/fixtures.db"],
+      "port": 8392
     }
   ]
 }

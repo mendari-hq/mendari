@@ -27,7 +27,7 @@ Clinical/EHR data (FHIR R4, CDS Hooks, REST)
 
 | MVP item | Where |
 |---|---|
-| Decision Pack specification | [`docs/spec/decision-pack-0.1.md`](docs/spec/decision-pack-0.1.md), [`src/openhealth/core/spec.py`](src/openhealth/core/spec.py) |
+| Decision Pack specification | [`docs/spec/decision-pack-0.2.md`](docs/spec/decision-pack-0.2.md) (0.1: [`decision-pack-0.1.md`](docs/spec/decision-pack-0.1.md)), [`src/openhealth/core/spec.py`](src/openhealth/core/spec.py) |
 | OpenHealth runtime | [`src/openhealth/core/decision.py`](src/openhealth/core/decision.py), [`policy.py`](src/openhealth/core/policy.py) |
 | Jev provider adapter | [`src/openhealth/providers/jev.py`](src/openhealth/providers/jev.py) |
 | FHIR adapter + CDS Hooks | [`src/openhealth/standards/`](src/openhealth/standards) |
