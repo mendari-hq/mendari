@@ -154,3 +154,22 @@ Any reported miss becomes a behaviour test in `tests/cases.yaml`.
 ### Verification
 `openhealth eval <pack> --dataset red_flags_holdout --provider safety_screen=rules_and_jev`
 shows every urgent case detected and none automated.
+
+## 2026-09-28 - process
+
+### What happened
+PR 4's work was committed on local `main` because no feature branch was created after the
+previous merge. The push failed (no such branch; `main` is protected), so nothing reached the
+remote. The commit was moved to `feat/llm-provider` and local `main` reset to `origin/main`.
+
+### Root cause
+Branch creation was folded into the "merge and verify" step of the previous PR in the other
+cycles, and was skipped when the next PR started from a docs lookup instead.
+
+### Rule
+The first command of every PR's work is `git checkout -b <branch>` from an up-to-date `main`,
+before any file is edited.
+
+### Verification
+`git branch --show-current` is not `main` before the first edit; `git log origin/main..main`
+is empty after every merge.

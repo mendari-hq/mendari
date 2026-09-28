@@ -164,6 +164,44 @@ def cmd_train(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_calibrate(args: argparse.Namespace) -> int:
+    from openhealth.evals import resolve_dataset
+    from openhealth.providers import build_provider
+    from openhealth.providers.llm import LlmProvider, fit_calibration
+
+    pack = resolve_pack(args.pack)
+    provider = build_provider(pack, args.slot, args.variant)
+    if not isinstance(provider, LlmProvider):
+        raise OpenHealthError(f"{args.slot}/{args.variant} is not an llm variant")
+    dataset = resolve_dataset(pack, args.dataset)
+    records = dataset.records[: args.limit] if args.limit else dataset.records
+    print(f"asking {provider.model} about {len(records)} {dataset.name} records...")
+    fitted = fit_calibration(provider, records, workers=args.workers)
+    fitted["fitted_on"] = {
+        "dataset": dataset.name,
+        "sha256": dataset.sha256,
+        "records": len(records),
+    }
+    relative = (
+        provider.settings.calibration or f"models/{args.slot}-{args.variant}-calibration.json"
+    )
+    target = pack.path(relative)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(fitted, indent=2) + "\n", encoding="utf-8")
+    for question, stats in fitted["questions"].items():
+        print(
+            f"  {question}: T={fitted['temperatures'][question]} on {stats['examples']} examples "
+            f"(NLL {stats['nll_before']} -> {stats['nll_after']})"
+        )
+    if fitted["failures"]:
+        print(f"  failed calls: {fitted['failures']}")
+    print(f"cost: ${fitted['cost_usd']}" if fitted["cost_usd"] is not None else "cost: unknown")
+    print(f"-> {relative}")
+    if provider.settings.calibration is None:
+        print(f"add `calibration: {relative}` to the {args.slot}/{args.variant} variant to use it")
+    return 0
+
+
 def cmd_card(args: argparse.Namespace) -> int:
     from openhealth.core.card import render_card
 
@@ -324,6 +362,15 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--slot", help="only this provider slot")
     train.add_argument("--train", default="train", help="training dataset (default: train)")
     train.add_argument("--calibration", default="calibration", help="calibration dataset")
+
+    calibrate = pack_command(
+        "calibrate", cmd_calibrate, "fit per-question temperatures for an llm variant (live calls)"
+    )
+    calibrate.add_argument("--slot", required=True, help="provider slot")
+    calibrate.add_argument("--variant", required=True, help="llm variant of the slot")
+    calibrate.add_argument("--dataset", default="calibration", help="labelled dataset")
+    calibrate.add_argument("--limit", type=int, default=200, help="records to use (default 200)")
+    calibrate.add_argument("--workers", type=int, default=8, help="parallel calls (default 8)")
 
     card = pack_command("card", cmd_card, "render the Decision Card")
     card.add_argument("--write", action="store_true", help="write DECISION_CARD.md into the pack")

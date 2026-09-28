@@ -5,7 +5,8 @@ Configuration comes from the environment:
   functions have no persistent disk, and an audit trail that silently disappears is worse
   than none. `DATABASE_URL_UNPOOLED` (direct) is used for schema setup when present.
 - `OPENHEALTH_PROVIDERS`: provider variants, e.g. `router=jev`.
-- `OPENHEALTH_JEV_DAILY_LIMIT`: daily Jev call budget.
+- `OPENHEALTH_JEV_DAILY_LIMIT`, `OPENHEALTH_LLM_DAILY_LIMIT`: daily call budgets.
+- `LLM_MODEL`: default model for `llm` variants (AI Gateway id, e.g. anthropic/claude-sonnet-5).
 - `JEV_API_URL`, `JEV_MODEL`, `JEV_CONNECTOR`: see `openhealth.providers.jev`.
 """
 

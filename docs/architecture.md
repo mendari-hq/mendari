@@ -61,8 +61,10 @@
 - **Pack content is code-adjacent.** Regexes, models and policies change behaviour. Packs are
   identified by digest and SHOULD be reviewed like code. v0.1 loads packs only from local
   paths.
-- **Remote providers** (Jev) receive only `state_fields` over HTTPS, with credentials read
-  from the environment. Their responses are validated strictly and bounded in size. A batched
+- **Remote providers** (Jev, LLMs) receive only `state_fields` over HTTPS (plain http only
+  to a model server on localhost), with credentials read from the environment or the
+  deployment's OIDC token. LLM prompts carry the input as JSON data under a system prompt that
+  forbids following it, and the response schema is fixed by the pack. Their responses are validated strictly and bounded in size. A batched
   call sends the union of its variants' `state_fields`; a variant that must not share its
   state sets `batch: false`.
 - **The server** has no authentication in v0.1 and binds to localhost by default. The docker

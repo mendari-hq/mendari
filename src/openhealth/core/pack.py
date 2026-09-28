@@ -174,7 +174,11 @@ def _referenced_files(m: PackManifest) -> list[str]:
             if isinstance(members, dict):
                 configs.extend(member for member in members.values() if isinstance(member, dict))
             for config in configs:
-                files.extend(config[key] for key in ("config", "model_file") if key in config)
+                files.extend(
+                    config[key]
+                    for key in ("config", "model_file", "calibration")
+                    if isinstance(config.get(key), str)
+                )
     return files
 
 

@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from openhealth.errors import OpenHealthError
 
 DEFAULT_JEV_DAILY_LIMIT = 500
+DEFAULT_LLM_DAILY_LIMIT = 500
 
 
 def parse_providers(values: Sequence[str] | None) -> dict[str, str]:
@@ -26,7 +27,13 @@ def parse_providers(values: Sequence[str] | None) -> dict[str, str]:
 
 def daily_limits() -> dict[str, int]:
     """Per-provider-type daily call budgets. Only remote, metered providers are limited."""
-    raw = os.environ.get("OPENHEALTH_JEV_DAILY_LIMIT", str(DEFAULT_JEV_DAILY_LIMIT)).strip()
-    if not raw.isdigit():
-        raise OpenHealthError("OPENHEALTH_JEV_DAILY_LIMIT must be a non-negative integer")
-    return {"jev": int(raw)}
+    limits = {}
+    for provider, variable, default in (
+        ("jev", "OPENHEALTH_JEV_DAILY_LIMIT", DEFAULT_JEV_DAILY_LIMIT),
+        ("llm", "OPENHEALTH_LLM_DAILY_LIMIT", DEFAULT_LLM_DAILY_LIMIT),
+    ):
+        raw = os.environ.get(variable, str(default)).strip()
+        if not raw.isdigit():
+            raise OpenHealthError(f"{variable} must be a non-negative integer")
+        limits[provider] = int(raw)
+    return limits

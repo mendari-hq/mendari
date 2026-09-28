@@ -186,7 +186,9 @@ variant (`providers={"router": "jev"}`) MUST NOT change the pack's questions, po
 tests.
 
 Built-in types: `rules` (deterministic patterns with negation handling and optional typo
-tolerance), `naive_bayes` (local, temperature-calibrated text classifier), `jev`, and three
+tolerance), `naive_bayes` (local, temperature-calibrated text classifier), `jev`, `llm` (a chat
+model through an OpenAI-compatible API, asked for one probability per label and optionally
+calibrated per question), and three
 composites whose inline `members` are other (non-composite) variants: `any_of` (the most
 alarming answer wins; for safety screens), `cascade` (members in order, the first whose
 confidence on every slot question is ≥ `accept_at` is accepted; the last always is) and `vote`
