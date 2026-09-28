@@ -11,6 +11,7 @@ from typing import Any, ClassVar
 
 from openhealth.core.pack import Pack
 from openhealth.core.spec import Question
+from openhealth.errors import ProviderError
 
 
 @dataclass(frozen=True)
@@ -103,8 +104,9 @@ class Provider(ABC):
 
     def answer_batch(
         self, providers: list[Provider], inputs: Mapping[str, Any]
-    ) -> list[ProviderOutput]:
-        """Answer for `providers` (this one first) in one call, one output each."""
+    ) -> list[ProviderOutput | ProviderError]:
+        """Answer for `providers` (this one first) in one call: one output each, or an error in
+        place of the output of a provider whose own answers were unusable."""
         raise NotImplementedError(f"{self.type} providers do not batch")
 
     @abstractmethod

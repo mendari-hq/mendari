@@ -16,8 +16,10 @@ Roadmap to the full goal: [`docs/roadmap.md`](../docs/roadmap.md).
 - [ ] Harder inbox benchmark + held-out splits for every critical label (paraphrase tooling: next PR)
 - [x] Leaderboard (`openhealth leaderboard`, card + dashboard), inbox pack 0.2.0 variants
   (`llm`, `cascade`, `rules_and_llm`)
-- [ ] Complete the leaderboard: Haiku 4.5 and gpt-oss-120b rows (blocked: AI Gateway credit
-  balance empty, HTTP 402), Jev rows (after the Jev upgrade), cascade on `test`
+- [x] Leaderboard LLM rows: Claude Sonnet 5, Claude Haiku 4.5, gpt-oss-120b (each with
+  `rules_and_llm` and LLM-only screens)
+- [ ] Leaderboard Jev rows (after the Jev upgrade): `router=jev,safety_screen=rules_and_jev`,
+  `router=cascade` on `test`
 - [ ] Choose the deployed mix with the user; set `OPENHEALTH_PROVIDERS` / `LLM_MODEL`
 - [ ] Exit: inbox provider leaderboard; red-flag sets fully caught with the deployed mix
 

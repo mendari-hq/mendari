@@ -321,3 +321,37 @@ def test_calibration_is_fitted_and_applied_to_the_same_model_only(
         pack, calibration="models/router-llm-calibration.json", model="openai/gpt-oss-120b"
     )
     assert other.temperatures == {}  # fitted on another model: not used
+
+
+def test_a_malformed_answer_never_discards_another_slots_safety_answer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Observed live (red_flags_holdout, Claude Sonnet 5): on an emergency, no routing team
+    # fits, so the destination probabilities sum to 0.05. The urgency answer is valid.
+    monkeypatch.setenv("AI_GATEWAY_API_KEY", "k")
+    content = {
+        "destination": {
+            "front_desk": 0.0,
+            "medical_assistant": 0.0,
+            "nurse": 0.05,
+            "physician": 0.0,
+            "billing": 0.0,
+        },
+        "urgency": {"urgent": 0.98, "routine": 0.02},
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        asked = body["response_format"]["json_schema"]["schema"]["properties"]
+        return httpx.Response(200, json=completion({q: content[q] for q in asked}))
+
+    install(monkeypatch, handler)
+    # The router's `llm` and rules_and_llm's member share settings, so they share one call.
+    pack = pack_with_llm(tmp_path, reasoning_effort="low")
+    decision = Decision(pack, providers={"router": "llm", "safety_screen": "rules_and_llm"})
+    result = decision(message("My friend swallowed a whole bottle of pills an hour ago"))
+    assert result.answers["urgency"].label == "urgent"
+    assert result.priority.value == "stat"  # the emergency still escalates
+    assert result.errors == {"destination": "invalid_response"}
+    assert result.outcome.value != "AUTO"
+    assert result.cost_usd == 0.0012  # the call's cost is still counted, once
