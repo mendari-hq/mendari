@@ -6,13 +6,22 @@ from openhealth.core.pack import Pack
 from openhealth.errors import PackValidationError
 from openhealth.providers.any_of import AnyOfProvider
 from openhealth.providers.base import Answer, Provider, ProviderInfo, ProviderOutput
+from openhealth.providers.cascade import CascadeProvider
 from openhealth.providers.jev import JevProvider
 from openhealth.providers.naive_bayes import NaiveBayesProvider
 from openhealth.providers.rules import RulesProvider
+from openhealth.providers.vote import VoteProvider
 
 PROVIDER_TYPES: dict[str, type[Provider]] = {
     provider.type: provider
-    for provider in (RulesProvider, NaiveBayesProvider, JevProvider, AnyOfProvider)
+    for provider in (
+        RulesProvider,
+        NaiveBayesProvider,
+        JevProvider,
+        AnyOfProvider,
+        CascadeProvider,
+        VoteProvider,
+    )
 }
 
 __all__ = [
