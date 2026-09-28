@@ -39,5 +39,5 @@ docker compose up --build                 # HAPI FHIR + engine + worker sandbox
 
 ## Layout
 
-See README "Project layout". Spec: `docs/spec/decision-pack-0.1.md`. Decisions:
+See README "Project layout". Spec: `docs/spec/decision-pack-0.2.md` (0.1 still loads). Decisions:
 `docs/decisions/`. Lessons: `tasks/lessons.md`. Plan and status: `tasks/todo.md`.

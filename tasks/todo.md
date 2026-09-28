@@ -13,7 +13,12 @@ Roadmap to the full goal: [`docs/roadmap.md`](../docs/roadmap.md).
   calibration in `providers/calibration.py`)
 - [x] Jev: one call per decision (per-decision batching, one budget unit), `noul` / `score`
   mapping (live check of `score`/`noul` deferred to the trial pack in v0.3)
-- [ ] Harder inbox benchmark + held-out splits for every critical label
+- [ ] Harder inbox benchmark + held-out splits for every critical label (paraphrase tooling: next PR)
+- [x] Leaderboard (`openhealth leaderboard`, card + dashboard), inbox pack 0.2.0 variants
+  (`llm`, `cascade`, `rules_and_llm`)
+- [ ] Complete the leaderboard: Haiku 4.5 and gpt-oss-120b rows (blocked: AI Gateway credit
+  balance empty, HTTP 402), Jev rows (after the Jev upgrade), cascade on `test`
+- [ ] Choose the deployed mix with the user; set `OPENHEALTH_PROVIDERS` / `LLM_MODEL`
 - [ ] Exit: inbox provider leaderboard; red-flag sets fully caught with the deployed mix
 
 ---

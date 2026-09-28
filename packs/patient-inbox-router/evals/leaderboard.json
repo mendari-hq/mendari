@@ -1,0 +1,361 @@
+{
+  "format": "openhealth.leaderboard/1",
+  "pack": {
+    "id": "openhealth/patient-inbox-router",
+    "version": "0.2.0"
+  },
+  "updated_at": "2026-09-28T19:35:17+00:00",
+  "rows": [
+    {
+      "config": "safety_screen=rules \u00b7 router=naive_bayes",
+      "providers": {
+        "safety_screen": {
+          "variant": "rules",
+          "type": "rules",
+          "model": "rules@661449489daf"
+        },
+        "router": {
+          "variant": "naive_bayes",
+          "type": "naive_bayes",
+          "model": "naive_bayes@6b28c1ac77f0"
+        }
+      },
+      "dataset": "red_flags",
+      "n": 38,
+      "report_id": "b5930b88-be85-4103-890f-b42579905e4d",
+      "created_at": "2026-09-28T19:33:46+00:00",
+      "pack_version": "0.2.0",
+      "accuracy": 0.75,
+      "macro_f1": 0.8571428571428571,
+      "ece": 0.18050789527795594,
+      "auto_rate": 0.13157894736842105,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "urgency",
+          "label": "urgent",
+          "n": 28,
+          "detected": 28,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 0.07683294825255871,
+      "latency_p95_ms": 0.09562517516314983,
+      "cost_per_decision_usd": 0.0,
+      "errors": 0,
+      "error_codes": {}
+    },
+    {
+      "config": "safety_screen=rules \u00b7 router=rules",
+      "providers": {
+        "safety_screen": {
+          "variant": "rules",
+          "type": "rules",
+          "model": "rules@661449489daf"
+        },
+        "router": {
+          "variant": "rules",
+          "type": "rules",
+          "model": "rules@8622fb4ab14b"
+        }
+      },
+      "dataset": "red_flags",
+      "n": 38,
+      "report_id": "29e2211f-6f89-416b-8e91-71def8fb09e0",
+      "created_at": "2026-09-28T19:33:46+00:00",
+      "pack_version": "0.2.0",
+      "accuracy": 0.21428571428571427,
+      "macro_f1": 0.35294117647058826,
+      "ece": 0.3004344509346058,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "urgency",
+          "label": "urgent",
+          "n": 28,
+          "detected": 28,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 0.12120814062654972,
+      "latency_p95_ms": 0.1812500413507223,
+      "cost_per_decision_usd": 0.0,
+      "errors": 0,
+      "error_codes": {}
+    },
+    {
+      "config": "safety_screen=rules_and_llm (anthropic/claude-sonnet-5) \u00b7 router=llm (anthropic/claude-sonnet-5)",
+      "providers": {
+        "safety_screen": {
+          "variant": "rules_and_llm",
+          "type": "any_of",
+          "model": "rules:rules@661449489daf + llm:anthropic/claude-sonnet-5"
+        },
+        "router": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "anthropic/claude-sonnet-5"
+        }
+      },
+      "dataset": "red_flags",
+      "n": 38,
+      "report_id": "7bb5593a-b2e4-42b9-bada-0826aa93b7ec",
+      "created_at": "2026-09-28T19:34:35+00:00",
+      "pack_version": "0.2.0",
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "ece": 0.08938393835547431,
+      "auto_rate": 0.02631578947368421,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "urgency",
+          "label": "urgent",
+          "n": 28,
+          "detected": 28,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 2339.808249846101,
+      "latency_p95_ms": 2674.3785419967026,
+      "cost_per_decision_usd": 0.003239315789473684,
+      "errors": 0,
+      "error_codes": {}
+    },
+    {
+      "config": "safety_screen=rules \u00b7 router=naive_bayes",
+      "providers": {
+        "safety_screen": {
+          "variant": "rules",
+          "type": "rules",
+          "model": "rules@661449489daf"
+        },
+        "router": {
+          "variant": "naive_bayes",
+          "type": "naive_bayes",
+          "model": "naive_bayes@6b28c1ac77f0"
+        }
+      },
+      "dataset": "red_flags_holdout",
+      "n": 30,
+      "report_id": "ee4d8c46-ee0a-4fee-b1d7-f98bfbd5b0b8",
+      "created_at": "2026-09-28T19:33:46+00:00",
+      "pack_version": "0.2.0",
+      "accuracy": 0.95,
+      "macro_f1": 0.9743589743589743,
+      "ece": 0.1937955733190731,
+      "auto_rate": 0.4,
+      "false_automation_rate": 0.0,
+      "critical": [
+        {
+          "question": "urgency",
+          "label": "urgent",
+          "n": 20,
+          "detected": 4,
+          "auto_missed": 7
+        }
+      ],
+      "latency_p50_ms": 0.0972081907093525,
+      "latency_p95_ms": 0.11975015513598919,
+      "cost_per_decision_usd": 0.0,
+      "errors": 0,
+      "error_codes": {}
+    },
+    {
+      "config": "safety_screen=rules \u00b7 router=rules",
+      "providers": {
+        "safety_screen": {
+          "variant": "rules",
+          "type": "rules",
+          "model": "rules@661449489daf"
+        },
+        "router": {
+          "variant": "rules",
+          "type": "rules",
+          "model": "rules@8622fb4ab14b"
+        }
+      },
+      "dataset": "red_flags_holdout",
+      "n": 30,
+      "report_id": "60512aed-b867-4fa1-9777-c8c8ab460d54",
+      "created_at": "2026-09-28T19:33:46+00:00",
+      "pack_version": "0.2.0",
+      "accuracy": 0.1,
+      "macro_f1": 0.18181818181818182,
+      "ece": 0.2781530945493027,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "urgency",
+          "label": "urgent",
+          "n": 20,
+          "detected": 4,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 0.13349996879696846,
+      "latency_p95_ms": 0.16245804727077484,
+      "cost_per_decision_usd": 0.0,
+      "errors": 0,
+      "error_codes": {}
+    },
+    {
+      "config": "safety_screen=rules_and_llm (anthropic/claude-sonnet-5) \u00b7 router=llm (anthropic/claude-sonnet-5)",
+      "providers": {
+        "safety_screen": {
+          "variant": "rules_and_llm",
+          "type": "any_of",
+          "model": "rules:rules@661449489daf + llm:anthropic/claude-sonnet-5"
+        },
+        "router": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "anthropic/claude-sonnet-5"
+        }
+      },
+      "dataset": "red_flags_holdout",
+      "n": 30,
+      "report_id": "1e0a1551-f77b-4b36-b571-17b09c1d8e69",
+      "created_at": "2026-09-28T19:34:46+00:00",
+      "pack_version": "0.2.0",
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "ece": 0.07177325890483786,
+      "auto_rate": 0.03333333333333333,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "urgency",
+          "label": "urgent",
+          "n": 20,
+          "detected": 20,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 2312.603499973193,
+      "latency_p95_ms": 2807.4051670264453,
+      "cost_per_decision_usd": 0.0032422666666666665,
+      "errors": 0,
+      "error_codes": {}
+    },
+    {
+      "config": "safety_screen=rules \u00b7 router=naive_bayes",
+      "providers": {
+        "safety_screen": {
+          "variant": "rules",
+          "type": "rules",
+          "model": "rules@661449489daf"
+        },
+        "router": {
+          "variant": "naive_bayes",
+          "type": "naive_bayes",
+          "model": "naive_bayes@6b28c1ac77f0"
+        }
+      },
+      "dataset": "test",
+      "n": 100,
+      "report_id": "f052c1dd-51b3-4d09-9be7-eaaad525e3d9",
+      "created_at": "2026-09-28T19:33:46+00:00",
+      "pack_version": "0.2.0",
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "ece": 0.0009227975432581914,
+      "auto_rate": 0.98,
+      "false_automation_rate": 0.0,
+      "critical": [
+        {
+          "question": "urgency",
+          "label": "urgent",
+          "n": 2,
+          "detected": 2,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 0.1460420899093151,
+      "latency_p95_ms": 0.19345898181200027,
+      "cost_per_decision_usd": 0.0,
+      "errors": 0,
+      "error_codes": {}
+    },
+    {
+      "config": "safety_screen=rules \u00b7 router=rules",
+      "providers": {
+        "safety_screen": {
+          "variant": "rules",
+          "type": "rules",
+          "model": "rules@661449489daf"
+        },
+        "router": {
+          "variant": "rules",
+          "type": "rules",
+          "model": "rules@8622fb4ab14b"
+        }
+      },
+      "dataset": "test",
+      "n": 100,
+      "report_id": "9abb30fb-a09c-4d4b-9011-56881b9b0f2a",
+      "created_at": "2026-09-28T19:33:46+00:00",
+      "pack_version": "0.2.0",
+      "accuracy": 0.89,
+      "macro_f1": 0.8831435309973046,
+      "ece": 0.2818902168843674,
+      "auto_rate": 0.11,
+      "false_automation_rate": 0.0,
+      "critical": [
+        {
+          "question": "urgency",
+          "label": "urgent",
+          "n": 2,
+          "detected": 2,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 0.20783394575119019,
+      "latency_p95_ms": 0.2747909165918827,
+      "cost_per_decision_usd": 0.0,
+      "errors": 0,
+      "error_codes": {}
+    },
+    {
+      "config": "safety_screen=rules_and_llm (anthropic/claude-sonnet-5) \u00b7 router=llm (anthropic/claude-sonnet-5)",
+      "providers": {
+        "safety_screen": {
+          "variant": "rules_and_llm",
+          "type": "any_of",
+          "model": "rules:rules@661449489daf + llm:anthropic/claude-sonnet-5"
+        },
+        "router": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "anthropic/claude-sonnet-5"
+        }
+      },
+      "dataset": "test",
+      "n": 100,
+      "report_id": "6792d320-e0b4-4aff-aff0-5311bfd0ccb5",
+      "created_at": "2026-09-28T19:34:24+00:00",
+      "pack_version": "0.2.0",
+      "accuracy": 0.99,
+      "macro_f1": 0.988956228956229,
+      "ece": 0.12438421052631582,
+      "auto_rate": 0.4,
+      "false_automation_rate": 0.0,
+      "critical": [
+        {
+          "question": "urgency",
+          "label": "urgent",
+          "n": 2,
+          "detected": 2,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 2397.0292499288917,
+      "latency_p95_ms": 2990.885708015412,
+      "cost_per_decision_usd": 0.0033472000000000003,
+      "errors": 0,
+      "error_codes": {}
+    }
+  ]
+}

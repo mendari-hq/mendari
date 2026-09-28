@@ -29,6 +29,7 @@ pack directory and MUST NOT resolve outside it.
 | `data/*.jsonl` | no | Evaluation datasets (§8) |
 | `tests/cases.yaml` | SHOULD | Behaviour tests (§10) |
 | `evals/benchmark.json` | SHOULD | Published evaluation report (§8) |
+| `evals/leaderboard.json` | MAY | Provider configurations compared on the same datasets (§8) |
 | `CHANGELOG.md` | SHOULD | Version history |
 | `DECISION_CARD.md` | generated | Rendered Decision Card |
 
@@ -260,6 +261,13 @@ contain case inputs.
 MUST report the overall delta of primary accuracy and SHOULD localize degradation by label
 recall, subgroup, calibration and false automation. Any automated true-critical case is always
 a finding.
+
+A **leaderboard** (`format: openhealth.leaderboard/1`) compares provider configurations. Each
+row summarises one report: the configuration (slot variants, naming the model of remote
+providers), dataset and size, primary accuracy, macro-F1 and ECE, AUTO and false automation
+rates, critical detection and automated misses, p50/p95 latency, cost per decision and error
+count. Rows for one dataset MUST come from the same records. Like reports, a leaderboard MUST
+NOT contain case inputs.
 
 ## 9. FHIR and CDS Hooks
 

@@ -194,7 +194,7 @@ def test_gateway_uses_the_vercel_oidc_token_without_a_key(
     [
         (429, "rate_limited"),
         (401, "credential_unavailable"),
-        (402, "credential_unavailable"),
+        (402, "insufficient_credit"),
         (500, "provider_unavailable"),
     ],
 )

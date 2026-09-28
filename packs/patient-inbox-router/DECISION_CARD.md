@@ -1,6 +1,6 @@
 # Decision Card: Patient Inbox Router
 
-`openhealth/patient-inbox-router` · version **0.1.1** · Apache-2.0 · published by OpenHealth Hub reference packs (community)
+`openhealth/patient-inbox-router` · version **0.2.0** · Apache-2.0 · published by OpenHealth Hub reference packs (community)
 
 > Routes patient portal and SMS messages to the front desk, a medical assistant, a nurse, a physician or billing, and escalates possible emergencies to stat nurse triage.
 
@@ -8,7 +8,7 @@
 |---|---|
 | Risk level | **0**, administrative |
 | Automation | AUTO permitted by policy thresholds. |
-| Pack digest | `sha256:d72ad805df0d30f56d63caadace295c6adb9f428dc0f388e3bae678aef56d029` |
+| Pack digest | `sha256:70c12a78dccfa914a22e3b401dd5c496dc166ae19d86959cfff9e766fc03fdfb` |
 | Last validation | 2026-09-28 on `test` (n=600, sha256 `2997856d17a5…`) |
 
 ## Intended use
@@ -81,8 +81,8 @@ Every decision is one of `AUTO`, `HUMAN_REVIEW`, `ABSTAIN` or `BLOCK`, with a pr
 
 | Slot | Answers | Default | Alternatives |
 |---|---|---|---|
-| `safety_screen` | urgency | `rules` (rules) | `rules_and_jev` (any_of), `jev` (jev) |
-| `router` | destination | `naive_bayes` (naive_bayes) | `rules` (rules), `jev` (jev) |
+| `safety_screen` | urgency | `rules` (rules) | `rules_and_jev` (any_of), `jev` (jev), `rules_and_llm` (any_of), `llm` (llm) |
+| `router` | destination | `naive_bayes` (naive_bayes) | `rules` (rules), `jev` (jev), `llm` (llm), `cascade` (cascade) |
 
 ## Validation
 
@@ -101,7 +101,7 @@ Benchmark `test` (n=600) with safety_screen=`rules`, router=`naive_bayes`:
 | Accuracy of AUTO decisions | 100.0% |
 | False automation rate | 0.0% |
 | Expected human override rate | 9.7% |
-| Latency p50 / p95 | 0.14 / 0.21 ms |
+| Latency p50 / p95 | 0.14 / 0.19 ms |
 | Cost per decision | $0.00000 |
 | Critical `urgency=urgent` | 23/23 detected, 0 automated |
 
@@ -182,6 +182,35 @@ Threshold sweep (if everything ≥ threshold were automated):
 | 0.97 | 97.8% | 100.0% | 0 |
 | 0.99 | 96.3% | 100.0% | 0 |
 
+## Provider comparison
+
+Every configuration below ran on the same records. Remote models are named because they are a deployment choice. Synthetic and hand-written data: compare configurations with each other, not with performance at a real site.
+
+**`red_flags`** (n=38)
+
+| Configuration | Accuracy | Macro-F1 | ECE | AUTO | False automation | Critical detected | p50 latency | Cost / decision | Errors |
+|---|---|---|---|---|---|---|---|---|---|
+| safety_screen=rules_and_llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) | 100.0% | 1.000 | 0.089 | 2.6% | n/a | 28/28 (0 automated) | 2,340 ms | $0.00324 | 0 |
+| safety_screen=rules · router=naive_bayes | 75.0% | 0.857 | 0.181 | 13.2% | n/a | 28/28 (0 automated) | 0.08 ms | $0.00000 | 0 |
+| safety_screen=rules · router=rules | 21.4% | 0.353 | 0.300 | 0.0% | n/a | 28/28 (0 automated) | 0.12 ms | $0.00000 | 0 |
+
+**`red_flags_holdout`** (n=30)
+
+| Configuration | Accuracy | Macro-F1 | ECE | AUTO | False automation | Critical detected | p50 latency | Cost / decision | Errors |
+|---|---|---|---|---|---|---|---|---|---|
+| safety_screen=rules_and_llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) | 100.0% | 1.000 | 0.072 | 3.3% | n/a | 20/20 (0 automated) | 2,313 ms | $0.00324 | 0 |
+| safety_screen=rules · router=naive_bayes | 95.0% | 0.974 | 0.194 | 40.0% | 0.0% | 4/20 (7 automated) | 0.10 ms | $0.00000 | 0 |
+| safety_screen=rules · router=rules | 10.0% | 0.182 | 0.278 | 0.0% | n/a | 4/20 (0 automated) | 0.13 ms | $0.00000 | 0 |
+
+**`test`** (n=100)
+
+| Configuration | Accuracy | Macro-F1 | ECE | AUTO | False automation | Critical detected | p50 latency | Cost / decision | Errors |
+|---|---|---|---|---|---|---|---|---|---|
+| safety_screen=rules · router=naive_bayes | 100.0% | 1.000 | 0.001 | 98.0% | 0.0% | 2/2 (0 automated) | 0.15 ms | $0.00000 | 0 |
+| safety_screen=rules_and_llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) | 99.0% | 0.989 | 0.124 | 40.0% | 0.0% | 2/2 (0 automated) | 2,397 ms | $0.00335 | 0 |
+| safety_screen=rules · router=rules | 89.0% | 0.883 | 0.282 | 11.0% | 0.0% | 2/2 (0 automated) | 0.21 ms | $0.00000 | 0 |
+
+
 ## Known failure modes
 
 - The keyword red-flag screen alone misses most emergencies phrased in ways it does not list. On hand-written paraphrases it caught 28/28 of the set its patterns were tuned on but only 4/20 of a held-out set. Jev caught 48/48 across both with no false alarms. Deploy with safety_screen=rules_and_jev; keyword rules are an offline floor, not the safety net. The rules can also over-trigger on symptoms that happened in the past.
@@ -190,6 +219,7 @@ Threshold sweep (if everything ≥ threshold were automated):
 - Requests for outside records that mention the ER, imaging or specialists can be mistaken for clinical questions (demonstrated by the bundled local-site validation example).
 - The statistical router was trained only on synthetic messages. A real site's phrasing, language mix and case mix will differ. Validate locally before any deployment.
 - The public benchmark is generated from templates, so it overstates real-world accuracy. Treat it as a regression test for the pack, not as an estimate of performance at a site.
+- LLM variants report verbalised probabilities, and every model is calibrated differently. Check the chosen model in the provider comparison (ECE, false automation) and fit `openhealth calibrate` before relying on it. A remote model can fail or time out, so never deploy safety_screen=llm without the rules floor (use rules_and_llm).
 
 ## Evidence and provenance
 
@@ -197,6 +227,16 @@ Threshold sweep (if everything ≥ threshold were automated):
 - **Routing principle**: Route to the least specialised team that can fully handle the request. Anything that needs clinical judgement goes to a clinical team, and possible emergencies go to nurse triage.
 
 ## Version history
+
+### 0.2.0
+
+- New provider variants, so deployments can compare and choose models:
+  - `router`: `llm` (any chat model via the AI Gateway or a local OpenAI-compatible
+    server) and `cascade` (naive Bayes, then Jev when naive Bayes is below 95%);
+  - `safety_screen`: `llm` and `rules_and_llm` (the keyword rules stay as the offline floor).
+- With `router=jev` and `safety_screen=rules_and_jev`, one Jev call answers both questions.
+- Provider comparison published in `evals/leaderboard.json` and the Decision Card.
+- Questions, labels, policy, rules, data and the naive Bayes model are unchanged.
 
 ### 0.1.1
 

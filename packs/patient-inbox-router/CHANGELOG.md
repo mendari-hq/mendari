@@ -1,5 +1,15 @@
 # Changelog: openhealth/patient-inbox-router
 
+## 0.2.0
+
+- New provider variants, so deployments can compare and choose models:
+  - `router`: `llm` (any chat model via the AI Gateway or a local OpenAI-compatible
+    server) and `cascade` (naive Bayes, then Jev when naive Bayes is below 95%);
+  - `safety_screen`: `llm` and `rules_and_llm` (the keyword rules stay as the offline floor).
+- With `router=jev` and `safety_screen=rules_and_jev`, one Jev call answers both questions.
+- Provider comparison published in `evals/leaderboard.json` and the Decision Card.
+- Questions, labels, policy, rules, data and the naive Bayes model are unchanged.
+
 ## 0.1.1
 
 - Safety fix: "I just started to vomit a lot of blood" was screened `routine` and auto-routed.

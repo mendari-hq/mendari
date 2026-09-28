@@ -202,6 +202,38 @@ def cmd_calibrate(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_leaderboard(args: argparse.Namespace) -> int:
+    from openhealth.evals import evaluate, leaderboard, resolve_dataset
+
+    pack = resolve_pack(args.pack)
+    reports = [json.loads(Path(path).read_text(encoding="utf-8")) for path in args.report]
+    datasets = []
+    for name in args.dataset:
+        dataset = resolve_dataset(pack, name)
+        datasets.append(dataset.head(args.limit) if args.limit else dataset)
+    for run in args.run:
+        decision = Decision(pack, providers=parse_providers(run.split(",")))
+        workers = args.workers or (8 if decision.is_remote else 1)
+        for dataset in datasets:
+            report = evaluate(decision, dataset, workers=workers)
+            reports.append(report)
+            errors = report.get("errors") or {}
+            status = f"{sum(errors.values())} errors {errors}" if errors else "done"
+            print(f"{leaderboard.config_label(report['providers'])} on {dataset.name}: {status}")
+    if not reports:
+        raise OpenHealthError("nothing to add: pass --run and --dataset, or --report")
+    target = Path(args.out) if args.out else pack.path(leaderboard.PATH)
+    existing = None
+    if target.is_file() and not args.fresh:
+        existing = json.loads(target.read_text(encoding="utf-8"))
+    board = leaderboard.build(pack, reports, existing)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(board, indent=2) + "\n", encoding="utf-8")
+    print("\n".join(leaderboard.markdown(board)))
+    print(f"-> {target}")
+    return 0
+
+
 def cmd_card(args: argparse.Namespace) -> int:
     from openhealth.core.card import render_card
 
@@ -371,6 +403,29 @@ def build_parser() -> argparse.ArgumentParser:
     calibrate.add_argument("--dataset", default="calibration", help="labelled dataset")
     calibrate.add_argument("--limit", type=int, default=200, help="records to use (default 200)")
     calibrate.add_argument("--workers", type=int, default=8, help="parallel calls (default 8)")
+
+    board = pack_command(
+        "leaderboard", cmd_leaderboard, "compare provider configurations on the same datasets"
+    )
+    board.add_argument(
+        "--run",
+        action="append",
+        default=[],
+        help="a configuration to evaluate, e.g. router=llm,safety_screen=rules_and_llm (repeat)",
+    )
+    board.add_argument(
+        "--dataset", action="append", default=[], help="dataset for every --run (repeat)"
+    )
+    board.add_argument("--limit", type=int, help="only the first N cases of each dataset")
+    board.add_argument("--workers", type=int, help="parallel decisions per run")
+    board.add_argument(
+        "--report",
+        action="append",
+        default=[],
+        help="add an existing evaluation report, e.g. one from a deployment (repeat)",
+    )
+    board.add_argument("--out", help="leaderboard file (default: <pack>/evals/leaderboard.json)")
+    board.add_argument("--fresh", action="store_true", help="replace instead of merging")
 
     card = pack_command("card", cmd_card, "render the Decision Card")
     card.add_argument("--write", action="store_true", help="write DECISION_CARD.md into the pack")

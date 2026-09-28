@@ -32,7 +32,7 @@ from openhealth.errors import (
     PackValidationError,
     ReviewError,
 )
-from openhealth.evals import compare, evaluate, load_dataset, resolve_dataset
+from openhealth.evals import compare, evaluate, leaderboard, load_dataset, resolve_dataset
 from openhealth.evals.feedback import feedback_dataset
 from openhealth.evals.harness import Dataset
 from openhealth.providers import jev, llm
@@ -70,6 +70,9 @@ class FeedbackRequest(BaseModel):
 class EvalRequest(BaseModel):
     dataset: str = Field(min_length=1, max_length=200)
     limit: int | None = Field(default=None, ge=1)
+    # Evaluate another configuration than the deployed one (e.g. for the leaderboard); the
+    # remote-call cap and daily budgets still apply.
+    providers: dict[str, str] | None = None
 
 
 # Evaluations that call a metered, network-bound provider must fit one function invocation.
@@ -187,6 +190,7 @@ def create_app(
             "input_schema": pack.input_schema,
             "output_schema": pack.output_schema,
             "benchmark": benchmark(pack),
+            "leaderboard": leaderboard.load(pack),
             "card_markdown": render_card(pack),
             "datasets": [*pack.manifest.evaluation.datasets, *local_datasets()],
         }
@@ -209,7 +213,7 @@ def create_app(
         # A store-less Decision: evaluation traffic must not pollute the operational audit log.
         active = decision_for(pack_id)
         chosen = {slot: info.variant for slot, info in active.provider_info.items()}
-        decision = Decision(pack, providers=chosen, budget=budget)
+        decision = Decision(pack, providers={**chosen, **(request.providers or {})}, budget=budget)
         dataset = dataset_for(pack, request.dataset)
         if decision.is_remote:
             dataset = dataset.head(min(request.limit or REMOTE_EVAL_LIMIT, REMOTE_EVAL_LIMIT))

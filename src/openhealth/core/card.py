@@ -7,6 +7,7 @@ from typing import Any
 
 from openhealth.core.pack import Pack
 from openhealth.core.spec import Condition, DeriveRow, Question
+from openhealth.evals import leaderboard
 from openhealth.evals.render import num, pct
 
 RISK_NAMES = {
@@ -126,6 +127,18 @@ def render_card(pack: Pack) -> str:
         )
     out += ["", "## Validation", ""]
     out += _validation(report) if report else ["No published benchmark."]
+    board = leaderboard.load(pack)
+    if board and board.get("rows"):
+        out += [
+            "",
+            "## Provider comparison",
+            "",
+            "Every configuration below ran on the same records. Remote models are named because "
+            "they are a deployment choice. Synthetic and hand-written data: compare "
+            "configurations with each other, not with performance at a real site.",
+            "",
+            *leaderboard.markdown(board),
+        ]
     out += ["", "## Known failure modes", "", *[f"- {item}" for item in m.card.known_failure_modes]]
     out += ["", "## Evidence and provenance", ""]
     for evidence in m.card.evidence:
