@@ -95,3 +95,21 @@ must use `ssoProtection.deploymentType = "all"` while the app has no authenticat
 ### Verification
 `curl -s -o /dev/null -w "%{http_code}" https://openhealth-hub-gray.vercel.app/api/health`
 returns 302 (login), never 200.
+
+## 2026-09-28 - architecture
+
+### What happened
+In production, the first request after a few idle minutes failed with HTTP 500:
+`psycopg.OperationalError: SSL connection has been closed unexpectedly`.
+
+### Root cause
+Neon suspends idle compute (scale to zero) and the server closes pooled connections. The
+function instance's connection pool kept handing out those dead connections.
+
+### Rule
+Every long-lived pool against a serverless database validates connections on checkout
+(`ConnectionPool(check=ConnectionPool.check_connection)`), and a test kills the server side of
+the pool's connections (`pg_terminate_backend`) and expects the next request to succeed.
+
+### Verification
+`tests/test_audit.py::test_postgres_store_survives_server_closed_connections`.

@@ -20,7 +20,8 @@ dependencies = [
     "jsonschema>=4.21",
     "httpx>=0.27",
     "fastapi>=0.110",
-    "psycopg[binary,pool]>=3.2",
+    "psycopg[binary]>=3.2",
+    "psycopg-pool>=3.2",  # ConnectionPool(check=...)
     "vercel-oidc>=0.9",
 ]
 
