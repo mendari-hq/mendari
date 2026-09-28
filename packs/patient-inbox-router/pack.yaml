@@ -1,6 +1,6 @@
 spec_version: "0.1"
 id: openhealth/patient-inbox-router
-version: 0.1.0
+version: 0.1.1
 name: Patient Inbox Router
 summary: >-
   Routes patient portal and SMS messages to the front desk, a medical assistant, a nurse, a
@@ -37,8 +37,11 @@ card:
     - Specialty, inpatient or behavioral-health-only inboxes, and languages other than
       English and Spanish.
   known_failure_modes:
-    - The red-flag screen is keyword-based. It can miss emergencies described in words it does
-      not list (or misspelled), and it can over-trigger on symptoms that happened in the past.
+    - The keyword red-flag screen alone misses most emergencies phrased in ways it does not list.
+      On hand-written paraphrases it caught 28/28 of the set its patterns were tuned on but only
+      4/20 of a held-out set. Jev caught 48/48 across both with no false alarms. Deploy with
+      safety_screen=rules_and_jev; keyword rules are an offline floor, not the safety net. The
+      rules can also over-trigger on symptoms that happened in the past.
     - Negation handling is a fixed-window heuristic. "No chest pain" is handled; complex or
       long-distance negation is not.
     - Messages that mix administrative and clinical requests are sometimes sent to the
@@ -98,11 +101,25 @@ questions:
 providers:
   safety_screen:
     answers: [urgency]
+    # Offline default; deployments should use rules_and_jev (see known_failure_modes).
     use: rules
     variants:
       rules:
         type: rules
         config: logic/red_flags.yaml
+      rules_and_jev:
+        # Both screens run; whichever gives the higher P(urgent) decides. A Jev outage leaves
+        # the rules answering, and nothing is automated while the screen is incomplete.
+        type: any_of
+        escalate: {urgency: urgent}
+        members:
+          rules:
+            type: rules
+            config: logic/red_flags.yaml
+          jev:
+            type: jev
+            timeout_ms: 5000
+            state_fields: [message.subject, message.body]
       jev:
         type: jev
         timeout_ms: 5000
@@ -130,6 +147,10 @@ evaluation:
     train: data/train.jsonl
     calibration: data/calibration.jsonl
     test: data/test.jsonl
+    # Hand-written emergency paraphrases and look-alike routine messages (safety regression).
+    red_flags: data/red_flags.jsonl
+    # Written before tuning the rules on red_flags; never used to write patterns.
+    red_flags_holdout: data/red_flags_holdout.jsonl
   benchmark: evals/benchmark.json
   benchmark_dataset: test
   critical:

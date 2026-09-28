@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import math
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass, field
 from typing import Any, ClassVar
 
@@ -48,12 +48,15 @@ class ProviderOutput:
     # None means "not known" (e.g. a remote provider without configured pricing), not free.
     cost_usd: float | None = 0.0
     extra: dict[str, Any] = field(default_factory=dict)
+    # Questions answered despite a partial failure (e.g. one member of a composite screen was
+    # down). The policy treats them like failures: no AUTO when a check ran incomplete.
+    failures: dict[str, str] = field(default_factory=dict)
 
 
 class Provider(ABC):
     type: ClassVar[str]
     # Remote providers make network calls: they are metered, rate-limited and parallelised.
-    remote: ClassVar[bool] = False
+    remote: bool = False
 
     def __init__(
         self,
@@ -66,6 +69,16 @@ class Provider(ABC):
         self.info = info
         self.questions = dict(questions)
         self.config = dict(config)
+        self._budget: Callable[[str], None] | None = None
+
+    def use_budget(self, acquire: Callable[[str], None]) -> None:
+        """Metered providers call `charge()` before each billable call; the runtime wires the
+        daily budget in here."""
+        self._budget = acquire
+
+    def charge(self) -> None:
+        if self._budget is not None:
+            self._budget(self.info.type)
 
     def preflight(self) -> None:  # noqa: B027 - optional hook
         """Raise ProviderError if the provider cannot be called at all (e.g. not configured).

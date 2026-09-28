@@ -1,6 +1,6 @@
 # Decision Card: Patient Inbox Router
 
-`openhealth/patient-inbox-router` · version **0.1.0** · Apache-2.0 · published by OpenHealth Hub reference packs (community)
+`openhealth/patient-inbox-router` · version **0.1.1** · Apache-2.0 · published by OpenHealth Hub reference packs (community)
 
 > Routes patient portal and SMS messages to the front desk, a medical assistant, a nurse, a physician or billing, and escalates possible emergencies to stat nurse triage.
 
@@ -8,7 +8,7 @@
 |---|---|
 | Risk level | **0**, administrative |
 | Automation | AUTO permitted by policy thresholds. |
-| Pack digest | `sha256:2f5821762581cdcd997636b448ca20c819438bc3694391e618819231f8c9f68d` |
+| Pack digest | `sha256:d72ad805df0d30f56d63caadace295c6adb9f428dc0f388e3bae678aef56d029` |
 | Last validation | 2026-09-28 on `test` (n=600, sha256 `2997856d17a5…`) |
 
 ## Intended use
@@ -81,7 +81,7 @@ Every decision is one of `AUTO`, `HUMAN_REVIEW`, `ABSTAIN` or `BLOCK`, with a pr
 
 | Slot | Answers | Default | Alternatives |
 |---|---|---|---|
-| `safety_screen` | urgency | `rules` (rules) | `jev` (jev) |
+| `safety_screen` | urgency | `rules` (rules) | `rules_and_jev` (any_of), `jev` (jev) |
 | `router` | destination | `naive_bayes` (naive_bayes) | `rules` (rules), `jev` (jev) |
 
 ## Validation
@@ -101,7 +101,7 @@ Benchmark `test` (n=600) with safety_screen=`rules`, router=`naive_bayes`:
 | Accuracy of AUTO decisions | 100.0% |
 | False automation rate | 0.0% |
 | Expected human override rate | 9.7% |
-| Latency p50 / p95 | 0.10 / 0.14 ms |
+| Latency p50 / p95 | 0.14 / 0.21 ms |
 | Cost per decision | $0.00000 |
 | Critical `urgency=urgent` | 23/23 detected, 0 automated |
 
@@ -184,7 +184,7 @@ Threshold sweep (if everything ≥ threshold were automated):
 
 ## Known failure modes
 
-- The red-flag screen is keyword-based. It can miss emergencies described in words it does not list (or misspelled), and it can over-trigger on symptoms that happened in the past.
+- The keyword red-flag screen alone misses most emergencies phrased in ways it does not list. On hand-written paraphrases it caught 28/28 of the set its patterns were tuned on but only 4/20 of a held-out set. Jev caught 48/48 across both with no false alarms. Deploy with safety_screen=rules_and_jev; keyword rules are an offline floor, not the safety net. The rules can also over-trigger on symptoms that happened in the past.
 - Negation handling is a fixed-window heuristic. "No chest pain" is handled; complex or long-distance negation is not.
 - Messages that mix administrative and clinical requests are sometimes sent to the administrative team.
 - Requests for outside records that mention the ER, imaging or specialists can be mistaken for clinical questions (demonstrated by the bundled local-site validation example).
@@ -197,6 +197,18 @@ Threshold sweep (if everything ≥ threshold were automated):
 - **Routing principle**: Route to the least specialised team that can fully handle the request. Anything that needs clinical judgement goes to a clinical team, and possible emergencies go to nurse triage.
 
 ## Version history
+
+### 0.1.1
+
+- Safety fix: "I just started to vomit a lot of blood" was screened `routine` and auto-routed.
+  The keyword screen only knew exact phrasings such as "vomiting up blood".
+- New `rules_and_jev` variant for `safety_screen`: rules and Jev both run and the higher
+  P(urgent) wins; recommended for every deployment.
+- Red-flag rules extended (GI bleeding, coughing blood, bleeding in pregnancy, head injury with
+  vomiting, acute abdomen, sudden worst headache, near-fainting, overdose, stroke and
+  anaphylaxis phrasings); word gaps never span sentences.
+- New evaluation datasets `red_flags` (tuning) and `red_flags_holdout` (never used for
+  tuning). Keyword rules alone: 28/28 and 4/20. Jev: 28/28 and 20/20, no false alarms.
 
 ### 0.1.0
 

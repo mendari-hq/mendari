@@ -13,6 +13,18 @@
     patient: {preferred_language: es}
   expect: {outcome: HUMAN_REVIEW, recommendation: nurse, priority: stat}
 
+- name: vomiting blood escalates (reported miss, 2026-09-28)
+  input: {message: {body: "I just started to vomit a lot of blood "}}
+  expect: {outcome: HUMAN_REVIEW, recommendation: nurse, priority: stat, answers: {urgency: urgent}}
+
+- name: blood in vomit, coffee-ground vomit and black stools escalate
+  input: {message: {body: "There is blood in my vomit and it looks like coffee grounds. My stool is black and tarry."}}
+  expect: {not_outcome: AUTO, priority: stat}
+
+- name: routine mentions of blood do not escalate
+  input: {message: {body: "I need to get a lot of blood work done before my physical. Also my blood pressure has been fine."}}
+  expect: {priority: routine, answers: {urgency: routine}}
+
 - name: self-harm escalates
   input: {message: {body: "I have been having thoughts of killing myself."}}
   expect: {recommendation: nurse, priority: stat}

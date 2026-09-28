@@ -168,8 +168,12 @@ def _referenced_files(m: PackManifest) -> list[str]:
         files.append(m.tests)
     for slot in m.providers.values():
         for variant in slot.variants.values():
-            extra = variant.model_extra or {}
-            files.extend(extra[key] for key in ("config", "model_file") if key in extra)
+            configs = [variant.model_extra or {}]
+            members = configs[0].get("members")
+            if isinstance(members, dict):
+                configs.extend(member for member in members.values() if isinstance(member, dict))
+            for config in configs:
+                files.extend(config[key] for key in ("config", "model_file") if key in config)
     return files
 
 

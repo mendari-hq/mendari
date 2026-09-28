@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from openhealth.core.pack import Pack
 from openhealth.errors import PackValidationError
+from openhealth.providers.any_of import AnyOfProvider
 from openhealth.providers.base import Answer, Provider, ProviderInfo, ProviderOutput
 from openhealth.providers.jev import JevProvider
 from openhealth.providers.naive_bayes import NaiveBayesProvider
 from openhealth.providers.rules import RulesProvider
 
 PROVIDER_TYPES: dict[str, type[Provider]] = {
-    provider.type: provider for provider in (RulesProvider, NaiveBayesProvider, JevProvider)
+    provider.type: provider
+    for provider in (RulesProvider, NaiveBayesProvider, JevProvider, AnyOfProvider)
 }
 
 __all__ = [
