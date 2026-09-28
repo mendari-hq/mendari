@@ -1,17 +1,17 @@
 {
   "format": "openhealth.eval/1",
-  "id": "1154f5e3-a19f-483d-8d55-236264fe6508",
-  "created_at": "2026-09-28T02:04:52+00:00",
+  "id": "b42cfbf3-507f-4e47-8ec7-21a7ec988525",
+  "created_at": "2026-09-28T03:33:05+00:00",
   "pack": {
     "id": "openhealth/patient-inbox-router",
-    "version": "0.1.0",
-    "digest": "sha256:2f5821762581cdcd997636b448ca20c819438bc3694391e618819231f8c9f68d"
+    "version": "0.1.1",
+    "digest": "sha256:d72ad805df0d30f56d63caadace295c6adb9f428dc0f388e3bae678aef56d029"
   },
   "providers": {
     "safety_screen": {
       "variant": "rules",
       "type": "rules",
-      "model": "rules@4657a4b441ef"
+      "model": "rules@661449489daf"
     },
     "router": {
       "variant": "naive_bayes",
@@ -193,7 +193,7 @@
         }
       },
       "calibration": {
-        "ece": 0.11921450563190666,
+        "ece": 0.11918460427841768,
         "bins": [
           {
             "low": 0.7,
@@ -213,12 +213,12 @@
             "low": 0.9,
             "high": 1.0,
             "n": 23,
-            "confidence": 0.9846608094427806,
+            "confidence": 0.9854408447511888,
             "accuracy": 1.0
           }
         ]
       },
-      "brier": 0.030449721424658207
+      "brier": 0.030448643085698758
     }
   },
   "decisions": {
@@ -315,10 +315,10 @@
     }
   ],
   "latency_ms": {
-    "mean": 0.10618421404312055,
-    "p50": 0.10337517596781254,
-    "p95": 0.13812514953315258,
-    "max": 0.3883328754454851
+    "mean": 0.14224325267908475,
+    "p50": 0.1372089609503746,
+    "p95": 0.21320884115993977,
+    "max": 0.4422080237418413
   },
   "cost": {
     "total_usd": 0.0,

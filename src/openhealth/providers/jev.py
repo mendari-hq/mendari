@@ -108,6 +108,7 @@ class JevProvider(Provider):
 
     def answer(self, inputs: Mapping[str, Any]) -> ProviderOutput:
         model, endpoint = self._configured()
+        self.charge()
         token = resolve_key(
             key_env=self.settings.api_key_env, connector_env=self.settings.connector_env
         )

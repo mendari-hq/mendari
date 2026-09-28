@@ -19,7 +19,8 @@ def test_reference_pack_loads(inbox_pack: Pack) -> None:
 
 def test_resolve_by_id_and_version(inbox_pack: Pack) -> None:
     assert resolve_pack("openhealth/patient-inbox-router").root == inbox_pack.root
-    assert resolve_pack("openhealth/patient-inbox-router@0.1.0").version == "0.1.0"
+    pinned = f"openhealth/patient-inbox-router@{inbox_pack.version}"
+    assert resolve_pack(pinned).version == inbox_pack.version
     with pytest.raises(PackNotFoundError):
         resolve_pack("openhealth/patient-inbox-router@9.9.9")
 

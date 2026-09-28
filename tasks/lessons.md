@@ -132,3 +132,25 @@ confirm the PR shows auto-merge *pending*, not merged.
 ### Verification
 `gh api repos/Junebugg1214/openhealth-hub/branches/main/protection` lists the five checks,
 and `gh pr view <n> --json autoMergeRequest` is non-null while checks run.
+
+## 2026-09-28 - testing
+
+### What happened
+A user reported "I just started to vomit a lot of blood" being auto-routed at routine priority.
+The published benchmark said 23/23 emergencies detected. On hand-written paraphrases the
+keyword screen caught 8/28; after tuning, 28/28 on that set but only 4/20 on a held-out set.
+Jev caught 48/48.
+
+### Root cause
+The synthetic benchmark's emergencies were generated from the same phrasings the rules were
+written from, so it measured memorisation, not safety. Keyword lists do not generalise.
+
+### Rule
+Safety-critical labels are evaluated on hand-written paraphrases the rules were never written
+from, with a held-out split that is never used for tuning (`red_flags_holdout`). Keyword rules
+are an offline floor; deployments combine them with a model (`safety_screen=rules_and_jev`).
+Any reported miss becomes a behaviour test in `tests/cases.yaml`.
+
+### Verification
+`openhealth eval <pack> --dataset red_flags_holdout --provider safety_screen=rules_and_jev`
+shows every urgent case detected and none automated.

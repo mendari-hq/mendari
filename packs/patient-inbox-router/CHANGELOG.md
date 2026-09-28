@@ -1,5 +1,17 @@
 # Changelog: openhealth/patient-inbox-router
 
+## 0.1.1
+
+- Safety fix: "I just started to vomit a lot of blood" was screened `routine` and auto-routed.
+  The keyword screen only knew exact phrasings such as "vomiting up blood".
+- New `rules_and_jev` variant for `safety_screen`: rules and Jev both run and the higher
+  P(urgent) wins; recommended for every deployment.
+- Red-flag rules extended (GI bleeding, coughing blood, bleeding in pregnancy, head injury with
+  vomiting, acute abdomen, sudden worst headache, near-fainting, overdose, stroke and
+  anaphylaxis phrasings); word gaps never span sentences.
+- New evaluation datasets `red_flags` (tuning) and `red_flags_holdout` (never used for
+  tuning). Keyword rules alone: 28/28 and 4/20. Jev: 28/28 and 20/20, no false alarms.
+
 ## 0.1.0
 
 - First release.

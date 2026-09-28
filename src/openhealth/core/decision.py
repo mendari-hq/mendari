@@ -121,6 +121,9 @@ class Decision:
             slot: build_provider(pack, slot, overrides.get(slot))
             for slot in pack.manifest.providers
         }
+        if budget is not None:
+            for provider in self.providers.values():
+                provider.use_budget(budget.acquire)
         self._validator = Draft202012Validator(
             pack.input_schema, format_checker=Draft202012Validator.FORMAT_CHECKER
         )
@@ -169,13 +172,12 @@ class Decision:
             for slot, provider in self.providers.items():
                 try:
                     provider.preflight()
-                    if self.budget is not None:
-                        self.budget.acquire(provider.info.type)
                     output = provider.answer(inputs)
                 except ProviderError as error:
                     failures.update(dict.fromkeys(manifest.providers[slot].answers, error.code))
                     continue
                 answers.update(output.answers)
+                failures.update(output.failures)
                 tokens_in += output.input_tokens
                 tokens_out += output.output_tokens
                 cost = None if cost is None or output.cost_usd is None else cost + output.cost_usd
