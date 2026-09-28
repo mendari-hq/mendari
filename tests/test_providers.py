@@ -301,4 +301,4 @@ def test_jev_accepts_approximately_normalised_probabilities(inbox_pack: Pack) ->
     body["answers"]["destination"]["probabilities"]["billing"] += 0.004  # sums to 1.004
     questions = {"destination": inbox_pack.manifest.questions["destination"]}
     effective, answers, _ = validate_response(body, questions)
-    assert effective == MODEL and answers["destination"]["choice"] == "nurse"
+    assert effective == MODEL and answers["destination"]["label"] == "nurse"
