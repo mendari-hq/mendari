@@ -186,8 +186,12 @@ variant (`providers={"router": "jev"}`) MUST NOT change the pack's questions, po
 tests.
 
 Built-in types: `rules` (deterministic patterns with negation handling and optional typo
-tolerance), `naive_bayes` (local, temperature-calibrated text classifier), `jev`, and `any_of`
-(a composite of other variants in which the most alarming answer wins). Providers answer
+tolerance), `naive_bayes` (local, temperature-calibrated text classifier), `jev`, and three
+composites whose inline `members` are other (non-composite) variants: `any_of` (the most
+alarming answer wins; for safety screens), `cascade` (members in order, the first whose
+confidence on every slot question is ≥ `accept_at` is accepted; the last always is) and `vote`
+(a weighted average of the members' distributions). A failed member of a composite is
+recorded as a failure of the slot's questions (`<member>:<code>`), which caps `AUTO` (§6). Providers answer
 `boolean` and `score` questions like `choice` questions, with a distribution over their labels;
 the runtime adds the expected score.
 

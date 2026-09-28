@@ -19,6 +19,7 @@ from typing import Any
 
 from openhealth.errors import PackValidationError
 from openhealth.providers.base import Provider, ProviderOutput, fingerprint, softmax, text_from
+from openhealth.providers.calibration import fit_temperature
 
 FORMAT = "openhealth.naive_bayes/1"
 _TOKEN = re.compile(r"[^\W_]+(?:'[^\W_]+)?")
@@ -136,8 +137,7 @@ def train(
         )
         for r in calibration
     ]
-    nll_before = _nll(logits, 1.0)
-    temperature = min(_temperature_grid(), key=lambda t: _nll(logits, t))
+    temperature, nll_before, nll_after = fit_temperature(logits)
     return {
         "format": FORMAT,
         "question": question,
@@ -155,23 +155,11 @@ def train(
                 "examples": len(calibration),
                 "dataset_sha256": _records_digest(calibration),
                 "nll_before": round(nll_before, 4),
-                "nll_after": round(_nll(logits, temperature), 4),
+                "nll_after": round(nll_after, 4),
             },
         },
         "tokens": tokens,
     }
-
-
-def _temperature_grid() -> list[float]:
-    low, high, steps = math.log(0.25), math.log(200.0), 400
-    return [math.exp(low + (high - low) * i / (steps - 1)) for i in range(steps)]
-
-
-def _nll(logits: Sequence[tuple[dict[str, float], str]], temperature: float) -> float:
-    total = 0.0
-    for scores, truth in logits:
-        total -= math.log(max(softmax(scores, temperature)[truth], 1e-12))
-    return total / len(logits)
 
 
 def _records_digest(records: Sequence[Mapping[str, Any]]) -> str:
