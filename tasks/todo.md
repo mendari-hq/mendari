@@ -41,8 +41,16 @@ latency and cost.
 - Docker sandbox verified: 40 seeded messages → 40 decisions → 40 FHIR Tasks
   (4 stat escalations, 10 in the review queue), exactly once.
 
+### Deployed (2026-09-28)
+- Vercel project `openhealth-hub` (FastAPI function, Fluid compute, iad1), Neon Postgres
+  `openhealth-hub-db`, Jev via connector `jev/openhealth-hub` (`JEV_MODEL=jev-latest`, which
+  currently resolves to `jev-1.13.0`). Vercel Authentication on all deployments.
+- Production smoke tests passed: live Jev routing, stat escalation, review persistence,
+  audit chain, Jev eval (100% on local-site sample), CDS discovery, dashboard assets.
+
 ### Deferred (v0.2+)
-- [ ] Jev live verification: adapter is tested against mock transports only; needs `JEV_API_URL` + `JEV_MODEL`.
+- [ ] Pin a concrete Jev model once the account offers one (only aliases today).
+- [ ] Neon preview branching so previews don't write to the production database.
 - [ ] LLM provider, CQL provider.
 - [ ] Remote hub (`openhealth pull`, signed packs), server authentication, AuditEvent export.
 - [ ] Other four reference packs (Referral Router, PA Preflight, Trial Prescreener, AI Guard).

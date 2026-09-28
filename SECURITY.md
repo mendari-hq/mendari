@@ -7,7 +7,8 @@ OpenHealth Hub v0.1 is a research preview for **synthetic data only**.
 - It is not a medical device and makes no clinical claims.
 - The HTTP server has **no authentication or authorization of its own**. Locally it binds to
   `127.0.0.1`, and the docker sandbox publishes ports on localhost only. On Vercel it must stay
-  behind Vercel Authentication (deployment protection). External machine callers, such as an
+  behind Vercel Authentication set to **all deployments** (`ssoProtection: all`). The default
+  "all except custom domains" leaves the production domain public. External machine callers, such as an
   EHR calling CDS Hooks, would need Protection Bypass for Automation; that is not set up.
 - Do not send real protected health information (PHI) to it, to the sandbox FHIR server, or
   to remote providers.

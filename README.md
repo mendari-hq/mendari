@@ -208,12 +208,17 @@ FastAPI function (`[tool.vercel] entrypoint = "openhealth.server.vercel:app"`).
 2. Attach the Jev connector to the project and set `JEV_CONNECTOR`, `JEV_API_URL`, `JEV_MODEL`
    and `OPENHEALTH_PROVIDERS=router=jev`. The key is fetched at runtime with the deployment's
    OIDC identity; it is never stored in the project's environment variables.
-3. Keep Vercel Authentication on: the app has no login of its own.
+3. Set Vercel Authentication to protect **all deployments**: the app has no login of its own,
+   and the default setting leaves the production domain public. After each deploy, check that
+   an unauthenticated request to production gets redirected to login.
 4. Push a branch to get a preview deployment, check it with
    `vercel curl /api/health --deployment <url>`, then merge to `main` for production.
 
 `/api/health` reports the storage backend, active providers, Jev configuration and today's Jev
 usage (never secrets). The FHIR sandbox (HAPI) stays in local `docker compose`.
+
+Preview and production deployments share the same Neon database unless Neon's preview branching
+is enabled, so preview traffic appears in the production audit trail.
 
 ## Project layout
 
