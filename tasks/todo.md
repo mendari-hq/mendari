@@ -18,10 +18,23 @@ Roadmap to the full goal: [`docs/roadmap.md`](../docs/roadmap.md).
   (`llm`, `cascade`, `rules_and_llm`)
 - [x] Leaderboard LLM rows: Claude Sonnet 5, Claude Haiku 4.5, gpt-oss-120b (each with
   `rules_and_llm` and LLM-only screens)
-- [ ] Leaderboard Jev rows (after the Jev upgrade): `router=jev,safety_screen=rules_and_jev`,
-  `router=cascade` on `test`
-- [ ] Choose the deployed mix with the user; set `OPENHEALTH_PROVIDERS` / `LLM_MODEL`
-- [ ] Exit: inbox provider leaderboard; red-flag sets fully caught with the deployed mix
+- [x] Jev adapter aligned with Jev's docs: answer confidence = label probability (Jev's
+  `confidence` is a distribution-shape statistic), published price, 429/529 retry, real limits
+- [x] Leaderboard Jev rows (jev-1.13.0, measured on production): `router=jev,
+  safety_screen=rules_and_jev` on all three datasets, `router=cascade` on `test`
+- [ ] Confirm the deployed mix with the user (leaderboard recommends keeping
+  `router=jev,safety_screen=rules_and_jev`); decide on pinning `JEV_MODEL=jev-1.13.0`
+- [x] Exit: 10 configurations published incl. Claude and an open-weight model; one Jev call per
+  decision in production; deployed mix catches 48/48 red-flag emergencies, none automated
+
+### Found while reading Jev's docs (decisions for the user)
+- `possible-emergency` rule: `min_confidence: 0.35` never takes effect on a yes/no question
+  (the label must be the argmax, so P(urgent) ≥ 0.5). Escalating at P(urgent) ≥ 0.35 needs a
+  spec 0.3 condition on a label's probability (`min_probability`).
+- `urgency` wording: the instructions say "emergency or same-day" and "urgent if in doubt",
+  while the `urgent` criterion only describes emergencies. Jev 1.13 is documented to do worse
+  on contradictory instructions and criteria. Rewording changes every provider's input, so it
+  needs a pack release and a leaderboard re-run.
 
 ---
 
