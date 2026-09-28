@@ -386,6 +386,33 @@ function feedbackCard(item) {
 
 // ---- decision card ---------------------------------------------------------------------------
 
+function deriveRow(row) {
+  if (row.any !== null && row.any !== undefined) return `any member is <code>${esc(row.any)}</code> → <code>${esc(row.then)}</code>`;
+  if (row.all !== null && row.all !== undefined) return `every member is <code>${esc(row.all)}</code> → <code>${esc(row.then)}</code>`;
+  return `otherwise → <code>${esc(row.else)}</code>`;
+}
+
+function questionPanel(key, q, primary) {
+  const kind = q.type && q.type !== "choice" ? ` <span class="chip">${esc(q.type)}</span>` : "";
+  const derive = q.derive ? `<p>Derived from ${q.derive.from.map((x) => `<code>${esc(x)}</code>`).join(", ")}
+      (first matching row wins; members treated as independent):</p>
+    <ol>${q.derive.table.map((row) => `<li>${deriveRow(row)}</li>`).join("")}</ol>` : "";
+  const labels = q.type === "score" ? Object.keys(q.levels).sort((a, b) => q.levels[a].score - q.levels[b].score) : Object.keys(q.criteria);
+  const score = (label) => (q.type === "score" ? `<td class="mono">${esc(q.levels[label].score)}</td>` : "");
+  return `<div class="panel"><h3 style="margin-top:0">Question <code>${esc(key)}</code>${primary ? " (primary)" : ""}${kind}</h3>
+    <p class="muted">${esc(q.instructions)}</p>${derive}
+    <table>${labels.map((label) => `<tr><td><code>${esc(label)}</code></td>${score(label)}<td>${esc(q.criteria[label])}</td></tr>`).join("")}</table></div>`;
+}
+
+function conditionText(when) {
+  const parts = [];
+  if (when.labels.length) parts.push(`${esc(when.question)} ∈ [${when.labels.map(esc).join(", ")}]`);
+  if (when.min_score !== null && when.min_score !== undefined) parts.push(`${esc(when.question)} expected score ≥ ${esc(when.min_score)}`);
+  if (when.max_score !== null && when.max_score !== undefined) parts.push(`${esc(when.question)} expected score ≤ ${esc(when.max_score)}`);
+  const confidence = when.labels.length || when.min_confidence ? ` with p ≥ ${when.min_confidence}` : "";
+  return parts.join(" and ") + confidence;
+}
+
 views.card = async (main) => {
   const d = state.detail;
   const m = d.manifest;
@@ -408,10 +435,9 @@ views.card = async (main) => {
       <div class="panel"><h3 style="margin-top:0">Out of scope</h3><ul>${m.card.out_of_scope.map((u) => `<li>${esc(u)}</li>`).join("")}</ul>
         <h3>Known failure modes</h3><ul>${m.card.known_failure_modes.map((u) => `<li>${esc(u)}</li>`).join("")}</ul></div>
     </div>
-    ${Object.entries(m.questions).map(([key, q]) => `<div class="panel"><h3 style="margin-top:0">Question <code>${esc(key)}</code>${key === p.primary ? " (primary)" : ""}</h3>
-      <p class="muted">${esc(q.instructions)}</p><table>${Object.entries(q.criteria).map(([label, text]) => `<tr><td><code>${esc(label)}</code></td><td>${esc(text)}</td></tr>`).join("")}</table></div>`).join("")}
+    ${Object.entries(m.questions).map(([key, q]) => questionPanel(key, q, key === p.primary)).join("")}
     <div class="panel"><h3 style="margin-top:0">Policy</h3><ul>
-      ${p.rules.map((r) => `<li><b>${esc(r.name)}</b>: ${esc(r.when.question)} ∈ [${r.when.labels.map(esc).join(", ")}] with p ≥ ${r.when.min_confidence}
+      ${p.rules.map((r) => `<li><b>${esc(r.name)}</b>: ${conditionText(r.when)}
         ⇒ ${outcomeBadge(r.outcome)} ${r.recommendation ? `→ ${esc(r.recommendation)}` : ""} ${r.priority ? priorityBadge(r.priority) : ""}<br><span class="muted">${esc(r.reason)}</span></li>`).join("")}
       ${Object.entries(p.labels).map(([label, l]) => `<li><code>${esc(label)}</code>: ${l.allow_auto ? `AUTO at ≥ ${l.auto_threshold ?? p.thresholds.auto}` : "never automated"}</li>`).join("")}
       <li>Fallback: ${esc(p.fallback)}</li></ul></div>
@@ -484,7 +510,7 @@ function decisionView(r) {
       <a class="mono" href="#audit" title="${esc(r.id)}">${esc(r.id.slice(0, 8))}</a></div>
     ${r.fallback ? `<p style="margin-top:10px"><b>Fallback:</b> ${esc(r.fallback)}</p>` : ""}
     <ul class="reasons">${r.reasons.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
-    ${Object.entries(r.answers).map(([question, a]) => `<h3>${esc(question)} <span class="muted mono">${esc(a.provider.variant)} · ${esc(a.provider.model ?? "")}</span></h3>
+    ${Object.entries(r.answers).map(([question, a]) => `<h3>${esc(question)} <span class="muted mono">${esc(a.provider.variant)}${a.provider.model ? ` · ${esc(a.provider.model)}` : ""}${a.value !== undefined ? ` · expected score ${num(a.value, 2)}` : ""}</span></h3>
       <div class="bars">${Object.entries(a.probabilities).sort((x, y) => y[1] - x[1]).map(([label, p]) =>
         `<span>${esc(label)}</span><div class="bar ${label === a.label ? "chosen" : ""}"><span style="width:${(p * 100).toFixed(1)}%"></span></div><span class="mono">${pct(p)}</span>`).join("")}</div>
       ${a.evidence.length ? `<div class="chips" style="margin-top:8px">${a.evidence.map((e) => `<span class="chip">${esc(e)}</span>`).join("")}</div>` : ""}`).join("")}

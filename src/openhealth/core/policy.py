@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 
-from openhealth.core.spec import Outcome, PackManifest, Priority, RiskLevel
+from openhealth.core.spec import Condition, Outcome, PackManifest, Priority, RiskLevel
 from openhealth.providers.base import Answer
 
 # Highest risk level at which AUTO is permitted without a governance override.
@@ -58,12 +58,7 @@ def apply_policy(
     rule_name = None
 
     for rule in policy.rules:
-        answer = answers.get(rule.when.question)
-        if (
-            answer is not None
-            and answer.label in rule.when.labels
-            and answer.confidence >= rule.when.min_confidence
-        ):
+        if matches(rule.when, answers.get(rule.when.question)):
             rule_name = rule.name
             outcome = rule.outcome
             recommendation = rule.recommendation or (primary.label if primary else None)
@@ -107,6 +102,21 @@ def apply_policy(
     if outcome is Outcome.ABSTAIN:
         recommendation = None
     return PolicyResult(outcome, recommendation, priority, tuple(reasons), rule_name)
+
+
+def matches(condition: Condition, answer: Answer | None) -> bool:
+    if answer is None or answer.confidence < condition.min_confidence:
+        return False
+    if condition.labels and answer.label not in condition.labels:
+        return False
+    if condition.min_score is not None and (
+        answer.value is None or answer.value < condition.min_score
+    ):
+        return False
+    return not (
+        condition.max_score is not None
+        and (answer.value is None or answer.value > condition.max_score)
+    )
 
 
 def _cap(

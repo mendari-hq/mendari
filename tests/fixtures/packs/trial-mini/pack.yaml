@@ -1,0 +1,72 @@
+# Test fixture for spec 0.2 features: boolean and score questions, and a derived question.
+spec_version: "0.2"
+id: openhealth-test/trial-mini
+version: 0.1.0
+name: Trial Mini (test fixture)
+summary: Toy trial prescreen used to test spec 0.2 features. Not a real pack.
+publisher: {name: OpenHealth tests, type: community}
+license: Apache-2.0
+risk:
+  level: 2
+  category: clinical support
+  rationale: Clinician-facing eligibility suggestion; human review by default.
+card:
+  intended_use: Test fixture only.
+  intended_users: [OpenHealth developers]
+  patient_population: Synthetic.
+inputs:
+  schema: schemas/input.schema.json
+questions:
+  inc_adult:
+    type: boolean
+    instructions: Is the patient 18 or older?
+  inc_t2d:
+    instructions: Does the patient have type 2 diabetes?
+    criteria:
+      "yes": Documented type 2 diabetes.
+      "no": Documented absence of type 2 diabetes (or type 1 only).
+      unknown: The summary does not say.
+  not_pregnant:
+    instructions: Is the patient known not to be pregnant?
+    criteria:
+      "yes": Not pregnant, postmenopausal, or male.
+      "no": Pregnant.
+      unknown: The summary does not say.
+  severity:
+    type: score
+    instructions: How severe is the diabetes?
+    levels:
+      mild: {score: 1, criterion: Well controlled.}
+      moderate: {score: 2, criterion: Partially controlled.}
+      severe: {score: 3, criterion: Uncontrolled or complicated.}
+  eligibility:
+    instructions: Overall prescreen result.
+    criteria:
+      candidate: Every criterion is met.
+      not_eligible: At least one criterion is not met.
+      needs_review: At least one criterion cannot be determined.
+    derive:
+      from: [inc_adult, inc_t2d, not_pregnant]
+      table:
+        - {any: "no", then: not_eligible}
+        - {any: unknown, then: needs_review}
+        - {else: candidate}
+providers:
+  screen:
+    answers: [inc_adult, inc_t2d, not_pregnant, severity]
+    use: rules
+    variants:
+      rules: {type: rules, config: logic/rules.yaml}
+policy:
+  primary: eligibility
+  thresholds: {auto: 0.9, review: 0.4}
+  rules:
+    - name: severe-disease
+      when: {question: severity, min_score: 2.5}
+      outcome: HUMAN_REVIEW
+      priority: urgent
+      reason: Severe disease; expedite review.
+  fallback: Manual chart review.
+evaluation:
+  datasets: {sample: data/sample.jsonl}
+tests: tests/cases.yaml

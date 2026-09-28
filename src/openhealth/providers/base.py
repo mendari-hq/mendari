@@ -29,15 +29,20 @@ class Answer:
     probabilities: dict[str, float]
     provider: ProviderInfo
     evidence: tuple[str, ...] = ()
+    # Score questions: the expected score (probability-weighted average of the levels).
+    value: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        data = {
             "label": self.label,
             "confidence": round(self.confidence, 6),
             "probabilities": {k: round(v, 6) for k, v in self.probabilities.items()},
             "provider": asdict(self.provider),
             "evidence": list(self.evidence),
         }
+        if self.value is not None:
+            data["value"] = round(self.value, 6)
+        return data
 
 
 @dataclass(frozen=True)

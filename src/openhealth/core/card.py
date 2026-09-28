@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from openhealth.core.pack import Pack
+from openhealth.core.spec import Condition, DeriveRow, Question
 from openhealth.evals.render import num, pct
 
 RISK_NAMES = {
@@ -89,15 +90,7 @@ def render_card(pack: Pack) -> str:
         "",
     ]
     for key, question in m.questions.items():
-        marker = " (primary)" if key == m.policy.primary else ""
-        out += [
-            f"**`{key}`**{marker}: {question.instructions}",
-            "",
-            "| Label | Criteria |",
-            "|---|---|",
-        ]
-        out += [f"| `{label}` | {text} |" for label, text in question.criteria.items()]
-        out.append("")
+        out += _question(key, question, primary=key == m.policy.primary)
     p = m.policy
     out += [
         "Every decision is one of `AUTO`, `HUMAN_REVIEW`, `ABSTAIN` or `BLOCK`, with a priority "
@@ -117,10 +110,8 @@ def render_card(pack: Pack) -> str:
         target = f" → `{rule.recommendation}`" if rule.recommendation else ""
         priority = f", priority `{rule.priority.value}`" if rule.priority else ""
         out.append(
-            f"- Rule **{rule.name}**: `{rule.when.question}` is "
-            f"{' or '.join(f'`{label}`' for label in rule.when.labels)} "
-            f"(p ≥ {rule.when.min_confidence:.2f}) ⇒ `{rule.outcome.value}`{target}{priority}. "
-            f"{rule.reason}"
+            f"- Rule **{rule.name}**: {_condition(rule.when)} ⇒ "
+            f"`{rule.outcome.value}`{target}{priority}. {rule.reason}"
         )
     out += [f"- Fallback (ABSTAIN / BLOCK): {p.fallback}", "", "## Providers", ""]
     out += ["| Slot | Answers | Default | Alternatives |", "|---|---|---|---|"]
@@ -158,6 +149,53 @@ def render_card(pack: Pack) -> str:
         "",
     ]
     return "\n".join(out)
+
+
+def _question(key: str, question: Question, *, primary: bool) -> list[str]:
+    marker = " (primary)" if primary else ""
+    kind = f" *({question.type})*" if question.type != "choice" else ""
+    out = [f"**`{key}`**{marker}{kind}: {question.instructions}", ""]
+    if question.derive is not None:
+        members = ", ".join(f"`{member}`" for member in question.derive.members)
+        out += [
+            f"Derived from {members} by a decision table (the first matching row wins; the "
+            "members' answers are treated as independent):",
+            "",
+            *[f"{n}. {_row(row)}" for n, row in enumerate(question.derive.table, start=1)],
+            "",
+        ]
+    levels = question.levels
+    if levels:
+        out += ["| Label | Score | Criteria |", "|---|---|---|"]
+        out += [
+            f"| `{label}` | {levels[label].score:g} | {question.criteria[label]} |"
+            for label in question.labels
+        ]
+    else:
+        out += ["| Label | Criteria |", "|---|---|"]
+        out += [f"| `{label}` | {text} |" for label, text in question.criteria.items()]
+    return [*out, ""]
+
+
+def _row(row: DeriveRow) -> str:
+    if row.any is not None:
+        return f"any member is `{row.any}` → `{row.result}`"
+    if row.all is not None:
+        return f"every member is `{row.all}` → `{row.result}`"
+    return f"otherwise → `{row.result}`"
+
+
+def _condition(when: Condition) -> str:
+    parts = []
+    if when.labels:
+        parts.append(f"`{when.question}` is " + " or ".join(f"`{x}`" for x in when.labels))
+    if when.min_score is not None:
+        parts.append(f"`{when.question}` expected score ≥ {when.min_score:g}")
+    if when.max_score is not None:
+        parts.append(f"`{when.question}` expected score ≤ {when.max_score:g}")
+    shown = when.labels or when.min_confidence
+    confidence = f" (p ≥ {when.min_confidence:.2f})" if shown else ""
+    return " and ".join(parts) + confidence
 
 
 def _schema_rows(schema: dict[str, Any], prefix: str = "") -> list[str]:
