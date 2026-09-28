@@ -1,4 +1,19 @@
-# Task: OpenHealth v0.1 — Decision Pack runtime + Patient Inbox Router
+# OpenHealth Hub: task tracking
+
+Roadmap to the full goal: [`docs/roadmap.md`](../docs/roadmap.md).
+
+## Current milestone: v0.2 Model-agnostic core
+- [ ] Detailed v0.2 plan approved
+- [ ] Spec 0.2: `boolean` / `score` question types, question groups with aggregation, derived outputs
+- [ ] LLM provider via Vercel AI Gateway (Claude default; OpenAI-compatible local models)
+- [ ] Composition: `cascade` and weighted voting
+- [ ] Jev: one call per decision, parallel slots, `noul` / `score`
+- [ ] Harder inbox benchmark + held-out splits for every critical label
+- [ ] Exit: inbox provider leaderboard; red-flag sets fully caught with the deployed mix
+
+---
+
+# Done: OpenHealth v0.1 — Decision Pack runtime + Patient Inbox Router
 
 ## Objective
 A runnable, fully synthetic reference implementation of OpenHealth Hub v0.1: a Decision Pack
