@@ -293,7 +293,12 @@ FastAPI function (`[tool.vercel] entrypoint = "openhealth.server.vercel:app"`).
 usage (never secrets). The FHIR sandbox (HAPI) stays in local `docker compose`.
 
 Preview and production deployments share the same Neon database unless Neon's preview branching
-is enabled, so preview traffic appears in the production audit trail.
+is enabled, so preview traffic appears in the production audit trail. With preview branching,
+each preview gets a `preview/<git branch>` database branch. The Vercel-managed integration only
+deletes it when Vercel deletes the deployment (months later), and a full branch limit makes
+previews fail with "Resource provisioning failed". The `neon-preview-cleanup` workflow deletes
+the branch when its pull request closes; it needs a project-scoped Neon API key as the
+`NEON_API_KEY` repository secret and the Neon project id as the `NEON_PROJECT_ID` variable.
 
 ## Project layout
 

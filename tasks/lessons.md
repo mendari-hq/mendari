@@ -173,3 +173,25 @@ before any file is edited.
 ### Verification
 `git branch --show-current` is not `main` before the first edit; `git log origin/main..main`
 is empty after every merge.
+
+## 2026-09-28 - process
+
+### What happened
+Preview deployments started failing with "Resource provisioning failed". The Neon project had
+reached its 10-branch limit: every PR's preview had created a `preview/<branch>` database
+branch, and none had been deleted after merge.
+
+### Root cause
+With the Vercel-managed Neon integration, a preview branch is deleted only when Vercel deletes
+the preview deployment, which its retention policy does after up to 180 days (and never for the
+last 20 previews). Deleting the Git branch on merge does not delete the database branch.
+
+### Rule
+Preview database branches are deleted when their PR closes
+(`.github/workflows/neon-preview-cleanup.yml`, project-scoped `NEON_API_KEY`). When a preview
+fails at provisioning, check the Neon branch count before debugging code.
+
+### Verification
+After a PR merges, its "Clean up Neon preview branch" run is green and Neon lists only `main`
+plus the branches of open PRs.
+
