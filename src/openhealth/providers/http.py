@@ -1,8 +1,8 @@
 """HTTP for remote providers: HTTPS only, bounded responses, audit-safe error codes.
 
 Remote error bodies are never surfaced (they can echo inputs or credentials); a failure is
-one of `rate_limited`, `credential_unavailable`, `provider_unavailable`, `timeout` or
-`invalid_response`.
+one of `rate_limited`, `credential_unavailable`, `insufficient_credit`,
+`provider_unavailable`, `timeout` or `invalid_response`.
 """
 
 from __future__ import annotations
@@ -56,8 +56,10 @@ def post_json(
         ) as response:
             if response.status_code == 429:
                 raise ProviderError("rate_limited")
-            if response.status_code in (401, 402, 403):
+            if response.status_code in (401, 403):
                 raise ProviderError("credential_unavailable", f"HTTP {response.status_code}")
+            if response.status_code == 402:  # e.g. the AI Gateway's credit balance is empty
+                raise ProviderError("insufficient_credit")
             if not response.is_success:
                 raise ProviderError("provider_unavailable", f"HTTP {response.status_code}")
             chunks, size = [], 0

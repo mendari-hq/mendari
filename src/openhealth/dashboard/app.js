@@ -247,7 +247,8 @@ views.evals = async (main) => {
       <select id="history"><option value="">Published benchmark</option>${reports.map((r, i) =>
         `<option value="${i}">${esc(time(r.created_at))} · ${esc(r.dataset.name)} (n=${r.dataset.n})</option>`).join("")}</select>
     </div>
-    <div id="report"></div>`;
+    <div id="report"></div>
+    ${state.detail.leaderboard ? leaderboardView(state.detail.leaderboard) : ""}`;
   const show = (report) => ($("#report").innerHTML = report ? reportView(report) : `<div class="panel empty">No benchmark published for this pack.</div>`);
   show(state.detail.benchmark);
   $("#history").addEventListener("change", (e) => show(e.target.value === "" ? state.detail.benchmark : reports[Number(e.target.value)]));
@@ -264,6 +265,24 @@ views.evals = async (main) => {
     }
   });
 };
+
+function leaderboardView(board) {
+  const groups = {};
+  for (const row of board.rows) (groups[row.dataset] ??= []).push(row);
+  const critical = (row) => row.critical.filter((c) => c.n).map((c) => `${c.detected}/${c.n} (${c.auto_missed} automated)`).join("; ") || "n/a";
+  const ms = (v) => (v < 10 ? `${v.toFixed(2)} ms` : `${Math.round(v).toLocaleString()} ms`);
+  return `<div class="panel"><h2 style="margin-top:0">Provider comparison</h2>
+    <p class="muted">Every configuration ran on the same records (updated ${esc(time(board.updated_at))}). Remote models are named because they are a deployment choice.</p>
+    ${Object.entries(groups).map(([dataset, rows]) => `<h3>${esc(dataset)} <span class="muted">n=${Math.max(...rows.map((r) => r.n))}</span></h3>
+      <div class="table-wrap"><table class="board">
+        <tr><th>Configuration</th><th>Accuracy</th><th>Macro-F1</th><th>ECE</th><th>AUTO</th><th>False automation</th><th>Critical detected</th><th>p50</th><th>Cost / decision</th><th>Errors</th></tr>
+        ${rows.sort((a, b) => (b.accuracy ?? 0) - (a.accuracy ?? 0)).map((r) => `<tr><td>${esc(r.config)}</td><td>${pct(r.accuracy)}</td><td>${num(r.macro_f1)}</td>
+          <td>${num(r.ece)}</td><td>${pct(r.auto_rate)}</td><td>${pct(r.false_automation_rate)}</td><td>${esc(critical(r))}</td>
+          <td class="mono">${ms(r.latency_p50_ms)}</td><td class="mono">$${r.cost_per_decision_usd.toFixed(5)}</td>
+          <td title="${esc(Object.entries(r.error_codes ?? {}).map(([c, n]) => `${c}: ${n}`).join(", "))}">${r.errors}</td></tr>`).join("")}
+      </table></div>`).join("")}
+  </div>`;
+}
 
 function reportView(r) {
   const q = r.questions[r.primary];

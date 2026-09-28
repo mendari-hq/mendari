@@ -149,6 +149,9 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
 tr.clickable { cursor: pointer; }
 tr.clickable:hover td { background: var(--surface-2); }
 .table-wrap { overflow-x: auto; }
+/* Numbers stay on one line; wide comparison tables scroll inside their panel. */
+.board td:not(:first-child) { white-space: nowrap; overflow-wrap: normal; }
+.board td:first-child { min-width: 220px; }
 
 .review-card { padding: 14px 18px; }
 .review-card + .review-card { margin-top: 12px; }

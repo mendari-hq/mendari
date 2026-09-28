@@ -168,6 +168,21 @@ rate, critical-label safety (for example "urgent cases automated: 0"), latency, 
 performance and a threshold sweep. Reports contain case ids but never case text, so a site can
 share an evaluation of its local data without sharing the data.
 
+`openhealth leaderboard` compares provider configurations on the same records and publishes
+the result in `evals/leaderboard.json` and the Decision Card. Configurations whose credentials
+exist only on a deployment (such as Jev through Vercel Connect) run through the deployment's
+budgeted evaluation endpoint, and their reports are merged in with `--report`:
+
+```bash
+uv run openhealth leaderboard openhealth/patient-inbox-router --dataset test --limit 100 \
+  --dataset red_flags --dataset red_flags_holdout \
+  --run router=naive_bayes,safety_screen=rules --run router=llm,safety_screen=rules_and_llm
+vercel curl /api/packs/openhealth/patient-inbox-router/evals --deployment <url> -- -s -X POST \
+  -H 'content-type: application/json' \
+  -d '{"dataset": "test", "limit": 100, "providers": {"router": "jev"}}' > jev-test.json
+uv run openhealth leaderboard openhealth/patient-inbox-router --report jev-test.json
+```
+
 ## Feedback loop
 
 Anyone using the dashboard can rate any decision, automated ones included, with 👍 or 👎 and an

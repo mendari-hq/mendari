@@ -1,11 +1,11 @@
 {
   "format": "openhealth.eval/1",
-  "id": "b42cfbf3-507f-4e47-8ec7-21a7ec988525",
-  "created_at": "2026-09-28T03:33:05+00:00",
+  "id": "d08b722d-6787-4195-b05b-76bfbdc37263",
+  "created_at": "2026-09-28T19:32:38+00:00",
   "pack": {
     "id": "openhealth/patient-inbox-router",
-    "version": "0.1.1",
-    "digest": "sha256:d72ad805df0d30f56d63caadace295c6adb9f428dc0f388e3bae678aef56d029"
+    "version": "0.2.0",
+    "digest": "sha256:70c12a78dccfa914a22e3b401dd5c496dc166ae19d86959cfff9e766fc03fdfb"
   },
   "providers": {
     "safety_screen": {
@@ -315,10 +315,10 @@
     }
   ],
   "latency_ms": {
-    "mean": 0.14224325267908475,
-    "p50": 0.1372089609503746,
-    "p95": 0.21320884115993977,
-    "max": 0.4422080237418413
+    "mean": 0.14322529508111378,
+    "p50": 0.13999990187585354,
+    "p95": 0.19141705706715584,
+    "max": 0.5215839482843876
   },
   "cost": {
     "total_usd": 0.0,
