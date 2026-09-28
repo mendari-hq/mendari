@@ -113,3 +113,22 @@ the pool's connections (`pg_terminate_backend`) and expects the next request to 
 
 ### Verification
 `tests/test_audit.py::test_postgres_store_survives_server_closed_connections`.
+
+## 2026-09-28 - process
+
+### What happened
+Asked to "merge when green", I queued `gh pr merge --auto`. `main` had no required status
+checks, so GitHub merged immediately while three test jobs were still running. They passed,
+but the merge did not wait for them.
+
+### Root cause
+Auto-merge only waits for *required* checks. With none configured it merges at once.
+
+### Rule
+`main` is protected: the five CI checks (`test (3.11)`, `test (3.12)`, `test (3.13)`,
+`reference-pack`, `docker`) are required, including for admins. Before relying on auto-merge,
+confirm the PR shows auto-merge *pending*, not merged.
+
+### Verification
+`gh api repos/Junebugg1214/openhealth-hub/branches/main/protection` lists the five checks,
+and `gh pr view <n> --json autoMergeRequest` is non-null while checks run.
