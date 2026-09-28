@@ -160,7 +160,7 @@ def jev_provider(inbox_pack: Pack, handler: Any) -> JevProvider:
     config = {
         "type": "jev",
         **(slot.variants["jev"].model_extra or {}),
-        "cost_per_1k_tokens_usd": 0.5,
+        "cost_per_1k_input_tokens_usd": 0.5,
     }
     info = ProviderInfo(slot="router", variant="jev", type="jev")
     questions = {"destination": inbox_pack.manifest.questions["destination"]}
@@ -197,7 +197,7 @@ def test_jev_request_is_minimal_and_typed(inbox_pack: Pack, jev_env: pytest.Monk
     answer = output.answers["destination"]
     assert (answer.label, answer.confidence) == ("nurse", 0.8)
     assert answer.provider.model == MODEL  # recorded for provenance
-    assert output.cost_usd == pytest.approx(128 / 1000 * 0.5)
+    assert output.cost_usd == pytest.approx(120 / 1000 * 0.5)  # output tokens are free
 
 
 @pytest.mark.parametrize("missing", ["JEV_API_URL", "JEV_MODEL"])
@@ -302,3 +302,98 @@ def test_jev_accepts_approximately_normalised_probabilities(inbox_pack: Pack) ->
     questions = {"destination": inbox_pack.manifest.questions["destination"]}
     effective, answers, _ = validate_response(body, questions)
     assert effective == MODEL and answers["destination"]["label"] == "nurse"
+
+
+# -- alignment with Jev's documentation (docs.typesafe.ai) -------------------------------------
+
+
+def test_jev_confidence_is_the_chosen_labels_probability(inbox_pack: Pack) -> None:
+    # Jev's `confidence` summarises the whole distribution (the docs' example: billing 0.88,
+    # confidence 0.81); our answer's confidence is the label's probability, like every provider.
+    body = jev_body()
+    body["answers"]["destination"].update(
+        confidence=0.81,
+        probabilities={
+            "front_desk": 0.0,
+            "medical_assistant": 0.02,
+            "nurse": 0.88,
+            "physician": 0.1,
+            "billing": 0.0,
+        },
+    )
+    questions = {"destination": inbox_pack.manifest.questions["destination"]}
+    _, answers, _ = validate_response(body, questions)
+    assert answers["destination"]["confidence"] == 0.88
+    assert answers["destination"]["jev_confidence"] == 0.81
+
+
+def test_jev_answers_show_jevs_own_confidence_and_cost_input_tokens_only(
+    inbox_pack: Pack, jev_env: pytest.MonkeyPatch
+) -> None:
+    slot = inbox_pack.manifest.providers["router"]
+    config = {"type": "jev", **(slot.variants["jev"].model_extra or {})}  # published price
+    client = httpx.Client(
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, json=jev_body()))
+    )
+    provider = JevProvider(
+        inbox_pack,
+        ProviderInfo(slot="router", variant="jev", type="jev"),
+        {"destination": inbox_pack.manifest.questions["destination"]},
+        config,
+        client=client,
+    )
+    output = provider.answer(message("rash on my arm"))
+    assert output.answers["destination"].evidence == ("jev confidence 0.80",)
+    assert output.cost_usd == pytest.approx(120 * 0.042 / 1_000_000)  # $0.042 per Mtok input
+
+
+def test_jev_scores_have_at_most_ten_levels(inbox_pack: Pack) -> None:
+    from openhealth.core.spec import Question
+
+    levels = {f"l{i}": {"score": i, "criterion": f"Level {i}."} for i in range(11)}
+    question = Question.model_validate({"type": "score", "instructions": "x", "levels": levels})
+    with pytest.raises(PackValidationError, match="at most 10 levels"):
+        JevProvider(
+            inbox_pack,
+            ProviderInfo(slot="s", variant="jev", type="jev"),
+            {"q": question},
+            {"type": "jev"},
+        )
+
+
+@pytest.mark.parametrize(
+    ("responses", "calls", "code"),
+    [
+        ([httpx.Response(529), httpx.Response(200, json=jev_body())], 2, None),
+        ([httpx.Response(429), httpx.Response(429)], 2, "rate_limited"),
+        ([httpx.Response(429, headers={"retry-after": "30"})], 1, "rate_limited"),
+        ([httpx.Response(503)], 1, "provider_unavailable"),
+    ],
+)
+def test_jev_retries_once_when_rate_limited_or_overloaded(
+    inbox_pack: Pack,
+    jev_env: pytest.MonkeyPatch,
+    responses: list[httpx.Response],
+    calls: int,
+    code: str | None,
+) -> None:
+    from openhealth.providers import http
+
+    waits: list[float] = []
+    jev_env.setattr(http, "_sleep", waits.append)
+    queue = list(responses)
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return queue.pop(0)
+
+    provider = jev_provider(inbox_pack, handler)
+    if code is None:
+        assert provider.answer(message("rash")).answers["destination"].label == "nurse"
+    else:
+        with pytest.raises(ProviderError) as error:
+            provider.answer(message("rash"))
+        assert error.value.code == code
+    assert len(seen) == calls
+    assert waits == ([0.5] if calls == 2 else [])  # a 30 s Retry-After is not waited out

@@ -39,7 +39,14 @@ from openhealth.providers.credentials import resolve_key
 from openhealth.providers.http import post_json, require_secure
 
 MODEL_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}$"
-MAX_QUESTIONS = 8
+# Published limits (docs.typesafe.ai/api and /models): 2-255 options per Choice (as in the
+# spec), 2-10 levels per Score, 64k tokens per request. There is no per-request question
+# limit; this cap only keeps one batched request well inside the token budget.
+MAX_QUESTIONS = 64
+MAX_SCORE_LEVELS = 10
+# Published price of jev-1.13.0 (docs.typesafe.ai/models): $0.042 per million input tokens;
+# output tokens are free. A variant can override it.
+PRICE_PER_1K_INPUT_TOKENS_USD = 0.000042
 MAX_REQUEST_CHARS = 80_000
 MAX_RESPONSE_BYTES = 65_536
 MAX_TOKENS = 1_000_000
@@ -56,7 +63,7 @@ class JevConfig(BaseModel):
     connector_env: str = "JEV_CONNECTOR"
     endpoint_env: str = "JEV_API_URL"
     model_env: str = "JEV_MODEL"
-    cost_per_1k_tokens_usd: float | None = Field(default=None, ge=0)
+    cost_per_1k_input_tokens_usd: float | None = Field(default=PRICE_PER_1K_INPUT_TOKENS_USD, ge=0)
     # Share one call with the decision's other Jev questions (union of state_fields).
     batch: bool = True
 
@@ -76,8 +83,16 @@ class JevProvider(Provider):
         if not 1 <= len(self.questions) <= MAX_QUESTIONS:
             raise PackValidationError(
                 self.pack.id,
-                [f"{self.info.slot}: Jev accepts 1-{MAX_QUESTIONS} questions per call"],
+                [f"{self.info.slot}: 1-{MAX_QUESTIONS} questions per Jev variant"],
             )
+        too_many = [
+            key
+            for key, question in self.questions.items()
+            if question.type == "score" and len(question.labels) > MAX_SCORE_LEVELS
+        ]
+        if too_many:
+            problem = f"{self.info.slot}: Jev scores have at most {MAX_SCORE_LEVELS} levels"
+            raise PackValidationError(self.pack.id, [f"{problem}: {too_many}"])
         self._client = client
         # The deployment's JEV_MODEL wins over a model pinned in the pack.
         model = os.environ.get(self.settings.model_env, "").strip() or self.settings.model
@@ -111,7 +126,7 @@ class JevProvider(Provider):
             settings.api_key_env,
             settings.connector_env,
             settings.timeout_ms,
-            settings.cost_per_1k_tokens_usd,
+            settings.cost_per_1k_input_tokens_usd,
         )
 
     def answer(self, inputs: Mapping[str, Any]) -> ProviderOutput:
@@ -142,8 +157,7 @@ class JevProvider(Provider):
         effective, answers, usage, problems = parse_response(raw, questions)
         failed = {p for p in batch if any(key in problems for key in p.questions)}
         first = next((p for p in batch if p not in failed), None)
-        tokens = usage["input_tokens"] + usage["output_tokens"]
-        price = self.settings.cost_per_1k_tokens_usd
+        price = self.settings.cost_per_1k_input_tokens_usd  # output tokens are free
         extra: dict[str, Any] = {"requested_model": model, "effective_model": effective}
         if len(batch) > 1:
             extra["batch"] = [f"{p.info.slot}/{p.info.variant}" for p in batch]
@@ -164,12 +178,15 @@ class JevProvider(Provider):
                             confidence=answers[key]["confidence"],
                             probabilities=answers[key]["probabilities"],
                             provider=answered_by,
+                            evidence=_evidence(answers[key]),
                         )
                         for key in provider.questions
                     },
                     input_tokens=usage["input_tokens"] if lead else 0,
                     output_tokens=usage["output_tokens"] if lead else 0,
-                    cost_usd=None if price is None else (tokens / 1000 * price if lead else 0.0),
+                    cost_usd=None
+                    if price is None
+                    else (usage["input_tokens"] / 1000 * price if lead else 0.0),
                     extra=extra,
                 )
             )
@@ -182,6 +199,7 @@ class JevProvider(Provider):
             body,
             headers={"authorization": f"Bearer {token}"},
             timeout_s=self.settings.timeout_ms / 1000,
+            retries=1,
             max_bytes=MAX_RESPONSE_BYTES,
         )
 
@@ -334,10 +352,14 @@ def _choice(key: str, question: Question, answer: dict[str, Any]) -> dict[str, A
     probabilities = _distribution(key, probabilities)
     if probabilities[answer["choice"]] < max(probabilities.values()) - 0.00001:
         raise _invalid(f"answer {key!r} choice is not the most probable label")
+    # Jev's `confidence` summarises the shape of the whole distribution (docs.typesafe.ai/
+    # confidence); the answer's confidence is the chosen label's probability, as for every other
+    # provider, so policy thresholds and calibration mean the same thing across providers.
     return {
         "label": answer["choice"],
-        "confidence": float(answer["confidence"]),
+        "confidence": probabilities[answer["choice"]],
         "probabilities": probabilities,
+        "jev_confidence": float(answer["confidence"]),
     }
 
 
@@ -374,7 +396,18 @@ def _score(key: str, question: Question, answer: dict[str, Any]) -> dict[str, An
     distribution = _distribution(key, by_label)
     label = max(distribution, key=lambda item: distribution[item])
     # Confidence is the probability of the most likely level, as for every other provider.
-    return {"label": label, "confidence": distribution[label], "probabilities": distribution}
+    return {
+        "label": label,
+        "confidence": distribution[label],
+        "probabilities": distribution,
+        "jev_confidence": float(answer["confidence"]),
+    }
+
+
+def _evidence(answer: Mapping[str, Any]) -> tuple[str, ...]:
+    """Jev's own confidence statistic, kept visible next to the probabilities."""
+    jev_confidence = answer.get("jev_confidence")
+    return () if jev_confidence is None else (f"jev confidence {jev_confidence:.2f}",)
 
 
 def _legend_positions(legend: dict[str, Any], levels: list[str]) -> dict[str, int] | None:
