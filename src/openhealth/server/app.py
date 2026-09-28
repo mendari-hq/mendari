@@ -7,14 +7,15 @@ to localhost; on Vercel it sits behind Vercel Authentication (deployment protect
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import Body, FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -32,6 +33,7 @@ from openhealth.errors import (
     ReviewError,
 )
 from openhealth.evals import compare, evaluate, load_dataset, resolve_dataset
+from openhealth.evals.feedback import feedback_dataset
 from openhealth.evals.harness import Dataset
 from openhealth.providers import jev
 from openhealth.providers.credentials import key_source
@@ -57,6 +59,12 @@ class ReviewRequest(BaseModel):
 class OutcomeRequest(BaseModel):
     final_label: str = Field(min_length=1)
     source: str = Field(min_length=1, max_length=200)
+
+
+class FeedbackRequest(BaseModel):
+    rating: Literal["up", "down"]
+    reporter: str | None = Field(default=None, max_length=200)
+    note: str | None = Field(default=None, max_length=1000)
 
 
 class EvalRequest(BaseModel):
@@ -262,6 +270,35 @@ def create_app(
     def record_outcome(decision_id: str, request: OutcomeRequest) -> dict[str, str]:
         store.record_outcome(decision_id, final_label=request.final_label, source=request.source)
         return {"id": decision_id, "final_label": request.final_label}
+
+    @app.post("/api/audit/{decision_id}/feedback")
+    def give_feedback(decision_id: str, request: FeedbackRequest) -> dict[str, Any]:
+        return store.record_feedback(
+            decision_id, rating=request.rating, reporter=request.reporter, note=request.note
+        )
+
+    @app.get("/api/feedback")
+    def list_feedback(
+        pack_id: str | None = None, rating: Literal["up", "down"] | None = None, limit: int = 100
+    ) -> list[dict[str, Any]]:
+        return store.feedback(pack_id=pack_id, rating=rating, limit=min(limit, 500))
+
+    @app.get("/api/packs/{namespace}/{name}/feedback/export")
+    def export_feedback(
+        namespace: str, name: str, rating: Literal["up", "down"] = "down"
+    ) -> Response:
+        pack = pack_or_404(f"{namespace}/{name}")
+        records, skipped = feedback_dataset(store, pack_id=pack.id, rating=rating)
+        body = "".join(json.dumps(record, ensure_ascii=False) + "\n" for record in records)
+        return Response(
+            body,
+            media_type="application/x-ndjson",
+            headers={
+                "content-disposition": f'attachment; filename="{name}-feedback-{rating}.jsonl"',
+                # Decisions stored with audit.store_input=hash have no text to export.
+                "x-openhealth-skipped": str(skipped),
+            },
+        )
 
     @app.get("/api/stats")
     def stats(pack_id: str | None = None) -> dict[str, Any]:

@@ -168,6 +168,24 @@ rate, critical-label safety (for example "urgent cases automated: 0"), latency, 
 performance and a threshold sweep. Reports contain case ids but never case text, so a site can
 share an evaluation of its local data without sharing the data.
 
+## Feedback loop
+
+Anyone using the dashboard can rate any decision, automated ones included, with 👍 or 👎 and an
+optional note ("what was wrong?"). Each vote is appended to the decision's hash-chained audit
+trail. The **Feedback** view lists the 👎 cases, and a 👎 on an AUTO decision counts as
+"confidently wrong".
+
+The system never retrains or rewrites itself from votes. Instead, the 👎 cases are downloaded
+as a dataset to label:
+
+```bash
+openhealth feedback export openhealth/patient-inbox-router --db "$DATABASE_URL" --out down.jsonl
+```
+
+Fill in each record's `labels`. The file then works with `openhealth eval --dataset`, and
+confirmed misses become behaviour tests in the pack's `tests/cases.yaml`. Improvements ship as
+a new, reviewed and versioned pack.
+
 ## Jev
 
 Jev answers bounded, typed choice questions ("which team?", "is documentation missing?",
