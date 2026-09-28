@@ -74,3 +74,24 @@ OpenHealth's test database is `openhealth_test` on 127.0.0.1:56432.
 ### Verification
 `docker port openhealth-pg-test` shows `127.0.0.1:56432`, and
 `select current_database()` returns `openhealth_test`.
+
+## 2026-09-28 - process
+
+### What happened
+Before deploying I told the user that Vercel Authentication protected all deployments. The
+project setting was `all_except_custom_domains`, which exempts the production domain, so after
+the first production deploy `openhealth-hub-gray.vercel.app` served the unauthenticated app
+publicly for a few minutes. Audit and Jev usage showed no traffic from outside.
+
+### Root cause
+I read the setting's name as "everything" without checking what counts as a "custom domain",
+and I never tested an unauthenticated request against production.
+
+### Rule
+Verify access control empirically, not from setting names: after every deploy, request each
+production and preview URL without credentials and expect a redirect to login. The project
+must use `ssoProtection.deploymentType = "all"` while the app has no authentication of its own.
+
+### Verification
+`curl -s -o /dev/null -w "%{http_code}" https://openhealth-hub-gray.vercel.app/api/health`
+returns 302 (login), never 200.
