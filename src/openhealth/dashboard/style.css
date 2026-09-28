@@ -57,7 +57,7 @@ h2 { font-size: 16px; margin: 28px 0 10px; }
 h3 { font-size: 14px; margin: 18px 0 8px; }
 p { margin: 0 0 10px; }
 .muted { color: var(--muted); }
-.mono { font-family: var(--mono); font-size: 12px; }
+.mono { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 
 .topbar {
@@ -72,6 +72,7 @@ p { margin: 0 0 10px; }
   padding: 2px 8px; border-radius: 99px;
 }
 select, input, textarea, button { font: inherit; color: inherit; }
+select { max-width: 100%; text-overflow: ellipsis; }
 select, input, textarea {
   background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px;
 }
@@ -106,9 +107,14 @@ main { padding: 24px 28px 60px; max-width: 1180px; outline: none; }
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
   box-shadow: var(--shadow);
 }
-.tile { padding: 14px 16px; }
+.tile { padding: 14px 16px; min-width: 0; }
 .tile .label { color: var(--muted); font-size: 12px; }
-.tile .value { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.tile .value {
+  font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+/* Identifiers (service ids, model names) are not KPIs: smaller, monospace, wrap anywhere. */
+.tile .value.ident { font-family: var(--mono); font-size: 14px; font-weight: 600; line-height: 1.4; margin-top: 6px; }
 .tile .sub { color: var(--muted); font-size: 12px; }
 .panel { padding: 16px 18px; margin-top: 14px; }
 .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
@@ -177,12 +183,13 @@ svg text { fill: var(--muted); font-size: 10px; }
 #toast.show { opacity: 1; transform: none; }
 
 @media (max-width: 760px) {
-  .shell { grid-template-columns: 1fr; }
+  /* minmax(0, 1fr), not 1fr: a plain 1fr track grows to its widest table and scrolls the page. */
+  .shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; }
   .nav { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--border); padding: 8px; }
   .nav a { white-space: nowrap; }
   .nav a.external { margin-top: 0; }
   main { padding: 16px; }
-  .grid-2 { grid-template-columns: 1fr; }
+  .grid-2 { grid-template-columns: minmax(0, 1fr); }
   .tag { display: none; }
   .bars { grid-template-columns: 100px 1fr 46px; }
 }

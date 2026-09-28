@@ -105,8 +105,8 @@ views.overview = async (main) => {
     </div>`;
 };
 
-function tile(label, value, sub = "") {
-  return `<div class="tile"><div class="label">${esc(label)}</div><div class="value">${esc(value)}</div><div class="sub">${esc(sub)}</div></div>`;
+function tile(label, value, sub = "", kind = "") {
+  return `<div class="tile"><div class="label">${esc(label)}</div><div class="value ${kind}">${esc(value)}</div><div class="sub">${esc(sub)}</div></div>`;
 }
 
 function stackBar(counts, total, legend = true) {
@@ -343,7 +343,7 @@ views.card = async (main) => {
     <div class="tiles">
       ${tile("Risk level", m.risk.level, m.risk.category)}
       ${tile("AUTO threshold", p.thresholds.auto.toFixed(2), `review ≥ ${p.thresholds.review.toFixed(2)}`)}
-      ${tile("CDS Hooks", d.cds_service ?? "none", m.cds_hooks ? m.cds_hooks.hook : "")}
+      ${tile("CDS Hooks service", d.cds_service ?? "none", m.cds_hooks ? `hook: ${m.cds_hooks.hook}` : "", "ident")}
     </div>
     <div class="panel"><b>Digest</b> <span class="mono">${esc(d.digest)}</span></div>
     <div class="grid-2">

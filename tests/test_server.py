@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -90,6 +92,9 @@ def test_local_validation_via_api(client: TestClient) -> None:
 def test_dashboard_is_served(client: TestClient) -> None:
     page = client.get("/")
     assert page.status_code == 200 and "OpenHealth Hub" in page.text
+    # Asset URLs carry a content hash so a deploy never serves stale JS/CSS.
+    assert re.search(r'/static/app\.js\?v=[0-9a-f]{12}"', page.text)
+    assert re.search(r'/static/style\.css\?v=[0-9a-f]{12}"', page.text)
     assert client.get("/static/app.js").status_code == 200
 
 

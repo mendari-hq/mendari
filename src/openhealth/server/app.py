@@ -6,6 +6,7 @@ to localhost; on Vercel it sits behind Vercel Authentication (deployment protect
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 from collections.abc import Mapping
@@ -13,7 +14,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import Body, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -281,12 +282,24 @@ def create_app(
 
     # -- dashboard ---------------------------------------------------------------------------
 
+    page = versioned_dashboard()
+
     @app.get("/", include_in_schema=False)
-    def dashboard() -> FileResponse:
-        return FileResponse(DASHBOARD_DIR / "index.html")
+    def dashboard() -> HTMLResponse:
+        return HTMLResponse(page, headers={"cache-control": "no-cache"})
 
     app.mount("/static", StaticFiles(directory=DASHBOARD_DIR), name="static")
     return app
+
+
+def versioned_dashboard() -> str:
+    """index.html with each asset URL stamped by a hash of its content, so a deploy that
+    changes app.js or style.css can never be served stale from a browser or CDN cache."""
+    page = (DASHBOARD_DIR / "index.html").read_text(encoding="utf-8")
+    for asset in ("app.js", "style.css"):
+        digest = hashlib.sha256((DASHBOARD_DIR / asset).read_bytes()).hexdigest()[:12]
+        page = page.replace(f"/static/{asset}", f"/static/{asset}?v={digest}")
+    return page
 
 
 def _summary(pack: Pack) -> dict[str, Any]:
