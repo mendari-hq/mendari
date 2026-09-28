@@ -4,8 +4,125 @@
     "id": "openhealth/patient-inbox-router",
     "version": "0.2.0"
   },
-  "updated_at": "2026-09-28T19:35:17+00:00",
+  "updated_at": "2026-09-28T19:55:06+00:00",
   "rows": [
+    {
+      "config": "safety_screen=llm (anthropic/claude-haiku-4.5) \u00b7 router=llm (anthropic/claude-haiku-4.5)",
+      "providers": {
+        "safety_screen": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "anthropic/claude-haiku-4.5"
+        },
+        "router": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "anthropic/claude-haiku-4.5"
+        }
+      },
+      "dataset": "red_flags",
+      "n": 38,
+      "report_id": "8d257af5-46bd-4574-8269-7b39743fb331",
+      "created_at": "2026-09-28T19:49:18+00:00",
+      "pack_version": "0.2.0",
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "ece": 0.06464285714285714,
+      "auto_rate": 0.10526315789473684,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "urgency",
+          "label": "urgent",
+          "n": 28,
+          "detected": 28,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 9736.279083183035,
+      "latency_p95_ms": 12417.14012506418,
+      "cost_per_decision_usd": 0.004579763157894737,
+      "errors": 0,
+      "error_codes": {}
+    },
+    {
+      "config": "safety_screen=llm (anthropic/claude-sonnet-5) \u00b7 router=llm (anthropic/claude-sonnet-5)",
+      "providers": {
+        "safety_screen": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "anthropic/claude-sonnet-5"
+        },
+        "router": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "anthropic/claude-sonnet-5"
+        }
+      },
+      "dataset": "red_flags",
+      "n": 38,
+      "report_id": "a8ce7cdb-6921-4538-8150-d676369e71be",
+      "created_at": "2026-09-28T19:50:44+00:00",
+      "pack_version": "0.2.0",
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "ece": 0.09684082655618645,
+      "auto_rate": 0.05263157894736842,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "urgency",
+          "label": "urgent",
+          "n": 28,
+          "detected": 28,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 2234.2660420108587,
+      "latency_p95_ms": 3000.867374939844,
+      "cost_per_decision_usd": 0.003262736842105263,
+      "errors": 0,
+      "error_codes": {}
+    },
+    {
+      "config": "safety_screen=llm (openai/gpt-oss-120b) \u00b7 router=llm (openai/gpt-oss-120b)",
+      "providers": {
+        "safety_screen": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "openai/gpt-oss-120b"
+        },
+        "router": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "openai/gpt-oss-120b"
+        }
+      },
+      "dataset": "red_flags",
+      "n": 38,
+      "report_id": "19fb2c82-eb7e-47cb-88a7-0d644a763c05",
+      "created_at": "2026-09-28T19:42:52+00:00",
+      "pack_version": "0.2.0",
+      "accuracy": 0.8928571428571429,
+      "macro_f1": 0.9433962264150945,
+      "ece": 0.1549624060150376,
+      "auto_rate": 0.02631578947368421,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "urgency",
+          "label": "urgent",
+          "n": 28,
+          "detected": 28,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 1212.9350840114057,
+      "latency_p95_ms": 1603.7674159742892,
+      "cost_per_decision_usd": 0.00016136578947368422,
+      "errors": 0,
+      "error_codes": {}
+    },
     {
       "config": "safety_screen=rules \u00b7 router=naive_bayes",
       "providers": {
@@ -85,6 +202,45 @@
       "error_codes": {}
     },
     {
+      "config": "safety_screen=rules_and_llm (anthropic/claude-haiku-4.5) \u00b7 router=llm (anthropic/claude-haiku-4.5)",
+      "providers": {
+        "safety_screen": {
+          "variant": "rules_and_llm",
+          "type": "any_of",
+          "model": "rules:rules@661449489daf + llm:anthropic/claude-haiku-4.5"
+        },
+        "router": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "anthropic/claude-haiku-4.5"
+        }
+      },
+      "dataset": "red_flags",
+      "n": 38,
+      "report_id": "ee94424b-35df-4a72-9ba7-aa1ceb1bb92c",
+      "created_at": "2026-09-28T19:45:57+00:00",
+      "pack_version": "0.2.0",
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "ece": 0.0471428571428571,
+      "auto_rate": 0.10526315789473684,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "urgency",
+          "label": "urgent",
+          "n": 28,
+          "detected": 28,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 10121.986666927114,
+      "latency_p95_ms": 12415.251541184261,
+      "cost_per_decision_usd": 0.004627921052631579,
+      "errors": 0,
+      "error_codes": {}
+    },
+    {
       "config": "safety_screen=rules_and_llm (anthropic/claude-sonnet-5) \u00b7 router=llm (anthropic/claude-sonnet-5)",
       "providers": {
         "safety_screen": {
@@ -120,6 +276,164 @@
       "latency_p50_ms": 2339.808249846101,
       "latency_p95_ms": 2674.3785419967026,
       "cost_per_decision_usd": 0.003239315789473684,
+      "errors": 0,
+      "error_codes": {}
+    },
+    {
+      "config": "safety_screen=rules_and_llm (openai/gpt-oss-120b) \u00b7 router=llm (openai/gpt-oss-120b)",
+      "providers": {
+        "safety_screen": {
+          "variant": "rules_and_llm",
+          "type": "any_of",
+          "model": "rules:rules@661449489daf + llm:openai/gpt-oss-120b"
+        },
+        "router": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "openai/gpt-oss-120b"
+        }
+      },
+      "dataset": "red_flags",
+      "n": 38,
+      "report_id": "1219db76-55da-4dab-ba08-7299679cdfce",
+      "created_at": "2026-09-28T19:42:22+00:00",
+      "pack_version": "0.2.0",
+      "accuracy": 0.9285714285714286,
+      "macro_f1": 0.962962962962963,
+      "ece": 0.20642857142857138,
+      "auto_rate": 0.02631578947368421,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "urgency",
+          "label": "urgent",
+          "n": 28,
+          "detected": 28,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 1398.6967499367893,
+      "latency_p95_ms": 1648.3571249991655,
+      "cost_per_decision_usd": 0.0001598,
+      "errors": 0,
+      "error_codes": {}
+    },
+    {
+      "config": "safety_screen=llm (anthropic/claude-haiku-4.5) \u00b7 router=llm (anthropic/claude-haiku-4.5)",
+      "providers": {
+        "safety_screen": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "anthropic/claude-haiku-4.5"
+        },
+        "router": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "anthropic/claude-haiku-4.5"
+        }
+      },
+      "dataset": "red_flags_holdout",
+      "n": 30,
+      "report_id": "728b3d94-92c1-406c-a28e-f8dd6a89a9c7",
+      "created_at": "2026-09-28T19:50:02+00:00",
+      "pack_version": "0.2.0",
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "ece": 0.09449999999999993,
+      "auto_rate": 0.23333333333333334,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "urgency",
+          "label": "urgent",
+          "n": 20,
+          "detected": 20,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 10397.736083017662,
+      "latency_p95_ms": 15386.632290901616,
+      "cost_per_decision_usd": 0.004679233333333334,
+      "errors": 0,
+      "error_codes": {}
+    },
+    {
+      "config": "safety_screen=llm (anthropic/claude-sonnet-5) \u00b7 router=llm (anthropic/claude-sonnet-5)",
+      "providers": {
+        "safety_screen": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "anthropic/claude-sonnet-5"
+        },
+        "router": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "anthropic/claude-sonnet-5"
+        }
+      },
+      "dataset": "red_flags_holdout",
+      "n": 30,
+      "report_id": "e47e31d5-d94e-4899-ba6a-2101a28ee589",
+      "created_at": "2026-09-28T19:55:06+00:00",
+      "pack_version": "0.2.0",
+      "accuracy": 0.95,
+      "macro_f1": 0.9743589743589743,
+      "ece": 0.052361919837186854,
+      "auto_rate": 0.06666666666666667,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "urgency",
+          "label": "urgent",
+          "n": 20,
+          "detected": 20,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 2399.085166165605,
+      "latency_p95_ms": 4907.162999967113,
+      "cost_per_decision_usd": 0.003271933333333333,
+      "errors": 1,
+      "error_codes": {
+        "invalid_response": 1
+      }
+    },
+    {
+      "config": "safety_screen=llm (openai/gpt-oss-120b) \u00b7 router=llm (openai/gpt-oss-120b)",
+      "providers": {
+        "safety_screen": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "openai/gpt-oss-120b"
+        },
+        "router": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "openai/gpt-oss-120b"
+        }
+      },
+      "dataset": "red_flags_holdout",
+      "n": 30,
+      "report_id": "baa78b2e-c181-4ac5-a70b-e004a1363cad",
+      "created_at": "2026-09-28T19:43:00+00:00",
+      "pack_version": "0.2.0",
+      "accuracy": 0.75,
+      "macro_f1": 0.8571428571428571,
+      "ece": 0.09899999999999998,
+      "auto_rate": 0.03333333333333333,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "urgency",
+          "label": "urgent",
+          "n": 20,
+          "detected": 19,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 1305.2644170820713,
+      "latency_p95_ms": 2311.371332965791,
+      "cost_per_decision_usd": 0.00015861666666666666,
       "errors": 0,
       "error_codes": {}
     },
@@ -202,6 +516,45 @@
       "error_codes": {}
     },
     {
+      "config": "safety_screen=rules_and_llm (anthropic/claude-haiku-4.5) \u00b7 router=llm (anthropic/claude-haiku-4.5)",
+      "providers": {
+        "safety_screen": {
+          "variant": "rules_and_llm",
+          "type": "any_of",
+          "model": "rules:rules@661449489daf + llm:anthropic/claude-haiku-4.5"
+        },
+        "router": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "anthropic/claude-haiku-4.5"
+        }
+      },
+      "dataset": "red_flags_holdout",
+      "n": 30,
+      "report_id": "96f90031-e30d-4e28-aff5-cb6df24b8720",
+      "created_at": "2026-09-28T19:46:40+00:00",
+      "pack_version": "0.2.0",
+      "accuracy": 0.95,
+      "macro_f1": 0.9743589743589743,
+      "ece": 0.06099999999999997,
+      "auto_rate": 0.2,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "urgency",
+          "label": "urgent",
+          "n": 20,
+          "detected": 20,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 9841.445040889084,
+      "latency_p95_ms": 15296.410750132054,
+      "cost_per_decision_usd": 0.004677733333333334,
+      "errors": 0,
+      "error_codes": {}
+    },
+    {
       "config": "safety_screen=rules_and_llm (anthropic/claude-sonnet-5) \u00b7 router=llm (anthropic/claude-sonnet-5)",
       "providers": {
         "safety_screen": {
@@ -237,6 +590,162 @@
       "latency_p50_ms": 2312.603499973193,
       "latency_p95_ms": 2807.4051670264453,
       "cost_per_decision_usd": 0.0032422666666666665,
+      "errors": 0,
+      "error_codes": {}
+    },
+    {
+      "config": "safety_screen=rules_and_llm (openai/gpt-oss-120b) \u00b7 router=llm (openai/gpt-oss-120b)",
+      "providers": {
+        "safety_screen": {
+          "variant": "rules_and_llm",
+          "type": "any_of",
+          "model": "rules:rules@661449489daf + llm:openai/gpt-oss-120b"
+        },
+        "router": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "openai/gpt-oss-120b"
+        }
+      },
+      "dataset": "red_flags_holdout",
+      "n": 30,
+      "report_id": "fc63a165-ac61-4ade-b6f7-ab7e2d19ea38",
+      "created_at": "2026-09-28T19:42:28+00:00",
+      "pack_version": "0.2.0",
+      "accuracy": 0.95,
+      "macro_f1": 0.9743589743589743,
+      "ece": 0.18200000000000002,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "urgency",
+          "label": "urgent",
+          "n": 20,
+          "detected": 20,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 1339.287041919306,
+      "latency_p95_ms": 1916.3499579299241,
+      "cost_per_decision_usd": 0.00015765,
+      "errors": 0,
+      "error_codes": {}
+    },
+    {
+      "config": "safety_screen=llm (anthropic/claude-haiku-4.5) \u00b7 router=llm (anthropic/claude-haiku-4.5)",
+      "providers": {
+        "safety_screen": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "anthropic/claude-haiku-4.5"
+        },
+        "router": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "anthropic/claude-haiku-4.5"
+        }
+      },
+      "dataset": "test",
+      "n": 100,
+      "report_id": "c57777b0-3e13-428e-bd04-27d9fcd4a3d3",
+      "created_at": "2026-09-28T19:48:27+00:00",
+      "pack_version": "0.2.0",
+      "accuracy": 0.99,
+      "macro_f1": 0.9917819706498952,
+      "ece": 0.06110000000000008,
+      "auto_rate": 0.76,
+      "false_automation_rate": 0.0,
+      "critical": [
+        {
+          "question": "urgency",
+          "label": "urgent",
+          "n": 2,
+          "detected": 2,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 6982.11295902729,
+      "latency_p95_ms": 14856.494500068948,
+      "cost_per_decision_usd": 0.004256380000000001,
+      "errors": 0,
+      "error_codes": {}
+    },
+    {
+      "config": "safety_screen=llm (anthropic/claude-sonnet-5) \u00b7 router=llm (anthropic/claude-sonnet-5)",
+      "providers": {
+        "safety_screen": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "anthropic/claude-sonnet-5"
+        },
+        "router": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "anthropic/claude-sonnet-5"
+        }
+      },
+      "dataset": "test",
+      "n": 100,
+      "report_id": "cf8ba0a2-aeaa-43f9-b556-e7095058d64b",
+      "created_at": "2026-09-28T19:50:33+00:00",
+      "pack_version": "0.2.0",
+      "accuracy": 0.99,
+      "macro_f1": 0.988956228956229,
+      "ece": 0.12402556390977446,
+      "auto_rate": 0.43,
+      "false_automation_rate": 0.0,
+      "critical": [
+        {
+          "question": "urgency",
+          "label": "urgent",
+          "n": 2,
+          "detected": 2,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 2353.0689168255776,
+      "latency_p95_ms": 2714.5344170276076,
+      "cost_per_decision_usd": 0.003348,
+      "errors": 0,
+      "error_codes": {}
+    },
+    {
+      "config": "safety_screen=llm (openai/gpt-oss-120b) \u00b7 router=llm (openai/gpt-oss-120b)",
+      "providers": {
+        "safety_screen": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "openai/gpt-oss-120b"
+        },
+        "router": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "openai/gpt-oss-120b"
+        }
+      },
+      "dataset": "test",
+      "n": 100,
+      "report_id": "c357daa6-e5d1-4322-be69-db9247b213b9",
+      "created_at": "2026-09-28T19:42:45+00:00",
+      "pack_version": "0.2.0",
+      "accuracy": 0.99,
+      "macro_f1": 0.9927272727272728,
+      "ece": 0.11837873332226635,
+      "auto_rate": 0.46,
+      "false_automation_rate": 0.021739130434782608,
+      "critical": [
+        {
+          "question": "urgency",
+          "label": "urgent",
+          "n": 2,
+          "detected": 2,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 1232.3535832110792,
+      "latency_p95_ms": 1802.663709037006,
+      "cost_per_decision_usd": 0.000157558,
       "errors": 0,
       "error_codes": {}
     },
@@ -319,6 +828,45 @@
       "error_codes": {}
     },
     {
+      "config": "safety_screen=rules_and_llm (anthropic/claude-haiku-4.5) \u00b7 router=llm (anthropic/claude-haiku-4.5)",
+      "providers": {
+        "safety_screen": {
+          "variant": "rules_and_llm",
+          "type": "any_of",
+          "model": "rules:rules@661449489daf + llm:anthropic/claude-haiku-4.5"
+        },
+        "router": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "anthropic/claude-haiku-4.5"
+        }
+      },
+      "dataset": "test",
+      "n": 100,
+      "report_id": "805439d8-32e1-4e93-9f3b-a475679c9692",
+      "created_at": "2026-09-28T19:45:06+00:00",
+      "pack_version": "0.2.0",
+      "accuracy": 0.97,
+      "macro_f1": 0.9683385623216016,
+      "ece": 0.04722934609250395,
+      "auto_rate": 0.82,
+      "false_automation_rate": 0.0,
+      "critical": [
+        {
+          "question": "urgency",
+          "label": "urgent",
+          "n": 2,
+          "detected": 2,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 7904.837790876627,
+      "latency_p95_ms": 19202.73012504913,
+      "cost_per_decision_usd": 0.00433338,
+      "errors": 0,
+      "error_codes": {}
+    },
+    {
       "config": "safety_screen=rules_and_llm (anthropic/claude-sonnet-5) \u00b7 router=llm (anthropic/claude-sonnet-5)",
       "providers": {
         "safety_screen": {
@@ -354,6 +902,45 @@
       "latency_p50_ms": 2397.0292499288917,
       "latency_p95_ms": 2990.885708015412,
       "cost_per_decision_usd": 0.0033472000000000003,
+      "errors": 0,
+      "error_codes": {}
+    },
+    {
+      "config": "safety_screen=rules_and_llm (openai/gpt-oss-120b) \u00b7 router=llm (openai/gpt-oss-120b)",
+      "providers": {
+        "safety_screen": {
+          "variant": "rules_and_llm",
+          "type": "any_of",
+          "model": "rules:rules@661449489daf + llm:openai/gpt-oss-120b"
+        },
+        "router": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "openai/gpt-oss-120b"
+        }
+      },
+      "dataset": "test",
+      "n": 100,
+      "report_id": "893f7b12-70a9-4394-a5f0-fb15104a8020",
+      "created_at": "2026-09-28T19:42:14+00:00",
+      "pack_version": "0.2.0",
+      "accuracy": 0.96,
+      "macro_f1": 0.9541366041366042,
+      "ece": 0.09760000000000002,
+      "auto_rate": 0.43,
+      "false_automation_rate": 0.023255813953488372,
+      "critical": [
+        {
+          "question": "urgency",
+          "label": "urgent",
+          "n": 2,
+          "detected": 2,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 1250.0087080989033,
+      "latency_p95_ms": 1576.968374894932,
+      "cost_per_decision_usd": 0.000157328,
       "errors": 0,
       "error_codes": {}
     }

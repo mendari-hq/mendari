@@ -34,7 +34,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from openhealth.core.spec import Question
 from openhealth.errors import PackValidationError, ProviderError
 from openhealth.providers.base import Answer, Provider, ProviderOutput, batch_state
-from openhealth.providers.batch import batched_answer
+from openhealth.providers.batch import batched_answer, unwrap
 from openhealth.providers.credentials import resolve_key
 from openhealth.providers.http import post_json, require_secure
 
@@ -116,13 +116,14 @@ class JevProvider(Provider):
 
     def answer(self, inputs: Mapping[str, Any]) -> ProviderOutput:
         shared = batched_answer(self, inputs)
-        return shared if shared is not None else self.answer_batch([self], inputs)[0]
+        return shared if shared is not None else unwrap(self.answer_batch([self], inputs)[0])
 
     def answer_batch(
         self, providers: list[Provider], inputs: Mapping[str, Any]
-    ) -> list[ProviderOutput]:
+    ) -> list[ProviderOutput | ProviderError]:
         """One Jev call for `providers` (this one first). The call's usage and cost are
-        reported by this provider only, so a decision's totals count them once."""
+        reported once, by the first provider that answered; a malformed answer fails only the
+        provider that asked that question."""
         batch = [provider for provider in providers if isinstance(provider, JevProvider)]
         if len(batch) != len(providers):
             raise TypeError("a Jev batch holds only Jev providers")
@@ -138,15 +139,21 @@ class JevProvider(Provider):
             raise ProviderError("invalid_input", "request exceeds Jev's size limit")
 
         raw = self._send(endpoint, token, body)
-        effective, answers, usage = validate_response(raw, questions)
+        effective, answers, usage, problems = parse_response(raw, questions)
+        failed = {p for p in batch if any(key in problems for key in p.questions)}
+        first = next((p for p in batch if p not in failed), None)
         tokens = usage["input_tokens"] + usage["output_tokens"]
         price = self.settings.cost_per_1k_tokens_usd
         extra: dict[str, Any] = {"requested_model": model, "effective_model": effective}
         if len(batch) > 1:
             extra["batch"] = [f"{p.info.slot}/{p.info.variant}" for p in batch]
-        outputs = []
+        outputs: list[ProviderOutput | ProviderError] = []
         for provider in batch:
-            lead = provider is self
+            if provider in failed:
+                key = next(k for k in provider.questions if k in problems)
+                outputs.append(ProviderError("invalid_response", problems[key]))
+                continue
+            lead = provider is first
             answered_by = replace(provider.info, model=effective)
             outputs.append(
                 ProviderOutput(
@@ -255,6 +262,17 @@ def validate_response(
     requested when the request used an alias such as `jev-latest`; the effective one is what
     gets recorded in audit provenance.
     """
+    effective, answers, usage, problems = parse_response(raw, questions)
+    if problems:
+        raise _invalid(next(iter(problems.values())))
+    return effective, answers, usage
+
+
+def parse_response(
+    raw: Any, questions: Mapping[str, Question]
+) -> tuple[str, dict[str, dict[str, Any]], dict[str, int], dict[str, str]]:
+    """As `validate_response`, but a malformed answer to one question is reported in the last
+    element (question -> detail) instead of failing the other questions' answers."""
     if not isinstance(raw, dict):
         raise _invalid("response is not an object")
     effective = raw.get("model")
@@ -266,18 +284,22 @@ def validate_response(
     if set(answers) != set(questions):
         raise _invalid("answers do not match the questions asked")
 
-    validated = {}
+    validated: dict[str, dict[str, Any]] = {}
+    problems: dict[str, str] = {}
     for key, question in questions.items():
         answer = answers[key]
         expected = {"boolean": "noul", "score": "score"}.get(question.type, "choice")
-        if not isinstance(answer, dict) or answer.get("type") != expected:
-            raise _invalid(f"answer {key!r} is malformed")
-        if expected == "noul":
-            validated[key] = _noul(key, answer)
-        elif expected == "score":
-            validated[key] = _score(key, question, answer)
-        else:
-            validated[key] = _choice(key, question, answer)
+        try:
+            if not isinstance(answer, dict) or answer.get("type") != expected:
+                raise _invalid(f"answer {key!r} is malformed")
+            if expected == "noul":
+                validated[key] = _noul(key, answer)
+            elif expected == "score":
+                validated[key] = _score(key, question, answer)
+            else:
+                validated[key] = _choice(key, question, answer)
+        except ProviderError as error:
+            problems[key] = error.detail
 
     tokens_in, tokens_out = usage.get("input_tokens"), usage.get("output_tokens")
     if (
@@ -290,7 +312,8 @@ def validate_response(
         or tokens_in + tokens_out > MAX_TOKENS
     ):
         raise _invalid("usage is malformed")
-    return effective, validated, {"input_tokens": tokens_in, "output_tokens": tokens_out}
+    usage_out = {"input_tokens": tokens_in, "output_tokens": tokens_out}
+    return effective, validated, usage_out, problems
 
 
 def _invalid(detail: str) -> ProviderError:

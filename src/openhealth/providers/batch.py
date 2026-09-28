@@ -6,7 +6,9 @@ composite's members included) are grouped by `batch_key()`: same type and same k
 asked twice, and at most the type's `max_batch_questions`. The first member of a group to
 answer makes one call for the whole group (`answer_batch`); the others read their answers, or
 the same error, from it. The call is made only when a member actually needs it, and a budget
-is charged once per call.
+is charged once per call. A failed call fails every member, but a malformed answer fails only
+the member that asked that question: a valid safety answer is never discarded because another
+slot's answer in the same call was unusable.
 """
 
 from __future__ import annotations
@@ -25,7 +27,7 @@ _ACTIVE: ContextVar[dict[int, _Group] | None] = ContextVar("openhealth_batch", d
 class _Group:
     def __init__(self, members: list[Provider]):
         self.members = members
-        self._outputs: dict[int, ProviderOutput] | None = None
+        self._outputs: dict[int, ProviderOutput | ProviderError] | None = None
         self._error: ProviderError | None = None
 
     def fits(self, provider: Provider) -> bool:
@@ -48,7 +50,7 @@ class _Group:
                 self._outputs = {id(m): out for m, out in zip(order, outputs, strict=True)}
         if self._error is not None:
             raise ProviderError(self._error.code, self._error.detail)
-        return (self._outputs or {})[id(provider)]
+        return unwrap((self._outputs or {})[id(provider)])
 
 
 @contextmanager
@@ -69,6 +71,13 @@ def batching(providers: Iterable[Provider]) -> Iterator[None]:
         yield
     finally:
         _ACTIVE.reset(token)
+
+
+def unwrap(result: ProviderOutput | ProviderError) -> ProviderOutput:
+    """One provider's share of a call: its output, or its own failure raised."""
+    if isinstance(result, ProviderError):
+        raise ProviderError(result.code, result.detail)
+    return result
 
 
 def batched_answer(provider: Provider, inputs: Mapping[str, Any]) -> ProviderOutput | None:

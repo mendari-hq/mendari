@@ -326,3 +326,45 @@ def test_score_answers_get_expected_values_in_decisions(
     assert answer.label == "severe" and answer.provider.model == "jev-9.9.9"
     expected = trial.manifest.questions["severity"].expected_score(answer.probabilities)
     assert expected == pytest.approx(0.1 * 1 + 0.2 * 2 + 0.7 * 3)
+
+
+def test_a_malformed_router_answer_keeps_the_safety_answer(
+    inbox_pack: Pack, monkeypatch: pytest.MonkeyPatch, jev_env: pytest.MonkeyPatch
+) -> None:
+    broken = {**choice(DESTINATIONS, "nurse"), "choice": "pharmacist"}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        answers = {"destination": broken, "urgency": choice(["urgent", "routine"], "urgent", 0.97)}
+        usage = {"input_tokens": 100, "output_tokens": 10}
+        return httpx.Response(200, json={"model": "jev-9.9.9", "answers": answers, "usage": usage})
+
+    original = JevProvider.__init__
+
+    def init(self: JevProvider, *args: Any, **kwargs: Any) -> None:
+        kwargs["client"] = httpx.Client(transport=httpx.MockTransport(handler))
+        original(self, *args, **kwargs)
+
+    monkeypatch.setattr(JevProvider, "__init__", init)
+    result = both_jev(inbox_pack)(message("Squeezing feeling in my chest going into my jaw"))
+    assert result.answers["urgency"].label == "urgent" and result.priority.value == "stat"
+    assert result.errors == {"destination": "invalid_response"}
+    assert result.input_tokens == 100  # counted once, by the provider that answered
+
+
+def test_a_member_error_fails_only_that_member() -> None:
+    class Partial(Counting):
+        def answer_batch(self, providers: list[Provider], inputs: Mapping[str, Any]) -> list[Any]:
+            Counting.calls.append([q for p in providers for q in p.questions])
+            return [
+                ProviderError("invalid_response", "bad")
+                if "bad" in p.questions
+                else ProviderOutput(answers={})
+                for p in providers
+            ]
+
+    good, bad = Partial(["good"]), Partial(["bad"])
+    with batching([good, bad]):
+        good.answer({})
+        with pytest.raises(ProviderError, match="invalid_response"):
+            bad.answer({})
+    assert len(Counting.calls) == 1

@@ -38,7 +38,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from openhealth.core.spec import Question
 from openhealth.errors import PackValidationError, ProviderError
 from openhealth.providers.base import Provider, ProviderOutput, batch_state
-from openhealth.providers.batch import batched_answer
+from openhealth.providers.batch import batched_answer, unwrap
 from openhealth.providers.calibration import rescale
 from openhealth.providers.credentials import vercel_oidc_token
 from openhealth.providers.http import is_local, post_json, require_secure
@@ -170,11 +170,11 @@ class LlmProvider(Provider):
 
     def answer(self, inputs: Mapping[str, Any]) -> ProviderOutput:
         shared = batched_answer(self, inputs)
-        return shared if shared is not None else self.answer_batch([self], inputs)[0]
+        return shared if shared is not None else unwrap(self.answer_batch([self], inputs)[0])
 
     def answer_batch(
         self, providers: list[Provider], inputs: Mapping[str, Any]
-    ) -> list[ProviderOutput]:
+    ) -> list[ProviderOutput | ProviderError]:
         batch = [provider for provider in providers if isinstance(provider, LlmProvider)]
         if len(batch) != len(providers):
             raise TypeError("an LLM batch holds only LLM providers")
@@ -195,16 +195,23 @@ class LlmProvider(Provider):
             headers=headers,
             timeout_s=self.settings.timeout_ms / 1000,
         )
-        distributions, usage = validate_response(raw, questions)
+        distributions, usage, problems = parse_response(raw, questions)
+        failed = {p for p in batch if any(key in problems for key in p.questions)}
+        # The call's usage and cost are reported once, by the first provider that answered.
+        lead = next((p for p in batch if p not in failed), None)
         extra: dict[str, Any] = {"requested_model": self.model}
         if isinstance(raw.get("model"), str):
             extra["effective_model"] = raw["model"]
         if len(batch) > 1:
             extra["batch"] = [f"{p.info.slot}/{p.info.variant}" for p in batch]
 
-        outputs = []
+        outputs: list[ProviderOutput | ProviderError] = []
         for provider in batch:
-            lead = provider is self
+            if provider in failed:
+                key = next(k for k in provider.questions if k in problems)
+                outputs.append(ProviderError("invalid_response", problems[key]))
+                continue
+            first = provider is lead
             answers = {}
             for key in provider.questions:
                 probabilities = distributions[key]
@@ -218,9 +225,9 @@ class LlmProvider(Provider):
             outputs.append(
                 ProviderOutput(
                     answers=answers,
-                    input_tokens=usage["input_tokens"] if lead else 0,
-                    output_tokens=usage["output_tokens"] if lead else 0,
-                    cost_usd=None if cost is None else (cost if lead else 0.0),
+                    input_tokens=usage["input_tokens"] if first else 0,
+                    output_tokens=usage["output_tokens"] if first else 0,
+                    cost_usd=None if cost is None else (cost if first else 0.0),
                     extra=extra,
                 )
             )
@@ -282,7 +289,19 @@ def response_schema(questions: Mapping[str, Question]) -> dict[str, Any]:
 def validate_response(
     raw: Any, questions: Mapping[str, Question]
 ) -> tuple[dict[str, dict[str, float]], dict[str, Any]]:
-    """(distributions per question, usage); raises `invalid_response` on anything unexpected."""
+    """(distributions, usage); raises `invalid_response` if anything at all is malformed."""
+    distributions, usage, problems = parse_response(raw, questions)
+    if problems:
+        raise ProviderError("invalid_response", next(iter(problems.values())))
+    return distributions, usage
+
+
+def parse_response(
+    raw: Any, questions: Mapping[str, Question]
+) -> tuple[dict[str, dict[str, float]], dict[str, Any], dict[str, str]]:
+    """(distributions, usage, problems per question). A malformed response raises
+    `invalid_response`; a malformed answer to one question is reported in `problems`, and the
+    other questions keep their answers."""
 
     def invalid(detail: str) -> ProviderError:
         return ProviderError("invalid_response", detail)
@@ -306,17 +325,20 @@ def validate_response(
     if not isinstance(parsed, dict) or set(parsed) != set(questions):
         raise invalid("answers do not match the questions asked")
 
-    distributions = {}
+    distributions: dict[str, dict[str, float]] = {}
+    problems: dict[str, str] = {}
     for key, question in questions.items():
         values = parsed[key]
         if not isinstance(values, dict) or set(values) != set(question.labels):
-            raise invalid(f"answer {key!r} does not give every label exactly once")
-        if not all(_probability(p) for p in values.values()):
-            raise invalid(f"answer {key!r} has a value outside [0, 1]")
-        total = sum(values.values())
-        if abs(total - 1.0) > SUM_TOLERANCE:
-            raise invalid(f"answer {key!r} probabilities sum to {total:.2f}")
-        distributions[key] = {label: float(p) / total for label, p in values.items()}
+            problems[key] = f"answer {key!r} does not give every label exactly once"
+        elif not all(_probability(p) for p in values.values()):
+            problems[key] = f"answer {key!r} has a value outside [0, 1]"
+        elif abs(sum(values.values()) - 1.0) > SUM_TOLERANCE:
+            # e.g. an emergency where no routing label fits: never renormalise a guess.
+            problems[key] = f"answer {key!r} probabilities sum to {sum(values.values()):.2f}"
+        else:
+            total = sum(values.values())
+            distributions[key] = {label: float(p) / total for label, p in values.items()}
 
     usage = raw.get("usage") if isinstance(raw.get("usage"), dict) else {}
     tokens_in, tokens_out = usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0)
@@ -326,11 +348,8 @@ def validate_response(
         raise invalid("usage is malformed")
     cost = usage.get("cost")  # reported by the AI Gateway; absent on most local servers
     cost_usd = float(cost) if isinstance(cost, int | float) and _nonnegative(cost) else None
-    return distributions, {
-        "input_tokens": tokens_in,
-        "output_tokens": tokens_out,
-        "cost_usd": cost_usd,
-    }
+    usage_out = {"input_tokens": tokens_in, "output_tokens": tokens_out, "cost_usd": cost_usd}
+    return distributions, usage_out, problems
 
 
 def _probability(value: Any) -> bool:
