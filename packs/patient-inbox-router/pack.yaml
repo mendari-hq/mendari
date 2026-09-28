@@ -1,6 +1,6 @@
-spec_version: "0.1"
+spec_version: "0.2"
 id: openhealth/patient-inbox-router
-version: 0.2.0
+version: 0.3.0
 name: Patient Inbox Router
 summary: >-
   Routes patient portal and SMS messages to the front desk, a medical assistant, a nurse, a
@@ -92,15 +92,24 @@ questions:
         Bills, statements, copays, charges, refunds, payment plans, insurance claims, coverage
         and cost estimates.
   urgency:
+    # One judgment, stated literally; how much doubt is enough to escalate is the policy's
+    # min_probability, not part of the question.
     instructions: >-
-      Does this message describe symptoms that may need emergency or same-day clinical
-      attention? Answer "urgent" if in doubt.
+      Could the situation in this message be a medical emergency that is happening now or
+      getting worse?
     criteria:
       urgent: >-
-        Possible emergency: chest pain or pressure, trouble breathing, stroke signs, suicidal
-        thoughts or intentional overdose, severe bleeding, severe allergic reaction, fever in a
-        young infant, or a person who is hard to wake.
-      routine: No sign of an emergency or time-critical clinical problem.
+        Possibly an emergency now, even when described casually or with uncertainty: chest pain
+        or pressure; trouble breathing; stroke signs such as face drooping, arm weakness or
+        slurred speech; thoughts of suicide or self-harm, or an intentional overdose; heavy
+        bleeding, including vomiting or coughing up blood, or bleeding in pregnancy; a severe
+        allergic reaction; fever in a baby under 3 months; a person who is hard to wake,
+        fainting or newly confused; a head injury followed by vomiting or confusion; sudden
+        severe pain in the head or belly.
+      routine: >-
+        Not an emergency now: administrative requests, refills, questions, mild or long-standing
+        symptoms, and past episodes that have already been treated or assessed, such as asking
+        for records from an emergency room visit.
 
 providers:
   safety_screen:

@@ -229,6 +229,9 @@ class Condition(_Strict):
     question: str
     labels: list[str] = []
     min_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    # The total probability of `labels`, whichever label is most likely: acts on a meaningful
+    # chance of a critical label (e.g. P(urgent) >= 0.35), not only when that label wins.
+    min_probability: float | None = Field(default=None, gt=0.0, le=1.0)
     # Score questions: inclusive bounds on the expected score.
     min_score: float | None = None
     max_score: float | None = None
@@ -237,6 +240,11 @@ class Condition(_Strict):
     def _something_to_match(self) -> Condition:
         if not self.labels and self.min_score is None and self.max_score is None:
             raise ValueError("a condition needs `labels`, `min_score` or `max_score`")
+        if self.min_probability is not None:
+            if not self.labels:
+                raise ValueError("`min_probability` needs the `labels` it applies to")
+            if self.min_confidence:
+                raise ValueError("use `min_probability` or `min_confidence`, not both")
         return self
 
 
@@ -358,8 +366,15 @@ def cross_reference_problems(m: PackManifest) -> list[str]:
     derived = {key for key, q in m.questions.items() if q.derive is not None}
     if m.spec_version == "0.1":
         newer = [k for k, q in m.questions.items() if q.type != "choice" or q.derive is not None]
+        newer += [
+            f"rule {rule.name}"
+            for rule in m.policy.rules
+            if rule.when.min_probability is not None
+            or rule.when.min_score is not None
+            or rule.when.max_score is not None
+        ]
         if newer:
-            problems.append(f"questions {newer} use spec 0.2 features; set spec_version: '0.2'")
+            problems.append(f"{newer} use spec 0.2 features; set spec_version: '0.2'")
 
     answered_by: dict[str, str] = {}
     for slot_name, slot in m.providers.items():

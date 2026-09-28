@@ -425,10 +425,11 @@ function questionPanel(key, q, primary) {
 
 function conditionText(when) {
   const parts = [];
-  if (when.labels.length) parts.push(`${esc(when.question)} ∈ [${when.labels.map(esc).join(", ")}]`);
+  if (when.min_probability !== null && when.min_probability !== undefined) parts.push(`P(${esc(when.question)} ∈ [${when.labels.map(esc).join(", ")}]) ≥ ${esc(when.min_probability)}`);
+  else if (when.labels.length) parts.push(`${esc(when.question)} ∈ [${when.labels.map(esc).join(", ")}]`);
   if (when.min_score !== null && when.min_score !== undefined) parts.push(`${esc(when.question)} expected score ≥ ${esc(when.min_score)}`);
   if (when.max_score !== null && when.max_score !== undefined) parts.push(`${esc(when.question)} expected score ≤ ${esc(when.max_score)}`);
-  const confidence = when.labels.length || when.min_confidence ? ` with p ≥ ${when.min_confidence}` : "";
+  const confidence = (when.labels.length && when.min_probability == null) || when.min_confidence ? ` with p ≥ ${when.min_confidence}` : "";
   return parts.join(" and ") + confidence;
 }
 

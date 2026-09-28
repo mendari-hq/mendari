@@ -200,13 +200,16 @@ def _row(row: DeriveRow) -> str:
 
 def _condition(when: Condition) -> str:
     parts = []
-    if when.labels:
+    if when.min_probability is not None:
+        labels = " or ".join(f"`{x}`" for x in when.labels)
+        parts.append(f"P(`{when.question}` is {labels}) ≥ {when.min_probability:.2f}")
+    elif when.labels:
         parts.append(f"`{when.question}` is " + " or ".join(f"`{x}`" for x in when.labels))
     if when.min_score is not None:
         parts.append(f"`{when.question}` expected score ≥ {when.min_score:g}")
     if when.max_score is not None:
         parts.append(f"`{when.question}` expected score ≤ {when.max_score:g}")
-    shown = when.labels or when.min_confidence
+    shown = (when.labels and when.min_probability is None) or when.min_confidence
     confidence = f" (p ≥ {when.min_confidence:.2f})" if shown else ""
     return " and ".join(parts) + confidence
 

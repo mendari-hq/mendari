@@ -1,5 +1,16 @@
 # Changelog: openhealth/patient-inbox-router
 
+## 0.3.0
+
+- Safety: the `possible-emergency` rule now escalates when P(urgent) ≥ 0.35 (spec 0.2
+  `min_probability`). Before, `urgent` also had to be the most likely label, so the documented
+  0.35 threshold never applied and the effective threshold was 0.5.
+- `urgency` reworded so its instructions and criteria describe the same thing: a possible
+  emergency happening now. The old instructions also included "same-day" care and "answer
+  urgent if in doubt"; the doubt threshold now lives in the policy. The criteria list common
+  triage red flags and say that past, already-treated episodes are routine.
+- `spec_version: "0.2"`. Routing questions, data and the naive Bayes model are unchanged.
+
 ## 0.2.0
 
 - New provider variants, so deployments can compare and choose models:
