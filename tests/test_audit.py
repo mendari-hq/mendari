@@ -122,6 +122,8 @@ def test_exhausted_budget_falls_back_instead_of_automating(
 ) -> None:
     monkeypatch.setenv("JEV_API_URL", "https://jev.test/v1/decide")
     monkeypatch.setenv("JEV_MODEL", "jev-test-model")
+    monkeypatch.setenv("JEV_API_KEY", "test-key")  # credentials fine: the budget refuses
+    monkeypatch.delenv("JEV_CONNECTOR", raising=False)
     decision = Decision(
         inbox_pack, providers={"router": "jev"}, budget=CallBudget(store, {"jev": 0})
     )

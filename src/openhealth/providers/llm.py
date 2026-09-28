@@ -179,8 +179,8 @@ class LlmProvider(Provider):
         if len(batch) != len(providers):
             raise TypeError("an LLM batch holds only LLM providers")
         require_secure(self.base_url, "LLM")
-        self.charge()
         token = self._token()
+        self.charge()  # after the credential: a call that cannot be made uses no budget
 
         questions = {key: q for provider in batch for key, q in provider.questions.items()}
         state = batch_state(inputs, [provider.settings.state_fields for provider in batch])
@@ -389,8 +389,7 @@ def fit_calibration(
 ) -> dict[str, Any]:
     """Ask the uncalibrated model about every labelled record and fit one temperature per
     question on its answers. Returns the calibration file's content (with provenance)."""
-    from concurrent.futures import ThreadPoolExecutor
-
+    from openhealth.parallel import parallel_map
     from openhealth.providers.calibration import fit_temperature, log_probabilities
 
     fitted_for, provider.temperatures = provider.temperatures, {}
@@ -402,8 +401,7 @@ def fit_calibration(
             except ProviderError as error:
                 return error.code
 
-        with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
-            outputs = list(pool.map(ask, records))
+        outputs = parallel_map(ask, records, workers)
     finally:
         provider.temperatures = fitted_for
 
