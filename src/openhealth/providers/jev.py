@@ -143,10 +143,10 @@ class JevProvider(Provider):
         if len(batch) != len(providers):
             raise TypeError("a Jev batch holds only Jev providers")
         model, endpoint = self._configured()
-        self.charge()
         token = resolve_key(
             key_env=self.settings.api_key_env, connector_env=self.settings.connector_env
         )
+        self.charge()  # after the credential: a call that cannot be made uses no budget
 
         questions = {key: q for provider in batch for key, q in provider.questions.items()}
         body = request_body(model, batch, questions, inputs)

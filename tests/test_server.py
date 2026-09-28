@@ -112,10 +112,17 @@ def test_health_reports_deployment_state(client: TestClient) -> None:
 def test_remote_evaluations_are_capped_and_budgeted(
     db_target: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from openhealth.errors import ProviderError
+    from openhealth.providers.jev import JevProvider
+
+    def unreachable(*_: object) -> None:
+        raise ProviderError("timeout")
+
     monkeypatch.setenv("JEV_API_URL", "https://jev.test/v1/decide")
     monkeypatch.setenv("JEV_MODEL", "jev-test-model")
-    monkeypatch.delenv("JEV_API_KEY", raising=False)
+    monkeypatch.setenv("JEV_API_KEY", "test-key")
     monkeypatch.delenv("JEV_CONNECTOR", raising=False)
+    monkeypatch.setattr(JevProvider, "_send", unreachable)
     app = create_app(
         db_path=db_target,
         providers={"router": "jev"},
@@ -125,6 +132,21 @@ def test_remote_evaluations_are_capped_and_budgeted(
     report = TestClient(app).post(f"{PACK}/evals", json={"dataset": "test"}).json()
     assert report["dataset"]["n"] == 200 and report["dataset"]["limit"] == 200
     assert report["providers"]["router"]["model"] == "jev-test-model"
-    # Five calls fit the budget (and fail on credentials); the rest are refused by the budget.
-    assert report["errors"] == {"credential_unavailable": 5, "budget_exhausted": 195}
+    # Five calls fit the budget (and time out); the rest are refused by the budget.
+    assert report["errors"] == {"timeout": 5, "budget_exhausted": 195}
     assert report["decisions"]["automation"]["n"] == 0  # nothing automated without Jev
+
+
+def test_calls_that_cannot_authenticate_use_no_budget(
+    db_target: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("JEV_API_URL", "https://jev.test/v1/decide")
+    monkeypatch.setenv("JEV_MODEL", "jev-test-model")
+    monkeypatch.delenv("JEV_API_KEY", raising=False)
+    monkeypatch.delenv("JEV_CONNECTOR", raising=False)
+    client = TestClient(
+        create_app(db_path=db_target, providers={"router": "jev"}, budget_limits={"jev": 5})
+    )
+    report = client.post(f"{PACK}/evals", json={"dataset": "red_flags"}).json()
+    assert report["errors"] == {"credential_unavailable": 38}
+    assert client.get("/api/health").json()["jev"]["calls_today"] == 0

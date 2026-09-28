@@ -16,7 +16,6 @@ import hashlib
 import json
 import uuid
 from collections import Counter
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -27,6 +26,7 @@ from openhealth.core.pack import Pack
 from openhealth.core.spec import Outcome
 from openhealth.errors import OpenHealthError
 from openhealth.evals import metrics
+from openhealth.parallel import parallel_map
 
 REPORT_FORMAT = "openhealth.eval/1"
 _OUTCOMES = [outcome.value for outcome in Outcome]
@@ -86,11 +86,7 @@ def resolve_dataset(pack: Pack, ref: str) -> Dataset:
 def evaluate(decision: Decision, dataset: Dataset, *, workers: int = 1) -> dict[str, Any]:
     """Run every case. `workers > 1` overlaps network-bound providers; order is preserved."""
     inputs = [record["input"] for record in dataset.records]
-    if workers <= 1:
-        results = [decision.decide(case) for case in inputs]
-    else:
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            results = list(pool.map(decision.decide, inputs))
+    results = parallel_map(decision.decide, inputs, workers)
     return build_report(decision, dataset, results)
 
 
