@@ -192,6 +192,7 @@ Every configuration below ran on the same records. Remote models are named becau
 |---|---|---|---|---|---|---|---|---|---|
 | safety_screen=llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) | 100.0% | 1.000 | 0.065 | 10.5% | n/a | 28/28 (0 automated) | 9,736 ms | $0.00458 | 0 |
 | safety_screen=llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) | 100.0% | 1.000 | 0.097 | 5.3% | n/a | 28/28 (0 automated) | 2,234 ms | $0.00326 | 0 |
+| safety_screen=rules_and_jev (jev-latest) · router=jev (jev-latest) | 100.0% | 1.000 | 0.006 | 18.4% | n/a | 28/28 (0 automated) | 189 ms | $0.00003 | 0 |
 | safety_screen=rules_and_llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) | 100.0% | 1.000 | 0.047 | 10.5% | n/a | 28/28 (0 automated) | 10,122 ms | $0.00463 | 0 |
 | safety_screen=rules_and_llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) | 100.0% | 1.000 | 0.089 | 2.6% | n/a | 28/28 (0 automated) | 2,340 ms | $0.00324 | 0 |
 | safety_screen=rules_and_llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) | 92.9% | 0.963 | 0.206 | 2.6% | n/a | 28/28 (0 automated) | 1,399 ms | $0.00016 | 0 |
@@ -204,6 +205,7 @@ Every configuration below ran on the same records. Remote models are named becau
 | Configuration | Accuracy | Macro-F1 | ECE | AUTO | False automation | Critical detected | p50 latency | Cost / decision | Errors |
 |---|---|---|---|---|---|---|---|---|---|
 | safety_screen=llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) | 100.0% | 1.000 | 0.094 | 23.3% | n/a | 20/20 (0 automated) | 10,398 ms | $0.00468 | 0 |
+| safety_screen=rules_and_jev (jev-latest) · router=jev (jev-latest) | 100.0% | 1.000 | 0.009 | 26.7% | n/a | 20/20 (0 automated) | 199 ms | $0.00003 | 0 |
 | safety_screen=rules_and_llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) | 100.0% | 1.000 | 0.072 | 3.3% | n/a | 20/20 (0 automated) | 2,313 ms | $0.00324 | 0 |
 | safety_screen=llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) | 95.0% | 0.974 | 0.052 | 6.7% | n/a | 20/20 (0 automated) | 2,399 ms | $0.00327 | 1 (invalid_response 1) |
 | safety_screen=rules · router=naive_bayes | 95.0% | 0.974 | 0.194 | 40.0% | 0.0% | 4/20 (7 automated) | 0.10 ms | $0.00000 | 0 |
@@ -216,10 +218,12 @@ Every configuration below ran on the same records. Remote models are named becau
 
 | Configuration | Accuracy | Macro-F1 | ECE | AUTO | False automation | Critical detected | p50 latency | Cost / decision | Errors |
 |---|---|---|---|---|---|---|---|---|---|
+| safety_screen=rules · router=cascade (jev-latest) | 100.0% | 1.000 | 0.001 | 98.0% | 0.0% | 2/2 (0 automated) | 0.49 ms | $0.00000 | 0 |
 | safety_screen=rules · router=naive_bayes | 100.0% | 1.000 | 0.001 | 98.0% | 0.0% | 2/2 (0 automated) | 0.15 ms | $0.00000 | 0 |
 | safety_screen=llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) | 99.0% | 0.992 | 0.061 | 76.0% | 0.0% | 2/2 (0 automated) | 6,982 ms | $0.00426 | 0 |
 | safety_screen=llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) | 99.0% | 0.989 | 0.124 | 43.0% | 0.0% | 2/2 (0 automated) | 2,353 ms | $0.00335 | 0 |
 | safety_screen=llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) | 99.0% | 0.993 | 0.118 | 46.0% | 2.2% | 2/2 (0 automated) | 1,232 ms | $0.00016 | 0 |
+| safety_screen=rules_and_jev (jev-latest) · router=jev (jev-latest) | 99.0% | 0.984 | 0.017 | 91.0% | 0.0% | 2/2 (0 automated) | 189 ms | $0.00003 | 0 |
 | safety_screen=rules_and_llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) | 99.0% | 0.989 | 0.124 | 40.0% | 0.0% | 2/2 (0 automated) | 2,397 ms | $0.00335 | 0 |
 | safety_screen=rules_and_llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) | 97.0% | 0.968 | 0.047 | 82.0% | 0.0% | 2/2 (0 automated) | 7,905 ms | $0.00433 | 0 |
 | safety_screen=rules_and_llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) | 96.0% | 0.954 | 0.098 | 43.0% | 2.3% | 2/2 (0 automated) | 1,250 ms | $0.00016 | 0 |
