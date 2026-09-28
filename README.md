@@ -192,7 +192,8 @@ Jev answers bounded, typed choice questions ("which team?", "is documentation mi
 "does this need review?") and returns a probability for every label. That makes it a natural
 decision primitive for packs. The adapter:
 
-- maps pack questions 1:1 onto Jev `choice` questions (≤ 8 per call, 2–255 labels);
+- maps pack questions 1:1 onto Jev questions (`choice`; `boolean` → `noul`; `score` → `score`),
+  with every Jev question of a decision in one call (≤ 8 questions);
 - sends only `state_fields` (minimum necessary), over HTTPS;
 - validates responses strictly: model match, label sets, probabilities sum to 1, choice is the
   argmax, token usage bounds, 64 KB cap;
@@ -213,6 +214,35 @@ The endpoint and model are deployment settings, not part of any pack:
 ```bash
 JEV_API_URL=... JEV_MODEL=... JEV_API_KEY=... \
   uv run openhealth eval openhealth/patient-inbox-router --dataset test --provider router=jev
+```
+
+## LLMs and local models
+
+The `llm` provider asks a chat model for a probability for every label, through any
+OpenAI-compatible API. By default it calls the **Vercel AI Gateway**, which serves Claude,
+open-weight models such as `openai/gpt-oss-120b`, and others behind one API. On Vercel it
+authenticates with the deployment's OIDC token, so no key is stored. Point `LLM_BASE_URL` at
+Ollama, vLLM or llama.cpp to run an open-source model on your own hardware instead.
+
+- A JSON schema fixes the answer's shape: one probability per label per question. Anything
+  else is an `invalid_response`, and so are probabilities that don't sum to about 1.
+- Input text is data. The pack's questions and criteria form the system prompt; the input is
+  sent as JSON, and the model is told to classify it, not to follow it.
+- Verbalised probabilities are not logprobs. `openhealth calibrate` fits a temperature per
+  question on the pack's calibration split (live calls), and the evaluation report shows ECE.
+- Cost per decision is the gateway's reported cost, recorded in every audit record.
+
+| Variable | Purpose |
+|---|---|
+| `LLM_MODEL` | Default model for `llm` variants (default `anthropic/claude-sonnet-5`; a variant's `model` wins) |
+| `LLM_BASE_URL` | OpenAI-compatible endpoint instead of the AI Gateway, e.g. `http://localhost:11434/v1` |
+| `AI_GATEWAY_API_KEY` | Gateway key for local use (on Vercel, the OIDC token is used) |
+| `LLM_API_KEY` | Key for a non-gateway endpoint, if it needs one |
+| `OPENHEALTH_LLM_DAILY_LIMIT` | Daily call budget (default 500) |
+
+```bash
+vercel env pull .env.local   # a fresh OIDC token for local calls through the gateway
+vercel env run -- uv run openhealth calibrate <pack> --slot router --variant llm --limit 100
 ```
 
 ## Deploying to Vercel

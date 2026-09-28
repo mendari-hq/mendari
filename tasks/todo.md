@@ -7,7 +7,8 @@ Roadmap to the full goal: [`docs/roadmap.md`](../docs/roadmap.md).
 - [x] Spec 0.2: `boolean` / `score` question types, derived questions (decision tables with exact
   probabilities), `min_score`/`max_score` rules; `docs/spec/decision-pack-0.2.md`; fixture pack
   `tests/fixtures/packs/trial-mini`
-- [ ] LLM provider via Vercel AI Gateway (Claude default; OpenAI-compatible local models)
+- [x] LLM provider via Vercel AI Gateway (Claude default; OpenAI-compatible local models),
+  `openhealth calibrate`, gateway-reported cost, `OPENHEALTH_LLM_DAILY_LIMIT`
 - [x] Composition: `cascade` and weighted `vote` (shared composite base; shared temperature
   calibration in `providers/calibration.py`)
 - [x] Jev: one call per decision (per-decision batching, one budget unit), `noul` / `score`

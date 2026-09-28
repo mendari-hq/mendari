@@ -106,6 +106,7 @@ def test_health_reports_deployment_state(client: TestClient) -> None:
         "router": "naive_bayes",
     }
     assert set(health["jev"]) >= {"credentials", "endpoint_configured", "calls_today"}
+    assert set(health["llm"]) >= {"endpoint", "credentials", "default_model", "calls_today"}
 
 
 def test_remote_evaluations_are_capped_and_budgeted(

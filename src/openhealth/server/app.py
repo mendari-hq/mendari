@@ -35,7 +35,7 @@ from openhealth.errors import (
 from openhealth.evals import compare, evaluate, load_dataset, resolve_dataset
 from openhealth.evals.feedback import feedback_dataset
 from openhealth.evals.harness import Dataset
-from openhealth.providers import jev
+from openhealth.providers import jev, llm
 from openhealth.providers.credentials import key_source
 from openhealth.standards import cds_hooks
 
@@ -156,6 +156,11 @@ def create_app(
                 "model": os.environ.get("JEV_MODEL", "").strip() or None,
                 "calls_today": store.usage("jev"),
                 "daily_limit": (budget_limits or {}).get("jev"),
+            },
+            "llm": {
+                **llm.deployment_info(),
+                "calls_today": store.usage("llm"),
+                "daily_limit": (budget_limits or {}).get("llm"),
             },
         }
 

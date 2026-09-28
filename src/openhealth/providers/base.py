@@ -149,6 +149,32 @@ def get_path(data: Any, dotted: str) -> Any:
     return current
 
 
+def select_fields(inputs: Mapping[str, Any], fields: list[str]) -> dict[str, Any]:
+    """Only the named (dotted) fields of `inputs`, nested as in the input: the minimum
+    necessary that a remote provider receives."""
+    state: dict[str, Any] = {}
+    for dotted in fields:
+        value = get_path(inputs, dotted)
+        if value is None:
+            continue
+        *parents, leaf = dotted.split(".")
+        node = state
+        for part in parents:
+            node = node.setdefault(part, {})
+        node[leaf] = value
+    return state
+
+
+def batch_state(inputs: Mapping[str, Any], selections: list[list[str] | None]) -> dict[str, Any]:
+    """What one (possibly batched) remote call sends: the union of the providers'
+    `state_fields`, or the whole input if any of them sends everything."""
+    if any(fields is None for fields in selections):
+        return dict(inputs)
+    return select_fields(
+        inputs, list(dict.fromkeys(f for fields in selections for f in fields or []))
+    )
+
+
 def text_from(inputs: Mapping[str, Any], fields: list[str]) -> str:
     parts = [get_path(inputs, name) for name in fields]
     return "\n".join(str(part) for part in parts if isinstance(part, str) and part.strip())

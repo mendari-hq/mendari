@@ -33,9 +33,10 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from openhealth.core.spec import Question
 from openhealth.errors import PackValidationError, ProviderError
-from openhealth.providers.base import Answer, Provider, ProviderOutput, get_path
+from openhealth.providers.base import Answer, Provider, ProviderOutput, batch_state
 from openhealth.providers.batch import batched_answer
 from openhealth.providers.credentials import resolve_key
+from openhealth.providers.http import post_json, require_secure
 
 MODEL_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}$"
 MAX_QUESTIONS = 8
@@ -168,39 +169,14 @@ class JevProvider(Provider):
         return outputs
 
     def _send(self, endpoint: str, token: str, body: dict[str, Any]) -> Any:
-        timeout = httpx.Timeout(self.settings.timeout_ms / 1000)
-        client = self._client or httpx.Client(timeout=timeout, follow_redirects=False)
-        try:
-            with client.stream(
-                "POST",
-                endpoint,
-                json=body,
-                headers={"authorization": f"Bearer {token}"},
-                timeout=timeout,
-            ) as response:
-                if response.status_code == 429:
-                    raise ProviderError("rate_limited")
-                if response.status_code in (401, 403):
-                    raise ProviderError("credential_unavailable")
-                if not response.is_success:
-                    raise ProviderError("provider_unavailable", f"HTTP {response.status_code}")
-                chunks, size = [], 0
-                for chunk in response.iter_bytes():
-                    size += len(chunk)
-                    if size > MAX_RESPONSE_BYTES:
-                        raise ProviderError("invalid_response", "response too large")
-                    chunks.append(chunk)
-        except httpx.TimeoutException:
-            raise ProviderError("timeout") from None
-        except httpx.HTTPError as error:
-            raise ProviderError("provider_unavailable", type(error).__name__) from None
-        finally:
-            if self._client is None:
-                client.close()
-        try:
-            return json.loads(b"".join(chunks))
-        except ValueError:
-            raise ProviderError("invalid_response", "body is not JSON") from None
+        return post_json(
+            self._client,
+            endpoint,
+            body,
+            headers={"authorization": f"Bearer {token}"},
+            timeout_s=self.settings.timeout_ms / 1000,
+            max_bytes=MAX_RESPONSE_BYTES,
+        )
 
 
 def list_models(
@@ -244,13 +220,7 @@ def request_body(
 ) -> dict[str, Any]:
     """The request for one call. The state is the union of the providers' `state_fields`
     (the whole input if any of them sends everything)."""
-    selections = [provider.settings.state_fields for provider in providers]
-    if any(fields is None for fields in selections):
-        state = dict(inputs)
-    else:
-        state = _select(
-            inputs, list(dict.fromkeys(f for fields in selections for f in fields or []))
-        )
+    state = batch_state(inputs, [provider.settings.state_fields for provider in providers])
     return {
         "model": model,
         "state": state,
@@ -416,29 +386,5 @@ def _probability(value: Any) -> bool:
     )
 
 
-def _select(inputs: Mapping[str, Any], fields: list[str]) -> dict[str, Any]:
-    state: dict[str, Any] = {}
-    for dotted in fields:
-        value = get_path(inputs, dotted)
-        if value is None:
-            continue
-        *parents, leaf = dotted.split(".")
-        node = state
-        for part in parents:
-            node = node.setdefault(part, {})
-        node[leaf] = value
-    return state
-
-
-_LOCAL_HOST = re.compile(r"^(localhost|127\.0\.0\.1|\[::1\]|::1)$")
-
-
 def _require_secure(endpoint: str) -> None:
-    parsed = urlparse(endpoint)
-    if parsed.scheme == "https" or (
-        parsed.scheme == "http" and _LOCAL_HOST.match(parsed.hostname or "")
-    ):
-        return
-    raise ProviderError(
-        "invalid_endpoint", "Jev endpoints must use https (http only for localhost)"
-    )
+    require_secure(endpoint, "Jev")
