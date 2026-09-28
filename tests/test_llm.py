@@ -355,3 +355,14 @@ def test_a_malformed_answer_never_discards_another_slots_safety_answer(
     assert result.errors == {"destination": "invalid_response"}
     assert result.outcome.value != "AUTO"
     assert result.cost_usd == 0.0012  # the call's cost is still counted, once
+
+
+def test_rate_limits_are_retried_once(inbox_pack: Pack, monkeypatch: pytest.MonkeyPatch) -> None:
+    from openhealth.providers import http
+
+    monkeypatch.setenv("AI_GATEWAY_API_KEY", "k")
+    monkeypatch.setattr(http, "_sleep", lambda _: None)
+    queue = [httpx.Response(429), httpx.Response(200, json=completion({"destination": good()}))]
+    install(monkeypatch, lambda _: queue.pop(0))
+    assert router(inbox_pack).answer(message(REFILL)).answers["destination"].label == "nurse"
+    assert queue == []

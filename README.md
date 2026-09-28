@@ -207,14 +207,26 @@ Jev answers bounded, typed choice questions ("which team?", "is documentation mi
 "does this need review?") and returns a probability for every label. That makes it a natural
 decision primitive for packs. The adapter:
 
-- maps pack questions 1:1 onto Jev questions (`choice`; `boolean` → `noul`; `score` → `score`),
-  with every Jev question of a decision in one call (≤ 8 questions);
+- maps pack questions 1:1 onto Jev questions (`choice`; `boolean` → `noul`; `score` → `score`,
+  at most 10 levels), with every Jev question of a decision in one call;
 - sends only `state_fields` (minimum necessary), over HTTPS;
+- uses the chosen label's probability as the answer's confidence, like every other provider.
+  Jev's own `confidence` summarises the shape of the whole distribution, so it is kept as
+  evidence (`jev confidence 0.81`) rather than compared with policy thresholds;
 - validates responses strictly: model match, label sets, probabilities sum to 1, choice is the
-  argmax, token usage bounds, 64 KB cap;
+  argmax, token usage bounds, 64 KB cap. A malformed answer fails only the question it answers;
+- retries once after `429` or `529 Overloaded` (a short backoff or a short `Retry-After`);
+- records cost at the published price, $0.042 per million input tokens (output tokens are free);
 - turns every failure (`not_configured`, `timeout`, `rate_limited`,
   `credential_unavailable`, `budget_exhausted`, `invalid_response`, …) into a safe policy
   outcome, never an automated guess.
+
+`jev-latest` is an alias (currently `jev-1.13.0`). Every answer records the version that
+actually answered; pin a version in `JEV_MODEL` when thresholds have been tuned against it.
+Jev's documented weak spots for 1.13 (docs.typesafe.ai, "Jev 1.13 jaggedness") matter for pack
+authors: it reads instructions literally, it is hurt by instructions that contradict the
+criteria, adversarial text in the input can move its answers, and English is its strongest
+language.
 
 The endpoint and model are deployment settings, not part of any pack:
 

@@ -194,6 +194,7 @@ class LlmProvider(Provider):
             body,
             headers=headers,
             timeout_s=self.settings.timeout_ms / 1000,
+            retries=1,
         )
         distributions, usage, problems = parse_response(raw, questions)
         failed = {p for p in batch if any(key in problems for key in p.questions)}
