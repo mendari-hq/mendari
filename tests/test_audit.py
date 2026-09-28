@@ -140,3 +140,21 @@ def test_unconfigured_provider_does_not_spend_budget(
     )
     assert decision(message(ROUTINE)).errors == {"destination": "not_configured"}
     assert store.usage("jev") == 0
+
+
+def test_postgres_store_survives_server_closed_connections(db_target: str) -> None:
+    """Neon suspends idle compute and closes pooled connections; the next request must work."""
+    if not db_target.startswith("postgresql://"):
+        pytest.skip("Postgres-only behaviour")
+    import psycopg
+
+    with AuditStore(db_target) as store:
+        store.stats()  # the pool now holds an open, idle connection
+        admin_url = db_target.split("?")[0]
+        with psycopg.connect(admin_url, autocommit=True) as admin:
+            killed = admin.execute(
+                "SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity "
+                "WHERE application_name = 'openhealth' AND pid <> pg_backend_pid()"
+            ).fetchone()
+        assert killed is not None and killed[0] >= 1
+        assert store.stats()["decisions"] == 0  # served by a fresh connection, no error

@@ -196,12 +196,19 @@ class _PostgresBackend(_Backend):
 
         # prepare_threshold=None: prepared statements break behind transaction-mode poolers
         # (Neon's pooled endpoint, PgBouncer).
+        # check_connection: Neon suspends idle compute and the server closes pooled connections,
+        # so every connection is verified (one round trip) before use and replaced if dead.
         self._pool = ConnectionPool(
             url,
             min_size=1,
             max_size=4,
             max_idle=60,
-            kwargs={"row_factory": dict_row, "prepare_threshold": None},
+            check=ConnectionPool.check_connection,
+            kwargs={
+                "row_factory": dict_row,
+                "prepare_threshold": None,
+                "application_name": "openhealth",
+            },
             open=True,
         )
         # Schema setup goes over the direct (unpooled) connection when one is given, as Neon
