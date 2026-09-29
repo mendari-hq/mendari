@@ -264,7 +264,7 @@ button.open-record { white-space: nowrap; }
 }
 .count:empty { display: none; }
 
-/* Outcome mix and probability bars (data-driven widths are the only inline styles). */
+/* Outcome mix (data-driven widths are the only inline styles). */
 .stack { display: flex; height: 14px; border-radius: var(--radius-pill); overflow: hidden; background: var(--color-surface-sunken); }
 .stack span { display: block; height: 100%; }
 .bg-AUTO { background: var(--outcome-auto); }
@@ -276,16 +276,11 @@ button.open-record { white-space: nowrap; }
   color: var(--color-text-muted); font-size: var(--text-xs);
 }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; }
-.bars { display: grid; grid-template-columns: 140px 1fr 52px; gap: 6px var(--space-3); align-items: center; }
-.bar { height: 8px; background: var(--color-surface-sunken); border-radius: var(--radius-pill); overflow: hidden; }
-.bar span { display: block; height: 100%; background: var(--chart-1); }
-.bar.chosen span { background: var(--outcome-auto); }
 
 /* Tables */
 table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 th, td { text-align: left; padding: 7px var(--space-3); border-bottom: 1px solid var(--color-border); vertical-align: top; }
 th { color: var(--color-text-muted); font-weight: var(--weight-semibold); font-size: var(--text-xs); }
-th.mix { width: 40%; }
 tr.clickable { cursor: pointer; }
 tr.clickable:hover td { background: var(--color-surface-sunken); }
 /* position: relative keeps absolutely positioned children (screen-reader labels) inside the scroll
@@ -394,7 +389,83 @@ details { margin-top: var(--space-3); }
 details summary { cursor: pointer; color: var(--color-accent); }
 .empty { padding: var(--space-7); text-align: center; color: var(--color-text-muted); }
 svg text { fill: var(--color-text-muted); font-size: var(--text-xs); }
-.chart-small { max-width: 320px; }
+
+/* Charts (charts.js): SVG drawn at its real width, so text stays 12 px. Marks are focusable groups;
+   hover and keyboard focus show a tooltip and highlight the mark. */
+figure.chart { margin: var(--space-3) 0 0; }
+.chart-frame { position: relative; }
+.chart-svg { display: block; overflow: visible; }
+.chart-legend { margin: 0 0 var(--space-2); }
+.chart-note { color: var(--color-text-muted); font-size: var(--text-xs); margin-top: var(--space-2); }
+.chart-title { margin-top: var(--space-5); }
+.chart-data { margin-top: var(--space-3); }
+.chart-data > .table-scroll { margin-top: var(--space-2); }
+.chart-svg .grid { stroke: var(--color-border); stroke-width: 1; }
+.chart-svg .grid.faint { opacity: 0.5; }
+.chart-svg .grid.dashed { stroke-dasharray: 3 4; }
+.chart-svg .axis, .chart-svg .frame { stroke: var(--color-border-strong); stroke-width: 1; fill: none; }
+.chart-svg .tick { fill: var(--color-text-muted); }
+.chart-svg .tick.strong { fill: var(--color-text); font-weight: var(--weight-semibold); }
+.chart-svg .ref { stroke: var(--color-text-muted); stroke-width: 1.5; stroke-dasharray: 5 4; fill: none; }
+.chart-svg .seg { stroke: var(--color-surface); stroke-width: 1; }
+.chart-svg .line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart-svg .line.dashed { stroke-dasharray: 6 4; }
+.chart-svg .dot { stroke: var(--color-surface); stroke-width: 1; fill-opacity: 0.85; }
+.chart-svg .ring { fill: none; stroke: var(--color-accent); stroke-width: 2; }
+.chart-svg .track { fill: var(--color-surface-sunken); }
+.chart-svg .soft { fill-opacity: 0.6; }
+.chart-svg .bar-label, .chart-svg .bar-value { fill: var(--color-text-muted); }
+.chart-svg .chosen .bar-label, .chart-svg .chosen .bar-value { fill: var(--color-text); font-weight: var(--weight-semibold); }
+/* Marks: invisible hit area on top, a highlight underneath that shows on hover and keyboard focus. */
+.chart-svg .mark { outline: none; cursor: default; }
+.chart-svg .hit { fill: transparent; pointer-events: all; }
+.chart-svg .hl, .chart-svg .guide, .chart-svg .focus-dot, .chart-svg .focus-ring { opacity: 0; }
+.chart-svg .hl { fill: var(--color-surface-sunken); stroke: none; }
+.chart-svg .guide { stroke: var(--color-text-muted); stroke-width: 1; }
+/* Line points ring in their series colour; scatter dots get a dashed ring in the text colour, so
+   focus never looks like the solid accent ring that marks the deployed configuration. */
+.chart-svg .focus-dot { fill: var(--color-surface); stroke-width: 2; }
+.chart-svg .focus-dot.st-c1 { stroke: var(--chart-1); }
+.chart-svg .focus-dot.st-c2 { stroke: var(--chart-2); }
+.chart-svg .focus-ring { fill: none; stroke: var(--color-text); stroke-width: 2; stroke-dasharray: 3 2; }
+.chart-svg .mark:hover :is(.hl, .guide, .focus-dot, .focus-ring),
+.chart-svg .mark:focus-visible :is(.hl, .guide, .focus-dot, .focus-ring) { opacity: 1; }
+.chart-svg .mark:focus-visible .hl { stroke: var(--color-accent); stroke-width: 2; }
+.chart-tip {
+  position: absolute; z-index: 4; pointer-events: none; width: max-content; max-width: min(280px, 90vw);
+  background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm); box-shadow: var(--shadow-2); padding: var(--space-2) var(--space-3);
+  font-size: var(--text-xs); line-height: var(--leading-xs);
+}
+.chart-tip[hidden] { display: none; }
+.tip-title { font-weight: var(--weight-semibold); margin-bottom: var(--space-1); }
+.tip-row { display: flex; align-items: center; gap: var(--space-2); font-variant-numeric: tabular-nums; }
+.tip-row span { flex: 1; color: var(--color-text-muted); white-space: nowrap; margin-right: var(--space-3); }
+/* Fills and strokes by meaning: the four outcomes, series colours, and tones for bars and dots. */
+.f-AUTO, .f-auto { fill: var(--outcome-auto); }
+.f-HUMAN_REVIEW, .f-review { fill: var(--outcome-review); }
+.f-ABSTAIN { fill: var(--outcome-abstain); }
+.f-BLOCK, .f-block { fill: var(--outcome-block); }
+.f-c1 { fill: var(--chart-1); }
+.f-c2 { fill: var(--chart-2); }
+.f-danger { fill: var(--color-danger); }
+.f-muted { fill: var(--color-border-strong); }
+.st-c1 { stroke: var(--chart-1); }
+.st-c2 { stroke: var(--chart-2); }
+.bg-c1 { background: var(--chart-1); }
+.bg-c2 { background: var(--chart-2); }
+.bg-danger { background: var(--color-danger); }
+/* Legend and tooltip swatches for lines, dots, diamonds, rings and the diagonal. */
+:is(.legend, .tip-row) i { flex: none; }
+:is(.legend, .tip-row) i.line { width: 18px; height: 0; border-top: 2px solid; background: none; border-radius: 0; margin-right: 6px; }
+:is(.legend, .tip-row) i.line.c1 { border-color: var(--chart-1); }
+:is(.legend, .tip-row) i.line.c2 { border-color: var(--chart-2); }
+:is(.legend, .tip-row) i.line.dashed, :is(.legend, .tip-row) i.diag { border-top-style: dashed; }
+:is(.legend, .tip-row) i.dot { border-radius: var(--radius-pill); }
+:is(.legend, .tip-row) i.diamond { transform: rotate(45deg) scale(0.9); border-radius: 1px; }
+:is(.legend, .tip-row) i.ring { border-radius: var(--radius-pill); background: none; border: 2px solid var(--color-accent); width: 12px; height: 12px; margin-right: 6px; }
+:is(.legend, .tip-row) i.diag { width: 18px; height: 0; border-top: 2px dashed var(--color-text-muted); background: none; border-radius: 0; margin-right: 6px; }
+.tip-row i:not(.line) { width: 10px; height: 10px; border-radius: 3px; }
 
 /* Feedback: thumbs up / down, with visible labels. */
 .fb { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
@@ -446,7 +517,6 @@ svg text { fill: var(--color-text-muted); font-size: var(--text-xs); }
   .nav a.external { margin-top: 0; }
   main { padding: var(--space-4); }
   .grid-2 { grid-template-columns: minmax(0, 1fr); }
-  .bars { grid-template-columns: 100px 1fr 46px; }
   .drawer { width: 100vw; border-left: 0; }
   .drawer-head, .drawer-body { padding-left: var(--space-4); padding-right: var(--space-4); }
   .rank-cell { width: 44px; min-width: 44px; }

@@ -33,7 +33,26 @@ roles, feedback that captures the right answer, Eastern time everywhere people l
   first, small n marked; audit rows with compact ET times open a drawer at `#audit/<id>` (focus
   held inside, Escape returns to the row) with a hash-chain timeline and the record's JSON folded;
   feedback moved from every audit row into the drawer
-- [ ] Phase 3: charts
+- [x] Phase 3: charts. `charts.js` (no library): stacked columns, lines, scatter and horizontal
+  bars as SVG drawn at the container's real width (text stays 12 px on a phone, redrawn on resize;
+  colours are token classes, so a theme switch needs no redraw). Marks are one Tab stop per chart
+  (arrow keys, Home, End), with tooltips on hover and focus and exact values in each aria-label;
+  every chart with marks has a "View data" table. Wired in: Overview daily chart (last 30 days,
+  starts at the first decision so a young deployment isn't a run of empty days; the table lists
+  every day), report reliability scatter (dot area = cases, diagonal = calibrated) and threshold
+  sweep (the pack's automation threshold marked, and a what-if note when the run automated
+  nothing), Try-it probability bars coloured by what the label does under the pack's policy
+  (block = danger, review = warning; a derived decision's criteria by their effect in its table;
+  no more green block verdicts),
+  and the optional ones: leaderboard cost-against-accuracy scatter (log cost, "$0" slot for free
+  configurations, diamonds for configurations that missed a critical case, deployed one ringed)
+  and a report confusion matrix (only mistakes shaded). Deviations from the plan text: the SVG is
+  `role="group"` (not `img`) so its focusable marks stay exposed to assistive technology; the bars
+  are static `role="img"` with every value in one label and printed on the chart, so no data table.
+  Tests: 12 new browser tests, chart colour pairs in the contrast test, `charts.js` in the asset
+  versioning. A review after the PR opened fixed a sweep label that claimed automation on the four
+  packs that automate nothing, axis text read out by screen readers, a focus ring that looked like
+  the deployed ring, a hover-only confusion-matrix hint and a vague cost tooltip (lessons.md)
 - [ ] Phase 4a: feedback backend (the right answer on a thumbs-down)
 - [ ] Phase 4: screen redesigns
 - [ ] Phase 5: QA pass

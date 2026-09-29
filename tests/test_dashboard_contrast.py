@@ -47,6 +47,7 @@ PAIRS = [
     ("color-on-solid", "color-danger-solid", TEXT),  # the stat chip
     ("color-warning", "color-warning-soft", TEXT),  # sandbox tag, review count
     ("color-text", "outcome-review-soft", TEXT),  # criteria rows that change the decision
+    ("color-text", "outcome-block-soft", TEXT),  # confusion matrix: a mistake over a tenth of a row
     ("color-text-muted", "outcome-review-soft", TEXT),
     ("color-bg", "color-text", TEXT),  # toast
     ("color-border-strong", "color-bg", UI),  # form fields
@@ -55,6 +56,11 @@ PAIRS = [
     ("color-accent", "color-surface-sunken", UI),  # focus ring on sunken areas
     *[(f"chart-{i}", "color-surface", UI) for i in range(1, 7)],
     *[(f"outcome-{o}", "color-surface-sunken", UI) for o in ("auto", "review", "abstain", "block")],
+    # Chart marks sit on the surface: outcome columns, danger diamonds, the deployed ring.
+    *[(f"outcome-{o}", "color-surface", UI) for o in ("auto", "review", "abstain", "block")],
+    ("color-danger", "color-surface", UI),
+    ("color-accent", "color-surface", UI),
+    ("color-text-muted", "color-surface", UI),  # chart axes, reference lines and gridline labels
 ]
 
 
