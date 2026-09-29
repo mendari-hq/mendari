@@ -49,11 +49,14 @@ def discover(paths: list[Path] | None = None) -> Discovery:
     return Discovery(packs=packs, problems=problems)
 
 
-def resolve_pack(ref: str, paths: list[Path] | None = None) -> Pack:
-    """Resolve a directory, `namespace/name` (latest version) or `namespace/name@version`."""
+def resolve_pack(
+    ref: str, paths: list[Path] | None = None, *, missing_models_ok: bool = False
+) -> Pack:
+    """Resolve a directory, `namespace/name` (latest version) or `namespace/name@version`.
+    `missing_models_ok` applies to a directory: a pack about to be trained."""
     as_path = Path(ref)
     if (as_path / MANIFEST).is_file():
-        return load_pack(as_path)
+        return load_pack(as_path, missing_models_ok=missing_models_ok)
     pack_id, _, version = ref.partition("@")
     matches = [
         pack

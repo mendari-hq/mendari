@@ -38,6 +38,7 @@ jobs:
       - run: uv run pytest
       - run: uv run openhealth test openhealth/patient-inbox-router
       - run: uv run openhealth test openhealth/clinical-trial-prescreener
+      - run: uv run openhealth test openhealth/referral-router
 
   reference-pack:
     # Derived pack artifacts (synthetic data, trained model) must be reproducible from source.
@@ -59,3 +60,4 @@ jobs:
       - run: docker build -t openhealth-engine:ci .
       - run: docker run --rm openhealth-engine:ci openhealth test openhealth/patient-inbox-router
       - run: docker run --rm openhealth-engine:ci openhealth test openhealth/clinical-trial-prescreener
+      - run: docker run --rm openhealth-engine:ci openhealth test openhealth/referral-router

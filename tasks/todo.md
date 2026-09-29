@@ -9,8 +9,13 @@ deployed choice.
   Task/card templates naming answers (`{specialty}`), spec 0.2 doc
 - [x] PR 2 FHIR `focus_where` and CDS `order-sign` (draftOrders in context, one card per referral);
   `exists.undated`; fixture pack `referral-mini`
-- [ ] PR 3 `openhealth/referral-router` 0.1.0 (L1): specialty, urgency, clear question,
-  checklist, derived `next_step`; synthetic referrals and hand-written urgent sets
+- [x] PR 3 `openhealth/referral-router` 0.1.0 (L1): specialty (naive Bayes), urgency and clear
+  question (rules), checklist (criteria), derived `next_step` with `when` rows; synthetic
+  referrals (train 1500 / calibration 300 / test 600, local 300) and hand-written urgent sets.
+  Rules: 16/16 tuning, 7/12 held out, and all 5 misses would have been automated, so the new
+  `policy.automation_requires` allows AUTO only with a model in the urgency screen. Also:
+  `openhealth train` on an untrained pack, YAML errors in pack/policy reported cleanly,
+  `validate` checks behaviour-test inputs against the schema.
 - [ ] PR 4 leaderboard (about 510 Jev calls: after the 8:00 PM Eastern reset) and deployed choice
 
 ## Done: v0.3 Clinical Trial Prescreener

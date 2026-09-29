@@ -51,7 +51,10 @@ def apply_policy(
     answers: Mapping[str, Answer],
     failures: Mapping[str, str],
     governance: GovernanceOverride | None = None,
+    variants: Mapping[str, str] | None = None,
 ) -> PolicyResult:
+    """`variants` is the running variant of each provider slot, for `automation_requires`;
+    without it, a pack that sets `automation_requires` never automates."""
     policy = manifest.policy
     primary = answers.get(policy.primary)
     reasons: list[str] = []
@@ -98,7 +101,7 @@ def apply_policy(
                 )
 
     if outcome is Outcome.AUTO:
-        outcome = _cap(manifest, recommendation, failures, governance, reasons)
+        outcome = _cap(manifest, recommendation, failures, governance, variants or {}, reasons)
     if outcome is Outcome.ABSTAIN:
         recommendation = None
     return PolicyResult(outcome, recommendation, priority, tuple(reasons), rule_name)
@@ -128,6 +131,7 @@ def _cap(
     recommendation: str | None,
     failures: Mapping[str, str],
     governance: GovernanceOverride | None,
+    variants: Mapping[str, str],
     reasons: list[str],
 ) -> Outcome:
     label_policy = manifest.policy.labels.get(recommendation or "")
@@ -140,6 +144,13 @@ def _cap(
             "safety checks may be incomplete"
         )
         return Outcome.HUMAN_REVIEW
+    for slot, allowed in manifest.policy.automation_requires.items():
+        running = variants.get(slot)
+        if running not in allowed:
+            reasons.append(
+                f"automation requires {slot} = {' or '.join(allowed)} (running: {running})"
+            )
+            return Outcome.HUMAN_REVIEW
     level = manifest.risk.level
     if level <= MAX_AUTONOMOUS_RISK:
         return Outcome.AUTO

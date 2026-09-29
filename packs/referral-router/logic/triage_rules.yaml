@@ -1,0 +1,135 @@
+# Keyword rules for the referral triage screen: `urgency` and `clear_question`.
+#
+# Written on data/urgent_referrals.jsonl and the public synthetic templates only;
+# data/urgent_referrals_holdout.jsonl measures them. Keyword rules cannot anticipate every
+# phrasing: deployments should run them together with a model (triage_screen=rules_and_jev or
+# rules_and_llm), where either one flagging a referral as possibly urgent sends it to review.
+#
+# Scores: the default label starts at `default_score`; each matching pattern adds its weight
+# to its label; softmax(scores) gives the probabilities. For urgency, routine starts at 4, so a
+# weight-7 pattern gives P(urgent) = 0.95. The policy flags P(urgent) >= 0.3 for review.
+# Word gaps use [^.;!?\n] so that a match never spans two sentences (and (?:[^.;!?\n]|\.(?=\d))
+# where a decimal number may sit in the gap).
+text_fields: [referral.reason]
+temperature: 1.0
+negation_cues: ["no", "not", "without", "denies", "denied", "never", "normal"]
+negation_window: 30
+
+questions:
+  urgency:
+    default: routine
+    default_score: 4.0
+    labels:
+      urgent:
+        # -- heart
+        - name: exertional-chest-pain
+          pattern: "(chest|\\bcp\\b)[^.;!?\\n]{0,30}(pain|tightness|pressure|discomfort)?[^.;!?\\n]{0,30}\\b(on exertion|exertional|walking|climbing|stairs|exercise|uphill)|\\?\\s*angina|r/o angina|assess for angina"
+          weight: 7
+          negatable: true
+        - name: exertional-syncope
+          pattern: "(faint(ed|ing)?|syncope|collapsed|passed out)[^.;!?\\n]{0,40}(exercise|exertion|jogging|running)|exertional syncope"
+          weight: 7
+          negatable: true
+        - name: new-heart-failure
+          pattern: "\\?\\s*heart failure|new heart failure|(breathless|breathlessness)[^.;!?\\n]{0,40}(ankle|leg)s?( are)? swell"
+          weight: 7
+          negatable: true
+        # -- skin
+        - name: changing-skin-lesion
+          pattern: "(mole|pigmented lesion|lesion)[^.;!?\\n]{0,60}\\b(grown|growing|chang(ed|ing)|bleed(s|ing)?|started (to bleed|bleeding)|enlarg\\w*)\\b|\\?\\s*melanoma|r/o mm\\b|assess for melanoma"
+          weight: 7
+          negatable: true
+        - name: possible-skin-cancer
+          pattern: "non-healing|ulcer(ated)? (lesion|nodule)|rapidly enlarging|\\?\\s*(scc|skin cancer)|crusted nodule"
+          weight: 7
+          negatable: true
+        # -- gut
+        - name: dysphagia-with-weight-loss
+          pattern: "(food sticking|difficulty swallowing|dysphagia)[^.;!?\\n]{0,60}(weight loss|wt loss|\\d+ ?kg)"
+          weight: 7
+          negatable: true
+        - name: gi-bleeding-or-anaemia
+          pattern: "iron.deficiency an(a)?emia|\\bida\\b|dark stools|black stools|rectal bleeding[^.;!?\\n]{0,40}weight loss|\\bbrbpr\\b"
+          weight: 7
+          negatable: true
+        - name: jaundice
+          pattern: "\\bjaundice"
+          weight: 7
+          negatable: true
+        # -- nerves and brain
+        - name: progressive-deficit
+          pattern: "progressive (weakness|numbness)|\\bprog\\b[^.;!?\\n]{0,15}weakness|weakness[^.;!?\\n]{0,40}(getting worse|worsening)|double vision[^.;!?\\n]{0,40}worse"
+          weight: 7
+          negatable: true
+        - name: red-flag-headache
+          pattern: "headaches? (that )?wak(e|es|ing)|morning vomiting|headaches?[^.;!?\\n]{0,40}vomiting"
+          weight: 7
+          negatable: true
+        - name: first-seizure
+          pattern: "first (seizure|fit)|new seizure"
+          weight: 7
+          negatable: true
+        - name: giant-cell-arteritis
+          pattern: "jaw (pain|claud\\w*)|\\?\\s*gca|giant cell arteritis|temporal (headache|arteritis)|sudden[^.;!?\\n]{0,20}(visual|vision)[^.;!?\\n]{0,10}(blurring|loss)|sudden visual blurring"
+          weight: 7
+          negatable: true
+        # -- lungs
+        - name: haemoptysis
+          pattern: "coughing up blood|ha?emoptysis"
+          weight: 7
+          negatable: true
+        - name: new-lung-mass
+          pattern: "\\bnew\\b(?:[^.;!?\\n]|\\.(?=\\d)){0,30}\\b(nodule|mass)\\b|shows a (new )?mass|spiculated"
+          weight: 7
+          negatable: true
+        - name: breathlessness-with-weight-loss
+          pattern: "(worsening|increasing) breathlessness[^.;!?\\n]{0,40}weight loss"
+          weight: 7
+          negatable: true
+        # -- bones and joints
+        - name: cauda-equina
+          pattern: "saddle (numbness|an(a)?esthesia)|urinary retention|difficulty passing urine"
+          weight: 7
+          negatable: true
+        - name: hot-joint-with-fever
+          pattern: "hot,? swollen[^.;!?\\n]{0,40}fever|fever[^.;!?\\n]{0,40}hot,? swollen"
+          weight: 7
+          negatable: true
+        - name: cannot-bear-weight
+          pattern: "unable to (bear|weight.?bear)|can'?t bear weight"
+          weight: 7
+          negatable: true
+        - name: night-bone-pain
+          pattern: "bone pain at night|night pain[^.;!?\\n]{0,40}weight loss"
+          weight: 7
+          negatable: true
+        # -- metabolic
+        - name: high-calcium
+          pattern: "(calcium|\\bca\\b) (2\\.[7-9]|[3-9]\\.\\d)"
+          weight: 7
+          negatable: true
+        - name: low-sodium
+          pattern: "(sodium|\\bna\\b) (1[01]\\d|12[0-5])\\b"
+          weight: 7
+        - name: new-type-1-diabetes
+          pattern: "ketones|\\?\\s*type 1 diabetes|suspected (new )?type 1 diabetes"
+          weight: 7
+          negatable: true
+        # -- other specialties
+        - name: visible-haematuria
+          pattern: "blood in the urine|ha?ematuria"
+          weight: 7
+          negatable: true
+        - name: persistent-hoarseness
+          pattern: "hoarse(ness)?\\b[^.;!?\\n]{0,40}(\\d+ weeks|x\\d+ ?wk)|hoarse voice for"
+          weight: 7
+          negatable: true
+
+  clear_question:
+    default: "no"
+    default_score: 3.5
+    labels:
+      "yes":
+        - name: request
+          pattern: "\\bplease\\b|\\bpls\\b|\\?|\\badvise\\b|\\bassess\\b|\\bevaluat\\w*|\\beval\\b|\\breview\\b|\\bsee\\b|\\br/o\\b|\\brequests?\\b|\\bconsultation\\b|\\binvestigate\\b|\\bwould like\\b|\\bdue\\b|\\barrange\\b"
+          weight: 8

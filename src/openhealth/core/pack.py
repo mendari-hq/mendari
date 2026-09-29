@@ -104,13 +104,18 @@ class Pack:
         }
 
 
-def load_pack(path: str | Path) -> Pack:
+def load_pack(path: str | Path, *, missing_models_ok: bool = False) -> Pack:
+    """Load and validate a pack. `missing_models_ok` lets `openhealth train` load a pack whose
+    trained artifacts (`model_file`, `calibration`) do not exist yet."""
     root = Path(path).resolve()
     manifest_path = root / MANIFEST
     if not manifest_path.is_file():
         raise PackValidationError(str(path), [f"{MANIFEST} not found in {root}"])
     with manifest_path.open(encoding="utf-8") as handle:
-        raw = yaml.safe_load(handle)
+        try:
+            raw = yaml.safe_load(handle)
+        except yaml.YAMLError as error:
+            raise PackValidationError(str(path), [f"{MANIFEST}: invalid YAML: {error}"]) from None
     if not isinstance(raw, dict):
         raise PackValidationError(str(path), [f"{MANIFEST} must be a mapping"])
     label = str(raw.get("id", path))
@@ -121,7 +126,12 @@ def load_pack(path: str | Path) -> Pack:
         if not policy_path.is_file():
             raise PackValidationError(label, [f"policy file {raw['policy']!r} not found"])
         with policy_path.open(encoding="utf-8") as handle:
-            raw["policy"] = yaml.safe_load(handle)
+            try:
+                raw["policy"] = yaml.safe_load(handle)
+            except yaml.YAMLError as error:
+                raise PackValidationError(
+                    label, [f"{raw['policy']}: invalid YAML: {error}"]
+                ) from None
 
     try:
         manifest = PackManifest.model_validate(raw)
@@ -130,7 +140,7 @@ def load_pack(path: str | Path) -> Pack:
 
     problems = [
         f"missing file {relative!r}"
-        for relative in _referenced_files(manifest)
+        for relative in _referenced_files(manifest, models=not missing_models_ok)
         if not _confined(root, relative, label).is_file()
     ]
     if problems:
@@ -164,7 +174,7 @@ def pack_digest(root: Path) -> str:
     return "sha256:" + digest.hexdigest()
 
 
-def _referenced_files(m: PackManifest) -> list[str]:
+def _referenced_files(m: PackManifest, *, models: bool = True) -> list[str]:
     files = [m.inputs.json_schema, *m.evaluation.datasets.values()]
     if m.inputs.fhir:
         files.append(m.inputs.fhir)
@@ -177,11 +187,8 @@ def _referenced_files(m: PackManifest) -> list[str]:
             if isinstance(members, dict):
                 configs.extend(member for member in members.values() if isinstance(member, dict))
             for config in configs:
-                files.extend(
-                    config[key]
-                    for key in ("config", "model_file", "calibration")
-                    if isinstance(config.get(key), str)
-                )
+                keys = ("config", "model_file", "calibration") if models else ("config",)
+                files.extend(config[key] for key in keys if isinstance(config.get(key), str))
     return files
 
 

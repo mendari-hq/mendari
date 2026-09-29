@@ -1,0 +1,937 @@
+{
+  "format": "openhealth.eval/1",
+  "id": "aa0c53bc-8312-47bf-b228-95cfc89a7285",
+  "created_at": "2026-09-29T04:06:54+00:00",
+  "pack": {
+    "id": "openhealth/referral-router",
+    "version": "0.1.0",
+    "digest": "sha256:32be5439d7e5f76ed841665e758fe6115aa7b0feba03ee6ea5586c2f85709a52"
+  },
+  "providers": {
+    "specialty_reader": {
+      "variant": "naive_bayes",
+      "type": "naive_bayes",
+      "model": "naive_bayes@83eb48931892"
+    },
+    "triage_screen": {
+      "variant": "rules",
+      "type": "rules",
+      "model": "rules@5bbd05660616"
+    },
+    "checklist": {
+      "variant": "criteria",
+      "type": "criteria",
+      "model": "criteria@73a64c7d8af5"
+    }
+  },
+  "policy": {
+    "risk_level": 1,
+    "thresholds": {
+      "auto": 0.9,
+      "review": 0.4
+    },
+    "governance_override": null
+  },
+  "dataset": {
+    "name": "test",
+    "sha256": "f085362d6bc2be1248f6e56f1726d1ee885f6e754b2e7a9d6c9b528850f05174",
+    "n": 600,
+    "limit": null
+  },
+  "primary": "next_step",
+  "questions": {
+    "specialty": {
+      "n": 600,
+      "accuracy": 0.9966666666666667,
+      "macro_f1": 0.9951492143836338,
+      "per_label": {
+        "cardiology": {
+          "precision": 0.9818181818181818,
+          "recall": 1.0,
+          "f1": 0.9908256880733944,
+          "support": 108
+        },
+        "dermatology": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 75
+        },
+        "endocrinology": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 48
+        },
+        "gastroenterology": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 87
+        },
+        "neurology": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 75
+        },
+        "orthopedics": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 81
+        },
+        "pulmonology": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 55
+        },
+        "rheumatology": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 41
+        },
+        "other": {
+          "precision": 1.0,
+          "recall": 0.9333333333333333,
+          "f1": 0.9655172413793104,
+          "support": 30
+        }
+      },
+      "confusion": {
+        "cardiology": {
+          "cardiology": 108,
+          "dermatology": 0,
+          "endocrinology": 0,
+          "gastroenterology": 0,
+          "neurology": 0,
+          "orthopedics": 0,
+          "pulmonology": 0,
+          "rheumatology": 0,
+          "other": 0,
+          "none": 0
+        },
+        "dermatology": {
+          "cardiology": 0,
+          "dermatology": 75,
+          "endocrinology": 0,
+          "gastroenterology": 0,
+          "neurology": 0,
+          "orthopedics": 0,
+          "pulmonology": 0,
+          "rheumatology": 0,
+          "other": 0,
+          "none": 0
+        },
+        "endocrinology": {
+          "cardiology": 0,
+          "dermatology": 0,
+          "endocrinology": 48,
+          "gastroenterology": 0,
+          "neurology": 0,
+          "orthopedics": 0,
+          "pulmonology": 0,
+          "rheumatology": 0,
+          "other": 0,
+          "none": 0
+        },
+        "gastroenterology": {
+          "cardiology": 0,
+          "dermatology": 0,
+          "endocrinology": 0,
+          "gastroenterology": 87,
+          "neurology": 0,
+          "orthopedics": 0,
+          "pulmonology": 0,
+          "rheumatology": 0,
+          "other": 0,
+          "none": 0
+        },
+        "neurology": {
+          "cardiology": 0,
+          "dermatology": 0,
+          "endocrinology": 0,
+          "gastroenterology": 0,
+          "neurology": 75,
+          "orthopedics": 0,
+          "pulmonology": 0,
+          "rheumatology": 0,
+          "other": 0,
+          "none": 0
+        },
+        "orthopedics": {
+          "cardiology": 0,
+          "dermatology": 0,
+          "endocrinology": 0,
+          "gastroenterology": 0,
+          "neurology": 0,
+          "orthopedics": 81,
+          "pulmonology": 0,
+          "rheumatology": 0,
+          "other": 0,
+          "none": 0
+        },
+        "pulmonology": {
+          "cardiology": 0,
+          "dermatology": 0,
+          "endocrinology": 0,
+          "gastroenterology": 0,
+          "neurology": 0,
+          "orthopedics": 0,
+          "pulmonology": 55,
+          "rheumatology": 0,
+          "other": 0,
+          "none": 0
+        },
+        "rheumatology": {
+          "cardiology": 0,
+          "dermatology": 0,
+          "endocrinology": 0,
+          "gastroenterology": 0,
+          "neurology": 0,
+          "orthopedics": 0,
+          "pulmonology": 0,
+          "rheumatology": 41,
+          "other": 0,
+          "none": 0
+        },
+        "other": {
+          "cardiology": 2,
+          "dermatology": 0,
+          "endocrinology": 0,
+          "gastroenterology": 0,
+          "neurology": 0,
+          "orthopedics": 0,
+          "pulmonology": 0,
+          "rheumatology": 0,
+          "other": 28,
+          "none": 0
+        }
+      },
+      "calibration": {
+        "ece": 0.00471632578242145,
+        "bins": [
+          {
+            "low": 0.1,
+            "high": 0.2,
+            "n": 2,
+            "confidence": 0.16036039050186154,
+            "accuracy": 0.0
+          },
+          {
+            "low": 0.4,
+            "high": 0.5,
+            "n": 1,
+            "confidence": 0.49422922285850673,
+            "accuracy": 1.0
+          },
+          {
+            "low": 0.7,
+            "high": 0.8,
+            "n": 1,
+            "confidence": 0.7116814876461164,
+            "accuracy": 1.0
+          },
+          {
+            "low": 0.8,
+            "high": 0.9,
+            "n": 7,
+            "confidence": 0.8686386862441602,
+            "accuracy": 1.0
+          },
+          {
+            "low": 0.9,
+            "high": 1.0,
+            "n": 589,
+            "confidence": 0.9986494801313024,
+            "accuracy": 1.0
+          }
+        ]
+      },
+      "brier": 0.004698171955862127
+    },
+    "urgency": {
+      "n": 600,
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "per_label": {
+        "urgent": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 113
+        },
+        "routine": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 487
+        }
+      },
+      "confusion": {
+        "urgent": {
+          "urgent": 113,
+          "routine": 0,
+          "none": 0
+        },
+        "routine": {
+          "urgent": 0,
+          "routine": 487,
+          "none": 0
+        }
+      },
+      "calibration": {
+        "ece": 0.02297790765573593,
+        "bins": [
+          {
+            "low": 0.9,
+            "high": 1.0,
+            "n": 600,
+            "confidence": 0.9770220923442641,
+            "accuracy": 1.0
+          }
+        ]
+      },
+      "brier": 0.0013198765514599207
+    },
+    "clear_question": {
+      "n": 600,
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "per_label": {
+        "yes": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 551
+        },
+        "no": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 49
+        }
+      },
+      "confusion": {
+        "yes": {
+          "yes": 551,
+          "no": 0,
+          "none": 0
+        },
+        "no": {
+          "yes": 0,
+          "no": 49,
+          "none": 0
+        }
+      },
+      "calibration": {
+        "ece": 0.012483507827122153,
+        "bins": [
+          {
+            "low": 0.9,
+            "high": 1.0,
+            "n": 600,
+            "confidence": 0.9875164921728778,
+            "accuracy": 1.0
+          }
+        ]
+      },
+      "brier": 0.0003620464974005175
+    },
+    "recent_visit_note": {
+      "n": 600,
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "per_label": {
+        "yes": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 504
+        },
+        "no": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 96
+        }
+      },
+      "confusion": {
+        "yes": {
+          "yes": 504,
+          "no": 0,
+          "none": 0
+        },
+        "no": {
+          "yes": 0,
+          "no": 96,
+          "none": 0
+        }
+      },
+      "calibration": {
+        "ece": 0.020000000000000018,
+        "bins": [
+          {
+            "low": 0.9,
+            "high": 1.0,
+            "n": 600,
+            "confidence": 0.98,
+            "accuracy": 1.0
+          }
+        ]
+      },
+      "brier": 0.0008000000000000094
+    },
+    "ecg_on_file": {
+      "n": 600,
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "per_label": {
+        "yes": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 181
+        },
+        "no": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 419
+        }
+      },
+      "confusion": {
+        "yes": {
+          "yes": 181,
+          "no": 0,
+          "none": 0
+        },
+        "no": {
+          "yes": 0,
+          "no": 419,
+          "none": 0
+        }
+      },
+      "calibration": {
+        "ece": 0.020000000000000018,
+        "bins": [
+          {
+            "low": 0.9,
+            "high": 1.0,
+            "n": 600,
+            "confidence": 0.98,
+            "accuracy": 1.0
+          }
+        ]
+      },
+      "brier": 0.0008000000000000094
+    },
+    "imaging_on_file": {
+      "n": 600,
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "per_label": {
+        "yes": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 124
+        },
+        "no": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 476
+        }
+      },
+      "confusion": {
+        "yes": {
+          "yes": 124,
+          "no": 0,
+          "none": 0
+        },
+        "no": {
+          "yes": 0,
+          "no": 476,
+          "none": 0
+        }
+      },
+      "calibration": {
+        "ece": 0.020000000000000018,
+        "bins": [
+          {
+            "low": 0.9,
+            "high": 1.0,
+            "n": 600,
+            "confidence": 0.98,
+            "accuracy": 1.0
+          }
+        ]
+      },
+      "brier": 0.0008000000000000094
+    },
+    "recent_labs": {
+      "n": 600,
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "per_label": {
+        "yes": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 339
+        },
+        "no": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 261
+        }
+      },
+      "confusion": {
+        "yes": {
+          "yes": 339,
+          "no": 0,
+          "none": 0
+        },
+        "no": {
+          "yes": 0,
+          "no": 261,
+          "none": 0
+        }
+      },
+      "calibration": {
+        "ece": 0.020000000000000018,
+        "bins": [
+          {
+            "low": 0.9,
+            "high": 1.0,
+            "n": 600,
+            "confidence": 0.98,
+            "accuracy": 1.0
+          }
+        ]
+      },
+      "brier": 0.0008000000000000094
+    },
+    "marked_urgent": {
+      "n": 600,
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "per_label": {
+        "yes": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 64
+        },
+        "no": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 536
+        }
+      },
+      "confusion": {
+        "yes": {
+          "yes": 64,
+          "no": 0,
+          "none": 0
+        },
+        "no": {
+          "yes": 0,
+          "no": 536,
+          "none": 0
+        }
+      },
+      "calibration": {
+        "ece": 0.020000000000000018,
+        "bins": [
+          {
+            "low": 0.9,
+            "high": 1.0,
+            "n": 600,
+            "confidence": 0.98,
+            "accuracy": 1.0
+          }
+        ]
+      },
+      "brier": 0.0008000000000000094
+    },
+    "next_step": {
+      "n": 600,
+      "accuracy": 0.995,
+      "macro_f1": 0.9811719500480307,
+      "per_label": {
+        "urgent_review": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 124
+        },
+        "coordinator_review": {
+          "precision": 1.0,
+          "recall": 0.875,
+          "f1": 0.9333333333333333,
+          "support": 24
+        },
+        "return_for_info": {
+          "precision": 0.9828571428571429,
+          "recall": 1.0,
+          "f1": 0.9913544668587896,
+          "support": 172
+        },
+        "schedule": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 280
+        }
+      },
+      "confusion": {
+        "urgent_review": {
+          "urgent_review": 124,
+          "coordinator_review": 0,
+          "return_for_info": 0,
+          "schedule": 0,
+          "none": 0
+        },
+        "coordinator_review": {
+          "urgent_review": 0,
+          "coordinator_review": 21,
+          "return_for_info": 3,
+          "schedule": 0,
+          "none": 0
+        },
+        "return_for_info": {
+          "urgent_review": 0,
+          "coordinator_review": 0,
+          "return_for_info": 172,
+          "schedule": 0,
+          "none": 0
+        },
+        "schedule": {
+          "urgent_review": 0,
+          "coordinator_review": 0,
+          "return_for_info": 0,
+          "schedule": 280,
+          "none": 0
+        }
+      },
+      "calibration": {
+        "ece": 0.05577646287756767,
+        "bins": [
+          {
+            "low": 0.4,
+            "high": 0.5,
+            "n": 1,
+            "confidence": 0.48097611146768493,
+            "accuracy": 0.0
+          },
+          {
+            "low": 0.9,
+            "high": 1.0,
+            "n": 599,
+            "confidence": 0.9415944881217481,
+            "accuracy": 0.996661101836394
+          }
+        ]
+      },
+      "brier": 0.013179359395675081
+    }
+  },
+  "decisions": {
+    "outcome_counts": {
+      "AUTO": 0,
+      "HUMAN_REVIEW": 600,
+      "ABSTAIN": 0,
+      "BLOCK": 0
+    },
+    "outcome_rates": {
+      "AUTO": 0.0,
+      "HUMAN_REVIEW": 1.0,
+      "ABSTAIN": 0.0,
+      "BLOCK": 0.0
+    },
+    "abstention_rate": 0.0,
+    "automation": {
+      "n": 0,
+      "accuracy": null,
+      "false_automation_rate": null,
+      "false_automation_share": 0.0
+    },
+    "review": {
+      "n": 600,
+      "expected_override_rate": 0.005
+    },
+    "recommendation_accuracy": 0.995,
+    "critical": [
+      {
+        "question": "urgency",
+        "label": "urgent",
+        "n": 113,
+        "detected": 113,
+        "detection_rate": 1.0,
+        "auto_missed": 0,
+        "missed_ids": []
+      },
+      {
+        "question": "next_step",
+        "label": "urgent_review",
+        "n": 124,
+        "detected": 124,
+        "detection_rate": 1.0,
+        "auto_missed": 0,
+        "missed_ids": []
+      }
+    ]
+  },
+  "threshold_sweep": [
+    {
+      "threshold": 0.5,
+      "coverage": 0.9983333333333333,
+      "accuracy": 0.996661101836394,
+      "errors": 2
+    },
+    {
+      "threshold": 0.6,
+      "coverage": 0.9983333333333333,
+      "accuracy": 0.996661101836394,
+      "errors": 2
+    },
+    {
+      "threshold": 0.7,
+      "coverage": 0.9983333333333333,
+      "accuracy": 0.996661101836394,
+      "errors": 2
+    },
+    {
+      "threshold": 0.8,
+      "coverage": 0.9983333333333333,
+      "accuracy": 0.996661101836394,
+      "errors": 2
+    },
+    {
+      "threshold": 0.85,
+      "coverage": 0.9983333333333333,
+      "accuracy": 0.996661101836394,
+      "errors": 2
+    },
+    {
+      "threshold": 0.9,
+      "coverage": 0.9983333333333333,
+      "accuracy": 0.996661101836394,
+      "errors": 2
+    },
+    {
+      "threshold": 0.95,
+      "coverage": 0.2833333333333333,
+      "accuracy": 1.0,
+      "errors": 0
+    },
+    {
+      "threshold": 0.97,
+      "coverage": 0.11333333333333333,
+      "accuracy": 1.0,
+      "errors": 0
+    },
+    {
+      "threshold": 0.99,
+      "coverage": 0.095,
+      "accuracy": 1.0,
+      "errors": 0
+    }
+  ],
+  "latency_ms": {
+    "mean": 2.748662062610189,
+    "p50": 2.7322503738105297,
+    "p95": 2.8754579834640026,
+    "max": 9.79712512344122
+  },
+  "cost": {
+    "total_usd": 0.0,
+    "per_decision_usd": 0.0,
+    "input_tokens": 0,
+    "output_tokens": 0
+  },
+  "errors": {},
+  "subgroups": {
+    "site": {
+      "public": {
+        "n": 600,
+        "accuracy": 0.995,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      }
+    },
+    "specialty": {
+      "cardiology": {
+        "n": 108,
+        "accuracy": 1.0,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      },
+      "dermatology": {
+        "n": 75,
+        "accuracy": 1.0,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      },
+      "endocrinology": {
+        "n": 48,
+        "accuracy": 1.0,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      },
+      "gastroenterology": {
+        "n": 87,
+        "accuracy": 1.0,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      },
+      "neurology": {
+        "n": 75,
+        "accuracy": 1.0,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      },
+      "orthopedics": {
+        "n": 81,
+        "accuracy": 1.0,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      },
+      "other": {
+        "n": 30,
+        "accuracy": 0.9,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      },
+      "pulmonology": {
+        "n": 55,
+        "accuracy": 1.0,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      },
+      "rheumatology": {
+        "n": 41,
+        "accuracy": 1.0,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      }
+    },
+    "kind": {
+      "look_alike": {
+        "n": 66,
+        "accuracy": 1.0,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      },
+      "routine": {
+        "n": 372,
+        "accuracy": 1.0,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      },
+      "urgent": {
+        "n": 113,
+        "accuracy": 1.0,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      },
+      "vague": {
+        "n": 49,
+        "accuracy": 0.9387755102040817,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      }
+    },
+    "style": {
+      "prose": {
+        "n": 600,
+        "accuracy": 0.995,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      }
+    },
+    "age_band": {
+      "18-39": {
+        "n": 159,
+        "accuracy": 0.9937106918238994,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      },
+      "40-64": {
+        "n": 247,
+        "accuracy": 0.9959514170040485,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      },
+      "65+": {
+        "n": 194,
+        "accuracy": 0.9948453608247423,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      }
+    },
+    "sex": {
+      "female": {
+        "n": 302,
+        "accuracy": 0.9933774834437086,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      },
+      "male": {
+        "n": 298,
+        "accuracy": 0.9966442953020134,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      }
+    }
+  },
+  "misclassified": [
+    {
+      "id": "ref-01951",
+      "truth": "coordinator_review",
+      "predicted": "return_for_info",
+      "confidence": 0.9439,
+      "outcome": "HUMAN_REVIEW"
+    },
+    {
+      "id": "ref-02250",
+      "truth": "coordinator_review",
+      "predicted": "return_for_info",
+      "confidence": 0.481,
+      "outcome": "HUMAN_REVIEW"
+    },
+    {
+      "id": "ref-02380",
+      "truth": "coordinator_review",
+      "predicted": "return_for_info",
+      "confidence": 0.9336,
+      "outcome": "HUMAN_REVIEW"
+    }
+  ]
+}

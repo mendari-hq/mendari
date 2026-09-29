@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
 from openhealth import GovernanceOverride, Outcome, Pack, Priority, RiskLevel
 from openhealth.core.policy import apply_policy
@@ -103,3 +104,24 @@ def test_risk_level_4_is_never_autonomous(inbox_pack: Pack) -> None:
 def test_governance_override_needs_accountability() -> None:
     with pytest.raises(ValueError, match="approver"):
         GovernanceOverride(approved_by=" ", reference="x")
+
+
+def test_automation_can_require_provider_variants(inbox_pack: Pack) -> None:
+    raw = inbox_pack.manifest.model_dump(by_alias=True)
+    raw["policy"]["automation_requires"] = {"safety_screen": ["rules_and_jev", "rules_and_llm"]}
+    manifest = PackManifest.model_validate(raw)
+    answers = routine("nurse", 0.99)
+    guarded = apply_policy(manifest, answers, {}, None, {"safety_screen": "rules", "router": "jev"})
+    assert guarded.outcome is Outcome.HUMAN_REVIEW
+    assert (
+        "automation requires safety_screen = rules_and_jev or rules_and_llm (running: rules)"
+        in (guarded.reasons)
+    )
+    allowed = {"safety_screen": "rules_and_jev", "router": "jev"}
+    assert apply_policy(manifest, answers, {}, None, allowed).outcome is Outcome.AUTO
+    assert apply_policy(manifest, answers, {}).outcome is Outcome.HUMAN_REVIEW  # not told: no AUTO
+
+    raw["policy"]["automation_requires"] = {"safety_screen": ["nope"], "missing": ["x"]}
+    with pytest.raises(ValidationError, match="unknown slot 'missing'") as error:
+        PackManifest.model_validate(raw)
+    assert "unknown: ['nope']" in str(error.value)

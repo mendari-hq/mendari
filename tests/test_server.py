@@ -22,6 +22,7 @@ def test_packs_and_card(client: TestClient) -> None:
     assert [p["id"] for p in packs] == [
         "openhealth/clinical-trial-prescreener",
         "openhealth/patient-inbox-router",
+        "openhealth/referral-router",
     ]
     detail = client.get(PACK).json()
     assert detail["active_providers"]["router"]["variant"] == "naive_bayes"
@@ -71,6 +72,7 @@ def test_cds_hooks_endpoints(client: TestClient) -> None:
     assert set(services) == {
         "openhealth.patient-inbox-router",
         "openhealth.clinical-trial-prescreener",
+        "openhealth.referral-router",
     }
     inbox = services["openhealth.patient-inbox-router"]
     response = client.post(

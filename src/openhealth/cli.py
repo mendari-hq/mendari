@@ -13,7 +13,7 @@ from openhealth.core.audit import AuditStore
 from openhealth.core.decision import Decision
 from openhealth.core.pack import Pack
 from openhealth.core.registry import discover, resolve_pack
-from openhealth.errors import OpenHealthError
+from openhealth.errors import OpenHealthError, PackValidationError
 from openhealth.sandbox import example_datasets_dir
 from openhealth.settings import daily_limits, parse_providers, providers_for
 
@@ -65,8 +65,32 @@ def cmd_validate(args: argparse.Namespace) -> int:
         from openhealth.standards.fhir import FhirAdapter
 
         FhirAdapter.for_pack(pack)  # parse and check the mapping, not only that it exists
+    problems = _test_input_problems(pack)
+    if problems:
+        raise PackValidationError(pack.id, problems)
     print(f"ok  {pack.ref}  {pack.digest}")
     return 0
+
+
+def _test_input_problems(pack: Pack) -> list[str]:
+    """Behaviour-test inputs must match the input schema, unless the test expects a BLOCK;
+    otherwise the test decides a BLOCK and fails confusingly (e.g. unquoted YAML flow-mapping
+    text split into extra keys)."""
+    from jsonschema import Draft202012Validator
+
+    from openhealth.evals.pack_tests import load_cases
+
+    validator = Draft202012Validator(pack.input_schema)
+    problems = []
+    for number, case in enumerate(load_cases(pack), start=1):
+        if (case.get("expect") or {}).get("outcome") == "BLOCK":
+            continue  # a test of the input contract itself
+        for error in validator.iter_errors(case.get("input")):
+            problems.append(
+                f"{pack.manifest.tests} case {number} ({case.get('name', 'unnamed')}): "
+                f"input {error.message}"
+            )
+    return problems
 
 
 def cmd_test(args: argparse.Namespace) -> int:
@@ -147,7 +171,7 @@ def cmd_train(args: argparse.Namespace) -> int:
     from openhealth.evals import resolve_dataset
     from openhealth.providers import naive_bayes
 
-    pack = resolve_pack(args.pack)
+    pack = resolve_pack(args.pack, missing_models_ok=True)
     trained = 0
     for slot, spec in pack.manifest.providers.items():
         if args.slot and slot != args.slot:
@@ -312,13 +336,19 @@ SANDBOX_KINDS = {
     # kind: (default pack directory, default local-site output)
     "inbox": ("packs/patient-inbox-router", "datasets/local-site-example.jsonl"),
     "trial": ("packs/clinical-trial-prescreener", "datasets/trial-local-site-example.jsonl"),
+    "referral": ("packs/referral-router", "datasets/referral-local-site-example.jsonl"),
 }
 
 
 def cmd_sandbox_generate(args: argparse.Namespace) -> int:
-    from openhealth.sandbox import synthetic_inbox, synthetic_trial
+    from openhealth.sandbox import synthetic_inbox, synthetic_referral, synthetic_trial
 
-    generator = {"inbox": synthetic_inbox, "trial": synthetic_trial}[args.kind]
+    generators = {
+        "inbox": synthetic_inbox,
+        "trial": synthetic_trial,
+        "referral": synthetic_referral,
+    }
+    generator = generators[args.kind]
     pack_dir, local_out = SANDBOX_KINDS[args.kind]
     # Takes a directory rather than a pack reference: the pack cannot load before its data exists.
     data_dir = Path(args.pack_dir or pack_dir) / "data"

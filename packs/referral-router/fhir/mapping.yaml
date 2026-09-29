@@ -1,0 +1,63 @@
+# FHIR R4 -> pack input: one referral (ServiceRequest) and the patient's record. The as-of date
+# is the day of the request.
+fhir_version: R4
+focus: ServiceRequest
+focus_where:
+  path: category[0].coding[0].code
+  in: ["3457005"]  # SNOMED CT: patient referral (lab and imaging orders are ServiceRequests too)
+
+resources:
+  ServiceRequest:
+    required: true
+  Patient:
+    required: false
+
+fields:
+  referral.reason:
+    # reasonCode text, then any note; joined into one text
+    path: ServiceRequest.reasonCode.text
+    transform: join
+  referral.priority:
+    path: ServiceRequest.priority
+  patient.age:
+    path: Patient.birthDate
+    transform: age_years
+  patient.sex:
+    path: Patient.gender
+    map: {female: female, male: male, other: other, unknown: unknown}
+
+lists:
+  documents:
+    resource: DocumentReference
+    fields:
+      code:
+        path: type.coding[0].code
+      name:
+        path: type.text
+      date:
+        path: date
+  reports:
+    resource: DiagnosticReport
+    fields:
+      code:
+        path: code.coding[0].code
+      name:
+        path: code.text
+      date:
+        path: effectiveDateTime
+  labs:
+    resource: Observation
+    fields:
+      code:
+        path: code.coding[0].code
+      name:
+        path: code.text
+      date:
+        path: effectiveDateTime
+
+# Decision -> FHIR Task in the suggested specialty's referral queue.
+task:
+  code_text: Handle specialty referral
+  performer_system: https://openhealth.dev/fhir/CodeSystem/referral-queue
+  performer: "{specialty}"
+  description: "Referral to {specialty}: {recommendation}"

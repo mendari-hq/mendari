@@ -320,6 +320,10 @@ class Policy(_Strict):
     thresholds: Thresholds
     rules: list[PolicyRule] = []
     labels: dict[str, LabelPolicy] = {}
+    # AUTO only while these slots run one of these variants, e.g. a safety screen that includes
+    # a model: {triage_screen: [rules_and_jev, rules_and_llm]}. Other variants still decide,
+    # but every decision goes to a person.
+    automation_requires: dict[str, list[str]] = {}
     fallback: str
     default_priority: Priority = Priority.ROUTINE
 
@@ -483,6 +487,16 @@ def cross_reference_problems(m: PackManifest) -> list[str]:
     for label in policy.labels:
         if label not in primary_labels:
             problems.append(f"policy.labels has unknown label {label!r}")
+    for slot_name, required in policy.automation_requires.items():
+        provider_slot = m.providers.get(slot_name)
+        if provider_slot is None:
+            problems.append(f"policy.automation_requires names unknown slot {slot_name!r}")
+        elif not required or set(required) - set(provider_slot.variants):
+            not_variants = sorted(set(required) - set(provider_slot.variants))
+            problems.append(
+                f"policy.automation_requires.{slot_name} must list variants of the slot"
+                + (f"; unknown: {not_variants}" if not_variants else "")
+            )
 
     card = m.cds_hooks.card if m.cds_hooks is not None else None
     if card is not None:
