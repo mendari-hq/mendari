@@ -19,7 +19,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from openhealth import __version__
+from openhealth import __version__, guard
 from openhealth.core.audit import AuditStore
 from openhealth.core.card import benchmark, render_card
 from openhealth.core.decision import CallBudget, Decision
@@ -225,6 +225,12 @@ def create_app(
     @app.post("/api/packs/{namespace}/{name}/decide")
     def decide(namespace: str, name: str, payload: JsonBody) -> dict[str, Any]:
         return decision_for(f"{namespace}/{name}").decide(payload).to_dict()
+
+    @app.post("/api/packs/{namespace}/{name}/guard")
+    def guard_draft(namespace: str, name: str, payload: JsonBody) -> dict[str, Any]:
+        """Check an LLM's draft reply: `released` (send `reply`), `held_for_review` or
+        `blocked` (send nothing; follow `fallback`). Audited like any decision."""
+        return guard.check(decision_for(f"{namespace}/{name}"), payload).to_dict()
 
     @app.post("/api/packs/{namespace}/{name}/fhir/decide")
     def decide_fhir(namespace: str, name: str, payload: JsonBody) -> dict[str, Any]:

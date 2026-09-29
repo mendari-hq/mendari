@@ -1,0 +1,12 @@
+text_fields: [question]
+questions:
+  question_emergency:
+    default: "no"
+    default_score: 4.0
+    labels:
+      "yes": [{name: chest-pain, pattern: "chest pain", weight: 7, negatable: true}]
+  draft_escalates:
+    default: "no"
+    default_score: 4.0
+    labels:
+      "yes": [{name: call-911, pattern: "call 911|emergency", weight: 7}]

@@ -109,6 +109,30 @@ uv run openhealth serve                                  # API + CDS Hooks + das
 uv run openhealth audit verify --db var/openhealth.db
 ```
 
+### Guarding an LLM's replies
+
+A pack with a `guard` section (the AI Guard reference pack is one) checks a model's draft
+before anyone reads it. The draft is `released` only when the decision is automated with a
+release recommendation; otherwise it is `held_for_review` or `blocked`, with the reasons:
+
+```python
+from openhealth import Decision
+from openhealth.guard import check
+
+guard = Decision.from_hub("openhealth/ai-guard")
+draft = my_llm(question)  # any model
+result = check(guard, {"question": question, "draft": draft})
+if result.status == "released":
+    send(result.reply)
+elif result.status == "blocked":
+    escalate(result.decision.fallback)  # never send a blocked draft
+else:
+    queue_for_clinician(draft, result.decision.reasons)
+```
+
+Over HTTP: `POST /api/packs/{id}/guard` with the same input returns `{status, reply, outcome,
+recommendation, reasons, fallback, decision_id}`.
+
 ### Docker sandbox
 
 ```bash

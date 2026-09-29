@@ -371,6 +371,14 @@ class CdsCard(_Strict):
     suggestion: str = "Create a task"
 
 
+class GuardConfig(_Strict):
+    """An API guard in front of an LLM (spec 0.2): `draft` is the input field holding the reply
+    being checked, and a decision releases it only when it is AUTO with a `release` label."""
+
+    draft: str = Field(min_length=1)
+    release: list[str] = Field(min_length=1)
+
+
 class CdsHooksConfig(_Strict):
     hook: str
     title: str
@@ -397,6 +405,7 @@ class PackManifest(_Strict):
     tests: str | None = None
     audit: AuditConfig = AuditConfig()
     cds_hooks: CdsHooksConfig | None = None
+    guard: GuardConfig | None = None
 
     @field_validator("id")
     @classmethod
@@ -443,6 +452,8 @@ def cross_reference_problems(m: PackManifest) -> list[str]:
             or rule.when.min_score is not None
             or rule.when.max_score is not None
         ]
+        if m.guard is not None:
+            newer.append("guard")
         if newer:
             problems.append(f"{newer} use spec 0.2 features; set spec_version: '0.2'")
 
@@ -498,6 +509,10 @@ def cross_reference_problems(m: PackManifest) -> list[str]:
     for label in policy.labels:
         if label not in primary_labels:
             problems.append(f"policy.labels has unknown label {label!r}")
+    if m.guard is not None:
+        unknown_release = sorted(set(m.guard.release) - set(primary_labels))
+        if unknown_release:
+            problems.append(f"guard.release names unknown recommendations {unknown_release}")
     for slot_name, required in policy.automation_requires.items():
         provider_slot = m.providers.get(slot_name)
         if provider_slot is None:

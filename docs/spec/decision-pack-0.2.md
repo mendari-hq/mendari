@@ -229,7 +229,9 @@ item of a given type in any input list within a date window (`exists`, e.g. a do
 file), and a field having one of some values (`value`); missing data answers `unknown`;
 answers MAY be any label of the question, e.g. the service an order code is for, and a check
 MAY carry `when: {field, in}` to apply only while an input field has one of those values),
-`naive_bayes` (local, temperature-calibrated text classifier), `jev`, `llm` (a chat
+`dosing` (dose arithmetic on free text: for each medicine in a pack table, the largest daily
+amount a sentence allows, e.g. "1000 mg every 4 hours" = 6000 mg/day, compared with the maximum;
+`yes` / `no` / `unknown`), `naive_bayes` (local, temperature-calibrated text classifier), `jev`, `llm` (a chat
 model through an OpenAI-compatible API, asked for one probability per label and optionally
 calibrated per question), and three
 composites whose inline `members` are other (non-composite) variants: `any_of` (the most
@@ -387,6 +389,16 @@ labels, or `none`), optional `indicators`, a `suggestion` label, and `show`, the
 recommendations that produce a card at all (e.g. a `patient-view` service stays silent for
 patients who are clearly not eligible).
 
+### 9.1 Guard
+
+A pack MAY declare `guard: {draft: <input field>, release: [<primary labels>]}` to sit between a
+language model and its reader, e.g. a patient. The runtime turns each decision into a status:
+`released` (AUTO with a `release` recommendation; the draft is returned to send), `held_for_review`
+(HUMAN_REVIEW or ABSTAIN) or `blocked` (BLOCK; the draft MUST NOT be sent and the policy
+`fallback` applies). Decisions are audited as usual. At risk level 2 or above, `released`
+requires a recorded governance override (§7). The reference server exposes this as
+`POST /api/packs/{id}/guard`.
+
 ## 10. Behaviour tests
 
 `tests/cases.yaml` is a list of `{name, input, expect}`. `expect` may contain `outcome`,
@@ -427,6 +439,7 @@ produces identical decisions; it simply cannot use the new fields.
 | `criteria` provider: `exists`/`value` checks, any question label, per-check `when` | §5 |
 | FHIR `lists`, `age_years`/`base64_text`; card and Task templates naming answers | §9 |
 | FHIR `focus_where`; one decision per draft order for `order-select`/`order-sign` | §9 |
+| `dosing` provider; `guard` section and statuses | §5, §9.1 |
 | The decision output schema adds an optional `value` to each answer | §4.2 |
 
 To migrate a pack:

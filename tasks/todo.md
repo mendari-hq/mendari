@@ -2,7 +2,13 @@
 
 Roadmap to the full goal: [`docs/roadmap.md`](../docs/roadmap.md).
 
-## Next: v0.3 Reference packs: AI Guard (the fifth and last), with its own plan
+## Current milestone: v0.3 Reference packs: AI Guard (the fifth and last)
+Plan approved 2026-09-29 (3 PRs): runtime → the pack (risk level 2, the user's choice) →
+leaderboard and deployed choice.
+- [x] PR 1 runtime: `dosing` provider (dose arithmetic in code), `guard` section,
+  `openhealth.guard.check` and `POST /api/packs/{id}/guard` (released / held_for_review / blocked)
+- [ ] PR 2 `openhealth/ai-guard` 0.1.0
+- [ ] PR 3 leaderboard and deployed choice
 
 ## Done: v0.3 Prior Authorization Preflight
 Plan approved 2026-09-29 (3 PRs): runtime → the pack → leaderboard and deployed choice.

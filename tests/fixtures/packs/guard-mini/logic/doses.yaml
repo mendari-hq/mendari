@@ -1,0 +1,11 @@
+text_fields: [draft]
+medicines:
+  acetaminophen:
+    names: [acetaminophen, paracetamol, Tylenol]
+    max_daily_mg: 4000
+    max_single_mg: 1000
+    tablet_mg: 500
+  ibuprofen:
+    names: [ibuprofen, Advil, Motrin]
+    max_daily_mg: 1200
+    max_single_mg: 400
