@@ -8,7 +8,8 @@
           - {any: unknown, then: needs_review}
           - {else: candidate}
 
-Rows are tried top-down and the first match wins. Instead of applying the table only to each
+Rows are tried top-down and the first match wins; a row with `in: [...]` only looks at those
+members. Instead of applying the table only to each
 member's most likely label (which would hide uncertainty), the derived answer carries the exact
 probability of every row winning, treating the members' answers as independent. A dynamic
 program walks the members once, tracking which rows are satisfied so far:
@@ -21,7 +22,7 @@ from collections import defaultdict
 from collections.abc import Mapping, MutableMapping
 from dataclasses import replace
 
-from openhealth.core.spec import PackManifest, Question
+from openhealth.core.spec import DeriveRow, PackManifest, Question
 from openhealth.providers.base import Answer, ProviderInfo
 
 DERIVED = ProviderInfo(slot="derived", variant="decision_table", type="derived")
@@ -47,6 +48,14 @@ def complete_answers(
             answers[key] = replace(answer, value=question.expected_score(answer.probabilities))
 
 
+def row_holds(row: DeriveRow, answers: Mapping[str, Answer]) -> bool:
+    """Whether a row matches the members' most likely labels."""
+    labels = [a.label for member, a in answers.items() if row.applies_to(member)]
+    if row.any is not None:
+        return row.any in labels
+    return row.all is not None and all(label == row.all for label in labels)
+
+
 def derive_answer(key: str, question: Question, answers: Mapping[str, Answer]) -> Answer:
     spec = question.derive
     if spec is None:
@@ -65,7 +74,9 @@ def derive_answer(key: str, question: Question, answers: Mapping[str, Answer]) -
                 if p_label <= 0.0:
                     continue
                 new = tuple(
-                    (holds or label == row.any)
+                    holds
+                    if not row.applies_to(member)
+                    else (holds or label == row.any)
                     if row.any is not None
                     else (holds and label == row.all)
                     for holds, row in zip(state, rows, strict=True)
@@ -84,15 +95,7 @@ def derive_answer(key: str, question: Question, answers: Mapping[str, Answer]) -
     label = max(probabilities, key=lambda item: probabilities[item])
 
     likely = {member: answers[member] for member in spec.members}
-    deciding = next(
-        (
-            row
-            for row in rows
-            if (row.any is not None and any(a.label == row.any for a in likely.values()))
-            or (row.all is not None and all(a.label == row.all for a in likely.values()))
-        ),
-        spec.table[-1],
-    )
+    deciding = next((row for row in rows if row_holds(row, likely)), spec.table[-1])
     evidence = (
         f"table: {deciding.describe()}",
         *(f"{member}={a.label} ({a.confidence:.2f})" for member, a in likely.items()),
@@ -105,3 +108,22 @@ def derive_answer(key: str, question: Question, answers: Mapping[str, Answer]) -
         provider=DERIVED,
         evidence=evidence,
     )
+
+
+def explain(question: Question, answers: Mapping[str, Answer]) -> list[str]:
+    """One reason per table row that the members' most likely labels satisfy, naming the
+    members that satisfy it, e.g. "needs_review: egfr_30_or_more, stable_metformin are unknown".
+    Every holding row is listed, not only the first, so a reviewer sees all open criteria."""
+    spec = question.derive
+    if spec is None or any(member not in answers for member in spec.members):
+        return []
+    reasons = []
+    for row in spec.table[:-1]:
+        scoped = {m: a for m, a in answers.items() if m in spec.members and row.applies_to(m)}
+        if not row_holds(row, scoped):
+            continue
+        label = row.any if row.any is not None else row.all
+        names = [m for m, a in scoped.items() if a.label == label]
+        verb = "is" if len(names) == 1 else "are"
+        reasons.append(f"{row.result}: {', '.join(names)} {verb} {label}")
+    return reasons

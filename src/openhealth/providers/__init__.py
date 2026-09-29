@@ -7,6 +7,7 @@ from openhealth.errors import PackValidationError
 from openhealth.providers.any_of import AnyOfProvider
 from openhealth.providers.base import Answer, Provider, ProviderInfo, ProviderOutput
 from openhealth.providers.cascade import CascadeProvider
+from openhealth.providers.criteria import CriteriaProvider
 from openhealth.providers.jev import JevProvider
 from openhealth.providers.llm import LlmProvider
 from openhealth.providers.naive_bayes import NaiveBayesProvider
@@ -17,6 +18,7 @@ PROVIDER_TYPES: dict[str, type[Provider]] = {
     provider.type: provider
     for provider in (
         RulesProvider,
+        CriteriaProvider,
         NaiveBayesProvider,
         JevProvider,
         LlmProvider,

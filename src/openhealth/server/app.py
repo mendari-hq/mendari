@@ -37,6 +37,7 @@ from openhealth.evals.feedback import feedback_dataset
 from openhealth.evals.harness import Dataset
 from openhealth.providers import jev, llm
 from openhealth.providers.credentials import key_source
+from openhealth.settings import providers_for
 from openhealth.standards import cds_hooks
 
 DASHBOARD_DIR = Path(__file__).resolve().parents[1] / "dashboard"
@@ -106,10 +107,15 @@ def create_app(
             raise PackNotFoundError(f"no pack {pack_id!r}")
         return pack
 
+    skipped_settings: dict[str, list[str]] = {}
+
     def decision_for(pack_id: str) -> Decision:
         if pack_id not in decisions:
             pack = pack_or_404(pack_id)
-            chosen = {s: v for s, v in overrides.items() if s in pack.manifest.providers}
+            slots = {slot: set(spec.variants) for slot, spec in pack.manifest.providers.items()}
+            chosen, skipped = providers_for(pack.id, slots, overrides)
+            if skipped:
+                skipped_settings[pack_id] = skipped
             decisions[pack_id] = Decision(pack, providers=chosen, store=store, budget=budget)
         return decisions[pack_id]
 
@@ -153,6 +159,8 @@ def create_app(
                 }
                 for pack_id in sorted(packs)
             },
+            # Deployment provider settings that name a slot or variant a pack does not have.
+            "provider_settings_skipped": skipped_settings,
             "jev": {
                 "credentials": key_source(key_env="JEV_API_KEY", connector_env="JEV_CONNECTOR"),
                 "endpoint_configured": bool(os.environ.get("JEV_API_URL", "").strip()),

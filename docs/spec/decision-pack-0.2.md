@@ -153,8 +153,22 @@ Rows are evaluated top-down and the first matching row gives the result:
 - `{all: L, then: X}` matches when every member's label is `L`;
 - `{else: X}` always matches. It MUST be the last row and MUST NOT appear elsewhere.
 
+A row MAY add `in: [<member>...]` to consider only those members, a subset of `from`. This is
+for tables whose members answer in different directions, e.g. criteria that fail on `no` and
+exclusions that fail on `yes`:
+
+```yaml
+table:
+  - {any: "no",  in: [hba1c_in_range, egfr_30_or_more], then: not_eligible}
+  - {any: "yes", in: [note_pancreatitis],               then: not_eligible}
+  - {any: unknown, then: needs_review}
+  - {else: candidate}
+```
+
+An `else` row takes no `in`.
+
 Validation (MUST): `from` lists one or more distinct, existing questions that are not themselves derived;
-each `any`/`all` label is a label of at least one member; each result is a label of the derived
+each `any`/`all` label is a label of at least one member the row considers; each result is a label of the derived
 question; a table has at most 10 rows plus `else`. Derived questions MAY be of any type.
 
 **Probabilities.** The derived answer is not the table applied to each member's most likely
@@ -187,7 +201,9 @@ variant (`providers={"router": "jev"}`) MUST NOT change the pack's questions, po
 tests.
 
 Built-in types: `rules` (deterministic patterns with negation handling and optional typo
-tolerance), `naive_bayes` (local, temperature-calibrated text classifier), `jev`, `llm` (a chat
+tolerance), `criteria` (deterministic yes/no/unknown checks on structured data: numbers,
+lab values in date windows with unit conversion, coded conditions and medication durations;
+missing data answers `unknown`), `naive_bayes` (local, temperature-calibrated text classifier), `jev`, `llm` (a chat
 model through an OpenAI-compatible API, asked for one probability per label and optionally
 calibrated per question), and three
 composites whose inline `members` are other (non-composite) variants: `any_of` (the most

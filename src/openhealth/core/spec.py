@@ -92,18 +92,25 @@ class ScoreLevel(_Strict):
 
 
 class DeriveRow(_Strict):
-    """One decision-table row: `{any: L, then: X}`, `{all: L, then: X}` or `{else: X}`."""
+    """One decision-table row: `{any: L, then: X}`, `{all: L, then: X}` or `{else: X}`.
+
+    `in: [members]` limits a row to some of the members, for tables whose members answer in
+    different directions (e.g. criteria where `no` fails, and exclusions where `yes` fails).
+    """
 
     any: str | None = None
     all: str | None = None
     then: str | None = None
     otherwise: str | None = Field(default=None, alias="else")
+    scope: list[str] | None = Field(default=None, alias="in", min_length=1)
 
     @model_validator(mode="after")
     def _shape(self) -> DeriveRow:
         if self.otherwise is not None:
             if self.any is not None or self.all is not None or self.then is not None:
                 raise ValueError("an `else` row takes no other keys")
+            if self.scope is not None:
+                raise ValueError("an `else` row applies to all members; it takes no `in`")
         elif (self.any is None) == (self.all is None) or self.then is None:
             raise ValueError(
                 "a row is {any: <label>, then: <label>}, {all: <label>, then: <label>} "
@@ -115,11 +122,15 @@ class DeriveRow(_Strict):
     def result(self) -> str:
         return self.otherwise if self.otherwise is not None else str(self.then)
 
+    def applies_to(self, member: str) -> bool:
+        return self.scope is None or member in self.scope
+
     def describe(self) -> str:
         if self.otherwise is not None:
             return f"else -> {self.otherwise}"
         kind, label = ("any", self.any) if self.any is not None else ("all", self.all)
-        return f"{kind} {label} -> {self.then}"
+        within = f" in [{', '.join(self.scope)}]" if self.scope else ""
+        return f"{kind} {label}{within} -> {self.then}"
 
 
 class Derive(_Strict):
@@ -138,6 +149,10 @@ class Derive(_Strict):
             raise ValueError("only the last row may be an `else` row")
         if len(self.table) - 1 > MAX_DERIVE_ROWS:
             raise ValueError(f"a derive table has at most {MAX_DERIVE_ROWS} rows plus `else`")
+        for row in self.table:
+            outside = sorted(set(row.scope or []) - set(self.members))
+            if outside:
+                raise ValueError(f"row `in` names questions not in `from`: {outside}")
         return self
 
 
@@ -447,16 +462,15 @@ def _derive_problems(m: PackManifest, derived: set[str]) -> list[str]:
         spec = m.questions[key].derive
         if spec is None:
             continue
-        member_labels: set[str] = set()
         for member in spec.members:
             if member not in m.questions or member in derived:
                 problems.append(f"{key}: derive member {member!r} must be a non-derived question")
-            else:
-                member_labels.update(m.questions[member].criteria)
         for row in spec.table:
             label = row.any if row.any is not None else row.all
-            if label is not None and label not in member_labels:
-                problems.append(f"{key}: row label {label!r} is not a label of any member")
+            scoped = [q for q in spec.members if row.applies_to(q) and q in m.questions]
+            labels = {lab for q in scoped for lab in m.questions[q].criteria}
+            if label is not None and label not in labels:
+                problems.append(f"{key}: row label {label!r} is not a label of its members")
             if row.result not in m.questions[key].criteria:
                 problems.append(f"{key}: row result {row.result!r} is not one of its labels")
     return problems

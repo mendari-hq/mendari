@@ -132,11 +132,15 @@ def brute_force(question: Question, answers: dict[str, Answer]) -> dict[str, flo
     totals = dict.fromkeys(question.criteria, 0.0)
     distributions = [list(answers[m].probabilities.items()) for m in spec.members]
     for combo in itertools.product(*distributions):
-        labels = [label for label, _ in combo]
         weight = 1.0
         for _, p in combo:
             weight *= p
         for row in spec.table:
+            labels = [
+                label
+                for m, (label, _) in zip(spec.members, combo, strict=True)
+                if row.applies_to(m)
+            ]
             if row.otherwise is not None or (
                 (row.any is not None and row.any in labels)
                 or (row.all is not None and all(label == row.all for label in labels))
@@ -152,13 +156,15 @@ def test_derived_probabilities_match_brute_force_enumeration() -> None:
     for _ in range(200):
         n_members, n_rows = rng.randint(1, 4), rng.randint(1, 3)
         members = [f"m{i}" for i in range(n_members)]
-        rows: list[dict[str, str]] = [
-            {
+        rows: list[dict[str, Any]] = []
+        for _ in range(n_rows):
+            row: dict[str, Any] = {
                 rng.choice(["any", "all"]): rng.choice(member_labels),
                 "then": rng.choice(["a", "b", "c"]),
             }
-            for _ in range(n_rows)
-        ]
+            if rng.random() < 0.5:  # scope the row to a random non-empty subset of members
+                row["in"] = rng.sample(members, rng.randint(1, n_members))
+            rows.append(row)
         question = Question.model_validate(
             {
                 "instructions": "derived",
@@ -180,6 +186,58 @@ def test_derived_probabilities_match_brute_force_enumeration() -> None:
         expected = brute_force(question, answers)
         for label in question.criteria:
             assert derived.probabilities[label] == pytest.approx(expected[label], abs=1e-9)
+
+
+def test_rows_can_be_scoped_to_members() -> None:
+    # Criteria fail on `no`; note exclusions fail on `yes`: one table, rows scoped with `in`.
+    question = Question.model_validate(
+        {
+            "instructions": "Eligibility.",
+            "criteria": {"candidate": "c", "not_eligible": "n", "needs_review": "r"},
+            "derive": {
+                "from": ["hba1c", "note_pancreatitis"],
+                "table": [
+                    {"any": "no", "in": ["hba1c"], "then": "not_eligible"},
+                    {"any": "yes", "in": ["note_pancreatitis"], "then": "not_eligible"},
+                    {"any": "unknown", "then": "needs_review"},
+                    {"else": "candidate"},
+                ],
+            },
+        }
+    )
+    answers = {
+        "hba1c": answer("hba1c", {"yes": 0.9, "no": 0.05, "unknown": 0.05}),
+        "note_pancreatitis": answer("note_pancreatitis", {"yes": 0.2, "no": 0.8}),
+    }
+    derived = derive_answer("eligibility", question, answers)
+    # not_eligible = P(hba1c no) + P(hba1c not no) * P(pancreatitis yes)
+    assert derived.probabilities["not_eligible"] == pytest.approx(0.05 + 0.95 * 0.2)
+    assert derived.probabilities["needs_review"] == pytest.approx(0.05 * 0.8)
+    assert derived.probabilities["candidate"] == pytest.approx(0.9 * 0.8)
+    assert derived.label == "candidate"  # a `no` note answer does not exclude anyone
+    assert derived.evidence[0] == "table: else -> candidate"
+
+
+@pytest.mark.parametrize(
+    ("row", "message"),
+    [
+        ({"any": "no", "in": ["nope"], "then": "candidate"}, "not in `from`"),
+        ({"else": "candidate", "in": ["inc_adult"]}, "takes no `in`"),
+    ],
+)
+def test_scoped_row_validation(row: dict[str, Any], message: str) -> None:
+    raw = manifest_dict()
+    raw["questions"]["eligibility"]["derive"]["table"].insert(0, row)
+    with pytest.raises(ValidationError, match=message):
+        PackManifest.model_validate(raw)
+
+
+def test_scoped_row_labels_must_belong_to_their_members() -> None:
+    raw = manifest_dict()
+    table = raw["questions"]["eligibility"]["derive"]["table"]
+    table.insert(0, {"any": "unknown", "in": ["inc_adult"], "then": "needs_review"})  # boolean
+    with pytest.raises(ValidationError, match="not a label of its members"):
+        PackManifest.model_validate(raw)
 
 
 # -- runtime, policy, evals --------------------------------------------------------------------
@@ -317,3 +375,18 @@ def test_spec_01_packs_cannot_use_min_probability() -> None:
     raw["policy"] = yaml.safe_load((INBOX_DIR / "policy.yaml").read_text())
     with pytest.raises(ValidationError, match="rule possible-emergency"):
         PackManifest.model_validate(raw)
+
+
+def test_decisions_list_the_criteria_that_decided() -> None:
+    decision = Decision.from_path(TRIAL_MINI)
+    excluded = decision({"summary": "age 34, type 2 diabetes, pregnant"})
+    assert "not_eligible: not_pregnant is no" in excluded.reasons
+    open_criteria = decision({"summary": "age 61, type 2 diabetes"})  # pregnancy not stated
+    assert "needs_review: not_pregnant is unknown" in open_criteria.reasons
+    both = decision({"summary": "age 15, type 1 diabetes"})
+    assert "not_eligible: inc_adult, inc_t2d are no" in both.reasons
+    assert "needs_review: not_pregnant is unknown" in both.reasons  # every holding row is listed
+    candidate = decision({"summary": "age 54, type 2 diabetes, male"})
+    assert not any(
+        reason.startswith(("not_eligible", "needs_review")) for reason in candidate.reasons
+    )

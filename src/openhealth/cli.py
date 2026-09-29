@@ -11,16 +11,28 @@ from typing import Any
 
 from openhealth.core.audit import AuditStore
 from openhealth.core.decision import Decision
+from openhealth.core.pack import Pack
 from openhealth.core.registry import discover, resolve_pack
 from openhealth.errors import OpenHealthError
 from openhealth.sandbox import example_datasets_dir
-from openhealth.settings import daily_limits, parse_providers
+from openhealth.settings import daily_limits, parse_providers, providers_for
 
 EXIT_DEGRADED = 2
 
 
 def _decision(args: argparse.Namespace, **kwargs: Any) -> Decision:
-    return Decision(resolve_pack(args.pack), providers=parse_providers(args.provider), **kwargs)
+    pack = resolve_pack(args.pack)
+    return Decision(pack, providers=_providers(pack, parse_providers(args.provider)), **kwargs)
+
+
+def _providers(pack: Pack, settings: dict[str, str]) -> dict[str, str]:
+    """The settings that apply to this pack; a setting that names it but cannot apply is an
+    error here (it was typed on purpose), where the server only reports it."""
+    slots = {slot: set(spec.variants) for slot, spec in pack.manifest.providers.items()}
+    chosen, skipped = providers_for(pack.id, slots, settings)
+    if skipped:
+        raise OpenHealthError(f"provider settings that do not apply to {pack.id}: {skipped}")
+    return chosen
 
 
 def _print_json(value: Any) -> None:
@@ -212,7 +224,7 @@ def cmd_leaderboard(args: argparse.Namespace) -> int:
         dataset = resolve_dataset(pack, name)
         datasets.append(dataset.head(args.limit) if args.limit else dataset)
     for run in args.run:
-        decision = Decision(pack, providers=parse_providers(run.split(",")))
+        decision = Decision(pack, providers=_providers(pack, parse_providers(run.split(","))))
         workers = args.workers or (8 if decision.is_remote else 1)
         for dataset in datasets:
             report = evaluate(decision, dataset, workers=workers)

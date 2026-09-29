@@ -282,7 +282,9 @@ FastAPI function (`[tool.vercel] entrypoint = "openhealth.server.vercel:app"`).
    have no persistent disk.
 2. Attach the Jev connector to the project and set `JEV_CONNECTOR`, `JEV_API_URL`, `JEV_MODEL`
    and `OPENHEALTH_PROVIDERS=router=jev`. The key is fetched at runtime with the deployment's
-   OIDC identity; it is never stored in the project's environment variables.
+   OIDC identity; it is never stored in the project's environment variables. With several
+   packs, scope a setting to one pack (`openhealth/clinical-trial-prescreener:notes=jev`); a
+   setting a pack cannot use is skipped and listed in `/api/health`.
 3. Set Vercel Authentication to protect **all deployments**: the app has no login of its own,
    and the default setting leaves the production domain public. After each deploy, check that
    an unauthenticated request to production gets redirected to login.

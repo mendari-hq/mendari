@@ -406,8 +406,9 @@ function feedbackCard(item) {
 // ---- decision card ---------------------------------------------------------------------------
 
 function deriveRow(row) {
-  if (row.any !== null && row.any !== undefined) return `any member is <code>${esc(row.any)}</code> → <code>${esc(row.then)}</code>`;
-  if (row.all !== null && row.all !== undefined) return `every member is <code>${esc(row.all)}</code> → <code>${esc(row.then)}</code>`;
+  const among = row.in ? `of ${row.in.map((m) => `<code>${esc(m)}</code>`).join(", ")}` : "member";
+  if (row.any !== null && row.any !== undefined) return `any ${among} is <code>${esc(row.any)}</code> → <code>${esc(row.then)}</code>`;
+  if (row.all !== null && row.all !== undefined) return `every ${among} is <code>${esc(row.all)}</code> → <code>${esc(row.then)}</code>`;
   return `otherwise → <code>${esc(row.else)}</code>`;
 }
 
