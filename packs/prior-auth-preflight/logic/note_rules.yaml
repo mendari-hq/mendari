@@ -1,0 +1,97 @@
+# Keyword rules for the preflight's note questions (the offline default for `notes`).
+#
+# Written on data/documentation_notes.jsonl and the public synthetic templates only;
+# data/documentation_notes_holdout.jsonl measures them. English only, and durations are read as
+# written ("8 weeks of physical therapy"). Deployments add a model (notes=rules_and_jev or
+# rules_and_llm); the policy automates nothing on these rules alone.
+#
+# Scores: the default label starts at `default_score`, each matching pattern adds its weight to
+# its label, and softmax(scores) gives the probabilities. With a default of 3, a weight-7
+# pattern gives its label about 0.98. The policy flags P(red_flag = yes) >= 0.3 for review.
+# Word gaps use [^.;!?\n] so that a match never spans two sentences.
+text_fields: [notes]
+temperature: 1.0
+# Negation and family members: "no locking or catching", "denies fever", "father had cancer".
+negation_cues: ["no", "not", "denies", "denied", "without", "never", "negative", "father", "mother", "brother", "sister"]
+negation_window: 30
+
+questions:
+  conservative_therapy:
+    default: "no"
+    default_score: 3.0
+    labels:
+      "yes":
+        # At least 6 weeks (or 2 months) of a treatment, in either order within a sentence.
+        - name: six-weeks-or-more
+          pattern: "\\b([6-9]|[1-9]\\d|six|seven|eight|nine|ten|twelve)\\s*(weeks?|wks?)\\b[^.;!?\\n]{0,40}\\b(physical therapy|physiotherapy|physio|pt|home exercises?|exercise programme|exercises|naproxen|ibuprofen|nsaids?|meloxicam|injections?)\\b"
+          weight: 7
+        - name: treatment-for-six-weeks
+          pattern: "\\b(physical therapy|physiotherapy|physio|pt|exercises|exercise programme|naproxen|ibuprofen|nsaids?)\\b[^.;!?\\n]{0,40}\\bfor ([6-9]|[1-9]\\d|six|seven|eight|nine|ten|twelve)\\s*(weeks?|wks?)\\b"
+          weight: 7
+        - name: two-months-or-more
+          pattern: "\\b(physical therapy|physiotherapy|physio|pt|exercises?|naproxen|ibuprofen|nsaids?)\\b[^.;!?\\n]{0,40}\\b([2-9]|1[0-2]|two|three|four|six) months?\\b|\\b([2-9]|1[0-2]|two|three|four|six) months? of (physical therapy|physiotherapy|physio|pt|exercises?|naproxen|ibuprofen)\\b"
+          weight: 7
+      "no":
+        - name: too-short-or-none
+          pattern: "\\bstarted (physical therapy|physiotherapy|physio|pt)\\b[^.;!?\\n]{0,20}\\b([1-5]|one|two|three|four|five) weeks? ago|\\b(physical therapy|physiotherapy|physio|pt) for ([1-5]|one|two|three|four|five) weeks?\\b|no treatment tried|has not started"
+          weight: 3
+      unknown:
+        - name: duration-not-stated
+          pattern: "\\b(tried|has been doing|some|did)\\b[^.;!?\\n]{0,20}\\b(physical therapy|physiotherapy|physio|pt|exercises|chiropractic)\\b"
+          weight: 5.5
+          negatable: true
+
+  red_flag:
+    default: "no"
+    default_score: 3.5
+    labels:
+      "yes":
+        - name: cancer-history
+          pattern: "history of[^.;!?\\n]{0,20}\\bcancer\\b"
+          weight: 7
+          negatable: true
+        - name: unexplained-weight-loss
+          pattern: "(unintentional|unexplained) weight loss"
+          weight: 7
+          negatable: true
+        - name: cauda-equina
+          pattern: "saddle (numbness|an(a)?esthesia)|urinary retention|difficulty passing urine|(bladder|bowel) incontinence"
+          weight: 7
+          negatable: true
+        - name: infection-risk
+          pattern: "\\bfever\\b[^.;!?\\n]{0,30}\\bback pain\\b|\\binjects? drugs\\b|\\biv drug"
+          weight: 7
+          negatable: true
+        - name: significant-trauma
+          pattern: "(fall|fell) from|car accident|motor vehicle"
+          weight: 7
+          negatable: true
+        - name: progressive-deficit
+          pattern: "(weakness|numbness)[^.;!?\\n]{0,40}(getting worse|worsening)|progressive (weakness|numbness)|foot drop"
+          weight: 7
+          negatable: true
+
+  mechanical_symptoms:
+    default: "no"
+    default_score: 3.0
+    labels:
+      "yes":
+        - name: locking-catching-giving-way
+          pattern: "\\blocks?\\b|\\blocking\\b|\\bcatch(es|ing)?\\b|gives? way|giving way|\\bbuckles?\\b"
+          weight: 7
+          negatable: true
+
+  sleep_symptoms:
+    default: "no"
+    default_score: 3.0
+    labels:
+      "yes":
+        - name: apnoea-symptoms
+          pattern: "\\bsnor(e|es|ing|er)\\b|pauses in breathing|daytime sleepiness|falls? asleep at work|\\bepworth\\b"
+          weight: 7
+          negatable: true
+      unknown:
+        - name: tiredness-only
+          pattern: "\\btired\\b|low energy"
+          weight: 5.5
+          negatable: true

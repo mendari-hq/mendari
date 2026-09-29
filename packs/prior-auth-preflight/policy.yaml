@@ -1,0 +1,41 @@
+# Decision policy for the Prior Authorization Preflight.
+#
+# Risk level 1: AUTO is allowed. Only a complete request (queued for submission) and a service
+# the payer does not require authorization for are automated. Thresholds were chosen on the
+# synthetic benchmark; a site re-validates them on its own orders before enabling AUTO.
+
+primary: next_step
+
+thresholds:
+  auto: 0.90
+  review: 0.40  # below this there is no suggestion; staff check the payer's requirements as today
+
+labels:
+  needs_attention:
+    allow_auto: false  # a person adds what is missing
+  not_checked:
+    allow_auto: false
+  not_required:
+    auto_threshold: 0.95  # a wrong "not required" means an unpaid claim for the patient
+
+# AUTO only while the notes are also read by a model: keyword rules miss phrasings they do not
+# list, red flags included (lesson 2026-09-29).
+automation_requires:
+  notes: [rules_and_jev, rules_and_llm]
+
+rules:
+  - name: possible-red-flag
+    when:
+      question: red_flag
+      labels: ["yes"]
+      # P(red flag), whichever label is most likely. Deliberately low: an extra review costs a
+      # minute; waiting weeks for a denied MRI with cauda equina symptoms costs far more.
+      min_probability: 0.3
+    outcome: HUMAN_REVIEW
+    priority: urgent
+    reason: >-
+      The notes may document a red flag. Consider urgent imaging and an expedited review
+      instead of the routine request.
+
+fallback: The authorization specialist checks the payer's requirements as today.
+default_priority: routine

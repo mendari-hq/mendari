@@ -23,3 +23,9 @@ uv run openhealth train "$PACK"
 uv run openhealth test "$PACK"
 uv run openhealth eval "$PACK" --dataset test --baseline none --out "$PACK/evals/benchmark.json"
 uv run openhealth card "$PACK" --write
+
+PACK=packs/prior-auth-preflight
+uv run openhealth sandbox generate --kind prior-auth
+uv run openhealth test "$PACK"
+uv run openhealth eval "$PACK" --dataset test --baseline none --out "$PACK/evals/benchmark.json"
+uv run openhealth card "$PACK" --write

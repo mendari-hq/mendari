@@ -7,8 +7,10 @@ Plan approved 2026-09-29 (3 PRs): runtime → the pack → leaderboard and deplo
 Guard follows, with its own plan.
 - [x] PR 1 runtime: derive `when` over several members (AND) and label lists in `any`/`all`;
   `criteria` answers any question label and checks may carry a field `when`
-- [ ] PR 2 `openhealth/prior-auth-preflight` 0.1.0 (L1): service/payer requirement sets,
-  structured and note elements, derived `next_step`; synthetic data and hand-written note sets
+- [x] PR 2 `openhealth/prior-auth-preflight` 0.1.0 (L1): service/payer requirement sets as
+  derive rows, structured elements (criteria) and note elements (rules default), synthetic
+  data (calibration 300 / test 600, local 300) and hand-written note sets. Rules: 7/7 red flags
+  tuning, 3/6 held out; nothing automated without a model (`automation_requires`).
 - [ ] PR 3 leaderboard and deployed choice
 
 ## Done: v0.3 Referral Router
