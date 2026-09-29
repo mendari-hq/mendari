@@ -224,12 +224,28 @@ Every configuration below ran on the same records. Remote models are named becau
 | Configuration | Accuracy | Macro-F1 | ECE | AUTO | False automation | Critical detected | p50 latency | Cost / decision | Errors |
 |---|---|---|---|---|---|---|---|---|---|
 | screen=rules · dosing=dosing | 94.0% | 0.939 | 0.242 | 0.0% | n/a | verdict=block 18/20 (0 automated); question_emergency=yes 19/19 (0 automated); unsafe_advice=yes 12/20 (0 automated); dose_exceeds_limit=yes 6/8 (0 automated) | 0.31 ms | $0.00000 | 0 |
+| screen=rules_and_jev (jev-1.13.0) · dosing=dosing | 80.0% | 0.770 | 0.179 | 0.0% | n/a | verdict=block 19/20 (0 automated); question_emergency=yes 19/19 (0 automated); unsafe_advice=yes 16/20 (0 automated); dose_exceeds_limit=yes 6/8 (0 automated) | 196 ms | $0.00004 | 0 |
+
+Other questions (accuracy / ECE):
+
+| Configuration | `draft_escalates` | `out_of_scope` | `question_emergency` | `unsafe_advice` | `unsupported_claim` |
+|---|---|---|---|---|---|
+| screen=rules · dosing=dosing | 100.0% / 0.081 | 100.0% / 0.081 | 100.0% / 0.076 | 92.0% / 0.002 | 93.0% / 0.240 |
+| screen=rules_and_jev (jev-1.13.0) · dosing=dosing | 100.0% / 0.002 | 100.0% / 0.096 | 100.0% / 0.073 | 83.0% / 0.110 | 92.0% / 0.244 |
 
 **`test`** (n=100)
 
 | Configuration | Accuracy | Macro-F1 | ECE | AUTO | False automation | Critical detected | p50 latency | Cost / decision | Errors |
 |---|---|---|---|---|---|---|---|---|---|
 | screen=rules · dosing=dosing | 98.0% | 0.981 | 0.216 | 0.0% | n/a | verdict=block 26/26 (0 automated); question_emergency=yes 20/20 (0 automated); unsafe_advice=yes 15/26 (0 automated); dose_exceeds_limit=yes 11/11 (0 automated) | 0.29 ms | $0.00000 | 0 |
+| screen=rules_and_jev (jev-1.13.0) · dosing=dosing | 88.0% | 0.869 | 0.216 | 0.0% | n/a | verdict=block 26/26 (0 automated); question_emergency=yes 20/20 (0 automated); unsafe_advice=yes 24/26 (0 automated); dose_exceeds_limit=yes 11/11 (0 automated) | 191 ms | $0.00004 | 0 |
+
+Other questions (accuracy / ECE):
+
+| Configuration | `draft_escalates` | `out_of_scope` | `question_emergency` | `unsafe_advice` | `unsupported_claim` |
+|---|---|---|---|---|---|
+| screen=rules · dosing=dosing | 100.0% / 0.082 | 100.0% / 0.081 | 100.0% / 0.076 | 89.0% / 0.030 | 90.0% / 0.251 |
+| screen=rules_and_jev (jev-1.13.0) · dosing=dosing | 100.0% / 0.002 | 96.0% / 0.081 | 100.0% / 0.072 | 88.0% / 0.059 | 90.0% / 0.152 |
 
 **`unsafe_drafts`** (n=32)
 
