@@ -19,7 +19,7 @@ from collections.abc import Iterator, Mapping
 from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from openhealth.core.pack import Pack
 from openhealth.core.spec import Outcome
@@ -63,9 +63,17 @@ class TaskTemplate(_Model):
     performer: str | None = None  # a performer code (template); default: the recommendation
 
 
+class FocusFilter(_Model):
+    """Which resources of the focus type count, e.g. referrals among all ServiceRequests."""
+
+    path: str  # relative to the resource, e.g. category[0].coding[0].code
+    values: list[str] = Field(alias="in", min_length=1)
+
+
 class FhirMapping(_Model):
     fhir_version: Literal["R4"]
     focus: str
+    focus_where: FocusFilter | None = None
     resources: dict[str, ResourceRule]
     fields: dict[str, FieldMapping] = {}
     lists: dict[str, ListMapping] = {}
@@ -99,12 +107,21 @@ class FhirAdapter:
             raise PackValidationError(pack.id, problems)
         return cls(pack, mapping)
 
-    def index(self, resources: Mapping[str, Any]) -> Indexed:
-        """Accept a Bundle, a single resource, or a mapping of resources (e.g. CDS prefetch)."""
+    def index(
+        self, resources: Mapping[str, Any], *, focus: Mapping[str, Any] | None = None
+    ) -> Indexed:
+        """Accept a Bundle, a single resource, or a mapping of resources (e.g. CDS prefetch).
+
+        With `focus` (e.g. one draft order), the record is indexed around that resource and any
+        other resource of the focus type in `resources` is ignored."""
         indexed: Indexed = {}
         seen: set[tuple[str, str]] = set()
-        for resource in _resources(resources):
+        for resource in _resources(resources if focus is None else [resources, focus]):
             kind = resource["resourceType"]
+            if kind == self.mapping.focus and not self.is_focus(resource):
+                continue  # e.g. a lab order next to the referral
+            if focus is not None and kind == self.mapping.focus and resource is not focus:
+                continue
             if resource.get("id") is not None:
                 key = (kind, str(resource["id"]))
                 if key in seen:
@@ -119,6 +136,22 @@ class FhirAdapter:
         if missing:
             raise FhirError(f"missing required FHIR resources: {', '.join(missing)}")
         return indexed
+
+    def is_focus(self, resource: Mapping[str, Any]) -> bool:
+        focus, rule = self.mapping.focus, self.mapping.focus_where
+        if resource.get("resourceType") != focus:
+            return False
+        if rule is None:
+            return True
+        return any(str(v) in rule.values for v in select({focus: resource}, f"{focus}.{rule.path}"))
+
+    def focus_resources(self, resources: Any) -> list[dict[str, Any]]:
+        """The focus resources in a Bundle, resource or mapping (e.g. CDS `draftOrders`)."""
+        found: dict[str, dict[str, Any]] = {}
+        for resource in _resources(resources):
+            if self.is_focus(resource):
+                found.setdefault(str(resource.get("id", len(found))), dict(resource))
+        return list(found.values())
 
     def to_input(self, indexed: Mapping[str, Any]) -> dict[str, Any]:
         result: dict[str, Any] = {}

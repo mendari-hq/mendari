@@ -1,9 +1,9 @@
 """CDS Hooks 2.0: expose each pack that declares `cds_hooks` as a CDS service.
 
-The EHR must send the data via `prefetch` (resources or search Bundles); the service never calls
-back into the caller's FHIR server, which keeps it free of outbound requests to caller-supplied
-URLs. Card wording comes from the pack's `cds_hooks.card`; without it, the card describes a
-routing decision.
+The EHR must send the data via `prefetch` (resources or search Bundles), and for order hooks
+the orders in `context.draftOrders`; the service never calls back into the caller's FHIR
+server, which keeps it free of outbound requests to caller-supplied URLs. Card wording comes
+from the pack's `cds_hooks.card`; without it, the card describes a routing decision.
 """
 
 from __future__ import annotations
@@ -17,6 +17,10 @@ from openhealth.core.pack import Pack
 from openhealth.core.spec import Outcome, Priority
 from openhealth.core.templates import fill
 from openhealth.errors import FhirError
+from openhealth.standards.fhir import FhirAdapter
+
+# Hooks whose context carries the orders being written (CDS Hooks `draftOrders`).
+ORDER_HOOKS = ("order-select", "order-sign")
 
 
 def service_id(pack: Pack) -> str:
@@ -55,12 +59,22 @@ def invoke(decision: Decision, request: Mapping[str, Any]) -> dict[str, Any]:
     missing = [key for key in hooks.prefetch if not prefetch.get(key)]
     if missing:
         raise FhirError(f"prefetch required for: {', '.join(missing)}")
-    result, task = decision.decide_fhir(prefetch)
+    if hooks.hook in ORDER_HOOKS:
+        # One decision per draft order the pack is about (e.g. each referral, not the lab
+        # orders signed with it), each with the prefetched record.
+        context = request.get("context") or {}
+        orders = FhirAdapter.for_pack(decision.pack).focus_resources(context.get("draftOrders"))
+        decided = [decision.decide_fhir(prefetch, focus=order) for order in orders]
+    else:
+        decided = [decision.decide_fhir(prefetch)]
     template = hooks.card
-    shown = result.recommendation or "none"
-    if template is not None and template.show is not None and shown not in template.show:
-        return {"cards": []}  # decided and audited, but nothing worth interrupting the user for
-    return {"cards": [card(decision.pack, result, task)]}
+    cards = []
+    for result, task in decided:
+        shown = result.recommendation or "none"
+        if template is not None and template.show is not None and shown not in template.show:
+            continue  # decided and audited, but nothing worth interrupting the user for
+        cards.append(card(decision.pack, result, task))
+    return {"cards": cards}
 
 
 def card(pack: Pack, result: DecisionResult, task: Mapping[str, Any]) -> dict[str, Any]:

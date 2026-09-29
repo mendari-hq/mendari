@@ -347,8 +347,21 @@ are de-duplicated by type and id. Only the focus must be unique. The Task's `des
 `{specialty}`) are replaced; an unanswered question reads `unknown`. Any other placeholder is
 refused when the pack loads.
 
+A mapping MAY declare `focus_where: {path, in: [...]}` to say which resources of the focus type
+the pack is about, e.g. referrals among ServiceRequests (lab orders are ServiceRequests too):
+
+```yaml
+focus: ServiceRequest
+focus_where: {path: category[0].coding[0].code, in: ["3457005"]}  # SNOMED CT patient referral
+```
+
+Other resources of the focus type are ignored.
+
 A pack with `cds_hooks` is exposed as a CDS Hooks 2.0 service (id `namespace.name`). The reference runtime
-requires all declared prefetch keys and never queries the caller's FHIR server. A pack MAY word
+requires all declared prefetch keys and never queries the caller's FHIR server. For the order
+hooks (`order-select`, `order-sign`), the orders come in `context.draftOrders`: every draft order
+that is a focus resource gets its own decision, with the prefetched record, and its own card. A
+draft with none of them returns no cards. A pack MAY word
 its cards with `cds_hooks.card`: a `summaries` template per recommendation (keys are primary
 labels, or `none`), optional `indicators`, a `suggestion` label, and `show`, the
 recommendations that produce a card at all (e.g. a `patient-view` service stays silent for
@@ -392,6 +405,7 @@ produces identical decisions; it simply cannot use the new fields.
 | Derive rows `in` (scoped to members) and `when` (gated on another answer) | §4.3 |
 | `criteria` provider, including `exists` and `value` checks | §5 |
 | FHIR `lists`, `age_years`/`base64_text`; card and Task templates naming answers | §9 |
+| FHIR `focus_where`; one decision per draft order for `order-select`/`order-sign` | §9 |
 | The decision output schema adds an optional `value` to each answer | §4.2 |
 
 To migrate a pack:

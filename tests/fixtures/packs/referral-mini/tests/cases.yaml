@@ -1,0 +1,6 @@
+- name: a cardiology referral without an ECG goes back for information
+  input: {as_of: "2026-09-01", referral: {reason: Exertional chest pain for a month.}}
+  expect: {recommendation: return_for_info, answers: {specialty: cardiology, ecg_on_file: "no"}}
+- name: a dermatology referral does not need an ECG
+  input: {as_of: "2026-09-01", referral: {reason: Changing mole on the back.}}
+  expect: {recommendation: schedule, answers: {specialty: dermatology}}

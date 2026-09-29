@@ -7,7 +7,8 @@ Plan approved 2026-09-29 (4 PRs): runtime → FHIR `order-sign` → the pack →
 deployed choice.
 - [x] PR 1 runtime: derive rows gated with `when`, `criteria` checks `exists` and `value`,
   Task/card templates naming answers (`{specialty}`), spec 0.2 doc
-- [ ] PR 2 FHIR `focus_where` and CDS `order-sign` (draftOrders in context, one card per referral)
+- [x] PR 2 FHIR `focus_where` and CDS `order-sign` (draftOrders in context, one card per referral);
+  `exists.undated`; fixture pack `referral-mini`
 - [ ] PR 3 `openhealth/referral-router` 0.1.0 (L1): specialty, urgency, clear question,
   checklist, derived `next_step`; synthetic referrals and hand-written urgent sets
 - [ ] PR 4 leaderboard (about 510 Jev calls: after the 8:00 PM Eastern reset) and deployed choice
