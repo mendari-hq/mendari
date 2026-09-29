@@ -4,7 +4,7 @@
     "id": "openhealth/ai-guard",
     "version": "0.1.2"
   },
-  "updated_at": "2026-09-29T18:43:58+00:00",
+  "updated_at": "2026-09-29T18:47:19+00:00",
   "rows": [
     {
       "config": "screen=rules \u00b7 dosing=dosing",
@@ -99,6 +99,98 @@
       }
     },
     {
+      "config": "screen=rules_and_jev (jev-1.13.0) \u00b7 dosing=dosing",
+      "providers": {
+        "screen": {
+          "variant": "rules_and_jev",
+          "type": "any_of",
+          "model": "rules:rules@e7bbb96d7b88 + jev:jev-1.13.0"
+        },
+        "dosing": {
+          "variant": "dosing",
+          "type": "dosing",
+          "model": "dosing@83acbdf3fa50"
+        }
+      },
+      "dataset": "guard-local-site-example",
+      "n": 100,
+      "report_id": "b1a5063b-d264-4b69-a949-70d8ce3cc32f",
+      "created_at": "2026-09-29T18:46:54+00:00",
+      "pack_version": "0.1.2",
+      "accuracy": 0.8,
+      "macro_f1": 0.7695914486195816,
+      "ece": 0.17857244042263667,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "verdict",
+          "label": "block",
+          "n": 20,
+          "detected": 19,
+          "auto_missed": 0
+        },
+        {
+          "question": "question_emergency",
+          "label": "yes",
+          "n": 19,
+          "detected": 19,
+          "auto_missed": 0
+        },
+        {
+          "question": "unsafe_advice",
+          "label": "yes",
+          "n": 20,
+          "detected": 16,
+          "auto_missed": 0
+        },
+        {
+          "question": "dose_exceeds_limit",
+          "label": "yes",
+          "n": 8,
+          "detected": 6,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 196.06410299999766,
+      "latency_p95_ms": 265.2652539999991,
+      "cost_per_decision_usd": 4.406304e-05,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "question_emergency": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.07335117120467904
+        },
+        "draft_escalates": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.002452423683538707
+        },
+        "unsafe_advice": {
+          "n": 100,
+          "accuracy": 0.83,
+          "ece": 0.10971166056515805
+        },
+        "out_of_scope": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.09633977090722746
+        },
+        "unsupported_claim": {
+          "n": 100,
+          "accuracy": 0.92,
+          "ece": 0.24385907259496106
+        },
+        "dose_exceeds_limit": {
+          "n": 100,
+          "accuracy": 0.98,
+          "ece": 0.0
+        }
+      }
+    },
+    {
       "config": "screen=rules \u00b7 dosing=dosing",
       "providers": {
         "screen": {
@@ -182,6 +274,98 @@
           "n": 100,
           "accuracy": 0.9,
           "ece": 0.25093266907317724
+        },
+        "dose_exceeds_limit": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        }
+      }
+    },
+    {
+      "config": "screen=rules_and_jev (jev-1.13.0) \u00b7 dosing=dosing",
+      "providers": {
+        "screen": {
+          "variant": "rules_and_jev",
+          "type": "any_of",
+          "model": "rules:rules@e7bbb96d7b88 + jev:jev-1.13.0"
+        },
+        "dosing": {
+          "variant": "dosing",
+          "type": "dosing",
+          "model": "dosing@83acbdf3fa50"
+        }
+      },
+      "dataset": "test",
+      "n": 100,
+      "report_id": "1a3f004e-f0d1-4d7b-b263-e4cb059d5228",
+      "created_at": "2026-09-29T18:46:50+00:00",
+      "pack_version": "0.1.2",
+      "accuracy": 0.88,
+      "macro_f1": 0.8686351482050406,
+      "ece": 0.21572754134619837,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "verdict",
+          "label": "block",
+          "n": 26,
+          "detected": 26,
+          "auto_missed": 0
+        },
+        {
+          "question": "question_emergency",
+          "label": "yes",
+          "n": 20,
+          "detected": 20,
+          "auto_missed": 0
+        },
+        {
+          "question": "unsafe_advice",
+          "label": "yes",
+          "n": 26,
+          "detected": 24,
+          "auto_missed": 0
+        },
+        {
+          "question": "dose_exceeds_limit",
+          "label": "yes",
+          "n": 11,
+          "detected": 11,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 191.19807299999536,
+      "latency_p95_ms": 510.86529600000574,
+      "cost_per_decision_usd": 4.334946e-05,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "question_emergency": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.07244560118980647
+        },
+        "draft_escalates": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.002263775707881832
+        },
+        "unsafe_advice": {
+          "n": 100,
+          "accuracy": 0.88,
+          "ece": 0.05892169234880466
+        },
+        "out_of_scope": {
+          "n": 100,
+          "accuracy": 0.96,
+          "ece": 0.08053977090722747
+        },
+        "unsupported_claim": {
+          "n": 100,
+          "accuracy": 0.9,
+          "ece": 0.152459072594961
         },
         "dose_exceeds_limit": {
           "n": 100,
