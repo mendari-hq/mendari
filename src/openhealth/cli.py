@@ -328,7 +328,13 @@ def cmd_feedback_export(args: argparse.Namespace) -> int:
         f"{len(records)} rated decisions -> {args.out}"
         + (f" ({skipped} skipped: input stored as hash only)" if skipped else "")
     )
-    print("Fill in each record's `labels`, then use the file with `openhealth eval --dataset`.")
+    labelled = sum(bool(record["labels"]) for record in records)
+    if labelled:
+        print(f"{labelled} already carry the right answer from feedback.")
+    if labelled < len(records):
+        print(f"Fill in `labels` for the {'other ' if labelled else ''}{len(records) - labelled}.")
+    if records:
+        print("Then use the file with `openhealth eval --dataset`.")
     return 0
 
 

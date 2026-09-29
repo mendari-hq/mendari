@@ -53,7 +53,18 @@ roles, feedback that captures the right answer, Eastern time everywhere people l
   versioning. A review after the PR opened fixed a sweep label that claimed automation on the four
   packs that automate nothing, axis text read out by screen readers, a focus ring that looked like
   the deployed ring, a hover-only confusion-matrix hint and a vague cost tooltip (lessons.md)
-- [ ] Phase 4a: feedback backend (the right answer on a thumbs-down)
+- [x] Phase 4a: feedback backend (the right answer on a thumbs-down). `POST /api/audit/{id}/feedback`
+  takes an optional `expected: {question, label}` on a thumbs-down, checked against what the
+  decision answered (one of its questions, one of that question's labels, not the answer it
+  gave; a derived decision's checks included). Ratings can be changed: a person's new rating
+  replaces their earlier one in counts, lists and exports (`superseded_by`, set in the same
+  serialised write, so "latest" never depends on timestamps), and the hash chain keeps both
+  (`expected` and `replaces` in the event). Unnamed ratings of a decision count as one person, so
+  a mis-click can be put right. `stats.feedback.down_with_expected`. The export fills `labels`
+  where raters agree and leaves disagreements visible in `feedback`. Additive migration on both
+  backends under the schema lock (three nullable columns, one more than the plan: `superseded_by`),
+  which also resolves earlier duplicate ratings to each person's latest. Checked on a copy of a
+  pre-4a database (chain verifies before and after). UI comes in Phase 4
 - [ ] Phase 4: screen redesigns
 - [ ] Phase 5: QA pass
 

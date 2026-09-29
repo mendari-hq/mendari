@@ -17,7 +17,7 @@ from typing import Annotated, Any, Literal
 from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from openhealth import __version__, guard
 from openhealth.core import clock
@@ -64,10 +64,23 @@ class OutcomeRequest(BaseModel):
     source: str = Field(min_length=1, max_length=200)
 
 
+class ExpectedAnswer(BaseModel):
+    question: str = Field(min_length=1, max_length=200)
+    label: str = Field(min_length=1, max_length=200)
+
+
 class FeedbackRequest(BaseModel):
     rating: Literal["up", "down"]
     reporter: str | None = Field(default=None, max_length=200)
     note: str | None = Field(default=None, max_length=1000)
+    # On a thumbs-down, what the answer to one of the decision's questions should have been.
+    expected: ExpectedAnswer | None = None
+
+    @model_validator(mode="after")
+    def _right_answer_only_when_wrong(self) -> FeedbackRequest:
+        if self.expected is not None and self.rating != "down":
+            raise ValueError("only a thumbs-down carries the right answer (expected)")
+        return self
 
 
 class EvalRequest(BaseModel):
@@ -320,7 +333,11 @@ def create_app(
     @app.post("/api/audit/{decision_id}/feedback")
     def give_feedback(decision_id: str, request: FeedbackRequest) -> dict[str, Any]:
         return store.record_feedback(
-            decision_id, rating=request.rating, reporter=request.reporter, note=request.note
+            decision_id,
+            rating=request.rating,
+            reporter=request.reporter,
+            note=request.note,
+            expected=request.expected.model_dump() if request.expected else None,
         )
 
     @app.get("/api/feedback")
