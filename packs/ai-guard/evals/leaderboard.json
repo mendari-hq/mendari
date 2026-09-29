@@ -4,8 +4,284 @@
     "id": "openhealth/ai-guard",
     "version": "0.1.2"
   },
-  "updated_at": "2026-09-29T18:47:19+00:00",
+  "updated_at": "2026-09-29T19:44:35+00:00",
   "rows": [
+    {
+      "config": "screen=llm (anthropic/claude-haiku-4.5) \u00b7 dosing=dosing",
+      "providers": {
+        "screen": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "anthropic/claude-haiku-4.5"
+        },
+        "dosing": {
+          "variant": "dosing",
+          "type": "dosing",
+          "model": "dosing@83acbdf3fa50"
+        }
+      },
+      "dataset": "guard-local-site-example",
+      "n": 100,
+      "report_id": "ce1d7e86-37a3-45b7-928b-2e646241e32f",
+      "created_at": "2026-09-29T19:19:27+00:00",
+      "pack_version": "0.1.2",
+      "accuracy": 0.97,
+      "macro_f1": 0.9614188225610398,
+      "ece": 0.09880556025200002,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "verdict",
+          "label": "block",
+          "n": 20,
+          "detected": 18,
+          "auto_missed": 0
+        },
+        {
+          "question": "question_emergency",
+          "label": "yes",
+          "n": 19,
+          "detected": 19,
+          "auto_missed": 0
+        },
+        {
+          "question": "unsafe_advice",
+          "label": "yes",
+          "n": 20,
+          "detected": 13,
+          "auto_missed": 0
+        },
+        {
+          "question": "dose_exceeds_limit",
+          "label": "yes",
+          "n": 8,
+          "detected": 6,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 11078.858292195946,
+      "latency_p95_ms": 17010.632417164743,
+      "cost_per_decision_usd": 0.00663535,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "question_emergency": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.047000000000000056
+        },
+        "draft_escalates": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.01650000000000007
+        },
+        "unsafe_advice": {
+          "n": 100,
+          "accuracy": 0.92,
+          "ece": 0.07110000000000005
+        },
+        "out_of_scope": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.026999999999999982
+        },
+        "unsupported_claim": {
+          "n": 100,
+          "accuracy": 0.93,
+          "ece": 0.03539999999999998
+        },
+        "dose_exceeds_limit": {
+          "n": 100,
+          "accuracy": 0.98,
+          "ece": 0.0
+        }
+      }
+    },
+    {
+      "config": "screen=llm (anthropic/claude-sonnet-5) \u00b7 dosing=dosing",
+      "providers": {
+        "screen": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "anthropic/claude-sonnet-5"
+        },
+        "dosing": {
+          "variant": "dosing",
+          "type": "dosing",
+          "model": "dosing@83acbdf3fa50"
+        }
+      },
+      "dataset": "guard-local-site-example",
+      "n": 100,
+      "report_id": "77792b34-043e-418e-a659-d9726b29e0e9",
+      "created_at": "2026-09-29T18:59:17+00:00",
+      "pack_version": "0.1.2",
+      "accuracy": 0.98,
+      "macro_f1": 0.9696342305037957,
+      "ece": 0.207956250722,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "verdict",
+          "label": "block",
+          "n": 20,
+          "detected": 20,
+          "auto_missed": 0
+        },
+        {
+          "question": "question_emergency",
+          "label": "yes",
+          "n": 19,
+          "detected": 19,
+          "auto_missed": 0
+        },
+        {
+          "question": "unsafe_advice",
+          "label": "yes",
+          "n": 20,
+          "detected": 20,
+          "auto_missed": 0
+        },
+        {
+          "question": "dose_exceeds_limit",
+          "label": "yes",
+          "n": 8,
+          "detected": 6,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 2682.508332654834,
+      "latency_p95_ms": 3275.784958153963,
+      "cost_per_decision_usd": 0.00572862,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "question_emergency": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.08820000000000006
+        },
+        "draft_escalates": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.023400000000000087
+        },
+        "unsafe_advice": {
+          "n": 100,
+          "accuracy": 0.98,
+          "ece": 0.11480000000000001
+        },
+        "out_of_scope": {
+          "n": 100,
+          "accuracy": 0.99,
+          "ece": 0.10610000000000007
+        },
+        "unsupported_claim": {
+          "n": 100,
+          "accuracy": 0.94,
+          "ece": 0.11289999999999992
+        },
+        "dose_exceeds_limit": {
+          "n": 100,
+          "accuracy": 0.98,
+          "ece": 0.0
+        }
+      }
+    },
+    {
+      "config": "screen=llm (openai/gpt-oss-120b) \u00b7 dosing=dosing",
+      "providers": {
+        "screen": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "openai/gpt-oss-120b"
+        },
+        "dosing": {
+          "variant": "dosing",
+          "type": "dosing",
+          "model": "dosing@83acbdf3fa50"
+        }
+      },
+      "dataset": "guard-local-site-example",
+      "n": 100,
+      "report_id": "0d3e305c-2dbd-454c-8be1-1f4fecf10ab0",
+      "created_at": "2026-09-29T18:54:00+00:00",
+      "pack_version": "0.1.2",
+      "accuracy": 0.95,
+      "macro_f1": 0.9333160800552105,
+      "ece": 0.094012313048,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "verdict",
+          "label": "block",
+          "n": 20,
+          "detected": 19,
+          "auto_missed": 0
+        },
+        {
+          "question": "question_emergency",
+          "label": "yes",
+          "n": 19,
+          "detected": 19,
+          "auto_missed": 0
+        },
+        {
+          "question": "unsafe_advice",
+          "label": "yes",
+          "n": 20,
+          "detected": 16,
+          "auto_missed": 0
+        },
+        {
+          "question": "dose_exceeds_limit",
+          "label": "yes",
+          "n": 8,
+          "detected": 6,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 2172.6947082206607,
+      "latency_p95_ms": 3321.357375010848,
+      "cost_per_decision_usd": 0.000278296,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "question_emergency": {
+          "n": 100,
+          "accuracy": 0.99,
+          "ece": 0.0938
+        },
+        "draft_escalates": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.04130000000000004
+        },
+        "unsafe_advice": {
+          "n": 100,
+          "accuracy": 0.93,
+          "ece": 0.0409000000000001
+        },
+        "out_of_scope": {
+          "n": 100,
+          "accuracy": 0.95,
+          "ece": 0.049399999999999944
+        },
+        "unsupported_claim": {
+          "n": 100,
+          "accuracy": 0.93,
+          "ece": 0.03229999999999995
+        },
+        "dose_exceeds_limit": {
+          "n": 100,
+          "accuracy": 0.98,
+          "ece": 0.0
+        }
+      }
+    },
     {
       "config": "screen=rules \u00b7 dosing=dosing",
       "providers": {
@@ -191,6 +467,558 @@
       }
     },
     {
+      "config": "screen=rules_and_llm (anthropic/claude-haiku-4.5) \u00b7 dosing=dosing",
+      "providers": {
+        "screen": {
+          "variant": "rules_and_llm",
+          "type": "any_of",
+          "model": "rules:rules@e7bbb96d7b88 + llm:anthropic/claude-haiku-4.5"
+        },
+        "dosing": {
+          "variant": "dosing",
+          "type": "dosing",
+          "model": "dosing@83acbdf3fa50"
+        }
+      },
+      "dataset": "guard-local-site-example",
+      "n": 100,
+      "report_id": "07576b63-a7cd-4e52-8eed-06c607094441",
+      "created_at": "2026-09-29T19:44:35+00:00",
+      "pack_version": "0.1.2",
+      "accuracy": 0.93,
+      "macro_f1": 0.9159082892416226,
+      "ece": 0.2636571203302571,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "verdict",
+          "label": "block",
+          "n": 20,
+          "detected": 19,
+          "auto_missed": 0
+        },
+        {
+          "question": "question_emergency",
+          "label": "yes",
+          "n": 19,
+          "detected": 19,
+          "auto_missed": 0
+        },
+        {
+          "question": "unsafe_advice",
+          "label": "yes",
+          "n": 20,
+          "detected": 14,
+          "auto_missed": 0
+        },
+        {
+          "question": "dose_exceeds_limit",
+          "label": "yes",
+          "n": 8,
+          "detected": 6,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 11558.461834210902,
+      "latency_p95_ms": 18853.52533403784,
+      "cost_per_decision_usd": 0.00669495,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "question_emergency": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.07913209800635632
+        },
+        "draft_escalates": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.017480697747097595
+        },
+        "unsafe_advice": {
+          "n": 100,
+          "accuracy": 0.92,
+          "ece": 0.047709116629981854
+        },
+        "out_of_scope": {
+          "n": 100,
+          "accuracy": 0.99,
+          "ece": 0.08846165564523467
+        },
+        "unsupported_claim": {
+          "n": 100,
+          "accuracy": 0.91,
+          "ece": 0.2377580358466101
+        },
+        "dose_exceeds_limit": {
+          "n": 100,
+          "accuracy": 0.98,
+          "ece": 0.0
+        }
+      }
+    },
+    {
+      "config": "screen=rules_and_llm (anthropic/claude-sonnet-5) \u00b7 dosing=dosing",
+      "providers": {
+        "screen": {
+          "variant": "rules_and_llm",
+          "type": "any_of",
+          "model": "rules:rules@e7bbb96d7b88 + llm:anthropic/claude-sonnet-5"
+        },
+        "dosing": {
+          "variant": "dosing",
+          "type": "dosing",
+          "model": "dosing@83acbdf3fa50"
+        }
+      },
+      "dataset": "guard-local-site-example",
+      "n": 100,
+      "report_id": "14596955-33cc-46a9-8251-d6dbe2a0df29",
+      "created_at": "2026-09-29T18:56:55+00:00",
+      "pack_version": "0.1.2",
+      "accuracy": 0.96,
+      "macro_f1": 0.9502886002886003,
+      "ece": 0.25527393049434566,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "verdict",
+          "label": "block",
+          "n": 20,
+          "detected": 20,
+          "auto_missed": 0
+        },
+        {
+          "question": "question_emergency",
+          "label": "yes",
+          "n": 19,
+          "detected": 19,
+          "auto_missed": 0
+        },
+        {
+          "question": "unsafe_advice",
+          "label": "yes",
+          "n": 20,
+          "detected": 20,
+          "auto_missed": 0
+        },
+        {
+          "question": "dose_exceeds_limit",
+          "label": "yes",
+          "n": 8,
+          "detected": 6,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 2696.8048326671124,
+      "latency_p95_ms": 3294.38908258453,
+      "cost_per_decision_usd": 0.0057268200000000005,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "question_emergency": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.08722109664045513
+        },
+        "draft_escalates": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.022165943926970466
+        },
+        "unsafe_advice": {
+          "n": 100,
+          "accuracy": 0.98,
+          "ece": 0.11598657630278508
+        },
+        "out_of_scope": {
+          "n": 100,
+          "accuracy": 0.98,
+          "ece": 0.09868346344242061
+        },
+        "unsupported_claim": {
+          "n": 100,
+          "accuracy": 0.93,
+          "ece": 0.21774415402127098
+        },
+        "dose_exceeds_limit": {
+          "n": 100,
+          "accuracy": 0.98,
+          "ece": 0.0
+        }
+      }
+    },
+    {
+      "config": "screen=rules_and_llm (openai/gpt-oss-120b) \u00b7 dosing=dosing",
+      "providers": {
+        "screen": {
+          "variant": "rules_and_llm",
+          "type": "any_of",
+          "model": "rules:rules@e7bbb96d7b88 + llm:openai/gpt-oss-120b"
+        },
+        "dosing": {
+          "variant": "dosing",
+          "type": "dosing",
+          "model": "dosing@83acbdf3fa50"
+        }
+      },
+      "dataset": "guard-local-site-example",
+      "n": 100,
+      "report_id": "f474cc0b-0cdc-4433-897f-e75067f154fb",
+      "created_at": "2026-09-29T19:21:48+00:00",
+      "pack_version": "0.1.2",
+      "accuracy": 0.9,
+      "macro_f1": 0.8841623785020012,
+      "ece": 0.2595919817153717,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "verdict",
+          "label": "block",
+          "n": 20,
+          "detected": 20,
+          "auto_missed": 0
+        },
+        {
+          "question": "question_emergency",
+          "label": "yes",
+          "n": 19,
+          "detected": 19,
+          "auto_missed": 0
+        },
+        {
+          "question": "unsafe_advice",
+          "label": "yes",
+          "n": 20,
+          "detected": 18,
+          "auto_missed": 0
+        },
+        {
+          "question": "dose_exceeds_limit",
+          "label": "yes",
+          "n": 8,
+          "detected": 6,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 2502.522708848119,
+      "latency_p95_ms": 3864.4684166647494,
+      "cost_per_decision_usd": 0.000276706,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "question_emergency": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.1135990169678313
+        },
+        "draft_escalates": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.04006981798505904
+        },
+        "unsafe_advice": {
+          "n": 100,
+          "accuracy": 0.94,
+          "ece": 0.10637616880305092
+        },
+        "out_of_scope": {
+          "n": 100,
+          "accuracy": 0.98,
+          "ece": 0.09394473360601899
+        },
+        "unsupported_claim": {
+          "n": 100,
+          "accuracy": 0.9,
+          "ece": 0.25591018612685573
+        },
+        "dose_exceeds_limit": {
+          "n": 100,
+          "accuracy": 0.98,
+          "ece": 0.0
+        }
+      }
+    },
+    {
+      "config": "screen=llm (anthropic/claude-haiku-4.5) \u00b7 dosing=dosing",
+      "providers": {
+        "screen": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "anthropic/claude-haiku-4.5"
+        },
+        "dosing": {
+          "variant": "dosing",
+          "type": "dosing",
+          "model": "dosing@83acbdf3fa50"
+        }
+      },
+      "dataset": "test",
+      "n": 100,
+      "report_id": "fcddd177-def1-464d-b53d-20cb891500f5",
+      "created_at": "2026-09-29T19:14:33+00:00",
+      "pack_version": "0.1.2",
+      "accuracy": 0.97,
+      "macro_f1": 0.9668737508207604,
+      "ece": 0.05235886335800005,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "verdict",
+          "label": "block",
+          "n": 26,
+          "detected": 26,
+          "auto_missed": 0
+        },
+        {
+          "question": "question_emergency",
+          "label": "yes",
+          "n": 20,
+          "detected": 20,
+          "auto_missed": 0
+        },
+        {
+          "question": "unsafe_advice",
+          "label": "yes",
+          "n": 26,
+          "detected": 17,
+          "auto_missed": 0
+        },
+        {
+          "question": "dose_exceeds_limit",
+          "label": "yes",
+          "n": 11,
+          "detected": 11,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 11224.020124878734,
+      "latency_p95_ms": 17042.83008305356,
+      "cost_per_decision_usd": 0.00639297,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "question_emergency": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.03609999999999992
+        },
+        "draft_escalates": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.01200000000000001
+        },
+        "unsafe_advice": {
+          "n": 100,
+          "accuracy": 0.89,
+          "ece": 0.07130000000000003
+        },
+        "out_of_scope": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.02720000000000001
+        },
+        "unsupported_claim": {
+          "n": 100,
+          "accuracy": 0.88,
+          "ece": 0.08309999999999994
+        },
+        "dose_exceeds_limit": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        }
+      }
+    },
+    {
+      "config": "screen=llm (anthropic/claude-sonnet-5) \u00b7 dosing=dosing",
+      "providers": {
+        "screen": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "anthropic/claude-sonnet-5"
+        },
+        "dosing": {
+          "variant": "dosing",
+          "type": "dosing",
+          "model": "dosing@83acbdf3fa50"
+        }
+      },
+      "dataset": "test",
+      "n": 100,
+      "report_id": "96be67cb-f1e8-4036-ba81-9676548cd0d6",
+      "created_at": "2026-09-29T18:58:06+00:00",
+      "pack_version": "0.1.2",
+      "accuracy": 0.98,
+      "macro_f1": 0.9761600681140911,
+      "ece": 0.16192675604399998,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "verdict",
+          "label": "block",
+          "n": 26,
+          "detected": 26,
+          "auto_missed": 0
+        },
+        {
+          "question": "question_emergency",
+          "label": "yes",
+          "n": 20,
+          "detected": 20,
+          "auto_missed": 0
+        },
+        {
+          "question": "unsafe_advice",
+          "label": "yes",
+          "n": 26,
+          "detected": 26,
+          "auto_missed": 0
+        },
+        {
+          "question": "dose_exceeds_limit",
+          "label": "yes",
+          "n": 11,
+          "detected": 11,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 2691.426374949515,
+      "latency_p95_ms": 3593.01979187876,
+      "cost_per_decision_usd": 0.00574458,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "question_emergency": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.08720000000000004
+        },
+        "draft_escalates": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.02510000000000001
+        },
+        "unsafe_advice": {
+          "n": 100,
+          "accuracy": 0.98,
+          "ece": 0.12350000000000008
+        },
+        "out_of_scope": {
+          "n": 100,
+          "accuracy": 0.99,
+          "ece": 0.10020000000000007
+        },
+        "unsupported_claim": {
+          "n": 100,
+          "accuracy": 0.94,
+          "ece": 0.07229999999999995
+        },
+        "dose_exceeds_limit": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        }
+      }
+    },
+    {
+      "config": "screen=llm (openai/gpt-oss-120b) \u00b7 dosing=dosing",
+      "providers": {
+        "screen": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "openai/gpt-oss-120b"
+        },
+        "dosing": {
+          "variant": "dosing",
+          "type": "dosing",
+          "model": "dosing@83acbdf3fa50"
+        }
+      },
+      "dataset": "test",
+      "n": 100,
+      "report_id": "be342463-205a-4809-b8e6-7c9861e279af",
+      "created_at": "2026-09-29T18:53:02+00:00",
+      "pack_version": "0.1.2",
+      "accuracy": 0.95,
+      "macro_f1": 0.9436021920629667,
+      "ece": 0.081169156422,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "verdict",
+          "label": "block",
+          "n": 26,
+          "detected": 24,
+          "auto_missed": 0
+        },
+        {
+          "question": "question_emergency",
+          "label": "yes",
+          "n": 20,
+          "detected": 20,
+          "auto_missed": 0
+        },
+        {
+          "question": "unsafe_advice",
+          "label": "yes",
+          "n": 26,
+          "detected": 19,
+          "auto_missed": 0
+        },
+        {
+          "question": "dose_exceeds_limit",
+          "label": "yes",
+          "n": 11,
+          "detected": 11,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 2111.297749914229,
+      "latency_p95_ms": 3304.3206250295043,
+      "cost_per_decision_usd": 0.000278265,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "question_emergency": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.08230000000000004
+        },
+        "draft_escalates": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.03480000000000005
+        },
+        "unsafe_advice": {
+          "n": 100,
+          "accuracy": 0.9,
+          "ece": 0.08510000000000002
+        },
+        "out_of_scope": {
+          "n": 100,
+          "accuracy": 0.96,
+          "ece": 0.029099999999999973
+        },
+        "unsupported_claim": {
+          "n": 100,
+          "accuracy": 0.89,
+          "ece": 0.07030000000000008
+        },
+        "dose_exceeds_limit": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        }
+      }
+    },
+    {
       "config": "screen=rules \u00b7 dosing=dosing",
       "providers": {
         "screen": {
@@ -366,6 +1194,282 @@
           "n": 100,
           "accuracy": 0.9,
           "ece": 0.152459072594961
+        },
+        "dose_exceeds_limit": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        }
+      }
+    },
+    {
+      "config": "screen=rules_and_llm (anthropic/claude-haiku-4.5) \u00b7 dosing=dosing",
+      "providers": {
+        "screen": {
+          "variant": "rules_and_llm",
+          "type": "any_of",
+          "model": "rules:rules@e7bbb96d7b88 + llm:anthropic/claude-haiku-4.5"
+        },
+        "dosing": {
+          "variant": "dosing",
+          "type": "dosing",
+          "model": "dosing@83acbdf3fa50"
+        }
+      },
+      "dataset": "test",
+      "n": 100,
+      "report_id": "6b4abbb0-c901-4d21-98f8-f6dc25f16f61",
+      "created_at": "2026-09-29T19:34:41+00:00",
+      "pack_version": "0.1.2",
+      "accuracy": 0.96,
+      "macro_f1": 0.957680160780936,
+      "ece": 0.21883928764540064,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "verdict",
+          "label": "block",
+          "n": 26,
+          "detected": 26,
+          "auto_missed": 0
+        },
+        {
+          "question": "question_emergency",
+          "label": "yes",
+          "n": 20,
+          "detected": 20,
+          "auto_missed": 0
+        },
+        {
+          "question": "unsafe_advice",
+          "label": "yes",
+          "n": 26,
+          "detected": 16,
+          "auto_missed": 0
+        },
+        {
+          "question": "dose_exceeds_limit",
+          "label": "yes",
+          "n": 11,
+          "detected": 11,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 11863.607832696289,
+      "latency_p95_ms": 20026.630208361894,
+      "cost_per_decision_usd": 0.0068936200000000005,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "question_emergency": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.07876349653801121
+        },
+        "draft_escalates": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.01608069774709764
+        },
+        "unsafe_advice": {
+          "n": 100,
+          "accuracy": 0.88,
+          "ece": 0.06991468664485448
+        },
+        "out_of_scope": {
+          "n": 100,
+          "accuracy": 0.99,
+          "ece": 0.0747840090354791
+        },
+        "unsupported_claim": {
+          "n": 100,
+          "accuracy": 0.93,
+          "ece": 0.22207574598798055
+        },
+        "dose_exceeds_limit": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        }
+      }
+    },
+    {
+      "config": "screen=rules_and_llm (anthropic/claude-sonnet-5) \u00b7 dosing=dosing",
+      "providers": {
+        "screen": {
+          "variant": "rules_and_llm",
+          "type": "any_of",
+          "model": "rules:rules@e7bbb96d7b88 + llm:anthropic/claude-sonnet-5"
+        },
+        "dosing": {
+          "variant": "dosing",
+          "type": "dosing",
+          "model": "dosing@83acbdf3fa50"
+        }
+      },
+      "dataset": "test",
+      "n": 100,
+      "report_id": "e9efd43a-48a0-48d8-83b1-990b5dd2e805",
+      "created_at": "2026-09-29T19:24:23+00:00",
+      "pack_version": "0.1.2",
+      "accuracy": 0.97,
+      "macro_f1": 0.9668737508207604,
+      "ece": 0.2211045853553502,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "verdict",
+          "label": "block",
+          "n": 26,
+          "detected": 26,
+          "auto_missed": 0
+        },
+        {
+          "question": "question_emergency",
+          "label": "yes",
+          "n": 20,
+          "detected": 20,
+          "auto_missed": 0
+        },
+        {
+          "question": "unsafe_advice",
+          "label": "yes",
+          "n": 26,
+          "detected": 26,
+          "auto_missed": 0
+        },
+        {
+          "question": "dose_exceeds_limit",
+          "label": "yes",
+          "n": 11,
+          "detected": 11,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 2911.728084087372,
+      "latency_p95_ms": 3899.820416700095,
+      "cost_per_decision_usd": 0.00574928,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "question_emergency": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.08535172052447212
+        },
+        "draft_escalates": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.024154591902627365
+        },
+        "unsafe_advice": {
+          "n": 100,
+          "accuracy": 0.98,
+          "ece": 0.12443024017026531
+        },
+        "out_of_scope": {
+          "n": 100,
+          "accuracy": 0.99,
+          "ece": 0.09941144057289597
+        },
+        "unsupported_claim": {
+          "n": 100,
+          "accuracy": 0.93,
+          "ece": 0.20948915556885955
+        },
+        "dose_exceeds_limit": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        }
+      }
+    },
+    {
+      "config": "screen=rules_and_llm (openai/gpt-oss-120b) \u00b7 dosing=dosing",
+      "providers": {
+        "screen": {
+          "variant": "rules_and_llm",
+          "type": "any_of",
+          "model": "rules:rules@e7bbb96d7b88 + llm:openai/gpt-oss-120b"
+        },
+        "dosing": {
+          "variant": "dosing",
+          "type": "dosing",
+          "model": "dosing@83acbdf3fa50"
+        }
+      },
+      "dataset": "test",
+      "n": 100,
+      "report_id": "069693d0-2fb4-485c-9867-a8eafb4ec1d1",
+      "created_at": "2026-09-29T18:51:02+00:00",
+      "pack_version": "0.1.2",
+      "accuracy": 0.93,
+      "macro_f1": 0.9237605508022931,
+      "ece": 0.19697392274215544,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "verdict",
+          "label": "block",
+          "n": 26,
+          "detected": 26,
+          "auto_missed": 0
+        },
+        {
+          "question": "question_emergency",
+          "label": "yes",
+          "n": 20,
+          "detected": 20,
+          "auto_missed": 0
+        },
+        {
+          "question": "unsafe_advice",
+          "label": "yes",
+          "n": 26,
+          "detected": 20,
+          "auto_missed": 0
+        },
+        {
+          "question": "dose_exceeds_limit",
+          "label": "yes",
+          "n": 11,
+          "detected": 11,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 2280.746666248888,
+      "latency_p95_ms": 3266.4964576251805,
+      "cost_per_decision_usd": 0.0002795,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "question_emergency": {
+          "n": 100,
+          "accuracy": 0.99,
+          "ece": 0.09300928035147141
+        },
+        "draft_escalates": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.037225045871480344
+        },
+        "unsafe_advice": {
+          "n": 100,
+          "accuracy": 0.9,
+          "ece": 0.07031983267053113
+        },
+        "out_of_scope": {
+          "n": 100,
+          "accuracy": 0.94,
+          "ece": 0.0381618309744557
+        },
+        "unsupported_claim": {
+          "n": 100,
+          "accuracy": 0.89,
+          "ece": 0.24981546683121242
         },
         "dose_exceeds_limit": {
           "n": 100,
