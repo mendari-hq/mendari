@@ -299,8 +299,37 @@ for AUTO or `requested` otherwise, `priority` from the decision, `businessStatus
 outcome, `focus` and `for` references, the recommendation as `performerType`, and the
 decision id as an identifier.
 
+A mapping MAY also declare `lists`: each target becomes a list of objects, one per resource of
+the given type, with field paths relative to the resource. This is how a Patient-focused pack
+receives a record with many Conditions, Observations or MedicationStatements:
+
+```yaml
+focus: Patient
+fields:
+  patient.age: {path: Patient.birthDate, transform: age_years}
+  notes: {path: DocumentReference.content.attachment.data, transform: base64_text}
+lists:
+  observations:
+    resource: Observation
+    fields:
+      code: {path: code.coding[0].code}
+      value: {path: valueQuantity.value}
+      unit: {path: valueQuantity.unit}
+      date: {path: effectiveDateTime}
+```
+
+Transforms: `join` (all values, newline-separated), `age_band`, `age_years`, and `base64_text`
+(decode every attachment and join them). Input MAY be a Bundle, a single resource, or a CDS
+prefetch object whose values are resources or search Bundles; all are flattened and resources
+are de-duplicated by type and id. Only the focus must be unique. The Task's `description` and a
+fixed `performer` MAY be set in the mapping's `task` section.
+
 A pack with `cds_hooks` is exposed as a CDS Hooks 2.0 service (id `namespace.name`). The reference runtime
-requires all declared prefetch keys and never queries the caller's FHIR server.
+requires all declared prefetch keys and never queries the caller's FHIR server. A pack MAY word
+its cards with `cds_hooks.card`: a `summaries` template per recommendation (keys are primary
+labels, or `none`), optional `indicators`, a `suggestion` label, and `show`, the
+recommendations that produce a card at all (e.g. a `patient-view` service stays silent for
+patients who are clearly not eligible).
 
 ## 10. Behaviour tests
 

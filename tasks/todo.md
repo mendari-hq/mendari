@@ -7,7 +7,7 @@ Plan approved (5 PRs): runtime prerequisites → FHIR/CDS generalised → the pa
 dashboard and deployment → leaderboard and deployed choice.
 - [x] PR 1 runtime: derive rows scoped with `in`, `criteria` provider, reasons naming the
   deciding criteria, pack-scoped provider settings
-- [ ] PR 2 FHIR lists/transforms and multi-resource index; CDS card wording from the pack
+- [x] PR 2 FHIR lists/transforms and multi-resource index; CDS card wording from the pack
 - [ ] PR 3 `openhealth/clinical-trial-prescreener` 0.1.0 (synthetic GLYCEMIA-2 study)
 - [ ] PR 4 multi-pack dashboard (generic input, criteria table, examples Try-it); deploy
 - [ ] PR 5 leaderboard for the trial pack; live Jev `noul` check; choose deployed notes provider

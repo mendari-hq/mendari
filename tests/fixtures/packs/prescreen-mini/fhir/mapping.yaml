@@ -1,0 +1,41 @@
+# FHIR R4 -> pack input for a patient-view prescreen: one Patient and their record.
+fhir_version: R4
+focus: Patient
+resources:
+  Patient:
+    required: true
+fields:
+  patient.age:
+    path: Patient.birthDate
+    transform: age_years
+  notes:
+    path: DocumentReference.content.attachment.data
+    transform: base64_text
+lists:
+  conditions:
+    resource: Condition
+    fields:
+      code:
+        path: code.coding[0].code
+      text:
+        path: code.text
+      status:
+        path: clinicalStatus.coding[0].code
+      onset:
+        path: onsetDateTime
+  observations:
+    resource: Observation
+    fields:
+      code:
+        path: code.coding[0].code
+      value:
+        path: valueQuantity.value
+      unit:
+        path: valueQuantity.unit
+      date:
+        path: effectiveDateTime
+task:
+  code_text: Review trial prescreen
+  performer_system: https://openhealth.dev/fhir/CodeSystem/trial-team
+  performer: research-coordinator
+  description: "Prescreen result: {recommendation}. Review eligibility for the toy study."

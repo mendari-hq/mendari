@@ -52,7 +52,10 @@ class Pack:
 
     def read_yaml(self, relative: str) -> Any:
         with self.path(relative).open(encoding="utf-8") as handle:
-            return yaml.safe_load(handle)
+            try:
+                return yaml.safe_load(handle)
+            except yaml.YAMLError as error:
+                raise PackValidationError(self.id, [f"{relative}: invalid YAML: {error}"]) from None
 
     def read_json(self, relative: str) -> Any:
         with self.path(relative).open(encoding="utf-8") as handle:

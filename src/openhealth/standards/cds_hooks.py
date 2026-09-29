@@ -1,7 +1,9 @@
 """CDS Hooks 2.0: expose each pack that declares `cds_hooks` as a CDS service.
 
-v0.1 requires the EHR to send the data via `prefetch`; the service never calls back into the
-caller's FHIR server. That keeps the service free of outbound requests to caller-supplied URLs.
+The EHR must send the data via `prefetch` (resources or search Bundles); the service never calls
+back into the caller's FHIR server, which keeps it free of outbound requests to caller-supplied
+URLs. Card wording comes from the pack's `cds_hooks.card`; without it, the card describes a
+routing decision.
 """
 
 from __future__ import annotations
@@ -53,26 +55,40 @@ def invoke(decision: Decision, request: Mapping[str, Any]) -> dict[str, Any]:
     if missing:
         raise FhirError(f"prefetch required for: {', '.join(missing)}")
     result, task = decision.decide_fhir(prefetch)
+    template = hooks.card
+    shown = result.recommendation or "none"
+    if template is not None and template.show is not None and shown not in template.show:
+        return {"cards": []}  # decided and audited, but nothing worth interrupting the user for
     return {"cards": [card(decision.pack, result, task)]}
 
 
 def card(pack: Pack, result: DecisionResult, task: Mapping[str, Any]) -> dict[str, Any]:
+    template = pack.manifest.cds_hooks.card if pack.manifest.cds_hooks else None
+    target = result.recommendation or "manual triage"
+    key = result.recommendation or "none"
     if result.priority is Priority.STAT:
         indicator = "critical"
+    elif template is not None and key in template.indicators:
+        indicator = template.indicators[key]
     elif result.outcome is Outcome.AUTO:
         indicator = "info"
     else:
         indicator = "warning"
-    target = result.recommendation or "manual triage"
-    verb = {
-        Outcome.AUTO: "Routed",
-        Outcome.HUMAN_REVIEW: "Review: route",
-        Outcome.ABSTAIN: "No recommendation;",
-        Outcome.BLOCK: "Blocked;",
-    }[result.outcome]
-    summary = f"{verb} to {target}" + (
-        f" ({result.priority.value})" if result.priority.value != "routine" else ""
-    )
+    if template is not None and key in template.summaries:
+        summary = template.summaries[key].format(
+            recommendation=target, priority=result.priority.value
+        )
+    else:
+        verb = {
+            Outcome.AUTO: "Routed",
+            Outcome.HUMAN_REVIEW: "Review: route",
+            Outcome.ABSTAIN: "No recommendation;",
+            Outcome.BLOCK: "Blocked;",
+        }[result.outcome]
+        summary = f"{verb} to {target}" + (
+            f" ({result.priority.value})" if result.priority.value != "routine" else ""
+        )
+    label = template.suggestion if template is not None else f"Create routing task for {target}"
     confidence = "n/a" if result.confidence is None else f"{result.confidence:.0%}"
     detail = "\n".join(
         [f"**Outcome:** {result.outcome.value} · **confidence:** {confidence}", ""]
@@ -87,7 +103,7 @@ def card(pack: Pack, result: DecisionResult, task: Mapping[str, Any]) -> dict[st
         "source": {"label": f"OpenHealth · {pack.manifest.name} {pack.version}"},
         "suggestions": [
             {
-                "label": f"Create routing task for {target}",
+                "label": label,
                 "uuid": str(uuid.uuid4()),
                 "isRecommended": result.outcome is not Outcome.BLOCK,
                 "actions": [

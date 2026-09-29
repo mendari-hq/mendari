@@ -317,11 +317,24 @@ class AuditConfig(_Strict):
     store_input: Literal["full", "hash"] = "full"
 
 
+class CdsCard(_Strict):
+    """Card wording for one pack. Keys are the primary question's labels, or `none` when the
+    decision has no recommendation; `{recommendation}` and `{priority}` are filled in."""
+
+    summaries: dict[str, str] = Field(min_length=1)
+    indicators: dict[str, Literal["info", "warning", "critical"]] = {}
+    # Recommendations that produce a card at all; e.g. a patient-view service stays silent for
+    # patients who are clearly not eligible. None: every decision produces a card.
+    show: list[str] | None = None
+    suggestion: str = "Create a task"
+
+
 class CdsHooksConfig(_Strict):
     hook: str
     title: str
     description: str
     prefetch: dict[str, str] = {}
+    card: CdsCard | None = None
 
 
 class PackManifest(_Strict):
@@ -443,6 +456,14 @@ def cross_reference_problems(m: PackManifest) -> list[str]:
     for label in policy.labels:
         if label not in primary_labels:
             problems.append(f"policy.labels has unknown label {label!r}")
+
+    card = m.cds_hooks.card if m.cds_hooks is not None else None
+    if card is not None:
+        allowed = set(primary_labels) | {"none"}
+        named = set(card.summaries) | set(card.indicators) | set(card.show or [])
+        unknown_keys = sorted(named - allowed)
+        if unknown_keys:
+            problems.append(f"cds_hooks.card names unknown recommendations {unknown_keys}")
 
     for critical in m.evaluation.critical:
         critical_question = m.questions.get(critical.question)
