@@ -66,6 +66,12 @@ def row(report: Mapping[str, Any]) -> dict[str, Any]:
         "cost_per_decision_usd": report["cost"]["per_decision_usd"],
         "errors": sum(report.get("errors", {}).values()),
         "error_codes": dict(report.get("errors", {})),
+        # The other questions, e.g. a safety screen or the criteria behind a derived primary.
+        "questions": {
+            key: {"n": q["n"], "accuracy": q["accuracy"], "ece": q["calibration"]["ece"]}
+            for key, q in report["questions"].items()
+            if key != primary and q.get("n")
+        },
     }
 
 
@@ -100,9 +106,12 @@ def by_dataset(board: Mapping[str, Any]) -> dict[str, list[dict[str, Any]]]:
 
 
 def critical_text(item: Mapping[str, Any]) -> str:
-    """e.g. `28/28 (0 automated)`; empty when the dataset has no critical cases."""
+    """e.g. `28/28 (0 automated)`, each named (`note_pregnancy=yes 5/5 …`) when a pack has
+    several critical labels; empty when the dataset has no critical cases."""
+    named = len(item["critical"]) > 1
     return "; ".join(
-        f"{c['detected']}/{c['n']} ({c['auto_missed']} automated)"
+        (f"{c['question']}={c['label']} " if named else "")
+        + f"{c['detected']}/{c['n']} ({c['auto_missed']} automated)"
         for c in item["critical"]
         if c["n"]
     )
@@ -138,7 +147,38 @@ def markdown(board: Mapping[str, Any]) -> list[str]:
                 f"| {_errors(item)} |"
             )
         out.append("")
+        out += _question_table(ranked)
     return out
+
+
+def _question_table(rows: list[dict[str, Any]]) -> list[str]:
+    """Accuracy and ECE of the other questions, for those whose results differ between the
+    configurations (the ones the providers being compared actually answer)."""
+    keys = sorted({key for item in rows for key in item.get("questions", {})})
+    varying = [
+        key
+        for key in keys
+        if len({json.dumps(item.get("questions", {}).get(key), sort_keys=True) for item in rows})
+        > 1
+    ]
+    if not varying:
+        return []
+
+    def cell(item: Mapping[str, Any], key: str) -> str:
+        metrics = item.get("questions", {}).get(key)
+        return "n/a" if metrics is None else f"{pct(metrics['accuracy'])} / {num(metrics['ece'])}"
+
+    return [
+        "Other questions (accuracy / ECE):",
+        "",
+        "| Configuration | " + " | ".join(f"`{key}`" for key in varying) + " |",
+        "|---|" + "---|" * len(varying),
+        *(
+            f"| {item['config']} | " + " | ".join(cell(item, k) for k in varying) + " |"
+            for item in rows
+        ),
+        "",
+    ]
 
 
 def _ms(value: float) -> str:

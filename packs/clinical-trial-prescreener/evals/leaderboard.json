@@ -1,0 +1,4464 @@
+{
+  "format": "openhealth.leaderboard/1",
+  "pack": {
+    "id": "openhealth/clinical-trial-prescreener",
+    "version": "0.1.0"
+  },
+  "updated_at": "2026-09-29T03:28:16+00:00",
+  "rows": [
+    {
+      "config": "structured=criteria \u00b7 notes=jev (jev-1.13.0)",
+      "providers": {
+        "structured": {
+          "variant": "criteria",
+          "type": "criteria",
+          "model": "criteria@cdfa245d36d6"
+        },
+        "notes": {
+          "variant": "jev",
+          "type": "jev",
+          "model": "jev-1.13.0"
+        }
+      },
+      "dataset": "exclusions",
+      "n": 32,
+      "report_id": "24ab51dc-e457-4629-9ecb-3c88c94da919",
+      "created_at": "2026-09-29T03:18:55+00:00",
+      "pack_version": "0.1.0",
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "ece": 0.1369324906357127,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "note_pregnancy",
+          "label": "yes",
+          "n": 5,
+          "detected": 5,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_pancreatitis",
+          "label": "yes",
+          "n": 4,
+          "detected": 4,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_active_cancer_treatment",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_recent_cv_event",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "egfr_30_or_more",
+          "label": "no",
+          "n": 0,
+          "detected": 0,
+          "auto_missed": 0
+        },
+        {
+          "question": "no_recent_cv_event",
+          "label": "no",
+          "n": 0,
+          "detected": 0,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 200.63073199992232,
+      "latency_p95_ms": 239.25979900002403,
+      "cost_per_decision_usd": 2.86321875e-05,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "age_18_75": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "t2d_diagnosis": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "hba1c_in_range": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "stable_metformin": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "egfr_30_or_more": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_insulin": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_recent_cv_event": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "note_pregnancy": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.02156250000000004
+        },
+        "note_pancreatitis": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.028125000000000067
+        },
+        "note_active_cancer_treatment": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.026562500000000044
+        },
+        "note_recent_cv_event": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.030312500000000075
+        }
+      }
+    },
+    {
+      "config": "structured=criteria \u00b7 notes=llm (anthropic/claude-haiku-4.5)",
+      "providers": {
+        "structured": {
+          "variant": "criteria",
+          "type": "criteria",
+          "model": "criteria@cdfa245d36d6"
+        },
+        "notes": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "anthropic/claude-haiku-4.5"
+        }
+      },
+      "dataset": "exclusions",
+      "n": 32,
+      "report_id": "988ff2a0-3609-4ee7-908f-40efdb547fe9",
+      "created_at": "2026-09-29T03:22:27+00:00",
+      "pack_version": "0.1.0",
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "ece": 0.080835679822927,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "note_pregnancy",
+          "label": "yes",
+          "n": 5,
+          "detected": 5,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_pancreatitis",
+          "label": "yes",
+          "n": 4,
+          "detected": 4,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_active_cancer_treatment",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_recent_cv_event",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "egfr_30_or_more",
+          "label": "no",
+          "n": 0,
+          "detected": 0,
+          "auto_missed": 0
+        },
+        {
+          "question": "no_recent_cv_event",
+          "label": "no",
+          "n": 0,
+          "detected": 0,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 3957.284042146057,
+      "latency_p95_ms": 7654.9234157428145,
+      "cost_per_decision_usd": 0.0037645625,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "age_18_75": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "t2d_diagnosis": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "hba1c_in_range": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "stable_metformin": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "egfr_30_or_more": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_insulin": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_recent_cv_event": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "note_pregnancy": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.003750000000000031
+        },
+        "note_pancreatitis": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.0031250000000000444
+        },
+        "note_active_cancer_treatment": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.0050000000000000044
+        },
+        "note_recent_cv_event": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.004062499999999969
+        }
+      }
+    },
+    {
+      "config": "structured=criteria \u00b7 notes=llm (anthropic/claude-sonnet-5)",
+      "providers": {
+        "structured": {
+          "variant": "criteria",
+          "type": "criteria",
+          "model": "criteria@cdfa245d36d6"
+        },
+        "notes": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "anthropic/claude-sonnet-5"
+        }
+      },
+      "dataset": "exclusions",
+      "n": 32,
+      "report_id": "5c46f1e0-651f-47b2-be88-da4a3d520ed4",
+      "created_at": "2026-09-29T03:26:44+00:00",
+      "pack_version": "0.1.0",
+      "accuracy": 0.96875,
+      "macro_f1": 0.967967967967968,
+      "ece": 0.14763862508895553,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "note_pregnancy",
+          "label": "yes",
+          "n": 5,
+          "detected": 4,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_pancreatitis",
+          "label": "yes",
+          "n": 4,
+          "detected": 4,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_active_cancer_treatment",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_recent_cv_event",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "egfr_30_or_more",
+          "label": "no",
+          "n": 0,
+          "detected": 0,
+          "auto_missed": 0
+        },
+        {
+          "question": "no_recent_cv_event",
+          "label": "no",
+          "n": 0,
+          "detected": 0,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 2325.499915983528,
+      "latency_p95_ms": 2723.0620831251144,
+      "cost_per_decision_usd": 0.004048625,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "age_18_75": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "t2d_diagnosis": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "hba1c_in_range": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "stable_metformin": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "egfr_30_or_more": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_insulin": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_recent_cv_event": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "note_pregnancy": {
+          "n": 32,
+          "accuracy": 0.96875,
+          "ece": 0.04687500000000003
+        },
+        "note_pancreatitis": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020937500000000053
+        },
+        "note_active_cancer_treatment": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.022812500000000013
+        },
+        "note_recent_cv_event": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.022812500000000013
+        }
+      }
+    },
+    {
+      "config": "structured=criteria \u00b7 notes=llm (openai/gpt-oss-120b)",
+      "providers": {
+        "structured": {
+          "variant": "criteria",
+          "type": "criteria",
+          "model": "criteria@cdfa245d36d6"
+        },
+        "notes": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "openai/gpt-oss-120b"
+        }
+      },
+      "dataset": "exclusions",
+      "n": 32,
+      "report_id": "5d4b83e9-7403-4e9c-a602-c2d83c76bcad",
+      "created_at": "2026-09-29T03:18:51+00:00",
+      "pack_version": "0.1.0",
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "ece": 0.09970267105161155,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "note_pregnancy",
+          "label": "yes",
+          "n": 5,
+          "detected": 5,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_pancreatitis",
+          "label": "yes",
+          "n": 4,
+          "detected": 4,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_active_cancer_treatment",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_recent_cv_event",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "egfr_30_or_more",
+          "label": "no",
+          "n": 0,
+          "detected": 0,
+          "auto_missed": 0
+        },
+        {
+          "question": "no_recent_cv_event",
+          "label": "no",
+          "n": 0,
+          "detected": 0,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 1244.3587090820074,
+      "latency_p95_ms": 1540.3866250999272,
+      "cost_per_decision_usd": 0.000165990625,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "age_18_75": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "t2d_diagnosis": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "hba1c_in_range": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "stable_metformin": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "egfr_30_or_more": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_insulin": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_recent_cv_event": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "note_pregnancy": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.011874999999999969
+        },
+        "note_pancreatitis": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.009375000000000022
+        },
+        "note_active_cancer_treatment": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.009062499999999973
+        },
+        "note_recent_cv_event": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.010312500000000058
+        }
+      }
+    },
+    {
+      "config": "structured=criteria \u00b7 notes=rules",
+      "providers": {
+        "structured": {
+          "variant": "criteria",
+          "type": "criteria",
+          "model": "criteria@cdfa245d36d6"
+        },
+        "notes": {
+          "variant": "rules",
+          "type": "rules",
+          "model": "rules@403d03c1d9cf"
+        }
+      },
+      "dataset": "exclusions",
+      "n": 32,
+      "report_id": "9033305a-e14d-48ac-9a12-5f1ce73163af",
+      "created_at": "2026-09-29T03:16:16+00:00",
+      "pack_version": "0.1.0",
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "ece": 0.16916562925538614,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "note_pregnancy",
+          "label": "yes",
+          "n": 5,
+          "detected": 5,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_pancreatitis",
+          "label": "yes",
+          "n": 4,
+          "detected": 4,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_active_cancer_treatment",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_recent_cv_event",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "egfr_30_or_more",
+          "label": "no",
+          "n": 0,
+          "detected": 0,
+          "auto_missed": 0
+        },
+        {
+          "question": "no_recent_cv_event",
+          "label": "no",
+          "n": 0,
+          "detected": 0,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 0.3016670234501362,
+      "latency_p95_ms": 0.3739171661436558,
+      "cost_per_decision_usd": 0.0,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "age_18_75": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "t2d_diagnosis": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "hba1c_in_range": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "stable_metformin": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "egfr_30_or_more": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_insulin": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_recent_cv_event": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "note_pregnancy": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.04446946826496789
+        },
+        "note_pancreatitis": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.047425873177566635
+        },
+        "note_active_cancer_treatment": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.045947670721267264
+        },
+        "note_recent_cv_event": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.04336127297803505
+        }
+      }
+    },
+    {
+      "config": "structured=criteria \u00b7 notes=rules_and_jev (jev-1.13.0)",
+      "providers": {
+        "structured": {
+          "variant": "criteria",
+          "type": "criteria",
+          "model": "criteria@cdfa245d36d6"
+        },
+        "notes": {
+          "variant": "rules_and_jev",
+          "type": "any_of",
+          "model": "rules:rules@403d03c1d9cf + jev:jev-1.13.0"
+        }
+      },
+      "dataset": "exclusions",
+      "n": 32,
+      "report_id": "cd4d9c32-c8d5-4996-b1b4-c1b739802fad",
+      "created_at": "2026-09-29T03:18:36+00:00",
+      "pack_version": "0.1.0",
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "ece": 0.16626078840707278,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "note_pregnancy",
+          "label": "yes",
+          "n": 5,
+          "detected": 5,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_pancreatitis",
+          "label": "yes",
+          "n": 4,
+          "detected": 4,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_active_cancer_treatment",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_recent_cv_event",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "egfr_30_or_more",
+          "label": "no",
+          "n": 0,
+          "detected": 0,
+          "auto_missed": 0
+        },
+        {
+          "question": "no_recent_cv_event",
+          "label": "no",
+          "n": 0,
+          "detected": 0,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 219.26398699997662,
+      "latency_p95_ms": 260.29808599992066,
+      "cost_per_decision_usd": 2.86321875e-05,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "age_18_75": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "t2d_diagnosis": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "hba1c_in_range": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "stable_metformin": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "egfr_30_or_more": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_insulin": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_recent_cv_event": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "note_pregnancy": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.042442851191369924
+        },
+        "note_pancreatitis": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.043846021956772896
+        },
+        "note_active_cancer_treatment": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.04602811218446834
+        },
+        "note_recent_cv_event": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.04336127297803505
+        }
+      }
+    },
+    {
+      "config": "structured=criteria \u00b7 notes=rules_and_llm (anthropic/claude-haiku-4.5)",
+      "providers": {
+        "structured": {
+          "variant": "criteria",
+          "type": "criteria",
+          "model": "criteria@cdfa245d36d6"
+        },
+        "notes": {
+          "variant": "rules_and_llm",
+          "type": "any_of",
+          "model": "rules:rules@403d03c1d9cf + llm:anthropic/claude-haiku-4.5"
+        }
+      },
+      "dataset": "exclusions",
+      "n": 32,
+      "report_id": "041d2909-c7cf-4aee-a063-3780c79ca352",
+      "created_at": "2026-09-29T03:25:13+00:00",
+      "pack_version": "0.1.0",
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "ece": 0.1620475362801428,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "note_pregnancy",
+          "label": "yes",
+          "n": 5,
+          "detected": 5,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_pancreatitis",
+          "label": "yes",
+          "n": 4,
+          "detected": 4,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_active_cancer_treatment",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_recent_cv_event",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "egfr_30_or_more",
+          "label": "no",
+          "n": 0,
+          "detected": 0,
+          "auto_missed": 0
+        },
+        {
+          "question": "no_recent_cv_event",
+          "label": "no",
+          "n": 0,
+          "detected": 0,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 4477.452208288014,
+      "latency_p95_ms": 7340.82645829767,
+      "cost_per_decision_usd": 0.003836125,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "age_18_75": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "t2d_diagnosis": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "hba1c_in_range": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "stable_metformin": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "egfr_30_or_more": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_insulin": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_recent_cv_event": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "note_pregnancy": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.0409569365740714
+        },
+        "note_pancreatitis": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.04149763903037085
+        },
+        "note_active_cancer_treatment": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.04391719756716972
+        },
+        "note_recent_cv_event": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.043106889370791546
+        }
+      }
+    },
+    {
+      "config": "structured=criteria \u00b7 notes=rules_and_llm (anthropic/claude-sonnet-5)",
+      "providers": {
+        "structured": {
+          "variant": "criteria",
+          "type": "criteria",
+          "model": "criteria@cdfa245d36d6"
+        },
+        "notes": {
+          "variant": "rules_and_llm",
+          "type": "any_of",
+          "model": "rules:rules@403d03c1d9cf + llm:anthropic/claude-sonnet-5"
+        }
+      },
+      "dataset": "exclusions",
+      "n": 32,
+      "report_id": "c14846ac-ab2b-42da-a228-8b17ab4ce7ed",
+      "created_at": "2026-09-29T03:28:02+00:00",
+      "pack_version": "0.1.0",
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "ece": 0.16826634699638143,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "note_pregnancy",
+          "label": "yes",
+          "n": 5,
+          "detected": 5,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_pancreatitis",
+          "label": "yes",
+          "n": 4,
+          "detected": 4,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_active_cancer_treatment",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_recent_cv_event",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "egfr_30_or_more",
+          "label": "no",
+          "n": 0,
+          "detected": 0,
+          "auto_missed": 0
+        },
+        {
+          "question": "no_recent_cv_event",
+          "label": "no",
+          "n": 0,
+          "detected": 0,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 2293.776915874332,
+      "latency_p95_ms": 2680.834208149463,
+      "cost_per_decision_usd": 0.0040405,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "age_18_75": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "t2d_diagnosis": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "hba1c_in_range": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "stable_metformin": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "egfr_30_or_more": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_insulin": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_recent_cv_event": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "note_pregnancy": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.04392490972816887
+        },
+        "note_pancreatitis": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.0463367561039687
+        },
+        "note_active_cancer_treatment": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.045947670721267264
+        },
+        "note_recent_cv_event": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.04336127297803505
+        }
+      }
+    },
+    {
+      "config": "structured=criteria \u00b7 notes=rules_and_llm (openai/gpt-oss-120b)",
+      "providers": {
+        "structured": {
+          "variant": "criteria",
+          "type": "criteria",
+          "model": "criteria@cdfa245d36d6"
+        },
+        "notes": {
+          "variant": "rules_and_llm",
+          "type": "any_of",
+          "model": "rules:rules@403d03c1d9cf + llm:openai/gpt-oss-120b"
+        }
+      },
+      "dataset": "exclusions",
+      "n": 32,
+      "report_id": "e345eb1c-0006-406e-8c8d-3dd790daeb46",
+      "created_at": "2026-09-29T03:19:30+00:00",
+      "pack_version": "0.1.0",
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "ece": 0.1626245011872201,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "note_pregnancy",
+          "label": "yes",
+          "n": 5,
+          "detected": 5,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_pancreatitis",
+          "label": "yes",
+          "n": 4,
+          "detected": 4,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_active_cancer_treatment",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_recent_cv_event",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "egfr_30_or_more",
+          "label": "no",
+          "n": 0,
+          "detected": 0,
+          "auto_missed": 0
+        },
+        {
+          "question": "no_recent_cv_event",
+          "label": "no",
+          "n": 0,
+          "detected": 0,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 1144.964000210166,
+      "latency_p95_ms": 1420.2706250362098,
+      "cost_per_decision_usd": 0.000166428125,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "age_18_75": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "t2d_diagnosis": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "hba1c_in_range": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "stable_metformin": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "egfr_30_or_more": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_insulin": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_recent_cv_event": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "note_pregnancy": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.04134602195677295
+        },
+        "note_pancreatitis": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.04243513903037077
+        },
+        "note_active_cancer_treatment": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.04360469756716978
+        },
+        "note_recent_cv_event": {
+          "n": 32,
+          "accuracy": 1.0,
+          "ece": 0.04344171444123601
+        }
+      }
+    },
+    {
+      "config": "structured=criteria \u00b7 notes=jev (jev-1.13.0)",
+      "providers": {
+        "structured": {
+          "variant": "criteria",
+          "type": "criteria",
+          "model": "criteria@cdfa245d36d6"
+        },
+        "notes": {
+          "variant": "jev",
+          "type": "jev",
+          "model": "jev-1.13.0"
+        }
+      },
+      "dataset": "exclusions_holdout",
+      "n": 24,
+      "report_id": "c6db0572-6aef-4bbe-82bf-454233a32442",
+      "created_at": "2026-09-29T03:18:52+00:00",
+      "pack_version": "0.1.0",
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "ece": 0.1411557160783191,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "note_pregnancy",
+          "label": "yes",
+          "n": 4,
+          "detected": 4,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_pancreatitis",
+          "label": "yes",
+          "n": 2,
+          "detected": 2,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_active_cancer_treatment",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_recent_cv_event",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "egfr_30_or_more",
+          "label": "no",
+          "n": 0,
+          "detected": 0,
+          "auto_missed": 0
+        },
+        {
+          "question": "no_recent_cv_event",
+          "label": "no",
+          "n": 0,
+          "detected": 0,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 206.31633400000737,
+      "latency_p95_ms": 261.4263860000392,
+      "cost_per_decision_usd": 2.85635e-05,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "age_18_75": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "t2d_diagnosis": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "hba1c_in_range": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "stable_metformin": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "egfr_30_or_more": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_insulin": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_recent_cv_event": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "note_pregnancy": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "note_pancreatitis": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.04833333333333333
+        },
+        "note_active_cancer_treatment": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.028333333333333433
+        },
+        "note_recent_cv_event": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.029166666666666674
+        }
+      }
+    },
+    {
+      "config": "structured=criteria \u00b7 notes=llm (anthropic/claude-haiku-4.5)",
+      "providers": {
+        "structured": {
+          "variant": "criteria",
+          "type": "criteria",
+          "model": "criteria@cdfa245d36d6"
+        },
+        "notes": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "anthropic/claude-haiku-4.5"
+        }
+      },
+      "dataset": "exclusions_holdout",
+      "n": 24,
+      "report_id": "ad5e4d9c-b32a-477e-9c71-0d4a51550388",
+      "created_at": "2026-09-29T03:22:47+00:00",
+      "pack_version": "0.1.0",
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "ece": 0.07386308509067491,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "note_pregnancy",
+          "label": "yes",
+          "n": 4,
+          "detected": 4,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_pancreatitis",
+          "label": "yes",
+          "n": 2,
+          "detected": 2,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_active_cancer_treatment",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_recent_cv_event",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "egfr_30_or_more",
+          "label": "no",
+          "n": 0,
+          "detected": 0,
+          "auto_missed": 0
+        },
+        {
+          "question": "no_recent_cv_event",
+          "label": "no",
+          "n": 0,
+          "detected": 0,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 5140.981416683644,
+      "latency_p95_ms": 9388.749666977674,
+      "cost_per_decision_usd": 0.003993083333333334,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "age_18_75": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "t2d_diagnosis": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "hba1c_in_range": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "stable_metformin": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "egfr_30_or_more": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_insulin": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_recent_cv_event": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "note_pregnancy": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.003750000000000031
+        },
+        "note_pancreatitis": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.0050000000000000044
+        },
+        "note_active_cancer_treatment": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.003750000000000031
+        },
+        "note_recent_cv_event": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.0033333333333332993
+        }
+      }
+    },
+    {
+      "config": "structured=criteria \u00b7 notes=llm (anthropic/claude-sonnet-5)",
+      "providers": {
+        "structured": {
+          "variant": "criteria",
+          "type": "criteria",
+          "model": "criteria@cdfa245d36d6"
+        },
+        "notes": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "anthropic/claude-sonnet-5"
+        }
+      },
+      "dataset": "exclusions_holdout",
+      "n": 24,
+      "report_id": "95e68c5a-0925-47ca-bc75-a0098b28fc4c",
+      "created_at": "2026-09-29T03:26:51+00:00",
+      "pack_version": "0.1.0",
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "ece": 0.12094648532826117,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "note_pregnancy",
+          "label": "yes",
+          "n": 4,
+          "detected": 4,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_pancreatitis",
+          "label": "yes",
+          "n": 2,
+          "detected": 2,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_active_cancer_treatment",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_recent_cv_event",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "egfr_30_or_more",
+          "label": "no",
+          "n": 0,
+          "detected": 0,
+          "auto_missed": 0
+        },
+        {
+          "question": "no_recent_cv_event",
+          "label": "no",
+          "n": 0,
+          "detected": 0,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 2304.2641249485314,
+      "latency_p95_ms": 2689.6861251443624,
+      "cost_per_decision_usd": 0.004031083333333334,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "age_18_75": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "t2d_diagnosis": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "hba1c_in_range": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "stable_metformin": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "egfr_30_or_more": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_insulin": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_recent_cv_event": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "note_pregnancy": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.022499999999999964
+        },
+        "note_pancreatitis": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.021666666666666612
+        },
+        "note_active_cancer_treatment": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.023333333333333317
+        },
+        "note_recent_cv_event": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.02749999999999997
+        }
+      }
+    },
+    {
+      "config": "structured=criteria \u00b7 notes=llm (openai/gpt-oss-120b)",
+      "providers": {
+        "structured": {
+          "variant": "criteria",
+          "type": "criteria",
+          "model": "criteria@cdfa245d36d6"
+        },
+        "notes": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "openai/gpt-oss-120b"
+        }
+      },
+      "dataset": "exclusions_holdout",
+      "n": 24,
+      "report_id": "500764d0-2207-4b3a-8cdd-93451174b1d4",
+      "created_at": "2026-09-29T03:18:55+00:00",
+      "pack_version": "0.1.0",
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "ece": 0.09543798344316906,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "note_pregnancy",
+          "label": "yes",
+          "n": 4,
+          "detected": 4,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_pancreatitis",
+          "label": "yes",
+          "n": 2,
+          "detected": 2,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_active_cancer_treatment",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_recent_cv_event",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "egfr_30_or_more",
+          "label": "no",
+          "n": 0,
+          "detected": 0,
+          "auto_missed": 0
+        },
+        {
+          "question": "no_recent_cv_event",
+          "label": "no",
+          "n": 0,
+          "detected": 0,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 1193.084292113781,
+      "latency_p95_ms": 1490.6191248446703,
+      "cost_per_decision_usd": 0.00016770416666666665,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "age_18_75": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "t2d_diagnosis": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "hba1c_in_range": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "stable_metformin": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "egfr_30_or_more": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_insulin": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_recent_cv_event": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "note_pregnancy": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.01375000000000004
+        },
+        "note_pancreatitis": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.010833333333333361
+        },
+        "note_active_cancer_treatment": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.012916666666666576
+        },
+        "note_recent_cv_event": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.013333333333333308
+        }
+      }
+    },
+    {
+      "config": "structured=criteria \u00b7 notes=rules",
+      "providers": {
+        "structured": {
+          "variant": "criteria",
+          "type": "criteria",
+          "model": "criteria@cdfa245d36d6"
+        },
+        "notes": {
+          "variant": "rules",
+          "type": "rules",
+          "model": "rules@403d03c1d9cf"
+        }
+      },
+      "dataset": "exclusions_holdout",
+      "n": 24,
+      "report_id": "a7737684-1850-428f-bfb9-d0877a5d3f4f",
+      "created_at": "2026-09-29T03:16:16+00:00",
+      "pack_version": "0.1.0",
+      "accuracy": 0.7916666666666666,
+      "macro_f1": 0.7913043478260869,
+      "ece": 0.05996313656655453,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "note_pregnancy",
+          "label": "yes",
+          "n": 4,
+          "detected": 4,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_pancreatitis",
+          "label": "yes",
+          "n": 2,
+          "detected": 1,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_active_cancer_treatment",
+          "label": "yes",
+          "n": 3,
+          "detected": 1,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_recent_cv_event",
+          "label": "yes",
+          "n": 3,
+          "detected": 2,
+          "auto_missed": 0
+        },
+        {
+          "question": "egfr_30_or_more",
+          "label": "no",
+          "n": 0,
+          "detected": 0,
+          "auto_missed": 0
+        },
+        {
+          "question": "no_recent_cv_event",
+          "label": "no",
+          "n": 0,
+          "detected": 0,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 0.2960418350994587,
+      "latency_p95_ms": 0.32800016924738884,
+      "cost_per_decision_usd": 0.0,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "age_18_75": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "t2d_diagnosis": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "hba1c_in_range": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "stable_metformin": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "egfr_30_or_more": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_insulin": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_recent_cv_event": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "note_pregnancy": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.047425873177566635
+        },
+        "note_pancreatitis": {
+          "n": 24,
+          "accuracy": 0.9583333333333334,
+          "ece": 0.005759206510900006
+        },
+        "note_active_cancer_treatment": {
+          "n": 24,
+          "accuracy": 0.9166666666666666,
+          "ece": 0.035907460155766735
+        },
+        "note_recent_cv_event": {
+          "n": 24,
+          "accuracy": 0.9583333333333334,
+          "ece": 0.04341057800833317
+        }
+      }
+    },
+    {
+      "config": "structured=criteria \u00b7 notes=rules_and_jev (jev-1.13.0)",
+      "providers": {
+        "structured": {
+          "variant": "criteria",
+          "type": "criteria",
+          "model": "criteria@cdfa245d36d6"
+        },
+        "notes": {
+          "variant": "rules_and_jev",
+          "type": "any_of",
+          "model": "rules:rules@403d03c1d9cf + jev:jev-1.13.0"
+        }
+      },
+      "dataset": "exclusions_holdout",
+      "n": 24,
+      "report_id": "a440ae1b-c617-4cb5-8a52-064be8127ae4",
+      "created_at": "2026-09-29T03:16:36+00:00",
+      "pack_version": "0.1.0",
+      "accuracy": 0.9166666666666666,
+      "macro_f1": 0.916083916083916,
+      "ece": 0.1854008928798097,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "note_pregnancy",
+          "label": "yes",
+          "n": 4,
+          "detected": 4,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_pancreatitis",
+          "label": "yes",
+          "n": 2,
+          "detected": 2,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_active_cancer_treatment",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_recent_cv_event",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "egfr_30_or_more",
+          "label": "no",
+          "n": 0,
+          "detected": 0,
+          "auto_missed": 0
+        },
+        {
+          "question": "no_recent_cv_event",
+          "label": "no",
+          "n": 0,
+          "detected": 0,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 228.6848439999858,
+      "latency_p95_ms": 282.1597140000449,
+      "cost_per_decision_usd": 2.85635e-05,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "age_18_75": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "t2d_diagnosis": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "hba1c_in_range": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "stable_metformin": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "egfr_30_or_more": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_insulin": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_recent_cv_event": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "note_pregnancy": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.042438227647972226
+        },
+        "note_pancreatitis": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.06743822764797214
+        },
+        "note_active_cancer_treatment": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.04816430569703747
+        },
+        "note_recent_cv_event": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.07059638347507692
+        }
+      }
+    },
+    {
+      "config": "structured=criteria \u00b7 notes=rules_and_llm (anthropic/claude-haiku-4.5)",
+      "providers": {
+        "structured": {
+          "variant": "criteria",
+          "type": "criteria",
+          "model": "criteria@cdfa245d36d6"
+        },
+        "notes": {
+          "variant": "rules_and_llm",
+          "type": "any_of",
+          "model": "rules:rules@403d03c1d9cf + llm:anthropic/claude-haiku-4.5"
+        }
+      },
+      "dataset": "exclusions_holdout",
+      "n": 24,
+      "report_id": "ed077dd2-d1f6-4b9d-b4ae-1ed2c211c4be",
+      "created_at": "2026-09-29T03:25:32+00:00",
+      "pack_version": "0.1.0",
+      "accuracy": 0.9166666666666666,
+      "macro_f1": 0.916083916083916,
+      "ece": 0.1649311705513717,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "note_pregnancy",
+          "label": "yes",
+          "n": 4,
+          "detected": 4,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_pancreatitis",
+          "label": "yes",
+          "n": 2,
+          "detected": 2,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_active_cancer_treatment",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_recent_cv_event",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "egfr_30_or_more",
+          "label": "no",
+          "n": 0,
+          "detected": 0,
+          "auto_missed": 0
+        },
+        {
+          "question": "no_recent_cv_event",
+          "label": "no",
+          "n": 0,
+          "detected": 0,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 4499.3013753555715,
+      "latency_p95_ms": 9084.574333857745,
+      "cost_per_decision_usd": 0.0038824583333333332,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "age_18_75": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "t2d_diagnosis": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "hba1c_in_range": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "stable_metformin": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "egfr_30_or_more": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_insulin": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_recent_cv_event": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "note_pregnancy": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.04077156098130563
+        },
+        "note_pancreatitis": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.04774763903037081
+        },
+        "note_active_cancer_treatment": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.04191430569703758
+        },
+        "note_recent_cv_event": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.06900720533208574
+        }
+      }
+    },
+    {
+      "config": "structured=criteria \u00b7 notes=rules_and_llm (anthropic/claude-sonnet-5)",
+      "providers": {
+        "structured": {
+          "variant": "criteria",
+          "type": "criteria",
+          "model": "criteria@cdfa245d36d6"
+        },
+        "notes": {
+          "variant": "rules_and_llm",
+          "type": "any_of",
+          "model": "rules:rules@403d03c1d9cf + llm:anthropic/claude-sonnet-5"
+        }
+      },
+      "dataset": "exclusions_holdout",
+      "n": 24,
+      "report_id": "31b721be-2d34-4953-81f8-a0dd15187607",
+      "created_at": "2026-09-29T03:28:09+00:00",
+      "pack_version": "0.1.0",
+      "accuracy": 0.9166666666666666,
+      "macro_f1": 0.916083916083916,
+      "ece": 0.17726605337753906,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "note_pregnancy",
+          "label": "yes",
+          "n": 4,
+          "detected": 4,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_pancreatitis",
+          "label": "yes",
+          "n": 2,
+          "detected": 2,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_active_cancer_treatment",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_recent_cv_event",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "egfr_30_or_more",
+          "label": "no",
+          "n": 0,
+          "detected": 0,
+          "auto_missed": 0
+        },
+        {
+          "question": "no_recent_cv_event",
+          "label": "no",
+          "n": 0,
+          "detected": 0,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 2311.795834451914,
+      "latency_p95_ms": 2529.5091252774,
+      "cost_per_decision_usd": 0.00403025,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "age_18_75": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "t2d_diagnosis": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "hba1c_in_range": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "stable_metformin": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "egfr_30_or_more": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_insulin": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_recent_cv_event": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "note_pregnancy": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.04597371707943598
+        },
+        "note_pancreatitis": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.046807050412769446
+        },
+        "note_active_cancer_treatment": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.048164305697037446
+        },
+        "note_recent_cv_event": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.07351305014174368
+        }
+      }
+    },
+    {
+      "config": "structured=criteria \u00b7 notes=rules_and_llm (openai/gpt-oss-120b)",
+      "providers": {
+        "structured": {
+          "variant": "criteria",
+          "type": "criteria",
+          "model": "criteria@cdfa245d36d6"
+        },
+        "notes": {
+          "variant": "rules_and_llm",
+          "type": "any_of",
+          "model": "rules:rules@403d03c1d9cf + llm:openai/gpt-oss-120b"
+        }
+      },
+      "dataset": "exclusions_holdout",
+      "n": 24,
+      "report_id": "253afe9e-8436-4807-87b1-d44886cf7201",
+      "created_at": "2026-09-29T03:19:34+00:00",
+      "pack_version": "0.1.0",
+      "accuracy": 0.9166666666666666,
+      "macro_f1": 0.916083916083916,
+      "ece": 0.1688237186899134,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "note_pregnancy",
+          "label": "yes",
+          "n": 4,
+          "detected": 4,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_pancreatitis",
+          "label": "yes",
+          "n": 2,
+          "detected": 2,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_active_cancer_treatment",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_recent_cv_event",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "egfr_30_or_more",
+          "label": "no",
+          "n": 0,
+          "detected": 0,
+          "auto_missed": 0
+        },
+        {
+          "question": "no_recent_cv_event",
+          "label": "no",
+          "n": 0,
+          "detected": 0,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 1126.842999830842,
+      "latency_p95_ms": 1623.7855833023787,
+      "cost_per_decision_usd": 0.00016830833333333334,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "age_18_75": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "t2d_diagnosis": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "hba1c_in_range": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "stable_metformin": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "egfr_30_or_more": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_insulin": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_recent_cv_event": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "note_pregnancy": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.04233097236370409
+        },
+        "note_pancreatitis": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.04555705041276947
+        },
+        "note_active_cancer_treatment": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.04649763903037085
+        },
+        "note_recent_cv_event": {
+          "n": 24,
+          "accuracy": 1.0,
+          "ece": 0.06959346107024798
+        }
+      }
+    },
+    {
+      "config": "structured=criteria \u00b7 notes=llm (anthropic/claude-haiku-4.5)",
+      "providers": {
+        "structured": {
+          "variant": "criteria",
+          "type": "criteria",
+          "model": "criteria@cdfa245d36d6"
+        },
+        "notes": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "anthropic/claude-haiku-4.5"
+        }
+      },
+      "dataset": "test",
+      "n": 100,
+      "report_id": "ad750a47-2af0-4b58-aa65-07edc3c3253a",
+      "created_at": "2026-09-29T03:20:53+00:00",
+      "pack_version": "0.1.0",
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "ece": 0.04356880857551111,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "note_pregnancy",
+          "label": "yes",
+          "n": 5,
+          "detected": 5,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_pancreatitis",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_active_cancer_treatment",
+          "label": "yes",
+          "n": 7,
+          "detected": 7,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_recent_cv_event",
+          "label": "yes",
+          "n": 4,
+          "detected": 4,
+          "auto_missed": 0
+        },
+        {
+          "question": "egfr_30_or_more",
+          "label": "no",
+          "n": 12,
+          "detected": 12,
+          "auto_missed": 0
+        },
+        {
+          "question": "no_recent_cv_event",
+          "label": "no",
+          "n": 7,
+          "detected": 7,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 4253.78283392638,
+      "latency_p95_ms": 17344.184250105172,
+      "cost_per_decision_usd": 0.0037473800000000002,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "age_18_75": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "t2d_diagnosis": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "hba1c_in_range": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "stable_metformin": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "egfr_30_or_more": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_insulin": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_recent_cv_event": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "note_pregnancy": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.0040999999999999925
+        },
+        "note_pancreatitis": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.0037000000000000366
+        },
+        "note_active_cancer_treatment": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.005800000000000083
+        },
+        "note_recent_cv_event": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.0034999999999999476
+        }
+      }
+    },
+    {
+      "config": "structured=criteria \u00b7 notes=llm (anthropic/claude-sonnet-5)",
+      "providers": {
+        "structured": {
+          "variant": "criteria",
+          "type": "criteria",
+          "model": "criteria@cdfa245d36d6"
+        },
+        "notes": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "anthropic/claude-sonnet-5"
+        }
+      },
+      "dataset": "test",
+      "n": 100,
+      "report_id": "c4bb2e4e-27e1-47cc-b05e-9cf0e0b422f0",
+      "created_at": "2026-09-29T03:26:03+00:00",
+      "pack_version": "0.1.0",
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "ece": 0.06537712095653966,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "note_pregnancy",
+          "label": "yes",
+          "n": 5,
+          "detected": 5,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_pancreatitis",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_active_cancer_treatment",
+          "label": "yes",
+          "n": 7,
+          "detected": 7,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_recent_cv_event",
+          "label": "yes",
+          "n": 4,
+          "detected": 4,
+          "auto_missed": 0
+        },
+        {
+          "question": "egfr_30_or_more",
+          "label": "no",
+          "n": 12,
+          "detected": 12,
+          "auto_missed": 0
+        },
+        {
+          "question": "no_recent_cv_event",
+          "label": "no",
+          "n": 7,
+          "detected": 7,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 2368.6324171721935,
+      "latency_p95_ms": 3596.8479583971202,
+      "cost_per_decision_usd": 0.00404092,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "age_18_75": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "t2d_diagnosis": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "hba1c_in_range": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "stable_metformin": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "egfr_30_or_more": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_insulin": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_recent_cv_event": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "note_pregnancy": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.02070000000000005
+        },
+        "note_pancreatitis": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020499999999999963
+        },
+        "note_active_cancer_treatment": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.02660000000000005
+        },
+        "note_recent_cv_event": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.02190000000000003
+        }
+      }
+    },
+    {
+      "config": "structured=criteria \u00b7 notes=llm (openai/gpt-oss-120b)",
+      "providers": {
+        "structured": {
+          "variant": "criteria",
+          "type": "criteria",
+          "model": "criteria@cdfa245d36d6"
+        },
+        "notes": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "openai/gpt-oss-120b"
+        }
+      },
+      "dataset": "test",
+      "n": 100,
+      "report_id": "6a69576f-7cc8-43ac-9c08-c159d5dff380",
+      "created_at": "2026-09-29T03:18:32+00:00",
+      "pack_version": "0.1.0",
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "ece": 0.05381798206640471,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "note_pregnancy",
+          "label": "yes",
+          "n": 5,
+          "detected": 5,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_pancreatitis",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_active_cancer_treatment",
+          "label": "yes",
+          "n": 7,
+          "detected": 7,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_recent_cv_event",
+          "label": "yes",
+          "n": 4,
+          "detected": 4,
+          "auto_missed": 0
+        },
+        {
+          "question": "egfr_30_or_more",
+          "label": "no",
+          "n": 12,
+          "detected": 12,
+          "auto_missed": 0
+        },
+        {
+          "question": "no_recent_cv_event",
+          "label": "no",
+          "n": 7,
+          "detected": 7,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 1092.299624811858,
+      "latency_p95_ms": 1706.4326666295528,
+      "cost_per_decision_usd": 0.0001609,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "age_18_75": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "t2d_diagnosis": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "hba1c_in_range": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "stable_metformin": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "egfr_30_or_more": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_insulin": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_recent_cv_event": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "note_pregnancy": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.012399999999999967
+        },
+        "note_pancreatitis": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.011299999999999977
+        },
+        "note_active_cancer_treatment": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.015000000000000078
+        },
+        "note_recent_cv_event": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.011700000000000044
+        }
+      }
+    },
+    {
+      "config": "structured=criteria \u00b7 notes=rules",
+      "providers": {
+        "structured": {
+          "variant": "criteria",
+          "type": "criteria",
+          "model": "criteria@cdfa245d36d6"
+        },
+        "notes": {
+          "variant": "rules",
+          "type": "rules",
+          "model": "rules@403d03c1d9cf"
+        }
+      },
+      "dataset": "test",
+      "n": 100,
+      "report_id": "e9eab963-dfae-4559-8989-1bdebce40e00",
+      "created_at": "2026-09-29T03:16:22+00:00",
+      "pack_version": "0.1.0",
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "ece": 0.08597287749376212,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "note_pregnancy",
+          "label": "yes",
+          "n": 5,
+          "detected": 4,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_pancreatitis",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_active_cancer_treatment",
+          "label": "yes",
+          "n": 7,
+          "detected": 7,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_recent_cv_event",
+          "label": "yes",
+          "n": 4,
+          "detected": 4,
+          "auto_missed": 0
+        },
+        {
+          "question": "egfr_30_or_more",
+          "label": "no",
+          "n": 12,
+          "detected": 12,
+          "auto_missed": 0
+        },
+        {
+          "question": "no_recent_cv_event",
+          "label": "no",
+          "n": 7,
+          "detected": 7,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 0.3115842118859291,
+      "latency_p95_ms": 0.3605000674724579,
+      "cost_per_decision_usd": 0.0,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "age_18_75": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "t2d_diagnosis": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "hba1c_in_range": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "stable_metformin": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "egfr_30_or_more": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_insulin": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_recent_cv_event": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "note_pregnancy": {
+          "n": 100,
+          "accuracy": 0.99,
+          "ece": 0.036952848391550774
+        },
+        "note_pancreatitis": {
+          "n": 100,
+          "accuracy": 0.99,
+          "ece": 0.037425873177566626
+        },
+        "note_active_cancer_treatment": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.047425873177566635
+        },
+        "note_recent_cv_event": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.04569164375909973
+        }
+      }
+    },
+    {
+      "config": "structured=criteria \u00b7 notes=rules_and_jev (jev-1.13.0)",
+      "providers": {
+        "structured": {
+          "variant": "criteria",
+          "type": "criteria",
+          "model": "criteria@cdfa245d36d6"
+        },
+        "notes": {
+          "variant": "rules_and_jev",
+          "type": "any_of",
+          "model": "rules:rules@403d03c1d9cf + jev:jev-1.13.0"
+        }
+      },
+      "dataset": "test",
+      "n": 100,
+      "report_id": "0188f7e3-b7dd-4f8b-8e02-801851e722f9",
+      "created_at": "2026-09-29T03:18:39+00:00",
+      "pack_version": "0.1.0",
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "ece": 0.0886596581451274,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "note_pregnancy",
+          "label": "yes",
+          "n": 5,
+          "detected": 5,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_pancreatitis",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_active_cancer_treatment",
+          "label": "yes",
+          "n": 7,
+          "detected": 7,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_recent_cv_event",
+          "label": "yes",
+          "n": 4,
+          "detected": 4,
+          "auto_missed": 0
+        },
+        {
+          "question": "egfr_30_or_more",
+          "label": "no",
+          "n": 12,
+          "detected": 12,
+          "auto_missed": 0
+        },
+        {
+          "question": "no_recent_cv_event",
+          "label": "no",
+          "n": 7,
+          "detected": 7,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 178.07369300010123,
+      "latency_p95_ms": 245.06895100000747,
+      "cost_per_decision_usd": 2.8670039999999998e-05,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "age_18_75": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "t2d_diagnosis": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "hba1c_in_range": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "stable_metformin": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "egfr_30_or_more": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_insulin": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_recent_cv_event": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "note_pregnancy": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.045855813464448114
+        },
+        "note_pancreatitis": {
+          "n": 100,
+          "accuracy": 0.99,
+          "ece": 0.036683285859809955
+        },
+        "note_active_cancer_treatment": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.05549218107850209
+        },
+        "note_recent_cv_event": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.046717385027324226
+        }
+      }
+    },
+    {
+      "config": "structured=criteria \u00b7 notes=rules_and_llm (anthropic/claude-haiku-4.5)",
+      "providers": {
+        "structured": {
+          "variant": "criteria",
+          "type": "criteria",
+          "model": "criteria@cdfa245d36d6"
+        },
+        "notes": {
+          "variant": "rules_and_llm",
+          "type": "any_of",
+          "model": "rules:rules@403d03c1d9cf + llm:anthropic/claude-haiku-4.5"
+        }
+      },
+      "dataset": "test",
+      "n": 100,
+      "report_id": "95090431-167e-4c5e-bac6-be77aee4d62c",
+      "created_at": "2026-09-29T03:23:44+00:00",
+      "pack_version": "0.1.0",
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "ece": 0.08436701448259329,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "note_pregnancy",
+          "label": "yes",
+          "n": 5,
+          "detected": 5,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_pancreatitis",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_active_cancer_treatment",
+          "label": "yes",
+          "n": 7,
+          "detected": 7,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_recent_cv_event",
+          "label": "yes",
+          "n": 4,
+          "detected": 4,
+          "auto_missed": 0
+        },
+        {
+          "question": "egfr_30_or_more",
+          "label": "no",
+          "n": 12,
+          "detected": 12,
+          "auto_missed": 0
+        },
+        {
+          "question": "no_recent_cv_event",
+          "label": "no",
+          "n": 7,
+          "detected": 7,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 3956.704083830118,
+      "latency_p95_ms": 7772.020457778126,
+      "cost_per_decision_usd": 0.00363553,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "age_18_75": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "t2d_diagnosis": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "hba1c_in_range": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "stable_metformin": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "egfr_30_or_more": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_insulin": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_recent_cv_event": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "note_pregnancy": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.045630072196223725
+        },
+        "note_pancreatitis": {
+          "n": 100,
+          "accuracy": 0.99,
+          "ece": 0.036577355714015325
+        },
+        "note_active_cancer_treatment": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.0450545795186883
+        },
+        "note_recent_cv_event": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.04556953962762289
+        }
+      }
+    },
+    {
+      "config": "structured=criteria \u00b7 notes=rules_and_llm (anthropic/claude-sonnet-5)",
+      "providers": {
+        "structured": {
+          "variant": "criteria",
+          "type": "criteria",
+          "model": "criteria@cdfa245d36d6"
+        },
+        "notes": {
+          "variant": "rules_and_llm",
+          "type": "any_of",
+          "model": "rules:rules@403d03c1d9cf + llm:anthropic/claude-sonnet-5"
+        }
+      },
+      "dataset": "test",
+      "n": 100,
+      "report_id": "54105dd8-7078-4dd8-8084-bb4beebfb7c9",
+      "created_at": "2026-09-29T03:27:21+00:00",
+      "pack_version": "0.1.0",
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "ece": 0.08582939642073106,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "note_pregnancy",
+          "label": "yes",
+          "n": 5,
+          "detected": 5,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_pancreatitis",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_active_cancer_treatment",
+          "label": "yes",
+          "n": 7,
+          "detected": 7,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_recent_cv_event",
+          "label": "yes",
+          "n": 4,
+          "detected": 4,
+          "auto_missed": 0
+        },
+        {
+          "question": "egfr_30_or_more",
+          "label": "no",
+          "n": 12,
+          "detected": 12,
+          "auto_missed": 0
+        },
+        {
+          "question": "no_recent_cv_event",
+          "label": "no",
+          "n": 7,
+          "detected": 7,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 2238.843083847314,
+      "latency_p95_ms": 2562.41362541914,
+      "cost_per_decision_usd": 0.00402792,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "age_18_75": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "t2d_diagnosis": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "hba1c_in_range": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "stable_metformin": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "egfr_30_or_more": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_insulin": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_recent_cv_event": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "note_pregnancy": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.04643007219622386
+        },
+        "note_pancreatitis": {
+          "n": 100,
+          "accuracy": 0.99,
+          "ece": 0.037425873177566626
+        },
+        "note_active_cancer_treatment": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.047425873177566635
+        },
+        "note_recent_cv_event": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.04569164375909973
+        }
+      }
+    },
+    {
+      "config": "structured=criteria \u00b7 notes=rules_and_llm (openai/gpt-oss-120b)",
+      "providers": {
+        "structured": {
+          "variant": "criteria",
+          "type": "criteria",
+          "model": "criteria@cdfa245d36d6"
+        },
+        "notes": {
+          "variant": "rules_and_llm",
+          "type": "any_of",
+          "model": "rules:rules@403d03c1d9cf + llm:openai/gpt-oss-120b"
+        }
+      },
+      "dataset": "test",
+      "n": 100,
+      "report_id": "e40e65aa-fb01-4716-a09c-96c982024ff9",
+      "created_at": "2026-09-29T03:19:10+00:00",
+      "pack_version": "0.1.0",
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "ece": 0.08491458136367859,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "note_pregnancy",
+          "label": "yes",
+          "n": 5,
+          "detected": 5,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_pancreatitis",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_active_cancer_treatment",
+          "label": "yes",
+          "n": 7,
+          "detected": 7,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_recent_cv_event",
+          "label": "yes",
+          "n": 4,
+          "detected": 4,
+          "auto_missed": 0
+        },
+        {
+          "question": "egfr_30_or_more",
+          "label": "no",
+          "n": 12,
+          "detected": 12,
+          "auto_missed": 0
+        },
+        {
+          "question": "no_recent_cv_event",
+          "label": "no",
+          "n": 7,
+          "detected": 7,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 1068.203582894057,
+      "latency_p95_ms": 1484.5034582540393,
+      "cost_per_decision_usd": 0.00015984999999999998,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "age_18_75": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "t2d_diagnosis": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "hba1c_in_range": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "stable_metformin": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "egfr_30_or_more": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_insulin": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_recent_cv_event": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "note_pregnancy": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.04572883825046403
+        },
+        "note_pancreatitis": {
+          "n": 100,
+          "accuracy": 0.99,
+          "ece": 0.03620309698223967
+        },
+        "note_active_cancer_treatment": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.04593180332336133
+        },
+        "note_recent_cv_event": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.045650942381940895
+        }
+      }
+    },
+    {
+      "config": "structured=criteria \u00b7 notes=llm (anthropic/claude-haiku-4.5)",
+      "providers": {
+        "structured": {
+          "variant": "criteria",
+          "type": "criteria",
+          "model": "criteria@cdfa245d36d6"
+        },
+        "notes": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "anthropic/claude-haiku-4.5"
+        }
+      },
+      "dataset": "trial-local-site-example",
+      "n": 100,
+      "report_id": "c0ed0e74-70af-4798-b1d8-c3deb484384f",
+      "created_at": "2026-09-29T03:22:03+00:00",
+      "pack_version": "0.1.0",
+      "accuracy": 0.89,
+      "macro_f1": 0.845880690253085,
+      "ece": 0.08142567587606707,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "note_pregnancy",
+          "label": "yes",
+          "n": 2,
+          "detected": 2,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_pancreatitis",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_active_cancer_treatment",
+          "label": "yes",
+          "n": 4,
+          "detected": 4,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_recent_cv_event",
+          "label": "yes",
+          "n": 2,
+          "detected": 2,
+          "auto_missed": 0
+        },
+        {
+          "question": "egfr_30_or_more",
+          "label": "no",
+          "n": 8,
+          "detected": 8,
+          "auto_missed": 0
+        },
+        {
+          "question": "no_recent_cv_event",
+          "label": "no",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 4833.055249880999,
+      "latency_p95_ms": 8487.791209015995,
+      "cost_per_decision_usd": 0.00386629,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "age_18_75": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "t2d_diagnosis": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "hba1c_in_range": {
+          "n": 100,
+          "accuracy": 0.9,
+          "ece": 0.07999999999999996
+        },
+        "stable_metformin": {
+          "n": 100,
+          "accuracy": 0.83,
+          "ece": 0.15000000000000002
+        },
+        "egfr_30_or_more": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_insulin": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_recent_cv_event": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "note_pregnancy": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.0045999999999999375
+        },
+        "note_pancreatitis": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.004899999999999904
+        },
+        "note_active_cancer_treatment": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.005499999999999949
+        },
+        "note_recent_cv_event": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.005299999999999971
+        }
+      }
+    },
+    {
+      "config": "structured=criteria \u00b7 notes=llm (anthropic/claude-sonnet-5)",
+      "providers": {
+        "structured": {
+          "variant": "criteria",
+          "type": "criteria",
+          "model": "criteria@cdfa245d36d6"
+        },
+        "notes": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "anthropic/claude-sonnet-5"
+        }
+      },
+      "dataset": "trial-local-site-example",
+      "n": 100,
+      "report_id": "641de114-cdc3-4b8f-ae48-8a9c5a75bd1e",
+      "created_at": "2026-09-29T03:26:33+00:00",
+      "pack_version": "0.1.0",
+      "accuracy": 0.89,
+      "macro_f1": 0.845880690253085,
+      "ece": 0.07707962349077582,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "note_pregnancy",
+          "label": "yes",
+          "n": 2,
+          "detected": 2,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_pancreatitis",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_active_cancer_treatment",
+          "label": "yes",
+          "n": 4,
+          "detected": 4,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_recent_cv_event",
+          "label": "yes",
+          "n": 2,
+          "detected": 2,
+          "auto_missed": 0
+        },
+        {
+          "question": "egfr_30_or_more",
+          "label": "no",
+          "n": 8,
+          "detected": 8,
+          "auto_missed": 0
+        },
+        {
+          "question": "no_recent_cv_event",
+          "label": "no",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 2282.6704592444003,
+      "latency_p95_ms": 2551.7406249418855,
+      "cost_per_decision_usd": 0.0040217199999999995,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "age_18_75": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "t2d_diagnosis": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "hba1c_in_range": {
+          "n": 100,
+          "accuracy": 0.9,
+          "ece": 0.07999999999999996
+        },
+        "stable_metformin": {
+          "n": 100,
+          "accuracy": 0.83,
+          "ece": 0.15000000000000002
+        },
+        "egfr_30_or_more": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_insulin": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_recent_cv_event": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "note_pregnancy": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020400000000000085
+        },
+        "note_pancreatitis": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.021100000000000008
+        },
+        "note_active_cancer_treatment": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.02290000000000003
+        },
+        "note_recent_cv_event": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.021399999999999975
+        }
+      }
+    },
+    {
+      "config": "structured=criteria \u00b7 notes=llm (openai/gpt-oss-120b)",
+      "providers": {
+        "structured": {
+          "variant": "criteria",
+          "type": "criteria",
+          "model": "criteria@cdfa245d36d6"
+        },
+        "notes": {
+          "variant": "llm",
+          "type": "llm",
+          "model": "openai/gpt-oss-120b"
+        }
+      },
+      "dataset": "trial-local-site-example",
+      "n": 100,
+      "report_id": "0560c6bf-7abd-411e-a0ac-0bce83bf98d5",
+      "created_at": "2026-09-29T03:18:46+00:00",
+      "pack_version": "0.1.0",
+      "accuracy": 0.89,
+      "macro_f1": 0.845880690253085,
+      "ece": 0.06865745747618875,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "note_pregnancy",
+          "label": "yes",
+          "n": 2,
+          "detected": 2,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_pancreatitis",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_active_cancer_treatment",
+          "label": "yes",
+          "n": 4,
+          "detected": 4,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_recent_cv_event",
+          "label": "yes",
+          "n": 2,
+          "detected": 2,
+          "auto_missed": 0
+        },
+        {
+          "question": "egfr_30_or_more",
+          "label": "no",
+          "n": 8,
+          "detected": 8,
+          "auto_missed": 0
+        },
+        {
+          "question": "no_recent_cv_event",
+          "label": "no",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 1041.8696249835193,
+      "latency_p95_ms": 1458.767042029649,
+      "cost_per_decision_usd": 0.000162741,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "age_18_75": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "t2d_diagnosis": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "hba1c_in_range": {
+          "n": 100,
+          "accuracy": 0.9,
+          "ece": 0.07999999999999996
+        },
+        "stable_metformin": {
+          "n": 100,
+          "accuracy": 0.83,
+          "ece": 0.15000000000000002
+        },
+        "egfr_30_or_more": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_insulin": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_recent_cv_event": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "note_pregnancy": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.013499999999999956
+        },
+        "note_pancreatitis": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.011700000000000044
+        },
+        "note_active_cancer_treatment": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.011200000000000099
+        },
+        "note_recent_cv_event": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.011200000000000099
+        }
+      }
+    },
+    {
+      "config": "structured=criteria \u00b7 notes=rules",
+      "providers": {
+        "structured": {
+          "variant": "criteria",
+          "type": "criteria",
+          "model": "criteria@cdfa245d36d6"
+        },
+        "notes": {
+          "variant": "rules",
+          "type": "rules",
+          "model": "rules@403d03c1d9cf"
+        }
+      },
+      "dataset": "trial-local-site-example",
+      "n": 100,
+      "report_id": "b1f37c5f-73ab-4a4d-a1f8-be719058f594",
+      "created_at": "2026-09-29T03:16:22+00:00",
+      "pack_version": "0.1.0",
+      "accuracy": 0.86,
+      "macro_f1": 0.8078076625386995,
+      "ece": 0.11497030934714964,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "note_pregnancy",
+          "label": "yes",
+          "n": 2,
+          "detected": 1,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_pancreatitis",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_active_cancer_treatment",
+          "label": "yes",
+          "n": 4,
+          "detected": 4,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_recent_cv_event",
+          "label": "yes",
+          "n": 2,
+          "detected": 1,
+          "auto_missed": 0
+        },
+        {
+          "question": "egfr_30_or_more",
+          "label": "no",
+          "n": 8,
+          "detected": 8,
+          "auto_missed": 0
+        },
+        {
+          "question": "no_recent_cv_event",
+          "label": "no",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 0.30283303931355476,
+      "latency_p95_ms": 0.37583382800221443,
+      "cost_per_decision_usd": 0.0,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "age_18_75": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "t2d_diagnosis": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "hba1c_in_range": {
+          "n": 100,
+          "accuracy": 0.9,
+          "ece": 0.07999999999999996
+        },
+        "stable_metformin": {
+          "n": 100,
+          "accuracy": 0.83,
+          "ece": 0.15000000000000002
+        },
+        "egfr_30_or_more": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_insulin": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_recent_cv_event": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "note_pregnancy": {
+          "n": 100,
+          "accuracy": 0.99,
+          "ece": 0.037425873177566626
+        },
+        "note_pancreatitis": {
+          "n": 100,
+          "accuracy": 0.93,
+          "ece": 0.022574126822433316
+        },
+        "note_active_cancer_treatment": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.047425873177566635
+        },
+        "note_recent_cv_event": {
+          "n": 100,
+          "accuracy": 0.99,
+          "ece": 0.03699231582294993
+        }
+      }
+    },
+    {
+      "config": "structured=criteria \u00b7 notes=rules_and_jev (jev-1.13.0)",
+      "providers": {
+        "structured": {
+          "variant": "criteria",
+          "type": "criteria",
+          "model": "criteria@cdfa245d36d6"
+        },
+        "notes": {
+          "variant": "rules_and_jev",
+          "type": "any_of",
+          "model": "rules:rules@403d03c1d9cf + jev:jev-1.13.0"
+        }
+      },
+      "dataset": "trial-local-site-example",
+      "n": 100,
+      "report_id": "51426f50-2f8d-415d-b548-75fed04213b5",
+      "created_at": "2026-09-29T03:18:43+00:00",
+      "pack_version": "0.1.0",
+      "accuracy": 0.87,
+      "macro_f1": 0.8183178170938269,
+      "ece": 0.12715865570055224,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "note_pregnancy",
+          "label": "yes",
+          "n": 2,
+          "detected": 2,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_pancreatitis",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_active_cancer_treatment",
+          "label": "yes",
+          "n": 4,
+          "detected": 4,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_recent_cv_event",
+          "label": "yes",
+          "n": 2,
+          "detected": 2,
+          "auto_missed": 0
+        },
+        {
+          "question": "egfr_30_or_more",
+          "label": "no",
+          "n": 8,
+          "detected": 8,
+          "auto_missed": 0
+        },
+        {
+          "question": "no_recent_cv_event",
+          "label": "no",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 186.67976800009,
+      "latency_p95_ms": 226.4935879999257,
+      "cost_per_decision_usd": 2.864484e-05,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "age_18_75": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "t2d_diagnosis": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "hba1c_in_range": {
+          "n": 100,
+          "accuracy": 0.9,
+          "ece": 0.07999999999999996
+        },
+        "stable_metformin": {
+          "n": 100,
+          "accuracy": 0.83,
+          "ece": 0.15000000000000002
+        },
+        "egfr_30_or_more": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_insulin": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_recent_cv_event": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "note_pregnancy": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.04715161444579097
+        },
+        "note_pancreatitis": {
+          "n": 100,
+          "accuracy": 0.93,
+          "ece": 0.02291671414019003
+        },
+        "note_active_cancer_treatment": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.05620700644298867
+        },
+        "note_recent_cv_event": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.047652693578090655
+        }
+      }
+    },
+    {
+      "config": "structured=criteria \u00b7 notes=rules_and_llm (anthropic/claude-haiku-4.5)",
+      "providers": {
+        "structured": {
+          "variant": "criteria",
+          "type": "criteria",
+          "model": "criteria@cdfa245d36d6"
+        },
+        "notes": {
+          "variant": "rules_and_llm",
+          "type": "any_of",
+          "model": "rules:rules@403d03c1d9cf + llm:anthropic/claude-haiku-4.5"
+        }
+      },
+      "dataset": "trial-local-site-example",
+      "n": 100,
+      "report_id": "55d3dcc9-0016-4082-8623-621f37d32113",
+      "created_at": "2026-09-29T03:24:50+00:00",
+      "pack_version": "0.1.0",
+      "accuracy": 0.87,
+      "macro_f1": 0.8183178170938269,
+      "ece": 0.12397815435291654,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "note_pregnancy",
+          "label": "yes",
+          "n": 2,
+          "detected": 2,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_pancreatitis",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_active_cancer_treatment",
+          "label": "yes",
+          "n": 4,
+          "detected": 4,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_recent_cv_event",
+          "label": "yes",
+          "n": 2,
+          "detected": 2,
+          "auto_missed": 0
+        },
+        {
+          "question": "egfr_30_or_more",
+          "label": "no",
+          "n": 8,
+          "detected": 8,
+          "auto_missed": 0
+        },
+        {
+          "question": "no_recent_cv_event",
+          "label": "no",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 4161.046667024493,
+      "latency_p95_ms": 8750.012166798115,
+      "cost_per_decision_usd": 0.00378019,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "age_18_75": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "t2d_diagnosis": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "hba1c_in_range": {
+          "n": 100,
+          "accuracy": 0.9,
+          "ece": 0.07999999999999996
+        },
+        "stable_metformin": {
+          "n": 100,
+          "accuracy": 0.83,
+          "ece": 0.15000000000000002
+        },
+        "egfr_30_or_more": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_insulin": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_recent_cv_event": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "note_pregnancy": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.046603096982239745
+        },
+        "note_pancreatitis": {
+          "n": 100,
+          "accuracy": 0.93,
+          "ece": 0.023671161749535985
+        },
+        "note_active_cancer_treatment": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.04552883825046394
+        },
+        "note_recent_cv_event": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.046477355714015234
+        }
+      }
+    },
+    {
+      "config": "structured=criteria \u00b7 notes=rules_and_llm (anthropic/claude-sonnet-5)",
+      "providers": {
+        "structured": {
+          "variant": "criteria",
+          "type": "criteria",
+          "model": "criteria@cdfa245d36d6"
+        },
+        "notes": {
+          "variant": "rules_and_llm",
+          "type": "any_of",
+          "model": "rules:rules@403d03c1d9cf + llm:anthropic/claude-sonnet-5"
+        }
+      },
+      "dataset": "trial-local-site-example",
+      "n": 100,
+      "report_id": "a5ac55c9-7486-4d51-8994-4a92162dff65",
+      "created_at": "2026-09-29T03:27:52+00:00",
+      "pack_version": "0.1.0",
+      "accuracy": 0.87,
+      "macro_f1": 0.8183178170938269,
+      "ece": 0.12240235969122389,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "note_pregnancy",
+          "label": "yes",
+          "n": 2,
+          "detected": 2,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_pancreatitis",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_active_cancer_treatment",
+          "label": "yes",
+          "n": 4,
+          "detected": 4,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_recent_cv_event",
+          "label": "yes",
+          "n": 2,
+          "detected": 2,
+          "auto_missed": 0
+        },
+        {
+          "question": "egfr_30_or_more",
+          "label": "no",
+          "n": 8,
+          "detected": 8,
+          "auto_missed": 0
+        },
+        {
+          "question": "no_recent_cv_event",
+          "label": "no",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 2258.73791705817,
+      "latency_p95_ms": 2680.848791729659,
+      "cost_per_decision_usd": 0.00401782,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "age_18_75": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "t2d_diagnosis": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "hba1c_in_range": {
+          "n": 100,
+          "accuracy": 0.9,
+          "ece": 0.07999999999999996
+        },
+        "stable_metformin": {
+          "n": 100,
+          "accuracy": 0.83,
+          "ece": 0.15000000000000002
+        },
+        "egfr_30_or_more": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_insulin": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_recent_cv_event": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "note_pregnancy": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.04725161444579096
+        },
+        "note_pancreatitis": {
+          "n": 100,
+          "accuracy": 0.93,
+          "ece": 0.022574126822433316
+        },
+        "note_active_cancer_treatment": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.047425873177566635
+        },
+        "note_recent_cv_event": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.04751805709117418
+        }
+      }
+    },
+    {
+      "config": "structured=criteria \u00b7 notes=rules_and_llm (openai/gpt-oss-120b)",
+      "providers": {
+        "structured": {
+          "variant": "criteria",
+          "type": "criteria",
+          "model": "criteria@cdfa245d36d6"
+        },
+        "notes": {
+          "variant": "rules_and_llm",
+          "type": "any_of",
+          "model": "rules:rules@403d03c1d9cf + llm:openai/gpt-oss-120b"
+        }
+      },
+      "dataset": "trial-local-site-example",
+      "n": 100,
+      "report_id": "5f4e8003-7ebd-447a-b1f8-391f7cbffbfc",
+      "created_at": "2026-09-29T03:19:25+00:00",
+      "pack_version": "0.1.0",
+      "accuracy": 0.87,
+      "macro_f1": 0.8183178170938269,
+      "ece": 0.12380113568959297,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
+      "critical": [
+        {
+          "question": "note_pregnancy",
+          "label": "yes",
+          "n": 2,
+          "detected": 2,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_pancreatitis",
+          "label": "yes",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_active_cancer_treatment",
+          "label": "yes",
+          "n": 4,
+          "detected": 4,
+          "auto_missed": 0
+        },
+        {
+          "question": "note_recent_cv_event",
+          "label": "yes",
+          "n": 2,
+          "detected": 2,
+          "auto_missed": 0
+        },
+        {
+          "question": "egfr_30_or_more",
+          "label": "no",
+          "n": 8,
+          "detected": 8,
+          "auto_missed": 0
+        },
+        {
+          "question": "no_recent_cv_event",
+          "label": "no",
+          "n": 3,
+          "detected": 3,
+          "auto_missed": 0
+        }
+      ],
+      "latency_p50_ms": 1140.4472081921995,
+      "latency_p95_ms": 1505.908832885325,
+      "cost_per_decision_usd": 0.00016113099999999999,
+      "errors": 0,
+      "error_codes": {},
+      "questions": {
+        "age_18_75": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "t2d_diagnosis": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "hba1c_in_range": {
+          "n": 100,
+          "accuracy": 0.9,
+          "ece": 0.07999999999999996
+        },
+        "stable_metformin": {
+          "n": 100,
+          "accuracy": 0.83,
+          "ece": 0.15000000000000002
+        },
+        "egfr_30_or_more": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_insulin": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "no_recent_cv_event": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.020000000000000018
+        },
+        "note_pregnancy": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.04670309698223962
+        },
+        "note_pancreatitis": {
+          "n": 100,
+          "accuracy": 0.93,
+          "ece": 0.023671161749535985
+        },
+        "note_active_cancer_treatment": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.04615457951868829
+        },
+        "note_recent_cv_event": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.04694379835939855
+        }
+      }
+    }
+  ]
+}
