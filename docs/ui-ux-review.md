@@ -488,7 +488,7 @@ Business logic, APIs and computations are not touched in any phase.
 decision 6)**
 - **Files:** `settings.py` (`OPENHEALTH_TIMEZONE`), `core/audit.py` (day grouping in
   `stats`, the usage-counter date), `server/app.py` (report the time zone in `/api/health`),
-  `cli.py` and `evals/card.py` (human-readable dates), `app.js` (one `formatTime` helper with
+  `cli.py`, `core/card.py` and `evals/render.py` (human-readable dates), `app.js` (one `formatTime` helper with
   `Intl.DateTimeFormat` and the time zone; "ET" labels), `pyproject.toml` (`tzdata`), tests
   at the EDT/EST transitions.
 - **Acceptance:**
