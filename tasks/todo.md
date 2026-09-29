@@ -21,6 +21,11 @@ leaderboard and deployed choice.
 - [x] Deployed with the user's choice: `openhealth/ai-guard:screen=rules_and_jev`. Live: a
   missed emergency, a stroke in words the rules don't list and an unlisted-brand overdose are
   blocked; a safe draft waits for one-step approval
+- [x] 0.1.2: synthetic drafts fit their questions; leaderboard re-measured (LLM screens 0.90-0.98
+  verdict accuracy, rules + Jev 0.80-0.88)
+- [x] Switched to the user's new choice: `openhealth/ai-guard:screen=rules_and_llm` with
+  `LLM_MODEL=anthropic/claude-sonnet-5` and `OPENHEALTH_LLM_DAILY_LIMIT=none` (production and
+  preview). Sonnet + rules was the only screen that never missed a draft to block in any run
 
 ## Done: v0.3 Prior Authorization Preflight
 Plan approved 2026-09-29 (3 PRs): runtime → the pack → leaderboard and deployed choice.
