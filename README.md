@@ -37,7 +37,7 @@ Clinical/EHR data (FHIR R4, CDS Hooks, REST)
 | Evaluation harness | [`src/openhealth/evals/`](src/openhealth/evals) |
 | Audit trail | SQLite, append-only hash-chained events, `openhealth audit verify` |
 | Synthetic healthcare dataset | [`src/openhealth/sandbox/synthetic_inbox.py`](src/openhealth/sandbox/synthetic_inbox.py), [`synthetic_trial.py`](src/openhealth/sandbox/synthetic_trial.py) |
-| Developer dashboard | `openhealth serve` → http://127.0.0.1:8000 |
+| Developer dashboard | `openhealth serve` → http://127.0.0.1:8000: every pack on the search path, with a criteria table for derived decisions and Try-it examples from each pack's behaviour tests (`GET /api/packs/{id}/examples`) |
 
 ## Quickstart
 

@@ -15,7 +15,11 @@ dashboard and deployment → leaderboard and deployed choice.
   site 150); hand-written `exclusions` (tuning) and `exclusions_holdout` (written first).
   Rules: 15/15 tuning, 8/12 holdout; local site 84% vs 99% public. Local datasets are now
   offered only to the pack whose questions they label.
-- [ ] PR 4 multi-pack dashboard (generic input, criteria table, examples Try-it); deploy
+- [x] PR 4 multi-pack dashboard: record inputs rendered generically (message packs unchanged),
+  criteria table for a derived primary (answer, confidence, effect in the table, source,
+  evidence) in Try-it, review, feedback and audit; Try-it JSON editor with the pack's behaviour
+  tests (`GET /api/packs/{id}/examples`); local-site dataset preselected per pack; top-bar
+  overflow at phone width fixed. Deployed with the trial pack on `notes=rules` until PR 5.
 - [ ] PR 5 leaderboard for the trial pack; live Jev `noul` check; choose deployed notes provider
 
 ## Done: v0.2 Model-agnostic core

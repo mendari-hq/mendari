@@ -66,6 +66,7 @@ p { margin: 0 0 10px; }
   padding: 10px 20px; background: var(--surface); border-bottom: 1px solid var(--border);
 }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 650; font-size: 15px; }
+.pack-picker { min-width: 0; }  /* long pack names shrink the picker, not widen the page */
 .logo { color: var(--accent); }
 .tag {
   font-weight: 500; font-size: 11px; color: var(--review); background: var(--review-soft);
@@ -175,6 +176,21 @@ pre.json {
   padding: 12px; overflow: auto; max-height: 420px;
 }
 .finding { padding: 6px 0; border-bottom: 1px dashed var(--border); }
+
+/* Structured records (packs whose input is not a message) and criteria tables. */
+.record { margin: 10px 0; }
+.record .chips { margin-bottom: 8px; }
+.list-name { font-weight: 600; font-size: 12px; margin: 10px 0 4px; }
+.list-name .muted, .list-name span { font-weight: 400; }
+table.compact th, table.compact td { padding: 4px 8px; font-size: 12px; }
+/* break-word, not anywhere: short codes ("E11.9") stay whole and the table scrolls instead. */
+table.compact td { overflow-wrap: break-word; }
+.criteria tr.hit td { background: var(--review-soft); }
+.criteria td:nth-child(-n+5) { white-space: nowrap; }
+.criteria td.evidence { color: var(--muted); min-width: 220px; }
+textarea.code { font-family: var(--mono); font-size: 12px; min-height: 320px; }
+details { margin-top: 12px; }
+details summary { cursor: pointer; color: var(--accent); }
 .fb { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .fb .fb-note { flex: 1 1 220px; min-width: 0; }
 .fb button { padding: 4px 10px; font-size: 15px; line-height: 1.2; }
