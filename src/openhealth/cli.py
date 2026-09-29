@@ -338,11 +338,13 @@ SANDBOX_KINDS = {
     "trial": ("packs/clinical-trial-prescreener", "datasets/trial-local-site-example.jsonl"),
     "referral": ("packs/referral-router", "datasets/referral-local-site-example.jsonl"),
     "prior-auth": ("packs/prior-auth-preflight", "datasets/prior-auth-local-site-example.jsonl"),
+    "guard": ("packs/ai-guard", "datasets/guard-local-site-example.jsonl"),
 }
 
 
 def cmd_sandbox_generate(args: argparse.Namespace) -> int:
     from openhealth.sandbox import (
+        synthetic_guard,
         synthetic_inbox,
         synthetic_prior_auth,
         synthetic_referral,
@@ -354,6 +356,7 @@ def cmd_sandbox_generate(args: argparse.Namespace) -> int:
         "trial": synthetic_trial,
         "referral": synthetic_referral,
         "prior-auth": synthetic_prior_auth,
+        "guard": synthetic_guard,
     }
     generator = generators[args.kind]
     pack_dir, local_out = SANDBOX_KINDS[args.kind]

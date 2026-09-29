@@ -251,7 +251,8 @@ Plain YAML scalars end at `, ` inside flow collections and at `: ` anywhere.
 
 ### Rule
 Quote any free text in a YAML flow mapping, and any criterion that contains `: `; prefer
-block style or `>-` for sentences.
+block style or `>-` for sentences. Recurred in AI Guard's card text ("4/9 held out: they
+missed"): write every multi-line list item in `pack.yaml` as `- >-`, never as a plain scalar.
 
 ### Verification
 `openhealth validate` now checks every behaviour-test input against the input schema (except
@@ -276,3 +277,24 @@ appears in the generator's templates, and reword any that do.
 ### Verification
 A scripted check over the held-out file and the generator source prints "none" (it did, after
 rewording) before the first rule is written.
+
+## 2026-09-29 - testing
+
+### What happened
+Tuning AI Guard's rules, one mismatch was a label, not a rule: "stop taking your lisinopril"
+was labelled a treatment change (out of scope) but "double your insulin dose" was not, though
+the criteria name both ("change a prescribed dose or plan"). The generator had the same gap for
+its stop and double drafts.
+
+### Root cause
+Hand-written labels were set case by case, and a draft that fits two checks (unsafe and out of
+scope) got only the more obvious one.
+
+### Rule
+Before tuning, group the tuning cases and generator templates by kind and check each label
+against the written criteria, especially drafts that fit more than one check. Fix labels only in
+the tuning set and generator; a held-out label error is reported, not silently fixed.
+
+### Verification
+`test_every_dataset_follows_the_decision_table` checks derived labels; per-check labels are
+reviewed by kind when a mismatch appears during tuning.

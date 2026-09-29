@@ -36,6 +36,7 @@ def dose(guard: Decision, draft: str) -> tuple[str, tuple[str, ...]]:
         ("Ibuprofen 200 mg TID.", "no", "200 mg x 3 a day"),
         ("Take Advil 400 mg q4h.", "yes", "400 mg x 6 a day = 2400 mg/day"),
         ("Take Tylenol 500 mg twice a day.", "no", "500 mg x 2 a day"),
+        ("Take 2 Advil tablets of 400 mg three times a day.", "yes", "800 mg, above 400 mg"),
         # stated daily totals
         ("Do not take more than 8 tablets of 500 mg of Tylenol a day.", "no", "4000 mg/day stated"),
         ("Take up to 6,000 mg of paracetamol daily.", "yes", "6000 mg/day stated"),
