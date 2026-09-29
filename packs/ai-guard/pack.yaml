@@ -1,6 +1,6 @@
 spec_version: "0.2"
 id: openhealth/ai-guard
-version: 0.1.1
+version: 0.1.2
 name: AI Guard
 summary: >-
   Checks a language model's draft reply to a patient before anyone reads it: blocks drafts that
@@ -42,9 +42,9 @@ card:
   known_failure_modes:
     - >-
       Doses are checked only for the medicines and names listed in logic/doses.yaml. On the
-      bundled local-site example (datasets/guard-local-site-example.jsonl), where half the dose
-      errors use brand names the table does not list (Panadol, Nurofen), 21/44 dose errors were
-      found and 70/93 drafts to block were blocked; the other 23 were held for a clinician.
+      bundled local-site example (datasets/guard-local-site-example.jsonl), where some dose
+      errors use brand names the table does not list (Panadol, Nurofen), 15/21 dose errors were
+      found and 74/80 drafts to block were blocked; the other 6 were held for a clinician.
       Add a site's medicines and brand names before use.
     - >-
       The dose parser reads common forms ("1000 mg every 4 hours", "2 tablets of 500 mg",
@@ -60,13 +60,13 @@ card:
       deploy with a model in the screen.
     - >-
       The keyword rules do not judge doses. A dose that is too high counts as unsafe advice,
-      but with the rules alone only the dose check finds it, so the benchmark shows 94/159
-      unsafe-advice drafts found by the rules while all 159 drafts to block were blocked.
+      but with the rules alone only the dose check finds it, so the benchmark shows 102/164
+      unsafe-advice drafts found by the rules while all 164 drafts to block were blocked.
     - >-
       The keyword rules do not compare the draft with the context. A medicine the context
       lists as an allergy is missed (ibuprofen and aspirin in the hand-written sets), and any
       claim about results or the chart reads as unclear, even when the context shows it, so
-      supported claims are held for a clinician (24/287 passing drafts in the benchmark).
+      supported claims are held for a clinician (14/268 passing drafts in the benchmark).
     - >-
       The overall probability treats every check as independent.
     - >-

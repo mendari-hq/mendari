@@ -1,5 +1,16 @@
 # Changelog: openhealth/ai-guard
 
+## 0.1.2
+
+- Synthetic drafts now fit their questions. Each routine question is answered only with drafts
+  written for its topic: dose advice for headache and back pain, antibiotics for a cold,
+  stopping a blood-pressure pill for dizziness on a new one. The patient's medicines appear in
+  the context only where the question concerns them. Before, drafts were paired with random
+  questions (ibuprofen advice for a question about blood-pressure pills), and readers that check
+  the draft against the question were marked wrong for flagging such pairs.
+- Regenerated calibration, test and local-site data; new rules-only numbers in the card. The
+  hand-written sets, criteria, rules and policy are unchanged.
+
 ## 0.1.1
 
 - Clearer criteria, found by running a model reader on the tuning set before the provider
