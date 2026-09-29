@@ -17,7 +17,13 @@ roles, feedback that captures the right answer, Eastern time everywhere people l
   counters, "today" for criteria and FHIR ages, card dates and every time the dashboard shows
   (with EDT/EST, whatever the viewer's clock); `/api/health` reports it. Stored timestamps, the
   audit chain, API JSON and FHIR stay UTC
-- [ ] Phase 1: design tokens and theming (toggle, no flash, contrast test)
+- [x] Phase 1: design tokens and theming. `style.css` rebuilt on semantic tokens (colour for both
+  themes, type, space, radii, elevation, motion; no hex outside the token blocks); System / Light /
+  Dark toggle, saved, applied before first paint by a head script (no flash) and following the
+  system setting live; Lucide icons (ISC, vendored sprite) replace emoji; plain-word outcome and
+  priority labels with the codes in tooltips; stat is a solid red chip; inline styles replaced by
+  classes (only data-driven bar widths remain); `tests/test_dashboard_contrast.py`; browser tests
+  for the toggle, no flash and the live system setting
 - [ ] Phase 2: tables and leaderboard, audit drawer
 - [ ] Phase 3: charts
 - [ ] Phase 4a: feedback backend (the right answer on a thumbs-down)

@@ -1,0 +1,95 @@
+"""The dashboard's colour tokens meet WCAG AA in both themes, and components use only tokens.
+
+Reads the token blocks from style.css (`:root` for light, `:root[data-theme="dark"]` for dark), so a
+colour change that breaks contrast fails here before anyone sees it.
+"""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+import pytest
+
+CSS = (Path(__file__).parents[1] / "src" / "openhealth" / "dashboard" / "style.css").read_text()
+TEXT, UI = 4.5, 3.0  # WCAG AA: normal text; UI components, focus rings and chart marks
+
+
+def _block(selector: str) -> tuple[int, int]:
+    start = CSS.index(selector + " {")
+    return start, CSS.index("\n}", start)
+
+
+def _tokens(selector: str) -> dict[str, str]:
+    start, end = _block(selector)
+    return dict(re.findall(r"--([\w-]+):\s*([^;]+);", CSS[start:end]))
+
+
+LIGHT = _tokens(":root")
+THEMES = {"light": LIGHT, "dark": {**LIGHT, **_tokens(':root[data-theme="dark"]')}}
+
+PAIRS = [
+    # (foreground, background, minimum): where the pair appears
+    ("color-text", "color-bg", TEXT),
+    ("color-text", "color-surface", TEXT),
+    ("color-text", "color-surface-sunken", TEXT),  # messages, chips, table hover
+    ("color-text-muted", "color-bg", TEXT),
+    ("color-text-muted", "color-surface", TEXT),
+    ("color-text-muted", "color-surface-sunken", TEXT),
+    ("color-accent", "color-bg", TEXT),  # links
+    ("color-accent", "color-surface", TEXT),
+    ("color-accent", "color-accent-soft", TEXT),  # active nav item, pressed toggle
+    ("color-on-accent", "color-accent", TEXT),  # primary buttons
+    ("outcome-auto", "outcome-auto-soft", TEXT),  # badges
+    ("outcome-review", "outcome-review-soft", TEXT),
+    ("outcome-abstain", "outcome-abstain-soft", TEXT),
+    ("outcome-block", "outcome-block-soft", TEXT),
+    ("color-on-solid", "color-danger-solid", TEXT),  # the stat chip
+    ("color-warning", "color-warning-soft", TEXT),  # sandbox tag, review count
+    ("color-text", "outcome-review-soft", TEXT),  # criteria rows that change the decision
+    ("color-text-muted", "outcome-review-soft", TEXT),
+    ("color-bg", "color-text", TEXT),  # toast
+    ("color-border-strong", "color-bg", UI),  # form fields
+    ("color-border-strong", "color-surface", UI),
+    ("color-border-strong", "color-surface-sunken", UI),
+    ("color-accent", "color-surface-sunken", UI),  # focus ring on sunken areas
+    *[(f"chart-{i}", "color-surface", UI) for i in range(1, 7)],
+    *[(f"outcome-{o}", "color-surface-sunken", UI) for o in ("auto", "review", "abstain", "block")],
+]
+
+
+def _hex(tokens: dict[str, str], name: str) -> str:
+    value = tokens[name].strip()
+    while value.startswith("var(--"):
+        value = tokens[value[6:-1]].strip()
+    assert re.fullmatch(r"#[0-9a-fA-F]{6}", value), f"--{name} is {value!r}, expected #rrggbb"
+    return value
+
+
+def _contrast(foreground: str, background: str) -> float:
+    def luminance(color: str) -> float:
+        channels = [int(color[i : i + 2], 16) / 255 for i in (1, 3, 5)]
+        linear = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]
+        return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+    high, low = sorted([luminance(foreground), luminance(background)], reverse=True)
+    return (high + 0.05) / (low + 0.05)
+
+
+@pytest.mark.parametrize("theme", ["light", "dark"])
+def test_every_colour_pair_meets_wcag_aa(theme: str) -> None:
+    tokens = THEMES[theme]
+    failing = [
+        f"--{fg} on --{bg}: {ratio:.2f}:1 (needs {minimum}:1)"
+        for fg, bg, minimum in PAIRS
+        if (ratio := _contrast(_hex(tokens, fg), _hex(tokens, bg))) < minimum
+    ]
+    assert failing == []
+
+
+def test_components_use_tokens_not_hex_colours() -> None:
+    outside = CSS
+    for selector in (':root[data-theme="dark"]', ":root"):
+        start, end = _block(selector)
+        outside = outside[:start] + outside[end:]
+    assert re.findall(r"#[0-9a-fA-F]{3,8}\b", outside) == []

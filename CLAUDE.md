@@ -7,6 +7,7 @@ Python 3.11+ · uv · pydantic v2 · FastAPI · SQLite (local) or Postgres (Verc
 ```bash
 uv sync                                   # install (dev group included)
 uv run pytest                             # full suite, < 3 s, warnings are errors
+uv run pytest -m browser                  # dashboard in Chromium (once: uv run playwright install chromium)
 # Postgres backend tests (OpenHealth's own container; never reuse another project's database):
 docker run -d --name openhealth-pg-test -e POSTGRES_PASSWORD=openhealth-test \
   -e POSTGRES_DB=openhealth_test -p 127.0.0.1:56432:5432 postgres:16-alpine
@@ -36,6 +37,9 @@ docker compose up --build                 # HAPI FHIR + engine + worker sandbox
   codes and no remote error bodies or credentials in messages.
 - **Reports never contain case text**, only ids.
 - Keep `pack.yaml` criteria human-readable: they are both documentation and Jev instructions.
+- **Dashboard styles use tokens only** (`src/openhealth/dashboard/style.css`, section 1): no hex
+  colours in components; `tests/test_dashboard_contrast.py` checks every pair for WCAG AA in both
+  themes. Design plan: `docs/ui-ux-review.md`.
 
 ## Layout
 
