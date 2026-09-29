@@ -8,14 +8,14 @@
           - {any: unknown, then: needs_review}
           - {else: candidate}
 
-Rows are tried top-down and the first match wins; a row with `in: [...]` only looks at those
-members, and a row with `when: {member: [labels]}` only counts while that member's answer is
-one of the labels. Instead of applying the table only to each member's most likely label
-(which would hide uncertainty), the derived answer carries the exact probability of every row
-winning, treating the members' answers as independent. A dynamic program walks the members
-once, tracking which rows are satisfied so far and whether each row's `when` is open:
-O(members x labels x states), with at most 2^rows states because rows are capped at 10 and
-every `when` names the same member.
+Rows are tried top-down and the first match wins. `any` / `all` take a label or a list of
+labels; a row with `in: [...]` only looks at those members, and a row with
+`when: {member: [labels], ...}` only counts while each named member's answer is one of its
+labels. Instead of applying the table only to each member's most likely label (which would
+hide uncertainty), the derived answer carries the exact probability of every row winning,
+treating the members' answers as independent. A dynamic program walks the members once,
+tracking which rows are satisfied so far and whether each row's `when` is still open:
+O(members x labels x states), at most 4^rows states, and rows are capped at 10.
 """
 
 from __future__ import annotations
@@ -52,15 +52,14 @@ def complete_answers(
 
 def row_holds(row: DeriveRow, answers: Mapping[str, Answer]) -> bool:
     """Whether a row matches the members' most likely labels (`answers`: every member's)."""
-    if row.gate is not None:
-        gate_member, open_labels = row.gate
+    for gate_member, open_labels in row.gates.items():
         gate_answer = answers.get(gate_member)
         if gate_answer is None or gate_answer.label not in open_labels:
             return False
     labels = [a.label for member, a in answers.items() if row.applies_to(member)]
     if row.any is not None:
-        return row.any in labels
-    return row.all is not None and all(label == row.all for label in labels)
+        return any(label in row.labels for label in labels)
+    return all(label in row.labels for label in labels)
 
 
 def derive_answer(key: str, question: Question, answers: Mapping[str, Answer]) -> Answer:
@@ -72,9 +71,11 @@ def derive_answer(key: str, question: Question, answers: Mapping[str, Answer]) -
 
     # A state records, per row, whether its condition holds so far (`any` rows start False and
     # become True on a match; `all` rows start True and become False on a mismatch) and
-    # whether its `when` is open (True without `when`; set when the gating member is seen).
+    # whether its `when` is open (starts True; each gating member, when seen, must match).
     n = len(rows)
-    start = tuple(row.all is not None for row in rows) + tuple(row.gate is None for row in rows)
+    matches = [row.labels for row in rows]
+    gates = [row.gates for row in rows]
+    start = tuple(row.all is not None for row in rows) + (True,) * n
     states: dict[tuple[bool, ...], float] = {start: 1.0}
     for member in spec.members:
         advanced: dict[tuple[bool, ...], float] = defaultdict(float)
@@ -85,16 +86,16 @@ def derive_answer(key: str, question: Question, answers: Mapping[str, Answer]) -
                 holds = tuple(
                     held
                     if not row.applies_to(member)
-                    else (held or label == row.any)
+                    else (held or label in match)
                     if row.any is not None
-                    else (held and label == row.all)
-                    for held, row in zip(state[:n], rows, strict=True)
+                    else (held and label in match)
+                    for held, row, match in zip(state[:n], rows, matches, strict=True)
                 )
-                gates = tuple(
-                    label in row.gate[1] if row.gate is not None and row.gate[0] == member else ok
-                    for ok, row in zip(state[n:], rows, strict=True)
+                opened = tuple(
+                    ok and (member not in gate or label in gate[member])
+                    for ok, gate in zip(state[n:], gates, strict=True)
                 )
-                advanced[holds + gates] += p_state * p_label
+                advanced[holds + opened] += p_state * p_label
         states = advanced
 
     probabilities = dict.fromkeys(question.criteria, 0.0)
@@ -140,9 +141,14 @@ def explain(question: Question, answers: Mapping[str, Answer]) -> list[str]:
     for row in spec.table[:-1]:
         if not row_holds(row, members):
             continue
-        label = row.any if row.any is not None else row.all
-        names = [m for m, a in members.items() if row.applies_to(m) and a.label == label]
-        verb = "is" if len(names) == 1 else "are"
-        gate = f" ({row.gate[0]} is {members[row.gate[0]].label})" if row.gate else ""
-        reasons.append(f"{row.result}: {', '.join(names)} {verb} {label}{gate}")
+        matched = {
+            m: a.label for m, a in members.items() if row.applies_to(m) and a.label in row.labels
+        }
+        if len(set(matched.values())) == 1:  # "a, b are no"
+            verb = "is" if len(matched) == 1 else "are"
+            found = f"{', '.join(matched)} {verb} {next(iter(matched.values()))}"
+        else:  # "a is no, b is unknown"
+            found = ", ".join(f"{m} is {label}" for m, label in matched.items())
+        gate = ", ".join(f"{m} is {members[m].label}" for m in row.gates)
+        reasons.append(f"{row.result}: {found}{f' ({gate})' if gate else ''}")
     return reasons

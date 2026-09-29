@@ -1,4 +1,4 @@
-"""Structured criteria: yes / no / unknown from coded data, dates and numbers, computed in code.
+"""Structured criteria: answers from coded data, dates and numbers, computed in code.
 
 Eligibility-style questions ("HbA1c between 7.0 and 10.5 % in the last 90 days", "on metformin
 for at least 90 days") need arithmetic on values, units and dates. That is code's job: models,
@@ -34,6 +34,22 @@ with a set of values (e.g. the priority a referrer chose):
           - value: {field: referral.priority, in: [urgent, asap, stat], then: "yes"}
         default: "no"
 
+Answers are usually `yes` / `no` / `unknown`, but a check may answer any label of the
+question, e.g. which service an order code is for. A check with `when: {field, in}` applies
+only while an input field has one of those values, e.g. what counts as prior imaging depends
+on the service ordered:
+
+      service:
+        checks:
+          - value: {field: order.code, in: ["72148", "72149", "72158"], then: lumbar_mri}
+          - value: {field: order.code, in: ["29880", "29881"], then: knee_arthroscopy}
+        default: other
+      prior_imaging:
+        checks:
+          - exists: {in: procedures, codes: ["72100"], within_days: 180, then: "yes"}
+            when: {field: order.code, in: ["72148", "72149", "72158"]}
+        default: "no"
+
 A code ending in `*` matches by prefix (ICD-10 families). This is a deliberately small stepping
 stone; CQL (spec work in v0.4) is the standard way to express such logic.
 """
@@ -43,14 +59,14 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import replace
 from datetime import UTC, date, datetime
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from openhealth.errors import PackValidationError
 from openhealth.providers.base import Provider, ProviderOutput, fingerprint, get_path
 
-Label = Literal["yes", "no", "unknown"]
+Label = str  # a label of the question; checked when the pack loads
 DECIDED = 0.98  # probability given to a determined answer; the rest is shared evenly
 
 
@@ -124,7 +140,13 @@ class ValueCheck(_Model):
 KINDS = ("number", "observation", "condition", "medication", "exists", "value")
 
 
+class FieldGate(_Model):
+    field: str
+    values: list[str] = Field(alias="in", min_length=1)
+
+
 class Check(_Model):
+    when: FieldGate | None = None  # the check applies only while this field has these values
     number: NumberCheck | None = None
     observation: ObservationCheck | None = None
     condition: ConditionCheck | None = None
@@ -226,6 +248,8 @@ def _decide(
     as_of: date,
 ) -> Decision:
     for check in spec.checks:
+        if check.when is not None and get_path(inputs, check.when.field) not in check.when.values:
+            continue
         if check.number:
             decided = _number(check.number, inputs)
         elif check.observation:

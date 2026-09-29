@@ -105,7 +105,7 @@ function memberEffect(derive, member, label, answers) {
     if (row.else !== undefined && row.else !== null) return null;
     if (row.in && !row.in.includes(member)) continue;
     const gateOpen = !row.when || Object.entries(row.when).every(([m, labels]) => labels.includes(answers[m]?.label));
-    if (gateOpen && row.any === label) return row.then;
+    if (gateOpen && rowLabels(row.any).includes(label)) return row.then;
   }
   return null;
 }
@@ -491,12 +491,15 @@ function feedbackCard(item) {
 
 // ---- decision card ---------------------------------------------------------------------------
 
+// `any` / `all` hold a label or a list of labels.
+const rowLabels = (value) => (value === null || value === undefined ? [] : Array.isArray(value) ? value : [value]);
+
 function deriveRow(row) {
   const among = row.in ? `of ${row.in.map((m) => `<code>${esc(m)}</code>`).join(", ")}` : "member";
-  const gate = row.when ? Object.entries(row.when).map(([m, labels]) =>
-    `, when <code>${esc(m)}</code> is ${labels.map((l) => `<code>${esc(l)}</code>`).join(" or ")}`).join("") : "";
-  if (row.any !== null && row.any !== undefined) return `any ${among} is <code>${esc(row.any)}</code>${gate} → <code>${esc(row.then)}</code>`;
-  if (row.all !== null && row.all !== undefined) return `every ${among} is <code>${esc(row.all)}</code>${gate} → <code>${esc(row.then)}</code>`;
+  const codes = (labels) => labels.map((l) => `<code>${esc(l)}</code>`).join(" or ");
+  const gate = row.when ? `, when ${Object.entries(row.when).map(([m, labels]) => `<code>${esc(m)}</code> is ${codes(labels)}`).join(" and ")}` : "";
+  if (row.any !== null && row.any !== undefined) return `any ${among} is ${codes(rowLabels(row.any))}${gate} → <code>${esc(row.then)}</code>`;
+  if (row.all !== null && row.all !== undefined) return `every ${among} is ${codes(rowLabels(row.all))}${gate} → <code>${esc(row.then)}</code>`;
   return `otherwise → <code>${esc(row.else)}</code>`;
 }
 

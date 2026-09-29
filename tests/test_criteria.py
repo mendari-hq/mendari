@@ -260,7 +260,7 @@ def test_screening_date_defaults_to_today(pack: Pack) -> None:
                     "age_18_75": {"checks": [{"number": {"field": "a", "in_range": "maybe"}}]},
                 }
             },
-            "Input should be",
+            r"answers \['maybe'\], not labels of the question",
         ),
         (
             {
@@ -311,3 +311,46 @@ def test_labels_must_exist_on_the_question(pack: Pack) -> None:
         CriteriaProvider(
             pack, info, questions, {"type": "criteria", "config": "logic/criteria.yaml"}
         )
+
+
+def test_choice_labels_and_field_gates(pack: Pack) -> None:
+    config = yaml.safe_load(
+        """
+        questions:
+          service:
+            checks:
+              - value: {field: order.code, in: ["72148", "72149"], then: lumbar_mri}
+              - value: {field: order.code, in: ["29881"], then: knee_arthroscopy}
+            default: other
+          prior_imaging:
+            checks:
+              - exists: {in: procedures, codes: ["72100"], within_days: 180, then: "yes"}
+                when: {field: order.code, in: ["72148", "72149"]}
+              - exists: {in: procedures, codes: ["73721"], within_days: 180, then: "yes"}
+                when: {field: order.code, in: ["29881"]}
+            default: "no"
+        """
+    )
+    (pack.root / "logic" / "criteria.yaml").write_text(yaml.safe_dump(config))
+    labels = {"lumbar_mri": "l", "knee_arthroscopy": "k", "other": "o"}
+    questions = {
+        "service": Question.model_validate({"instructions": "s", "criteria": labels}),
+        "prior_imaging": Question.model_validate({"instructions": "p", "criteria": YNU}),
+    }
+    info = ProviderInfo(slot="structured", variant="criteria", type="criteria")
+    provider = CriteriaProvider(
+        pack, info, questions, {"type": "criteria", "config": "logic/criteria.yaml"}
+    )
+    xray = [{"code": "72100", "date": day(30)}]
+
+    def ask(code: str, procedures: list[dict[str, Any]]) -> dict[str, str]:
+        record = {"as_of": AS_OF.isoformat(), "order": {"code": code}, "procedures": procedures}
+        return {k: a.label for k, a in provider.answer(record).answers.items()}
+
+    assert ask("72148", xray) == {"service": "lumbar_mri", "prior_imaging": "yes"}
+    # A lumbar X-ray is not the prior imaging a knee arthroscopy needs.
+    assert ask("29881", xray) == {"service": "knee_arthroscopy", "prior_imaging": "no"}
+    assert ask("99213", xray) == {"service": "other", "prior_imaging": "no"}
+    answer = provider.answer({"order": {"code": "72148"}}).answers["service"]
+    assert answer.probabilities["lumbar_mri"] == pytest.approx(0.98)
+    assert answer.probabilities["other"] == pytest.approx(0.01)
