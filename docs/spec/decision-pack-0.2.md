@@ -264,7 +264,19 @@ Evaluation order (MUST):
    `thresholds.auto`) gives `AUTO`; ≥ `thresholds.review` gives `HUMAN_REVIEW`; else
    `ABSTAIN`. A missing primary answer gives `ABSTAIN`.
 5. Caps apply only to `AUTO` and only ever lower it to `HUMAN_REVIEW`: a label with
-   `allow_auto: false`; any provider failure in the decision; the risk level (§7).
+   `allow_auto: false`; any provider failure in the decision; a slot named in
+   `automation_requires` running another variant; the risk level (§7).
+
+`automation_requires: {<slot>: [<variant>...]}` allows `AUTO` only while each named slot runs
+one of the listed variants, e.g. a safety screen that includes a model:
+
+```yaml
+automation_requires:
+  triage_screen: [rules_and_jev, rules_and_llm]
+```
+
+Other variants still answer and decide, but every decision goes to a person. A runtime that
+does not know which variants are running MUST NOT automate such a pack.
 6. `ABSTAIN` carries no recommendation. `ABSTAIN` and `BLOCK` carry the policy `fallback`.
 
 ## 7. Risk levels
@@ -402,6 +414,7 @@ produces identical decisions; it simply cannot use the new fields.
 | Derived questions (`derive:` decision tables with exact probabilities) | §4.3 |
 | `min_score` / `max_score` policy conditions; `labels` becomes optional | §6 |
 | `min_probability` policy conditions (a label's probability, not only the winning label) | §6 |
+| `automation_requires` (AUTO only while given slots run given variants) | §6 |
 | Derive rows `in` (scoped to members) and `when` (gated on another answer) | §4.3 |
 | `criteria` provider, including `exists` and `value` checks | §5 |
 | FHIR `lists`, `age_years`/`base64_text`; card and Task templates naming answers | §9 |

@@ -20,7 +20,7 @@ docker compose up --build                 # HAPI FHIR + engine + worker sandbox
 
 ## Rules of the codebase
 
-- **No real PHI, ever.** Test data comes from `openhealth.sandbox.synthetic_inbox` / `synthetic_trial`.
+- **No real PHI, ever.** Test data comes from `openhealth.sandbox.synthetic_*`.
 - **OpenHealth is a separate project.** Never reuse another project's code, connectors,
   credentials, databases, containers or configuration defaults. Before connecting to a local
   port, check which container owns it (`docker ps`).

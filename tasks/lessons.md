@@ -215,3 +215,45 @@ production`) and confirm the setting in `/api/health` before calling it done.
 ### Verification
 `/api/health` shows the expected providers for every pack, and `git log origin/main` contains
 every commit of the PR branch.
+
+## 2026-09-29 - testing
+
+### What happened
+The Referral Router's keyword urgency screen caught 16/16 urgent referrals in the set its
+rules were written on, but 7/12 in the held-out set, and the pack (risk level 1) would have
+automatically scheduled all 5 misses as routine.
+
+### Root cause
+Finding no keyword is not evidence that a referral is routine, but the rules reported
+"routine" with high confidence, so AUTO followed. The inbox had the same gap and relied on the
+deployment choice (rules_and_jev) and documentation.
+
+### Rule
+A pack that automates must not automate on a keyword-only safety screen: declare
+`policy.automation_requires` for the safety slot, listing only the variants that include a
+model and were measured on a held-out safety set. Never tune rules on the held-out set to
+close such a gap; report the number.
+
+### Verification
+The offline configuration's rows show AUTO 0 %, and on every held-out safety set the deployed
+configuration has `auto_missed == 0` for each critical label.
+
+## 2026-09-29 - syntax
+
+### What happened
+Four times in two packs, free text broke YAML: a comma inside a flow mapping
+(`{reason: Stable angina, unchanged..., priority: routine}`) split the value into extra keys,
+and `word: text` inside an unquoted criterion became a nested mapping. The first showed up only
+as behaviour tests that "got None" (the input was BLOCKed by the schema).
+
+### Root cause
+Plain YAML scalars end at `, ` inside flow collections and at `: ` anywhere.
+
+### Rule
+Quote any free text in a YAML flow mapping, and any criterion that contains `: `; prefer
+block style or `>-` for sentences.
+
+### Verification
+`openhealth validate` now checks every behaviour-test input against the input schema (except
+tests that expect BLOCK) and reports YAML errors in `pack.yaml` and `policy.yaml` as
+validation errors.

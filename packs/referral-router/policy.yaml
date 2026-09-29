@@ -1,0 +1,49 @@
+# Decision policy for the Referral Router.
+#
+# Risk level 1: AUTO is allowed. Only complete, routine referrals with a confident specialty
+# are sent to a scheduling queue without a person reading them. Thresholds were chosen on the
+# synthetic benchmark; a site re-validates them on its own referrals before enabling AUTO.
+
+primary: next_step
+
+thresholds:
+  auto: 0.90
+  review: 0.40  # below this there is no suggestion; the referral office handles it as today
+
+labels:
+  urgent_review:
+    allow_auto: false  # a person always reads a possibly urgent referral
+  return_for_info:
+    auto_threshold: 0.95  # sending a referral back delays care: be sure it is incomplete
+
+# AUTO only while the urgency screen includes a model. On hand-written held-out referrals the
+# keyword rules alone caught 7 of 12 urgent referrals, and would have scheduled the other 5
+# without anyone reading them. With the rules alone, every referral goes to a person.
+automation_requires:
+  triage_screen: [rules_and_jev, rules_and_llm]
+
+rules:
+  - name: possible-urgent
+    when:
+      question: urgency
+      labels: [urgent]
+      # P(urgent), whichever label is most likely. Deliberately low: an extra review costs a
+      # coordinator a minute; a missed urgent referral can cost weeks.
+      min_probability: 0.3
+    outcome: HUMAN_REVIEW
+    recommendation: urgent_review
+    priority: urgent
+    reason: >-
+      The referral may need to be seen within two weeks. Review it today; do not leave it in
+      the routine queue.
+  - name: marked-urgent
+    when:
+      question: marked_urgent
+      labels: ["yes"]
+    outcome: HUMAN_REVIEW
+    recommendation: urgent_review
+    priority: urgent
+    reason: The referrer marked the referral urgent.
+
+fallback: Referral office queue for manual handling (the existing workflow).
+default_priority: routine

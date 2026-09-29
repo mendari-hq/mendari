@@ -107,6 +107,9 @@ def render_card(pack: Pack) -> str:
             out.append(f"- `{label}` is never automated.")
         elif label_policy.auto_threshold is not None:
             out.append(f"- `{label}` needs ≥ **{label_policy.auto_threshold:.2f}** for AUTO.")
+    for slot, variants in p.automation_requires.items():
+        running = " or ".join(f"`{variant}`" for variant in variants)
+        out.append(f"- AUTO only while `{slot}` is {running}; otherwise a person reviews.")
     for rule in p.rules:
         target = f" → `{rule.recommendation}`" if rule.recommendation else ""
         priority = f", priority `{rule.priority.value}`" if rule.priority else ""
@@ -214,8 +217,7 @@ def _condition(when: Condition) -> str:
         parts.append(f"`{when.question}` expected score ≥ {when.min_score:g}")
     if when.max_score is not None:
         parts.append(f"`{when.question}` expected score ≤ {when.max_score:g}")
-    shown = (when.labels and when.min_probability is None) or when.min_confidence
-    confidence = f" (p ≥ {when.min_confidence:.2f})" if shown else ""
+    confidence = f" (p ≥ {when.min_confidence:.2f})" if when.min_confidence else ""
     return " and ".join(parts) + confidence
 
 

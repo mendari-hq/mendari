@@ -518,7 +518,7 @@ function conditionText(when) {
   else if (when.labels.length) parts.push(`${esc(when.question)} ∈ [${when.labels.map(esc).join(", ")}]`);
   if (when.min_score !== null && when.min_score !== undefined) parts.push(`${esc(when.question)} expected score ≥ ${esc(when.min_score)}`);
   if (when.max_score !== null && when.max_score !== undefined) parts.push(`${esc(when.question)} expected score ≤ ${esc(when.max_score)}`);
-  const confidence = (when.labels.length && when.min_probability == null) || when.min_confidence ? ` with p ≥ ${when.min_confidence}` : "";
+  const confidence = when.min_confidence ? ` with p ≥ ${when.min_confidence}` : "";
   return parts.join(" and ") + confidence;
 }
 
@@ -549,6 +549,7 @@ views.card = async (main) => {
       ${p.rules.map((r) => `<li><b>${esc(r.name)}</b>: ${conditionText(r.when)}
         ⇒ ${outcomeBadge(r.outcome)} ${r.recommendation ? `→ ${esc(r.recommendation)}` : ""} ${r.priority ? priorityBadge(r.priority) : ""}<br><span class="muted">${esc(r.reason)}</span></li>`).join("")}
       ${Object.entries(p.labels).map(([label, l]) => `<li><code>${esc(label)}</code>: ${l.allow_auto ? `AUTO at ≥ ${l.auto_threshold ?? p.thresholds.auto}` : "never automated"}</li>`).join("")}
+      ${Object.entries(p.automation_requires ?? {}).map(([slot, variants]) => `<li>AUTO only while <code>${esc(slot)}</code> is ${variants.map((v) => `<code>${esc(v)}</code>`).join(" or ")}; otherwise a person reviews</li>`).join("")}
       <li>Fallback: ${esc(p.fallback)}</li></ul></div>
     <div class="panel table-wrap"><h3 style="margin-top:0">Providers</h3><table>
       <tr><th>Slot</th><th>Answers</th><th>Active</th><th>Variants</th></tr>

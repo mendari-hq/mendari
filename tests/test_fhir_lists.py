@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import copy
+import shutil
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
@@ -10,11 +11,12 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from openhealth import Decision
+from openhealth import Decision, load_pack
 from openhealth.core.spec import PackManifest
-from openhealth.errors import FhirError
+from openhealth.errors import FhirError, PackValidationError
 from openhealth.standards import cds_hooks
 from openhealth.standards.fhir import FhirAdapter, age_years
+from tests.conftest import INBOX_DIR
 from tests.test_fhir import COMMUNICATION, PATIENT
 
 MINI = Path(__file__).parent / "fixtures" / "packs" / "prescreen-mini"
@@ -198,8 +200,6 @@ def test_age_years_and_bad_attachments() -> None:
 def test_validate_parses_the_fhir_mapping(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    import shutil
-
     from openhealth.cli import main
 
     root = tmp_path / "pack"
@@ -207,3 +207,16 @@ def test_validate_parses_the_fhir_mapping(
     (root / "fhir" / "mapping.yaml").write_text("fields: {code: {path: code.coding[0].code}}\n")
     assert main(["validate", str(root)]) != 0
     assert "fhir/mapping.yaml: invalid YAML" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("name", "reported"), [("pack.yaml", "pack.yaml"), ("policy.yaml", "policy.yaml")]
+)
+def test_invalid_manifest_or_policy_yaml_is_a_validation_error(
+    tmp_path: Path, name: str, reported: str
+) -> None:
+    root = tmp_path / "pack"
+    shutil.copytree(INBOX_DIR, root)
+    (root / name).write_text("summary: a: b\n")
+    with pytest.raises(PackValidationError, match=f"{reported}: invalid YAML"):
+        load_pack(root)
