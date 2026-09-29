@@ -341,3 +341,22 @@ patch and its fix.
 ### Verification
 Every env patch command starts with a read that exits non-zero unless key and target match.
 
+## 2026-09-29 - communication
+
+### What happened
+After every merge, including docs-only ones, I re-ran and reported the full production smoke
+test for all five packs. The user said it was too much: they had to re-check the same results
+for packs finished days earlier.
+
+### Root cause
+I treated "check production after each merge" as "check everything after each merge".
+
+### Rule
+After a deploy, verify only what the change touched (that pack's setting in `/api/health` and a
+few live calls for it; for docs-only merges, that the deploy is Ready) and report only new
+results. A shared-runtime change may get a broad check, reported in one line unless something
+failed.
+
+### Verification
+Post-merge reports name only the changed pack or component.
+
