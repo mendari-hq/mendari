@@ -266,7 +266,7 @@ The endpoint and model are deployment settings, not part of any pack:
 | `JEV_MODEL` | Model id (required; recorded in every answer's provenance) |
 | `JEV_CONNECTOR` | Vercel Connect connector that supplies the key, e.g. `jev/openhealth-hub` |
 | `JEV_API_KEY` | Key for local use instead of a connector |
-| `OPENHEALTH_JEV_DAILY_LIMIT` | Daily call budget (default 500) |
+| `OPENHEALTH_JEV_DAILY_LIMIT` | Daily call budget (default 500; `none` for no limit) |
 
 ```bash
 JEV_API_URL=... JEV_MODEL=... JEV_API_KEY=... \
@@ -295,7 +295,7 @@ Ollama, vLLM or llama.cpp to run an open-source model on your own hardware inste
 | `LLM_BASE_URL` | OpenAI-compatible endpoint instead of the AI Gateway, e.g. `http://localhost:11434/v1` |
 | `AI_GATEWAY_API_KEY` | Gateway key for local use (on Vercel, the OIDC token is used) |
 | `LLM_API_KEY` | Key for a non-gateway endpoint, if it needs one |
-| `OPENHEALTH_LLM_DAILY_LIMIT` | Daily call budget (default 500) |
+| `OPENHEALTH_LLM_DAILY_LIMIT` | Daily call budget (default 500; `none` for no limit) |
 
 ```bash
 vercel env pull .env.local   # a fresh OIDC token for local calls through the gateway

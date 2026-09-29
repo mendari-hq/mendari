@@ -284,6 +284,12 @@ def test_daily_limits_include_llm(monkeypatch: pytest.MonkeyPatch) -> None:
         daily_limits()
 
 
+def test_none_lifts_a_daily_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENHEALTH_JEV_DAILY_LIMIT", "None")
+    monkeypatch.setenv("OPENHEALTH_LLM_DAILY_LIMIT", "25")
+    assert daily_limits() == {"jev": None, "llm": 25}
+
+
 # -- calibration -------------------------------------------------------------------------------
 
 

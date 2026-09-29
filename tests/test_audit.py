@@ -117,6 +117,12 @@ def test_daily_budget_is_enforced(store: AuditStore) -> None:
     assert store.usage("other") == 0
 
 
+def test_a_lifted_budget_still_counts_calls(store: AuditStore) -> None:
+    for _ in range(5):
+        store.consume("jev", daily_limit=None)
+    assert store.usage("jev") == 5
+
+
 def test_exhausted_budget_falls_back_instead_of_automating(
     inbox_pack: Pack, store: AuditStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
