@@ -190,43 +190,43 @@ Every configuration below ran on the same records. Remote models are named becau
 
 | Configuration | Accuracy | Macro-F1 | ECE | AUTO | False automation | Critical detected | p50 latency | Cost / decision | Errors |
 |---|---|---|---|---|---|---|---|---|---|
-| safety_screen=llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) | 100.0% | 1.000 | 0.065 | 10.5% | n/a | 28/28 (0 automated) | 9,736 ms | $0.00458 | 0 |
-| safety_screen=llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) | 100.0% | 1.000 | 0.097 | 5.3% | n/a | 28/28 (0 automated) | 2,234 ms | $0.00326 | 0 |
-| safety_screen=rules_and_jev (jev-latest) · router=jev (jev-latest) | 100.0% | 1.000 | 0.006 | 18.4% | n/a | 28/28 (0 automated) | 189 ms | $0.00003 | 0 |
-| safety_screen=rules_and_llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) | 100.0% | 1.000 | 0.047 | 10.5% | n/a | 28/28 (0 automated) | 10,122 ms | $0.00463 | 0 |
-| safety_screen=rules_and_llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) | 100.0% | 1.000 | 0.089 | 2.6% | n/a | 28/28 (0 automated) | 2,340 ms | $0.00324 | 0 |
-| safety_screen=rules_and_llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) | 92.9% | 0.963 | 0.206 | 2.6% | n/a | 28/28 (0 automated) | 1,399 ms | $0.00016 | 0 |
-| safety_screen=llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) | 89.3% | 0.943 | 0.155 | 2.6% | n/a | 28/28 (0 automated) | 1,213 ms | $0.00016 | 0 |
+| safety_screen=llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) | 100.0% | 1.000 | 0.069 | 15.8% | n/a | 28/28 (0 automated) | 9,502 ms | $0.00461 | 0 |
+| safety_screen=llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) | 100.0% | 1.000 | 0.075 | 5.3% | n/a | 28/28 (0 automated) | 2,475 ms | $0.00351 | 0 |
+| safety_screen=rules_and_jev (jev-1.13.0) · router=jev (jev-1.13.0) | 100.0% | 1.000 | 0.007 | 18.4% | n/a | 28/28 (0 automated) | 192 ms | $0.00003 | 0 |
+| safety_screen=rules_and_llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) | 100.0% | 1.000 | 0.071 | 15.8% | n/a | 28/28 (0 automated) | 10,039 ms | $0.00477 | 0 |
+| safety_screen=rules_and_llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) | 96.4% | 0.982 | 0.075 | 0.0% | n/a | 28/28 (0 automated) | 2,386 ms | $0.00352 | 1 (invalid_response 1) |
+| safety_screen=rules_and_llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) | 85.7% | 0.923 | 0.104 | 2.6% | n/a | 28/28 (0 automated) | 1,276 ms | $0.00017 | 0 |
+| safety_screen=llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) | 78.6% | 0.880 | 0.184 | 2.6% | n/a | 27/28 (0 automated) | 1,257 ms | $0.00017 | 1 (invalid_response 1) |
 | safety_screen=rules · router=naive_bayes | 75.0% | 0.857 | 0.181 | 13.2% | n/a | 28/28 (0 automated) | 0.08 ms | $0.00000 | 0 |
-| safety_screen=rules · router=rules | 21.4% | 0.353 | 0.300 | 0.0% | n/a | 28/28 (0 automated) | 0.12 ms | $0.00000 | 0 |
+| safety_screen=rules · router=rules | 21.4% | 0.353 | 0.300 | 0.0% | n/a | 28/28 (0 automated) | 0.11 ms | $0.00000 | 0 |
 
 **`red_flags_holdout`** (n=30)
 
 | Configuration | Accuracy | Macro-F1 | ECE | AUTO | False automation | Critical detected | p50 latency | Cost / decision | Errors |
 |---|---|---|---|---|---|---|---|---|---|
-| safety_screen=llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) | 100.0% | 1.000 | 0.094 | 23.3% | n/a | 20/20 (0 automated) | 10,398 ms | $0.00468 | 0 |
-| safety_screen=rules_and_jev (jev-latest) · router=jev (jev-latest) | 100.0% | 1.000 | 0.009 | 26.7% | n/a | 20/20 (0 automated) | 199 ms | $0.00003 | 0 |
-| safety_screen=rules_and_llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) | 100.0% | 1.000 | 0.072 | 3.3% | n/a | 20/20 (0 automated) | 2,313 ms | $0.00324 | 0 |
-| safety_screen=llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) | 95.0% | 0.974 | 0.052 | 6.7% | n/a | 20/20 (0 automated) | 2,399 ms | $0.00327 | 1 (invalid_response 1) |
-| safety_screen=rules · router=naive_bayes | 95.0% | 0.974 | 0.194 | 40.0% | 0.0% | 4/20 (7 automated) | 0.10 ms | $0.00000 | 0 |
-| safety_screen=rules_and_llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) | 95.0% | 0.974 | 0.061 | 20.0% | n/a | 20/20 (0 automated) | 9,841 ms | $0.00468 | 0 |
-| safety_screen=rules_and_llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) | 95.0% | 0.974 | 0.182 | 0.0% | n/a | 20/20 (0 automated) | 1,339 ms | $0.00016 | 0 |
-| safety_screen=llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) | 75.0% | 0.857 | 0.099 | 3.3% | n/a | 19/20 (0 automated) | 1,305 ms | $0.00016 | 0 |
+| safety_screen=rules_and_jev (jev-1.13.0) · router=jev (jev-1.13.0) | 100.0% | 1.000 | 0.007 | 26.7% | n/a | 20/20 (0 automated) | 172 ms | $0.00003 | 0 |
+| safety_screen=rules_and_llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) | 100.0% | 1.000 | 0.046 | 3.3% | n/a | 20/20 (0 automated) | 2,407 ms | $0.00352 | 0 |
+| safety_screen=rules_and_llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) | 100.0% | 1.000 | 0.248 | 6.7% | n/a | 20/20 (0 automated) | 1,266 ms | $0.00017 | 0 |
+| safety_screen=llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) | 95.0% | 0.974 | 0.103 | 20.0% | n/a | 20/20 (0 automated) | 9,112 ms | $0.00460 | 0 |
+| safety_screen=llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) | 95.0% | 0.974 | 0.071 | 3.3% | n/a | 20/20 (0 automated) | 2,356 ms | $0.00354 | 1 (invalid_response 1) |
+| safety_screen=rules · router=naive_bayes | 95.0% | 0.974 | 0.194 | 40.0% | 0.0% | 4/20 (7 automated) | 0.09 ms | $0.00000 | 0 |
+| safety_screen=rules_and_llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) | 95.0% | 0.974 | 0.031 | 26.7% | n/a | 20/20 (0 automated) | 10,327 ms | $0.00452 | 0 |
+| safety_screen=llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) | 90.0% | 0.947 | 0.140 | 6.7% | n/a | 19/20 (0 automated) | 1,185 ms | $0.00016 | 0 |
 | safety_screen=rules · router=rules | 10.0% | 0.182 | 0.278 | 0.0% | n/a | 4/20 (0 automated) | 0.13 ms | $0.00000 | 0 |
 
 **`test`** (n=100)
 
 | Configuration | Accuracy | Macro-F1 | ECE | AUTO | False automation | Critical detected | p50 latency | Cost / decision | Errors |
 |---|---|---|---|---|---|---|---|---|---|
-| safety_screen=rules · router=cascade (jev-latest) | 100.0% | 1.000 | 0.001 | 98.0% | 0.0% | 2/2 (0 automated) | 0.49 ms | $0.00000 | 0 |
-| safety_screen=rules · router=naive_bayes | 100.0% | 1.000 | 0.001 | 98.0% | 0.0% | 2/2 (0 automated) | 0.15 ms | $0.00000 | 0 |
-| safety_screen=llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) | 99.0% | 0.992 | 0.061 | 76.0% | 0.0% | 2/2 (0 automated) | 6,982 ms | $0.00426 | 0 |
-| safety_screen=llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) | 99.0% | 0.989 | 0.124 | 43.0% | 0.0% | 2/2 (0 automated) | 2,353 ms | $0.00335 | 0 |
-| safety_screen=llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) | 99.0% | 0.993 | 0.118 | 46.0% | 2.2% | 2/2 (0 automated) | 1,232 ms | $0.00016 | 0 |
-| safety_screen=rules_and_jev (jev-latest) · router=jev (jev-latest) | 99.0% | 0.984 | 0.017 | 91.0% | 0.0% | 2/2 (0 automated) | 189 ms | $0.00003 | 0 |
-| safety_screen=rules_and_llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) | 99.0% | 0.989 | 0.124 | 40.0% | 0.0% | 2/2 (0 automated) | 2,397 ms | $0.00335 | 0 |
-| safety_screen=rules_and_llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) | 97.0% | 0.968 | 0.047 | 82.0% | 0.0% | 2/2 (0 automated) | 7,905 ms | $0.00433 | 0 |
-| safety_screen=rules_and_llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) | 96.0% | 0.954 | 0.098 | 43.0% | 2.3% | 2/2 (0 automated) | 1,250 ms | $0.00016 | 0 |
+| safety_screen=rules · router=cascade (jev-1.13.0) | 100.0% | 1.000 | 0.001 | 98.0% | 0.0% | 2/2 (0 automated) | 0.42 ms | $0.00000 | 0 |
+| safety_screen=rules · router=naive_bayes | 100.0% | 1.000 | 0.001 | 98.0% | 0.0% | 2/2 (0 automated) | 0.14 ms | $0.00000 | 0 |
+| safety_screen=llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) | 99.0% | 0.989 | 0.112 | 47.0% | 0.0% | 2/2 (0 automated) | 2,365 ms | $0.00362 | 0 |
+| safety_screen=rules_and_jev (jev-1.13.0) · router=jev (jev-1.13.0) | 99.0% | 0.984 | 0.018 | 91.0% | 0.0% | 2/2 (0 automated) | 205 ms | $0.00003 | 0 |
+| safety_screen=rules_and_llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) | 99.0% | 0.984 | 0.043 | 84.0% | 0.0% | 2/2 (0 automated) | 6,916 ms | $0.00423 | 0 |
+| safety_screen=rules_and_llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) | 98.0% | 0.974 | 0.116 | 40.0% | 0.0% | 2/2 (0 automated) | 2,402 ms | $0.00361 | 0 |
+| safety_screen=llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) | 97.0% | 0.968 | 0.034 | 85.0% | 1.2% | 2/2 (0 automated) | 6,206 ms | $0.00413 | 0 |
+| safety_screen=llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) | 96.0% | 0.961 | 0.086 | 48.0% | 4.2% | 2/2 (0 automated) | 1,237 ms | $0.00017 | 0 |
+| safety_screen=rules_and_llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) | 95.0% | 0.937 | 0.080 | 47.0% | 4.3% | 2/2 (0 automated) | 1,281 ms | $0.00017 | 0 |
 | safety_screen=rules · router=rules | 89.0% | 0.883 | 0.282 | 11.0% | 0.0% | 2/2 (0 automated) | 0.21 ms | $0.00000 | 0 |
 
 

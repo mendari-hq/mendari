@@ -26,7 +26,10 @@ Roadmap to the full goal: [`docs/roadmap.md`](../docs/roadmap.md).
   pinned (Production and Preview)
 - [x] Emergency threshold: spec 0.2 `min_probability`; inbox 0.3.0 escalates at P(urgent) ≥ 0.35
 - [x] `urgency` reworded (instructions and criteria agree; doubt handled by the policy)
-- [ ] Leaderboard Jev rows for pack 0.3.0 (after the Jev budget resets, 00:00 UTC)
+- [x] Leaderboard Jev rows for pack 0.3.0 (production, jev-1.13.0; `OPENHEALTH_JEV_DAILY_LIMIT`
+  raised to 700 in production)
+- [x] Preview databases: Neon branch per preview again, deleted on PR close
+  (`neon-preview-cleanup` workflow); evaluations keep the request context (OIDC) in threads
 - [x] Exit: 10 configurations published incl. Claude and an open-weight model; one Jev call per
   decision in production; deployed mix catches 48/48 red-flag emergencies, none automated
 
