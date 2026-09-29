@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from openhealth.core.decision import Decision
+from openhealth.core.pack import Pack
 from openhealth.errors import PackValidationError
 
 
@@ -16,14 +17,18 @@ class CaseOutcome:
     failures: tuple[str, ...]
 
 
-def run_pack_tests(decision: Decision) -> list[CaseOutcome]:
-    pack = decision.pack
+def load_cases(pack: Pack) -> list[dict[str, Any]]:
+    """The pack's behaviour tests; each has a `name`, an `input` and an `expect`."""
     if pack.manifest.tests is None:
         return []
     cases = pack.read_yaml(pack.manifest.tests) or []
     if not isinstance(cases, list):
         raise PackValidationError(pack.id, [f"{pack.manifest.tests}: expected a list of cases"])
-    return [_run(decision, case) for case in cases]
+    return cases
+
+
+def run_pack_tests(decision: Decision) -> list[CaseOutcome]:
+    return [_run(decision, case) for case in load_cases(decision.pack)]
 
 
 def _run(decision: Decision, case: dict[str, Any]) -> CaseOutcome:

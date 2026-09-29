@@ -35,6 +35,7 @@ from openhealth.errors import (
 from openhealth.evals import compare, evaluate, leaderboard, load_dataset, resolve_dataset
 from openhealth.evals.feedback import feedback_dataset
 from openhealth.evals.harness import Dataset
+from openhealth.evals.pack_tests import load_cases
 from openhealth.providers import jev, llm
 from openhealth.providers.credentials import key_source
 from openhealth.settings import providers_for
@@ -206,6 +207,20 @@ def create_app(
             "card_markdown": render_card(pack),
             "datasets": [*pack.manifest.evaluation.datasets, *local_datasets(pack)],
         }
+
+    @app.get("/api/packs/{namespace}/{name}/examples")
+    def pack_examples(namespace: str, name: str) -> list[dict[str, Any]]:
+        """Synthetic example inputs: the pack's own behaviour tests."""
+        pack = pack_or_404(f"{namespace}/{name}")
+        return [
+            {
+                "name": case.get("name", "unnamed case"),
+                "input": case["input"],
+                "expect": case.get("expect", {}),
+            }
+            for case in load_cases(pack)
+            if isinstance(case, dict) and isinstance(case.get("input"), dict)
+        ]
 
     @app.post("/api/packs/{namespace}/{name}/decide")
     def decide(namespace: str, name: str, payload: JsonBody) -> dict[str, Any]:

@@ -101,6 +101,20 @@ def test_local_validation_via_api(client: TestClient) -> None:
     assert wrong_pack.status_code == 404
 
 
+def test_examples_are_the_packs_behaviour_tests(client: TestClient) -> None:
+    trial = "/api/packs/openhealth/clinical-trial-prescreener"
+    examples = client.get(f"{trial}/examples").json()
+    assert len(examples) == 22
+    pregnancy = next(e for e in examples if e["name"].startswith("a pregnancy in the notes"))
+    assert pregnancy["expect"]["recommendation"] == "not_eligible"
+    # YAML anchors are resolved: every example is a complete input that decides as tested.
+    decision = client.post(f"{trial}/decide", json=pregnancy["input"]).json()
+    assert decision["recommendation"] == "not_eligible"
+    assert "not_eligible: note_pregnancy is yes" in decision["reasons"]
+    assert client.get(f"{PACK}/examples").json()[0]["input"]["message"]["body"]
+    assert client.get("/api/packs/openhealth/missing/examples").status_code == 404
+
+
 def test_dashboard_is_served(client: TestClient) -> None:
     page = client.get("/")
     assert page.status_code == 200 and "OpenHealth Hub" in page.text

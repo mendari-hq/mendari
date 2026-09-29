@@ -58,6 +58,76 @@ async function render() {
   refreshReviewCount();
 }
 
+// ---- pack-generic rendering ------------------------------------------------------------------
+
+// Packs whose input is a patient message (the inbox) keep a message-shaped UI.
+const isMessagePack = () => Boolean(state.detail.input_schema?.properties?.message);
+
+function inputView(input) {
+  if (!input) return `<div class="message">(input not stored: audit.store_input = hash)</div>`;
+  if (input.message) {
+    const m = input.message;
+    return `${m.subject ? `<div style="margin-top:8px"><b>${esc(m.subject)}</b></div>` : ""}<div class="message">${esc(m.body ?? "")}</div>`;
+  }
+  const fields = [], texts = [], lists = [];
+  const shown = (v) => (v !== null && typeof v === "object" ? JSON.stringify(v) : String(v));
+  for (const [key, value] of Object.entries(input)) {
+    if (Array.isArray(value)) lists.push([key, value]);
+    else if (value !== null && typeof value === "object") Object.entries(value).forEach(([k, v]) => fields.push([`${key}.${k}`, shown(v)]));
+    else if (typeof value === "string" && value.length > 60) texts.push([key, value]);
+    else fields.push([key, shown(value)]);
+  }
+  const listView = ([key, items]) => {
+    if (!items.length) return `<div class="list-name">${esc(key)} <span class="muted">none</span></div>`;
+    if (!items.every((i) => i !== null && typeof i === "object")) return `<div class="list-name">${esc(key)} <span>${items.map((i) => esc(shown(i))).join(", ")}</span></div>`;
+    const columns = [...new Set(items.flatMap((i) => Object.keys(i)))];
+    return `<div class="list-name">${esc(key)} <span class="muted">${items.length}</span></div><div class="table-wrap"><table class="compact">
+      <tr>${columns.map((c) => `<th>${esc(c)}</th>`).join("")}</tr>
+      ${items.map((i) => `<tr>${columns.map((c) => `<td>${esc(i[c] === undefined ? "" : shown(i[c]))}</td>`).join("")}</tr>`).join("")}</table></div>`;
+  };
+  return `<div class="record">
+    ${fields.length ? `<div class="chips">${fields.map(([k, v]) => `<span class="chip">${esc(k)} = ${esc(v)}</span>`).join("")}</div>` : ""}
+    ${lists.map(listView).join("")}
+    ${texts.map(([k, v]) => `<div class="list-name">${esc(k)}</div><div class="message">${esc(v)}</div>`).join("")}
+  </div>`;
+}
+
+// For a derived primary (e.g. eligibility), the member answers are what a reviewer checks:
+// one row per criterion, with what that answer does in the decision table.
+function derivedPrimary() {
+  const primary = state.detail.manifest.questions[state.detail.primary];
+  return primary && primary.derive ? primary.derive : null;
+}
+
+function memberEffect(derive, member, label) {
+  for (const row of derive.table) {
+    if (row.else !== undefined && row.else !== null) return null;
+    if (row.in && !row.in.includes(member)) continue;
+    if (row.any === label) return row.then;
+  }
+  return null;
+}
+
+function criteriaTable(answers, { evidence = true } = {}) {
+  const derive = derivedPrimary();
+  if (!derive || !answers) return "";
+  const questions = state.detail.manifest.questions;
+  const rows = derive.from.map((member) => {
+    const a = answers[member];
+    const effect = a ? memberEffect(derive, member, a.label) : null;
+    return `<tr class="${effect ? "hit" : ""}">
+      <td title="${esc(questions[member]?.instructions ?? "")}"><code>${esc(member)}</code></td>
+      <td>${a ? `<b>${esc(a.label)}</b>` : `<span class="muted">no answer</span>`}</td>
+      <td class="mono">${a ? pct(a.confidence, 0) : ""}</td>
+      <td>${effect ? `<span class="badge s-warning">→ ${esc(effect)}</span>` : ""}</td>
+      <td class="muted">${a ? esc(a.provider.variant) : ""}</td>
+      ${evidence ? `<td class="evidence">${a && a.evidence.length ? esc(a.evidence.join("; ")) : ""}</td>` : ""}
+    </tr>`;
+  }).join("");
+  return `<div class="table-wrap"><table class="compact criteria">
+    <tr><th>Criterion</th><th>Answer</th><th>Conf.</th><th>Effect</th><th>Source</th>${evidence ? "<th>Evidence</th>" : ""}</tr>${rows}</table></div>`;
+}
+
 async function refreshReviewCount() {
   try {
     const pending = await api(`/api/review?pack_id=${encodeURIComponent(state.packId)}&limit=500`);
@@ -157,7 +227,6 @@ views.review = async (main) => {
 
 function reviewCard(item, labels) {
   const record = item.record;
-  const message = (record.input && record.input.message) || {};
   const recommendation = item.recommendation;
   return `<article class="panel review-card" data-id="${esc(item.id)}">
     <div class="row">
@@ -166,11 +235,11 @@ function reviewCard(item, labels) {
       <span class="grow"></span>
       <span class="mono muted">${esc(item.id.slice(0, 8))}</span>
     </div>
-    ${message.subject ? `<div style="margin-top:8px"><b>${esc(message.subject)}</b></div>` : ""}
-    <div class="message">${esc(message.body ?? "(input not stored: audit.store_input = hash)")}</div>
+    ${inputView(record.input)}
     <div>Recommendation: <b>${esc(recommendation ?? "none (abstained)")}</b>
       ${item.confidence !== null ? `<span class="muted">· confidence ${pct(item.confidence)}</span>` : ""}</div>
     <ul class="reasons">${record.reasons.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>
+    ${criteriaTable(record.answers)}
     <div class="labels">${labels.map((label) =>
       `<button data-label="${esc(label)}" class="${label === recommendation ? "recommended" : ""}">${label === recommendation ? "✓ " : ""}${esc(label)}</button>`).join("")}
     </div>
@@ -226,6 +295,7 @@ async function showRecord(id) {
       ${record.events.map((e) => `<tr><td>${e.seq}</td><td>${esc(e.event)}</td><td>${esc(time(e.created_at))}</td>
         <td class="mono">${esc(e.hash.slice(0, 16))}…</td><td class="mono">${esc(JSON.stringify(e.payload))}</td></tr>`).join("")}
     </table>
+    ${derivedPrimary() ? `<h3>Criteria</h3>${criteriaTable(record.record.answers)}` : ""}
     <h3>Was this right?</h3>${feedbackControls(id)}
     <h3>Record</h3><pre class="json">${esc(JSON.stringify(record.record, null, 2))}</pre></div>`;
   $("#audit-detail").scrollIntoView({ behavior: "smooth" });
@@ -236,12 +306,13 @@ async function showRecord(id) {
 views.evals = async (main) => {
   const reports = await api(`/api/evals?pack_id=${encodeURIComponent(state.packId)}`);
   const datasets = state.detail.datasets;
+  const preselected = datasets.find((d) => d.includes("local-site")) ?? datasets[0];
   main.innerHTML = `
     <h1>Evaluations</h1>
     <p class="muted">Run the pack on a labelled dataset. Anything other than the benchmark dataset is compared against the published benchmark (local validation).</p>
     <div class="row panel">
       <label for="dataset">Dataset</label>
-      <select id="dataset">${datasets.map((d) => `<option ${d === "local-site-example" ? "selected" : ""}>${esc(d)}</option>`).join("")}</select>
+      <select id="dataset">${datasets.map((d) => `<option ${d === preselected ? "selected" : ""}>${esc(d)}</option>`).join("")}</select>
       <button class="primary" id="run-eval">Run evaluation</button>
       <span class="grow"></span>
       <select id="history"><option value="">Published benchmark</option>${reports.map((r, i) =>
@@ -387,7 +458,6 @@ views.feedback = async (main) => {
 
 function feedbackCard(item) {
   const r = item.record;
-  const message = (r.input && r.input.message) || {};
   const urgency = r.answers.urgency ? ` · urgency ${esc(r.answers.urgency.label)}` : "";
   return `<article class="panel">
     <div class="row">
@@ -397,7 +467,8 @@ function feedbackCard(item) {
       <span class="grow"></span>
       <span class="muted">${esc(time(item.created_at))}${item.reporter ? ` · ${esc(item.reporter)}` : ""}</span>
     </div>
-    <div class="message">${esc(message.body ?? "(input not stored: audit.store_input = hash)")}</div>
+    ${inputView(r.input)}
+    ${criteriaTable(r.answers, { evidence: false })}
     ${item.note ? `<p><b>Note:</b> ${esc(item.note)}</p>` : ""}
     <span class="mono muted">decision ${esc(item.decision_id)}</span>
   </article>`;
@@ -485,7 +556,51 @@ const SAMPLES = [
   { label: "Vague", subject: "", body: "hello?" },
 ];
 
-views.try = async (main) => {
+views.try = async (main) => (isMessagePack() ? tryMessage(main) : tryRecord(main));
+
+// Packs whose input is a structured record: edit JSON, starting from the pack's own examples.
+async function tryRecord(main) {
+  const examples = await api(`${packPath()}/examples`);
+  const expected = (e) => Object.entries(e.expect).filter(([k]) => k !== "answers").map(([k, v]) => `${k} ${Array.isArray(v) ? v.join("/") : v}`).join(", ");
+  main.innerHTML = `
+    <h1>Try it</h1>
+    <p class="muted">Synthetic records only. Decisions made here are recorded in the audit trail and review queue.
+      The examples are the pack's behaviour tests.</p>
+    <div class="panel">
+      <div class="row" style="margin-bottom:10px">
+        <label for="example">Example</label>
+        <select id="example" class="grow"><option value="">Choose a behaviour test…</option>${examples.map((e, i) =>
+          `<option value="${i}">${esc(e.name)}</option>`).join("")}</select>
+      </div>
+      <p class="muted" id="expected"></p>
+      <label for="record">Input (JSON)</label>
+      <textarea id="record" class="code" spellcheck="false">${esc(JSON.stringify(examples[0]?.input ?? {}, null, 2))}</textarea>
+      <div class="row" style="margin-top:10px"><span class="grow"></span><button class="primary" id="decide">Decide</button></div>
+    </div>
+    <div id="result"></div>`;
+  $("#example").addEventListener("change", (e) => {
+    const example = examples[Number(e.target.value)];
+    if (!example) return;
+    $("#record").value = JSON.stringify(example.input, null, 2);
+    $("#expected").textContent = expected(example) ? `The pack's test expects: ${expected(example)}.` : "";
+  });
+  $("#decide").addEventListener("click", async () => {
+    let input;
+    try {
+      input = JSON.parse($("#record").value);
+    } catch (error) {
+      return toast(`Not valid JSON: ${error.message}`);
+    }
+    try {
+      $("#result").innerHTML = decisionView(await api(`${packPath()}/decide`, { method: "POST", body: JSON.stringify(input) }));
+      refreshReviewCount();
+    } catch (error) {
+      toast(error.message);
+    }
+  });
+}
+
+async function tryMessage(main) {
   main.innerHTML = `
     <h1>Try it</h1>
     <p class="muted">Synthetic messages only. Decisions made here are recorded in the audit trail and review queue.</p>
@@ -520,9 +635,23 @@ views.try = async (main) => {
       toast(error.message);
     }
   });
-};
+}
+
+function answerBars(question, a) {
+  return `<h3>${esc(question)} <span class="muted mono">${esc(a.provider.variant)}${a.provider.model ? ` · ${esc(a.provider.model)}` : ""}${a.value !== undefined ? ` · expected score ${num(a.value, 2)}` : ""}</span></h3>
+    <div class="bars">${Object.entries(a.probabilities).sort((x, y) => y[1] - x[1]).map(([label, p]) =>
+      `<span>${esc(label)}</span><div class="bar ${label === a.label ? "chosen" : ""}"><span style="width:${(p * 100).toFixed(1)}%"></span></div><span class="mono">${pct(p)}</span>`).join("")}</div>
+    ${a.evidence.length ? `<div class="chips" style="margin-top:8px">${a.evidence.map((e) => `<span class="chip">${esc(e)}</span>`).join("")}</div>` : ""}`;
+}
 
 function decisionView(r) {
+  const derive = derivedPrimary();
+  const primary = r.answers[r.primary];
+  const answers = derive && primary
+    ? `<h3>Criteria</h3>${criteriaTable(r.answers)}${answerBars(r.primary, primary)}
+      <details><summary>Probabilities for every criterion</summary>
+        ${Object.entries(r.answers).filter(([q]) => q !== r.primary).map(([q, a]) => answerBars(q, a)).join("")}</details>`
+    : Object.entries(r.answers).map(([q, a]) => answerBars(q, a)).join("");
   return `<div class="panel">
     <div class="row">${outcomeBadge(r.outcome)} ${priorityBadge(r.priority)}
       <span>→ <b>${esc(r.recommendation ?? "no recommendation")}</b></span>
@@ -531,10 +660,7 @@ function decisionView(r) {
       <a class="mono" href="#audit" title="${esc(r.id)}">${esc(r.id.slice(0, 8))}</a></div>
     ${r.fallback ? `<p style="margin-top:10px"><b>Fallback:</b> ${esc(r.fallback)}</p>` : ""}
     <ul class="reasons">${r.reasons.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
-    ${Object.entries(r.answers).map(([question, a]) => `<h3>${esc(question)} <span class="muted mono">${esc(a.provider.variant)}${a.provider.model ? ` · ${esc(a.provider.model)}` : ""}${a.value !== undefined ? ` · expected score ${num(a.value, 2)}` : ""}</span></h3>
-      <div class="bars">${Object.entries(a.probabilities).sort((x, y) => y[1] - x[1]).map(([label, p]) =>
-        `<span>${esc(label)}</span><div class="bar ${label === a.label ? "chosen" : ""}"><span style="width:${(p * 100).toFixed(1)}%"></span></div><span class="mono">${pct(p)}</span>`).join("")}</div>
-      ${a.evidence.length ? `<div class="chips" style="margin-top:8px">${a.evidence.map((e) => `<span class="chip">${esc(e)}</span>`).join("")}</div>` : ""}`).join("")}
+    ${answers}
     <h3>Was this right?</h3>${feedbackControls(r.id)}
   </div>`;
 }
