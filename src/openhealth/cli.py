@@ -308,19 +308,29 @@ def cmd_feedback_export(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_sandbox_generate(args: argparse.Namespace) -> int:
-    from openhealth.sandbox import synthetic_inbox
+SANDBOX_KINDS = {
+    # kind: (default pack directory, default local-site output)
+    "inbox": ("packs/patient-inbox-router", "datasets/local-site-example.jsonl"),
+    "trial": ("packs/clinical-trial-prescreener", "datasets/trial-local-site-example.jsonl"),
+}
 
+
+def cmd_sandbox_generate(args: argparse.Namespace) -> int:
+    from openhealth.sandbox import synthetic_inbox, synthetic_trial
+
+    generator = {"inbox": synthetic_inbox, "trial": synthetic_trial}[args.kind]
+    pack_dir, local_out = SANDBOX_KINDS[args.kind]
     # Takes a directory rather than a pack reference: the pack cannot load before its data exists.
-    data_dir = Path(args.pack_dir) / "data"
+    data_dir = Path(args.pack_dir or pack_dir) / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
-    for split, records in synthetic_inbox.public_splits().items():
+    for split, records in generator.public_splits().items():
         _write_jsonl(data_dir / f"{split}.jsonl", records)
         print(f"{len(records):>5} -> {data_dir / f'{split}.jsonl'}")
-    local = synthetic_inbox.local_site()
-    Path(args.local_out).parent.mkdir(parents=True, exist_ok=True)
-    _write_jsonl(Path(args.local_out), local)
-    print(f"{len(local):>5} -> {args.local_out}")
+    local = generator.local_site()
+    local_path = Path(args.local_out or local_out)
+    local_path.parent.mkdir(parents=True, exist_ok=True)
+    _write_jsonl(local_path, local)
+    print(f"{len(local):>5} -> {local_path}")
     return 0
 
 
@@ -483,9 +493,10 @@ def build_parser() -> argparse.ArgumentParser:
     sandbox = sub.add_parser("sandbox", help="synthetic sandbox tools").add_subparsers(
         dest="sandbox_command", required=True
     )
-    generate = sandbox.add_parser("generate", help="regenerate the synthetic inbox datasets")
-    generate.add_argument("--pack-dir", default="packs/patient-inbox-router")
-    generate.add_argument("--local-out", default="datasets/local-site-example.jsonl")
+    generate = sandbox.add_parser("generate", help="regenerate a reference pack's synthetic data")
+    generate.add_argument("--kind", choices=sorted(SANDBOX_KINDS), default="inbox")
+    generate.add_argument("--pack-dir", help="default: the kind's reference pack")
+    generate.add_argument("--local-out", help="default: datasets/<kind's local-site example>")
     generate.set_defaults(handler=cmd_sandbox_generate)
     seed = sandbox.add_parser("seed", help="load synthetic Patients + Communications into FHIR")
     seed.add_argument("--fhir", required=True, help="FHIR R4 base URL")

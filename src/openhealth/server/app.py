@@ -119,15 +119,19 @@ def create_app(
             decisions[pack_id] = Decision(pack, providers=chosen, store=store, budget=budget)
         return decisions[pack_id]
 
-    def local_datasets() -> dict[str, Path]:
+    def local_datasets(pack: Pack) -> dict[str, Path]:
         if datasets_dir is None or not datasets_dir.is_dir():
             return {}
-        return {path.stem: path for path in sorted(datasets_dir.glob("*.jsonl"))}
+        return {
+            path.stem: path
+            for path in sorted(datasets_dir.glob("*.jsonl"))
+            if _labels_questions_of(path, pack)
+        }
 
     def dataset_for(pack: Pack, name: str) -> Dataset:
         if name in pack.manifest.evaluation.datasets:
             return resolve_dataset(pack, name)
-        path = local_datasets().get(name)
+        path = local_datasets(pack).get(name)
         if not _DATASET_NAME.match(name) or path is None:
             raise PackNotFoundError(f"unknown dataset {name!r}")
         return load_dataset(path)
@@ -200,7 +204,7 @@ def create_app(
             "benchmark": benchmark(pack),
             "leaderboard": leaderboard.load(pack),
             "card_markdown": render_card(pack),
-            "datasets": [*pack.manifest.evaluation.datasets, *local_datasets()],
+            "datasets": [*pack.manifest.evaluation.datasets, *local_datasets(pack)],
         }
 
     @app.post("/api/packs/{namespace}/{name}/decide")
@@ -371,3 +375,14 @@ def _summary(pack: Pack) -> dict[str, Any]:
         "labels": m.labels(m.policy.primary),
         "cds_service": cds_hooks.service_id(pack) if m.cds_hooks else None,
     }
+
+
+def _labels_questions_of(path: Path, pack: Pack) -> bool:
+    """A local dataset is offered to the pack whose questions its first record labels."""
+    try:
+        with path.open(encoding="utf-8") as handle:
+            first = json.loads(handle.readline() or "null")
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return False
+    labels = first.get("labels") if isinstance(first, dict) else None
+    return isinstance(labels, dict) and bool(labels) and set(labels) <= set(pack.manifest.questions)

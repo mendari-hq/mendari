@@ -45,8 +45,8 @@ def report_text(report: dict[str, Any]) -> str:
     ]
     for item in d["critical"]:
         lines.append(
-            f"Critical {item['question']}={item['label']}".ljust(26)
-            + f"{item['detected']}/{item['n']} detected, {item['auto_missed']} automated"
+            f"Critical {item['question']}={item['label']}".ljust(25)
+            + f" {item['detected']}/{item['n']} detected, {item['auto_missed']} automated"
         )
     latency = report["latency_ms"]
     cost = report["cost"]

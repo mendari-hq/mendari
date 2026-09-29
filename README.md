@@ -32,10 +32,11 @@ Clinical/EHR data (FHIR R4, CDS Hooks, REST)
 | Jev provider adapter | [`src/openhealth/providers/jev.py`](src/openhealth/providers/jev.py) |
 | FHIR adapter + CDS Hooks | [`src/openhealth/standards/`](src/openhealth/standards) |
 | Patient Inbox Router reference pack | [`packs/patient-inbox-router/`](packs/patient-inbox-router) ([Decision Card](packs/patient-inbox-router/DECISION_CARD.md)) |
+| Clinical Trial Prescreener reference pack (v0.3) | [`packs/clinical-trial-prescreener/`](packs/clinical-trial-prescreener) ([Decision Card](packs/clinical-trial-prescreener/DECISION_CARD.md)) |
 | Human review / abstention | policy outcomes + [`core/audit.py`](src/openhealth/core/audit.py) review queue |
 | Evaluation harness | [`src/openhealth/evals/`](src/openhealth/evals) |
 | Audit trail | SQLite, append-only hash-chained events, `openhealth audit verify` |
-| Synthetic healthcare dataset | [`src/openhealth/sandbox/synthetic_inbox.py`](src/openhealth/sandbox/synthetic_inbox.py) |
+| Synthetic healthcare dataset | [`src/openhealth/sandbox/synthetic_inbox.py`](src/openhealth/sandbox/synthetic_inbox.py), [`synthetic_trial.py`](src/openhealth/sandbox/synthetic_trial.py) |
 | Developer dashboard | `openhealth serve` → http://127.0.0.1:8000 |
 
 ## Quickstart
@@ -100,6 +101,8 @@ uv run openhealth decide openhealth/patient-inbox-router --text "Can I pay my bi
 uv run openhealth eval openhealth/patient-inbox-router --dataset datasets/local-site-example.jsonl
 uv run openhealth eval openhealth/patient-inbox-router --dataset my-site.jsonl --fail-on-degradation
 uv run openhealth card openhealth/patient-inbox-router   # render the Decision Card
+uv run openhealth test openhealth/clinical-trial-prescreener
+uv run openhealth eval openhealth/clinical-trial-prescreener --dataset exclusions_holdout
 uv run openhealth serve                                  # API + CDS Hooks + dashboard
 uv run openhealth audit verify --db var/openhealth.db
 ```
@@ -334,9 +337,8 @@ uv run mypy src tests
   (`openhealth pull`, signed packs), `AuditEvent`/`Provenance` export, authentication on the
   server, drift monitoring from recorded outcomes, a harder clinician-reviewed synthetic
   benchmark.
-- **More reference packs:** Referral Router, Prior Authorization Preflight, Clinical Trial
-  Prescreener (per-criterion yes / no / unknown), AI Guard (pass / review / block for LLM
-  output).
+- **More reference packs:** Referral Router, Prior Authorization Preflight, AI Guard (pass /
+  review / block for LLM output).
 - **Standards:** SMART on FHIR launch, Bulk FHIR evaluation, OMOP, Da Vinci CRD/DTR/PAS.
 
 ## License

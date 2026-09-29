@@ -14,17 +14,17 @@ OPENHEALTH_TEST_DATABASE_URL=postgresql://postgres:openhealth-test@127.0.0.1:564
 uv run ruff check src tests && uv run ruff format --check src tests
 uv run mypy src tests
 uv run openhealth demo                    # end-to-end smoke test on synthetic data
-./scripts/build-reference-pack.sh         # regenerate data → train → test → benchmark → card
+./scripts/build-reference-pack.sh         # both reference packs: data → train → test → benchmark → card
 docker compose up --build                 # HAPI FHIR + engine + worker sandbox
 ```
 
 ## Rules of the codebase
 
-- **No real PHI, ever.** Test data comes from `openhealth.sandbox.synthetic_inbox`.
+- **No real PHI, ever.** Test data comes from `openhealth.sandbox.synthetic_inbox` / `synthetic_trial`.
 - **OpenHealth is a separate project.** Never reuse another project's code, connectors,
   credentials, databases, containers or configuration defaults. Before connecting to a local
   port, check which container owns it (`docker ps`).
-- **Pack artifacts are derived.** Editing templates in `synthetic_inbox.py`, `pack.yaml`, rules,
+- **Pack artifacts are derived.** Editing templates in `synthetic_*.py`, `pack.yaml`, rules,
   or policy changes the pack digest and possibly the data and model. Rerun
   `scripts/build-reference-pack.sh` and commit the regenerated `data/`, `models/`,
   `evals/benchmark.json` and `DECISION_CARD.md` together. CI checks data and model are

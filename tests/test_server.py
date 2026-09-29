@@ -19,7 +19,10 @@ def client(db_target: str) -> TestClient:
 
 def test_packs_and_card(client: TestClient) -> None:
     packs = client.get("/api/packs").json()
-    assert [p["id"] for p in packs] == ["openhealth/patient-inbox-router"]
+    assert [p["id"] for p in packs] == [
+        "openhealth/clinical-trial-prescreener",
+        "openhealth/patient-inbox-router",
+    ]
     detail = client.get(PACK).json()
     assert detail["active_providers"]["router"]["variant"] == "naive_bayes"
     assert "local-site-example" in detail["datasets"]
@@ -64,11 +67,16 @@ def test_fhir_endpoint_returns_task(client: TestClient) -> None:
 
 
 def test_cds_hooks_endpoints(client: TestClient) -> None:
-    services = client.get("/cds-services").json()["services"]
+    services = {s["id"]: s for s in client.get("/cds-services").json()["services"]}
+    assert set(services) == {
+        "openhealth.patient-inbox-router",
+        "openhealth.clinical-trial-prescreener",
+    }
+    inbox = services["openhealth.patient-inbox-router"]
     response = client.post(
-        f"/cds-services/{services[0]['id']}",
+        f"/cds-services/{inbox['id']}",
         json={
-            "hook": services[0]["hook"],
+            "hook": inbox["hook"],
             "hookInstance": "d1577c69-dfbe-44ad-ba6d-3e05e953b2ea",
             "context": {},
             "prefetch": {
@@ -81,12 +89,16 @@ def test_cds_hooks_endpoints(client: TestClient) -> None:
 
 
 def test_local_validation_via_api(client: TestClient) -> None:
+    # Each pack is offered only the local datasets that label its questions.
+    assert "trial-local-site-example" not in client.get(PACK).json()["datasets"]
     report = client.post(f"{PACK}/evals", json={"dataset": "local-site-example"}).json()
     assert report["comparison"]["status"] == "degraded"
     assert client.get("/api/evals").json()[0]["id"] == report["id"]
     # Evaluation traffic does not enter the operational audit log.
     assert client.get("/api/stats").json()["decisions"] == 0
     assert client.post(f"{PACK}/evals", json={"dataset": "../../etc/passwd"}).status_code == 404
+    wrong_pack = client.post(f"{PACK}/evals", json={"dataset": "trial-local-site-example"})
+    assert wrong_pack.status_code == 404
 
 
 def test_dashboard_is_served(client: TestClient) -> None:
