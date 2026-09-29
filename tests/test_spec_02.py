@@ -137,12 +137,12 @@ def brute_force(question: Question, answers: dict[str, Answer]) -> dict[str, flo
             weight *= p
         chosen = {m: label for m, (label, _) in zip(spec.members, combo, strict=True)}
         for row in spec.table:
-            if row.gate is not None and chosen[row.gate[0]] not in row.gate[1]:
+            if any(chosen[m] not in allowed for m, allowed in row.gates.items()):
                 continue
             labels = [label for m, label in chosen.items() if row.applies_to(m)]
             if row.otherwise is not None or (
-                (row.any is not None and row.any in labels)
-                or (row.all is not None and all(label == row.all for label in labels))
+                (row.any is not None and any(label in row.labels for label in labels))
+                or (row.all is not None and all(label in row.labels for label in labels))
             ):
                 totals[row.result] += weight
                 break
@@ -157,14 +157,17 @@ def test_derived_probabilities_match_brute_force_enumeration() -> None:
         members = [f"m{i}" for i in range(n_members)]
         rows: list[dict[str, Any]] = []
         for _ in range(n_rows):
+            # One label or a list of labels.
+            matched = rng.sample(member_labels, rng.randint(1, 2))
             row: dict[str, Any] = {
-                rng.choice(["any", "all"]): rng.choice(member_labels),
+                rng.choice(["any", "all"]): matched[0] if len(matched) == 1 else matched,
                 "then": rng.choice(["a", "b", "c"]),
             }
             if rng.random() < 0.5:  # scope the row to a random non-empty subset of members
                 row["in"] = rng.sample(members, rng.randint(1, n_members))
-            if rng.random() < 0.4:  # gate the row on the first member's answer
-                row["when"] = {"m0": rng.sample(member_labels, rng.randint(1, 2))}
+            if rng.random() < 0.5:  # gate the row on one or more members' answers
+                gated = rng.sample(members, rng.randint(1, n_members))
+                row["when"] = {m: rng.sample(member_labels, rng.randint(1, 2)) for m in gated}
             rows.append(row)
         question = Question.model_validate(
             {
@@ -273,15 +276,56 @@ def test_scoped_row_validation(row: dict[str, Any], message: str) -> None:
         PackManifest.model_validate(raw)
 
 
+def test_rows_with_several_gates_and_label_lists() -> None:
+    # Conservative therapy is required for a lumbar MRI, unless there is a red flag.
+    question = Question.model_validate(
+        {
+            "instructions": "Next step.",
+            "criteria": {"needs_attention": "n", "submit_ready": "s"},
+            "derive": {
+                "from": ["service", "red_flag", "conservative_therapy"],
+                "table": [
+                    {
+                        "any": ["no", "unknown"],
+                        "in": ["conservative_therapy"],
+                        "when": {"service": ["lumbar_mri"], "red_flag": ["no"]},
+                        "then": "needs_attention",
+                    },
+                    {"else": "submit_ready"},
+                ],
+            },
+        }
+    )
+    service = answer("service", {"lumbar_mri": 0.9, "sleep_study": 0.1})
+    no_flag = answer("red_flag", {"yes": 0.2, "no": 0.8})
+    therapy = answer("conservative_therapy", {"yes": 0.1, "no": 0.3, "unknown": 0.6})
+    members = {"service": service, "red_flag": no_flag, "conservative_therapy": therapy}
+    derived = derive_answer("next_step", question, members)
+    assert derived.probabilities["needs_attention"] == pytest.approx(0.9 * 0.8 * 0.9)
+    assert derived.evidence[0] == (
+        "table: any no|unknown in [conservative_therapy] when service in [lumbar_mri] "
+        "and red_flag in [no] -> needs_attention"
+    )
+    assert explain(question, members) == [
+        "needs_attention: conservative_therapy is unknown (service is lumbar_mri, red_flag is no)"
+    ]
+    flagged = answer("red_flag", {"yes": 0.9, "no": 0.1})
+    assert explain(question, {**members, "red_flag": flagged}) == []  # a red flag bypasses it
+
+
 def test_when_labels_and_members_are_checked() -> None:
     raw = manifest_dict()
     table = raw["questions"]["eligibility"]["derive"]["table"]
     table.insert(0, {"any": "no", "when": {"inc_t2d": ["maybe"]}, "then": "not_eligible"})
     with pytest.raises(ValidationError, match=r"`when` labels \['maybe'\] are not labels"):
         PackManifest.model_validate(raw)
+    # Rows may gate on different members, and one row on several (all must hold).
     table[0] = {"any": "no", "when": {"inc_t2d": ["yes"]}, "then": "not_eligible"}
-    table.insert(0, {"any": "no", "when": {"not_pregnant": ["yes"]}, "then": "not_eligible"})
-    with pytest.raises(ValidationError, match="must all name the same member"):
+    both = {"inc_t2d": ["yes"], "not_pregnant": ["yes", "unknown"]}
+    table.insert(0, {"any": ["no", "unknown"], "when": both, "then": "not_eligible"})
+    PackManifest.model_validate(raw)
+    table[0]["any"] = ["no", "maybe"]
+    with pytest.raises(ValidationError, match="row label 'maybe' is not a label"):
         PackManifest.model_validate(raw)
 
 

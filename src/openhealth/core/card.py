@@ -194,16 +194,18 @@ def _question(key: str, question: Question, *, primary: bool) -> list[str]:
 
 
 def _row(row: DeriveRow) -> str:
+    if row.otherwise is not None:
+        return f"otherwise → `{row.result}`"
     among = f"of {', '.join(f'`{m}`' for m in row.scope)}" if row.scope else "member"
-    gate = ""
-    if row.gate is not None:
-        member, labels = row.gate
-        gate = f", when `{member}` is " + " or ".join(f"`{label}`" for label in sorted(labels))
-    if row.any is not None:
-        return f"any {among} is `{row.any}`{gate} → `{row.result}`"
-    if row.all is not None:
-        return f"every {among} is `{row.all}`{gate} → `{row.result}`"
-    return f"otherwise → `{row.result}`"
+    value = row.any if row.any is not None else row.all
+    labels = [value] if isinstance(value, str) else list(value or [])
+    matched = " or ".join(f"`{label}`" for label in labels)
+    gate = " and ".join(
+        f"`{member}` is " + " or ".join(f"`{label}`" for label in allowed)
+        for member, allowed in (row.when or {}).items()
+    )
+    kind = "any" if row.any is not None else "every"
+    return f"{kind} {among} is {matched}{f', when {gate}' if gate else ''} → `{row.result}`"
 
 
 def _condition(when: Condition) -> str:

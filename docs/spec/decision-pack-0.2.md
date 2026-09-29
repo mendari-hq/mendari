@@ -151,6 +151,8 @@ Rows are evaluated top-down and the first matching row gives the result:
 
 - `{any: L, then: X}` matches when at least one member's label is `L`;
 - `{all: L, then: X}` matches when every member's label is `L`;
+- `L` MAY be a list of labels: `{any: ["no", unknown], then: X}` matches a member whose label is
+  either;
 - `{else: X}` always matches. It MUST be the last row and MUST NOT appear elsewhere.
 
 A row MAY add `in: [<member>...]` to consider only those members, a subset of `from`. This is
@@ -165,13 +167,18 @@ table:
   - {else: candidate}
 ```
 
-A row MAY also add `when: {<member>: [<label>...]}`: the row counts only while that member's
-answer is one of the labels. This is for requirements that depend on another answer, e.g. a
-document only one specialty needs:
+A row MAY also add `when: {<member>: [<label>...], ...}`: the row counts only while each named
+member's answer is one of its labels. This is for requirements that depend on other answers,
+e.g. a document only one specialty needs, or a requirement one payer has for one service
+unless there is a red flag:
 
 ```yaml
 table:
   - {any: "no", in: [ecg_on_file], when: {specialty: [cardiology]}, then: return_for_info}
+  - any: ["no", unknown]
+    in: [conservative_therapy]
+    when: {service: [lumbar_mri], red_flag: ["no"]}
+    then: needs_attention
   - {else: schedule}
 ```
 
@@ -179,16 +186,15 @@ An `else` row takes no `in` and no `when`.
 
 Validation (MUST): `from` lists one or more distinct, existing questions that are not themselves derived;
 each `any`/`all` label is a label of at least one member the row considers; each result is a label of the derived
-question; a table has at most 10 rows plus `else`; a `when` names one member of `from` and
-labels of that member, and every `when` in a table names the same member. Derived questions MAY
-be of any type.
+question; a table has at most 10 rows plus `else`; a `when` names members of `from`, each with
+labels of that member. Derived questions MAY be of any type.
 
 **Probabilities.** The derived answer is not the table applied to each member's most likely
 label, which would hide uncertainty. Its `probabilities` are the exact probability that each
 result wins, computed over the members' full distributions under the assumption that the
 members' answers are **independent**. (The reference implementation walks the members once,
-tracking which rows are satisfied so far and whether each `when` is open:
-O(members × labels × 2^rows).) Members answered by
+tracking which rows are satisfied so far and whether each `when` is still open:
+O(members × labels × 4^rows).) Members answered by
 the same provider from the same text are not truly independent, so a pack SHOULD put
 conservative rows first (`not_eligible`, then `needs_review`) and SHOULD evaluate the derived
 question on labelled data like any other.
@@ -220,7 +226,9 @@ Built-in types: `rules` (deterministic patterns with negation handling and optio
 tolerance), `criteria` (deterministic yes/no/unknown checks on structured data: numbers,
 lab values in date windows with unit conversion, coded conditions, medication durations, an
 item of a given type in any input list within a date window (`exists`, e.g. a document on
-file), and a field having one of some values (`value`); missing data answers `unknown`),
+file), and a field having one of some values (`value`); missing data answers `unknown`;
+answers MAY be any label of the question, e.g. the service an order code is for, and a check
+MAY carry `when: {field, in}` to apply only while an input field has one of those values),
 `naive_bayes` (local, temperature-calibrated text classifier), `jev`, `llm` (a chat
 model through an OpenAI-compatible API, asked for one probability per label and optionally
 calibrated per question), and three
@@ -415,8 +423,8 @@ produces identical decisions; it simply cannot use the new fields.
 | `min_score` / `max_score` policy conditions; `labels` becomes optional | §6 |
 | `min_probability` policy conditions (a label's probability, not only the winning label) | §6 |
 | `automation_requires` (AUTO only while given slots run given variants) | §6 |
-| Derive rows `in` (scoped to members) and `when` (gated on another answer) | §4.3 |
-| `criteria` provider, including `exists` and `value` checks | §5 |
+| Derive rows `in` (scoped to members), `when` (gated on other answers) and label lists | §4.3 |
+| `criteria` provider: `exists`/`value` checks, any question label, per-check `when` | §5 |
 | FHIR `lists`, `age_years`/`base64_text`; card and Task templates naming answers | §9 |
 | FHIR `focus_where`; one decision per draft order for `order-select`/`order-sign` | §9 |
 | The decision output schema adds an optional `value` to each answer | §4.2 |
