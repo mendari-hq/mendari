@@ -416,17 +416,23 @@ class AuditStore:
                 ),
             )
 
-    def consume(self, provider: str, *, daily_limit: int) -> None:
-        """Count one call to a metered provider; raise `budget_exhausted` past the daily limit."""
+    def consume(self, provider: str, *, daily_limit: int | None) -> None:
+        """Count one call to a metered provider; raise `budget_exhausted` past the daily limit
+        (None: count without a limit)."""
         day = datetime.now(UTC).date().isoformat()
+        cap = ""
+        params: list[Any] = [day, provider]
+        if daily_limit is not None:
+            cap = " WHERE provider_usage.calls < ?"
+            params.append(daily_limit)
         with self._db.session(exclusive=False) as db:
             row = db.one(
                 "INSERT INTO provider_usage (day, provider, calls) VALUES (?, ?, 1) "
-                "ON CONFLICT (day, provider) DO UPDATE SET calls = provider_usage.calls + 1 "
-                "WHERE provider_usage.calls < ? RETURNING calls",
-                (day, provider, daily_limit),
+                "ON CONFLICT (day, provider) DO UPDATE SET calls = provider_usage.calls + 1"
+                f"{cap} RETURNING calls",
+                params,
             )
-        if row is None or row["calls"] > daily_limit:
+        if daily_limit is not None and (row is None or row["calls"] > daily_limit):
             raise ProviderError("budget_exhausted", f"daily {provider} limit of {daily_limit}")
 
     def usage(self, provider: str) -> int:

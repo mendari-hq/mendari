@@ -89,7 +89,7 @@ def create_app(
     providers: Mapping[str, str] | None = None,
     datasets_dir: Path | None = None,
     packs_paths: list[Path] | None = None,
-    budget_limits: Mapping[str, int] | None = None,
+    budget_limits: Mapping[str, int | None] | None = None,
 ) -> FastAPI:
     store = AuditStore(db_path, migrate_url=migrate_url)
     budget = CallBudget(store, budget_limits) if budget_limits else None

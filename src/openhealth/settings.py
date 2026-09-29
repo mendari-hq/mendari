@@ -28,17 +28,21 @@ def parse_providers(values: Sequence[str] | None) -> dict[str, str]:
     return overrides
 
 
-def daily_limits() -> dict[str, int]:
-    """Per-provider-type daily call budgets. Only remote, metered providers are limited."""
-    limits = {}
+def daily_limits() -> dict[str, int | None]:
+    """Per-provider-type daily call budgets for the remote, metered providers. `none` lifts a
+    provider's limit; its calls are still counted."""
+    limits: dict[str, int | None] = {}
     for provider, variable, default in (
         ("jev", "OPENHEALTH_JEV_DAILY_LIMIT", DEFAULT_JEV_DAILY_LIMIT),
         ("llm", "OPENHEALTH_LLM_DAILY_LIMIT", DEFAULT_LLM_DAILY_LIMIT),
     ):
         raw = os.environ.get(variable, str(default)).strip()
-        if not raw.isdigit():
-            raise OpenHealthError(f"{variable} must be a non-negative integer")
-        limits[provider] = int(raw)
+        if raw.lower() == "none":
+            limits[provider] = None
+        elif raw.isdigit():
+            limits[provider] = int(raw)
+        else:
+            raise OpenHealthError(f"{variable} must be a non-negative integer or `none`")
     return limits
 
 

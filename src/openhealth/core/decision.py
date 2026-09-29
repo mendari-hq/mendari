@@ -83,20 +83,20 @@ class DecisionResult:
 
 
 class CallBudget:
-    """Daily call limits per provider type (e.g. {"jev": 500}), counted in the audit store.
+    """Daily call limits per provider type (e.g. {"jev": 500}; None counts calls without a
+    limit), counted in the audit store.
 
     A provider over budget fails like any other provider (`budget_exhausted`), so the policy
     falls back safely instead of automating.
     """
 
-    def __init__(self, store: AuditStore, limits: Mapping[str, int]):
+    def __init__(self, store: AuditStore, limits: Mapping[str, int | None]):
         self.store = store
         self.limits = dict(limits)
 
     def acquire(self, provider_type: str) -> None:
-        limit = self.limits.get(provider_type)
-        if limit is not None:
-            self.store.consume(provider_type, daily_limit=limit)
+        if provider_type in self.limits:
+            self.store.consume(provider_type, daily_limit=self.limits[provider_type])
 
 
 class Decision:
