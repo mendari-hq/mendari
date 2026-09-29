@@ -9,6 +9,8 @@ Configuration comes from the environment:
   variant a pack does not have is skipped and reported in `/api/health`.
 - `OPENHEALTH_JEV_DAILY_LIMIT`, `OPENHEALTH_LLM_DAILY_LIMIT`: daily call budgets (`none`: no
   limit).
+- `OPENHEALTH_TIMEZONE`: time zone for calendar days and displayed times (default
+  `America/New_York`); stored timestamps stay UTC.
 - `LLM_MODEL`: default model for `llm` variants (AI Gateway id, e.g. anthropic/claude-sonnet-5).
 - `JEV_API_URL`, `JEV_MODEL`, `JEV_CONNECTOR`: see `openhealth.providers.jev`.
 """

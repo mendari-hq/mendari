@@ -23,6 +23,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
+from openhealth.core import clock
 from openhealth.core.spec import Outcome
 from openhealth.errors import ProviderError, ReviewError
 
@@ -418,8 +419,8 @@ class AuditStore:
 
     def consume(self, provider: str, *, daily_limit: int | None) -> None:
         """Count one call to a metered provider; raise `budget_exhausted` past the daily limit
-        (None: count without a limit)."""
-        day = datetime.now(UTC).date().isoformat()
+        (None: count without a limit). Days are local calendar days (`core.clock`)."""
+        day = clock.today().isoformat()
         cap = ""
         params: list[Any] = [day, provider]
         if daily_limit is not None:
@@ -436,7 +437,7 @@ class AuditStore:
             raise ProviderError("budget_exhausted", f"daily {provider} limit of {daily_limit}")
 
     def usage(self, provider: str) -> int:
-        day = datetime.now(UTC).date().isoformat()
+        day = clock.today().isoformat()
         with self._db.session(exclusive=False) as db:
             row = db.one(
                 "SELECT calls FROM provider_usage WHERE day = ? AND provider = ?", (day, provider)
@@ -527,7 +528,9 @@ class AuditStore:
         costs = [r["cost_usd"] for r in rows]
         daily: dict[str, dict[str, int]] = {}
         for row in rows:
-            day = daily.setdefault(row["created_at"][:10], {o.value: 0 for o in Outcome})
+            # Local calendar days: a decision at 9 PM Eastern counts on that Eastern day.
+            local = clock.local_date(row["created_at"])
+            day = daily.setdefault(local, {o.value: 0 for o in Outcome})
             day[row["outcome"]] += 1
         return {
             "decisions": total,

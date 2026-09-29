@@ -4,11 +4,23 @@ from __future__ import annotations
 
 import os
 from collections.abc import Collection, Mapping, Sequence
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from openhealth.errors import OpenHealthError
 
 DEFAULT_JEV_DAILY_LIMIT = 500
 DEFAULT_LLM_DAILY_LIMIT = 500
+DEFAULT_TIMEZONE = "America/New_York"
+
+
+def display_timezone() -> ZoneInfo:
+    """The time zone people see: calendar days, daily counters and displayed times
+    ($OPENHEALTH_TIMEZONE, an IANA name; default US Eastern). Stored timestamps stay UTC."""
+    name = os.environ.get("OPENHEALTH_TIMEZONE", "").strip() or DEFAULT_TIMEZONE
+    try:
+        return ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError):
+        raise OpenHealthError(f"OPENHEALTH_TIMEZONE {name!r} is not an IANA time zone") from None
 
 
 def parse_providers(values: Sequence[str] | None) -> dict[str, str]:

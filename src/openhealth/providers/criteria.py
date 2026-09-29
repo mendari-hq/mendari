@@ -58,11 +58,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import replace
-from datetime import UTC, date, datetime
+from datetime import date
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from openhealth.core import clock
 from openhealth.errors import PackValidationError
 from openhealth.providers.base import Provider, ProviderOutput, fingerprint, get_path
 
@@ -205,7 +206,7 @@ class CriteriaProvider(Provider):
         self.info = replace(self.info, model=f"criteria@{fingerprint(self.pack, relative)}")
 
     def answer(self, inputs: Mapping[str, Any]) -> ProviderOutput:
-        as_of = _date(get_path(inputs, self.criteria.as_of)) or datetime.now(UTC).date()
+        as_of = _date(get_path(inputs, self.criteria.as_of)) or clock.today()
         records = {
             "conditions": _items(get_path(inputs, self.criteria.conditions)),
             "observations": _items(get_path(inputs, self.criteria.observations)),

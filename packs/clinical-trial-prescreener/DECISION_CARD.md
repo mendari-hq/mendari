@@ -9,7 +9,7 @@
 | Risk level | **2**, clinical support |
 | Automation | Human review required by default; AUTO only with a recorded governance override. |
 | Pack digest | `sha256:6c27474f4bcaffeb551401a5c5d11a0d970833c1913f5e0ead1d402c38dc7add` |
-| Last validation | 2026-09-29 on `test` (n=300, sha256 `12d2fb4b741a…`) |
+| Last validation | 2026-09-28 on `test` (n=300, sha256 `12d2fb4b741a…`) |
 
 ## Intended use
 

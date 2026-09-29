@@ -324,6 +324,10 @@ FastAPI function (`[tool.vercel] entrypoint = "openhealth.server.vercel:app"`).
 `/api/health` reports the storage backend, active providers, Jev configuration and today's Jev
 usage (never secrets). The FHIR sandbox (HAPI) stays in local `docker compose`.
 
+Days and times people see (the dashboard's times and daily volume, daily call counters, "today"
+for criteria and ages, card dates) use `OPENHEALTH_TIMEZONE`, an IANA name defaulting to
+`America/New_York`. Stored timestamps, the audit hash chain, API JSON and FHIR stay UTC.
+
 Preview and production deployments share the same Neon database unless Neon's preview branching
 is enabled, so preview traffic appears in the production audit trail. With preview branching,
 each preview gets a `preview/<git branch>` database branch. The Vercel-managed integration only

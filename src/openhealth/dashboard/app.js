@@ -7,7 +7,21 @@ const esc = (value) =>
   String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const pct = (v, d = 1) => (v === null || v === undefined ? "n/a" : `${(v * 100).toFixed(d)}%`);
 const num = (v, d = 3) => (v === null || v === undefined ? "n/a" : Number(v).toFixed(d));
-const time = (iso) => (iso ? new Date(iso).toLocaleString() : "");
+// Times and days are shown in the deployment's time zone (from /api/health, default US Eastern),
+// whatever the viewer's own clock says; the zone's short name (EDT, EST) is part of every time.
+const DEFAULT_TIMEZONE = "America/New_York";
+const time = (iso) => (iso ? state.timeFormat.format(new Date(iso)) : "");
+const timeFormatFor = (timeZone) => new Intl.DateTimeFormat("en-US", {
+  timeZone, year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short",
+});
+function zoneName() {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", { timeZone: state.timezone, timeZoneName: "longGeneric" }).formatToParts(new Date());
+    return parts.find((p) => p.type === "timeZoneName")?.value ?? state.timezone;
+  } catch {
+    return state.timezone;
+  }
+}
 const OUTCOMES = ["AUTO", "HUMAN_REVIEW", "ABSTAIN", "BLOCK"];
 const outcomeBadge = (o) => `<span class="badge o-${esc(o)}">${esc(o.replace("_", " "))}</span>`;
 const priorityBadge = (p) => `<span class="badge p-${esc(p)}">${esc(p)}</span>`;
@@ -36,7 +50,7 @@ function storageSet(key, value) {
 
 // ---- state & routing -------------------------------------------------------------------------
 
-const state = { packs: [], packId: null, detail: null };
+const state = { packs: [], packId: null, detail: null, timezone: DEFAULT_TIMEZONE, timeFormat: timeFormatFor(DEFAULT_TIMEZONE) };
 const packPath = () => `/api/packs/${state.packId}`;
 const views = {};
 
@@ -194,7 +208,7 @@ views.overview = async (main) => {
       ${stackBar(stats.outcomes, total)}
     </div>
     <div class="panel">
-      <h3 style="margin-top:0">Daily volume</h3>
+      <h3 style="margin-top:0">Daily volume <span class="muted">· days in ${esc(zoneName())}</span></h3>
       ${stats.daily.length ? `<div class="table-wrap"><table>
         <tr><th>Date</th>${OUTCOMES.map((o) => `<th>${esc(o)}</th>`).join("")}<th style="width:40%">Mix</th></tr>
         ${stats.daily.map((day) => {
@@ -755,6 +769,11 @@ document.addEventListener("click", async (event) => {
 // ---- boot ------------------------------------------------------------------------------------
 
 async function boot() {
+  const health = await api("/api/health").catch(() => null);
+  try {
+    state.timeFormat = timeFormatFor(health?.timezone ?? DEFAULT_TIMEZONE);
+    state.timezone = health?.timezone ?? DEFAULT_TIMEZONE;
+  } catch { /* an unknown zone name: keep the default */ }
   state.packs = await api("/api/packs");
   const select = $("#pack-select");
   if (!state.packs.length) {

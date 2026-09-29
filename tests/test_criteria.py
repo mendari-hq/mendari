@@ -239,11 +239,19 @@ def test_answers_are_deterministic_distributions(pack: Pack) -> None:
     assert answer.provider.model is not None and answer.provider.model.startswith("criteria@")
 
 
-def test_screening_date_defaults_to_today(pack: Pack) -> None:
-    recent = (date.today() - timedelta(days=10)).isoformat()
-    obs = [{"code": "4548-4", "value": 8.0, "unit": "%", "date": recent}]
-    answer = provider(pack).answer({"observations": obs}).answers["hba1c_in_range"]
-    assert answer.label == "yes"
+def test_screening_date_defaults_to_the_local_day(
+    pack: Pack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without `as_of`, "today" is the deployment's calendar day (`core.clock`), not UTC's."""
+    monkeypatch.setattr("openhealth.core.clock.today", lambda: date(2026, 9, 29))
+
+    def hba1c(days_ago: int) -> str:
+        taken = (date(2026, 9, 29) - timedelta(days=days_ago)).isoformat()
+        obs = [{"code": "4548-4", "value": 8.0, "unit": "%", "date": taken}]
+        return provider(pack).answer({"observations": obs}).answers["hba1c_in_range"].label
+
+    assert hba1c(90) == "yes"  # within 90 days of the local day
+    assert hba1c(91) != "yes"
 
 
 @pytest.mark.parametrize(

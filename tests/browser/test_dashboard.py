@@ -8,9 +8,12 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
+import httpx
 import pytest
-from playwright.sync_api import Page, Route, ViewportSize, expect
+from playwright.sync_api import Browser, Page, Route, ViewportSize, expect
 
 pytestmark = pytest.mark.browser
 
@@ -159,3 +162,22 @@ def test_buttons_and_badges_meet_aa_contrast(page: Page, scheme: str) -> None:
     assert pairs
     failing = [(text, round(ratio, 2)) for text, ratio in pairs if ratio < 4.5]
     assert failing == [], scheme
+
+
+def test_times_are_eastern_whatever_the_viewer_clock(browser: Browser, base_url: str) -> None:
+    context = browser.new_context(base_url=base_url, timezone_id="Asia/Tokyo")
+    page = context.new_page()
+    try:
+        page.add_init_script(f"localStorage.setItem('oh.pack', {json.dumps(INBOX)})")
+        show(page, "audit")
+        latest = httpx.get(f"{base_url}/api/audit", params={"pack_id": INBOX, "limit": 1}).json()
+        eastern = ZoneInfo("America/New_York")
+        at = datetime.fromisoformat(latest[0]["created_at"]).astimezone(eastern)
+        hour = at.hour % 12 or 12
+        expected = f"{at:%b} {at.day}, {at.year}, {hour}:{at:%M} {at:%p} {at:%Z}"
+        shown = page.locator("#audit-table button.open-record").first.inner_text()
+        assert shown.replace("\u202f", " ") == expected
+        show(page, "overview")
+        expect(page.locator("main")).to_contain_text("days in Eastern Time")
+    finally:
+        context.close()
