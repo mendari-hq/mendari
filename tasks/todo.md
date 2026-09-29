@@ -16,7 +16,13 @@ deployed choice.
   `policy.automation_requires` allows AUTO only with a model in the urgency screen. Also:
   `openhealth train` on an untrained pack, YAML errors in pack/policy reported cleanly,
   `validate` checks behaviour-test inputs against the schema.
-- [ ] PR 4 leaderboard (about 510 Jev calls: after the 8:00 PM Eastern reset) and deployed choice
+- [x] PR 4a (#29) 0.1.1: `clear_question` escalates `yes` in rules_and_* (the rules alone sent
+  clear referrals back; found in the comparison)
+- [x] PR 4 leaderboard: offline, Jev (alone, with rules), 3 LLMs (alone, with rules) on
+  holdout/tuning/test-100/local-100. Every model-backed config caught every urgent referral,
+  none automated. rules_and_jev: 100 % next_step held out, AUTO 27-47 % with 0 false
+  automation, 0.2 s, $0.00004. Jev daily limit raised to 2000 (production) with the user.
+- [ ] Deploy the chosen configuration (pack-scoped OPENHEALTH_PROVIDERS, redeploy, health)
 
 ## Done: v0.3 Clinical Trial Prescreener
 Plan approved (5 PRs): runtime prerequisites → FHIR/CDS generalised → the pack → multi-pack
