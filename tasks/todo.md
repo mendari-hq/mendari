@@ -7,7 +7,11 @@ Plan approved 2026-09-29 (3 PRs): runtime → the pack (risk level 2, the user's
 leaderboard and deployed choice.
 - [x] PR 1 runtime: `dosing` provider (dose arithmetic in code), `guard` section,
   `openhealth.guard.check` and `POST /api/packs/{id}/guard` (released / held_for_review / blocked)
-- [ ] PR 2 `openhealth/ai-guard` 0.1.0
+- [x] PR 2 `openhealth/ai-guard` 0.1.0 (L2): six checks (screen: rules default, jev, llm,
+  rules_and_jev, rules_and_llm; dosing in code), derived `verdict` pass / review / block,
+  possible-block rule (P >= 0.3) with a nurse-triage fallback; synthetic data (calibration 300 /
+  test 600, local 300) and hand-written draft sets. Rules: 11/12 blocks tuning, 4/9 held out;
+  nothing released without a model (`automation_requires`) and a governance override (L2).
 - [ ] PR 3 leaderboard and deployed choice
 
 ## Done: v0.3 Prior Authorization Preflight

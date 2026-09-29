@@ -66,8 +66,11 @@ _UNIT_MG = {
 }
 _FORMS = r"(?:tablets?|pills?|capsules?|caplets?|tabs?)"
 _AMOUNT = re.compile(rf"\b{_N}\s*(mg|milligrams?|g|grams?|mcg|micrograms?)\b", re.IGNORECASE)
-# A count just before an amount: "2 tablets of 500 mg", "2 x 500 mg", "two 500 mg tablets".
-_COUNT_BEFORE = re.compile(rf"\b{_N}\s*(?:{_FORMS}\s*(?:of\s*)?|x\s*)$", re.IGNORECASE)
+# A count just before an amount: "2 tablets of 500 mg", "2 Advil tablets of 200 mg",
+# "2 x 500 mg", "two 500 mg tablets".
+_COUNT_BEFORE = re.compile(
+    rf"\b{_N}\s*(?:(?:[a-z]+\s+)?{_FORMS}\s*(?:of\s*)?|x\s*)$", re.IGNORECASE
+)
 _BARE_BEFORE = re.compile(rf"\b{_N}\s+$", re.IGNORECASE)
 _FORM_AFTER = re.compile(
     rf"^\s*(?:[a-z]+\s+)?{_FORMS}\b", re.IGNORECASE

@@ -29,3 +29,9 @@ uv run openhealth sandbox generate --kind prior-auth
 uv run openhealth test "$PACK"
 uv run openhealth eval "$PACK" --dataset test --baseline none --out "$PACK/evals/benchmark.json"
 uv run openhealth card "$PACK" --write
+
+PACK=packs/ai-guard
+uv run openhealth sandbox generate --kind guard
+uv run openhealth test "$PACK"
+uv run openhealth eval "$PACK" --dataset test --baseline none --out "$PACK/evals/benchmark.json"
+uv run openhealth card "$PACK" --write

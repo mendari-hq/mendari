@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openhealth.dev/packs/ai-guard/input.schema.json",
+  "title": "AI Guard input",
+  "description": "A patient's message, a language model's draft reply to it, and optionally what the record shows (medicines, allergies, results) and the patient's age. Text is English, at most 5,000 characters.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["question", "draft"],
+  "properties": {
+    "question": {
+      "type": "string",
+      "maxLength": 5000,
+      "description": "The patient's message."
+    },
+    "draft": {
+      "type": "string",
+      "maxLength": 5000,
+      "description": "The model's draft reply; released unchanged or not at all."
+    },
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "What the record shows, as short text items, e.g. \"lisinopril 10 mg daily\" or \"A1c 6.8 % on 2026-08-20\".",
+      "properties": {
+        "medications": {"$ref": "#/$defs/items"},
+        "allergies": {"$ref": "#/$defs/items"},
+        "results": {"$ref": "#/$defs/items"},
+        "conditions": {"$ref": "#/$defs/items"}
+      }
+    },
+    "patient": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "age": {"type": "integer", "minimum": 0, "maximum": 130}
+      }
+    }
+  },
+  "$defs": {
+    "items": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {"type": "string", "maxLength": 500}
+    }
+  }
+}

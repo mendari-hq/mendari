@@ -41,6 +41,9 @@ class QuestionRules(_Model):
     default: str
     default_score: float = 1.0
     labels: dict[str, list[Pattern]]
+    # Which input fields this question reads, if not the provider's `text_fields` (e.g. the
+    # patient's question for one check and the model's draft for the others).
+    text_fields: list[str] | None = Field(default=None, min_length=1)
 
 
 class TypoTolerance(_Model):
@@ -111,10 +114,14 @@ class RulesProvider(Provider):
         return {letter: tuple(group) for letter, group in index.items()}
 
     def answer(self, inputs: Mapping[str, Any]) -> ProviderOutput:
-        text, corrections = self._normalize(text_from(inputs, self.rules.text_fields))
+        texts: dict[tuple[str, ...], tuple[str, list[str]]] = {}
         answers = {}
         for question, compiled in self._compiled.items():
             spec = self.rules.questions[question]
+            fields = tuple(spec.text_fields or self.rules.text_fields)
+            if fields not in texts:
+                texts[fields] = self._normalize(text_from(inputs, list(fields)))
+            text, corrections = texts[fields]
             scores = dict.fromkeys(self.questions[question].criteria, 0.0)
             scores[spec.default] += spec.default_score
             evidence = []

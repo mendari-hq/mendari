@@ -35,10 +35,11 @@ Clinical/EHR data (FHIR R4, CDS Hooks, REST)
 | Clinical Trial Prescreener reference pack (v0.3) | [`packs/clinical-trial-prescreener/`](packs/clinical-trial-prescreener) ([Decision Card](packs/clinical-trial-prescreener/DECISION_CARD.md)) |
 | Referral Router reference pack (v0.3) | [`packs/referral-router/`](packs/referral-router) ([Decision Card](packs/referral-router/DECISION_CARD.md)) |
 | Prior Authorization Preflight reference pack (v0.3) | [`packs/prior-auth-preflight/`](packs/prior-auth-preflight) ([Decision Card](packs/prior-auth-preflight/DECISION_CARD.md)) |
+| AI Guard reference pack (v0.3) | [`packs/ai-guard/`](packs/ai-guard) ([Decision Card](packs/ai-guard/DECISION_CARD.md)) |
 | Human review / abstention | policy outcomes + [`core/audit.py`](src/openhealth/core/audit.py) review queue |
 | Evaluation harness | [`src/openhealth/evals/`](src/openhealth/evals) |
 | Audit trail | SQLite, append-only hash-chained events, `openhealth audit verify` |
-| Synthetic healthcare dataset | [`src/openhealth/sandbox/synthetic_inbox.py`](src/openhealth/sandbox/synthetic_inbox.py), [`synthetic_trial.py`](src/openhealth/sandbox/synthetic_trial.py), [`synthetic_referral.py`](src/openhealth/sandbox/synthetic_referral.py), [`synthetic_prior_auth.py`](src/openhealth/sandbox/synthetic_prior_auth.py) |
+| Synthetic healthcare dataset | [`src/openhealth/sandbox/synthetic_inbox.py`](src/openhealth/sandbox/synthetic_inbox.py), [`synthetic_trial.py`](src/openhealth/sandbox/synthetic_trial.py), [`synthetic_referral.py`](src/openhealth/sandbox/synthetic_referral.py), [`synthetic_prior_auth.py`](src/openhealth/sandbox/synthetic_prior_auth.py), [`synthetic_guard.py`](src/openhealth/sandbox/synthetic_guard.py) |
 | Developer dashboard | `openhealth serve` → http://127.0.0.1:8000: every pack on the search path, with a criteria table for derived decisions and Try-it examples from each pack's behaviour tests (`GET /api/packs/{id}/examples`) |
 
 ## Quickstart
@@ -363,7 +364,6 @@ uv run mypy src tests
   (`openhealth pull`, signed packs), `AuditEvent`/`Provenance` export, authentication on the
   server, drift monitoring from recorded outcomes, a harder clinician-reviewed synthetic
   benchmark.
-- **More reference packs:** AI Guard (pass / review / block for LLM output).
 - **Standards:** SMART on FHIR launch, Bulk FHIR evaluation, OMOP, Da Vinci CRD/DTR/PAS.
 
 ## License

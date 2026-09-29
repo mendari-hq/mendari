@@ -20,6 +20,7 @@ def client(db_target: str) -> TestClient:
 def test_packs_and_card(client: TestClient) -> None:
     packs = client.get("/api/packs").json()
     assert [p["id"] for p in packs] == [
+        "openhealth/ai-guard",
         "openhealth/clinical-trial-prescreener",
         "openhealth/patient-inbox-router",
         "openhealth/prior-auth-preflight",

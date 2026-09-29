@@ -1,0 +1,23 @@
+# Simplified adult maximums for a few over-the-counter medicines, for the `dosing` provider.
+# Synthetic and deliberately conservative: not a clinical reference, and they ignore weight,
+# age, kidney and liver function and other medicines. A site replaces this table with its own.
+text_fields: [draft]
+
+medicines:
+  acetaminophen:
+    names: [acetaminophen, paracetamol, Tylenol]
+    max_daily_mg: 4000
+    max_single_mg: 1000
+    tablet_mg: 500
+  ibuprofen:
+    names: [ibuprofen, Advil, Motrin]
+    max_daily_mg: 1200  # over-the-counter maximum
+    max_single_mg: 400
+  naproxen:
+    names: [naproxen, Aleve]
+    max_daily_mg: 1000
+    max_single_mg: 500
+  aspirin:
+    names: [aspirin]
+    max_daily_mg: 4000
+    max_single_mg: 1000
