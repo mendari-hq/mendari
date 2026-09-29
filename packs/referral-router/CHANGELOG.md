@@ -1,5 +1,13 @@
 # Changelog: openhealth/referral-router
 
+## 0.1.1
+
+- `rules_and_jev` and `rules_and_llm`: for `clear_question` the more generous reader now wins
+  (`escalate: yes`), so a referral goes back to the referrer only if neither the rules nor the
+  model finds a request. Before, the keyword rules alone could send a clear referral back
+  ("wants to discuss biologic options" has no request keyword), which delays the patient's
+  care. Found in the provider comparison on the held-out set; `urgency` is unchanged.
+
 ## 0.1.0
 
 - First release. Reads a specialty referral as it is signed (CDS Hooks `order-sign`) or at a

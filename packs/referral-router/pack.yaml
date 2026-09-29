@@ -1,6 +1,6 @@
 spec_version: "0.2"
 id: openhealth/referral-router
-version: 0.1.0
+version: 0.1.1
 name: Referral Router
 summary: >-
   Reads a specialty referral as it is signed: suggests the specialty, spots referrals that
@@ -203,11 +203,12 @@ providers:
         type: rules
         config: logic/triage_rules.yaml
       rules_and_jev:
-        # Both screens run; for each question the more alarming answer wins (urgent; no
-        # clear request). A Jev outage leaves the rules answering, and nothing is automated
-        # while the screen is incomplete.
+        # Both screens run. For urgency the more alarming answer wins. For clear_question
+        # the more generous one wins: sending a clear referral back delays the patient, so a
+        # referral goes back only if neither reader finds a request. A Jev outage leaves the
+        # rules answering, and nothing is automated while the screen is incomplete.
         type: any_of
-        escalate: {urgency: urgent, clear_question: "no"}
+        escalate: {urgency: urgent, clear_question: "yes"}
         members:
           rules:
             type: rules
@@ -221,8 +222,9 @@ providers:
         timeout_ms: 5000
         state_fields: [referral.reason, patient.age]
       rules_and_llm:
+        # As rules_and_jev, with a chat model as the second reader.
         type: any_of
-        escalate: {urgency: urgent, clear_question: "no"}
+        escalate: {urgency: urgent, clear_question: "yes"}
         members:
           rules:
             type: rules
