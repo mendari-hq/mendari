@@ -11,7 +11,7 @@ from pydantic import ValidationError
 
 from openhealth import Decision, Outcome, load_pack
 from openhealth.core.card import render_card
-from openhealth.core.derive import complete_answers, derive_answer
+from openhealth.core.derive import complete_answers, derive_answer, explain
 from openhealth.core.policy import matches
 from openhealth.core.spec import Condition, PackManifest, Question
 from openhealth.evals import evaluate, resolve_dataset
@@ -135,12 +135,11 @@ def brute_force(question: Question, answers: dict[str, Answer]) -> dict[str, flo
         weight = 1.0
         for _, p in combo:
             weight *= p
+        chosen = {m: label for m, (label, _) in zip(spec.members, combo, strict=True)}
         for row in spec.table:
-            labels = [
-                label
-                for m, (label, _) in zip(spec.members, combo, strict=True)
-                if row.applies_to(m)
-            ]
+            if row.gate is not None and chosen[row.gate[0]] not in row.gate[1]:
+                continue
+            labels = [label for m, label in chosen.items() if row.applies_to(m)]
             if row.otherwise is not None or (
                 (row.any is not None and row.any in labels)
                 or (row.all is not None and all(label == row.all for label in labels))
@@ -164,6 +163,8 @@ def test_derived_probabilities_match_brute_force_enumeration() -> None:
             }
             if rng.random() < 0.5:  # scope the row to a random non-empty subset of members
                 row["in"] = rng.sample(members, rng.randint(1, n_members))
+            if rng.random() < 0.4:  # gate the row on the first member's answer
+                row["when"] = {"m0": rng.sample(member_labels, rng.randint(1, 2))}
             rows.append(row)
         question = Question.model_validate(
             {
@@ -218,17 +219,69 @@ def test_rows_can_be_scoped_to_members() -> None:
     assert derived.evidence[0] == "table: else -> candidate"
 
 
+def test_rows_can_depend_on_another_answer() -> None:
+    # An ECG is required only when the referral is for cardiology.
+    question = Question.model_validate(
+        {
+            "instructions": "Next step.",
+            "criteria": {"return_for_info": "r", "schedule": "s"},
+            "derive": {
+                "from": ["specialty", "ecg_on_file"],
+                "table": [
+                    {
+                        "any": "no",
+                        "in": ["ecg_on_file"],
+                        "when": {"specialty": ["cardiology"]},
+                        "then": "return_for_info",
+                    },
+                    {"else": "schedule"},
+                ],
+            },
+        }
+    )
+    specialty = answer("specialty", {"cardiology": 0.7, "dermatology": 0.3})
+    no_ecg = answer("ecg_on_file", {"yes": 0.02, "no": 0.98})
+    derived = derive_answer("next_step", question, {"specialty": specialty, "ecg_on_file": no_ecg})
+    assert derived.probabilities["return_for_info"] == pytest.approx(0.7 * 0.98)
+    assert derived.label == "return_for_info"
+    assert derived.evidence[0] == (
+        "table: any no in [ecg_on_file] when specialty in [cardiology] -> return_for_info"
+    )
+    assert explain(question, {"specialty": specialty, "ecg_on_file": no_ecg}) == [
+        "return_for_info: ecg_on_file is no (specialty is cardiology)"
+    ]
+    skin = answer("specialty", {"cardiology": 0.1, "dermatology": 0.9})
+    assert explain(question, {"specialty": skin, "ecg_on_file": no_ecg}) == []
+    other = derive_answer("next_step", question, {"specialty": skin, "ecg_on_file": no_ecg})
+    assert other.label == "schedule"
+
+
 @pytest.mark.parametrize(
     ("row", "message"),
     [
         ({"any": "no", "in": ["nope"], "then": "candidate"}, "not in `from`"),
         ({"else": "candidate", "in": ["inc_adult"]}, "takes no `in`"),
+        ({"else": "candidate", "when": {"inc_adult": ["yes"]}}, "takes no `when`"),
+        ({"any": "no", "when": {"inc_adult": []}, "then": "candidate"}, "one or more labels"),
+        ({"any": "no", "when": {"nope": ["yes"]}, "then": "candidate"}, "not in `from`"),
     ],
 )
 def test_scoped_row_validation(row: dict[str, Any], message: str) -> None:
     raw = manifest_dict()
     raw["questions"]["eligibility"]["derive"]["table"].insert(0, row)
     with pytest.raises(ValidationError, match=message):
+        PackManifest.model_validate(raw)
+
+
+def test_when_labels_and_members_are_checked() -> None:
+    raw = manifest_dict()
+    table = raw["questions"]["eligibility"]["derive"]["table"]
+    table.insert(0, {"any": "no", "when": {"inc_t2d": ["maybe"]}, "then": "not_eligible"})
+    with pytest.raises(ValidationError, match=r"`when` labels \['maybe'\] are not labels"):
+        PackManifest.model_validate(raw)
+    table[0] = {"any": "no", "when": {"inc_t2d": ["yes"]}, "then": "not_eligible"}
+    table.insert(0, {"any": "no", "when": {"not_pregnant": ["yes"]}, "then": "not_eligible"})
+    with pytest.raises(ValidationError, match="must all name the same member"):
         PackManifest.model_validate(raw)
 
 

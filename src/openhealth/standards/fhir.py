@@ -23,6 +23,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 
 from openhealth.core.pack import Pack
 from openhealth.core.spec import Outcome
+from openhealth.core.templates import fill, unknown_placeholders
 from openhealth.errors import FhirError, PackValidationError
 
 if TYPE_CHECKING:
@@ -56,9 +57,10 @@ class ListMapping(_Model):
 class TaskTemplate(_Model):
     code_text: str
     performer_system: str
-    # `{recommendation}` is replaced; the default is the inbox's routing wording.
+    # Templates (core/templates.py): `{recommendation}`, `{priority}`, `{<question>}`.
+    # The default description is the inbox's routing wording.
     description: str = "Route to {recommendation}"
-    performer: str | None = None  # a fixed performer code; default: the recommendation
+    performer: str | None = None  # a performer code (template); default: the recommendation
 
 
 class FhirMapping(_Model):
@@ -87,6 +89,14 @@ class FhirAdapter:
             mapping = FhirMapping.model_validate(pack.read_yaml(relative))
         except ValidationError as error:
             raise PackValidationError(pack.id, [f"{relative}: {error}"]) from None
+        templates = {"description": mapping.task.description, "performer": mapping.task.performer}
+        problems = [
+            f"{relative}: task.{name} uses unknown placeholders {unknown}"
+            for name, text in templates.items()
+            if text and (unknown := unknown_placeholders(text, pack.manifest.questions))
+        ]
+        if problems:
+            raise PackValidationError(pack.id, problems)
         return cls(pack, mapping)
 
     def index(self, resources: Mapping[str, Any]) -> Indexed:
@@ -155,14 +165,16 @@ class FhirAdapter:
             "priority": result.priority.value,
             "code": {"text": self.mapping.task.code_text},
             "description": result.fallback
-            or template.description.format(recommendation=handled_by),
+            or fill(template.description, result, recommendation=handled_by),
             "authoredOn": result.created_at,
             "performerType": [
                 {
                     "coding": [
                         {
                             "system": template.performer_system,
-                            "code": template.performer or handled_by,
+                            "code": fill(template.performer, result, recommendation=handled_by)
+                            if template.performer
+                            else handled_by,
                         }
                     ]
                 }

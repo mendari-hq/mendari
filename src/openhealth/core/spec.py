@@ -14,6 +14,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from openhealth.core.templates import unknown_placeholders
+
 SPEC_VERSION = "0.2"
 MAX_DERIVE_ROWS = 10
 
@@ -96,6 +98,9 @@ class DeriveRow(_Strict):
 
     `in: [members]` limits a row to some of the members, for tables whose members answer in
     different directions (e.g. criteria where `no` fails, and exclusions where `yes` fails).
+    `when: {member: [labels]}` makes a row count only while that member's answer is one of the
+    labels, e.g. a document only one specialty requires:
+    `{any: "no", in: [ecg_on_file], when: {specialty: [cardiology]}, then: return_for_info}`.
     """
 
     any: str | None = None
@@ -103,6 +108,7 @@ class DeriveRow(_Strict):
     then: str | None = None
     otherwise: str | None = Field(default=None, alias="else")
     scope: list[str] | None = Field(default=None, alias="in", min_length=1)
+    when: dict[str, list[str]] | None = None
 
     @model_validator(mode="after")
     def _shape(self) -> DeriveRow:
@@ -111,11 +117,15 @@ class DeriveRow(_Strict):
                 raise ValueError("an `else` row takes no other keys")
             if self.scope is not None:
                 raise ValueError("an `else` row applies to all members; it takes no `in`")
+            if self.when is not None:
+                raise ValueError("an `else` row applies always; it takes no `when`")
         elif (self.any is None) == (self.all is None) or self.then is None:
             raise ValueError(
                 "a row is {any: <label>, then: <label>}, {all: <label>, then: <label>} "
                 "or {else: <label>}"
             )
+        if self.when is not None and (len(self.when) != 1 or not all(self.when.values())):
+            raise ValueError("`when` is {<member>: [<label>, ...]}: one member, one or more labels")
         return self
 
     @property
@@ -125,12 +135,24 @@ class DeriveRow(_Strict):
     def applies_to(self, member: str) -> bool:
         return self.scope is None or member in self.scope
 
+    @property
+    def gate(self) -> tuple[str, frozenset[str]] | None:
+        """The `when` condition as (member, labels), or None for a row that always counts."""
+        if self.when is None:
+            return None
+        ((member, labels),) = self.when.items()
+        return member, frozenset(labels)
+
     def describe(self) -> str:
         if self.otherwise is not None:
             return f"else -> {self.otherwise}"
         kind, label = ("any", self.any) if self.any is not None else ("all", self.all)
         within = f" in [{', '.join(self.scope)}]" if self.scope else ""
-        return f"{kind} {label}{within} -> {self.then}"
+        gate = ""
+        if self.when is not None:
+            ((member, labels),) = self.when.items()
+            gate = f" when {member} in [{', '.join(labels)}]"
+        return f"{kind} {label}{within}{gate} -> {self.then}"
 
 
 class Derive(_Strict):
@@ -153,6 +175,11 @@ class Derive(_Strict):
             outside = sorted(set(row.scope or []) - set(self.members))
             if outside:
                 raise ValueError(f"row `in` names questions not in `from`: {outside}")
+        gated = {row.gate[0] for row in self.table if row.gate is not None}
+        if len(gated) > 1:
+            raise ValueError(f"`when` rows must all name the same member, not {sorted(gated)}")
+        if gated - set(self.members):
+            raise ValueError(f"`when` names a question not in `from`: {sorted(gated)}")
         return self
 
 
@@ -464,6 +491,12 @@ def cross_reference_problems(m: PackManifest) -> list[str]:
         unknown_keys = sorted(named - allowed)
         if unknown_keys:
             problems.append(f"cds_hooks.card names unknown recommendations {unknown_keys}")
+        for key, summary in card.summaries.items():
+            placeholders = unknown_placeholders(summary, m.questions)
+            if placeholders:
+                problems.append(
+                    f"cds_hooks.card.summaries.{key} uses unknown placeholders {placeholders}"
+                )
 
     for critical in m.evaluation.critical:
         critical_question = m.questions.get(critical.question)
@@ -494,4 +527,9 @@ def _derive_problems(m: PackManifest, derived: set[str]) -> list[str]:
                 problems.append(f"{key}: row label {label!r} is not a label of its members")
             if row.result not in m.questions[key].criteria:
                 problems.append(f"{key}: row result {row.result!r} is not one of its labels")
+            if row.gate is not None and row.gate[0] in m.questions:
+                member, gate_labels = row.gate
+                unknown = sorted(gate_labels - set(m.questions[member].criteria))
+                if unknown:
+                    problems.append(f"{key}: `when` labels {unknown} are not labels of {member!r}")
     return problems
