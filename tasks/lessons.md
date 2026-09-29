@@ -195,3 +195,23 @@ fails at provisioning, check the Neon branch count before debugging code.
 After a PR merges, its "Clean up Neon preview branch" run is green and Neon lists only `main`
 plus the branches of open PRs.
 
+
+## 2026-09-29 - process
+
+### What happened
+PR 5 had auto-merge on. While its CI ran, I changed `OPENHEALTH_PROVIDERS` on Vercel and pushed
+a follow-up commit. The PR merged from its first commit 5 seconds before the setting changed:
+production kept the old notes reader, and the follow-up commit never reached `main`.
+
+### Root cause
+Auto-merge fires the moment checks pass, so anything done "before it merges" is a race.
+Vercel reads environment variables when a deployment is built, not at runtime.
+
+### Rule
+Finish every change a PR depends on (settings, follow-up commits) before enabling auto-merge.
+After changing a Vercel environment variable, redeploy (`vercel redeploy <url> --target
+production`) and confirm the setting in `/api/health` before calling it done.
+
+### Verification
+`/api/health` shows the expected providers for every pack, and `git log origin/main` contains
+every commit of the PR branch.
