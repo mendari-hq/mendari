@@ -81,6 +81,35 @@ def test_markdown_and_card(inbox_pack: Pack, tmp_path: Path) -> None:
     assert load_pack(root).digest == load_pack(INBOX_DIR).digest  # evals/ is not the pack
 
 
+def test_other_questions_are_shown_where_configurations_differ(inbox_pack: Pack) -> None:
+    rules = report(inbox_pack, "red_flags", router="rules")
+    nb = report(inbox_pack, "red_flags", router="naive_bayes")
+    board = leaderboard.build(inbox_pack, [rules, nb])
+    assert board["rows"][0]["questions"]["urgency"]["n"] == 38
+    # Both use the same safety screen: urgency is identical, so no second table.
+    assert "Other questions" not in "\n".join(leaderboard.markdown(board))
+
+    screened = json.loads(json.dumps(nb))
+    screened["id"] = "other-screen"
+    screened["providers"]["safety_screen"] = {"variant": "jev", "type": "jev", "model": "jev-x"}
+    screened["questions"]["urgency"]["accuracy"] = 0.5
+    table = "\n".join(leaderboard.markdown(leaderboard.build(inbox_pack, [rules, nb, screened])))
+    assert "| Configuration | `urgency` |" in table
+    assert "| safety_screen=jev (jev-x) · router=naive_bayes | 50.0% / " in table
+    assert "`destination`" not in table.split("Other questions")[1]  # the primary has its own
+
+
+def test_several_critical_labels_are_named() -> None:
+    critical = [
+        {"question": "note_pregnancy", "label": "yes", "n": 5, "detected": 5, "auto_missed": 0},
+        {"question": "egfr_30_or_more", "label": "no", "n": 0, "detected": 0, "auto_missed": 0},
+    ]
+    assert leaderboard.critical_text({"critical": critical}) == (
+        "note_pregnancy=yes 5/5 (0 automated)"
+    )
+    assert leaderboard.critical_text({"critical": critical[:1]}) == "5/5 (0 automated)"
+
+
 def test_cli_runs_configurations_and_merges(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

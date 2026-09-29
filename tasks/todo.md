@@ -20,7 +20,13 @@ dashboard and deployment → leaderboard and deployed choice.
   evidence) in Try-it, review, feedback and audit; Try-it JSON editor with the pack's behaviour
   tests (`GET /api/packs/{id}/examples`); local-site dataset preselected per pack; top-bar
   overflow at phone width fixed. Deployed with the trial pack on `notes=rules` until PR 5.
-- [ ] PR 5 leaderboard for the trial pack; live Jev `noul` check; choose deployed notes provider
+- [x] PR 5 leaderboard for the trial pack (rules, Jev, rules_and_jev, 3 LLMs alone and with
+  rules; test-100, local-100, exclusions, exclusions_holdout). Live Jev `noul`: 0 errors, note
+  ECE <= 0.05. Every model alone found 12/12 held-out exclusions (100% eligibility); adding
+  the rules lowered eligibility to 92% held out / 87% local. Card 0.1.1 says so.
+- [ ] Jev-alone rows on test and the local site (200 Jev calls; needed the next day's budget)
+- [ ] Choose the deployed notes reader with the user (recommendation: `notes=jev`) and set
+  `openhealth/clinical-trial-prescreener:notes=<choice>` in OPENHEALTH_PROVIDERS
 
 ## Done: v0.2 Model-agnostic core
 - [x] Detailed v0.2 plan approved (5 PRs: spec, Jev batching, composition, LLM, leaderboard)

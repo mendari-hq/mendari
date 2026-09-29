@@ -340,7 +340,8 @@ views.evals = async (main) => {
 function leaderboardView(board) {
   const groups = {};
   for (const row of board.rows) (groups[row.dataset] ??= []).push(row);
-  const critical = (row) => row.critical.filter((c) => c.n).map((c) => `${c.detected}/${c.n} (${c.auto_missed} automated)`).join("; ") || "n/a";
+  const critical = (row) => row.critical.filter((c) => c.n).map((c) =>
+    `${row.critical.length > 1 ? `${c.question}=${c.label} ` : ""}${c.detected}/${c.n} (${c.auto_missed} automated)`).join("; ") || "n/a";
   const ms = (v) => (v < 10 ? `${v.toFixed(2)} ms` : `${Math.round(v).toLocaleString()} ms`);
   return `<div class="panel"><h2 style="margin-top:0">Provider comparison</h2>
     <p class="muted">Every configuration ran on the same records (updated ${esc(time(board.updated_at))}). Remote models are named because they are a deployment choice.</p>
@@ -351,8 +352,20 @@ function leaderboardView(board) {
           <td>${num(r.ece)}</td><td>${pct(r.auto_rate)}</td><td>${pct(r.false_automation_rate)}</td><td>${esc(critical(r))}</td>
           <td class="mono">${ms(r.latency_p50_ms)}</td><td class="mono">$${r.cost_per_decision_usd.toFixed(5)}</td>
           <td title="${esc(Object.entries(r.error_codes ?? {}).map(([c, n]) => `${c}: ${n}`).join(", "))}">${r.errors}</td></tr>`).join("")}
-      </table></div>`).join("")}
+      </table></div>${otherQuestions(rows)}`).join("")}
   </div>`;
+}
+
+// Accuracy / ECE of the non-primary questions whose results differ between configurations.
+function otherQuestions(rows) {
+  const keys = [...new Set(rows.flatMap((r) => Object.keys(r.questions ?? {})))].sort();
+  const varying = keys.filter((k) => new Set(rows.map((r) => JSON.stringify(r.questions?.[k] ?? null))).size > 1);
+  if (!varying.length) return "";
+  const cell = (m) => (m ? `${pct(m.accuracy)} / ${num(m.ece)}` : "n/a");
+  return `<p class="muted" style="margin-top:10px">Other questions (accuracy / ECE)</p><div class="table-wrap"><table class="board">
+    <tr><th>Configuration</th>${varying.map((k) => `<th>${esc(k)}</th>`).join("")}</tr>
+    ${rows.map((r) => `<tr><td>${esc(r.config)}</td>${varying.map((k) => `<td>${cell(r.questions?.[k])}</td>`).join("")}</tr>`).join("")}
+  </table></div>`;
 }
 
 function reportView(r) {

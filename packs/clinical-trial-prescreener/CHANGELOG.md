@@ -1,5 +1,12 @@
 # Changelog: openhealth/clinical-trial-prescreener
 
+## 0.1.1
+
+- Decision Card: deployment guidance from the provider comparison (evals/leaderboard.json,
+  measured on 0.1.0). Deploy with a model reading the notes (`notes=jev` or `notes=llm`);
+  adding the keyword rules to a model lowered eligibility accuracy without finding more
+  exclusions. Questions, criteria, rules, policy and data are unchanged.
+
 ## 0.1.0
 
 - First release. Prescreens patients for GLYCEMIA-2, a synthetic type 2 diabetes study.
