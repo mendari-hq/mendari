@@ -45,7 +45,9 @@ async function loadPack(packId) {
   state.detail = await api(packPath());
 }
 
-async function render() {
+// `navigated`: the user moved to another view, so it starts at the top with its heading focused
+// (screen readers then announce the new view once, instead of reading the whole page).
+async function render({ navigated = false } = {}) {
   const view = (location.hash || "#overview").slice(1);
   document.querySelectorAll(".nav a[data-view]").forEach((a) => a.classList.toggle("active", a.dataset.view === view));
   const main = $("#view");
@@ -55,7 +57,32 @@ async function render() {
   } catch (error) {
     main.innerHTML = `<div class="panel">Could not load this view: ${esc(error.message)}</div>`;
   }
+  if (navigated) {
+    window.scrollTo(0, 0);
+    const heading = main.querySelector("h1");
+    if (heading) {
+      heading.tabIndex = -1;
+      heading.focus({ preventScroll: true });
+    }
+  }
   refreshReviewCount();
+}
+
+const scrollBehavior = () => (matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth");
+
+// Disable a button while its request runs, so a slow provider can't be submitted twice.
+async function whileBusy(button, busyText, task) {
+  const text = button.textContent;
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  button.textContent = busyText;
+  try {
+    return await task();
+  } finally {
+    button.disabled = false;
+    button.removeAttribute("aria-busy");
+    button.textContent = text;
+  }
 }
 
 // ---- pack-generic rendering ------------------------------------------------------------------
@@ -271,7 +298,8 @@ views.audit = async (main) => {
     $("#audit-table").innerHTML = rows.length ? `<table>
       <tr><th>Time</th><th>Outcome</th><th>Recommendation</th><th>Priority</th><th>Confidence</th><th>Latency</th><th>Review</th><th>ID</th><th>Right?</th></tr>
       ${rows.map((r) => `<tr class="clickable" data-id="${esc(r.id)}">
-        <td>${esc(time(r.created_at))}</td><td>${outcomeBadge(r.outcome)}</td><td>${esc(r.recommendation ?? "-")}</td>
+        <td><button type="button" class="linklike open-record" aria-label="Open decision ${esc(r.id.slice(0, 8))}">${esc(time(r.created_at))}</button></td>
+        <td>${outcomeBadge(r.outcome)}</td><td>${esc(r.recommendation ?? "-")}</td>
         <td>${priorityBadge(r.priority)}</td><td>${pct(r.confidence)}</td><td>${num(r.latency_ms, 2)} ms</td>
         <td>${esc(r.review_status === "resolved" ? `${r.final_label}${r.human_override ? " (override)" : ""}` : r.review_status.replace("_", " "))}</td>
         <td class="mono">${esc(r.id.slice(0, 8))}</td><td>${feedbackControls(r.id, true)}</td></tr>`).join("")}
@@ -291,16 +319,17 @@ views.audit = async (main) => {
 async function showRecord(id) {
   const record = await api(`/api/audit/${id}`);
   $("#audit-detail").innerHTML = `<div class="panel">
-    <div class="row"><h3 style="margin:0">Decision ${esc(id)}</h3><span class="grow"></span>${outcomeBadge(record.outcome)}</div>
+    <div class="row"><h3 style="margin:0" tabindex="-1" class="break-anywhere">Decision ${esc(id)}</h3><span class="grow"></span>${outcomeBadge(record.outcome)}</div>
     <h3>Events (hash chain)</h3>
-    <table><tr><th>#</th><th>Event</th><th>At</th><th>Hash</th><th>Payload</th></tr>
+    <div class="table-wrap"><table><tr><th>#</th><th>Event</th><th>At</th><th>Hash</th><th>Payload</th></tr>
       ${record.events.map((e) => `<tr><td>${e.seq}</td><td>${esc(e.event)}</td><td>${esc(time(e.created_at))}</td>
-        <td class="mono">${esc(e.hash.slice(0, 16))}…</td><td class="mono">${esc(JSON.stringify(e.payload))}</td></tr>`).join("")}
-    </table>
+        <td class="mono">${esc(e.hash.slice(0, 16))}…</td><td class="mono break-anywhere">${esc(JSON.stringify(e.payload))}</td></tr>`).join("")}
+    </table></div>
     ${derivedPrimary() ? `<h3>Criteria</h3>${criteriaTable(record.record.answers)}` : ""}
     <h3>Was this right?</h3>${feedbackControls(id)}
     <h3>Record</h3><pre class="json">${esc(JSON.stringify(record.record, null, 2))}</pre></div>`;
-  $("#audit-detail").scrollIntoView({ behavior: "smooth" });
+  $("#audit-detail").scrollIntoView({ behavior: scrollBehavior() });
+  $("#audit-detail h3").focus({ preventScroll: true });
 }
 
 // ---- evaluations -----------------------------------------------------------------------------
@@ -317,6 +346,7 @@ views.evals = async (main) => {
       <select id="dataset">${datasets.map((d) => `<option ${d === preselected ? "selected" : ""}>${esc(d)}</option>`).join("")}</select>
       <button class="primary" id="run-eval">Run evaluation</button>
       <span class="grow"></span>
+      <label for="history" class="sr-only">Report shown</label>
       <select id="history"><option value="">Published benchmark</option>${reports.map((r, i) =>
         `<option value="${i}">${esc(time(r.created_at))} · ${esc(r.dataset.name)} (n=${r.dataset.n})</option>`).join("")}</select>
     </div>
@@ -325,18 +355,15 @@ views.evals = async (main) => {
   const show = (report) => ($("#report").innerHTML = report ? reportView(report) : `<div class="panel empty">No benchmark published for this pack.</div>`);
   show(state.detail.benchmark);
   $("#history").addEventListener("change", (e) => show(e.target.value === "" ? state.detail.benchmark : reports[Number(e.target.value)]));
-  $("#run-eval").addEventListener("click", async (e) => {
-    e.target.disabled = true;
-    e.target.textContent = "Running…";
-    try {
-      show(await api(`${packPath()}/evals`, { method: "POST", body: JSON.stringify({ dataset: $("#dataset").value }) }));
-    } catch (error) {
-      toast(error.message);
-    } finally {
-      e.target.disabled = false;
-      e.target.textContent = "Run evaluation";
-    }
-  });
+  $("#run-eval").addEventListener("click", (e) =>
+    whileBusy(e.currentTarget, "Running…", async () => {
+      try {
+        show(await api(`${packPath()}/evals`, { method: "POST", body: JSON.stringify({ dataset: $("#dataset").value }) }));
+      } catch (error) {
+        toast(error.message);
+      }
+    }),
+  );
 };
 
 function leaderboardView(board) {
@@ -485,7 +512,7 @@ function feedbackCard(item) {
     ${inputView(r.input)}
     ${criteriaTable(r.answers, { evidence: false })}
     ${item.note ? `<p><b>Note:</b> ${esc(item.note)}</p>` : ""}
-    <span class="mono muted">decision ${esc(item.decision_id)}</span>
+    <span class="mono muted break-anywhere">decision ${esc(item.decision_id)}</span>
   </article>`;
 }
 
@@ -538,7 +565,7 @@ views.card = async (main) => {
       ${tile("AUTO threshold", p.thresholds.auto.toFixed(2), `review ≥ ${p.thresholds.review.toFixed(2)}`)}
       ${tile("CDS Hooks service", d.cds_service ?? "none", m.cds_hooks ? `hook: ${m.cds_hooks.hook}` : "", "ident")}
     </div>
-    <div class="panel"><b>Digest</b> <span class="mono">${esc(d.digest)}</span></div>
+    <div class="panel"><b>Digest</b> <span class="mono break-anywhere">${esc(d.digest)}</span></div>
     <div class="grid-2">
       <div class="panel"><h3 style="margin-top:0">Intended use</h3><p>${esc(m.card.intended_use)}</p>
         <h3>Users</h3><ul>${m.card.intended_users.map((u) => `<li>${esc(u)}</li>`).join("")}</ul>
@@ -590,34 +617,38 @@ async function tryRecord(main) {
     <div class="panel">
       <div class="row" style="margin-bottom:10px">
         <label for="example">Example</label>
-        <select id="example" class="grow"><option value="">Choose a behaviour test…</option>${examples.map((e, i) =>
+        <select id="example" class="grow">${examples.length ? "" : `<option value="">No behaviour tests</option>`}${examples.map((e, i) =>
           `<option value="${i}">${esc(e.name)}</option>`).join("")}</select>
       </div>
       <p class="muted" id="expected"></p>
       <label for="record">Input (JSON)</label>
-      <textarea id="record" class="code" spellcheck="false">${esc(JSON.stringify(examples[0]?.input ?? {}, null, 2))}</textarea>
+      <textarea id="record" class="code" spellcheck="false"></textarea>
       <div class="row" style="margin-top:10px"><span class="grow"></span><button class="primary" id="decide">Decide</button></div>
     </div>
     <div id="result"></div>`;
-  $("#example").addEventListener("change", (e) => {
-    const example = examples[Number(e.target.value)];
-    if (!example) return;
-    $("#record").value = JSON.stringify(example.input, null, 2);
-    $("#expected").textContent = expected(example) ? `The pack's test expects: ${expected(example)}.` : "";
-  });
-  $("#decide").addEventListener("click", async () => {
+  // The picker and the input always show the same example, starting with the first.
+  const choose = (index) => {
+    const example = examples[index];
+    $("#record").value = JSON.stringify(example?.input ?? {}, null, 2);
+    $("#expected").textContent = example && expected(example) ? `The pack's test expects: ${expected(example)}.` : "";
+  };
+  choose(0);
+  $("#example").addEventListener("change", (e) => choose(Number(e.target.value)));
+  $("#decide").addEventListener("click", (e) => {
     let input;
     try {
       input = JSON.parse($("#record").value);
     } catch (error) {
       return toast(`Not valid JSON: ${error.message}`);
     }
-    try {
-      $("#result").innerHTML = decisionView(await api(`${packPath()}/decide`, { method: "POST", body: JSON.stringify(input) }));
-      refreshReviewCount();
-    } catch (error) {
-      toast(error.message);
-    }
+    return whileBusy(e.currentTarget, "Deciding…", async () => {
+      try {
+        $("#result").innerHTML = decisionView(await api(`${packPath()}/decide`, { method: "POST", body: JSON.stringify(input) }));
+        refreshReviewCount();
+      } catch (error) {
+        toast(error.message);
+      }
+    });
   });
 }
 
@@ -643,18 +674,20 @@ async function tryMessage(main) {
     $("#subject").value = s.subject; $("#body").value = s.body;
     $("#channel").value = s.channel || "portal"; $("#language").value = s.language || "en";
   }));
-  $("#decide").addEventListener("click", async () => {
+  $("#decide").addEventListener("click", (e) => {
     const message = { body: $("#body").value, channel: $("#channel").value };
     if ($("#subject").value.trim()) message.subject = $("#subject").value.trim();
     const patient = { preferred_language: $("#language").value };
     if ($("#age").value) patient.age_band = $("#age").value;
-    try {
-      const result = await api(`${packPath()}/decide`, { method: "POST", body: JSON.stringify({ message, patient }) });
-      $("#result").innerHTML = decisionView(result);
-      refreshReviewCount();
-    } catch (error) {
-      toast(error.message);
-    }
+    return whileBusy(e.currentTarget, "Deciding…", async () => {
+      try {
+        const result = await api(`${packPath()}/decide`, { method: "POST", body: JSON.stringify({ message, patient }) });
+        $("#result").innerHTML = decisionView(result);
+        refreshReviewCount();
+      } catch (error) {
+        toast(error.message);
+      }
+    });
   });
 }
 
@@ -689,7 +722,7 @@ function decisionView(r) {
 // ---- feedback (thumbs up / down) -------------------------------------------------------------
 
 function feedbackControls(decisionId, compact = false) {
-  const note = compact ? "" : `<input class="fb-note" maxlength="1000" placeholder="What was wrong? (optional)">`;
+  const note = compact ? "" : `<input class="fb-note" maxlength="1000" placeholder="What was wrong? (optional)" aria-label="What was wrong? (optional)">`;
   return `<div class="fb ${compact ? "compact" : ""}" data-decision="${esc(decisionId)}">${note}
     <button type="button" data-rating="up" title="Right" aria-label="Thumbs up">👍</button>
     <button type="button" data-rating="down" title="Wrong" aria-label="Thumbs down">👎</button></div>`;
@@ -738,7 +771,7 @@ async function boot() {
     await loadPack(select.value);
     render();
   });
-  window.addEventListener("hashchange", render);
+  window.addEventListener("hashchange", () => render({ navigated: true }));
   render();
 }
 

@@ -2,6 +2,24 @@
 
 Roadmap to the full goal: [`docs/roadmap.md`](../docs/roadmap.md).
 
+## Current milestone: Dashboard redesign ([`docs/ui-ux-review.md`](../docs/ui-ux-review.md))
+Plan approved 2026-09-29 (8 PRs, about 10 working days); the user's decisions are in the plan's
+section 8 (both audiences, safety-first leaderboard, Playwright, admin-only evaluations with v0.6
+roles, feedback that captures the right answer, Eastern time everywhere people look).
+- [x] Phase 0: browser smoke suite (`pytest-playwright`, marker `browser`, own CI job) and
+  accessibility/correctness fixes: dark-mode primary buttons and light badges reach AA, form
+  fields 3:1 borders, audit records open from the keyboard, ids no longer wrap one letter per
+  line, a new view starts at the top with its heading focused, no `aria-live` on `main`, every
+  control named, Decide shows progress and can't be submitted twice, the sandbox notice stays on
+  phones, reduced motion respected, the record example picker matches its input
+- [ ] Phase 0b: Eastern time everywhere people look (`OPENHEALTH_TIMEZONE`)
+- [ ] Phase 1: design tokens and theming (toggle, no flash, contrast test)
+- [ ] Phase 2: tables and leaderboard, audit drawer
+- [ ] Phase 3: charts
+- [ ] Phase 4a: feedback backend (the right answer on a thumbs-down)
+- [ ] Phase 4: screen redesigns
+- [ ] Phase 5: QA pass
+
 ## Done: v0.3 Reference packs: AI Guard (the fifth and last)
 Plan approved 2026-09-29 (3 PRs): runtime → the pack (risk level 2, the user's choice) →
 leaderboard and deployed choice.
