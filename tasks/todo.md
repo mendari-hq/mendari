@@ -25,8 +25,8 @@ dashboard and deployment → leaderboard and deployed choice.
   ECE <= 0.05. Every model alone found 12/12 held-out exclusions (100% eligibility); adding
   the rules lowered eligibility to 92% held out / 87% local. Card 0.1.1 says so.
 - [ ] Jev-alone rows on test and the local site (200 Jev calls; needed the next day's budget)
-- [ ] Choose the deployed notes reader with the user (recommendation: `notes=jev`) and set
-  `openhealth/clinical-trial-prescreener:notes=<choice>` in OPENHEALTH_PROVIDERS
+- [x] Deployed notes reader chosen with the user: `notes=jev`. OPENHEALTH_PROVIDERS (production
+  and preview) = `router=jev,safety_screen=rules_and_jev,openhealth/clinical-trial-prescreener:notes=jev`
 
 ## Done: v0.2 Model-agnostic core
 - [x] Detailed v0.2 plan approved (5 PRs: spec, Jev batching, composition, LLM, leaderboard)
