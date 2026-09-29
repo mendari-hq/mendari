@@ -257,3 +257,22 @@ block style or `>-` for sentences.
 `openhealth validate` now checks every behaviour-test input against the input schema (except
 tests that expect BLOCK) and reports YAML errors in `pack.yaml` and `policy.yaml` as
 validation errors.
+
+## 2026-09-29 - process
+
+### What happened
+While building the Prior Authorization Preflight, I wrote the synthetic generator after the
+hand-written held-out notes and, without noticing, reused four held-out sentences as generator
+templates ("PT referral placed today.", "Feels unrefreshed some mornings."). Rules written
+against the templates would have been tuned on the held-out set indirectly.
+
+### Root cause
+The held-out phrasing was fresh in mind when writing templates, and nothing checked for overlap.
+
+### Rule
+Before writing rules, check that no held-out note (or sentence of 16+ characters from one)
+appears in the generator's templates, and reword any that do.
+
+### Verification
+A scripted check over the held-out file and the generator source prints "none" (it did, after
+rewording) before the first rule is written.

@@ -22,6 +22,7 @@ def test_packs_and_card(client: TestClient) -> None:
     assert [p["id"] for p in packs] == [
         "openhealth/clinical-trial-prescreener",
         "openhealth/patient-inbox-router",
+        "openhealth/prior-auth-preflight",
         "openhealth/referral-router",
     ]
     detail = client.get(PACK).json()
@@ -73,6 +74,7 @@ def test_cds_hooks_endpoints(client: TestClient) -> None:
         "openhealth.patient-inbox-router",
         "openhealth.clinical-trial-prescreener",
         "openhealth.referral-router",
+        "openhealth.prior-auth-preflight",
     }
     inbox = services["openhealth.patient-inbox-router"]
     response = client.post(

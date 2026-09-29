@@ -1,0 +1,37 @@
+# The structured part of the preflight, computed in code by the `criteria` provider: which
+# requirement set applies (service, payer), and whether the coded record has what the payer
+# asks for. Which elements a payer requires for a service is the decision table's job
+# (`next_step` in pack.yaml). A site adds its own codes here (see the Decision Card).
+as_of: as_of
+
+questions:
+  service:
+    checks:
+      - value: {field: order.code, in: ["72148", "72149", "72158"], then: lumbar_mri}
+      - value: {field: order.code, in: ["29880", "29881"], then: knee_arthroscopy}
+      - value: {field: order.code, in: ["95810", "95811"], then: sleep_study}
+    default: other
+
+  payer:
+    checks:
+      - value: {field: coverage.payer, in: [acme], then: acme}
+      - value: {field: coverage.payer, in: [beacon], then: beacon}
+    default: other
+
+  diagnosis_supports:
+    checks:
+      - condition: {codes: ["M54.1*", "M51.*"], then: "yes"}
+        when: {field: order.code, in: ["72148", "72149", "72158"]}
+      - condition: {codes: ["S83.2*", "M23.2*"], then: "yes"}
+        when: {field: order.code, in: ["29880", "29881"]}
+      - condition: {codes: ["G47.33", "R06.83"], then: "yes"}
+        when: {field: order.code, in: ["95810", "95811"]}
+    default: "no"
+
+  prior_imaging:
+    checks:
+      - exists: {in: procedures, codes: ["72100"], within_days: 180, then: "yes"}
+        when: {field: order.code, in: ["72148", "72149", "72158"]}
+      - exists: {in: procedures, codes: ["73721", "73722", "73723"], within_days: 180, then: "yes"}
+        when: {field: order.code, in: ["29880", "29881"]}
+    default: "no"

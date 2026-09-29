@@ -1,0 +1,265 @@
+# Decision Card: Prior Authorization Preflight
+
+`openhealth/prior-auth-preflight` · version **0.1.0** · Apache-2.0 · published by OpenHealth Hub reference packs (community)
+
+> Checks an order against the patient's payer before it is sent for prior authorization: does this payer require authorization for this service, and does the record have what the payer asks for? Complete requests are queued for submission; the gaps in the others are listed.
+
+| | |
+|---|---|
+| Risk level | **1**, clinical information processing (clinical information) |
+| Automation | AUTO permitted by policy thresholds; every decision is audited. |
+| Pack digest | `sha256:3ba380546066a8f5e1547fc0e87584d241a158ffe09771e80b3f0382297645ad` |
+| Last validation | 2026-09-29 on `test` (n=600, sha256 `17c6f97cd68c…`) |
+
+## Intended use
+
+Preflight of outpatient orders that need prior authorization, when the order is signed (CDS Hooks `order-sign`) or before an authorization specialist submits it: identify the payer's requirement set for the service, check each required element in the record, queue complete requests for submission and list the gaps in the others.
+
+**Why risk level 1:** The pack decides whether a prior-authorization request is ready to submit, not whether the service is appropriate. A wrong "ready" leads to a denial and a resubmission; a wrong gap costs staff a few minutes. A possible red flag (which may call for urgent imaging and an expedited review) always goes to a person.
+
+## Intended users
+
+- Prior-authorization specialists and front-office staff
+- Clinicians signing orders
+- Health IT teams integrating payer requirements with the EHR
+
+## Patient population
+
+Adults with an order for a lumbar spine MRI, a knee arthroscopy or a sleep study, covered by one of the two synthetic payers the pack knows, with clinic notes in English.
+
+## Out of scope
+
+- Deciding medical necessity or approving anything; the payer decides.
+- Any real payer's policy. Acme and Beacon, their prior-authorization lists and their documentation requirements are synthetic, loosely modelled on common imaging and procedure criteria, and were not written or reviewed by a clinician or a payer.
+- Medication prior authorization (orders are ServiceRequests only), and submitting the request itself (Da Vinci PAS is later standards work).
+
+## Inputs
+
+| Field | Type | Required |
+|---|---|---|
+| `as_of` | string | no |
+| `patient` | object | no |
+| `patient.age` | integer | no |
+| `patient.sex` | `female` \| `male` \| `other` \| `unknown` | no |
+| `order` | object | no |
+| `order.code` | string | no |
+| `order.name` | string | no |
+| `coverage` | object | no |
+| `coverage.payer` | string | no |
+| `conditions` | array | no |
+| `procedures` | array | no |
+| `notes` | string | no |
+
+FHIR R4 mapping: `fhir/mapping.yaml`.
+
+## Outputs
+
+**`service`**: Which requirement set does the ordered service fall under?
+
+| Label | Criteria |
+|---|---|
+| `lumbar_mri` | MRI of the lumbar spine (CPT 72148, 72149, 72158). |
+| `knee_arthroscopy` | Knee arthroscopy (CPT 29880, 29881). |
+| `sleep_study` | Attended sleep study (CPT 95810, 95811). |
+| `other` | Any other service; the pack has no requirement set for it. |
+
+**`payer`**: Which payer covers the patient?
+
+| Label | Criteria |
+|---|---|
+| `acme` | Acme Health (synthetic). |
+| `beacon` | Beacon Care (synthetic). |
+| `other` | Any other payer; the pack has no requirement set for it. |
+
+**`diagnosis_supports`**: Is a diagnosis that supports the ordered service coded?
+
+| Label | Criteria |
+|---|---|
+| `yes` | A supporting diagnosis is coded (lumbar MRI M54.1x or M51.x; knee arthroscopy S83.2x or M23.2x; sleep study G47.33 or R06.83). |
+| `no` | No supporting diagnosis is coded. |
+| `unknown` | The record does not say. |
+
+**`prior_imaging`**: Is the imaging the payer asks for on file from the last 180 days?
+
+| Label | Criteria |
+|---|---|
+| `yes` | A lumbar spine X-ray (CPT 72100) for a lumbar MRI, or a knee MRI (CPT 73721-73723) for a knee arthroscopy, in the last 180 days. |
+| `no` | None on file, or older than 180 days. |
+| `unknown` | Imaging is on file without a date. |
+
+**`conservative_therapy`**: Do the notes document at least 6 weeks of conservative treatment for the problem?
+
+| Label | Criteria |
+|---|---|
+| `yes` | At least 6 weeks of physical therapy, a home exercise programme, anti-inflammatory or pain medicines, or injections, e.g. "8 weeks of physical therapy" or "physiotherapy for 2 months". |
+| `no` | No conservative treatment, or less than 6 weeks of it, e.g. "started PT 2 weeks ago" or "no treatment tried yet". |
+| `unknown` | Treatment is mentioned but its length is not stated or cannot be worked out, e.g. "has tried some physical therapy". |
+
+**`red_flag`**: Do the notes document a red flag that calls for imaging without waiting for conservative treatment?
+
+| Label | Criteria |
+|---|---|
+| `yes` | A history of cancer, unexplained weight loss, fever with back pain, injection drug use, significant trauma such as a fall from height or a car accident, a progressive neurological deficit such as worsening weakness or foot drop, or saddle numbness or new bladder or bowel dysfunction. |
+| `no` | None documented, documented as absent ("no red flags", "denies fever"), resolved and unrelated, or only in a family member. |
+| `unknown` | A possible red flag is mentioned but unclear. |
+
+**`mechanical_symptoms`**: Do the notes document mechanical symptoms of the knee?
+
+| Label | Criteria |
+|---|---|
+| `yes` | The knee locks, catches, gives way or buckles. |
+| `no` | None documented or documented as absent, e.g. pain only, swelling, or painless clicking. |
+| `unknown` | Mentioned but unclear. |
+
+**`sleep_symptoms`**: Do the notes document symptoms of obstructive sleep apnoea?
+
+| Label | Criteria |
+|---|---|
+| `yes` | Loud snoring, witnessed pauses in breathing during sleep, or excessive daytime sleepiness such as falling asleep at work or while driving. |
+| `no` | None documented, documented as absent, or insomnia without these symptoms. |
+| `unknown` | Tiredness or poor sleep without any of these symptoms. |
+
+**`next_step`** (primary): What should happen to the prior-authorization request next?
+
+Derived from `service`, `payer`, `diagnosis_supports`, `prior_imaging`, `conservative_therapy`, `red_flag`, `mechanical_symptoms`, `sleep_symptoms` by a decision table (the first matching row wins; the members' answers are treated as independent):
+
+1. any of `service`, `payer` is `other` → `not_checked`
+2. any of `payer` is `beacon`, when `service` is `sleep_study` → `not_required`
+3. any of `diagnosis_supports` is `no` or `unknown` → `needs_attention`
+4. any of `conservative_therapy` is `no` or `unknown`, when `service` is `lumbar_mri` and `red_flag` is `no` or `unknown` → `needs_attention`
+5. any of `conservative_therapy` is `no` or `unknown`, when `service` is `knee_arthroscopy` → `needs_attention`
+6. any of `prior_imaging` is `no` or `unknown`, when `service` is `lumbar_mri` or `knee_arthroscopy` and `payer` is `acme` → `needs_attention`
+7. any of `mechanical_symptoms` is `no` or `unknown`, when `service` is `knee_arthroscopy` → `needs_attention`
+8. any of `sleep_symptoms` is `no` or `unknown`, when `service` is `sleep_study` → `needs_attention`
+9. otherwise → `submit_ready`
+
+| Label | Criteria |
+|---|---|
+| `submit_ready` | The payer requires prior authorization and everything it asks for is in the record, so the request can be submitted. |
+| `needs_attention` | Something the payer asks for is missing or unclear (listed in the reasons), so staff add it before submitting. |
+| `not_required` | This payer does not require prior authorization for this service. |
+| `not_checked` | The pack has no requirement set for this payer or service. |
+
+Every decision is one of `AUTO`, `HUMAN_REVIEW`, `ABSTAIN` or `BLOCK`, with a priority (`routine`, `urgent`, `asap`, `stat`) and an audit record.
+
+## Decision policy
+
+- AUTO when `next_step` confidence ≥ **0.90**; human review ≥ **0.40**; abstain below.
+- `needs_attention` is never automated.
+- `not_checked` is never automated.
+- `not_required` needs ≥ **0.95** for AUTO.
+- AUTO only while `notes` is `rules_and_jev` or `rules_and_llm`; otherwise a person reviews.
+- Rule **possible-red-flag**: P(`red_flag` is `yes`) ≥ 0.30 ⇒ `HUMAN_REVIEW`, priority `urgent`. The notes may document a red flag. Consider urgent imaging and an expedited review instead of the routine request.
+- Fallback (ABSTAIN / BLOCK): The authorization specialist checks the payer's requirements as today.
+
+## Providers
+
+| Slot | Answers | Default | Alternatives |
+|---|---|---|---|
+| `structured` | service, payer, diagnosis_supports, prior_imaging | `criteria` (criteria) | none |
+| `notes` | conservative_therapy, red_flag, mechanical_symptoms, sleep_symptoms | `rules` (rules) | `jev` (jev), `llm` (llm), `rules_and_jev` (any_of), `rules_and_llm` (any_of) |
+
+## Validation
+
+Benchmark `test` (n=600) with structured=`criteria`, notes=`rules`:
+
+| Metric | Value |
+|---|---|
+| `next_step` accuracy | 100.0% |
+| Macro-F1 | 1.000 |
+| Expected calibration error | 0.045 |
+| Brier score | 0.004 |
+| AUTO rate | 0.0% |
+| HUMAN_REVIEW rate | 100.0% |
+| ABSTAIN rate | 0.0% |
+| BLOCK rate | 0.0% |
+| Accuracy of AUTO decisions | n/a |
+| False automation rate | n/a |
+| Expected human override rate | 0.0% |
+| Latency p50 / p95 | 3.35 / 3.53 ms |
+| Cost per decision | $0.00000 |
+| Critical `red_flag=yes` | 25/25 detected, 0 automated |
+
+Per-label performance:
+
+| Label | Precision | Recall | F1 | n |
+|---|---|---|---|---|
+| `submit_ready` | 100.0% | 100.0% | 1.000 | 180 |
+| `needs_attention` | 100.0% | 100.0% | 1.000 | 221 |
+| `not_required` | 100.0% | 100.0% | 1.000 | 57 |
+| `not_checked` | 100.0% | 100.0% | 1.000 | 142 |
+
+Subgroups:
+
+| Subgroup | n | Accuracy | AUTO rate | Abstention |
+|---|---|---|---|---|
+| site=public | 600 | 100.0% | 0.0% | 0.0% |
+| service=knee_arthroscopy | 160 | 100.0% | 0.0% | 0.0% |
+| service=lumbar_mri | 214 | 100.0% | 0.0% | 0.0% |
+| service=other | 89 | 100.0% | 0.0% | 0.0% |
+| service=sleep_study | 137 | 100.0% | 0.0% | 0.0% |
+| payer=acme | 283 | 100.0% | 0.0% | 0.0% |
+| payer=beacon | 255 | 100.0% | 0.0% | 0.0% |
+| payer=other | 62 | 100.0% | 0.0% | 0.0% |
+| style=prose | 600 | 100.0% | 0.0% | 0.0% |
+| age_band=18-39 | 188 | 100.0% | 0.0% | 0.0% |
+| age_band=40-64 | 253 | 100.0% | 0.0% | 0.0% |
+| age_band=65+ | 159 | 100.0% | 0.0% | 0.0% |
+| sex=female | 277 | 100.0% | 0.0% | 0.0% |
+| sex=male | 323 | 100.0% | 0.0% | 0.0% |
+
+Calibration (reliability):
+
+| Confidence bin | n | Mean confidence | Accuracy |
+|---|---|---|---|
+| 0.9 to 1.0 | 600 | 95.5% | 100.0% |
+
+Threshold sweep (if everything ≥ threshold were automated):
+
+| Threshold | Coverage | Accuracy | Errors |
+|---|---|---|---|
+| 0.50 | 100.0% | 100.0% | 0 |
+| 0.60 | 100.0% | 100.0% | 0 |
+| 0.70 | 100.0% | 100.0% | 0 |
+| 0.80 | 100.0% | 100.0% | 0 |
+| 0.85 | 100.0% | 100.0% | 0 |
+| 0.90 | 100.0% | 100.0% | 0 |
+| 0.95 | 60.2% | 100.0% | 0 |
+| 0.97 | 41.2% | 100.0% | 0 |
+| 0.99 | 1.5% | 100.0% | 0 |
+
+## Known failure modes
+
+- Only the codes listed in logic/structured.yaml count. A lumbar X-ray billed under another code (for example 72110, four or more views) reads as missing imaging. On the bundled local-site example (datasets/prior-auth-local-site-example.jsonl), which has such X-rays and shorthand notes, prior imaging is 88 % correct and the next step 93 % (86 % on shorthand notes). Add a site's codes before use.
+- Durations are read as written in the notes ("8 weeks of physical therapy"). A note like "PT since July" cannot be compared with dates by the keyword rules and reads as unclear.
+- The keyword rules read English notes only and miss phrasings they do not list, including red flags. On hand-written notes they found 7/7 red flags in the set they were written on but 3/6 held out ("breast cancer treated 3 years ago", "numbness around the anus" and "lost 10 pounds without trying" were missed), and 9/11 at the local site. The policy therefore allows AUTO only while the notes are also read by a model (`automation_requires`), and a possible red flag always goes to a person.
+- The overall probability treats every answer as independent.
+- The public benchmark is generated from templates written with the pack, so it overstates real-world accuracy. The hand-written note sets are the better guide, and the held-out one was written before the rules.
+
+## Evidence and provenance
+
+- **Synthetic public benchmark**: evals/benchmark.json, the `test` split generated by openhealth.sandbox.synthetic_prior_auth; ground truth comes from the generated facts.
+- **Hand-written note sets**: data/documentation_notes.jsonl (used to write the note rules) and data/documentation_notes_holdout.jsonl (written before the rules and never used to tune them): conservative treatment with enough, too little or unclear duration; red flags and look-alikes; knee mechanical symptoms; sleep apnoea symptoms and insomnia.
+
+## Version history
+
+### 0.1.0
+
+- First release. Checks an order against the patient's payer before prior authorization:
+  `submit_ready`, `needs_attention` (the gaps listed), `not_required` or `not_checked`.
+- Synthetic requirement sets for two synthetic payers (Acme, Beacon) and three services
+  (lumbar spine MRI, knee arthroscopy, sleep study). Beacon does not require authorization for
+  sleep studies; Acme asks for prior imaging.
+- Structured elements computed in code (service, payer, supporting diagnosis, prior imaging)
+  and note elements read by English keyword rules by default, with `jev`, `llm`,
+  `rules_and_jev` and `rules_and_llm` variants: conservative treatment, red flags, knee
+  mechanical symptoms and sleep apnoea symptoms. A clear red flag waives conservative
+  treatment before a lumbar MRI.
+- Risk level 1: complete requests may be queued for submission automatically, but only while
+  the notes are also read by a model; a possible red flag always goes to a person.
+- FHIR mapping (ServiceRequest, Coverage, Condition, Procedure, DocumentReference) and a
+  CDS Hooks `order-sign` service with one card per order the pack covers.
+
+---
+
+*Generated by `openhealth card`. A Decision Card describes validation on the data named above. It is not evidence of performance at your site; run local validation first.*

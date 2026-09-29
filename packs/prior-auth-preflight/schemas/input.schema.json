@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openhealth.dev/packs/prior-auth-preflight/input.schema.json",
+  "title": "Prior Authorization Preflight input",
+  "description": "An order (service code), the patient's coverage, coded diagnoses, prior procedures and clinic notes. Dates are ISO 8601; the as-of date defaults to today.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "as_of": {"type": "string", "format": "date"},
+    "patient": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "age": {"type": "integer", "minimum": 0, "maximum": 130},
+        "sex": {"type": "string", "enum": ["female", "male", "other", "unknown"]}
+      }
+    },
+    "order": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "code": {"type": "string", "description": "CPT code of the ordered service"},
+        "name": {"type": "string"}
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {"payer": {"type": "string"}}
+    },
+    "conditions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {"code": {"type": "string"}, "text": {"type": "string"}}
+      }
+    },
+    "procedures": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {"code": {"type": "string"}, "name": {"type": "string"}, "date": {"type": "string"}}
+      }
+    },
+    "notes": {"type": "string", "maxLength": 20000}
+  }
+}

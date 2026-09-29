@@ -1,0 +1,812 @@
+{
+  "format": "openhealth.eval/1",
+  "id": "9ec63159-3fd4-4907-8ce2-85d96c81f7e2",
+  "created_at": "2026-09-29T15:41:51+00:00",
+  "pack": {
+    "id": "openhealth/prior-auth-preflight",
+    "version": "0.1.0",
+    "digest": "sha256:3ba380546066a8f5e1547fc0e87584d241a158ffe09771e80b3f0382297645ad"
+  },
+  "providers": {
+    "structured": {
+      "variant": "criteria",
+      "type": "criteria",
+      "model": "criteria@b86fa340999b"
+    },
+    "notes": {
+      "variant": "rules",
+      "type": "rules",
+      "model": "rules@b8178fa43247"
+    }
+  },
+  "policy": {
+    "risk_level": 1,
+    "thresholds": {
+      "auto": 0.9,
+      "review": 0.4
+    },
+    "governance_override": null
+  },
+  "dataset": {
+    "name": "test",
+    "sha256": "17c6f97cd68cbdcc19159b1809f801fc795e69fbdfcc795927eaaf623f121e79",
+    "n": 600,
+    "limit": null
+  },
+  "primary": "next_step",
+  "questions": {
+    "service": {
+      "n": 600,
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "per_label": {
+        "lumbar_mri": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 214
+        },
+        "knee_arthroscopy": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 160
+        },
+        "sleep_study": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 137
+        },
+        "other": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 89
+        }
+      },
+      "confusion": {
+        "lumbar_mri": {
+          "lumbar_mri": 214,
+          "knee_arthroscopy": 0,
+          "sleep_study": 0,
+          "other": 0,
+          "none": 0
+        },
+        "knee_arthroscopy": {
+          "lumbar_mri": 0,
+          "knee_arthroscopy": 160,
+          "sleep_study": 0,
+          "other": 0,
+          "none": 0
+        },
+        "sleep_study": {
+          "lumbar_mri": 0,
+          "knee_arthroscopy": 0,
+          "sleep_study": 137,
+          "other": 0,
+          "none": 0
+        },
+        "other": {
+          "lumbar_mri": 0,
+          "knee_arthroscopy": 0,
+          "sleep_study": 0,
+          "other": 89,
+          "none": 0
+        }
+      },
+      "calibration": {
+        "ece": 0.020000000000000018,
+        "bins": [
+          {
+            "low": 0.9,
+            "high": 1.0,
+            "n": 600,
+            "confidence": 0.98,
+            "accuracy": 1.0
+          }
+        ]
+      },
+      "brier": 0.0005333333333333312
+    },
+    "payer": {
+      "n": 600,
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "per_label": {
+        "acme": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 283
+        },
+        "beacon": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 255
+        },
+        "other": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 62
+        }
+      },
+      "confusion": {
+        "acme": {
+          "acme": 283,
+          "beacon": 0,
+          "other": 0,
+          "none": 0
+        },
+        "beacon": {
+          "acme": 0,
+          "beacon": 255,
+          "other": 0,
+          "none": 0
+        },
+        "other": {
+          "acme": 0,
+          "beacon": 0,
+          "other": 62,
+          "none": 0
+        }
+      },
+      "calibration": {
+        "ece": 0.020000000000000018,
+        "bins": [
+          {
+            "low": 0.9,
+            "high": 1.0,
+            "n": 600,
+            "confidence": 0.98,
+            "accuracy": 1.0
+          }
+        ]
+      },
+      "brier": 0.0005999999999999941
+    },
+    "diagnosis_supports": {
+      "n": 600,
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "per_label": {
+        "yes": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 437
+        },
+        "no": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 163
+        },
+        "unknown": {
+          "precision": null,
+          "recall": null,
+          "f1": null,
+          "support": 0
+        }
+      },
+      "confusion": {
+        "yes": {
+          "yes": 437,
+          "no": 0,
+          "unknown": 0,
+          "none": 0
+        },
+        "no": {
+          "yes": 0,
+          "no": 163,
+          "unknown": 0,
+          "none": 0
+        },
+        "unknown": {
+          "yes": 0,
+          "no": 0,
+          "unknown": 0,
+          "none": 0
+        }
+      },
+      "calibration": {
+        "ece": 0.020000000000000018,
+        "bins": [
+          {
+            "low": 0.9,
+            "high": 1.0,
+            "n": 600,
+            "confidence": 0.98,
+            "accuracy": 1.0
+          }
+        ]
+      },
+      "brier": 0.0005999999999999941
+    },
+    "prior_imaging": {
+      "n": 600,
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "per_label": {
+        "yes": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 281
+        },
+        "no": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 319
+        },
+        "unknown": {
+          "precision": null,
+          "recall": null,
+          "f1": null,
+          "support": 0
+        }
+      },
+      "confusion": {
+        "yes": {
+          "yes": 281,
+          "no": 0,
+          "unknown": 0,
+          "none": 0
+        },
+        "no": {
+          "yes": 0,
+          "no": 319,
+          "unknown": 0,
+          "none": 0
+        },
+        "unknown": {
+          "yes": 0,
+          "no": 0,
+          "unknown": 0,
+          "none": 0
+        }
+      },
+      "calibration": {
+        "ece": 0.020000000000000018,
+        "bins": [
+          {
+            "low": 0.9,
+            "high": 1.0,
+            "n": 600,
+            "confidence": 0.98,
+            "accuracy": 1.0
+          }
+        ]
+      },
+      "brier": 0.0005999999999999941
+    },
+    "conservative_therapy": {
+      "n": 600,
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "per_label": {
+        "yes": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 233
+        },
+        "no": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 306
+        },
+        "unknown": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 61
+        }
+      },
+      "confusion": {
+        "yes": {
+          "yes": 233,
+          "no": 0,
+          "unknown": 0,
+          "none": 0
+        },
+        "no": {
+          "yes": 0,
+          "no": 306,
+          "unknown": 0,
+          "none": 0
+        },
+        "unknown": {
+          "yes": 0,
+          "no": 0,
+          "unknown": 61,
+          "none": 0
+        }
+      },
+      "calibration": {
+        "ece": 0.05015912958680491,
+        "bins": [
+          {
+            "low": 0.9,
+            "high": 1.0,
+            "n": 600,
+            "confidence": 0.9498408704131951,
+            "accuracy": 1.0
+          }
+        ]
+      },
+      "brier": 0.006124084518571091
+    },
+    "red_flag": {
+      "n": 600,
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "per_label": {
+        "yes": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 25
+        },
+        "no": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 575
+        },
+        "unknown": {
+          "precision": null,
+          "recall": null,
+          "f1": null,
+          "support": 0
+        }
+      },
+      "confusion": {
+        "yes": {
+          "yes": 25,
+          "no": 0,
+          "unknown": 0,
+          "none": 0
+        },
+        "no": {
+          "yes": 0,
+          "no": 575,
+          "unknown": 0,
+          "none": 0
+        },
+        "unknown": {
+          "yes": 0,
+          "no": 0,
+          "unknown": 0,
+          "none": 0
+        }
+      },
+      "calibration": {
+        "ece": 0.055838971118542746,
+        "bins": [
+          {
+            "low": 0.9,
+            "high": 1.0,
+            "n": 600,
+            "confidence": 0.9441610288814573,
+            "accuracy": 1.0
+          }
+        ]
+      },
+      "brier": 0.004736760884261089
+    },
+    "mechanical_symptoms": {
+      "n": 600,
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "per_label": {
+        "yes": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 110
+        },
+        "no": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 490
+        },
+        "unknown": {
+          "precision": null,
+          "recall": null,
+          "f1": null,
+          "support": 0
+        }
+      },
+      "confusion": {
+        "yes": {
+          "yes": 110,
+          "no": 0,
+          "unknown": 0,
+          "none": 0
+        },
+        "no": {
+          "yes": 0,
+          "no": 490,
+          "unknown": 0,
+          "none": 0
+        },
+        "unknown": {
+          "yes": 0,
+          "no": 0,
+          "unknown": 0,
+          "none": 0
+        }
+      },
+      "calibration": {
+        "ece": 0.07741343076830254,
+        "bins": [
+          {
+            "low": 0.9,
+            "high": 1.0,
+            "n": 600,
+            "confidence": 0.9225865692316975,
+            "accuracy": 1.0
+          }
+        ]
+      },
+      "brier": 0.01017029335169552
+    },
+    "sleep_symptoms": {
+      "n": 600,
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "per_label": {
+        "yes": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 105
+        },
+        "no": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 482
+        },
+        "unknown": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 13
+        }
+      },
+      "confusion": {
+        "yes": {
+          "yes": 105,
+          "no": 0,
+          "unknown": 0,
+          "none": 0
+        },
+        "no": {
+          "yes": 0,
+          "no": 482,
+          "unknown": 0,
+          "none": 0
+        },
+        "unknown": {
+          "yes": 0,
+          "no": 0,
+          "unknown": 13,
+          "none": 0
+        }
+      },
+      "calibration": {
+        "ece": 0.07776772907172658,
+        "bins": [
+          {
+            "low": 0.9,
+            "high": 1.0,
+            "n": 600,
+            "confidence": 0.9222322709282734,
+            "accuracy": 1.0
+          }
+        ]
+      },
+      "brier": 0.010261040832218633
+    },
+    "next_step": {
+      "n": 600,
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "per_label": {
+        "submit_ready": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 180
+        },
+        "needs_attention": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 221
+        },
+        "not_required": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 57
+        },
+        "not_checked": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 142
+        }
+      },
+      "confusion": {
+        "submit_ready": {
+          "submit_ready": 180,
+          "needs_attention": 0,
+          "not_required": 0,
+          "not_checked": 0,
+          "none": 0
+        },
+        "needs_attention": {
+          "submit_ready": 0,
+          "needs_attention": 221,
+          "not_required": 0,
+          "not_checked": 0,
+          "none": 0
+        },
+        "not_required": {
+          "submit_ready": 0,
+          "needs_attention": 0,
+          "not_required": 57,
+          "not_checked": 0,
+          "none": 0
+        },
+        "not_checked": {
+          "submit_ready": 0,
+          "needs_attention": 0,
+          "not_required": 0,
+          "not_checked": 142,
+          "none": 0
+        }
+      },
+      "calibration": {
+        "ece": 0.045000910687432616,
+        "bins": [
+          {
+            "low": 0.9,
+            "high": 1.0,
+            "n": 600,
+            "confidence": 0.9549990893125674,
+            "accuracy": 1.0
+          }
+        ]
+      },
+      "brier": 0.004226391379896315
+    }
+  },
+  "decisions": {
+    "outcome_counts": {
+      "AUTO": 0,
+      "HUMAN_REVIEW": 600,
+      "ABSTAIN": 0,
+      "BLOCK": 0
+    },
+    "outcome_rates": {
+      "AUTO": 0.0,
+      "HUMAN_REVIEW": 1.0,
+      "ABSTAIN": 0.0,
+      "BLOCK": 0.0
+    },
+    "abstention_rate": 0.0,
+    "automation": {
+      "n": 0,
+      "accuracy": null,
+      "false_automation_rate": null,
+      "false_automation_share": 0.0
+    },
+    "review": {
+      "n": 600,
+      "expected_override_rate": 0.0
+    },
+    "recommendation_accuracy": 1.0,
+    "critical": [
+      {
+        "question": "red_flag",
+        "label": "yes",
+        "n": 25,
+        "detected": 25,
+        "detection_rate": 1.0,
+        "auto_missed": 0,
+        "missed_ids": []
+      }
+    ]
+  },
+  "threshold_sweep": [
+    {
+      "threshold": 0.5,
+      "coverage": 1.0,
+      "accuracy": 1.0,
+      "errors": 0
+    },
+    {
+      "threshold": 0.6,
+      "coverage": 1.0,
+      "accuracy": 1.0,
+      "errors": 0
+    },
+    {
+      "threshold": 0.7,
+      "coverage": 1.0,
+      "accuracy": 1.0,
+      "errors": 0
+    },
+    {
+      "threshold": 0.8,
+      "coverage": 1.0,
+      "accuracy": 1.0,
+      "errors": 0
+    },
+    {
+      "threshold": 0.85,
+      "coverage": 1.0,
+      "accuracy": 1.0,
+      "errors": 0
+    },
+    {
+      "threshold": 0.9,
+      "coverage": 1.0,
+      "accuracy": 1.0,
+      "errors": 0
+    },
+    {
+      "threshold": 0.95,
+      "coverage": 0.6016666666666667,
+      "accuracy": 1.0,
+      "errors": 0
+    },
+    {
+      "threshold": 0.97,
+      "coverage": 0.4116666666666667,
+      "accuracy": 1.0,
+      "errors": 0
+    },
+    {
+      "threshold": 0.99,
+      "coverage": 0.015,
+      "accuracy": 1.0,
+      "errors": 0
+    }
+  ],
+  "latency_ms": {
+    "mean": 3.3669536444358528,
+    "p50": 3.346250392496586,
+    "p95": 3.5312497057020664,
+    "max": 9.545832872390747
+  },
+  "cost": {
+    "total_usd": 0.0,
+    "per_decision_usd": 0.0,
+    "input_tokens": 0,
+    "output_tokens": 0
+  },
+  "errors": {},
+  "subgroups": {
+    "site": {
+      "public": {
+        "n": 600,
+        "accuracy": 1.0,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      }
+    },
+    "service": {
+      "knee_arthroscopy": {
+        "n": 160,
+        "accuracy": 1.0,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      },
+      "lumbar_mri": {
+        "n": 214,
+        "accuracy": 1.0,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      },
+      "other": {
+        "n": 89,
+        "accuracy": 1.0,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      },
+      "sleep_study": {
+        "n": 137,
+        "accuracy": 1.0,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      }
+    },
+    "payer": {
+      "acme": {
+        "n": 283,
+        "accuracy": 1.0,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      },
+      "beacon": {
+        "n": 255,
+        "accuracy": 1.0,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      },
+      "other": {
+        "n": 62,
+        "accuracy": 1.0,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      }
+    },
+    "style": {
+      "prose": {
+        "n": 600,
+        "accuracy": 1.0,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      }
+    },
+    "age_band": {
+      "18-39": {
+        "n": 188,
+        "accuracy": 1.0,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      },
+      "40-64": {
+        "n": 253,
+        "accuracy": 1.0,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      },
+      "65+": {
+        "n": 159,
+        "accuracy": 1.0,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      }
+    },
+    "sex": {
+      "female": {
+        "n": 277,
+        "accuracy": 1.0,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      },
+      "male": {
+        "n": 323,
+        "accuracy": 1.0,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      }
+    }
+  },
+  "misclassified": []
+}
