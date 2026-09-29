@@ -1,0 +1,41 @@
+# Decision policy for the Clinical Trial Prescreener.
+#
+# Risk level 2: every decision goes to a person (core/policy.py), whatever its confidence.
+# The thresholds below only matter under a recorded governance override, and to abstain when
+# the result is too uncertain to be worth suggesting.
+
+primary: eligibility
+
+thresholds:
+  auto: 0.95
+  review: 0.40  # below this there is no suggestion; the coordinator screens the chart as usual
+
+labels:
+  # Never contact a patient on the pack's word alone, even under a governance override.
+  candidate:
+    allow_auto: false
+
+rules:
+  # The exclusions that could harm a patient if missed are flagged whenever they are
+  # reasonably possible, not only when they are the most likely reading of the notes.
+  - name: possible-pregnancy
+    when:
+      question: note_pregnancy
+      labels: ["yes"]
+      min_probability: 0.3
+    outcome: HUMAN_REVIEW
+    reason: >-
+      The notes may document a current pregnancy or breastfeeding. Confirm before any study
+      contact.
+  - name: possible-recent-cardiovascular-event
+    when:
+      question: note_recent_cv_event
+      labels: ["yes"]
+      min_probability: 0.3
+    outcome: HUMAN_REVIEW
+    reason: >-
+      The notes may document a heart attack, stroke or acute coronary syndrome in the last
+      6 months. Confirm the date in the chart.
+
+fallback: Manual chart review by the research coordinator (the existing prescreening workflow).
+default_priority: routine

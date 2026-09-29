@@ -1,0 +1,930 @@
+{
+  "format": "openhealth.eval/1",
+  "id": "51e1e593-841a-4905-b3f0-cfac279d6444",
+  "created_at": "2026-09-29T02:56:51+00:00",
+  "pack": {
+    "id": "openhealth/clinical-trial-prescreener",
+    "version": "0.1.0",
+    "digest": "sha256:c1547808d23552e2dc5f377f9cfa0311912774f53e847cb5c250b93177e0a992"
+  },
+  "providers": {
+    "structured": {
+      "variant": "criteria",
+      "type": "criteria",
+      "model": "criteria@cdfa245d36d6"
+    },
+    "notes": {
+      "variant": "rules",
+      "type": "rules",
+      "model": "rules@403d03c1d9cf"
+    }
+  },
+  "policy": {
+    "risk_level": 2,
+    "thresholds": {
+      "auto": 0.95,
+      "review": 0.4
+    },
+    "governance_override": null
+  },
+  "dataset": {
+    "name": "test",
+    "sha256": "12d2fb4b741a725c83380b7a022ab8920bb5cd40b0262b653dd893c888941616",
+    "n": 300,
+    "limit": null
+  },
+  "primary": "eligibility",
+  "questions": {
+    "age_18_75": {
+      "n": 300,
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "per_label": {
+        "yes": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 286
+        },
+        "no": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 5
+        },
+        "unknown": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 9
+        }
+      },
+      "confusion": {
+        "yes": {
+          "yes": 286,
+          "no": 0,
+          "unknown": 0,
+          "none": 0
+        },
+        "no": {
+          "yes": 0,
+          "no": 5,
+          "unknown": 0,
+          "none": 0
+        },
+        "unknown": {
+          "yes": 0,
+          "no": 0,
+          "unknown": 9,
+          "none": 0
+        }
+      },
+      "calibration": {
+        "ece": 0.020000000000000018,
+        "bins": [
+          {
+            "low": 0.9,
+            "high": 1.0,
+            "n": 300,
+            "confidence": 0.98,
+            "accuracy": 1.0
+          }
+        ]
+      },
+      "brier": 0.0005999999999999985
+    },
+    "t2d_diagnosis": {
+      "n": 300,
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "per_label": {
+        "yes": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 269
+        },
+        "no": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 14
+        },
+        "unknown": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 17
+        }
+      },
+      "confusion": {
+        "yes": {
+          "yes": 269,
+          "no": 0,
+          "unknown": 0,
+          "none": 0
+        },
+        "no": {
+          "yes": 0,
+          "no": 14,
+          "unknown": 0,
+          "none": 0
+        },
+        "unknown": {
+          "yes": 0,
+          "no": 0,
+          "unknown": 17,
+          "none": 0
+        }
+      },
+      "calibration": {
+        "ece": 0.020000000000000018,
+        "bins": [
+          {
+            "low": 0.9,
+            "high": 1.0,
+            "n": 300,
+            "confidence": 0.98,
+            "accuracy": 1.0
+          }
+        ]
+      },
+      "brier": 0.0005999999999999985
+    },
+    "hba1c_in_range": {
+      "n": 300,
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "per_label": {
+        "yes": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 161
+        },
+        "no": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 80
+        },
+        "unknown": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 59
+        }
+      },
+      "confusion": {
+        "yes": {
+          "yes": 161,
+          "no": 0,
+          "unknown": 0,
+          "none": 0
+        },
+        "no": {
+          "yes": 0,
+          "no": 80,
+          "unknown": 0,
+          "none": 0
+        },
+        "unknown": {
+          "yes": 0,
+          "no": 0,
+          "unknown": 59,
+          "none": 0
+        }
+      },
+      "calibration": {
+        "ece": 0.020000000000000018,
+        "bins": [
+          {
+            "low": 0.9,
+            "high": 1.0,
+            "n": 300,
+            "confidence": 0.98,
+            "accuracy": 1.0
+          }
+        ]
+      },
+      "brier": 0.0005999999999999985
+    },
+    "stable_metformin": {
+      "n": 300,
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "per_label": {
+        "yes": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 227
+        },
+        "no": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 73
+        },
+        "unknown": {
+          "precision": null,
+          "recall": null,
+          "f1": null,
+          "support": 0
+        }
+      },
+      "confusion": {
+        "yes": {
+          "yes": 227,
+          "no": 0,
+          "unknown": 0,
+          "none": 0
+        },
+        "no": {
+          "yes": 0,
+          "no": 73,
+          "unknown": 0,
+          "none": 0
+        },
+        "unknown": {
+          "yes": 0,
+          "no": 0,
+          "unknown": 0,
+          "none": 0
+        }
+      },
+      "calibration": {
+        "ece": 0.020000000000000018,
+        "bins": [
+          {
+            "low": 0.9,
+            "high": 1.0,
+            "n": 300,
+            "confidence": 0.98,
+            "accuracy": 1.0
+          }
+        ]
+      },
+      "brier": 0.0005999999999999985
+    },
+    "egfr_30_or_more": {
+      "n": 300,
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "per_label": {
+        "yes": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 217
+        },
+        "no": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 29
+        },
+        "unknown": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 54
+        }
+      },
+      "confusion": {
+        "yes": {
+          "yes": 217,
+          "no": 0,
+          "unknown": 0,
+          "none": 0
+        },
+        "no": {
+          "yes": 0,
+          "no": 29,
+          "unknown": 0,
+          "none": 0
+        },
+        "unknown": {
+          "yes": 0,
+          "no": 0,
+          "unknown": 54,
+          "none": 0
+        }
+      },
+      "calibration": {
+        "ece": 0.020000000000000018,
+        "bins": [
+          {
+            "low": 0.9,
+            "high": 1.0,
+            "n": 300,
+            "confidence": 0.98,
+            "accuracy": 1.0
+          }
+        ]
+      },
+      "brier": 0.0005999999999999985
+    },
+    "no_insulin": {
+      "n": 300,
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "per_label": {
+        "yes": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 263
+        },
+        "no": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 37
+        },
+        "unknown": {
+          "precision": null,
+          "recall": null,
+          "f1": null,
+          "support": 0
+        }
+      },
+      "confusion": {
+        "yes": {
+          "yes": 263,
+          "no": 0,
+          "unknown": 0,
+          "none": 0
+        },
+        "no": {
+          "yes": 0,
+          "no": 37,
+          "unknown": 0,
+          "none": 0
+        },
+        "unknown": {
+          "yes": 0,
+          "no": 0,
+          "unknown": 0,
+          "none": 0
+        }
+      },
+      "calibration": {
+        "ece": 0.020000000000000018,
+        "bins": [
+          {
+            "low": 0.9,
+            "high": 1.0,
+            "n": 300,
+            "confidence": 0.98,
+            "accuracy": 1.0
+          }
+        ]
+      },
+      "brier": 0.0005999999999999985
+    },
+    "no_recent_cv_event": {
+      "n": 300,
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "per_label": {
+        "yes": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 277
+        },
+        "no": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 17
+        },
+        "unknown": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 6
+        }
+      },
+      "confusion": {
+        "yes": {
+          "yes": 277,
+          "no": 0,
+          "unknown": 0,
+          "none": 0
+        },
+        "no": {
+          "yes": 0,
+          "no": 17,
+          "unknown": 0,
+          "none": 0
+        },
+        "unknown": {
+          "yes": 0,
+          "no": 0,
+          "unknown": 6,
+          "none": 0
+        }
+      },
+      "calibration": {
+        "ece": 0.020000000000000018,
+        "bins": [
+          {
+            "low": 0.9,
+            "high": 1.0,
+            "n": 300,
+            "confidence": 0.98,
+            "accuracy": 1.0
+          }
+        ]
+      },
+      "brier": 0.0005999999999999985
+    },
+    "note_pregnancy": {
+      "n": 300,
+      "accuracy": 0.9966666666666667,
+      "macro_f1": 0.9791304347826087,
+      "per_label": {
+        "yes": {
+          "precision": 1.0,
+          "recall": 0.9230769230769231,
+          "f1": 0.9600000000000001,
+          "support": 13
+        },
+        "no": {
+          "precision": 0.9965277777777778,
+          "recall": 1.0,
+          "f1": 0.9982608695652174,
+          "support": 287
+        }
+      },
+      "confusion": {
+        "yes": {
+          "yes": 12,
+          "no": 1,
+          "none": 0
+        },
+        "no": {
+          "yes": 0,
+          "no": 287,
+          "none": 0
+        }
+      },
+      "calibration": {
+        "ece": 0.043619515058217484,
+        "bins": [
+          {
+            "low": 0.9,
+            "high": 1.0,
+            "n": 300,
+            "confidence": 0.9530471516084492,
+            "accuracy": 0.9966666666666667
+          }
+        ]
+      },
+      "brier": 0.010487764619866538
+    },
+    "note_pancreatitis": {
+      "n": 300,
+      "accuracy": 0.99,
+      "macro_f1": 0.8974358974358974,
+      "per_label": {
+        "yes": {
+          "precision": 0.6666666666666666,
+          "recall": 1.0,
+          "f1": 0.8,
+          "support": 6
+        },
+        "no": {
+          "precision": 1.0,
+          "recall": 0.9897959183673469,
+          "f1": 0.9948717948717948,
+          "support": 294
+        }
+      },
+      "confusion": {
+        "yes": {
+          "yes": 6,
+          "no": 0,
+          "none": 0
+        },
+        "no": {
+          "yes": 3,
+          "no": 291,
+          "none": 0
+        }
+      },
+      "calibration": {
+        "ece": 0.037425873177566626,
+        "bins": [
+          {
+            "low": 0.9,
+            "high": 1.0,
+            "n": 300,
+            "confidence": 0.9525741268224334,
+            "accuracy": 0.99
+          }
+        ]
+      },
+      "brier": 0.02260139196620654
+    },
+    "note_active_cancer_treatment": {
+      "n": 300,
+      "accuracy": 0.9966666666666667,
+      "macro_f1": 0.9839666506333173,
+      "per_label": {
+        "yes": {
+          "precision": 1.0,
+          "recall": 0.9411764705882353,
+          "f1": 0.9696969696969697,
+          "support": 17
+        },
+        "no": {
+          "precision": 0.9964788732394366,
+          "recall": 1.0,
+          "f1": 0.998236331569665,
+          "support": 283
+        }
+      },
+      "confusion": {
+        "yes": {
+          "yes": 16,
+          "no": 1,
+          "none": 0
+        },
+        "no": {
+          "yes": 0,
+          "no": 283,
+          "none": 0
+        }
+      },
+      "calibration": {
+        "ece": 0.044092539844233336,
+        "bins": [
+          {
+            "low": 0.9,
+            "high": 1.0,
+            "n": 300,
+            "confidence": 0.9525741268224334,
+            "accuracy": 0.9966666666666667
+          }
+        ]
+      },
+      "brier": 0.010532748584275074
+    },
+    "note_recent_cv_event": {
+      "n": 300,
+      "accuracy": 1.0,
+      "macro_f1": 1.0,
+      "per_label": {
+        "yes": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 13
+        },
+        "no": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 287
+        }
+      },
+      "confusion": {
+        "yes": {
+          "yes": 13,
+          "no": 0,
+          "none": 0
+        },
+        "no": {
+          "yes": 0,
+          "no": 287,
+          "none": 0
+        }
+      },
+      "calibration": {
+        "ece": 0.045547124640894276,
+        "bins": [
+          {
+            "low": 0.9,
+            "high": 1.0,
+            "n": 300,
+            "confidence": 0.9544528753591057,
+            "accuracy": 1.0
+          }
+        ]
+      },
+      "brier": 0.004304930783088149
+    },
+    "eligibility": {
+      "n": 300,
+      "accuracy": 0.9933333333333333,
+      "macro_f1": 0.9924450549450549,
+      "per_label": {
+        "candidate": {
+          "precision": 0.9821428571428571,
+          "recall": 0.9821428571428571,
+          "f1": 0.9821428571428571,
+          "support": 56
+        },
+        "not_eligible": {
+          "precision": 0.9951923076923077,
+          "recall": 0.9951923076923077,
+          "f1": 0.9951923076923077,
+          "support": 208
+        },
+        "needs_review": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0,
+          "support": 36
+        }
+      },
+      "confusion": {
+        "candidate": {
+          "candidate": 55,
+          "not_eligible": 1,
+          "needs_review": 0,
+          "none": 0
+        },
+        "not_eligible": {
+          "candidate": 1,
+          "not_eligible": 207,
+          "needs_review": 0,
+          "none": 0
+        },
+        "needs_review": {
+          "candidate": 0,
+          "not_eligible": 0,
+          "needs_review": 36,
+          "none": 0
+        }
+      },
+      "calibration": {
+        "ece": 0.08289747238788786,
+        "bins": [
+          {
+            "low": 0.7,
+            "high": 0.8,
+            "n": 92,
+            "confidence": 0.7331646128775422,
+            "accuracy": 0.9891304347826086
+          },
+          {
+            "low": 0.9,
+            "high": 1.0,
+            "n": 208,
+            "confidence": 0.9888442975908642,
+            "accuracy": 0.9951923076923077
+          }
+        ]
+      },
+      "brier": 0.04878263255257558
+    }
+  },
+  "decisions": {
+    "outcome_counts": {
+      "AUTO": 0,
+      "HUMAN_REVIEW": 300,
+      "ABSTAIN": 0,
+      "BLOCK": 0
+    },
+    "outcome_rates": {
+      "AUTO": 0.0,
+      "HUMAN_REVIEW": 1.0,
+      "ABSTAIN": 0.0,
+      "BLOCK": 0.0
+    },
+    "abstention_rate": 0.0,
+    "automation": {
+      "n": 0,
+      "accuracy": null,
+      "false_automation_rate": null,
+      "false_automation_share": 0.0
+    },
+    "review": {
+      "n": 300,
+      "expected_override_rate": 0.006666666666666667
+    },
+    "recommendation_accuracy": 0.9933333333333333,
+    "critical": [
+      {
+        "question": "note_pregnancy",
+        "label": "yes",
+        "n": 13,
+        "detected": 12,
+        "detection_rate": 0.9230769230769231,
+        "auto_missed": 0,
+        "missed_ids": [
+          "trial-0280"
+        ]
+      },
+      {
+        "question": "note_pancreatitis",
+        "label": "yes",
+        "n": 6,
+        "detected": 6,
+        "detection_rate": 1.0,
+        "auto_missed": 0,
+        "missed_ids": []
+      },
+      {
+        "question": "note_active_cancer_treatment",
+        "label": "yes",
+        "n": 17,
+        "detected": 16,
+        "detection_rate": 0.9411764705882353,
+        "auto_missed": 0,
+        "missed_ids": [
+          "trial-0455"
+        ]
+      },
+      {
+        "question": "note_recent_cv_event",
+        "label": "yes",
+        "n": 13,
+        "detected": 13,
+        "detection_rate": 1.0,
+        "auto_missed": 0,
+        "missed_ids": []
+      },
+      {
+        "question": "egfr_30_or_more",
+        "label": "no",
+        "n": 29,
+        "detected": 29,
+        "detection_rate": 1.0,
+        "auto_missed": 0,
+        "missed_ids": []
+      },
+      {
+        "question": "no_recent_cv_event",
+        "label": "no",
+        "n": 17,
+        "detected": 17,
+        "detection_rate": 1.0,
+        "auto_missed": 0,
+        "missed_ids": []
+      }
+    ]
+  },
+  "threshold_sweep": [
+    {
+      "threshold": 0.5,
+      "coverage": 1.0,
+      "accuracy": 0.9933333333333333,
+      "errors": 2
+    },
+    {
+      "threshold": 0.6,
+      "coverage": 1.0,
+      "accuracy": 0.9933333333333333,
+      "errors": 2
+    },
+    {
+      "threshold": 0.7,
+      "coverage": 1.0,
+      "accuracy": 0.9933333333333333,
+      "errors": 2
+    },
+    {
+      "threshold": 0.8,
+      "coverage": 0.6933333333333334,
+      "accuracy": 0.9951923076923077,
+      "errors": 1
+    },
+    {
+      "threshold": 0.85,
+      "coverage": 0.6933333333333334,
+      "accuracy": 0.9951923076923077,
+      "errors": 1
+    },
+    {
+      "threshold": 0.9,
+      "coverage": 0.6933333333333334,
+      "accuracy": 0.9951923076923077,
+      "errors": 1
+    },
+    {
+      "threshold": 0.95,
+      "coverage": 0.6933333333333334,
+      "accuracy": 0.9951923076923077,
+      "errors": 1
+    },
+    {
+      "threshold": 0.97,
+      "coverage": 0.6466666666666666,
+      "accuracy": 1.0,
+      "errors": 0
+    },
+    {
+      "threshold": 0.99,
+      "coverage": 0.27,
+      "accuracy": 1.0,
+      "errors": 0
+    }
+  ],
+  "latency_ms": {
+    "mean": 0.30711488022158545,
+    "p50": 0.3031250089406967,
+    "p95": 0.3308751620352268,
+    "max": 0.6123341154307127
+  },
+  "cost": {
+    "total_usd": 0.0,
+    "per_decision_usd": 0.0,
+    "input_tokens": 0,
+    "output_tokens": 0
+  },
+  "errors": {},
+  "subgroups": {
+    "site": {
+      "public": {
+        "n": 300,
+        "accuracy": 0.9933333333333333,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      }
+    },
+    "language": {
+      "en": {
+        "n": 286,
+        "accuracy": 1.0,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      },
+      "es": {
+        "n": 14,
+        "accuracy": 0.8571428571428571,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      }
+    },
+    "sex": {
+      "female": {
+        "n": 148,
+        "accuracy": 0.9932432432432432,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      },
+      "male": {
+        "n": 152,
+        "accuracy": 0.993421052631579,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      }
+    },
+    "age_band": {
+      "18-39": {
+        "n": 68,
+        "accuracy": 0.9852941176470589,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      },
+      "40-64": {
+        "n": 154,
+        "accuracy": 1.0,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      },
+      "65+": {
+        "n": 69,
+        "accuracy": 0.9855072463768116,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      },
+      "missing": {
+        "n": 9,
+        "accuracy": 1.0,
+        "auto_rate": 0.0,
+        "abstention_rate": 0.0,
+        "false_automation_rate": null
+      }
+    }
+  },
+  "misclassified": [
+    {
+      "id": "trial-0349",
+      "truth": "candidate",
+      "predicted": "not_eligible",
+      "confidence": 0.9618,
+      "outcome": "HUMAN_REVIEW"
+    },
+    {
+      "id": "trial-0455",
+      "truth": "not_eligible",
+      "predicted": "candidate",
+      "confidence": 0.7148,
+      "outcome": "HUMAN_REVIEW"
+    }
+  ]
+}

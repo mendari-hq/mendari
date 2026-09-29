@@ -1,0 +1,65 @@
+# FHIR R4 -> pack input for prescreening: one Patient and their record. The screening date is
+# the day of the request (the input has no `as_of`).
+fhir_version: R4
+focus: Patient
+
+resources:
+  Patient:
+    required: true
+
+fields:
+  patient.age:
+    path: Patient.birthDate
+    transform: age_years
+  patient.sex:
+    path: Patient.gender
+    map: {female: female, male: male, other: other, unknown: unknown}
+  notes:
+    path: DocumentReference.content.attachment.data
+    transform: base64_text
+
+lists:
+  conditions:
+    resource: Condition
+    fields:
+      code:
+        path: code.coding[0].code
+      text:
+        path: code.text
+      status:
+        path: clinicalStatus.coding[0].code
+      onset:
+        path: onsetDateTime
+  observations:
+    resource: Observation
+    fields:
+      code:
+        path: code.coding[0].code
+      name:
+        path: code.text
+      value:
+        path: valueQuantity.value
+      unit:
+        path: valueQuantity.unit
+      date:
+        path: effectiveDateTime
+  medications:
+    resource: MedicationStatement
+    fields:
+      code:
+        path: medicationCodeableConcept.coding[0].code
+      name:
+        path: medicationCodeableConcept.text
+      status:
+        path: status
+      start:
+        path: effectivePeriod.start
+      end:
+        path: effectivePeriod.end
+
+# Decision -> FHIR Task for the research coordinator's prescreening queue.
+task:
+  code_text: Review study prescreen
+  performer_system: https://openhealth.dev/fhir/CodeSystem/research-team
+  performer: research-coordinator
+  description: "GLYCEMIA-2 prescreen: {recommendation}. Confirm eligibility against the protocol."

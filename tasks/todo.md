@@ -8,7 +8,13 @@ dashboard and deployment → leaderboard and deployed choice.
 - [x] PR 1 runtime: derive rows scoped with `in`, `criteria` provider, reasons naming the
   deciding criteria, pack-scoped provider settings
 - [x] PR 2 FHIR lists/transforms and multi-resource index; CDS card wording from the pack
-- [ ] PR 3 `openhealth/clinical-trial-prescreener` 0.1.0 (synthetic GLYCEMIA-2 study)
+- [x] PR 3 `openhealth/clinical-trial-prescreener` 0.1.0 (synthetic GLYCEMIA-2 study):
+  7 structured criteria (`criteria`), 4 note exclusions (English rules default; Jev/LLM
+  variants), derived `eligibility`, L2 policy with pregnancy/CV review flags, FHIR mapping,
+  ResearchStudy, `patient-view` card; `synthetic_trial.py` (test 300, calibration 200, local
+  site 150); hand-written `exclusions` (tuning) and `exclusions_holdout` (written first).
+  Rules: 15/15 tuning, 8/12 holdout; local site 84% vs 99% public. Local datasets are now
+  offered only to the pack whose questions they label.
 - [ ] PR 4 multi-pack dashboard (generic input, criteria table, examples Try-it); deploy
 - [ ] PR 5 leaderboard for the trial pack; live Jev `noul` check; choose deployed notes provider
 

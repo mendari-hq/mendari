@@ -20,7 +20,7 @@ first** (the Hub only matters once it has five strong packs), **LLMs through Ver
 | Decision Pack spec (schemas, FHIR mapping, policy, tests, evals, card, versions) | ✅ v0.1 | Question types beyond `choice`; multi-question aggregation |
 | Runtime + AUTO / HUMAN_REVIEW / ABSTAIN / BLOCK + risk levels 0–4 | ✅ | Governance approvals in the UI |
 | Providers: rules, Jev, classical ML, combinations (`any_of`) | ✅ | **LLM, local open-source models, CQL**; cascades; Jev batching |
-| Reference packs | 1 of 5 | Referral Router, PA Preflight, Trial Prescreener, AI Guard |
+| Reference packs | 2 of 5 | Referral Router, PA Preflight, AI Guard |
 | Evaluation (accuracy, calibration, abstention, false automation, overrides, latency, cost, subgroups) + local validation | ✅ | Drift over time, multi-site comparison, cost pricing, a harder benchmark |
 | Audit trail (hash chain), review queue, 👍/👎 feedback | ✅ | FHIR AuditEvent/Provenance export |
 | FHIR R4, CDS Hooks (prefetch only), synthetic sandbox (HAPI) | Partial | US Core validation, SMART on FHIR, Bulk FHIR, OAuth/OIDC, CDS Hooks fetch; later CQL, OMOP, Da Vinci CRD/DTR/PAS |

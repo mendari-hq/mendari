@@ -1,0 +1,177 @@
+# Synthetic behaviour tests shipped with the pack. `openhealth test` runs them against the
+# pack's default providers. They document, in reviewable form, what the pack must always do.
+#
+# Every case is screened on 2026-09-01. The base record meets every structured criterion:
+# age 54, type 2 diabetes, HbA1c 8.1 % 31 days ago, eGFR 74, metformin for 18 months.
+#
+# expect keys: outcome, outcome_in, not_outcome, recommendation, priority, answers.<question>
+
+- name: a patient who meets every criterion is a candidate, reviewed by a person (risk level 2)
+  input: &base
+    as_of: "2026-09-01"
+    patient: {age: 54, sex: male}
+    conditions:
+      - {code: E11.9, text: Type 2 diabetes mellitus, status: active, onset: "2018-04-01"}
+    observations:
+      - {code: 4548-4, name: HbA1c, value: 8.1, unit: "%", date: "2026-08-01"}
+      - {code: 33914-3, name: eGFR, value: 74, unit: mL/min/1.73m2, date: "2026-06-01"}
+    medications:
+      - {code: "860975", name: metformin 1000 mg tablet, status: active, start: "2025-03-01"}
+    notes: Seen for diabetes follow-up. Feels well. Walking daily.
+  expect:
+    outcome: HUMAN_REVIEW
+    recommendation: candidate
+    answers:
+      age_18_75: "yes"
+      t2d_diagnosis: "yes"
+      hba1c_in_range: "yes"
+      stable_metformin: "yes"
+      egfr_30_or_more: "yes"
+      no_insulin: "yes"
+      no_recent_cv_event: "yes"
+      note_pregnancy: "no"
+      note_pancreatitis: "no"
+      note_active_cancer_treatment: "no"
+      note_recent_cv_event: "no"
+
+- name: an HbA1c above the range fails the criterion
+  input:
+    <<: *base
+    observations:
+      - {code: 4548-4, name: HbA1c, value: 11.4, unit: "%", date: "2026-08-01"}
+      - {code: 33914-3, name: eGFR, value: 74, unit: mL/min/1.73m2, date: "2026-06-01"}
+  expect: {not_outcome: AUTO, recommendation: not_eligible, answers: {hba1c_in_range: "no"}}
+
+- name: an HbA1c in mmol/mol is converted before it is compared
+  input:
+    <<: *base
+    observations:
+      - {code: 4548-4, name: HbA1c, value: 64, unit: mmol/mol, date: "2026-08-01"}
+      - {code: 33914-3, name: eGFR, value: 74, unit: mL/min/1.73m2, date: "2026-06-01"}
+  expect: {recommendation: candidate, answers: {hba1c_in_range: "yes"}}
+
+- name: an HbA1c older than 90 days cannot confirm the criterion, so the chart needs review
+  input:
+    <<: *base
+    observations:
+      - {code: 4548-4, name: HbA1c, value: 8.1, unit: "%", date: "2026-04-15"}
+      - {code: 33914-3, name: eGFR, value: 74, unit: mL/min/1.73m2, date: "2026-06-01"}
+  expect: {outcome: HUMAN_REVIEW, recommendation: needs_review, answers: {hba1c_in_range: unknown}}
+
+- name: an eGFR below 30 fails the criterion
+  input:
+    <<: *base
+    observations:
+      - {code: 4548-4, name: HbA1c, value: 8.1, unit: "%", date: "2026-08-01"}
+      - {code: 33914-3, name: eGFR, value: 24, unit: mL/min/1.73m2, date: "2026-06-01"}
+  expect: {recommendation: not_eligible, answers: {egfr_30_or_more: "no"}}
+
+- name: metformin started less than 90 days ago is not stable
+  input:
+    <<: *base
+    medications:
+      - {name: metformin 500 mg tablet, status: active, start: "2026-07-01"}
+  expect: {recommendation: not_eligible, answers: {stable_metformin: "no"}}
+
+- name: insulin stopped in the last 90 days fails the criterion
+  input:
+    <<: *base
+    medications:
+      - {code: "860975", name: metformin 1000 mg tablet, status: active, start: "2025-03-01"}
+      - {name: insulin glargine, status: completed, start: "2025-01-01", end: "2026-07-20"}
+  expect: {recommendation: not_eligible, answers: {no_insulin: "no"}}
+
+- name: a coded heart attack 60 days ago fails the criterion
+  input:
+    <<: *base
+    conditions:
+      - {code: E11.9, text: Type 2 diabetes mellitus, status: active, onset: "2018-04-01"}
+      - {code: I21.4, text: NSTEMI, status: resolved, onset: "2026-07-03"}
+  expect: {recommendation: not_eligible, answers: {no_recent_cv_event: "no"}}
+
+- name: a coded stroke without an onset date needs review
+  input:
+    <<: *base
+    conditions:
+      - {code: E11.9, text: Type 2 diabetes mellitus, status: active, onset: "2018-04-01"}
+      - {code: I63.9, text: Cerebral infarction, status: resolved}
+  expect: {recommendation: needs_review, answers: {no_recent_cv_event: unknown}}
+
+- name: type 1 diabetes is not eligible
+  input:
+    <<: *base
+    conditions:
+      - {code: E10.9, text: Type 1 diabetes mellitus, status: active}
+  expect: {recommendation: not_eligible, answers: {t2d_diagnosis: "no"}}
+
+- name: a missing age needs review
+  input:
+    <<: *base
+    patient: {sex: female}
+  expect: {recommendation: needs_review, answers: {age_18_75: unknown}}
+
+- name: a pregnancy in the notes excludes the patient and is flagged
+  input:
+    <<: *base
+    patient: {age: 31, sex: female}
+    notes: Currently 14 weeks pregnant, followed by OB. Diabetes discussed.
+  expect: {outcome: HUMAN_REVIEW, recommendation: not_eligible, answers: {note_pregnancy: "yes"}}
+
+- name: a negative pregnancy test is not a pregnancy
+  input:
+    <<: *base
+    patient: {age: 33, sex: female}
+    notes: Pregnancy test negative today. Metformin continued.
+  expect: {recommendation: candidate, answers: {note_pregnancy: "no"}}
+
+- name: a partner's pregnancy is not the patient's
+  input:
+    <<: *base
+    notes: His wife is pregnant with their first child.
+  expect: {recommendation: candidate, answers: {note_pregnancy: "no"}}
+
+- name: a history of pancreatitis excludes the patient
+  input:
+    <<: *base
+    notes: History of acute pancreatitis in 2019, gallstone-related.
+  expect: {recommendation: not_eligible, answers: {note_pancreatitis: "yes"}}
+
+- name: denied or family pancreatitis does not exclude
+  input:
+    <<: *base
+    notes: No history of pancreatitis. Mother had pancreatitis.
+  expect: {recommendation: candidate, answers: {note_pancreatitis: "no"}}
+
+- name: ongoing chemotherapy excludes the patient
+  input:
+    <<: *base
+    notes: Currently receiving chemotherapy for breast cancer (cycle 3 of 6).
+  expect: {recommendation: not_eligible, answers: {note_active_cancer_treatment: "yes"}}
+
+- name: cancer in remission does not exclude
+  input:
+    <<: *base
+    notes: Breast cancer treated in 2012, in remission, no current treatment.
+  expect: {recommendation: candidate, answers: {note_active_cancer_treatment: "no"}}
+
+- name: a recent heart attack in the notes excludes the patient and is flagged
+  input:
+    <<: *base
+    notes: Admitted last month for NSTEMI; two stents placed.
+  expect: {outcome: HUMAN_REVIEW, recommendation: not_eligible, answers: {note_recent_cv_event: "yes"}}
+
+- name: a remote heart attack does not exclude
+  input:
+    <<: *base
+    notes: Remote MI in 2015, stable since.
+  expect: {recommendation: candidate, answers: {note_recent_cv_event: "no"}}
+
+- name: an undated stroke mention is flagged for review rather than ignored
+  input:
+    <<: *base
+    notes: Had a stroke, left hand still weak.
+  expect: {outcome: HUMAN_REVIEW, not_outcome: AUTO}
+
+- name: an empty record gives no confident suggestion
+  input: {as_of: "2026-09-01"}
+  expect: {not_outcome: AUTO, outcome_in: [HUMAN_REVIEW, ABSTAIN]}
