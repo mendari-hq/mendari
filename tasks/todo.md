@@ -2,7 +2,7 @@
 
 Roadmap to the full goal: [`docs/roadmap.md`](../docs/roadmap.md).
 
-## Current milestone: v0.3 Reference packs: AI Guard (the fifth and last)
+## Done: v0.3 Reference packs: AI Guard (the fifth and last)
 Plan approved 2026-09-29 (3 PRs): runtime → the pack (risk level 2, the user's choice) →
 leaderboard and deployed choice.
 - [x] PR 1 runtime: `dosing` provider (dose arithmetic in code), `guard` section,
@@ -18,7 +18,9 @@ leaderboard and deployed choice.
   Claude Haiku 4.5 and gpt-oss-120b, alone and with the rules. With the rules every model-backed
   screen blocked 21/21 hand-written drafts to block; none released
 - [x] `OPENHEALTH_JEV_DAILY_LIMIT=none` (no limit, still counted), at the user's request
-- [ ] Deployed choice (the user's), then a live guard check
+- [x] Deployed with the user's choice: `openhealth/ai-guard:screen=rules_and_jev`. Live: a
+  missed emergency, a stroke in words the rules don't list and an unlisted-brand overdose are
+  blocked; a safe draft waits for one-step approval
 
 ## Done: v0.3 Prior Authorization Preflight
 Plan approved 2026-09-29 (3 PRs): runtime → the pack → leaderboard and deployed choice.
