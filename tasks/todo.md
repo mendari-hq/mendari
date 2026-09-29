@@ -11,7 +11,11 @@ Guard follows, with its own plan.
   derive rows, structured elements (criteria) and note elements (rules default), synthetic
   data (calibration 300 / test 600, local 300) and hand-written note sets. Rules: 7/7 red flags
   tuning, 3/6 held out; nothing automated without a model (`automation_requires`).
-- [ ] PR 3 leaderboard and deployed choice
+- [x] PR 3 leaderboard: rules; Jev with rules (all sets) and alone (hand-written sets); 3 LLMs
+  alone and with rules. Every model-backed config caught 6/6 held-out red flags, none
+  automated, 100 % next step held out, 0 false automation; rules_and_jev automates 33-47 %
+  at $0.00003 and 0.2 s.
+- [ ] Deploy the chosen configuration (pack-scoped OPENHEALTH_PROVIDERS, redeploy, health)
 
 ## Done: v0.3 Referral Router
 Plan approved 2026-09-29 (4 PRs): runtime → FHIR `order-sign` → the pack → leaderboard and
