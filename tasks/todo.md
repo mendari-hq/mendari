@@ -12,7 +12,9 @@ leaderboard and deployed choice.
   possible-block rule (P >= 0.3) with a nurse-triage fallback; synthetic data (calibration 300 /
   test 600, local 300) and hand-written draft sets. Rules: 11/12 blocks tuning, 4/9 held out;
   nothing released without a model (`automation_requires`) and a governance override (L2).
-- [ ] PR 3 leaderboard and deployed choice
+- [x] 0.1.1 criteria: over-the-counter advice is in scope, a dose that is too high is unsafe
+  advice (labels relabelled uniformly), found by a model reader on the tuning set
+- [ ] PR 3 leaderboard and deployed choice (Jev rows after the budget reset)
 
 ## Done: v0.3 Prior Authorization Preflight
 Plan approved 2026-09-29 (3 PRs): runtime → the pack → leaderboard and deployed choice.

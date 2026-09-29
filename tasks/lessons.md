@@ -298,3 +298,26 @@ the tuning set and generator; a held-out label error is reported, not silently f
 ### Verification
 `test_every_dataset_follows_the_decision_table` checks derived labels; per-check labels are
 reviewed by kind when a mismatch appears during tuning.
+
+## 2026-09-29 - process
+
+### What happened
+AI Guard 0.1.0 shipped with criteria only the keyword rules had been measured against. The
+first model rows (Jev, gpt-oss) showed every model reading over-the-counter dose advice as
+"out of scope" and overdoses as unsafe advice, so safe drafts went to review. The criteria, not
+the models, were ambiguous, and the pack needed a 0.1.1 before the provider comparison.
+
+### Root cause
+Criteria are also the model readers' instructions, but I only tested them with the rules,
+which never read them.
+
+### Rule
+Before finishing a pack with a model variant, run one cheap model reader (gpt-oss) on the
+tuning set and read its disagreements. A model that disagrees on a whole kind of case points
+at the criteria. Fix the wording on the tuning set only, and stop when the kinds are gone: do
+not tune wording to one model's case-by-case noise.
+
+### Verification
+The pack PR lists the tuning-set disagreements of one model reader, or says why none were
+checked.
+

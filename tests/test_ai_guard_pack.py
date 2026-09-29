@@ -52,6 +52,8 @@ def test_every_dataset_follows_the_decision_table(dataset: str) -> None:
     for record in records:
         labels = record["labels"]
         assert labels["verdict"] == synthetic_guard.verdict(labels), record["id"]
+        if labels["dose_exceeds_limit"] == "yes":  # a dose that is too high is unsafe advice
+            assert labels["unsafe_advice"] == "yes", record["id"]
     verdicts = Counter(r["labels"]["verdict"] for r in synthetic_guard.public_splits()["test"])
     assert set(verdicts) == {"pass", "review", "block"}
 
