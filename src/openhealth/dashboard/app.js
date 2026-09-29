@@ -11,9 +11,22 @@ const num = (v, d = 3) => (v === null || v === undefined ? "n/a" : Number(v).toF
 // whatever the viewer's own clock says; the zone's short name (EDT, EST) is part of every time.
 const DEFAULT_TIMEZONE = "America/New_York";
 const time = (iso) => (iso ? state.timeFormat.format(new Date(iso)) : "");
+const shortTime = (iso) => (iso ? state.shortFormat.format(new Date(iso)) : "");
 const timeFormatFor = (timeZone) => new Intl.DateTimeFormat("en-US", {
   timeZone, year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short",
 });
+const shortFormatFor = (timeZone) => new Intl.DateTimeFormat("en-US", {
+  timeZone, month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+});
+// "ET" for US Eastern: right in both EDT and EST, unlike the seasonal short name.
+function zoneShort() {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", { timeZone: state.timezone, timeZoneName: "shortGeneric" }).formatToParts(new Date());
+    return parts.find((p) => p.type === "timeZoneName")?.value ?? state.timezone;
+  } catch {
+    return state.timezone;
+  }
+}
 function zoneName() {
   try {
     const parts = new Intl.DateTimeFormat("en-US", { timeZone: state.timezone, timeZoneName: "longGeneric" }).formatToParts(new Date());
@@ -56,7 +69,10 @@ function storageSet(key, value) {
 
 // ---- state & routing -------------------------------------------------------------------------
 
-const state = { packs: [], packId: null, detail: null, timezone: DEFAULT_TIMEZONE, timeFormat: timeFormatFor(DEFAULT_TIMEZONE) };
+const state = {
+  packs: [], packId: null, detail: null, view: null,
+  timezone: DEFAULT_TIMEZONE, timeFormat: timeFormatFor(DEFAULT_TIMEZONE), shortFormat: shortFormatFor(DEFAULT_TIMEZONE),
+};
 const packPath = () => `/api/packs/${state.packId}`;
 const views = {};
 
@@ -65,15 +81,32 @@ async function loadPack(packId) {
   state.detail = await api(packPath());
 }
 
+// Routes are "#view" or "#view/param": "#audit/<decision id>" opens a record, "#evals/compare"
+// picks an evaluation view.
+function route() {
+  const [name = "overview", ...params] = (location.hash || "#overview").slice(1).split("/");
+  return { view: views[name] ? name : "overview", params: params.filter(Boolean).map(decodeURIComponent) };
+}
+
+// A route change inside the current view (opening a record, switching a tab) updates that view in
+// place, keeping its scroll and focus; anything else renders the new view.
+function onHashChange() {
+  const { view, params } = route();
+  if (view === state.view && views[view].update) return views[view].update(params);
+  return render({ navigated: true });
+}
+
 // `navigated`: the user moved to another view, so it starts at the top with its heading focused
 // (screen readers then announce the new view once, instead of reading the whole page).
 async function render({ navigated = false } = {}) {
-  const view = (location.hash || "#overview").slice(1);
+  const { view, params } = route();
+  state.view = view;
+  closeDrawer({ restoreFocus: false });
   document.querySelectorAll(".nav a[data-view]").forEach((a) => a.classList.toggle("active", a.dataset.view === view));
   const main = $("#view");
   main.innerHTML = `<div class="empty">Loading…</div>`;
   try {
-    await (views[view] || views.overview)(main);
+    await views[view](main, params);
   } catch (error) {
     main.innerHTML = `<div class="panel">Could not load this view: ${esc(error.message)}</div>`;
   }
@@ -102,6 +135,66 @@ async function whileBusy(button, busyText, task) {
     button.disabled = false;
     button.removeAttribute("aria-busy");
     button.textContent = text;
+  }
+}
+
+// ---- drawer ------------------------------------------------------------------------------------
+
+// One dialog at a time, beside the page (full screen on phones). The page behind is inert, Tab stays
+// inside, Escape or the close button closes it, and focus returns to what opened it.
+let drawer = null;
+
+function showDrawer({ title, body, opener, onClose }) {
+  closeDrawer({ restoreFocus: false });
+  const root = document.createElement("div");
+  root.className = "drawer-root";
+  root.innerHTML = `<div class="drawer-backdrop" data-close></div>
+    <section class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+      <header class="drawer-head"><h2 id="drawer-title" tabindex="-1">${esc(title)}</h2>
+        <button type="button" class="icon-button" data-close aria-label="Close">${icon("x")}</button></header>
+      <div class="drawer-body">${body}</div>
+    </section>`;
+  document.body.append(root);
+  document.querySelectorAll(".topbar, .shell").forEach((el) => (el.inert = true));
+  document.body.classList.add("drawer-open");
+  drawer = { root, opener, onClose };
+  root.addEventListener("click", (event) => {
+    if (event.target.closest("[data-close]")) closeDrawer();
+  });
+  root.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeDrawer();
+    } else if (event.key === "Tab") {
+      keepFocusInside(event, root.querySelector(".drawer"));
+    }
+  });
+  root.querySelector("#drawer-title").focus();
+}
+
+function closeDrawer({ restoreFocus = true } = {}) {
+  if (!drawer) return;
+  const { root, opener, onClose } = drawer;
+  drawer = null;
+  root.remove();
+  document.querySelectorAll(".topbar, .shell").forEach((el) => (el.inert = false));
+  document.body.classList.remove("drawer-open");
+  if (restoreFocus && opener?.isConnected) opener.focus();
+  onClose?.();
+}
+
+function keepFocusInside(event, container) {
+  const focusable = [...container.querySelectorAll("a[href], button:not([disabled]), input, select, textarea, summary")]
+    .filter((el) => el.getClientRects().length);
+  if (!focusable.length) return;
+  const [first, last] = [focusable[0], focusable[focusable.length - 1]];
+  const inside = container.contains(document.activeElement) && document.activeElement.id !== "drawer-title";
+  if (event.shiftKey && (!inside || document.activeElement === first)) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
   }
 }
 
@@ -299,11 +392,19 @@ function reviewCard(item, labels) {
 
 // ---- audit trail -----------------------------------------------------------------------------
 
-views.audit = async (main) => {
+const PRIORITY_RANK = { stat: 0, asap: 1, urgent: 2, routine: 3 };
+const EVENT_TEXT = {
+  "decision.created": "Decision recorded",
+  "review.resolved": "Review resolved",
+  "outcome.recorded": "Outcome recorded",
+  "feedback.recorded": "Feedback recorded",
+};
+
+views.audit = async (main, params) => {
   const outcome = storageGet("oh.audit.outcome", "");
   main.innerHTML = `
     <h1>Audit trail</h1>
-    <p class="muted">Every decision is recorded once; reviews and outcomes are appended as hash-chained events.</p>
+    <p class="muted">Every decision is recorded once; reviews, outcomes and feedback are appended as hash-chained events. Open a decision to see its record.</p>
     <div class="row panel">
       <label for="outcome-filter">Outcome</label>
       <select id="outcome-filter"><option value="">All</option>${OUTCOMES.map((o) => `<option value="${o}" ${o === outcome ? "selected" : ""}>${esc(outcomeText(o))}</option>`).join("")}</select>
@@ -311,23 +412,19 @@ views.audit = async (main) => {
       <button id="verify">Verify chain</button>
       <span id="verify-result"></span>
     </div>
-    <div class="panel table-wrap" id="audit-table"></div>
-    <div id="audit-detail"></div>`;
+    <div class="panel" id="audit-table"></div>`;
   const load = async () => {
     const filter = $("#outcome-filter").value;
     storageSet("oh.audit.outcome", filter);
     const rows = await api(`/api/audit?pack_id=${encodeURIComponent(state.packId)}&limit=100${filter ? `&outcome=${filter}` : ""}`);
-    $("#audit-table").innerHTML = rows.length ? `<table>
-      <tr><th>Time</th><th>Outcome</th><th>Recommendation</th><th>Priority</th><th>Confidence</th><th>Latency</th><th>Review</th><th>ID</th><th>Right?</th></tr>
-      ${rows.map((r) => `<tr class="clickable" data-id="${esc(r.id)}">
-        <td><button type="button" class="linklike open-record" aria-label="Open decision ${esc(r.id.slice(0, 8))}">${esc(time(r.created_at))}</button></td>
-        <td>${outcomeBadge(r.outcome)}</td><td>${esc(r.recommendation ?? "-")}</td>
-        <td>${priorityBadge(r.priority)}</td><td>${pct(r.confidence)}</td><td>${num(r.latency_ms, 2)} ms</td>
-        <td>${esc(r.review_status === "resolved" ? `${r.final_label}${r.human_override ? " (override)" : ""}` : r.review_status.replace("_", " "))}</td>
-        <td class="mono">${esc(r.id.slice(0, 8))}</td><td>${feedbackControls(r.id, true)}</td></tr>`).join("")}
-    </table>` : `<div class="empty">No decisions recorded.</div>`;
-    $("#audit-table").querySelectorAll("tr[data-id]").forEach((tr) => tr.addEventListener("click", () => showRecord(tr.dataset.id)));
+    $("#audit-table").innerHTML = rows.length ? auditTable(rows) : `<div class="empty">No decisions recorded.</div>`;
+    wireTables($("#audit-table"));
   };
+  // Rows open their record (the first cell's button does the same from the keyboard).
+  $("#audit-table").addEventListener("click", (event) => {
+    const row = event.target.closest("tr[data-id]");
+    if (row) location.hash = `#audit/${encodeURIComponent(row.dataset.id)}`;
+  });
   $("#outcome-filter").addEventListener("change", load);
   $("#verify").addEventListener("click", async () => {
     const result = await api("/api/audit/verify");
@@ -336,93 +433,314 @@ views.audit = async (main) => {
       : `<span class="badge s-degraded">broken at event ${result.broken_at}</span>`;
   });
   await load();
+  if (params[0]) openRecord(params[0]);
 };
+views.audit.update = (params) => (params[0] ? openRecord(params[0]) : closeDrawer());
 
-async function showRecord(id) {
-  const record = await api(`/api/audit/${id}`);
-  $("#audit-detail").innerHTML = `<div class="panel">
-    <div class="row"><h3 tabindex="-1" class="break-anywhere">Decision ${esc(id)}</h3><span class="grow"></span>${outcomeBadge(record.outcome)}</div>
-    <h3>Events (hash chain)</h3>
-    <div class="table-wrap"><table><tr><th>#</th><th>Event</th><th>At</th><th>Hash</th><th>Payload</th></tr>
-      ${record.events.map((e) => `<tr><td>${e.seq}</td><td>${esc(e.event)}</td><td>${esc(time(e.created_at))}</td>
-        <td class="mono">${esc(e.hash.slice(0, 16))}…</td><td class="mono break-anywhere">${esc(JSON.stringify(e.payload))}</td></tr>`).join("")}
-    </table></div>
-    ${derivedPrimary() ? `<h3>Criteria</h3>${criteriaTable(record.record.answers)}` : ""}
-    <h3>Was this right?</h3>${feedbackControls(id)}
-    <h3>Record</h3><pre class="json">${esc(JSON.stringify(record.record, null, 2))}</pre></div>`;
-  $("#audit-detail").scrollIntoView({ behavior: scrollBehavior() });
-  $("#audit-detail h3").focus({ preventScroll: true });
+function auditTable(rows) {
+  const review = (r) => (r.review_status === "resolved" ? `${r.final_label}${r.human_override ? " (override)" : ""}` : r.review_status.replace("_", " "));
+  return tableHtml({
+    id: "audit",
+    caption: `<span class="sr-only">Decisions, newest first. Open one to see its record.</span>`,
+    rows,
+    limitHeight: true,
+    stickyFirst: true,
+    rowClass: () => "clickable",
+    rowAttrs: (r) => `data-id="${esc(r.id)}"`,
+    columns: [
+      {
+        key: "time", label: `Time (${esc(zoneShort())})`, sort: (r) => r.created_at, firstDir: "descending",
+        cell: (r) => `<button type="button" class="linklike open-record" data-id="${esc(r.id)}" aria-label="Open decision ${esc(r.id.slice(0, 8))}, ${esc(time(r.created_at))}"><time datetime="${esc(r.created_at)}" title="${esc(time(r.created_at))}">${esc(shortTime(r.created_at))}</time></button>`,
+      },
+      { key: "outcome", label: "Outcome", sort: (r) => OUTCOMES.indexOf(r.outcome), cell: (r) => outcomeBadge(r.outcome) },
+      { key: "recommendation", label: "Recommendation", sort: (r) => r.recommendation ?? "", cell: (r) => esc(r.recommendation ?? "–") },
+      { key: "priority", label: "Priority", sort: (r) => PRIORITY_RANK[r.priority] ?? 9, firstDir: "ascending", cell: (r) => priorityBadge(r.priority) },
+      { key: "confidence", label: "Confidence", numeric: true, sort: (r) => r.confidence, cell: (r) => pct(r.confidence) },
+      { key: "latency", label: "Latency, ms", numeric: true, sort: (r) => r.latency_ms, cell: (r) => num(r.latency_ms, 2) },
+      { key: "review", label: "Review", sort: review, cell: (r) => esc(review(r)) },
+      { key: "id", label: "ID", cell: (r) => `<span class="mono">${esc(r.id.slice(0, 8))}</span>` },
+    ],
+  });
+}
+
+async function openRecord(id) {
+  const opener = document.querySelector(`button.open-record[data-id="${CSS.escape(id)}"]`) ?? document.activeElement;
+  let found;
+  try {
+    found = await api(`/api/audit/${encodeURIComponent(id)}`);
+  } catch (error) {
+    toast(error.message);
+    location.hash = "#audit";
+    return;
+  }
+  const r = found.record;
+  showDrawer({
+    title: `Decision ${id.slice(0, 8)}`,
+    opener,
+    // Closing the drawer (button, Escape, backdrop) goes back to the list's URL.
+    onClose: () => {
+      if (route().params.length) location.hash = "#audit";
+    },
+    body: `
+      <div class="row">${outcomeBadge(r.outcome)} ${priorityBadge(r.priority)}
+        <span>→ <b>${esc(r.recommendation ?? "no recommendation")}</b></span>
+        ${r.confidence !== null && r.confidence !== undefined ? `<span class="muted">confidence ${pct(r.confidence)}</span>` : ""}</div>
+      <p class="muted mt-2"><time datetime="${esc(r.created_at)}">${esc(time(r.created_at))}</time> · <span class="mono break-anywhere">${esc(id)}</span></p>
+      ${inputView(r.input)}
+      ${r.fallback ? `<p class="mt-3"><b>Fallback:</b> ${esc(r.fallback)}</p>` : ""}
+      ${r.reasons?.length ? `<ul class="reasons">${r.reasons.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+      ${derivedPrimary() ? `<h3>Criteria</h3>${criteriaTable(r.answers)}` : ""}
+      <h3>Was this right?</h3>${feedbackControls(id)}
+      <h3>Events</h3>${timeline(found.events)}
+      <details><summary>Full record (JSON)</summary><pre class="json">${esc(JSON.stringify(r, null, 2))}</pre></details>`,
+  });
+}
+
+// The hash chain as an ordered list: what happened, when, and each event's hash.
+function timeline(events) {
+  return `<ol class="timeline">${events.map((e) => `<li>
+    <div class="row"><b>${esc(EVENT_TEXT[e.event] ?? e.event)}</b>
+      <span class="muted"><time datetime="${esc(e.created_at)}">${esc(time(e.created_at))}</time></span>
+      <span class="grow"></span><span class="mono muted" title="hash ${esc(e.hash)}">#${e.seq} · ${esc(e.hash.slice(0, 12))}…</span></div>
+    <details><summary>Payload</summary><pre class="json">${esc(JSON.stringify(e.payload, null, 2))}</pre></details>
+  </li>`).join("")}</ol>`;
 }
 
 // ---- evaluations -----------------------------------------------------------------------------
 
-views.evals = async (main) => {
-  const reports = await api(`/api/evals?pack_id=${encodeURIComponent(state.packId)}`);
-  const datasets = state.detail.datasets;
-  const preselected = datasets.find((d) => d.includes("local-site")) ?? datasets[0];
+const evalsState = { reports: [] };
+const EVAL_TABS = [
+  ["compare", "Provider comparison"],
+  ["report", "Benchmark report"],
+  ["run", "Run on a dataset"],
+  ["history", "History"],
+];
+const evalTabs = () => EVAL_TABS.filter(([key]) => key !== "compare" || state.detail.leaderboard);
+
+views.evals = async (main, params) => {
+  evalsState.reports = await api(`/api/evals?pack_id=${encodeURIComponent(state.packId)}`);
   main.innerHTML = `
     <h1>Evaluations</h1>
-    <p class="muted">Run the pack on a labelled dataset. Anything other than the benchmark dataset is compared against the published benchmark (local validation).</p>
-    <div class="row panel">
-      <label for="dataset">Dataset</label>
-      <select id="dataset">${datasets.map((d) => `<option ${d === preselected ? "selected" : ""}>${esc(d)}</option>`).join("")}</select>
-      <button class="primary" id="run-eval">Run evaluation</button>
-      <span class="grow"></span>
-      <label for="history" class="sr-only">Report shown</label>
-      <select id="history"><option value="">Published benchmark</option>${reports.map((r, i) =>
-        `<option value="${i}">${esc(time(r.created_at))} · ${esc(r.dataset.name)} (n=${r.dataset.n})</option>`).join("")}</select>
-    </div>
-    <div id="report"></div>
-    ${state.detail.leaderboard ? leaderboardView(state.detail.leaderboard) : ""}`;
-  const show = (report) => ($("#report").innerHTML = report ? reportView(report) : `<div class="panel empty">No benchmark published for this pack.</div>`);
-  show(state.detail.benchmark);
-  $("#history").addEventListener("change", (e) => show(e.target.value === "" ? state.detail.benchmark : reports[Number(e.target.value)]));
-  $("#run-eval").addEventListener("click", (e) =>
-    whileBusy(e.currentTarget, "Running…", async () => {
-      try {
-        show(await api(`${packPath()}/evals`, { method: "POST", body: JSON.stringify({ dataset: $("#dataset").value }) }));
-      } catch (error) {
-        toast(error.message);
-      }
-    }),
-  );
+    <p class="muted">How the pack performs on labelled data: configurations compared on the same records, the published benchmark, and local validation on your own datasets.</p>
+    <nav class="segmented tabs" aria-label="Evaluation views">${evalTabs().map(([key, label]) =>
+      `<a href="#evals/${key}" data-tab="${key}">${esc(label)}</a>`).join("")}</nav>
+    <div id="evals-body"></div>`;
+  showEvalsTab(params[0]);
 };
+views.evals.update = (params) => showEvalsTab(params[0]);
+
+function showEvalsTab(requested) {
+  const tabs = evalTabs();
+  const tab = tabs.some(([key]) => key === requested) ? requested : tabs[0][0];
+  document.querySelectorAll(".tabs a[data-tab]").forEach((a) => {
+    if (a.dataset.tab === tab) a.setAttribute("aria-current", "page");
+    else a.removeAttribute("aria-current");
+  });
+  const body = $("#evals-body");
+  const empty = (text) => `<div class="panel empty">${text}</div>`;
+  if (tab === "compare") {
+    body.innerHTML = leaderboardView(state.detail.leaderboard);
+    wireLeaderboard(body, state.detail.leaderboard);
+  } else if (tab === "report") {
+    body.innerHTML = state.detail.benchmark ? reportView(state.detail.benchmark) : empty("No benchmark published for this pack.");
+  } else if (tab === "run") {
+    const datasets = state.detail.datasets;
+    const preselected = datasets.find((d) => d.includes("local-site")) ?? datasets[0];
+    body.innerHTML = `
+      <div class="row panel">
+        <label for="dataset">Dataset</label>
+        <select id="dataset">${datasets.map((d) => `<option ${d === preselected ? "selected" : ""}>${esc(d)}</option>`).join("")}</select>
+        <button class="primary" id="run-eval">Run evaluation</button>
+      </div>
+      <p class="muted mt-3">Anything other than the benchmark dataset is compared against the published benchmark (local validation).</p>
+      <div id="run-report">${empty("Choose a dataset and run it; the report appears here.")}</div>`;
+    $("#run-eval").addEventListener("click", (e) =>
+      whileBusy(e.currentTarget, "Running…", async () => {
+        try {
+          const report = await api(`${packPath()}/evals`, { method: "POST", body: JSON.stringify({ dataset: $("#dataset").value }) });
+          evalsState.reports.unshift(report);
+          $("#run-report").innerHTML = reportView(report);
+          wireTables($("#run-report"));
+        } catch (error) {
+          toast(error.message);
+        }
+      }),
+    );
+  } else {
+    const reports = evalsState.reports;
+    body.innerHTML = reports.length ? `
+      <div class="row panel">
+        <label for="history">Report</label>
+        <select id="history">${reports.map((r, i) => `<option value="${i}">${esc(time(r.created_at))} · ${esc(r.dataset.name)} (n=${r.dataset.n})</option>`).join("")}</select>
+      </div>
+      <div id="history-report">${reportView(reports[0])}</div>` : empty("No evaluations have been run on this deployment yet. Use “Run on a dataset”.");
+    $("#history")?.addEventListener("change", (e) => {
+      $("#history-report").innerHTML = reportView(reports[Number(e.target.value)]);
+      wireTables($("#history-report"));
+    });
+  }
+  wireTables(body);
+}
+
+// ---- leaderboard -----------------------------------------------------------------------------
+
+// Plain words for variant names ("rules_and_llm" -> "Rules + LLM"); the raw configuration stays in
+// the row's tooltip.
+const VARIANT_WORDS = { rules: "Rules", llm: "LLM", jev: "Jev", naive_bayes: "Naive Bayes", cascade: "Cascade", vote: "Vote", criteria: "Criteria", dosing: "Dosing" };
+const variantText = (variant) => variant.split("_and_").map((part) => VARIANT_WORDS[part] ?? part.replaceAll("_", " ")).join(" + ");
+
+// The remote models behind a provider ("rules:rules@1a2b + llm:anthropic/claude-sonnet-5" ->
+// ["anthropic/claude-sonnet-5"]); local fingerprints ("rules@1a2b") are not a deployment choice.
+const remoteModels = (model) => (model ?? "").split(" + ")
+  .map((part) => (part.includes(":") ? part.slice(part.indexOf(":") + 1) : part))
+  .filter((m) => m && !m.includes("@"));
+
+function modelText(id) {
+  const name = id.split("/").pop();
+  const claude = name.match(/^claude-([a-z]+)-(\d+(?:\.\d+)*)$/);
+  if (claude) return `Claude ${claude[1][0].toUpperCase()}${claude[1].slice(1)} ${claude[2]}`;
+  const jev = name.match(/^jev-(.+)$/);
+  return jev ? `Jev ${jev[1]}` : name;
+}
+
+const sameProvider = (a, b) => a?.variant === b?.variant && remoteModels(a?.model).join() === remoteModels(b?.model).join();
+const isDeployed = (row) => Object.keys(row.providers).every((slot) => sameProvider(row.providers[slot], state.detail.active_providers[slot]));
+
+// Safety first: the worst detection rate across the critical labels, then accuracy, then cost.
+const safetyScore = (row) => Math.min(...row.critical.filter((c) => c.n).map((c) => c.detected / c.n), 1);
+const safetyFirst = (a, b) => safetyScore(b) - safetyScore(a) || (b.accuracy ?? 0) - (a.accuracy ?? 0) || a.cost_per_decision_usd - b.cost_per_decision_usd;
+
+function boardDatasets(board) {
+  const datasets = [...new Set(board.rows.map((r) => r.dataset))];
+  const saved = storageGet(`oh.board.${state.packId}`, "");
+  const holdout = datasets.find((d) => d.endsWith("_holdout"));
+  const benchmark = state.detail.manifest.evaluation?.benchmark_dataset;
+  const current = datasets.includes(saved) ? saved : holdout ?? (datasets.includes(benchmark) ? benchmark : datasets[0]);
+  return { datasets, current };
+}
 
 function leaderboardView(board) {
-  const groups = {};
-  for (const row of board.rows) (groups[row.dataset] ??= []).push(row);
-  const critical = (row) => row.critical.filter((c) => c.n).map((c) =>
-    `${row.critical.length > 1 ? `${c.question}=${c.label} ` : ""}${c.detected}/${c.n} (${c.auto_missed} automated)`).join("; ") || "n/a";
-  const ms = (v) => (v < 10 ? `${v.toFixed(2)} ms` : `${Math.round(v).toLocaleString()} ms`);
-  return `<div class="panel"><h2>Provider comparison</h2>
-    <p class="muted">Every configuration ran on the same records (updated ${esc(time(board.updated_at))}). Remote models are named because they are a deployment choice.</p>
-    ${Object.entries(groups).map(([dataset, rows]) => `<h3>${esc(dataset)} <span class="muted">n=${Math.max(...rows.map((r) => r.n))}</span></h3>
-      <div class="table-wrap"><table class="board">
-        <tr><th>Configuration</th><th>Accuracy</th><th>Macro-F1</th><th>ECE</th><th>Automated</th><th>False automation</th><th>Critical detected</th><th>p50</th><th>Cost / decision</th><th>Errors</th></tr>
-        ${rows.sort((a, b) => (b.accuracy ?? 0) - (a.accuracy ?? 0)).map((r) => `<tr><td>${esc(r.config)}</td><td>${pct(r.accuracy)}</td><td>${num(r.macro_f1)}</td>
-          <td>${num(r.ece)}</td><td>${pct(r.auto_rate)}</td><td>${pct(r.false_automation_rate)}</td><td>${esc(critical(r))}</td>
-          <td class="mono">${ms(r.latency_p50_ms)}</td><td class="mono">$${r.cost_per_decision_usd.toFixed(5)}</td>
-          <td title="${esc(Object.entries(r.error_codes ?? {}).map(([c, n]) => `${c}: ${n}`).join(", "))}">${r.errors}</td></tr>`).join("")}
-      </table></div>${otherQuestions(rows)}`).join("")}
+  const { datasets, current } = boardDatasets(board);
+  const n = (d) => Math.max(...board.rows.filter((r) => r.dataset === d).map((r) => r.n));
+  return `<div class="panel">
+    <h2>Provider comparison</h2>
+    <p class="muted">Every configuration ran on the same records (updated ${esc(time(board.updated_at))}). Ranked safety-first: the share of critical cases caught, then accuracy, then cost. Sort by any column.</p>
+    <div class="choices" role="group" aria-label="Dataset">${datasets.map((d) =>
+      `<button type="button" data-board-dataset="${esc(d)}" aria-pressed="${d === current}">${esc(d)} <span class="muted">n=${n(d)}</span></button>`).join("")}</div>
+    <div id="board" class="mt-3">${boardTables(board, current)}</div>
   </div>`;
 }
 
-// Accuracy / ECE of the non-primary questions whose results differ between configurations.
-function otherQuestions(rows) {
-  const keys = [...new Set(rows.flatMap((r) => Object.keys(r.questions ?? {})))].sort();
-  const varying = keys.filter((k) => new Set(rows.map((r) => JSON.stringify(r.questions?.[k] ?? null))).size > 1);
-  if (!varying.length) return "";
-  const cell = (m) => (m ? `${pct(m.accuracy)} / ${num(m.ece)}` : "n/a");
-  return `<p class="muted mt-3">Other questions (accuracy / ECE)</p><div class="table-wrap"><table class="board">
-    <tr><th>Configuration</th>${varying.map((k) => `<th>${esc(k)}</th>`).join("")}</tr>
-    ${rows.map((r) => `<tr><td>${esc(r.config)}</td>${varying.map((k) => `<td>${cell(r.questions?.[k])}</td>`).join("")}</tr>`).join("")}
-  </table></div>`;
+function wireLeaderboard(root, board) {
+  root.querySelectorAll("[data-board-dataset]").forEach((button) => button.addEventListener("click", () => {
+    const dataset = button.dataset.boardDataset;
+    storageSet(`oh.board.${state.packId}`, dataset);
+    root.querySelectorAll("[data-board-dataset]").forEach((b) => b.setAttribute("aria-pressed", String(b === button)));
+    $("#board", root).innerHTML = boardTables(board, dataset);
+    wireTables($("#board", root));
+  }));
 }
+
+function boardTables(board, dataset) {
+  const rows = board.rows.filter((r) => r.dataset === dataset);
+  const n = Math.max(...rows.map((r) => r.n));
+  const same = (value) => rows.length > 1 && new Set(rows.map((r) => JSON.stringify(value(r)))).size === 1;
+  const slots = [...new Set(rows.flatMap((r) => Object.keys(r.providers)))];
+  const varying = slots.filter((slot) => !same((r) => [r.providers[slot]?.variant, remoteModels(r.providers[slot]?.model)]));
+  const constantSlots = slots.filter((slot) => !varying.includes(slot));
+  const ms = (v) => (v < 10 ? v.toFixed(2) : Math.round(v).toLocaleString());
+  const metrics = [
+    { key: "accuracy", label: "Accuracy", value: (r) => r.accuracy, text: (v) => pct(v) },
+    { key: "macro_f1", label: "Macro-F1", value: (r) => r.macro_f1, text: (v) => num(v) },
+    { key: "ece", label: "ECE", value: (r) => r.ece, text: (v) => num(v), firstDir: "ascending" },
+    { key: "auto_rate", label: "Automated", value: (r) => r.auto_rate, text: (v) => pct(v) },
+    { key: "false_automation", label: "False automation", value: (r) => r.false_automation_rate, text: (v) => pct(v), firstDir: "ascending" },
+    { key: "p50", label: "p50, ms", value: (r) => r.latency_p50_ms, text: ms, firstDir: "ascending" },
+    { key: "cost", label: "Cost / decision, $", value: (r) => r.cost_per_decision_usd, text: (v) => v.toFixed(5), firstDir: "ascending" },
+    { key: "errors", label: "Errors", value: (r) => r.errors, text: (v) => String(v), firstDir: "ascending" },
+  ];
+  const constantMetrics = metrics.filter((m) => same(m.value));
+  const criticalKeys = [...new Set(rows.flatMap((r) => r.critical.map((c) => `${c.question}=${c.label}`)))];
+
+  const configCell = (r) => {
+    const parts = varying.map((slot) => {
+      const p = r.providers[slot];
+      const models = remoteModels(p?.model).map((m) => `<span class="chip" title="${esc(m)}">${esc(modelText(m))}</span>`).join(" ");
+      return `<span>${varying.length > 1 ? `<span class="muted">${esc(slot)}:</span> ` : ""}${esc(variantText(p?.variant ?? "–"))}</span> ${models}`;
+    });
+    return `<div class="config" title="${esc(r.config)}">${parts.join("<br>")}${isDeployed(r) ? ` <span class="badge deployed">Deployed</span>` : ""}</div>`;
+  };
+  const criticalCell = (r, key) => {
+    const c = r.critical.find((x) => `${x.question}=${x.label}` === key);
+    if (!c || !c.n) return `<span class="muted">–</span>`;
+    const missed = c.detected < c.n;
+    return `<span class="${missed ? "miss" : ""}">${c.detected}/${c.n}</span>
+      <span class="meter${missed ? " miss" : ""}" aria-hidden="true"><span style="width:${(100 * c.detected) / c.n}%"></span></span>
+      ${c.auto_missed ? `<span class="miss">${c.auto_missed} automated</span>` : ""}`;
+  };
+  const columns = [
+    { key: "config", label: "Configuration", className: "config-cell", sort: (r) => r.config, cell: configCell },
+    ...criticalKeys.map((key) => ({
+      key: `critical:${key}`, label: `${key.split("=").map((part) => `<code>${esc(part)}</code>`).join(" = ")} caught`, numeric: true, className: "critical",
+      sort: (r) => { const c = r.critical.find((x) => `${x.question}=${x.label}` === key); return c && c.n ? c.detected / c.n : null; },
+      cell: (r) => criticalCell(r, key),
+    })),
+    ...metrics.filter((m) => !constantMetrics.includes(m)).map((m) => ({
+      key: m.key, label: m.label, numeric: true, firstDir: m.firstDir, sort: m.value,
+      cell: (r) => (m.value(r) === null || m.value(r) === undefined ? "n/a" : m.text(m.value(r))),
+    })),
+  ];
+  // What every row shares is said once, above the table, instead of repeated in cells.
+  const notes = [
+    ...constantSlots.map((slot) => `all rows: ${esc(slot)} = ${esc(variantText(rows[0].providers[slot].variant))}`),
+    ...constantMetrics.map((m) => `${esc(m.label)} ${m.value(rows[0]) === null ? "n/a" : m.text(m.value(rows[0]))} in every configuration`),
+  ];
+  return (notes.length ? `<p class="table-note">${notes.join(" · ")}</p>` : "") + tableHtml({
+    id: `board-${dataset}`,
+    caption: `<b>${esc(dataset)}</b> · n=${n}`,
+    rows,
+    rank: true,
+    stickyFirst: true,
+    defaultCompare: safetyFirst,
+    rowClass: (r) => (isDeployed(r) ? "deployed" : ""),
+    columns,
+  }) + otherQuestions(rows, varying);
+}
+
+// Accuracy of the non-primary questions that differ between configurations, weak cells marked.
+function otherQuestions(rows, varying) {
+  const keys = [...new Set(rows.flatMap((r) => Object.keys(r.questions ?? {})))].sort();
+  const changing = keys.filter((k) => new Set(rows.map((r) => JSON.stringify(r.questions?.[k] ?? null))).size > 1);
+  if (!changing.length) return "";
+  const shade = (acc) => (acc === null || acc === undefined ? "" : acc < 0.8 ? "cell-bad" : acc < 0.9 ? "cell-warn" : "");
+  const name = (r) => varying.map((slot) => [variantText(r.providers[slot]?.variant ?? "–"), ...remoteModels(r.providers[slot]?.model).map(modelText)].join(" ")).join(", ");
+  return `<details class="mt-3"><summary>Per-check accuracy</summary>
+    <p class="muted mt-2">Accuracy of each check; ECE in the tooltip. Amber below 90 %, red below 80 %.</p>
+    ${tableHtml({
+      id: `checks-${rows[0].dataset}`,
+      caption: "",
+      rows: [...rows].sort(safetyFirst),
+      stickyFirst: true,
+      columns: [
+        { key: "config", label: "Configuration", className: "config-cell", sort: name, cell: (r) => `<span title="${esc(r.config)}">${esc(name(r))}</span>` },
+        ...changing.map((k) => ({
+          key: k, label: `<code>${esc(k)}</code>`, numeric: true, sort: (r) => r.questions?.[k]?.accuracy,
+          cell: (r) => {
+            const m = r.questions?.[k];
+            return m ? `<span class="${shade(m.accuracy)}" title="ECE ${num(m.ece)}">${pct(m.accuracy)}</span>` : "n/a";
+          },
+        })),
+      ],
+    })}</details>`;
+}
+
+// ---- evaluation report -------------------------------------------------------------------------
 
 function reportView(r) {
   const q = r.questions[r.primary];
   const d = r.decisions;
   const critical = d.critical.map((c) => tile(`Critical ${c.question}=${c.label}`, `${c.detected}/${c.n}`, `${c.auto_missed} automated`)).join("");
+  const id = `${r.id ?? r.created_at}`.replace(/[^a-zA-Z0-9-]/g, "");
   return `
     <div class="panel">
       <div class="row"><b>${esc(r.dataset.name)}</b><span class="muted">n=${r.dataset.n} · ${esc(time(r.created_at))} ·
@@ -442,20 +760,56 @@ function reportView(r) {
     </div>
     <div class="grid-2">
       <div class="panel"><h3>Reliability</h3>${reliability(q.calibration.bins)}</div>
-      <div class="panel"><h3>Threshold sweep</h3><table>
-        <tr><th>Automate at ≥</th><th>Coverage</th><th>Accuracy</th><th>Errors</th></tr>
-        ${r.threshold_sweep.map((t) => `<tr><td>${t.threshold.toFixed(2)}</td><td>${pct(t.coverage)}</td><td>${pct(t.accuracy)}</td><td>${t.errors}</td></tr>`).join("")}
-      </table></div>
+      <div class="panel"><h3>Threshold sweep</h3>${tableHtml({
+        id: `sweep-${id}`, caption: "", rows: r.threshold_sweep,
+        columns: [
+          { key: "threshold", label: "Automate at ≥", numeric: true, cell: (t) => t.threshold.toFixed(2) },
+          { key: "coverage", label: "Coverage", numeric: true, cell: (t) => pct(t.coverage) },
+          { key: "accuracy", label: "Accuracy", numeric: true, cell: (t) => pct(t.accuracy) },
+          { key: "errors", label: "Errors", numeric: true, cell: (t) => String(t.errors) },
+        ],
+      })}</div>
     </div>
-    <div class="panel table-wrap"><h3>Per label</h3><table>
-      <tr><th>Label</th><th>Precision</th><th>Recall</th><th>F1</th><th>n</th></tr>
-      ${Object.entries(q.per_label).map(([label, m]) => `<tr><td>${esc(label)}</td><td>${pct(m.precision)}</td><td>${pct(m.recall)}</td><td>${num(m.f1)}</td><td>${m.support}</td></tr>`).join("")}
-    </table></div>
-    <div class="panel table-wrap"><h3>Subgroups</h3><table>
-      <tr><th>Subgroup</th><th>n</th><th>Accuracy</th><th>Automated</th><th>Abstained</th><th>False automation</th></tr>
-      ${Object.entries(r.subgroups).flatMap(([attr, values]) => Object.entries(values).map(([value, m]) =>
-        `<tr><td>${esc(attr)}=${esc(value)}</td><td>${m.n}</td><td>${pct(m.accuracy)}</td><td>${pct(m.auto_rate)}</td><td>${pct(m.abstention_rate)}</td><td>${pct(m.false_automation_rate)}</td></tr>`)).join("")}
-    </table></div>`;
+    <div class="panel"><h3>Per label</h3>${tableHtml({
+      id: `labels-${id}`, caption: "",
+      rows: Object.entries(q.per_label).map(([label, m]) => ({ label, ...m })),
+      columns: [
+        { key: "label", label: "Label", sort: (m) => m.label, cell: (m) => esc(m.label) },
+        { key: "precision", label: "Precision", numeric: true, sort: (m) => m.precision, cell: (m) => pct(m.precision) },
+        { key: "recall", label: "Recall", numeric: true, sort: (m) => m.recall, cell: (m) => pct(m.recall) },
+        { key: "f1", label: "F1", numeric: true, sort: (m) => m.f1, cell: (m) => num(m.f1) },
+        { key: "support", label: "n", numeric: true, sort: (m) => m.support, cell: (m) => String(m.support) },
+      ],
+    })}</div>
+    <div class="panel"><h3>Subgroups</h3>
+      <p class="muted">Grouped by attribute, lowest accuracy first. Groups under 20 cases are marked: their numbers move a lot with each case.</p>
+      ${subgroupsView(r.subgroups, id)}</div>`;
+}
+
+const SMALL_N = 20;
+
+function subgroupsView(subgroups, id) {
+  return Object.entries(subgroups).map(([attr, values]) => {
+    const rows = Object.entries(values).map(([value, m]) => ({ value, ...m }))
+      .sort((a, b) => (a.accuracy ?? 1) - (b.accuracy ?? 1));
+    const worst = rows[0];
+    return `<details class="group"><summary><b>${esc(attr)}</b>
+      <span class="muted">${rows.length} groups · lowest ${pct(worst.accuracy)} (${esc(worst.value)}, n=${worst.n})</span></summary>
+      ${tableHtml({
+        id: `sub-${id}-${attr}`, caption: "", rows,
+        columns: [
+          { key: "value", label: esc(attr), sort: (m) => m.value, cell: (m) => `${esc(m.value)}${m.n < SMALL_N ? ` <span class="badge o-ABSTAIN">small n</span>` : ""}` },
+          { key: "n", label: "n", numeric: true, sort: (m) => m.n, cell: (m) => String(m.n) },
+          {
+            key: "accuracy", label: "Accuracy", numeric: true, sort: (m) => m.accuracy, firstDir: "ascending",
+            cell: (m) => `${pct(m.accuracy)}${m.accuracy === null || m.accuracy === undefined ? "" : `<span class="meter" aria-hidden="true"><span style="width:${100 * m.accuracy}%"></span></span>`}`,
+          },
+          { key: "auto", label: "Automated", numeric: true, sort: (m) => m.auto_rate, cell: (m) => pct(m.auto_rate) },
+          { key: "abstain", label: "Abstained", numeric: true, sort: (m) => m.abstention_rate, cell: (m) => pct(m.abstention_rate) },
+          { key: "false_auto", label: "False automation", numeric: true, sort: (m) => m.false_automation_rate, cell: (m) => pct(m.false_automation_rate) },
+        ],
+      })}</details>`;
+  }).join("");
 }
 
 function comparisonView(c) {
@@ -808,6 +1162,7 @@ async function boot() {
   const health = await api("/api/health").catch(() => null);
   try {
     state.timeFormat = timeFormatFor(health?.timezone ?? DEFAULT_TIMEZONE);
+    state.shortFormat = shortFormatFor(health?.timezone ?? DEFAULT_TIMEZONE);
     state.timezone = health?.timezone ?? DEFAULT_TIMEZONE;
   } catch { /* an unknown zone name: keep the default */ }
   state.packs = await api("/api/packs");
@@ -826,7 +1181,7 @@ async function boot() {
     await loadPack(select.value);
     render();
   });
-  window.addEventListener("hashchange", () => render({ navigated: true }));
+  window.addEventListener("hashchange", onHashChange);
   render();
 }
 

@@ -24,7 +24,15 @@ roles, feedback that captures the right answer, Eastern time everywhere people l
   priority labels with the codes in tooltips; stat is a solid red chip; inline styles replaced by
   classes (only data-driven bar widths remain); `tests/test_dashboard_contrast.py`; browser tests
   for the toggle, no flash and the live system setting
-- [ ] Phase 2: tables and leaderboard, audit drawer
+- [x] Phase 2: tables and leaderboard, audit drawer. `table.js` (caption, sticky header, sortable
+  keyboard headers with aria-sort, right-aligned numbers, rank, sticky first columns with edge
+  shadows); leaderboard ranked safety-first with the deployed row marked, one column per critical
+  label, constant columns and slots said once above the table, datasets remembered (held-out set
+  first); Evaluations sub-views with URLs (`#evals/compare|report|run|history`, which also fixes
+  the picker/report mismatch); per-check accuracy behind a disclosure; subgroups grouped, lowest
+  first, small n marked; audit rows with compact ET times open a drawer at `#audit/<id>` (focus
+  held inside, Escape returns to the row) with a hash-chain timeline and the record's JSON folded;
+  feedback moved from every audit row into the drawer
 - [ ] Phase 3: charts
 - [ ] Phase 4a: feedback backend (the right answer on a thumbs-down)
 - [ ] Phase 4: screen redesigns
