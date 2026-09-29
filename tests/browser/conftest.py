@@ -1,0 +1,85 @@
+"""A live dashboard for browser tests: the real app on a free port, seeded through its own API.
+
+The server runs the packs' default providers only (rules, naive Bayes, criteria, dosing), so the
+browser suite never calls Jev or a language model and costs nothing.
+"""
+
+from __future__ import annotations
+
+import socket
+import threading
+import time
+from collections.abc import Iterator
+from pathlib import Path
+
+import httpx
+import pytest
+import uvicorn
+
+from openhealth.sandbox import example_datasets_dir
+from openhealth.server.app import create_app
+
+INBOX = "openhealth/patient-inbox-router"
+
+
+def _free_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _seed(base: str) -> None:
+    """At least one decision per pack (a behaviour-test example), plus inbox decisions that land
+    in the review queue and a thumbs-down, so every view has something to render."""
+    with httpx.Client(base_url=base, timeout=30) as client:
+        for pack in client.get("/api/packs").json():
+            examples = client.get(f"/api/packs/{pack['id']}/examples").json()
+            for example in examples[:2]:
+                client.post(f"/api/packs/{pack['id']}/decide", json=example["input"])
+        messages = [
+            "Having tight chest pressure and I'm sweating a lot right now.",
+            "Hi, I need a refill on my lisinopril. I have about three pills left.",
+            "hello?",
+        ]
+        decided = [
+            client.post(
+                f"/api/packs/{INBOX}/decide",
+                json={"message": {"body": body, "channel": "portal"}},
+            ).json()
+            for body in messages
+        ]
+        client.post(
+            f"/api/audit/{decided[1]['id']}/feedback",
+            json={"rating": "down", "reporter": "browser-test", "note": "Should be front desk"},
+        )
+
+
+@pytest.fixture(scope="session")
+def live_server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
+    db = Path(tmp_path_factory.mktemp("dashboard")) / "openhealth.db"
+    app = create_app(db_path=db, datasets_dir=example_datasets_dir())
+    port = _free_port()
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    deadline = time.monotonic() + 15
+    while not server.started:
+        if time.monotonic() > deadline:
+            raise RuntimeError("the dashboard server did not start")
+        time.sleep(0.05)
+    base = f"http://127.0.0.1:{port}"
+    _seed(base)
+    yield base
+    server.should_exit = True
+    thread.join(timeout=10)
+
+
+@pytest.fixture(scope="session")
+def base_url(live_server: str) -> str:
+    """pytest-playwright resolves relative `page.goto` URLs against this."""
+    return live_server
+
+
+@pytest.fixture(scope="session")
+def pack_ids(live_server: str) -> list[str]:
+    return [pack["id"] for pack in httpx.get(f"{live_server}/api/packs").json()]

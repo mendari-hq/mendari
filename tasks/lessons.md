@@ -360,3 +360,25 @@ failed.
 ### Verification
 Post-merge reports name only the changed pack or component.
 
+## 2026-09-29 - process
+
+### What happened
+After every merge I re-ran and reported the full production smoke test, and re-measured
+leaderboards, including for packs finished days earlier. The user: "after we make them, we run
+them once to check them .. after that we run when I ask because still in building phase, don't
+want to spend too much".
+
+### Root cause
+I treated "verify after each merge" as "verify everything, every time", including paid runs
+(Jev, AI Gateway) and checks nobody had asked for again.
+
+### Rule
+When something is built, run its checks once (tests, its evaluation or comparison, a few live
+calls for what changed). After that, re-run evals, leaderboards, paid model calls, live calls or
+smoke tests only when the user asks. A later merge gets at most "merged, deploy Ready". Before a
+paid run the user asks for, give the estimated cost, and say what retries added.
+
+### Verification
+Post-merge reports name only the changed pack or component and contain no paid calls unless the
+user asked for them.
+

@@ -42,6 +42,18 @@ jobs:
       - run: uv run openhealth test openhealth/prior-auth-preflight
       - run: uv run openhealth test openhealth/ai-guard
 
+  browser:
+    # The dashboard in a real browser (tests/browser, skipped by the default pytest run).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv sync --locked
+      - run: uv run playwright install --with-deps chromium
+      - run: uv run pytest -m browser
+
   reference-pack:
     # Derived pack artifacts (synthetic data, trained model) must be reproducible from source.
     runs-on: ubuntu-latest
