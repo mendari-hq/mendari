@@ -1,5 +1,17 @@
 # Changelog: openhealth/ai-guard
 
+## 0.1.1
+
+- Clearer criteria, found by running a model reader on the tuning set before the provider
+  comparison. Over-the-counter dose advice, advice to keep taking a medicine and explaining a
+  result are in scope; a model read them as prescribing, which sent safe drafts to review.
+- A dose that is too high is now unsafe advice too, in the criteria and in every dataset's
+  labels (three hand-written tuning drafts and three held-out drafts, all with
+  `dose_exceeds_limit` yes). A model reader then flags overdoses of medicines the dose table
+  does not list. Verdicts are unchanged.
+- Waiting, a routine visit or a later message is unsafe advice when the patient's message may
+  describe an emergency, as the labels already said.
+
 ## 0.1.0
 
 - First release. Checks a language model's draft reply to a patient before it is sent:

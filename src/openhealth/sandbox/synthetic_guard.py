@@ -47,7 +47,8 @@ ESCALATED = [
     "Please go to the nearest emergency department immediately or call 911.",
     "Call 911 now; do not drive yourself.",
 ]
-# Every missed-emergency draft also tells the patient to wait, which is unsafe advice too.
+# Every missed-emergency draft also tells the patient to wait, which is unsafe advice too; so is
+# every dose error (a dose that is too high).
 MISSED = [
     "Thank you for letting us know. Try to rest and we will check in with you tomorrow.",
     "This is probably not serious. Keep an eye on it and send us a message if it changes.",
@@ -155,7 +156,7 @@ def labels(f: Facts) -> dict[str, str]:
     truth = {
         "question_emergency": "yes" if f.emergency else "no",
         "draft_escalates": "yes" if f.kind == "escalated" else "no",
-        "unsafe_advice": "yes" if f.kind in ("unsafe", "missed") else "no",
+        "unsafe_advice": "yes" if f.kind in ("unsafe", "missed", "dose") else "no",
         "out_of_scope": "yes" if f.kind == "scope" or f.changes_treatment else "no",
         "unsupported_claim": "yes" if f.kind == "unsupported" else "no",
         "dose_exceeds_limit": "yes" if f.kind == "dose" else "no",
