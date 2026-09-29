@@ -23,8 +23,14 @@ function zoneName() {
   }
 }
 const OUTCOMES = ["AUTO", "HUMAN_REVIEW", "ABSTAIN", "BLOCK"];
-const outcomeBadge = (o) => `<span class="badge o-${esc(o)}">${esc(o.replace("_", " "))}</span>`;
-const priorityBadge = (p) => `<span class="badge p-${esc(p)}">${esc(p)}</span>`;
+// Plain words first; the exact code stays one hover away (docs/ui-ux-review.md, decision 1).
+const OUTCOME_TEXT = { AUTO: "Automated", HUMAN_REVIEW: "Human review", ABSTAIN: "Abstained", BLOCK: "Blocked" };
+const PRIORITY_TEXT = { stat: "Stat", asap: "ASAP", urgent: "Urgent", routine: "Routine" };
+const outcomeText = (o) => OUTCOME_TEXT[o] ?? o;
+const outcomeBadge = (o) => `<span class="badge o-${esc(o)}" title="${esc(o)}">${esc(outcomeText(o))}</span>`;
+const priorityBadge = (p) => `<span class="badge p-${esc(p)}" title="priority: ${esc(p)}">${esc(PRIORITY_TEXT[p] ?? p)}</span>`;
+// Icons come from the sprite in index.html; they are decorative, so the text beside them names them.
+const icon = (name) => `<svg class="icon" aria-hidden="true"><use href="#i-${name}"/></svg>`;
 
 async function api(path, options = {}) {
   const response = await fetch(path, { headers: { "content-type": "application/json" }, ...options });
@@ -108,7 +114,7 @@ function inputView(input) {
   if (!input) return `<div class="message">(input not stored: audit.store_input = hash)</div>`;
   if (input.message) {
     const m = input.message;
-    return `${m.subject ? `<div style="margin-top:8px"><b>${esc(m.subject)}</b></div>` : ""}<div class="message">${esc(m.body ?? "")}</div>`;
+    return `${m.subject ? `<div class="mt-2"><b>${esc(m.subject)}</b></div>` : ""}<div class="message">${esc(m.body ?? "")}</div>`;
   }
   const fields = [], texts = [], lists = [];
   const shown = (v) => (v !== null && typeof v === "object" ? JSON.stringify(v) : String(v));
@@ -194,23 +200,24 @@ views.overview = async (main) => {
       providers ${Object.entries(d.active_providers).map(([s, p]) => `${esc(s)}=<b>${esc(p.variant)}</b>`).join(", ")}</p>
     <div class="tiles">
       ${tile("Decisions", total)}
-      ${tile("Automated", pct(autoShare), `${stats.outcomes.AUTO} AUTO`)}
-      ${tile("Waiting for review", stats.pending_reviews, "HUMAN_REVIEW + ABSTAIN")}
+      ${tile("Automated", pct(autoShare), `${stats.outcomes.AUTO} decisions`)}
+      ${tile("Waiting for review", stats.pending_reviews, "human review or abstained")}
       ${tile("Human override rate", pct(stats.human_override_rate), `${stats.reviews_resolved} reviews`)}
       ${tile("Observed accuracy", pct(stats.observed_accuracy), "vs. final human labels")}
       ${tile("Latency p95", stats.latency_ms.p95 === null ? "n/a" : `${num(stats.latency_ms.p95, 2)} ms`)}
       ${tile("Cost / decision", stats.cost_usd.per_decision === null ? "n/a" : `$${num(stats.cost_usd.per_decision, 5)}`)}
       ${tile("Audit chain", chain.ok ? "verified" : "BROKEN", `${chain.events} events`)}
-      ${tile("Feedback", `👍 ${stats.feedback.up} · 👎 ${stats.feedback.down}`, `${stats.feedback.down_on_auto} 👎 on AUTO decisions`)}
+      ${tile("Feedback", `${icon("thumbs-up")}<span class="sr-only">Right:</span> ${stats.feedback.up} <span class="muted">·</span> ${icon("thumbs-down")}<span class="sr-only">Wrong:</span> ${stats.feedback.down}`,
+        `${stats.feedback.down_on_auto} wrong on automated decisions`, "", { html: true })}
     </div>
     <div class="panel">
-      <h3 style="margin-top:0">Outcome mix</h3>
+      <h3>Outcome mix</h3>
       ${stackBar(stats.outcomes, total)}
     </div>
     <div class="panel">
-      <h3 style="margin-top:0">Daily volume <span class="muted">· days in ${esc(zoneName())}</span></h3>
+      <h3>Daily volume <span class="muted">· days in ${esc(zoneName())}</span></h3>
       ${stats.daily.length ? `<div class="table-wrap"><table>
-        <tr><th>Date</th>${OUTCOMES.map((o) => `<th>${esc(o)}</th>`).join("")}<th style="width:40%">Mix</th></tr>
+        <tr><th>Date</th>${OUTCOMES.map((o) => `<th title="${o}">${esc(outcomeText(o))}</th>`).join("")}<th class="mix">Mix</th></tr>
         ${stats.daily.map((day) => {
           const n = OUTCOMES.reduce((sum, o) => sum + day[o], 0);
           return `<tr><td>${esc(day.date)}</td>${OUTCOMES.map((o) => `<td>${day[o]}</td>`).join("")}<td>${stackBar(day, n, false)}</td></tr>`;
@@ -219,13 +226,14 @@ views.overview = async (main) => {
     </div>`;
 };
 
-function tile(label, value, sub = "", kind = "") {
-  return `<div class="tile"><div class="label">${esc(label)}</div><div class="value ${kind}">${esc(value)}</div><div class="sub">${esc(sub)}</div></div>`;
+// `html`: the value is trusted markup built here (icons with numbers), not data to escape.
+function tile(label, value, sub = "", kind = "", { html = false } = {}) {
+  return `<div class="tile"><div class="label">${esc(label)}</div><div class="value ${kind}">${html ? value : esc(value)}</div><div class="sub">${esc(sub)}</div></div>`;
 }
 
 function stackBar(counts, total, legend = true) {
-  const parts = OUTCOMES.map((o) => (total ? `<span class="bg-${o}" style="width:${(100 * counts[o]) / total}%" title="${o}: ${counts[o]}"></span>` : "")).join("");
-  const keys = legend ? `<div class="legend">${OUTCOMES.map((o) => `<span><i class="bg-${o}"></i>${esc(o)} ${counts[o]} (${pct(total ? counts[o] / total : null)})</span>`).join("")}</div>` : "";
+  const parts = OUTCOMES.map((o) => (total ? `<span class="bg-${o}" style="width:${(100 * counts[o]) / total}%" title="${outcomeText(o)}: ${counts[o]}"></span>` : "")).join("");
+  const keys = legend ? `<div class="legend">${OUTCOMES.map((o) => `<span><i class="bg-${o}"></i>${esc(outcomeText(o))} ${counts[o]} (${pct(total ? counts[o] / total : null)})</span>`).join("")}</div>` : "";
   return `<div class="stack">${parts}</div>${keys}`;
 }
 
@@ -236,13 +244,13 @@ views.review = async (main) => {
   const labels = state.detail.labels;
   main.innerHTML = `
     <h1>Review queue</h1>
-    <p class="muted">HUMAN_REVIEW and ABSTAIN decisions, stat first. Choosing a label other than the recommendation records a human override.</p>
+    <p class="muted">Decisions held for human review or abstained, stat first. Choosing a label other than the recommendation records a human override.</p>
     <div class="row panel">
       <label for="reviewer">Reviewer</label>
       <input id="reviewer" value="${esc(storageGet("oh.reviewer", "sandbox-nurse"))}" autocomplete="name">
       <span class="muted">${items.length} pending</span>
     </div>
-    <div id="queue" style="margin-top:14px">
+    <div id="queue" class="mt-4">
       ${items.length ? items.map((item) => reviewCard(item, labels)).join("") : `<div class="panel empty">Nothing waiting for review.</div>`}
     </div>`;
   $("#reviewer").addEventListener("change", (e) => storageSet("oh.reviewer", e.target.value.trim()));
@@ -284,7 +292,7 @@ function reviewCard(item, labels) {
     <ul class="reasons">${record.reasons.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>
     ${criteriaTable(record.answers)}
     <div class="labels">${labels.map((label) =>
-      `<button data-label="${esc(label)}" class="${label === recommendation ? "recommended" : ""}">${label === recommendation ? "✓ " : ""}${esc(label)}</button>`).join("")}
+      `<button data-label="${esc(label)}" class="${label === recommendation ? "recommended" : ""}">${label === recommendation ? `${icon("check")}<span class="sr-only">Recommended:</span> ` : ""}${esc(label)}</button>`).join("")}
     </div>
   </article>`;
 }
@@ -298,7 +306,7 @@ views.audit = async (main) => {
     <p class="muted">Every decision is recorded once; reviews and outcomes are appended as hash-chained events.</p>
     <div class="row panel">
       <label for="outcome-filter">Outcome</label>
-      <select id="outcome-filter"><option value="">All</option>${OUTCOMES.map((o) => `<option ${o === outcome ? "selected" : ""}>${o}</option>`).join("")}</select>
+      <select id="outcome-filter"><option value="">All</option>${OUTCOMES.map((o) => `<option value="${o}" ${o === outcome ? "selected" : ""}>${esc(outcomeText(o))}</option>`).join("")}</select>
       <span class="grow"></span>
       <button id="verify">Verify chain</button>
       <span id="verify-result"></span>
@@ -333,7 +341,7 @@ views.audit = async (main) => {
 async function showRecord(id) {
   const record = await api(`/api/audit/${id}`);
   $("#audit-detail").innerHTML = `<div class="panel">
-    <div class="row"><h3 style="margin:0" tabindex="-1" class="break-anywhere">Decision ${esc(id)}</h3><span class="grow"></span>${outcomeBadge(record.outcome)}</div>
+    <div class="row"><h3 tabindex="-1" class="break-anywhere">Decision ${esc(id)}</h3><span class="grow"></span>${outcomeBadge(record.outcome)}</div>
     <h3>Events (hash chain)</h3>
     <div class="table-wrap"><table><tr><th>#</th><th>Event</th><th>At</th><th>Hash</th><th>Payload</th></tr>
       ${record.events.map((e) => `<tr><td>${e.seq}</td><td>${esc(e.event)}</td><td>${esc(time(e.created_at))}</td>
@@ -386,11 +394,11 @@ function leaderboardView(board) {
   const critical = (row) => row.critical.filter((c) => c.n).map((c) =>
     `${row.critical.length > 1 ? `${c.question}=${c.label} ` : ""}${c.detected}/${c.n} (${c.auto_missed} automated)`).join("; ") || "n/a";
   const ms = (v) => (v < 10 ? `${v.toFixed(2)} ms` : `${Math.round(v).toLocaleString()} ms`);
-  return `<div class="panel"><h2 style="margin-top:0">Provider comparison</h2>
+  return `<div class="panel"><h2>Provider comparison</h2>
     <p class="muted">Every configuration ran on the same records (updated ${esc(time(board.updated_at))}). Remote models are named because they are a deployment choice.</p>
     ${Object.entries(groups).map(([dataset, rows]) => `<h3>${esc(dataset)} <span class="muted">n=${Math.max(...rows.map((r) => r.n))}</span></h3>
       <div class="table-wrap"><table class="board">
-        <tr><th>Configuration</th><th>Accuracy</th><th>Macro-F1</th><th>ECE</th><th>AUTO</th><th>False automation</th><th>Critical detected</th><th>p50</th><th>Cost / decision</th><th>Errors</th></tr>
+        <tr><th>Configuration</th><th>Accuracy</th><th>Macro-F1</th><th>ECE</th><th>Automated</th><th>False automation</th><th>Critical detected</th><th>p50</th><th>Cost / decision</th><th>Errors</th></tr>
         ${rows.sort((a, b) => (b.accuracy ?? 0) - (a.accuracy ?? 0)).map((r) => `<tr><td>${esc(r.config)}</td><td>${pct(r.accuracy)}</td><td>${num(r.macro_f1)}</td>
           <td>${num(r.ece)}</td><td>${pct(r.auto_rate)}</td><td>${pct(r.false_automation_rate)}</td><td>${esc(critical(r))}</td>
           <td class="mono">${ms(r.latency_p50_ms)}</td><td class="mono">$${r.cost_per_decision_usd.toFixed(5)}</td>
@@ -405,7 +413,7 @@ function otherQuestions(rows) {
   const varying = keys.filter((k) => new Set(rows.map((r) => JSON.stringify(r.questions?.[k] ?? null))).size > 1);
   if (!varying.length) return "";
   const cell = (m) => (m ? `${pct(m.accuracy)} / ${num(m.ece)}` : "n/a");
-  return `<p class="muted" style="margin-top:10px">Other questions (accuracy / ECE)</p><div class="table-wrap"><table class="board">
+  return `<p class="muted mt-3">Other questions (accuracy / ECE)</p><div class="table-wrap"><table class="board">
     <tr><th>Configuration</th>${varying.map((k) => `<th>${esc(k)}</th>`).join("")}</tr>
     ${rows.map((r) => `<tr><td>${esc(r.config)}</td>${varying.map((k) => `<td>${cell(r.questions?.[k])}</td>`).join("")}</tr>`).join("")}
   </table></div>`;
@@ -421,11 +429,11 @@ function reportView(r) {
         ${Object.entries(r.providers).map(([s, p]) => `${esc(s)}=${esc(p.variant)}`).join(", ")}</span></div>
     </div>
     ${r.comparison ? comparisonView(r.comparison) : ""}
-    <div class="tiles" style="margin-top:14px">
+    <div class="tiles mt-4">
       ${tile(`${r.primary} accuracy`, pct(q.accuracy), `macro-F1 ${num(q.macro_f1)}`)}
       ${tile("Calibration (ECE)", num(q.calibration.ece), `Brier ${num(q.brier)}`)}
       ${tile("Automated", pct(d.outcome_rates.AUTO), `accuracy ${pct(d.automation.accuracy)}`)}
-      ${tile("False automation rate", pct(d.automation.false_automation_rate), `of ${d.automation.n} AUTO`)}
+      ${tile("False automation rate", pct(d.automation.false_automation_rate), `of ${d.automation.n} automated`)}
       ${tile("Abstention", pct(d.abstention_rate))}
       ${tile("Expected override rate", pct(d.review.expected_override_rate), `of ${d.review.n} reviewed`)}
       ${critical}
@@ -433,18 +441,18 @@ function reportView(r) {
       ${tile("Cost / decision", r.cost.per_decision_usd === null ? "unknown" : `$${num(r.cost.per_decision_usd, 5)}`)}
     </div>
     <div class="grid-2">
-      <div class="panel"><h3 style="margin-top:0">Reliability</h3>${reliability(q.calibration.bins)}</div>
-      <div class="panel"><h3 style="margin-top:0">Threshold sweep</h3><table>
-        <tr><th>Auto at ≥</th><th>Coverage</th><th>Accuracy</th><th>Errors</th></tr>
+      <div class="panel"><h3>Reliability</h3>${reliability(q.calibration.bins)}</div>
+      <div class="panel"><h3>Threshold sweep</h3><table>
+        <tr><th>Automate at ≥</th><th>Coverage</th><th>Accuracy</th><th>Errors</th></tr>
         ${r.threshold_sweep.map((t) => `<tr><td>${t.threshold.toFixed(2)}</td><td>${pct(t.coverage)}</td><td>${pct(t.accuracy)}</td><td>${t.errors}</td></tr>`).join("")}
       </table></div>
     </div>
-    <div class="panel table-wrap"><h3 style="margin-top:0">Per label</h3><table>
+    <div class="panel table-wrap"><h3>Per label</h3><table>
       <tr><th>Label</th><th>Precision</th><th>Recall</th><th>F1</th><th>n</th></tr>
       ${Object.entries(q.per_label).map(([label, m]) => `<tr><td>${esc(label)}</td><td>${pct(m.precision)}</td><td>${pct(m.recall)}</td><td>${num(m.f1)}</td><td>${m.support}</td></tr>`).join("")}
     </table></div>
-    <div class="panel table-wrap"><h3 style="margin-top:0">Subgroups</h3><table>
-      <tr><th>Subgroup</th><th>n</th><th>Accuracy</th><th>AUTO</th><th>Abstain</th><th>False automation</th></tr>
+    <div class="panel table-wrap"><h3>Subgroups</h3><table>
+      <tr><th>Subgroup</th><th>n</th><th>Accuracy</th><th>Automated</th><th>Abstained</th><th>False automation</th></tr>
       ${Object.entries(r.subgroups).flatMap(([attr, values]) => Object.entries(values).map(([value, m]) =>
         `<tr><td>${esc(attr)}=${esc(value)}</td><td>${m.n}</td><td>${pct(m.accuracy)}</td><td>${pct(m.auto_rate)}</td><td>${pct(m.abstention_rate)}</td><td>${pct(m.false_automation_rate)}</td></tr>`)).join("")}
     </table></div>`;
@@ -457,7 +465,7 @@ function comparisonView(c) {
     <div class="row"><span class="badge s-${esc(c.status)}">${esc(label)}</span>
       <span>Public benchmark <b>${pct(c.baseline.accuracy)}</b> → local <b>${pct(c.local.accuracy)}</b>
       (${(c.delta * 100).toFixed(1)} pts; tolerance ${(c.tolerance * 100).toFixed(1)})</span></div>
-    ${c.findings.length ? `<div style="margin-top:8px">${c.findings.map((f) => `<div class="finding"><b>${esc(f.subject)}</b>:
+    ${c.findings.length ? `<div class="mt-2">${c.findings.map((f) => `<div class="finding"><b>${esc(f.subject)}</b>:
       ${f.kind === "critical" ? `${f.local} of ${f.n}` : f.kind === "calibration" ? `${num(f.baseline)} → ${num(f.local)}` : `${pct(f.baseline)} → ${pct(f.local)} <span class="muted">(n=${f.n})</span>`}</div>`).join("")}</div>` : ""}
   </div>`;
 }
@@ -467,10 +475,10 @@ function reliability(bins) {
   const x = (v) => pad + v * span, y = (v) => size - pad - v * span;
   const total = bins.reduce((s, b) => s + b.n, 0) || 1;
   const dots = bins.map((b) => `<circle cx="${x(b.confidence)}" cy="${y(b.accuracy)}" r="${3 + 9 * Math.sqrt(b.n / total)}"
-      fill="var(--accent)" fill-opacity="0.75"><title>${b.low.toFixed(1)}–${b.high.toFixed(1)}: n=${b.n}, confidence ${pct(b.confidence)}, accuracy ${pct(b.accuracy)}</title></circle>`).join("");
-  return `<svg viewBox="0 0 ${size} ${size}" width="100%" style="max-width:320px" role="img" aria-label="Reliability diagram">
-    <rect x="${pad}" y="${pad}" width="${span}" height="${span}" fill="none" stroke="var(--border)"/>
-    <line x1="${x(0)}" y1="${y(0)}" x2="${x(1)}" y2="${y(1)}" stroke="var(--muted)" stroke-dasharray="4 4"/>
+      fill="var(--chart-1)" fill-opacity="0.75"><title>${b.low.toFixed(1)}–${b.high.toFixed(1)}: n=${b.n}, confidence ${pct(b.confidence)}, accuracy ${pct(b.accuracy)}</title></circle>`).join("");
+  return `<svg viewBox="0 0 ${size} ${size}" width="100%" class="chart-small" role="img" aria-label="Reliability diagram">
+    <rect x="${pad}" y="${pad}" width="${span}" height="${span}" fill="none" stroke="var(--color-border)"/>
+    <line x1="${x(0)}" y1="${y(0)}" x2="${x(1)}" y2="${y(1)}" stroke="var(--color-text-muted)" stroke-dasharray="4 4"/>
     ${dots}
     <text x="${pad}" y="${size - 8}">0</text><text x="${size - pad - 6}" y="${size - 8}">1</text>
     <text x="${size / 2 - 26}" y="${size - 8}">confidence</text>
@@ -488,12 +496,12 @@ views.feedback = async (main) => {
   ]);
   main.innerHTML = `
     <h1>Feedback</h1>
-    <p class="muted">👍 / 👎 from anyone using the system. Thumbs-down cases are where the pack is wrong:
+    <p class="muted">Thumbs up (right) and thumbs down (wrong) from anyone using the system. Thumbs-down cases are where the pack is wrong:
       download them, fill in the right answers, and they become tests and evaluation data for the next version.</p>
     <div class="tiles">
-      ${tile("Thumbs up", stats.feedback.up)}
-      ${tile("Thumbs down", stats.feedback.down)}
-      ${tile("👎 on AUTO", stats.feedback.down_on_auto, "confidently wrong: automated, then rated wrong")}
+      ${tile("Right", stats.feedback.up, "thumbs up")}
+      ${tile("Wrong", stats.feedback.down, "thumbs down")}
+      ${tile("Wrong on automated", stats.feedback.down_on_auto, "confidently wrong: automated, then rated wrong")}
     </div>
     <div class="row panel">
       <label for="rating-filter">Show</label>
@@ -503,9 +511,9 @@ views.feedback = async (main) => {
         <option value="" ${rating === "" ? "selected" : ""}>All</option>
       </select>
       <span class="grow"></span>
-      <a class="button" href="${packPath()}/feedback/export?rating=down" download>Download 👎 cases (JSONL)</a>
+      <a class="button" href="${packPath()}/feedback/export?rating=down" download>${icon("download")} Download thumbs-down cases (JSONL)</a>
     </div>
-    ${items.length ? items.map(feedbackCard).join("") : `<div class="panel empty">No feedback yet. Rate decisions with 👍 / 👎 in Try it or the Audit trail.</div>`}`;
+    ${items.length ? items.map(feedbackCard).join("") : `<div class="panel empty">No feedback yet. Rate decisions as right or wrong in Try it or the Audit trail.</div>`}`;
   $("#rating-filter").addEventListener("change", (e) => {
     storageSet("oh.feedback.rating", e.target.value);
     render();
@@ -517,7 +525,7 @@ function feedbackCard(item) {
   const urgency = r.answers.urgency ? ` · urgency ${esc(r.answers.urgency.label)}` : "";
   return `<article class="panel">
     <div class="row">
-      <span class="badge ${item.rating === "down" ? "s-degraded" : "s-ok"}">${item.rating === "down" ? "👎 wrong" : "👍 right"}</span>
+      <span class="badge ${item.rating === "down" ? "s-degraded" : "s-ok"}">${item.rating === "down" ? `${icon("thumbs-down")} Wrong` : `${icon("thumbs-up")} Right`}</span>
       ${outcomeBadge(r.outcome)} ${priorityBadge(r.priority)}
       <span>→ <b>${esc(r.recommendation ?? "no recommendation")}</b>${urgency}</span>
       <span class="grow"></span>
@@ -551,7 +559,7 @@ function questionPanel(key, q, primary) {
     <ol>${q.derive.table.map((row) => `<li>${deriveRow(row)}</li>`).join("")}</ol>` : "";
   const labels = q.type === "score" ? Object.keys(q.levels).sort((a, b) => q.levels[a].score - q.levels[b].score) : Object.keys(q.criteria);
   const score = (label) => (q.type === "score" ? `<td class="mono">${esc(q.levels[label].score)}</td>` : "");
-  return `<div class="panel"><h3 style="margin-top:0">Question <code>${esc(key)}</code>${primary ? " (primary)" : ""}${kind}</h3>
+  return `<div class="panel"><h3>Question <code>${esc(key)}</code>${primary ? " (primary)" : ""}${kind}</h3>
     <p class="muted">${esc(q.instructions)}</p>${derive}
     <table>${labels.map((label) => `<tr><td><code>${esc(label)}</code></td>${score(label)}<td>${esc(q.criteria[label])}</td></tr>`).join("")}</table></div>`;
 }
@@ -576,34 +584,34 @@ views.card = async (main) => {
     <p>${esc(m.summary)}</p>
     <div class="tiles">
       ${tile("Risk level", m.risk.level, m.risk.category)}
-      ${tile("AUTO threshold", p.thresholds.auto.toFixed(2), `review ≥ ${p.thresholds.review.toFixed(2)}`)}
+      ${tile("Automation threshold", p.thresholds.auto.toFixed(2), `review ≥ ${p.thresholds.review.toFixed(2)}`)}
       ${tile("CDS Hooks service", d.cds_service ?? "none", m.cds_hooks ? `hook: ${m.cds_hooks.hook}` : "", "ident")}
     </div>
     <div class="panel"><b>Digest</b> <span class="mono break-anywhere">${esc(d.digest)}</span></div>
     <div class="grid-2">
-      <div class="panel"><h3 style="margin-top:0">Intended use</h3><p>${esc(m.card.intended_use)}</p>
+      <div class="panel"><h3>Intended use</h3><p>${esc(m.card.intended_use)}</p>
         <h3>Users</h3><ul>${m.card.intended_users.map((u) => `<li>${esc(u)}</li>`).join("")}</ul>
         <h3>Population</h3><p>${esc(m.card.patient_population)}</p>
         <h3>Why risk level ${m.risk.level}</h3><p class="muted">${esc(m.risk.rationale)}</p></div>
-      <div class="panel"><h3 style="margin-top:0">Out of scope</h3><ul>${m.card.out_of_scope.map((u) => `<li>${esc(u)}</li>`).join("")}</ul>
+      <div class="panel"><h3>Out of scope</h3><ul>${m.card.out_of_scope.map((u) => `<li>${esc(u)}</li>`).join("")}</ul>
         <h3>Known failure modes</h3><ul>${m.card.known_failure_modes.map((u) => `<li>${esc(u)}</li>`).join("")}</ul></div>
     </div>
     ${Object.entries(m.questions).map(([key, q]) => questionPanel(key, q, key === p.primary)).join("")}
-    <div class="panel"><h3 style="margin-top:0">Policy</h3><ul>
+    <div class="panel"><h3>Policy</h3><ul>
       ${p.rules.map((r) => `<li><b>${esc(r.name)}</b>: ${conditionText(r.when)}
         ⇒ ${outcomeBadge(r.outcome)} ${r.recommendation ? `→ ${esc(r.recommendation)}` : ""} ${r.priority ? priorityBadge(r.priority) : ""}<br><span class="muted">${esc(r.reason)}</span></li>`).join("")}
-      ${Object.entries(p.labels).map(([label, l]) => `<li><code>${esc(label)}</code>: ${l.allow_auto ? `AUTO at ≥ ${l.auto_threshold ?? p.thresholds.auto}` : "never automated"}</li>`).join("")}
-      ${Object.entries(p.automation_requires ?? {}).map(([slot, variants]) => `<li>AUTO only while <code>${esc(slot)}</code> is ${variants.map((v) => `<code>${esc(v)}</code>`).join(" or ")}; otherwise a person reviews</li>`).join("")}
+      ${Object.entries(p.labels).map(([label, l]) => `<li><code>${esc(label)}</code>: ${l.allow_auto ? `automated at ≥ ${l.auto_threshold ?? p.thresholds.auto}` : "never automated"}</li>`).join("")}
+      ${Object.entries(p.automation_requires ?? {}).map(([slot, variants]) => `<li>Automated only while <code>${esc(slot)}</code> is ${variants.map((v) => `<code>${esc(v)}</code>`).join(" or ")}; otherwise a person reviews</li>`).join("")}
       <li>Fallback: ${esc(p.fallback)}</li></ul></div>
-    <div class="panel table-wrap"><h3 style="margin-top:0">Providers</h3><table>
+    <div class="panel table-wrap"><h3>Providers</h3><table>
       <tr><th>Slot</th><th>Answers</th><th>Active</th><th>Variants</th></tr>
       ${Object.entries(m.providers).map(([slot, s]) => `<tr><td>${esc(slot)}</td><td>${s.answers.map(esc).join(", ")}</td>
         <td><b>${esc(d.active_providers[slot].variant)}</b> <span class="muted mono">${esc(d.active_providers[slot].model ?? "")}</span></td>
         <td>${Object.entries(s.variants).map(([name, v]) => `${esc(name)} (${esc(v.type)})`).join(", ")}</td></tr>`).join("")}
     </table></div>
     <div class="grid-2">
-      <div class="panel"><h3 style="margin-top:0">Input schema</h3><pre class="json">${esc(JSON.stringify(d.input_schema, null, 2))}</pre></div>
-      <div class="panel"><h3 style="margin-top:0">Output schema</h3><pre class="json">${esc(JSON.stringify(d.output_schema, null, 2))}</pre></div>
+      <div class="panel"><h3>Input schema</h3><pre class="json">${esc(JSON.stringify(d.input_schema, null, 2))}</pre></div>
+      <div class="panel"><h3>Output schema</h3><pre class="json">${esc(JSON.stringify(d.output_schema, null, 2))}</pre></div>
     </div>`;
 };
 
@@ -629,7 +637,7 @@ async function tryRecord(main) {
     <p class="muted">Synthetic records only. Decisions made here are recorded in the audit trail and review queue.
       The examples are the pack's behaviour tests.</p>
     <div class="panel">
-      <div class="row" style="margin-bottom:10px">
+      <div class="row mb-3">
         <label for="example">Example</label>
         <select id="example" class="grow">${examples.length ? "" : `<option value="">No behaviour tests</option>`}${examples.map((e, i) =>
           `<option value="${i}">${esc(e.name)}</option>`).join("")}</select>
@@ -637,7 +645,7 @@ async function tryRecord(main) {
       <p class="muted" id="expected"></p>
       <label for="record">Input (JSON)</label>
       <textarea id="record" class="code" spellcheck="false"></textarea>
-      <div class="row" style="margin-top:10px"><span class="grow"></span><button class="primary" id="decide">Decide</button></div>
+      <div class="row mt-3"><span class="grow"></span><button class="primary" id="decide">Decide</button></div>
     </div>
     <div id="result"></div>`;
   // The picker and the input always show the same example, starting with the first.
@@ -671,10 +679,10 @@ async function tryMessage(main) {
     <h1>Try it</h1>
     <p class="muted">Synthetic messages only. Decisions made here are recorded in the audit trail and review queue.</p>
     <div class="panel">
-      <div class="chips" style="margin-bottom:10px">${SAMPLES.map((s, i) => `<button data-sample="${i}">${esc(s.label)}</button>`).join("")}</div>
-      <label for="subject">Subject</label><input id="subject" style="width:100%;margin:4px 0 10px">
+      <div class="chips mb-3">${SAMPLES.map((s, i) => `<button data-sample="${i}">${esc(s.label)}</button>`).join("")}</div>
+      <label for="subject">Subject</label><input id="subject" class="field-full">
       <label for="body">Message</label><textarea id="body"></textarea>
-      <div class="row" style="margin-top:10px">
+      <div class="row mt-3">
         <label>Channel <select id="channel"><option>portal</option><option>sms</option><option>email</option></select></label>
         <label>Language <select id="language"><option>en</option><option>es</option></select></label>
         <label>Age band <select id="age"><option value="">unknown</option><option>0-17</option><option>18-39</option><option>40-64</option><option>65+</option></select></label>
@@ -709,7 +717,7 @@ function answerBars(question, a) {
   return `<h3>${esc(question)} <span class="muted mono">${esc(a.provider.variant)}${a.provider.model ? ` · ${esc(a.provider.model)}` : ""}${a.value !== undefined ? ` · expected score ${num(a.value, 2)}` : ""}</span></h3>
     <div class="bars">${Object.entries(a.probabilities).sort((x, y) => y[1] - x[1]).map(([label, p]) =>
       `<span>${esc(label)}</span><div class="bar ${label === a.label ? "chosen" : ""}"><span style="width:${(p * 100).toFixed(1)}%"></span></div><span class="mono">${pct(p)}</span>`).join("")}</div>
-    ${a.evidence.length ? `<div class="chips" style="margin-top:8px">${a.evidence.map((e) => `<span class="chip">${esc(e)}</span>`).join("")}</div>` : ""}`;
+    ${a.evidence.length ? `<div class="chips mt-2">${a.evidence.map((e) => `<span class="chip">${esc(e)}</span>`).join("")}</div>` : ""}`;
 }
 
 function decisionView(r) {
@@ -726,7 +734,7 @@ function decisionView(r) {
       ${r.confidence !== null ? `<span class="muted">confidence ${pct(r.confidence)}</span>` : ""}
       <span class="grow"></span><span class="muted">${num(r.latency_ms, 2)} ms</span>
       <a class="mono" href="#audit" title="${esc(r.id)}">${esc(r.id.slice(0, 8))}</a></div>
-    ${r.fallback ? `<p style="margin-top:10px"><b>Fallback:</b> ${esc(r.fallback)}</p>` : ""}
+    ${r.fallback ? `<p class="mt-3"><b>Fallback:</b> ${esc(r.fallback)}</p>` : ""}
     <ul class="reasons">${r.reasons.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
     ${answers}
     <h3>Was this right?</h3>${feedbackControls(r.id)}
@@ -738,8 +746,8 @@ function decisionView(r) {
 function feedbackControls(decisionId, compact = false) {
   const note = compact ? "" : `<input class="fb-note" maxlength="1000" placeholder="What was wrong? (optional)" aria-label="What was wrong? (optional)">`;
   return `<div class="fb ${compact ? "compact" : ""}" data-decision="${esc(decisionId)}">${note}
-    <button type="button" data-rating="up" title="Right" aria-label="Thumbs up">👍</button>
-    <button type="button" data-rating="down" title="Wrong" aria-label="Thumbs down">👎</button></div>`;
+    <button type="button" data-rating="up" title="Right">${icon("thumbs-up")}<span class="${compact ? "sr-only" : ""}">Right</span></button>
+    <button type="button" data-rating="down" title="Wrong">${icon("thumbs-down")}<span class="${compact ? "sr-only" : ""}">Wrong</span></button></div>`;
 }
 
 document.addEventListener("click", async (event) => {
@@ -758,7 +766,7 @@ document.addEventListener("click", async (event) => {
         note: note && note.value.trim() ? note.value.trim() : null,
       }),
     });
-    box.innerHTML = `<span class="fb-done">${button.dataset.rating === "up" ? "👍 Thanks" : "👎 Recorded"}</span>`;
+    box.innerHTML = `<span class="fb-done">${button.dataset.rating === "up" ? `${icon("thumbs-up")} Recorded as right` : `${icon("thumbs-down")} Recorded as wrong`}</span>`;
     toast(button.dataset.rating === "up" ? "Thanks for the feedback" : "Thumbs down recorded. It's in the Feedback list.");
   } catch (error) {
     toast(error.message);
@@ -766,9 +774,37 @@ document.addEventListener("click", async (event) => {
   }
 }, true);
 
+// ---- theme -----------------------------------------------------------------------------------
+
+// index.html resolves the theme before first paint; this keeps it in sync with the toggle, and with
+// the system setting while "System" is chosen.
+const THEME_CHOICES = ["system", "light", "dark"];
+const systemDark = matchMedia("(prefers-color-scheme: dark)");
+const themeChoice = () => {
+  const choice = storageGet("oh.theme", "system");
+  return THEME_CHOICES.includes(choice) ? choice : "system";
+};
+
+function applyTheme() {
+  const choice = themeChoice();
+  const dark = choice === "dark" || (choice === "system" && systemDark.matches);
+  document.documentElement.dataset.theme = dark ? "dark" : "light";
+  document.querySelectorAll("[data-theme-choice]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.themeChoice === choice)));
+}
+
+function setupTheme() {
+  document.querySelectorAll("[data-theme-choice]").forEach((b) => b.addEventListener("click", () => {
+    storageSet("oh.theme", b.dataset.themeChoice);
+    applyTheme();
+  }));
+  systemDark.addEventListener("change", applyTheme);
+  applyTheme();
+}
+
 // ---- boot ------------------------------------------------------------------------------------
 
 async function boot() {
+  setupTheme();
   const health = await api("/api/health").catch(() => null);
   try {
     state.timeFormat = timeFormatFor(health?.timezone ?? DEFAULT_TIMEZONE);

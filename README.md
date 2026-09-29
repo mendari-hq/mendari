@@ -356,7 +356,9 @@ docs/            spec, architecture, ADRs
 
 ```bash
 uv sync
-uv run pytest                          # 112 tests
+uv run pytest                          # unit and integration tests
+uv run playwright install chromium     # once, for the dashboard's browser tests
+uv run pytest -m browser               # the dashboard in a real browser (free: default providers)
 uv run ruff check src tests && uv run ruff format --check src tests
 uv run mypy src tests
 ./scripts/build-reference-pack.sh      # regenerate data → train → test → benchmark → card

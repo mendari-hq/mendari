@@ -181,3 +181,40 @@ def test_times_are_eastern_whatever_the_viewer_clock(browser: Browser, base_url:
         expect(page.locator("main")).to_contain_text("days in Eastern Time")
     finally:
         context.close()
+
+
+def test_the_theme_choice_is_kept_across_reloads(page: Page) -> None:
+    page.emulate_media(color_scheme="light")
+    open_pack(page, INBOX)
+    html = page.locator("html")
+    expect(html).to_have_attribute("data-theme", "light")
+    page.get_by_role("button", name="Dark").click()
+    expect(html).to_have_attribute("data-theme", "dark")
+    expect(page.get_by_role("button", name="Dark")).to_have_attribute("aria-pressed", "true")
+    page.reload()
+    expect(html).to_have_attribute("data-theme", "dark")
+    expect(page.get_by_role("button", name="Dark")).to_have_attribute("aria-pressed", "true")
+
+
+@pytest.mark.parametrize(
+    ("saved", "system", "theme"), [(None, "dark", "dark"), ("light", "dark", "light")]
+)
+def test_the_theme_is_set_before_any_app_code_runs(
+    page: Page, saved: str | None, system: str, theme: str
+) -> None:
+    """No flash of the wrong theme: with app.js held back, the head script alone sets it."""
+    page.emulate_media(color_scheme=system)  # type: ignore[arg-type]
+    if saved:
+        page.add_init_script(f"localStorage.setItem('oh.theme', {json.dumps(saved)})")
+    page.route("**/static/app.js*", lambda route: None)  # never answered
+    page.goto("/", wait_until="commit")
+    page.wait_for_function("document.documentElement.hasAttribute('data-theme')")
+    assert page.evaluate("document.documentElement.dataset.theme") == theme
+
+
+def test_system_theme_follows_the_system_setting_live(page: Page) -> None:
+    page.emulate_media(color_scheme="light")
+    open_pack(page, INBOX)
+    expect(page.get_by_role("button", name="System")).to_have_attribute("aria-pressed", "true")
+    page.emulate_media(color_scheme="dark")
+    expect(page.locator("html")).to_have_attribute("data-theme", "dark")
