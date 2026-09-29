@@ -81,16 +81,28 @@ CREATE TABLE IF NOT EXISTS provider_usage (
     PRIMARY KEY (day, provider)
 );
 CREATE TABLE IF NOT EXISTS feedback (
-    id          TEXT PRIMARY KEY,
-    decision_id TEXT NOT NULL,
-    created_at  TEXT NOT NULL,
-    pack_id     TEXT NOT NULL,
-    rating      TEXT NOT NULL,
-    reporter    TEXT,
-    note        TEXT
+    id                TEXT PRIMARY KEY,
+    decision_id       TEXT NOT NULL,
+    created_at        TEXT NOT NULL,
+    pack_id           TEXT NOT NULL,
+    rating            TEXT NOT NULL,
+    reporter          TEXT,
+    note              TEXT,
+    expected_question TEXT,
+    expected_label    TEXT,
+    superseded_by     TEXT
 );
-CREATE INDEX IF NOT EXISTS feedback_pack ON feedback (pack_id, rating, created_at)
+CREATE INDEX IF NOT EXISTS feedback_pack ON feedback (pack_id, rating, created_at);
+CREATE INDEX IF NOT EXISTS feedback_decision ON feedback (decision_id)
 """
+
+# Columns added after their table's first release. New databases get them from _TABLES; older
+# ones get them from _migrate(). Additive only: nullable, no default, never renamed or dropped.
+_ADDED_COLUMNS = (
+    ("feedback", "expected_question", "TEXT"),
+    ("feedback", "expected_label", "TEXT"),
+    ("feedback", "superseded_by", "TEXT"),
+)
 
 _PRIORITY_ORDER = (
     "CASE priority WHEN 'stat' THEN 0 WHEN 'asap' THEN 1 WHEN 'urgent' THEN 2 ELSE 3 END"
@@ -117,6 +129,10 @@ class _Session(ABC):
         rows = self.all(sql, params)
         return rows[0] if rows else None
 
+    @abstractmethod
+    def columns(self, table: str) -> set[str]:
+        """The column names a table has now."""
+
 
 class _Backend(ABC):
     kind: str
@@ -137,6 +153,9 @@ class _SqliteSession(_Session):
     def all(self, sql: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
         return [dict(row) for row in self.connection.execute(sql, tuple(params)).fetchall()]
 
+    def columns(self, table: str) -> set[str]:
+        return {row["name"] for row in self.all(f"PRAGMA table_info({table})")}
+
 
 class _SqliteBackend(_Backend):
     kind = "sqlite"
@@ -155,6 +174,8 @@ class _SqliteBackend(_Backend):
             connection.executescript(
                 _TABLES.format(real="REAL", serial="INTEGER PRIMARY KEY AUTOINCREMENT")
             )
+        with self.session(exclusive=True) as db:  # IMMEDIATE: one process migrates at a time
+            _migrate(db)
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -199,6 +220,14 @@ class _PostgresSession(_Session):
         cursor = self.connection.execute(sql.replace("?", "%s"), tuple(params))
         return list(cursor.fetchall()) if cursor.description else []
 
+    def columns(self, table: str) -> set[str]:
+        rows = self.all(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = current_schema() AND table_name = ?",
+            (table,),
+        )
+        return {row["column_name"] for row in rows}
+
 
 class _PostgresBackend(_Backend):
     kind = "postgres"
@@ -231,13 +260,16 @@ class _PostgresBackend(_Backend):
             real="DOUBLE PRECISION", serial="BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY"
         )
         with (
-            psycopg.connect(migrate_url or url, prepare_threshold=None) as connection,
+            psycopg.connect(
+                migrate_url or url, prepare_threshold=None, row_factory=dict_row
+            ) as connection,
             connection.transaction(),
         ):
             connection.execute("SELECT pg_advisory_xact_lock(%s)", (_CHAIN_LOCK,))
             for statement in ddl.split(";"):
                 if statement.strip():
                     connection.execute(statement)
+            _migrate(_PostgresSession(connection))
 
     @contextmanager
     def session(self, *, exclusive: bool) -> Iterator[_Session]:
@@ -248,6 +280,30 @@ class _PostgresBackend(_Backend):
 
     def close(self) -> None:
         self._pool.close()
+
+
+def _migrate(db: _Session) -> None:
+    """Bring a database created by an earlier release up to _TABLES. Runs under the schema lock
+    (SQLite: an IMMEDIATE transaction; Postgres: the advisory lock), so cold starts don't race."""
+    added = set()
+    for table, column, kind in _ADDED_COLUMNS:
+        if column not in db.columns(table):
+            db.all(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
+            added.add(column)
+    if "superseded_by" in added:
+        _supersede_earlier_ratings(db)
+
+
+def _supersede_earlier_ratings(db: _Session) -> None:
+    """Ratings given before ratings could be changed: in each (decision, reporter) group only the
+    latest counts, and the earlier ones point to it, as if each had been changed in turn. The
+    hash chain is untouched: it already holds every rating."""
+    rows = db.all("SELECT id, decision_id, reporter FROM feedback ORDER BY created_at, id")
+    latest = {(row["decision_id"], row["reporter"]): row["id"] for row in rows}
+    for row in rows:
+        current = latest[(row["decision_id"], row["reporter"])]
+        if row["id"] != current:
+            db.all("UPDATE feedback SET superseded_by = ? WHERE id = ?", (current, row["id"]))
 
 
 def _backend(target: str, migrate_url: str | None) -> _Backend:
@@ -376,29 +432,62 @@ class AuditStore:
         rating: Rating,
         reporter: str | None = None,
         note: str | None = None,
+        expected: Mapping[str, str] | None = None,
     ) -> dict[str, Any]:
         """A person's thumbs up / thumbs down on any decision (AUTO included), with an optional
-        note. Appended to the hash chain like every other fact about a decision."""
+        note and, on a thumbs-down, the right answer to one of the decision's questions
+        (`{"question": ..., "label": ...}`): a ready-made test case.
+
+        A person can change their rating: the new one replaces their earlier one in counts, lists
+        and exports, and both stay in the hash chain. People are told apart by `reporter`; unnamed
+        ratings of a decision count as one person, so a mis-click can always be put right."""
         if rating not in ("up", "down"):
             raise ReviewError("rating must be 'up' or 'down'")
+        if expected is not None and rating != "down":
+            raise ReviewError("only a thumbs-down carries the right answer")
         reporter = (reporter or "").strip() or None
         note = (note or "").strip() or None
         feedback_id = str(uuid.uuid4())
         created_at = _now()
         with self._db.session(exclusive=True) as db:
-            row = db.one("SELECT pack_id FROM decisions WHERE id = ?", (decision_id,))
+            row = db.one("SELECT pack_id, record FROM decisions WHERE id = ?", (decision_id,))
             if row is None:
                 raise ReviewError(f"unknown decision {decision_id}")
+            answer = (
+                None if expected is None else _right_answer(json.loads(row["record"]), expected)
+            )
+            previous = db.one(
+                "SELECT id FROM feedback WHERE decision_id = ? AND COALESCE(reporter, '') = ? "
+                "AND superseded_by IS NULL",
+                (decision_id, reporter or ""),
+            )
             db.all(
                 "INSERT INTO feedback (id, decision_id, created_at, pack_id, rating, reporter, "
-                "note) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (feedback_id, decision_id, created_at, row["pack_id"], rating, reporter, note),
+                "note, expected_question, expected_label) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    feedback_id,
+                    decision_id,
+                    created_at,
+                    row["pack_id"],
+                    rating,
+                    reporter,
+                    note,
+                    answer and answer["question"],
+                    answer and answer["label"],
+                ),
             )
+            if previous:
+                db.all(
+                    "UPDATE feedback SET superseded_by = ? WHERE id = ?",
+                    (feedback_id, previous["id"]),
+                )
             payload = {
                 "feedback_id": feedback_id,
                 "rating": rating,
                 "reporter": reporter,
                 "note": note,
+                "expected": answer,
+                "replaces": previous["id"] if previous else None,
             }
             self._append(db, decision_id, "feedback.recorded", payload)
         return {"id": feedback_id, "decision_id": decision_id, "created_at": created_at, **payload}
@@ -512,10 +601,11 @@ class AuditStore:
                 f"latency_ms, cost_usd, created_at FROM decisions {where}",
                 params,
             )
-            fb_where = "WHERE f.pack_id = ?" if pack_id else ""
+            # Each person's current rating: a changed rating counts once, as its latest value.
+            fb_pack = "AND f.pack_id = ?" if pack_id else ""
             ratings = db.all(
-                "SELECT f.rating, d.outcome FROM feedback f "
-                f"JOIN decisions d ON d.id = f.decision_id {fb_where}",
+                "SELECT f.rating, f.expected_label, d.outcome FROM feedback f "
+                f"JOIN decisions d ON d.id = f.decision_id WHERE f.superseded_by IS NULL {fb_pack}",
                 params,
             )
         total = len(rows)
@@ -564,27 +654,33 @@ class AuditStore:
                 "down_on_auto": sum(
                     r["rating"] == "down" and r["outcome"] == Outcome.AUTO.value for r in ratings
                 ),
+                # A thumbs-down that says what the answer should have been: a ready-made test.
+                "down_with_expected": sum(
+                    r["rating"] == "down" and r["expected_label"] is not None for r in ratings
+                ),
             },
         }
 
     def feedback(
         self, *, pack_id: str | None = None, rating: Rating | None = None, limit: int = 100
     ) -> list[dict[str, Any]]:
-        """Feedback, newest first, each with the decision it rates."""
-        clauses, params = [], []
+        """Current feedback (each person's latest rating of a decision), newest first, each with
+        the decision it rates and the right answer if the rating gave one."""
+        clauses, params = ["f.superseded_by IS NULL"], []
         for column, value in (("f.pack_id", pack_id), ("f.rating", rating)):
             if value is not None:
                 clauses.append(f"{column} = ?")
                 params.append(value)
-        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        where = f"WHERE {' AND '.join(clauses)}"
         with self._db.session(exclusive=False) as db:
             rows = db.all(
                 "SELECT f.id, f.decision_id, f.created_at, f.pack_id, f.rating, f.reporter, "
-                "f.note, d.record FROM feedback f JOIN decisions d ON d.id = f.decision_id "
-                f"{where} ORDER BY f.created_at DESC LIMIT ?",
+                "f.note, f.expected_question, f.expected_label, d.record FROM feedback f "
+                f"JOIN decisions d ON d.id = f.decision_id {where} "
+                "ORDER BY f.created_at DESC LIMIT ?",
                 (*params, limit),
             )
-        return [{**row, "record": json.loads(row["record"])} for row in rows]
+        return [_feedback_item(row) for row in rows]
 
     def reports(self, pack_id: str | None = None) -> list[dict[str, Any]]:
         where, params = ("WHERE pack_id = ?", (pack_id,)) if pack_id else ("", ())
@@ -622,6 +718,34 @@ def _row(row: Mapping[str, Any]) -> dict[str, Any]:
     item["record"] = json.loads(item["record"])
     if item["human_override"] is not None:
         item["human_override"] = bool(item["human_override"])
+    return item
+
+
+def _right_answer(record: Mapping[str, Any], expected: Mapping[str, str]) -> dict[str, str]:
+    """A thumbs-down's right answer, checked against what the decision answered: one of its
+    questions, one of that question's labels, and not the answer it already gave."""
+    question, label = expected.get("question", ""), expected.get("label", "")
+    answers = record["answers"]
+    if question not in answers:
+        raise ReviewError(
+            f"{question!r} is not a question this decision answered ({sorted(answers)})"
+        )
+    labels = sorted(answers[question].get("probabilities") or {})
+    if label not in labels:
+        raise ReviewError(f"{label!r} is not a label of {question} ({labels})")
+    if label == answers[question].get("label"):
+        raise ReviewError(f"the decision already answered {question} = {label}")
+    return {"question": question, "label": label}
+
+
+def _feedback_item(row: Mapping[str, Any]) -> dict[str, Any]:
+    item = {k: v for k, v in row.items() if k not in ("expected_question", "expected_label")}
+    item["record"] = json.loads(row["record"])
+    item["expected"] = (
+        {"question": row["expected_question"], "label": row["expected_label"]}
+        if row["expected_label"] is not None
+        else None
+    )
     return item
 
 

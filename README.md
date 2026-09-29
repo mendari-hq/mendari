@@ -215,21 +215,27 @@ uv run openhealth leaderboard openhealth/patient-inbox-router --report jev-test.
 
 ## Feedback loop
 
-Anyone using the dashboard can rate any decision, automated ones included, with 👍 or 👎 and an
-optional note ("what was wrong?"). Each vote is appended to the decision's hash-chained audit
-trail. The **Feedback** view lists the 👎 cases, and a 👎 on an AUTO decision counts as
-"confidently wrong".
+Anyone using the dashboard can rate any decision, automated ones included, as right (thumbs
+up) or wrong (thumbs down), with an optional note. A thumbs-down can also say what the answer
+should have been, for the decision itself or for one of its checks
+(`POST /api/audit/{id}/feedback` with `"expected": {"question": ..., "label": ...}`); the label
+must be one the decision could have given. Each rating is appended to the decision's
+hash-chained audit trail. A person can change their rating: their latest one counts, and the
+audit trail keeps both (people are told apart by reporter name; unnamed ratings of a decision
+count as one person). The **Feedback** view lists the thumbs-down cases, and a thumbs-down on an
+AUTO decision counts as "confidently wrong".
 
-The system never retrains or rewrites itself from votes. Instead, the 👎 cases are downloaded
-as a dataset to label:
+The system never retrains or rewrites itself from ratings. Instead, the thumbs-down cases are
+downloaded as a dataset:
 
 ```bash
 openhealth feedback export openhealth/patient-inbox-router --db "$DATABASE_URL" --out down.jsonl
 ```
 
-Fill in each record's `labels`. The file then works with `openhealth eval --dataset`, and
-confirmed misses become behaviour tests in the pack's `tests/cases.yaml`. Improvements ship as
-a new, reviewed and versioned pack.
+Records whose raters gave the right answer (and agree) already carry it in `labels`, so they are
+ready-made test cases; fill in the others' `labels`. The file then works with
+`openhealth eval --dataset`, and confirmed misses become behaviour tests in the pack's
+`tests/cases.yaml`. Improvements ship as a new, reviewed and versioned pack.
 
 ## Jev
 
