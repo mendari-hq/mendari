@@ -1,6 +1,6 @@
 # Decision Card: AI Guard
 
-`openhealth/ai-guard` · version **0.1.1** · Apache-2.0 · published by OpenHealth Hub reference packs (community)
+`openhealth/ai-guard` · version **0.1.2** · Apache-2.0 · published by OpenHealth Hub reference packs (community)
 
 > Checks a language model's draft reply to a patient before anyone reads it: blocks drafts that miss an emergency, give a dose above the maximum or give unsafe advice, and holds drafts that diagnose, prescribe or state things the record does not show for a clinician.
 
@@ -8,8 +8,8 @@
 |---|---|
 | Risk level | **2**, clinical support |
 | Automation | Human review required by default; AUTO only with a recorded governance override. |
-| Pack digest | `sha256:b97f92fc5a85a8556ebc5f2179ac95dd573bd69bf1e7521d62f9710eb2970927` |
-| Last validation | 2026-09-29 on `test` (n=600, sha256 `c1de420c6cc2…`) |
+| Pack digest | `sha256:0d8094850980600cfb8a4470574430f8a20c2ad9e2836d60b98e703f4fa935d0` |
+| Last validation | 2026-09-29 on `test` (n=600, sha256 `a1d0bd1300f5…`) |
 
 ## Intended use
 
@@ -137,83 +137,83 @@ Benchmark `test` (n=600) with screen=`rules`, dosing=`dosing`:
 
 | Metric | Value |
 |---|---|
-| `verdict` accuracy | 96.0% |
-| Macro-F1 | 0.961 |
-| Expected calibration error | 0.208 |
-| Brier score | 0.186 |
+| `verdict` accuracy | 97.7% |
+| Macro-F1 | 0.978 |
+| Expected calibration error | 0.211 |
+| Brier score | 0.163 |
 | AUTO rate | 0.0% |
-| HUMAN_REVIEW rate | 73.5% |
+| HUMAN_REVIEW rate | 72.7% |
 | ABSTAIN rate | 0.0% |
-| BLOCK rate | 26.5% |
+| BLOCK rate | 27.3% |
 | Accuracy of AUTO decisions | n/a |
 | False automation rate | n/a |
-| Expected human override rate | 5.4% |
-| Latency p50 / p95 | 0.28 / 0.36 ms |
+| Expected human override rate | 3.2% |
+| Latency p50 / p95 | 0.28 / 0.35 ms |
 | Cost per decision | $0.00000 |
-| Critical `verdict=block` | 159/159 detected, 0 automated |
-| Critical `question_emergency=yes` | 83/83 detected, 0 automated |
-| Critical `unsafe_advice=yes` | 94/159 detected, 0 automated |
-| Critical `dose_exceeds_limit=yes` | 65/65 detected, 0 automated |
+| Critical `verdict=block` | 164/164 detected, 0 automated |
+| Critical `question_emergency=yes` | 114/114 detected, 0 automated |
+| Critical `unsafe_advice=yes` | 102/164 detected, 0 automated |
+| Critical `dose_exceeds_limit=yes` | 62/62 detected, 0 automated |
 
 Per-label performance:
 
 | Label | Precision | Recall | F1 | n |
 |---|---|---|---|---|
-| `pass` | 100.0% | 91.6% | 0.956 | 287 |
-| `review` | 86.5% | 100.0% | 0.928 | 154 |
-| `block` | 100.0% | 100.0% | 1.000 | 159 |
+| `pass` | 100.0% | 94.8% | 0.973 | 268 |
+| `review` | 92.3% | 100.0% | 0.960 | 168 |
+| `block` | 100.0% | 100.0% | 1.000 | 164 |
 
 Subgroups:
 
 | Subgroup | n | Accuracy | AUTO rate | Abstention |
 |---|---|---|---|---|
-| site=public | 600 | 96.0% | 0.0% | 0.0% |
-| kind=dose | 65 | 100.0% | 0.0% | 0.0% |
-| kind=escalated | 46 | 100.0% | 0.0% | 0.0% |
-| kind=missed_emergency | 37 | 100.0% | 0.0% | 0.0% |
-| kind=safe | 287 | 91.6% | 0.0% | 0.0% |
-| kind=scope | 59 | 100.0% | 0.0% | 0.0% |
-| kind=unsafe | 57 | 100.0% | 0.0% | 0.0% |
-| kind=unsupported | 49 | 100.0% | 0.0% | 0.0% |
-| topic=allergy | 11 | 100.0% | 0.0% | 0.0% |
-| topic=appointment | 61 | 96.7% | 0.0% | 0.0% |
-| topic=back | 65 | 96.9% | 0.0% | 0.0% |
-| topic=bleeding | 11 | 100.0% | 0.0% | 0.0% |
-| topic=breathing | 13 | 100.0% | 0.0% | 0.0% |
-| topic=chest | 13 | 100.0% | 0.0% | 0.0% |
-| topic=cold | 63 | 98.4% | 0.0% | 0.0% |
-| topic=dizzy | 70 | 94.3% | 0.0% | 0.0% |
-| topic=headache | 56 | 91.1% | 0.0% | 0.0% |
-| topic=infant | 9 | 100.0% | 0.0% | 0.0% |
-| topic=overdose | 13 | 100.0% | 0.0% | 0.0% |
-| topic=rash | 63 | 93.7% | 0.0% | 0.0% |
-| topic=refill | 72 | 95.8% | 0.0% | 0.0% |
-| topic=stroke | 13 | 100.0% | 0.0% | 0.0% |
-| topic=sugar | 67 | 95.5% | 0.0% | 0.0% |
-| style=plain | 600 | 96.0% | 0.0% | 0.0% |
+| site=public | 600 | 97.7% | 0.0% | 0.0% |
+| kind=dose | 62 | 100.0% | 0.0% | 0.0% |
+| kind=escalated | 68 | 100.0% | 0.0% | 0.0% |
+| kind=missed_emergency | 46 | 100.0% | 0.0% | 0.0% |
+| kind=safe | 268 | 94.8% | 0.0% | 0.0% |
+| kind=scope | 58 | 100.0% | 0.0% | 0.0% |
+| kind=unsafe | 56 | 100.0% | 0.0% | 0.0% |
+| kind=unsupported | 42 | 100.0% | 0.0% | 0.0% |
+| topic=allergy | 18 | 100.0% | 0.0% | 0.0% |
+| topic=appointment | 28 | 100.0% | 0.0% | 0.0% |
+| topic=back | 72 | 100.0% | 0.0% | 0.0% |
+| topic=bleeding | 18 | 100.0% | 0.0% | 0.0% |
+| topic=breathing | 18 | 100.0% | 0.0% | 0.0% |
+| topic=chest | 9 | 100.0% | 0.0% | 0.0% |
+| topic=cold | 51 | 100.0% | 0.0% | 0.0% |
+| topic=dizzy | 55 | 89.1% | 0.0% | 0.0% |
+| topic=headache | 78 | 100.0% | 0.0% | 0.0% |
+| topic=infant | 19 | 100.0% | 0.0% | 0.0% |
+| topic=overdose | 18 | 100.0% | 0.0% | 0.0% |
+| topic=rash | 61 | 100.0% | 0.0% | 0.0% |
+| topic=refill | 72 | 97.2% | 0.0% | 0.0% |
+| topic=stroke | 14 | 100.0% | 0.0% | 0.0% |
+| topic=sugar | 69 | 91.3% | 0.0% | 0.0% |
+| style=plain | 600 | 97.7% | 0.0% | 0.0% |
 
 Calibration (reliability):
 
 | Confidence bin | n | Mean confidence | Accuracy |
 |---|---|---|---|
-| 0.5 to 0.6 | 263 | 58.0% | 100.0% |
-| 0.6 to 0.7 | 73 | 64.0% | 67.1% |
-| 0.8 to 0.9 | 28 | 89.3% | 100.0% |
-| 0.9 to 1.0 | 236 | 96.2% | 100.0% |
+| 0.5 to 0.6 | 254 | 58.0% | 100.0% |
+| 0.6 to 0.7 | 56 | 64.0% | 75.0% |
+| 0.8 to 0.9 | 29 | 89.3% | 100.0% |
+| 0.9 to 1.0 | 261 | 95.9% | 100.0% |
 
 Threshold sweep (if everything ≥ threshold were automated):
 
 | Threshold | Coverage | Accuracy | Errors |
 |---|---|---|---|
-| 0.50 | 100.0% | 96.0% | 24 |
-| 0.60 | 56.2% | 92.9% | 24 |
-| 0.70 | 44.0% | 100.0% | 0 |
-| 0.80 | 44.0% | 100.0% | 0 |
-| 0.85 | 44.0% | 100.0% | 0 |
-| 0.90 | 39.3% | 100.0% | 0 |
-| 0.95 | 26.5% | 100.0% | 0 |
-| 0.97 | 26.5% | 100.0% | 0 |
-| 0.99 | 6.2% | 100.0% | 0 |
+| 0.50 | 100.0% | 97.7% | 14 |
+| 0.60 | 57.7% | 96.0% | 14 |
+| 0.70 | 48.3% | 100.0% | 0 |
+| 0.80 | 48.3% | 100.0% | 0 |
+| 0.85 | 48.3% | 100.0% | 0 |
+| 0.90 | 43.5% | 100.0% | 0 |
+| 0.95 | 27.3% | 100.0% | 0 |
+| 0.97 | 27.3% | 100.0% | 0 |
+| 0.99 | 7.7% | 100.0% | 0 |
 
 ## Provider comparison
 
@@ -223,53 +223,13 @@ Every configuration below ran on the same records. Remote models are named becau
 
 | Configuration | Accuracy | Macro-F1 | ECE | AUTO | False automation | Critical detected | p50 latency | Cost / decision | Errors |
 |---|---|---|---|---|---|---|---|---|---|
-| screen=rules · dosing=dosing | 89.0% | 0.886 | 0.136 | 0.0% | n/a | verdict=block 20/29 (0 automated); question_emergency=yes 19/19 (0 automated); unsafe_advice=yes 12/29 (0 automated); dose_exceeds_limit=yes 8/17 (0 automated) | 0.32 ms | $0.00000 | 0 |
-| screen=llm (openai/gpt-oss-120b) · dosing=dosing | 87.0% | 0.865 | 0.061 | 0.0% | n/a | verdict=block 27/29 (0 automated); question_emergency=yes 19/19 (0 automated); unsafe_advice=yes 27/29 (0 automated); dose_exceeds_limit=yes 8/17 (0 automated) | 2,383 ms | $0.00029 | 0 |
-| screen=llm (anthropic/claude-haiku-4.5) · dosing=dosing | 84.0% | 0.836 | 0.047 | 0.0% | n/a | verdict=block 23/29 (0 automated); question_emergency=yes 19/19 (0 automated); unsafe_advice=yes 18/29 (0 automated); dose_exceeds_limit=yes 8/17 (0 automated) | 11,047 ms | $0.00722 | 0 |
-| screen=rules_and_llm (openai/gpt-oss-120b) · dosing=dosing | 84.0% | 0.835 | 0.218 | 0.0% | n/a | verdict=block 27/29 (0 automated); question_emergency=yes 19/19 (0 automated); unsafe_advice=yes 25/29 (0 automated); dose_exceeds_limit=yes 8/17 (0 automated) | 2,680 ms | $0.00029 | 0 |
-| screen=llm (anthropic/claude-sonnet-5) · dosing=dosing | 83.0% | 0.829 | 0.117 | 0.0% | n/a | verdict=block 29/29 (0 automated); question_emergency=yes 19/19 (0 automated); unsafe_advice=yes 29/29 (0 automated); dose_exceeds_limit=yes 8/17 (0 automated) | 2,716 ms | $0.00574 | 0 |
-| screen=rules_and_llm (anthropic/claude-sonnet-5) · dosing=dosing | 83.0% | 0.830 | 0.116 | 0.0% | n/a | verdict=block 29/29 (0 automated); question_emergency=yes 19/19 (0 automated); unsafe_advice=yes 29/29 (0 automated); dose_exceeds_limit=yes 8/17 (0 automated) | 2,740 ms | $0.00577 | 0 |
-| screen=rules_and_llm (anthropic/claude-haiku-4.5) · dosing=dosing | 82.0% | 0.816 | 0.208 | 0.0% | n/a | verdict=block 22/29 (0 automated); question_emergency=yes 19/19 (0 automated); unsafe_advice=yes 19/29 (0 automated); dose_exceeds_limit=yes 8/17 (0 automated) | 11,263 ms | $0.00734 | 0 |
-| screen=rules_and_jev (jev-1.13.0) · dosing=dosing | 77.0% | 0.770 | 0.207 | 0.0% | n/a | verdict=block 28/29 (0 automated); question_emergency=yes 19/19 (0 automated); unsafe_advice=yes 28/29 (0 automated); dose_exceeds_limit=yes 8/17 (0 automated) | 199 ms | $0.00004 | 0 |
-
-Other questions (accuracy / ECE):
-
-| Configuration | `draft_escalates` | `out_of_scope` | `question_emergency` | `unsafe_advice` | `unsupported_claim` |
-|---|---|---|---|---|---|
-| screen=rules · dosing=dosing | 100.0% / 0.081 | 100.0% / 0.076 | 100.0% / 0.076 | 83.0% / 0.088 | 93.0% / 0.240 |
-| screen=llm (openai/gpt-oss-120b) · dosing=dosing | 100.0% / 0.040 | 92.0% / 0.039 | 100.0% / 0.092 | 88.0% / 0.072 | 87.0% / 0.078 |
-| screen=llm (anthropic/claude-haiku-4.5) · dosing=dosing | 100.0% / 0.019 | 98.0% / 0.040 | 100.0% / 0.045 | 80.0% / 0.078 | 80.0% / 0.136 |
-| screen=rules_and_llm (openai/gpt-oss-120b) · dosing=dosing | 100.0% / 0.041 | 93.0% / 0.014 | 99.0% / 0.102 | 86.0% / 0.107 | 84.0% / 0.302 |
-| screen=llm (anthropic/claude-sonnet-5) · dosing=dosing | 100.0% / 0.032 | 94.0% / 0.112 | 100.0% / 0.099 | 91.0% / 0.122 | 78.0% / 0.076 |
-| screen=rules_and_llm (anthropic/claude-sonnet-5) · dosing=dosing | 100.0% / 0.033 | 93.0% / 0.129 | 100.0% / 0.085 | 91.0% / 0.115 | 80.0% / 0.202 |
-| screen=rules_and_llm (anthropic/claude-haiku-4.5) · dosing=dosing | 100.0% / 0.016 | 97.0% / 0.077 | 100.0% / 0.078 | 82.0% / 0.063 | 81.0% / 0.308 |
-| screen=rules_and_jev (jev-1.13.0) · dosing=dosing | 100.0% / 0.003 | 98.0% / 0.100 | 100.0% / 0.073 | 81.0% / 0.102 | 72.0% / 0.296 |
+| screen=rules · dosing=dosing | 94.0% | 0.939 | 0.242 | 0.0% | n/a | verdict=block 18/20 (0 automated); question_emergency=yes 19/19 (0 automated); unsafe_advice=yes 12/20 (0 automated); dose_exceeds_limit=yes 6/8 (0 automated) | 0.31 ms | $0.00000 | 0 |
 
 **`test`** (n=100)
 
 | Configuration | Accuracy | Macro-F1 | ECE | AUTO | False automation | Critical detected | p50 latency | Cost / decision | Errors |
 |---|---|---|---|---|---|---|---|---|---|
-| screen=rules · dosing=dosing | 96.0% | 0.961 | 0.215 | 0.0% | n/a | verdict=block 26/26 (0 automated); question_emergency=yes 10/10 (0 automated); unsafe_advice=yes 15/26 (0 automated); dose_exceeds_limit=yes 11/11 (0 automated) | 0.28 ms | $0.00000 | 0 |
-| screen=llm (anthropic/claude-haiku-4.5) · dosing=dosing | 93.0% | 0.929 | 0.062 | 0.0% | n/a | verdict=block 26/26 (0 automated); question_emergency=yes 10/10 (0 automated); unsafe_advice=yes 18/26 (0 automated); dose_exceeds_limit=yes 11/11 (0 automated) | 10,892 ms | $0.00710 | 0 |
-| screen=rules_and_llm (openai/gpt-oss-120b) · dosing=dosing | 87.0% | 0.860 | 0.241 | 0.0% | n/a | verdict=block 26/26 (0 automated); question_emergency=yes 10/10 (0 automated); unsafe_advice=yes 23/26 (0 automated); dose_exceeds_limit=yes 11/11 (0 automated) | 2,546 ms | $0.00028 | 0 |
-| screen=llm (openai/gpt-oss-120b) · dosing=dosing | 86.0% | 0.845 | 0.039 | 0.0% | n/a | verdict=block 24/26 (0 automated); question_emergency=yes 10/10 (0 automated); unsafe_advice=yes 19/26 (0 automated); dose_exceeds_limit=yes 11/11 (0 automated) | 2,878 ms | $0.00029 | 0 |
-| screen=llm (anthropic/claude-sonnet-5) · dosing=dosing | 84.0% | 0.835 | 0.093 | 0.0% | n/a | verdict=block 26/26 (0 automated); question_emergency=yes 10/10 (0 automated); unsafe_advice=yes 25/26 (0 automated); dose_exceeds_limit=yes 11/11 (0 automated) | 2,761 ms | $0.00575 | 0 |
-| screen=rules_and_llm (anthropic/claude-haiku-4.5) · dosing=dosing | 81.0% | 0.804 | 0.254 | 0.0% | n/a | verdict=block 26/26 (0 automated); question_emergency=yes 10/10 (0 automated); unsafe_advice=yes 19/26 (0 automated); dose_exceeds_limit=yes 11/11 (0 automated) | 10,735 ms | $0.00727 | 0 |
-| screen=rules_and_llm (anthropic/claude-sonnet-5) · dosing=dosing | 78.0% | 0.777 | 0.164 | 0.0% | n/a | verdict=block 26/26 (0 automated); question_emergency=yes 10/10 (0 automated); unsafe_advice=yes 26/26 (0 automated); dose_exceeds_limit=yes 11/11 (0 automated) | 2,736 ms | $0.00576 | 0 |
-| screen=rules_and_jev (jev-1.13.0) · dosing=dosing | 75.0% | 0.740 | 0.253 | 0.0% | n/a | verdict=block 26/26 (0 automated); question_emergency=yes 10/10 (0 automated); unsafe_advice=yes 25/26 (0 automated); dose_exceeds_limit=yes 11/11 (0 automated) | 202 ms | $0.00004 | 0 |
-
-Other questions (accuracy / ECE):
-
-| Configuration | `draft_escalates` | `out_of_scope` | `question_emergency` | `unsafe_advice` | `unsupported_claim` |
-|---|---|---|---|---|---|
-| screen=rules · dosing=dosing | 100.0% / 0.088 | 100.0% / 0.077 | 100.0% / 0.083 | 89.0% / 0.030 | 87.0% / 0.262 |
-| screen=llm (anthropic/claude-haiku-4.5) · dosing=dosing | 100.0% / 0.015 | 99.0% / 0.034 | 100.0% / 0.036 | 87.0% / 0.065 | 80.0% / 0.150 |
-| screen=rules_and_llm (openai/gpt-oss-120b) · dosing=dosing | 100.0% / 0.033 | 95.0% / 0.044 | 100.0% / 0.099 | 90.0% / 0.116 | 86.0% / 0.270 |
-| screen=llm (openai/gpt-oss-120b) · dosing=dosing | 100.0% / 0.038 | 90.0% / 0.046 | 99.0% / 0.085 | 85.0% / 0.088 | 90.0% / 0.051 |
-| screen=llm (anthropic/claude-sonnet-5) · dosing=dosing | 100.0% / 0.034 | 99.0% / 0.156 | 100.0% / 0.090 | 87.0% / 0.113 | 81.0% / 0.090 |
-| screen=rules_and_llm (anthropic/claude-haiku-4.5) · dosing=dosing | 100.0% / 0.016 | 99.0% / 0.089 | 100.0% / 0.085 | 85.0% / 0.059 | 75.0% / 0.278 |
-| screen=rules_and_llm (anthropic/claude-sonnet-5) · dosing=dosing | 100.0% / 0.034 | 99.0% / 0.127 | 100.0% / 0.089 | 90.0% / 0.116 | 83.0% / 0.199 |
-| screen=rules_and_jev (jev-1.13.0) · dosing=dosing | 100.0% / 0.001 | 99.0% / 0.092 | 100.0% / 0.082 | 85.0% / 0.072 | 70.0% / 0.310 |
+| screen=rules · dosing=dosing | 98.0% | 0.981 | 0.216 | 0.0% | n/a | verdict=block 26/26 (0 automated); question_emergency=yes 20/20 (0 automated); unsafe_advice=yes 15/26 (0 automated); dose_exceeds_limit=yes 11/11 (0 automated) | 0.29 ms | $0.00000 | 0 |
 
 **`unsafe_drafts`** (n=32)
 
@@ -330,11 +290,11 @@ Other questions (accuracy / ECE):
 
 ## Known failure modes
 
-- Doses are checked only for the medicines and names listed in logic/doses.yaml. On the bundled local-site example (datasets/guard-local-site-example.jsonl), where half the dose errors use brand names the table does not list (Panadol, Nurofen), 21/44 dose errors were found and 70/93 drafts to block were blocked; the other 23 were held for a clinician. Add a site's medicines and brand names before use.
+- Doses are checked only for the medicines and names listed in logic/doses.yaml. On the bundled local-site example (datasets/guard-local-site-example.jsonl), where some dose errors use brand names the table does not list (Panadol, Nurofen), 15/21 dose errors were found and 74/80 drafts to block were blocked; the other 6 were held for a clinician. Add a site's medicines and brand names before use.
 - The dose parser reads common forms ("1000 mg every 4 hours", "2 tablets of 500 mg", "up to 3000 mg a day"). A count written apart from the strength ("2 extra-strength Tylenol (500 mg each)") is read as one tablet.
 - The keyword rules read English only and miss phrasings they do not list. On hand-written drafts they found 11/12 drafts to block in the set they were written on, but 4/9 held out: they missed a sudden severe headache, "skip your amlodipine", "take two doses tomorrow" and the dose above, and emergencies worded as "shortness of breath", "collapsed and isn't responding" or a 2-month-old's fever. With the rules alone nothing is ever released (`automation_requires`) and a possible block (P >= 0.3) always blocks; deploy with a model in the screen.
-- The keyword rules do not judge doses. A dose that is too high counts as unsafe advice, but with the rules alone only the dose check finds it, so the benchmark shows 94/159 unsafe-advice drafts found by the rules while all 159 drafts to block were blocked.
-- The keyword rules do not compare the draft with the context. A medicine the context lists as an allergy is missed (ibuprofen and aspirin in the hand-written sets), and any claim about results or the chart reads as unclear, even when the context shows it, so supported claims are held for a clinician (24/287 passing drafts in the benchmark).
+- The keyword rules do not judge doses. A dose that is too high counts as unsafe advice, but with the rules alone only the dose check finds it, so the benchmark shows 102/164 unsafe-advice drafts found by the rules while all 164 drafts to block were blocked.
+- The keyword rules do not compare the draft with the context. A medicine the context lists as an allergy is missed (ibuprofen and aspirin in the hand-written sets), and any claim about results or the chart reads as unclear, even when the context shows it, so supported claims are held for a clinician (14/268 passing drafts in the benchmark).
 - The overall probability treats every check as independent.
 - The public benchmark is generated from templates written with the pack, so it overstates real-world accuracy. The hand-written sets are the better guide, and the held-out one was written before the rules.
 
@@ -344,6 +304,17 @@ Other questions (accuracy / ECE):
 - **Hand-written drafts**: data/unsafe_drafts.jsonl (used to write the rules) and data/unsafe_drafts_holdout.jsonl (written before the rules and never used to tune them): missed and escalated emergencies, dose errors and safe doses, unsafe advice, diagnoses and prescriptions, unsupported claims, and look-alikes.
 
 ## Version history
+
+### 0.1.2
+
+- Synthetic drafts now fit their questions. Each routine question is answered only with drafts
+  written for its topic: dose advice for headache and back pain, antibiotics for a cold,
+  stopping a blood-pressure pill for dizziness on a new one. The patient's medicines appear in
+  the context only where the question concerns them. Before, drafts were paired with random
+  questions (ibuprofen advice for a question about blood-pressure pills), and readers that check
+  the draft against the question were marked wrong for flagging such pairs.
+- Regenerated calibration, test and local-site data; new rules-only numbers in the card. The
+  hand-written sets, criteria, rules and policy are unchanged.
 
 ### 0.1.1
 

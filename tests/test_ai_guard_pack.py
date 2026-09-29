@@ -58,6 +58,18 @@ def test_every_dataset_follows_the_decision_table(dataset: str) -> None:
     assert set(verdicts) == {"pass", "review", "block"}
 
 
+def test_every_routine_draft_fits_its_question() -> None:
+    records = synthetic_guard.public_splits()["test"] + synthetic_guard.local_site()
+    for record in records:
+        topic = synthetic_guard.ROUTINE.get(record["attributes"]["topic"])
+        if topic is None:
+            continue  # an emergency: escalated and missed drafts fit any of them
+        assert record["input"]["question"] == topic.question
+        drafts = [*topic.safe, *topic.dose, *topic.local_dose, *topic.scope]
+        drafts += [draft for draft, _ in (*topic.unsafe, *topic.unsupported)]
+        assert any(draft in record["input"]["draft"] for draft in drafts), record["id"]
+
+
 def test_the_local_site_differs_the_way_the_card_says() -> None:
     local = synthetic_guard.local_site()
     drafts = " ".join(r["input"]["draft"] for r in local)
