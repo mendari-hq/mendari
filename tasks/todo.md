@@ -2,7 +2,10 @@
 
 Roadmap to the full goal: [`docs/roadmap.md`](../docs/roadmap.md).
 
-## Current milestone: v0.3 Reference packs: the Referral Router
+## Next: v0.3 Reference packs: Prior Authorization Preflight, then AI Guard
+Each gets its own plan for approval first.
+
+## Done: v0.3 Referral Router
 Plan approved 2026-09-29 (4 PRs): runtime → FHIR `order-sign` → the pack → leaderboard and
 deployed choice.
 - [x] PR 1 runtime: derive rows gated with `when`, `criteria` checks `exists` and `value`,
@@ -22,7 +25,10 @@ deployed choice.
   holdout/tuning/test-100/local-100. Every model-backed config caught every urgent referral,
   none automated. rules_and_jev: 100 % next_step held out, AUTO 27-47 % with 0 false
   automation, 0.2 s, $0.00004. Jev daily limit raised to 2000 (production) with the user.
-- [ ] Deploy the chosen configuration (pack-scoped OPENHEALTH_PROVIDERS, redeploy, health)
+- [x] Deployed with the user's choice: `openhealth/referral-router:specialty_reader=jev` and
+  `openhealth/referral-router:triage_screen=rules_and_jev` (production and preview); redeployed;
+  `/api/health` confirms; live order-sign gives return_for_info, urgent_review and an AUTO
+  schedule on three referrals, and ignores the lab order.
 
 ## Done: v0.3 Clinical Trial Prescreener
 Plan approved (5 PRs): runtime prerequisites → FHIR/CDS generalised → the pack → multi-pack
