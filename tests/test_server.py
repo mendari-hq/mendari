@@ -126,6 +126,7 @@ def test_dashboard_is_served(client: TestClient) -> None:
     # Asset URLs carry a content hash so a deploy never serves stale JS/CSS.
     assert re.search(r'/static/app\.js\?v=[0-9a-f]{12}"', page.text)
     assert re.search(r'/static/style\.css\?v=[0-9a-f]{12}"', page.text)
+    assert re.search(r'/static/table\.js\?v=[0-9a-f]{12}"', page.text)
     assert client.get("/static/app.js").status_code == 200
 
 
