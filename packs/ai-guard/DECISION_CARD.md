@@ -215,6 +215,119 @@ Threshold sweep (if everything ≥ threshold were automated):
 | 0.97 | 26.5% | 100.0% | 0 |
 | 0.99 | 6.2% | 100.0% | 0 |
 
+## Provider comparison
+
+Every configuration below ran on the same records. Remote models are named because they are a deployment choice. Synthetic and hand-written data: compare configurations with each other, not with performance at a real site.
+
+**`guard-local-site-example`** (n=100)
+
+| Configuration | Accuracy | Macro-F1 | ECE | AUTO | False automation | Critical detected | p50 latency | Cost / decision | Errors |
+|---|---|---|---|---|---|---|---|---|---|
+| screen=rules · dosing=dosing | 89.0% | 0.886 | 0.136 | 0.0% | n/a | verdict=block 20/29 (0 automated); question_emergency=yes 19/19 (0 automated); unsafe_advice=yes 12/29 (0 automated); dose_exceeds_limit=yes 8/17 (0 automated) | 0.32 ms | $0.00000 | 0 |
+| screen=llm (openai/gpt-oss-120b) · dosing=dosing | 87.0% | 0.865 | 0.061 | 0.0% | n/a | verdict=block 27/29 (0 automated); question_emergency=yes 19/19 (0 automated); unsafe_advice=yes 27/29 (0 automated); dose_exceeds_limit=yes 8/17 (0 automated) | 2,383 ms | $0.00029 | 0 |
+| screen=llm (anthropic/claude-haiku-4.5) · dosing=dosing | 84.0% | 0.836 | 0.047 | 0.0% | n/a | verdict=block 23/29 (0 automated); question_emergency=yes 19/19 (0 automated); unsafe_advice=yes 18/29 (0 automated); dose_exceeds_limit=yes 8/17 (0 automated) | 11,047 ms | $0.00722 | 0 |
+| screen=rules_and_llm (openai/gpt-oss-120b) · dosing=dosing | 84.0% | 0.835 | 0.218 | 0.0% | n/a | verdict=block 27/29 (0 automated); question_emergency=yes 19/19 (0 automated); unsafe_advice=yes 25/29 (0 automated); dose_exceeds_limit=yes 8/17 (0 automated) | 2,680 ms | $0.00029 | 0 |
+| screen=llm (anthropic/claude-sonnet-5) · dosing=dosing | 83.0% | 0.829 | 0.117 | 0.0% | n/a | verdict=block 29/29 (0 automated); question_emergency=yes 19/19 (0 automated); unsafe_advice=yes 29/29 (0 automated); dose_exceeds_limit=yes 8/17 (0 automated) | 2,716 ms | $0.00574 | 0 |
+| screen=rules_and_llm (anthropic/claude-sonnet-5) · dosing=dosing | 83.0% | 0.830 | 0.116 | 0.0% | n/a | verdict=block 29/29 (0 automated); question_emergency=yes 19/19 (0 automated); unsafe_advice=yes 29/29 (0 automated); dose_exceeds_limit=yes 8/17 (0 automated) | 2,740 ms | $0.00577 | 0 |
+| screen=rules_and_llm (anthropic/claude-haiku-4.5) · dosing=dosing | 82.0% | 0.816 | 0.208 | 0.0% | n/a | verdict=block 22/29 (0 automated); question_emergency=yes 19/19 (0 automated); unsafe_advice=yes 19/29 (0 automated); dose_exceeds_limit=yes 8/17 (0 automated) | 11,263 ms | $0.00734 | 0 |
+| screen=rules_and_jev (jev-1.13.0) · dosing=dosing | 77.0% | 0.770 | 0.207 | 0.0% | n/a | verdict=block 28/29 (0 automated); question_emergency=yes 19/19 (0 automated); unsafe_advice=yes 28/29 (0 automated); dose_exceeds_limit=yes 8/17 (0 automated) | 199 ms | $0.00004 | 0 |
+
+Other questions (accuracy / ECE):
+
+| Configuration | `draft_escalates` | `out_of_scope` | `question_emergency` | `unsafe_advice` | `unsupported_claim` |
+|---|---|---|---|---|---|
+| screen=rules · dosing=dosing | 100.0% / 0.081 | 100.0% / 0.076 | 100.0% / 0.076 | 83.0% / 0.088 | 93.0% / 0.240 |
+| screen=llm (openai/gpt-oss-120b) · dosing=dosing | 100.0% / 0.040 | 92.0% / 0.039 | 100.0% / 0.092 | 88.0% / 0.072 | 87.0% / 0.078 |
+| screen=llm (anthropic/claude-haiku-4.5) · dosing=dosing | 100.0% / 0.019 | 98.0% / 0.040 | 100.0% / 0.045 | 80.0% / 0.078 | 80.0% / 0.136 |
+| screen=rules_and_llm (openai/gpt-oss-120b) · dosing=dosing | 100.0% / 0.041 | 93.0% / 0.014 | 99.0% / 0.102 | 86.0% / 0.107 | 84.0% / 0.302 |
+| screen=llm (anthropic/claude-sonnet-5) · dosing=dosing | 100.0% / 0.032 | 94.0% / 0.112 | 100.0% / 0.099 | 91.0% / 0.122 | 78.0% / 0.076 |
+| screen=rules_and_llm (anthropic/claude-sonnet-5) · dosing=dosing | 100.0% / 0.033 | 93.0% / 0.129 | 100.0% / 0.085 | 91.0% / 0.115 | 80.0% / 0.202 |
+| screen=rules_and_llm (anthropic/claude-haiku-4.5) · dosing=dosing | 100.0% / 0.016 | 97.0% / 0.077 | 100.0% / 0.078 | 82.0% / 0.063 | 81.0% / 0.308 |
+| screen=rules_and_jev (jev-1.13.0) · dosing=dosing | 100.0% / 0.003 | 98.0% / 0.100 | 100.0% / 0.073 | 81.0% / 0.102 | 72.0% / 0.296 |
+
+**`test`** (n=100)
+
+| Configuration | Accuracy | Macro-F1 | ECE | AUTO | False automation | Critical detected | p50 latency | Cost / decision | Errors |
+|---|---|---|---|---|---|---|---|---|---|
+| screen=rules · dosing=dosing | 96.0% | 0.961 | 0.215 | 0.0% | n/a | verdict=block 26/26 (0 automated); question_emergency=yes 10/10 (0 automated); unsafe_advice=yes 15/26 (0 automated); dose_exceeds_limit=yes 11/11 (0 automated) | 0.28 ms | $0.00000 | 0 |
+| screen=llm (anthropic/claude-haiku-4.5) · dosing=dosing | 93.0% | 0.929 | 0.062 | 0.0% | n/a | verdict=block 26/26 (0 automated); question_emergency=yes 10/10 (0 automated); unsafe_advice=yes 18/26 (0 automated); dose_exceeds_limit=yes 11/11 (0 automated) | 10,892 ms | $0.00710 | 0 |
+| screen=rules_and_llm (openai/gpt-oss-120b) · dosing=dosing | 87.0% | 0.860 | 0.241 | 0.0% | n/a | verdict=block 26/26 (0 automated); question_emergency=yes 10/10 (0 automated); unsafe_advice=yes 23/26 (0 automated); dose_exceeds_limit=yes 11/11 (0 automated) | 2,546 ms | $0.00028 | 0 |
+| screen=llm (openai/gpt-oss-120b) · dosing=dosing | 86.0% | 0.845 | 0.039 | 0.0% | n/a | verdict=block 24/26 (0 automated); question_emergency=yes 10/10 (0 automated); unsafe_advice=yes 19/26 (0 automated); dose_exceeds_limit=yes 11/11 (0 automated) | 2,878 ms | $0.00029 | 0 |
+| screen=llm (anthropic/claude-sonnet-5) · dosing=dosing | 84.0% | 0.835 | 0.093 | 0.0% | n/a | verdict=block 26/26 (0 automated); question_emergency=yes 10/10 (0 automated); unsafe_advice=yes 25/26 (0 automated); dose_exceeds_limit=yes 11/11 (0 automated) | 2,761 ms | $0.00575 | 0 |
+| screen=rules_and_llm (anthropic/claude-haiku-4.5) · dosing=dosing | 81.0% | 0.804 | 0.254 | 0.0% | n/a | verdict=block 26/26 (0 automated); question_emergency=yes 10/10 (0 automated); unsafe_advice=yes 19/26 (0 automated); dose_exceeds_limit=yes 11/11 (0 automated) | 10,735 ms | $0.00727 | 0 |
+| screen=rules_and_llm (anthropic/claude-sonnet-5) · dosing=dosing | 78.0% | 0.777 | 0.164 | 0.0% | n/a | verdict=block 26/26 (0 automated); question_emergency=yes 10/10 (0 automated); unsafe_advice=yes 26/26 (0 automated); dose_exceeds_limit=yes 11/11 (0 automated) | 2,736 ms | $0.00576 | 0 |
+| screen=rules_and_jev (jev-1.13.0) · dosing=dosing | 75.0% | 0.740 | 0.253 | 0.0% | n/a | verdict=block 26/26 (0 automated); question_emergency=yes 10/10 (0 automated); unsafe_advice=yes 25/26 (0 automated); dose_exceeds_limit=yes 11/11 (0 automated) | 202 ms | $0.00004 | 0 |
+
+Other questions (accuracy / ECE):
+
+| Configuration | `draft_escalates` | `out_of_scope` | `question_emergency` | `unsafe_advice` | `unsupported_claim` |
+|---|---|---|---|---|---|
+| screen=rules · dosing=dosing | 100.0% / 0.088 | 100.0% / 0.077 | 100.0% / 0.083 | 89.0% / 0.030 | 87.0% / 0.262 |
+| screen=llm (anthropic/claude-haiku-4.5) · dosing=dosing | 100.0% / 0.015 | 99.0% / 0.034 | 100.0% / 0.036 | 87.0% / 0.065 | 80.0% / 0.150 |
+| screen=rules_and_llm (openai/gpt-oss-120b) · dosing=dosing | 100.0% / 0.033 | 95.0% / 0.044 | 100.0% / 0.099 | 90.0% / 0.116 | 86.0% / 0.270 |
+| screen=llm (openai/gpt-oss-120b) · dosing=dosing | 100.0% / 0.038 | 90.0% / 0.046 | 99.0% / 0.085 | 85.0% / 0.088 | 90.0% / 0.051 |
+| screen=llm (anthropic/claude-sonnet-5) · dosing=dosing | 100.0% / 0.034 | 99.0% / 0.156 | 100.0% / 0.090 | 87.0% / 0.113 | 81.0% / 0.090 |
+| screen=rules_and_llm (anthropic/claude-haiku-4.5) · dosing=dosing | 100.0% / 0.016 | 99.0% / 0.089 | 100.0% / 0.085 | 85.0% / 0.059 | 75.0% / 0.278 |
+| screen=rules_and_llm (anthropic/claude-sonnet-5) · dosing=dosing | 100.0% / 0.034 | 99.0% / 0.127 | 100.0% / 0.089 | 90.0% / 0.116 | 83.0% / 0.199 |
+| screen=rules_and_jev (jev-1.13.0) · dosing=dosing | 100.0% / 0.001 | 99.0% / 0.092 | 100.0% / 0.082 | 85.0% / 0.072 | 70.0% / 0.310 |
+
+**`unsafe_drafts`** (n=32)
+
+| Configuration | Accuracy | Macro-F1 | ECE | AUTO | False automation | Critical detected | p50 latency | Cost / decision | Errors |
+|---|---|---|---|---|---|---|---|---|---|
+| screen=llm (anthropic/claude-haiku-4.5) · dosing=dosing | 96.9% | 0.969 | 0.056 | 0.0% | n/a | verdict=block 12/12 (0 automated); question_emergency=yes 8/8 (0 automated); unsafe_advice=yes 9/11 (0 automated); dose_exceeds_limit=yes 3/3 (0 automated) | 11,088 ms | $0.00696 | 0 |
+| screen=llm (anthropic/claude-sonnet-5) · dosing=dosing | 93.8% | 0.936 | 0.103 | 0.0% | n/a | verdict=block 12/12 (0 automated); question_emergency=yes 8/8 (0 automated); unsafe_advice=yes 11/11 (0 automated); dose_exceeds_limit=yes 3/3 (0 automated) | 2,777 ms | $0.00583 | 0 |
+| screen=llm (openai/gpt-oss-120b) · dosing=dosing | 93.8% | 0.937 | 0.037 | 0.0% | n/a | verdict=block 12/12 (0 automated); question_emergency=yes 8/8 (0 automated); unsafe_advice=yes 9/11 (0 automated); dose_exceeds_limit=yes 3/3 (0 automated) | 3,531 ms | $0.00029 | 0 |
+| screen=jev (jev-1.13.0) · dosing=dosing | 90.6% | 0.904 | 0.030 | 0.0% | n/a | verdict=block 12/12 (0 automated); question_emergency=yes 8/8 (0 automated); unsafe_advice=yes 11/11 (0 automated); dose_exceeds_limit=yes 3/3 (0 automated) | 218 ms | $0.00004 | 0 |
+| screen=rules · dosing=dosing | 90.6% | 0.903 | 0.119 | 0.0% | n/a | verdict=block 11/12 (0 automated); question_emergency=yes 8/8 (0 automated); unsafe_advice=yes 7/11 (0 automated); dose_exceeds_limit=yes 3/3 (0 automated) | 0.29 ms | $0.00000 | 0 |
+| screen=rules_and_llm (anthropic/claude-haiku-4.5) · dosing=dosing | 90.6% | 0.902 | 0.204 | 0.0% | n/a | verdict=block 12/12 (0 automated); question_emergency=yes 8/8 (0 automated); unsafe_advice=yes 10/11 (0 automated); dose_exceeds_limit=yes 3/3 (0 automated) | 11,456 ms | $0.00675 | 0 |
+| screen=rules_and_llm (openai/gpt-oss-120b) · dosing=dosing | 90.6% | 0.902 | 0.182 | 0.0% | n/a | verdict=block 12/12 (0 automated); question_emergency=yes 8/8 (0 automated); unsafe_advice=yes 11/11 (0 automated); dose_exceeds_limit=yes 3/3 (0 automated) | 2,231 ms | $0.00028 | 0 |
+| screen=rules_and_jev (jev-1.13.0) · dosing=dosing | 87.5% | 0.871 | 0.128 | 0.0% | n/a | verdict=block 12/12 (0 automated); question_emergency=yes 8/8 (0 automated); unsafe_advice=yes 10/11 (0 automated); dose_exceeds_limit=yes 3/3 (0 automated) | 191 ms | $0.00004 | 0 |
+| screen=rules_and_llm (anthropic/claude-sonnet-5) · dosing=dosing | 81.2% | 0.800 | 0.163 | 0.0% | n/a | verdict=block 12/12 (0 automated); question_emergency=yes 8/8 (0 automated); unsafe_advice=yes 11/11 (0 automated); dose_exceeds_limit=yes 3/3 (0 automated) | 3,638 ms | $0.00572 | 0 |
+
+Other questions (accuracy / ECE):
+
+| Configuration | `draft_escalates` | `out_of_scope` | `question_emergency` | `unsafe_advice` | `unsupported_claim` |
+|---|---|---|---|---|---|
+| screen=llm (anthropic/claude-haiku-4.5) · dosing=dosing | 100.0% / 0.018 | 96.9% / 0.045 | 96.9% / 0.050 | 87.5% / 0.086 | 93.8% / 0.094 |
+| screen=llm (anthropic/claude-sonnet-5) · dosing=dosing | 100.0% / 0.035 | 93.8% / 0.097 | 96.9% / 0.115 | 90.6% / 0.065 | 93.8% / 0.084 |
+| screen=llm (openai/gpt-oss-120b) · dosing=dosing | 100.0% / 0.039 | 90.6% / 0.049 | 100.0% / 0.084 | 87.5% / 0.108 | 93.8% / 0.071 |
+| screen=jev (jev-1.13.0) · dosing=dosing | 100.0% / 0.004 | 87.5% / 0.052 | 100.0% / 0.019 | 87.5% / 0.099 | 96.9% / 0.093 |
+| screen=rules · dosing=dosing | 100.0% / 0.080 | 100.0% / 0.079 | 100.0% / 0.073 | 87.5% / 0.050 | 84.4% / 0.272 |
+| screen=rules_and_llm (anthropic/claude-haiku-4.5) · dosing=dosing | 100.0% / 0.018 | 93.8% / 0.068 | 100.0% / 0.077 | 90.6% / 0.079 | 84.4% / 0.267 |
+| screen=rules_and_llm (openai/gpt-oss-120b) · dosing=dosing | 100.0% / 0.038 | 90.6% / 0.029 | 100.0% / 0.095 | 96.9% / 0.086 | 87.5% / 0.254 |
+| screen=rules_and_jev (jev-1.13.0) · dosing=dosing | 100.0% / 0.007 | 87.5% / 0.054 | 100.0% / 0.079 | 84.4% / 0.145 | 90.6% / 0.170 |
+| screen=rules_and_llm (anthropic/claude-sonnet-5) · dosing=dosing | 100.0% / 0.025 | 96.9% / 0.109 | 96.9% / 0.106 | 90.6% / 0.062 | 87.5% / 0.228 |
+
+**`unsafe_drafts_holdout`** (n=24)
+
+| Configuration | Accuracy | Macro-F1 | ECE | AUTO | False automation | Critical detected | p50 latency | Cost / decision | Errors |
+|---|---|---|---|---|---|---|---|---|---|
+| screen=llm (anthropic/claude-haiku-4.5) · dosing=dosing | 95.8% | 0.955 | 0.047 | 0.0% | n/a | verdict=block 8/9 (0 automated); question_emergency=yes 6/6 (0 automated); unsafe_advice=yes 5/8 (0 automated); dose_exceeds_limit=yes 2/3 (0 automated) | 11,210 ms | $0.00684 | 0 |
+| screen=rules_and_llm (anthropic/claude-haiku-4.5) · dosing=dosing | 95.8% | 0.955 | 0.153 | 0.0% | n/a | verdict=block 8/9 (0 automated); question_emergency=yes 6/6 (0 automated); unsafe_advice=yes 5/8 (0 automated); dose_exceeds_limit=yes 2/3 (0 automated) | 11,409 ms | $0.00743 | 0 |
+| screen=rules_and_llm (anthropic/claude-sonnet-5) · dosing=dosing | 95.8% | 0.952 | 0.177 | 0.0% | n/a | verdict=block 9/9 (0 automated); question_emergency=yes 6/6 (0 automated); unsafe_advice=yes 7/8 (0 automated); dose_exceeds_limit=yes 2/3 (0 automated) | 3,622 ms | $0.00588 | 0 |
+| screen=jev (jev-1.13.0) · dosing=dosing | 91.7% | 0.898 | 0.104 | 0.0% | n/a | verdict=block 9/9 (0 automated); question_emergency=yes 6/6 (0 automated); unsafe_advice=yes 7/8 (0 automated); dose_exceeds_limit=yes 2/3 (0 automated) | 208 ms | $0.00004 | 0 |
+| screen=llm (anthropic/claude-sonnet-5) · dosing=dosing | 91.7% | 0.915 | 0.118 | 0.0% | n/a | verdict=block 9/9 (0 automated); question_emergency=yes 6/6 (0 automated); unsafe_advice=yes 7/8 (0 automated); dose_exceeds_limit=yes 2/3 (0 automated) | 2,825 ms | $0.00571 | 0 |
+| screen=rules_and_jev (jev-1.13.0) · dosing=dosing | 91.7% | 0.898 | 0.166 | 0.0% | n/a | verdict=block 9/9 (0 automated); question_emergency=yes 6/6 (0 automated); unsafe_advice=yes 7/8 (0 automated); dose_exceeds_limit=yes 2/3 (0 automated) | 195 ms | $0.00004 | 0 |
+| screen=rules_and_llm (openai/gpt-oss-120b) · dosing=dosing | 91.7% | 0.915 | 0.167 | 0.0% | n/a | verdict=block 9/9 (0 automated); question_emergency=yes 6/6 (0 automated); unsafe_advice=yes 6/8 (0 automated); dose_exceeds_limit=yes 2/3 (0 automated) | 2,391 ms | $0.00029 | 0 |
+| screen=llm (openai/gpt-oss-120b) · dosing=dosing | 87.5% | 0.856 | 0.087 | 0.0% | n/a | verdict=block 8/9 (0 automated); question_emergency=yes 6/6 (0 automated); unsafe_advice=yes 6/8 (0 automated); dose_exceeds_limit=yes 2/3 (0 automated) | 2,878 ms | $0.00029 | 0 |
+| screen=rules · dosing=dosing | 54.2% | 0.546 | 0.189 | 0.0% | n/a | verdict=block 4/9 (0 automated); question_emergency=yes 2/6 (0 automated); unsafe_advice=yes 1/8 (0 automated); dose_exceeds_limit=yes 2/3 (0 automated) | 0.28 ms | $0.00000 | 0 |
+
+Other questions (accuracy / ECE):
+
+| Configuration | `draft_escalates` | `out_of_scope` | `question_emergency` | `unsafe_advice` | `unsupported_claim` |
+|---|---|---|---|---|---|
+| screen=llm (anthropic/claude-haiku-4.5) · dosing=dosing | 100.0% / 0.010 | 87.5% / 0.098 | 100.0% / 0.055 | 83.3% / 0.127 | 87.5% / 0.084 |
+| screen=rules_and_llm (anthropic/claude-haiku-4.5) · dosing=dosing | 100.0% / 0.020 | 87.5% / 0.161 | 100.0% / 0.075 | 83.3% / 0.107 | 83.3% / 0.169 |
+| screen=rules_and_llm (anthropic/claude-sonnet-5) · dosing=dosing | 100.0% / 0.031 | 87.5% / 0.157 | 100.0% / 0.120 | 87.5% / 0.095 | 95.8% / 0.279 |
+| screen=jev (jev-1.13.0) · dosing=dosing | 100.0% / 0.000 | 83.3% / 0.087 | 100.0% / 0.026 | 91.7% / 0.085 | 91.7% / 0.147 |
+| screen=llm (anthropic/claude-sonnet-5) · dosing=dosing | 100.0% / 0.027 | 83.3% / 0.201 | 100.0% / 0.152 | 87.5% / 0.078 | 91.7% / 0.104 |
+| screen=rules_and_jev (jev-1.13.0) · dosing=dosing | 100.0% / 0.003 | 79.2% / 0.092 | 100.0% / 0.068 | 91.7% / 0.059 | 91.7% / 0.240 |
+| screen=rules_and_llm (openai/gpt-oss-120b) · dosing=dosing | 100.0% / 0.037 | 79.2% / 0.104 | 100.0% / 0.121 | 83.3% / 0.173 | 91.7% / 0.254 |
+| screen=llm (openai/gpt-oss-120b) · dosing=dosing | 100.0% / 0.041 | 79.2% / 0.174 | 100.0% / 0.089 | 87.5% / 0.108 | 95.8% / 0.016 |
+| screen=rules · dosing=dosing | 100.0% / 0.079 | 87.5% / 0.037 | 83.3% / 0.082 | 70.8% / 0.204 | 91.7% / 0.187 |
+
+
 ## Known failure modes
 
 - Doses are checked only for the medicines and names listed in logic/doses.yaml. On the bundled local-site example (datasets/guard-local-site-example.jsonl), where half the dose errors use brand names the table does not list (Panadol, Nurofen), 21/44 dose errors were found and 70/93 drafts to block were blocked; the other 23 were held for a clinician. Add a site's medicines and brand names before use.

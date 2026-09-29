@@ -14,7 +14,11 @@ leaderboard and deployed choice.
   nothing released without a model (`automation_requires`) and a governance override (L2).
 - [x] 0.1.1 criteria: over-the-counter advice is in scope, a dose that is too high is unsafe
   advice (labels relabelled uniformly), found by a model reader on the tuning set
-- [ ] PR 3 leaderboard and deployed choice (Jev rows after the budget reset)
+- [x] PR 3 leaderboard (`evals/leaderboard.json`, 34 rows on 0.1.1): rules; Jev, Claude Sonnet 5,
+  Claude Haiku 4.5 and gpt-oss-120b, alone and with the rules. With the rules every model-backed
+  screen blocked 21/21 hand-written drafts to block; none released
+- [x] `OPENHEALTH_JEV_DAILY_LIMIT=none` (no limit, still counted), at the user's request
+- [ ] Deployed choice (the user's), then a live guard check
 
 ## Done: v0.3 Prior Authorization Preflight
 Plan approved 2026-09-29 (3 PRs): runtime → the pack → leaderboard and deployed choice.
