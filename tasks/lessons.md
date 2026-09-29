@@ -382,3 +382,28 @@ paid run the user asks for, give the estimated cost, and say what retries added.
 Post-merge reports name only the changed pack or component and contain no paid calls unless the
 user asked for them.
 
+## 2026-09-29 - process
+
+### What happened
+I committed dashboard Phase 3 and opened the PR once the tests passed and the charts looked right
+on the two packs I built against (inbox and AI Guard). The user asked to make sure it was done well
+before committing. A review afterwards found real defects: the threshold sweep said "Pack
+automates at 0.90" on the four packs whose benchmark automates nothing (risk levels 1-2), screen
+readers read every tick number, keyboard focus on a scatter dot looked exactly like the
+"Deployed" ring, and a caption told keyboard users to hover.
+
+### Root cause
+"Tests pass and it renders" stood in for review. I checked that charts drew, not that what they
+say is true for every pack, and I didn't read my own diff before committing.
+
+### Rule
+Before committing dashboard work: read the full diff as a reviewer; open every view the change
+touches for all five packs (a script sweep for console errors, blank charts and sideways scroll
+at 390 px, both themes); and check every sentence and label the UI states against each pack's
+data, especially anything that claims behaviour (automation, blocking, what was deployed). Check
+the accessibility tree, not only the screenshot. Only then commit.
+
+### Verification
+The PR description lists the all-pack sweep result and the review findings fixed before the first
+commit; no follow-up "review fixes" commit is needed.
+

@@ -281,7 +281,6 @@ button.open-record { white-space: nowrap; }
 table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 th, td { text-align: left; padding: 7px var(--space-3); border-bottom: 1px solid var(--color-border); vertical-align: top; }
 th { color: var(--color-text-muted); font-weight: var(--weight-semibold); font-size: var(--text-xs); }
-th.mix { width: 40%; }
 tr.clickable { cursor: pointer; }
 tr.clickable:hover td { background: var(--color-surface-sunken); }
 /* position: relative keeps absolutely positioned children (screen-reader labels) inside the scroll
@@ -420,13 +419,17 @@ figure.chart { margin: var(--space-3) 0 0; }
 /* Marks: invisible hit area on top, a highlight underneath that shows on hover and keyboard focus. */
 .chart-svg .mark { outline: none; cursor: default; }
 .chart-svg .hit { fill: transparent; pointer-events: all; }
-.chart-svg .hl, .chart-svg .guide, .chart-svg .focus-dot { opacity: 0; }
+.chart-svg .hl, .chart-svg .guide, .chart-svg .focus-dot, .chart-svg .focus-ring { opacity: 0; }
 .chart-svg .hl { fill: var(--color-surface-sunken); stroke: none; }
 .chart-svg .guide { stroke: var(--color-text-muted); stroke-width: 1; }
-.chart-svg .focus-dot { fill: none; stroke: var(--color-accent); stroke-width: 2; }
-.chart-svg .focus-dot[class*="st-"] { fill: var(--color-surface); stroke-width: 2; }
-.chart-svg .mark:hover :is(.hl, .guide, .focus-dot),
-.chart-svg .mark:focus-visible :is(.hl, .guide, .focus-dot) { opacity: 1; }
+/* Line points ring in their series colour; scatter dots get a dashed ring in the text colour, so
+   focus never looks like the solid accent ring that marks the deployed configuration. */
+.chart-svg .focus-dot { fill: var(--color-surface); stroke-width: 2; }
+.chart-svg .focus-dot.st-c1 { stroke: var(--chart-1); }
+.chart-svg .focus-dot.st-c2 { stroke: var(--chart-2); }
+.chart-svg .focus-ring { fill: none; stroke: var(--color-text); stroke-width: 2; stroke-dasharray: 3 2; }
+.chart-svg .mark:hover :is(.hl, .guide, .focus-dot, .focus-ring),
+.chart-svg .mark:focus-visible :is(.hl, .guide, .focus-dot, .focus-ring) { opacity: 1; }
 .chart-svg .mark:focus-visible .hl { stroke: var(--color-accent); stroke-width: 2; }
 .chart-tip {
   position: absolute; z-index: 4; pointer-events: none; width: max-content; max-width: min(280px, 90vw);

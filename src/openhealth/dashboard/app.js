@@ -325,9 +325,9 @@ function tile(label, value, sub = "", kind = "", { html = false } = {}) {
   return `<div class="tile"><div class="label">${esc(label)}</div><div class="value ${kind}">${html ? value : esc(value)}</div><div class="sub">${esc(sub)}</div></div>`;
 }
 
-function stackBar(counts, total, legend = true) {
+function stackBar(counts, total) {
   const parts = OUTCOMES.map((o) => (total ? `<span class="bg-${o}" style="width:${(100 * counts[o]) / total}%" title="${outcomeText(o)}: ${counts[o]}"></span>` : "")).join("");
-  const keys = legend ? `<div class="legend">${OUTCOMES.map((o) => `<span><i class="bg-${o}"></i>${esc(outcomeText(o))} ${counts[o]} (${pct(total ? counts[o] / total : null)})</span>`).join("")}</div>` : "";
+  const keys = `<div class="legend">${OUTCOMES.map((o) => `<span><i class="bg-${o}"></i>${esc(outcomeText(o))} ${counts[o]} (${pct(total ? counts[o] / total : null)})</span>`).join("")}</div>`;
   return `<div class="stack">${parts}</div>${keys}`;
 }
 
@@ -359,10 +359,11 @@ function dailyChart(daily) {
   }
   const totalOf = (values) => OUTCOMES.reduce((sum, o) => sum + values[o], 0);
   const peak = categories.reduce((best, cat) => (totalOf(cat.values) > totalOf(best.values) ? cat : best));
+  const span = `${categories[0].axis} to ${categories[categories.length - 1].axis}`;
   return chartHtml({
     id: "daily",
     type: "columns",
-    ariaLabel: `Decisions per day, ${categories[0].axis} to ${categories[categories.length - 1].axis}, peak ${totalOf(peak.values)} on ${peak.axis}`,
+    ariaLabel: totalOf(peak.values) ? `Decisions per day, ${span}, peak ${totalOf(peak.values)} on ${peak.axis}` : `Decisions per day, ${span}: none`,
     categories,
     series: OUTCOMES.map((o) => ({ key: o, label: outcomeText(o), swatch: o })),
     legend: OUTCOMES.map((o) => ({ swatch: `bg-${o}`, label: outcomeText(o) })),
@@ -780,7 +781,11 @@ function costChart(rows, varying, dataset) {
     points: usable.map((r) => ({
       x: r.cost_per_decision_usd, y: r.accuracy, ring: isDeployed(r), shape: missed(r) ? "diamond" : "circle", tone: missed(r) ? "danger" : "c1",
       title: `${configName(r, varying)}${isDeployed(r) ? " (deployed)" : ""}`,
-      rows: [["Accuracy", pct(r.accuracy)], ["Cost / decision", `$${r.cost_per_decision_usd.toFixed(5)}`], ...(missed(r) ? [["Critical cases", "some missed"]] : [])],
+      rows: [
+        ["Accuracy", pct(r.accuracy)],
+        ["Cost / decision", `$${r.cost_per_decision_usd.toFixed(5)}`],
+        ...r.critical.filter((c) => c.n).map((c) => [`${c.question} = ${c.label} caught`, `${c.detected}/${c.n}`]),
+      ],
     })),
     legend: [
       ...(usable.some((r) => !missed(r)) ? [{ swatch: "dot bg-c1", label: usable.some(missed) ? "Caught every critical case" : "Configuration" }] : []),
@@ -852,7 +857,7 @@ function reportView(r) {
     </div>
     <div class="grid-2">
       <div class="panel"><h3>Reliability</h3>${reliabilityChart(q.calibration, id)}</div>
-      <div class="panel"><h3>Threshold sweep</h3>${sweepChart(r.threshold_sweep, r.policy?.thresholds?.auto, id)}</div>
+      <div class="panel"><h3>Threshold sweep</h3>${sweepChart(r.threshold_sweep, r.policy?.thresholds?.auto, d.outcome_rates.AUTO === 0, id)}</div>
     </div>
     <div class="panel"><h3>Per label</h3>${tableHtml({
       id: `labels-${id}`, caption: "",
@@ -943,8 +948,10 @@ function reliabilityChart(calibration, id) {
   });
 }
 
-// Coverage and accuracy as the automation threshold rises, with the pack's own threshold marked.
-function sweepChart(sweep, autoThreshold, id) {
+// What each automation threshold would allow: the share of cases at or above it and their accuracy,
+// with the pack's threshold marked. A what-if: risk-level caps and review rules still apply, so at
+// risk level 1-3 a pack may automate nothing at all.
+function sweepChart(sweep, autoThreshold, nothingAutomated, id) {
   if (!sweep?.length) return `<div class="empty">No labelled decisions.</div>`;
   const [first, last] = [sweep[0], sweep[sweep.length - 1]];
   const lastAccuracy = [...sweep].reverse().find((t) => t.accuracy !== null && t.accuracy !== undefined)?.accuracy;
@@ -952,11 +959,12 @@ function sweepChart(sweep, autoThreshold, id) {
   return chartHtml({
     id: `sweep-${id}`,
     type: "lines",
-    ariaLabel: `Threshold sweep: raising the automation threshold from ${threshold(first.threshold)} to ${threshold(last.threshold)} moves coverage from ${pct(first.coverage)} to ${pct(last.coverage)} and accuracy from ${pct(first.accuracy)} to ${pct(lastAccuracy)}.${typeof autoThreshold === "number" ? ` The pack automates at ${threshold(autoThreshold)} and above.` : ""}`,
+    ariaLabel: `Threshold sweep: raising the automation threshold from ${threshold(first.threshold)} to ${threshold(last.threshold)} moves coverage from ${pct(first.coverage)} to ${pct(last.coverage)} and accuracy from ${pct(first.accuracy)} to ${pct(lastAccuracy)}.${typeof autoThreshold === "number" ? ` The pack's automation threshold is ${threshold(autoThreshold)}.` : ""}`,
     x: { title: "Automate when confidence is at least", format: threshold },
     series: [{ key: "coverage", label: "Coverage", swatch: "c1" }, { key: "accuracy", label: "Accuracy", swatch: "c2", dashed: true }],
-    legend: [{ swatch: "line c1", label: "Coverage (share automated)" }, { swatch: "line c2 dashed", label: "Accuracy of those" }],
-    marker: typeof autoThreshold === "number" ? { x: autoThreshold, label: `Pack automates at ${threshold(autoThreshold)}` } : null,
+    legend: [{ swatch: "line c1", label: "Coverage (share at or above the threshold)" }, { swatch: "line c2 dashed", label: "Accuracy of those" }],
+    marker: typeof autoThreshold === "number" ? { x: autoThreshold, label: `Automation threshold ${threshold(autoThreshold)}` } : null,
+    note: nothingAutomated ? "Nothing was automated in this run: the policy sent every case to a person. The curves show what each threshold would allow." : "",
     points: sweep.map((t) => ({ x: t.threshold, title: `Automate at ≥ ${threshold(t.threshold)}`, values: { coverage: t.coverage, accuracy: t.accuracy }, extra: [["Errors", String(t.errors)]] })),
     data: {
       rows: sweep,
@@ -976,17 +984,19 @@ function confusionView(confusion, id) {
   const truths = Object.keys(confusion ?? {});
   if (!truths.length) return "";
   const answers = [...new Set([...truths, ...truths.flatMap((t) => Object.keys(confusion[t]))])];
+  // "none" is the evaluation's column for cases without an answer, unless the pack has a label of that name.
+  const answerLabel = (answer) => (answer === "none" && !truths.includes("none") ? `<span title="none">No answer</span>` : esc(answer));
   const rows = truths.map((truth) => ({ truth, counts: confusion[truth], total: Object.values(confusion[truth]).reduce((a, b) => a + b, 0) }));
   return `<details class="mt-3"><summary>Confusion matrix</summary>
     ${tableHtml({
       id: `confusion-${id}`,
-      caption: "Rows are the true label, columns the pack's answer. Mistakes are shaded; hover for the share of the row.",
+      caption: "Rows are the true label, columns the pack's answer. Mistakes are shaded: amber, or red when they are a tenth of the row or more.",
       rows,
       stickyFirst: true,
       columns: [
         { key: "truth", label: "True label", sort: (row) => row.truth, cell: (row) => `<b>${esc(row.truth)}</b> <span class="muted">n=${row.total}</span>` },
         ...answers.map((answer) => ({
-          key: `answer:${answer}`, label: esc(answer), numeric: true,
+          key: `answer:${answer}`, label: answerLabel(answer), numeric: true,
           cell: (row) => {
             const n = row.counts[answer] ?? 0;
             const share = row.total ? n / row.total : 0;
@@ -1227,17 +1237,21 @@ async function tryMessage(main) {
   });
 }
 
-// What choosing this label leads to, from the pack's own policy: a block rule is danger, a review
-// rule is warning. Labels the policy doesn't act on get no tone.
-function labelTone(question, label) {
+// What choosing this label leads to under the pack's own policy: a block rule is danger, a review
+// rule is warning. A criterion of a derived decision takes the tone of what that answer would make
+// the decision (the Effect column of the criteria table). Other labels get no tone.
+function labelTone(question, label, answers) {
   const rules = state.detail.manifest.policy.rules.filter((rule) => rule.when.question === question && rule.when.labels?.includes(label));
   if (rules.some((rule) => rule.outcome === "BLOCK")) return "block";
-  return rules.some((rule) => rule.outcome === "HUMAN_REVIEW") ? "review" : "";
+  if (rules.some((rule) => rule.outcome === "HUMAN_REVIEW")) return "review";
+  const derive = derivedPrimary();
+  const effect = derive?.from.includes(question) ? memberEffect(derive, question, label, answers) : null;
+  return effect ? labelTone(state.detail.primary, effect, answers) : "";
 }
 
-function answerBars(id, question, a) {
+function answerBars(id, question, a, answers) {
   const rows = Object.entries(a.probabilities).sort((x, y) => y[1] - x[1])
-    .map(([label, value]) => ({ label, value, chosen: label === a.label, tone: labelTone(question, label) }));
+    .map(([label, value]) => ({ label, value, chosen: label === a.label, tone: labelTone(question, label, answers) }));
   return `<h3>${esc(question)} <span class="muted mono">${esc(a.provider.variant)}${a.provider.model ? ` · ${esc(a.provider.model)}` : ""}${a.value !== undefined ? ` · expected score ${num(a.value, 2)}` : ""}</span></h3>
     ${chartHtml({
       id: `answer-${id}-${question}`,
@@ -1252,10 +1266,10 @@ function decisionView(r) {
   const derive = derivedPrimary();
   const primary = r.answers[r.primary];
   const answers = derive && primary
-    ? `<h3>Criteria</h3>${criteriaTable(r.answers)}${answerBars(r.id, r.primary, primary)}
+    ? `<h3>Criteria</h3>${criteriaTable(r.answers)}${answerBars(r.id, r.primary, primary, r.answers)}
       <details><summary>Probabilities for every criterion</summary>
-        ${Object.entries(r.answers).filter(([q]) => q !== r.primary).map(([q, a]) => answerBars(r.id, q, a)).join("")}</details>`
-    : Object.entries(r.answers).map(([q, a]) => answerBars(r.id, q, a)).join("");
+        ${Object.entries(r.answers).filter(([q]) => q !== r.primary).map(([q, a]) => answerBars(r.id, q, a, r.answers)).join("")}</details>`
+    : Object.entries(r.answers).map(([q, a]) => answerBars(r.id, q, a, r.answers)).join("");
   return `<div class="panel">
     <div class="row">${outcomeBadge(r.outcome)} ${priorityBadge(r.priority)}
       <span>→ <b>${esc(r.recommendation ?? "no recommendation")}</b></span>

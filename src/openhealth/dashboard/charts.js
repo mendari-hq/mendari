@@ -92,6 +92,9 @@ const markAttrs = (index, mark, ax, ay) =>
 
 const svgOpen = (spec, width, height, role) =>
   `<svg class="chart-svg" width="${px(width)}" height="${px(height)}" viewBox="0 0 ${px(width)} ${px(height)}" role="${role}" aria-label="${esc(spec.ariaLabel)}">`;
+// Axes, gridlines and tick labels: drawn for the eye only. A screen reader gets the chart's summary
+// and each mark's exact values, not a stream of stray tick numbers.
+const decor = (markup) => `<g aria-hidden="true">${markup}</g>`;
 
 // ---- stacked columns ---------------------------------------------------------------------------
 
@@ -112,6 +115,8 @@ function drawColumns(spec, width) {
   const marks = [];
   const grid = axis.ticks.map((t) => `<line class="grid" x1="${m.l}" x2="${px(svgW - m.r)}" y1="${px(y(t))}" y2="${px(y(t))}"/>
     <text class="tick" x="${m.l - 6}" y="${px(y(t) + 4)}" text-anchor="end">${t.toLocaleString()}</text>`).join("");
+  const dayLabels = cats.map((cat, i) => ((cats.length - 1 - i) % stride === 0
+    ? `<text class="tick" x="${px(m.l + i * slot + slot / 2)}" y="${H - 8}" text-anchor="middle">${esc(cat.axis)}</text>` : "")).join("");
   const columns = cats.map((cat, i) => {
     const x0 = m.l + i * slot;
     let top = m.t + plotH;
@@ -127,13 +132,12 @@ function drawColumns(spec, width) {
       rows: [...spec.series.map((s) => [s.label, String(cat.values[s.key] ?? 0), `bg-${s.swatch}`]), ["Total", String(total(cat))]],
     };
     marks.push(mark);
-    const label = (cats.length - 1 - i) % stride === 0
-      ? `<text class="tick" x="${px(x0 + slot / 2)}" y="${H - 8}" text-anchor="middle">${esc(cat.axis)}</text>` : "";
     return `<g ${markAttrs(i, mark, x0 + slot / 2, y(total(cat)))}>
       <rect class="hl" x="${px(x0)}" y="${m.t}" width="${px(slot)}" height="${plotH}"/>${segments}
-      <rect class="hit" x="${px(x0)}" y="${m.t}" width="${px(slot)}" height="${plotH}"/></g>${label}`;
+      <rect class="hit" x="${px(x0)}" y="${m.t}" width="${px(slot)}" height="${plotH}"/></g>`;
   }).join("");
-  return { marks, svg: `${svgOpen(spec, svgW, H, "group")}${grid}<line class="axis" x1="${m.l}" x2="${px(svgW - m.r)}" y1="${m.t + plotH}" y2="${m.t + plotH}"/>${columns}</svg>` };
+  const axisLine = `<line class="axis" x1="${m.l}" x2="${px(svgW - m.r)}" y1="${m.t + plotH}" y2="${m.t + plotH}"/>`;
+  return { marks, svg: `${svgOpen(spec, svgW, H, "group")}${decor(grid + axisLine + dayLabels)}${columns}</svg>` };
 }
 
 // ---- lines -------------------------------------------------------------------------------------
@@ -191,7 +195,8 @@ function drawLines(spec, width) {
       <text class="tick strong" x="${px(mx + (anchorEnd ? -5 : 5))}" y="${m.t - 8}" text-anchor="${anchorEnd ? "end" : "start"}">${esc(spec.marker.label)}</text>`;
   }
   const title = `<text class="tick" x="${px(m.l + plotW / 2)}" y="${H - 6}" text-anchor="middle">${esc(spec.x.title)}</text>`;
-  return { marks, svg: `${svgOpen(spec, width, H, "group")}${grid}<line class="axis" x1="${m.l}" x2="${m.l + plotW}" y1="${m.t + plotH}" y2="${m.t + plotH}"/>${xTicks}${title}${marker}${paths}${columns}</svg>` };
+  const axisLine = `<line class="axis" x1="${m.l}" x2="${m.l + plotW}" y1="${m.t + plotH}" y2="${m.t + plotH}"/>`;
+  return { marks, svg: `${svgOpen(spec, width, H, "group")}${decor(grid + axisLine + xTicks + title + marker + paths)}${columns}</svg>` };
 }
 
 // ---- scatter -----------------------------------------------------------------------------------
@@ -240,11 +245,12 @@ function drawScatter(spec, width) {
       ? `<rect class="dot f-${tone}" x="${px(cx - r * 0.85)}" y="${px(cy - r * 0.85)}" width="${px(r * 1.7)}" height="${px(r * 1.7)}" transform="rotate(45 ${px(cx)} ${px(cy)})"/>`
       : `<circle class="dot f-${tone}" cx="${px(cx)}" cy="${px(cy)}" r="${px(r)}"/>`;
     return `<g ${markAttrs(i, mark, cx, cy - r)}>
-      <circle class="focus-dot" cx="${px(cx)}" cy="${px(cy)}" r="${px(r + 5)}"/>${shape}
+      <circle class="focus-ring" cx="${px(cx)}" cy="${px(cy)}" r="${px(r + 8)}"/>${shape}
       ${p.ring ? `<circle class="ring" cx="${px(cx)}" cy="${px(cy)}" r="${px(r + 4)}"/>` : ""}
-      <circle class="hit" cx="${px(cx)}" cy="${px(cy)}" r="${px(Math.max(r + 6, 12))}"/></g>`;
+      <circle class="hit" cx="${px(cx)}" cy="${px(cy)}" r="${px(Math.max(r + 8, 12))}"/></g>`;
   }).join("");
-  return { marks, svg: `${svgOpen(spec, size, H, "group")}${yGrid}${xGrid}${free}<rect class="frame" x="${m.l}" y="${m.t}" width="${px(plotW)}" height="${px(plotH)}"/>${diagonal}${axisTitles}${dots}</svg>` };
+  const frameRect = `<rect class="frame" x="${m.l}" y="${m.t}" width="${px(plotW)}" height="${px(plotH)}"/>`;
+  return { marks, svg: `${svgOpen(spec, size, H, "group")}${decor(yGrid + xGrid + free + frameRect + diagonal + axisTitles)}${dots}</svg>` };
 }
 
 // ---- horizontal bars ---------------------------------------------------------------------------
@@ -279,7 +285,7 @@ function chartHtml(spec) {
   const data = spec.data
     ? `<details class="chart-data"><summary>View data</summary>${tableHtml({ caption: "", ...spec.data, id: `${spec.id}-data` })}</details>` : "";
   return `<figure class="chart" data-chart="${esc(spec.id)}">${legend}
-    <div class="chart-frame"><div class="chart-plot"></div><div class="chart-tip" hidden></div></div>
+    <div class="chart-frame"><div class="chart-plot"></div><div class="chart-tip" aria-hidden="true" hidden></div></div>
     ${spec.note ? `<figcaption class="chart-note">${spec.note}</figcaption>` : ""}${data}</figure>`;
 }
 
@@ -363,7 +369,11 @@ function wireCharts(root) {
       rove(next, { focus: true });
     });
 
-    const observer = new ResizeObserver(() => (figure.isConnected ? paint() : observer.disconnect()));
+    const observer = new ResizeObserver(() => {
+      if (figure.isConnected) return paint();
+      observer.disconnect();
+      if (CHARTS.get(figure.dataset.chart) === entry) CHARTS.delete(figure.dataset.chart);
+    });
     observer.observe(plot);
     paint();
   });

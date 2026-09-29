@@ -321,6 +321,11 @@ def test_the_leaderboard_keeps_rank_and_configuration_in_view_on_a_phone(page: P
 
 DAILY = 'figure.chart[data-chart="daily"]'
 
+# Text inside a chart that assistive technology would read outside the marks' own labels.
+DECORATION_EXPOSED = """(figure) => [...figure.querySelectorAll('svg.chart-svg[role=group] text')]
+  .filter((t) => !t.closest('[aria-hidden="true"]') && !t.closest('.mark'))
+  .map((t) => t.textContent)"""
+
 
 def serve_daily(page: Page, days: list[tuple[str, int]]) -> None:
     """Answer /api/stats with the given history: (Eastern date, decisions that day)."""
@@ -400,6 +405,8 @@ def test_every_chart_has_a_summary_and_its_data_table(page: Page) -> None:
             expect(figure.locator("svg.chart-svg")).to_have_attribute(
                 "aria-label", re.compile(r"\S{8}")
             )
+            assert figure.evaluate(DECORATION_EXPOSED) == []
+            expect(figure.locator(".chart-tip")).to_have_attribute("aria-hidden", "true")
             data = figure.locator("details.chart-data")
             expect(data.locator("summary")).to_have_text("View data")
             data.locator("summary").click()
@@ -446,7 +453,9 @@ def test_the_cost_chart_rings_the_deployed_configuration(page: Page) -> None:
     expect(chart.locator(".mark")).to_have_count(rows.count())  # one dot per leaderboard row
     expect(chart.locator("svg .ring")).to_have_count(1)  # locally the rules screen is deployed
     expect(chart.locator("svg text", has_text="$0").first).to_be_visible()  # rules cost nothing
-    expect(chart.locator(".mark").first).to_have_attribute("aria-label", re.compile("Accuracy"))
+    expect(chart.locator(".mark").first).to_have_attribute(
+        "aria-label", re.compile(r"Accuracy .*verdict = block caught \d+/\d+")
+    )
 
 
 def test_probability_bars_are_coloured_by_what_the_label_does(page: Page) -> None:
@@ -473,3 +482,30 @@ def test_the_confusion_matrix_shades_only_the_mistakes(page: Page) -> None:
     diagonal = table.locator("tbody tr").first.locator("td").nth(1)
     expect(diagonal.locator(".cell-warn, .cell-bad")).to_have_count(0)  # right answers stay plain
     assert table.locator(".cell-warn, .cell-bad").count() > 0  # front_desk -> billing, and so on
+    expect(table.locator("thead th").last).to_have_text("No answer")  # not a label called "none"
+
+
+def test_the_threshold_sweep_does_not_claim_automation_that_never_happens(page: Page) -> None:
+    """At risk level 2 the AI Guard automates nothing; the sweep is a what-if and says so."""
+    open_pack(page, GUARD, "evals")
+    page.goto("/#evals/report")
+    sweep = page.locator('figure.chart[data-chart^="sweep"]')
+    expect(sweep).to_contain_text("Automation threshold 0.90")
+    expect(sweep).to_contain_text("Nothing was automated in this run")
+    expect(sweep).not_to_contain_text("automates at")
+    page.select_option("#pack-select", INBOX)  # automates 94.5 % of its benchmark
+    expect(page.locator("#evals-body")).to_contain_text("destination accuracy")
+    expect(page.locator('figure.chart[data-chart^="sweep"]')).not_to_contain_text("Nothing was")
+
+
+def test_criterion_bars_take_the_colour_of_their_effect(page: Page) -> None:
+    """unsafe_advice = yes blocks the draft through the decision table, so its bar is danger too,
+    matching the criteria table's Effect column. The chart sits in a closed disclosure, so this
+    also checks that a chart hidden at first is drawn when it is opened."""
+    open_pack(page, GUARD, "try")
+    page.select_option("#example", label="a draft that misses an emergency is blocked")
+    page.get_by_role("button", name="Decide").click()
+    page.get_by_text("Probabilities for every criterion").click()
+    unsafe = page.locator('figure.chart[data-chart$="-unsafe_advice"]')
+    expect(unsafe.locator(".chosen rect.f-block")).to_have_count(1)
+    expect(unsafe.locator(".chosen .bar-label")).to_have_text("yes")
