@@ -1,6 +1,6 @@
 # Decision Card: Referral Router
 
-`openhealth/referral-router` · version **0.1.0** · Apache-2.0 · published by OpenHealth Hub reference packs (community)
+`openhealth/referral-router` · version **0.1.1** · Apache-2.0 · published by OpenHealth Hub reference packs (community)
 
 > Reads a specialty referral as it is signed: suggests the specialty, spots referrals that should be seen within two weeks, checks that the referral has what that specialty needs, and sends complete routine referrals straight to the specialty's scheduling queue.
 
@@ -8,7 +8,7 @@
 |---|---|
 | Risk level | **1**, clinical information processing (clinical information) |
 | Automation | AUTO permitted by policy thresholds; every decision is audited. |
-| Pack digest | `sha256:32be5439d7e5f76ed841665e758fe6115aa7b0feba03ee6ea5586c2f85709a52` |
+| Pack digest | `sha256:6090a20166b9e81d54ee05c21ce24ad565d36f16826e7354931786a4b9fbc436` |
 | Last validation | 2026-09-29 on `test` (n=600, sha256 `f085362d6bc2…`) |
 
 ## Intended use
@@ -173,7 +173,7 @@ Benchmark `test` (n=600) with specialty_reader=`naive_bayes`, triage_screen=`rul
 | Accuracy of AUTO decisions | n/a |
 | False automation rate | n/a |
 | Expected human override rate | 0.5% |
-| Latency p50 / p95 | 2.73 / 2.88 ms |
+| Latency p50 / p95 | 2.71 / 2.86 ms |
 | Cost per decision | $0.00000 |
 | Critical `urgency=urgent` | 113/113 detected, 0 automated |
 | Critical `next_step=urgent_review` | 124/124 detected, 0 automated |
@@ -248,6 +248,14 @@ Threshold sweep (if everything ≥ threshold were automated):
 - **Hand-written urgent referral sets**: data/urgent_referrals.jsonl (used to write the urgency rules) and data/urgent_referrals_holdout.jsonl (written before the rules and never used to tune them): urgent referral texts across the eight specialties, and routine look-alikes that mention alarming words about something remote, stable or reassuring.
 
 ## Version history
+
+### 0.1.1
+
+- `rules_and_jev` and `rules_and_llm`: for `clear_question` the more generous reader now wins
+  (`escalate: yes`), so a referral goes back to the referrer only if neither the rules nor the
+  model finds a request. Before, the keyword rules alone could send a clear referral back
+  ("wants to discuss biologic options" has no request keyword), which delays the patient's
+  care. Found in the provider comparison on the held-out set; `urgency` is unchanged.
 
 ### 0.1.0
 
