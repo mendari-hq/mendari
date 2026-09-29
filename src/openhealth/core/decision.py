@@ -7,14 +7,14 @@ import json
 import time
 import uuid
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from jsonschema import Draft202012Validator
 
-from openhealth.core.derive import complete_answers
+from openhealth.core.derive import complete_answers, explain
 from openhealth.core.pack import Pack, load_pack
 from openhealth.core.policy import GovernanceOverride, PolicyResult, apply_policy
 from openhealth.core.registry import resolve_pack
@@ -188,6 +188,9 @@ class Decision:
                         cost = None if output.cost_usd is None else cost + output.cost_usd
             complete_answers(manifest, answers, failures)
             policy = apply_policy(manifest, answers, failures, self.governance)
+            primary = manifest.questions[manifest.policy.primary]
+            if primary.derive is not None:
+                policy = replace(policy, reasons=(*policy.reasons, *explain(primary, answers)))
 
         result = DecisionResult(
             id=str(uuid.uuid4()),

@@ -191,10 +191,11 @@ def _question(key: str, question: Question, *, primary: bool) -> list[str]:
 
 
 def _row(row: DeriveRow) -> str:
+    among = f"of {', '.join(f'`{m}`' for m in row.scope)}" if row.scope else "member"
     if row.any is not None:
-        return f"any member is `{row.any}` → `{row.result}`"
+        return f"any {among} is `{row.any}` → `{row.result}`"
     if row.all is not None:
-        return f"every member is `{row.all}` → `{row.result}`"
+        return f"every {among} is `{row.all}` → `{row.result}`"
     return f"otherwise → `{row.result}`"
 
 
