@@ -1,0 +1,80 @@
+# Test fixture for the Referral Router runtime: derive rows gated with `when`, criteria
+# `exists`/`value` checks, templates naming answers, FHIR `focus_where` and CDS `order-sign`.
+# Not a real pack.
+spec_version: "0.2"
+id: openhealth-test/referral-mini
+version: 0.1.0
+name: Referral Mini (test fixture)
+summary: Toy referral router used to test the v0.3 runtime.
+publisher: {name: OpenHealth tests, type: community}
+license: Apache-2.0
+risk:
+  level: 1
+  category: clinical information
+  rationale: Test fixture.
+card:
+  intended_use: Test fixture only.
+  intended_users: [OpenHealth developers]
+  patient_population: Synthetic.
+inputs:
+  schema: schemas/input.schema.json
+  fhir: fhir/mapping.yaml
+questions:
+  specialty:
+    instructions: Which specialty should see the patient?
+    criteria:
+      cardiology: Heart.
+      dermatology: Skin.
+      other: Anything else.
+  ecg_on_file:
+    type: boolean
+    instructions: Is an ECG from the last year on file?
+  marked_urgent:
+    type: boolean
+    instructions: Did the referrer mark the order urgent?
+  next_step:
+    instructions: What happens to the referral next?
+    criteria:
+      urgent_review: Marked urgent.
+      return_for_info: Required information is missing.
+      coordinator_review: No specialty fits.
+      schedule: Ready to schedule.
+    derive:
+      from: [marked_urgent, specialty, ecg_on_file]
+      table:
+        - {any: "yes", in: [marked_urgent], then: urgent_review}
+        - {any: other, in: [specialty], then: coordinator_review}
+        - {any: "no", in: [ecg_on_file], when: {specialty: [cardiology]}, then: return_for_info}
+        - {else: schedule}
+providers:
+  reader:
+    answers: [specialty]
+    use: rules
+    variants:
+      rules: {type: rules, config: logic/specialty_rules.yaml}
+  checklist:
+    answers: [ecg_on_file, marked_urgent]
+    use: criteria
+    variants:
+      criteria: {type: criteria, config: logic/criteria.yaml}
+policy:
+  primary: next_step
+  thresholds: {auto: 0.9, review: 0.4}
+  labels:
+    urgent_review: {allow_auto: false}
+  fallback: Referral coordinator queue.
+tests: tests/cases.yaml
+cds_hooks:
+  hook: order-sign
+  title: Referral Mini
+  description: Checks referrals as they are signed.
+  prefetch:
+    patient: Patient/{{context.patientId}}
+    documents: DocumentReference?patient={{context.patientId}}
+  card:
+    summaries:
+      schedule: "Referral to {specialty}: ready to schedule"
+      return_for_info: "Referral to {specialty} is missing information"
+      urgent_review: "Urgent {specialty} referral: review today"
+      coordinator_review: "Referral needs a coordinator"
+    suggestion: Create a referral task

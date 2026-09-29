@@ -112,6 +112,7 @@ class ExistsCheck(_Model):
     date_field: str = "date"
     within_days: int | None = Field(default=None, ge=0)  # dated no later than this before as_of
     then: Label
+    undated: Label = "unknown"  # a matching item without a date, when there is a window
 
 
 class ValueCheck(_Model):
@@ -211,7 +212,8 @@ def _labels(check: Check) -> set[str]:
         timed = check.medication.min_days is not None
         return {check.medication.then, *([check.medication.too_recent, "unknown"] if timed else [])}
     if check.exists:
-        return {check.exists.then, *(["unknown"] if check.exists.within_days is not None else [])}
+        windowed = check.exists.within_days is not None
+        return {check.exists.then, *([check.exists.undated] if windowed else [])}
     if check.value:
         return {check.value.then}
     return set()
@@ -349,7 +351,7 @@ def _exists(check: ExistsCheck, items: list[Mapping[str, Any]], as_of: date) -> 
         if 0 <= (as_of - when).days <= check.within_days:
             return check.then, f"{check.source}: {code} on {when} ({(as_of - when).days} d ago)"
     if undated is not None:
-        return "unknown", f"{check.source}: {undated} has no date"
+        return check.undated, f"{check.source}: {undated} has no date"
     return None
 
 

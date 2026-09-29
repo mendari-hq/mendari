@@ -218,12 +218,15 @@ class Decision:
             self.store.record(result, inputs, store_input=manifest.audit.store_input)
         return result
 
-    def decide_fhir(self, resources: Mapping[str, Any]) -> tuple[DecisionResult, dict[str, Any]]:
-        """Decide from FHIR R4 resources (a Bundle or {resourceType: resource}); return a Task."""
+    def decide_fhir(
+        self, resources: Mapping[str, Any], *, focus: Mapping[str, Any] | None = None
+    ) -> tuple[DecisionResult, dict[str, Any]]:
+        """Decide from FHIR R4 resources (a Bundle or {resourceType: resource}); return a Task.
+        `focus` picks the resource to decide about, e.g. one of several draft orders."""
         from openhealth.standards.fhir import FhirAdapter
 
         adapter = FhirAdapter.for_pack(self.pack)
-        indexed = adapter.index(resources)
+        indexed = adapter.index(resources, focus=focus)
         result = self.decide(adapter.to_input(indexed))
         return result, adapter.to_task(result, indexed)
 
