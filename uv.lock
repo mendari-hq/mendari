@@ -696,6 +696,7 @@ dependencies = [
     { name = "psycopg-pool" },
     { name = "pydantic" },
     { name = "pyyaml" },
+    { name = "tzdata" },
     { name = "vercel-oidc" },
 ]
 
@@ -724,6 +725,7 @@ requires-dist = [
     { name = "psycopg-pool", specifier = ">=3.2" },
     { name = "pydantic", specifier = ">=2.7" },
     { name = "pyyaml", specifier = ">=6.0" },
+    { name = "tzdata", specifier = ">=2026.4" },
     { name = "uvicorn", marker = "extra == 'server'", specifier = ">=0.29" },
     { name = "vercel-oidc", specifier = ">=0.9" },
 ]

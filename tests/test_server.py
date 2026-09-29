@@ -132,6 +132,7 @@ def test_dashboard_is_served(client: TestClient) -> None:
 def test_health_reports_deployment_state(client: TestClient) -> None:
     health = client.get("/api/health").json()
     assert health["storage"] in {"sqlite", "postgres"}
+    assert health["timezone"] == "America/New_York"
     assert health["providers"]["openhealth/patient-inbox-router"] == {
         "safety_screen": "rules",
         "router": "naive_bayes",

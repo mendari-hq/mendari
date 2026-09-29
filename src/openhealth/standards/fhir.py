@@ -16,11 +16,12 @@ import base64
 import binascii
 import re
 from collections.abc import Iterator, Mapping
-from datetime import UTC, date, datetime
+from datetime import date
 from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from openhealth.core import clock
 from openhealth.core.pack import Pack
 from openhealth.core.spec import Outcome
 from openhealth.core.templates import fill, unknown_placeholders
@@ -273,7 +274,7 @@ def age_years(birth_date: str, today: date | None = None) -> int | None:
     if not parts:
         return None
     year, month, day = ([*parts, 7, 1])[:3] if len(parts) == 1 else ([*parts, 15])[:3]
-    today = today or datetime.now(UTC).date()
+    today = today or clock.today()
     try:
         born = date(year, month, day)
     except ValueError:

@@ -23,6 +23,7 @@ dependencies = [
     "psycopg[binary]>=3.2",
     "psycopg-pool>=3.2",  # ConnectionPool(check=...)
     "vercel-oidc>=0.9",
+    "tzdata>=2026.4",  # IANA zones where the OS has none (slim images, serverless)
 ]
 
 [project.optional-dependencies]

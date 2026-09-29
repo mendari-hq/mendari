@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from openhealth.core import clock
 from openhealth.core.pack import Pack
 from openhealth.core.spec import Condition, DeriveRow, Question
 from openhealth.evals import leaderboard
@@ -56,7 +57,8 @@ def render_card(pack: Pack) -> str:
     ]
     if report:
         out.append(
-            f"| Last validation | {report['created_at'][:10]} on `{report['dataset']['name']}` "
+            f"| Last validation | {clock.local_date(report['created_at'])} on "
+            f"`{report['dataset']['name']}` "
             f"(n={report['dataset']['n']}, sha256 `{report['dataset']['sha256'][:12]}…`) |"
         )
     out += [

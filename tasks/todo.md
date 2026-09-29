@@ -12,7 +12,11 @@ roles, feedback that captures the right answer, Eastern time everywhere people l
   line, a new view starts at the top with its heading focused, no `aria-live` on `main`, every
   control named, Decide shows progress and can't be submitted twice, the sandbox notice stays on
   phones, reduced motion respected, the record example picker matches its input
-- [ ] Phase 0b: Eastern time everywhere people look (`OPENHEALTH_TIMEZONE`)
+- [x] Phase 0b: Eastern time everywhere people look. `OPENHEALTH_TIMEZONE` (default
+  `America/New_York`, `tzdata` added) sets calendar days (Overview daily volume), the daily call
+  counters, "today" for criteria and FHIR ages, card dates and every time the dashboard shows
+  (with EDT/EST, whatever the viewer's clock); `/api/health` reports it. Stored timestamps, the
+  audit chain, API JSON and FHIR stay UTC
 - [ ] Phase 1: design tokens and theming (toggle, no flash, contrast test)
 - [ ] Phase 2: tables and leaderboard, audit drawer
 - [ ] Phase 3: charts
