@@ -379,7 +379,7 @@ def versioned_dashboard() -> str:
     """index.html with each asset URL stamped by a hash of its content, so a deploy that
     changes a script or the stylesheet can never be served stale from a browser or CDN cache."""
     page = (DASHBOARD_DIR / "index.html").read_text(encoding="utf-8")
-    for asset in ("app.js", "table.js", "style.css"):
+    for asset in ("app.js", "table.js", "charts.js", "style.css"):
         digest = hashlib.sha256((DASHBOARD_DIR / asset).read_bytes()).hexdigest()[:12]
         page = page.replace(f"/static/{asset}", f"/static/{asset}?v={digest}")
     return page

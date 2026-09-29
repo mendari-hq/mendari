@@ -121,6 +121,12 @@ async function render({ navigated = false } = {}) {
   refreshReviewCount();
 }
 
+// Sorting, sticky edges and chart drawing all attach after a view puts its HTML in the page.
+const wire = (root) => {
+  wireTables(root);
+  wireCharts(root);
+};
+
 const scrollBehavior = () => (matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth");
 
 // Disable a button while its request runs, so a slow provider can't be submitted twice.
@@ -309,14 +315,9 @@ views.overview = async (main) => {
     </div>
     <div class="panel">
       <h3>Daily volume <span class="muted">· days in ${esc(zoneName())}</span></h3>
-      ${stats.daily.length ? `<div class="table-wrap"><table>
-        <tr><th>Date</th>${OUTCOMES.map((o) => `<th title="${o}">${esc(outcomeText(o))}</th>`).join("")}<th class="mix">Mix</th></tr>
-        ${stats.daily.map((day) => {
-          const n = OUTCOMES.reduce((sum, o) => sum + day[o], 0);
-          return `<tr><td>${esc(day.date)}</td>${OUTCOMES.map((o) => `<td>${day[o]}</td>`).join("")}<td>${stackBar(day, n, false)}</td></tr>`;
-        }).join("")}
-      </table></div>` : `<div class="empty">No decisions yet. Use <a href="#try">Try it</a>, the API, or the sandbox worker.</div>`}
+      ${stats.daily.length ? dailyChart(stats.daily) : `<div class="empty">No decisions yet. Use <a href="#try">Try it</a>, the API, or the sandbox worker.</div>`}
     </div>`;
+  wire(main);
 };
 
 // `html`: the value is trusted markup built here (icons with numbers), not data to escape.
@@ -328,6 +329,56 @@ function stackBar(counts, total, legend = true) {
   const parts = OUTCOMES.map((o) => (total ? `<span class="bg-${o}" style="width:${(100 * counts[o]) / total}%" title="${outcomeText(o)}: ${counts[o]}"></span>` : "")).join("");
   const keys = legend ? `<div class="legend">${OUTCOMES.map((o) => `<span><i class="bg-${o}"></i>${esc(outcomeText(o))} ${counts[o]} (${pct(total ? counts[o] / total : null)})</span>`).join("")}</div>` : "";
   return `<div class="stack">${parts}</div>${keys}`;
+}
+
+// Decisions per day, by outcome: the last 30 days in the deployment's time zone. Days without
+// decisions are real zeros, but the chart starts at the first decision, so a new deployment's
+// history is never drawn as a run of empty days.
+const CHART_DAYS = 30;
+
+const addDays = (day, n) => {
+  const [year, month, date] = day.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, date + n)).toISOString().slice(0, 10);
+};
+const dayLabel = (day, long = false) => new Intl.DateTimeFormat("en-US", {
+  timeZone: "UTC", month: "short", day: "numeric", ...(long ? { weekday: "short", year: "numeric" } : {}),
+}).format(new Date(`${day}T00:00:00Z`));
+function localToday() {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: state.timezone, year: "numeric", month: "2-digit", day: "2-digit" })
+    .formatToParts(new Date()).map((p) => [p.type, p.value]));
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function dailyChart(daily) {
+  const byDay = new Map(daily.map((d) => [d.date, d]));
+  const last = [localToday(), daily[daily.length - 1].date].sort().pop();
+  const first = [daily[0].date, addDays(last, 1 - CHART_DAYS)].sort().pop();
+  const categories = [];
+  for (let day = first; day <= last; day = addDays(day, 1)) {
+    categories.push({ axis: dayLabel(day), title: dayLabel(day, true), values: Object.fromEntries(OUTCOMES.map((o) => [o, byDay.get(day)?.[o] ?? 0])) });
+  }
+  const totalOf = (values) => OUTCOMES.reduce((sum, o) => sum + values[o], 0);
+  const peak = categories.reduce((best, cat) => (totalOf(cat.values) > totalOf(best.values) ? cat : best));
+  return chartHtml({
+    id: "daily",
+    type: "columns",
+    ariaLabel: `Decisions per day, ${categories[0].axis} to ${categories[categories.length - 1].axis}, peak ${totalOf(peak.values)} on ${peak.axis}`,
+    categories,
+    series: OUTCOMES.map((o) => ({ key: o, label: outcomeText(o), swatch: o })),
+    legend: OUTCOMES.map((o) => ({ swatch: `bg-${o}`, label: outcomeText(o) })),
+    note: daily[0].date < first
+      ? `The last ${CHART_DAYS} days. The table lists every day with decisions.`
+      : `Since the first decision on ${esc(categories[0].axis)}. Nothing is drawn before it.`,
+    data: {
+      rows: [...daily].reverse(),
+      limitHeight: true,
+      columns: [
+        { key: "date", label: "Date", sort: (d) => d.date, cell: (d) => esc(dayLabel(d.date, true)) },
+        ...OUTCOMES.map((o) => ({ key: o, label: `<span title="${o}">${esc(outcomeText(o))}</span>`, numeric: true, sort: (d) => d[o], cell: (d) => String(d[o]) })),
+        { key: "total", label: "Total", numeric: true, sort: (d) => totalOf(d), cell: (d) => String(totalOf(d)) },
+      ],
+    },
+  });
 }
 
 // ---- review queue ----------------------------------------------------------------------------
@@ -418,7 +469,7 @@ views.audit = async (main, params) => {
     storageSet("oh.audit.outcome", filter);
     const rows = await api(`/api/audit?pack_id=${encodeURIComponent(state.packId)}&limit=100${filter ? `&outcome=${filter}` : ""}`);
     $("#audit-table").innerHTML = rows.length ? auditTable(rows) : `<div class="empty">No decisions recorded.</div>`;
-    wireTables($("#audit-table"));
+    wire($("#audit-table"));
   };
   // Rows open their record (the first cell's button does the same from the keyboard).
   $("#audit-table").addEventListener("click", (event) => {
@@ -560,7 +611,7 @@ function showEvalsTab(requested) {
           const report = await api(`${packPath()}/evals`, { method: "POST", body: JSON.stringify({ dataset: $("#dataset").value }) });
           evalsState.reports.unshift(report);
           $("#run-report").innerHTML = reportView(report);
-          wireTables($("#run-report"));
+          wire($("#run-report"));
         } catch (error) {
           toast(error.message);
         }
@@ -576,10 +627,10 @@ function showEvalsTab(requested) {
       <div id="history-report">${reportView(reports[0])}</div>` : empty("No evaluations have been run on this deployment yet. Use “Run on a dataset”.");
     $("#history")?.addEventListener("change", (e) => {
       $("#history-report").innerHTML = reportView(reports[Number(e.target.value)]);
-      wireTables($("#history-report"));
+      wire($("#history-report"));
     });
   }
-  wireTables(body);
+  wire(body);
 }
 
 // ---- leaderboard -----------------------------------------------------------------------------
@@ -637,7 +688,7 @@ function wireLeaderboard(root, board) {
     storageSet(`oh.board.${state.packId}`, dataset);
     root.querySelectorAll("[data-board-dataset]").forEach((b) => b.setAttribute("aria-pressed", String(b === button)));
     $("#board", root).innerHTML = boardTables(board, dataset);
-    wireTables($("#board", root));
+    wire($("#board", root));
   }));
 }
 
@@ -704,7 +755,48 @@ function boardTables(board, dataset) {
     defaultCompare: safetyFirst,
     rowClass: (r) => (isDeployed(r) ? "deployed" : ""),
     columns,
-  }) + otherQuestions(rows, varying);
+  }) + costChart(rows, varying, dataset) + otherQuestions(rows, varying);
+}
+
+// A configuration in plain words ("Rules + Jev Claude Sonnet 5"), for the slots that differ.
+const configName = (row, varying) => varying.map((slot) => [variantText(row.providers[slot]?.variant ?? "–"), ...remoteModels(row.providers[slot]?.model).map(modelText)].join(" ")).join(", ") || row.config;
+
+const costTick = (v) => (v === 0 ? "$0" : `$${v.toFixed(Math.max(0, -Math.round(Math.log10(v))))}`);
+
+// The trade-off behind a deployment choice: what a decision costs against how often it is right.
+// Diamonds are configurations that missed a critical case; the deployed one is ringed.
+function costChart(rows, varying, dataset) {
+  const usable = rows.filter((r) => [r.accuracy, r.cost_per_decision_usd].every((v) => v !== null && v !== undefined));
+  if (usable.length < 2 || new Set(usable.map((r) => r.cost_per_decision_usd)).size < 2) return "";
+  const missed = (r) => safetyScore(r) < 1;
+  const accuracies = usable.map((r) => r.accuracy);
+  const costs = usable.map((r) => r.cost_per_decision_usd);
+  return `<h3 class="chart-title">Cost against accuracy</h3>${chartHtml({
+    id: `cost-${dataset}`,
+    type: "scatter",
+    ariaLabel: `Cost against accuracy for ${usable.length} configurations on ${dataset}: accuracy from ${pct(Math.min(...accuracies))} to ${pct(Math.max(...accuracies))}, cost from $${Math.min(...costs).toFixed(5)} to $${Math.max(...costs).toFixed(5)} per decision.`,
+    x: { kind: "log", title: "Cost per decision (log scale)", format: costTick },
+    y: { kind: "rate", title: "Accuracy" },
+    points: usable.map((r) => ({
+      x: r.cost_per_decision_usd, y: r.accuracy, ring: isDeployed(r), shape: missed(r) ? "diamond" : "circle", tone: missed(r) ? "danger" : "c1",
+      title: `${configName(r, varying)}${isDeployed(r) ? " (deployed)" : ""}`,
+      rows: [["Accuracy", pct(r.accuracy)], ["Cost / decision", `$${r.cost_per_decision_usd.toFixed(5)}`], ...(missed(r) ? [["Critical cases", "some missed"]] : [])],
+    })),
+    legend: [
+      ...(usable.some((r) => !missed(r)) ? [{ swatch: "dot bg-c1", label: usable.some(missed) ? "Caught every critical case" : "Configuration" }] : []),
+      ...(usable.some(missed) ? [{ swatch: "diamond bg-danger", label: "Missed a critical case" }] : []),
+      ...(usable.some(isDeployed) ? [{ swatch: "ring", label: "Deployed" }] : []),
+    ],
+    data: {
+      rows: usable,
+      defaultCompare: (a, b) => a.cost_per_decision_usd - b.cost_per_decision_usd || b.accuracy - a.accuracy,
+      columns: [
+        { key: "config", label: "Configuration", sort: (r) => configName(r, varying), cell: (r) => esc(configName(r, varying)) },
+        { key: "cost", label: "Cost / decision, $", numeric: true, sort: (r) => r.cost_per_decision_usd, cell: (r) => r.cost_per_decision_usd.toFixed(5) },
+        { key: "accuracy", label: "Accuracy", numeric: true, sort: (r) => r.accuracy, cell: (r) => pct(r.accuracy) },
+      ],
+    },
+  })}`;
 }
 
 // Accuracy of the non-primary questions that differ between configurations, weak cells marked.
@@ -713,7 +805,7 @@ function otherQuestions(rows, varying) {
   const changing = keys.filter((k) => new Set(rows.map((r) => JSON.stringify(r.questions?.[k] ?? null))).size > 1);
   if (!changing.length) return "";
   const shade = (acc) => (acc === null || acc === undefined ? "" : acc < 0.8 ? "cell-bad" : acc < 0.9 ? "cell-warn" : "");
-  const name = (r) => varying.map((slot) => [variantText(r.providers[slot]?.variant ?? "–"), ...remoteModels(r.providers[slot]?.model).map(modelText)].join(" ")).join(", ");
+  const name = (r) => configName(r, varying);
   return `<details class="mt-3"><summary>Per-check accuracy</summary>
     <p class="muted mt-2">Accuracy of each check; ECE in the tooltip. Amber below 90 %, red below 80 %.</p>
     ${tableHtml({
@@ -759,16 +851,8 @@ function reportView(r) {
       ${tile("Cost / decision", r.cost.per_decision_usd === null ? "unknown" : `$${num(r.cost.per_decision_usd, 5)}`)}
     </div>
     <div class="grid-2">
-      <div class="panel"><h3>Reliability</h3>${reliability(q.calibration.bins)}</div>
-      <div class="panel"><h3>Threshold sweep</h3>${tableHtml({
-        id: `sweep-${id}`, caption: "", rows: r.threshold_sweep,
-        columns: [
-          { key: "threshold", label: "Automate at ≥", numeric: true, cell: (t) => t.threshold.toFixed(2) },
-          { key: "coverage", label: "Coverage", numeric: true, cell: (t) => pct(t.coverage) },
-          { key: "accuracy", label: "Accuracy", numeric: true, cell: (t) => pct(t.accuracy) },
-          { key: "errors", label: "Errors", numeric: true, cell: (t) => String(t.errors) },
-        ],
-      })}</div>
+      <div class="panel"><h3>Reliability</h3>${reliabilityChart(q.calibration, id)}</div>
+      <div class="panel"><h3>Threshold sweep</h3>${sweepChart(r.threshold_sweep, r.policy?.thresholds?.auto, id)}</div>
     </div>
     <div class="panel"><h3>Per label</h3>${tableHtml({
       id: `labels-${id}`, caption: "",
@@ -780,7 +864,7 @@ function reportView(r) {
         { key: "f1", label: "F1", numeric: true, sort: (m) => m.f1, cell: (m) => num(m.f1) },
         { key: "support", label: "n", numeric: true, sort: (m) => m.support, cell: (m) => String(m.support) },
       ],
-    })}</div>
+    })}${confusionView(q.confusion, id)}</div>
     <div class="panel"><h3>Subgroups</h3>
       <p class="muted">Grouped by attribute, lowest accuracy first. Groups under 20 cases are marked: their numbers move a lot with each case.</p>
       ${subgroupsView(r.subgroups, id)}</div>`;
@@ -824,20 +908,94 @@ function comparisonView(c) {
   </div>`;
 }
 
-function reliability(bins) {
-  const size = 240, pad = 28, span = size - 2 * pad;
-  const x = (v) => pad + v * span, y = (v) => size - pad - v * span;
-  const total = bins.reduce((s, b) => s + b.n, 0) || 1;
-  const dots = bins.map((b) => `<circle cx="${x(b.confidence)}" cy="${y(b.accuracy)}" r="${3 + 9 * Math.sqrt(b.n / total)}"
-      fill="var(--chart-1)" fill-opacity="0.75"><title>${b.low.toFixed(1)}–${b.high.toFixed(1)}: n=${b.n}, confidence ${pct(b.confidence)}, accuracy ${pct(b.accuracy)}</title></circle>`).join("");
-  return `<svg viewBox="0 0 ${size} ${size}" width="100%" class="chart-small" role="img" aria-label="Reliability diagram">
-    <rect x="${pad}" y="${pad}" width="${span}" height="${span}" fill="none" stroke="var(--color-border)"/>
-    <line x1="${x(0)}" y1="${y(0)}" x2="${x(1)}" y2="${y(1)}" stroke="var(--color-text-muted)" stroke-dasharray="4 4"/>
-    ${dots}
-    <text x="${pad}" y="${size - 8}">0</text><text x="${size - pad - 6}" y="${size - 8}">1</text>
-    <text x="${size / 2 - 26}" y="${size - 8}">confidence</text>
-    <text x="4" y="${pad + 4}">1</text><text x="4" y="${size / 2}">acc</text>
-  </svg><p class="muted">Dots on the dashed line are perfectly calibrated; dot size is bin volume.</p>`;
+// Calibration: each dot is a confidence bin; on the diagonal, confidence equals accuracy.
+function reliabilityChart(calibration, id) {
+  const bins = calibration.bins;
+  if (!bins.length) return `<div class="empty">No labelled decisions.</div>`;
+  const cases = bins.reduce((sum, b) => sum + b.n, 0);
+  const overconfident = bins.filter((b) => b.accuracy < b.confidence).length;
+  const gap = (b) => (b.accuracy - b.confidence) * 100;
+  return chartHtml({
+    id: `reliability-${id}`,
+    type: "scatter",
+    ariaLabel: `Reliability diagram: ${bins.length} confidence bins over ${cases} cases, expected calibration error ${num(calibration.ece)}. ${overconfident} of ${bins.length} bins sit below the diagonal, where the pack is more confident than accurate.`,
+    square: true,
+    diagonal: true,
+    sizeBy: true,
+    x: { kind: "rate", title: "Mean confidence in the bin", from: 0 },
+    y: { kind: "rate", title: "Accuracy in the bin", from: 0 },
+    points: bins.map((b) => ({
+      x: b.confidence, y: b.accuracy, weight: b.n,
+      title: `Confidence ${b.low.toFixed(1)}–${b.high.toFixed(1)}`,
+      rows: [["Cases", String(b.n)], ["Mean confidence", pct(b.confidence)], ["Accuracy", pct(b.accuracy)]],
+    })),
+    legend: [{ swatch: "dot bg-c1", label: "Confidence bin (area = cases)" }, { swatch: "diag", label: "Perfectly calibrated" }],
+    data: {
+      rows: bins,
+      columns: [
+        { key: "bin", label: "Confidence", cell: (b) => `${b.low.toFixed(1)}–${b.high.toFixed(1)}` },
+        { key: "n", label: "n", numeric: true, cell: (b) => String(b.n) },
+        { key: "confidence", label: "Mean confidence", numeric: true, cell: (b) => pct(b.confidence) },
+        { key: "accuracy", label: "Accuracy", numeric: true, cell: (b) => pct(b.accuracy) },
+        { key: "gap", label: "Gap, pts", numeric: true, cell: (b) => `${gap(b) > 0 ? "+" : ""}${gap(b).toFixed(1)}` },
+      ],
+    },
+  });
+}
+
+// Coverage and accuracy as the automation threshold rises, with the pack's own threshold marked.
+function sweepChart(sweep, autoThreshold, id) {
+  if (!sweep?.length) return `<div class="empty">No labelled decisions.</div>`;
+  const [first, last] = [sweep[0], sweep[sweep.length - 1]];
+  const lastAccuracy = [...sweep].reverse().find((t) => t.accuracy !== null && t.accuracy !== undefined)?.accuracy;
+  const threshold = (t) => t.toFixed(2);
+  return chartHtml({
+    id: `sweep-${id}`,
+    type: "lines",
+    ariaLabel: `Threshold sweep: raising the automation threshold from ${threshold(first.threshold)} to ${threshold(last.threshold)} moves coverage from ${pct(first.coverage)} to ${pct(last.coverage)} and accuracy from ${pct(first.accuracy)} to ${pct(lastAccuracy)}.${typeof autoThreshold === "number" ? ` The pack automates at ${threshold(autoThreshold)} and above.` : ""}`,
+    x: { title: "Automate when confidence is at least", format: threshold },
+    series: [{ key: "coverage", label: "Coverage", swatch: "c1" }, { key: "accuracy", label: "Accuracy", swatch: "c2", dashed: true }],
+    legend: [{ swatch: "line c1", label: "Coverage (share automated)" }, { swatch: "line c2 dashed", label: "Accuracy of those" }],
+    marker: typeof autoThreshold === "number" ? { x: autoThreshold, label: `Pack automates at ${threshold(autoThreshold)}` } : null,
+    points: sweep.map((t) => ({ x: t.threshold, title: `Automate at ≥ ${threshold(t.threshold)}`, values: { coverage: t.coverage, accuracy: t.accuracy }, extra: [["Errors", String(t.errors)]] })),
+    data: {
+      rows: sweep,
+      columns: [
+        { key: "threshold", label: "Automate at ≥", numeric: true, cell: (t) => threshold(t.threshold) },
+        { key: "coverage", label: "Coverage", numeric: true, cell: (t) => pct(t.coverage) },
+        { key: "accuracy", label: "Accuracy", numeric: true, cell: (t) => pct(t.accuracy) },
+        { key: "errors", label: "Errors", numeric: true, cell: (t) => String(t.errors) },
+      ],
+    },
+  });
+}
+
+// Where the errors cluster: true label down the side, the pack's answer across the top. Only
+// mistakes are shaded (amber, red from a tenth of the row), so they stand out from the diagonal.
+function confusionView(confusion, id) {
+  const truths = Object.keys(confusion ?? {});
+  if (!truths.length) return "";
+  const answers = [...new Set([...truths, ...truths.flatMap((t) => Object.keys(confusion[t]))])];
+  const rows = truths.map((truth) => ({ truth, counts: confusion[truth], total: Object.values(confusion[truth]).reduce((a, b) => a + b, 0) }));
+  return `<details class="mt-3"><summary>Confusion matrix</summary>
+    ${tableHtml({
+      id: `confusion-${id}`,
+      caption: "Rows are the true label, columns the pack's answer. Mistakes are shaded; hover for the share of the row.",
+      rows,
+      stickyFirst: true,
+      columns: [
+        { key: "truth", label: "True label", sort: (row) => row.truth, cell: (row) => `<b>${esc(row.truth)}</b> <span class="muted">n=${row.total}</span>` },
+        ...answers.map((answer) => ({
+          key: `answer:${answer}`, label: esc(answer), numeric: true,
+          cell: (row) => {
+            const n = row.counts[answer] ?? 0;
+            const share = row.total ? n / row.total : 0;
+            const shade = answer === row.truth || !n ? "" : share >= 0.1 ? "cell-bad" : "cell-warn";
+            return `<span class="${shade}" title="${esc(pct(share))} of ${esc(row.truth)}">${n}</span>`;
+          },
+        })),
+      ],
+    })}</details>`;
 }
 
 // ---- feedback view ---------------------------------------------------------------------------
@@ -1020,6 +1178,7 @@ async function tryRecord(main) {
     return whileBusy(e.currentTarget, "Deciding…", async () => {
       try {
         $("#result").innerHTML = decisionView(await api(`${packPath()}/decide`, { method: "POST", body: JSON.stringify(input) }));
+        wire($("#result"));
         refreshReviewCount();
       } catch (error) {
         toast(error.message);
@@ -1059,6 +1218,7 @@ async function tryMessage(main) {
       try {
         const result = await api(`${packPath()}/decide`, { method: "POST", body: JSON.stringify({ message, patient }) });
         $("#result").innerHTML = decisionView(result);
+        wire($("#result"));
         refreshReviewCount();
       } catch (error) {
         toast(error.message);
@@ -1067,10 +1227,24 @@ async function tryMessage(main) {
   });
 }
 
-function answerBars(question, a) {
+// What choosing this label leads to, from the pack's own policy: a block rule is danger, a review
+// rule is warning. Labels the policy doesn't act on get no tone.
+function labelTone(question, label) {
+  const rules = state.detail.manifest.policy.rules.filter((rule) => rule.when.question === question && rule.when.labels?.includes(label));
+  if (rules.some((rule) => rule.outcome === "BLOCK")) return "block";
+  return rules.some((rule) => rule.outcome === "HUMAN_REVIEW") ? "review" : "";
+}
+
+function answerBars(id, question, a) {
+  const rows = Object.entries(a.probabilities).sort((x, y) => y[1] - x[1])
+    .map(([label, value]) => ({ label, value, chosen: label === a.label, tone: labelTone(question, label) }));
   return `<h3>${esc(question)} <span class="muted mono">${esc(a.provider.variant)}${a.provider.model ? ` · ${esc(a.provider.model)}` : ""}${a.value !== undefined ? ` · expected score ${num(a.value, 2)}` : ""}</span></h3>
-    <div class="bars">${Object.entries(a.probabilities).sort((x, y) => y[1] - x[1]).map(([label, p]) =>
-      `<span>${esc(label)}</span><div class="bar ${label === a.label ? "chosen" : ""}"><span style="width:${(p * 100).toFixed(1)}%"></span></div><span class="mono">${pct(p)}</span>`).join("")}</div>
+    ${chartHtml({
+      id: `answer-${id}-${question}`,
+      type: "bars",
+      ariaLabel: `${question}: ${rows.map((r) => `${r.label} ${pct(r.value)}`).join(", ")}. Chosen: ${a.label}.`,
+      rows,
+    })}
     ${a.evidence.length ? `<div class="chips mt-2">${a.evidence.map((e) => `<span class="chip">${esc(e)}</span>`).join("")}</div>` : ""}`;
 }
 
@@ -1078,10 +1252,10 @@ function decisionView(r) {
   const derive = derivedPrimary();
   const primary = r.answers[r.primary];
   const answers = derive && primary
-    ? `<h3>Criteria</h3>${criteriaTable(r.answers)}${answerBars(r.primary, primary)}
+    ? `<h3>Criteria</h3>${criteriaTable(r.answers)}${answerBars(r.id, r.primary, primary)}
       <details><summary>Probabilities for every criterion</summary>
-        ${Object.entries(r.answers).filter(([q]) => q !== r.primary).map(([q, a]) => answerBars(q, a)).join("")}</details>`
-    : Object.entries(r.answers).map(([q, a]) => answerBars(q, a)).join("");
+        ${Object.entries(r.answers).filter(([q]) => q !== r.primary).map(([q, a]) => answerBars(r.id, q, a)).join("")}</details>`
+    : Object.entries(r.answers).map(([q, a]) => answerBars(r.id, q, a)).join("");
   return `<div class="panel">
     <div class="row">${outcomeBadge(r.outcome)} ${priorityBadge(r.priority)}
       <span>→ <b>${esc(r.recommendation ?? "no recommendation")}</b></span>

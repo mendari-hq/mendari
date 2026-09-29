@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -269,9 +269,8 @@ def test_the_leaderboard_ranks_safety_first_and_marks_the_deployed_row(page: Pag
     # Sort by accuracy: the header says so, and the best accuracy comes first.
     accuracy = table.get_by_role("button", name="Accuracy")
     accuracy.click()
-    header = page.locator("#board th", has=page.get_by_role("button", name="Accuracy"))
-    expect(header).to_have_attribute("aria-sort", "descending")
-    expect(page.locator("#board th button.sort", has_text="Accuracy")).to_be_focused()
+    expect(table.locator("th", has_text="Accuracy")).to_have_attribute("aria-sort", "descending")
+    expect(accuracy).to_be_focused()
 
 
 def test_the_leaderboard_remembers_the_dataset(page: Page) -> None:
@@ -316,3 +315,161 @@ def test_the_leaderboard_keeps_rank_and_configuration_in_view_on_a_phone(page: P
     container.evaluate("el => el.scrollBy(400, 0)")
     box = container.locator("tbody tr:first-child td.config-cell").bounding_box()
     assert box is not None and box["x"] < 120  # ...but rank and configuration stay in view
+
+
+# -- charts ---------------------------------------------------------------------------------------
+
+DAILY = 'figure.chart[data-chart="daily"]'
+
+
+def serve_daily(page: Page, days: list[tuple[str, int]]) -> None:
+    """Answer /api/stats with the given history: (Eastern date, decisions that day)."""
+
+    def handle(route: Route) -> None:
+        body = route.fetch().json()
+        body["daily"] = [
+            {"date": day, "AUTO": n, "HUMAN_REVIEW": 0, "ABSTAIN": 0, "BLOCK": 0} for day, n in days
+        ]
+        route.fulfill(json=body)
+
+    page.route("**/api/stats*", handle)
+
+
+def eastern_days_ago(days: int) -> str:
+    return (datetime.now(ZoneInfo("America/New_York")).date() - timedelta(days=days)).isoformat()
+
+
+def test_the_daily_chart_starts_at_the_first_decision(page: Page) -> None:
+    """A young deployment's chart is not a run of empty days: it starts at the first decision, and
+    the days in between with nothing to show are real zeros."""
+    serve_daily(page, [(eastern_days_ago(3), 5), (eastern_days_ago(1), 2)])
+    open_pack(page, INBOX)
+    marks = page.locator(f"{DAILY} .mark")
+    expect(marks).to_have_count(4)  # three days ago .. today; nothing before the first decision
+    for mark, total in zip(marks.all(), [5, 0, 2, 0], strict=True):
+        expect(mark).to_have_attribute("aria-label", re.compile(f"Total {total}$"))
+    expect(page.locator(DAILY)).to_contain_text("Since the first decision")
+    expect(page.locator(f"{DAILY} svg.chart-svg")).to_have_attribute(
+        "aria-label", re.compile(r"^Decisions per day, .* peak 5 on ")
+    )
+
+
+def test_the_daily_chart_shows_the_last_30_days_and_the_table_shows_all(page: Page) -> None:
+    serve_daily(page, [(eastern_days_ago(back), 1) for back in range(44, -1, -1)])
+    open_pack(page, INBOX)
+    expect(page.locator(f"{DAILY} .mark")).to_have_count(30)
+    expect(page.locator(DAILY)).to_contain_text("The last 30 days")
+    expect(page.locator(f"{DAILY} details.chart-data tbody tr")).to_have_count(45)
+
+
+def test_chart_marks_are_reached_and_read_with_the_keyboard(page: Page) -> None:
+    open_pack(page, INBOX, "evals")
+    page.goto("/#evals/report")
+    sweep = page.locator('figure.chart[data-chart^="sweep"]')
+    marks = sweep.locator(".mark")
+    tip = sweep.locator(".chart-tip")
+    expect(marks).to_have_count(9)
+    expect(sweep.locator('.mark[tabindex="0"]')).to_have_count(1)  # one Tab stop per chart
+    marks.first.focus()
+    page.keyboard.press("ArrowRight")
+    expect(marks.nth(1)).to_be_focused()
+    expect(tip).to_be_visible()
+    expect(tip).to_contain_text("Automate at ≥ 0.60")
+    expect(tip).to_contain_text("Coverage")
+    page.keyboard.press("End")
+    expect(marks.nth(8)).to_be_focused()
+    expect(marks.nth(8)).to_have_attribute("tabindex", "0")
+    expect(marks.first).to_have_attribute("tabindex", "-1")
+    page.keyboard.press("Escape")
+    expect(tip).to_be_hidden()
+    marks.nth(2).hover()
+    expect(tip).to_contain_text("Automate at ≥ 0.70")
+    # The label a screen reader gets carries the same exact values.
+    expect(marks.nth(2)).to_have_attribute("aria-label", re.compile(r"Coverage .*%, Accuracy .*%"))
+
+
+def test_every_chart_has_a_summary_and_its_data_table(page: Page) -> None:
+    open_pack(page, INBOX)
+    expect(page.locator(DAILY)).to_be_visible()
+    seen = 0
+    for target in ["#overview", "#evals/report"]:
+        page.goto(f"/{target}")
+        expect(page.locator("main h1")).to_be_visible()
+        expect(page.locator("figure.chart svg").first).to_be_visible()
+        for figure in page.locator("figure.chart").all():
+            expect(figure.locator("svg.chart-svg")).to_have_attribute(
+                "aria-label", re.compile(r"\S{8}")
+            )
+            data = figure.locator("details.chart-data")
+            expect(data.locator("summary")).to_have_text("View data")
+            data.locator("summary").click()
+            assert data.locator("tbody tr").count() > 0
+            seen += 1
+    assert seen == 3  # daily, reliability, threshold sweep
+
+
+@pytest.mark.parametrize("pack_id", [INBOX, GUARD])
+def test_charts_fit_a_phone_and_keep_their_text_readable(page: Page, pack_id: str) -> None:
+    page.set_viewport_size(PHONE)
+    open_pack(page, pack_id)
+    for target in ["#overview", "#evals", "#evals/report", "#try"]:
+        page.goto(f"/{target}")
+        expect(page.locator("main h1")).to_be_visible()
+        expect(page.locator("main .empty", has_text="Loading")).to_have_count(0)
+        assert page.evaluate("document.documentElement.scrollWidth") <= PHONE["width"], target
+        widest = page.evaluate(
+            "Math.max(0, ...[...document.querySelectorAll('.chart-svg')]"
+            ".map((svg) => svg.getBoundingClientRect().right))"
+        )
+        assert widest <= PHONE["width"], target
+        sizes = page.evaluate(
+            "[...document.querySelectorAll('.chart-svg text')]"
+            ".map((t) => parseFloat(getComputedStyle(t).fontSize))"
+        )
+        assert all(size >= 12 for size in sizes), target  # drawn at real size, never scaled down
+
+
+def test_charts_switch_with_the_theme_without_a_reload(page: Page) -> None:
+    page.emulate_media(color_scheme="light")
+    open_pack(page, INBOX)
+    column = page.locator(f"{DAILY} .seg.f-AUTO").first
+    light = column.evaluate("el => getComputedStyle(el).fill")
+    page.get_by_role("button", name="Dark").click()
+    expect(page.locator("html")).to_have_attribute("data-theme", "dark")
+    assert column.evaluate("el => getComputedStyle(el).fill") != light
+
+
+def test_the_cost_chart_rings_the_deployed_configuration(page: Page) -> None:
+    open_pack(page, GUARD, "evals")
+    chart = page.locator('figure.chart[data-chart^="cost"]')
+    rows = page.locator("#board table.data").first.locator("tbody tr")
+    expect(chart.locator(".mark")).to_have_count(rows.count())  # one dot per leaderboard row
+    expect(chart.locator("svg .ring")).to_have_count(1)  # locally the rules screen is deployed
+    expect(chart.locator("svg text", has_text="$0").first).to_be_visible()  # rules cost nothing
+    expect(chart.locator(".mark").first).to_have_attribute("aria-label", re.compile("Accuracy"))
+
+
+def test_probability_bars_are_coloured_by_what_the_label_does(page: Page) -> None:
+    open_pack(page, GUARD, "try")
+    verdict = 'figure.chart[data-chart$="-verdict"] .chosen rect'
+    page.select_option("#example", label="a draft that misses an emergency is blocked")
+    page.get_by_role("button", name="Decide").click()
+    expect(page.locator(f"{verdict}.f-block")).to_have_count(1)  # a block is danger, not green
+    expect(page.locator('figure.chart[data-chart$="-verdict"] svg')).to_have_attribute(
+        "aria-label", re.compile(r"^verdict: block \d.*Chosen: block\.$")
+    )
+    page.select_option("#example", label="a safe draft passes and waits for one-step approval")
+    page.get_by_role("button", name="Decide").click()
+    expect(page.locator(f"{verdict}.f-c1")).to_have_count(1)
+    expect(page.locator(f"{verdict}.f-block")).to_have_count(0)
+
+
+def test_the_confusion_matrix_shades_only_the_mistakes(page: Page) -> None:
+    open_pack(page, INBOX, "evals")
+    page.goto("/#evals/report")
+    page.get_by_text("Confusion matrix").click()
+    table = page.locator("table.data", has_text="True label")
+    expect(table.locator("thead th").first).to_contain_text("True label")
+    diagonal = table.locator("tbody tr").first.locator("td").nth(1)
+    expect(diagonal.locator(".cell-warn, .cell-bad")).to_have_count(0)  # right answers stay plain
+    assert table.locator(".cell-warn, .cell-bad").count() > 0  # front_desk -> billing, and so on
