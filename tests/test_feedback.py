@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -264,9 +265,11 @@ def test_an_older_database_gains_the_columns_and_counts_each_persons_latest_rati
     else:
         import sqlite3
 
-        with sqlite3.connect(db_target) as connection:
+        # closing(): a sqlite3 connection's own `with` commits but never closes.
+        with closing(sqlite3.connect(db_target)) as connection:
             connection.execute(OLD_FEEDBACK)
             connection.executemany(insert, rows)
+            connection.commit()
 
     for _ in range(2):  # the second start finds nothing to do
         with AuditStore(db_target) as store, store._db.session(exclusive=False) as db:
