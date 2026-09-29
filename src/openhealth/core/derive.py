@@ -9,11 +9,13 @@
           - {else: candidate}
 
 Rows are tried top-down and the first match wins; a row with `in: [...]` only looks at those
-members. Instead of applying the table only to each
-member's most likely label (which would hide uncertainty), the derived answer carries the exact
-probability of every row winning, treating the members' answers as independent. A dynamic
-program walks the members once, tracking which rows are satisfied so far:
-O(members x labels x 2^rows), and rows are capped at 10.
+members, and a row with `when: {member: [labels]}` only counts while that member's answer is
+one of the labels. Instead of applying the table only to each member's most likely label
+(which would hide uncertainty), the derived answer carries the exact probability of every row
+winning, treating the members' answers as independent. A dynamic program walks the members
+once, tracking which rows are satisfied so far and whether each row's `when` is open:
+O(members x labels x states), with at most 2^rows states because rows are capped at 10 and
+every `when` names the same member.
 """
 
 from __future__ import annotations
@@ -49,7 +51,12 @@ def complete_answers(
 
 
 def row_holds(row: DeriveRow, answers: Mapping[str, Answer]) -> bool:
-    """Whether a row matches the members' most likely labels."""
+    """Whether a row matches the members' most likely labels (`answers`: every member's)."""
+    if row.gate is not None:
+        gate_member, open_labels = row.gate
+        gate_answer = answers.get(gate_member)
+        if gate_answer is None or gate_answer.label not in open_labels:
+            return False
     labels = [a.label for member, a in answers.items() if row.applies_to(member)]
     if row.any is not None:
         return row.any in labels
@@ -63,9 +70,11 @@ def derive_answer(key: str, question: Question, answers: Mapping[str, Answer]) -
     rows = spec.table[:-1]
     fallback = spec.table[-1].result
 
-    # A state records, per row, whether its condition holds so far: `any` rows start False
-    # and become True on a match; `all` rows start True and become False on a mismatch.
-    start = tuple(row.all is not None for row in rows)
+    # A state records, per row, whether its condition holds so far (`any` rows start False and
+    # become True on a match; `all` rows start True and become False on a mismatch) and
+    # whether its `when` is open (True without `when`; set when the gating member is seen).
+    n = len(rows)
+    start = tuple(row.all is not None for row in rows) + tuple(row.gate is None for row in rows)
     states: dict[tuple[bool, ...], float] = {start: 1.0}
     for member in spec.members:
         advanced: dict[tuple[bool, ...], float] = defaultdict(float)
@@ -73,21 +82,30 @@ def derive_answer(key: str, question: Question, answers: Mapping[str, Answer]) -
             for label, p_label in answers[member].probabilities.items():
                 if p_label <= 0.0:
                     continue
-                new = tuple(
-                    holds
+                holds = tuple(
+                    held
                     if not row.applies_to(member)
-                    else (holds or label == row.any)
+                    else (held or label == row.any)
                     if row.any is not None
-                    else (holds and label == row.all)
-                    for holds, row in zip(state, rows, strict=True)
+                    else (held and label == row.all)
+                    for held, row in zip(state[:n], rows, strict=True)
                 )
-                advanced[new] += p_state * p_label
+                gates = tuple(
+                    label in row.gate[1] if row.gate is not None and row.gate[0] == member else ok
+                    for ok, row in zip(state[n:], rows, strict=True)
+                )
+                advanced[holds + gates] += p_state * p_label
         states = advanced
 
     probabilities = dict.fromkeys(question.criteria, 0.0)
     for state, p_state in states.items():
         result = next(
-            (row.result for holds, row in zip(state, rows, strict=True) if holds), fallback
+            (
+                row.result
+                for held, ok, row in zip(state[:n], state[n:], rows, strict=True)
+                if held and ok
+            ),
+            fallback,
         )
         probabilities[result] += p_state
     total = sum(probabilities.values()) or 1.0
@@ -117,13 +135,14 @@ def explain(question: Question, answers: Mapping[str, Answer]) -> list[str]:
     spec = question.derive
     if spec is None or any(member not in answers for member in spec.members):
         return []
+    members = {m: answers[m] for m in spec.members}
     reasons = []
     for row in spec.table[:-1]:
-        scoped = {m: a for m, a in answers.items() if m in spec.members and row.applies_to(m)}
-        if not row_holds(row, scoped):
+        if not row_holds(row, members):
             continue
         label = row.any if row.any is not None else row.all
-        names = [m for m, a in scoped.items() if a.label == label]
+        names = [m for m, a in members.items() if row.applies_to(m) and a.label == label]
         verb = "is" if len(names) == 1 else "are"
-        reasons.append(f"{row.result}: {', '.join(names)} {verb} {label}")
+        gate = f" ({row.gate[0]} is {members[row.gate[0]].label})" if row.gate else ""
+        reasons.append(f"{row.result}: {', '.join(names)} {verb} {label}{gate}")
     return reasons

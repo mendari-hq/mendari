@@ -2,7 +2,17 @@
 
 Roadmap to the full goal: [`docs/roadmap.md`](../docs/roadmap.md).
 
-## Current milestone: v0.3 Reference packs, starting with the Clinical Trial Prescreener
+## Current milestone: v0.3 Reference packs: the Referral Router
+Plan approved 2026-09-29 (4 PRs): runtime → FHIR `order-sign` → the pack → leaderboard and
+deployed choice.
+- [x] PR 1 runtime: derive rows gated with `when`, `criteria` checks `exists` and `value`,
+  Task/card templates naming answers (`{specialty}`), spec 0.2 doc
+- [ ] PR 2 FHIR `focus_where` and CDS `order-sign` (draftOrders in context, one card per referral)
+- [ ] PR 3 `openhealth/referral-router` 0.1.0 (L1): specialty, urgency, clear question,
+  checklist, derived `next_step`; synthetic referrals and hand-written urgent sets
+- [ ] PR 4 leaderboard (about 510 Jev calls: after the 8:00 PM Eastern reset) and deployed choice
+
+## Done: v0.3 Clinical Trial Prescreener
 Plan approved (5 PRs): runtime prerequisites → FHIR/CDS generalised → the pack → multi-pack
 dashboard and deployment → leaderboard and deployed choice.
 - [x] PR 1 runtime: derive rows scoped with `in`, `criteria` provider, reasons naming the

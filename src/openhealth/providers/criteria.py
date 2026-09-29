@@ -21,6 +21,19 @@ Each question has an ordered list of checks; the first check that applies decide
           - condition: {codes: ["E10*", "46635009"], then: "no"}
         default: unknown
 
+Two more kinds work on any part of the input: `exists` finds an item of a given type in a
+list within a date window (a document, report or lab on file), and `value` compares a field
+with a set of values (e.g. the priority a referrer chose):
+
+      ecg_on_file:
+        checks:
+          - exists: {in: documents, codes: ["11524-6"], within_days: 365, then: "yes"}
+        default: "no"
+      marked_urgent:
+        checks:
+          - value: {field: referral.priority, in: [urgent, asap, stat], then: "yes"}
+        default: "no"
+
 A code ending in `*` matches by prefix (ICD-10 families). This is a deliberately small stepping
 stone; CQL (spec work in v0.4) is the standard way to express such logic.
 """
@@ -92,19 +105,36 @@ class MedicationCheck(_Model):
         return self
 
 
+class ExistsCheck(_Model):
+    source: str = Field(alias="in")  # input path of a list, e.g. `documents`
+    codes: list[str] = Field(min_length=1)
+    code_field: str = "code"
+    date_field: str = "date"
+    within_days: int | None = Field(default=None, ge=0)  # dated no later than this before as_of
+    then: Label
+
+
+class ValueCheck(_Model):
+    field: str
+    values: list[str] = Field(alias="in", min_length=1)
+    then: Label
+
+
+KINDS = ("number", "observation", "condition", "medication", "exists", "value")
+
+
 class Check(_Model):
     number: NumberCheck | None = None
     observation: ObservationCheck | None = None
     condition: ConditionCheck | None = None
     medication: MedicationCheck | None = None
+    exists: ExistsCheck | None = None
+    value: ValueCheck | None = None
 
     @model_validator(mode="after")
     def _exactly_one(self) -> Check:
-        kinds = [
-            k for k in ("number", "observation", "condition", "medication") if getattr(self, k)
-        ]
-        if len(kinds) != 1:
-            raise ValueError("each check is exactly one of number/observation/condition/medication")
+        if sum(getattr(self, kind) is not None for kind in KINDS) != 1:
+            raise ValueError(f"each check is exactly one of {'/'.join(KINDS)}")
         return self
 
 
@@ -180,6 +210,10 @@ def _labels(check: Check) -> set[str]:
     if check.medication:
         timed = check.medication.min_days is not None
         return {check.medication.then, *([check.medication.too_recent, "unknown"] if timed else [])}
+    if check.exists:
+        return {check.exists.then, *(["unknown"] if check.exists.within_days is not None else [])}
+    if check.value:
+        return {check.value.then}
     return set()
 
 
@@ -198,6 +232,10 @@ def _decide(
             decided = _condition(check.condition, records["conditions"], as_of)
         elif check.medication:
             decided = _medication(check.medication, records["medications"], as_of)
+        elif check.exists:
+            decided = _exists(check.exists, _items(get_path(inputs, check.exists.source)), as_of)
+        elif check.value:
+            decided = _value(check.value, inputs)
         else:
             decided = None
         if decided is not None:
@@ -293,6 +331,32 @@ def _medication(
         if days < check.min_days:
             return check.too_recent, f"medication {shown} started {start}, {days} d ago"
         return check.then, f"medication {shown} since {start} ({days} d)"
+    return None
+
+
+def _exists(check: ExistsCheck, items: list[Mapping[str, Any]], as_of: date) -> Decision | None:
+    undated = None
+    for item in items:
+        code = item.get(check.code_field)
+        if not _code_matches(code, check.codes):
+            continue
+        if check.within_days is None:
+            return check.then, f"{check.source}: {code} on file"
+        when = _date(item.get(check.date_field))
+        if when is None:
+            undated = code
+            continue
+        if 0 <= (as_of - when).days <= check.within_days:
+            return check.then, f"{check.source}: {code} on {when} ({(as_of - when).days} d ago)"
+    if undated is not None:
+        return "unknown", f"{check.source}: {undated} has no date"
+    return None
+
+
+def _value(check: ValueCheck, inputs: Mapping[str, Any]) -> Decision | None:
+    value = get_path(inputs, check.field)
+    if isinstance(value, str) and value in check.values:
+        return check.then, f"{check.field} = {value}"
     return None
 
 

@@ -182,6 +182,57 @@ def test_medication_durations_and_windows(pack: Pack) -> None:
     assert ask(pack, medications=old_insulin)["no_insulin"][0] == "yes"
 
 
+REFERRAL = yaml.safe_load(
+    """
+    questions:
+      ecg_on_file:
+        checks: [{exists: {in: documents, codes: ["11524-6"], within_days: 365, then: "yes"}}]
+        default: "no"
+      any_note:
+        checks: [{exists: {in: documents, codes: ["115*"], code_field: type, then: "yes"}}]
+        default: "no"
+      marked_urgent:
+        checks: [{value: {field: referral.priority, in: [urgent, asap, stat], then: "yes"}}]
+        default: "no"
+    """
+)
+
+
+def ask_referral(pack: Pack, **record: Any) -> dict[str, tuple[str, str]]:
+    output = provider(pack, REFERRAL).answer({"as_of": AS_OF.isoformat(), **record})
+    return {key: (a.label, a.evidence[0]) for key, a in output.answers.items()}
+
+
+def test_documents_on_file_within_a_window(pack: Pack) -> None:
+    recent = {"code": "11524-6", "type": "11524-6", "date": day(40)}
+    assert ask_referral(pack, documents=[recent])["ecg_on_file"] == (
+        "yes",
+        f"documents: 11524-6 on {day(40)} (40 d ago)",
+    )
+    stale = {"code": "11524-6", "date": day(400)}
+    assert ask_referral(pack, documents=[stale])["ecg_on_file"][0] == "no"  # default
+    undated = {"code": "11524-6"}
+    assert ask_referral(pack, documents=[undated])["ecg_on_file"] == (
+        "unknown",
+        "documents: 11524-6 has no date",
+    )
+    assert ask_referral(pack)["ecg_on_file"][0] == "no"  # nothing on file
+    # Another code field and a prefix pattern; no window, so the date does not matter.
+    assert ask_referral(pack, documents=[{"type": "11506-3"}])["any_note"] == (
+        "yes",
+        "documents: 11506-3 on file",
+    )
+
+
+def test_field_values(pack: Pack) -> None:
+    assert ask_referral(pack, referral={"priority": "asap"})["marked_urgent"] == (
+        "yes",
+        "referral.priority = asap",
+    )
+    assert ask_referral(pack, referral={"priority": "routine"})["marked_urgent"][0] == "no"
+    assert ask_referral(pack)["marked_urgent"][0] == "no"
+
+
 def test_answers_are_deterministic_distributions(pack: Pack) -> None:
     answer = provider(pack).answer({"as_of": AS_OF.isoformat()}).answers["age_18_75"]
     assert answer.probabilities == pytest.approx({"yes": 0.01, "no": 0.01, "unknown": 0.98})

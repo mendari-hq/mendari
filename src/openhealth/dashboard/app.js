@@ -99,11 +99,13 @@ function derivedPrimary() {
   return primary && primary.derive ? primary.derive : null;
 }
 
-function memberEffect(derive, member, label) {
+// What a member's answer does in the table, given every member's answer (for `when` rows).
+function memberEffect(derive, member, label, answers) {
   for (const row of derive.table) {
     if (row.else !== undefined && row.else !== null) return null;
     if (row.in && !row.in.includes(member)) continue;
-    if (row.any === label) return row.then;
+    const gateOpen = !row.when || Object.entries(row.when).every(([m, labels]) => labels.includes(answers[m]?.label));
+    if (gateOpen && row.any === label) return row.then;
   }
   return null;
 }
@@ -114,7 +116,7 @@ function criteriaTable(answers, { evidence = true } = {}) {
   const questions = state.detail.manifest.questions;
   const rows = derive.from.map((member) => {
     const a = answers[member];
-    const effect = a ? memberEffect(derive, member, a.label) : null;
+    const effect = a ? memberEffect(derive, member, a.label, answers) : null;
     return `<tr class="${effect ? "hit" : ""}">
       <td title="${esc(questions[member]?.instructions ?? "")}"><code>${esc(member)}</code></td>
       <td>${a ? `<b>${esc(a.label)}</b>` : `<span class="muted">no answer</span>`}</td>
@@ -491,8 +493,10 @@ function feedbackCard(item) {
 
 function deriveRow(row) {
   const among = row.in ? `of ${row.in.map((m) => `<code>${esc(m)}</code>`).join(", ")}` : "member";
-  if (row.any !== null && row.any !== undefined) return `any ${among} is <code>${esc(row.any)}</code> → <code>${esc(row.then)}</code>`;
-  if (row.all !== null && row.all !== undefined) return `every ${among} is <code>${esc(row.all)}</code> → <code>${esc(row.then)}</code>`;
+  const gate = row.when ? Object.entries(row.when).map(([m, labels]) =>
+    `, when <code>${esc(m)}</code> is ${labels.map((l) => `<code>${esc(l)}</code>`).join(" or ")}`).join("") : "";
+  if (row.any !== null && row.any !== undefined) return `any ${among} is <code>${esc(row.any)}</code>${gate} → <code>${esc(row.then)}</code>`;
+  if (row.all !== null && row.all !== undefined) return `every ${among} is <code>${esc(row.all)}</code>${gate} → <code>${esc(row.then)}</code>`;
   return `otherwise → <code>${esc(row.else)}</code>`;
 }
 

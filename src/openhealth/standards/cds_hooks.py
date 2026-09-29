@@ -15,6 +15,7 @@ from typing import Any
 from openhealth.core.decision import Decision, DecisionResult
 from openhealth.core.pack import Pack
 from openhealth.core.spec import Outcome, Priority
+from openhealth.core.templates import fill
 from openhealth.errors import FhirError
 
 
@@ -75,9 +76,7 @@ def card(pack: Pack, result: DecisionResult, task: Mapping[str, Any]) -> dict[st
     else:
         indicator = "warning"
     if template is not None and key in template.summaries:
-        summary = template.summaries[key].format(
-            recommendation=target, priority=result.priority.value
-        )
+        summary = fill(template.summaries[key], result, recommendation=target)
     else:
         verb = {
             Outcome.AUTO: "Routed",
