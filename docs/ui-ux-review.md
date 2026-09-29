@@ -1,6 +1,7 @@
 # Dashboard UI/UX review and redesign plan
 
-_Status: proposal, awaiting approval. Reviewed 2026-09-29. No application code was changed._
+_Status: proposal with the user's decisions recorded (section 8), awaiting the go-ahead for
+Phase 0. Reviewed 2026-09-29. No application code was changed._
 
 Scope: the developer dashboard served at `/` (`src/openhealth/dashboard/`). The API, the data
 models and every computation stay as they are. Every number the redesign shows comes from the
@@ -466,8 +467,10 @@ for four simple chart types today.
 Each phase is a separate PR, with screenshots at 1440 and 390 px in both themes in the PR.
 Business logic, APIs and computations are not touched in any phase.
 
-**Phase 0: accessibility and correctness fixes (≈ 0.5 day)**
-- **Files:** `style.css`, `app.js`, `index.html`.
+**Phase 0: browser smoke suite, then accessibility and correctness fixes (≈ 1 day)**
+- **Files:** `style.css`, `app.js`, `index.html`; new `tests/browser/` (Playwright smoke
+  suite, decision 3 in section 8), `pyproject.toml` (dev dependency and the `browser`
+  marker), `.github/workflows/ci.yml` (a browser job).
 - **Changes:**
   - dark-mode primary button contrast and badge contrast (token values only);
   - input borders at 3:1 or more;
@@ -521,7 +524,7 @@ Business logic, APIs and computations are not touched in any phase.
 - 1440/390 screenshots in both themes.
 - Contrast test in CI.
 
-**Total: about 7–8 working days, in 6 PRs.**
+**Total: about 8 working days, in 6 PRs.**
 
 ### Before and after: the five highest-impact screens
 
@@ -592,30 +595,56 @@ The distinctiveness comes from precision and hierarchy, not decoration.
 **Risks**
 - **No build step, no frontend tests.** The redesign touches most of `app.js`; regressions in
   rendering paths (record vs message packs, derived vs plain primaries) are the main risk.
-  Mitigation: split into ES modules along the phases, keep every phase small, and verify each
-  PR in the browser across all five packs. Consider a small smoke test (see question 5).
+  Mitigation: split into ES modules along the phases, keep every phase small, and add the
+  browser smoke suite in Phase 0 (decision 3 below) so every later phase is checked across all
+  five packs.
 - **Theme script and a future CSP.** The no-flash inline script will need a CSP hash when v0.6
   adds a Content Security Policy.
 - **Chart honesty on sparse data.** Local and preview databases have 1–3 days of decisions. A
   30-day chart must render short histories without implying zeros for missing days before the
   first decision.
 - **Scope creep.** Generated forms for record packs, confusion-matrix views and the
-  cost/accuracy scatter are marked optional so the core plan stays about 7–8 days.
+  cost/accuracy scatter are marked optional so the core plan stays about 8 days.
 
-**Open questions**
-1. **Primary audience.** Is this dashboard for clinicians reviewing decisions, or for teams
-   evaluating packs? It affects density, wording (humanised labels versus pack identifiers)
-   and which screen opens by default.
-2. **Leaderboard ranking.** Is safety-first ordering (critical detection, then accuracy, then
-   cost) right for every pack, or should each pack declare its ranking metric?
-3. **Feedback icons.** Your standing rule is "simple thumbs up / thumbs down". The plan keeps
+**Decisions (2026-09-29)**
+1. **Audience: both** clinicians reviewing decisions and teams evaluating packs.
+   - Every screen leads with plain words ("Human review", "Blocks caught",
+     "Router: Jev · Safety screen: rules + Jev").
+   - The exact identifiers (`HUMAN_REVIEW`, `screen=rules_and_llm`, model ids) stay one step
+     away, as secondary mono text, a tooltip or a "details" row. They are never removed:
+     evaluators need them.
+   - Overview stays the default screen. Review and Evaluations are one click away for each
+     audience.
+2. **Leaderboard ranking: safety-first for every pack.** Critical detection first (worst
+   critical label), then accuracy, then cost. Users can still sort by any column.
+3. **Testing: a Playwright smoke suite**, using the Python package `pytest-playwright`.
+   - It runs under pytest with `uv`, in the same language as the rest of the tests, with no
+     Node toolchain.
+   - Dev-only dependency: it tests the dashboard in a real browser, which nothing in the
+     current stack can do.
+   - Tests carry a `browser` marker. The default `pytest` run skips them, so the main suite
+     stays under 3 s, and they run in their own CI job (Chromium only).
+   - Scope, kept small:
+     - every view renders for every pack with no console errors;
+     - an audit record opens from the keyboard;
+     - the theme choice persists without a flash;
+     - no page-level horizontal scroll at 390 px;
+     - leaderboard sorting and the deployed-row highlight work.
+   - Set up in Phase 0.
+4. **"Run evaluation" in production: admin-only as the target; a confirmation until then.**
+   - True admin-only needs user roles, which the app doesn't have yet. Today everyone who can
+     open the dashboard is on the Vercel team; roles arrive with v0.6 (OIDC login with viewer,
+     reviewer, admin and governance roles).
+   - The production evaluation endpoint must stay reachable: it is how Jev comparisons are
+     measured.
+   - Phase 4, UI only: a confirmation dialog that names the dataset, its size and the remote
+     providers it will call (read from `active_providers`, with no cost estimate invented).
+   - v0.6: the control is shown only to admins, and the API refuses non-admin evaluation
+     requests.
+
+**Still open**
+1. **Feedback icons.** Your standing rule is "simple thumbs up / thumbs down". The plan keeps
    exactly that, as thumb icons with visible labels instead of emoji. OK?
-4. **Days in Eastern time.** Daily volume is grouped by UTC date on the server, so days
+2. **Days in Eastern time.** Daily volume is grouped by UTC date on the server, so days
    change at 8 PM Eastern. Changing that is a computation change and out of scope here.
    Should it be planned separately?
-5. **Testing.** Is a small Playwright smoke suite (a dev-only dependency, not shipped)
-   acceptable for the redesign, or should verification stay manual plus the contrast unit
-   test?
-6. **"Run evaluation" in production.** It spends Jev and LLM calls. The plan adds a
-   confirmation showing `n` and the remote providers it will call. Should it instead be
-   disabled on production and allowed only locally?
