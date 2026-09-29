@@ -484,6 +484,18 @@ Business logic, APIs and computations are not touched in any phase.
   - `prefers-reduced-motion`;
   - the example picker matches the textarea.
 
+**Phase 0b: Eastern time everywhere people look (≈ 0.5–1 day, backend and display;
+decision 6)**
+- **Files:** `settings.py` (`OPENHEALTH_TIMEZONE`), `core/audit.py` (day grouping in
+  `stats`, the usage-counter date), `server/app.py` (report the time zone in `/api/health`),
+  `cli.py` and `evals/card.py` (human-readable dates), `app.js` (one `formatTime` helper with
+  `Intl.DateTimeFormat` and the time zone; "ET" labels), `pyproject.toml` (`tzdata`), tests
+  at the EDT/EST transitions.
+- **Acceptance:**
+  - a decision at 9 PM Eastern counts on that Eastern day;
+  - stored timestamps and the audit chain are unchanged (`openhealth audit verify` still
+    passes on existing databases).
+
 **Phase 1: design tokens and theming (≈ 1–1.5 days)**
 - **Files:** `style.css` (rewritten around tokens and components), `index.html` (no-flash
   script, `color-scheme` meta, theme toggle), `app.js` (31 inline styles become classes; the
@@ -508,6 +520,11 @@ Business logic, APIs and computations are not touched in any phase.
 - **Acceptance:** every chart is driven by endpoint data, has an `aria-label` summary, a data
   table fallback and focusable tooltips, and switches with the theme.
 
+**Phase 4a: feedback, backend (≈ 1 day; decision 5)**
+- **Files:** `server/app.py` (optional `expected` on the feedback request), `core/audit.py`
+  (two nullable columns with an additive migration for SQLite and Postgres, latest-per-reporter
+  counts), `evals/feedback.py` (export fills `labels`), tests (both backends).
+
 **Phase 4: screen redesigns (≈ 2 days)**
 - **Files:** `app.js`, `style.css`, `index.html`.
 - **Changes:**
@@ -524,7 +541,7 @@ Business logic, APIs and computations are not touched in any phase.
 - 1440/390 screenshots in both themes.
 - Contrast test in CI.
 
-**Total: about 8 working days, in 6 PRs.**
+**Total: about 10 working days, in 8 PRs.**
 
 ### Before and after: the five highest-impact screens
 
@@ -604,7 +621,7 @@ The distinctiveness comes from precision and hierarchy, not decoration.
   30-day chart must render short histories without implying zeros for missing days before the
   first decision.
 - **Scope creep.** Generated forms for record packs, confusion-matrix views and the
-  cost/accuracy scatter are marked optional so the core plan stays about 8 days.
+  cost/accuracy scatter are marked optional so the core plan stays about 10 days.
 
 **Decisions (2026-09-29)**
 1. **Audience: both** clinicians reviewing decisions and teams evaluating packs.
@@ -642,9 +659,50 @@ The distinctiveness comes from precision and hierarchy, not decoration.
    - v0.6: the control is shown only to admins, and the API refuses non-admin evaluation
      requests.
 
-**Still open**
-1. **Feedback icons.** Your standing rule is "simple thumbs up / thumbs down". The plan keeps
-   exactly that, as thumb icons with visible labels instead of emoji. OK?
-2. **Days in Eastern time.** Daily volume is grouped by UTC date on the server, so days
-   change at 8 PM Eastern. Changing that is a computation change and out of scope here.
-   Should it be planned separately?
+5. **Feedback: one-tap thumbs stays, and a thumbs-down captures the right answer.** Today a
+   rating is one-shot (a mis-click can't be changed). A thumbs-down records only "wrong", so
+   the export asks someone to fill in the correct labels later, by hand. The recommendation:
+   - **One tap stays the whole action.** Two icon buttons with visible labels, "Right" and
+     "Wrong" (thumb icons, filled when chosen, `aria-pressed`), replace the emoji.
+   - **Changeable.** The chosen button stays selected and the other one switches the rating.
+     The audit trail keeps every rating (append-only); counts use the latest rating per
+     decision and reporter.
+   - **"Wrong" opens an optional inline follow-up**, not a dialog:
+     - "What should it have been?", as chips of the primary question's labels (e.g.
+       `front_desk … billing`, or `pass / review / block`);
+     - for derived decisions, an optional "Which check was wrong?" with that check's labels;
+     - an optional note;
+     - "Skip" keeps the plain thumbs-down.
+   - **Payoff.** A thumbs-down with its right answer is a ready-made test case. The Feedback
+     page counts "ready to become tests", and the JSONL export fills `labels` for those
+     records, so they go straight into `openhealth eval --dataset`.
+   - **Less noise.** Rating controls live in the Try it result and the audit drawer. The
+     audit table shows the recorded rating as a read-only icon column instead of 200 buttons.
+     The review queue needs none: a reviewer's final label already is feedback.
+   - **Feedback page.** Leads with "Wrong on AUTO" (confidently wrong) and "Ready to become
+     tests", then the list, with each card linking to its audit record.
+   - **Scope note.** This needs a small backend change, outside this plan's UI-only rule, done
+     as its own PR with tests:
+     - optional `expected: {question, label}` on `POST /api/audit/{id}/feedback`, validated
+       against the pack's labels;
+     - two nullable columns, an additive migration;
+     - latest-per-reporter counting in `stats`;
+     - the export filling `labels`.
+6. **Eastern time for everything people see; machine timestamps stay UTC.**
+   - **Shown in Eastern:**
+     - every timestamp in the dashboard, forced to `America/New_York` whatever the
+       viewer's clock, labelled "ET" and switching between EDT and EST automatically;
+     - the Overview's days and daily chart;
+     - the daily call counters (`calls_today`), which currently reset at 8 PM Eastern;
+     - dates in the Decision Card and eval report headers;
+     - CLI output.
+   - **Stays UTC ISO-8601** (stored decisions, the audit hash chain, API JSON, FHIR
+     resources). Changing stored timestamps would break the tamper-evident chain, and UTC
+     instants are what FHIR and other systems expect. They are converted only for display.
+   - **Implementation:** one setting, `OPENHEALTH_TIMEZONE`, defaulting to
+     `America/New_York`. Stats group days by it; the budget counter uses its date;
+     `/api/health` reports it so the dashboard formats with it.
+   - **New dependency:** `tzdata` (first-party PSF package, pure data). It guarantees the
+     time-zone database is present on slim containers and serverless runtimes that lack one.
+   - **Scope note:** this is a computation change, so it's its own PR, with tests at the
+     EDT/EST transitions.
