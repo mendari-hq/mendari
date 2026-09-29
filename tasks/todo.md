@@ -2,9 +2,10 @@
 
 Roadmap to the full goal: [`docs/roadmap.md`](../docs/roadmap.md).
 
-## Current milestone: v0.3 Reference packs: Prior Authorization Preflight
-Plan approved 2026-09-29 (3 PRs): runtime → the pack → leaderboard and deployed choice. AI
-Guard follows, with its own plan.
+## Next: v0.3 Reference packs: AI Guard (the fifth and last), with its own plan
+
+## Done: v0.3 Prior Authorization Preflight
+Plan approved 2026-09-29 (3 PRs): runtime → the pack → leaderboard and deployed choice.
 - [x] PR 1 runtime: derive `when` over several members (AND) and label lists in `any`/`all`;
   `criteria` answers any question label and checks may carry a field `when`
 - [x] PR 2 `openhealth/prior-auth-preflight` 0.1.0 (L1): service/payer requirement sets as
@@ -15,7 +16,10 @@ Guard follows, with its own plan.
   alone and with rules. Every model-backed config caught 6/6 held-out red flags, none
   automated, 100 % next step held out, 0 false automation; rules_and_jev automates 33-47 %
   at $0.00003 and 0.2 s.
-- [ ] Deploy the chosen configuration (pack-scoped OPENHEALTH_PROVIDERS, redeploy, health)
+- [x] Deployed with the user's choice: `openhealth/prior-auth-preflight:notes=rules_and_jev`
+  (production and preview); redeployed; `/api/health` confirms. Live order-sign: a complete
+  lumbar MRI is submitted automatically, a knee arthroscopy with gaps goes to a person, the
+  lab order is ignored, and a red flag the rules miss is caught by Jev (urgent review).
 
 ## Done: v0.3 Referral Router
 Plan approved 2026-09-29 (4 PRs): runtime → FHIR `order-sign` → the pack → leaderboard and
