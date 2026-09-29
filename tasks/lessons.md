@@ -321,3 +321,23 @@ not tune wording to one model's case-by-case noise.
 The pack PR lists the tuning-set disagreements of one model reader, or says why none were
 checked.
 
+## 2026-09-29 - process
+
+### What happened
+Lifting the Jev daily limit, I patched Vercel env entry `hXL1behAMcHlzzTS` to `none` from
+memory. That entry was production's `OPENHEALTH_PROVIDERS`, not the Jev limit. The running
+deployment was unaffected (env applies at deploy time), but the next production deploy would
+have failed at startup. The user restored it with me after the permission check stopped my
+follow-up.
+
+### Root cause
+I acted on an entry id recalled from an earlier summary without reading what the id was.
+
+### Rule
+Before patching an env entry by id, read its key and target and check them in the same command
+(abort unless they match), then read it back after the patch. Never redeploy between a wrong
+patch and its fix.
+
+### Verification
+Every env patch command starts with a read that exits non-zero unless key and target match.
+
