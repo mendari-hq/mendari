@@ -61,6 +61,10 @@ def cmd_validate(args: argparse.Namespace) -> int:
     for slot, spec in pack.manifest.providers.items():
         for variant in spec.variants:
             build_provider(pack, slot, variant)
+    if pack.manifest.inputs.fhir:
+        from openhealth.standards.fhir import FhirAdapter
+
+        FhirAdapter.for_pack(pack)  # parse and check the mapping, not only that it exists
     print(f"ok  {pack.ref}  {pack.digest}")
     return 0
 

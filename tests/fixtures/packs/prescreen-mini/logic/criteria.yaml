@@ -1,0 +1,16 @@
+questions:
+  age_18_75:
+    checks: [{number: {field: patient.age, min: 18, max: 75}}]
+  t2d_diagnosis:
+    checks:
+      - condition: {codes: ["E11*", "44054006"], then: "yes"}
+      - condition: {codes: ["E10*", "46635009"], then: "no"}
+  hba1c_in_range:
+    checks:
+      - observation:
+          codes: ["4548-4"]
+          within_days: 90
+          min: 7.0
+          max: 10.5
+          unit: "%"
+          convert: {"mmol/mol": {multiply: 0.0915, add: 2.15}}

@@ -1,0 +1,10 @@
+text_fields: [notes]
+temperature: 1.0
+negation_cues: ["no", "denies", "without"]
+negation_window: 25
+questions:
+  note_pancreatitis:
+    default: "no"
+    default_score: 2.0
+    labels:
+      "yes": [{name: pancreatitis, pattern: "pancreatitis", weight: 5, negatable: true}]

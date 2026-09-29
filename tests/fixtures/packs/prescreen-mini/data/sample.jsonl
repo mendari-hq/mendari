@@ -1,0 +1,2 @@
+{"id": "pm-0", "input": {"as_of": "2026-09-01", "patient": {"age": 54}, "conditions": [{"code": "E11.9", "status": "active"}], "observations": [{"code": "4548-4", "value": 8.1, "unit": "%", "date": "2026-08-01"}], "notes": "Diabetes follow-up."}, "labels": {"eligibility": "candidate", "note_pancreatitis": "no"}}
+{"id": "pm-1", "input": {"as_of": "2026-09-01", "patient": {"age": 80}, "conditions": [{"code": "E11.9"}], "observations": [], "notes": "History of pancreatitis."}, "labels": {"eligibility": "not_eligible", "note_pancreatitis": "yes"}}

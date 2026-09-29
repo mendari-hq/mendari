@@ -1,0 +1,83 @@
+# Test fixture for v0.3 runtime features: the `criteria` provider, derive rows scoped with `in`,
+# FHIR `lists` (a Patient-focused record), and pack-defined CDS card wording. Not a real pack.
+spec_version: "0.2"
+id: openhealth-test/prescreen-mini
+version: 0.1.0
+name: Prescreen Mini (test fixture)
+summary: Toy trial prescreen over structured data and notes, used to test the v0.3 runtime.
+publisher: {name: OpenHealth tests, type: community}
+license: Apache-2.0
+risk:
+  level: 2
+  category: clinical support
+  rationale: Clinician-facing eligibility suggestion; human review by default.
+card:
+  intended_use: Test fixture only.
+  intended_users: [OpenHealth developers]
+  patient_population: Synthetic.
+inputs:
+  schema: schemas/input.schema.json
+  fhir: fhir/mapping.yaml
+questions:
+  age_18_75:
+    instructions: Is the patient between 18 and 75 years old?
+    criteria: {"yes": Aged 18 to 75., "no": Younger than 18 or older than 75., unknown: Age not recorded.}
+  t2d_diagnosis:
+    instructions: Does the patient have a coded diagnosis of type 2 diabetes?
+    criteria: {"yes": Type 2 diabetes coded., "no": Type 1 diabetes coded instead., unknown: No diabetes diagnosis coded.}
+  hba1c_in_range:
+    instructions: Was the latest HbA1c in the last 90 days between 7.0 and 10.5 %?
+    criteria: {"yes": In range., "no": Out of range., unknown: "No HbA1c in the last 90 days, or an unrecognised unit."}
+  note_pancreatitis:
+    type: boolean
+    instructions: Do the notes document that the patient has had pancreatitis?
+    criteria:
+      "yes": The patient has had pancreatitis (acute or chronic), at any time.
+      "no": No pancreatitis in the patient; a family member's pancreatitis does not count.
+  eligibility:
+    instructions: Overall prescreen result for the study.
+    criteria:
+      candidate: Every criterion is met and no exclusion is documented.
+      not_eligible: A criterion is not met, or an exclusion is documented.
+      needs_review: A criterion cannot be determined from the record.
+    derive:
+      from: [age_18_75, t2d_diagnosis, hba1c_in_range, note_pancreatitis]
+      table:
+        - {any: "no", in: [age_18_75, t2d_diagnosis, hba1c_in_range], then: not_eligible}
+        - {any: "yes", in: [note_pancreatitis], then: not_eligible}
+        - {any: unknown, then: needs_review}
+        - {else: candidate}
+providers:
+  structured:
+    answers: [age_18_75, t2d_diagnosis, hba1c_in_range]
+    use: criteria
+    variants:
+      criteria: {type: criteria, config: logic/criteria.yaml}
+  notes:
+    answers: [note_pancreatitis]
+    use: rules
+    variants:
+      rules: {type: rules, config: logic/note_rules.yaml}
+policy:
+  primary: eligibility
+  thresholds: {auto: 0.9, review: 0.4}
+  fallback: Manual chart review.
+evaluation:
+  datasets: {sample: data/sample.jsonl}
+tests: tests/cases.yaml
+cds_hooks:
+  hook: patient-view
+  title: Prescreen Mini
+  description: Flags possible candidates for a toy study when a chart is opened.
+  prefetch:
+    patient: Patient/{{context.patientId}}
+    conditions: Condition?patient={{context.patientId}}
+    observations: Observation?patient={{context.patientId}}&code=4548-4
+    notes: DocumentReference?patient={{context.patientId}}
+  card:
+    summaries:
+      candidate: "Possible candidate for the toy study: review eligibility"
+      needs_review: "Toy study: eligibility needs a chart review"
+    indicators: {candidate: info, needs_review: info}
+    show: [candidate, needs_review]
+    suggestion: Create a prescreening review task

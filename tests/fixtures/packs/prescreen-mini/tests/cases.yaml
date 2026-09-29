@@ -1,0 +1,31 @@
+- name: every criterion met is a candidate, reviewed by a person (risk level 2)
+  input:
+    as_of: "2026-09-01"
+    patient: {age: 54}
+    conditions: [{code: E11.9, status: active}]
+    observations: [{code: 4548-4, value: 8.1, unit: "%", date: "2026-08-01"}]
+    notes: Seen for diabetes follow-up.
+  expect: {outcome: HUMAN_REVIEW, recommendation: candidate}
+- name: a documented exclusion in the notes makes the patient not eligible
+  input:
+    as_of: "2026-09-01"
+    patient: {age: 54}
+    conditions: [{code: E11.9, status: active}]
+    observations: [{code: 4548-4, value: 8.1, unit: "%", date: "2026-08-01"}]
+    notes: History of acute pancreatitis in 2019.
+  expect: {recommendation: not_eligible, answers: {note_pancreatitis: "yes"}}
+- name: a negated mention is not an exclusion
+  input:
+    as_of: "2026-09-01"
+    patient: {age: 54}
+    conditions: [{code: E11.9, status: active}]
+    observations: [{code: 4548-4, value: 8.1, unit: "%", date: "2026-08-01"}]
+    notes: No history of pancreatitis.
+  expect: {recommendation: candidate, answers: {note_pancreatitis: "no"}}
+- name: an old HbA1c cannot confirm the criterion
+  input:
+    as_of: "2026-09-01"
+    patient: {age: 54}
+    conditions: [{code: E11.9, status: active}]
+    observations: [{code: 4548-4, value: 8.1, unit: "%", date: "2026-01-01"}]
+  expect: {recommendation: needs_review, answers: {hba1c_in_range: unknown}}

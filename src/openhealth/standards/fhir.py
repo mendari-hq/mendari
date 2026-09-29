@@ -3,12 +3,19 @@
 Mappings are declarative (``fhir/mapping.yaml`` in the pack) so that clinical informaticists
 can review them without reading code. Paths use a small FHIRPath subset: dotted element names,
 where a list-valued element yields all of its items and ``[n]`` selects the n-th item.
+
+`fields` map single values (the first match). `lists` map every resource of a type to an object,
+for patient records with many Conditions, Observations or MedicationStatements. Input can be a
+Bundle, a single resource, or a CDS Hooks prefetch object whose values may themselves be search
+Bundles; all of them are flattened, and resources are de-duplicated by type and id.
 """
 
 from __future__ import annotations
 
+import base64
+import binascii
 import re
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -37,21 +44,33 @@ class ResourceRule(_Model):
 
 class FieldMapping(_Model):
     path: str
-    transform: Literal["join", "age_band"] | None = None
+    transform: Literal["join", "age_band", "age_years", "base64_text"] | None = None
     map: dict[str, str] | None = None
+
+
+class ListMapping(_Model):
+    resource: str
+    fields: dict[str, FieldMapping]  # paths relative to the resource
 
 
 class TaskTemplate(_Model):
     code_text: str
     performer_system: str
+    # `{recommendation}` is replaced; the default is the inbox's routing wording.
+    description: str = "Route to {recommendation}"
+    performer: str | None = None  # a fixed performer code; default: the recommendation
 
 
 class FhirMapping(_Model):
     fhir_version: Literal["R4"]
     focus: str
     resources: dict[str, ResourceRule]
-    fields: dict[str, FieldMapping]
+    fields: dict[str, FieldMapping] = {}
+    lists: dict[str, ListMapping] = {}
     task: TaskTemplate
+
+
+Indexed = dict[str, list[dict[str, Any]]]
 
 
 class FhirAdapter:
@@ -70,22 +89,20 @@ class FhirAdapter:
             raise PackValidationError(pack.id, [f"{relative}: {error}"]) from None
         return cls(pack, mapping)
 
-    def index(self, resources: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+    def index(self, resources: Mapping[str, Any]) -> Indexed:
         """Accept a Bundle, a single resource, or a mapping of resources (e.g. CDS prefetch)."""
-        if resources.get("resourceType") == "Bundle":
-            found = [entry.get("resource") for entry in resources.get("entry", [])]
-        elif "resourceType" in resources:
-            found = [resources]
-        else:
-            found = list(resources.values())
-        indexed: dict[str, dict[str, Any]] = {}
-        for resource in found:
-            if not isinstance(resource, Mapping) or "resourceType" not in resource:
-                continue
+        indexed: Indexed = {}
+        seen: set[tuple[str, str]] = set()
+        for resource in _resources(resources):
             kind = resource["resourceType"]
-            if kind in indexed and kind == self.mapping.focus:
+            if resource.get("id") is not None:
+                key = (kind, str(resource["id"]))
+                if key in seen:
+                    continue
+                seen.add(key)
+            if kind == self.mapping.focus and kind in indexed:
                 raise FhirError(f"expected exactly one {kind}, got several")
-            indexed.setdefault(kind, dict(resource))
+            indexed.setdefault(kind, []).append(dict(resource))
         missing = [
             k for k, rule in self.mapping.resources.items() if rule.required and k not in indexed
         ]
@@ -93,29 +110,34 @@ class FhirAdapter:
             raise FhirError(f"missing required FHIR resources: {', '.join(missing)}")
         return indexed
 
-    def to_input(self, indexed: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
+    def to_input(self, indexed: Mapping[str, Any]) -> dict[str, Any]:
         result: dict[str, Any] = {}
         for target, field in self.mapping.fields.items():
-            values = select(indexed, field.path)
-            value = _apply(field, values)
-            if value is None:
-                continue
-            *parents, leaf = target.split(".")
-            node = result
-            for part in parents:
-                node = node.setdefault(part, {})
-            node[leaf] = value
+            value = _apply(field, select(indexed, field.path))
+            if value is not None:
+                _put(result, target, value)
+        for target, spec in self.mapping.lists.items():
+            items = []
+            for resource in _as_list(indexed.get(spec.resource)):
+                item = {}
+                for name, field in spec.fields.items():
+                    values = select({spec.resource: resource}, f"{spec.resource}.{field.path}")
+                    value = _apply(field, values)
+                    if value is not None:
+                        item[name] = value
+                if item:
+                    items.append(item)
+            _put(result, target, items)
         return result
 
-    def to_task(
-        self, result: DecisionResult, indexed: Mapping[str, Mapping[str, Any]]
-    ) -> dict[str, Any]:
-        focus = indexed.get(self.mapping.focus, {})
-        patient = indexed.get("Patient", {})
+    def to_task(self, result: DecisionResult, indexed: Mapping[str, Any]) -> dict[str, Any]:
+        focus: Mapping[str, Any] = next(iter(_as_list(indexed.get(self.mapping.focus))), {})
+        patient: Mapping[str, Any] = next(iter(_as_list(indexed.get("Patient"))), {})
         subject = (focus.get("subject") or {}).get("reference") or (
             f"Patient/{patient['id']}" if patient.get("id") else None
         )
         handled_by = result.recommendation or "manual-triage"
+        template = self.mapping.task
         task: dict[str, Any] = {
             "resourceType": "Task",
             "meta": {
@@ -132,10 +154,18 @@ class FhirAdapter:
             "intent": "order",
             "priority": result.priority.value,
             "code": {"text": self.mapping.task.code_text},
-            "description": result.fallback or f"Route to {handled_by}",
+            "description": result.fallback
+            or template.description.format(recommendation=handled_by),
             "authoredOn": result.created_at,
             "performerType": [
-                {"coding": [{"system": self.mapping.task.performer_system, "code": handled_by}]}
+                {
+                    "coding": [
+                        {
+                            "system": template.performer_system,
+                            "code": template.performer or handled_by,
+                        }
+                    ]
+                }
             ],
             "note": [{"text": reason} for reason in result.reasons],
         }
@@ -150,10 +180,10 @@ class FhirAdapter:
         return task
 
 
-def select(indexed: Mapping[str, Mapping[str, Any]], path: str) -> list[Any]:
+def select(indexed: Mapping[str, Any], path: str) -> list[Any]:
+    """Values at `path`; `indexed` maps a resource type to one resource or a list of them."""
     resource_type, *segments = path.split(".")
-    root = indexed.get(resource_type)
-    current: list[Any] = [root] if root is not None else []
+    current: list[Any] = _as_list(indexed.get(resource_type))
     for segment in segments:
         match = _SEGMENT.match(segment)
         if match is None:
@@ -176,18 +206,24 @@ def _apply(field: FieldMapping, values: list[Any]) -> Any:
     if field.transform == "join":
         text = "\n".join(v for v in values if isinstance(v, str) and v.strip())
         return text or None
+    if field.transform == "base64_text":  # attachments (e.g. DocumentReference notes), joined
+        texts = [t for t in (_decode(v) for v in values) if t]
+        return "\n\n".join(texts) or None
     value = values[0] if values else None
     if value is None:
         return None
     if field.transform == "age_band":
         return age_band(str(value))
+    if field.transform == "age_years":
+        return age_years(str(value))
+
     if field.map is not None:
         return field.map.get(str(value))
     return value
 
 
-def age_band(birth_date: str, today: date | None = None) -> str | None:
-    """Coarse age band from a FHIR date (YYYY, YYYY-MM or YYYY-MM-DD)."""
+def age_years(birth_date: str, today: date | None = None) -> int | None:
+    """Age in whole years from a FHIR date (YYYY, YYYY-MM or YYYY-MM-DD)."""
     parts = [int(p) for p in birth_date.split("-")[:3] if p.isdigit()]
     if not parts:
         return None
@@ -198,7 +234,13 @@ def age_band(birth_date: str, today: date | None = None) -> str | None:
     except ValueError:
         return None
     age = today.year - born.year - ((today.month, today.day) < (born.month, born.day))
-    if age < 0:
+    return age if age >= 0 else None
+
+
+def age_band(birth_date: str, today: date | None = None) -> str | None:
+    """Coarse age band from a FHIR date (YYYY, YYYY-MM or YYYY-MM-DD)."""
+    age = age_years(birth_date, today)
+    if age is None:
         return None
     if age < 18:
         return "0-17"
@@ -207,3 +249,41 @@ def age_band(birth_date: str, today: date | None = None) -> str | None:
     if age < 65:
         return "40-64"
     return "65+"
+
+
+def _resources(value: Any) -> Iterator[Mapping[str, Any]]:
+    """Every resource in a Bundle, a resource, or a mapping/list of either (flattened)."""
+    if isinstance(value, list):
+        for item in value:
+            yield from _resources(item)
+    elif isinstance(value, Mapping):
+        if value.get("resourceType") == "Bundle":
+            for entry in value.get("entry") or []:
+                if isinstance(entry, Mapping):
+                    yield from _resources(entry.get("resource"))
+        elif "resourceType" in value:
+            yield value
+        else:
+            for item in value.values():
+                yield from _resources(item)
+
+
+def _as_list(value: Any) -> list[Any]:
+    if value is None:
+        return []
+    return list(value) if isinstance(value, list) else [value]
+
+
+def _put(result: dict[str, Any], target: str, value: Any) -> None:
+    *parents, leaf = target.split(".")
+    node = result
+    for part in parents:
+        node = node.setdefault(part, {})
+    node[leaf] = value
+
+
+def _decode(value: Any) -> str | None:
+    try:
+        return base64.b64decode(str(value), validate=True).decode("utf-8").strip() or None
+    except (binascii.Error, UnicodeDecodeError):
+        return None
