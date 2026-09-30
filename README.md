@@ -10,8 +10,9 @@ model. Rules, [Jev](#jev), classical ML and (soon) LLMs all answer the same ques
 the same interface, and every decision ends in an explicit `AUTO`, `HUMAN_REVIEW`, `ABSTAIN` or
 `BLOCK` with a hash-chained audit record.
 
-> **Status: v0.1, research preview.** Everything here runs on synthetic data. It is not a
-> medical device, has no authentication, and must not be used with real PHI or real patients.
+> **Status: research preview** (roadmap milestones v0.1–v0.3 done: five reference packs; package
+> 0.1.0, not released). Everything here runs on synthetic data. It is not a medical device, has no
+> authentication, and must not be used with real PHI or real patients.
 
 ```text
 Clinical/EHR data (FHIR R4, CDS Hooks, REST)
@@ -23,13 +24,13 @@ Clinical/EHR data (FHIR R4, CDS Hooks, REST)
                                                   audit trail · review queue · FHIR Task
 ```
 
-## What's in v0.1
+## What's in it
 
-| MVP item | Where |
+| Item | Where |
 |---|---|
 | Decision Pack specification | [`docs/spec/decision-pack-0.2.md`](docs/spec/decision-pack-0.2.md) (0.1: [`decision-pack-0.1.md`](docs/spec/decision-pack-0.1.md)), [`src/openhealth/core/spec.py`](src/openhealth/core/spec.py) |
 | OpenHealth runtime | [`src/openhealth/core/decision.py`](src/openhealth/core/decision.py), [`policy.py`](src/openhealth/core/policy.py) |
-| Jev provider adapter | [`src/openhealth/providers/jev.py`](src/openhealth/providers/jev.py) |
+| Providers: rules, naive Bayes, Jev, LLMs (Vercel AI Gateway, or OpenAI-compatible local models), criteria, dosing; combined with `any_of`, `cascade`, `vote` | [`src/openhealth/providers/`](src/openhealth/providers) |
 | FHIR adapter + CDS Hooks | [`src/openhealth/standards/`](src/openhealth/standards) |
 | Patient Inbox Router reference pack | [`packs/patient-inbox-router/`](packs/patient-inbox-router) ([Decision Card](packs/patient-inbox-router/DECISION_CARD.md)) |
 | Clinical Trial Prescreener reference pack (v0.3) | [`packs/clinical-trial-prescreener/`](packs/clinical-trial-prescreener) ([Decision Card](packs/clinical-trial-prescreener/DECISION_CARD.md)) |
@@ -38,9 +39,9 @@ Clinical/EHR data (FHIR R4, CDS Hooks, REST)
 | AI Guard reference pack (v0.3) | [`packs/ai-guard/`](packs/ai-guard) ([Decision Card](packs/ai-guard/DECISION_CARD.md)) |
 | Human review / abstention | policy outcomes + [`core/audit.py`](src/openhealth/core/audit.py) review queue |
 | Evaluation harness | [`src/openhealth/evals/`](src/openhealth/evals) |
-| Audit trail | SQLite, append-only hash-chained events, `openhealth audit verify` |
+| Audit trail | SQLite or Postgres, append-only hash-chained events, `openhealth audit verify` |
 | Synthetic healthcare dataset | [`src/openhealth/sandbox/synthetic_inbox.py`](src/openhealth/sandbox/synthetic_inbox.py), [`synthetic_trial.py`](src/openhealth/sandbox/synthetic_trial.py), [`synthetic_referral.py`](src/openhealth/sandbox/synthetic_referral.py), [`synthetic_prior_auth.py`](src/openhealth/sandbox/synthetic_prior_auth.py), [`synthetic_guard.py`](src/openhealth/sandbox/synthetic_guard.py) |
-| Developer dashboard | `openhealth serve` → http://127.0.0.1:8000: every pack on the search path, with a criteria table for derived decisions and Try-it examples from each pack's behaviour tests (`GET /api/packs/{id}/examples`) |
+| Dashboard | `openhealth serve` → http://127.0.0.1:8000: every pack on the search path. Overview, a review queue by priority, the audit trail with each record in a drawer, evaluations (provider leaderboard, benchmark report with charts, runs on your datasets), feedback with the right answer, the Decision Card, and Try it (a form for the inbox; for record packs, the pack's behaviour tests as editable JSON). Light and dark themes; times in the deployment's time zone (US Eastern by default). |
 
 ## Quickstart
 
@@ -372,11 +373,15 @@ uv run mypy src tests
 
 ## Roadmap
 
-- **v0.2:** LLM provider (structured output with calibration), CQL provider, remote hub
-  (`openhealth pull`, signed packs), `AuditEvent`/`Provenance` export, authentication on the
-  server, drift monitoring from recorded outcomes, a harder clinician-reviewed synthetic
-  benchmark.
-- **Standards:** SMART on FHIR launch, Bulk FHIR evaluation, OMOP, Da Vinci CRD/DTR/PAS.
+Full plan and status: [`docs/roadmap.md`](docs/roadmap.md). Done: v0.1 runtime and inbox pack,
+v0.2 model-agnostic core (LLMs, composition, leaderboards), v0.3 the other four packs, and the
+dashboard redesign. Next:
+
+- **v0.4 Healthcare standards:** US Core validation, `AuditEvent`/`Provenance` export, SMART on
+  FHIR launch (OAuth 2 / OIDC), CDS Hooks that fetch, Bulk FHIR evaluation.
+- **v0.5 The Hub:** signed pack archives, `openhealth push / pull`, a registry and website.
+- **v0.6 Readiness for organizations:** login with roles, tenancy, monitoring and drift, PHI mode.
+- **v0.7 and v1.0:** CQL, OMOP, Da Vinci CRD/DTR/PAS; then the public open-source launch.
 
 ## License
 

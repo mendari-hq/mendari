@@ -2,7 +2,21 @@
 
 Roadmap to the full goal: [`docs/roadmap.md`](../docs/roadmap.md).
 
-## Current milestone: Dashboard redesign ([`docs/ui-ux-review.md`](../docs/ui-ux-review.md))
+## Next: v0.4 Healthcare standards
+Plan to be written and approved before any code (roadmap: US Core validation, AuditEvent and
+Provenance export, SMART on FHIR launch with OAuth 2 / OIDC, CDS Hooks that fetch, Bulk FHIR).
+
+## Open items outside a milestone
+- [ ] Harder inbox benchmark: paraphrased messages and held-out splits for every critical label,
+  reviewed by a clinician (from v0.2; the generation tooling can be built without one)
+- [ ] Trial pack: Jev-alone leaderboard rows on test and the local site (about 200 paid Jev calls;
+  only when asked)
+- [ ] Try it on record packs takes the input as JSON (seeded from the pack's behaviour tests);
+  forms generated from each pack's input schema would suit clinicians (optional in the redesign
+  plan; not scheduled)
+- [ ] VoiceOver spot check of the redesigned dashboard (a person at the Mac; script in the QA report)
+
+## Done: Dashboard redesign ([`docs/ui-ux-review.md`](../docs/ui-ux-review.md))
 Plan approved 2026-09-29 (8 PRs, about 10 working days); the user's decisions are in the plan's
 section 8 (both audiences, safety-first leaderboard, Playwright, admin-only evaluations with v0.6
 roles, feedback that captures the right answer, Eastern time everywhere people look).
@@ -98,6 +112,8 @@ roles, feedback that captures the right answer, Eastern time everywhere people l
   panels at h2 (was h1 -> h3); header rows on the card's question tables; `aria-current` on the
   active section; no focus rectangle on headings the app focuses. 8 new browser tests (62 in all).
   QA report with the screenshots: https://claude.ai/artifact/GmDM3pEDMEEnYkb9GBcL4P (private).
+- [x] Favicon (#54): `/favicon.ico` (16/32/48 px, from `favicon.svg` via `scripts/make-favicon.py`)
+  ended the only 404 left in production after the redesign
   VoiceOver itself is for a person at the Mac (the report has a two-minute script)
 
 ## Done: v0.3 Reference packs: AI Guard (the fifth and last)
@@ -189,7 +205,8 @@ dashboard and deployment → leaderboard and deployed choice.
   rules; test-100, local-100, exclusions, exclusions_holdout). Live Jev `noul`: 0 errors, note
   ECE <= 0.05. Every model alone found 12/12 held-out exclusions (100% eligibility); adding
   the rules lowered eligibility to 92% held out / 87% local. Card 0.1.1 says so.
-- [ ] Jev-alone rows on test and the local site (200 Jev calls; needed the next day's budget)
+- [ ] Jev-alone rows on test and the local site (200 Jev calls; needed the next day's budget;
+  now under "Open items" above)
 - [x] Deployed notes reader chosen with the user: `notes=jev`. OPENHEALTH_PROVIDERS (production
   and preview) = `router=jev,safety_screen=rules_and_jev,openhealth/clinical-trial-prescreener:notes=jev`
 
@@ -204,7 +221,8 @@ dashboard and deployment → leaderboard and deployed choice.
   calibration in `providers/calibration.py`)
 - [x] Jev: one call per decision (per-decision batching, one budget unit), `noul` / `score`
   mapping (live check of `score`/`noul` deferred to the trial pack in v0.3)
-- [ ] Harder inbox benchmark + held-out splits for every critical label (paraphrase tooling: next PR)
+- [ ] Harder inbox benchmark + held-out splits for every critical label (now under "Open items"
+  above)
 - [x] Leaderboard (`openhealth leaderboard`, card + dashboard), inbox pack 0.2.0 variants
   (`llm`, `cascade`, `rules_and_llm`)
 - [x] Leaderboard LLM rows: Claude Sonnet 5, Claude Haiku 4.5, gpt-oss-120b (each with
@@ -278,12 +296,14 @@ latency and cost.
   audit chain, Jev eval (100% on local-site sample), CDS discovery, dashboard assets.
 
 ### Deferred (v0.2+)
-- [ ] Pin a concrete Jev model once the account offers one (only aliases today).
-- [ ] Neon preview branching so previews don't write to the production database.
-- [ ] LLM provider, CQL provider.
-- [ ] Remote hub (`openhealth pull`, signed packs), server authentication, AuditEvent export.
-- [ ] Other four reference packs (Referral Router, PA Preflight, Trial Prescreener, AI Guard).
-- [ ] Harder, clinician-reviewed synthetic benchmark (current one is template-generated and easy).
+- [x] Pin a concrete Jev model: `JEV_MODEL=jev-1.13.0` (v0.2).
+- [x] Neon preview branching so previews don't write to the production database (v0.2).
+- [x] LLM provider (v0.2). The CQL provider is roadmap v0.7.
+- [ ] Remote hub (`openhealth pull`, signed packs): roadmap v0.5. Server authentication: v0.6.
+  AuditEvent export: v0.4.
+- [x] Other four reference packs (Referral Router, PA Preflight, Trial Prescreener, AI Guard)
+  (v0.3).
+- [ ] Harder, clinician-reviewed synthetic benchmark: under "Open items" at the top.
 
 ### Discovered
 - Keyword red-flag screens miss typos → added deterministic typo tolerance (lessons.md).
