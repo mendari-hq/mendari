@@ -28,7 +28,8 @@ import os
 import re
 import secrets
 import tempfile
-from collections.abc import Mapping
+from collections.abc import AsyncIterator, Mapping
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -104,6 +105,15 @@ class RegistryStore:
     @property
     def backend(self) -> str:
         return self._db.kind
+
+    def close(self) -> None:
+        self._db.close()
+
+    def __enter__(self) -> RegistryStore:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()
 
     # -- namespaces, keys, tokens -------------------------------------------------------------
 
@@ -351,7 +361,13 @@ def create_registry_app(
         if admin_token is not None
         else os.environ.get("OPENHEALTH_REGISTRY_ADMIN_TOKEN", "")
     )
-    app = FastAPI(title="OpenHealth Hub registry", version=__version__)
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        yield
+        store.close()  # the Postgres pool, closed with the app rather than by the collector
+
+    app = FastAPI(title="OpenHealth Hub registry", version=__version__, lifespan=lifespan)
 
     @app.exception_handler(HubError)
     async def _hub_error(_: Request, error: HubError) -> JSONResponse:
