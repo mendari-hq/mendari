@@ -29,10 +29,10 @@ async function boot() {
     state.timezone = health?.timezone ?? DEFAULT_TIMEZONE;
   } catch { /* an unknown zone name: keep the default */ }
   // A SMART launch from the EHR leaves a session: the patient's view joins the sections.
-  const session = await api("/api/smart/session").catch(() => null);
+  const [session, packs] = await Promise.all([api("/api/smart/session").catch(() => null), api("/api/packs")]);
   state.smart = session?.active ? session : null;
   $('.nav a[data-view="patient"]').hidden = !state.smart;
-  state.packs = await api("/api/packs");
+  state.packs = packs;
   const select = $("#pack-select");
   if (!state.packs.length) {
     $("#view").removeAttribute("aria-busy");

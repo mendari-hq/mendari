@@ -112,9 +112,11 @@ export const state = {
 
 export const packPath = () => `/api/packs/${state.packId}`;
 
+// A pack chosen while another was still loading wins: the older answer is dropped when it arrives.
 export async function loadPack(packId) {
   state.packId = packId;
-  state.detail = await api(packPath());
+  const detail = await api(`/api/packs/${packId}`);
+  if (state.packId === packId) state.detail = detail;
 }
 
 export function watchEdges(el) {

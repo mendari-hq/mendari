@@ -172,6 +172,26 @@ def test_going_back_across_a_pack_change_shows_that_pack(page: Page) -> None:
     expect(page.locator("main h1")).to_have_text("Patient Inbox Router")
 
 
+def test_a_pack_that_answers_late_does_not_replace_the_one_chosen_after_it(page: Page) -> None:
+    """Choosing AI Guard, then going back to the inbox before AI Guard has loaded: when AI
+    Guard's answer finally arrives it is dropped, and the inbox stays."""
+    open_pack(page, INBOX, "overview")
+    page.locator('.nav a[data-view="audit"]').click()
+    expect(page.locator("main h1")).to_have_text("Audit trail")
+    held: list[Route] = []
+    page.route(f"**/api/packs/{GUARD}", lambda route: held.append(route))
+    with page.expect_request(f"**/api/packs/{GUARD}"):
+        page.select_option("#pack-select", GUARD)
+    page.go_back()
+    expect(page.locator("main h1")).to_have_text("Patient Inbox Router")
+    for route in held:
+        route.continue_()
+    page.unroute(f"**/api/packs/{GUARD}")
+    page.wait_for_timeout(300)  # time for the late answer and any render it could start
+    expect(page.locator("main h1")).to_have_text("Patient Inbox Router")
+    expect(page.locator("#pack-select")).to_have_value(INBOX)
+
+
 def test_going_back_from_one_record_to_another_keeps_the_drawer_open(
     page: Page, live_server: str
 ) -> None:
@@ -1132,10 +1152,15 @@ def test_a_view_keeps_its_shape_while_it_loads(page: Page) -> None:
     open_pack(page, INBOX, "review")
     held: list[Route] = []
     page.route("**/api/stats*", lambda route: held.append(route))
-    page.goto("/#overview")
+    with page.expect_request("**/api/stats*"):  # held from here on: the view waits for it
+        page.goto("/#overview")
     view = page.locator("#view")
     expect(view).to_have_attribute("aria-busy", "true")
     expect(view.locator(".skeleton .sk-stat")).to_have_count(4)
+    for _ in range(50):  # the route handler has taken the request (it runs just after the event)
+        if held:
+            break
+        page.wait_for_timeout(20)
     for route in held:  # release what was held
         route.continue_()
     page.unroute("**/api/stats*")

@@ -114,6 +114,12 @@ the production-deploy check and the four "small remaining gaps" under "What an A
   - state and session ids stored as SHA-256, and a launch's state works once;
   - launch errors are an HTML page, since they land in the EHR's browser, with OAuth error codes
     shown only when they look like codes.
+- **Found and fixed: a race in the dashboard.** A pack whose details arrived after the user had
+  already switched again overwrote the newer pack, and overlapping renders finished in any order.
+  CI caught it on #72: the boot's extra request moved the timing. A pack's late answer is now
+  dropped, and renders run one after another. A deterministic browser test holds AI Guard's
+  answer until after going back, and it fails without the fix. The same PR fixed a race in a
+  skeleton test, which released held requests before the view had made them.
 - **"This patient" appears only after a launch.** Its nav link is hidden otherwise, so nothing
   changes for anyone not launched from an EHR. Work items are decided on request (a button),
   not on page load, so viewing a patient never writes decisions to the audit trail.

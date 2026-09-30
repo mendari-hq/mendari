@@ -26,7 +26,16 @@ export function onHashChange() {
 // `navigated`: the user moved to another view, so it starts at the top with its heading focused
 // (screen readers then announce the new view once, instead of reading the whole page). A view that
 // opens at a section (e.g. "#card/policy") returns that section's heading instead.
-export async function render({ navigated = false } = {}) {
+// Renders run one after another, so the last one asked for is the one left on the page (a view
+// that loads slowly can't paint over the view that was asked for after it).
+let rendering = Promise.resolve();
+
+export function render(options) {
+  rendering = rendering.then(() => paint(options), () => paint(options));
+  return rendering;
+}
+
+async function paint({ navigated = false } = {}) {
   const { view, params } = route();
   views[state.view]?.leave?.(); // e.g. the review queue sends overrides still in their undo window
   state.view = view;
