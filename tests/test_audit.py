@@ -77,6 +77,7 @@ def test_downstream_outcomes_feed_observed_accuracy(store: AuditStore, decide: D
     result = decide(ROUTINE)
     store.record_outcome(result.id, final_label="nurse", source="re-routed by staff")
     assert store.stats()["observed_accuracy"] == 0.0
+    assert store.stats()["labelled"] == 1  # the accuracy's n
 
 
 def test_hash_chain_detects_tampering(store: AuditStore, decide: Decide) -> None:

@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import re
 from datetime import datetime, timedelta
+from typing import Any
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -130,6 +131,24 @@ def test_a_record_link_opens_its_drawer(page: Page, live_server: str) -> None:
     expect(dialog).to_have_count(0)
 
 
+def test_going_back_from_one_record_to_another_keeps_the_drawer_open(
+    page: Page, live_server: str
+) -> None:
+    """Replacing an open drawer must not run the old drawer's close handler (which returns the
+    URL to the list and so closed the new drawer too)."""
+    first, second = httpx.get(
+        f"{live_server}/api/audit", params={"pack_id": INBOX, "limit": 2}
+    ).json()
+    page.add_init_script(f"localStorage.setItem('oh.pack', {json.dumps(INBOX)})")
+    page.goto(f"/#audit/{first['id']}")
+    expect(page.get_by_role("dialog")).to_contain_text(first["id"])
+    page.goto(f"/#audit/{second['id']}")
+    expect(page.get_by_role("dialog")).to_contain_text(second["id"])
+    page.go_back()
+    expect(page).to_have_url(re.compile(f"#audit/{first['id']}$"))
+    expect(page.get_by_role("dialog")).to_contain_text(first["id"])
+
+
 def test_a_new_view_starts_at_the_top_with_its_heading_focused(page: Page) -> None:
     page.set_viewport_size({"width": 1280, "height": 400})
     open_pack(page, INBOX, "audit")
@@ -148,6 +167,7 @@ def test_every_control_has_an_accessible_name(page: Page, pack_id: str) -> None:
         show(page, view)
         assert page.evaluate(UNNAMED) == [], view
     page.get_by_role("button", name="Decide").click()
+    page.locator("#result").get_by_role("button", name="Wrong").click()  # opens the follow-up
     expect(page.locator("#result .fb-note")).to_be_visible()
     assert page.evaluate(UNNAMED) == []
 
@@ -415,7 +435,8 @@ def test_every_chart_has_a_summary_and_its_data_table(page: Page) -> None:
     assert seen == 3  # daily, reliability, threshold sweep
 
 
-@pytest.mark.parametrize("pack_id", [INBOX, GUARD])
+# The trial pack has the longest question names (e.g. in its report's critical-catch stats).
+@pytest.mark.parametrize("pack_id", [INBOX, GUARD, "openhealth/clinical-trial-prescreener"])
 def test_charts_fit_a_phone_and_keep_their_text_readable(page: Page, pack_id: str) -> None:
     page.set_viewport_size(PHONE)
     open_pack(page, pack_id)
@@ -509,3 +530,196 @@ def test_criterion_bars_take_the_colour_of_their_effect(page: Page) -> None:
     unsafe = page.locator('figure.chart[data-chart$="-unsafe_advice"]')
     expect(unsafe.locator(".chosen rect.f-block")).to_have_count(1)
     expect(unsafe.locator(".chosen .bar-label")).to_have_text("yes")
+
+
+# -- screens (Phase 4) ----------------------------------------------------------------------------
+
+REFILL = "Hi, I need a refill on my lisinopril. I have about three pills left."
+
+
+def decide_inbox(base: str, body: str) -> dict[str, Any]:
+    response = httpx.post(
+        f"{base}/api/packs/{INBOX}/decide", json={"message": {"body": body}}, timeout=30
+    )
+    return dict(response.json())
+
+
+def test_the_overview_leads_with_what_people_act_on(page: Page) -> None:
+    open_pack(page, INBOX)
+    deployed = page.locator(".pack-header .deployed")
+    expect(deployed).to_contain_text("Safety screen: Rules")  # words first...
+    expect(deployed).to_contain_text("Router: Naive Bayes")
+    expect(page.locator(".pack-header .mono")).to_contain_text("router=naive_bayes")  # codes below
+    primary = page.locator(".stats-primary .stat")
+    expect(primary).to_have_count(4)
+    waiting = primary.nth(1)
+    expect(waiting).to_contain_text("Waiting for review")
+    expect(waiting).to_have_class(re.compile("tone-warning"))  # the seeded chest pain waits
+    waiting.get_by_role("link", name=re.compile("review queue")).click()
+    expect(page).to_have_url(re.compile("#review$"))
+
+
+def test_a_pack_without_decisions_says_what_to_do(page: Page) -> None:
+    def no_decisions(route: Route) -> None:
+        route.fulfill(json={**route.fetch().json(), "decisions": 0})
+
+    page.route("**/api/stats*", no_decisions)
+    open_pack(page, INBOX)
+    expect(page.locator(".stats-primary")).to_have_count(0)  # no wall of zeros
+    empty = page.locator(".empty-state")
+    expect(empty).to_contain_text("No decisions yet")
+    expect(empty.get_by_role("link", name="Try it")).to_have_attribute("href", "#try")
+
+
+def test_stat_reviews_come_first_and_focus_moves_to_the_next_card(
+    page: Page, live_server: str
+) -> None:
+    for _ in range(2):
+        decide_inbox(live_server, "Crushing chest pain and my left arm is numb")
+    open_pack(page, INBOX, "review")
+    expect(page.locator(".review-group h2").first).to_contain_text("Stat")
+    cards = page.locator(".review-card")
+    first, second = cards.nth(0), cards.nth(1)
+    expect(first.locator(".stat-banner")).to_contain_text("Possible emergency")
+    first_id, second_id = first.get_attribute("data-id"), second.get_attribute("data-id")
+    confirm = first.get_by_role("button", name=re.compile("^Confirm nurse"))
+    confirm.focus()
+    page.keyboard.press("Enter")  # a keyboard reviewer confirms...
+    expect(page.locator(f'.review-card[data-id="{first_id}"]')).to_have_count(0)
+    expect(page.locator(f'.review-card[data-id="{second_id}"]')).to_be_focused()  # carries on
+
+
+def test_the_result_leads_with_the_outcome_and_takes_focus(page: Page) -> None:
+    open_pack(page, GUARD, "try")
+    page.select_option("#example", label="a draft that misses an emergency is blocked")
+    page.get_by_role("button", name="Decide").click()
+    title = page.locator("#result-title")
+    expect(title).to_have_text(re.compile(r"Blocked · urgent"))
+    expect(title).to_be_focused()
+    expect(page.locator("#result .callout.danger")).to_contain_text("Do not send the draft")
+    # Criteria that block are danger-coloured, not the review amber.
+    expect(page.locator("#result .criteria tr.hit-block")).not_to_have_count(0)
+    expect(page.locator("#result .criteria tr.hit-review")).to_have_count(0)
+
+
+def test_a_wrong_rating_takes_the_right_answer_and_can_be_changed(
+    page: Page, live_server: str
+) -> None:
+    decision = decide_inbox(live_server, REFILL)
+    page.add_init_script("localStorage.setItem('oh.reviewer', 'browser-rater')")
+    open_pack(page, INBOX, "audit")
+    page.locator(f'#audit-table button.open-record[data-id="{decision["id"]}"]').click()
+    dialog = page.get_by_role("dialog")
+    wrong, right = (dialog.get_by_role("button", name=n, exact=True) for n in ("Wrong", "Right"))
+    wrong.click()
+    expect(wrong).to_have_attribute("aria-pressed", "true")
+    choice = dialog.locator(".fb-labels:not([hidden]) button").first
+    label = choice.inner_text()
+    assert label != decision["recommendation"]  # the answer it gave is not offered
+    choice.click()
+    dialog.get_by_role("button", name="Save").click()
+    status = dialog.locator(".fb-status")
+    expect(status).to_have_text(f"Recorded as wrong: destination should be {label}.")
+    row = page.locator(f'#audit-table tr[data-id="{decision["id"]}"]')
+    expect(row.locator(".rated.down")).to_be_visible()  # the table behind shows it at once
+
+    page.keyboard.press("Escape")
+    page.goto(f"/#audit/{decision['id']}")  # reopened: this person's rating is remembered
+    expect(wrong).to_have_attribute("aria-pressed", "true")
+    expect(status).to_have_text(f"Recorded as wrong: destination should be {label}.")
+    right.click()  # changed their mind
+    expect(right).to_have_attribute("aria-pressed", "true")
+    expect(wrong).to_have_attribute("aria-pressed", "false")
+    expect(row.locator(".rated.up")).to_be_visible()
+    expect(row.locator(".rated.down")).to_have_count(0)
+    current = httpx.get(f"{live_server}/api/feedback", params={"pack_id": INBOX}).json()
+    mine = [f for f in current if f["decision_id"] == decision["id"]]
+    assert [(f["reporter"], f["rating"]) for f in mine] == [("browser-rater", "up")]
+
+
+def test_the_feedback_page_leads_with_the_cases_to_act_on(page: Page, live_server: str) -> None:
+    decision = decide_inbox(live_server, REFILL)
+    labels = httpx.get(f"{live_server}/api/packs/{INBOX}").json()["labels"]
+    other = next(label for label in labels if label != decision["recommendation"])
+    expected = {"question": "destination", "label": other}
+    httpx.post(
+        f"{live_server}/api/audit/{decision['id']}/feedback",
+        json={"rating": "down", "reporter": "page-test", "expected": expected},
+    )
+    open_pack(page, INBOX, "feedback")
+    ready = page.locator(".stats-primary .stat", has_text="Ready to become tests")
+    expect(ready.locator(".stat-value")).not_to_have_text("0")
+    card = page.locator(".feedback-card", has=page.locator(f'a[href="#audit/{decision["id"]}"]'))
+    expect(card).to_contain_text(f"destination should be {other}")
+    card.get_by_role("link", name=re.compile("Open the decision")).click()
+    expect(page.get_by_role("dialog")).to_contain_text(decision["id"])
+
+
+def test_the_decision_card_is_a_document_with_linked_sections(page: Page) -> None:
+    open_pack(page, INBOX, "card")
+    page.get_by_role("navigation", name="On this page").get_by_role("link", name="Policy").click()
+    expect(page).to_have_url(re.compile("#card/policy$"))
+    heading = page.get_by_role("heading", name="Policy", exact=True)
+    expect(heading).to_be_focused()
+    expect(page.locator("#card-policy")).to_contain_text(
+        "When the chance that urgency is urgent is at least 0.35."
+    )
+    page.reload()  # a link to a section lands there
+    expect(heading).to_be_focused()
+    expect(page.locator("#card-schemas details")).to_have_count(2)  # schemas folded away
+
+
+@pytest.mark.parametrize(
+    ("pack_id", "automates"),
+    [
+        (INBOX, "At confidence 0.90 or more (some labels need more; see Policy)."),
+        (GUARD, "Not here: at risk level 2 a person reviews every decision"),
+        ("openhealth/referral-router", "Not with the deployed providers: automation needs"),
+    ],
+)
+def test_the_card_says_whether_this_deployment_automates(
+    page: Page, pack_id: str, automates: str
+) -> None:
+    """The thresholds alone would say "automates at 0.90" for packs that never automate here."""
+    open_pack(page, pack_id, "card")
+    expect(page.locator("dl.facts")).to_contain_text(automates)
+
+
+def test_the_digest_copies(page: Page) -> None:
+    page.context.grant_permissions(["clipboard-read", "clipboard-write"])
+    open_pack(page, INBOX, "card")
+    page.get_by_role("button", name="Copy the digest").click()
+    expect(page.locator("#toast")).to_have_text("Digest copied")
+    assert page.evaluate("navigator.clipboard.readText()").startswith("sha256:")
+
+
+def test_an_evaluation_that_calls_remote_models_asks_first(page: Page) -> None:
+    def remote(route: Route) -> None:
+        body = route.fetch().json()
+        jev = {"variant": "jev", "type": "jev", "model": "jev-1.13.0"}
+        body["active_providers"]["router"] = jev
+        route.fulfill(json=body)
+
+    runs: list[str] = []
+    page.on("request", lambda r: runs.append(r.url) if r.url.endswith("/evals") else None)
+    page.route(f"**/api/packs/{INBOX}", remote)
+    open_pack(page, INBOX, "evals")
+    page.goto("/#evals/run")
+    run = page.get_by_role("button", name="Run evaluation")
+    run.click()
+    dialog = page.get_by_role("dialog", name="Run this evaluation?")
+    expect(dialog).to_contain_text(re.compile(r"all \d+ records of local-site-example"))
+    expect(dialog).to_contain_text("Router: Jev")
+    dialog.get_by_role("button", name="Cancel").click()
+    expect(dialog).to_have_count(0)
+    expect(run).to_be_focused()
+    assert runs == []  # nothing ran
+
+
+def test_an_evaluation_that_runs_locally_needs_no_confirmation(page: Page) -> None:
+    open_pack(page, INBOX, "evals")
+    page.goto("/#evals/run")
+    expect(page.locator("#evals-body")).to_contain_text("runs locally: no remote calls")
+    page.get_by_role("button", name="Run evaluation").click()
+    expect(page.get_by_role("dialog")).to_have_count(0)
+    expect(page.locator("#run-report .stats-primary")).to_be_visible(timeout=60_000)

@@ -585,7 +585,13 @@ class AuditStore:
         )
         with self._db.session(exclusive=False) as db:
             rows = db.all(
-                f"SELECT * FROM decisions {where} ORDER BY {order} LIMIT ? OFFSET ?",
+                # Each decision's current ratings (each person's latest), for a rating column.
+                "SELECT d.*, "
+                "(SELECT COUNT(*) FROM feedback f WHERE f.decision_id = d.id "
+                "AND f.superseded_by IS NULL AND f.rating = 'up') AS feedback_up, "
+                "(SELECT COUNT(*) FROM feedback f WHERE f.decision_id = d.id "
+                "AND f.superseded_by IS NULL AND f.rating = 'down') AS feedback_down "
+                f"FROM decisions d {where} ORDER BY {order} LIMIT ? OFFSET ?",
                 (*params, limit, offset),
             )
         return [_row(row) for row in rows]
@@ -635,6 +641,7 @@ class AuditStore:
                 if labelled
                 else None
             ),
+            "labelled": len(labelled),  # decisions with a final human label: accuracy's n
             "latency_ms": {
                 "p50": _percentile(latencies, 50),
                 "p95": _percentile(latencies, 95),
