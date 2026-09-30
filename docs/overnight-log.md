@@ -16,7 +16,8 @@ the production-deploy check and the four "small remaining gaps" under "What an A
 | — | Production deploy check (no PR) | todo: "Check the production deploy" | — |
 | [#62](https://github.com/Junebugg1214/openhealth-hub/pull/62) | Plain words in criteria tables and Try-it answer headings | Small gap: "plain words in the Try-it criteria table"; category 4 | Red once (a test line over 100 columns, edited after lint ran), then green; preview checked; merged |
 | [#63](https://github.com/Junebugg1214/openhealth-hub/pull/63) | Links carry the pack (?pack= in the address) | Small gap: "links that carry the pack"; category 5 | Green first time; preview checked (including `/?pack=`); merged |
-| pending | A view fades in where its skeleton was | Small gap: "a view transition from skeleton to content"; category 9 | pending |
+| [#64](https://github.com/Junebugg1214/openhealth-hub/pull/64) | A view fades in where its skeleton was | Small gap: "a view transition from skeleton to content"; category 9 | Green first time; preview checked; merged |
+| pending | Sorting moves the rows instead of redrawing the table | Small gap: "fewer whole-subtree re-renders"; category 10 | pending |
 
 ## Decisions made on your behalf
 
@@ -43,6 +44,12 @@ the production-deploy check and the four "small remaining gaps" under "What an A
   matches the Evaluations tab crossfade from Phase C, needs no second copy of the view in the
   page, and uses opacity only: a transform on `main` would move sticky and fixed children while
   it runs.
+- **"Fewer whole-subtree re-renders" is scoped to sorting.** Sorting was the one frequent
+  interaction that redrew content without new data: every table now moves its rows. The other
+  `innerHTML` writes either draw a view the first time or swap in different data (another
+  period, dataset or report), where a redraw is correct; the form's add and remove already
+  restore focus. Going further needs a diffing layer, which means a framework and a build step,
+  against the project's no-build rule.
 - **The engine's reason lines stay as they are** ("not_eligible: hba1c_in_range is no"). They
   come from the runtime, and changing them is business logic, out of scope.
 

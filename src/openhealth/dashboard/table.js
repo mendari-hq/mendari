@@ -1,7 +1,8 @@
 // Data tables: a semantic <table> with a caption, a sticky header, right-aligned tabular numbers,
 // keyboard-operable sorting (aria-sort), an optional rank column and an optional sticky first
 // column. Views build HTML with tableHtml(spec), put it in the page, then call wireTables(root).
-// Row listeners belong on the container (event delegation): sorting re-renders the rows.
+// Sorting moves the existing rows rather than redrawing the table, so anything a row holds and the
+// focused sort button survive it.
 //
 // spec = {
 //   id,                      unique on the page
@@ -56,18 +57,38 @@ function tableInner(id) {
   const cls = (c) => [c.numeric ? "num" : "", c.className ?? ""].filter(Boolean).join(" ");
   const header = spec.columns.map((c) => {
     const ariaSort = sort && sort.key === c.key ? sort.dir : "none";
-    const label = c.sort
-      ? `<button type="button" class="sort" data-sort="${esc(c.key)}">${c.label}${icon(ariaSort === "ascending" ? "chevron-up" : ariaSort === "descending" ? "chevron-down" : "chevrons")}</button>`
-      : c.label;
+    const label = c.sort ? `<button type="button" class="sort" data-sort="${esc(c.key)}">${c.label}${sortIcon(ariaSort)}</button>` : c.label;
     return `<th scope="col" class="${cls(c)}"${c.sort ? ` aria-sort="${ariaSort}"` : ""}>${label}</th>`;
   }).join("");
   const body = rows.map((row, index) => {
-    const rank = spec.rank ? `<td class="num rank-cell"><span class="rank${index < 3 ? " top" : ""}">${index + 1}</span></td>` : "";
+    const rank = spec.rank ? `<td class="num rank-cell">${rankChip(index)}</td>` : "";
     const cells = spec.columns.map((c) => `<td class="${cls(c)}">${c.cell(row)}</td>`).join("");
-    return `<tr class="${spec.rowClass ? spec.rowClass(row) : ""}" ${spec.rowAttrs ? spec.rowAttrs(row) : ""}>${rank}${cells}</tr>`;
+    return `<tr class="${spec.rowClass ? spec.rowClass(row) : ""}" data-row="${spec.rows.indexOf(row)}" ${spec.rowAttrs ? spec.rowAttrs(row) : ""}>${rank}${cells}</tr>`;
   }).join("");
   const caption = spec.caption ? `<caption>${spec.caption}</caption>` : "";
   return `<table class="data">${caption}<thead><tr>${spec.rank ? `<th scope="col" class="num rank-cell">Rank</th>` : ""}${header}</tr></thead><tbody>${body}</tbody></table>`;
+}
+
+const sortIcon = (ariaSort) => icon(ariaSort === "ascending" ? "chevron-up" : ariaSort === "descending" ? "chevron-down" : "chevrons");
+
+const rankChip = (index) => `<span class="rank${index < 3 ? " top" : ""}">${index + 1}</span>`;
+
+// Put the rendered table in the entry's current order: rows are moved (data-row is the row's index
+// in spec.rows), ranks renumbered, and each header's aria-sort and arrow updated in place.
+function applySort(container, entry) {
+  const tbody = container.querySelector("tbody");
+  const rowElements = new Map([...tbody.rows].map((tr) => [Number(tr.dataset.row), tr]));
+  sortedRows(entry).forEach((row, index) => {
+    const tr = rowElements.get(entry.spec.rows.indexOf(row));
+    tbody.append(tr);
+    if (entry.spec.rank) tr.querySelector(".rank-cell").innerHTML = rankChip(index);
+  });
+  container.querySelectorAll("th[aria-sort]").forEach((th) => {
+    const button = th.querySelector("button[data-sort]");
+    const ariaSort = entry.sort?.key === button.dataset.sort ? entry.sort.dir : "none";
+    th.setAttribute("aria-sort", ariaSort);
+    button.lastElementChild.outerHTML = sortIcon(ariaSort); // the arrow comes after the label
+  });
 }
 
 export function wireTables(root) {
@@ -85,8 +106,7 @@ export function wireTables(root) {
       entry.sort = entry.sort && entry.sort.key === key
         ? { key, dir: entry.sort.dir === "ascending" ? "descending" : "ascending" }
         : { key, dir: first };
-      container.innerHTML = tableInner(container.dataset.table);
-      container.querySelector(`button[data-sort="${CSS.escape(key)}"]`).focus();
+      applySort(container, entry);
     });
     // Edge shadows show that the table scrolls sideways, and under the sticky first column.
     const edges = () => {
