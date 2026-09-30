@@ -318,6 +318,20 @@ jobs:
       - run: uv sync --locked --group docs
       - run: uv run mkdocs build --strict
 
+  quickstart:
+    # The v1.0 exit: a new user goes from the README to their own local validation in under 10
+    # minutes. The commands come from the README itself (scripts/run_quickstart.py), on a clean
+    # runner with no cache.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: false
+      - run: python3 scripts/run_quickstart.py
+
   pilot-check:
     # The v0.6 exit: a pilot organization runs the inbox router with its own identity provider,
     # PHI-safe settings, monitoring and governance approvals. The provider is a real third-party

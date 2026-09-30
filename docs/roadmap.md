@@ -38,8 +38,16 @@ first** (the Hub only matters once it has five strong packs), **LLMs through Ver
   - Da Vinci CRD, DTR and PAS around the PA pack, each validated by the HL7 validator against
     its guide in CI.
 
-Now: **v1.0 Public open-source launch** ([plan](plans/v1.0-public-launch.md); everything
-that doesn't need your go-ahead).
+- **v1.0 Public open-source launch, built** ([plan](plans/v1.0-public-launch.md), #96–#101):
+  - a security review (threat model; dependency audit and an OWASP ZAP scan in CI; headers);
+  - the clinician's authoring guide and `openhealth new`;
+  - the docs site;
+  - the contribution flow with its eval gate, and the community files;
+  - a release workflow, and the README quickstart timed in CI (it finishes well under 10
+    minutes).
+
+Now: **the launch itself**, which waits for your go-ahead: the public repository, the PyPI
+release, the live Hub and the hosted docs site. The overnight log lists what's needed.
 
 ## Where we are against the goal
 
@@ -57,7 +65,7 @@ that doesn't need your go-ahead).
 | Hub: publish / pull / search, publisher types, signed archives, shared site reports, website | ✅ v0.5 (not public yet) | Going public (a public registry and site); datasets and eval suites as first-class entries |
 | Developer experience (`pip install`, `from_hub`, `pull`, container per pack) | Partial | The PyPI release and the first published images (both at a release tag) |
 | Org readiness (auth, tenancy, PHI handling, monitoring) | ✅ v0.6 (off until configured) | A security review before real PHI (v1.0) |
-| Community (contribution flow, verification, public repo) | ❌ | v1.0 |
+| Community (contribution flow, verification, public repo) | ✅ built (v1.0) | The repo going public (your decision) |
 
 ## Milestones
 
@@ -171,7 +179,11 @@ against CRD 2.2.1, DTR 2.2.0 and PAS 2.2.1._
 - **OMOP** CDM → pack inputs, for population-level evaluation.
 - **Da Vinci CRD / DTR / PAS** wired into PA Preflight.
 
-### v1.0 Public open-source launch
+### v1.0 Public open-source launch (built; the launch is yours)
+_Built 2026-09-30 (#96–#101). The security scans, docs build, pack-PR eval gate and README
+quickstart run in CI; `docker compose up` runs in `sandbox-e2e`. Left for the owner: making the
+repository public, the PyPI release (trusted publishing is set up in `release.yml`), and hosting
+the Hub and the docs site._
 - Security review (threat model, dependency audit, API penetration test).
 - A docs site, including a **YAML-first pack-authoring guide for clinicians**.
 - A contribution flow: pack PRs are automatically validated, tested, evaluated and given a card.

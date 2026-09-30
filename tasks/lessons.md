@@ -491,6 +491,10 @@ checked before the next step.
   PR's files.
 - Opening the PR belongs inside the same `if` as the gate. Once (#87) it followed the `if` on
   its own line and opened the PR from the branch's previous push while the gate had failed.
+- Repeated once more (feat/release): a `git rebase` in a `&&` chain stopped on a conflict, and
+  the next commands in the chain ran anyway (`;` separated them), amending HEAD mid-rebase. The
+  rebase was aborted and redone. Run a rebase as its own command, and read `git status` before
+  anything else.
 
 ### Verification
 No PR is opened with a diff that touches files outside its scope. No command runs after a failed

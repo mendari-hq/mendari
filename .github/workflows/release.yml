@@ -1,0 +1,50 @@
+name: release
+
+# A PyPI release by trusted publishing, on a `v*` tag only (the container images are published by
+# the `images` workflow on the same tag). Nothing runs until the owner:
+#   1. adds a trusted publisher on PyPI for this repository, workflow `release.yml`, environment
+#      `pypi`;
+#   2. pushes a tag matching the package version, e.g. `git tag v0.1.0 && git push --tags`.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - name: The tag matches the package version
+        run: test "${GITHUB_REF_NAME#v}" = "$(uv run python -c 'import openhealth; print(openhealth.__version__)')"
+      - run: uv sync --locked && uv run pytest -q
+      - run: uv build
+      - name: The wheel installs and works in a clean environment
+        run: |
+          python3 -m venv /tmp/clean
+          /tmp/clean/bin/pip install --quiet dist/*.whl
+          /tmp/clean/bin/openhealth test openhealth/patient-inbox-router
+          /tmp/clean/bin/openhealth new /tmp/refill-router --id my-clinic/refill-router
+          /tmp/clean/bin/openhealth test /tmp/refill-router
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write  # trusted publishing: no API token is stored anywhere
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@v1.14.2
