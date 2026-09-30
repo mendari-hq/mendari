@@ -5,7 +5,7 @@ import { feedbackControls, myRating } from "./feedback.js";
 import { criteriaTable, derivedPrimary, inputView } from "./pack.js";
 import { route, views, wire } from "./router.js";
 import { tableHtml } from "./table.js";
-import { $, api, esc, icon, num, outcomeBadge, OUTCOMES, outcomeText, pct, priorityBadge, shortTime, state, storageGet, storageSet, time, toastError, zoneShort } from "./ui.js";
+import { $, api, esc, icon, may, num, outcomeBadge, OUTCOMES, outcomeText, pct, priorityBadge, shortTime, state, storageGet, storageSet, time, toastError, zoneShort } from "./ui.js";
 
 const PRIORITY_RANK = { stat: 0, asap: 1, urgent: 2, routine: 3 };
 
@@ -118,7 +118,7 @@ async function openRecord(id) {
       ${r.fallback ? `<p class="mt-3"><b>Fallback:</b> ${esc(r.fallback)}</p>` : ""}
       ${r.reasons?.length ? `<ul class="reasons">${r.reasons.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
       ${derivedPrimary() ? `<h3>Criteria</h3>${criteriaTable(r.answers)}` : ""}
-      <h3>Was this right?</h3>${feedbackControls(r, myRating(found.events))}
+      ${may("review") ? `<h3>Was this right?</h3>${feedbackControls(r, myRating(found.events))}` : ""}
       <h3>Events</h3>${timeline(found.events)}
       <details><summary>Full record (JSON)</summary><pre class="json">${esc(JSON.stringify(r, null, 2))}</pre></details>`,
   });

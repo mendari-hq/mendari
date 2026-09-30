@@ -26,13 +26,14 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 
 from openhealth import __version__, guard, settings
-from openhealth.core import clock
+from openhealth.core import clock, tenancy
 from openhealth.core.audit import AuditStore
 from openhealth.core.card import benchmark, render_card
 from openhealth.core.decision import CallBudget, Decision
 from openhealth.core.pack import Pack
 from openhealth.core.registry import discover, version_key
 from openhealth.errors import (
+    AuthError,
     FhirError,
     OpenHealthError,
     PackNotFoundError,
@@ -46,6 +47,7 @@ from openhealth.evals.harness import Dataset
 from openhealth.evals.pack_tests import load_cases
 from openhealth.providers import jev, llm
 from openhealth.providers.credentials import key_source
+from openhealth.server.auth import Auth, add_auth_routes, auth_settings
 from openhealth.server.smart_routes import add_smart_routes, error_page
 from openhealth.settings import FhirValidation, providers_for
 from openhealth.standards import audit_fhir, cds_hooks
@@ -107,6 +109,13 @@ REMOTE_EVAL_LIMIT = 200
 REMOTE_EVAL_WORKERS = 8
 
 
+def acting_as(request: Request, claimed: str | None) -> str | None:
+    """Who a review or rating is recorded for: with sign-in on, the signed-in person or API key,
+    whatever the request body says; in open mode, the name the client gives."""
+    principal = getattr(request.state, "principal", None)
+    return principal.name if principal is not None and principal.kind != "open" else claimed
+
+
 def create_app(
     *,
     db_path: str | Path = "var/openhealth.db",
@@ -121,7 +130,9 @@ def create_app(
     validation = fhir_validation or settings.fhir_validation()  # likewise
     fhir_servers = sorted(allowed_servers())  # likewise
     smart_options = smart_settings()
+    sign_in = auth_settings()  # an invalid sign-in setting fails here, at startup
     store = AuditStore(db_path, migrate_url=migrate_url)
+    auth = Auth(sign_in, store)
     budget = CallBudget(store, budget_limits) if budget_limits else None
     found = discover(packs_paths)
     packs: dict[str, Pack] = {}
@@ -178,9 +189,9 @@ def create_app(
     @app.exception_handler(OpenHealthError)
     async def _error(request: Request, error: OpenHealthError) -> Response:
         status = next((code for kind, code in _STATUS.items() if isinstance(error, kind)), 400)
-        if isinstance(error, SmartError):
+        if isinstance(error, SmartError | AuthError):
             status = error.status
-        if request.url.path.startswith("/smart/"):
+        if request.url.path.startswith(("/smart/", "/auth/")):
             return error_page(str(error), status)
         return JSONResponse({"error": type(error).__name__, "detail": str(error)}, status)
 
@@ -200,6 +211,7 @@ def create_app(
             # FHIR servers this deployment may read from (CDS Hooks fetch); empty: none.
             "fhir_allowed_servers": fhir_servers,
             "smart_launch": smart_options is not None,
+            "sign_in": auth.enabled,
             "providers": {
                 pack_id: {
                     slot: info.variant for slot, info in decision_for(pack_id).provider_info.items()
@@ -323,11 +335,11 @@ def create_app(
         return store.pending_reviews(pack_id, limit=min(limit, 500))
 
     @app.post("/api/review/{decision_id}")
-    def resolve(decision_id: str, request: ReviewRequest) -> dict[str, Any]:
+    def resolve(decision_id: str, request: ReviewRequest, http: Request) -> dict[str, Any]:
         return store.resolve_review(
             decision_id,
             final_label=request.final_label,
-            reviewer=request.reviewer,
+            reviewer=acting_as(http, request.reviewer) or "",
             note=request.note,
         )
 
@@ -387,11 +399,11 @@ def create_app(
         return {"id": decision_id, "final_label": request.final_label}
 
     @app.post("/api/audit/{decision_id}/feedback")
-    def give_feedback(decision_id: str, request: FeedbackRequest) -> dict[str, Any]:
+    def give_feedback(decision_id: str, request: FeedbackRequest, http: Request) -> dict[str, Any]:
         return store.record_feedback(
             decision_id,
             rating=request.rating,
-            reporter=request.reporter,
+            reporter=acting_as(http, request.reporter),
             note=request.note,
             expected=request.expected.model_dump() if request.expected else None,
         )
@@ -440,6 +452,21 @@ def create_app(
 
     page = versioned_dashboard()
 
+    @app.middleware("http")
+    async def _guard(request: Request, call_next: Any) -> Response:
+        """Every request passes the sign-in guard (a no-op in open mode)."""
+        try:
+            refused = auth.check(request)
+        except AuthError as error:
+            return JSONResponse({"error": "AuthError", "detail": str(error)}, error.status)
+        if refused is not None:
+            return refused
+        principal = getattr(request.state, "principal", None)
+        with tenancy.acting_for(principal.org if principal and principal.kind != "open" else None):
+            response: Response = await call_next(request)
+        return response
+
+    add_auth_routes(app, auth)
     add_smart_routes(
         app,
         settings=smart_options,

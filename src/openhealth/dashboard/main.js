@@ -29,7 +29,10 @@ async function boot() {
     state.timezone = health?.timezone ?? DEFAULT_TIMEZONE;
   } catch { /* an unknown zone name: keep the default */ }
   // A SMART launch from the EHR leaves a session: the patient's view joins the sections.
-  const [session, packs] = await Promise.all([api("/api/smart/session").catch(() => null), api("/api/packs")]);
+  const [session, packs, me] = await Promise.all([
+    api("/api/smart/session").catch(() => null), api("/api/packs"), api("/api/auth/me").catch(() => null),
+  ]);
+  showSignedIn(me);
   state.smart = session?.active ? session : null;
   $('.nav a[data-view="patient"]').hidden = !state.smart;
   state.packs = packs;
@@ -69,6 +72,19 @@ async function switchPack(packId) {
   storageSet("oh.pack", packId);
   history.replaceState(history.state, "", `?pack=${encodeURIComponent(packId).replaceAll("%2F", "/")}${location.hash}`);
   await loadPack(packId);
+}
+
+// With sign-in on, the bar names who is signed in (and their role) and offers signing out.
+function showSignedIn(me) {
+  state.me = me?.principal ?? null;
+  const box = $("#signed-in");
+  box.hidden = !me?.signed_in;
+  if (!me?.signed_in) return;
+  $("#signed-in-name").textContent = `${me.principal.name} · ${me.principal.roles.join(", ")}`;
+  $("#sign-out").addEventListener("click", async () => {
+    await api("/auth/logout", { method: "POST" }).catch(() => null);
+    location.assign("/auth/login");
+  });
 }
 
 boot().catch((error) => {

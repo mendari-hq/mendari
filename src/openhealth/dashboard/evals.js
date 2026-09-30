@@ -4,7 +4,7 @@ import { leaderboardView, wireLeaderboard } from "./leaderboard.js";
 import { providerWords, remoteModels } from "./pack.js";
 import { reportView } from "./report.js";
 import { views, wire } from "./router.js";
-import { $, announce, api, emptyState, esc, packPath, reducedMotion, slotText, state, time, toastError, whileBusy } from "./ui.js";
+import { $, announce, api, emptyState, esc, may, packPath, reducedMotion, slotText, state, time, toastError, whileBusy } from "./ui.js";
 
 const evalsState = { reports: [] };
 
@@ -73,6 +73,10 @@ function showEvalsTab(requested) {
 }
 
 async function showRunTab(body, empty) {
+  if (!may("evaluate")) {
+    body.innerHTML = empty("Running an evaluation is for administrators. The published benchmark and past runs are on the other tabs.");
+    return;
+  }
   const datasets = await api(`${packPath()}/datasets`);
   if (body.dataset.tab !== "run") return;
   const preselected = datasets.find((d) => d.name.includes("local-site")) ?? datasets[0];

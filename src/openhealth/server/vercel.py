@@ -19,6 +19,9 @@ Configuration comes from the environment:
 - `OPENHEALTH_SMART_CLIENT_ID` (enables the SMART EHR launch), `OPENHEALTH_SMART_CLIENT_SECRET`
   (confidential clients), `OPENHEALTH_SMART_SCOPES`, `OPENHEALTH_PUBLIC_URL` (this deployment's
   public origin, for the redirect URI).
+- `OPENHEALTH_OIDC_ISSUER`, `OPENHEALTH_OIDC_CLIENT_ID` (switch on sign-in; unset: open, behind
+  Vercel Authentication), `OPENHEALTH_OIDC_CLIENT_SECRET`, `OPENHEALTH_OIDC_ROLE_CLAIM`,
+  `OPENHEALTH_OIDC_ROLE_MAP`, `OPENHEALTH_OIDC_ORG_CLAIM`.
 - `LLM_MODEL`: default model for `llm` variants (AI Gateway id, e.g. anthropic/claude-sonnet-5).
 - `JEV_API_URL`, `JEV_MODEL`, `JEV_CONNECTOR`: see `openhealth.providers.jev`.
 """

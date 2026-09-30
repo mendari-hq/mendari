@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import secrets
 import statistics
 import time
 import uuid
@@ -20,7 +21,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-from openhealth.core import clock
+from openhealth.core import clock, tenancy
 from openhealth.core.db import Backend as _Backend
 from openhealth.core.db import Session as _Session
 from openhealth.core.db import connect
@@ -54,7 +55,8 @@ CREATE TABLE IF NOT EXISTS decisions (
     final_label     TEXT,
     human_override  INTEGER,
     reviewer        TEXT,
-    resolved_at     TEXT
+    resolved_at     TEXT,
+    org             TEXT
 );
 CREATE INDEX IF NOT EXISTS decisions_queue ON decisions (review_status, priority, created_at);
 CREATE INDEX IF NOT EXISTS decisions_pack ON decisions (pack_id, created_at);
@@ -72,7 +74,8 @@ CREATE TABLE IF NOT EXISTS eval_reports (
     created_at  TEXT NOT NULL,
     pack_id     TEXT NOT NULL,
     dataset     TEXT NOT NULL,
-    report      TEXT NOT NULL
+    report      TEXT NOT NULL,
+    org         TEXT
 );
 CREATE TABLE IF NOT EXISTS provider_usage (
     day         TEXT NOT NULL,
@@ -94,6 +97,16 @@ CREATE TABLE IF NOT EXISTS feedback (
 );
 CREATE INDEX IF NOT EXISTS feedback_pack ON feedback (pack_id, rating, created_at);
 CREATE INDEX IF NOT EXISTS feedback_decision ON feedback (decision_id);
+CREATE TABLE IF NOT EXISTS api_keys (
+    id          TEXT PRIMARY KEY,
+    key_sha256  TEXT NOT NULL UNIQUE,
+    name        TEXT NOT NULL,
+    role        TEXT NOT NULL,
+    org         TEXT NOT NULL,
+    created_by  TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    revoked_at  TEXT
+);
 CREATE TABLE IF NOT EXISTS smart_sessions (
     key_sha256  TEXT PRIMARY KEY,
     kind        TEXT NOT NULL,
@@ -108,6 +121,8 @@ _ADDED_COLUMNS = (
     ("feedback", "expected_question", "TEXT"),
     ("feedback", "expected_label", "TEXT"),
     ("feedback", "superseded_by", "TEXT"),
+    ("decisions", "org", "TEXT"),  # tenancy (v0.6); NULL is the default organization
+    ("eval_reports", "org", "TEXT"),
 )
 
 _PRIORITY_ORDER = (
@@ -194,7 +209,7 @@ class AuditStore:
             db.all(
                 "INSERT INTO decisions (id, created_at, pack_id, pack_version, outcome, "
                 "recommendation, priority, confidence, latency_ms, cost_usd, record, "
-                "review_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "review_status, org) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     result.id,
                     result.created_at,
@@ -208,6 +223,7 @@ class AuditStore:
                     result.cost_usd,
                     _canonical(record),
                     status,
+                    tenancy.current() or tenancy.DEFAULT_ORG,
                 ),
             )
             self._append(db, result.id, "decision.created", {"record_sha256": _sha(record)})
@@ -219,7 +235,10 @@ class AuditStore:
         if not reviewer.strip():
             raise ReviewError("a reviewer identity is required")
         with self._db.session(exclusive=True) as db:
-            row = db.one("SELECT * FROM decisions WHERE id = ?", (decision_id,))
+            scope, scoped = _scope()
+            row = db.one(
+                f"SELECT * FROM decisions d WHERE id = ? AND {scope}", (decision_id, *scoped)
+            )
             if row is None:
                 raise ReviewError(f"unknown decision {decision_id}")
             if row["review_status"] != "pending":
@@ -256,7 +275,11 @@ class AuditStore:
         """Downstream ground truth for a decision that was not reviewed (e.g. staff re-routed an
         AUTO message). Feeds live accuracy and drift monitoring."""
         with self._db.session(exclusive=True) as db:
-            row = db.one("SELECT review_status FROM decisions WHERE id = ?", (decision_id,))
+            scope, scoped = _scope()
+            row = db.one(
+                f"SELECT review_status FROM decisions d WHERE id = ? AND {scope}",
+                (decision_id, *scoped),
+            )
             if row is None:
                 raise ReviewError(f"unknown decision {decision_id}")
             if row["review_status"] == "pending":
@@ -291,7 +314,11 @@ class AuditStore:
         feedback_id = str(uuid.uuid4())
         created_at = _now()
         with self._db.session(exclusive=True) as db:
-            row = db.one("SELECT pack_id, record FROM decisions WHERE id = ?", (decision_id,))
+            scope, scoped = _scope()
+            row = db.one(
+                f"SELECT pack_id, record FROM decisions d WHERE id = ? AND {scope}",
+                (decision_id, *scoped),
+            )
             if row is None:
                 raise ReviewError(f"unknown decision {decision_id}")
             answer = (
@@ -336,14 +363,15 @@ class AuditStore:
     def save_report(self, report: Mapping[str, Any]) -> None:
         with self._db.session(exclusive=False) as db:
             db.all(
-                "INSERT INTO eval_reports (id, created_at, pack_id, dataset, report) "
-                "VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO eval_reports (id, created_at, pack_id, dataset, report, org) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
                 (
                     report["id"],
                     report["created_at"],
                     report["pack"]["id"],
                     report["dataset"]["name"],
                     _canonical(report),
+                    tenancy.current() or tenancy.DEFAULT_ORG,
                 ),
             )
 
@@ -389,8 +417,11 @@ class AuditStore:
     # -- reads ----------------------------------------------------------------------------
 
     def get(self, decision_id: str) -> dict[str, Any] | None:
+        scope, scoped = _scope()
         with self._db.session(exclusive=False) as db:
-            row = db.one("SELECT * FROM decisions WHERE id = ?", (decision_id,))
+            row = db.one(
+                f"SELECT * FROM decisions d WHERE id = ? AND {scope}", (decision_id, *scoped)
+            )
             if row is None:
                 return None
             events = db.all(
@@ -411,7 +442,8 @@ class AuditStore:
         limit: int = 50,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
-        clauses, params = [], []
+        scope, scoped = _scope()
+        clauses, params = [scope], list(scoped)
         for column, value in (
             ("pack_id", pack_id),
             ("outcome", outcome),
@@ -420,7 +452,7 @@ class AuditStore:
             if value is not None:
                 clauses.append(f"{column} = ?")
                 params.append(value)
-        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        where = f"WHERE {' AND '.join(clauses)}"
         order = (
             f"{_PRIORITY_ORDER}, created_at" if review_status == "pending" else "created_at DESC"
         )
@@ -448,8 +480,9 @@ class AuditStore:
     ) -> list[dict[str, Any]]:
         """Chained events in order, each with its decision's pack and record, for exports. Pages
         by `after_seq` (the last `seq` returned); `since` / `until` bound `created_at` (ISO)."""
-        clauses: list[str] = ["e.seq > ?"]
-        params: list[Any] = [after_seq]
+        scope, scoped = _scope()
+        clauses: list[str] = ["e.seq > ?", scope]
+        params: list[Any] = [after_seq, *scoped]
         for clause, value in (
             ("d.pack_id = ?", pack_id),
             ("e.created_at >= ?", since),
@@ -511,6 +544,46 @@ class AuditStore:
         with self._db.session(exclusive=True) as db:
             db.all("DELETE FROM smart_sessions WHERE key_sha256 = ?", (_key(key),))
 
+    # -- API keys (server/auth.py) --------------------------------------------------------------
+
+    def create_api_key(self, *, name: str, role: str, org: str, created_by: str) -> dict[str, Any]:
+        """A new key; its secret is in the result and nowhere else (stored as SHA-256)."""
+        secret = "ohk_" + secrets.token_urlsafe(32)
+        key_id = secrets.token_hex(6)
+        with self._db.session(exclusive=True) as db:
+            db.all(
+                "INSERT INTO api_keys (id, key_sha256, name, role, org, created_by, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (key_id, _key(secret), name, role, org, created_by, _now()),
+            )
+        return {"id": key_id, "name": name, "role": role, "org": org, "key": secret}
+
+    def api_keys(self, org: str | None = None) -> list[dict[str, Any]]:
+        where, params = ("WHERE org = ?", (org,)) if org else ("", ())
+        with self._db.session(exclusive=False) as db:
+            return db.all(
+                "SELECT id, name, role, org, created_by, created_at, revoked_at FROM api_keys "
+                f"{where} ORDER BY created_at",
+                params,
+            )
+
+    def api_key(self, secret: str) -> dict[str, Any] | None:
+        """The key a secret belongs to, unless it was revoked."""
+        with self._db.session(exclusive=False) as db:
+            return db.one(
+                "SELECT id, name, role, org FROM api_keys "
+                "WHERE key_sha256 = ? AND revoked_at IS NULL",
+                (_key(secret),),
+            )
+
+    def revoke_api_key(self, key_id: str, org: str | None = None) -> bool:
+        with self._db.session(exclusive=True) as db:
+            row = db.one("SELECT org FROM api_keys WHERE id = ? AND revoked_at IS NULL", (key_id,))
+            if row is None or (org and row["org"] != org):
+                return False
+            db.all("UPDATE api_keys SET revoked_at = ? WHERE id = ?", (_now(), key_id))
+        return True
+
     def iter_events(self, **filters: Any) -> Iterator[dict[str, Any]]:
         """Every event `events()` matches, page by page, without loading the whole chain."""
         after = 0
@@ -522,18 +595,20 @@ class AuditStore:
         return self.query(pack_id=pack_id, review_status="pending", limit=limit)
 
     def stats(self, pack_id: str | None = None) -> dict[str, Any]:
-        where, params = ("WHERE pack_id = ?", (pack_id,)) if pack_id else ("", ())
+        scope, scoped = _scope()
+        packs = ("AND d.pack_id = ?", (pack_id,)) if pack_id else ("", ())
+        params = (*scoped, *packs[1])
         with self._db.session(exclusive=False) as db:
             rows = db.all(
                 "SELECT outcome, recommendation, final_label, human_override, review_status, "
-                f"latency_ms, cost_usd, created_at FROM decisions {where}",
+                f"latency_ms, cost_usd, created_at FROM decisions d WHERE {scope} {packs[0]}",
                 params,
             )
             # Each person's current rating: a changed rating counts once, as its latest value.
-            fb_pack = "AND f.pack_id = ?" if pack_id else ""
             ratings = db.all(
                 "SELECT f.rating, f.expected_label, d.outcome FROM feedback f "
-                f"JOIN decisions d ON d.id = f.decision_id WHERE f.superseded_by IS NULL {fb_pack}",
+                "JOIN decisions d ON d.id = f.decision_id "
+                f"WHERE f.superseded_by IS NULL AND {scope} {packs[0]}",
                 params,
             )
         total = len(rows)
@@ -605,7 +680,8 @@ class AuditStore:
     ) -> list[dict[str, Any]]:
         """Current feedback (each person's latest rating of a decision), newest first, each with
         the decision it rates and the right answer if the rating gave one."""
-        clauses, params = ["f.superseded_by IS NULL"], []
+        scope, scoped = _scope()
+        clauses, params = ["f.superseded_by IS NULL", scope], list(scoped)
         for column, value in (("f.pack_id", pack_id), ("f.rating", rating)):
             if value is not None:
                 clauses.append(f"{column} = ?")
@@ -622,10 +698,13 @@ class AuditStore:
         return [_feedback_item(row) for row in rows]
 
     def reports(self, pack_id: str | None = None) -> list[dict[str, Any]]:
-        where, params = ("WHERE pack_id = ?", (pack_id,)) if pack_id else ("", ())
+        scope, scoped = _scope()
+        packs = ("AND pack_id = ?", (pack_id,)) if pack_id else ("", ())
         with self._db.session(exclusive=False) as db:
             rows = db.all(
-                f"SELECT report FROM eval_reports {where} ORDER BY created_at DESC", params
+                f"SELECT report FROM eval_reports d WHERE {scope} {packs[0]} "
+                "ORDER BY created_at DESC",
+                (*scoped, *packs[1]),
             )
         return [json.loads(row["report"]) for row in rows]
 
@@ -686,6 +765,15 @@ def _feedback_item(row: Mapping[str, Any]) -> dict[str, Any]:
         else None
     )
     return item
+
+
+def _scope() -> tuple[str, tuple[str, ...]]:
+    """The SQL condition (on the table aliased `d`) that keeps a query to the organization this
+    request acts for; nothing in open mode. Rows from before tenancy belong to the default one."""
+    org = tenancy.current()
+    if org is None:
+        return "1 = 1", ()
+    return "COALESCE(d.org, ?) = ?", (tenancy.DEFAULT_ORG, org)
 
 
 def _key(secret: str) -> str:

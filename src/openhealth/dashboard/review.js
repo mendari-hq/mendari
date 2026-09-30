@@ -2,7 +2,7 @@
 
 import { criteriaTable, inputView } from "./pack.js";
 import { refreshReviewCount, views } from "./router.js";
-import { $, announce, api, emptyState, esc, focusHeading, icon, outcomeBadge, pct, PRIORITY_TEXT, priorityBadge, reducedMotion, state, storageGet, storageSet, time, toast, toastError } from "./ui.js";
+import { $, announce, api, emptyState, esc, focusHeading, icon, may, outcomeBadge, pct, PRIORITY_TEXT, priorityBadge, reducedMotion, signedIn, state, storageGet, storageSet, time, toast, toastError } from "./ui.js";
 
 const PRIORITIES = ["stat", "asap", "urgent", "routine"];
 
@@ -17,7 +17,9 @@ views.review = async (main) => {
     <p class="muted">Decisions waiting for a person, most urgent first.</p>
     <div class="row toolbar">
       <label for="reviewer">Reviewer</label>
-      <input id="reviewer" value="${esc(storageGet("oh.reviewer", "sandbox-nurse"))}" autocomplete="name">
+      ${signedIn()
+        ? `<input id="reviewer" value="${esc(state.me.name)}" readonly title="Reviews are recorded for whoever is signed in">`
+        : `<input id="reviewer" value="${esc(storageGet("oh.reviewer", "sandbox-nurse"))}" autocomplete="name">`}
       <span class="grow"></span>
       <span id="queue-counts" class="queue-counts" aria-live="polite">${queueCounts(items)}</span>
     </div>
@@ -175,10 +177,10 @@ function reviewCard(item) {
     ${inputView(record.input)}
     <ul class="reasons">${record.reasons.filter((r) => item.priority !== "stat" || !r.startsWith("rule ")).map((r) => `<li>${esc(r)}</li>`).join("")}</ul>
     ${criteriaTable(record.answers)}
-    <div class="labels">
+    ${may("review") ? `<div class="labels">
       ${recommendation ? `<button type="button" class="primary" data-label="${esc(recommendation)}">${icon("check")} Confirm ${esc(recommendation)}</button>
         <span class="muted">or choose another label:</span>` : `<span class="muted">Choose the right label:</span>`}
       ${labels.filter((l) => l !== recommendation).map((l) => `<button type="button" data-label="${esc(l)}">${esc(l)}</button>`).join("")}
-    </div>
+    </div>` : `<p class="muted">Resolving is for reviewers; your role can read the queue.</p>`}
   </article>`;
 }

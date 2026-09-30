@@ -5,7 +5,7 @@ Roadmap to the full goal: [`docs/roadmap.md`](../docs/roadmap.md).
 ## Current: v0.6 Readiness for health organizations ([plan](../docs/plans/v0.6-org-readiness.md))
 Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 - [x] Plan
-- [ ] OIDC login, roles and API keys; tenancy
+- [x] OIDC login, roles and API keys; tenancy
 - [ ] Deployments and governance approvals
 - [ ] Monitoring: observed accuracy, overrides, drift, alerts; Monitoring view
 - [ ] PHI mode (hash / encrypt), retention, input reads logged; deployment guide
