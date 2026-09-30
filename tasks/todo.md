@@ -50,7 +50,18 @@ phase (A, B, C) to be done and merged when CI passes.
   - [x] A transition from skeleton to content (the view fades in where its skeleton was)
   - [x] Fewer whole-subtree re-renders: sorting moves rows instead of redrawing the table
 
-## Current: v0.4 Healthcare standards ([plan](../docs/plans/v0.4-healthcare-standards.md))
+## Current: v0.5 The Hub ([plan](../docs/plans/v0.5-the-hub.md))
+- [x] Plan
+- [ ] Shared database layer (`core/db.py`)
+- [ ] Signed pack archives and publisher keys
+- [ ] Registry service (namespaces, publisher types, keys, immutable versions, search)
+- [ ] CLI login / push / pull / search; `Decision.from_hub` from the registry
+- [ ] Shareable local-validation reports
+- [ ] Hub website (Next.js)
+- [ ] End to end: five packs published, clean-venv install and pull (CI)
+- [ ] Going public: a public registry, the site and the PyPI release (the user's decision; logged)
+
+## Done: v0.4 Healthcare standards ([plan](../docs/plans/v0.4-healthcare-standards.md))
 Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 - [x] Plan
 - [x] US Core validation of FHIR inputs (warn by default, enforce on request; HL7 validator in CI)
@@ -62,7 +73,7 @@ Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
   - [x] Dashboard "This patient" view
   - [x] Sandbox launcher (smart-launcher-v2) and a scripted launch; CI job `sandbox-e2e`
 - [x] Bulk FHIR `$export` into local-validation datasets (backend services auth; `openhealth sandbox bulk-check` in CI)
-- [ ] End-to-end exit checks in CI; docs
+- [x] End-to-end exit checks in CI (`sandbox-e2e`); docs
 
 ## Open items outside a milestone
 - [ ] Harder inbox benchmark: paraphrased messages and held-out splits for every critical label,

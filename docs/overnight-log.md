@@ -26,7 +26,8 @@ the production-deploy check and the four "small remaining gaps" under "What an A
 | [#71](https://github.com/Junebugg1214/openhealth-hub/pull/71) | SMART on FHIR EHR launch: backend (PKCE, OIDC, server-side sessions, patient context) | v0.4 item 5, part 1 of 3 | Green; one follow-up commit before merge (`/api/smart/session` answers `{"active": false}` instead of 401, found while building the view); preview checked (SMART off: inactive, launch 404); merged |
 | [#72](https://github.com/Junebugg1214/openhealth-hub/pull/72) | Dashboard: This patient, after a SMART launch from the EHR | v0.4 item 5, part 2 of 3 | Red once (a real dashboard race exposed by the new boot request, plus a racy skeleton test); fixed at the root with a regression test, then green; preview checked; merged |
 | [#73](https://github.com/Junebugg1214/openhealth-hub/pull/73) | Sandbox: SMART launcher and a scripted EHR launch (CI job sandbox-e2e) | v0.4 item 5, part 3 of 3 (and the SMART half of item 7) | Green, including the new `sandbox-e2e` job (the SMART exit, proven in CI); rebased after #72 (log and todo only), green again; merged |
-| pending | Bulk FHIR $export into local-validation datasets (and the Bulk exit in sandbox-e2e) | v0.4 item 6 (and the Bulk half of item 7) | pending |
+| [#74](https://github.com/Junebugg1214/openhealth-hub/pull/74) | Bulk FHIR $export into local-validation datasets | v0.4 item 6 (and the Bulk half of item 7) | Green first time, including `sandbox-e2e` with `bulk-check` (the Bulk exit, proven in CI); merged. **v0.4 done.** |
+| pending | v0.4 done; v0.5 plan | v0.4 closeout, v0.5 planning step | pending |
 
 ## Decisions made on your behalf
 
@@ -144,6 +145,10 @@ the production-deploy check and the four "small remaining gaps" under "What an A
   encrypt them with until v0.6's PHI mode; this is noted in the architecture's trust boundaries.
 - **A new dependency, `pyjwt[crypto]` (>=2.10.1,<3; 2.15.1 locked)**, verifies SMART `id_token`s.
   The roadmap's OAuth 2 / OIDC calls for it, and it will sign the Bulk backend-services assertion.
+- **v0.5 is built and verified locally and in CI. It is not made public.** A public registry,
+  the public Hub site and a PyPI release need production signing keys and credentials, and they
+  make the project public. That can't be undone, and the launch belongs with the v1.0 security
+  review. It's logged under "Skipped or blocked" with what's needed.
 - **Every new v0.4 capability is off until configured**, and no production environment variable
   is changed. Production has no login of its own until v0.6, so outbound FHIR calls and SMART
   stay disabled there.
@@ -156,6 +161,14 @@ the production-deploy check and the four "small remaining gaps" under "What an A
   a designed mark), usability sessions with clinicians and evaluators, production-scale data,
   and a VoiceOver/NVDA, Safari/Firefox and real-device pass. These need people, devices or a
   designer.
+- **Going public (v0.5 exit, v1.0 launch):** a publicly reachable registry, the public Hub
+  website and the PyPI release of `openhealth`. The code, CI and a local end-to-end check are
+  built. What's needed from you:
+  - the go-ahead to make the project public;
+  - a PyPI account or token (trusted publishing from GitHub Actions is the recommended route);
+  - the production registry's admin token and the `openhealth` namespace's signing key, created
+    and stored as Vercel secrets;
+  - a decision on whether the registry and site sit outside Vercel Authentication.
 
 ## Final state
 

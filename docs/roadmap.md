@@ -13,9 +13,14 @@ v0.1 is done and running in production on Vercel. Decisions for what follows: **
 first** (the Hub only matters once it has five strong packs), **LLMs through Vercel AI Gateway**
 (OIDC, no stored keys), and a **public open-source launch at v1.0**.
 
-**Progress (2026-09-29):** v0.1 ✅, v0.2 ✅, v0.3 ✅, and the dashboard redesign
-([plan](ui-ux-review.md), 8 PRs) ✅, then the design grade phases A–C (C+ → B+). Now: **v0.4
-Healthcare standards** ([plan](plans/v0.4-healthcare-standards.md)).
+**Progress (2026-09-30):**
+- v0.1 ✅, v0.2 ✅, v0.3 ✅;
+- the dashboard redesign ([plan](ui-ux-review.md), 8 PRs) ✅, then the design grade phases A–C
+  (C+ → B+);
+- **v0.4 Healthcare standards ✅** ([plan](plans/v0.4-healthcare-standards.md), #66–#74): both
+  exits run in CI on every change (`sandbox-e2e`).
+
+Now: **v0.5 The Hub** ([plan](plans/v0.5-the-hub.md)).
 
 ## Where we are against the goal
 
@@ -26,8 +31,8 @@ Healthcare standards** ([plan](plans/v0.4-healthcare-standards.md)).
 | Providers: rules, naive Bayes, Jev, LLMs (Vercel AI Gateway; OpenAI-compatible local models), criteria, dosing; `any_of`, `cascade`, `vote` | ✅ | **CQL** (v0.7) |
 | Reference packs | ✅ 5 of 5 | A harder, clinician-reviewed benchmark |
 | Evaluation (accuracy, calibration, abstention, false automation, overrides, latency, cost, subgroups) + local validation + provider leaderboards for every pack | ✅ | Drift over time, multi-site comparison, a harder benchmark |
-| Audit trail (hash chain), review queue, feedback (right / wrong, with the right answer, changeable) | ✅ | FHIR AuditEvent/Provenance export (v0.4) |
-| FHIR R4, CDS Hooks (prefetch only; `order-sign`, `patient-view`, message hook), synthetic sandbox (HAPI) | Partial | US Core validation, SMART on FHIR, Bulk FHIR, OAuth/OIDC, CDS Hooks fetch (v0.4); later CQL, OMOP, Da Vinci CRD/DTR/PAS |
+| Audit trail (hash chain), review queue, feedback (right / wrong, with the right answer, changeable), FHIR AuditEvent/Provenance export | ✅ | Monitoring and drift over time (v0.6) |
+| FHIR R4 with US Core 6.1.0 checks, CDS Hooks (prefetch, or fetch from allow-listed servers), SMART on FHIR EHR launch (OAuth 2 PKCE, OIDC), Bulk FHIR `$export` into local datasets, synthetic sandbox (HAPI, SMART launcher) | ✅ v0.4 | CQL, OMOP, Da Vinci CRD/DTR/PAS (v0.7) |
 | Decision Cards | ✅ | Validation history, hub-hosted cards |
 | Dashboard (every pack; review, audit, evaluations, feedback, card, Try it; both themes; keyboard and accessibility-tree checked) | ✅ redesigned | A VoiceOver check; roles (v0.6) |
 | Hub: publish / pull / search, publisher types, datasets, eval suites, benchmarks | ❌ | The whole registry and website |
@@ -86,7 +91,10 @@ benchmark, a Decision Card, a FHIR mapping and a CDS Hook.
 - **Exit:** all five packs pass tests, benchmarks and held-out safety sets, and run through the
   same runtime, API, dashboard (multi-pack) and deployment.
 
-### v0.4 Healthcare standards
+### v0.4 Healthcare standards ✅
+_Done 2026-09-30 (#66–#74). Both exits run in CI on every change: a scripted SMART launch of the
+inbox and referral packs against HAPI and the SMART launcher, and a Bulk export whose evaluation
+must be identical to the same cases read from the dataset file._
 - US Core profile validation of FHIR inputs; audit export as FHIR AuditEvent + Provenance.
 - **SMART on FHIR** EHR launch (the dashboard opens in patient/encounter context), using
   **OAuth 2 / OpenID Connect**.
