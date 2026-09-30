@@ -19,7 +19,8 @@ the production-deploy check and the four "small remaining gaps" under "What an A
 | [#64](https://github.com/Junebugg1214/openhealth-hub/pull/64) | A view fades in where its skeleton was | Small gap: "a view transition from skeleton to content"; category 9 | Green first time; preview checked; merged |
 | [#65](https://github.com/Junebugg1214/openhealth-hub/pull/65) | Sorting moves the rows instead of redrawing the table | Small gap: "fewer whole-subtree re-renders"; category 10 | Green first time; preview checked; merged |
 | [#66](https://github.com/Junebugg1214/openhealth-hub/pull/66) | v0.4 plan | v0.4 planning step | Green; merged (the API answered 502 on merge, the merge had gone through; the branch was deleted by hand) |
-| pending | US Core validation of FHIR inputs | v0.4 item 1 | pending |
+| [#67](https://github.com/Junebugg1214/openhealth-hub/pull/67) | US Core 6.1.0 validation of FHIR inputs (warn by default, enforce on request) | v0.4 item 1 | Green first time, including the new `fhir-conformance` job; preview checked with a real FHIR decision on Vercel (profile data loads, issues returned); merged |
+| pending | Audit export as FHIR AuditEvent and Provenance | v0.4 item 2 | pending |
 
 ## Decisions made on your behalf
 
@@ -66,6 +67,13 @@ the production-deploy check and the four "small remaining gaps" under "What an A
   the validator too, so `enforce` can never block what US Core accepts.
 - **`warn` is the default.** It changes no outcome and only adds `input_issues` (paths, no
   values) to the response and the audit record. `enforce` is opt-in.
+- **Provenance activities use R4's own value set** (v3-DataOperation `CREATE` / `UPDATE`) instead
+  of the iso-21089 lifecycle codes named in the plan, so they bind cleanly in R4. Confirming a
+  review makes the reviewer a `verifier`; overriding makes them an `author`.
+- **The audit export leaves free text out.** Review and feedback notes stay in the store, and the
+  input is referred to by its hash. Each AuditEvent carries `seq`, `prev_hash` and `hash`, so the
+  chain's linkage survives export and each hash can be checked against the store. The chain can't
+  be recomputed from the export alone, since that needs the payloads, which may hold notes.
 - **Every new v0.4 capability is off until configured**, and no production environment variable
   is changed. Production has no login of its own until v0.6, so outbound FHIR calls and SMART
   stay disabled there.

@@ -553,7 +553,7 @@ class AuditStore:
             if row is None:
                 return None
             events = db.all(
-                "SELECT seq, event, payload, created_at, hash FROM audit_events "
+                "SELECT seq, event, payload, created_at, prev_hash, hash FROM audit_events "
                 "WHERE decision_id = ? ORDER BY seq",
                 (decision_id,),
             )
@@ -595,6 +595,47 @@ class AuditStore:
                 (*params, limit, offset),
             )
         return [_row(row) for row in rows]
+
+    def events(
+        self,
+        *,
+        pack_id: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        after_seq: int = 0,
+        limit: int = 500,
+    ) -> list[dict[str, Any]]:
+        """Chained events in order, each with its decision's pack and record, for exports. Pages
+        by `after_seq` (the last `seq` returned); `since` / `until` bound `created_at` (ISO)."""
+        clauses: list[str] = ["e.seq > ?"]
+        params: list[Any] = [after_seq]
+        for clause, value in (
+            ("d.pack_id = ?", pack_id),
+            ("e.created_at >= ?", since),
+            ("e.created_at < ?", until),
+        ):
+            if value is not None:
+                clauses.append(clause)
+                params.append(value)
+        with self._db.session(exclusive=False) as db:
+            rows = db.all(
+                "SELECT e.seq, e.decision_id, e.event, e.payload, e.created_at, e.prev_hash, "
+                "e.hash, d.pack_id, d.pack_version, d.record FROM audit_events e "
+                f"JOIN decisions d ON d.id = e.decision_id WHERE {' AND '.join(clauses)} "
+                "ORDER BY e.seq LIMIT ?",
+                (*params, limit),
+            )
+        return [
+            {**row, "payload": json.loads(row["payload"]), "record": json.loads(row["record"])}
+            for row in rows
+        ]
+
+    def iter_events(self, **filters: Any) -> Iterator[dict[str, Any]]:
+        """Every event `events()` matches, page by page, without loading the whole chain."""
+        after = 0
+        while page := self.events(**filters, after_seq=after):
+            yield from page
+            after = page[-1]["seq"]
 
     def pending_reviews(self, pack_id: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
         return self.query(pack_id=pack_id, review_status="pending", limit=limit)

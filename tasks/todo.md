@@ -54,7 +54,7 @@ phase (A, B, C) to be done and merged when CI passes.
 Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 - [x] Plan
 - [x] US Core validation of FHIR inputs (warn by default, enforce on request; HL7 validator in CI)
-- [ ] Audit export as FHIR AuditEvent and Provenance
+- [x] Audit export as FHIR AuditEvent and Provenance
 - [ ] Sandbox: referral cases in FHIR
 - [ ] CDS Hooks that fetch, under an allow-list
 - [ ] SMART on FHIR EHR launch (PKCE, OIDC), patient context in the dashboard
