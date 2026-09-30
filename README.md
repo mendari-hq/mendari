@@ -160,7 +160,18 @@ happens:
 | `enforce` | An input with an error is blocked before any provider sees it, like a JSON Schema failure. |
 | `off` | No checks. |
 
-The CI job `fhir-conformance` runs the HL7 FHIR validator over the same fixtures. Everything
+The audit trail exports as FHIR R4. Each event in the hash chain becomes an **AuditEvent**, and
+each decision, review and downstream outcome becomes a **Provenance** on the decision's `Task`.
+They carry ids, codes and the chain's hashes, never case text:
+
+```bash
+curl localhost:8000/api/audit/<decision id>/fhir                        # one decision, a Bundle
+curl "localhost:8000/api/audit/export/fhir?pack_id=openhealth/referral-router&since=2026-09-01"
+openhealth audit export --db var/openhealth.db --out audit.ndjson       # FHIR NDJSON
+```
+
+The CI job `fhir-conformance` runs the HL7 FHIR validator over the same fixtures and a sample of
+the audit export. Everything
 OpenHealth treats as conforming must pass it, and everything the in-process checks flag must
 fail it.
 

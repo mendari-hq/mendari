@@ -15,7 +15,13 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from fastapi import Body, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    Response,
+    StreamingResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 
@@ -40,7 +46,7 @@ from openhealth.evals.pack_tests import load_cases
 from openhealth.providers import jev, llm
 from openhealth.providers.credentials import key_source
 from openhealth.settings import FhirValidation, providers_for
-from openhealth.standards import cds_hooks
+from openhealth.standards import audit_fhir, cds_hooks
 
 DASHBOARD_DIR = Path(__file__).resolve().parents[1] / "dashboard"
 JsonBody = Annotated[dict[str, Any], Body()]
@@ -331,12 +337,35 @@ def create_app(
     def verify() -> dict[str, Any]:
         return store.verify()
 
+    @app.get("/api/audit/export/fhir")
+    def export_audit_fhir(
+        pack_id: str | None = None, since: str | None = None, until: str | None = None
+    ) -> StreamingResponse:
+        """The audit trail as FHIR NDJSON (AuditEvent and Provenance, ids and codes only),
+        streamed in chain order; `since` / `until` bound the event time (ISO 8601, UTC)."""
+        lines = (
+            json.dumps(resource, separators=(",", ":")) + "\n"
+            for resource in audit_fhir.resources(
+                store.iter_events(pack_id=pack_id, since=since, until=until)
+            )
+        )
+        return StreamingResponse(lines, media_type="application/fhir+ndjson")
+
     @app.get("/api/audit/{decision_id}")
     def audit_record(decision_id: str) -> dict[str, Any]:
         record = store.get(decision_id)
         if record is None:
             raise HTTPException(404, f"unknown decision {decision_id}")
         return record
+
+    @app.get("/api/audit/{decision_id}/fhir")
+    def audit_record_fhir(decision_id: str) -> JSONResponse:
+        """One decision's audit trail as a FHIR `collection` Bundle."""
+        record = store.get(decision_id)
+        if record is None:
+            raise HTTPException(404, f"unknown decision {decision_id}")
+        bundle = audit_fhir.decision_bundle(record)
+        return JSONResponse(bundle, media_type="application/fhir+json")
 
     @app.post("/api/audit/{decision_id}/outcome")
     def record_outcome(decision_id: str, request: OutcomeRequest) -> dict[str, str]:

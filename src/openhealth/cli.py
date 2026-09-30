@@ -318,6 +318,23 @@ def cmd_audit_verify(args: argparse.Namespace) -> int:
     return 0 if status["ok"] else 1
 
 
+def cmd_audit_export(args: argparse.Namespace) -> int:
+    from openhealth.standards import audit_fhir
+
+    events = AuditStore(args.db).iter_events(pack_id=args.pack, since=args.since, until=args.until)
+    lines = (json.dumps(r, separators=(",", ":")) + "\n" for r in audit_fhir.resources(events))
+    if not args.out:
+        sys.stdout.writelines(lines)
+        return 0
+    count = 0
+    with open(args.out, "w", encoding="utf-8") as out:
+        for line in lines:
+            out.write(line)
+            count += 1
+    print(f"{count} resources written to {args.out}", file=sys.stderr)
+    return 0
+
+
 def cmd_feedback_export(args: argparse.Namespace) -> int:
     from openhealth.evals.feedback import feedback_dataset
 
@@ -524,6 +541,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--db", default="var/openhealth.db", help="SQLite path or postgresql:// URL"
     )
     verify.set_defaults(handler=cmd_audit_verify)
+    audit_export = audit.add_parser(
+        "export", help="export the audit trail as FHIR NDJSON (AuditEvent, Provenance)"
+    )
+    audit_export.add_argument(
+        "--db", default="var/openhealth.db", help="SQLite path or postgresql:// URL"
+    )
+    audit_export.add_argument("--pack", help="only this pack's decisions (namespace/name)")
+    audit_export.add_argument("--since", help="events at or after this time (ISO 8601, UTC)")
+    audit_export.add_argument("--until", help="events before this time (ISO 8601, UTC)")
+    audit_export.add_argument("--out", help="write to this file (default: standard output)")
+    audit_export.set_defaults(handler=cmd_audit_export)
 
     feedback = sub.add_parser("feedback", help="thumbs up / down feedback").add_subparsers(
         dest="feedback_command", required=True
