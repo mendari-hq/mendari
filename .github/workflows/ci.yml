@@ -66,6 +66,8 @@ jobs:
       - run: ./scripts/build-reference-pack.sh
       - name: Data and model are byte-identical
         run: git diff --exit-code -- packs datasets ':!packs/*/evals/benchmark.json' ':!packs/*/DECISION_CARD.md'
+      - name: The trial pack's local-site example evaluates identically through OMOP CDM
+        run: uv run openhealth sandbox omop-check --dataset datasets/trial-local-site-example.jsonl
 
   fhir-conformance:
     # US Core 6.1.0 with the official HL7 FHIR validator: what OpenHealth accepts or produces as

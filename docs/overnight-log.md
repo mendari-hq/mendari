@@ -43,7 +43,8 @@ the production-deploy check and the four "small remaining gaps" under "What an A
 | [#88](https://github.com/Junebugg1214/openhealth-hub/pull/88) | Per-pack container images (GHCR on release tags) and on-prem templates | v0.6 item 5 | Green first time (the `docker` job built the per-pack image and saw it serve only its pack); preview checked; merged |
 | [#89](https://github.com/Junebugg1214/openhealth-hub/pull/89) | v0.6 pilot check in CI: a real OIDC provider, keys, PHI, review, governance, monitoring | v0.6 item 6 (the exit) | Green first time (the new `pilot-check` job passed against mock-oauth2-server); preview checked; merged. v0.6 done |
 | [#90](https://github.com/Junebugg1214/openhealth-hub/pull/90) | v0.7 plan: CQL, OMOP, Da Vinci CRD/DTR/PAS | v0.7 plan | Green first time; preview checked; merged |
-| [#91](https://github.com/Junebugg1214/openhealth-hub/pull/91) | CQL provider; the trial pack's criteria in CQL, agreeing with `criteria` in CI | v0.7 item 1 | pending |
+| [#91](https://github.com/Junebugg1214/openhealth-hub/pull/91) | CQL provider; the trial pack's criteria in CQL, agreeing with `criteria` in CI | v0.7 item 1 | Green first time (the new `cql` job: 578 + 172 cases agree, 22/22 pack tests with CQL); preview checked; merged |
+| [#92](https://github.com/Junebugg1214/openhealth-hub/pull/92) | OMOP CDM as pack inputs, population evaluation, round trip in CI | v0.7 item 2 | pending |
 
 ## Decisions made on your behalf
 
@@ -232,7 +233,10 @@ the production-deploy check and the four "small remaining gaps" under "What an A
   - the trial pack goes to 0.1.2 for its new `cql` variant (a content change, so a new version
     for the registry's immutable versions). Only its artifacts were regenerated: the other
     packs' benchmarks differed by run id, timestamp and latency alone, so they stay as they
-    were.
+    were;
+  - OMOP reads the CDM tables and the `concept` table by code, never by concept id, so it works
+    with any vocabulary load. Synthetic data uses local concept ids (2,000,000,000 and up).
+    Population reports suppress cells under 10 people, like shared reports.
 
 ## Skipped or blocked
 
