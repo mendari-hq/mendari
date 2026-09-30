@@ -41,7 +41,7 @@ Clinical/EHR data (FHIR R4, CDS Hooks, REST)
 | Evaluation harness | [`src/openhealth/evals/`](src/openhealth/evals) |
 | Audit trail | SQLite or Postgres, append-only hash-chained events, `openhealth audit verify` |
 | Synthetic healthcare dataset | [`src/openhealth/sandbox/synthetic_inbox.py`](src/openhealth/sandbox/synthetic_inbox.py), [`synthetic_trial.py`](src/openhealth/sandbox/synthetic_trial.py), [`synthetic_referral.py`](src/openhealth/sandbox/synthetic_referral.py), [`synthetic_prior_auth.py`](src/openhealth/sandbox/synthetic_prior_auth.py), [`synthetic_guard.py`](src/openhealth/sandbox/synthetic_guard.py) |
-| Dashboard | `openhealth serve` → http://127.0.0.1:8000: every pack on the search path. Overview, a review queue by priority, the audit trail with each record in a drawer, evaluations (provider leaderboard, benchmark report with charts, runs on your datasets), feedback with the right answer, the Decision Card, and Try it (a form for the inbox; for record packs, the pack's behaviour tests as editable JSON). Light and dark themes; times in the deployment's time zone (US Eastern by default). |
+| Dashboard | `openhealth serve` → http://127.0.0.1:8000: every pack on the search path. Overview, a review queue by priority, the audit trail with each record in a drawer, evaluations (provider leaderboard, benchmark report with charts, runs on your datasets), feedback with the right answer, the Decision Card, and Try it (a form for every pack, generated from its input schema for record packs, starting from the pack's behaviour tests, with the JSON one click away). Light and dark themes; times in the deployment's time zone (US Eastern by default). |
 
 ## Quickstart
 

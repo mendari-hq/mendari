@@ -11,9 +11,9 @@ Provenance export, SMART on FHIR launch with OAuth 2 / OIDC, CDS Hooks that fetc
   reviewed by a clinician (from v0.2; the generation tooling can be built without one)
 - [ ] Trial pack: Jev-alone leaderboard rows on test and the local site (about 200 paid Jev calls;
   only when asked)
-- [ ] Try it on record packs takes the input as JSON (seeded from the pack's behaviour tests);
-  forms generated from each pack's input schema would suit clinicians (optional in the redesign
-  plan; not scheduled)
+- [x] Try it on record packs: a form generated from the pack's input schema (`form.js`: fields,
+  dropdowns and date pickers, editable tables for lists, JSON for anything else), with the JSON
+  one click away; every behaviour-test example of the four record packs round-trips unchanged
 - [ ] VoiceOver spot check of the redesigned dashboard (a person at the Mac; script in the QA report)
 
 ## Done: Dashboard redesign ([`docs/ui-ux-review.md`](../docs/ui-ux-review.md))

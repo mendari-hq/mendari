@@ -137,6 +137,7 @@ def test_dashboard_is_served(client: TestClient) -> None:
     assert re.search(r'/static/style\.css\?v=[0-9a-f]{12}"', page.text)
     assert re.search(r'/static/table\.js\?v=[0-9a-f]{12}"', page.text)
     assert re.search(r'/static/charts\.js\?v=[0-9a-f]{12}"', page.text)
+    assert re.search(r'/static/form\.js\?v=[0-9a-f]{12}"', page.text)
     assert client.get("/static/app.js").status_code == 200
 
 

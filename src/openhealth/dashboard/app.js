@@ -1457,7 +1457,7 @@ async function tryRecord(main) {
   main.innerHTML = `
     <h1>Try it</h1>
     <p class="muted">Synthetic records only. Decisions made here are recorded in the audit trail and review queue.
-      The examples are the pack's behaviour tests.</p>
+      The examples are the pack's behaviour tests; change any field to see what the pack does.</p>
     <div class="panel">
       <div class="row mb-3">
         <label for="example">Example</label>
@@ -1465,25 +1465,68 @@ async function tryRecord(main) {
           `<option value="${i}">${esc(e.name)}</option>`).join("")}</select>
       </div>
       <p class="muted" id="expected"></p>
-      <label for="record">Input (JSON)</label>
-      <textarea id="record" class="code" spellcheck="false"></textarea>
-      <div class="row mt-3"><span class="grow"></span><button class="primary" id="decide">Decide</button></div>
+      <div class="row try-mode"><span class="try-mode-label" id="input-label">Input</span>
+        <div class="segmented" role="group" aria-label="Edit the input as">
+          <button type="button" data-mode="form">Form</button><button type="button" data-mode="json">JSON</button></div></div>
+      <form id="record-form" class="sf" aria-labelledby="input-label"></form>
+      <div id="record-json"><label for="record" class="sr-only">Input (JSON)</label>
+        <textarea id="record" class="code" spellcheck="false"></textarea></div>
+      <div class="row mt-3"><span class="grow"></span><button type="button" class="primary" id="decide">Decide</button></div>
     </div>
     <div id="result"></div>`;
+  // One record, two views: a form generated from the pack's input schema (form.js), or its JSON.
+  // Switching carries the record across; the choice is remembered.
+  const schema = state.detail.input_schema;
+  const formBox = $("#record-form");
+  let form;
+  let mode = storageGet("oh.try.mode", "form") === "json" ? "json" : "form";
+  const load = (record) => {
+    form = schemaForm(schema, record, "try");
+    formBox.innerHTML = form.html;
+  };
+  const showMode = () => {
+    formBox.hidden = mode !== "form";
+    $("#record-json").hidden = mode !== "json";
+    main.querySelectorAll("[data-mode]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === mode)));
+  };
+  const switchTo = (next) => {
+    if (next === mode) return;
+    if (next === "json") $("#record").value = JSON.stringify(form.value(), null, 2);
+    else {
+      try {
+        load(JSON.parse($("#record").value));
+      } catch (error) {
+        return toastError(`Not valid JSON: ${error.message}. Fix it to switch back to the form.`);
+      }
+    }
+    mode = next;
+    storageSet("oh.try.mode", mode);
+    showMode();
+  };
+  wireSchemaForm(formBox, () => form);
+  formBox.addEventListener("submit", (event) => event.preventDefault()); // Enter in a field doesn't decide
+  main.querySelectorAll("[data-mode]").forEach((b) => b.addEventListener("click", () => switchTo(b.dataset.mode)));
   // The picker and the input always show the same example, starting with the first.
   const choose = (index) => {
     const example = examples[index];
+    load(example?.input ?? {});
     $("#record").value = JSON.stringify(example?.input ?? {}, null, 2);
     $("#expected").textContent = example && expected(example) ? `The pack's test expects: ${expected(example)}.` : "";
   };
   choose(0);
+  showMode();
   $("#example").addEventListener("change", (e) => choose(Number(e.target.value)));
   $("#decide").addEventListener("click", (e) => {
     let input;
-    try {
-      input = JSON.parse($("#record").value);
-    } catch (error) {
-      return toastError(`Not valid JSON: ${error.message}`);
+    if (mode === "form") {
+      if (!formBox.reportValidity()) return; // the browser points at the field that needs fixing
+      input = form.value();
+    } else {
+      try {
+        input = JSON.parse($("#record").value);
+      } catch (error) {
+        return toastError(`Not valid JSON: ${error.message}`);
+      }
     }
     return whileBusy(e.currentTarget, "Deciding…", async () => {
       try {

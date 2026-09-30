@@ -28,7 +28,7 @@ first** (the Hub only matters once it has five strong packs), **LLMs through Ver
 | Audit trail (hash chain), review queue, feedback (right / wrong, with the right answer, changeable) | ✅ | FHIR AuditEvent/Provenance export (v0.4) |
 | FHIR R4, CDS Hooks (prefetch only; `order-sign`, `patient-view`, message hook), synthetic sandbox (HAPI) | Partial | US Core validation, SMART on FHIR, Bulk FHIR, OAuth/OIDC, CDS Hooks fetch (v0.4); later CQL, OMOP, Da Vinci CRD/DTR/PAS |
 | Decision Cards | ✅ | Validation history, hub-hosted cards |
-| Dashboard (every pack; review, audit, evaluations, feedback, card, Try it; both themes; keyboard and accessibility-tree checked) | ✅ redesigned | A VoiceOver check; forms for record-pack inputs (Try it takes JSON today); roles (v0.6) |
+| Dashboard (every pack; review, audit, evaluations, feedback, card, Try it; both themes; keyboard and accessibility-tree checked) | ✅ redesigned | A VoiceOver check; roles (v0.6) |
 | Hub: publish / pull / search, publisher types, datasets, eval suites, benchmarks | ❌ | The whole registry and website |
 | Developer experience (`pip install`, `from_hub`, `pull`, container per pack) | Partial | PyPI release, remote hub, container images |
 | Org readiness (auth, tenancy, PHI handling, monitoring) | Minimal (Vercel SSO only) | All of it |
