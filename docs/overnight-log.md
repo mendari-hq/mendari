@@ -40,7 +40,8 @@ the production-deploy check and the four "small remaining gaps" under "What an A
 | [#85](https://github.com/Junebugg1214/openhealth-hub/pull/85) | Governance approvals in the Decision Card, and the deployment registry | v0.6 item 2 | Red once: the browser job's 24 px check failed on an inline link in the card's facts (on Linux the sentence didn't wrap, so the link was 20 px tall). Replaced the link with words; lesson added; then green |
 | [#86](https://github.com/Junebugg1214/openhealth-hub/pull/86) | Monitoring: observed accuracy, overrides, drift and alerts over time | v0.6 item 3 | Green first time; preview checked (`/api/monitoring` answers with real preview traffic); merged |
 | [#87](https://github.com/Junebugg1214/openhealth-hub/pull/87) | PHI mode: hash-only or encrypted inputs, reads logged, retention; deployment guide | v0.6 item 4 | Green first time; preview checked (`phi_mode: off`, so production is unchanged); merged. Opened once ahead of a failed local gate (see lessons); fixed before CI finished |
-| [#88](https://github.com/Junebugg1214/openhealth-hub/pull/88) | Per-pack container images (GHCR on release tags) and on-prem templates | v0.6 item 5 | pending |
+| [#88](https://github.com/Junebugg1214/openhealth-hub/pull/88) | Per-pack container images (GHCR on release tags) and on-prem templates | v0.6 item 5 | Green first time (the `docker` job built the per-pack image and saw it serve only its pack); preview checked; merged |
+| [#89](https://github.com/Junebugg1214/openhealth-hub/pull/89) | v0.6 pilot check in CI: a real OIDC provider, keys, PHI, review, governance, monitoring | v0.6 item 6 (the exit) | pending |
 
 ## Decisions made on your behalf
 
@@ -210,7 +211,11 @@ the production-deploy check and the four "small remaining gaps" under "What an A
     log the read against. So encrypt mode requires sign-in to be useful, and the guide says so;
   - container images are published to GHCR only when a release is tagged, never from pull
     requests or `main`. No tag has been pushed, so nothing is published. The templates ask for
-    an image rather than pointing at a release that doesn't exist.
+    an image rather than pointing at a release that doesn't exist;
+  - the pilot check uses `ghcr.io/navikt/mock-oauth2-server:6.0.4` (MIT, pinned) as the
+    identity provider. It's a real third-party OpenID Connect implementation, so the check tests
+    interoperability, not only our own fake. Its scriptable sign-in form lets one script sign
+    in as each role.
 
 ## Skipped or blocked
 

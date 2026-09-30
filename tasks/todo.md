@@ -2,7 +2,7 @@
 
 Roadmap to the full goal: [`docs/roadmap.md`](../docs/roadmap.md).
 
-## Current: v0.6 Readiness for health organizations ([plan](../docs/plans/v0.6-org-readiness.md))
+## Done: v0.6 Readiness for health organizations ([plan](../docs/plans/v0.6-org-readiness.md))
 Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 - [x] Plan
 - [x] OIDC login, roles and API keys; tenancy
@@ -10,7 +10,7 @@ Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 - [x] Monitoring: observed accuracy, overrides, drift, alerts; Monitoring view
 - [x] PHI mode (hash / encrypt), retention, input reads logged; deployment guide
 - [x] Container image per pack; on-prem templates
-- [ ] Pilot check in CI (a local identity provider)
+- [x] Pilot check in CI (a real OpenID Connect provider, navikt/mock-oauth2-server; job `pilot-check`)
 
 ## Done: design grade phases ([`docs/design-grade.md`](../docs/design-grade.md))
 Graded C+ against Apple, Airbnb and best-in-class data viz on 2026-09-29; the user approved every

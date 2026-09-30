@@ -446,6 +446,18 @@ def cmd_sandbox_smart_launch(args: argparse.Namespace) -> int:
     return 1 if problems else 0
 
 
+def cmd_sandbox_pilot_check(args: argparse.Namespace) -> int:
+    from openhealth.sandbox import pilot_check
+
+    try:
+        result = pilot_check.run(engine=args.engine, messages=args.messages)
+    except OpenHealthError as failure:
+        print(f"pilot-check: {failure}", file=sys.stderr)
+        return 1
+    _print_json(result)
+    return 0
+
+
 def cmd_bulk_export(args: argparse.Namespace) -> int:
     import os
 
@@ -885,6 +897,13 @@ def build_parser() -> argparse.ArgumentParser:
     smart.add_argument("--limit", type=int, default=5, help="decide at most this many items")
     smart.add_argument("--strict", action="store_true", help="fail on any US Core issue")
     smart.set_defaults(handler=cmd_sandbox_smart_launch)
+    pilot = sandbox.add_parser(
+        "pilot-check",
+        help="the v0.6 pilot: sign-in, API keys, PHI mode, review, governance, monitoring",
+    )
+    pilot.add_argument("--engine", required=True, help="engine URL (its OPENHEALTH_PUBLIC_URL)")
+    pilot.add_argument("--messages", type=int, default=12, help="inbox messages to decide")
+    pilot.set_defaults(handler=cmd_sandbox_pilot_check)
     bulk_check = sandbox.add_parser(
         "bulk-check", help="Bulk export the sandbox, evaluate it, and compare with the dataset file"
     )
