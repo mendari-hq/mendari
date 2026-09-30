@@ -1,7 +1,9 @@
-# Overnight log: design roadmap to completion
+# Overnight log: the roadmap to completion
 
-_Started 2026-09-29, late evening ET. Scope: every item in `docs/design-grade.md` (pre-approved).
-Rules: one focused PR per item, merged only on green CI after a self-review, squash merge._
+_Started 2026-09-29, late evening ET. Scope: every item in `docs/design-grade.md`, then (at your
+request during the night) the whole project roadmap, v0.4 to v1.0, all approved in advance.
+Rules: one focused PR per item, merged only on green CI after a self-review, squash merge. The
+final state and self-grade are at the end._
 
 ## Starting point
 
@@ -54,7 +56,8 @@ the production-deploy check and the four "small remaining gaps" under "What an A
 | [#99](https://github.com/Junebugg1214/openhealth-hub/pull/99) | The documentation site (MkDocs Material, strict build in CI) | v1.0 item 3 | Red once for a reason outside the PR (the uv cache-lock timeout, fixed in #100); after the rebase green, the new `docs` job included; preview checked; merged |
 | [#100](https://github.com/Junebugg1214/openhealth-hub/pull/100) | ci: background servers run from the venv, not `uv run` (uv 0.12 holds the cache lock) | CI root cause found on #99 | Green first time (no cache-lock timeouts in hub-e2e, hub-site, security, pilot-check); preview checked; merged |
 | [#101](https://github.com/Junebugg1214/openhealth-hub/pull/101) | The contribution flow: pack-PR workflow with the eval gate, community files | v1.0 item 4 | Green first time; preview checked; merged |
-| [#102](https://github.com/Junebugg1214/openhealth-hub/pull/102) | Release workflow (PyPI trusted publishing on tags) and the README quickstart timed in CI | v1.0 item 5 | pending |
+| [#102](https://github.com/Junebugg1214/openhealth-hub/pull/102) | Release workflow (PyPI trusted publishing on tags) and the README quickstart timed in CI | v1.0 item 5 | Green first time (the new `quickstart` job ran the README's quickstart cold in 5 s); preview checked; merged. v1.0 built |
+| [#103](https://github.com/Junebugg1214/openhealth-hub/pull/103) | Overnight log: final state and self-grade | the log's final state | pending |
 
 ## Decisions made on your behalf
 
@@ -294,15 +297,85 @@ the production-deploy check and the four "small remaining gaps" under "What an A
   a designed mark), usability sessions with clinicians and evaluators, production-scale data,
   and a VoiceOver/NVDA, Safari/Firefox and real-device pass. These need people, devices or a
   designer.
-- **Going public (v0.5 exit, v1.0 launch):** a publicly reachable registry, the public Hub
-  website and the PyPI release of `openhealth`. The code, CI and a local end-to-end check are
-  built. What's needed from you:
-  - the go-ahead to make the project public;
-  - a PyPI account or token (trusted publishing from GitHub Actions is the recommended route);
+- **Going public (the v0.5 exit, the v1.0 launch):** a public repository, a publicly reachable
+  registry and Hub website, the hosted docs site, and the PyPI release. Everything up to the
+  launch is built and runs in CI. What's needed from you:
+  - the go-ahead to make the project public, then making the repository public and turning on
+    GitHub's private vulnerability reporting (`SECURITY.md` points to it);
+  - on PyPI, a trusted publisher for this repository, workflow `release.yml`, environment
+    `pypi`, then a tag such as `v0.1.0`. The same tag publishes the container images to GHCR
+    (`images.yml`);
   - the production registry's admin token and the `openhealth` namespace's signing key, created
     and stored as Vercel secrets;
-  - a decision on whether the registry and site sit outside Vercel Authentication.
+  - a decision on whether the registry, Hub site and docs site sit outside Vercel
+    Authentication, and where the docs site is hosted.
+- **Clinical content:** a clinician's review of the reference packs' criteria and a harder,
+  clinician-reviewed inbox benchmark (open items in `tasks/todo.md`). The tooling is built.
+- **Paid model calls:** the trial pack's Jev-only leaderboard rows (about 200 calls). Left
+  until you ask, per the "run once, then on request" rule.
+- **Branches left in place:** three local branches that belong to other checkouts, all
+  merged:
+  - `feat/dashboard-tables` (#49) is your main checkout's current branch;
+  - `claude/design-c` (#61) is checked out by another session's worktree;
+  - `claude/autonomous-roadmap-execution-d448e1` is this session's own base branch.
+
+  Every other local branch was merged (by PR, or superseded by merged PRs) and is deleted. So
+  is the merged remote `feat/trial-leaderboard` (#24). The remote has only `main`.
 
 ## Final state
 
-_Filled in at the end of the run._
+_2026-09-30, about 5:45 AM ET. `main` at #102, green; production (Vercel) healthy after every
+merge._
+
+**Pull requests:** 41 in this run (#62–#102), each merged on green CI after a self-review and a
+preview check. Three went red first:
+- #81: the lockfile, fixed at the root;
+- #85: a font-dependent target size, now a lesson;
+- #99: an upstream uv change, fixed at the root in #100.
+
+No test or check was skipped, weakened or deleted to get green. `tasks/lessons.md` has five
+new lessons, and two repeats noted where the rule already existed. Both repeats were a chained
+command running past a failure, caught before any merge.
+
+**CI now:** 730 tests and 119 browser tests; 13 jobs on every change:
+- test (Python 3.11 to 3.13), browser, reference-pack, fhir-conformance, sandbox-e2e;
+- hub-site, hub-e2e, cql, security, docs, quickstart, pilot-check, docker.
+
+On pack PRs, the `packs` workflow runs the eval gate. On tags, `images` and `release` run.
+
+### Roadmap: done and remaining
+
+| Milestone | Status | Proof in CI |
+|---|---|---|
+| Design grade gaps | ✅ #62–#65 | browser suite |
+| v0.4 Healthcare standards | ✅ #66–#74 | `sandbox-e2e`, `fhir-conformance` |
+| v0.5 The Hub | ✅ built; going public is yours | `hub-e2e`, `hub-site` |
+| v0.6 Readiness for health organizations | ✅ #83–#89 | `pilot-check` against a real OIDC provider |
+| v0.7 Later standards (CQL, OMOP, Da Vinci CRD/DTR/PAS) | ✅ #90–#95 | `cql`; OMOP round trip; HL7 validator against CRD 2.2.1, DTR 2.2.0 and PAS 2.2.1 |
+| v1.0 Public open-source launch | ✅ built (#96–#102); the launch itself is yours | `security`, `docs`, `quickstart`, `packs` |
+
+**Remaining:** only what is listed under "Skipped or blocked". The roadmap's scorecard has
+every goal-area row at ✅ except developer experience: the PyPI release and the first
+published images, both one tag away.
+
+### Self-grade
+
+Against Apple and Airbnb for product design, top-tier data visualization (the FT, the New York
+Times, Datawrapper) for charts, and the best open-source infrastructure projects for the
+platform. These are honest grades: an A needs evidence from people using it, which a night of
+engineering can't produce.
+
+| Category | Grade | Why, and what an A still needs |
+|---|---|---|
+| Visual design | **B** | A disciplined, tokenized, system-font dashboard with a clear hierarchy. It has no identity of its own yet (type pairing, a designed mark), which needs a designer. |
+| Consistency and design system | **A−** | Colour, spacing and layers are tokens, and CI enforces them and WCAG AA in both themes. The new views (sign-in, governance, deployments, monitoring) use the same patterns. Component sizes are still raw values. |
+| Data visualization | **B+** | Honest axes, named configurations and direct labels, and every chart is keyboard-reachable with a data table. The weekly monitoring trend leaves gaps instead of inventing points. Not yet seen at production volume, and there are no annotations. |
+| Interaction and UX logic | **A−** | Undo on overrides, links that carry the pack, skeleton-to-content fades, and roles that hide what the server would refuse. Reviews carry the signed-in name. Missing: usability sessions with clinicians. |
+| Accessibility | **A−** | No control under 24 px, 44 px targets on touch, reduced motion, `aria-busy`, and focus management. Still needs a real screen-reader pass (VoiceOver, NVDA) and forced-colors. |
+| Responsiveness | **A−** | Measured at 390, 768, 1440 and 1920 px in both themes. Never tested on real devices, Safari or Firefox. |
+| Healthcare standards and interoperability | **A−** | FHIR R4 with US Core 6.1.0, SMART, CDS Hooks, Bulk FHIR, AuditEvent and Provenance, CQL, OMOP, and Da Vinci CRD, DTR and PAS. All of it is validated in CI, with the HL7 validator where an IG exists. Not yet run against a production EHR or payer. |
+| Security and privacy | **B+** | A threat model with a test for every mitigation, OIDC with roles, tenancy, PHI encryption with logged reads, a strict CSP, and a ZAP scan and dependency audits in CI. An A needs an independent review or penetration test, and a real deployment's key custody. |
+| Engineering quality | **A−** | 849 tests, types everywhere, and conformance and end-to-end checks against real third-party software: HAPI, smart-launcher, mock-oauth2-server, the HL7 validator and ZAP. Several larger modules could be split. |
+| Developer and clinician experience | **A−** | `openhealth new` and a clinician's guide get a pack from nothing to evaluated in minutes, and the README quickstart runs cold in seconds, checked in CI. Not published to PyPI yet. |
+| Documentation and community | **B+** | A docs site built strictly in CI, a threat model, contribution flow, eval gate, code of conduct and governance. None of it has met a community yet, because the repository isn't public. |
+| **Overall** | **A− platform, B+ product design** | The platform stands with serious open-source health infrastructure. The design needs a designer and real users for the last step. |

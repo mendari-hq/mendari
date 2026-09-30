@@ -2,7 +2,7 @@
 
 Roadmap to the full goal: [`docs/roadmap.md`](../docs/roadmap.md).
 
-## Current: v1.0 Public open-source launch ([plan](../docs/plans/v1.0-public-launch.md))
+## Done (built; the launch is the owner's): v1.0 Public open-source launch ([plan](../docs/plans/v1.0-public-launch.md))
 Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 - [x] Plan
 - [x] Security review: threat model, security headers, dependency audit and ZAP scan in CI,
