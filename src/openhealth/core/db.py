@@ -1,9 +1,9 @@
 """Database backends shared by the audit store and the registry: SQLite (local) or Postgres
 (hosted), running the same SQL written with `?` placeholders.
 
-A store passes its schema (a DDL template with `{real}` and `{serial}`), its migration and its
-Postgres advisory-lock key. Exclusive sessions are transactions serialised with each other: an
-IMMEDIATE transaction on SQLite, the advisory lock on Postgres.
+A store passes its schema (a DDL template with `{real}`, `{serial}` and `{blob}`), its migration
+and its Postgres advisory-lock key. Exclusive sessions are transactions serialised with each
+other: an IMMEDIATE transaction on SQLite, the advisory lock on Postgres.
 """
 
 from __future__ import annotations
@@ -71,7 +71,7 @@ class SqliteBackend(Backend):
         self._lock = threading.RLock()  # serialises access to the shared in-memory connection
         with self._connect() as connection:
             connection.executescript(
-                schema.format(real="REAL", serial="INTEGER PRIMARY KEY AUTOINCREMENT")
+                schema.format(real="REAL", serial="INTEGER PRIMARY KEY AUTOINCREMENT", blob="BLOB")
             )
         with self.session(exclusive=True) as db:  # IMMEDIATE: one process migrates at a time
             migrate(db)
@@ -165,7 +165,9 @@ class PostgresBackend(Backend):
         # Schema setup goes over the direct (unpooled) connection when one is given, as Neon
         # recommends for DDL; the advisory lock serialises concurrent cold starts.
         ddl = schema.format(
-            real="DOUBLE PRECISION", serial="BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY"
+            real="DOUBLE PRECISION",
+            serial="BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY",
+            blob="BYTEA",
         )
         with (
             psycopg.connect(
@@ -199,7 +201,7 @@ def connect(
     migrate_url: str | None = None,
 ) -> Backend:
     """A SQLite path (or ":memory:") or a postgres:// / postgresql:// URL, with `schema` created
-    (a DDL template with `{real}` and `{serial}`) and `migrate` run under the schema lock.
+    (a DDL template with `{real}`, `{serial}` and `{blob}`) and `migrate` run under the lock.
     `lock_key` is the Postgres advisory lock that serialises schema setup and exclusive sessions."""
     if target.startswith(("postgres://", "postgresql://")):
         return PostgresBackend(

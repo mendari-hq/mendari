@@ -46,4 +46,9 @@ class SmartError(OpenHealthError):
 
 
 class HubError(OpenHealthError):
-    """A pack archive, signature, registry request or pull failed a check."""
+    """A pack archive, signature, registry request or pull failed a check. `status` is the HTTP
+    status the registry answers with (404 unknown, 409 conflict, 422 invalid)."""
+
+    def __init__(self, message: str, status: int = 422):
+        self.status = status
+        super().__init__(message)
