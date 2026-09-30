@@ -1,6 +1,6 @@
 spec_version: "0.2"
 id: openhealth/prior-auth-preflight
-version: 0.1.1
+version: 0.1.2
 name: Prior Authorization Preflight
 summary: >-
   Checks an order against the patient's payer before it is sent for prior authorization: does
@@ -327,3 +327,9 @@ cds_hooks:
         The payer requires prior authorization, and clinical documentation it asks for is
         missing from the record; the card lists what.
     not_required: {covered: covered, pa_needed: no-auth}
+  # Da Vinci DTR: `Questionnaire/$questionnaire-package` serves the documentation the payer asks
+  # for, for the order's service and payer, pre-answered from what the pack found in the record.
+  questionnaire:
+    missing: needs_attention
+    context: [service, payer]
+    title: Prior authorization documentation

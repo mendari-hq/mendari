@@ -1,6 +1,6 @@
 # Decision Card: Prior Authorization Preflight
 
-`openhealth/prior-auth-preflight` · version **0.1.1** · Apache-2.0 · published by OpenHealth Hub reference packs (community)
+`openhealth/prior-auth-preflight` · version **0.1.2** · Apache-2.0 · published by OpenHealth Hub reference packs (community)
 
 > Checks an order against the patient's payer before it is sent for prior authorization: does this payer require authorization for this service, and does the record have what the payer asks for? Complete requests are queued for submission; the gaps in the others are listed.
 
@@ -8,7 +8,7 @@
 |---|---|
 | Risk level | **1**, clinical information processing (clinical information) |
 | Automation | AUTO permitted by policy thresholds; every decision is audited. |
-| Pack digest | `sha256:bcbb5bee519b3ece753de27be487000dc994aea3a76886c2620b03de29408e8f` |
+| Pack digest | `sha256:d7256051814c005072782ee6beedb95e24ed4d2bc25270402e6a1819116dc295` |
 | Last validation | 2026-09-30 on `test` (n=600, sha256 `17c6f97cd68c…`) |
 
 ## Intended use
@@ -176,7 +176,7 @@ Benchmark `test` (n=600) with structured=`criteria`, notes=`rules`:
 | Accuracy of AUTO decisions | n/a |
 | False automation rate | n/a |
 | Expected human override rate | 0.0% |
-| Latency p50 / p95 | 3.34 / 3.41 ms |
+| Latency p50 / p95 | 3.34 / 3.42 ms |
 | Cost per decision | $0.00000 |
 | Critical `red_flag=yes` | 25/25 detected, 0 automated |
 
@@ -355,6 +355,15 @@ Other questions (accuracy / ECE):
 - **Hand-written note sets**: data/documentation_notes.jsonl (used to write the note rules) and data/documentation_notes_holdout.jsonl (written before the rules and never used to tune them): conservative treatment with enough, too little or unclear duration; red flags and look-alikes; knee mechanical symptoms; sleep apnoea symptoms and insomnia.
 
 ## Version history
+
+### 0.1.2
+
+- Da Vinci DTR (`cds_hooks.questionnaire`): `Questionnaire/$questionnaire-package` serves a
+  questionnaire of the documentation the payer asks for, for the order's service and payer (the
+  members of `next_step`'s table that can make it `needs_attention`), with a response pre-answered
+  from the pack's decision. The decision is found by the CRD assertion id the order carries. The
+  CRD coverage information for `needs_attention` links the questionnaire. Questions, criteria,
+  rules, policy and data are unchanged.
 
 ### 0.1.1
 

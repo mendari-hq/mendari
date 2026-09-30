@@ -122,3 +122,118 @@ def test_a_bad_coverage_mapping_fails_validation() -> None:
     assert any("unknown labels ['approved']" in p for p in problems)
     assert any("order-select or order-sign" in p for p in problems)
     assert any("needs a `coverage` prefetch" in p for p in problems)
+
+
+# -- DTR -----------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("service", "payer", "needed"),
+    [
+        ("lumbar_mri", "acme", ["diagnosis_supports", "conservative_therapy", "prior_imaging"]),
+        ("lumbar_mri", "beacon", ["diagnosis_supports", "conservative_therapy"]),
+        (
+            "knee_arthroscopy",
+            "beacon",
+            ["diagnosis_supports", "conservative_therapy", "mechanical_symptoms"],
+        ),
+        ("sleep_study", "acme", ["diagnosis_supports", "sleep_symptoms"]),
+        ("sleep_study", "beacon", []),  # no authorization needed, so no documentation
+        ("other", "acme", []),
+    ],
+)
+def test_the_documentation_asked_for_follows_the_decision_table(
+    service: str, payer: str, needed: list[str]
+) -> None:
+    pack = resolve_pack(PA)
+    assert davinci.requirements(pack, {"service": service, "payer": payer}) == needed
+
+
+def test_crd_links_the_questionnaire_only_when_documentation_is_missing(
+    preflight: Decision,
+) -> None:
+    missing = cds_hooks.invoke(preflight, request("acme", "Back pain.", _order("mri", "72148")))
+    [link] = coverage_info(missing["systemActions"][0])["questionnaire"]
+    assert link == (
+        f"https://openhealth.dev/packs/{PA}/Questionnaire/lumbar_mri-acme|{preflight.pack.version}"
+    )
+    ready = cds_hooks.invoke(preflight, request("acme", COMPLETE, _order("mri", "72148")))
+    assert "questionnaire" not in coverage_info(ready["systemActions"][0])
+
+
+def package_request(*extra: dict[str, Any]) -> dict[str, Any]:
+    coverage = _prefetch("acme", "")["coverage"]["entry"][0]["resource"]
+    return {
+        "resourceType": "Parameters",
+        "parameter": [{"name": "coverage", "resource": coverage}, *extra],
+    }
+
+
+def test_the_questionnaire_package_is_pre_answered_from_the_decision(tmp_path: Any) -> None:
+    from fastapi.testclient import TestClient
+
+    from openhealth.server.app import create_app
+
+    client = TestClient(create_app(db_path=tmp_path / "a.db"))
+    signed = client.post(
+        f"/cds-services/{PA.replace('/', '.')}",
+        json=request("acme", "Back pain for two weeks.", _order("mri", "72148")),
+    ).json()
+    order = signed["systemActions"][0]["resource"]
+    answer = client.post(
+        "/fhir/Questionnaire/$questionnaire-package",
+        json=package_request({"name": "order", "resource": order}),
+    )
+    assert answer.status_code == 200 and answer.headers["content-type"].startswith(
+        "application/fhir+json"
+    )
+    [bundle] = [p["resource"] for p in answer.json()["parameter"] if p["name"] == "packagebundle"]
+    form, response = (e["resource"] for e in bundle["entry"])
+    assert [i["linkId"] for i in form["item"]] == [
+        "diagnosis_supports",
+        "conservative_therapy",
+        "prior_imaging",
+    ]
+    assert {i["linkId"]: i["answer"][0]["valueCoding"]["code"] for i in response["item"]} == {
+        "diagnosis_supports": "yes",
+        "conservative_therapy": "no",  # the gap the clinician documents
+        "prior_imaging": "yes",
+    }
+    assert response["subject"] == {"reference": "Patient/p1"}
+    assert response["questionnaire"] == f"{form['url']}|{form['version']}"
+
+    unknown = client.post(
+        "/fhir/Questionnaire/$questionnaire-package",
+        json=package_request({"name": "context", "valueString": "not-a-decision"}),
+    ).json()
+    assert [p["name"] for p in unknown["parameter"]] == ["outcome"]
+    assert (
+        client.post(
+            "/fhir/Questionnaire/$questionnaire-package", json={"resourceType": "Parameters"}
+        ).status_code
+        == 422
+    )
+
+
+def test_a_questionnaire_asked_for_by_canonical_comes_unanswered() -> None:
+    pack = resolve_pack(PA)
+    url = davinci.questionnaire_url(pack, {"service": "sleep_study", "payer": "acme"})
+    answer = davinci.questionnaire_package(
+        package_request({"name": "questionnaire", "valueCanonical": url}),
+        lambda _: None,
+        {PA: pack},
+        "2026-09-30T00:00:00+00:00",
+    )
+    [bundle] = [p["resource"] for p in answer["parameter"]]
+    form, response = (e["resource"] for e in bundle["entry"])
+    assert [i["linkId"] for i in form["item"]] == ["diagnosis_supports", "sleep_symptoms"]
+    assert "item" not in response
+    nothing = davinci.questionnaire_package(
+        package_request(
+            {"name": "questionnaire", "valueCanonical": url.replace("-acme", "-beacon")}
+        ),
+        lambda _: None,
+        {PA: pack},
+        "2026-09-30T00:00:00+00:00",
+    )
+    assert [p["name"] for p in nothing["parameter"]] == ["outcome"]

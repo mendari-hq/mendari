@@ -4,6 +4,9 @@
 - `crd-*.json`: the orders a Prior Authorization Preflight `order-sign` response updates with
   CRD `coverage-information` (a complete request, one with documentation missing, and a service
   the payer doesn't require authorization for).
+- `dtr-*.json`: `Questionnaire/$questionnaire-package` answers: for the order with documentation
+  missing (found by its CRD assertion id, pre-answered from the decision), and for a
+  questionnaire asked for by its canonical alone.
 
     uv run python scripts/davinci_sample.py var/fhir-samples/davinci
 """
@@ -13,12 +16,14 @@ from __future__ import annotations
 import base64
 import json
 import sys
-from datetime import date, timedelta
+import tempfile
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from openhealth import Decision
-from openhealth.standards import cds_hooks
+from openhealth import AuditStore, Decision
+from openhealth.core.pack import Pack
+from openhealth.standards import cds_hooks, davinci
 
 TODAY = date.today()
 CPT = "http://www.ama-assn.org/go/cpt"
@@ -95,7 +100,13 @@ def prefetch(payer: str, note: str) -> dict[str, Any]:
 
 
 def main(out: Path) -> None:
-    decision = Decision.from_hub("openhealth/prior-auth-preflight")
+    with tempfile.TemporaryDirectory() as scratch:
+        store = AuditStore(Path(scratch) / "audit.db")
+        write(out, Decision.from_hub("openhealth/prior-auth-preflight", store=store), store)
+        store.close()
+
+
+def write(out: Path, decision: Decision, store: AuditStore) -> None:
     cases = {
         "crd-submit-ready": (
             "acme",
@@ -114,6 +125,7 @@ def main(out: Path) -> None:
         ),
     }
     out.mkdir(parents=True, exist_ok=True)
+    updated: dict[str, dict[str, Any]] = {}
     for name, (payer, note, draft) in cases.items():
         request = {
             "hook": "order-sign",
@@ -128,10 +140,43 @@ def main(out: Path) -> None:
         actions = cds_hooks.invoke(decision, request).get("systemActions", [])
         if len(actions) != 1:
             sys.exit(f"{name}: expected one system action, got {len(actions)}")
+        updated[name] = actions[0]["resource"]
         (out / f"{name}.json").write_text(
-            json.dumps(actions[0]["resource"], indent=2) + "\n", encoding="utf-8"
+            json.dumps(updated[name], indent=2) + "\n", encoding="utf-8"
         )
     print(f"{len(cases)} CRD orders written to {out}")
+
+    pack = decision.pack
+
+    def lookup(decision_id: str) -> tuple[Pack, dict[str, str]] | None:
+        record = store.get(decision_id)
+        if record is None:
+            return None
+        return pack, {k: str(a["label"]) for k, a in record["record"]["answers"].items()}
+
+    coverage = prefetch("acme", "")["coverage"]["entry"][0]["resource"]
+    authored = datetime.now(UTC).isoformat(timespec="seconds")
+    asks = {
+        "dtr-package": [{"name": "order", "resource": updated["crd-needs-attention"]}],
+        "dtr-package-blank": [
+            {
+                "name": "questionnaire",
+                "valueCanonical": davinci.questionnaire_url(
+                    pack, {"service": "knee_arthroscopy", "payer": "acme"}
+                ),
+            }
+        ],
+    }
+    for name, extra in asks.items():
+        request = {
+            "resourceType": "Parameters",
+            "parameter": [{"name": "coverage", "resource": coverage}, *extra],
+        }
+        answer = davinci.questionnaire_package(request, lookup, {pack.id: pack}, authored)
+        if [p["name"] for p in answer["parameter"]] != ["packagebundle"]:
+            sys.exit(f"{name}: expected one package bundle")
+        (out / f"{name}.json").write_text(json.dumps(answer, indent=2) + "\n", encoding="utf-8")
+    print(f"{len(asks)} DTR packages written to {out}")
 
 
 if __name__ == "__main__":

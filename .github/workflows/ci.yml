@@ -112,7 +112,8 @@ jobs:
         run: >-
           uv run python scripts/fhir_validate.py
           --ig hl7.fhir.us.davinci-crd#2.2.1
-          --valid var/fhir-samples/davinci/crd-*.json
+          --ig hl7.fhir.us.davinci-dtr#2.2.0
+          --valid var/fhir-samples/davinci/*.json
 
   sandbox-e2e:
     # The roadmap's v0.4 exit on the real sandbox (docker compose): HAPI FHIR, the SMART launcher

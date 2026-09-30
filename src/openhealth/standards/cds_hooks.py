@@ -92,7 +92,16 @@ def invoke(decision: Decision, request: Mapping[str, Any]) -> dict[str, Any]:
         for order, (result, _) in zip(orders, decided, strict=True):
             info = hooks.coverage_information.get(result.recommendation or "")
             if info is not None:
-                extension = davinci.coverage_information(info, result, coverage, clock.today())
+                form = None
+                dtr = hooks.questionnaire
+                if dtr is not None and result.recommendation == dtr.missing:
+                    labels = {key: answer.label for key, answer in result.answers.items()}
+                    context = davinci.context_of(decision.pack, labels)
+                    url = davinci.questionnaire_url(decision.pack, context)
+                    form = f"{url}|{decision.pack.version}"
+                extension = davinci.coverage_information(
+                    info, result, coverage, clock.today(), questionnaire=form
+                )
                 actions.append(davinci.system_action(order, extension))
         if actions:
             response["systemActions"] = actions
