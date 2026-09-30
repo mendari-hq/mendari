@@ -4,6 +4,7 @@ import "./overview.js";
 import "./review.js";
 import "./audit.js";
 import "./evals.js";
+import "./monitoring.js";
 import "./feedback.js";
 import "./card.js";
 import "./try.js";

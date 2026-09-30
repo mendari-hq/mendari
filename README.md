@@ -288,6 +288,24 @@ from the Decision Card, with a reference such as committee minutes and an expiry
 exact pack version: a new digest needs a new approval. It is written into every decision it
 affects, chained in the audit log, and can be revoked at once. Level 4 can't be approved.
 
+**Monitoring.** The dashboard's Monitoring view follows a pack in use, for the organization you
+act for. It shows observed accuracy against the benchmark (from reviews, downstream outcomes and
+thumbs-downs), the human override trend, confidence drift (PSI against the benchmark's
+confidences), the automated share and cost per decision, week by week. Alerts fire only on
+enough evidence:
+
+- accuracy below the benchmark by more than the pack's tolerance;
+- drift of 0.25 or more;
+- an automated decision rated wrong;
+- an override rate that doubled.
+
+For a scheduler (cron, a Kubernetes CronJob), `openhealth monitor` exits 1 on any alert and
+posts them to `--webhook` / `OPENHEALTH_ALERT_WEBHOOK` (https only):
+
+```bash
+openhealth monitor --db "$DATABASE_URL" --org clinic-a --webhook https://alerts.example.org/hook
+```
+
 **Deployments.** Each server records which pack version it runs, with which providers, in
 which environment (`OPENHEALTH_ENVIRONMENT`) and release, whenever that changes. The Decision
 Card lists them (`/api/deployments`).

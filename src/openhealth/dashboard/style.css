@@ -465,7 +465,7 @@ table.data thead th { position: sticky; top: 0; z-index: var(--z-table-head); ba
 /* Numbers shrink to their content so text columns get the room; labels sit on the baseline of the
    header row, and only the long critical-label headers may wrap. */
 th.num, td.num { text-align: right; white-space: nowrap; width: 1%; }
-td.nowrap { white-space: nowrap; }
+td.nowrap, span.nowrap { white-space: nowrap; }
 table.data thead th { vertical-align: bottom; }
 th.critical { white-space: normal; min-width: 96px; max-width: 150px; }
 th button.sort {
@@ -657,6 +657,10 @@ figure.chart { margin: var(--space-3) 0 0; }
 .rated .icon { width: 14px; height: 14px; }
 .rated.up { color: var(--outcome-auto); }
 .rated.down { color: var(--outcome-block); }
+/* Monitoring: the all-clear line (alerts use the shared callouts). */
+.monitor-ok { display: flex; align-items: center; gap: var(--space-2); color: var(--color-text-muted); margin: var(--space-4) 0; }
+.monitor-ok .icon { color: var(--outcome-auto); }
+
 /* Automation approval on the Decision Card. */
 .approve-form { display: grid; grid-template-columns: auto 1fr; gap: var(--space-2) var(--space-3); align-items: center; max-width: 40rem; margin-top: var(--space-3); }
 .approve-form button { grid-column: 2; justify-self: start; }
@@ -685,6 +689,7 @@ input[readonly] { background: var(--color-surface-sunken); border-style: dashed;
 .callout { margin: var(--space-3) 0; padding: var(--space-3) var(--space-4); border-left: 4px solid; border-radius: var(--radius-sm); }
 .callout.danger { background: var(--outcome-block-soft); border-color: var(--color-danger); }
 .callout.neutral { background: var(--color-surface-sunken); border-color: var(--color-border-strong); }
+.callout.warning { background: var(--color-warning-soft); border-color: var(--color-warning); }
 
 /* Confirmation dialog (native <dialog>: modal, focus kept inside, Escape cancels). */
 dialog.confirm {

@@ -10,6 +10,7 @@ const SHAPES = {
   overview: () => `<div class="sk-stats">${repeat(4, bar("stat"))}</div>${bar("strip")}${bar("chart")}`,
   review: () => `${bar("toolbar")}${repeat(3, bar("card"))}`,
   audit: () => `${bar("toolbar")}${rows(8)}`,
+  monitoring: () => `${bar("toolbar")}<div class="sk-stats">${repeat(4, bar("stat"))}</div>${rows(5)}`,
   evals: () => `${bar("tabs")}${bar("toolbar")}${rows(6)}`,
   feedback: () => `${bar("toolbar")}${repeat(3, bar("card"))}`,
   card: () => `${repeat(3, `${bar("heading")}${repeat(3, bar("line"))}`)}`,

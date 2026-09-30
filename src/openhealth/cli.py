@@ -642,6 +642,42 @@ def cmd_keys_register(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_monitor(args: argparse.Namespace) -> int:
+    """For a scheduler: every pack's alerts (for one organization with --org; otherwise all of
+    them together), posted to a webhook when one is set; exit 1 on any."""
+    import os
+
+    import httpx
+
+    from openhealth.core import tenancy
+    from openhealth.evals.monitoring import check_webhook, monitor
+
+    webhook = args.webhook or os.environ.get("OPENHEALTH_ALERT_WEBHOOK", "").strip()
+    if webhook:
+        check_webhook(webhook)  # before any work, so a typo fails at once
+    store = AuditStore(args.db)
+    packs = [resolve_pack(args.pack)] if args.pack else discover().packs
+    with tenancy.acting_for(args.org):
+        reports = [monitor(store, pack, days=args.days) for pack in packs]
+    alerting = [r for r in reports if r["alerts"]]
+    for report in reports:
+        status = f"{len(report['alerts'])} alert(s)" if report["alerts"] else "ok"
+        print(f"{report['pack']['id']}: {status}")
+        for alert in report["alerts"]:
+            print(f"  [{alert['severity']}] {alert['kind']}: {alert['message']}")
+    if webhook and alerting:
+        body = {
+            "source": "openhealth",
+            "organization": args.org,
+            "alerts": [{"pack": r["pack"], "alerts": r["alerts"]} for r in alerting],
+        }
+        try:
+            httpx.post(webhook, json=body, timeout=10, follow_redirects=False).raise_for_status()
+        except httpx.HTTPError as error:
+            raise OpenHealthError(f"the alert webhook failed ({type(error).__name__})") from None
+    return 1 if alerting else 0
+
+
 def cmd_demo(args: argparse.Namespace) -> int:
     from openhealth.sandbox.demo import run_demo
 
@@ -935,6 +971,20 @@ def build_parser() -> argparse.ArgumentParser:
     serve_registry.add_argument("--host", default="127.0.0.1")
     serve_registry.add_argument("--port", type=int, default=8100)
     serve_registry.set_defaults(handler=cmd_registry_serve)
+
+    monitor_cmd = sub.add_parser("monitor", help="check deployed packs for drift and degradation")
+    monitor_cmd.add_argument(
+        "--db", default="var/openhealth.db", help="SQLite path or postgresql:// URL"
+    )
+    monitor_cmd.add_argument("--pack", help="one pack (default: every pack)")
+    monitor_cmd.add_argument("--days", type=int, default=30)
+    monitor_cmd.add_argument(
+        "--org", help="one organization (default: every organization together)"
+    )
+    monitor_cmd.add_argument(
+        "--webhook", help="post alerts here (default: $OPENHEALTH_ALERT_WEBHOOK)"
+    )
+    monitor_cmd.set_defaults(handler=cmd_monitor)
 
     sub.add_parser("demo", help="offline end-to-end demo on synthetic data").set_defaults(
         handler=cmd_demo
