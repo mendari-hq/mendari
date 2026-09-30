@@ -25,24 +25,31 @@ first** (the Hub only matters once it has five strong packs), **LLMs through Ver
   and pull runs in CI (`hub-e2e`). Going public (a public registry, the site, PyPI) waits for
   your decision.
 
-Now: **v0.6 Readiness for health organizations** ([plan](plans/v0.6-org-readiness.md)).
+- **v0.6 Readiness for health organizations ✅** ([plan](plans/v0.6-org-readiness.md),
+  #83–#89): sign-in with the organization's identity provider, roles, API keys and tenancy;
+  governance approvals and the deployment registry; monitoring with alerts; PHI mode; per-pack
+  images and on-prem templates. The pilot runs in CI against a real OpenID Connect provider
+  (`pilot-check`). Nothing is switched on in production, which stays behind Vercel
+  Authentication.
+
+Now: **v0.7 Later standards**.
 
 ## Where we are against the goal
 
 | Goal area | Status | Main gap |
 |---|---|---|
 | Decision Pack spec (schemas, FHIR mapping, policy, tests, evals, card, versions) | ✅ 0.2 | `choice`, `boolean` and `score` questions; derived questions (decision tables) |
-| Runtime + AUTO / HUMAN_REVIEW / ABSTAIN / BLOCK + risk levels 0–4 | ✅ | Governance approvals in the UI (v0.6) |
+| Runtime + AUTO / HUMAN_REVIEW / ABSTAIN / BLOCK + risk levels 0–4, governance approvals in the UI | ✅ | none |
 | Providers: rules, naive Bayes, Jev, LLMs (Vercel AI Gateway; OpenAI-compatible local models), criteria, dosing; `any_of`, `cascade`, `vote` | ✅ | **CQL** (v0.7) |
 | Reference packs | ✅ 5 of 5 | A harder, clinician-reviewed benchmark |
-| Evaluation (accuracy, calibration, abstention, false automation, overrides, latency, cost, subgroups) + local validation + provider leaderboards for every pack | ✅ | Drift over time, multi-site comparison, a harder benchmark |
-| Audit trail (hash chain), review queue, feedback (right / wrong, with the right answer, changeable), FHIR AuditEvent/Provenance export | ✅ | Monitoring and drift over time (v0.6) |
+| Evaluation (accuracy, calibration, abstention, false automation, overrides, latency, cost, subgroups) + local validation + provider leaderboards for every pack; monitoring over time with drift and alerts | ✅ | A harder benchmark |
+| Audit trail (hash chain), review queue, feedback (right / wrong, with the right answer, changeable), FHIR AuditEvent/Provenance export | ✅ | none |
 | FHIR R4 with US Core 6.1.0 checks, CDS Hooks (prefetch, or fetch from allow-listed servers), SMART on FHIR EHR launch (OAuth 2 PKCE, OIDC), Bulk FHIR `$export` into local datasets, synthetic sandbox (HAPI, SMART launcher) | ✅ v0.4 | CQL, OMOP, Da Vinci CRD/DTR/PAS (v0.7) |
 | Decision Cards | ✅ | Validation history, hub-hosted cards |
-| Dashboard (every pack; review, audit, evaluations, feedback, card, Try it; both themes; keyboard and accessibility-tree checked) | ✅ redesigned | A VoiceOver check; roles (v0.6) |
+| Dashboard (every pack; review, audit, evaluations, monitoring, feedback, card, Try it; roles; both themes; keyboard and accessibility-tree checked) | ✅ redesigned | A VoiceOver check |
 | Hub: publish / pull / search, publisher types, signed archives, shared site reports, website | ✅ v0.5 (not public yet) | Going public (a public registry and site); datasets and eval suites as first-class entries |
-| Developer experience (`pip install`, `from_hub`, `pull`, container per pack) | Partial | The PyPI release; container images (v0.6) |
-| Org readiness (auth, tenancy, PHI handling, monitoring) | Minimal (Vercel SSO only) | All of it |
+| Developer experience (`pip install`, `from_hub`, `pull`, container per pack) | Partial | The PyPI release and the first published images (both at a release tag) |
+| Org readiness (auth, tenancy, PHI handling, monitoring) | ✅ v0.6 (off until configured) | A security review before real PHI (v1.0) |
 | Community (contribution flow, verification, public repo) | ❌ | v1.0 |
 
 ## Milestones
@@ -129,7 +136,11 @@ go-ahead to publish (see the overnight log)._
 - Exit: the five packs are published; on a clean machine
   `pip install openhealth && openhealth pull openhealth/referral-router` works.
 
-### v0.6 Readiness for health organizations
+### v0.6 Readiness for health organizations ✅
+_Built and verified 2026-09-30 (#83–#89). Every control is off until configured. The exit runs
+in CI (`pilot-check`): through a real OpenID Connect provider, an admin creates a key, a worker
+decides with it, a reviewer reads encrypted inputs (logged) and resolves, a viewer can't, the
+committee approves a level 2 pack, and monitoring and the chain check out._
 - OIDC login with roles (viewer / reviewer / admin / governance), per-organization tenancy, and
   API keys for machine clients. This replaces relying only on Vercel SSO. Running an evaluation
   becomes admin-only in the dashboard and the API (today it asks for confirmation when it would

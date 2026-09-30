@@ -326,6 +326,14 @@ from the audit chain. Only signed-in reviewers and admins read them, and each re
 which environment (`OPENHEALTH_ENVIRONMENT`) and release, whenever that changes. The Decision
 Card lists them (`/api/deployments`).
 
+**The pilot, end to end.** `openhealth sandbox pilot-check --engine URL` plays a pilot
+organization against an engine with sign-in and PHI mode `encrypt`. People sign in through the
+real OpenID Connect flow, an admin creates a key for the message worker, and the worker
+decides. A reviewer reads the queue (each input read is logged) and resolves; a viewer can't.
+The AI committee approves a level 2 pack, then monitoring and the audit chain are checked. CI
+runs it against [mock-oauth2-server](https://github.com/navikt/mock-oauth2-server) (job
+`pilot-check`).
+
 ## Decision Packs
 
 A pack is a directory:
@@ -561,11 +569,12 @@ Full plan and status: [`docs/roadmap.md`](docs/roadmap.md). Done:
 - v0.4 healthcare standards: US Core, AuditEvent/Provenance, SMART on FHIR, CDS Hooks fetch,
   Bulk FHIR;
 - v0.5 the Hub: signed pack archives, `openhealth push / pull`, a registry and website (built, not
-  public yet).
+  public yet);
+- v0.6 readiness for organizations: sign-in with roles and API keys, tenancy, governance
+  approvals, monitoring and drift, PHI mode, container images and on-prem templates.
 
 Next:
 
-- **v0.6 Readiness for organizations:** login with roles, tenancy, monitoring and drift, PHI mode.
 - **v0.7 and v1.0:** CQL, OMOP, Da Vinci CRD/DTR/PAS; then the public open-source launch.
 
 ## License
