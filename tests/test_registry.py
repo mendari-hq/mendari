@@ -45,6 +45,7 @@ class Registry:
 @pytest.fixture
 def registry(db_target: str) -> Iterator[Registry]:
     client = TestClient(create_registry_app(db_target, admin_token=ADMIN))
+    client.__enter__()  # runs the app's lifespan, so its store is closed at the end
     admin = {"authorization": f"Bearer {ADMIN}"}
     assert (
         client.post(
@@ -63,6 +64,7 @@ def registry(db_target: str) -> Iterator[Registry]:
     )
     assert added.status_code == 201
     yield Registry(client, token, archive.load_private_key(private))
+    client.__exit__(None, None, None)
 
 
 def test_a_signed_pack_is_published_once_and_read_back(registry: Registry) -> None:
@@ -159,7 +161,7 @@ def test_unknown_things_are_404(registry: Registry) -> None:
 
 
 def test_tokens_are_stored_hashed(registry: Registry, db_target: str) -> None:
-    with RegistryStore(db_target)._db.session(exclusive=False) as db:
+    with RegistryStore(db_target) as store, store._db.session(exclusive=False) as db:
         stored = [row["token_sha256"] for row in db.all("SELECT token_sha256 FROM hub_tokens")]
     assert stored == [hashlib.sha256(registry.token.encode()).hexdigest()]
     assert registry.client.get("/v1/health").json()["status"] == "ok"

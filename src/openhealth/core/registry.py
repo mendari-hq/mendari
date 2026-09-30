@@ -1,7 +1,8 @@
 """Local hub: find Decision Packs on the search path.
 
-Search order: `OPENHEALTH_PACKS_PATH` (os.pathsep-separated), then the packs bundled with the
-installed distribution (or the repository's `packs/` directory in a source checkout).
+Search order: `OPENHEALTH_PACKS_PATH` (os.pathsep-separated), then packs pulled from a registry
+(the verified cache, `openhealth pull`), then the packs bundled with the installed distribution
+(or the repository's `packs/` directory in a source checkout).
 """
 
 from __future__ import annotations
@@ -25,6 +26,10 @@ class Discovery:
 
 def search_paths() -> list[Path]:
     paths = [Path(p) for p in os.environ.get("OPENHEALTH_PACKS_PATH", "").split(os.pathsep) if p]
+    from openhealth.hub.client import packs_cache  # packs pulled from a registry, verified
+
+    if packs_cache().is_dir():
+        paths.append(packs_cache())
     for bundled in (_PACKAGE_DIR / "_packs", _PACKAGE_DIR.parents[1] / "packs"):
         if bundled.is_dir():
             paths.append(bundled)
