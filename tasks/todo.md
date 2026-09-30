@@ -56,7 +56,7 @@ phase (A, B, C) to be done and merged when CI passes.
 - [x] Signed pack archives and publisher keys
 - [x] Registry service (namespaces, publisher types, keys, immutable versions, search)
 - [x] CLI login / push / pull / search; `Decision.from_hub` from the registry
-- [ ] Shareable local-validation reports
+- [x] Shareable local-validation reports
 - [ ] Hub website (Next.js)
 - [ ] End to end: five packs published, clean-venv install and pull (CI)
 - [ ] Going public: a public registry, the site and the PyPI release (the user's decision; logged)

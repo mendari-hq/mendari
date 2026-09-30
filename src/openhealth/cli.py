@@ -155,6 +155,10 @@ def cmd_eval(args: argparse.Namespace) -> int:
         Path(args.out).write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     if args.db:
         AuditStore(args.db).save_report(report)
+    if args.share:
+        with _registry_client(args) as registry:
+            shared = registry.share_report(report, args.share)
+        print(f"shared with the registry as {shared['site']} (metrics only)", file=sys.stderr)
     if args.json:
         _print_json(report)
     else:
@@ -702,6 +706,10 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=f"exit {EXIT_DEGRADED} when local validation detects degradation",
     )
+    evaluate.add_argument(
+        "--share", metavar="SITE", help="share the metrics (never cases) with the registry as SITE"
+    )
+    evaluate.add_argument("--registry", help="registry URL for --share (default: logged into)")
 
     train = pack_command("train", cmd_train, "train the pack's naive_bayes variants")
     train.add_argument("--slot", help="only this provider slot")
