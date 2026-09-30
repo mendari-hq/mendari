@@ -273,6 +273,14 @@ the audit export. Everything
 OpenHealth treats as conforming must pass it, and everything the in-process checks flag must
 fail it.
 
+## Security
+
+[`SECURITY.md`](SECURITY.md) says how to report a vulnerability and how to deploy safely. The
+threat model ([`docs/security/threat-model.md`](docs/security/threat-model.md)) lists every
+threat with its mitigation and the test that checks it. On every change, the CI job `security`
+audits the Python and Hub-site dependencies and runs an OWASP ZAP scan of the API with sign-in
+on. Every response carries a strict CSP and the usual isolation headers.
+
 ## The Hub
 
 Packs travel as **signed archives**. A registry keeps them with **immutable versions**, and anyone

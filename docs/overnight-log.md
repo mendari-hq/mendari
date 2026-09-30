@@ -48,7 +48,8 @@ the production-deploy check and the four "small remaining gaps" under "What an A
 | [#93](https://github.com/Junebugg1214/openhealth-hub/pull/93) | Da Vinci CRD: coverage information on the PA pack's order-sign response | v0.7 item 3 | Green first time (the validator passed the three CRD orders against CRD 2.2.1 in CI); preview checked; merged |
 | [#94](https://github.com/Junebugg1214/openhealth-hub/pull/94) | Da Vinci DTR: questionnaire package for the PA pack, pre-answered from the decision | v0.7 item 4 | Green first time (all five CRD/DTR samples valid in CI); preview checked; merged |
 | [#95](https://github.com/Junebugg1214/openhealth-hub/pull/95) | Da Vinci PAS: request Bundle, sandbox payer, submission chained on the decision | v0.7 item 5 (closes v0.7) | Green first time (PAS request and response valid in CI with CRD and DTR); preview checked; merged. v0.7 done |
-| [#96](https://github.com/Junebugg1214/openhealth-hub/pull/96) | v1.0 plan: public open-source launch | v1.0 plan | pending |
+| [#96](https://github.com/Junebugg1214/openhealth-hub/pull/96) | v1.0 plan: public open-source launch | v1.0 plan | Green first time; preview checked; merged |
+| [#97](https://github.com/Junebugg1214/openhealth-hub/pull/97) | Security review: threat model, headers, dependency audit and ZAP scan in CI | v1.0 item 1 | pending |
 
 ## Decisions made on your behalf
 
@@ -266,7 +267,13 @@ the production-deploy check and the four "small remaining gaps" under "What an A
     sign-in on. Medium and high risks fail;
   - MkDocs Material for the docs site;
   - Contributor Covenant 2.1;
-  - a release workflow that stays inert until PyPI is configured and a tag is pushed.
+  - a release workflow that stays inert until PyPI is configured and a tag is pushed;
+  - the security review found one real gap: missing cross-origin isolation headers (ZAP
+    90004). Every response now has COOP and CORP, and COEP too except on the API docs pages,
+    which load Swagger UI from a CDN. The dashboard's two inline scripts are allowed by hash,
+    so no `unsafe-inline` script is needed;
+  - ZAP's two remaining low alerts are accepted: the HTML root in an API scan, and ZAP's own
+    version notice. Medium and high alerts fail the build.
 
 ## Skipped or blocked
 

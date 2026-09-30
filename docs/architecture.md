@@ -85,6 +85,9 @@
   - The guard maps each route to a permission, a role table grants permissions, and unlisted
     routes need admin.
   - A matrix test pins which routes are public.
+  - Every response carries security headers: a CSP with the dashboard's two inline scripts by
+    hash (no `unsafe-inline` scripts), `frame-ancestors 'none'`, nosniff, no referrer and
+    COOP/COEP/CORP. The threat model is `docs/security/threat-model.md`.
 - **Outbound FHIR reads** go through one client (`standards/fhir_client.py`), so SSRF has a
   single guard. That includes CDS Hooks fetching prefetch the EHR left out, and later SMART and
   Bulk.
