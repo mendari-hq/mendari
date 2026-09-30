@@ -57,6 +57,15 @@ def test_decide_review_and_audit_flow(client: TestClient) -> None:
     assert client.get("/api/stats").json()["reviews_resolved"] == 1
 
 
+def test_datasets_are_listed_with_their_size(client: TestClient) -> None:
+    datasets = {d["name"]: d["n"] for d in client.get(f"{PACK}/datasets").json()}
+    detail = client.get(PACK).json()
+    assert list(datasets) == detail["datasets"]  # the same names, in the same order
+    assert datasets["local-site-example"] == len(LOCAL_DATASET.read_text().splitlines())
+    assert all(n > 0 for n in datasets.values())
+    assert client.get("/api/packs/openhealth/missing/datasets").status_code == 404
+
+
 def test_invalid_input_is_a_recorded_block_not_an_http_error(client: TestClient) -> None:
     response = client.post(f"{PACK}/decide", json={"message": {"body": ""}})
     assert response.status_code == 200 and response.json()["outcome"] == "BLOCK"

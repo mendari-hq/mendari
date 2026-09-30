@@ -50,6 +50,15 @@ PAIRS = [
     ("color-text", "outcome-block-soft", TEXT),  # confusion matrix: a mistake over a tenth of a row
     ("color-text-muted", "outcome-review-soft", TEXT),
     ("color-bg", "color-text", TEXT),  # toast
+    # Phase 4: numbers that need attention, rating counts, result headers and their links,
+    # criteria rows shaded by consequence.
+    ("color-warning", "color-surface", TEXT),
+    ("color-danger", "color-surface", TEXT),
+    ("outcome-auto", "color-surface", TEXT),
+    ("outcome-block", "color-surface", TEXT),
+    *[("color-text", f"outcome-{o}-soft", TEXT) for o in ("auto", "abstain")],
+    *[("color-text-muted", f"outcome-{o}-soft", TEXT) for o in ("block", "abstain")],
+    *[("color-accent", f"outcome-{o}-soft", TEXT) for o in ("auto", "review", "abstain")],
     ("color-border-strong", "color-bg", UI),  # form fields
     ("color-border-strong", "color-surface", UI),
     ("color-border-strong", "color-surface-sunken", UI),

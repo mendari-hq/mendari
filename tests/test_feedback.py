@@ -278,3 +278,15 @@ def test_an_older_database_gains_the_columns_and_counts_each_persons_latest_rati
             )
             migrated = {r["id"]: r["superseded_by"] for r in db.all("SELECT * FROM feedback")}
         assert migrated == {"f1": "f2", "f2": None, "f3": None, "f4": None}
+
+
+def test_audit_rows_carry_each_decisions_current_ratings(
+    inbox_pack: Pack, store: AuditStore
+) -> None:
+    decision = Decision(inbox_pack, store=store)
+    rated, unrated = decision(message(AUTO_REFILL)), decision(message(AUTO_REFILL))
+    store.record_feedback(rated.id, rating="down", reporter="rn-1")
+    store.record_feedback(rated.id, rating="up", reporter="rn-1")  # changed: counts once
+    store.record_feedback(rated.id, rating="down", reporter="rn-2")
+    rows = {r["id"]: (r["feedback_up"], r["feedback_down"]) for r in store.query()}
+    assert rows == {rated.id: (1, 1), unrated.id: (0, 0)}

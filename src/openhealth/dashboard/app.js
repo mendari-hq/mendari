@@ -35,6 +35,13 @@ function zoneName() {
     return state.timezone;
   }
 }
+// Cost per decision: "$0" when free, two significant figures below a cent ("$0.000043"), cents above.
+function money(v) {
+  if (v === null || v === undefined) return "n/a";
+  if (v === 0) return "$0";
+  if (v < 0.000001) return "< $0.000001";
+  return v < 0.01 ? `$${Number(v.toPrecision(2))}` : `$${v.toFixed(2)}`;
+}
 const OUTCOMES = ["AUTO", "HUMAN_REVIEW", "ABSTAIN", "BLOCK"];
 // Plain words first; the exact code stays one hover away (docs/ui-ux-review.md, decision 1).
 const OUTCOME_TEXT = { AUTO: "Automated", HUMAN_REVIEW: "Human review", ABSTAIN: "Abstained", BLOCK: "Blocked" };
@@ -97,28 +104,34 @@ function onHashChange() {
 }
 
 // `navigated`: the user moved to another view, so it starts at the top with its heading focused
-// (screen readers then announce the new view once, instead of reading the whole page).
+// (screen readers then announce the new view once, instead of reading the whole page). A view that
+// opens at a section (e.g. "#card/policy") returns that section's heading instead.
 async function render({ navigated = false } = {}) {
   const { view, params } = route();
   state.view = view;
-  closeDrawer({ restoreFocus: false });
+  closeDrawer({ restoreFocus: false, closedByUser: false });
   document.querySelectorAll(".nav a[data-view]").forEach((a) => a.classList.toggle("active", a.dataset.view === view));
   const main = $("#view");
   main.innerHTML = `<div class="empty">Loading…</div>`;
+  let target = null;
   try {
-    await views[view](main, params);
+    target = await views[view](main, params);
   } catch (error) {
     main.innerHTML = `<div class="panel">Could not load this view: ${esc(error.message)}</div>`;
   }
-  if (navigated) {
+  if (target) focusHeading(target); // a link to a section lands there, on first load too
+  else if (navigated) {
     window.scrollTo(0, 0);
-    const heading = main.querySelector("h1");
-    if (heading) {
-      heading.tabIndex = -1;
-      heading.focus({ preventScroll: true });
-    }
+    focusHeading(main.querySelector("h1"), { scroll: false });
   }
   refreshReviewCount();
+}
+
+function focusHeading(heading, { scroll = true } = {}) {
+  if (!heading) return;
+  heading.tabIndex = -1;
+  if (scroll) heading.scrollIntoView({ behavior: scrollBehavior(), block: "start" });
+  heading.focus({ preventScroll: true });
 }
 
 // Sorting, sticky edges and chart drawing all attach after a view puts its HTML in the page.
@@ -131,7 +144,7 @@ const scrollBehavior = () => (matchMedia("(prefers-reduced-motion: reduce)").mat
 
 // Disable a button while its request runs, so a slow provider can't be submitted twice.
 async function whileBusy(button, busyText, task) {
-  const text = button.textContent;
+  const content = button.innerHTML; // icons included
   button.disabled = true;
   button.setAttribute("aria-busy", "true");
   button.textContent = busyText;
@@ -140,7 +153,7 @@ async function whileBusy(button, busyText, task) {
   } finally {
     button.disabled = false;
     button.removeAttribute("aria-busy");
-    button.textContent = text;
+    button.innerHTML = content;
   }
 }
 
@@ -151,7 +164,7 @@ async function whileBusy(button, busyText, task) {
 let drawer = null;
 
 function showDrawer({ title, body, opener, onClose }) {
-  closeDrawer({ restoreFocus: false });
+  closeDrawer({ restoreFocus: false, closedByUser: false });
   const root = document.createElement("div");
   root.className = "drawer-root";
   root.innerHTML = `<div class="drawer-backdrop" data-close></div>
@@ -178,7 +191,10 @@ function showDrawer({ title, body, opener, onClose }) {
   root.querySelector("#drawer-title").focus();
 }
 
-function closeDrawer({ restoreFocus = true } = {}) {
+// `closedByUser`: a person closed it (button, Escape, backdrop), so its onClose runs (e.g. the URL
+// goes back to the list). A drawer replaced by another, or dropped by a view change, closes quietly:
+// otherwise the old drawer's onClose would navigate away from the new one.
+function closeDrawer({ restoreFocus = true, closedByUser = true } = {}) {
   if (!drawer) return;
   const { root, opener, onClose } = drawer;
   drawer = null;
@@ -186,7 +202,7 @@ function closeDrawer({ restoreFocus = true } = {}) {
   document.querySelectorAll(".topbar, .shell").forEach((el) => (el.inert = false));
   document.body.classList.remove("drawer-open");
   if (restoreFocus && opener?.isConnected) opener.focus();
-  onClose?.();
+  if (closedByUser) onClose?.();
 }
 
 function keepFocusInside(event, container) {
@@ -238,6 +254,8 @@ function inputView(input) {
   </div>`;
 }
 
+const TONE_BADGE = { block: "o-BLOCK", review: "o-HUMAN_REVIEW", neutral: "o-ABSTAIN" };
+
 // For a derived primary (e.g. eligibility), the member answers are what a reviewer checks:
 // one row per criterion, with what that answer does in the decision table.
 function derivedPrimary() {
@@ -263,11 +281,12 @@ function criteriaTable(answers, { evidence = true } = {}) {
   const rows = derive.from.map((member) => {
     const a = answers[member];
     const effect = a ? memberEffect(derive, member, a.label, answers) : null;
-    return `<tr class="${effect ? "hit" : ""}">
+    const tone = effect ? labelTone(state.detail.primary, effect, answers) || "neutral" : "";
+    return `<tr class="${effect ? `hit hit-${tone}` : ""}">
       <td title="${esc(questions[member]?.instructions ?? "")}"><code>${esc(member)}</code></td>
       <td>${a ? `<b>${esc(a.label)}</b>` : `<span class="muted">no answer</span>`}</td>
       <td class="mono">${a ? pct(a.confidence, 0) : ""}</td>
-      <td>${effect ? `<span class="badge s-warning">→ ${esc(effect)}</span>` : ""}</td>
+      <td>${effect ? `<span class="badge ${TONE_BADGE[tone]}">→ ${esc(effect)}</span>` : ""}</td>
       <td class="muted">${a ? esc(a.provider.variant) : ""}</td>
       ${evidence ? `<td class="evidence">${a && a.evidence.length ? esc(a.evidence.join("; ")) : ""}</td>` : ""}
     </tr>`;
@@ -292,37 +311,87 @@ views.overview = async (main) => {
   ]);
   const d = state.detail;
   const total = stats.decisions;
-  const autoShare = total ? stats.outcomes.AUTO / total : null;
   main.innerHTML = `
     <h1>${esc(d.name)}</h1>
-    <p class="muted">${esc(d.id)} · v${esc(d.version)} · risk level ${d.risk.level} (${esc(d.risk.category)}) ·
-      providers ${Object.entries(d.active_providers).map(([s, p]) => `${esc(s)}=<b>${esc(p.variant)}</b>`).join(", ")}</p>
-    <div class="tiles">
-      ${tile("Decisions", total)}
-      ${tile("Automated", pct(autoShare), `${stats.outcomes.AUTO} decisions`)}
-      ${tile("Waiting for review", stats.pending_reviews, "human review or abstained")}
-      ${tile("Human override rate", pct(stats.human_override_rate), `${stats.reviews_resolved} reviews`)}
-      ${tile("Observed accuracy", pct(stats.observed_accuracy), "vs. final human labels")}
-      ${tile("Latency p95", stats.latency_ms.p95 === null ? "n/a" : `${num(stats.latency_ms.p95, 2)} ms`)}
-      ${tile("Cost / decision", stats.cost_usd.per_decision === null ? "n/a" : `$${num(stats.cost_usd.per_decision, 5)}`)}
-      ${tile("Audit chain", chain.ok ? "verified" : "BROKEN", `${chain.events} events`)}
-      ${tile("Feedback", `${icon("thumbs-up")}<span class="sr-only">Right:</span> ${stats.feedback.up} <span class="muted">·</span> ${icon("thumbs-down")}<span class="sr-only">Wrong:</span> ${stats.feedback.down}`,
-        `${stats.feedback.down_on_auto} wrong on automated decisions`, "", { html: true })}
-    </div>
-    <div class="panel">
-      <h3>Outcome mix</h3>
-      ${stackBar(stats.outcomes, total)}
-    </div>
-    <div class="panel">
-      <h3>Daily volume <span class="muted">· days in ${esc(zoneName())}</span></h3>
-      ${stats.daily.length ? dailyChart(stats.daily) : `<div class="empty">No decisions yet. Use <a href="#try">Try it</a>, the API, or the sandbox worker.</div>`}
-    </div>`;
+    ${packHeader(d)}
+    ${total ? `
+      ${primaryStats(stats)}
+      ${secondaryStats(stats, chain)}
+      <div class="panel">
+        <h2>Outcome mix</h2>
+        ${stackBar(stats.outcomes, total)}
+      </div>
+      <div class="panel">
+        <h2>Decisions per day <span class="muted">· days in ${esc(zoneName())}</span></h2>
+        ${dailyChart(stats.daily)}
+      </div>` : `
+      <div class="panel empty-state">
+        <h2>No decisions yet</h2>
+        <p class="muted">Decisions appear here as soon as this pack makes one: from Try it, the API, a CDS Hooks call or the sandbox worker.</p>
+        <p class="row"><a class="button primary" href="#try">Try it</a><a class="button" href="/docs">API docs</a></p>
+      </div>`}`;
   wire(main);
 };
 
-// `html`: the value is trusted markup built here (icons with numbers), not data to escape.
-function tile(label, value, sub = "", kind = "", { html = false } = {}) {
-  return `<div class="tile"><div class="label">${esc(label)}</div><div class="value ${kind}">${html ? value : esc(value)}</div><div class="sub">${esc(sub)}</div></div>`;
+// Which pack, how risky, and what is deployed, in words; the exact identifiers stay one line below
+// (decision 1 in docs/ui-ux-review.md: plain words first, codes one step away).
+const slotText = (slot) => `${slot[0].toUpperCase()}${slot.slice(1).replaceAll("_", " ")}`;
+const providerWords = (p) => `${esc(variantText(p.variant))}${remoteModels(p.model).map((m) => ` <span class="chip" title="${esc(m)}">${esc(modelText(m))}</span>`).join("")}`;
+
+function packHeader(d) {
+  const deployed = Object.entries(d.active_providers);
+  return `<div class="pack-header">
+    <p class="pack-risk"><span class="badge risk">Risk level ${d.risk.level}</span> <span class="muted">${esc(d.risk.category)}</span></p>
+    <p class="deployed"><span class="muted">Deployed</span> ${deployed.map(([slot, p]) =>
+      `<span class="deployed-slot">${esc(slotText(slot))}: <b>${providerWords(p)}</b></span>`).join(`<span class="muted" aria-hidden="true">·</span>`)}</p>
+    <p class="mono muted">${esc(d.id)} v${esc(d.version)} · ${deployed.map(([slot, p]) => `${esc(slot)}=${esc(p.variant)}`).join(" · ")}</p>
+  </div>`;
+}
+
+// A stat: a label, a value, and what the value is out of. `html` values are trusted markup.
+function stat({ label, value, foot = "", tone = "", html = false, size = "" }) {
+  return `<div class="stat ${size} ${tone ? `tone-${tone}` : ""}">
+    <div class="stat-label">${esc(label)}</div>
+    <div class="stat-value">${html ? value : esc(value)}</div>
+    ${foot ? `<div class="stat-foot">${foot}</div>` : ""}
+  </div>`;
+}
+
+// The four numbers people act on: how much is automated, what waits for a person, and whether
+// people agree with the pack (overrides, observed accuracy), each with what it is out of.
+function primaryStats(stats) {
+  const total = stats.decisions;
+  const waiting = stats.pending_reviews;
+  const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  return `<div class="stats-primary">
+    ${stat({ label: "Automated", value: pct(stats.outcomes.AUTO / total), foot: `${stats.outcomes.AUTO} of ${plural(total, "decision")}` })}
+    ${stat({
+      label: "Waiting for review", value: String(waiting), tone: waiting ? "warning" : "",
+      foot: waiting ? `<a href="#review">Open the review queue ${icon("arrow-right")}</a>` : "Nothing waiting",
+    })}
+    ${stat({ label: "Human override rate", value: pct(stats.human_override_rate), foot: stats.reviews_resolved ? `of ${plural(stats.reviews_resolved, "review")}` : "No reviews yet" })}
+    ${stat({ label: "Observed accuracy", value: pct(stats.observed_accuracy), foot: stats.labelled ? `against ${plural(stats.labelled, "human label")}` : "No human labels yet" })}
+  </div>`;
+}
+
+// Operational context, one row: volume, speed, cost, the audit chain and feedback.
+function secondaryStats(stats, chain) {
+  const f = stats.feedback;
+  return `<div class="stats-secondary">
+    ${stat({ size: "small", label: "Decisions", value: stats.decisions.toLocaleString() })}
+    ${stat({ size: "small", label: "Latency p95", value: stats.latency_ms.p95 === null ? "n/a" : `${num(stats.latency_ms.p95, 2)} ms` })}
+    ${stat({ size: "small", label: "Cost / decision", value: money(stats.cost_usd.per_decision) })}
+    ${stat({
+      size: "small", label: "Audit chain", html: true, tone: chain.ok ? "" : "danger",
+      value: chain.ok ? `${icon("shield-check")} Verified` : `${icon("shield-x")} Broken at event ${esc(chain.broken_at)}`,
+      foot: `${chain.events.toLocaleString()} events`,
+    })}
+    ${stat({
+      size: "small", label: "Feedback", html: true,
+      value: `${icon("thumbs-up")}<span class="sr-only">Right:</span> ${f.up} <span class="muted" aria-hidden="true">·</span> ${icon("thumbs-down")}<span class="sr-only">Wrong:</span> ${f.down}`,
+      foot: `<a href="#feedback">${f.down_on_auto} wrong on automated</a>`,
+    })}
+  </div>`;
 }
 
 function stackBar(counts, total) {
@@ -384,60 +453,109 @@ function dailyChart(daily) {
 
 // ---- review queue ----------------------------------------------------------------------------
 
+const PRIORITIES = ["stat", "asap", "urgent", "routine"];
+
 views.review = async (main) => {
-  const items = await api(`/api/review?pack_id=${encodeURIComponent(state.packId)}&limit=100`);
-  const labels = state.detail.labels;
+  const [items, stats] = await Promise.all([
+    api(`/api/review?pack_id=${encodeURIComponent(state.packId)}&limit=100`),
+    api(`/api/stats?pack_id=${encodeURIComponent(state.packId)}`),
+  ]);
+  const groups = PRIORITIES.map((p) => [p, items.filter((item) => item.priority === p)]).filter(([, g]) => g.length);
   main.innerHTML = `
     <h1>Review queue</h1>
-    <p class="muted">Decisions held for human review or abstained, stat first. Choosing a label other than the recommendation records a human override.</p>
+    <p class="muted">Decisions held for a person or abstained, most urgent first. Confirm the recommendation, or choose another
+      label to record a human override.</p>
     <div class="row panel">
       <label for="reviewer">Reviewer</label>
       <input id="reviewer" value="${esc(storageGet("oh.reviewer", "sandbox-nurse"))}" autocomplete="name">
-      <span class="muted">${items.length} pending</span>
+      <span class="grow"></span>
+      <span id="queue-counts" class="queue-counts" aria-live="polite">${queueCounts(items)}</span>
     </div>
-    <div id="queue" class="mt-4">
-      ${items.length ? items.map((item) => reviewCard(item, labels)).join("") : `<div class="panel empty">Nothing waiting for review.</div>`}
+    ${items.length < stats.pending_reviews ? `<p class="muted">Showing the first ${items.length} of ${stats.pending_reviews}, most urgent first.</p>` : ""}
+    <div id="queue">
+      ${groups.map(([priority, group]) => `<section class="review-group" data-priority="${priority}" aria-labelledby="group-${priority}">
+        <h2 id="group-${priority}">${esc(PRIORITY_TEXT[priority])} <span class="count-plain">${group.length}</span></h2>
+        ${group.map(reviewCard).join("")}
+      </section>`).join("") || emptyQueue()}
     </div>`;
   $("#reviewer").addEventListener("change", (e) => storageSet("oh.reviewer", e.target.value.trim()));
-  main.querySelectorAll("button[data-label]").forEach((button) =>
-    button.addEventListener("click", async () => {
-      const card = button.closest(".review-card");
-      const reviewer = $("#reviewer").value.trim();
-      if (!reviewer) return toast("Enter a reviewer name first");
-      card.querySelectorAll("button").forEach((b) => (b.disabled = true));
-      try {
-        const result = await api(`/api/review/${card.dataset.id}`, {
-          method: "POST",
-          body: JSON.stringify({ final_label: button.dataset.label, reviewer }),
-        });
-        card.remove();
-        toast(result.human_override ? `Override recorded → ${button.dataset.label}` : `Confirmed → ${button.dataset.label}`);
-        refreshReviewCount();
-      } catch (error) {
-        toast(error.message);
-        card.querySelectorAll("button").forEach((b) => (b.disabled = false));
-      }
-    }),
-  );
+  $("#queue").addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-label]");
+    if (button) resolveCard(button);
+  });
 };
 
-function reviewCard(item, labels) {
+const emptyQueue = () => `<div class="panel empty-state"><h2>Nothing waiting for review</h2>
+  <p class="muted">Decisions the policy sends to a person appear here, most urgent first.</p></div>`;
+
+function queueCounts(items) {
+  if (!items.length) return "Nothing waiting";
+  return PRIORITIES.map((p) => [p, items.filter((i) => i.priority === p).length]).filter(([, n]) => n)
+    .map(([p, n]) => `<span class="badge p-${p}">${n} ${esc(PRIORITY_TEXT[p].toLowerCase())}</span>`).join(" ");
+}
+
+async function resolveCard(button) {
+  const card = button.closest(".review-card");
+  const reviewer = $("#reviewer").value.trim();
+  if (!reviewer) {
+    $("#reviewer").focus();
+    return toast("Enter a reviewer name first");
+  }
+  card.querySelectorAll("button").forEach((b) => (b.disabled = true));
+  try {
+    const result = await api(`/api/review/${card.dataset.id}`, {
+      method: "POST",
+      body: JSON.stringify({ final_label: button.dataset.label, reviewer }),
+    });
+    // Keyboard reviewers carry on where they were: the next card (or the one before) gets focus.
+    const cards = [...document.querySelectorAll(".review-card")];
+    const next = cards[cards.indexOf(card) + 1] ?? cards[cards.indexOf(card) - 1];
+    const group = card.closest(".review-group");
+    card.remove();
+    if (!group.querySelector(".review-card")) group.remove();
+    else group.querySelector(".count-plain").textContent = group.querySelectorAll(".review-card").length;
+    const left = [...document.querySelectorAll(".review-card")].map((c) => ({ priority: c.dataset.priority }));
+    $("#queue-counts").innerHTML = queueCounts(left);
+    if (next) focusHeading(next);
+    else {
+      $("#queue").innerHTML = emptyQueue();
+      focusHeading($("main h1"));
+    }
+    toast(result.human_override ? `Override recorded: ${button.dataset.label}` : `Confirmed: ${button.dataset.label}`);
+    refreshReviewCount();
+  } catch (error) {
+    toast(error.message);
+    card.querySelectorAll("button").forEach((b) => (b.disabled = false));
+  }
+}
+
+// The rule that made a decision urgent, in its own words ("rule possible-emergency: Possible
+// emergency symptoms. Nurse triage now…" -> the sentence after the rule name).
+const ruleReason = (record) => (record.reasons.find((r) => r.startsWith("rule ")) ?? "").replace(/^rule [^:]+:\s*/, "");
+
+function reviewCard(item) {
   const record = item.record;
   const recommendation = item.recommendation;
-  return `<article class="panel review-card" data-id="${esc(item.id)}">
+  const labels = state.detail.labels;
+  const title = recommendation ? `Recommended: ${recommendation}` : "No recommendation: the pack abstained";
+  return `<article class="panel review-card${item.priority === "stat" ? " is-stat" : ""}" data-id="${esc(item.id)}" data-priority="${esc(item.priority)}"
+      tabindex="-1" aria-labelledby="card-${esc(item.id)}">
+    ${item.priority === "stat" ? `<div class="stat-banner">${icon("alert")}<span><b>Stat.</b> ${esc(ruleReason(record) || "Handle before anything else.")}</span></div>` : ""}
     <div class="row">
-      ${priorityBadge(item.priority)} ${outcomeBadge(item.outcome)}
-      <span class="muted">${esc(time(item.created_at))}</span>
+      <h3 class="card-title" id="card-${esc(item.id)}">${esc(title)}</h3>
+      ${item.confidence !== null ? `<span class="muted">confidence ${pct(item.confidence)}</span>` : ""}
       <span class="grow"></span>
+      ${item.priority === "stat" ? "" : priorityBadge(item.priority)} ${outcomeBadge(item.outcome)}
+      <span class="muted"><time datetime="${esc(item.created_at)}">${esc(time(item.created_at))}</time></span>
       <span class="mono muted">${esc(item.id.slice(0, 8))}</span>
     </div>
     ${inputView(record.input)}
-    <div>Recommendation: <b>${esc(recommendation ?? "none (abstained)")}</b>
-      ${item.confidence !== null ? `<span class="muted">· confidence ${pct(item.confidence)}</span>` : ""}</div>
-    <ul class="reasons">${record.reasons.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>
+    <ul class="reasons">${record.reasons.filter((r) => item.priority !== "stat" || !r.startsWith("rule ")).map((r) => `<li>${esc(r)}</li>`).join("")}</ul>
     ${criteriaTable(record.answers)}
-    <div class="labels">${labels.map((label) =>
-      `<button data-label="${esc(label)}" class="${label === recommendation ? "recommended" : ""}">${label === recommendation ? `${icon("check")}<span class="sr-only">Recommended:</span> ` : ""}${esc(label)}</button>`).join("")}
+    <div class="labels">
+      ${recommendation ? `<button type="button" class="primary" data-label="${esc(recommendation)}">${icon("check")} Confirm ${esc(recommendation)}</button>
+        <span class="muted">or choose another label:</span>` : `<span class="muted">Choose the right label:</span>`}
+      ${labels.filter((l) => l !== recommendation).map((l) => `<button type="button" data-label="${esc(l)}">${esc(l)}</button>`).join("")}
     </div>
   </article>`;
 }
@@ -489,6 +607,15 @@ views.audit = async (main, params) => {
 };
 views.audit.update = (params) => (params[0] ? openRecord(params[0]) : closeDrawer());
 
+// Current ratings of a decision, read-only (rating happens in the record's drawer).
+function ratingCell(r) {
+  const parts = [];
+  if (r.feedback_up) parts.push(`<span class="rated up">${icon("thumbs-up")}${r.feedback_up > 1 ? r.feedback_up : ""}</span>`);
+  if (r.feedback_down) parts.push(`<span class="rated down">${icon("thumbs-down")}${r.feedback_down > 1 ? r.feedback_down : ""}</span>`);
+  const words = [r.feedback_up && `${r.feedback_up} right`, r.feedback_down && `${r.feedback_down} wrong`].filter(Boolean).join(", ");
+  return parts.length ? `${parts.join(" ")}<span class="sr-only">${words}</span>` : `<span class="muted" aria-label="not rated">–</span>`;
+}
+
 function auditTable(rows) {
   const review = (r) => (r.review_status === "resolved" ? `${r.final_label}${r.human_override ? " (override)" : ""}` : r.review_status.replace("_", " "));
   return tableHtml({
@@ -510,6 +637,7 @@ function auditTable(rows) {
       { key: "confidence", label: "Confidence", numeric: true, sort: (r) => r.confidence, cell: (r) => pct(r.confidence) },
       { key: "latency", label: "Latency, ms", numeric: true, sort: (r) => r.latency_ms, cell: (r) => num(r.latency_ms, 2) },
       { key: "review", label: "Review", sort: review, cell: (r) => esc(review(r)) },
+      { key: "rated", label: "Rated", className: "rated-cell", sort: (r) => r.feedback_down + r.feedback_up / 1000, cell: ratingCell },
       { key: "id", label: "ID", cell: (r) => `<span class="mono">${esc(r.id.slice(0, 8))}</span>` },
     ],
   });
@@ -542,7 +670,7 @@ async function openRecord(id) {
       ${r.fallback ? `<p class="mt-3"><b>Fallback:</b> ${esc(r.fallback)}</p>` : ""}
       ${r.reasons?.length ? `<ul class="reasons">${r.reasons.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
       ${derivedPrimary() ? `<h3>Criteria</h3>${criteriaTable(r.answers)}` : ""}
-      <h3>Was this right?</h3>${feedbackControls(id)}
+      <h3>Was this right?</h3>${feedbackControls(r, myRating(found.events))}
       <h3>Events</h3>${timeline(found.events)}
       <details><summary>Full record (JSON)</summary><pre class="json">${esc(JSON.stringify(r, null, 2))}</pre></details>`,
   });
@@ -589,6 +717,7 @@ function showEvalsTab(requested) {
     else a.removeAttribute("aria-current");
   });
   const body = $("#evals-body");
+  body.dataset.tab = tab; // an answer that arrives after the user moved on is dropped
   const empty = (text) => `<div class="panel empty">${text}</div>`;
   if (tab === "compare") {
     body.innerHTML = leaderboardView(state.detail.leaderboard);
@@ -596,28 +725,9 @@ function showEvalsTab(requested) {
   } else if (tab === "report") {
     body.innerHTML = state.detail.benchmark ? reportView(state.detail.benchmark) : empty("No benchmark published for this pack.");
   } else if (tab === "run") {
-    const datasets = state.detail.datasets;
-    const preselected = datasets.find((d) => d.includes("local-site")) ?? datasets[0];
-    body.innerHTML = `
-      <div class="row panel">
-        <label for="dataset">Dataset</label>
-        <select id="dataset">${datasets.map((d) => `<option ${d === preselected ? "selected" : ""}>${esc(d)}</option>`).join("")}</select>
-        <button class="primary" id="run-eval">Run evaluation</button>
-      </div>
-      <p class="muted mt-3">Anything other than the benchmark dataset is compared against the published benchmark (local validation).</p>
-      <div id="run-report">${empty("Choose a dataset and run it; the report appears here.")}</div>`;
-    $("#run-eval").addEventListener("click", (e) =>
-      whileBusy(e.currentTarget, "Running…", async () => {
-        try {
-          const report = await api(`${packPath()}/evals`, { method: "POST", body: JSON.stringify({ dataset: $("#dataset").value }) });
-          evalsState.reports.unshift(report);
-          $("#run-report").innerHTML = reportView(report);
-          wire($("#run-report"));
-        } catch (error) {
-          toast(error.message);
-        }
-      }),
-    );
+    showRunTab(body, empty).catch((error) => {
+      if (body.dataset.tab === "run") body.innerHTML = empty(`Could not load the datasets: ${esc(error.message)}`);
+    });
   } else {
     const reports = evalsState.reports;
     body.innerHTML = reports.length ? `
@@ -632,6 +742,65 @@ function showEvalsTab(requested) {
     });
   }
   wire(body);
+}
+
+async function showRunTab(body, empty) {
+  const datasets = await api(`${packPath()}/datasets`);
+  if (body.dataset.tab !== "run") return;
+  const preselected = datasets.find((d) => d.name.includes("local-site")) ?? datasets[0];
+  const remote = remoteSlots();
+  body.innerHTML = `
+    <div class="row panel">
+      <label for="dataset">Dataset</label>
+      <select id="dataset">${datasets.map((d) => `<option value="${esc(d.name)}" ${d === preselected ? "selected" : ""}>${esc(d.name)} (${d.n} records)</option>`).join("")}</select>
+      <button type="button" class="primary" id="run-eval">Run evaluation</button>
+    </div>
+    <p class="muted mt-3">Anything other than the benchmark dataset is compared against the published benchmark (local validation).
+      ${remote.length ? "The deployed configuration calls remote models, so you'll be asked to confirm first." : "The deployed configuration runs locally: no remote calls."}</p>
+    <div id="run-report">${empty("Choose a dataset and run it; the report appears here.")}</div>`;
+  $("#run-eval").addEventListener("click", async (e) => {
+    const button = e.currentTarget;
+    const dataset = datasets.find((d) => d.name === $("#dataset").value);
+    if (remote.length && !(await confirmRun(dataset, remote))) return button.focus();
+    await whileBusy(button, "Running…", async () => {
+      try {
+        const report = await api(`${packPath()}/evals`, { method: "POST", body: JSON.stringify({ dataset: dataset.name }) });
+        evalsState.reports.unshift(report);
+        $("#run-report").innerHTML = reportView(report);
+        wire($("#run-report"));
+      } catch (error) {
+        toast(error.message);
+      }
+    });
+  });
+}
+
+// Slots whose deployed provider calls a remote model (Jev, an LLM), in words.
+const remoteSlots = () => Object.entries(state.detail.active_providers)
+  .filter(([, p]) => remoteModels(p.model).length)
+  .map(([slot, p]) => `${esc(slotText(slot))}: ${providerWords(p)}`);
+
+// Before an evaluation that calls remote models: what it runs, on how many records, and which
+// models it calls. No cost estimate is invented; the numbers shown are the ones we know.
+function confirmRun(dataset, remote) {
+  return new Promise((resolve) => {
+    const dialog = document.createElement("dialog");
+    dialog.className = "confirm";
+    dialog.setAttribute("aria-labelledby", "confirm-title");
+    dialog.innerHTML = `<form method="dialog">
+      <h2 id="confirm-title">Run this evaluation?</h2>
+      <p>It runs all <b>${dataset.n}</b> records of <b>${esc(dataset.name)}</b> through the deployed configuration, which calls these remote models for each record:</p>
+      <ul>${remote.map((r) => `<li>${r}</li>`).join("")}</ul>
+      <p class="muted">These are real, metered calls. The report is saved to this deployment's history.</p>
+      <div class="row mt-4"><span class="grow"></span><button value="cancel" autofocus>Cancel</button><button value="run" class="primary">Run ${dataset.n} records</button></div>
+    </form>`;
+    document.body.append(dialog);
+    dialog.addEventListener("close", () => {
+      resolve(dialog.returnValue === "run");
+      dialog.remove();
+    });
+    dialog.showModal();
+  });
 }
 
 // ---- leaderboard -----------------------------------------------------------------------------
@@ -836,7 +1005,13 @@ function otherQuestions(rows, varying) {
 function reportView(r) {
   const q = r.questions[r.primary];
   const d = r.decisions;
-  const critical = d.critical.map((c) => tile(`Critical ${c.question}=${c.label}`, `${c.detected}/${c.n}`, `${c.auto_missed} automated`)).join("");
+  // Safety first: accuracy, every critical label's catch rate (danger when anything is missed) and
+  // false automation lead; calibration, rates, speed and cost follow.
+  const critical = d.critical.map((c) => stat({
+    label: `${c.question} = ${c.label} caught`, value: `${c.detected}/${c.n}`, tone: c.detected < c.n || c.auto_missed ? "danger" : "",
+    foot: c.auto_missed ? `<b>${c.auto_missed} automated</b>` : "none automated",
+  })).join("");
+  const small = (label, value, foot = "") => stat({ size: "small", label, value, foot: esc(foot) });
   const id = `${r.id ?? r.created_at}`.replace(/[^a-zA-Z0-9-]/g, "");
   return `
     <div class="panel">
@@ -844,16 +1019,21 @@ function reportView(r) {
         ${Object.entries(r.providers).map(([s, p]) => `${esc(s)}=${esc(p.variant)}`).join(", ")}</span></div>
     </div>
     ${r.comparison ? comparisonView(r.comparison) : ""}
-    <div class="tiles mt-4">
-      ${tile(`${r.primary} accuracy`, pct(q.accuracy), `macro-F1 ${num(q.macro_f1)}`)}
-      ${tile("Calibration (ECE)", num(q.calibration.ece), `Brier ${num(q.brier)}`)}
-      ${tile("Automated", pct(d.outcome_rates.AUTO), `accuracy ${pct(d.automation.accuracy)}`)}
-      ${tile("False automation rate", pct(d.automation.false_automation_rate), `of ${d.automation.n} automated`)}
-      ${tile("Abstention", pct(d.abstention_rate))}
-      ${tile("Expected override rate", pct(d.review.expected_override_rate), `of ${d.review.n} reviewed`)}
+    <div class="stats-primary">
+      ${stat({ label: `${r.primary} accuracy`, value: pct(q.accuracy), foot: `macro-F1 ${num(q.macro_f1)} · n=${q.n}` })}
       ${critical}
-      ${tile("Latency p50 / p95", `${num(r.latency_ms.p50, 2)} / ${num(r.latency_ms.p95, 2)}`, "ms")}
-      ${tile("Cost / decision", r.cost.per_decision_usd === null ? "unknown" : `$${num(r.cost.per_decision_usd, 5)}`)}
+      ${stat({
+        label: "False automation", value: pct(d.automation.false_automation_rate), tone: d.automation.false_automation_rate ? "danger" : "",
+        foot: d.automation.n ? `of ${d.automation.n} automated` : "nothing automated",
+      })}
+    </div>
+    <div class="stats-secondary">
+      ${small("Calibration (ECE)", num(q.calibration.ece), `Brier ${num(q.brier)}`)}
+      ${small("Automated", pct(d.outcome_rates.AUTO), `accuracy ${pct(d.automation.accuracy)}`)}
+      ${small("Abstention", pct(d.abstention_rate))}
+      ${small("Expected override", pct(d.review.expected_override_rate), `of ${d.review.n} reviewed`)}
+      ${small("Latency p50 / p95", `${num(r.latency_ms.p50, 2)} / ${num(r.latency_ms.p95, 2)} ms`)}
+      ${small("Cost / decision", r.cost.per_decision_usd === null ? "unknown" : money(r.cost.per_decision_usd))}
     </div>
     <div class="grid-2">
       <div class="panel"><h3>Reliability</h3>${reliabilityChart(q.calibration, id)}</div>
@@ -1016,26 +1196,27 @@ views.feedback = async (main) => {
     api(`/api/feedback?pack_id=${encodeURIComponent(state.packId)}${rating ? `&rating=${rating}` : ""}&limit=200`),
     api(`/api/stats?pack_id=${encodeURIComponent(state.packId)}`),
   ]);
+  const f = stats.feedback;
   main.innerHTML = `
     <h1>Feedback</h1>
-    <p class="muted">Thumbs up (right) and thumbs down (wrong) from anyone using the system. Thumbs-down cases are where the pack is wrong:
-      download them, fill in the right answers, and they become tests and evaluation data for the next version.</p>
-    <div class="tiles">
-      ${tile("Right", stats.feedback.up, "thumbs up")}
-      ${tile("Wrong", stats.feedback.down, "thumbs down")}
-      ${tile("Wrong on automated", stats.feedback.down_on_auto, "confidently wrong: automated, then rated wrong")}
+    <p class="muted">Anyone using the system can rate a decision right or wrong, and change their mind; each person's latest rating counts.
+      A "wrong" that says what the answer should have been is a ready-made test case: download the wrong cases and they go straight into an evaluation.</p>
+    <div class="stats-primary two">
+      ${stat({ label: "Wrong on automated", value: String(f.down_on_auto), tone: f.down_on_auto ? "danger" : "", foot: "Automated, then rated wrong: confidently wrong" })}
+      ${stat({ label: "Ready to become tests", value: String(f.down_with_expected), foot: "Rated wrong, with the right answer" })}
     </div>
     <div class="row panel">
       <label for="rating-filter">Show</label>
       <select id="rating-filter">
-        <option value="down" ${rating === "down" ? "selected" : ""}>Thumbs down</option>
-        <option value="up" ${rating === "up" ? "selected" : ""}>Thumbs up</option>
-        <option value="" ${rating === "" ? "selected" : ""}>All</option>
+        <option value="down" ${rating === "down" ? "selected" : ""}>Wrong (${f.down})</option>
+        <option value="up" ${rating === "up" ? "selected" : ""}>Right (${f.up})</option>
+        <option value="" ${rating === "" ? "selected" : ""}>All (${f.up + f.down})</option>
       </select>
       <span class="grow"></span>
-      <a class="button" href="${packPath()}/feedback/export?rating=down" download>${icon("download")} Download thumbs-down cases (JSONL)</a>
+      <a class="button" href="${packPath()}/feedback/export?rating=down" download>${icon("download")} Download the wrong cases (JSONL)</a>
     </div>
-    ${items.length ? items.map(feedbackCard).join("") : `<div class="panel empty">No feedback yet. Rate decisions as right or wrong in Try it or the Audit trail.</div>`}`;
+    ${items.length ? items.map(feedbackCard).join("") : `<div class="panel empty-state"><h2>Nothing here yet</h2>
+      <p class="muted">Rate a decision right or wrong in Try it, or in a record of the audit trail.</p></div>`}`;
   $("#rating-filter").addEventListener("change", (e) => {
     storageSet("oh.feedback.rating", e.target.value);
     render();
@@ -1044,19 +1225,21 @@ views.feedback = async (main) => {
 
 function feedbackCard(item) {
   const r = item.record;
-  const urgency = r.answers.urgency ? ` · urgency ${esc(r.answers.urgency.label)}` : "";
-  return `<article class="panel">
+  const wrong = item.rating === "down";
+  return `<article class="panel feedback-card">
     <div class="row">
-      <span class="badge ${item.rating === "down" ? "s-degraded" : "s-ok"}">${item.rating === "down" ? `${icon("thumbs-down")} Wrong` : `${icon("thumbs-up")} Right`}</span>
+      <span class="badge ${wrong ? "s-degraded" : "s-ok"}">${icon(wrong ? "thumbs-down" : "thumbs-up")} ${wrong ? "Wrong" : "Right"}</span>
       ${outcomeBadge(r.outcome)} ${priorityBadge(r.priority)}
-      <span>→ <b>${esc(r.recommendation ?? "no recommendation")}</b>${urgency}</span>
+      <span>→ <b>${esc(r.recommendation ?? "no recommendation")}</b></span>
       <span class="grow"></span>
-      <span class="muted">${esc(time(item.created_at))}${item.reporter ? ` · ${esc(item.reporter)}` : ""}</span>
+      <span class="muted"><time datetime="${esc(item.created_at)}">${esc(time(item.created_at))}</time>${item.reporter ? ` · ${esc(item.reporter)}` : ""}</span>
     </div>
+    ${item.expected ? `<p class="right-answer">${icon("check")} <b>Right answer:</b> <code>${esc(item.expected.question)}</code> should be <b>${esc(item.expected.label)}</b>
+      <span class="muted">(it said ${esc(r.answers[item.expected.question]?.label ?? "nothing")})</span></p>` : ""}
+    ${item.note ? `<p><b>Note:</b> ${esc(item.note)}</p>` : ""}
     ${inputView(r.input)}
     ${criteriaTable(r.answers, { evidence: false })}
-    ${item.note ? `<p><b>Note:</b> ${esc(item.note)}</p>` : ""}
-    <span class="mono muted break-anywhere">decision ${esc(item.decision_id)}</span>
+    <a href="#audit/${encodeURIComponent(item.decision_id)}">Open the decision <span class="mono">${esc(item.decision_id.slice(0, 8))}</span> ${icon("arrow-right")}</a>
   </article>`;
 }
 
@@ -1081,61 +1264,141 @@ function questionPanel(key, q, primary) {
     <ol>${q.derive.table.map((row) => `<li>${deriveRow(row)}</li>`).join("")}</ol>` : "";
   const labels = q.type === "score" ? Object.keys(q.levels).sort((a, b) => q.levels[a].score - q.levels[b].score) : Object.keys(q.criteria);
   const score = (label) => (q.type === "score" ? `<td class="mono">${esc(q.levels[label].score)}</td>` : "");
-  return `<div class="panel"><h3>Question <code>${esc(key)}</code>${primary ? " (primary)" : ""}${kind}</h3>
+  return `<div class="panel question"><h3>Question <code>${esc(key)}</code>${primary ? " (the decision)" : ""}${kind}</h3>
     <p class="muted">${esc(q.instructions)}</p>${derive}
     <table>${labels.map((label) => `<tr><td><code>${esc(label)}</code></td>${score(label)}<td>${esc(q.criteria[label])}</td></tr>`).join("")}</table></div>`;
 }
 
+// A policy condition in words: "the chance that urgency is urgent is at least 0.35".
 function conditionText(when) {
+  const q = `<code>${esc(when.question)}</code>`;
+  const labels = (when.labels ?? []).map((l) => `<code>${esc(l)}</code>`).join(" or ");
+  const known = (v) => v !== null && v !== undefined;
   const parts = [];
-  if (when.min_probability !== null && when.min_probability !== undefined) parts.push(`P(${esc(when.question)} ∈ [${when.labels.map(esc).join(", ")}]) ≥ ${esc(when.min_probability)}`);
-  else if (when.labels.length) parts.push(`${esc(when.question)} ∈ [${when.labels.map(esc).join(", ")}]`);
-  if (when.min_score !== null && when.min_score !== undefined) parts.push(`${esc(when.question)} expected score ≥ ${esc(when.min_score)}`);
-  if (when.max_score !== null && when.max_score !== undefined) parts.push(`${esc(when.question)} expected score ≤ ${esc(when.max_score)}`);
-  const confidence = when.min_confidence ? ` with p ≥ ${when.min_confidence}` : "";
+  if (known(when.min_probability)) parts.push(`the chance that ${q} is ${labels} is at least ${esc(when.min_probability)}`);
+  else if (labels) parts.push(`${q} is ${labels}`);
+  if (known(when.min_score)) parts.push(`the expected score of ${q} is at least ${esc(when.min_score)}`);
+  if (known(when.max_score)) parts.push(`the expected score of ${q} is at most ${esc(when.max_score)}`);
+  const confidence = when.min_confidence ? `, with confidence at least ${esc(when.min_confidence)}` : "";
   return parts.join(" and ") + confidence;
 }
 
-views.card = async (main) => {
+// Whether this deployment automates at all, and when. The thresholds say when a decision may be
+// automated; the caps in core/policy.py (risk level, required providers) can rule it out entirely.
+function automationText(d) {
+  const p = d.manifest.policy;
+  const code = (v) => `<code>${esc(v)}</code>`;
+  const review = `A person reviews from confidence ${p.thresholds.review.toFixed(2)}; below that it abstains.`;
+  if (d.risk.level >= 4) return `Never: at risk level 4 a person reviews every decision. ${review}`;
+  if (d.risk.level >= 2) {
+    return `Not here: at risk level ${d.risk.level} a person reviews every decision (only a recorded governance approval can lift that, and this server takes none). ${review}`;
+  }
+  const unmet = Object.entries(p.automation_requires ?? {}).filter(([slot, allowed]) => !allowed.includes(d.active_providers[slot]?.variant));
+  if (unmet.length) {
+    return `Not with the deployed providers: automation needs ${unmet.map(([slot, allowed]) =>
+      `${code(slot)} = ${allowed.map(code).join(" or ")} (deployed: ${code(d.active_providers[slot]?.variant ?? "none")})`).join(" and ")}. ${review}`;
+  }
+  const labels = Object.values(p.labels);
+  const higher = labels.some((l) => l.allow_auto && (l.auto_threshold ?? 0) > p.thresholds.auto);
+  const never = labels.some((l) => !l.allow_auto);
+  const exceptions = [higher && "some labels need more", never && "some are never automated"].filter(Boolean).join(", ");
+  return `At confidence ${p.thresholds.auto.toFixed(2)} or more${exceptions ? ` (${exceptions}; see Policy)` : ""}. ${review}`;
+}
+
+const CARD_SECTIONS = [
+  ["facts", "At a glance"],
+  ["use", "Intended use"],
+  ["questions", "Questions"],
+  ["policy", "Policy"],
+  ["providers", "Providers"],
+  ["schemas", "Schemas"],
+];
+
+// The card is a document: a table of contents whose links are routes ("#card/policy"), prose at a
+// readable width, facts as a definition list, and the machine-facing schemas folded away.
+views.card = async (main, params) => {
   const d = state.detail;
   const m = d.manifest;
   const p = m.policy;
+  const list = (items) => `<ul>${items.map((u) => `<li>${esc(u)}</li>`).join("")}</ul>`;
   main.innerHTML = `
     <h1>${esc(m.name)}</h1>
-    <p class="muted">${esc(m.id)} · v${esc(m.version)} · ${esc(m.license)} · ${esc(m.publisher.name)} (${esc(m.publisher.type)})</p>
-    <p>${esc(m.summary)}</p>
-    <div class="tiles">
-      ${tile("Risk level", m.risk.level, m.risk.category)}
-      ${tile("Automation threshold", p.thresholds.auto.toFixed(2), `review ≥ ${p.thresholds.review.toFixed(2)}`)}
-      ${tile("CDS Hooks service", d.cds_service ?? "none", m.cds_hooks ? `hook: ${m.cds_hooks.hook}` : "", "ident")}
-    </div>
-    <div class="panel"><b>Digest</b> <span class="mono break-anywhere">${esc(d.digest)}</span></div>
-    <div class="grid-2">
-      <div class="panel"><h3>Intended use</h3><p>${esc(m.card.intended_use)}</p>
-        <h3>Users</h3><ul>${m.card.intended_users.map((u) => `<li>${esc(u)}</li>`).join("")}</ul>
-        <h3>Population</h3><p>${esc(m.card.patient_population)}</p>
-        <h3>Why risk level ${m.risk.level}</h3><p class="muted">${esc(m.risk.rationale)}</p></div>
-      <div class="panel"><h3>Out of scope</h3><ul>${m.card.out_of_scope.map((u) => `<li>${esc(u)}</li>`).join("")}</ul>
-        <h3>Known failure modes</h3><ul>${m.card.known_failure_modes.map((u) => `<li>${esc(u)}</li>`).join("")}</ul></div>
-    </div>
-    ${Object.entries(m.questions).map(([key, q]) => questionPanel(key, q, key === p.primary)).join("")}
-    <div class="panel"><h3>Policy</h3><ul>
-      ${p.rules.map((r) => `<li><b>${esc(r.name)}</b>: ${conditionText(r.when)}
-        ⇒ ${outcomeBadge(r.outcome)} ${r.recommendation ? `→ ${esc(r.recommendation)}` : ""} ${r.priority ? priorityBadge(r.priority) : ""}<br><span class="muted">${esc(r.reason)}</span></li>`).join("")}
-      ${Object.entries(p.labels).map(([label, l]) => `<li><code>${esc(label)}</code>: ${l.allow_auto ? `automated at ≥ ${l.auto_threshold ?? p.thresholds.auto}` : "never automated"}</li>`).join("")}
-      ${Object.entries(p.automation_requires ?? {}).map(([slot, variants]) => `<li>Automated only while <code>${esc(slot)}</code> is ${variants.map((v) => `<code>${esc(v)}</code>`).join(" or ")}; otherwise a person reviews</li>`).join("")}
-      <li>Fallback: ${esc(p.fallback)}</li></ul></div>
-    <div class="panel table-wrap"><h3>Providers</h3><table>
-      <tr><th>Slot</th><th>Answers</th><th>Active</th><th>Variants</th></tr>
-      ${Object.entries(m.providers).map(([slot, s]) => `<tr><td>${esc(slot)}</td><td>${s.answers.map(esc).join(", ")}</td>
-        <td><b>${esc(d.active_providers[slot].variant)}</b> <span class="muted mono">${esc(d.active_providers[slot].model ?? "")}</span></td>
-        <td>${Object.entries(s.variants).map(([name, v]) => `${esc(name)} (${esc(v.type)})`).join(", ")}</td></tr>`).join("")}
-    </table></div>
-    <div class="grid-2">
-      <div class="panel"><h3>Input schema</h3><pre class="json">${esc(JSON.stringify(d.input_schema, null, 2))}</pre></div>
-      <div class="panel"><h3>Output schema</h3><pre class="json">${esc(JSON.stringify(d.output_schema, null, 2))}</pre></div>
-    </div>`;
+    <p class="prose lead">${esc(m.summary)}</p>
+    <nav class="toc" aria-label="On this page">${CARD_SECTIONS.map(([key, title]) => `<a href="#card/${key}">${esc(title)}</a>`).join("")}</nav>
+
+    <section class="panel card-section" id="card-facts" aria-labelledby="card-facts-title">
+      <h2 id="card-facts-title">At a glance</h2>
+      <dl class="facts">
+        <dt>Risk level</dt><dd><span class="badge risk">${m.risk.level}</span> ${esc(m.risk.category)}</dd>
+        <dt>Decides</dt><dd><code>${esc(p.primary)}</code>: ${d.labels.map((l) => `<code>${esc(l)}</code>`).join(", ")}</dd>
+        <dt>Automates</dt><dd>${automationText(d)}</dd>
+        <dt>CDS Hooks</dt><dd>${d.cds_service ? `service <code>${esc(d.cds_service)}</code> on <code>${esc(m.cds_hooks.hook)}</code>` : "none"}</dd>
+        <dt>Publisher</dt><dd>${esc(m.publisher.name)} <span class="muted">(${esc(m.publisher.type)})</span></dd>
+        <dt>Version</dt><dd><span class="mono">${esc(m.id)}</span> v${esc(m.version)} · ${esc(m.license)}</dd>
+        <dt>Digest</dt><dd class="digest"><code class="break-anywhere">${esc(d.digest)}</code>
+          <button type="button" class="icon-button" data-copy="${esc(d.digest)}" aria-label="Copy the digest">${icon("copy")}</button></dd>
+      </dl>
+    </section>
+
+    <section class="panel card-section prose" id="card-use" aria-labelledby="card-use-title">
+      <h2 id="card-use-title">Intended use</h2>
+      <p>${esc(m.card.intended_use)}</p>
+      <h3>Users</h3>${list(m.card.intended_users)}
+      <h3>Population</h3><p>${esc(m.card.patient_population)}</p>
+      <h3>Out of scope</h3>${list(m.card.out_of_scope)}
+      <h3>Known failure modes</h3>${list(m.card.known_failure_modes)}
+      <h3>Why risk level ${m.risk.level}</h3><p>${esc(m.risk.rationale)}</p>
+    </section>
+
+    <section class="card-section" id="card-questions" aria-labelledby="card-questions-title">
+      <h2 id="card-questions-title">Questions</h2>
+      ${Object.entries(m.questions).map(([key, q]) => questionPanel(key, q, key === p.primary)).join("")}
+    </section>
+
+    <section class="panel card-section" id="card-policy" aria-labelledby="card-policy-title">
+      <h2 id="card-policy-title">Policy</h2>
+      <p class="prose muted">Rules are checked in order and the first that matches decides; otherwise the confidence thresholds do.
+        An automated outcome is then held for a person if its label is never automated, a provider failed, a required provider
+        isn't deployed, or the risk level forbids it.</p>
+      <ol class="rules">${p.rules.map((r) => `<li>
+        <div class="row"><b>${esc(r.name)}</b> ${outcomeBadge(r.outcome)} ${r.priority ? priorityBadge(r.priority) : ""}
+          ${r.recommendation ? `<span>→ <code>${esc(r.recommendation)}</code></span>` : ""}</div>
+        <p>When ${conditionText(r.when)}.</p>
+        <p class="muted">${esc(r.reason)}</p></li>`).join("")}</ol>
+      <h3>Labels</h3>
+      <ul>${Object.entries(p.labels).map(([label, l]) => `<li><code>${esc(label)}</code>: ${l.allow_auto ? `needs confidence ${l.auto_threshold ?? p.thresholds.auto} or more to be automated` : "never automated; a person always reviews"}</li>`).join("") || "<li>Every label follows the thresholds above.</li>"}
+        ${Object.entries(p.automation_requires ?? {}).map(([slot, variants]) => `<li>Automated only while <code>${esc(slot)}</code> is ${variants.map((v) => `<code>${esc(v)}</code>`).join(" or ")}; otherwise a person reviews.</li>`).join("")}</ul>
+      <div class="callout neutral"><b>When it can't decide:</b> ${esc(p.fallback)}</div>
+    </section>
+
+    <section class="panel card-section" id="card-providers" aria-labelledby="card-providers-title">
+      <h2 id="card-providers-title">Providers</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th scope="col">Slot</th><th scope="col">Answers</th><th scope="col">Deployed</th><th scope="col">Variants</th></tr></thead>
+        <tbody>${Object.entries(m.providers).map(([slot, sp]) => `<tr><td>${esc(slotText(slot))} <span class="mono muted">${esc(slot)}</span></td>
+          <td>${sp.answers.map((a) => `<code>${esc(a)}</code>`).join(", ")}</td>
+          <td><b>${providerWords(d.active_providers[slot])}</b> <span class="mono muted">${esc(d.active_providers[slot].variant)}</span></td>
+          <td>${Object.entries(sp.variants).map(([name, v]) => `<code>${esc(name)}</code> <span class="muted">${esc(v.type)}</span>`).join(", ")}</td></tr>`).join("")}</tbody>
+      </table></div>
+    </section>
+
+    <section class="panel card-section" id="card-schemas" aria-labelledby="card-schemas-title">
+      <h2 id="card-schemas-title">Schemas</h2>
+      <details><summary>Input schema (JSON)</summary><pre class="json">${esc(JSON.stringify(d.input_schema, null, 2))}</pre></details>
+      <details><summary>Output schema (JSON)</summary><pre class="json">${esc(JSON.stringify(d.output_schema, null, 2))}</pre></details>
+    </section>`;
+  main.querySelector("[data-copy]").addEventListener("click", async (event) => {
+    try {
+      await navigator.clipboard.writeText(event.currentTarget.dataset.copy);
+      toast("Digest copied");
+    } catch {
+      toast("Copying isn't available here: select the digest and copy it");
+    }
+  });
+  return cardSection(params[0]);
 };
+views.card.update = (params) => focusHeading(cardSection(params[0]) ?? $("main h1"));
+const cardSection = (key) => (key ? $(`#card-${CSS.escape(key)} h2`) : null);
 
 // ---- try it ----------------------------------------------------------------------------------
 
@@ -1187,9 +1450,7 @@ async function tryRecord(main) {
     }
     return whileBusy(e.currentTarget, "Deciding…", async () => {
       try {
-        $("#result").innerHTML = decisionView(await api(`${packPath()}/decide`, { method: "POST", body: JSON.stringify(input) }));
-        wire($("#result"));
-        refreshReviewCount();
+        showResult(await api(`${packPath()}/decide`, { method: "POST", body: JSON.stringify(input) }));
       } catch (error) {
         toast(error.message);
       }
@@ -1202,7 +1463,8 @@ async function tryMessage(main) {
     <h1>Try it</h1>
     <p class="muted">Synthetic messages only. Decisions made here are recorded in the audit trail and review queue.</p>
     <div class="panel">
-      <div class="chips mb-3">${SAMPLES.map((s, i) => `<button data-sample="${i}">${esc(s.label)}</button>`).join("")}</div>
+      <div class="choices samples mb-3" role="group" aria-label="Sample messages"><span class="muted">Samples</span>
+        ${SAMPLES.map((s, i) => `<button type="button" data-sample="${i}">${esc(s.label)}</button>`).join("")}</div>
       <label for="subject">Subject</label><input id="subject" class="field-full">
       <label for="body">Message</label><textarea id="body"></textarea>
       <div class="row mt-3">
@@ -1226,10 +1488,7 @@ async function tryMessage(main) {
     if ($("#age").value) patient.age_band = $("#age").value;
     return whileBusy(e.currentTarget, "Deciding…", async () => {
       try {
-        const result = await api(`${packPath()}/decide`, { method: "POST", body: JSON.stringify({ message, patient }) });
-        $("#result").innerHTML = decisionView(result);
-        wire($("#result"));
-        refreshReviewCount();
+        showResult(await api(`${packPath()}/decide`, { method: "POST", body: JSON.stringify({ message, patient }) }));
       } catch (error) {
         toast(error.message);
       }
@@ -1237,13 +1496,16 @@ async function tryMessage(main) {
   });
 }
 
-// What choosing this label leads to under the pack's own policy: a block rule is danger, a review
-// rule is warning. A criterion of a derived decision takes the tone of what that answer would make
-// the decision (the Effect column of the criteria table). Other labels get no tone.
+// What choosing this label leads to under the pack's own policy: a block rule is danger; a review
+// rule, or a primary label the policy never automates, is warning. A criterion of a derived
+// decision takes the tone of what that answer would make the decision (the Effect column of the
+// criteria table). Other labels get no tone.
 function labelTone(question, label, answers) {
-  const rules = state.detail.manifest.policy.rules.filter((rule) => rule.when.question === question && rule.when.labels?.includes(label));
+  const policy = state.detail.manifest.policy;
+  const rules = policy.rules.filter((rule) => rule.when.question === question && rule.when.labels?.includes(label));
   if (rules.some((rule) => rule.outcome === "BLOCK")) return "block";
   if (rules.some((rule) => rule.outcome === "HUMAN_REVIEW")) return "review";
+  if (question === policy.primary && policy.labels?.[label]?.allow_auto === false) return "review"; // never automated
   const derive = derivedPrimary();
   const effect = derive?.from.includes(question) ? memberEffect(derive, question, label, answers) : null;
   return effect ? labelTone(state.detail.primary, effect, answers) : "";
@@ -1262,6 +1524,20 @@ function answerBars(id, question, a, answers) {
     ${a.evidence.length ? `<div class="chips mt-2">${a.evidence.map((e) => `<span class="chip">${esc(e)}</span>`).join("")}</div>` : ""}`;
 }
 
+// The outcome in words, with the priority when it isn't routine: "Blocked · urgent".
+const RESULT_WORDS = { AUTO: "Automated", HUMAN_REVIEW: "Sent to review", ABSTAIN: "Abstained: a person decides", BLOCK: "Blocked" };
+const RESULT_ICON = { AUTO: "check", HUMAN_REVIEW: "clock", ABSTAIN: "clock", BLOCK: "alert" };
+const resultHeadline = (r) => `${RESULT_WORDS[r.outcome] ?? r.outcome}${r.priority && r.priority !== "routine" ? ` · ${PRIORITY_TEXT[r.priority].toLowerCase()}` : ""}`;
+
+// Show a new result: scrolled into view, its headline focused (and so announced).
+function showResult(result) {
+  const box = $("#result");
+  box.innerHTML = decisionView(result);
+  wire(box);
+  focusHeading($("#result-title"));
+  refreshReviewCount();
+}
+
 function decisionView(r) {
   const derive = derivedPrimary();
   const primary = r.answers[r.primary];
@@ -1270,51 +1546,150 @@ function decisionView(r) {
       <details><summary>Probabilities for every criterion</summary>
         ${Object.entries(r.answers).filter(([q]) => q !== r.primary).map(([q, a]) => answerBars(r.id, q, a, r.answers)).join("")}</details>`
     : Object.entries(r.answers).map(([q, a]) => answerBars(r.id, q, a, r.answers)).join("");
-  return `<div class="panel">
-    <div class="row">${outcomeBadge(r.outcome)} ${priorityBadge(r.priority)}
-      <span>→ <b>${esc(r.recommendation ?? "no recommendation")}</b></span>
-      ${r.confidence !== null ? `<span class="muted">confidence ${pct(r.confidence)}</span>` : ""}
-      <span class="grow"></span><span class="muted">${num(r.latency_ms, 2)} ms</span>
-      <a class="mono" href="#audit" title="${esc(r.id)}">${esc(r.id.slice(0, 8))}</a></div>
-    ${r.fallback ? `<p class="mt-3"><b>Fallback:</b> ${esc(r.fallback)}</p>` : ""}
+  const urgent = r.outcome === "BLOCK" || r.priority === "stat";
+  return `<section class="panel result" aria-labelledby="result-title">
+    <div class="result-head ${urgent ? "tone-solid" : `tone-${esc(r.outcome)}`}">
+      <h2 id="result-title">${icon(RESULT_ICON[r.outcome])}${esc(resultHeadline(r))}</h2>
+      <p>${r.recommendation ? `→ <b>${esc(r.recommendation)}</b>` : "No recommendation"}
+        ${r.confidence !== null ? ` · confidence ${pct(r.confidence)}` : ""} · ${num(r.latency_ms, 2)} ms ·
+        <a href="#audit/${encodeURIComponent(r.id)}">Decision <span class="mono">${esc(r.id.slice(0, 8))}</span></a></p>
+    </div>
+    ${r.fallback ? `<div class="callout ${r.outcome === "BLOCK" ? "danger" : "neutral"}"><b>Instead:</b> ${esc(r.fallback)}</div>` : ""}
     <ul class="reasons">${r.reasons.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
     ${answers}
-    <h3>Was this right?</h3>${feedbackControls(r.id)}
+    <h3>Was this right?</h3>${feedbackControls(r)}
+  </section>`;
+}
+
+// ---- feedback (right / wrong) -------------------------------------------------------------------
+
+// One tap records a rating, and it can be changed: the other button switches it (each person's
+// latest rating counts; the audit trail keeps every one). "Wrong" then asks, optionally, what the
+// answer should have been: with it, the case is a ready-made test (docs/ui-ux-review.md, decision 5).
+const reporter = () => storageGet("oh.reviewer", "") || null;
+
+// This person's current rating of a decision, from its hash-chained events.
+function myRating(events) {
+  const mine = events.filter((e) => e.event === "feedback.recorded" && (e.payload.reporter ?? null) === reporter());
+  const last = mine[mine.length - 1];
+  return last ? { rating: last.payload.rating, expected: last.payload.expected ?? null } : null;
+}
+
+// The questions a thumbs-down can correct: the decision itself first, then (for a derived decision)
+// each check. The choices are the labels the decision could have given, except the one it gave.
+function correctable(record) {
+  const derive = derivedPrimary();
+  const questions = [record.primary, ...(derive ? derive.from : [])].filter((q) => record.answers[q]);
+  return questions.map((q) => ({
+    question: q,
+    answer: record.answers[q].label,
+    labels: Object.keys(record.answers[q].probabilities ?? {}).filter((l) => l !== record.answers[q].label),
+  })).filter((q) => q.labels.length);
+}
+
+const answerChoices = (q) => q.labels.map((l) =>
+  `<button type="button" data-expected-label="${esc(l)}" aria-pressed="false">${esc(l)}</button>`).join("");
+
+function feedbackControls(record, current = null) {
+  const id = esc(record.id);
+  const choices = correctable(record);
+  const status = current ? ratedText(current) : "";
+  return `<div class="fb" data-decision="${id}">
+    <div class="fb-buttons" role="group" aria-label="Was this right?">
+      <button type="button" class="fb-choice" data-rating="up" aria-pressed="${current?.rating === "up"}">${icon("thumbs-up")}<span>Right</span></button>
+      <button type="button" class="fb-choice" data-rating="down" aria-pressed="${current?.rating === "down"}">${icon("thumbs-down")}<span>Wrong</span></button>
+      <span class="fb-status muted" role="status">${esc(status)}</span>
+    </div>
+    <div class="fb-follow" hidden>
+      <p><b>What should it have been?</b> <span class="muted">Optional. With the right answer, this case becomes a ready-made test.</span></p>
+      ${choices.length > 1 ? `<label class="fb-field">Question <select class="fb-question">${choices.map((q) =>
+        `<option value="${esc(q.question)}">${esc(q.question)}${q.question === record.primary ? " (the decision)" : ""} · answered ${esc(q.answer)}</option>`).join("")}</select></label>` : ""}
+      ${choices.map((q, i) => `<div class="choices fb-labels" role="group" data-question="${esc(q.question)}"
+        aria-label="Right answer for ${esc(q.question)}"${i ? " hidden" : ""}>${answerChoices(q)}</div>`).join("")}
+      <label class="fb-field" for="fb-note-${id}">Note <span class="muted">(optional)</span></label>
+      <input id="fb-note-${id}" class="fb-note" maxlength="1000" placeholder="What was wrong?">
+      <div class="row mt-3"><button type="button" class="primary fb-save">Save</button><button type="button" class="fb-skip">Skip</button></div>
+    </div>
   </div>`;
 }
 
-// ---- feedback (thumbs up / down) -------------------------------------------------------------
+function ratedText({ rating, expected }) {
+  if (rating === "up") return "Recorded as right.";
+  return expected ? `Recorded as wrong: ${expected.question} should be ${expected.label}.` : "Recorded as wrong.";
+}
 
-function feedbackControls(decisionId, compact = false) {
-  const note = compact ? "" : `<input class="fb-note" maxlength="1000" placeholder="What was wrong? (optional)" aria-label="What was wrong? (optional)">`;
-  return `<div class="fb ${compact ? "compact" : ""}" data-decision="${esc(decisionId)}">${note}
-    <button type="button" data-rating="up" title="Right">${icon("thumbs-up")}<span class="${compact ? "sr-only" : ""}">Right</span></button>
-    <button type="button" data-rating="down" title="Wrong">${icon("thumbs-down")}<span class="${compact ? "sr-only" : ""}">Wrong</span></button></div>`;
+async function sendRating(box, body) {
+  const before = box.querySelector('.fb-choice[aria-pressed="true"]')?.dataset.rating ?? null;
+  const result = await api(`/api/audit/${box.dataset.decision}/feedback`, {
+    method: "POST",
+    body: JSON.stringify({ reporter: reporter(), ...body }),
+  });
+  updateAuditRow(box.dataset.decision, before, result.rating);
+  box.querySelectorAll(".fb-choice").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.rating === result.rating)));
+  box.querySelector(".fb-status").textContent = ratedText(result);
+  return result;
+}
+
+// The audit table behind the drawer shows current ratings: this person's change moves one count.
+// Only that cell is redrawn, so the row's button (where focus returns) stays in place.
+function updateAuditRow(id, before, after) {
+  const row = TABLES.get("audit")?.spec.rows.find((r) => r.id === id);
+  if (!row || before === after) return;
+  if (before) row[`feedback_${before}`] -= 1;
+  row[`feedback_${after}`] += 1;
+  const cell = document.querySelector(`#audit-table tr[data-id="${CSS.escape(id)}"] td.rated-cell`);
+  if (cell) cell.innerHTML = ratingCell(row);
+}
+
+function closeFollowUp(box, { focus = true } = {}) {
+  box.querySelector(".fb-follow").hidden = true;
+  if (focus) box.querySelector('.fb-choice[data-rating="down"]').focus();
 }
 
 document.addEventListener("click", async (event) => {
-  const button = event.target.closest("button[data-rating]");
-  if (!button) return;
-  event.stopPropagation();
-  const box = button.closest(".fb");
-  const note = box.querySelector(".fb-note");
-  box.querySelectorAll("button").forEach((b) => (b.disabled = true));
+  const box = event.target.closest(".fb");
+  if (!box) return;
+  const follow = box.querySelector(".fb-follow");
+  const choice = event.target.closest("button.fb-choice");
+  const label = event.target.closest("button[data-expected-label]");
   try {
-    await api(`/api/audit/${box.dataset.decision}/feedback`, {
-      method: "POST",
-      body: JSON.stringify({
-        rating: button.dataset.rating,
-        reporter: storageGet("oh.reviewer", "") || null,
-        note: note && note.value.trim() ? note.value.trim() : null,
-      }),
-    });
-    box.innerHTML = `<span class="fb-done">${button.dataset.rating === "up" ? `${icon("thumbs-up")} Recorded as right` : `${icon("thumbs-down")} Recorded as wrong`}</span>`;
-    toast(button.dataset.rating === "up" ? "Thanks for the feedback" : "Thumbs down recorded. It's in the Feedback list.");
+    if (choice) {
+      const pressed = choice.getAttribute("aria-pressed") === "true";
+      if (choice.dataset.rating === "up") {
+        closeFollowUp(box, { focus: false });
+        if (!pressed) await sendRating(box, { rating: "up" });
+      } else {
+        if (!pressed) await sendRating(box, { rating: "down" });
+        follow.hidden = false; // wrong: optionally say what it should have been
+        (follow.querySelector("select, [data-expected-label]") ?? follow.querySelector(".fb-note")).focus();
+      }
+    } else if (label) {
+      const on = label.getAttribute("aria-pressed") !== "true";
+      box.querySelectorAll("[data-expected-label]").forEach((b) => b.setAttribute("aria-pressed", String(b === label && on)));
+    } else if (event.target.closest(".fb-skip")) {
+      closeFollowUp(box);
+    } else if (event.target.closest(".fb-save")) {
+      const group = box.querySelector(".fb-labels:not([hidden])");
+      const picked = group?.querySelector('[aria-pressed="true"]');
+      const note = box.querySelector(".fb-note").value.trim() || null;
+      const expected = picked ? { question: group.dataset.question, label: picked.dataset.expectedLabel } : undefined;
+      if (expected || note) await whileBusy(event.target.closest(".fb-save"), "Saving…", () => sendRating(box, { rating: "down", note, expected }));
+      closeFollowUp(box);
+    }
   } catch (error) {
     toast(error.message);
-    box.querySelectorAll("button").forEach((b) => (b.disabled = false));
   }
-}, true);
+});
+
+// Another question in the follow-up shows its own labels; one answer is chosen at a time.
+document.addEventListener("change", (event) => {
+  const select = event.target.closest(".fb-question");
+  if (!select) return;
+  select.closest(".fb").querySelectorAll(".fb-labels").forEach((group) => {
+    group.hidden = group.dataset.question !== select.value;
+    group.querySelectorAll("[aria-pressed]").forEach((b) => b.setAttribute("aria-pressed", "false"));
+  });
+});
 
 // ---- theme -----------------------------------------------------------------------------------
 

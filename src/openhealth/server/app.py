@@ -225,6 +225,14 @@ def create_app(
             "datasets": [*pack.manifest.evaluation.datasets, *local_datasets(pack)],
         }
 
+    @app.get("/api/packs/{namespace}/{name}/datasets")
+    def pack_datasets(namespace: str, name: str) -> list[dict[str, Any]]:
+        """The datasets an evaluation can run on, with their size (e.g. to say what a run will
+        cost in remote calls before it starts)."""
+        pack = pack_or_404(f"{namespace}/{name}")
+        names = [*pack.manifest.evaluation.datasets, *local_datasets(pack)]
+        return [{"name": n, "n": len(dataset_for(pack, n).records)} for n in names]
+
     @app.get("/api/packs/{namespace}/{name}/examples")
     def pack_examples(namespace: str, name: str) -> list[dict[str, Any]]:
         """Synthetic example inputs: the pack's own behaviour tests."""

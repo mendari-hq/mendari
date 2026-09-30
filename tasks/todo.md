@@ -65,7 +65,27 @@ roles, feedback that captures the right answer, Eastern time everywhere people l
   backends under the schema lock (three nullable columns, one more than the plan: `superseded_by`),
   which also resolves earlier duplicate ratings to each person's latest. Checked on a copy of a
   pre-4a database (chain verifies before and after). UI comes in Phase 4
-- [ ] Phase 4: screen redesigns
+- [x] Phase 4: screen redesigns. Overview: a header naming the risk level and what is deployed in
+  words (codes one line below), four primary stats with what each is out of (Automated, Waiting for
+  review with a link and a warning tone, Override rate, Observed accuracy with its n), one row of
+  secondary facts (volume, latency, cost at a readable scale, audit chain with an icon, feedback),
+  and an empty state with next steps instead of a wall of zeros. Review queue: grouped by priority
+  with counts, a solid banner on stat cards with the rule's reason, the recommendation as the
+  primary button, focus moving to the next card. Try it: the result leads with the outcome in
+  words and colour ("Blocked · urgent", solid for BLOCK and stat), the fallback as a callout,
+  criteria effects and probability bars coloured by consequence (block, review, including labels
+  the policy never automates), the result focused. Feedback (decision 5): Right / Wrong pressed and
+  changeable, Wrong opens an optional "What should it have been?" (the decision or one of its
+  checks), audit rows show current ratings read-only, the Feedback page leads with "Wrong on
+  automated" and "Ready to become tests" and links each case to its record. Decision Card: a
+  document with a table of contents whose links are routes (`#card/policy`), facts as a definition
+  list with a copyable digest, prose at 72ch, policy in words, and an "Automates" line that says
+  whether this deployment automates at all (risk level, required providers). Evaluations: report
+  stats in the same hierarchy; "Run evaluation" asks first when a remote model is deployed, naming
+  the dataset, its size and the models (decision 4). Small read-only API additions:
+  `GET /api/packs/{id}/datasets` (sizes), each audit row's current ratings, `stats.labelled`.
+  Fixed on the way: a drawer replaced by another ran the old one's close handler and closed both
+  (Phase 2), and a deep link to a section is focused on first load
 - [ ] Phase 5: QA pass
 
 ## Done: v0.3 Reference packs: AI Guard (the fifth and last)

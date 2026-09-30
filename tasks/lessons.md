@@ -407,3 +407,23 @@ the accessibility tree, not only the screenshot. Only then commit.
 The PR description lists the all-pack sweep result and the review findings fixed before the first
 commit; no follow-up "review fixes" commit is needed.
 
+## 2026-09-29 - testing
+
+### What happened
+PR #51 failed CI on Python 3.13 only: a new test opened a SQLite connection with
+`with sqlite3.connect(...)`, which commits but never closes. Python 3.13 warns about unclosed
+connections, and with warnings as errors the next test file failed. Locally I had run only 3.12.
+
+### Root cause
+CI runs 3.11, 3.12 and 3.13; my local runs used one version, so version-specific warnings reached
+CI first.
+
+### Rule
+When a change opens resources (files, connections, sockets) or touches anything version-sensitive,
+also run the suite on the newest CI Python before committing:
+`uv run --isolated --python 3.13 pytest -q -p no:cacheprovider` (leaves `.venv` alone). Close SQLite
+connections with `contextlib.closing()`.
+
+### Verification
+No PR fails CI on a Python version that wasn't run locally.
+
