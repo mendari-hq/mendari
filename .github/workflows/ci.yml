@@ -167,8 +167,10 @@ jobs:
           python-version: "3.12"
       - run: uv sync --locked
       - name: Start a registry and publish the five packs
+        # Background servers run from the venv, not `uv run`: a live `uv run` process holds the uv
+        # cache lock, and the setup-uv post step then times out pruning the cache (uv 0.12).
         run: |
-          uv run openhealth registry serve --db /tmp/registry.db --port 8100 &
+          .venv/bin/openhealth registry serve --db /tmp/registry.db --port 8100 &
           for i in $(seq 1 30); do curl -sf http://127.0.0.1:8100/v1/health && break; sleep 1; done
           uv run python scripts/hub_seed.py --registry http://127.0.0.1:8100
       - uses: actions/setup-node@v4
@@ -205,7 +207,7 @@ jobs:
       - run: uv sync --locked
       - name: Start a registry and publish the five packs
         run: |
-          uv run openhealth registry serve --db /tmp/registry.db --port 8100 &
+          .venv/bin/openhealth registry serve --db /tmp/registry.db --port 8100 &
           for i in $(seq 1 30); do curl -sf http://127.0.0.1:8100/v1/health && break; sleep 1; done
           uv run python scripts/hub_seed.py --registry http://127.0.0.1:8100
       - run: uv build --wheel --out-dir /tmp/dist
@@ -287,7 +289,7 @@ jobs:
           key=$(uv run python -c "from openhealth.core.audit import AuditStore; print(AuditStore('/tmp/zap/scan.db').create_api_key(name='zap', role='admin', org='default', created_by='ci')['key'])")
           echo "::add-mask::$key"
           echo "ZAP_KEY=$key" >> "$GITHUB_ENV"
-          uv run openhealth serve --port 8000 --db /tmp/zap/scan.db > /tmp/zap/engine.log 2>&1 &
+          .venv/bin/openhealth serve --port 8000 --db /tmp/zap/scan.db > /tmp/zap/engine.log 2>&1 &
           for i in $(seq 1 60); do curl -sf http://127.0.0.1:8000/api/health > /dev/null && exit 0; sleep 1; done; exit 1
       - name: OWASP ZAP API scan (pinned image)
         run: >-
@@ -332,7 +334,7 @@ jobs:
         run: |
           for i in $(seq 1 60); do curl -sf "$OPENHEALTH_OIDC_ISSUER/.well-known/openid-configuration" > /dev/null && break; sleep 1; done
           export OPENHEALTH_PHI_KEY=$(python3 -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())")
-          uv run openhealth serve --port 8000 --db /tmp/pilot.db > /tmp/engine.log 2>&1 &
+          .venv/bin/openhealth serve --port 8000 --db /tmp/pilot.db > /tmp/engine.log 2>&1 &
           for i in $(seq 1 60); do curl -sf http://127.0.0.1:8000/api/health > /dev/null && break; sleep 1; done
       - run: uv run openhealth sandbox pilot-check --engine http://127.0.0.1:8000
       - if: failure()

@@ -51,6 +51,7 @@ the production-deploy check and the four "small remaining gaps" under "What an A
 | [#96](https://github.com/Junebugg1214/openhealth-hub/pull/96) | v1.0 plan: public open-source launch | v1.0 plan | Green first time; preview checked; merged |
 | [#97](https://github.com/Junebugg1214/openhealth-hub/pull/97) | Security review: threat model, headers, dependency audit and ZAP scan in CI | v1.0 item 1 | pending |
 | [#98](https://github.com/Junebugg1214/openhealth-hub/pull/98) | `openhealth new` and a clinician's pack-authoring guide | v1.0 item 2 | pending |
+| [#100](https://github.com/Junebugg1214/openhealth-hub/pull/100) | ci: background servers run from the venv, not `uv run` (uv 0.12 holds the cache lock) | CI root cause found on #99 | pending |
 
 ## Decisions made on your behalf
 
