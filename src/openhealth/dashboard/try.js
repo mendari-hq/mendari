@@ -3,7 +3,7 @@
 import { chartHtml } from "./charts.js";
 import { feedbackControls } from "./feedback.js";
 import { schemaForm, wireSchemaForm } from "./form.js";
-import { criteriaTable, derivedPrimary, isMessagePack, labelTone } from "./pack.js";
+import { criteriaTable, derivedPrimary, isMessagePack, labelTone, providerWords, questionText } from "./pack.js";
 import { refreshReviewCount, views, wire } from "./router.js";
 import { $, api, esc, focusHeading, icon, num, packPath, pct, PRIORITY_TEXT, state, storageGet, storageSet, toastError, whileBusy } from "./ui.js";
 
@@ -146,11 +146,11 @@ async function tryMessage(main) {
 function answerBars(id, question, a, answers) {
   const rows = Object.entries(a.probabilities).sort((x, y) => y[1] - x[1])
     .map(([label, value]) => ({ label, value, chosen: label === a.label, tone: labelTone(question, label, answers) }));
-  return `<h3>${esc(question)} <span class="muted mono">${esc(a.provider.variant)}${a.provider.model ? ` · ${esc(a.provider.model)}` : ""}${a.value !== undefined ? ` · expected score ${num(a.value, 2)}` : ""}</span></h3>
+  return `<h3>${esc(questionText(question))} <span class="muted"><span class="mono">${esc(question)}</span> · ${providerWords(a.provider)}${a.value !== undefined ? ` · expected score ${num(a.value, 2)}` : ""}</span></h3>
     ${chartHtml({
       id: `answer-${id}-${question}`,
       type: "bars",
-      ariaLabel: `${question}: ${rows.map((r) => `${r.label} ${pct(r.value)}`).join(", ")}. Chosen: ${a.label}.`,
+      ariaLabel: `${questionText(question)} ${rows.map((r) => `${r.label} ${pct(r.value)}`).join(", ")}. Chosen: ${a.label}.`,
       rows,
     })}
     ${a.evidence.length ? `<div class="chips mt-2">${a.evidence.map((e) => `<span class="chip">${esc(e)}</span>`).join("")}</div>` : ""}`;

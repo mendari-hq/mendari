@@ -63,16 +63,23 @@ export function criteriaTable(answers, { evidence = true } = {}) {
     const effect = a ? memberEffect(derive, member, a.label, answers) : null;
     const tone = effect ? labelTone(state.detail.primary, effect, answers) || "neutral" : "";
     return `<tr class="${effect ? `hit hit-${tone}` : ""}">
-      <td title="${esc(questions[member]?.instructions ?? "")}"><code>${esc(member)}</code></td>
+      <td class="criterion" title="${esc(questions[member]?.instructions ?? "")}">${esc(questionText(member))} <span class="mono muted">${esc(member)}</span></td>
       <td>${a ? `<b>${esc(a.label)}</b>` : `<span class="muted">no answer</span>`}</td>
       <td class="mono">${a ? pct(a.confidence, 0) : ""}</td>
       <td>${effect ? `<span class="badge ${TONE_BADGE[tone]}">→ ${esc(effect)}</span>` : ""}</td>
-      <td class="muted">${a ? esc(a.provider.variant) : ""}</td>
+      <td class="muted">${a ? providerWords(a.provider) : ""}</td>
       ${evidence ? `<td class="evidence">${a && a.evidence.length ? esc(a.evidence.join("; ")) : ""}</td>` : ""}
     </tr>`;
   }).join("");
   return `<div class="table-wrap"><table class="compact criteria">
     <tr><th>Criterion</th><th>Answer</th><th>Conf.</th><th>Effect</th><th>Source</th>${evidence ? "<th>Evidence</th>" : ""}</tr>${rows}</table></div>`;
+}
+
+// A question in words: the first sentence of its instructions, which the pack writes for people
+// ("Is the patient aged 18 to 75 on the screening date?"); the code follows as secondary text.
+export function questionText(question) {
+  const instructions = state.detail.manifest.questions[question]?.instructions ?? "";
+  return instructions.match(/^.*?[?.](?=\s|$)/)?.[0] ?? slotText(question);
 }
 
 export const providerWords = (p) => `<span title="${esc(p.variant)}${p.model ? ` · ${esc(p.model)}` : ""}">${esc(providerName(p))}</span>`;
