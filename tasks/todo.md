@@ -37,7 +37,11 @@ phase (A, B, C) to be done and merged when CI passes.
   (boxes kept for tables, charts and review items); the favicon's mark in the top bar in the
   theme's accent; stat labels 12 px, 500, uppercase, 0.04 em; empty states with an icon, one line
   and one action
-- [ ] Re-grade with the same measurements; check the production deploy
+- [x] Re-grade with the same measurements (110 captures, same script): **B+** (was C+), as
+  projected. No layout shift at any width, no control under 24 px on any capture, 56 px phone
+  bar; an A needs identity work, clinician testing, production-scale data and a real
+  screen-reader and cross-browser pass (`docs/design-grade.md`, "Re-grade")
+- [ ] Check the production deploy after the last merge
 
 ## Next: v0.4 Healthcare standards
 Plan to be written and approved before any code (roadmap: US Core validation, AuditEvent and

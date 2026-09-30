@@ -267,7 +267,7 @@ button.linklike {
 }
 button.linklike:hover { color: var(--color-accent); text-decoration: underline; }
 /* Audit times stay on one line; the table scrolls sideways inside its panel instead. */
-button.open-record { white-space: nowrap; }
+button.open-record { white-space: nowrap; display: inline-flex; align-items: center; min-height: 24px; }  /* WCAG 2.5.8 */
 
 /* Toggle groups: one pattern for picking one of a few options. Items are buttons (aria-pressed
    marks the pick) or links (aria-current="page" marks the view). Two shapes: .segmented joins the
@@ -320,7 +320,8 @@ button.open-record { white-space: nowrap; }
   font-variant-numeric: tabular-nums; overflow-wrap: anywhere;
 }
 .stat-foot { color: var(--color-text-muted); font-size: var(--text-xs); margin-top: var(--space-1); }
-.stat-foot a { display: inline-flex; align-items: center; gap: var(--space-1); }
+/* A link that is an action of its own (not part of a sentence) gets a 24 px target (WCAG 2.5.8). */
+:is(.stat-foot a, a.action-link) { display: inline-flex; align-items: center; gap: var(--space-1); min-height: 24px; }
 .stat-change { color: var(--color-text-muted); font-size: var(--text-xs); margin-top: var(--space-0-5); font-variant-numeric: tabular-nums; }
 /* A trend beside the value, for the eye; the words say how it moved. */
 .stat-value .sparkline { margin-left: auto; flex: none; }
@@ -465,7 +466,7 @@ th.num, td.num { text-align: right; white-space: nowrap; width: 1%; }
 table.data thead th { vertical-align: bottom; }
 th.critical { white-space: normal; min-width: 96px; max-width: 150px; }
 th button.sort {
-  display: inline-flex; align-items: center; gap: var(--space-0-5); padding: 0; border: 0; background: none; min-height: 28px;
+  display: inline-flex; align-items: center; gap: var(--space-0-5); padding: 0; border: 0; background: none; min-height: 28px; min-width: 24px;
   font: inherit; font-weight: var(--weight-semibold); color: inherit; text-align: inherit;
 }
 th button.sort .icon { width: 14px; height: 14px; opacity: 0.55; }
@@ -758,6 +759,7 @@ textarea.code.sf-json { min-height: 90px; }
 .lead { font-size: var(--text-lg); line-height: var(--leading-lg); }
 p.prose, .prose > p, .prose > ul, .prose li, .rules p { max-width: 72ch; }
 .toc { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-5); padding: var(--space-2) 0; border-top: 1px solid var(--color-border); border-bottom: 1px solid var(--color-border); }
+.toc a { display: inline-flex; align-items: center; min-height: 24px; }  /* WCAG 2.5.8 target size */
 section.card-section:not(.panel) > h2 { margin-top: var(--space-8); }  /* sections apart by space, not boxes */
 dl.facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--space-2) var(--space-5); margin: 0; }
 dl.facts dt { color: var(--color-text-muted); }

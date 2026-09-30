@@ -28,6 +28,9 @@ languages.
 
 ## Overall grade: C+
 
+_Re-graded after Phases A, B and C on 2026-09-29: **B+**. See [Re-grade](#re-grade-after-phases-a-b-and-c) at
+the end; the grades and gaps below are the original review._
+
 A careful, accessible, well-tested internal tool that is still visibly an internal tool. Its
 foundations are close to the bar: a real token system with light and dark themes checked for AA
 contrast in CI, keyboard access and focus management beyond most production dashboards, correct
@@ -354,3 +357,84 @@ Only what is at or near the bar:
 a brand mark, and illustration for empty states), usability testing with clinicians and evaluators
 on real task flows, density tuned on production-scale data, and a real screen-reader and
 cross-browser pass. None of that is reachable by these three phases alone.
+
+## Re-grade after Phases A, B and C
+
+_2026-09-29, after PRs #57 (A), #58 (B1), #59 (B2), #60 (B3) and Phase C. Same method as the
+original review: the same script took the same 110 captures (11 screens × 2 packs × 1440 and 390 px
+in light and dark, plus 768 and 1920 px), seeded with the same synthetic data, and made the same
+measurements. The screens were also reviewed by eye._
+
+### Overall: B+ (was C+)
+
+This matches the projection. The structural problems are gone, and the measurements show it:
+- no layout shift at any width;
+- content that uses a wide screen and the whole of a tablet;
+- a 56 px phone bar;
+- no control under 24 px, and 44 px on touch screens;
+- loading that keeps the page's shape;
+- an undo window on overrides;
+- honest axes, with the configurations that matter named on the chart;
+- KPIs with a period and a trend;
+- motion throughout;
+- a design system that CI enforces.
+
+What keeps it from an A is not something more CSS can fix: an identity of its own, and evidence
+from the people who use it.
+
+### Measured
+
+| Measure (all 110 captures unless noted) | Before | After A | Final |
+|---|---|---|---|
+| Layout shift at 768 px (CLS) | 0.50 | 0 | 0.001 |
+| Captures with CLS over 0.1 | 11 | 0 | 0 |
+| Controls under 24 × 24 px (WCAG 2.5.8) | 1,013 | 279 | **0** |
+| Controls under 44 px on a touch screen (tested views) | not tested | 0 | 0 |
+| Smallest text | 11 px | 12 px | 12 px |
+| Content at 1920 px | 1,180 px, left; 572 px empty | 1,440 px, centred | 1,440 px, centred |
+| Content at 768 px | 568 px (sidebar) | 568 px | 768 px |
+| Top bar at 768 px | 80 px (two rows) | 80 px | 52 px (one row) |
+| Chrome above content on a phone | 157 px | 157 px | 109 px (56 px bar) |
+| Boxes on the Decision Card, inbox / guard (1440 px) | 7 / 12 | 7 / 12 | 3 / 8 |
+| Boxes on Feedback, inbox / guard | 4 / 4 | 4 / 4 | 3 / 2 |
+| Transitions and animations (declarations in `style.css`) | 1 | 2 | 14, plus 2 in JS; all off under reduced motion |
+| Raw lengths in components; raw z-indexes | about 120; 8 | same | 0 spacing values (sizes remain); 0 (a test fails on either) |
+| Largest script | `app.js`, 1,835 lines, globals | same | `charts.js`, 511 lines; 20 ES modules |
+| Browser tests | 71 | 77 | 95 |
+
+### Scorecard
+
+| Category | Before | Projected | Re-graded | Why |
+|---|---|---|---|---|
+| 1. Visual design | C+ | B+ | **B** | 28 px titles, one-line intros, uppercase stat labels, the brand mark, and sections grouped by space: the hierarchy now reads at a glance. Below the projection because it still looks like a well-made system-font dashboard, not a product with its own look. |
+| 2. Consistency and design system | B− | B+ | **A−** | Colour, spacing and layers are tokens, and CI enforces all three. There is one toggle-group pattern, one empty-state pattern and one progress pattern. Not an A: component dimensions (column widths, chart sizes) are still raw values, and the patterns live in one 880-line stylesheet. |
+| 3. Data visualization | B− | A− | **B+** | Axes start at 0 or say they don't. The cost chart names the deployed configuration, the safety-first leader and the frontier, merges identical points and dodges near ones. The sweep names its lines. The outcome mix labels its segments. KPIs have a period, change and sparklines, and a short history is described in words, not drawn empty. Below the projection: the daily chart still relies on a legend, reliability bins are unlabelled, nothing is annotated, and none of it has been seen at production volume. |
+| 4. Tables and leaderboards | B | A− | **B+** | Every sort control is at least 24 px, configurations are named once, and the rank column sets the sticky offset. Missing for an A: filtering and column choice on the audit trail, and plain words in the Try-it criteria table (still `question_emergency`). |
+| 5. Interaction and UX logic | B− | B+ | **B+** | A 5-second undo with a countdown, focus and announcements; loading skeletons; run progress with elapsed time; a remembered period; a settings sheet on phones. Still open: links don't carry the pack. A shared `#review` or `#evals` link shows whichever pack the viewer last chose, and a record link opens the right record over that pack's list. |
+| 6. Responsiveness | C+ | A− | **A−** | Every measured target is met at 390, 768, 1440 and 1920 px. Not an A: tested only with emulated viewports in Chromium, not on devices. |
+| 7. Light/dark theming | A− | A | **A−** | Unchanged in substance. The new colour pairs (text in outcome segments, the undo bar) are AA in both themes and tested. Below the projection: forced-colors (Windows High Contrast) is still unchecked. |
+| 8. Accessibility | B+ | A− | **A−** | No control under 24 px on any capture (tested). Touch screens get 44 px. Motion respects reduced motion, including the JavaScript animations. Loading is `aria-busy`. The undo moves focus and announces itself. Still no pass with a real screen reader. |
+| 9. Motion and micro-interactions | D | B+ | **B+** | The drawer slides in and out, the dialog fades and scales, a resolved card folds away, tabs crossfade, and hover, press and chart highlights ease. Not an A: views still cut from skeleton to content, and there are no shared-element transitions. |
+| 10. Frontend code quality | C+ | B+ | **B** | ES modules with no globals, a stamped import map with preloads and no build step, tokens under test, and 95 browser tests. Below the projection: 41 `innerHTML` assignments still re-render whole subtrees; there is no type check or JS unit test in CI (the name check used during the split was a one-off); and state lives in module variables. |
+| **Overall** | **C+** | **B+** | **B+** | |
+
+### What an A still needs
+
+The same as projected. None of it is reachable from here by code alone:
+- **Identity:** a considered type pairing instead of the system stack, a colour system with a point
+  of view, and a mark designed for the product rather than reused from the favicon.
+- **Evidence from users:** usability sessions with nurses, front-desk staff and evaluators on the
+  review queue, overrides and the leaderboard. The undo window, the period default (30 days) and
+  what the Overview leads with are reasoned choices, but still untested ones.
+- **Scale:** density and charts tuned on production volumes (months of history, thousands of
+  audit rows).
+- **Verification beyond Chromium:** VoiceOver and NVDA, Safari and Firefox, and real phones and
+  tablets.
+- **Small remaining gaps:** plain words in the Try-it criteria table, links that carry the pack,
+  a view transition from skeleton to content, and fewer whole-subtree re-renders.
+
+### Not assessed (unchanged)
+
+A real screen reader; Safari and Firefox; real touch hardware; production data volumes; low-end
+devices; right-to-left and other languages.
+

@@ -1286,3 +1286,26 @@ def test_the_brand_is_a_mark_and_stat_labels_read_as_labels(page: Page) -> None:
     label = page.locator(".stats-primary .stat-label").first
     assert label.evaluate("(el) => getComputedStyle(el).textTransform") == "uppercase"
     expect(label).to_have_text("Automated")  # the words themselves are unchanged
+
+
+# Controls smaller than WCAG 2.5.8's 24 x 24 px (links inside a sentence are exempt; there are none
+# left outside sentences).
+UNDER_24 = """() => [...document.querySelectorAll('main a[href], main button, main input, '
+    + 'main select, main textarea, main summary, .nav a, .topbar button, .topbar select, '
+    + 'main [tabindex="0"]')]
+  .filter((el) => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden')
+  .filter((el) => { const r = el.getBoundingClientRect(); return r.width < 24 || r.height < 24; })
+  .filter((el) => !(el.tagName === 'A' && el.closest('p, li')))
+  .map((el) => el.outerHTML.slice(0, 80))"""
+
+
+@pytest.mark.parametrize("pack_id", [INBOX, GUARD])
+def test_every_control_is_at_least_24_px(page: Page, pack_id: str) -> None:
+    page.set_viewport_size(PHONE)
+    open_pack(page, pack_id)
+    for view in [*VIEWS, "evals/report", "evals/run"]:
+        page.goto(f"/#{view}")
+        expect(page.locator("main h1")).to_be_visible()
+        expect(page.locator("#view")).not_to_have_attribute("aria-busy", "true")
+        page.wait_for_load_state("networkidle")
+        assert page.evaluate(UNDER_24) == [], view

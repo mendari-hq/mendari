@@ -57,7 +57,7 @@ function feedbackCard(item) {
     ${item.note ? `<p><b>Note:</b> ${esc(item.note)}</p>` : ""}
     ${inputView(r.input)}
     ${criteriaTable(r.answers, { evidence: false })}
-    <a href="#audit/${encodeURIComponent(item.decision_id)}">Open the decision <span class="mono">${esc(item.decision_id.slice(0, 8))}</span> ${icon("arrow-right")}</a>
+    <a class="action-link" href="#audit/${encodeURIComponent(item.decision_id)}">Open the decision <span class="mono">${esc(item.decision_id.slice(0, 8))}</span> ${icon("arrow-right")}</a>
   </article>`;
 }
 
