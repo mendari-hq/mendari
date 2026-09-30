@@ -565,6 +565,79 @@ def cmd_registry_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+def _registry_client(args: argparse.Namespace) -> Any:
+    from openhealth.hub.client import RegistryClient, default_registry
+
+    if args.registry:
+        url, token = args.registry, None
+        try:
+            saved_url, saved_token = default_registry()
+            token = saved_token if saved_url == args.registry.rstrip("/") else None
+        except OpenHealthError:
+            pass
+    else:
+        url, token = default_registry()
+    return RegistryClient(url, token)
+
+
+def cmd_login(args: argparse.Namespace) -> int:
+    from openhealth.hub import client
+
+    health = client.login(args.registry, args.token)
+    access = "" if args.token else ", read-only"
+    print(f"logged in to {args.registry} ({health['packs']} packs{access})")
+    return 0
+
+
+def cmd_push(args: argparse.Namespace) -> int:
+    from openhealth.hub import archive
+
+    pack = resolve_pack(args.pack)
+    key = archive.load_private_key(Path(args.key).read_bytes())
+    with _registry_client(args) as registry:
+        published = registry.push(pack, key)
+    print(f"published {published['id']}@{published['version']} {published['digest']}")
+    return 0
+
+
+def cmd_pull(args: argparse.Namespace) -> int:
+    from openhealth.hub.client import pull
+
+    with _registry_client(args) as registry:
+        pack = pull(args.ref, registry, accept_new_key=args.accept_new_key)
+    print(f"{pack.id}@{pack.version} {pack.digest}\n  verified and cached in {pack.root}")
+    return 0
+
+
+def cmd_search(args: argparse.Namespace) -> int:
+    with _registry_client(args) as registry:
+        found = registry.search(
+            q=" ".join(args.query),
+            risk=args.risk,
+            standard=args.standard,
+            publisher_type=args.publisher_type,
+        )
+    if args.json:
+        _print_json(found)
+        return 0
+    for item in found:
+        accuracy = (item.get("benchmark") or {}).get("accuracy")
+        shown = "" if accuracy is None else f"  benchmark {accuracy:.1%}"
+        risk = f"risk {item['risk']['level']}"
+        print(f"{item['id']}@{item['version']}  {risk}  {item['publisher_type']}{shown}")
+        print(f"    {item['summary'][:110]}")
+    if not found:
+        print("no packs match")
+    return 0
+
+
+def cmd_keys_register(args: argparse.Namespace) -> int:
+    with _registry_client(args) as registry:
+        key_id = registry.add_key(args.namespace, Path(args.public_key).read_bytes())
+    print(f"{key_id} registered for {args.namespace}")
+    return 0
+
+
 def cmd_demo(args: argparse.Namespace) -> int:
     from openhealth.sandbox.demo import run_demo
 
@@ -798,6 +871,37 @@ def build_parser() -> argparse.ArgumentParser:
     generate_key.add_argument("--out", default=".", help="directory for NAME.key and NAME.pub")
     generate_key.add_argument("--name", default="publisher")
     generate_key.set_defaults(handler=cmd_keys_generate)
+    register_key = keys.add_parser("register", help="register a public key for a namespace")
+    register_key.add_argument("--namespace", required=True)
+    register_key.add_argument("--public-key", required=True, help="PEM file")
+    register_key.add_argument("--registry", help="registry URL (default: the one logged into)")
+    register_key.set_defaults(handler=cmd_keys_register)
+    login_cmd = sub.add_parser("login", help="remember a registry (and a publisher token)")
+    login_cmd.add_argument("--registry", required=True, help="registry URL")
+    login_cmd.add_argument("--token", help="publisher token (omit for read-only)")
+    login_cmd.set_defaults(handler=cmd_login)
+    push_cmd = sub.add_parser("push", help="sign a pack and publish it to the registry")
+    push_cmd.add_argument("pack", help="namespace/name[@version] or a directory")
+    push_cmd.add_argument("--key", required=True, help="publisher private key (PEM)")
+    push_cmd.add_argument("--registry", help="registry URL (default: the one logged into)")
+    push_cmd.set_defaults(handler=cmd_push)
+    pull_cmd = sub.add_parser("pull", help="download, verify and cache a pack from the registry")
+    pull_cmd.add_argument("ref", help="namespace/name[@version]")
+    pull_cmd.add_argument("--registry", help="registry URL (default: the one logged into)")
+    pull_cmd.add_argument(
+        "--accept-new-key", action="store_true", help="trust a key the namespace rotated to"
+    )
+    pull_cmd.set_defaults(handler=cmd_pull)
+    search_cmd = sub.add_parser("search", help="search the registry")
+    search_cmd.add_argument("query", nargs="*")
+    search_cmd.add_argument("--risk", type=int, help="risk level 0-4")
+    search_cmd.add_argument("--standard", default="", help='e.g. "FHIR" or "CDS Hooks order-sign"')
+    search_cmd.add_argument(
+        "--publisher-type", default="", choices=["", "community", "verified", "institutional"]
+    )
+    search_cmd.add_argument("--registry", help="registry URL (default: the one logged into)")
+    search_cmd.add_argument("--json", action="store_true")
+    search_cmd.set_defaults(handler=cmd_search)
     pack_cmd = sub.add_parser("pack", help="signed pack archives").add_subparsers(
         dest="pack_command", required=True
     )

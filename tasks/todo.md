@@ -55,7 +55,7 @@ phase (A, B, C) to be done and merged when CI passes.
 - [x] Shared database layer (`core/db.py`)
 - [x] Signed pack archives and publisher keys
 - [x] Registry service (namespaces, publisher types, keys, immutable versions, search)
-- [ ] CLI login / push / pull / search; `Decision.from_hub` from the registry
+- [x] CLI login / push / pull / search; `Decision.from_hub` from the registry
 - [ ] Shareable local-validation reports
 - [ ] Hub website (Next.js)
 - [ ] End to end: five packs published, clean-venv install and pull (CI)

@@ -20,6 +20,16 @@ LOCAL_DATASET = ROOT / "datasets" / "local-site-example.jsonl"
 POSTGRES_URL = os.environ.get("OPENHEALTH_TEST_DATABASE_URL", "").strip()
 
 
+@pytest.fixture(autouse=True)
+def _own_hub_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Each test has its own Hub config and pack cache, never the developer's (the cache is on
+    the pack search path)."""
+    monkeypatch.setenv("OPENHEALTH_CONFIG_DIR", str(tmp_path / "hub-config"))
+    monkeypatch.setenv("OPENHEALTH_CACHE_DIR", str(tmp_path / "hub-cache"))
+    monkeypatch.delenv("OPENHEALTH_REGISTRY_URL", raising=False)
+    monkeypatch.delenv("OPENHEALTH_REGISTRY_TOKEN", raising=False)
+
+
 @pytest.fixture(params=["sqlite", "postgres"])
 def db_target(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[str]:
     """An empty audit database: a SQLite file, or a fresh Postgres schema dropped afterwards."""

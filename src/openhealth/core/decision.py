@@ -19,7 +19,7 @@ from openhealth.core.pack import Pack, load_pack
 from openhealth.core.policy import GovernanceOverride, PolicyResult, apply_policy
 from openhealth.core.registry import resolve_pack
 from openhealth.core.spec import Outcome, Priority
-from openhealth.errors import PackValidationError, ProviderError
+from openhealth.errors import HubError, PackNotFoundError, PackValidationError, ProviderError
 from openhealth.providers import Answer, Provider, ProviderInfo, build_provider
 from openhealth.providers.batch import batching
 from openhealth.settings import FhirValidation
@@ -138,8 +138,22 @@ class Decision:
 
     @classmethod
     def from_hub(cls, ref: str, **kwargs: Any) -> Decision:
-        """Resolve `namespace/name[@version]` (or a directory) from the local hub search path."""
-        return cls(resolve_pack(ref), **kwargs)
+        """Resolve `namespace/name[@version]` (or a directory) from the local search path, or
+        pull it from the registry (OPENHEALTH_REGISTRY_URL, or the one logged into), verified
+        and cached, when it isn't there."""
+        try:
+            return cls(resolve_pack(ref), **kwargs)
+        except PackNotFoundError:
+            from openhealth.hub.client import RegistryClient, default_registry, pull
+
+            try:
+                url, token = default_registry()
+            except HubError:
+                raise PackNotFoundError(
+                    f"no pack {ref!r} here, and no registry to pull it from"
+                ) from None
+            with RegistryClient(url, token) as registry:
+                return cls(pull(ref, registry), **kwargs)
 
     @classmethod
     def from_path(cls, path: str | Path, **kwargs: Any) -> Decision:
