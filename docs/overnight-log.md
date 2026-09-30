@@ -23,7 +23,8 @@ the production-deploy check and the four "small remaining gaps" under "What an A
 | [#68](https://github.com/Junebugg1214/openhealth-hub/pull/68) | Audit export as FHIR AuditEvent and Provenance | v0.4 item 2 | Green first time; preview streamed NDJSON from Postgres; merged |
 | [#69](https://github.com/Junebugg1214/openhealth-hub/pull/69) | Sandbox: referral cases in FHIR as US Core resources (and a seeding fix) | v0.4 item 3 | Green first time; preview checked; merged |
 | [#70](https://github.com/Junebugg1214/openhealth-hub/pull/70) | CDS Hooks fetch missing prefetch from allow-listed FHIR servers | v0.4 item 4 | Green first time; preview checked; merged |
-| pending | SMART on FHIR EHR launch: backend (PKCE, OIDC id_token, server-side sessions, patient context API) | v0.4 item 5, part 1 of 3 | pending |
+| [#71](https://github.com/Junebugg1214/openhealth-hub/pull/71) | SMART on FHIR EHR launch: backend (PKCE, OIDC, server-side sessions, patient context) | v0.4 item 5, part 1 of 3 | Green; one follow-up commit before merge (`/api/smart/session` answers `{"active": false}` instead of 401, found while building the view); preview checked (SMART off: inactive, launch 404); merged |
+| pending | Dashboard: "This patient" view after a SMART launch | v0.4 item 5, part 2 of 3 | pending |
 
 ## Decisions made on your behalf
 
@@ -113,6 +114,9 @@ the production-deploy check and the four "small remaining gaps" under "What an A
   - state and session ids stored as SHA-256, and a launch's state works once;
   - launch errors are an HTML page, since they land in the EHR's browser, with OAuth error codes
     shown only when they look like codes.
+- **"This patient" appears only after a launch.** Its nav link is hidden otherwise, so nothing
+  changes for anyone not launched from an EHR. Work items are decided on request (a button),
+  not on page load, so viewing a patient never writes decisions to the audit trail.
 - **Access tokens are stored in the database unencrypted** for their lifetime. There is no key to
   encrypt them with until v0.6's PHI mode; this is noted in the architecture's trust boundaries.
 - **A new dependency, `pyjwt[crypto]` (>=2.10.1,<3; 2.15.1 locked)**, verifies SMART `id_token`s.

@@ -7,6 +7,7 @@ import "./evals.js";
 import "./feedback.js";
 import "./card.js";
 import "./try.js";
+import "./patient.js";
 import { onHashChange, render, route } from "./router.js";
 import { setupSettings } from "./settings.js";
 import { skeleton } from "./skeleton.js";
@@ -27,6 +28,10 @@ async function boot() {
     state.shortFormat = shortFormatFor(health?.timezone ?? DEFAULT_TIMEZONE);
     state.timezone = health?.timezone ?? DEFAULT_TIMEZONE;
   } catch { /* an unknown zone name: keep the default */ }
+  // A SMART launch from the EHR leaves a session: the patient's view joins the sections.
+  const session = await api("/api/smart/session").catch(() => null);
+  state.smart = session?.active ? session : null;
+  $('.nav a[data-view="patient"]').hidden = !state.smart;
   state.packs = await api("/api/packs");
   const select = $("#pack-select");
   if (!state.packs.length) {

@@ -656,6 +656,16 @@ figure.chart { margin: var(--space-3) 0 0; }
 .rated .icon { width: 14px; height: 14px; }
 .rated.up { color: var(--outcome-auto); }
 .rated.down { color: var(--outcome-block); }
+/* This patient (SMART launch): the banner, then one card per work item. */
+.patient-banner { display: flex; align-items: center; gap: var(--space-3); margin-top: var(--space-4); }
+.patient-icon {
+  display: grid; place-items: center; width: 40px; height: 40px; flex: none;
+  border-radius: var(--radius-pill); background: var(--color-accent-soft); color: var(--color-accent);
+}
+.patient-name { font-size: var(--text-lg); font-weight: var(--weight-semibold); }
+.work-items { list-style: none; margin: var(--space-4) 0 0; padding: 0; display: grid; gap: var(--space-3); }
+.work-text { margin: var(--space-2) 0; }
+.work-result { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .right-answer { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
 .right-answer .icon { color: var(--outcome-auto); }
 

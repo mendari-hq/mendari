@@ -106,7 +106,7 @@ export function storageSet(key, value) {
 }
 
 export const state = {
-  packs: [], packId: null, detail: null, view: null,
+  packs: [], packId: null, detail: null, view: null, smart: null,
   timezone: DEFAULT_TIMEZONE, timeFormat: timeFormatFor(DEFAULT_TIMEZONE), shortFormat: shortFormatFor(DEFAULT_TIMEZONE),
 };
 
