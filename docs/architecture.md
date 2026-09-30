@@ -80,6 +80,15 @@
     at 5 MB of JSON.
   - A prefetch template's `{{context.x}}` tokens accept FHIR ids only.
   - Errors never echo the server's body or the token.
+- **SMART on FHIR launches** (`standards/smart.py`, `server/smart_routes.py`) use PKCE S256, a
+  single-use `state` and a `nonce`.
+  - Every endpoint the server's configuration names must be on the allow-list too.
+  - The `id_token` is verified with the server's JWKS: RS256 or ES384 only, with `iss`, `aud`,
+    `exp` and `nonce` checked.
+  - Access tokens stay in the database (`smart_sessions`, keyed by the SHA-256 of the browser's
+    opaque id, expiring with the token; not encrypted at rest until the v0.6 PHI mode).
+  - The session cookie is HttpOnly, Secure and SameSite=Lax. No refresh tokens are requested.
+  - A decision is only made for a resource whose subject is the launch's patient.
 
 ## Sandbox
 

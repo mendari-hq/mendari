@@ -178,6 +178,22 @@ that server's origin is listed in `OPENHEALTH_FHIR_ALLOWED_SERVERS` (for example
 `https://ehr.example.org,http://fhir:8080`). The list is empty by default, and every other server
 is refused.
 
+**SMART on FHIR EHR launch.** Register `https://<openhealth>/smart/launch?pack=<pack id>` as
+the app's launch URL and `https://<openhealth>/smart/callback` as its redirect URI in the EHR.
+Then set `OPENHEALTH_SMART_CLIENT_ID`, `OPENHEALTH_SMART_CLIENT_SECRET` (for a confidential
+client), `OPENHEALTH_PUBLIC_URL`, and put the EHR's FHIR server and authorization server on
+`OPENHEALTH_FHIR_ALLOWED_SERVERS`.
+
+The launch is OAuth 2 with PKCE (S256). The `id_token` is verified against the server's JWKS
+(`iss`, `aud`, `exp`, `nonce`). The access token stays on the server; the browser holds an
+opaque, HttpOnly, SameSite=Lax session cookie. The dashboard opens on the launch's patient:
+- `GET /api/smart/patient`;
+- their messages or referrals: `GET /api/smart/focus?pack_id=`;
+- deciding one: `POST /api/smart/decide`, which reads the record through the pack's CDS prefetch
+  templates and audits the decision.
+
+SMART is off until the client id is set.
+
 The CI job `fhir-conformance` runs the HL7 FHIR validator over the same fixtures and a sample of
 the audit export. Everything
 OpenHealth treats as conforming must pass it, and everything the in-process checks flag must

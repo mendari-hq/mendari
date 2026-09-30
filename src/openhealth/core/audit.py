@@ -15,6 +15,7 @@ import json
 import sqlite3
 import statistics
 import threading
+import time
 import uuid
 from abc import ABC, abstractmethod
 from collections.abc import Iterator, Mapping, Sequence
@@ -93,7 +94,13 @@ CREATE TABLE IF NOT EXISTS feedback (
     superseded_by     TEXT
 );
 CREATE INDEX IF NOT EXISTS feedback_pack ON feedback (pack_id, rating, created_at);
-CREATE INDEX IF NOT EXISTS feedback_decision ON feedback (decision_id)
+CREATE INDEX IF NOT EXISTS feedback_decision ON feedback (decision_id);
+CREATE TABLE IF NOT EXISTS smart_sessions (
+    key_sha256  TEXT PRIMARY KEY,
+    kind        TEXT NOT NULL,
+    expires_at  INTEGER NOT NULL,
+    data        TEXT NOT NULL
+)
 """
 
 # Columns added after their table's first release. New databases get them from _TABLES; older
@@ -630,6 +637,46 @@ class AuditStore:
             for row in rows
         ]
 
+    # -- SMART launches and sessions (standards/smart.py) --------------------------------
+    # Keyed by the SHA-256 of the state or session id the browser holds, so the table alone
+    # cannot be replayed; rows expire with the launch or the access token. Not part of the
+    # audit chain.
+
+    def smart_put(self, key: str, kind: str, data: Mapping[str, Any], expires_at: int) -> None:
+        now = int(time.time())
+        with self._db.session(exclusive=True) as db:
+            db.all("DELETE FROM smart_sessions WHERE expires_at <= ?", (now,))
+            db.all(
+                "INSERT INTO smart_sessions (key_sha256, kind, expires_at, data) "
+                "VALUES (?, ?, ?, ?)",
+                (_key(key), kind, expires_at, _canonical(data)),
+            )
+
+    def smart_get(self, key: str, kind: str) -> dict[str, Any] | None:
+        with self._db.session(exclusive=False) as db:
+            row = db.one(
+                "SELECT data FROM smart_sessions WHERE key_sha256 = ? AND kind = ? "
+                "AND expires_at > ?",
+                (_key(key), kind, int(time.time())),
+            )
+        return None if row is None else json.loads(row["data"])
+
+    def smart_take(self, key: str, kind: str) -> dict[str, Any] | None:
+        """Read and delete in one step: a launch's state works once."""
+        with self._db.session(exclusive=True) as db:
+            row = db.one(
+                "SELECT data, expires_at FROM smart_sessions WHERE key_sha256 = ? AND kind = ?",
+                (_key(key), kind),
+            )
+            db.all("DELETE FROM smart_sessions WHERE key_sha256 = ?", (_key(key),))
+        if row is None or row["expires_at"] <= int(time.time()):
+            return None
+        return json.loads(row["data"])
+
+    def smart_delete(self, key: str) -> None:
+        with self._db.session(exclusive=True) as db:
+            db.all("DELETE FROM smart_sessions WHERE key_sha256 = ?", (_key(key),))
+
     def iter_events(self, **filters: Any) -> Iterator[dict[str, Any]]:
         """Every event `events()` matches, page by page, without loading the whole chain."""
         after = 0
@@ -805,6 +852,10 @@ def _feedback_item(row: Mapping[str, Any]) -> dict[str, Any]:
         else None
     )
     return item
+
+
+def _key(secret: str) -> str:
+    return hashlib.sha256(secret.encode()).hexdigest()
 
 
 def _sha(value: Any) -> str:

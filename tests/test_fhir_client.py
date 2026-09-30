@@ -165,7 +165,7 @@ def test_a_next_link_to_another_server_is_refused() -> None:
         ),
         (
             httpx.Response(200, text="[1]", headers={"content-type": "application/json"}),
-            "other than a resource",
+            "other than a JSON object",
         ),
     ],
 )
@@ -191,7 +191,7 @@ def test_a_network_error_says_what_failed() -> None:
     def fail(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("boom", request=request)
 
-    with client(fail) as fhir, pytest.raises(FhirError, match="could not reach the FHIR server"):
+    with client(fail) as fhir, pytest.raises(FhirError, match="could not reach the server"):
         fhir.read("Patient/p1")
 
 

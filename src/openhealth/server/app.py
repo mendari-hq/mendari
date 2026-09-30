@@ -38,6 +38,7 @@ from openhealth.errors import (
     PackNotFoundError,
     PackValidationError,
     ReviewError,
+    SmartError,
 )
 from openhealth.evals import compare, evaluate, leaderboard, load_dataset, resolve_dataset
 from openhealth.evals.feedback import feedback_dataset
@@ -45,11 +46,14 @@ from openhealth.evals.harness import Dataset
 from openhealth.evals.pack_tests import load_cases
 from openhealth.providers import jev, llm
 from openhealth.providers.credentials import key_source
+from openhealth.server.smart_routes import add_smart_routes, error_page
 from openhealth.settings import FhirValidation, providers_for
 from openhealth.standards import audit_fhir, cds_hooks
 from openhealth.standards.fhir_client import allowed_servers
+from openhealth.standards.smart import smart_settings
 
 DASHBOARD_DIR = Path(__file__).resolve().parents[1] / "dashboard"
+INBOX = "openhealth/patient-inbox-router"
 JsonBody = Annotated[dict[str, Any], Body()]
 _DATASET_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _STATUS = {
@@ -116,6 +120,7 @@ def create_app(
     timezone = clock.zone().key  # an invalid OPENHEALTH_TIMEZONE fails here, at startup
     validation = fhir_validation or settings.fhir_validation()  # likewise
     fhir_servers = sorted(allowed_servers())  # likewise
+    smart_options = smart_settings()
     store = AuditStore(db_path, migrate_url=migrate_url)
     budget = CallBudget(store, budget_limits) if budget_limits else None
     found = discover(packs_paths)
@@ -171,8 +176,12 @@ def create_app(
     )
 
     @app.exception_handler(OpenHealthError)
-    async def _error(_: Request, error: OpenHealthError) -> JSONResponse:
+    async def _error(request: Request, error: OpenHealthError) -> Response:
         status = next((code for kind, code in _STATUS.items() if isinstance(error, kind)), 400)
+        if isinstance(error, SmartError):
+            status = error.status
+        if request.url.path.startswith("/smart/"):
+            return error_page(str(error), status)
         return JSONResponse({"error": type(error).__name__, "detail": str(error)}, status)
 
     # -- packs -------------------------------------------------------------------------------
@@ -190,6 +199,7 @@ def create_app(
             "fhir_validation": validation,
             # FHIR servers this deployment may read from (CDS Hooks fetch); empty: none.
             "fhir_allowed_servers": fhir_servers,
+            "smart_launch": smart_options is not None,
             "providers": {
                 pack_id: {
                     slot: info.variant for slot, info in decision_for(pack_id).provider_info.items()
@@ -429,6 +439,15 @@ def create_app(
     # -- dashboard ---------------------------------------------------------------------------
 
     page = versioned_dashboard()
+
+    add_smart_routes(
+        app,
+        settings=smart_options,
+        store=store,
+        pack_or_404=pack_or_404,
+        decision_for=decision_for,
+        default_pack=INBOX if INBOX in packs else next(iter(sorted(packs)), None),
+    )
 
     @app.get("/", include_in_schema=False)
     def dashboard() -> HTMLResponse:
