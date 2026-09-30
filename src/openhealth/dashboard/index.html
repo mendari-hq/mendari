@@ -9,8 +9,8 @@
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <script>
     // Resolve the theme before the stylesheet paints anything, so there is never a flash of the
-    // wrong theme: the saved choice (System / Light / Dark), else the system setting. app.js keeps
-    // it in sync afterwards.
+    // wrong theme: the saved choice (System / Light / Dark), else the system setting. theme.js
+    // keeps it in sync afterwards.
     (function () {
       var choice = "system";
       try { choice = localStorage.getItem("oh.theme") || "system"; } catch (e) { /* private mode */ }
@@ -19,6 +19,8 @@
     })();
   </script>
   <link rel="stylesheet" href="/static/style.css">
+  <!-- The server fills the import map (each module's content-stamped URL) and preloads every module. -->
+  <script type="importmap"></script>
 </head>
 <body>
   <!-- Keyboard users skip the top bar and the section list (a button: "#…" links are routes here). -->
@@ -51,7 +53,7 @@
       <span class="badge tag">sandbox · synthetic data only</span>
     </div>
     <div class="topbar-actions">
-      <div class="segmented" role="group" aria-label="Theme">
+      <div class="segmented compact" role="group" aria-label="Theme">
         <button type="button" data-theme-choice="system" title="Match the system setting"><svg class="icon" aria-hidden="true"><use href="#i-monitor"/></svg><span class="label">System</span></button>
         <button type="button" data-theme-choice="light" title="Light theme"><svg class="icon" aria-hidden="true"><use href="#i-sun"/></svg><span class="label">Light</span></button>
         <button type="button" data-theme-choice="dark" title="Dark theme"><svg class="icon" aria-hidden="true"><use href="#i-moon"/></svg><span class="label">Dark</span></button>
@@ -80,9 +82,6 @@
   <div id="toast" aria-hidden="true"></div>
   <div id="announce-status" class="sr-only" role="status" aria-live="polite"></div>
   <div id="announce-alert" class="sr-only" role="alert"></div>
-  <script src="/static/table.js"></script>
-  <script src="/static/charts.js"></script>
-  <script src="/static/form.js"></script>
-  <script src="/static/app.js"></script>
+  <script type="module" src="/static/main.js"></script>
 </body>
 </html>

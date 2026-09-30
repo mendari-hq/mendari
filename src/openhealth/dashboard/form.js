@@ -1,5 +1,3 @@
-"use strict";
-
 // Forms generated from a pack's input schema (the JSON Schema subset packs use), so Try it edits a
 // record in fields and tables instead of raw JSON, and every pack gets a form without UI code of its
 // own. The record lives in memory (`model`); each field writes to its path in it, so the form and
@@ -14,6 +12,8 @@
 // lists of inputs; enums -> selects; `format: date` -> date inputs; long text (maxLength >= 1000)
 // -> text areas; numbers -> number inputs with the schema's bounds. Anything else is edited as JSON
 // in place, so no schema can make the form unusable.
+
+import { esc, icon } from "./ui.js";
 
 const LONG_TEXT = 1000;
 
@@ -71,7 +71,7 @@ function kindOf(schema) {
   return "json";
 }
 
-function schemaForm(schema, record, prefix) {
+export function schemaForm(schema, record, prefix) {
   const root = schema;
   const model = isObject(clone(record)) ? clone(record) : {};
   const ids = { n: 0 };
@@ -187,7 +187,7 @@ function prune(value) {
 }
 
 // Field edits write into the model; add / remove redraw the form with focus kept in place.
-function wireSchemaForm(container, current) {
+export function wireSchemaForm(container, current) {
   container.addEventListener("input", (event) => {
     const el = event.target.closest("[data-path]");
     if (!el) return;

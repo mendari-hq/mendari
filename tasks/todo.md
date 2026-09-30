@@ -11,8 +11,12 @@ phase (A, B, C) to be done and merged when CI passes.
   axis starts at 90%"; configurations named once ("Rules + Jev 1.13.0"), critical labels and
   report stats in words, drawer titles in words; 44 px targets on touch screens, 28 px sort
   buttons and summaries for a mouse; hover transitions and a 1 px press; no text under 12 px
-- [ ] Phase B1: design system enforced (spacing and z-index scales, one toggle-group pattern) and
-  `app.js` split into view modules with version-stamped imports
+- [x] Phase B1: `app.js` (1,847 lines) split into 15 ES modules (`main.js` boots; one per view;
+  `ui.js`, `router.js`, `drawer.js`, `pack.js`, `theme.js` shared), and `table.js`, `charts.js`,
+  `form.js` import what they use instead of reading globals; the server fills an import map with
+  content-stamped URLs and preloads every module. Spacing on the `--space-*` scale (half steps
+  2 and 6 px added), layers on `--z-*`, one toggle-group pattern (joined bar or pills, two
+  sizes); a test fails on any raw spacing or z-index value in components
 - [ ] Phase B2: tablet breakpoint and a 56 px phone top bar; skeletons instead of blanking;
   progress for evaluation runs; an undo window for overrides
 - [ ] Phase B3: charts with direct labels, dodged points, a sparse-history summary; Overview

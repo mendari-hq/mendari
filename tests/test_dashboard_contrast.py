@@ -1,4 +1,5 @@
-"""The dashboard's colour tokens meet WCAG AA in both themes, and components use only tokens.
+"""The dashboard's colour tokens meet WCAG AA in both themes, and components use only tokens:
+colours, spacing and layers.
 
 Reads the token blocks from style.css (`:root` for light, `:root[data-theme="dark"]` for dark), so a
 colour change that breaks contrast fails here before anyone sees it.
@@ -102,9 +103,27 @@ def test_every_colour_pair_meets_wcag_aa(theme: str) -> None:
     assert failing == []
 
 
-def test_components_use_tokens_not_hex_colours() -> None:
+def _components() -> str:
+    """The stylesheet without its token blocks."""
     outside = CSS
     for selector in (':root[data-theme="dark"]', ":root"):
         start, end = _block(selector)
         outside = outside[:start] + outside[end:]
-    assert re.findall(r"#[0-9a-fA-F]{3,8}\b", outside) == []
+    return outside
+
+
+def test_components_use_tokens_not_hex_colours() -> None:
+    assert re.findall(r"#[0-9a-fA-F]{3,8}\b", _components()) == []
+
+
+def test_components_use_the_spacing_and_layer_scales() -> None:
+    """Spacing comes from --space-* (1 px hairlines aside) and stacking from --z-*."""
+    declarations = re.findall(r"(?<![\w-])([a-z-]+)\s*:\s*([^;{}]+);", _components())
+    spacing = r"(padding|margin|gap|row-gap|column-gap|inset|top|right|bottom|left)(-[a-z]+)*"
+    raw = [
+        f"{prop}: {value}"
+        for prop, value in declarations
+        if re.fullmatch(spacing, prop) and re.search(r"(?<![\w.-])(?!1px)\d+(\.\d+)?px", value)
+    ]
+    layers = [v for prop, v in declarations if prop == "z-index" and not v.startswith("var(--z-")]
+    assert raw == [] and layers == []

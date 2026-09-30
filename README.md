@@ -352,7 +352,7 @@ src/openhealth/
 ├── standards/   fhir (R4 mapping, Task output), cds_hooks
 ├── evals/       metrics, harness, local-vs-benchmark comparison, pack behaviour tests
 ├── server/      FastAPI app (REST, FHIR, CDS Hooks, review, audit, evals)
-├── dashboard/   dependency-free HTML/JS developer dashboard
+├── dashboard/   developer dashboard: HTML, CSS and ES modules, no dependencies or build step
 └── sandbox/     synthetic data generator, FHIR seed/worker, demo
 packs/           reference Decision Packs
 datasets/        example "local site" dataset for validation

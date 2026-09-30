@@ -38,8 +38,12 @@ docker compose up --build                 # HAPI FHIR + engine + worker sandbox
 - **Reports never contain case text**, only ids.
 - Keep `pack.yaml` criteria human-readable: they are both documentation and Jev instructions.
 - **Dashboard styles use tokens only** (`src/openhealth/dashboard/style.css`, section 1): no hex
-  colours in components; `tests/test_dashboard_contrast.py` checks every pair for WCAG AA in both
-  themes. Design plan: `docs/ui-ux-review.md`.
+  colours, raw spacing or z-index values in components; `tests/test_dashboard_contrast.py` checks
+  that, and every colour pair for WCAG AA in both themes. Design plan: `docs/ui-ux-review.md`;
+  grade and roadmap: `docs/design-grade.md`.
+- **Dashboard scripts are ES modules** with no build step: `main.js` boots, each view registers
+  itself in `views` (`router.js`), shared helpers live in `ui.js`. The server stamps every module
+  URL through the import map, so a new module needs no registration anywhere.
 
 ## Layout
 

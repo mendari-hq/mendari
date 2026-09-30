@@ -411,12 +411,28 @@ def create_app(
 
 def versioned_dashboard() -> str:
     """index.html with each asset URL stamped by a hash of its content, so a deploy that
-    changes a script or the stylesheet can never be served stale from a browser or CDN cache."""
+    changes a module or the stylesheet can never be served stale from a browser or CDN cache.
+
+    Modules import each other by plain URL ("./ui.js"); the import map sends each one to its
+    stamped URL, and a modulepreload link per module fetches the whole graph in parallel."""
     page = (DASHBOARD_DIR / "index.html").read_text(encoding="utf-8")
-    for asset in ("app.js", "table.js", "charts.js", "form.js", "style.css"):
-        digest = hashlib.sha256((DASHBOARD_DIR / asset).read_bytes()).hexdigest()[:12]
-        page = page.replace(f"/static/{asset}", f"/static/{asset}?v={digest}")
-    return page
+    stamped = {
+        f"/static/{path.name}": f"/static/{path.name}?v={_digest(path)}"
+        for path in sorted(DASHBOARD_DIR.glob("*.js"))
+    }
+    preload = "".join(f'\n  <link rel="modulepreload" href="{url}">' for url in stamped.values())
+    import_map = json.dumps({"imports": stamped})
+    page = page.replace(
+        '<script type="importmap"></script>',
+        f'<script type="importmap">{import_map}</script>{preload}',
+    )
+    page = page.replace('src="/static/main.js"', f'src="{stamped["/static/main.js"]}"')
+    style = f"/static/style.css?v={_digest(DASHBOARD_DIR / 'style.css')}"
+    return page.replace("/static/style.css", style)
+
+
+def _digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()[:12]
 
 
 def _summary(pack: Pack) -> dict[str, Any]:
