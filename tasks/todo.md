@@ -50,9 +50,16 @@ phase (A, B, C) to be done and merged when CI passes.
   - [x] A transition from skeleton to content (the view fades in where its skeleton was)
   - [x] Fewer whole-subtree re-renders: sorting moves rows instead of redrawing the table
 
-## Next: v0.4 Healthcare standards
-Plan to be written and approved before any code (roadmap: US Core validation, AuditEvent and
-Provenance export, SMART on FHIR launch with OAuth 2 / OIDC, CDS Hooks that fetch, Bulk FHIR).
+## Current: v0.4 Healthcare standards ([plan](../docs/plans/v0.4-healthcare-standards.md))
+Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
+- [x] Plan
+- [ ] US Core validation of FHIR inputs (warn by default, enforce on request; HL7 validator in CI)
+- [ ] Audit export as FHIR AuditEvent and Provenance
+- [ ] Sandbox: referral cases in FHIR
+- [ ] CDS Hooks that fetch, under an allow-list
+- [ ] SMART on FHIR EHR launch (PKCE, OIDC), patient context in the dashboard
+- [ ] Bulk FHIR `$export` into local-validation datasets
+- [ ] End-to-end exit checks in CI; docs
 
 ## Open items outside a milestone
 - [ ] Harder inbox benchmark: paraphrased messages and held-out splits for every critical label,

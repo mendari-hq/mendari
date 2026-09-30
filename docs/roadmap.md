@@ -14,7 +14,8 @@ first** (the Hub only matters once it has five strong packs), **LLMs through Ver
 (OIDC, no stored keys), and a **public open-source launch at v1.0**.
 
 **Progress (2026-09-29):** v0.1 ✅, v0.2 ✅, v0.3 ✅, and the dashboard redesign
-([plan](ui-ux-review.md), 8 PRs) ✅. Next: **v0.4 Healthcare standards**, starting with its plan.
+([plan](ui-ux-review.md), 8 PRs) ✅, then the design grade phases A–C (C+ → B+). Now: **v0.4
+Healthcare standards** ([plan](plans/v0.4-healthcare-standards.md)).
 
 ## Where we are against the goal
 

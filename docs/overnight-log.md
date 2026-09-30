@@ -17,7 +17,8 @@ the production-deploy check and the four "small remaining gaps" under "What an A
 | [#62](https://github.com/Junebugg1214/openhealth-hub/pull/62) | Plain words in criteria tables and Try-it answer headings | Small gap: "plain words in the Try-it criteria table"; category 4 | Red once (a test line over 100 columns, edited after lint ran), then green; preview checked; merged |
 | [#63](https://github.com/Junebugg1214/openhealth-hub/pull/63) | Links carry the pack (?pack= in the address) | Small gap: "links that carry the pack"; category 5 | Green first time; preview checked (including `/?pack=`); merged |
 | [#64](https://github.com/Junebugg1214/openhealth-hub/pull/64) | A view fades in where its skeleton was | Small gap: "a view transition from skeleton to content"; category 9 | Green first time; preview checked; merged |
-| pending | Sorting moves the rows instead of redrawing the table | Small gap: "fewer whole-subtree re-renders"; category 10 | pending |
+| [#65](https://github.com/Junebugg1214/openhealth-hub/pull/65) | Sorting moves the rows instead of redrawing the table | Small gap: "fewer whole-subtree re-renders"; category 10 | Green first time; preview checked; merged |
+| pending | v0.4 plan | v0.4 planning step | pending |
 
 ## Decisions made on your behalf
 
@@ -50,6 +51,13 @@ the production-deploy check and the four "small remaining gaps" under "What an A
   period, dataset or report), where a redraw is correct; the form's add and remove already
   restore focus. Going further needs a diffing layer, which means a framework and a build step,
   against the project's no-build rule.
+- **v0.4 order:** validation and audit export first (no new outbound calls), then the referral
+  sandbox that SMART and Bulk need, then the features that call out (CDS fetch, SMART, Bulk)
+  behind one allow-list client, then the end-to-end CI job. Details in
+  `docs/plans/v0.4-healthcare-standards.md`.
+- **Every new v0.4 capability is off until configured**, and no production environment variable
+  is changed. Production has no login of its own until v0.6, so outbound FHIR calls and SMART
+  stay disabled there.
 - **The engine's reason lines stay as they are** ("not_eligible: hba1c_in_range is no"). They
   come from the runtime, and changing them is business logic, out of scope.
 
