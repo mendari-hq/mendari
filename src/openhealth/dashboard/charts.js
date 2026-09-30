@@ -46,18 +46,23 @@ function niceAxis(lo, hi, { target = 4, integer = false } = {}) {
   return { min: ticks[0], max: ticks[ticks.length - 1], ticks };
 }
 
-// kind "rate": 0..1 shown as percent, from the lowest value (rounded down to a tenth) up to 100 %.
+// kind "rate": 0..1 shown as percent, up to 100 %. It starts at 0, so differences are not
+// exaggerated; values that all sit within 15 points near the top zoom in to the tenth below them,
+// and the axis is then marked `broken` so the chart draws a break and says where it starts.
 // kind "log": positive values on decades; zero (a free configuration) gets its own slot before them.
 // kind "number": a plain linear axis.
 function makeAxis(kind, values, { format, from } = {}) {
   const known = values.filter((v) => v !== null && v !== undefined && Number.isFinite(v));
   if (kind === "rate") {
-    // At least the top tenth is shown, so a chart whose values all sit at 100 % still has an axis.
-    const low = from ?? Math.min(0.9, Math.max(0, Math.floor(Math.min(...known, 1) * 10) / 10));
+    const [lowest, highest] = [Math.min(...known, 1), Math.max(...known, 0)];
+    const zoom = from === undefined && known.length > 0 && highest - lowest < 0.15 && lowest >= 0.5;
+    // Zoomed: the tenth below the lowest value (at least the top tenth, so values all at 100 % still
+    // have an axis).
+    const low = from ?? (zoom ? Math.min(0.9, Math.floor(lowest * 10) / 10) : 0);
     const axis = niceAxis(low, 1);
     axis.max = 1;
     axis.ticks = axis.ticks.filter((t) => t <= 1 + 1e-9);
-    return { ...axis, format: format ?? rateTick, kind };
+    return { ...axis, format: format ?? rateTick, kind, broken: axis.min > 0 };
   }
   if (kind === "log") {
     const positive = known.filter((v) => v > 0);
@@ -95,6 +100,10 @@ const svgOpen = (spec, width, height, role) =>
 // Axes, gridlines and tick labels: drawn for the eye only. A screen reader gets the chart's summary
 // and each mark's exact values, not a stream of stray tick numbers.
 const decor = (markup) => `<g aria-hidden="true">${markup}</g>`;
+
+// Two short strokes across the foot of a y axis that does not start at 0 (a truncated scale).
+const axisBreak = (axis, x, y) => (axis.broken
+  ? `<path class="axis-break" d="M${px(x - 5)},${px(y - 10)} l10,-5 M${px(x - 5)},${px(y - 15)} l10,-5"/>` : "");
 
 // ---- stacked columns ---------------------------------------------------------------------------
 
@@ -196,7 +205,10 @@ function drawLines(spec, width) {
   }
   const title = `<text class="tick" x="${px(m.l + plotW / 2)}" y="${H - 6}" text-anchor="middle">${esc(spec.x.title)}</text>`;
   const axisLine = `<line class="axis" x1="${m.l}" x2="${m.l + plotW}" y1="${m.t + plotH}" y2="${m.t + plotH}"/>`;
-  return { marks, svg: `${svgOpen(spec, width, H, "group")}${decor(grid + axisLine + xTicks + title + marker + paths)}${columns}</svg>` };
+  return {
+    marks, axisNote: yAxis.broken ? `The vertical axis starts at ${yAxis.format(yAxis.min)}.` : "",
+    svg: `${svgOpen(spec, width, H, "group")}${decor(grid + axisLine + axisBreak(yAxis, m.l, m.t + plotH) + xTicks + title + marker + paths)}${columns}</svg>`,
+  };
 }
 
 // ---- scatter -----------------------------------------------------------------------------------
@@ -250,7 +262,10 @@ function drawScatter(spec, width) {
       <circle class="hit" cx="${px(cx)}" cy="${px(cy)}" r="${px(Math.max(r + 8, 12))}"/></g>`;
   }).join("");
   const frameRect = `<rect class="frame" x="${m.l}" y="${m.t}" width="${px(plotW)}" height="${px(plotH)}"/>`;
-  return { marks, svg: `${svgOpen(spec, size, H, "group")}${decor(yGrid + xGrid + free + frameRect + diagonal + axisTitles)}${dots}</svg>` };
+  return {
+    marks, axisNote: yAxis.broken ? `The vertical axis starts at ${yAxis.format(yAxis.min)}.` : "",
+    svg: `${svgOpen(spec, size, H, "group")}${decor(yGrid + xGrid + free + frameRect + diagonal + axisTitles + axisBreak(yAxis, m.l, m.t + plotH))}${dots}</svg>`,
+  };
 }
 
 // ---- horizontal bars ---------------------------------------------------------------------------
@@ -286,6 +301,7 @@ function chartHtml(spec) {
     ? `<details class="chart-data"><summary>View data</summary>${tableHtml({ caption: "", ...spec.data, id: `${spec.id}-data` })}</details>` : "";
   return `<figure class="chart" data-chart="${esc(spec.id)}">${legend}
     <div class="chart-frame"><div class="chart-plot"></div><div class="chart-tip" aria-hidden="true" hidden></div></div>
+    <p class="chart-note chart-axis-note" hidden></p>
     ${spec.note ? `<figcaption class="chart-note">${spec.note}</figcaption>` : ""}${data}</figure>`;
 }
 
@@ -338,9 +354,12 @@ function wireCharts(root) {
       if (!width || width === drawnWidth) return; // hidden, or nothing changed
       drawnWidth = width;
       const hadFocus = plot.contains(document.activeElement);
-      const { svg, marks } = DRAW[entry.spec.type](entry.spec, width);
+      const { svg, marks, axisNote = "" } = DRAW[entry.spec.type](entry.spec, width);
       entry.marks = marks;
       plot.innerHTML = svg;
+      const note = figure.querySelector(".chart-axis-note");
+      note.textContent = axisNote;
+      note.hidden = !axisNote;
       hideTip();
       rove(Number(plot.dataset.mark ?? 0), { focus: hadFocus });
     };

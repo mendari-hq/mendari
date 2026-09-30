@@ -2,6 +2,25 @@
 
 Roadmap to the full goal: [`docs/roadmap.md`](../docs/roadmap.md).
 
+## Current: design grade phases ([`docs/design-grade.md`](../docs/design-grade.md))
+Graded C+ against Apple, Airbnb and best-in-class data viz on 2026-09-29; the user approved every
+phase (A, B, C) to be done and merged when CI passes.
+- [x] Phase A quick wins: layout shift at 768 px 0.50 -> 0 (the pack picker's width is fixed from
+  first paint); content up to 1,440 px, centred (was 1,180 px, left); view titles 28/34 px (24/30
+  on phones); one-line intros; rate axes start at 0, or zoom with a break mark and "The vertical
+  axis starts at 90%"; configurations named once ("Rules + Jev 1.13.0"), critical labels and
+  report stats in words, drawer titles in words; 44 px targets on touch screens, 28 px sort
+  buttons and summaries for a mouse; hover transitions and a 1 px press; no text under 12 px
+- [ ] Phase B1: design system enforced (spacing and z-index scales, one toggle-group pattern) and
+  `app.js` split into view modules with version-stamped imports
+- [ ] Phase B2: tablet breakpoint and a 56 px phone top bar; skeletons instead of blanking;
+  progress for evaluation runs; an undo window for overrides
+- [ ] Phase B3: charts with direct labels, dodged points, a sparse-history summary; Overview
+  trends (period, change, sparkline), with per-day review counts in `/api/stats`
+- [ ] Phase C: motion (drawer, dialog, resolved cards, tabs, chart marks), fewer boxes, a brand
+  mark, stat labels, designed empty states
+- [ ] Re-grade with the same measurements; check the production deploy
+
 ## Next: v0.4 Healthcare standards
 Plan to be written and approved before any code (roadmap: US Core validation, AuditEvent and
 Provenance export, SMART on FHIR launch with OAuth 2 / OIDC, CDS Hooks that fetch, Bulk FHIR).

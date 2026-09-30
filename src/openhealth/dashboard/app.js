@@ -372,7 +372,10 @@ views.overview = async (main) => {
 // Which pack, how risky, and what is deployed, in words; the exact identifiers stay one line below
 // (decision 1 in docs/ui-ux-review.md: plain words first, codes one step away).
 const slotText = (slot) => `${slot[0].toUpperCase()}${slot.slice(1).replaceAll("_", " ")}`;
-const providerWords = (p) => `${esc(variantText(p.variant))}${remoteModels(p.model).map((m) => ` <span class="chip" title="${esc(m)}">${esc(modelText(m))}</span>`).join("")}`;
+const providerWords = (p) => `<span title="${esc(p.variant)}${p.model ? ` · ${esc(p.model)}` : ""}">${esc(providerName(p))}</span>`;
+
+// A critical label in words: "Verdict: block", "Urgency: urgent" (the codes stay in tooltips).
+const criticalText = (question, label) => `${slotText(question)}: ${label}`;
 
 function packHeader(d) {
   const deployed = Object.entries(d.active_providers);
@@ -499,8 +502,7 @@ views.review = async (main) => {
   const groups = PRIORITIES.map((p) => [p, items.filter((item) => item.priority === p)]).filter(([, g]) => g.length);
   main.innerHTML = `
     <h1>Review queue</h1>
-    <p class="muted">Decisions held for a person or abstained, most urgent first. Confirm the recommendation, or choose another
-      label to record a human override.</p>
+    <p class="muted">Decisions waiting for a person, most urgent first.</p>
     <div class="row panel">
       <label for="reviewer">Reviewer</label>
       <input id="reviewer" value="${esc(storageGet("oh.reviewer", "sandbox-nurse"))}" autocomplete="name">
@@ -610,7 +612,7 @@ views.audit = async (main, params) => {
   const outcome = storageGet("oh.audit.outcome", "");
   main.innerHTML = `
     <h1>Audit trail</h1>
-    <p class="muted">Every decision is recorded once; reviews, outcomes and feedback are appended as hash-chained events. Open a decision to see its record.</p>
+    <p class="muted">Every decision and what happened next, in a tamper-evident chain.</p>
     <div class="row panel">
       <label for="outcome-filter">Outcome</label>
       <select id="outcome-filter"><option value="">All</option>${OUTCOMES.map((o) => `<option value="${o}" ${o === outcome ? "selected" : ""}>${esc(outcomeText(o))}</option>`).join("")}</select>
@@ -691,7 +693,8 @@ async function openRecord(id) {
   }
   const r = found.record;
   showDrawer({
-    title: `Decision ${id.slice(0, 8)}`,
+    // What happened, in words ("Human review · nurse"); the id is in the body.
+    title: `${outcomeText(r.outcome)}${r.recommendation && r.recommendation !== r.outcome.toLowerCase() ? ` · ${r.recommendation}` : ""}`,
     opener,
     // Closing the drawer (button, Escape, backdrop) goes back to the list's URL.
     onClose: () => {
@@ -737,7 +740,7 @@ views.evals = async (main, params) => {
   evalsState.reports = await api(`/api/evals?pack_id=${encodeURIComponent(state.packId)}`);
   main.innerHTML = `
     <h1>Evaluations</h1>
-    <p class="muted">How the pack performs on labelled data: configurations compared on the same records, the published benchmark, and local validation on your own datasets.</p>
+    <p class="muted">How the pack performs on labelled data, including your own.</p>
     <nav class="segmented tabs" aria-label="Evaluation views">${evalTabs().map(([key, label]) =>
       `<a href="#evals/${key}" data-tab="${key}">${esc(label)}</a>`).join("")}</nav>
     <div id="evals-body"></div>`;
@@ -845,6 +848,19 @@ function confirmRun(dataset, remote) {
 // the row's tooltip.
 const VARIANT_WORDS = { rules: "Rules", llm: "LLM", jev: "Jev", naive_bayes: "Naive Bayes", cascade: "Cascade", vote: "Vote", criteria: "Criteria", dosing: "Dosing" };
 const variantText = (variant) => variant.split("_and_").map((part) => VARIANT_WORDS[part] ?? part.replaceAll("_", " ")).join(" + ");
+const REMOTE_VARIANTS = new Set(["jev", "llm"]);
+
+// A provider in words, with the model where one runs: "Rules + Claude Sonnet 5", "Jev 1.13.0",
+// "Naive Bayes". A remote part is named by its model, so nothing is said twice; models of other
+// variants (a cascade, a vote) follow in brackets.
+function providerName(p) {
+  if (!p) return "–";
+  const models = remoteModels(p.model).map(modelText);
+  let used = 0;
+  const words = p.variant.split("_and_").map((part) =>
+    (REMOTE_VARIANTS.has(part) && models[used] ? models[used++] : VARIANT_WORDS[part] ?? part.replaceAll("_", " "))).join(" + ");
+  return used < models.length ? `${words} (${models.slice(used).join(", ")})` : words;
+}
 
 // The remote models behind a provider ("rules:rules@1a2b + llm:anthropic/claude-sonnet-5" ->
 // ["anthropic/claude-sonnet-5"]); local fingerprints ("rules@1a2b") are not a deployment choice.
@@ -881,7 +897,7 @@ function leaderboardView(board) {
   const n = (d) => Math.max(...board.rows.filter((r) => r.dataset === d).map((r) => r.n));
   return `<div class="panel">
     <h2>Provider comparison</h2>
-    <p class="muted">Every configuration ran on the same records (updated ${esc(time(board.updated_at))}). Ranked safety-first: the share of critical cases caught, then accuracy, then cost. Sort by any column.</p>
+    <p class="muted">Same records for every configuration (updated ${esc(time(board.updated_at))}). Ranked by critical cases caught, then accuracy, then cost.</p>
     <div class="choices" role="group" aria-label="Dataset">${datasets.map((d) =>
       `<button type="button" data-board-dataset="${esc(d)}" aria-pressed="${d === current}">${esc(d)} <span class="muted">n=${n(d)}</span></button>`).join("")}</div>
     <div id="board" class="mt-3">${boardTables(board, current)}</div>
@@ -920,11 +936,8 @@ function boardTables(board, dataset) {
   const criticalKeys = [...new Set(rows.flatMap((r) => r.critical.map((c) => `${c.question}=${c.label}`)))];
 
   const configCell = (r) => {
-    const parts = varying.map((slot) => {
-      const p = r.providers[slot];
-      const models = remoteModels(p?.model).map((m) => `<span class="chip" title="${esc(m)}">${esc(modelText(m))}</span>`).join(" ");
-      return `<span>${varying.length > 1 ? `<span class="muted">${esc(slot)}:</span> ` : ""}${esc(variantText(p?.variant ?? "–"))}</span> ${models}`;
-    });
+    const parts = varying.map((slot) =>
+      `<span>${varying.length > 1 ? `<span class="muted">${esc(slotText(slot))}:</span> ` : ""}${esc(providerName(r.providers[slot]))}</span>`);
     return `<div class="config" title="${esc(r.config)}">${parts.join("<br>")}${isDeployed(r) ? ` <span class="badge deployed">Deployed</span>` : ""}</div>`;
   };
   const criticalCell = (r, key) => {
@@ -938,7 +951,7 @@ function boardTables(board, dataset) {
   const columns = [
     { key: "config", label: "Configuration", className: "config-cell", sort: (r) => r.config, cell: configCell },
     ...criticalKeys.map((key) => ({
-      key: `critical:${key}`, label: `${key.split("=").map((part) => `<code>${esc(part)}</code>`).join(" = ")} caught`, numeric: true, className: "critical",
+      key: `critical:${key}`, label: `<span title="${esc(key)}">${esc(criticalText(...key.split("=")))} caught</span>`, numeric: true, className: "critical",
       sort: (r) => { const c = r.critical.find((x) => `${x.question}=${x.label}` === key); return c && c.n ? c.detected / c.n : null; },
       cell: (r) => criticalCell(r, key),
     })),
@@ -965,7 +978,8 @@ function boardTables(board, dataset) {
 }
 
 // A configuration in plain words ("Rules + Jev Claude Sonnet 5"), for the slots that differ.
-const configName = (row, varying) => varying.map((slot) => [variantText(row.providers[slot]?.variant ?? "–"), ...remoteModels(row.providers[slot]?.model).map(modelText)].join(" ")).join(", ") || row.config;
+const configName = (row, varying) => varying.map((slot) =>
+  `${varying.length > 1 ? `${slotText(slot)}: ` : ""}${providerName(row.providers[slot])}`).join(", ") || row.config;
 
 const costTick = (v) => (v === 0 ? "$0" : `$${v.toFixed(Math.max(0, -Math.round(Math.log10(v))))}`);
 
@@ -989,7 +1003,7 @@ function costChart(rows, varying, dataset) {
       rows: [
         ["Accuracy", pct(r.accuracy)],
         ["Cost / decision", `$${r.cost_per_decision_usd.toFixed(5)}`],
-        ...r.critical.filter((c) => c.n).map((c) => [`${c.question} = ${c.label} caught`, `${c.detected}/${c.n}`]),
+        ...r.critical.filter((c) => c.n).map((c) => [`${criticalText(c.question, c.label)} caught`, `${c.detected}/${c.n}`]),
       ],
     })),
     legend: [
@@ -1044,7 +1058,7 @@ function reportView(r) {
   // Safety first: accuracy, every critical label's catch rate (danger when anything is missed) and
   // false automation lead; calibration, rates, speed and cost follow.
   const critical = d.critical.map((c) => stat({
-    label: `${c.question} = ${c.label} caught`, value: `${c.detected}/${c.n}`, tone: c.detected < c.n || c.auto_missed ? "danger" : "",
+    label: `${criticalText(c.question, c.label)} caught`, value: `${c.detected}/${c.n}`, tone: c.detected < c.n || c.auto_missed ? "danger" : "",
     foot: c.auto_missed ? `<b>${c.auto_missed} automated</b>` : "none automated",
   })).join("");
   const small = (label, value, foot = "") => stat({ size: "small", label, value, foot: esc(foot) });
@@ -1056,7 +1070,7 @@ function reportView(r) {
     </div>
     ${r.comparison ? comparisonView(r.comparison) : ""}
     <div class="stats-primary">
-      ${stat({ label: `${r.primary} accuracy`, value: pct(q.accuracy), foot: `macro-F1 ${num(q.macro_f1)} · n=${q.n}` })}
+      ${stat({ label: `${slotText(r.primary)} accuracy`, value: pct(q.accuracy), foot: `macro-F1 ${num(q.macro_f1)} · n=${q.n}` })}
       ${critical}
       ${stat({
         label: "False automation", value: pct(d.automation.false_automation_rate), tone: d.automation.false_automation_rate ? "danger" : "",
@@ -1235,8 +1249,7 @@ views.feedback = async (main) => {
   const f = stats.feedback;
   main.innerHTML = `
     <h1>Feedback</h1>
-    <p class="muted">Anyone using the system can rate a decision right or wrong, and change their mind; each person's latest rating counts.
-      A "wrong" that says what the answer should have been is a ready-made test case: download the wrong cases and they go straight into an evaluation.</p>
+    <p class="muted">Rate decisions right or wrong. A wrong rating with the right answer becomes a test case.</p>
     <div class="stats-primary two">
       ${stat({ label: "Wrong on automated", value: String(f.down_on_auto), tone: f.down_on_auto ? "danger" : "", foot: "Automated, then rated wrong: confidently wrong" })}
       ${stat({ label: "Ready to become tests", value: String(f.down_with_expected), foot: "Rated wrong, with the right answer" })}
@@ -1456,8 +1469,7 @@ async function tryRecord(main) {
   const expected = (e) => Object.entries(e.expect).filter(([k]) => k !== "answers").map(([k, v]) => `${k} ${Array.isArray(v) ? v.join("/") : v}`).join(", ");
   main.innerHTML = `
     <h1>Try it</h1>
-    <p class="muted">Synthetic records only. Decisions made here are recorded in the audit trail and review queue.
-      The examples are the pack's behaviour tests; change any field to see what the pack does.</p>
+    <p class="muted">Synthetic records only; decisions here are recorded. Start from one of the pack's tests and change any field.</p>
     <div class="panel">
       <div class="row mb-3">
         <label for="example">Example</label>
@@ -1541,7 +1553,7 @@ async function tryRecord(main) {
 async function tryMessage(main) {
   main.innerHTML = `
     <h1>Try it</h1>
-    <p class="muted">Synthetic messages only. Decisions made here are recorded in the audit trail and review queue.</p>
+    <p class="muted">Synthetic messages only; decisions here are recorded.</p>
     <div class="panel">
       <div class="choices samples mb-3" role="group" aria-label="Sample messages"><span class="muted">Samples</span>
         ${SAMPLES.map((s, i) => `<button type="button" data-sample="${i}">${esc(s.label)}</button>`).join("")}</div>

@@ -62,6 +62,10 @@
   --leading-lg: 24px;
   --text-xl: 20px;
   --leading-xl: 28px;
+  --text-title: 28px;
+  --leading-title: 34px;
+  --text-title-compact: 24px;  /* phones */
+  --leading-title-compact: 30px;
   --text-kpi: 28px;
   --leading-kpi: 32px;
   --text-kpi-sm: 18px;
@@ -131,11 +135,11 @@ body {
   color: var(--color-text);
 }
 a { color: var(--color-accent); }
-h1 { font-size: var(--text-xl); line-height: var(--leading-xl); font-weight: var(--weight-semibold); margin: 0 0 var(--space-1); }
+h1 { font-size: var(--text-title); line-height: var(--leading-title); font-weight: var(--weight-semibold); letter-spacing: -0.01em; margin: 0 0 var(--space-2); }
 h2 { font-size: var(--text-lg); line-height: var(--leading-lg); font-weight: var(--weight-semibold); margin: var(--space-7) 0 var(--space-3); }
 h3 { font-size: var(--text-md); line-height: var(--leading-md); font-weight: var(--weight-semibold); margin: var(--space-5) 0 var(--space-2); }
 p { margin: 0 0 var(--space-3); }
-code { font-family: var(--font-mono); font-size: 0.92em; }
+code { font-family: var(--font-mono); font-size: max(0.92em, 12px); }  /* never under 12 px */
 :focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 /* Headings the app moves focus to (a new view, a section, a result) are announced, not operated:
    no ring around a whole line of text. Cards and controls keep theirs. */
@@ -170,6 +174,9 @@ code { font-family: var(--font-mono); font-size: 0.92em; }
 .logo { color: var(--color-accent); }
 .topbar-actions { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
 .pack-picker { min-width: 0; }  /* long pack names shrink the picker, not widen the page */
+/* Its width is fixed from first paint: filled in later with long pack names, it used to wrap the top
+   bar at tablet widths and shift the whole page (a 0.50 layout shift at 768 px). */
+.pack-picker select { width: 15rem; max-width: 100%; }
 
 .shell { display: grid; grid-template-columns: 200px minmax(0, 1fr); min-height: calc(100vh - 53px); }
 .nav {
@@ -183,7 +190,9 @@ code { font-family: var(--font-mono); font-size: 0.92em; }
 .nav a:hover { background: var(--color-surface-sunken); }
 .nav a.active { background: var(--color-accent-soft); color: var(--color-accent); font-weight: var(--weight-semibold); }
 .nav a.external { color: var(--color-text-muted); margin-top: var(--space-3); justify-content: flex-start; }
-main { padding: var(--space-6) var(--space-7) var(--space-10); max-width: 1180px; outline: none; }
+/* Content grows with the screen up to 1,440 px and then centres, instead of stopping at 1,180 px
+   and leaving the right of a wide screen empty. */
+main { padding: var(--space-6) var(--space-7) var(--space-10); width: 100%; max-width: 1440px; margin-inline: auto; outline: none; }
 
 .row { display: flex; gap: var(--space-3); align-items: center; flex-wrap: wrap; }
 .row > h3 { margin: 0; }
@@ -220,6 +229,12 @@ button, a.button {
 button:hover, a.button:hover { border-color: var(--color-accent); }
 button.primary, a.button.primary { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-on-accent); }
 button:disabled { opacity: 0.55; cursor: not-allowed; }
+/* Controls answer the pointer: a short colour transition on hover, a 1 px press. */
+:is(button, a.button, .nav a, .segmented a) {
+  transition: background-color var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out), box-shadow var(--duration-fast) var(--ease-out);
+}
+:is(button, a.button):active:not(:disabled) { transform: translateY(1px); }
 button[aria-busy="true"] { cursor: progress; }
 /* A button that reads as text (e.g. the time that opens an audit record). */
 button.linklike {
@@ -333,7 +348,7 @@ th.num, td.num { text-align: right; white-space: nowrap; width: 1%; }
 table.data thead th { vertical-align: bottom; }
 th.critical { white-space: normal; min-width: 96px; max-width: 150px; }
 th button.sort {
-  display: inline-flex; align-items: center; gap: 2px; padding: 0; border: 0; background: none;
+  display: inline-flex; align-items: center; gap: 2px; padding: 0; border: 0; background: none; min-height: 28px;
   font: inherit; font-weight: var(--weight-semibold); color: inherit; text-align: inherit;
 }
 th button.sort .icon { width: 14px; height: 14px; opacity: 0.55; }
@@ -415,7 +430,7 @@ pre.json {
   border-radius: var(--radius-sm); padding: var(--space-3); overflow: auto; max-height: 420px;
 }
 details { margin-top: var(--space-3); }
-details summary { cursor: pointer; color: var(--color-accent); }
+details summary { cursor: pointer; color: var(--color-accent); min-height: 28px; padding-block: var(--space-1); }
 .empty { padding: var(--space-7); text-align: center; color: var(--color-text-muted); }
 svg text { fill: var(--color-text-muted); font-size: var(--text-xs); }
 
@@ -426,6 +441,7 @@ figure.chart { margin: var(--space-3) 0 0; }
 .chart-svg { display: block; overflow: visible; }
 .chart-legend { margin: 0 0 var(--space-2); }
 .chart-note { color: var(--color-text-muted); font-size: var(--text-xs); margin-top: var(--space-2); }
+.chart-svg .axis-break { fill: none; stroke: var(--color-text-muted); stroke-width: 1.5; }
 .chart-title { margin-top: var(--space-5); }
 .chart-data { margin-top: var(--space-3); }
 .chart-data > .table-scroll { margin-top: var(--space-2); }
@@ -658,6 +674,7 @@ ol.rules p { margin: var(--space-1) 0; }
   .nav.scrolled.more-right { box-shadow: inset 16px 0 12px -12px rgba(0, 0, 0, 0.3), inset -16px 0 12px -12px rgba(0, 0, 0, 0.3); }
   .nav a.external { margin-top: 0; }
   main { padding: var(--space-4); }
+  h1 { font-size: var(--text-title-compact); line-height: var(--leading-title-compact); }
   .grid-2 { grid-template-columns: minmax(0, 1fr); }
   .stats-primary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .stats-primary.two { grid-template-columns: minmax(0, 1fr); }
@@ -679,6 +696,14 @@ ol.rules p { margin: var(--space-1) 0; }
   .segmented .label {
     position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
   }
+}
+
+/* Touch screens: every control at least 44 px, Apple's minimum target. */
+@media (pointer: coarse) {
+  :is(button, a.button, select, input:not([type="checkbox"]), summary, .nav a, .segmented a, .toc a) { min-height: 44px; }
+  :is(.icon-button, .segmented button) { min-width: 44px; }
+  th button.sort { min-height: 44px; }
+  .toc a, .segmented a { display: inline-flex; align-items: center; }
 }
 
 @media (prefers-reduced-motion: reduce) {
