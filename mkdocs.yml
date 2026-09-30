@@ -1,0 +1,65 @@
+# The OpenHealth Hub documentation site: every page in docs/.
+#   uv sync --group docs && uv run mkdocs serve      # http://127.0.0.1:8000
+#   uv run mkdocs build --strict                      # what CI runs: a broken link fails
+site_name: OpenHealth Hub
+site_description: Open, auditable Decision Packs for healthcare
+repo_url: https://github.com/Junebugg1214/openhealth-hub
+edit_uri: edit/main/docs/
+strict: true
+
+theme:
+  name: material
+  font: false  # system fonts: the site makes no third-party requests
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - search.highlight
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle: {icon: material/weather-night, name: Dark theme}
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle: {icon: material/weather-sunny, name: Light theme}
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.superfences
+  - pymdownx.tasklist:
+      custom_checkbox: true
+
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
+
+nav:
+  - Home: index.md
+  - Guides:
+      - Writing a Decision Pack: guides/authoring-a-pack.md
+      - Deploying with real patient data: deploying-with-phi.md
+  - Reference:
+      - Decision Pack spec 0.2: spec/decision-pack-0.2.md
+      - Decision Pack spec 0.1: spec/decision-pack-0.1.md
+      - Architecture: architecture.md
+  - Security:
+      - Threat model: security/threat-model.md
+  - Decisions:
+      - "ADR-0001: Questions as the core abstraction": decisions/ADR-0001-questions-as-the-core-abstraction.md
+      - "ADR-0002: Runtime-enforced risk caps": decisions/ADR-0002-runtime-enforced-risk-caps.md
+  - Project:
+      - Roadmap: roadmap.md
+      - "Plan: v0.4 healthcare standards": plans/v0.4-healthcare-standards.md
+      - "Plan: v0.5 the Hub": plans/v0.5-the-hub.md
+      - "Plan: v0.6 readiness for organizations": plans/v0.6-org-readiness.md
+      - "Plan: v0.7 later standards": plans/v0.7-later-standards.md
+      - "Plan: v1.0 public launch": plans/v1.0-public-launch.md
+      - Dashboard design review: ui-ux-review.md
+      - Dashboard design grade: design-grade.md
+      - Overnight build log: overnight-log.md

@@ -22,3 +22,5 @@ htmlcov/
 .agents/
 .claude/skills/
 skills-lock.json
+# mkdocs build output
+site/

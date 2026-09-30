@@ -13,7 +13,7 @@ Run OpenHealth inside your organization's network or an approved cloud account:
   `OPENHEALTH_PACKS`);
 - Postgres (not SQLite) for the audit store.
 
-[`deploy/`](../deploy) has two templates: docker compose for one server (set `OPENHEALTH_IMAGE`
+[`deploy/`](https://github.com/Junebugg1214/openhealth-hub/tree/main/deploy) has two templates: docker compose for one server (set `OPENHEALTH_IMAGE`
 in its `.env`), and Kubernetes. Both include the daily retention and monitoring jobs.
 
 The public sandbox and the project's own Vercel deployment are **synthetic only**.

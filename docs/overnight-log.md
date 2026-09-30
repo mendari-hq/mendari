@@ -49,9 +49,10 @@ the production-deploy check and the four "small remaining gaps" under "What an A
 | [#94](https://github.com/Junebugg1214/openhealth-hub/pull/94) | Da Vinci DTR: questionnaire package for the PA pack, pre-answered from the decision | v0.7 item 4 | Green first time (all five CRD/DTR samples valid in CI); preview checked; merged |
 | [#95](https://github.com/Junebugg1214/openhealth-hub/pull/95) | Da Vinci PAS: request Bundle, sandbox payer, submission chained on the decision | v0.7 item 5 (closes v0.7) | Green first time (PAS request and response valid in CI with CRD and DTR); preview checked; merged. v0.7 done |
 | [#96](https://github.com/Junebugg1214/openhealth-hub/pull/96) | v1.0 plan: public open-source launch | v1.0 plan | Green first time; preview checked; merged |
-| [#97](https://github.com/Junebugg1214/openhealth-hub/pull/97) | Security review: threat model, headers, dependency audit and ZAP scan in CI | v1.0 item 1 | pending |
-| [#98](https://github.com/Junebugg1214/openhealth-hub/pull/98) | `openhealth new` and a clinician's pack-authoring guide | v1.0 item 2 | pending |
-| [#100](https://github.com/Junebugg1214/openhealth-hub/pull/100) | ci: background servers run from the venv, not `uv run` (uv 0.12 holds the cache lock) | CI root cause found on #99 | pending |
+| [#97](https://github.com/Junebugg1214/openhealth-hub/pull/97) | Security review: threat model, headers, dependency audit and ZAP scan in CI | v1.0 item 1 | Green first time (the new `security` job: pip-audit and npm audit clean, ZAP 114 passes, no medium or high); preview checked (headers live, every module 200); merged |
+| [#98](https://github.com/Junebugg1214/openhealth-hub/pull/98) | `openhealth new` and a clinician's pack-authoring guide | v1.0 item 2 | Green first time (`hub-e2e` ran `openhealth new` and its tests from the wheel); preview checked; merged |
+| [#99](https://github.com/Junebugg1214/openhealth-hub/pull/99) | The documentation site (MkDocs Material, strict build in CI) | v1.0 item 3 | pending |
+| [#100](https://github.com/Junebugg1214/openhealth-hub/pull/100) | ci: background servers run from the venv, not `uv run` (uv 0.12 holds the cache lock) | CI root cause found on #99 | Green first time (no cache-lock timeouts in hub-e2e, hub-site, security, pilot-check); preview checked; merged |
 
 ## Decisions made on your behalf
 
@@ -275,7 +276,10 @@ the production-deploy check and the four "small remaining gaps" under "What an A
     which load Swagger UI from a CDN. The dashboard's two inline scripts are allowed by hash,
     so no `unsafe-inline` script is needed;
   - ZAP's two remaining low alerts are accepted: the HTML root in an API scan, and ZAP's own
-    version notice. Medium and high alerts fail the build.
+    version notice. Medium and high alerts fail the build;
+  - the docs site uses system fonts, so it makes no third-party requests. Links from docs to
+    files outside `docs/` point at the repository, so they work on GitHub and on the site.
+    Hosting waits for the public launch.
 
 ## Skipped or blocked
 
