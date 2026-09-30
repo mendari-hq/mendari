@@ -53,7 +53,8 @@ the production-deploy check and the four "small remaining gaps" under "What an A
 | [#98](https://github.com/Junebugg1214/openhealth-hub/pull/98) | `openhealth new` and a clinician's pack-authoring guide | v1.0 item 2 | Green first time (`hub-e2e` ran `openhealth new` and its tests from the wheel); preview checked; merged |
 | [#99](https://github.com/Junebugg1214/openhealth-hub/pull/99) | The documentation site (MkDocs Material, strict build in CI) | v1.0 item 3 | Red once for a reason outside the PR (the uv cache-lock timeout, fixed in #100); after the rebase green, the new `docs` job included; preview checked; merged |
 | [#100](https://github.com/Junebugg1214/openhealth-hub/pull/100) | ci: background servers run from the venv, not `uv run` (uv 0.12 holds the cache lock) | CI root cause found on #99 | Green first time (no cache-lock timeouts in hub-e2e, hub-site, security, pilot-check); preview checked; merged |
-| [#101](https://github.com/Junebugg1214/openhealth-hub/pull/101) | The contribution flow: pack-PR workflow with the eval gate, community files | v1.0 item 4 | pending |
+| [#101](https://github.com/Junebugg1214/openhealth-hub/pull/101) | The contribution flow: pack-PR workflow with the eval gate, community files | v1.0 item 4 | Green first time; preview checked; merged |
+| [#102](https://github.com/Junebugg1214/openhealth-hub/pull/102) | Release workflow (PyPI trusted publishing on tags) and the README quickstart timed in CI | v1.0 item 5 | pending |
 
 ## Decisions made on your behalf
 

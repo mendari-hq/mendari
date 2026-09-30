@@ -642,11 +642,14 @@ Full plan and status: [`docs/roadmap.md`](docs/roadmap.md). Done:
 - v0.5 the Hub: signed pack archives, `openhealth push / pull`, a registry and website (built, not
   public yet);
 - v0.6 readiness for organizations: sign-in with roles and API keys, tenancy, governance
-  approvals, monitoring and drift, PHI mode, container images and on-prem templates.
+  approvals, monitoring and drift, PHI mode, container images and on-prem templates;
+- v0.7 later standards: a CQL provider, OMOP CDM inputs, Da Vinci CRD, DTR and PAS;
+- v1.0, everything up to the launch: a security review with scans in CI, the pack-authoring
+  guide and `openhealth new`, the docs site, the contribution flow with its eval gate,
+  community files, a release workflow and the 10-minute quickstart check.
 
-Next:
-
-- **v0.7 and v1.0:** CQL, OMOP, Da Vinci CRD/DTR/PAS; then the public open-source launch.
+Next: **the public launch**. The repository goes public, 0.1.0 goes to PyPI, and the Hub and
+docs site go live. That is the owner's decision.
 
 ## License
 

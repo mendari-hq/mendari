@@ -11,7 +11,7 @@ Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 - [x] Docs site (MkDocs Material, `mkdocs build --strict` in CI)
 - [x] Contribution flow: pack-PR workflow with the eval gate; CONTRIBUTING, CODE_OF_CONDUCT,
   GOVERNANCE, templates
-- [ ] Release workflow (PyPI trusted publishing on tags) and the 10-minute quickstart in CI
+- [x] Release workflow (PyPI trusted publishing on tags) and the 10-minute quickstart in CI
 - [ ] Going public: public repo, PyPI release, live Hub and docs site (the owner's decision;
   logged)
 
