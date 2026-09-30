@@ -375,6 +375,8 @@ button.open-record { white-space: nowrap; display: inline-flex; align-items: cen
   animation: sk-sheen 1.6s ease-in-out infinite;
 }
 @keyframes sk-sheen { to { transform: translateX(100%); } }
+/* The view's content fades in where its skeleton was (router.js adds the class once it's in). */
+.view-enter { animation: fade-in var(--duration-base) var(--ease-out); }
 .sk-title { height: var(--leading-title); width: min(18rem, 60%); margin-bottom: calc(var(--space-2) - var(--space-3)); }
 .sk-intro { height: 1rem; width: min(32rem, 85%); margin-bottom: var(--space-2); }
 .sk-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: var(--space-3); }

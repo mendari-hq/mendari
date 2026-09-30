@@ -15,7 +15,8 @@ the production-deploy check and the four "small remaining gaps" under "What an A
 |---|---|---|---|
 | — | Production deploy check (no PR) | todo: "Check the production deploy" | — |
 | [#62](https://github.com/Junebugg1214/openhealth-hub/pull/62) | Plain words in criteria tables and Try-it answer headings | Small gap: "plain words in the Try-it criteria table"; category 4 | Red once (a test line over 100 columns, edited after lint ran), then green; preview checked; merged |
-| pending | Links carry the pack | Small gap: "links that carry the pack"; category 5 | pending |
+| [#63](https://github.com/Junebugg1214/openhealth-hub/pull/63) | Links carry the pack (?pack= in the address) | Small gap: "links that carry the pack"; category 5 | Green first time; preview checked (including `/?pack=`); merged |
+| pending | A view fades in where its skeleton was | Small gap: "a view transition from skeleton to content"; category 9 | pending |
 
 ## Decisions made on your behalf
 
@@ -38,6 +39,10 @@ the production-deploy check and the four "small remaining gaps" under "What an A
   replaces the history entry rather than adding one, as before. Back across an earlier pack
   change shows that pack. An unknown pack falls back to the last one chosen, and the address is
   corrected.
+- **Skeleton to content is a 200 ms fade-in of the view, not a crossfade of two layers.** It
+  matches the Evaluations tab crossfade from Phase C, needs no second copy of the view in the
+  page, and uses opacity only: a transform on `main` would move sticky and fixed children while
+  it runs.
 - **The engine's reason lines stay as they are** ("not_eligible: hba1c_in_range is no"). They
   come from the runtime, and changing them is business logic, out of scope.
 

@@ -1301,9 +1301,25 @@ def test_the_drawer_slides_in_and_out(page: Page) -> None:
     expect(page.locator("#audit-table button.open-record").first).to_be_focused()
 
 
+def test_a_view_fades_in_where_its_skeleton_was(page: Page) -> None:
+    page.add_init_script(
+        "window.fades = 0; document.addEventListener('animationstart', (e) => {"
+        " if (e.target.id === 'view' && e.animationName === 'fade-in') window.fades++; }, true)"
+    )
+    open_pack(page, INBOX, "overview")
+    view = page.locator("#view")
+    expect(view).to_have_class(re.compile("view-enter"))
+    assert view.evaluate(ANIMATION) == "fade-in"
+    page.wait_for_function("window.fades === 1")
+    page.locator('.nav a[data-view="audit"]').click()  # every navigation fades in again
+    expect(page.locator("main h1")).to_have_text("Audit trail")
+    page.wait_for_function("window.fades === 2")
+
+
 def test_nothing_moves_under_reduced_motion(page: Page) -> None:
     page.emulate_media(reduced_motion="reduce")
     open_pack(page, INBOX, "audit")
+    assert page.locator("#view").evaluate(ANIMATION) == "none"  # the view appears at once
     page.locator("#audit-table button.open-record").first.click()
     assert page.locator(".drawer").evaluate(ANIMATION) == "none"
     page.keyboard.press("Escape")

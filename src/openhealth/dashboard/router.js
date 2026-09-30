@@ -39,6 +39,7 @@ export async function render({ navigated = false } = {}) {
   keepActiveSectionInView();
   const main = $("#view");
   main.setAttribute("aria-busy", "true");
+  main.classList.remove("view-enter");
   main.innerHTML = skeleton(view);
   let target = null;
   try {
@@ -50,6 +51,10 @@ export async function render({ navigated = false } = {}) {
   } finally {
     main.removeAttribute("aria-busy");
   }
+  // The content fades in where the skeleton was, rather than cutting over it. The reflow restarts
+  // the animation when the class comes straight back (the same view rendered again).
+  void main.offsetWidth;
+  main.classList.add("view-enter");
   if (target) focusHeading(target); // a link to a section lands there, on first load too
   else if (navigated) {
     window.scrollTo(0, 0);
