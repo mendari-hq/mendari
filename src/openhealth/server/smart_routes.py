@@ -3,7 +3,7 @@
 - `GET /smart/launch?iss=&launch=[&pack=]` and `GET /smart/callback` run the launch
   (`standards/smart.py`); the callback sets an opaque, HttpOnly, SameSite=Lax session cookie and
   sends the browser to the dashboard's "This patient" view for the pack.
-- `GET /api/smart/session`, `POST /api/smart/logout`.
+- `GET /api/smart/session` (`{"active": false}` without one), `POST /api/smart/logout`.
 - `GET /api/smart/patient`: the launch's patient, for the banner.
 - `GET /api/smart/focus?pack_id=`: the patient's resources the pack decides about (their inbox
   messages, their referrals).
@@ -125,9 +125,14 @@ def add_smart_routes(
 
     @app.get("/api/smart/session")
     def smart_session(request: Request) -> dict[str, Any]:
-        session = session_of(request)
+        """The launch's context, or `{"active": false}` (every dashboard load asks, so no launch
+        is an answer, not an error)."""
+        sid = request.cookies.get(COOKIE)
+        session = store.smart_get(sid, "session") if sid and settings is not None else None
+        if session is None:
+            return {"active": False}
         shown = ("iss", "patient", "encounter", "fhir_user", "scope", "expires_at", "pack")
-        return {key: session.get(key) for key in shown}
+        return {"active": True, **{key: session.get(key) for key in shown}}
 
     @app.post("/api/smart/logout")
     def smart_logout(request: Request) -> Response:

@@ -177,6 +177,7 @@ def test_an_ehr_launch_opens_the_patients_view_with_a_server_side_session(
     assert "httponly" in cookie and "secure" in cookie and "samesite=lax" in cookie
     session = app.get("/api/smart/session").json()
     assert session == {
+        "active": True,
         "iss": ISS,
         "patient": "ref-p1",
         "encounter": "enc-1",
@@ -227,7 +228,7 @@ def test_deciding_a_work_item_reads_the_record_and_audits_the_decision(
 def test_logging_out_ends_the_session(app: TestClient, ehr: FakeEhr) -> None:
     full_launch(app, ehr)
     assert app.post("/api/smart/logout").status_code == 204
-    assert app.get("/api/smart/session").status_code == 401
+    assert app.get("/api/smart/session").json() == {"active": False}
     assert app.get("/api/smart/patient").status_code == 401
 
 
@@ -275,7 +276,7 @@ def test_an_id_token_with_bad_claims_is_refused(
     ehr.claims = change
     done = full_launch(app, ehr)
     assert done.status_code == 400 and reason in done.text
-    assert app.get("/api/smart/session").status_code == 401
+    assert app.get("/api/smart/session").json() == {"active": False}
 
 
 def test_an_id_token_signed_by_another_key_is_refused(app: TestClient, ehr: FakeEhr) -> None:
@@ -347,7 +348,7 @@ def test_an_expired_session_is_gone(
     full_launch(app, ehr)
     later = time.time() + 7200
     monkeypatch.setattr("openhealth.core.audit.time.time", lambda: later)
-    assert app.get("/api/smart/session").status_code == 401
+    assert app.get("/api/smart/session").json() == {"active": False}
 
 
 def test_smart_is_off_until_configured(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
