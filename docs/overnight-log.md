@@ -28,7 +28,8 @@ the production-deploy check and the four "small remaining gaps" under "What an A
 | [#73](https://github.com/Junebugg1214/openhealth-hub/pull/73) | Sandbox: SMART launcher and a scripted EHR launch (CI job sandbox-e2e) | v0.4 item 5, part 3 of 3 (and the SMART half of item 7) | Green, including the new `sandbox-e2e` job (the SMART exit, proven in CI); rebased after #72 (log and todo only), green again; merged |
 | [#74](https://github.com/Junebugg1214/openhealth-hub/pull/74) | Bulk FHIR $export into local-validation datasets | v0.4 item 6 (and the Bulk half of item 7) | Green first time, including `sandbox-e2e` with `bulk-check` (the Bulk exit, proven in CI); merged. **v0.4 done.** |
 | [#75](https://github.com/Junebugg1214/openhealth-hub/pull/75) | v0.4 done; v0.5 plan (the Hub) | v0.4 closeout, v0.5 planning step | Green; merged |
-| pending | Share the database layer: core/db.py | v0.5 groundwork (the registry reuses it) | pending |
+| [#76](https://github.com/Junebugg1214/openhealth-hub/pull/76) | Share the database layer: core/db.py | v0.5 groundwork (the registry reuses it) | Green first time; merged |
+| [#77](https://github.com/Junebugg1214/openhealth-hub/pull/77) | Signed pack archives (.ohpack) and publisher keys | v0.5 item 1 | pending |
 
 ## Decisions made on your behalf
 
@@ -153,6 +154,13 @@ the production-deploy check and the four "small remaining gaps" under "What an A
 - **The registry reuses the audit store's database layer**, rather than keeping a second copy.
   `core/db.py` is a pure move with the schema, migration and lock key passed in. It was checked
   line for line (lesson 2026-09-29), and the full suite passes on SQLite and Postgres.
+- **A mistake of mine, caught before it reached `main`:** a failed gate was masked by a pipe
+  during a conflicted rebase. PR #77 briefly showed a stale diff, and it was fixed by redoing the
+  rebase and force-pushing the feature branch. Lesson added to `tasks/lessons.md`.
+- **Pack archives are deterministic gzip tars signed with Ed25519** over a manifest of file
+  hashes. Ed25519 comes from `cryptography`, already a dependency. Signatures are deterministic,
+  so the same pack and key give the same archive bytes. Verification happens in memory before
+  anything touches disk.
 - **Every new v0.4 capability is off until configured**, and no production environment variable
   is changed. Production has no login of its own until v0.6, so outbound FHIR calls and SMART
   stay disabled there.

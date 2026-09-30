@@ -504,6 +504,54 @@ def cmd_sandbox_bulk_check(args: argparse.Namespace) -> int:
     return 0 if result["identical"] else 1
 
 
+def cmd_keys_generate(args: argparse.Namespace) -> int:
+    import os
+
+    from openhealth.hub import archive
+
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    private, public = archive.generate_key()
+    secret = out / f"{args.name}.key"
+    if secret.exists():
+        raise OpenHealthError(f"{secret} exists; not overwriting a key")
+    descriptor = os.open(secret, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "wb") as handle:
+        handle.write(private)
+    (out / f"{args.name}.pub").write_bytes(public)
+    key_id = archive.key_id(archive.load_public_key(public))
+    print(f"{key_id}\n  private: {secret} (keep it secret)\n  public:  {out / args.name}.pub")
+    return 0
+
+
+def cmd_pack_build(args: argparse.Namespace) -> int:
+    import hashlib
+
+    from openhealth.hub import archive
+
+    pack = resolve_pack(args.pack)
+    key = archive.load_private_key(Path(args.key).read_bytes())
+    data = archive.build(pack, key)
+    out = Path(args.out) / archive.archive_name(pack)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_bytes(data)
+    print(f"{out}  sha256:{hashlib.sha256(data).hexdigest()}  ({len(data)} bytes)")
+    return 0
+
+
+def cmd_pack_verify(args: argparse.Namespace) -> int:
+    import tempfile
+
+    from openhealth.hub import archive
+
+    public = archive.load_public_key(Path(args.public_key).read_bytes())
+    verified = archive.verify(Path(args.archive).read_bytes(), {archive.key_id(public): public})
+    with tempfile.TemporaryDirectory() as scratch:
+        pack = archive.extract(verified, Path(scratch))
+        print(f"OK {pack.id}@{pack.version} {pack.digest} signed by {verified.key_id}")
+    return 0
+
+
 def cmd_demo(args: argparse.Namespace) -> int:
     from openhealth.sandbox.demo import run_demo
 
@@ -729,6 +777,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
     dataset_bulk.add_argument("--out", required=True, help="dataset file to write (JSONL)")
     dataset_bulk.set_defaults(handler=cmd_bulk_dataset)
+
+    keys = sub.add_parser("keys", help="publisher keys").add_subparsers(
+        dest="keys_command", required=True
+    )
+    generate_key = keys.add_parser("generate", help="create an Ed25519 publisher key pair")
+    generate_key.add_argument("--out", default=".", help="directory for NAME.key and NAME.pub")
+    generate_key.add_argument("--name", default="publisher")
+    generate_key.set_defaults(handler=cmd_keys_generate)
+    pack_cmd = sub.add_parser("pack", help="signed pack archives").add_subparsers(
+        dest="pack_command", required=True
+    )
+    build_pack = pack_cmd.add_parser("build", help="build a signed .ohpack archive")
+    build_pack.add_argument("pack", help="namespace/name[@version] or a directory")
+    build_pack.add_argument("--key", required=True, help="publisher private key (PEM)")
+    build_pack.add_argument("--out", default="dist", help="directory for the archive")
+    build_pack.set_defaults(handler=cmd_pack_build)
+    verify_pack = pack_cmd.add_parser("verify", help="verify an archive's files and signature")
+    verify_pack.add_argument("archive")
+    verify_pack.add_argument("--public-key", required=True, help="publisher public key (PEM)")
+    verify_pack.set_defaults(handler=cmd_pack_verify)
 
     sub.add_parser("demo", help="offline end-to-end demo on synthetic data").set_defaults(
         handler=cmd_demo

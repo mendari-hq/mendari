@@ -43,3 +43,7 @@ class SmartError(OpenHealthError):
     def __init__(self, message: str, status: int = 400):
         self.status = status
         super().__init__(message)
+
+
+class HubError(OpenHealthError):
+    """A pack archive, signature, registry request or pull failed a check."""
