@@ -18,6 +18,12 @@ pack, not the publisher, is accountable for automating it at its site.
 - Independently of risk level, any provider failure in a decision caps `AUTO`, because a
   failed safety screen means the safety checks are incomplete.
 
+**v0.6:** the server keeps these approvals (`/api/governance`, and the Decision Card's
+"Automation approval" section). A person with the `governance` role gives each one for one
+organization and one pack digest, with an expiry. It is chained in the audit log, applied as the
+runtime's `GovernanceOverride` while in force, and can be revoked at once. A new version of the
+pack needs a new approval. The API refuses levels 0–1, which need none, and level 4.
+
 ## Consequences
 - Automation limits live in the runtime, not in each pack's own configuration, so a
   malicious or careless pack cannot remove them.

@@ -6,7 +6,7 @@ import hashlib
 import json
 import time
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -112,16 +112,20 @@ class Decision:
         *,
         providers: Mapping[str, str] | None = None,
         governance: GovernanceOverride | None = None,
+        governance_source: Callable[[Pack], GovernanceOverride | None] | None = None,
         store: AuditStore | None = None,
         budget: CallBudget | None = None,
         fhir_validation: FhirValidation = "warn",
     ):
+        """`governance` fixes an override for every decision; `governance_source` looks one up
+        for each decision instead (a deployment's recorded approvals, per organization)."""
         overrides = dict(providers or {})
         unknown = set(overrides) - set(pack.manifest.providers)
         if unknown:
             raise PackValidationError(pack.id, [f"unknown provider slots {sorted(unknown)}"])
         self.pack = pack
         self.governance = governance
+        self.governance_source = governance_source
         self.store = store
         self.budget = budget
         self.fhir_validation = fhir_validation
@@ -190,6 +194,9 @@ class Decision:
         tokens_in = tokens_out = 0
         cost: float | None = 0.0
 
+        governance = self.governance
+        if governance is None and self.governance_source is not None:
+            governance = self.governance_source(self.pack)
         problems = [*rejected, *self.validate(inputs)]
         if problems:
             policy = PolicyResult(
@@ -216,7 +223,7 @@ class Decision:
                         cost = None if output.cost_usd is None else cost + output.cost_usd
             complete_answers(manifest, answers, failures)
             variants = {slot: info.variant for slot, info in self.provider_info.items()}
-            policy = apply_policy(manifest, answers, failures, self.governance, variants)
+            policy = apply_policy(manifest, answers, failures, governance, variants)
             primary = manifest.questions[manifest.policy.primary]
             if primary.derive is not None:
                 policy = replace(policy, reasons=(*policy.reasons, *explain(primary, answers)))
@@ -241,7 +248,7 @@ class Decision:
             input_tokens=tokens_in,
             output_tokens=tokens_out,
             input_hash=input_hash(inputs),
-            governance=self.governance.to_dict() if self.governance else None,
+            governance=governance.to_dict() if governance else None,
             input_issues=tuple(dict(issue) for issue in input_issues),
         )
         if self.store is not None:

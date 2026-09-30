@@ -771,7 +771,7 @@ def test_the_decision_card_is_a_document_with_linked_sections(page: Page) -> Non
     ("pack_id", "automates"),
     [
         (INBOX, "At confidence 0.90 or more (some labels need more; see Policy)."),
-        (GUARD, "Not here: at risk level 2 a person reviews every decision"),
+        (GUARD, "Not without an approval: at risk level 2 a person reviews every decision"),
         ("openhealth/referral-router", "Not with the deployed providers: automation needs"),
     ],
 )
@@ -1597,3 +1597,36 @@ def test_a_signed_in_reviewer_reviews_under_their_own_name(page: Page) -> None:
     page.goto(f"/?pack={INBOX}#review")
     expect(page.locator("#reviewer")).to_have_value("Nurse Kim")
     expect(page.locator("#reviewer")).to_have_attribute("readonly", "")
+
+
+def test_a_level_2_pack_can_be_approved_to_automate_from_its_card(page: Page) -> None:
+    open_pack(page, "openhealth/clinical-trial-prescreener", "card")
+    page.goto("/?pack=openhealth/clinical-trial-prescreener#card/approval")
+    section = page.locator("#card-approval")
+    expect(section).to_contain_text(
+        "a person reviews every decision unless your organization approves"
+    )
+    page.fill("#approval-reference", "AI committee minutes, item 4")
+    page.fill("#approval-approver", "Dr. Chair")
+    page.get_by_role("button", name="Approve automation").click()
+    expect(section).to_contain_text(
+        "Automation approved by Dr. Chair (AI committee minutes, item 4)"
+    )
+    expect(page.locator("dl.facts")).to_contain_text("Approved by Dr. Chair: At confidence")
+    section.get_by_role("button", name="Revoke").click()
+    expect(section.get_by_role("button", name="Approve automation")).to_be_visible()
+
+
+def test_the_card_lists_where_the_pack_runs(page: Page) -> None:
+    open_pack(page, INBOX, "card")
+    page.goto(f"/?pack={INBOX}#card/deployments")
+    rows = page.locator("#card-deployments tbody tr")
+    expect(rows).to_have_count(1)
+    expect(rows.first).to_contain_text("local")
+    expect(rows.first).to_contain_text("naive_bayes")
+
+
+def test_a_level_1_pack_needs_no_approval(page: Page) -> None:
+    open_pack(page, INBOX, "card")
+    page.goto(f"/?pack={INBOX}#card/approval")
+    expect(page.locator("#card-approval")).to_contain_text("No approval is needed")

@@ -36,7 +36,8 @@ the production-deploy check and the four "small remaining gaps" under "What an A
 | [#81](https://github.com/Junebugg1214/openhealth-hub/pull/81) | Hub website (Next.js): search, pack pages, publishers; CI job hub-site | v0.5 item 5 | Red once (`npm ci` on Node 22 / npm 10 found optional Linux packages missing from the lockfile), fixed by regenerating it and running CI on Node 24; green; merged |
 | [#82](https://github.com/Junebugg1214/openhealth-hub/pull/82) | v0.5 end to end: a clean machine installs, pulls and tests; registry in the sandbox; docs | v0.5 item 6 (the exit) | Green first time (the new `hub-e2e` job included); preview checked; merged. v0.5 done |
 | [#83](https://github.com/Junebugg1214/openhealth-hub/pull/83) | v0.6 plan: readiness for health organizations | v0.6 plan | Green first time; preview checked; merged |
-| [#84](https://github.com/Junebugg1214/openhealth-hub/pull/84) | Sign-in for organizations: OIDC, roles, API keys, tenancy | v0.6 item 1 | pending |
+| [#84](https://github.com/Junebugg1214/openhealth-hub/pull/84) | Sign-in for organizations: OIDC, roles, API keys, tenancy | v0.6 item 1 | Green first time; preview checked (open mode, `/api/auth/me` answers `open`); merged |
+| [#85](https://github.com/Junebugg1214/openhealth-hub/pull/85) | Governance approvals in the Decision Card, and the deployment registry | v0.6 item 2 | Red once: the browser job's 24 px check failed on an inline link in the card's facts (on Linux the sentence didn't wrap, so the link was 20 px tall). Replaced the link with words; lesson added; then green |
 
 ## Decisions made on your behalf
 

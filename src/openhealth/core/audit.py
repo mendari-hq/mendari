@@ -97,6 +97,30 @@ CREATE TABLE IF NOT EXISTS feedback (
 );
 CREATE INDEX IF NOT EXISTS feedback_pack ON feedback (pack_id, rating, created_at);
 CREATE INDEX IF NOT EXISTS feedback_decision ON feedback (decision_id);
+CREATE TABLE IF NOT EXISTS governance_approvals (
+    id           TEXT PRIMARY KEY,
+    org          TEXT NOT NULL,
+    pack_id      TEXT NOT NULL,
+    pack_digest  TEXT NOT NULL,
+    risk_level   INTEGER NOT NULL,
+    approver     TEXT NOT NULL,
+    reference    TEXT NOT NULL,
+    created_at   TEXT NOT NULL,
+    expires_at   TEXT NOT NULL,
+    revoked_at   TEXT,
+    revoked_by   TEXT
+);
+CREATE TABLE IF NOT EXISTS deployments (
+    id           TEXT PRIMARY KEY,
+    environment  TEXT NOT NULL,
+    release      TEXT NOT NULL,
+    pack_id      TEXT NOT NULL,
+    pack_version TEXT NOT NULL,
+    pack_digest  TEXT NOT NULL,
+    providers    TEXT NOT NULL,
+    started_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS deployments_pack ON deployments (pack_id, started_at);
 CREATE TABLE IF NOT EXISTS api_keys (
     id          TEXT PRIMARY KEY,
     key_sha256  TEXT NOT NULL UNIQUE,
@@ -543,6 +567,139 @@ class AuditStore:
     def smart_delete(self, key: str) -> None:
         with self._db.session(exclusive=True) as db:
             db.all("DELETE FROM smart_sessions WHERE key_sha256 = ?", (_key(key),))
+
+    # -- governance approvals -------------------------------------------------------------------
+    # A deploying organization's recorded decision to let a level 2-3 pack automate (ADR-0002):
+    # bound to the pack's exact digest (a changed pack needs a new approval), with an expiry, per
+    # organization, and chained like decisions ("governance:<id>" in the audit chain).
+
+    def approve_automation(
+        self,
+        *,
+        pack_id: str,
+        pack_digest: str,
+        risk_level: int,
+        approver: str,
+        reference: str,
+        expires_at: str,
+    ) -> dict[str, Any]:
+        if risk_level not in (2, 3):
+            reason = "is never automated" if risk_level >= 4 else "needs no approval"
+            raise ReviewError(f"a risk level {risk_level} pack {reason}")
+        if not approver.strip() or not reference.strip():
+            raise ReviewError("an approval needs an approver and a reference")
+        approval = {
+            "id": secrets.token_hex(8),
+            "org": tenancy.current() or tenancy.DEFAULT_ORG,
+            "pack_id": pack_id,
+            "pack_digest": pack_digest,
+            "risk_level": risk_level,
+            "approver": approver.strip(),
+            "reference": reference.strip(),
+            "created_at": _now(),
+            "expires_at": expires_at,
+        }
+        with self._db.session(exclusive=True) as db:
+            db.all(
+                "INSERT INTO governance_approvals (id, org, pack_id, pack_digest, risk_level, "
+                "approver, reference, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                tuple(approval.values()),
+            )
+            self._append(db, f"governance:{approval['id']}", "governance.approved", approval)
+        return approval
+
+    def revoke_approval(self, approval_id: str, *, revoked_by: str) -> bool:
+        org = tenancy.current() or tenancy.DEFAULT_ORG
+        with self._db.session(exclusive=True) as db:
+            row = db.one(
+                "SELECT id FROM governance_approvals "
+                "WHERE id = ? AND org = ? AND revoked_at IS NULL",
+                (approval_id, org),
+            )
+            if row is None:
+                return False
+            db.all(
+                "UPDATE governance_approvals SET revoked_at = ?, revoked_by = ? WHERE id = ?",
+                (_now(), revoked_by, approval_id),
+            )
+            payload = {"id": approval_id, "revoked_by": revoked_by}
+            self._append(db, f"governance:{approval_id}", "governance.revoked", payload)
+        return True
+
+    def approvals(self, pack_id: str | None = None) -> list[dict[str, Any]]:
+        org = tenancy.current() or tenancy.DEFAULT_ORG
+        packs = ("AND pack_id = ?", (pack_id,)) if pack_id else ("", ())
+        with self._db.session(exclusive=False) as db:
+            return db.all(
+                f"SELECT * FROM governance_approvals WHERE org = ? {packs[0]} "
+                "ORDER BY created_at DESC",
+                (org, *packs[1]),
+            )
+
+    def active_approval(self, pack_id: str, pack_digest: str) -> dict[str, Any] | None:
+        """The approval in force for exactly this pack, for this request's organization."""
+        org = tenancy.current() or tenancy.DEFAULT_ORG
+        with self._db.session(exclusive=False) as db:
+            return db.one(
+                "SELECT * FROM governance_approvals WHERE org = ? AND pack_id = ? "
+                "AND pack_digest = ? AND revoked_at IS NULL AND expires_at > ? "
+                "ORDER BY created_at DESC LIMIT 1",
+                (org, pack_id, pack_digest, _now()),
+            )
+
+    # -- the deployment registry -----------------------------------------------------------------
+    # Which pack version runs where, with which providers, since when: one row each time that
+    # changes (not each start, since a serverless platform starts the server many times a day),
+    # chained like decisions ("deployment:<id>").
+
+    def record_deployment(
+        self,
+        *,
+        environment: str,
+        release: str,
+        pack_id: str,
+        pack_version: str,
+        pack_digest: str,
+        providers: Mapping[str, str],
+    ) -> dict[str, Any] | None:
+        """Records that this pack runs here, unless the latest record for the environment already
+        says so (same digest, providers and release). Returns the new record, or None."""
+        deployment = {
+            "id": secrets.token_hex(8),
+            "environment": environment,
+            "release": release,
+            "pack_id": pack_id,
+            "pack_version": pack_version,
+            "pack_digest": pack_digest,
+            "providers": _canonical(dict(providers)),
+            "started_at": _now(),
+        }
+        with self._db.session(exclusive=True) as db:
+            last = db.one(
+                "SELECT release, pack_digest, providers FROM deployments "
+                "WHERE environment = ? AND pack_id = ? ORDER BY started_at DESC LIMIT 1",
+                (environment, pack_id),
+            )
+            unchanged = ("release", "pack_digest", "providers")
+            if last is not None and all(last[k] == deployment[k] for k in unchanged):
+                return None
+            db.all(
+                "INSERT INTO deployments (id, environment, release, pack_id, pack_version, "
+                "pack_digest, providers, started_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                tuple(deployment.values()),
+            )
+            self._append(db, f"deployment:{deployment['id']}", "deployment.recorded", deployment)
+        return {**deployment, "providers": dict(providers)}
+
+    def deployments(self, pack_id: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
+        """Newest first. Deployments belong to the server, so every organization sees them."""
+        packs = ("WHERE pack_id = ?", (pack_id,)) if pack_id else ("", ())
+        with self._db.session(exclusive=False) as db:
+            rows = db.all(
+                f"SELECT * FROM deployments {packs[0]} ORDER BY started_at DESC LIMIT ?",
+                (*packs[1], limit),
+            )
+        return [{**row, "providers": json.loads(row["providers"])} for row in rows]
 
     # -- API keys (server/auth.py) --------------------------------------------------------------
 
