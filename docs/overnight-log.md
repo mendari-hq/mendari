@@ -29,7 +29,8 @@ the production-deploy check and the four "small remaining gaps" under "What an A
 | [#74](https://github.com/Junebugg1214/openhealth-hub/pull/74) | Bulk FHIR $export into local-validation datasets | v0.4 item 6 (and the Bulk half of item 7) | Green first time, including `sandbox-e2e` with `bulk-check` (the Bulk exit, proven in CI); merged. **v0.4 done.** |
 | [#75](https://github.com/Junebugg1214/openhealth-hub/pull/75) | v0.4 done; v0.5 plan (the Hub) | v0.4 closeout, v0.5 planning step | Green; merged |
 | [#76](https://github.com/Junebugg1214/openhealth-hub/pull/76) | Share the database layer: core/db.py | v0.5 groundwork (the registry reuses it) | Green first time; merged |
-| [#77](https://github.com/Junebugg1214/openhealth-hub/pull/77) | Signed pack archives (.ohpack) and publisher keys | v0.5 item 1 | pending |
+| [#77](https://github.com/Junebugg1214/openhealth-hub/pull/77) | Signed pack archives (.ohpack) and publisher keys | v0.5 item 1 | Opened with a stale diff (my mistake, see decisions), fixed by force-pushing the feature branch; green; merged |
+| [#78](https://github.com/Junebugg1214/openhealth-hub/pull/78) | Registry service: namespaces, publisher keys, immutable signed versions, search | v0.5 item 2 | pending |
 
 ## Decisions made on your behalf
 
@@ -161,6 +162,12 @@ the production-deploy check and the four "small remaining gaps" under "What an A
   hashes. Ed25519 comes from `cryptography`, already a dependency. Signatures are deterministic,
   so the same pack and key give the same archive bytes. Verification happens in memory before
   anything touches disk.
+- **Registry choices:**
+  - archives live in the database (a pack is a few MB), with Vercel Blob left for later if sizes
+    call for it;
+  - the publisher type comes from registry admins, never from the pack's own claim;
+  - search runs over the latest versions in memory, since there are few packs;
+  - an admin token comes from the environment, and without it the admin routes are closed.
 - **Every new v0.4 capability is off until configured**, and no production environment variable
   is changed. Production has no login of its own until v0.6, so outbound FHIR calls and SMART
   stay disabled there.

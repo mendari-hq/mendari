@@ -552,6 +552,19 @@ def cmd_pack_verify(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_registry_serve(args: argparse.Namespace) -> int:
+    try:
+        import uvicorn
+    except ImportError:
+        raise OpenHealthError(
+            "the registry needs extras: pip install 'openhealth[server]'"
+        ) from None
+    from openhealth.hub.registry import create_registry_app
+
+    uvicorn.run(create_registry_app(args.db), host=args.host, port=args.port, log_level="info")
+    return 0
+
+
 def cmd_demo(args: argparse.Namespace) -> int:
     from openhealth.sandbox.demo import run_demo
 
@@ -797,6 +810,19 @@ def build_parser() -> argparse.ArgumentParser:
     verify_pack.add_argument("archive")
     verify_pack.add_argument("--public-key", required=True, help="publisher public key (PEM)")
     verify_pack.set_defaults(handler=cmd_pack_verify)
+
+    registry_cmd = sub.add_parser("registry", help="the pack registry service").add_subparsers(
+        dest="registry_command", required=True
+    )
+    serve_registry = registry_cmd.add_parser(
+        "serve", help="run the registry (admin token: $OPENHEALTH_REGISTRY_ADMIN_TOKEN)"
+    )
+    serve_registry.add_argument(
+        "--db", default="var/registry.db", help="SQLite path or postgresql:// URL"
+    )
+    serve_registry.add_argument("--host", default="127.0.0.1")
+    serve_registry.add_argument("--port", type=int, default=8100)
+    serve_registry.set_defaults(handler=cmd_registry_serve)
 
     sub.add_parser("demo", help="offline end-to-end demo on synthetic data").set_defaults(
         handler=cmd_demo
