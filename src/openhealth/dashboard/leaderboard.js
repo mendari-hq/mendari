@@ -123,14 +123,23 @@ function costChart(rows, varying, dataset) {
   const missed = (r) => safetyScore(r) < 1;
   const accuracies = usable.map((r) => r.accuracy);
   const costs = usable.map((r) => r.cost_per_decision_usd);
+  // Named on the chart: the deployed configuration, the leaderboard's first (safety first), and every
+  // one that no other beats on both cost and accuracy (the frontier worth choosing from). The rest
+  // are named in their tooltips.
+  const beaten = (r) => usable.some((o) => o !== r && o.cost_per_decision_usd <= r.cost_per_decision_usd && o.accuracy >= r.accuracy
+    && (o.cost_per_decision_usd < r.cost_per_decision_usd || o.accuracy > r.accuracy));
+  const first = [...usable].sort(safetyFirst)[0];
+  const named = (r) => isDeployed(r) || r === first || !beaten(r);
   return `<h3 class="chart-title">Cost against accuracy</h3>${chartHtml({
     id: `cost-${dataset}`,
     type: "scatter",
     ariaLabel: `Cost against accuracy for ${usable.length} configurations on ${dataset}: accuracy from ${pct(Math.min(...accuracies))} to ${pct(Math.max(...accuracies))}, cost from $${Math.min(...costs).toFixed(5)} to $${Math.max(...costs).toFixed(5)} per decision.`,
     x: { kind: "log", title: "Cost per decision (log scale)", format: costTick },
     y: { kind: "rate", title: "Accuracy" },
+    dodge: true,
     points: usable.map((r) => ({
       x: r.cost_per_decision_usd, y: r.accuracy, ring: isDeployed(r), shape: missed(r) ? "diamond" : "circle", tone: missed(r) ? "danger" : "c1",
+      label: named(r) ? configName(r, varying) : undefined,
       title: `${configName(r, varying)}${isDeployed(r) ? " (deployed)" : ""}`,
       rows: [
         ["Accuracy", pct(r.accuracy)],

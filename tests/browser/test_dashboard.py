@@ -349,12 +349,16 @@ DECORATION_EXPOSED = """(figure) => [...figure.querySelectorAll('svg.chart-svg[r
 
 def serve_daily(page: Page, days: list[tuple[str, int]]) -> None:
     """Answer /api/stats with the given history: (Eastern date, decisions that day)."""
+    serve_history(page, [{"date": day, "AUTO": n} for day, n in days])
+
+
+def serve_history(page: Page, days: list[dict[str, Any]]) -> None:
+    """Answer /api/stats with the given per-day entries (missing counts are 0)."""
+    counts = ["AUTO", "HUMAN_REVIEW", "ABSTAIN", "BLOCK", "reviewed", "overridden", "labelled"]
 
     def handle(route: Route) -> None:
         body = route.fetch().json()
-        body["daily"] = [
-            {"date": day, "AUTO": n, "HUMAN_REVIEW": 0, "ABSTAIN": 0, "BLOCK": 0} for day, n in days
-        ]
+        body["daily"] = [{**dict.fromkeys([*counts, "agreed"], 0), **day} for day in days]
         route.fulfill(json=body)
 
     page.route("**/api/stats*", handle)
@@ -367,11 +371,11 @@ def eastern_days_ago(days: int) -> str:
 def test_the_daily_chart_starts_at_the_first_decision(page: Page) -> None:
     """A young deployment's chart is not a run of empty days: it starts at the first decision, and
     the days in between with nothing to show are real zeros."""
-    serve_daily(page, [(eastern_days_ago(3), 5), (eastern_days_ago(1), 2)])
+    serve_daily(page, [(eastern_days_ago(8), 5), (eastern_days_ago(1), 2)])
     open_pack(page, INBOX)
     marks = page.locator(f"{DAILY} .mark")
-    expect(marks).to_have_count(4)  # three days ago .. today; nothing before the first decision
-    for mark, total in zip(marks.all(), [5, 0, 2, 0], strict=True):
+    expect(marks).to_have_count(9)  # eight days ago .. today; nothing before the first decision
+    for mark, total in zip(marks.all(), [5, 0, 0, 0, 0, 0, 0, 2, 0], strict=True):
         expect(mark).to_have_attribute("aria-label", re.compile(f"Total {total}$"))
     expect(page.locator(DAILY)).to_contain_text("Since the first decision")
     expect(page.locator(f"{DAILY} svg.chart-svg")).to_have_attribute(
@@ -414,6 +418,7 @@ def test_chart_marks_are_reached_and_read_with_the_keyboard(page: Page) -> None:
 
 
 def test_every_chart_has_a_summary_and_its_data_table(page: Page) -> None:
+    serve_daily(page, [(eastern_days_ago(9), 3), (eastern_days_ago(0), 4)])
     open_pack(page, INBOX)
     expect(page.locator(DAILY)).to_be_visible()
     seen = 0
@@ -459,6 +464,7 @@ def test_charts_fit_a_phone_and_keep_their_text_readable(page: Page, pack_id: st
 
 def test_charts_switch_with_the_theme_without_a_reload(page: Page) -> None:
     page.emulate_media(color_scheme="light")
+    serve_daily(page, [(eastern_days_ago(9), 3), (eastern_days_ago(0), 4)])
     open_pack(page, INBOX)
     column = page.locator(f"{DAILY} .seg.f-AUTO").first
     light = column.evaluate("el => getComputedStyle(el).fill")
@@ -470,8 +476,11 @@ def test_charts_switch_with_the_theme_without_a_reload(page: Page) -> None:
 def test_the_cost_chart_rings_the_deployed_configuration(page: Page) -> None:
     open_pack(page, GUARD, "evals")
     chart = page.locator('figure.chart[data-chart^="cost"]')
-    rows = page.locator("#board table.data").first.locator("tbody tr")
-    expect(chart.locator(".mark")).to_have_count(rows.count())  # one dot per leaderboard row
+    configs = page.locator("#board table.data").first.locator("tbody .config").all_inner_texts()
+    expect(chart.locator(".mark").first).to_be_visible()
+    names = " | ".join(chart.locator(".mark").evaluate_all("els => els.map((e) => e.ariaLabel)"))
+    # Every leaderboard row is on the chart (rows at the same point share one named mark).
+    assert all(config.removesuffix(" Deployed") in names for config in configs)
     expect(chart.locator("svg .ring")).to_have_count(1)  # locally the rules screen is deployed
     expect(chart.locator("svg text", has_text="$0").first).to_be_visible()  # rules cost nothing
     expect(chart.locator(".mark").first).to_have_attribute(
@@ -1127,3 +1136,103 @@ def test_leaving_the_queue_sends_a_held_override(page: Page, live_server: str) -
     with page.expect_request(lambda r: r.method == "POST" and decision["id"] in r.url) as request:
         page.locator('.nav a[data-view="audit"]').click()
     assert json.loads(request.value.post_data or "{}")["final_label"] == "billing"
+
+
+# -- Phase B3: chart finish and Overview trends ---------------------------------------------------
+
+
+def test_a_short_history_is_a_line_per_day_not_a_chart(page: Page) -> None:
+    serve_history(
+        page,
+        [
+            {"date": eastern_days_ago(3), "AUTO": 2, "HUMAN_REVIEW": 3},
+            {"date": eastern_days_ago(1), "BLOCK": 1},
+        ],
+    )
+    open_pack(page, INBOX)
+    expect(page.locator(DAILY)).to_have_count(0)
+    days = page.locator(".day-summary li")
+    expect(days).to_have_count(2)
+    expect(days.first).to_contain_text("1 decision")  # newest first
+    expect(days.first).to_contain_text("1 blocked")
+    expect(days.nth(1)).to_contain_text("5 decisions")
+    expect(days.nth(1)).to_contain_text("2 automated · 3 human review")
+    expect(page.locator(".day-summary + .chart-note")).to_contain_text("7 days of history")
+
+
+def test_the_period_sets_the_figures_and_compares_with_the_one_before(page: Page) -> None:
+    serve_history(
+        page,
+        [
+            {"date": eastern_days_ago(8), "AUTO": 1, "HUMAN_REVIEW": 3, "reviewed": 2},
+            {
+                "date": eastern_days_ago(0),
+                "AUTO": 3,
+                "HUMAN_REVIEW": 1,
+                "reviewed": 1,
+                "overridden": 1,
+                "labelled": 2,
+                "agreed": 1,
+            },
+        ],
+    )
+    open_pack(page, INBOX)
+    stats = page.locator(".stats-primary .stat")
+    automated, overrides = stats.nth(0), stats.nth(2)
+    expect(page.get_by_role("button", name="30 days")).to_have_attribute("aria-pressed", "true")
+    expect(automated).to_contain_text("50.0%")  # 4 of 8
+    expect(automated.locator("svg.sparkline")).to_have_count(1)
+    page.get_by_role("button", name="7 days").click()
+    expect(automated).to_contain_text("75.0%")  # 3 of 4
+    expect(automated).to_contain_text("3 of 4 decisions, last 7 days")
+    expect(automated.locator(".stat-change")).to_have_text("+50.0 pts vs previous 7 days")
+    expect(overrides).to_contain_text("100.0%")
+    expect(overrides.locator(".stat-change")).to_have_text("+100.0 pts vs previous 7 days")
+    expect(stats.nth(3).locator(".stat-change")).to_have_count(0)  # nothing labelled before
+    decisions = page.locator(".stats-secondary .stat").first
+    expect(decisions).to_contain_text("4")
+    expect(decisions.locator(".stat-change")).to_have_text("No change vs previous 7 days")
+    page.get_by_role("button", name="All").click()
+    expect(automated).to_contain_text("4 of 8 decisions, all time")
+    expect(page.locator(".stat-change")).to_have_count(0)  # nothing before "all"
+    page.reload()
+    expect(page.get_by_role("button", name="All")).to_have_attribute("aria-pressed", "true")
+
+
+def test_the_outcome_mix_names_segments_that_have_room(page: Page) -> None:
+    serve_history(
+        page, [{"date": eastern_days_ago(0), "AUTO": 12, "HUMAN_REVIEW": 7, "ABSTAIN": 1}]
+    )
+    open_pack(page, INBOX)
+    segment = page.locator(".stack > span")
+    expect(segment.nth(0)).to_have_class(re.compile("labelled"))
+    expect(segment.nth(0)).to_contain_text("Automated 60.0%")
+    expect(segment.nth(2)).not_to_have_class(re.compile("labelled"))  # 5%: no room
+    legend = page.locator(".stack-legend")
+    expect(legend.locator('[data-outcome="AUTO"]')).to_have_class(re.compile("sr-only"))
+    expect(legend.locator('[data-outcome="ABSTAIN"]')).to_be_visible()
+    expect(legend.locator('[data-outcome="BLOCK"]')).to_be_visible()  # 0 blocked is worth saying
+    page.set_viewport_size(PHONE)
+    expect(segment.nth(1)).to_contain_text("Human review")
+    expect(legend.locator('[data-outcome="HUMAN_REVIEW"]')).to_be_visible()  # no room on a phone
+
+
+def test_configurations_at_the_same_point_share_one_labelled_mark(page: Page) -> None:
+    open_pack(page, GUARD, "evals")
+    page.get_by_role("button", name=re.compile("^unsafe_drafts_holdout")).click()
+    chart = page.locator('figure.chart[data-chart^="cost"]').last
+    expect(chart.locator(".mark")).to_have_count(8)  # nine configurations, two in one place
+    expect(chart.locator(".mark[aria-label^='Jev 1.13.0 and Rules + Jev 1.13.0']")).to_have_count(1)
+    expect(chart.locator(".direct-label", has_text="Rules")).not_to_have_count(0)  # deployed
+
+
+def test_line_charts_name_their_lines_where_there_is_room(page: Page) -> None:
+    open_pack(page, INBOX, "evals")
+    page.goto("/#evals/report")
+    sweep = page.locator('figure.chart[data-chart^="sweep"]')
+    expect(sweep).to_have_class(re.compile("direct"))
+    expect(sweep.locator(".direct-label")).to_have_text(["Accuracy", "Coverage"])
+    expect(sweep.locator(".chart-legend")).to_be_hidden()
+    page.set_viewport_size(PHONE)
+    expect(sweep).not_to_have_class(re.compile("direct"))
+    expect(sweep.locator(".chart-legend")).to_be_visible()

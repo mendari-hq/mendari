@@ -624,10 +624,20 @@ class AuditStore:
         costs = [r["cost_usd"] for r in rows]
         daily: dict[str, dict[str, int]] = {}
         for row in rows:
-            # Local calendar days: a decision at 9 PM Eastern counts on that Eastern day.
+            # Local calendar days: a decision at 9 PM Eastern counts on that Eastern day. Reviews
+            # and labels count on the day of the decision they judge, so any run of days gives the
+            # override rate and observed accuracy of the decisions made in it.
             local = clock.local_date(row["created_at"])
-            day = daily.setdefault(local, {o.value: 0 for o in Outcome})
+            day = daily.setdefault(
+                local, {**{o.value: 0 for o in Outcome}, **dict.fromkeys(_DAILY_REVIEWS, 0)}
+            )
             day[row["outcome"]] += 1
+            if row["human_override"] is not None:
+                day["reviewed"] += 1
+                day["overridden"] += bool(row["human_override"])
+            if row["final_label"] and row["recommendation"]:
+                day["labelled"] += 1
+                day["agreed"] += row["final_label"] == row["recommendation"]
         return {
             "decisions": total,
             "outcomes": outcomes,
@@ -763,6 +773,11 @@ def _sha(value: Any) -> str:
 def _chain_hash(prev: str, decision_id: str, event: str, payload: str, created_at: str) -> str:
     joined = "\x1f".join((prev, decision_id, event, payload, created_at))
     return hashlib.sha256(joined.encode()).hexdigest()
+
+
+# Per-day review counts in stats()["daily"]: human_override_rate = overridden / reviewed and
+# observed_accuracy = agreed / labelled, over any run of days.
+_DAILY_REVIEWS = ("reviewed", "overridden", "labelled", "agreed")
 
 
 def _percentile(sorted_values: list[float], pct: float) -> float | None:

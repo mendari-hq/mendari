@@ -1,9 +1,9 @@
 // Overview: what is deployed, the numbers people act on, outcome mix and decisions per day.
 
-import { chartHtml } from "./charts.js";
+import { chartHtml, sparkline } from "./charts.js";
 import { providerWords } from "./pack.js";
 import { views, wire } from "./router.js";
-import { api, esc, icon, money, num, OUTCOMES, outcomeText, pct, slotText, stat, state, zoneName } from "./ui.js";
+import { $, api, esc, icon, money, num, OUTCOMES, outcomeText, pct, slotText, stat, state, storageGet, storageSet, zoneName } from "./ui.js";
 
 views.overview = async (main) => {
   const [stats, chain] = await Promise.all([
@@ -12,62 +12,135 @@ views.overview = async (main) => {
   ]);
   const d = state.detail;
   const total = stats.decisions;
+  const period = PERIODS.some(([key]) => key === storageGet("oh.period")) ? storageGet("oh.period") : "30";
   main.innerHTML = `
     <h1>${esc(d.name)}</h1>
     ${packHeader(d)}
     ${total ? `
-      ${primaryStats(stats)}
-      ${secondaryStats(stats, chain)}
-      <div class="panel">
-        <h2>Outcome mix</h2>
-        ${stackBar(stats.outcomes, total)}
+      <div class="period-row">
+        <span class="muted" id="period-name">Period</span>
+        <div class="segmented compact" role="group" aria-labelledby="period-name">${PERIODS.map(([key, label]) =>
+          `<button type="button" data-period="${key}" aria-pressed="${key === period}">${label}</button>`).join("")}</div>
       </div>
+      <div id="period-figures">${periodFigures(stats, chain, period)}</div>
       <div class="panel">
         <h2>Decisions per day <span class="muted">· days in ${esc(zoneName())}</span></h2>
-        ${dailyChart(stats.daily)}
+        ${dailyView(stats.daily)}
       </div>` : `
       <div class="panel empty-state">
         <h2>No decisions yet</h2>
         <p class="muted">Decisions appear here as soon as this pack makes one: from Try it, the API, a CDS Hooks call or the sandbox worker.</p>
         <p class="row"><a class="button primary" href="#try">Try it</a><a class="button" href="/docs">API docs</a></p>
       </div>`}`;
+  main.querySelector(".period-row")?.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-period]");
+    if (!button) return;
+    storageSet("oh.period", button.dataset.period);
+    main.querySelectorAll("[data-period]").forEach((b) => b.setAttribute("aria-pressed", String(b === button)));
+    $("#period-figures").innerHTML = periodFigures(stats, chain, button.dataset.period);
+    wireStack(main);
+  });
   wire(main);
+  wireStack(main);
 };
 
-function packHeader(d) {
-  const deployed = Object.entries(d.active_providers);
-  return `<div class="pack-header">
-    <p class="pack-risk"><span class="badge risk">Risk level ${d.risk.level}</span> <span class="muted">${esc(d.risk.category)}</span></p>
-    <p class="deployed"><span class="muted">Deployed</span> ${deployed.map(([slot, p]) =>
-      `<span class="deployed-slot">${esc(slotText(slot))}: <b>${providerWords(p)}</b></span>`).join(`<span class="muted" aria-hidden="true">·</span>`)}</p>
-    <p class="mono muted">${esc(d.id)} v${esc(d.version)} · ${deployed.map(([slot, p]) => `${esc(slot)}=${esc(p.variant)}`).join(" · ")}</p>
-  </div>`;
+// ---- the period: 7 days, 30 days or everything, each compared with the one before it ------------
+
+const PERIODS = [["7", "7 days"], ["30", "30 days"], ["all", "All"]];
+const REVIEW_COUNTS = ["reviewed", "overridden", "labelled", "agreed"];
+
+// Totals over the days from `from` to `to` (inclusive; null for no bound), from stats.daily.
+function totalsBetween(daily, from, to) {
+  const sums = Object.fromEntries([...OUTCOMES, ...REVIEW_COUNTS].map((k) => [k, 0]));
+  for (const day of daily) {
+    if ((from && day.date < from) || (to && day.date > to)) continue;
+    for (const key of Object.keys(sums)) sums[key] += day[key] ?? 0;
+  }
+  sums.decisions = OUTCOMES.reduce((sum, o) => sum + sums[o], 0);
+  return sums;
 }
 
-// The four numbers people act on: how much is automated, what waits for a person, and whether
-// people agree with the pack (overrides, observed accuracy), each with what it is out of.
-function primaryStats(stats) {
-  const total = stats.decisions;
+const ratio = (part, whole) => (whole ? part / whole : null);
+
+function periodFigures(stats, chain, period) {
+  const today = localToday();
+  const days = period === "all" ? null : Number(period);
+  const from = days ? addDays(today, 1 - days) : null;
+  const now = totalsBetween(stats.daily, from, null);
+  const before = days ? totalsBetween(stats.daily, addDays(from, -days), addDays(from, -1)) : null;
+  const scope = days ? `last ${days} days` : "all time";
+  // The trend lines run over the period (at most the last 30 days), from the first decision on.
+  const trendFrom = [stats.daily[0].date, from ?? addDays(today, -29)].sort().pop();
+  const trendDays = [];
+  for (let day = trendFrom; day <= today; day = addDays(day, 1)) trendDays.push(totalsBetween(stats.daily, day, day));
+  return `${primaryStats(stats, now, before, scope, days, trendDays)}
+    ${secondaryStats(stats, chain, now, before, days, trendDays)}
+    <div class="panel">
+      <h2>Outcome mix <span class="muted">· ${esc(scope)}</span></h2>
+      ${now.decisions ? stackBar(now, now.decisions) : `<p class="muted">No decisions in the ${esc(scope)}.</p>`}
+    </div>`;
+}
+
+// A change against the previous period, in words: points for a rate, percent for a count. Nothing
+// when the previous period had nothing to compare with.
+function change(current, previous, days, { rate = true } = {}) {
+  if (!days || current === null || previous === null || previous === undefined) return "";
+  const previousText = `vs previous ${days} days`;
+  if (rate) {
+    const points = (current - previous) * 100;
+    if (Math.abs(points) < 0.05) return `<div class="stat-change">No change ${previousText}</div>`;
+    return `<div class="stat-change">${points > 0 ? "+" : "−"}${Math.abs(points).toFixed(1)} pts ${previousText}</div>`;
+  }
+  if (!previous) return "";
+  const percent = ((current - previous) / previous) * 100;
+  if (Math.abs(percent) < 0.5) return `<div class="stat-change">No change ${previousText}</div>`;
+  return `<div class="stat-change">${percent > 0 ? "+" : "−"}${Math.abs(percent).toFixed(0)}% ${previousText}</div>`;
+}
+
+// The four numbers people act on: how much is automated, what waits for a person (now, whatever
+// the period), and whether people agree with the pack (overrides, observed accuracy), each with
+// what it is out of and how it moved.
+function primaryStats(stats, now, before, scope, days, trendDays) {
   const waiting = stats.pending_reviews;
   const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  const automated = ratio(now.AUTO, now.decisions);
+  const overrides = ratio(now.overridden, now.reviewed);
+  const accuracy = ratio(now.agreed, now.labelled);
+  const autoTrend = sparkline(trendDays.map((day) => ratio(day.AUTO, day.decisions)));
   return `<div class="stats-primary">
-    ${stat({ label: "Automated", value: pct(stats.outcomes.AUTO / total), foot: `${stats.outcomes.AUTO} of ${plural(total, "decision")}` })}
+    ${stat({
+      label: "Automated", value: pct(automated), trend: autoTrend,
+      foot: now.decisions ? `${now.AUTO} of ${plural(now.decisions, "decision")}, ${scope}` : `No decisions, ${scope}`,
+      change: change(automated, before && ratio(before.AUTO, before.decisions), days),
+    })}
     ${stat({
       label: "Waiting for review", value: String(waiting), tone: waiting ? "warning" : "",
       foot: waiting ? `<a href="#review">Open the review queue ${icon("arrow-right")}</a>` : "Nothing waiting",
     })}
-    ${stat({ label: "Human override rate", value: pct(stats.human_override_rate), foot: stats.reviews_resolved ? `of ${plural(stats.reviews_resolved, "review")}` : "No reviews yet" })}
-    ${stat({ label: "Observed accuracy", value: pct(stats.observed_accuracy), foot: stats.labelled ? `against ${plural(stats.labelled, "human label")}` : "No human labels yet" })}
+    ${stat({
+      label: "Human override rate", value: pct(overrides),
+      foot: now.reviewed ? `of ${plural(now.reviewed, "review")}, ${scope}` : `No reviews, ${scope}`,
+      change: change(overrides, before && ratio(before.overridden, before.reviewed), days),
+    })}
+    ${stat({
+      label: "Observed accuracy", value: pct(accuracy),
+      foot: now.labelled ? `against ${plural(now.labelled, "human label")}, ${scope}` : `No human labels, ${scope}`,
+      change: change(accuracy, before && ratio(before.agreed, before.labelled), days),
+    })}
   </div>`;
 }
 
-// Operational context, one row: volume, speed, cost, the audit chain and feedback.
-function secondaryStats(stats, chain) {
+// Operational context, one row: volume (for the period), speed, cost, the audit chain and feedback.
+function secondaryStats(stats, chain, now, before, days, trendDays) {
   const f = stats.feedback;
   return `<div class="stats-secondary">
-    ${stat({ size: "small", label: "Decisions", value: stats.decisions.toLocaleString() })}
-    ${stat({ size: "small", label: "Latency p95", value: stats.latency_ms.p95 === null ? "n/a" : `${num(stats.latency_ms.p95, 2)} ms` })}
-    ${stat({ size: "small", label: "Cost / decision", value: money(stats.cost_usd.per_decision) })}
+    ${stat({
+      size: "small", label: "Decisions", value: now.decisions.toLocaleString(),
+      trend: sparkline(trendDays.map((day) => day.decisions), { zero: true }),
+      change: change(now.decisions, before?.decisions, days, { rate: false }),
+    })}
+    ${stat({ size: "small", label: "Latency p95", value: stats.latency_ms.p95 === null ? "n/a" : `${num(stats.latency_ms.p95, 2)} ms`, foot: "all time" })}
+    ${stat({ size: "small", label: "Cost / decision", value: money(stats.cost_usd.per_decision), foot: "all time" })}
     ${stat({
       size: "small", label: "Audit chain", html: true, tone: chain.ok ? "" : "danger",
       value: chain.ok ? `${icon("shield-check")} Verified` : `${icon("shield-x")} Broken at event ${esc(chain.broken_at)}`,
@@ -81,10 +154,43 @@ function secondaryStats(stats, chain) {
   </div>`;
 }
 
+// The outcome mix: segments wide enough carry their name and share inside the bar; the legend
+// shows only the rest (it stays in the page for screen readers either way).
 function stackBar(counts, total) {
-  const parts = OUTCOMES.map((o) => (total ? `<span class="bg-${o}" style="width:${(100 * counts[o]) / total}%" title="${outcomeText(o)}: ${counts[o]}"></span>` : "")).join("");
-  const keys = `<div class="legend">${OUTCOMES.map((o) => `<span><i class="bg-${o}"></i>${esc(outcomeText(o))} ${counts[o]} (${pct(total ? counts[o] / total : null)})</span>`).join("")}</div>`;
+  const share = (o) => pct(total ? counts[o] / total : null);
+  const parts = OUTCOMES.filter((o) => counts[o]).map((o) => `<span class="bg-${o}" data-outcome="${o}" style="width:${(100 * counts[o]) / total}%" title="${outcomeText(o)}: ${counts[o]}">
+      <span class="stack-label" aria-hidden="true">${esc(outcomeText(o))} ${share(o)}</span></span>`).join("");
+  const keys = `<div class="legend stack-legend">${OUTCOMES.map((o) => `<span data-outcome="${o}"><i class="bg-${o}"></i>${esc(outcomeText(o))} ${counts[o]} (${share(o)})</span>`).join("")}</div>`;
   return `<div class="stack">${parts}</div>${keys}`;
+}
+
+// Which segments have room for their label: measured, and again whenever the bar changes width.
+function wireStack(root) {
+  const stack = root.querySelector(".stack");
+  if (!stack || stack.dataset.wired) return;
+  stack.dataset.wired = "1";
+  const legend = stack.nextElementSibling;
+  const observer = new ResizeObserver(() => (stack.isConnected ? fit() : observer.disconnect()));
+  const fit = () => {
+    for (const segment of stack.querySelectorAll("[data-outcome]")) {
+      const label = segment.querySelector(".stack-label");
+      const fits = label.scrollWidth + 16 <= segment.clientWidth;
+      segment.classList.toggle("labelled", fits);
+      legend.querySelector(`[data-outcome="${segment.dataset.outcome}"]`).classList.toggle("sr-only", fits);
+    }
+  };
+  observer.observe(stack);
+  fit();
+}
+
+function packHeader(d) {
+  const deployed = Object.entries(d.active_providers);
+  return `<div class="pack-header">
+    <p class="pack-risk"><span class="badge risk">Risk level ${d.risk.level}</span> <span class="muted">${esc(d.risk.category)}</span></p>
+    <p class="deployed"><span class="muted">Deployed</span> ${deployed.map(([slot, p]) =>
+      `<span class="deployed-slot">${esc(slotText(slot))}: <b>${providerWords(p)}</b></span>`).join(`<span class="muted" aria-hidden="true">·</span>`)}</p>
+    <p class="mono muted">${esc(d.id)} v${esc(d.version)} · ${deployed.map(([slot, p]) => `${esc(slot)}=${esc(p.variant)}`).join(" · ")}</p>
+  </div>`;
 }
 
 // Decisions per day, by outcome: the last 30 days in the deployment's time zone. Days without
@@ -105,6 +211,23 @@ function localToday() {
   const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: state.timezone, year: "numeric", month: "2-digit", day: "2-digit" })
     .formatToParts(new Date()).map((p) => [p.type, p.value]));
   return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+// Under a week of history a chart is mostly empty space (one day was a lone 36 px column in an
+// 1,100 px panel), so each day with decisions gets a line instead.
+const MIN_CHART_DAYS = 7;
+
+function dailyView(daily) {
+  const span = daily.length ? (Date.parse(localToday()) - Date.parse(daily[0].date)) / 86_400_000 + 1 : 0;
+  if (span >= MIN_CHART_DAYS) return dailyChart(daily);
+  const line = (day) => {
+    const total = OUTCOMES.reduce((sum, o) => sum + day[o], 0);
+    const parts = OUTCOMES.filter((o) => day[o]).map((o) => `${day[o]} ${esc(outcomeText(o).toLowerCase())}`);
+    return `<li><b>${esc(dayLabel(day.date, true))}</b> <span>${total} decision${total === 1 ? "" : "s"}</span>
+      <span class="muted">${parts.join(" · ")}</span></li>`;
+  };
+  return `<ul class="day-summary">${[...daily].reverse().map(line).join("")}</ul>
+    <p class="chart-note">A chart appears once there are ${MIN_CHART_DAYS} days of history.</p>`;
 }
 
 function dailyChart(daily) {

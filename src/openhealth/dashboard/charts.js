@@ -15,10 +15,12 @@
 //   columns  categories: [{ axis, title, values: { seriesKey: count } }], series: [{ key, label, swatch }]
 //            swatch "AUTO" colours the segment and its legend chip with the outcome tokens.
 //   lines    x: { title, format }, series: [{ key, label, swatch, dashed }], marker: { x, label },
+//            directLabels (each series named at its end instead of the legend, where there is room),
 //            points: [{ x, title, values: { seriesKey: rate | null }, extra: [[label, value]] }]
 //            (y values are rates from 0 to 1)
-//   scatter  x, y: { kind: "rate" | "log", title, format?, from? }, diagonal, square, sizeBy,
-//            points: [{ x, y, weight?, shape?, tone?, ring?, title, rows: [[label, value]] }]
+//   scatter  x, y: { kind: "rate" | "log", title, format?, from? }, diagonal, square, sizeBy, dodge,
+//            points: [{ x, y, weight?, shape?, tone?, ring?, label?, title, rows: [[label, value]] }]
+//            (label: a direct label drawn beside the point; dodge: see dodgePoints)
 //   bars     rows: [{ label, value, chosen, tone }]   (value is a rate; tone: "block" | "review")
 
 import { tableHtml } from "./table.js";
@@ -158,7 +160,10 @@ function drawLines(spec, width) {
   const xValues = [...spec.points.map((p) => p.x), spec.marker?.x].filter((v) => v !== undefined);
   const xAxis = makeAxis("number", xValues, { format: spec.x.format });
   const labelW = Math.max(...yAxis.ticks.map((t) => textWidth(yAxis.format(t)))) + 10;
-  const m = { t: spec.marker ? 22 : 10, r: 14, b: 44, l: labelW + 6 };
+  // Direct labels need a margin on the right; a phone keeps the legend and the plot's width.
+  const direct = spec.directLabels && width >= 400;
+  const endW = direct ? Math.max(...spec.series.map((s) => textWidth(s.label))) + 10 : 0;
+  const m = { t: spec.marker ? 22 : 10, r: 14 + endW, b: 44, l: labelW + 6 };
   const plotW = width - m.l - m.r, plotH = H - m.t - m.b;
   const x = (v) => axisAt(xAxis, v, m.l, m.l + plotW);
   const y = (v) => m.t + plotH - ((v - yAxis.min) / (yAxis.max - yAxis.min)) * plotH;
@@ -206,9 +211,19 @@ function drawLines(spec, width) {
   }
   const title = `<text class="tick" x="${px(m.l + plotW / 2)}" y="${H - 6}" text-anchor="middle">${esc(spec.x.title)}</text>`;
   const axisLine = `<line class="axis" x1="${m.l}" x2="${m.l + plotW}" y1="${m.t + plotH}" y2="${m.t + plotH}"/>`;
+  // Each series' name at the height of its last value, at least a line apart.
+  let ends = "";
+  if (direct) {
+    const last = spec.series.map((s) => {
+      const p = [...spec.points].reverse().find((q) => q.values[s.key] !== null && q.values[s.key] !== undefined);
+      return p ? { s, y: y(p.values[s.key]) + 4 } : null;
+    }).filter(Boolean).sort((a, b) => a.y - b.y);
+    last.forEach((end, i) => { if (i && end.y - last[i - 1].y < 14) end.y = last[i - 1].y + 14; });
+    ends = last.map(({ s, y: at }) => `<text class="direct-label" x="${px(m.l + plotW + 8)}" y="${px(at)}">${esc(s.label)}</text>`).join("");
+  }
   return {
-    marks, axisNote: yAxis.broken ? `The vertical axis starts at ${yAxis.format(yAxis.min)}.` : "",
-    svg: `${svgOpen(spec, width, H, "group")}${decor(grid + axisLine + axisBreak(yAxis, m.l, m.t + plotH) + xTicks + title + marker + paths)}${columns}</svg>`,
+    marks, direct, axisNote: yAxis.broken ? `The vertical axis starts at ${yAxis.format(yAxis.min)}.` : "",
+    svg: `${svgOpen(spec, width, H, "group")}${decor(grid + axisLine + axisBreak(yAxis, m.l, m.t + plotH) + xTicks + title + marker + paths + ends)}${columns}</svg>`,
   };
 }
 
@@ -249,24 +264,96 @@ function drawScatter(spec, width) {
     <text class="tick" transform="translate(12 ${px(m.t + plotH / 2)}) rotate(-90)" text-anchor="middle">${esc(spec.y.title)}</text>`;
 
   const marks = [];
-  const dots = [...spec.points].sort((a, b) => a.x - b.x).map((p, i) => {
-    const [cx, cy, r] = [x(p.x), y(p.y), radius(p)];
+  const placed = (spec.dodge ? mergeIdentical(spec.points) : spec.points)
+    .map((p) => ({ p, cx: x(p.x), cy: y(p.y), r: radius(p) }))
+    .sort((a, b) => a.cx - b.cx);
+  if (spec.dodge) dodgePoints(placed);
+  const dots = placed.map(({ p, cx: tx, cy: ty, r, dx = tx, dy = ty }, i) => {
+    const [cx, cy] = [dx, dy];
     const mark = { title: p.title, rows: p.rows };
     marks.push(mark);
     const tone = p.tone ?? "c1";
     const shape = p.shape === "diamond"
       ? `<rect class="dot f-${tone}" x="${px(cx - r * 0.85)}" y="${px(cy - r * 0.85)}" width="${px(r * 1.7)}" height="${px(r * 1.7)}" transform="rotate(45 ${px(cx)} ${px(cy)})"/>`
       : `<circle class="dot f-${tone}" cx="${px(cx)}" cy="${px(cy)}" r="${px(r)}"/>`;
-    return `<g ${markAttrs(i, mark, cx, cy - r)}>
+    // A dodged point keeps a 1 px leader back to where it belongs.
+    const leader = cy !== ty ? `<line class="leader" x1="${px(tx)}" y1="${px(ty)}" x2="${px(cx)}" y2="${px(cy)}"/><circle class="leader-end" cx="${px(tx)}" cy="${px(ty)}" r="1.5"/>` : "";
+    return `<g ${markAttrs(i, mark, cx, cy - r)}>${leader}
       <circle class="focus-ring" cx="${px(cx)}" cy="${px(cy)}" r="${px(r + 8)}"/>${shape}
       ${p.ring ? `<circle class="ring" cx="${px(cx)}" cy="${px(cy)}" r="${px(r + 4)}"/>` : ""}
       <circle class="hit" cx="${px(cx)}" cy="${px(cy)}" r="${px(Math.max(r + 8, 12))}"/></g>`;
   }).join("");
+  const labels = directLabels(placed, { left: m.l, right: m.l + plotW, top: m.t, bottom: m.t + plotH });
   const frameRect = `<rect class="frame" x="${m.l}" y="${m.t}" width="${px(plotW)}" height="${px(plotH)}"/>`;
   return {
     marks, axisNote: yAxis.broken ? `The vertical axis starts at ${yAxis.format(yAxis.min)}.` : "",
-    svg: `${svgOpen(spec, size, H, "group")}${decor(yGrid + xGrid + free + frameRect + diagonal + axisTitles + axisBreak(yAxis, m.l, m.t + plotH))}${dots}</svg>`,
+    svg: `${svgOpen(spec, size, H, "group")}${decor(yGrid + xGrid + free + frameRect + diagonal + axisTitles + axisBreak(yAxis, m.l, m.t + plotH))}${dots}${decor(labels)}</svg>`,
   };
+}
+
+// Points at exactly the same place become one mark named for all of them: drawn separately, one
+// would hide the other completely. Rows they share are listed once; rows that differ are named.
+function mergeIdentical(points) {
+  const groups = new Map();
+  for (const p of points) {
+    const key = `${p.x}|${p.y}`;
+    groups.set(key, [...(groups.get(key) ?? []), p]);
+  }
+  return [...groups.values()].map((group) => {
+    if (group.length === 1) return group[0];
+    const same = (row) => group.every((p) => p.rows.some(([l, v]) => l === row[0] && v === row[1]));
+    const worst = group.find((p) => p.shape === "diamond") ?? group[0];
+    return {
+      ...group[0],
+      title: group.map((p) => p.title).join(" and "),
+      label: group.some((p) => p.label) ? group.map((p) => p.label ?? p.title).join(" and ") : undefined,
+      ring: group.some((p) => p.ring),
+      shape: worst.shape,
+      tone: worst.tone,
+      weight: group.reduce((sum, p) => sum + (p.weight ?? 0), 0),
+      rows: [
+        ...group[0].rows.filter(same),
+        ...group.flatMap((p) => p.rows.filter((row) => !same(row)).map(([l, v]) => [`${p.title}: ${l}`, v])),
+      ],
+    };
+  });
+}
+
+// Points closer than 12 px are drawn apart in 6 px vertical steps (up, down, further up, ...); the
+// mark, its tooltip and its focus ring go where it is drawn.
+function dodgePoints(placed) {
+  const drawn = [];
+  for (const point of placed) {
+    const clash = (dy) => drawn.some((q) => Math.hypot(q.dx - point.cx, q.dy - dy) < 12);
+    let [dy, step] = [point.cy, 0];
+    while (clash(dy) && step < 12) {
+      step += 1;
+      dy = point.cy + (step % 2 ? -1 : 1) * Math.ceil(step / 2) * 6;
+    }
+    Object.assign(point, { dx: point.cx, dy });
+    drawn.push(point);
+  }
+}
+
+// Names beside the points that carry a `label`, for the eye (each mark's own name is what a screen
+// reader hears). Right of the point, or left when that runs out of the plot; one that would touch a
+// label already placed moves a line up or down, or is left to the tooltip.
+function directLabels(placed, box) {
+  const taken = [];
+  const overlaps = (a) => taken.some((b) => a.x1 < b.x2 + 4 && b.x1 < a.x2 + 4 && a.y1 < b.y2 && b.y1 < a.y2);
+  return placed.filter(({ p }) => p.label).map(({ p, cx, cy, r, dx = cx, dy = cy }) => {
+    const w = textWidth(p.label);
+    const right = dx + r + 6 + w <= box.right;
+    const x1 = right ? dx + r + 6 : dx - r - 6 - w;
+    for (const shift of [0, -14, 14]) {
+      const y = Math.min(Math.max(dy + 4 + shift, box.top + 12), box.bottom - 4);
+      const rect = { x1, x2: x1 + w, y1: y - 12, y2: y + 2 };
+      if (overlaps(rect)) continue;
+      taken.push(rect);
+      return `<text class="direct-label" x="${px(right ? x1 : x1 + w)}" y="${px(y)}" text-anchor="${right ? "start" : "end"}">${esc(p.label)}</text>`;
+    }
+    return "";
+  }).join("");
 }
 
 // ---- horizontal bars ---------------------------------------------------------------------------
@@ -291,6 +378,29 @@ function drawBars(spec, width) {
 }
 
 const DRAW = { columns: drawColumns, lines: drawLines, scatter: drawScatter, bars: drawBars };
+
+// ---- sparkline ---------------------------------------------------------------------------------
+
+// A small trend line beside a stat, for the eye only: the stat's words carry the numbers. A day with
+// nothing to measure (null) is a gap. `zero`: counts, drawn from a zero baseline.
+export function sparkline(values, { zero = false } = {}) {
+  const known = values.filter((v) => v !== null && v !== undefined);
+  if (known.length < 2) return "";
+  const [W, H, pad] = [96, 28, 3];
+  const lo = zero ? 0 : Math.min(...known);
+  const hi = Math.max(...known);
+  const x = (i) => pad + (i / (values.length - 1)) * (W - 2 * pad);
+  const y = (v) => (hi === lo ? H / 2 : H - pad - ((v - lo) / (hi - lo)) * (H - 2 * pad));
+  let d = "", pen = false;
+  values.forEach((v, i) => {
+    if (v === null || v === undefined) { pen = false; return; }
+    d += `${pen ? "L" : "M"}${px(x(i))},${px(y(v))}`;
+    pen = true;
+  });
+  const last = values.findLastIndex((v) => v !== null && v !== undefined);
+  return `<svg class="sparkline" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" aria-hidden="true" focusable="false">
+    <path d="${d}"/><circle cx="${px(x(last))}" cy="${px(y(values[last]))}" r="2.5"/></svg>`;
+}
 
 // ---- page pieces -------------------------------------------------------------------------------
 
@@ -355,9 +465,10 @@ export function wireCharts(root) {
       if (!width || width === drawnWidth) return; // hidden, or nothing changed
       drawnWidth = width;
       const hadFocus = plot.contains(document.activeElement);
-      const { svg, marks, axisNote = "" } = DRAW[entry.spec.type](entry.spec, width);
+      const { svg, marks, axisNote = "", direct = false } = DRAW[entry.spec.type](entry.spec, width);
       entry.marks = marks;
       plot.innerHTML = svg;
+      figure.classList.toggle("direct", direct); // lines named on the chart: no legend needed
       const note = figure.querySelector(".chart-axis-note");
       note.textContent = axisNote;
       note.hidden = !axisNote;

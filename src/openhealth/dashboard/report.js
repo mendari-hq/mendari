@@ -145,9 +145,11 @@ function sweepChart(sweep, autoThreshold, nothingAutomated, id) {
     ariaLabel: `Threshold sweep: raising the automation threshold from ${threshold(first.threshold)} to ${threshold(last.threshold)} moves coverage from ${pct(first.coverage)} to ${pct(last.coverage)} and accuracy from ${pct(first.accuracy)} to ${pct(lastAccuracy)}.${typeof autoThreshold === "number" ? ` The pack's automation threshold is ${threshold(autoThreshold)}.` : ""}`,
     x: { title: "Automate when confidence is at least", format: threshold },
     series: [{ key: "coverage", label: "Coverage", swatch: "c1" }, { key: "accuracy", label: "Accuracy", swatch: "c2", dashed: true }],
-    legend: [{ swatch: "line c1", label: "Coverage (share at or above the threshold)" }, { swatch: "line c2 dashed", label: "Accuracy of those" }],
+    directLabels: true,
+    legend: [{ swatch: "line c1", label: "Coverage" }, { swatch: "line c2 dashed", label: "Accuracy" }],
     marker: typeof autoThreshold === "number" ? { x: autoThreshold, label: `Automation threshold ${threshold(autoThreshold)}` } : null,
-    note: nothingAutomated ? "Nothing was automated in this run: the policy sent every case to a person. The curves show what each threshold would allow." : "",
+    note: `Coverage is the share of cases at or above the threshold; accuracy is of those cases.${nothingAutomated
+      ? " Nothing was automated in this run: the policy sent every case to a person. The curves show what each threshold would allow." : ""}`,
     points: sweep.map((t) => ({ x: t.threshold, title: `Automate at ≥ ${threshold(t.threshold)}`, values: { coverage: t.coverage, accuracy: t.accuracy }, extra: [["Errors", String(t.errors)]] })),
     data: {
       rows: sweep,
