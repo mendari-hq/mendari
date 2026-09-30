@@ -53,7 +53,7 @@ phase (A, B, C) to be done and merged when CI passes.
 ## Current: v0.4 Healthcare standards ([plan](../docs/plans/v0.4-healthcare-standards.md))
 Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 - [x] Plan
-- [ ] US Core validation of FHIR inputs (warn by default, enforce on request; HL7 validator in CI)
+- [x] US Core validation of FHIR inputs (warn by default, enforce on request; HL7 validator in CI)
 - [ ] Audit export as FHIR AuditEvent and Provenance
 - [ ] Sandbox: referral cases in FHIR
 - [ ] CDS Hooks that fetch, under an allow-list

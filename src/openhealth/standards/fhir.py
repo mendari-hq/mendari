@@ -117,7 +117,7 @@ class FhirAdapter:
         other resource of the focus type in `resources` is ignored."""
         indexed: Indexed = {}
         seen: set[tuple[str, str]] = set()
-        for resource in _resources(resources if focus is None else [resources, focus]):
+        for resource in iter_resources(resources if focus is None else [resources, focus]):
             kind = resource["resourceType"]
             if kind == self.mapping.focus and not self.is_focus(resource):
                 continue  # e.g. a lab order next to the referral
@@ -149,7 +149,7 @@ class FhirAdapter:
     def focus_resources(self, resources: Any) -> list[dict[str, Any]]:
         """The focus resources in a Bundle, resource or mapping (e.g. CDS `draftOrders`)."""
         found: dict[str, dict[str, Any]] = {}
-        for resource in _resources(resources):
+        for resource in iter_resources(resources):
             if self.is_focus(resource):
                 found.setdefault(str(resource.get("id", len(found))), dict(resource))
         return list(found.values())
@@ -297,21 +297,21 @@ def age_band(birth_date: str, today: date | None = None) -> str | None:
     return "65+"
 
 
-def _resources(value: Any) -> Iterator[Mapping[str, Any]]:
+def iter_resources(value: Any) -> Iterator[Mapping[str, Any]]:
     """Every resource in a Bundle, a resource, or a mapping/list of either (flattened)."""
     if isinstance(value, list):
         for item in value:
-            yield from _resources(item)
+            yield from iter_resources(item)
     elif isinstance(value, Mapping):
         if value.get("resourceType") == "Bundle":
             for entry in value.get("entry") or []:
                 if isinstance(entry, Mapping):
-                    yield from _resources(entry.get("resource"))
+                    yield from iter_resources(entry.get("resource"))
         elif "resourceType" in value:
             yield value
         else:
             for item in value.values():
-                yield from _resources(item)
+                yield from iter_resources(item)
 
 
 def _as_list(value: Any) -> list[Any]:

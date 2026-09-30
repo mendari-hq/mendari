@@ -146,6 +146,24 @@ OpenHealth engine (REST, FHIR, CDS Hooks, Jev adapter, review queue, audit, dash
 http://localhost:8000), and a workflow worker. The worker routes each in-progress
 Communication and writes a FHIR `Task` back to the server. No real PHI is involved.
 
+## Healthcare standards
+
+FHIR inputs (`/api/packs/{pack}/fhir/decide`, CDS Hooks, `openhealth decide --fhir`) are checked
+against **US Core 6.1.0** in process. The checks cover required elements, required bindings,
+the required category slices and the profiles' `us-core-*` invariants. They are generated from
+the official packages by `scripts/us_core_subset.py`. `OPENHEALTH_FHIR_VALIDATION` chooses what
+happens:
+
+| Setting | Effect |
+|---|---|
+| `warn` (default) | The decision is unchanged. The issues come back in `decision.input_issues` and are audited, as paths without values. |
+| `enforce` | An input with an error is blocked before any provider sees it, like a JSON Schema failure. |
+| `off` | No checks. |
+
+The CI job `fhir-conformance` runs the HL7 FHIR validator over the same fixtures. Everything
+OpenHealth treats as conforming must pass it, and everything the in-process checks flag must
+fail it.
+
 ## Decision Packs
 
 A pack is a directory:

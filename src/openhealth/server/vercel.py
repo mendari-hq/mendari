@@ -11,6 +11,9 @@ Configuration comes from the environment:
   limit).
 - `OPENHEALTH_TIMEZONE`: time zone for calendar days and displayed times (default
   `America/New_York`); stored timestamps stay UTC.
+- `OPENHEALTH_FHIR_VALIDATION`: US Core checks on FHIR inputs, `warn` (default: issues are
+  returned and audited, decisions unchanged), `enforce` (a non-conforming input is blocked) or
+  `off`.
 - `LLM_MODEL`: default model for `llm` variants (AI Gateway id, e.g. anthropic/claude-sonnet-5).
 - `JEV_API_URL`, `JEV_MODEL`, `JEV_CONNECTOR`: see `openhealth.providers.jev`.
 """
