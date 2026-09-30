@@ -136,6 +136,15 @@ else:
 Over HTTP: `POST /api/packs/{id}/guard` with the same input returns `{status, reply, outcome,
 recommendation, reasons, fallback, decision_id}`.
 
+### Container images and on-prem templates
+
+`docker build .` builds the engine with every pack. `--build-arg PACK=openhealth/referral-router`
+builds one that serves only that pack (`OPENHEALTH_PACKS`). Tagging a release (`v*`) publishes
+both kinds to GitHub Container Registry (workflow `images`), after testing each; nothing is
+published before that. [`deploy/`](deploy) has templates for a site's own infrastructure:
+docker compose on one server and Kubernetes. Both come with Postgres, your identity provider,
+PHI mode and the daily retention and monitoring jobs.
+
 ### Docker sandbox
 
 ```bash

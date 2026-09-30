@@ -221,3 +221,13 @@ jobs:
       - run: docker run --rm openhealth-engine:ci openhealth test openhealth/referral-router
       - run: docker run --rm openhealth-engine:ci openhealth test openhealth/prior-auth-preflight
       - run: docker run --rm openhealth-engine:ci openhealth test openhealth/ai-guard
+      - name: A per-pack image serves only its pack
+        run: |
+          docker build --build-arg PACK=openhealth/referral-router -t openhealth-referral:ci .
+          docker run --rm openhealth-referral:ci python -c "
+          from fastapi.testclient import TestClient
+          from openhealth.server.app import create_app
+          packs = TestClient(create_app(db_path='/tmp/a.db')).get('/api/packs').json()
+          assert [p['id'] for p in packs] == ['openhealth/referral-router'], packs
+          print('serves', packs[0]['id'])
+          "
