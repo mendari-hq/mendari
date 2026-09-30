@@ -31,7 +31,7 @@ Clinical/EHR data (FHIR R4, CDS Hooks, REST)
 |---|---|
 | Decision Pack specification | [`docs/spec/decision-pack-0.2.md`](docs/spec/decision-pack-0.2.md) (0.1: [`decision-pack-0.1.md`](docs/spec/decision-pack-0.1.md)), [`src/openhealth/core/spec.py`](src/openhealth/core/spec.py) |
 | OpenHealth runtime | [`src/openhealth/core/decision.py`](src/openhealth/core/decision.py), [`policy.py`](src/openhealth/core/policy.py) |
-| Providers: rules, naive Bayes, Jev, LLMs (Vercel AI Gateway, or OpenAI-compatible local models), criteria, dosing; combined with `any_of`, `cascade`, `vote` | [`src/openhealth/providers/`](src/openhealth/providers) |
+| Providers: rules, naive Bayes, Jev, LLMs (Vercel AI Gateway, or OpenAI-compatible local models), criteria, CQL, dosing; combined with `any_of`, `cascade`, `vote` | [`src/openhealth/providers/`](src/openhealth/providers) |
 | FHIR adapter + CDS Hooks | [`src/openhealth/standards/`](src/openhealth/standards) |
 | Patient Inbox Router reference pack | [`packs/patient-inbox-router/`](packs/patient-inbox-router) ([Decision Card](packs/patient-inbox-router/DECISION_CARD.md)) |
 | Clinical Trial Prescreener reference pack (v0.3) | [`packs/clinical-trial-prescreener/`](packs/clinical-trial-prescreener) ([Decision Card](packs/clinical-trial-prescreener/DECISION_CARD.md)) |

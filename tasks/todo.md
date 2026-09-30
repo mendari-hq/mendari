@@ -5,8 +5,8 @@ Roadmap to the full goal: [`docs/roadmap.md`](../docs/roadmap.md).
 ## Current: v0.7 Later standards ([plan](../docs/plans/v0.7-later-standards.md))
 Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 - [x] Plan
-- [ ] CQL provider (Library/$evaluate on HAPI FHIR with Clinical Reasoning); the trial pack's
-  criteria in CQL, checked against `criteria` in CI
+- [x] CQL provider (Library/$evaluate on HAPI FHIR with Clinical Reasoning); the trial pack's
+  criteria in CQL, checked against `criteria` in CI (job `cql`; `openhealth agreement`)
 - [ ] OMOP CDM inputs and population evaluation; a synthetic OMOP round trip in CI
 - [ ] Da Vinci CRD: `coverage-information` on the PA pack's order-sign response
 - [ ] Da Vinci DTR: questionnaire package for the PA pack's gaps

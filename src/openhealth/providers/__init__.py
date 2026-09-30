@@ -7,6 +7,7 @@ from openhealth.errors import PackValidationError
 from openhealth.providers.any_of import AnyOfProvider
 from openhealth.providers.base import Answer, Provider, ProviderInfo, ProviderOutput
 from openhealth.providers.cascade import CascadeProvider
+from openhealth.providers.cql import CqlProvider
 from openhealth.providers.criteria import CriteriaProvider
 from openhealth.providers.dosing import DosingProvider
 from openhealth.providers.jev import JevProvider
@@ -20,6 +21,7 @@ PROVIDER_TYPES: dict[str, type[Provider]] = {
     for provider in (
         RulesProvider,
         CriteriaProvider,
+        CqlProvider,
         DosingProvider,
         NaiveBayesProvider,
         JevProvider,

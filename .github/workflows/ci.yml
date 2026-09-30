@@ -211,6 +211,40 @@ jobs:
           /tmp/clean/bin/openhealth test openhealth/referral-router
           /tmp/clean/bin/openhealth search --risk 2
 
+  cql:
+    # v0.7: the trial pack's criteria in CQL (logic/criteria.cql) must answer exactly like the
+    # `criteria` provider on every test and dataset case, on HAPI FHIR's Clinical Reasoning module.
+    runs-on: ubuntu-latest
+    services:
+      cql:
+        image: hapiproject/hapi:v8.12.0-1
+        ports: ["58090:8080"]
+        env:
+          HAPI_FHIR_FHIR_VERSION: R4
+          HAPI_FHIR_CR_ENABLED: "true"
+    env:
+      OPENHEALTH_CQL_URL: http://127.0.0.1:58090/fhir
+      OPENHEALTH_FHIR_ALLOWED_SERVERS: http://127.0.0.1:58090
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv sync --locked
+      - name: Wait for the CQL engine
+        run: for i in $(seq 1 90); do curl -sf "$OPENHEALTH_CQL_URL/metadata" > /dev/null && exit 0; sleep 3; done; exit 1
+      - name: CQL agrees with criteria on the pack's tests and datasets
+        run: >-
+          uv run openhealth agreement openhealth/clinical-trial-prescreener
+          --slot structured --variants criteria cql
+      - name: and on the local-site example (other units, codes and languages)
+        run: >-
+          uv run openhealth agreement openhealth/clinical-trial-prescreener
+          --slot structured --variants criteria cql
+          --dataset datasets/trial-local-site-example.jsonl
+      - name: The pack's behaviour tests pass with the CQL variant deployed
+        run: uv run openhealth test openhealth/clinical-trial-prescreener --provider structured=cql
+
   pilot-check:
     # The v0.6 exit: a pilot organization runs the inbox router with its own identity provider,
     # PHI-safe settings, monitoring and governance approvals. The provider is a real third-party

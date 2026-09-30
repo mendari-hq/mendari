@@ -1,6 +1,6 @@
 spec_version: "0.2"
 id: openhealth/clinical-trial-prescreener
-version: 0.1.1
+version: 0.1.2
 name: Clinical Trial Prescreener
 summary: >-
   Checks a patient's record against the eligibility criteria of a synthetic type 2 diabetes
@@ -236,6 +236,20 @@ providers:
       criteria:
         type: criteria
         config: logic/criteria.yaml
+      # The same criteria in CQL, on a CQL engine ($OPENHEALTH_CQL_URL): for sites whose
+      # eligibility logic is written in CQL. CI checks every answer equals `criteria`'s.
+      cql:
+        type: cql
+        library: logic/criteria.cql
+        as_of: as_of
+        expressions:
+          age_18_75: "Age 18 To 75"
+          t2d_diagnosis: "T2D Diagnosis"
+          hba1c_in_range: "HbA1c In Range"
+          stable_metformin: "Stable Metformin"
+          egfr_30_or_more: "eGFR 30 Or More"
+          no_insulin: "No Insulin"
+          no_recent_cv_event: "No Recent CV Event"
   notes:
     answers: [note_pregnancy, note_pancreatitis, note_active_cancer_treatment, note_recent_cv_event]
     # Offline default. Deploy with a model reading the notes (jev or llm): see the provider

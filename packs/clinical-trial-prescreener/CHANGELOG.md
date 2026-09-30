@@ -1,5 +1,13 @@
 # Changelog: openhealth/clinical-trial-prescreener
 
+## 0.1.2
+
+- A `cql` variant of the `structured` slot: the seven criteria written in CQL
+  (`logic/criteria.cql`), evaluated on a CQL engine (`$OPENHEALTH_CQL_URL`, e.g. HAPI FHIR with
+  Clinical Reasoning). It agrees with `criteria` on every test and dataset case, which CI
+  checks. `criteria` stays the default. Questions, criteria, rules, policy and data are
+  unchanged.
+
 ## 0.1.1
 
 - Decision Card: deployment guidance from the provider comparison (evals/leaderboard.json,
