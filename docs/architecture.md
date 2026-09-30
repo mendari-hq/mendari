@@ -89,6 +89,12 @@
     opaque id, expiring with the token; not encrypted at rest until the v0.6 PHI mode).
   - The session cookie is HttpOnly, Secure and SameSite=Lax. No refresh tokens are requested.
   - A decision is only made for a resource whose subject is the launch's patient.
+- **Bulk exports** (`standards/bulk.py`) go through the same allow-list, and so do the status URL
+  and every file URL the server returns.
+  - Files are streamed to disk under a 1 GB cap each, and their line counts are checked against
+    the manifest.
+  - Backend-services assertions are RS384 or ES384, with a 5-minute lifetime and a fresh `jti`.
+  - Errors carry OperationOutcome issue codes, never diagnostics.
 
 ## Sandbox
 

@@ -61,7 +61,7 @@ Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
   - [x] Backend: launch, callback, server-side sessions, patient-context API
   - [x] Dashboard "This patient" view
   - [x] Sandbox launcher (smart-launcher-v2) and a scripted launch; CI job `sandbox-e2e`
-- [ ] Bulk FHIR `$export` into local-validation datasets
+- [x] Bulk FHIR `$export` into local-validation datasets (backend services auth; `openhealth sandbox bulk-check` in CI)
 - [ ] End-to-end exit checks in CI; docs
 
 ## Open items outside a milestone

@@ -15,6 +15,7 @@ services:
       hapi.fhir.fhir_version: R4
       hapi.fhir.default_encoding: json
       spring.datasource.url: jdbc:h2:mem:openhealth
+      hapi.fhir.bulk_export_enabled: "true"  # Bulk FHIR $export, for `openhealth bulk export`
 
   launcher:
     # SMART on FHIR sandbox (smart-launcher-v2): an authorization server in front of HAPI. Its
