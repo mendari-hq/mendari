@@ -8,7 +8,7 @@ Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 - [x] OIDC login, roles and API keys; tenancy
 - [x] Deployments and governance approvals
 - [x] Monitoring: observed accuracy, overrides, drift, alerts; Monitoring view
-- [ ] PHI mode (hash / encrypt), retention, input reads logged; deployment guide
+- [x] PHI mode (hash / encrypt), retention, input reads logged; deployment guide
 - [ ] Container image per pack; on-prem templates
 - [ ] Pilot check in CI (a local identity provider)
 

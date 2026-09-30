@@ -14,6 +14,8 @@ const EVENT_TEXT = {
   "review.resolved": "Review resolved",
   "outcome.recorded": "Outcome recorded",
   "feedback.recorded": "Feedback recorded",
+  "input.read": "Input read (PHI mode)",
+  "input.purged": "Input deleted (retention)",
 };
 
 views.audit = async (main, params) => {
@@ -114,7 +116,7 @@ async function openRecord(id) {
         <span>→ <b>${esc(r.recommendation ?? "no recommendation")}</b></span>
         ${r.confidence !== null && r.confidence !== undefined ? `<span class="muted">confidence ${pct(r.confidence)}</span>` : ""}</div>
       <p class="muted mt-2"><time datetime="${esc(r.created_at)}">${esc(time(r.created_at))}</time> · <span class="mono break-anywhere">${esc(id)}</span></p>
-      ${inputView(r.input)}
+      ${inputView(r.input, { restricted: found.input_restricted })}
       ${r.fallback ? `<p class="mt-3"><b>Fallback:</b> ${esc(r.fallback)}</p>` : ""}
       ${r.reasons?.length ? `<ul class="reasons">${r.reasons.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
       ${derivedPrimary() ? `<h3>Criteria</h3>${criteriaTable(r.answers)}` : ""}

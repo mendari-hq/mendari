@@ -10,9 +10,10 @@ model. Rules, [Jev](#jev), classical ML and (soon) LLMs all answer the same ques
 the same interface, and every decision ends in an explicit `AUTO`, `HUMAN_REVIEW`, `ABSTAIN` or
 `BLOCK` with a hash-chained audit record.
 
-> **Status: research preview** (roadmap milestones v0.1–v0.3 done: five reference packs; package
-> 0.1.0, not released). Everything here runs on synthetic data. It is not a medical device, has no
-> authentication, and must not be used with real PHI or real patients.
+> **Status: research preview** (roadmap milestones v0.1–v0.5 done; package 0.1.0, not released).
+> Everything here runs on synthetic data. It is not a medical device. Organization sign-in and PHI
+> mode are new (v0.6) and have not had a security review, so it must not be used with real PHI or
+> real patients yet.
 
 ```text
 Clinical/EHR data (FHIR R4, CDS Hooks, REST)
@@ -305,6 +306,12 @@ posts them to `--webhook` / `OPENHEALTH_ALERT_WEBHOOK` (https only):
 ```bash
 openhealth monitor --db "$DATABASE_URL" --org clinic-a --webhook https://alerts.example.org/hook
 ```
+
+**PHI mode.** `OPENHEALTH_PHI_MODE=hash` keeps no input at all, only its hash.
+`OPENHEALTH_PHI_MODE=encrypt` keeps inputs encrypted (AES-256-GCM, `OPENHEALTH_PHI_KEY`) apart
+from the audit chain. Only signed-in reviewers and admins read them, and each read is chained.
+`openhealth phi purge` applies `OPENHEALTH_RETENTION_DAYS` without breaking the chain. Read
+[`docs/deploying-with-phi.md`](docs/deploying-with-phi.md) before any real patient data.
 
 **Deployments.** Each server records which pack version it runs, with which providers, in
 which environment (`OPENHEALTH_ENVIRONMENT`) and release, whenever that changes. The Decision

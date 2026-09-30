@@ -32,6 +32,7 @@ from openhealth.core.audit import AuditStore
 from openhealth.core.card import benchmark, render_card
 from openhealth.core.decision import CallBudget, Decision
 from openhealth.core.pack import Pack
+from openhealth.core.phi import phi_policy
 from openhealth.core.policy import GovernanceOverride
 from openhealth.core.registry import discover, version_key
 from openhealth.errors import (
@@ -126,6 +127,15 @@ def acting_as(request: Request, claimed: str | None) -> str | None:
     return principal.name if principal is not None and principal.kind != "open" else claimed
 
 
+def input_reader(request: Request) -> str | None:
+    """Who may see inputs kept encrypted (PHI mode `encrypt`): a signed-in person or key whose
+    role may read them. Without sign-in there is no one to log the read against, so no one."""
+    principal = getattr(request.state, "principal", None)
+    if principal is None or principal.kind == "open" or not principal.may("read_input"):
+        return None
+    return str(principal.name)
+
+
 def create_app(
     *,
     db_path: str | Path = "var/openhealth.db",
@@ -141,7 +151,8 @@ def create_app(
     fhir_servers = sorted(allowed_servers())  # likewise
     smart_options = smart_settings()
     sign_in = auth_settings()  # an invalid sign-in setting fails here, at startup
-    store = AuditStore(db_path, migrate_url=migrate_url)
+    phi = phi_policy()  # a bad PHI setting (or a missing key) fails here, at startup
+    store = AuditStore(db_path, migrate_url=migrate_url, phi=phi)
     auth = Auth(sign_in, store)
     budget = CallBudget(store, budget_limits) if budget_limits else None
     found = discover(packs_paths)
@@ -244,6 +255,7 @@ def create_app(
             "fhir_allowed_servers": fhir_servers,
             "smart_launch": smart_options is not None,
             "sign_in": auth.enabled,
+            "phi_mode": phi.mode,
             "providers": {
                 pack_id: {
                     slot: info.variant for slot, info in decision_for(pack_id).provider_info.items()
@@ -422,8 +434,10 @@ def create_app(
     # -- review & audit ----------------------------------------------------------------------
 
     @app.get("/api/review")
-    def review_queue(pack_id: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
-        return store.pending_reviews(pack_id, limit=min(limit, 500))
+    def review_queue(
+        request: Request, pack_id: str | None = None, limit: int = 100
+    ) -> list[dict[str, Any]]:
+        return store.pending_reviews(pack_id, limit=min(limit, 500), reader=input_reader(request))
 
     @app.post("/api/review/{decision_id}")
     def resolve(decision_id: str, request: ReviewRequest, http: Request) -> dict[str, Any]:
@@ -469,8 +483,8 @@ def create_app(
         return StreamingResponse(lines, media_type="application/fhir+ndjson")
 
     @app.get("/api/audit/{decision_id}")
-    def audit_record(decision_id: str) -> dict[str, Any]:
-        record = store.get(decision_id)
+    def audit_record(request: Request, decision_id: str) -> dict[str, Any]:
+        record = store.get(decision_id, reader=input_reader(request))
         if record is None:
             raise HTTPException(404, f"unknown decision {decision_id}")
         return record
@@ -501,16 +515,23 @@ def create_app(
 
     @app.get("/api/feedback")
     def list_feedback(
-        pack_id: str | None = None, rating: Literal["up", "down"] | None = None, limit: int = 100
+        request: Request,
+        pack_id: str | None = None,
+        rating: Literal["up", "down"] | None = None,
+        limit: int = 100,
     ) -> list[dict[str, Any]]:
-        return store.feedback(pack_id=pack_id, rating=rating, limit=min(limit, 500))
+        return store.feedback(
+            pack_id=pack_id, rating=rating, limit=min(limit, 500), reader=input_reader(request)
+        )
 
     @app.get("/api/packs/{namespace}/{name}/feedback/export")
     def export_feedback(
-        namespace: str, name: str, rating: Literal["up", "down"] = "down"
+        request: Request, namespace: str, name: str, rating: Literal["up", "down"] = "down"
     ) -> Response:
         pack = pack_or_404(f"{namespace}/{name}")
-        records, skipped = feedback_dataset(store, pack_id=pack.id, rating=rating)
+        records, skipped = feedback_dataset(
+            store, pack_id=pack.id, rating=rating, reader=input_reader(request)
+        )
         body = "".join(json.dumps(record, ensure_ascii=False) + "\n" for record in records)
         return Response(
             body,

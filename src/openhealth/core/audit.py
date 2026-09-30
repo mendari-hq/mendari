@@ -17,7 +17,7 @@ import statistics
 import time
 import uuid
 from collections.abc import Iterator, Mapping
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -25,6 +25,7 @@ from openhealth.core import clock, tenancy
 from openhealth.core.db import Backend as _Backend
 from openhealth.core.db import Session as _Session
 from openhealth.core.db import connect
+from openhealth.core.phi import PhiPolicy
 from openhealth.core.spec import Outcome
 from openhealth.errors import ProviderError, ReviewError
 
@@ -97,6 +98,11 @@ CREATE TABLE IF NOT EXISTS feedback (
 );
 CREATE INDEX IF NOT EXISTS feedback_pack ON feedback (pack_id, rating, created_at);
 CREATE INDEX IF NOT EXISTS feedback_decision ON feedback (decision_id);
+CREATE TABLE IF NOT EXISTS decision_inputs (
+    decision_id  TEXT PRIMARY KEY,
+    created_at   TEXT NOT NULL,
+    ciphertext   TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS governance_approvals (
     id           TEXT PRIMARY KEY,
     org          TEXT NOT NULL,
@@ -190,11 +196,15 @@ def _supersede_earlier_ratings(db: _Session) -> None:
 
 
 class AuditStore:
-    def __init__(self, target: str | Path, *, migrate_url: str | None = None):
+    def __init__(
+        self, target: str | Path, *, migrate_url: str | None = None, phi: PhiPolicy | None = None
+    ):
         """`target` is a SQLite path (or ":memory:") or a postgres:// / postgresql:// URL.
 
         `migrate_url` is an optional direct (unpooled) Postgres URL used only for schema setup.
+        `phi` is how inputs are kept (`core/phi.py`; default: as the pack says).
         """
+        self.phi = phi or PhiPolicy()
         self._db: _Backend = connect(
             str(target),
             schema=_TABLES,
@@ -227,7 +237,8 @@ class AuditStore:
         store_input: Literal["full", "hash"] = "full",
     ) -> None:
         record = result.to_dict()
-        record["input"] = dict(inputs) if store_input == "full" else None
+        keep = store_input == "full" and self.phi.mode != "hash"
+        record["input"] = dict(inputs) if keep and self.phi.mode == "off" else None
         status = "pending" if result.outcome.value in _REVIEWABLE else "not_required"
         with self._db.session(exclusive=True) as db:
             db.all(
@@ -251,6 +262,12 @@ class AuditStore:
                 ),
             )
             self._append(db, result.id, "decision.created", {"record_sha256": _sha(record)})
+            if keep and self.phi.mode == "encrypt":  # apart from the chained record
+                db.all(
+                    "INSERT INTO decision_inputs (decision_id, created_at, ciphertext) "
+                    "VALUES (?, ?, ?)",
+                    (result.id, result.created_at, self.phi.encrypt(result.id, dict(inputs))),
+                )
 
     def resolve_review(
         self, decision_id: str, *, final_label: str, reviewer: str, note: str | None = None
@@ -440,22 +457,72 @@ class AuditStore:
 
     # -- reads ----------------------------------------------------------------------------
 
-    def get(self, decision_id: str) -> dict[str, Any] | None:
+    def get(self, decision_id: str, *, reader: str | None = None) -> dict[str, Any] | None:
+        """A decision with its events; under PHI mode `encrypt`, its input only for a `reader`
+        (see `reveal_inputs`)."""
         scope, scoped = _scope()
         with self._db.session(exclusive=False) as db:
             row = db.one(
                 f"SELECT * FROM decisions d WHERE id = ? AND {scope}", (decision_id, *scoped)
             )
-            if row is None:
-                return None
+        if row is None:
+            return None
+        item = _row(row)
+        self.reveal_inputs([item], reader)
+        with self._db.session(exclusive=False) as db:
             events = db.all(
                 "SELECT seq, event, payload, created_at, prev_hash, hash FROM audit_events "
                 "WHERE decision_id = ? ORDER BY seq",
                 (decision_id,),
             )
-        item = _row(row)
         item["events"] = [{**e, "payload": json.loads(e["payload"])} for e in events]
         return item
+
+    def reveal_inputs(
+        self, items: list[dict[str, Any]], reader: str | None, *, id_key: str = "id"
+    ) -> list[dict[str, Any]]:
+        """PHI mode `encrypt` keeps inputs apart from the records. Each item (a record under
+        `record`) whose input was kept gets it back for a `reader`, someone who may see inputs,
+        and every such read is written to the hash chain. Anyone else gets `input_restricted`."""
+        ids = [str(item[id_key]) for item in items]
+        if not ids:
+            return items
+        marks = ", ".join("?" for _ in ids)
+        with self._db.session(exclusive=False) as db:
+            rows = db.all(
+                "SELECT decision_id, ciphertext FROM decision_inputs "
+                f"WHERE decision_id IN ({marks})",
+                tuple(ids),
+            )
+        sealed = {row["decision_id"]: row["ciphertext"] for row in rows}
+        if not sealed:
+            return items
+        readable = bool(reader) and self.phi.mode == "encrypt"
+        opened = {k: self.phi.decrypt(k, v) for k, v in sealed.items()} if readable else {}
+        if opened:
+            with self._db.session(exclusive=True) as db:
+                for decision_id in opened:
+                    self._append(db, decision_id, "input.read", {"reader": reader})
+        for item in items:
+            decision_id = str(item[id_key])
+            if decision_id in sealed:
+                item["record"]["input"] = opened.get(decision_id)
+                item["input_restricted"] = decision_id not in opened
+        return items
+
+    def purge_inputs(self, older_than_days: int) -> int:
+        """Retention: delete kept (encrypted) inputs older than N days; the chain is untouched."""
+        cutoff = (datetime.now(UTC) - timedelta(days=older_than_days)).isoformat()
+        with self._db.session(exclusive=True) as db:
+            doomed = db.all(
+                "SELECT decision_id FROM decision_inputs WHERE created_at < ?", (cutoff,)
+            )
+            db.all("DELETE FROM decision_inputs WHERE created_at < ?", (cutoff,))
+            for row in doomed:
+                self._append(
+                    db, row["decision_id"], "input.purged", {"retention_days": older_than_days}
+                )
+        return len(doomed)
 
     def query(
         self,
@@ -763,8 +830,12 @@ class AuditStore:
                 (*scoped, pack_id, since),
             )
 
-    def pending_reviews(self, pack_id: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
-        return self.query(pack_id=pack_id, review_status="pending", limit=limit)
+    def pending_reviews(
+        self, pack_id: str | None = None, limit: int = 50, *, reader: str | None = None
+    ) -> list[dict[str, Any]]:
+        """The queue, most urgent first; under PHI mode `encrypt`, with inputs for a `reader`."""
+        items = self.query(pack_id=pack_id, review_status="pending", limit=limit)
+        return self.reveal_inputs(items, reader)
 
     def stats(self, pack_id: str | None = None) -> dict[str, Any]:
         scope, scoped = _scope()
@@ -848,10 +919,16 @@ class AuditStore:
         }
 
     def feedback(
-        self, *, pack_id: str | None = None, rating: Rating | None = None, limit: int = 100
+        self,
+        *,
+        pack_id: str | None = None,
+        rating: Rating | None = None,
+        limit: int = 100,
+        reader: str | None = None,
     ) -> list[dict[str, Any]]:
         """Current feedback (each person's latest rating of a decision), newest first, each with
-        the decision it rates and the right answer if the rating gave one."""
+        the decision it rates and the right answer if the rating gave one; under PHI mode
+        `encrypt`, with inputs for a `reader`."""
         scope, scoped = _scope()
         clauses, params = ["f.superseded_by IS NULL", scope], list(scoped)
         for column, value in (("f.pack_id", pack_id), ("f.rating", rating)):
@@ -867,7 +944,7 @@ class AuditStore:
                 "ORDER BY f.created_at DESC LIMIT ?",
                 (*params, limit),
             )
-        return [_feedback_item(row) for row in rows]
+        return self.reveal_inputs([_feedback_item(r) for r in rows], reader, id_key="decision_id")
 
     def reports(self, pack_id: str | None = None) -> list[dict[str, Any]]:
         scope, scoped = _scope()

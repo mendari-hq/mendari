@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -678,6 +679,17 @@ def cmd_monitor(args: argparse.Namespace) -> int:
     return 1 if alerting else 0
 
 
+def cmd_phi_purge(args: argparse.Namespace) -> int:
+    from openhealth.core.phi import phi_policy
+
+    days = args.days or int(os.environ.get("OPENHEALTH_RETENTION_DAYS", "0") or 0)
+    if days < 1:
+        raise OpenHealthError("give --days or set OPENHEALTH_RETENTION_DAYS")
+    purged = AuditStore(args.db, phi=phi_policy()).purge_inputs(days)
+    print(f"{purged} stored input(s) older than {days} days deleted (decisions and chain kept)")
+    return 0
+
+
 def cmd_demo(args: argparse.Namespace) -> int:
     from openhealth.sandbox.demo import run_demo
 
@@ -985,6 +997,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--webhook", help="post alerts here (default: $OPENHEALTH_ALERT_WEBHOOK)"
     )
     monitor_cmd.set_defaults(handler=cmd_monitor)
+
+    phi_cmd = sub.add_parser("phi", help="PHI mode tools").add_subparsers(
+        dest="phi_command", required=True
+    )
+    purge = phi_cmd.add_parser("purge", help="retention: delete kept inputs older than N days")
+    purge.add_argument("--db", default="var/openhealth.db", help="SQLite path or postgresql:// URL")
+    purge.add_argument("--days", type=int, help="default: $OPENHEALTH_RETENTION_DAYS")
+    purge.set_defaults(handler=cmd_phi_purge)
 
     sub.add_parser("demo", help="offline end-to-end demo on synthetic data").set_defaults(
         handler=cmd_demo

@@ -128,7 +128,7 @@ def test_signing_in_starts_a_session_with_the_mapped_role(app: TestClient, idp: 
         "kind": "user",
         "name": "Nurse Kim",
         "roles": ["reviewer"],
-        "permissions": ["decide", "outcome", "read", "review"],
+        "permissions": ["decide", "outcome", "read", "read_input", "review"],
         "org": "default",
     }
     assert app.post("/auth/logout").status_code == 204

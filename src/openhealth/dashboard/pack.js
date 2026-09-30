@@ -5,8 +5,13 @@ import { esc, pct, slotText, state } from "./ui.js";
 // Packs whose input is a patient message (the inbox) keep a message-shaped UI.
 export const isMessagePack = () => Boolean(state.detail.input_schema?.properties?.message);
 
-export function inputView(input) {
-  if (!input) return `<div class="message">(input not stored: audit.store_input = hash)</div>`;
+// `restricted`: PHI mode `encrypt` kept the input, but this role may not read it (the server says).
+export function inputView(input, { restricted = false } = {}) {
+  if (restricted) return `<div class="message muted">Input kept encrypted (PHI mode): reviewers and administrators can read it, and each read is logged.</div>`;
+  if (!input) {
+    const why = state.phiMode === "off" ? "the pack keeps only its hash (audit.store_input)" : "PHI mode keeps only its hash";
+    return `<div class="message muted">Input not stored: ${why}.</div>`;
+  }
   if (input.message) {
     const m = input.message;
     return `${m.subject ? `<div class="mt-2"><b>${esc(m.subject)}</b></div>` : ""}<div class="message">${esc(m.body ?? "")}</div>`;

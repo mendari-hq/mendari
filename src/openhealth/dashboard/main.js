@@ -24,6 +24,7 @@ async function boot() {
   $("#skip-link").addEventListener("click", () => focusHeading($("main h1") ?? $("main"), { scroll: false }));
   watchEdges($(".nav"));
   const health = await api("/api/health").catch(() => null);
+  state.phiMode = health?.phi_mode ?? "off";
   try {
     state.timeFormat = timeFormatFor(health?.timezone ?? DEFAULT_TIMEZONE);
     state.shortFormat = shortFormatFor(health?.timezone ?? DEFAULT_TIMEZONE);

@@ -55,7 +55,7 @@ function feedbackCard(item) {
     ${item.expected ? `<p class="right-answer">${icon("check")} <b>Right answer:</b> <code>${esc(item.expected.question)}</code> should be <b>${esc(item.expected.label)}</b>
       <span class="muted">(it said ${esc(r.answers[item.expected.question]?.label ?? "nothing")})</span></p>` : ""}
     ${item.note ? `<p><b>Note:</b> ${esc(item.note)}</p>` : ""}
-    ${inputView(r.input)}
+    ${inputView(r.input, { restricted: item.input_restricted })}
     ${criteriaTable(r.answers, { evidence: false })}
     <a class="action-link" href="#audit/${encodeURIComponent(item.decision_id)}">Open the decision <span class="mono">${esc(item.decision_id.slice(0, 8))}</span> ${icon("arrow-right")}</a>
   </article>`;
