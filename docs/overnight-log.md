@@ -47,7 +47,8 @@ the production-deploy check and the four "small remaining gaps" under "What an A
 | [#92](https://github.com/Junebugg1214/openhealth-hub/pull/92) | OMOP CDM as pack inputs, population evaluation, round trip in CI | v0.7 item 2 | Green first time (`omop-check` identical in the reference-pack job); preview checked; merged |
 | [#93](https://github.com/Junebugg1214/openhealth-hub/pull/93) | Da Vinci CRD: coverage information on the PA pack's order-sign response | v0.7 item 3 | Green first time (the validator passed the three CRD orders against CRD 2.2.1 in CI); preview checked; merged |
 | [#94](https://github.com/Junebugg1214/openhealth-hub/pull/94) | Da Vinci DTR: questionnaire package for the PA pack, pre-answered from the decision | v0.7 item 4 | Green first time (all five CRD/DTR samples valid in CI); preview checked; merged |
-| [#95](https://github.com/Junebugg1214/openhealth-hub/pull/95) | Da Vinci PAS: request Bundle, sandbox payer, submission chained on the decision | v0.7 item 5 (closes v0.7) | pending |
+| [#95](https://github.com/Junebugg1214/openhealth-hub/pull/95) | Da Vinci PAS: request Bundle, sandbox payer, submission chained on the decision | v0.7 item 5 (closes v0.7) | Green first time (PAS request and response valid in CI with CRD and DTR); preview checked; merged. v0.7 done |
+| [#96](https://github.com/Junebugg1214/openhealth-hub/pull/96) | v1.0 plan: public open-source launch | v1.0 plan | pending |
 
 ## Decisions made on your behalf
 
@@ -259,6 +260,13 @@ the production-deploy check and the four "small remaining gaps" under "What an A
     refused for now;
   - the sandbox payer certifies every well-formed request (A1). It exists to exercise the
     protocol, and decides nothing clinically.
+
+- **v1.0 shape** (details in `docs/plans/v1.0-public-launch.md`):
+  - OWASP ZAP (pinned image) for the API penetration test, run in CI against the engine with
+    sign-in on. Medium and high risks fail;
+  - MkDocs Material for the docs site;
+  - Contributor Covenant 2.1;
+  - a release workflow that stays inert until PyPI is configured and a tag is pushed.
 
 ## Skipped or blocked
 

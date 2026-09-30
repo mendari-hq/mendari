@@ -38,7 +38,8 @@ first** (the Hub only matters once it has five strong packs), **LLMs through Ver
   - Da Vinci CRD, DTR and PAS around the PA pack, each validated by the HL7 validator against
     its guide in CI.
 
-Now: **v1.0 Public open-source launch** (everything that doesn't need your go-ahead).
+Now: **v1.0 Public open-source launch** ([plan](plans/v1.0-public-launch.md); everything
+that doesn't need your go-ahead).
 
 ## Where we are against the goal
 
