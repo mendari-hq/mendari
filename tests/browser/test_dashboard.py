@@ -723,3 +723,116 @@ def test_an_evaluation_that_runs_locally_needs_no_confirmation(page: Page) -> No
     page.get_by_role("button", name="Run evaluation").click()
     expect(page.get_by_role("dialog")).to_have_count(0)
     expect(page.locator("#run-report .stats-primary")).to_be_visible(timeout=60_000)
+
+
+# -- QA pass (Phase 5) ----------------------------------------------------------------------------
+
+# Every visible heading in the view, in order; one h1, and no level skipped on the way down.
+HEADING_PROBLEMS = """() => {
+  const shown = (el) => el.getClientRects().length > 0;
+  const hs = [...document.querySelectorAll('main :is(h1, h2, h3, h4)')].filter(shown);
+  const problems = [];
+  if (hs.filter((h) => h.tagName === 'H1').length !== 1) problems.push('h1 count');
+  let previous = 1;
+  for (const h of hs) {
+    const level = Number(h.tagName[1]);
+    const text = h.textContent.trim().slice(0, 30);
+    if (level > previous + 1) problems.push(`h${previous} -> h${level}: ${text}`);
+    previous = level;
+  }
+  const tables = [...document.querySelectorAll('main table')].filter(shown);
+  const bare = tables.filter((t) => !t.querySelector('th'));
+  if (bare.length) problems.push(`${bare.length} tables without headers`);
+  return problems;
+}"""
+
+
+def test_keyboard_users_can_skip_to_the_content(page: Page) -> None:
+    open_pack(page, INBOX, "feedback")
+    page.evaluate("document.activeElement.blur()")
+    page.goto("/#feedback")  # the same document: tabbing starts from the top
+    page.keyboard.press("Tab")
+    skip = page.get_by_role("button", name="Skip to content")
+    expect(skip).to_be_focused()
+    assert (skip.bounding_box() or {"y": -1})["y"] >= 0  # shown while focused
+    page.keyboard.press("Enter")
+    expect(page.locator("main h1")).to_be_focused()
+
+
+@pytest.mark.parametrize("pack_id", [INBOX, GUARD])
+def test_headings_are_in_order_and_tables_have_headers(page: Page, pack_id: str) -> None:
+    """What a screen reader navigates by: one h1 per view, no skipped heading level, and every
+    table says what its columns are."""
+    open_pack(page, pack_id)
+    for view in VIEWS:
+        show(page, view)
+        assert page.evaluate(HEADING_PROBLEMS) == [], view
+    page.goto("/#evals/report")
+    expect(page.locator("#evals-body .stats-primary")).to_be_visible()
+    assert page.evaluate(HEADING_PROBLEMS) == [], "evals/report"
+    expect(page.locator('.nav a[aria-current="page"]')).to_have_text("Evaluations")
+
+
+def test_the_focus_ring_shows_on_a_solid_danger_header(page: Page) -> None:
+    open_pack(page, GUARD, "try")
+    page.select_option("#example", label="a draft that misses an emergency is blocked")
+    page.get_by_role("button", name="Decide").click()
+    expect(page.locator("#result-title")).to_be_focused()
+    page.keyboard.press("Tab")  # the decision link inside the solid red header
+    link = page.locator("#result .result-head a")
+    expect(link).to_be_focused()
+    assert link.evaluate("el => getComputedStyle(el).outlineColor") == "rgb(255, 255, 255)"
+
+
+def test_a_view_that_fails_to_load_says_so_and_can_retry(page: Page) -> None:
+    page.route(
+        "**/api/stats*",
+        lambda route: route.fulfill(status=503, json={"detail": "database is waking up"}),
+    )
+    open_pack(page, INBOX, "review")
+    page.goto("/#overview")
+    failure = page.get_by_role("alert").filter(has_text="Could not load this view")
+    expect(failure).to_contain_text("database is waking up")
+    page.unroute("**/api/stats*")
+    page.get_by_role("button", name="Try again").click()
+    expect(page.locator(".stats-primary")).to_be_visible()
+
+
+def test_errors_are_announced_at_once(page: Page) -> None:
+    open_pack(page, INBOX, "review")
+    page.fill("#reviewer", "")
+    page.locator(".review-card button.primary").first.click()
+    expect(page.locator("#announce-alert")).to_have_text("Enter a reviewer name first")
+    expect(page.locator("#toast")).to_have_class(re.compile("error"))
+    expect(page.locator("#reviewer")).to_be_focused()
+
+
+def test_the_phone_section_list_shows_where_you_are(page: Page) -> None:
+    page.set_viewport_size(PHONE)
+    open_pack(page, INBOX, "card")  # near the end of the list
+    nav = page.locator(".nav")
+    active = nav.locator("a.active")
+    expect(active).to_have_text("Decision Card")
+    inside = nav.evaluate(
+        """(nav) => { const a = nav.querySelector('a.active').getBoundingClientRect();
+           const n = nav.getBoundingClientRect();
+           return a.left >= n.left && a.right <= n.right; }"""
+    )
+    assert inside  # scrolled into the strip, not off to the right
+    expect(nav).to_have_class(re.compile("scrolled"))  # an edge shadow: more to the left
+
+
+def test_the_follow_up_shows_one_questions_choices_at_a_time(page: Page) -> None:
+    """A derived decision can be corrected on any of its checks; only the chosen one's labels show,
+    so a tap can't land in a group that Save ignores."""
+    open_pack(page, GUARD, "try")
+    page.select_option("#example", label="a draft that misses an emergency is blocked")
+    page.get_by_role("button", name="Decide").click()
+    page.locator("#result").get_by_role("button", name="Wrong", exact=True).click()
+    groups = page.locator("#result .fb-labels")
+    assert groups.count() > 1
+    expect(page.locator("#result .fb-labels:visible")).to_have_count(1)
+    page.select_option("#result .fb-question", "unsafe_advice")
+    visible = page.locator("#result .fb-labels:visible")
+    expect(visible).to_have_count(1)
+    expect(visible).to_have_attribute("data-question", "unsafe_advice")

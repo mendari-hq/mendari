@@ -59,13 +59,20 @@ async function api(path, options = {}) {
   return body;
 }
 
-function toast(message) {
+// A short message. Errors are announced at once (role="alert") and stay on screen longer; other
+// messages are announced politely. The live region is emptied first, so a repeat is announced too.
+function toast(message, { error = false } = {}) {
   const el = $("#toast");
   el.textContent = message;
+  el.classList.toggle("error", error);
   el.classList.add("show");
+  const region = $(error ? "#announce-alert" : "#announce-status");
+  region.textContent = "";
+  requestAnimationFrame(() => (region.textContent = message));
   clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => el.classList.remove("show"), 2600);
+  toast.timer = setTimeout(() => el.classList.remove("show"), error ? 8000 : 2600);
 }
+const toastError = (message) => toast(message, { error: true });
 
 function storageGet(key, fallback) {
   try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; }
@@ -110,14 +117,21 @@ async function render({ navigated = false } = {}) {
   const { view, params } = route();
   state.view = view;
   closeDrawer({ restoreFocus: false, closedByUser: false });
-  document.querySelectorAll(".nav a[data-view]").forEach((a) => a.classList.toggle("active", a.dataset.view === view));
+  document.querySelectorAll(".nav a[data-view]").forEach((a) => {
+    a.classList.toggle("active", a.dataset.view === view);
+    if (a.dataset.view === view) a.setAttribute("aria-current", "page");
+    else a.removeAttribute("aria-current");
+  });
+  keepActiveSectionInView();
   const main = $("#view");
   main.innerHTML = `<div class="empty">Loading…</div>`;
   let target = null;
   try {
     target = await views[view](main, params);
   } catch (error) {
-    main.innerHTML = `<div class="panel">Could not load this view: ${esc(error.message)}</div>`;
+    main.innerHTML = `<div class="panel error-state" role="alert"><h1>Could not load this view</h1>
+      <p class="muted">${esc(error.message)}</p><button type="button" class="primary" id="retry">Try again</button></div>`;
+    $("#retry").addEventListener("click", () => render({ navigated: true }));
   }
   if (target) focusHeading(target); // a link to a section lands there, on first load too
   else if (navigated) {
@@ -125,6 +139,27 @@ async function render({ navigated = false } = {}) {
     focusHeading(main.querySelector("h1"), { scroll: false });
   }
   refreshReviewCount();
+}
+
+// On a phone the section list scrolls sideways: the current section is scrolled into it, and edge
+// shadows show that there is more to either side.
+function keepActiveSectionInView() {
+  const nav = $(".nav");
+  const active = nav.querySelector("a.active");
+  if (!active || nav.scrollWidth <= nav.clientWidth) return;
+  const [a, n] = [active.getBoundingClientRect(), nav.getBoundingClientRect()];
+  if (a.left < n.left) nav.scrollLeft += a.left - n.left - 8;
+  else if (a.right > n.right) nav.scrollLeft += a.right - n.right + 8;
+}
+
+function watchEdges(el) {
+  const edges = () => {
+    el.classList.toggle("scrolled", el.scrollLeft > 0);
+    el.classList.toggle("more-right", el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
+  };
+  el.addEventListener("scroll", edges, { passive: true });
+  new ResizeObserver(edges).observe(el);
+  edges();
 }
 
 function focusHeading(heading, { scroll = true } = {}) {
@@ -299,6 +334,7 @@ async function refreshReviewCount() {
   try {
     const pending = await api(`/api/review?pack_id=${encodeURIComponent(state.packId)}&limit=500`);
     $("#review-count").textContent = pending.length || "";
+    keepActiveSectionInView(); // the count changes the strip's width
   } catch { /* the badge is optional */ }
 }
 
@@ -499,7 +535,7 @@ async function resolveCard(button) {
   const reviewer = $("#reviewer").value.trim();
   if (!reviewer) {
     $("#reviewer").focus();
-    return toast("Enter a reviewer name first");
+    return toastError("Enter a reviewer name first");
   }
   card.querySelectorAll("button").forEach((b) => (b.disabled = true));
   try {
@@ -524,7 +560,7 @@ async function resolveCard(button) {
     toast(result.human_override ? `Override recorded: ${button.dataset.label}` : `Confirmed: ${button.dataset.label}`);
     refreshReviewCount();
   } catch (error) {
-    toast(error.message);
+    toastError(error.message);
     card.querySelectorAll("button").forEach((b) => (b.disabled = false));
   }
 }
@@ -649,7 +685,7 @@ async function openRecord(id) {
   try {
     found = await api(`/api/audit/${encodeURIComponent(id)}`);
   } catch (error) {
-    toast(error.message);
+    toastError(error.message);
     location.hash = "#audit";
     return;
   }
@@ -769,7 +805,7 @@ async function showRunTab(body, empty) {
         $("#run-report").innerHTML = reportView(report);
         wire($("#run-report"));
       } catch (error) {
-        toast(error.message);
+        toastError(error.message);
       }
     });
   });
@@ -1036,10 +1072,10 @@ function reportView(r) {
       ${small("Cost / decision", r.cost.per_decision_usd === null ? "unknown" : money(r.cost.per_decision_usd))}
     </div>
     <div class="grid-2">
-      <div class="panel"><h3>Reliability</h3>${reliabilityChart(q.calibration, id)}</div>
-      <div class="panel"><h3>Threshold sweep</h3>${sweepChart(r.threshold_sweep, r.policy?.thresholds?.auto, d.outcome_rates.AUTO === 0, id)}</div>
+      <div class="panel"><h2>Reliability</h2>${reliabilityChart(q.calibration, id)}</div>
+      <div class="panel"><h2>Threshold sweep</h2>${sweepChart(r.threshold_sweep, r.policy?.thresholds?.auto, d.outcome_rates.AUTO === 0, id)}</div>
     </div>
-    <div class="panel"><h3>Per label</h3>${tableHtml({
+    <div class="panel"><h2>Per label</h2>${tableHtml({
       id: `labels-${id}`, caption: "",
       rows: Object.entries(q.per_label).map(([label, m]) => ({ label, ...m })),
       columns: [
@@ -1050,7 +1086,7 @@ function reportView(r) {
         { key: "support", label: "n", numeric: true, sort: (m) => m.support, cell: (m) => String(m.support) },
       ],
     })}${confusionView(q.confusion, id)}</div>
-    <div class="panel"><h3>Subgroups</h3>
+    <div class="panel"><h2>Subgroups</h2>
       <p class="muted">Grouped by attribute, lowest accuracy first. Groups under 20 cases are marked: their numbers move a lot with each case.</p>
       ${subgroupsView(r.subgroups, id)}</div>`;
 }
@@ -1266,7 +1302,8 @@ function questionPanel(key, q, primary) {
   const score = (label) => (q.type === "score" ? `<td class="mono">${esc(q.levels[label].score)}</td>` : "");
   return `<div class="panel question"><h3>Question <code>${esc(key)}</code>${primary ? " (the decision)" : ""}${kind}</h3>
     <p class="muted">${esc(q.instructions)}</p>${derive}
-    <table>${labels.map((label) => `<tr><td><code>${esc(label)}</code></td>${score(label)}<td>${esc(q.criteria[label])}</td></tr>`).join("")}</table></div>`;
+    <table><thead><tr><th scope="col">Label</th>${q.type === "score" ? `<th scope="col">Score</th>` : ""}<th scope="col">Means</th></tr></thead>
+      <tbody>${labels.map((label) => `<tr><td><code>${esc(label)}</code></td>${score(label)}<td>${esc(q.criteria[label])}</td></tr>`).join("")}</tbody></table></div>`;
 }
 
 // A policy condition in words: "the chance that urgency is urgent is at least 0.35".
@@ -1392,7 +1429,7 @@ views.card = async (main, params) => {
       await navigator.clipboard.writeText(event.currentTarget.dataset.copy);
       toast("Digest copied");
     } catch {
-      toast("Copying isn't available here: select the digest and copy it");
+      toastError("Copying isn't available here: select the digest and copy it");
     }
   });
   return cardSection(params[0]);
@@ -1446,13 +1483,13 @@ async function tryRecord(main) {
     try {
       input = JSON.parse($("#record").value);
     } catch (error) {
-      return toast(`Not valid JSON: ${error.message}`);
+      return toastError(`Not valid JSON: ${error.message}`);
     }
     return whileBusy(e.currentTarget, "Deciding…", async () => {
       try {
         showResult(await api(`${packPath()}/decide`, { method: "POST", body: JSON.stringify(input) }));
       } catch (error) {
-        toast(error.message);
+        toastError(error.message);
       }
     });
   });
@@ -1490,7 +1527,7 @@ async function tryMessage(main) {
       try {
         showResult(await api(`${packPath()}/decide`, { method: "POST", body: JSON.stringify({ message, patient }) }));
       } catch (error) {
-        toast(error.message);
+        toastError(error.message);
       }
     });
   });
@@ -1677,7 +1714,7 @@ document.addEventListener("click", async (event) => {
       closeFollowUp(box);
     }
   } catch (error) {
-    toast(error.message);
+    toastError(error.message);
   }
 });
 
@@ -1722,6 +1759,8 @@ function setupTheme() {
 
 async function boot() {
   setupTheme();
+  $("#skip-link").addEventListener("click", () => focusHeading($("main h1") ?? $("main"), { scroll: false }));
+  watchEdges($(".nav"));
   const health = await api("/api/health").catch(() => null);
   try {
     state.timeFormat = timeFormatFor(health?.timezone ?? DEFAULT_TIMEZONE);

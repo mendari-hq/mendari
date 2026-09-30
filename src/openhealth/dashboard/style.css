@@ -137,6 +137,11 @@ h3 { font-size: var(--text-md); line-height: var(--leading-md); font-weight: var
 p { margin: 0 0 var(--space-3); }
 code { font-family: var(--font-mono); font-size: 0.92em; }
 :focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+/* Headings the app moves focus to (a new view, a section, a result) are announced, not operated:
+   no ring around a whole line of text. Cards and controls keep theirs. */
+:is(h1, h2)[tabindex="-1"]:focus { outline: none; }
+/* `hidden` always hides, whatever display a component sets (e.g. a flex row of choices). */
+[hidden] { display: none !important; }
 .muted { color: var(--color-text-muted); }
 /* Identifiers stay whole ("c546135f", not one letter per line in a narrow column); long ones that
    must wrap (digests, JSON payloads, full ids) opt in with .break-anywhere. */
@@ -524,12 +529,25 @@ dialog.confirm::backdrop { background: rgba(10, 15, 25, 0.45); }
 dialog.confirm h2 { margin-top: 0; }
 
 #toast {
-  position: fixed; bottom: var(--space-5); right: var(--space-5); background: var(--color-text); color: var(--color-bg);
+  position: fixed; bottom: var(--space-5); right: var(--space-5); z-index: 40; max-width: min(420px, calc(100vw - 2 * var(--space-5)));
+  background: var(--color-text); color: var(--color-bg);
   padding: var(--space-3) var(--space-4); border-radius: var(--radius-sm); box-shadow: var(--shadow-2);
   opacity: 0; transform: translateY(8px); pointer-events: none;
   transition: opacity var(--duration-base) var(--ease-out), transform var(--duration-base) var(--ease-out);
 }
 #toast.show { opacity: 1; transform: none; }
+#toast.error { background: var(--color-danger-solid); color: var(--color-on-solid); }
+
+/* Skip link: first in the tab order, shown only when focused. */
+.skip-link {
+  position: absolute; left: var(--space-3); top: calc(-1 * var(--space-10)); z-index: 30;
+  background: var(--color-accent); color: var(--color-on-accent); border-color: var(--color-accent); font-weight: var(--weight-semibold);
+}
+.skip-link:focus { top: var(--space-2); }
+.error-state h1 { margin-bottom: var(--space-2); }
+
+/* On solid danger backgrounds the accent focus ring would vanish (about 1.1:1): it turns white. */
+:is(.tone-solid, .stat-banner) :focus-visible { outline-color: var(--color-on-solid); }
 
 /* 5. Views -------------------------------------------------------------------------------------- */
 
@@ -606,6 +624,10 @@ ol.rules p { margin: var(--space-1) 0; }
   .shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; }
   .nav { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--color-border); padding: var(--space-2); }
   .nav a { white-space: nowrap; }
+  /* The section list scrolls sideways: edge shadows say there is more. */
+  .nav.more-right { box-shadow: inset -16px 0 12px -12px rgba(0, 0, 0, 0.3); }
+  .nav.scrolled { box-shadow: inset 16px 0 12px -12px rgba(0, 0, 0, 0.3); }
+  .nav.scrolled.more-right { box-shadow: inset 16px 0 12px -12px rgba(0, 0, 0, 0.3), inset -16px 0 12px -12px rgba(0, 0, 0, 0.3); }
   .nav a.external { margin-top: 0; }
   main { padding: var(--space-4); }
   .grid-2 { grid-template-columns: minmax(0, 1fr); }

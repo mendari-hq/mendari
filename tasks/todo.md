@@ -86,7 +86,19 @@ roles, feedback that captures the right answer, Eastern time everywhere people l
   `GET /api/packs/{id}/datasets` (sizes), each audit row's current ratings, `stats.labelled`.
   Fixed on the way: a drawer replaced by another ran the old one's close handler and closed both
   (Phase 2), and a deep link to a section is focused on first load
-- [ ] Phase 5: QA pass
+- [x] Phase 5: QA pass. Keyboard walkthrough of every view on a message and a record pack (every
+  Tab stop, focus indicators, unreachable or hidden focus, the main flows), an accessibility-tree
+  audit of every view on three packs (headings, landmarks, names, table headers, alerts), 72
+  screenshots (9 screens, 2 packs, 1440/390, light/dark) reviewed as contact sheets, contrast tests
+  confirmed in required CI jobs. Fixed: a "Skip to content" button (12 Tab stops before content);
+  a white focus ring on solid danger headers (blue measured 1.06:1 / 2.0:1); the phone section list
+  shows edge shadows and keeps the current section in view; `[hidden]` always hides (a derived
+  decision's follow-up showed every check's choices, and taps outside the selected one were
+  ignored); errors announced as alerts and shown 8 s, a failed view with "Try again"; report
+  panels at h2 (was h1 -> h3); header rows on the card's question tables; `aria-current` on the
+  active section; no focus rectangle on headings the app focuses. 8 new browser tests (62 in all).
+  QA report with the screenshots: https://claude.ai/artifact/GmDM3pEDMEEnYkb9GBcL4P (private).
+  VoiceOver itself is for a person at the Mac (the report has a two-minute script)
 
 ## Done: v0.3 Reference packs: AI Guard (the fifth and last)
 Plan approved 2026-09-29 (3 PRs): runtime → the pack (risk level 2, the user's choice) →
