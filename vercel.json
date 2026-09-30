@@ -3,7 +3,7 @@
   "functions": {
     "app.py": {
       "maxDuration": 300,
-      "excludeFiles": "{tests/**,docs/**,scripts/**,.github/**,tasks/**}"
+      "excludeFiles": "{tests/**,hub/**,docs/**,scripts/**,.github/**,tasks/**}"
     }
   }
 }
