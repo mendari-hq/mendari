@@ -851,6 +851,41 @@ def cmd_phi_purge(args: argparse.Namespace) -> int:
     return 0
 
 
+TEMPLATE = Path(__file__).resolve().parent / "templates" / "new_pack"
+
+
+def cmd_new(args: argparse.Namespace) -> int:
+    """A new pack from the template: YAML only, and it validates, tests and evaluates as it is."""
+    from openhealth.core.spec import _PACK_ID
+
+    target = Path(args.dir)
+    if target.exists() and any(target.iterdir()):
+        raise OpenHealthError(f"{target} exists and is not empty")
+    if not _PACK_ID.match(args.id):
+        raise OpenHealthError("--id must look like 'namespace/name' (lowercase, digits, dashes)")
+    name = args.name or args.id.split("/", 1)[1].replace("-", " ").capitalize()
+    values = {"{{id}}": args.id, "{{name}}": name, "{{publisher}}": args.publisher}
+    for source in sorted(TEMPLATE.rglob("*")):
+        if not source.is_file():
+            continue
+        text = source.read_text(encoding="utf-8")
+        for placeholder, value in values.items():
+            text = text.replace(placeholder, value)
+        destination = target / source.relative_to(TEMPLATE)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(text, encoding="utf-8")
+    print(f"{args.id} created in {target}. Next:")
+    for step in (
+        f"openhealth validate {target}",
+        f"openhealth test {target}",
+        f"openhealth eval {target} --dataset examples",
+        f"openhealth card {target} --write",
+    ):
+        print(f"  {step}")
+    print("The guide: docs/guides/authoring-a-pack.md")
+    return 0
+
+
 def cmd_demo(args: argparse.Namespace) -> int:
     from openhealth.sandbox.demo import run_demo
 
@@ -1239,6 +1274,13 @@ def build_parser() -> argparse.ArgumentParser:
     purge.add_argument("--db", default="var/openhealth.db", help="SQLite path or postgresql:// URL")
     purge.add_argument("--days", type=int, help="default: $OPENHEALTH_RETENTION_DAYS")
     purge.set_defaults(handler=cmd_phi_purge)
+
+    new = sub.add_parser("new", help="start a new pack from a template (YAML only)")
+    new.add_argument("dir", help="an empty or new directory")
+    new.add_argument("--id", required=True, help="namespace/name, e.g. my-clinic/refill-router")
+    new.add_argument("--name", help="a display name (default: from the id)")
+    new.add_argument("--publisher", default="Your organization", help="who publishes it")
+    new.set_defaults(handler=cmd_new)
 
     sub.add_parser("demo", help="offline end-to-end demo on synthetic data").set_defaults(
         handler=cmd_demo

@@ -1,0 +1,12 @@
+{"id": "ex-01", "input": {"message": {"body": "Can you send a refill of my metformin to the pharmacy?"}}, "labels": {"request": "refill", "urgent_symptoms": "no"}}
+{"id": "ex-02", "input": {"message": {"body": "I ran out of my blood pressure pills."}}, "labels": {"request": "refill", "urgent_symptoms": "no"}}
+{"id": "ex-03", "input": {"message": {"body": "Please renew my prescription for atorvastatin."}}, "labels": {"request": "refill", "urgent_symptoms": "no"}}
+{"id": "ex-04", "input": {"message": {"body": "I would like to book an appointment for my annual physical."}}, "labels": {"request": "appointment", "urgent_symptoms": "no"}}
+{"id": "ex-05", "input": {"message": {"body": "Can I schedule a visit with Dr. Lee next month?"}}, "labels": {"request": "appointment", "urgent_symptoms": "no"}}
+{"id": "ex-06", "input": {"message": {"body": "I need to cancel my visit on Friday."}}, "labels": {"request": "appointment", "urgent_symptoms": "no"}}
+{"id": "ex-07", "input": {"message": {"body": "What are your opening hours on Saturday?"}}, "labels": {"request": "other", "urgent_symptoms": "no"}}
+{"id": "ex-08", "input": {"message": {"body": "I got a bill I don't understand."}}, "labels": {"request": "other", "urgent_symptoms": "no"}}
+{"id": "ex-09", "input": {"message": {"body": "I have chest pressure and my left arm feels heavy."}}, "labels": {"request": "other", "urgent_symptoms": "yes"}}
+{"id": "ex-10", "input": {"message": {"body": "My husband's face is drooping and his speech is slurred."}}, "labels": {"request": "other", "urgent_symptoms": "yes"}}
+{"id": "ex-11", "input": {"message": {"body": "Refill my inhaler please, I have trouble breathing at night."}}, "labels": {"request": "refill", "urgent_symptoms": "yes"}}
+{"id": "ex-12", "input": {"message": {"body": "No chest pain, just need to book my follow-up."}}, "labels": {"request": "appointment", "urgent_symptoms": "no"}}

@@ -1,0 +1,10 @@
+# Behaviour tests: `openhealth test` runs each one. Add a case for every mistake you find.
+- name: a refill request goes to the refill queue
+  input: {message: {body: "Could you refill my lisinopril? I am running low."}}
+  expect: {recommendation: refill, answers: {urgent_symptoms: "no"}}
+- name: an appointment request goes to scheduling
+  input: {message: {subject: "Visit", body: "I need to reschedule my appointment next week."}}
+  expect: {recommendation: appointment}
+- name: chest pain goes to a nurse today, whatever else the message asks
+  input: {message: {body: "Please refill my inhaler. Also I have had chest pain since last night."}}
+  expect: {outcome: HUMAN_REVIEW, priority: urgent, answers: {urgent_symptoms: "yes"}}
