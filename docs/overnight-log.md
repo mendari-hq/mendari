@@ -24,7 +24,8 @@ the production-deploy check and the four "small remaining gaps" under "What an A
 | [#69](https://github.com/Junebugg1214/openhealth-hub/pull/69) | Sandbox: referral cases in FHIR as US Core resources (and a seeding fix) | v0.4 item 3 | Green first time; preview checked; merged |
 | [#70](https://github.com/Junebugg1214/openhealth-hub/pull/70) | CDS Hooks fetch missing prefetch from allow-listed FHIR servers | v0.4 item 4 | Green first time; preview checked; merged |
 | [#71](https://github.com/Junebugg1214/openhealth-hub/pull/71) | SMART on FHIR EHR launch: backend (PKCE, OIDC, server-side sessions, patient context) | v0.4 item 5, part 1 of 3 | Green; one follow-up commit before merge (`/api/smart/session` answers `{"active": false}` instead of 401, found while building the view); preview checked (SMART off: inactive, launch 404); merged |
-| pending | Dashboard: "This patient" view after a SMART launch | v0.4 item 5, part 2 of 3 | pending |
+| [#72](https://github.com/Junebugg1214/openhealth-hub/pull/72) | Dashboard: This patient, after a SMART launch from the EHR | v0.4 item 5, part 2 of 3 | Red once (a real dashboard race exposed by the new boot request, plus a racy skeleton test); fixed at the root with a regression test, then green; preview checked; merged |
+| [#73](https://github.com/Junebugg1214/openhealth-hub/pull/73) | Sandbox: SMART launcher and a scripted EHR launch (CI job sandbox-e2e) | v0.4 item 5, part 3 of 3 (and the SMART half of item 7) | Green, including the new `sandbox-e2e` job; rebased after #72 (log and todo only) |
 
 ## Decisions made on your behalf
 
@@ -123,6 +124,13 @@ the production-deploy check and the four "small remaining gaps" under "What an A
 - **"This patient" appears only after a launch.** Its nav link is hidden otherwise, so nothing
   changes for anyone not launched from an EHR. Work items are decided on request (a button),
   not on page load, so viewing a patient never writes decisions to the audit trail.
+- **The sandbox's SMART server is smart-launcher-v2, pinned by digest.** Its launch value can skip
+  login and consent, so `openhealth sandbox smart-launch` plays the EHR and the browser over
+  plain HTTP inside the compose network. That's how CI proves the roadmap's exit ("the inbox and
+  referral packs run from a SMART launch against the HAPI sandbox") on every change, with
+  `--strict`, which fails on any US Core issue in a decided input. A human with a browser would
+  need the compose hostnames (`engine`, `launcher`) to resolve on their machine, so the README
+  shows the scripted launch.
 - **Access tokens are stored in the database unencrypted** for their lifetime. There is no key to
   encrypt them with until v0.6's PHI mode; this is noted in the architecture's trust boundaries.
 - **A new dependency, `pyjwt[crypto]` (>=2.10.1,<3; 2.15.1 locked)**, verifies SMART `id_token`s.

@@ -145,8 +145,19 @@ This starts a HAPI FHIR R4 server seeded with synthetic cases as US Core 6.1.0 r
 inbox Patients and Communications, and referral Patients, ServiceRequests, notes, reports and
 labs. Referral dates are moved to today, so the windows the pack checks stay the same. Then it
 starts the OpenHealth engine (REST, FHIR, CDS Hooks, Jev adapter, review queue, audit, dashboard at
-http://localhost:8000), and a workflow worker. The worker routes each in-progress
-Communication and writes a FHIR `Task` back to the server. No real PHI is involved.
+http://localhost:8000), a SMART launcher (smart-launcher-v2, in front of HAPI) and a workflow
+worker. The worker routes each in-progress Communication and writes a FHIR `Task` back to the
+server. No real PHI is involved.
+
+A SMART EHR launch, scripted end to end (EHR and browser in one), decides a patient's referrals
+or messages:
+
+```bash
+docker compose exec engine openhealth sandbox smart-launch --pack openhealth/referral-router \
+  --engine http://engine:8000 --launcher http://launcher --fhir http://fhir:8080/fhir
+```
+
+The CI job `sandbox-e2e` runs it for the inbox and referral packs on every change.
 
 ## Healthcare standards
 

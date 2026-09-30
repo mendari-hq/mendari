@@ -57,10 +57,10 @@ Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 - [x] Audit export as FHIR AuditEvent and Provenance
 - [x] Sandbox: referral cases in FHIR (US Core; the inbox's Patients too)
 - [x] CDS Hooks that fetch, under an allow-list (one outbound FHIR client for all later calls)
-- [ ] SMART on FHIR EHR launch (PKCE, OIDC), patient context in the dashboard
+- [x] SMART on FHIR EHR launch (PKCE, OIDC), patient context in the dashboard
   - [x] Backend: launch, callback, server-side sessions, patient-context API
   - [x] Dashboard "This patient" view
-  - [ ] Sandbox launcher (smart-launcher-v2) and a scripted launch
+  - [x] Sandbox launcher (smart-launcher-v2) and a scripted launch; CI job `sandbox-e2e`
 - [ ] Bulk FHIR `$export` into local-validation datasets
 - [ ] End-to-end exit checks in CI; docs
 
