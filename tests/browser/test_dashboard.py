@@ -1630,3 +1630,89 @@ def test_a_level_1_pack_needs_no_approval(page: Page) -> None:
     open_pack(page, INBOX, "card")
     page.goto(f"/?pack={INBOX}#card/approval")
     expect(page.locator("#card-approval")).to_contain_text("No approval is needed")
+
+
+def test_monitoring_shows_the_last_week_against_the_benchmark(page: Page) -> None:
+    open_pack(page, INBOX, "monitoring")
+    expect(page.locator("main h1")).to_have_text("Monitoring")
+    expect(page.locator(".stats-primary .stat")).to_have_count(4)
+    expect(page.locator(".stat").first).to_contain_text("benchmark")
+    expect(page.locator("#monitoring-days")).to_have_value("30")
+    expect(page.locator('[data-table="monitoring-weeks"] tbody tr')).to_have_count(5)
+    expect(page.locator("main")).to_contain_text("The trend appears once decisions in two weeks")
+
+
+def test_monitoring_draws_the_weekly_trend(page: Page) -> None:
+    def week(start: str, end: str, accuracy: float | None, overrides: float | None) -> Any:
+        return {
+            "from": start,
+            "to": end,
+            "decisions": 30,
+            "automated_rate": 0.8,
+            "reviewed": 6,
+            "override_rate": overrides,
+            "labelled": 25,
+            "observed_accuracy": accuracy,
+            "cost_per_decision": None,
+        }
+
+    def with_weeks(route: Route) -> None:
+        report = route.fetch().json()
+        report["weeks"] = [
+            week("2026-09-09", "2026-09-16", 0.96, 0.10),
+            week("2026-09-16", "2026-09-23", None, 0.12),
+            week("2026-09-23", "2026-09-30", 0.91, 0.20),
+        ]
+        route.fulfill(json=report)
+
+    page.route("**/api/monitoring?*", with_weeks)
+    open_pack(page, INBOX, "monitoring")
+    chart = page.locator('figure[data-chart="monitoring-trend"]')
+    expect(chart.locator("svg")).to_be_visible()
+    expect(chart).to_contain_text("Sep 30")
+    rows = page.locator('[data-table="monitoring-weeks"] tbody tr')
+    expect(rows.first).to_contain_text("Sep 9 \u2013 Sep 16")  # an en dash
+
+
+def test_monitoring_alerts_lead_the_page(page: Page) -> None:
+    page.route(
+        "**/api/monitoring?*",
+        lambda route: route.fulfill(
+            json={
+                "pack": {"id": INBOX},
+                "days": 30,
+                "benchmark": {"accuracy": 0.97, "tolerance": 0.03},
+                "last_7_days": {
+                    "decisions": 40,
+                    "automated_rate": 0.9,
+                    "reviewed": 4,
+                    "override_rate": 0.25,
+                    "labelled": 30,
+                    "observed_accuracy": 0.8,
+                    "cost_per_decision": 0.0,
+                    "drift_psi": 0.31,
+                    "automated_rated_wrong": 2,
+                },
+                "weeks": [],
+                "alerts": [
+                    {
+                        "kind": "accuracy",
+                        "severity": "high",
+                        "message": "observed accuracy 80.0% over the last 7 days",
+                    },
+                    {
+                        "kind": "drift",
+                        "severity": "medium",
+                        "message": "PSI 0.31 against the benchmark's confidences",
+                    },
+                ],
+            }
+        ),
+    )
+    open_pack(page, INBOX, "monitoring")
+    expect(page.locator(".callout.danger")).to_contain_text(
+        "Accuracy below the benchmark: observed accuracy 80.0%"
+    )
+    expect(page.locator(".callout.warning")).to_contain_text("Confidence drift: PSI 0.31")
+    expect(page.locator(".stat.tone-danger")).to_have_count(2)
+    expect(page.get_by_role("heading", name="No decisions in the last 30 days")).to_be_visible()

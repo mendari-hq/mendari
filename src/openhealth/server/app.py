@@ -46,6 +46,7 @@ from openhealth.errors import (
 from openhealth.evals import compare, evaluate, leaderboard, load_dataset, resolve_dataset
 from openhealth.evals.feedback import feedback_dataset
 from openhealth.evals.harness import Dataset
+from openhealth.evals.monitoring import monitor
 from openhealth.evals.pack_tests import load_cases
 from openhealth.providers import jev, llm
 from openhealth.providers.credentials import key_source
@@ -329,6 +330,13 @@ def create_app(
     def decide_fhir(namespace: str, name: str, payload: JsonBody) -> dict[str, Any]:
         result, task = decision_for(f"{namespace}/{name}").decide_fhir(payload)
         return {"decision": result.to_dict(), "task": task}
+
+    # -- monitoring ------------------------------------------------------------------------------
+
+    @app.get("/api/monitoring")
+    def monitoring(pack_id: str, days: int = 30) -> dict[str, Any]:
+        """The pack over time for this organisation: weekly series, drift and alerts."""
+        return monitor(store, pack_or_404(pack_id), days=max(7, min(days, 180)))
 
     # -- governance ------------------------------------------------------------------------------
 

@@ -748,6 +748,21 @@ class AuditStore:
             yield from page
             after = page[-1]["seq"]
 
+    def decision_rows(self, pack_id: str, since: str) -> list[dict[str, Any]]:
+        """Each decision of a pack since a time (ISO), for monitoring: when, the outcome, the
+        primary confidence, what a person or a downstream system said, and the cost."""
+        scope, scoped = _scope()
+        with self._db.session(exclusive=False) as db:
+            return db.all(
+                "SELECT d.id, d.created_at, d.outcome, d.confidence, d.recommendation, "
+                "d.final_label, d.human_override, d.cost_usd, "
+                "(SELECT COUNT(*) FROM feedback f WHERE f.decision_id = d.id "
+                "AND f.superseded_by IS NULL AND f.rating = 'down') AS rated_wrong "
+                f"FROM decisions d WHERE {scope} AND d.pack_id = ? AND d.created_at >= ? "
+                "ORDER BY d.created_at",
+                (*scoped, pack_id, since),
+            )
+
     def pending_reviews(self, pack_id: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
         return self.query(pack_id=pack_id, review_status="pending", limit=limit)
 
