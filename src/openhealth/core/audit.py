@@ -12,19 +12,18 @@ from __future__ import annotations
 
 import hashlib
 import json
-import sqlite3
 import statistics
-import threading
 import time
 import uuid
-from abc import ABC, abstractmethod
-from collections.abc import Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from collections.abc import Iterator, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from openhealth.core import clock
+from openhealth.core.db import Backend as _Backend
+from openhealth.core.db import Session as _Session
+from openhealth.core.db import connect
 from openhealth.core.spec import Outcome
 from openhealth.errors import ProviderError, ReviewError
 
@@ -124,171 +123,6 @@ def _canonical(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
 
 
-# -- backends ------------------------------------------------------------------------------
-
-
-class _Session(ABC):
-    @abstractmethod
-    def all(self, sql: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
-        """Run a statement and return its rows as dicts (empty for statements without rows)."""
-
-    def one(self, sql: str, params: Sequence[Any] = ()) -> dict[str, Any] | None:
-        rows = self.all(sql, params)
-        return rows[0] if rows else None
-
-    @abstractmethod
-    def columns(self, table: str) -> set[str]:
-        """The column names a table has now."""
-
-
-class _Backend(ABC):
-    kind: str
-
-    @abstractmethod
-    def session(self, *, exclusive: bool) -> Any:
-        """Context manager yielding a _Session. Exclusive sessions are transactions serialised
-        with every other exclusive session (required for hash-chain appends)."""
-
-    def close(self) -> None:  # noqa: B027 - optional hook
-        pass
-
-
-class _SqliteSession(_Session):
-    def __init__(self, connection: sqlite3.Connection):
-        self.connection = connection
-
-    def all(self, sql: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
-        return [dict(row) for row in self.connection.execute(sql, tuple(params)).fetchall()]
-
-    def columns(self, table: str) -> set[str]:
-        return {row["name"] for row in self.all(f"PRAGMA table_info({table})")}
-
-
-class _SqliteBackend(_Backend):
-    kind = "sqlite"
-
-    def __init__(self, path: str):
-        self.path = path
-        if path != ":memory:":
-            Path(path).parent.mkdir(parents=True, exist_ok=True)
-        self._memory = (
-            sqlite3.connect(":memory:", isolation_level=None, check_same_thread=False)
-            if path == ":memory:"
-            else None
-        )
-        self._lock = threading.RLock()  # serialises access to the shared in-memory connection
-        with self._connect() as connection:
-            connection.executescript(
-                _TABLES.format(real="REAL", serial="INTEGER PRIMARY KEY AUTOINCREMENT")
-            )
-        with self.session(exclusive=True) as db:  # IMMEDIATE: one process migrates at a time
-            _migrate(db)
-
-    @contextmanager
-    def _connect(self) -> Iterator[sqlite3.Connection]:
-        if self._memory is not None:
-            with self._lock:
-                self._memory.row_factory = sqlite3.Row
-                yield self._memory
-            return
-        connection = sqlite3.connect(self.path, timeout=30, isolation_level=None)
-        connection.row_factory = sqlite3.Row
-        try:
-            connection.execute("PRAGMA journal_mode=WAL")
-            yield connection
-        finally:
-            connection.close()
-
-    @contextmanager
-    def session(self, *, exclusive: bool) -> Iterator[_Session]:
-        with self._connect() as connection:
-            if not exclusive:
-                yield _SqliteSession(connection)
-                return
-            # IMMEDIATE takes the write lock up front so hash-chain appends are serialised.
-            connection.execute("BEGIN IMMEDIATE")
-            try:
-                yield _SqliteSession(connection)
-            except BaseException:
-                connection.execute("ROLLBACK")
-                raise
-            connection.execute("COMMIT")
-
-    def close(self) -> None:
-        if self._memory is not None:
-            self._memory.close()
-
-
-class _PostgresSession(_Session):
-    def __init__(self, connection: Any):
-        self.connection = connection
-
-    def all(self, sql: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
-        cursor = self.connection.execute(sql.replace("?", "%s"), tuple(params))
-        return list(cursor.fetchall()) if cursor.description else []
-
-    def columns(self, table: str) -> set[str]:
-        rows = self.all(
-            "SELECT column_name FROM information_schema.columns "
-            "WHERE table_schema = current_schema() AND table_name = ?",
-            (table,),
-        )
-        return {row["column_name"] for row in rows}
-
-
-class _PostgresBackend(_Backend):
-    kind = "postgres"
-
-    def __init__(self, url: str, migrate_url: str | None = None):
-        import psycopg
-        from psycopg.rows import dict_row
-        from psycopg_pool import ConnectionPool
-
-        # prepare_threshold=None: prepared statements break behind transaction-mode poolers
-        # (Neon's pooled endpoint, PgBouncer).
-        # check_connection: Neon suspends idle compute and the server closes pooled connections,
-        # so every connection is verified (one round trip) before use and replaced if dead.
-        self._pool = ConnectionPool(
-            url,
-            min_size=1,
-            max_size=4,
-            max_idle=60,
-            check=ConnectionPool.check_connection,
-            kwargs={
-                "row_factory": dict_row,
-                "prepare_threshold": None,
-                "application_name": "openhealth",
-            },
-            open=True,
-        )
-        # Schema setup goes over the direct (unpooled) connection when one is given, as Neon
-        # recommends for DDL; the advisory lock serialises concurrent cold starts.
-        ddl = _TABLES.format(
-            real="DOUBLE PRECISION", serial="BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY"
-        )
-        with (
-            psycopg.connect(
-                migrate_url or url, prepare_threshold=None, row_factory=dict_row
-            ) as connection,
-            connection.transaction(),
-        ):
-            connection.execute("SELECT pg_advisory_xact_lock(%s)", (_CHAIN_LOCK,))
-            for statement in ddl.split(";"):
-                if statement.strip():
-                    connection.execute(statement)
-            _migrate(_PostgresSession(connection))
-
-    @contextmanager
-    def session(self, *, exclusive: bool) -> Iterator[_Session]:
-        with self._pool.connection() as connection, connection.transaction():
-            if exclusive:
-                connection.execute("SELECT pg_advisory_xact_lock(%s)", (_CHAIN_LOCK,))
-            yield _PostgresSession(connection)
-
-    def close(self) -> None:
-        self._pool.close()
-
-
 def _migrate(db: _Session) -> None:
     """Bring a database created by an earlier release up to _TABLES. Runs under the schema lock
     (SQLite: an IMMEDIATE transaction; Postgres: the advisory lock), so cold starts don't race."""
@@ -313,12 +147,6 @@ def _supersede_earlier_ratings(db: _Session) -> None:
             db.all("UPDATE feedback SET superseded_by = ? WHERE id = ?", (current, row["id"]))
 
 
-def _backend(target: str, migrate_url: str | None) -> _Backend:
-    if target.startswith(("postgres://", "postgresql://")):
-        return _PostgresBackend(target, migrate_url)
-    return _SqliteBackend(target)
-
-
 # -- store ---------------------------------------------------------------------------------
 
 
@@ -328,7 +156,13 @@ class AuditStore:
 
         `migrate_url` is an optional direct (unpooled) Postgres URL used only for schema setup.
         """
-        self._db = _backend(str(target), migrate_url)
+        self._db: _Backend = connect(
+            str(target),
+            schema=_TABLES,
+            migrate=_migrate,
+            lock_key=_CHAIN_LOCK,
+            migrate_url=migrate_url,
+        )
         self.path = str(target) if self._db.kind == "sqlite" else None
 
     @property
