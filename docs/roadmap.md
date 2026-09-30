@@ -32,7 +32,13 @@ first** (the Hub only matters once it has five strong packs), **LLMs through Ver
   (`pilot-check`). Nothing is switched on in production, which stays behind Vercel
   Authentication.
 
-Now: **v0.7 Later standards** ([plan](plans/v0.7-later-standards.md)).
+- **v0.7 Later standards ✅** ([plan](plans/v0.7-later-standards.md), #90–#95):
+  - a CQL provider, with the trial criteria in CQL agreeing with `criteria` on every case;
+  - OMOP CDM inputs with population reports;
+  - Da Vinci CRD, DTR and PAS around the PA pack, each validated by the HL7 validator against
+    its guide in CI.
+
+Now: **v1.0 Public open-source launch** (everything that doesn't need your go-ahead).
 
 ## Where we are against the goal
 
@@ -40,11 +46,11 @@ Now: **v0.7 Later standards** ([plan](plans/v0.7-later-standards.md)).
 |---|---|---|
 | Decision Pack spec (schemas, FHIR mapping, policy, tests, evals, card, versions) | ✅ 0.2 | `choice`, `boolean` and `score` questions; derived questions (decision tables) |
 | Runtime + AUTO / HUMAN_REVIEW / ABSTAIN / BLOCK + risk levels 0–4, governance approvals in the UI | ✅ | none |
-| Providers: rules, naive Bayes, Jev, LLMs (Vercel AI Gateway; OpenAI-compatible local models), criteria, dosing; `any_of`, `cascade`, `vote` | ✅ | **CQL** (v0.7) |
+| Providers: rules, naive Bayes, Jev, LLMs (Vercel AI Gateway; OpenAI-compatible local models), criteria, CQL, dosing; `any_of`, `cascade`, `vote` | ✅ | none |
 | Reference packs | ✅ 5 of 5 | A harder, clinician-reviewed benchmark |
 | Evaluation (accuracy, calibration, abstention, false automation, overrides, latency, cost, subgroups) + local validation + provider leaderboards for every pack; monitoring over time with drift and alerts | ✅ | A harder benchmark |
 | Audit trail (hash chain), review queue, feedback (right / wrong, with the right answer, changeable), FHIR AuditEvent/Provenance export | ✅ | none |
-| FHIR R4 with US Core 6.1.0 checks, CDS Hooks (prefetch, or fetch from allow-listed servers), SMART on FHIR EHR launch (OAuth 2 PKCE, OIDC), Bulk FHIR `$export` into local datasets, synthetic sandbox (HAPI, SMART launcher) | ✅ v0.4 | CQL, OMOP, Da Vinci CRD/DTR/PAS (v0.7) |
+| FHIR R4 with US Core 6.1.0 checks, CDS Hooks (prefetch, or fetch from allow-listed servers), SMART on FHIR EHR launch (OAuth 2 PKCE, OIDC), Bulk FHIR `$export` into local datasets, CQL, OMOP CDM, Da Vinci CRD/DTR/PAS, synthetic sandbox (HAPI with Clinical Reasoning, SMART launcher, mock payer) | ✅ v0.7 | none |
 | Decision Cards | ✅ | Validation history, hub-hosted cards |
 | Dashboard (every pack; review, audit, evaluations, monitoring, feedback, card, Try it; roles; both themes; keyboard and accessibility-tree checked) | ✅ redesigned | A VoiceOver check |
 | Hub: publish / pull / search, publisher types, signed archives, shared site reports, website | ✅ v0.5 (not public yet) | Going public (a public registry and site); datasets and eval suites as first-class entries |
@@ -156,7 +162,10 @@ committee approves a level 2 pack, and monitoring and the chain check out._
 - Exit: a pilot organization could run the inbox router with its own IdP, PHI-safe settings,
   monitoring and governance approvals.
 
-### v0.7 Later standards
+### v0.7 Later standards ✅
+_Built and verified 2026-09-30 (#90–#95). The CQL port agrees with `criteria` on 750 cases in
+CI (job `cql`); OMOP round-trips identically; the seven Da Vinci samples pass the HL7 validator
+against CRD 2.2.1, DTR 2.2.0 and PAS 2.2.1._
 - A **CQL** provider (a CQL engine as a pack provider type).
 - **OMOP** CDM → pack inputs, for population-level evaluation.
 - **Da Vinci CRD / DTR / PAS** wired into PA Preflight.

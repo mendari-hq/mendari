@@ -44,6 +44,17 @@ def deployment_place() -> tuple[str, str]:
     return environment, release
 
 
+def pas_payer_url() -> str:
+    """The payer's FHIR base for Da Vinci PAS submissions ($OPENHEALTH_PAS_PAYER_URL); it must
+    also be on OPENHEALTH_FHIR_ALLOWED_SERVERS."""
+    from openhealth.standards.pas import PasError
+
+    url = os.environ.get("OPENHEALTH_PAS_PAYER_URL", "").strip().rstrip("/")
+    if not url:
+        raise PasError("set OPENHEALTH_PAS_PAYER_URL to submit prior-authorization requests")
+    return url
+
+
 def fhir_validation() -> FhirValidation:
     """US Core checks on FHIR inputs ($OPENHEALTH_FHIR_VALIDATION): `warn` (default) returns and
     audits the issues without changing the decision; `enforce` blocks a non-conforming input

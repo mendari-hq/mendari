@@ -7,6 +7,8 @@
 - `dtr-*.json`: `Questionnaire/$questionnaire-package` answers: for the order with documentation
   missing (found by its CRD assertion id, pre-answered from the decision), and for a
   questionnaire asked for by its canonical alone.
+- `pas-request.json`, `pas-response.json`: the PAS request Bundle for the complete request, and
+  the sandbox payer's answer to it.
 
     uv run python scripts/davinci_sample.py var/fhir-samples/davinci
 """
@@ -23,7 +25,8 @@ from typing import Any
 
 from openhealth import AuditStore, Decision
 from openhealth.core.pack import Pack
-from openhealth.standards import cds_hooks, davinci
+from openhealth.sandbox import payer as sandbox_payer
+from openhealth.standards import cds_hooks, davinci, pas
 
 TODAY = date.today()
 CPT = "http://www.ama-assn.org/go/cpt"
@@ -177,6 +180,52 @@ def write(out: Path, decision: Decision, store: AuditStore) -> None:
             sys.exit(f"{name}: expected one package bundle")
         (out / f"{name}.json").write_text(json.dumps(answer, indent=2) + "\n", encoding="utf-8")
     print(f"{len(asks)} DTR packages written to {out}")
+
+    # PAS: the complete request, with the resources a practice's EHR holds (synthetic).
+    ready = updated["crd-submit-ready"]
+    record = store.get(davinci.assertion_id(ready) or "")
+    if record is None:
+        sys.exit("pas: the complete request's decision is not in the store")
+    npi = "http://hl7.org/fhir/sid/us-npi"
+    member = {"system": "http://terminology.hl7.org/CodeSystem/v2-0203", "code": "MB"}
+    request = pas.request_bundle(
+        decision={"id": record["id"], "recommendation": record["recommendation"]},
+        order=ready,
+        patient={
+            "resourceType": "Patient",
+            "identifier": [{"system": "https://openhealth.dev/fhir/sandbox/mrn", "value": "PA-P1"}],
+            "name": [{"family": "Synthetic", "given": ["Case"]}],
+            "gender": "female",
+            "birthDate": "1975-01-01",
+        },
+        coverage={
+            **coverage,
+            "identifier": [
+                {
+                    "type": {"coding": [member]},
+                    "system": "https://acme.example/member",
+                    "value": "ACME-778899",
+                }
+            ],
+        },
+        insurer={
+            "resourceType": "Organization",
+            "name": "Acme Health Plan (synthetic)",
+            "identifier": [{"system": npi, "value": "1234567893"}],
+        },
+        requester={
+            "resourceType": "Organization",
+            "name": "Riverside Clinic (synthetic)",
+            "identifier": [{"system": npi, "value": "1245319599"}],
+        },
+        service_type="62",  # X12 1365: MRI/CAT scan
+        place_of_service="22",  # on-campus outpatient hospital
+        diagnoses=["M54.16"],
+    )
+    answer = sandbox_payer.respond(request)
+    for name, resource in (("pas-request", request), ("pas-response", answer)):
+        (out / f"{name}.json").write_text(json.dumps(resource, indent=2) + "\n", encoding="utf-8")
+    print(f"PAS request and response written to {out} ({pas.outcome(answer)['outcome']})")
 
 
 if __name__ == "__main__":

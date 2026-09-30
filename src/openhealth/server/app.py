@@ -54,8 +54,9 @@ from openhealth.providers.credentials import key_source
 from openhealth.server.auth import Auth, add_auth_routes, auth_settings
 from openhealth.server.smart_routes import add_smart_routes, error_page
 from openhealth.settings import FhirValidation, providers_for
-from openhealth.standards import audit_fhir, cds_hooks, davinci
-from openhealth.standards.fhir_client import allowed_servers
+from openhealth.standards import audit_fhir, cds_hooks, davinci, pas
+from openhealth.standards.fhir_client import GuardedHttp, allowed_servers
+from openhealth.standards.pas import PasError
 from openhealth.standards.smart import smart_settings
 
 DASHBOARD_DIR = Path(__file__).resolve().parents[1] / "dashboard"
@@ -67,6 +68,7 @@ _STATUS = {
     ReviewError: 409,
     FhirError: 422,
     PackValidationError: 422,
+    PasError: 422,
 }
 
 
@@ -86,6 +88,22 @@ class ReviewRequest(BaseModel):
 class OutcomeRequest(BaseModel):
     final_label: str = Field(min_length=1)
     source: str = Field(min_length=1, max_length=200)
+
+
+class PriorAuthorizationRequest(BaseModel):
+    """A PAS request for a decided order: the EHR's resources, and the X12 codes the payer needs
+    (unless the order carries them). `submit` sends it to $OPENHEALTH_PAS_PAYER_URL."""
+
+    decision_id: str = Field(min_length=1, max_length=100)
+    patient: dict[str, Any]
+    coverage: dict[str, Any]
+    insurer: dict[str, Any]
+    requester: dict[str, Any]
+    order: dict[str, Any]
+    service_type: str | None = Field(default=None, max_length=5, description="X12 1365")
+    place_of_service: str | None = Field(default=None, max_length=5, description="CMS POS code")
+    diagnoses: list[str] = Field(default=[], max_length=12, description="ICD-10-CM codes")
+    submit: bool = False
 
 
 class ExpectedAnswer(BaseModel):
@@ -565,6 +583,39 @@ def create_app(
         if pack is None:
             raise PackNotFoundError(f"no CDS service {service_id!r}")
         return cds_hooks.invoke(decision_for(pack.id), request)
+
+    @app.post("/api/packs/{namespace}/{name}/pas")
+    def prior_authorization(
+        namespace: str, name: str, body: PriorAuthorizationRequest, http: Request
+    ) -> dict[str, Any]:
+        """Da Vinci PAS: the request Bundle for a complete request (`submit_ready`), and with
+        `submit`, the payer's answer, which is chained on the decision (`pas.submitted`)."""
+        pack = pack_or_404(f"{namespace}/{name}")
+        record = store.get(body.decision_id)
+        if record is None or record["pack_id"] != pack.id:
+            raise PackNotFoundError(f"no decision {body.decision_id} of {pack.id}")
+        bundle = pas.request_bundle(
+            decision={"id": record["id"], "recommendation": record["recommendation"]},
+            order=body.order,
+            patient=body.patient,
+            coverage=body.coverage,
+            insurer=body.insurer,
+            requester=body.requester,
+            service_type=body.service_type,
+            place_of_service=body.place_of_service,
+            diagnoses=body.diagnoses,
+        )
+        submitted = None
+        if body.submit:
+            payer = settings.pas_payer_url()
+            with GuardedHttp() as client:
+                submitted = pas.submit(bundle, payer, client)
+            store.record_event(
+                record["id"],
+                "pas.submitted",
+                {**submitted, "requested_by": acting_as(http, None) or "open mode"},
+            )
+        return {"bundle": bundle, "submitted": submitted}
 
     @app.post("/fhir/Questionnaire/$questionnaire-package")
     def questionnaire_package(payload: JsonBody) -> JSONResponse:

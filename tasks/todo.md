@@ -2,7 +2,7 @@
 
 Roadmap to the full goal: [`docs/roadmap.md`](../docs/roadmap.md).
 
-## Current: v0.7 Later standards ([plan](../docs/plans/v0.7-later-standards.md))
+## Done: v0.7 Later standards ([plan](../docs/plans/v0.7-later-standards.md))
 Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 - [x] Plan
 - [x] CQL provider (Library/$evaluate on HAPI FHIR with Clinical Reasoning); the trial pack's
@@ -11,7 +11,7 @@ Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 - [x] Da Vinci CRD: `coverage-information` on the PA pack's order-sign response (validated
   against CRD 2.2.1)
 - [x] Da Vinci DTR: questionnaire package for the PA pack's gaps (validated against DTR 2.2.0)
-- [ ] Da Vinci PAS: request Bundle and submission to a mock payer
+- [x] Da Vinci PAS: request Bundle and submission to a mock payer (validated against PAS 2.2.1)
 
 ## Done: v0.6 Readiness for health organizations ([plan](../docs/plans/v0.6-org-readiness.md))
 Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).

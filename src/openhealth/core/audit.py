@@ -330,6 +330,17 @@ class AuditStore:
                 db, decision_id, "outcome.recorded", {"final_label": final_label, "source": source}
             )
 
+    def record_event(self, decision_id: str, event: str, payload: Mapping[str, Any]) -> None:
+        """A follow-up on a decision (e.g. `pas.submitted`), chained after its other events."""
+        with self._db.session(exclusive=True) as db:
+            scope, scoped = _scope()
+            row = db.one(
+                f"SELECT id FROM decisions d WHERE id = ? AND {scope}", (decision_id, *scoped)
+            )
+            if row is None:
+                raise ReviewError(f"unknown decision {decision_id}")
+            self._append(db, decision_id, event, dict(payload))
+
     def record_feedback(
         self,
         decision_id: str,

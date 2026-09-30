@@ -16,6 +16,7 @@ const EVENT_TEXT = {
   "feedback.recorded": "Feedback recorded",
   "input.read": "Input read (PHI mode)",
   "input.purged": "Input deleted (retention)",
+  "pas.submitted": "Sent for prior authorization",
 };
 
 views.audit = async (main, params) => {

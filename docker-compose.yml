@@ -43,14 +43,28 @@ services:
       JEV_API_KEY: ${JEV_API_KEY:-}
       OPENHEALTH_PROVIDERS: ${OPENHEALTH_PROVIDERS:-}
       # CDS Hooks and SMART may read from the sandbox's own FHIR server and launcher, and only there.
-      OPENHEALTH_FHIR_ALLOWED_SERVERS: ${OPENHEALTH_FHIR_ALLOWED_SERVERS:-http://fhir:8080,http://launcher}
+      OPENHEALTH_FHIR_ALLOWED_SERVERS: ${OPENHEALTH_FHIR_ALLOWED_SERVERS:-http://fhir:8080,http://launcher,http://payer:8200}
       # SMART launch (a public client; the launcher accepts any client id).
       OPENHEALTH_SMART_CLIENT_ID: ${OPENHEALTH_SMART_CLIENT_ID:-openhealth-sandbox}
       OPENHEALTH_PUBLIC_URL: ${OPENHEALTH_PUBLIC_URL:-http://engine:8000}
       # The CQL engine for `cql` provider variants (HAPI's Clinical Reasoning module).
       OPENHEALTH_CQL_URL: ${OPENHEALTH_CQL_URL:-http://fhir:8080/fhir}
+      # Da Vinci PAS submissions go to the sandbox's mock payer.
+      OPENHEALTH_PAS_PAYER_URL: ${OPENHEALTH_PAS_PAYER_URL:-http://payer:8200}
     volumes:
       - openhealth-data:/data
+
+  payer:
+    # A mock payer for Da Vinci PAS: certifies every well-formed prior-authorization request.
+    image: openhealth-engine:0.1.0
+    depends_on:
+      engine:
+        condition: service_healthy
+    command: openhealth sandbox payer --host 0.0.0.0 --port 8200
+    ports:
+      - "127.0.0.1:8200:8200"
+    healthcheck:
+      disable: true  # the image's healthcheck is for the engine's HTTP server
 
   registry:
     # The pack registry (openhealth.hub): push and pull signed packs locally. The admin token is
