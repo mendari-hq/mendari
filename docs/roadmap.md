@@ -25,7 +25,7 @@ first** (the Hub only matters once it has five strong packs), **LLMs through Ver
   and pull runs in CI (`hub-e2e`). Going public (a public registry, the site, PyPI) waits for
   your decision.
 
-Now: **v0.6 Readiness for health organizations**.
+Now: **v0.6 Readiness for health organizations** ([plan](plans/v0.6-org-readiness.md)).
 
 ## Where we are against the goal
 
