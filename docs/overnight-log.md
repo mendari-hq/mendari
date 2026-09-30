@@ -20,7 +20,8 @@ the production-deploy check and the four "small remaining gaps" under "What an A
 | [#65](https://github.com/Junebugg1214/openhealth-hub/pull/65) | Sorting moves the rows instead of redrawing the table | Small gap: "fewer whole-subtree re-renders"; category 10 | Green first time; preview checked; merged |
 | [#66](https://github.com/Junebugg1214/openhealth-hub/pull/66) | v0.4 plan | v0.4 planning step | Green; merged (the API answered 502 on merge, the merge had gone through; the branch was deleted by hand) |
 | [#67](https://github.com/Junebugg1214/openhealth-hub/pull/67) | US Core 6.1.0 validation of FHIR inputs (warn by default, enforce on request) | v0.4 item 1 | Green first time, including the new `fhir-conformance` job; preview checked with a real FHIR decision on Vercel (profile data loads, issues returned); merged |
-| pending | Audit export as FHIR AuditEvent and Provenance | v0.4 item 2 | pending |
+| [#68](https://github.com/Junebugg1214/openhealth-hub/pull/68) | Audit export as FHIR AuditEvent and Provenance | v0.4 item 2 | Green first time; preview streamed NDJSON from Postgres; merged |
+| pending | Sandbox: referral cases in FHIR (US Core), seeding fixed against HAPI's search cache | v0.4 item 3 | pending |
 
 ## Decisions made on your behalf
 
@@ -74,6 +75,17 @@ the production-deploy check and the four "small remaining gaps" under "What an A
   input is referred to by its hash. Each AuditEvent carries `seq`, `prev_hash` and `hash`, so the
   chain's linkage survives export and each hash can be checked against the store. The chain can't
   be recomputed from the export alone, since that needs the payloads, which may hold notes.
+- **Sandbox referral cases are moved to today.** The FHIR mappings have no as-of date and decide
+  as of today, so every date shifts by the same gap and birth dates keep each age. A test checks
+  that FHIR → mapping gives back each of the 300 dataset inputs exactly, and that 60 of them
+  decide the same from FHIR as from JSON.
+- **Sandbox resources claim the US Core profiles**, and CI validates them with the HL7 validator.
+  Patients are named "Synthetic, Case <id>". Lab panels without results carry
+  `dataAbsentReason = unknown`, since the synthetic records have no values. Document attachments
+  say "Synthetic … (no clinical content)".
+- **Found and fixed:** `openhealth sandbox seed` checked "already seeded?" through HAPI's search
+  cache, so a second seed within about a minute loaded everything again (seen against the local
+  HAPI). The check now asks for fresh results.
 - **Every new v0.4 capability is off until configured**, and no production environment variable
   is changed. Production has no login of its own until v0.6, so outbound FHIR calls and SMART
   stay disabled there.

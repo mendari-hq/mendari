@@ -141,8 +141,10 @@ recommendation, reasons, fallback, decision_id}`.
 docker compose up --build
 ```
 
-This starts a HAPI FHIR R4 server seeded with synthetic Patients and Communications, the
-OpenHealth engine (REST, FHIR, CDS Hooks, Jev adapter, review queue, audit, dashboard at
+This starts a HAPI FHIR R4 server seeded with synthetic cases as US Core 6.1.0 resources:
+inbox Patients and Communications, and referral Patients, ServiceRequests, notes, reports and
+labs. Referral dates are moved to today, so the windows the pack checks stay the same. Then it
+starts the OpenHealth engine (REST, FHIR, CDS Hooks, Jev adapter, review queue, audit, dashboard at
 http://localhost:8000), and a workflow worker. The worker routes each in-progress
 Communication and writes a FHIR `Task` back to the server. No real PHI is involved.
 
