@@ -334,6 +334,29 @@ def test_the_leaderboard_ranks_safety_first_and_marks_the_deployed_row(page: Pag
     expect(accuracy).to_be_focused()
 
 
+def test_sorting_moves_the_rows_instead_of_redrawing_the_table(page: Page) -> None:
+    """The row elements survive a sort (and with them anything a row holds), ranks follow the new
+    order, and only the sorted column's header says it is sorted."""
+    open_pack(page, GUARD, "evals")
+    table = page.locator("#board table.data").first
+    table.locator("tbody tr").first.evaluate("(tr) => { tr.dataset.kept = 'yes'; }")
+    table.get_by_role("button", name="Accuracy").click()
+    expect(table.locator("th", has_text="Accuracy")).to_have_attribute("aria-sort", "descending")
+    expect(table.locator("tbody tr[data-kept='yes']")).to_have_count(1)
+    ranks = table.locator("tbody .rank").all_inner_texts()
+    assert ranks == [str(i) for i in range(1, len(ranks) + 1)]
+    accuracy = table.locator("th", has_text="Accuracy").evaluate("(th) => th.cellIndex")
+    values = table.locator(f"tbody td:nth-child({accuracy + 1})").all_inner_texts()
+    shares = [float(v.split("%")[0]) for v in values if "%" in v]
+    assert shares == sorted(shares, reverse=True)
+    table.get_by_role("button", name="Accuracy").click()  # again: ascending, the arrow flips
+    expect(table.locator("th", has_text="Accuracy")).to_have_attribute("aria-sort", "ascending")
+    expect(table.locator("th", has_text="Accuracy").locator("use")).to_have_attribute(
+        "href", "#i-chevron-up"
+    )
+    expect(table.locator("th[aria-sort='descending']")).to_have_count(0)
+
+
 def test_the_leaderboard_remembers_the_dataset(page: Page) -> None:
     open_pack(page, GUARD, "evals")
     page.get_by_role("button", name=re.compile(r"^test n=")).click()

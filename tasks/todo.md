@@ -48,7 +48,7 @@ phase (A, B, C) to be done and merged when CI passes.
   - [x] Plain words in criteria tables and Try-it answer headings
   - [x] Links that carry the pack (`?pack=` in the address)
   - [x] A transition from skeleton to content (the view fades in where its skeleton was)
-  - [ ] Fewer whole-subtree re-renders
+  - [x] Fewer whole-subtree re-renders: sorting moves rows instead of redrawing the table
 
 ## Next: v0.4 Healthcare standards
 Plan to be written and approved before any code (roadmap: US Core validation, AuditEvent and
