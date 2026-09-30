@@ -21,6 +21,7 @@ import os
 import posixpath
 import re
 from collections.abc import Collection, Mapping
+from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
@@ -90,6 +91,49 @@ class GuardedHttp:
         self, url: str, data: Mapping[str, str], headers: Mapping[str, str] | None = None
     ) -> dict[str, Any]:
         return self._send("POST", url, headers=headers, data=data)
+
+    def raw(
+        self, method: str, url: str, headers: Mapping[str, str] | None = None, **kwargs: Any
+    ) -> tuple[int, httpx.Headers, bytes]:
+        """Status, headers and body (capped), for protocols that answer 202 or put their result
+        in a header (Bulk export). Redirects are refused, as everywhere."""
+        self.check(url)
+        try:
+            with self._client.stream(method, url, headers=headers, **kwargs) as response:
+                if response.is_redirect:
+                    raise FhirError(f"the server redirected (HTTP {response.status_code})")
+                body = bytearray()
+                for chunk in response.iter_bytes():
+                    body += chunk
+                    if len(body) > MAX_BYTES:
+                        raise FhirError(f"the response is larger than {MAX_BYTES} bytes")
+                return response.status_code, response.headers, bytes(body)
+        except httpx.HTTPError as error:
+            raise FhirError(f"could not reach the server ({type(error).__name__})") from None
+
+    def download(
+        self, url: str, path: Path, *, headers: Mapping[str, str] | None, max_bytes: int
+    ) -> int:
+        """Stream a file (Bulk NDJSON) to `path`, up to `max_bytes`; return its size."""
+        self.check(url)
+        size = 0
+        try:
+            with self._client.stream("GET", url, headers=headers) as response:
+                if response.is_redirect or not response.is_success:
+                    raise FhirError(f"the download answered HTTP {response.status_code}")
+                with path.open("wb") as out:
+                    for chunk in response.iter_bytes():
+                        size += len(chunk)
+                        if size > max_bytes:
+                            raise FhirError(f"the download is larger than {max_bytes} bytes")
+                        out.write(chunk)
+        except httpx.HTTPError as error:
+            path.unlink(missing_ok=True)
+            raise FhirError(f"the download failed ({type(error).__name__})") from None
+        except FhirError:
+            path.unlink(missing_ok=True)
+            raise
+        return size
 
     def _send(self, method: str, url: str, **kwargs: Any) -> dict[str, Any]:
         self.check(url)

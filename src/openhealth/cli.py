@@ -441,6 +441,69 @@ def cmd_sandbox_smart_launch(args: argparse.Namespace) -> int:
     return 1 if problems else 0
 
 
+def cmd_bulk_export(args: argparse.Namespace) -> int:
+    import os
+
+    from openhealth.standards import bulk
+    from openhealth.standards.fhir_client import GuardedHttp
+
+    with GuardedHttp() as http:
+        token = None
+        if args.client_id:
+            key = Path(args.private_key).read_text() if args.private_key else None
+            key = key or os.environ.get("OPENHEALTH_BULK_PRIVATE_KEY", "")
+            if not key:
+                raise OpenHealthError("backend services need --private-key (or its env var)")
+            token = bulk.backend_token(
+                args.fhir,
+                client_id=args.client_id,
+                private_key=key,
+                key_id=args.key_id,
+                scope=args.scope,
+                http=http,
+            )
+        types = [t.strip() for t in (args.type or "").split(",") if t.strip()]
+        manifest = bulk.export(
+            args.fhir,
+            Path(args.out),
+            http=http,
+            group=args.group,
+            types=types,
+            since=args.since,
+            token=token,
+        )
+    for output in manifest.get("output", []):
+        print(f"{output['count']:>7} {output['type']:<20} {Path(args.out) / output['file']}")
+    return 0
+
+
+def cmd_bulk_dataset(args: argparse.Namespace) -> int:
+    from openhealth.standards import bulk
+    from openhealth.standards.fhir import FhirAdapter
+
+    adapter = FhirAdapter.for_pack(resolve_pack(args.pack))
+    resources = list(bulk.read_ndjson(Path(args.ndjson)))
+    labels = bulk.load_labels(Path(args.labels))
+    records, skipped = bulk.dataset(adapter, resources, labels, key_system=args.key_system)
+    if not records:
+        raise OpenHealthError(f"no labelled cases for {args.pack} in {args.ndjson} ({skipped})")
+    _write_jsonl(Path(args.out), records)
+    left = ", ".join(f"{n} {why.replace('_', ' ')}" for why, n in skipped.items() if n)
+    print(f"{len(records)} cases written to {args.out}" + (f" (left out: {left})" if left else ""))
+    return 0
+
+
+def cmd_sandbox_bulk_check(args: argparse.Namespace) -> int:
+    from openhealth.sandbox import bulk_check
+
+    result = bulk_check.run(args.fhir, args.pack)
+    _print_json(result)
+    if not result["identical"]:
+        differences = ", ".join(result["differences"])
+        print(f"bulk-check: the export evaluates differently ({differences})", file=sys.stderr)
+    return 0 if result["identical"] else 1
+
+
 def cmd_demo(args: argparse.Namespace) -> int:
     from openhealth.sandbox.demo import run_demo
 
@@ -632,6 +695,40 @@ def build_parser() -> argparse.ArgumentParser:
     smart.add_argument("--limit", type=int, default=5, help="decide at most this many items")
     smart.add_argument("--strict", action="store_true", help="fail on any US Core issue")
     smart.set_defaults(handler=cmd_sandbox_smart_launch)
+    bulk_check = sandbox.add_parser(
+        "bulk-check", help="Bulk export the sandbox, evaluate it, and compare with the dataset file"
+    )
+    bulk_check.add_argument("--fhir", required=True, help="the sandbox's FHIR R4 base URL")
+    bulk_check.add_argument("--pack", default="openhealth/referral-router")
+    bulk_check.set_defaults(handler=cmd_sandbox_bulk_check)
+
+    bulk = sub.add_parser("bulk", help="Bulk FHIR export into local datasets").add_subparsers(
+        dest="bulk_command", required=True
+    )
+    export_bulk = bulk.add_parser("export", help="run a Bulk FHIR $export and download the files")
+    export_bulk.add_argument("--fhir", required=True, help="FHIR R4 base URL (on the allow-list)")
+    export_bulk.add_argument("--out", required=True, help="directory for the NDJSON files")
+    export_bulk.add_argument("--group", help="export this Group (default: all patients)")
+    export_bulk.add_argument("--type", help="resource types, comma-separated")
+    export_bulk.add_argument("--since", help="only resources changed since (FHIR instant)")
+    export_bulk.add_argument("--client-id", help="SMART Backend Services client id")
+    export_bulk.add_argument("--private-key", help="PEM file (RS384 or ES384) for the assertion")
+    export_bulk.add_argument("--key-id", default="openhealth", help="the key's kid in your JWKS")
+    export_bulk.add_argument("--scope", default="system/*.rs", help="backend services scope")
+    export_bulk.set_defaults(handler=cmd_bulk_export)
+    dataset_bulk = bulk.add_parser("dataset", help="turn an export into a pack's local dataset")
+    dataset_bulk.add_argument("--pack", required=True, help="namespace/name")
+    dataset_bulk.add_argument("--ndjson", required=True, help="directory of NDJSON files")
+    dataset_bulk.add_argument(
+        "--labels", required=True, help='JSONL of {"id", "labels"} (a dataset file works)'
+    )
+    dataset_bulk.add_argument(
+        "--key-system",
+        default="https://openhealth.dev/fhir/synthetic-case",
+        help="identifier system that holds the case id (default: the sandbox's)",
+    )
+    dataset_bulk.add_argument("--out", required=True, help="dataset file to write (JSONL)")
+    dataset_bulk.set_defaults(handler=cmd_bulk_dataset)
 
     sub.add_parser("demo", help="offline end-to-end demo on synthetic data").set_defaults(
         handler=cmd_demo

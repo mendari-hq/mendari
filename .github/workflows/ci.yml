@@ -136,6 +136,11 @@ jobs:
           docker compose exec -T engine openhealth sandbox smart-launch --strict
           --engine http://engine:8000 --launcher http://launcher --fhir http://fhir:8080/fhir
           --pack openhealth/patient-inbox-router
+      - name: Bulk export -> dataset -> openhealth eval (referral pack)
+        # The export's cases must evaluate exactly like the same cases read from the dataset file.
+        run: >-
+          docker compose exec -T engine openhealth sandbox bulk-check
+          --fhir http://fhir:8080/fhir --pack openhealth/referral-router
       - if: failure()
         run: docker compose logs --tail 200
 

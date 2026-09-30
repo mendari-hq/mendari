@@ -25,7 +25,8 @@ the production-deploy check and the four "small remaining gaps" under "What an A
 | [#70](https://github.com/Junebugg1214/openhealth-hub/pull/70) | CDS Hooks fetch missing prefetch from allow-listed FHIR servers | v0.4 item 4 | Green first time; preview checked; merged |
 | [#71](https://github.com/Junebugg1214/openhealth-hub/pull/71) | SMART on FHIR EHR launch: backend (PKCE, OIDC, server-side sessions, patient context) | v0.4 item 5, part 1 of 3 | Green; one follow-up commit before merge (`/api/smart/session` answers `{"active": false}` instead of 401, found while building the view); preview checked (SMART off: inactive, launch 404); merged |
 | [#72](https://github.com/Junebugg1214/openhealth-hub/pull/72) | Dashboard: This patient, after a SMART launch from the EHR | v0.4 item 5, part 2 of 3 | Red once (a real dashboard race exposed by the new boot request, plus a racy skeleton test); fixed at the root with a regression test, then green; preview checked; merged |
-| [#73](https://github.com/Junebugg1214/openhealth-hub/pull/73) | Sandbox: SMART launcher and a scripted EHR launch (CI job sandbox-e2e) | v0.4 item 5, part 3 of 3 (and the SMART half of item 7) | Green, including the new `sandbox-e2e` job; rebased after #72 (log and todo only) |
+| [#73](https://github.com/Junebugg1214/openhealth-hub/pull/73) | Sandbox: SMART launcher and a scripted EHR launch (CI job sandbox-e2e) | v0.4 item 5, part 3 of 3 (and the SMART half of item 7) | Green, including the new `sandbox-e2e` job (the SMART exit, proven in CI); rebased after #72 (log and todo only), green again; merged |
+| pending | Bulk FHIR $export into local-validation datasets (and the Bulk exit in sandbox-e2e) | v0.4 item 6 (and the Bulk half of item 7) | pending |
 
 ## Decisions made on your behalf
 
@@ -131,6 +132,14 @@ the production-deploy check and the four "small remaining gaps" under "What an A
   `--strict`, which fails on any US Core issue in a decided input. A human with a browser would
   need the compose hostnames (`engine`, `launcher`) to resolve on their machine, so the README
   shows the scripted launch.
+- **Bulk labels come from the site, not the EHR.** `openhealth bulk dataset` joins a site's
+  labels file (any JSONL of `{"id", "labels"}`; an evaluation dataset works as it is) by an
+  identifier system, on the focus resource or its patient. Unlabelled cases are left out and
+  counted. The export supplies inputs, and chart review supplies the answers.
+- **The Bulk exit check is strict.** `openhealth sandbox bulk-check` exports the sandbox, builds
+  the dataset, and requires the evaluation to be identical to the same cases read from the
+  dataset file: decisions, per-question metrics and misclassified cases. Locally all 40 referral
+  cases matched exactly.
 - **Access tokens are stored in the database unencrypted** for their lifetime. There is no key to
   encrypt them with until v0.6's PHI mode; this is noted in the architecture's trust boundaries.
 - **A new dependency, `pyjwt[crypto]` (>=2.10.1,<3; 2.15.1 locked)**, verifies SMART `id_token`s.

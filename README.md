@@ -157,7 +157,20 @@ docker compose exec engine openhealth sandbox smart-launch --pack openhealth/ref
   --engine http://engine:8000 --launcher http://launcher --fhir http://fhir:8080/fhir
 ```
 
-The CI job `sandbox-e2e` runs it for the inbox and referral packs on every change.
+**Bulk FHIR into local validation.** Export a site's data, then evaluate a pack on it with the
+site's own labels (ground truth from chart review, joined by an identifier system):
+
+```bash
+openhealth bulk export --fhir https://ehr.example.org/fhir --group my-cohort --out export/ \
+  --client-id my-app --private-key key.pem --key-id k1        # SMART Backend Services
+openhealth bulk dataset --pack openhealth/referral-router --ndjson export/ \
+  --labels chart-review.jsonl --key-system https://site.example/mrn --out local.jsonl
+openhealth eval openhealth/referral-router --dataset local.jsonl
+```
+
+The CI job `sandbox-e2e` runs the scripted launch for the inbox and referral packs on every
+change. It also runs `openhealth sandbox bulk-check`: an export of the sandbox must evaluate
+exactly like the same cases read from the dataset file.
 
 ## Healthcare standards
 
