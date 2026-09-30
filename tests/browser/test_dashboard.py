@@ -475,7 +475,7 @@ def test_the_cost_chart_rings_the_deployed_configuration(page: Page) -> None:
     expect(chart.locator("svg .ring")).to_have_count(1)  # locally the rules screen is deployed
     expect(chart.locator("svg text", has_text="$0").first).to_be_visible()  # rules cost nothing
     expect(chart.locator(".mark").first).to_have_attribute(
-        "aria-label", re.compile(r"Accuracy .*verdict = block caught \d+/\d+")
+        "aria-label", re.compile(r"Accuracy .*Verdict: block caught \d+/\d+")
     )
 
 
@@ -515,7 +515,7 @@ def test_the_threshold_sweep_does_not_claim_automation_that_never_happens(page: 
     expect(sweep).to_contain_text("Nothing was automated in this run")
     expect(sweep).not_to_contain_text("automates at")
     page.select_option("#pack-select", INBOX)  # automates 94.5 % of its benchmark
-    expect(page.locator("#evals-body")).to_contain_text("destination accuracy")
+    expect(page.locator("#evals-body")).to_contain_text("Destination accuracy")
     expect(page.locator('figure.chart[data-chart^="sweep"]')).not_to_contain_text("Nothing was")
 
 
@@ -922,3 +922,87 @@ def test_the_input_view_is_remembered(page: Page) -> None:
     expect(view_button(page, "JSON")).to_have_attribute("aria-pressed", "true")
     expect(page.locator("#record")).to_be_visible()
     expect(page.locator("#record-form")).to_be_hidden()
+
+
+# -- design grade, Phase A (docs/design-grade.md) --------------------------------------------------
+
+LAYOUT_SHIFT = """window.__cls = 0; new PerformanceObserver((list) => {
+  for (const e of list.getEntries()) if (!e.hadRecentInput) window.__cls += e.value;
+}).observe({ type: 'layout-shift', buffered: true });"""
+
+
+def test_nothing_shifts_while_a_tablet_page_loads(browser: Browser, base_url: str) -> None:
+    """The pack picker used to fill in after first paint, wrap the top bar at 768 px and shift the
+    whole page (a layout shift of 0.50)."""
+    context = browser.new_context(base_url=base_url, viewport={"width": 768, "height": 900})
+    page = context.new_page()
+    try:
+        page.add_init_script(LAYOUT_SHIFT)
+        page.goto("/#overview")
+        expect(page.locator(".stats-primary")).to_be_visible()
+        page.wait_for_timeout(300)
+        assert page.evaluate("window.__cls") < 0.1
+    finally:
+        context.close()
+
+
+def test_content_uses_a_wide_screen(page: Page) -> None:
+    page.set_viewport_size({"width": 1920, "height": 1000})
+    open_pack(page, INBOX)
+    box = page.locator("main").bounding_box()
+    assert box is not None and box["width"] == 1440
+    left_gap, right_gap = box["x"] - 200, 1920 - (box["x"] + box["width"])  # beside the 200 px nav
+    assert abs(left_gap - right_gap) <= 2  # centred, not stopped at the left
+
+
+def test_a_zoomed_rate_axis_says_where_it_starts(page: Page) -> None:
+    open_pack(page, INBOX, "evals")
+    page.goto("/#evals/report")
+    sweep = page.locator('figure.chart[data-chart^="sweep"]')
+    expect(sweep.locator(".chart-axis-note")).to_have_text("The vertical axis starts at 90%.")
+    expect(sweep.locator("path.axis-break")).to_have_count(1)
+    page.select_option("#pack-select", GUARD)  # its coverage spans 8-100 %: the axis starts at 0
+    expect(page.locator('figure.chart[data-chart^="sweep"] .chart-axis-note')).to_be_hidden()
+
+
+# Visible controls in the view shorter than Apple's 44 pt minimum.
+SMALL_TARGETS = """() => {
+  const selector = 'main button, main a.button, main select, main summary, '
+    + 'main input:not([type=checkbox])';
+  return [...document.querySelectorAll(selector)]
+    .filter((el) => el.getClientRects().length && el.getBoundingClientRect().height < 44)
+    .map((el) => el.outerHTML.slice(0, 60));
+}"""
+
+
+def test_touch_screens_get_44_px_targets(browser: Browser, base_url: str) -> None:
+    context = browser.new_context(base_url=base_url, has_touch=True, is_mobile=True, viewport=PHONE)
+    page = context.new_page()
+    try:
+        page.add_init_script(f"localStorage.setItem('oh.pack', {json.dumps(INBOX)})")
+        for view in ["audit", "evals/report", "review", "try"]:
+            page.goto(f"/#{view}")
+            expect(page.locator("main h1")).to_be_visible()
+            expect(page.locator("main .empty", has_text="Loading")).to_have_count(0)
+            assert page.evaluate(SMALL_TARGETS) == [], view
+    finally:
+        context.close()
+
+
+def test_configurations_are_named_once(page: Page) -> None:
+    """A remote part of a configuration is named by its model: "Rules + Jev 1.13.0", not "Rules +
+    Jev" beside a "Jev 1.13.0" chip."""
+    open_pack(page, GUARD, "evals")
+    configs = page.locator("#board table").first.locator("tbody .config").all_inner_texts()
+    assert any("Jev 1.13.0" in c for c in configs)
+    assert not any("Jev Jev" in " ".join(c.split()) for c in configs)
+
+
+def test_a_record_drawer_is_titled_in_words(page: Page, live_server: str) -> None:
+    decision = httpx.post(
+        f"{live_server}/api/packs/{INBOX}/decide",
+        json={"message": {"body": "Crushing chest pain and my left arm is numb"}},
+    ).json()
+    page.add_init_script(f"localStorage.setItem('oh.pack', {json.dumps(INBOX)})")
+    page.goto(f"/#audit/{decision['id']}")
+    expect(page.locator("#drawer-title")).to_have_text("Human review · nurse")
