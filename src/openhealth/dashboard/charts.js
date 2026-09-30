@@ -1,5 +1,3 @@
-"use strict";
-
 // Charts: four small SVG primitives (stacked columns, lines, scatter, horizontal bars), no library.
 // Views build a spec, put chartHtml(spec) in the page, then call wireCharts(root).
 //
@@ -22,6 +20,9 @@
 //   scatter  x, y: { kind: "rate" | "log", title, format?, from? }, diagonal, square, sizeBy,
 //            points: [{ x, y, weight?, shape?, tone?, ring?, title, rows: [[label, value]] }]
 //   bars     rows: [{ label, value, chosen, tone }]   (value is a rate; tone: "block" | "review")
+
+import { tableHtml } from "./table.js";
+import { esc, pct } from "./ui.js";
 
 const CHARTS = new Map(); // id -> { spec, marks }
 
@@ -293,7 +294,7 @@ const DRAW = { columns: drawColumns, lines: drawLines, scatter: drawScatter, bar
 
 // ---- page pieces -------------------------------------------------------------------------------
 
-function chartHtml(spec) {
+export function chartHtml(spec) {
   CHARTS.set(spec.id, { spec, marks: [] });
   const legend = spec.legend?.length
     ? `<div class="legend chart-legend">${spec.legend.map((item) => `<span><i class="${esc(item.swatch)}"></i>${esc(item.label)}</span>`).join("")}</div>` : "";
@@ -305,7 +306,7 @@ function chartHtml(spec) {
     ${spec.note ? `<figcaption class="chart-note">${spec.note}</figcaption>` : ""}${data}</figure>`;
 }
 
-function wireCharts(root) {
+export function wireCharts(root) {
   root.querySelectorAll("[data-chart]").forEach((figure) => {
     if (figure.dataset.wired) return;
     figure.dataset.wired = "1";

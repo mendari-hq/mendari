@@ -247,11 +247,11 @@ def test_the_theme_choice_is_kept_across_reloads(page: Page) -> None:
 def test_the_theme_is_set_before_any_app_code_runs(
     page: Page, saved: str | None, system: str, theme: str
 ) -> None:
-    """No flash of the wrong theme: with app.js held back, the head script alone sets it."""
+    """No flash of the wrong theme: with every module held back, the head script alone sets it."""
     page.emulate_media(color_scheme=system)  # type: ignore[arg-type]
     if saved:
         page.add_init_script(f"localStorage.setItem('oh.theme', {json.dumps(saved)})")
-    page.route("**/static/app.js*", lambda route: None)  # never answered
+    page.route("**/static/*.js*", lambda route: None)  # never answered
     page.goto("/", wait_until="commit")
     page.wait_for_function("document.documentElement.hasAttribute('data-theme')")
     assert page.evaluate("document.documentElement.dataset.theme") == theme

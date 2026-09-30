@@ -1,5 +1,3 @@
-"use strict";
-
 // Data tables: a semantic <table> with a caption, a sticky header, right-aligned tabular numbers,
 // keyboard-operable sorting (aria-sort), an optional rank column and an optional sticky first
 // column. Views build HTML with tableHtml(spec), put it in the page, then call wireTables(root).
@@ -25,9 +23,11 @@
 //   limitHeight,             scroll inside a max height, so the sticky header stays visible
 // }
 
-const TABLES = new Map(); // id -> { spec, sort: { key, dir } | null }
+import { esc, icon } from "./ui.js";
 
-function tableHtml(spec) {
+export const TABLES = new Map(); // id -> { spec, sort: { key, dir } | null }
+
+export function tableHtml(spec) {
   TABLES.set(spec.id, { spec, sort: null });
   const classes = ["table-scroll", spec.stickyFirst ? "sticky-first" : "", spec.limitHeight ? "limit" : ""].filter(Boolean).join(" ");
   return `<div class="${classes}" data-table="${esc(spec.id)}">${tableInner(spec.id)}</div>`;
@@ -70,7 +70,7 @@ function tableInner(id) {
   return `<table class="data">${caption}<thead><tr>${spec.rank ? `<th scope="col" class="num rank-cell">Rank</th>` : ""}${header}</tr></thead><tbody>${body}</tbody></table>`;
 }
 
-function wireTables(root) {
+export function wireTables(root) {
   root.querySelectorAll("[data-table]").forEach((container) => {
     if (container.dataset.wired) return;
     container.dataset.wired = "1";

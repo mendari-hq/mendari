@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import json
 import re
 
 import pytest
 from fastapi.testclient import TestClient
 
-from openhealth.server.app import create_app
+from openhealth.server.app import DASHBOARD_DIR, create_app
 from tests.conftest import LOCAL_DATASET
 from tests.test_fhir import BUNDLE
 
@@ -132,13 +133,26 @@ def test_examples_are_the_packs_behaviour_tests(client: TestClient) -> None:
 def test_dashboard_is_served(client: TestClient) -> None:
     page = client.get("/")
     assert page.status_code == 200 and "OpenHealth Hub" in page.text
-    # Asset URLs carry a content hash so a deploy never serves stale JS/CSS.
-    assert re.search(r'/static/app\.js\?v=[0-9a-f]{12}"', page.text)
+    # Asset URLs carry a content hash so a deploy never serves stale JS/CSS: the import map
+    # stamps every module, and the entry script and stylesheet are stamped in place.
+    assert re.search(r'<script type="module" src="/static/main\.js\?v=[0-9a-f]{12}">', page.text)
     assert re.search(r'/static/style\.css\?v=[0-9a-f]{12}"', page.text)
-    assert re.search(r'/static/table\.js\?v=[0-9a-f]{12}"', page.text)
-    assert re.search(r'/static/charts\.js\?v=[0-9a-f]{12}"', page.text)
-    assert re.search(r'/static/form\.js\?v=[0-9a-f]{12}"', page.text)
-    assert client.get("/static/app.js").status_code == 200
+    found = re.search(r'<script type="importmap">(.*?)</script>', page.text)
+    assert found
+    stamped = json.loads(found[1])["imports"]
+    modules = sorted(p.name for p in DASHBOARD_DIR.glob("*.js"))
+    assert sorted(stamped) == [f"/static/{name}" for name in modules]
+    for url in stamped.values():
+        assert re.fullmatch(r"/static/[a-z]+\.js\?v=[0-9a-f]{12}", url)
+        assert f'<link rel="modulepreload" href="{url}">' in page.text
+        assert "javascript" in client.get(url).headers["content-type"]
+
+
+def test_dashboard_modules_import_only_files_that_exist() -> None:
+    for module in DASHBOARD_DIR.glob("*.js"):
+        source = module.read_text()
+        imports = re.findall(r'^import (?:\{[^}]*\} from )?"\./([^"]+)";$', source, re.M)
+        assert all((DASHBOARD_DIR / name).is_file() for name in imports), module.name
 
 
 def test_the_favicon_is_served(client: TestClient) -> None:
