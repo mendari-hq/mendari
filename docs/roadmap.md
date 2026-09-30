@@ -20,7 +20,12 @@ first** (the Hub only matters once it has five strong packs), **LLMs through Ver
 - **v0.4 Healthcare standards ✅** ([plan](plans/v0.4-healthcare-standards.md), #66–#74): both
   exits run in CI on every change (`sandbox-e2e`).
 
-Now: **v0.5 The Hub** ([plan](plans/v0.5-the-hub.md)).
+- **v0.5 The Hub ✅** ([plan](plans/v0.5-the-hub.md), #75–#82), built and verified: signed
+  archives, the registry, push and pull, shared reports and the website. A clean-venv install
+  and pull runs in CI (`hub-e2e`). Going public (a public registry, the site, PyPI) waits for
+  your decision.
+
+Now: **v0.6 Readiness for health organizations**.
 
 ## Where we are against the goal
 
@@ -35,8 +40,8 @@ Now: **v0.5 The Hub** ([plan](plans/v0.5-the-hub.md)).
 | FHIR R4 with US Core 6.1.0 checks, CDS Hooks (prefetch, or fetch from allow-listed servers), SMART on FHIR EHR launch (OAuth 2 PKCE, OIDC), Bulk FHIR `$export` into local datasets, synthetic sandbox (HAPI, SMART launcher) | ✅ v0.4 | CQL, OMOP, Da Vinci CRD/DTR/PAS (v0.7) |
 | Decision Cards | ✅ | Validation history, hub-hosted cards |
 | Dashboard (every pack; review, audit, evaluations, feedback, card, Try it; both themes; keyboard and accessibility-tree checked) | ✅ redesigned | A VoiceOver check; roles (v0.6) |
-| Hub: publish / pull / search, publisher types, datasets, eval suites, benchmarks | ❌ | The whole registry and website |
-| Developer experience (`pip install`, `from_hub`, `pull`, container per pack) | Partial | PyPI release, remote hub, container images |
+| Hub: publish / pull / search, publisher types, signed archives, shared site reports, website | ✅ v0.5 (not public yet) | Going public (a public registry and site); datasets and eval suites as first-class entries |
+| Developer experience (`pip install`, `from_hub`, `pull`, container per pack) | Partial | The PyPI release; container images (v0.6) |
 | Org readiness (auth, tenancy, PHI handling, monitoring) | Minimal (Vercel SSO only) | All of it |
 | Community (contribution flow, verification, public repo) | ❌ | v1.0 |
 
@@ -104,7 +109,12 @@ must be identical to the same cases read from the dataset file._
 - Exit: the inbox and referral packs run from a SMART launch against the HAPI sandbox; Bulk
   export → `openhealth eval` works end to end.
 
-### v0.5 The Hub (the "Hugging Face" part)
+### v0.5 The Hub (the "Hugging Face" part) ✅
+_Built and verified 2026-09-30 (#75–#82): signed deterministic archives, the registry (namespaces,
+publisher types, keys, immutable versions, search), `login / push / pull / search` with verified
+and pinned pulls, shared site reports, and the Next.js website. CI runs the exit on a clean
+virtual environment. It is not deployed publicly: that needs production signing keys and the
+go-ahead to publish (see the overnight log)._
 - A pack distribution format: an immutable, versioned archive with a digest and signature.
   `openhealth login / push / pull / search`; `Decision.from_hub` fetches, verifies and caches
   remote packs.

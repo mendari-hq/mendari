@@ -181,6 +181,36 @@ jobs:
         env:
           CI: "1"
 
+  hub-e2e:
+    # The v0.5 exit: on a clean machine, `pip install openhealth && openhealth pull
+    # openhealth/referral-router` works. The wheel stands in for PyPI until the release.
+    runs-on: ubuntu-latest
+    env:
+      OPENHEALTH_REGISTRY_ADMIN_TOKEN: ci-only-admin-token
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv sync --locked
+      - name: Start a registry and publish the five packs
+        run: |
+          uv run openhealth registry serve --db /tmp/registry.db --port 8100 &
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:8100/v1/health && break; sleep 1; done
+          uv run python scripts/hub_seed.py --registry http://127.0.0.1:8100
+      - run: uv build --wheel --out-dir /tmp/dist
+      - name: A clean virtual environment installs openhealth, pulls a pack and tests it
+        env:
+          HOME: /tmp/clean-home
+          OPENHEALTH_REGISTRY_URL: http://127.0.0.1:8100
+        run: |
+          python3 -m venv /tmp/clean
+          /tmp/clean/bin/pip install --quiet /tmp/dist/*.whl
+          /tmp/clean/bin/openhealth pull openhealth/referral-router
+          test -f /tmp/clean-home/.cache/openhealth/packs/openhealth/referral-router/0.1.1/pack.yaml
+          /tmp/clean/bin/openhealth test openhealth/referral-router
+          /tmp/clean/bin/openhealth search --risk 2
+
   docker:
     runs-on: ubuntu-latest
     steps:

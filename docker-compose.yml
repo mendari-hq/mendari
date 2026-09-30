@@ -49,6 +49,23 @@ services:
     volumes:
       - openhealth-data:/data
 
+  registry:
+    # The pack registry (openhealth.hub): push and pull signed packs locally. The admin token is
+    # for this sandbox only; seed it with `scripts/hub_seed.py --registry http://127.0.0.1:8100`.
+    image: openhealth-engine:0.1.0
+    depends_on:
+      engine:
+        condition: service_healthy
+    command: openhealth registry serve --host 0.0.0.0 --port 8100 --db /data/registry.db
+    ports:
+      - "127.0.0.1:8100:8100"
+    environment:
+      OPENHEALTH_REGISTRY_ADMIN_TOKEN: ${OPENHEALTH_REGISTRY_ADMIN_TOKEN:-sandbox-admin}
+    volumes:
+      - openhealth-data:/data
+    healthcheck:
+      disable: true  # the image's healthcheck is for the engine's HTTP server
+
   workflow:
     image: openhealth-engine:0.1.0
     depends_on:

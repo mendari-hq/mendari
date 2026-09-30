@@ -58,7 +58,7 @@ phase (A, B, C) to be done and merged when CI passes.
 - [x] CLI login / push / pull / search; `Decision.from_hub` from the registry
 - [x] Shareable local-validation reports
 - [x] Hub website (Next.js)
-- [ ] End to end: five packs published, clean-venv install and pull (CI)
+- [x] End to end: five packs published, clean-venv install and pull (CI job `hub-e2e`)
 - [ ] Going public: a public registry, the site and the PyPI release (the user's decision; logged)
 
 ## Done: v0.4 Healthcare standards ([plan](../docs/plans/v0.4-healthcare-standards.md))
