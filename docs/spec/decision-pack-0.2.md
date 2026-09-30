@@ -400,6 +400,15 @@ adds a `systemActions` entry: an `update` of the draft order with CRD's `coverag
 extension, naming the patient's Coverage, the date and an assertion id (the decision id). Labels
 without a mapping assert nothing, and cards are unchanged.
 
+A pack whose primary question is derived MAY serve **Da Vinci DTR** questionnaires with
+`cds_hooks.questionnaire: {missing: <primary label>, context: [<questions>], title}`. For the
+answers of the `context` questions (e.g. service and payer), the documentation the payer asks
+for is every member of the primary table that can turn the decision into `missing` (rows gated
+on other context values don't count, and a row decided by the context alone ends the search).
+`Questionnaire/$questionnaire-package` returns a DTR package Bundle: that Questionnaire, and a
+QuestionnaireResponse pre-answered from the decision the order's CRD assertion id names.
+Coverage information for `missing` links the questionnaire.
+
 ### 9.1 Guard
 
 A pack MAY declare `guard: {draft: <input field>, release: [<primary labels>]}` to sit between a
@@ -453,6 +462,7 @@ produces identical decisions; it simply cannot use the new fields.
 | `dosing` provider; `guard` section and statuses | §5, §9.1 |
 | `cql` provider (a library in the pack, a CQL engine at `$OPENHEALTH_CQL_URL`) | §5 |
 | `cds_hooks.coverage_information` (Da Vinci CRD system actions on order hooks) | §9 |
+| `cds_hooks.questionnaire` (Da Vinci DTR `$questionnaire-package`) | §9 |
 | The decision output schema adds an optional `value` to each answer | §4.2 |
 
 To migrate a pack:

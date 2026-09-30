@@ -54,7 +54,7 @@ from openhealth.providers.credentials import key_source
 from openhealth.server.auth import Auth, add_auth_routes, auth_settings
 from openhealth.server.smart_routes import add_smart_routes, error_page
 from openhealth.settings import FhirValidation, providers_for
-from openhealth.standards import audit_fhir, cds_hooks
+from openhealth.standards import audit_fhir, cds_hooks, davinci
 from openhealth.standards.fhir_client import allowed_servers
 from openhealth.standards.smart import smart_settings
 
@@ -565,6 +565,23 @@ def create_app(
         if pack is None:
             raise PackNotFoundError(f"no CDS service {service_id!r}")
         return cds_hooks.invoke(decision_for(pack.id), request)
+
+    @app.post("/fhir/Questionnaire/$questionnaire-package")
+    def questionnaire_package(payload: JsonBody) -> JSONResponse:
+        """Da Vinci DTR: the documentation the payer asks for, for orders a pack decided (found by
+        CRD's assertion id), pre-answered from the decision (`standards/davinci.py`)."""
+
+        def lookup(decision_id: str) -> tuple[Pack, dict[str, str]] | None:
+            record = store.get(decision_id)
+            pack = packs.get(record["pack_id"]) if record is not None else None
+            if record is None or pack is None:
+                return None
+            answers = record["record"].get("answers") or {}
+            return pack, {key: str(answer.get("label")) for key, answer in answers.items()}
+
+        authored = datetime.now(UTC).isoformat(timespec="seconds")
+        result = davinci.questionnaire_package(payload, lookup, packs, authored)
+        return JSONResponse(result, media_type="application/fhir+json")
 
     # -- dashboard ---------------------------------------------------------------------------
 

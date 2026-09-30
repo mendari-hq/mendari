@@ -395,6 +395,16 @@ class CoverageInformation(_Strict):
     reason: str | None = Field(default=None, max_length=500)  # why, in words (no case data)
 
 
+class QuestionnaireConfig(_Strict):
+    """Da Vinci DTR for an order-hook pack whose primary question is derived (spec 0.2): the
+    documentation the payer asks for is every member that can turn the decision into `missing`
+    for the order's `context` (e.g. the service and the payer)."""
+
+    missing: str  # the recommendation that means documentation is missing
+    context: list[str] = Field(min_length=1)  # questions that pick the requirement set
+    title: str = Field(min_length=1, max_length=200)
+
+
 class CdsHooksConfig(_Strict):
     hook: str
     title: str
@@ -404,6 +414,8 @@ class CdsHooksConfig(_Strict):
     # Order hooks only: the order comes back with CRD coverage information (a system action) for
     # these recommendations. Needs a `coverage` prefetch (the patient's Coverage).
     coverage_information: dict[str, CoverageInformation] = {}
+    # DTR: `$questionnaire-package` serves a questionnaire of the documentation the payer asks for.
+    questionnaire: QuestionnaireConfig | None = None
 
 
 class PackManifest(_Strict):
@@ -552,6 +564,15 @@ def cross_reference_problems(m: PackManifest) -> list[str]:
             problems.append("cds_hooks.coverage_information is for order-select or order-sign")
         if "coverage" not in hooks.prefetch:
             problems.append("cds_hooks.coverage_information needs a `coverage` prefetch")
+    dtr = hooks.questionnaire if hooks is not None else None
+    if dtr is not None:
+        if m.questions[policy.primary].derive is None:
+            problems.append("cds_hooks.questionnaire needs a derived primary question")
+        if dtr.missing not in primary_labels:
+            problems.append(f"cds_hooks.questionnaire.missing {dtr.missing!r} is not a label")
+        unknown_context = sorted(set(dtr.context) - set(m.questions))
+        if unknown_context:
+            problems.append(f"cds_hooks.questionnaire.context names unknown {unknown_context}")
 
     card = m.cds_hooks.card if m.cds_hooks is not None else None
     if card is not None:

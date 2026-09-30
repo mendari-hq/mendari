@@ -239,6 +239,13 @@ covered, whether prior authorization and documentation are needed, the patient's
 an assertion id, which is the decision id. The HL7 validator checks it against CRD 2.2.1 in CI.
 A pack declares this with `cds_hooks.coverage_information`.
 
+**Da Vinci DTR.** When documentation is missing, that coverage information links a questionnaire.
+`POST /fhir/Questionnaire/$questionnaire-package` (with the Coverage and the order) returns it: the
+documentation the payer asks for, for that service and payer, pre-answered from the pack's
+decision, which is found by the CRD assertion id on the order. A clinician completes only what is
+missing. It is validated against DTR 2.2.0 in CI, and a pack declares it with
+`cds_hooks.questionnaire`.
+
 **OMOP CDM.** Research data in OMOP (SQLite or Postgres, with an optional schema such as `cdm`)
 becomes record-pack inputs, one per person, for population-level evaluation:
 

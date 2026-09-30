@@ -45,7 +45,8 @@ the production-deploy check and the four "small remaining gaps" under "What an A
 | [#90](https://github.com/Junebugg1214/openhealth-hub/pull/90) | v0.7 plan: CQL, OMOP, Da Vinci CRD/DTR/PAS | v0.7 plan | Green first time; preview checked; merged |
 | [#91](https://github.com/Junebugg1214/openhealth-hub/pull/91) | CQL provider; the trial pack's criteria in CQL, agreeing with `criteria` in CI | v0.7 item 1 | Green first time (the new `cql` job: 578 + 172 cases agree, 22/22 pack tests with CQL); preview checked; merged |
 | [#92](https://github.com/Junebugg1214/openhealth-hub/pull/92) | OMOP CDM as pack inputs, population evaluation, round trip in CI | v0.7 item 2 | Green first time (`omop-check` identical in the reference-pack job); preview checked; merged |
-| [#93](https://github.com/Junebugg1214/openhealth-hub/pull/93) | Da Vinci CRD: coverage information on the PA pack's order-sign response | v0.7 item 3 | pending |
+| [#93](https://github.com/Junebugg1214/openhealth-hub/pull/93) | Da Vinci CRD: coverage information on the PA pack's order-sign response | v0.7 item 3 | Green first time (the validator passed the three CRD orders against CRD 2.2.1 in CI); preview checked; merged |
+| [#94](https://github.com/Junebugg1214/openhealth-hub/pull/94) | Da Vinci DTR: questionnaire package for the PA pack, pre-answered from the decision | v0.7 item 4 | pending |
 
 ## Decisions made on your behalf
 
@@ -244,7 +245,12 @@ the production-deploy check and the four "small remaining gaps" under "What an A
     coverage depends on unknowns. It leaves out `doc-purpose: withpa`: CRD 2.2.1's constraint
     crd-ci-q4 has a FHIRPath defect (an empty condition fails) that rejects `withpa` next to
     `auth-needed`, so the `reason` says it in words;
-  - the PA pack goes to 0.1.1 for its CRD mapping.
+  - the PA pack goes to 0.1.1 for its CRD mapping, then 0.1.2 for DTR;
+  - DTR finds the pack's decision through CRD's assertion id (the decision id) on the order,
+    so the questionnaire comes pre-answered from what the pack found. The documentation asked
+    for is derived from the pack's own decision table, not written out a second time;
+  - `$questionnaire-package` needs the `decide` permission (the EHR's service key), not `read`,
+    because it is an integration endpoint that reveals decisions.
 
 ## Skipped or blocked
 

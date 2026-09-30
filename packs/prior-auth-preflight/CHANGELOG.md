@@ -1,5 +1,14 @@
 # Changelog: openhealth/prior-auth-preflight
 
+## 0.1.2
+
+- Da Vinci DTR (`cds_hooks.questionnaire`): `Questionnaire/$questionnaire-package` serves a
+  questionnaire of the documentation the payer asks for, for the order's service and payer (the
+  members of `next_step`'s table that can make it `needs_attention`), with a response pre-answered
+  from the pack's decision. The decision is found by the CRD assertion id the order carries. The
+  CRD coverage information for `needs_attention` links the questionnaire. Questions, criteria,
+  rules, policy and data are unchanged.
+
 ## 0.1.1
 
 - Da Vinci CRD: the `order-sign` service also returns, for each decided order, a system action

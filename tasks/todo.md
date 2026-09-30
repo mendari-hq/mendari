@@ -10,7 +10,7 @@ Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 - [x] OMOP CDM inputs and population evaluation; a synthetic OMOP round trip in CI
 - [x] Da Vinci CRD: `coverage-information` on the PA pack's order-sign response (validated
   against CRD 2.2.1)
-- [ ] Da Vinci DTR: questionnaire package for the PA pack's gaps
+- [x] Da Vinci DTR: questionnaire package for the PA pack's gaps (validated against DTR 2.2.0)
 - [ ] Da Vinci PAS: request Bundle and submission to a mock payer
 
 ## Done: v0.6 Readiness for health organizations ([plan](../docs/plans/v0.6-org-readiness.md))
