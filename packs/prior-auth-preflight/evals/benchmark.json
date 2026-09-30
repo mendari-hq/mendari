@@ -1,11 +1,11 @@
 {
   "format": "openhealth.eval/1",
-  "id": "9ec63159-3fd4-4907-8ce2-85d96c81f7e2",
-  "created_at": "2026-09-29T15:41:51+00:00",
+  "id": "0900b7fa-2991-49ce-b529-43d98d974772",
+  "created_at": "2026-09-30T08:11:31+00:00",
   "pack": {
     "id": "openhealth/prior-auth-preflight",
-    "version": "0.1.0",
-    "digest": "sha256:3ba380546066a8f5e1547fc0e87584d241a158ffe09771e80b3f0382297645ad"
+    "version": "0.1.1",
+    "digest": "sha256:bcbb5bee519b3ece753de27be487000dc994aea3a76886c2620b03de29408e8f"
   },
   "providers": {
     "structured": {
@@ -684,10 +684,10 @@
     }
   ],
   "latency_ms": {
-    "mean": 3.3669536444358528,
-    "p50": 3.346250392496586,
-    "p95": 3.5312497057020664,
-    "max": 9.545832872390747
+    "mean": 3.3546945087922118,
+    "p50": 3.3405832946300507,
+    "p95": 3.408916760236025,
+    "max": 9.879583958536386
   },
   "cost": {
     "total_usd": 0.0,

@@ -1,0 +1,124 @@
+"""Da Vinci CRD on the Prior Authorization Preflight's order-sign service (standards/davinci.py).
+The HL7 validator checks the same resources against the CRD guide in the CI job
+`fhir-conformance` (scripts/davinci_sample.py)."""
+
+from __future__ import annotations
+
+import copy
+from typing import Any
+
+import pytest
+
+from openhealth.core.decision import Decision
+from openhealth.core.pack import Pack
+from openhealth.core.registry import resolve_pack
+from openhealth.core.spec import cross_reference_problems
+from openhealth.standards import cds_hooks, davinci
+from tests.test_prior_auth_pack import _order, _prefetch
+
+PA = "openhealth/prior-auth-preflight"
+COMPLETE = "Completed 8 weeks of physical therapy. The knee locks when climbing stairs."
+
+
+@pytest.fixture(scope="module")
+def preflight() -> Decision:
+    return Decision.from_hub(PA)
+
+
+def request(payer: str, note: str, *orders: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "hook": "order-sign",
+        "hookInstance": "d1577c69-dfbe-44ad-ba6d-3e05e953b2ea",
+        "context": {
+            "userId": "Practitioner/1",
+            "patientId": "p1",
+            "draftOrders": {"resourceType": "Bundle", "entry": [{"resource": o} for o in orders]},
+        },
+        "prefetch": _prefetch(payer, note),
+    }
+
+
+def coverage_info(action: dict[str, Any]) -> dict[str, list[Any]]:
+    [extension] = [
+        e for e in action["resource"]["extension"] if e["url"] == davinci.COVERAGE_INFORMATION
+    ]
+    parts: dict[str, list[Any]] = {}
+    for part in extension["extension"]:
+        value = next(v for k, v in part.items() if k.startswith("value"))
+        parts.setdefault(part["url"], []).append(value)
+    return parts
+
+
+def test_each_decided_order_comes_back_with_coverage_information(preflight: Decision) -> None:
+    lab = _order("lab", "80053")  # a metabolic panel: not the pack's business
+    response = cds_hooks.invoke(
+        preflight, request("acme", COMPLETE, _order("mri", "72148"), _order("scope", "29881"), lab)
+    )
+    assert len(response["cards"]) == 2  # the cards are as before
+    actions = response["systemActions"]
+    assert [a["type"] for a in actions] == ["update", "update"]
+    assert [a["resource"]["id"] for a in actions] == ["mri", "scope"]
+    parts = coverage_info(actions[0])
+    assert parts["coverage"] == [{"reference": "Coverage/c1"}]
+    assert parts["covered"] == ["covered"] and parts["pa-needed"] == ["auth-needed"]
+    assert "doc-needed" not in parts
+    decision_id = response["cards"][0]["extension"]["openhealth.decision_id"]
+    assert parts["coverage-assertion-id"] == [decision_id]  # traceable to the audit record
+    original = _order("mri", "72148")
+    updated = {k: v for k, v in actions[0]["resource"].items() if k != "extension"}
+    assert updated == original  # the order itself is unchanged
+
+
+def test_missing_documentation_says_so(preflight: Decision) -> None:
+    response = cds_hooks.invoke(
+        preflight, request("acme", "Back pain for two weeks.", _order("mri", "72148"))
+    )
+    parts = coverage_info(response["systemActions"][0])
+    assert parts["doc-needed"] == ["clinical"] and parts["pa-needed"] == ["auth-needed"]
+    assert "missing from the record" in parts["reason"][0]["text"]
+
+
+def test_a_service_without_prior_auth_and_an_unknown_payer(preflight: Decision) -> None:
+    response = cds_hooks.invoke(
+        preflight, request("beacon", "Loud snoring.", _order("psg", "95810"))
+    )
+    parts = coverage_info(response["systemActions"][0])
+    assert parts["covered"] == ["covered"] and parts["pa-needed"] == ["no-auth"]
+    unknown = cds_hooks.invoke(preflight, request("zenith", COMPLETE, _order("mri", "72148")))
+    assert "systemActions" not in unknown  # not_checked asserts nothing
+
+
+def test_without_the_patients_coverage_nothing_is_asserted(preflight: Decision) -> None:
+    body = request("acme", COMPLETE, _order("mri", "72148"))
+    body["prefetch"]["coverage"] = {"resourceType": "Bundle", "type": "searchset", "entry": []}
+    response = cds_hooks.invoke(preflight, body)
+    assert "systemActions" not in response  # no Coverage to assert anything about
+
+
+def test_the_coverage_reference_comes_from_the_prefetch() -> None:
+    coverage = {"resourceType": "Coverage", "id": "c9"}
+    bundle = {"resourceType": "Bundle", "entry": [{"resource": coverage}]}
+    assert davinci.coverage_reference({"coverage": coverage}) == {"reference": "Coverage/c9"}
+    assert davinci.coverage_reference({"coverage": bundle}) == {"reference": "Coverage/c9"}
+    assert davinci.coverage_reference({"coverage": {"resourceType": "Coverage"}}) is None
+    assert davinci.coverage_reference({}) is None
+
+
+def test_a_bad_coverage_mapping_fails_validation() -> None:
+    pack: Pack = resolve_pack(PA)
+    manifest = copy.deepcopy(pack.manifest)
+    hooks = manifest.cds_hooks
+    assert hooks is not None
+    bad = hooks.model_copy(
+        update={
+            "hook": "patient-view",
+            "prefetch": {"patient": "Patient/{{context.patientId}}"},
+            "coverage_information": {
+                "approved": hooks.coverage_information["submit_ready"],
+            },
+        }
+    )
+    problems = cross_reference_problems(manifest.model_copy(update={"cds_hooks": bad}))
+    assert any("unknown labels ['approved']" in p for p in problems)
+    assert any("order-select or order-sign" in p for p in problems)
+    assert any("needs a `coverage` prefetch" in p for p in problems)

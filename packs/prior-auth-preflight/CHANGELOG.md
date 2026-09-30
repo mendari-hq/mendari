@@ -1,5 +1,14 @@
 # Changelog: openhealth/prior-auth-preflight
 
+## 0.1.1
+
+- Da Vinci CRD: the `order-sign` service also returns, for each decided order, a system action
+  updating the order with CRD's `coverage-information` (`cds_hooks.coverage_information`):
+  `submit_ready` and `needs_attention` are covered with prior authorization needed (and clinical
+  documentation needed for `needs_attention`), `not_required` needs no authorization, and
+  `not_checked` asserts nothing. The assertion id is the decision id. Cards are unchanged.
+  Questions, criteria, rules, policy and data are unchanged.
+
 ## 0.1.0
 
 - First release. Checks an order against the patient's payer before prior authorization:

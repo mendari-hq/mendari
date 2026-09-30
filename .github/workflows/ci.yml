@@ -91,7 +91,7 @@ jobs:
           path: |
             var/validator/validator_cli.jar
             ~/.fhir
-          key: fhir-validator-${{ env.VALIDATOR_VERSION }}-us-core-6.1.0
+          key: fhir-validator-${{ env.VALIDATOR_VERSION }}-us-core-6.1.0-davinci-2.2
       - name: Download the HL7 FHIR validator (pinned, checksum verified)
         run: |
           mkdir -p var/validator
@@ -107,6 +107,12 @@ jobs:
           uv run python scripts/fhir_validate.py
           --valid tests/fixtures/us-core/*.json var/fhir-samples/*.json
           --invalid tests/fixtures/us-core/invalid/*.json
+      - run: uv run python scripts/davinci_sample.py var/fhir-samples/davinci
+      - name: Da Vinci resources conform to their implementation guides
+        run: >-
+          uv run python scripts/fhir_validate.py
+          --ig hl7.fhir.us.davinci-crd#2.2.1
+          --valid var/fhir-samples/davinci/crd-*.json
 
   sandbox-e2e:
     # The roadmap's v0.4 exit on the real sandbox (docker compose): HAPI FHIR, the SMART launcher

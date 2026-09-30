@@ -44,7 +44,8 @@ the production-deploy check and the four "small remaining gaps" under "What an A
 | [#89](https://github.com/Junebugg1214/openhealth-hub/pull/89) | v0.6 pilot check in CI: a real OIDC provider, keys, PHI, review, governance, monitoring | v0.6 item 6 (the exit) | Green first time (the new `pilot-check` job passed against mock-oauth2-server); preview checked; merged. v0.6 done |
 | [#90](https://github.com/Junebugg1214/openhealth-hub/pull/90) | v0.7 plan: CQL, OMOP, Da Vinci CRD/DTR/PAS | v0.7 plan | Green first time; preview checked; merged |
 | [#91](https://github.com/Junebugg1214/openhealth-hub/pull/91) | CQL provider; the trial pack's criteria in CQL, agreeing with `criteria` in CI | v0.7 item 1 | Green first time (the new `cql` job: 578 + 172 cases agree, 22/22 pack tests with CQL); preview checked; merged |
-| [#92](https://github.com/Junebugg1214/openhealth-hub/pull/92) | OMOP CDM as pack inputs, population evaluation, round trip in CI | v0.7 item 2 | pending |
+| [#92](https://github.com/Junebugg1214/openhealth-hub/pull/92) | OMOP CDM as pack inputs, population evaluation, round trip in CI | v0.7 item 2 | Green first time (`omop-check` identical in the reference-pack job); preview checked; merged |
+| [#93](https://github.com/Junebugg1214/openhealth-hub/pull/93) | Da Vinci CRD: coverage information on the PA pack's order-sign response | v0.7 item 3 | pending |
 
 ## Decisions made on your behalf
 
@@ -236,7 +237,14 @@ the production-deploy check and the four "small remaining gaps" under "What an A
     were;
   - OMOP reads the CDM tables and the `concept` table by code, never by concept id, so it works
     with any vocabulary load. Synthetic data uses local concept ids (2,000,000,000 and up).
-    Population reports suppress cells under 10 people, like shared reports.
+    Population reports suppress cells under 10 people, like shared reports;
+  - Da Vinci guides are pinned to their latest releases (CRD 2.2.1, DTR 2.2.0, PAS 2.2.1). The
+    PA pack says `covered` with `pa-needed: auth-needed`, not `conditional`, because the pack
+    knows the payer requires authorization. `conditional` would need `info-needed` and means
+    coverage depends on unknowns. It leaves out `doc-purpose: withpa`: CRD 2.2.1's constraint
+    crd-ci-q4 has a FHIRPath defect (an empty condition fails) that rejects `withpa` next to
+    `auth-needed`, so the `reason` says it in words;
+  - the PA pack goes to 0.1.1 for its CRD mapping.
 
 ## Skipped or blocked
 

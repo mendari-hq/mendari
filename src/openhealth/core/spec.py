@@ -379,12 +379,31 @@ class GuardConfig(_Strict):
     release: list[str] = Field(min_length=1)
 
 
+class CoverageInformation(_Strict):
+    """Da Vinci CRD `coverage-information` for one recommendation of an order hook (spec 0.2):
+    what the pack's answer tells the EHR about the order's coverage. Codes are CRD's."""
+
+    covered: Literal["covered", "not-covered", "conditional"]
+    pa_needed: Literal["no-auth", "auth-needed", "satisfied", "performpa", "conditional"] | None = (
+        None
+    )
+    doc_needed: list[Literal["clinical", "admin", "patient", "conditional"]] = []
+    doc_purpose: list[Literal["withpa", "withclaim", "withorder", "retain-doc", "OTH"]] = []
+    info_needed: list[
+        Literal["performer", "location", "timeframe", "contract", "detail-code", "OTH"]
+    ] = []
+    reason: str | None = Field(default=None, max_length=500)  # why, in words (no case data)
+
+
 class CdsHooksConfig(_Strict):
     hook: str
     title: str
     description: str
     prefetch: dict[str, str] = {}
     card: CdsCard | None = None
+    # Order hooks only: the order comes back with CRD coverage information (a system action) for
+    # these recommendations. Needs a `coverage` prefetch (the patient's Coverage).
+    coverage_information: dict[str, CoverageInformation] = {}
 
 
 class PackManifest(_Strict):
@@ -523,6 +542,16 @@ def cross_reference_problems(m: PackManifest) -> list[str]:
                 f"policy.automation_requires.{slot_name} must list variants of the slot"
                 + (f"; unknown: {not_variants}" if not_variants else "")
             )
+
+    hooks = m.cds_hooks
+    if hooks is not None and hooks.coverage_information:
+        unknown_labels = sorted(set(hooks.coverage_information) - set(primary_labels))
+        if unknown_labels:
+            problems.append(f"cds_hooks.coverage_information names unknown labels {unknown_labels}")
+        if hooks.hook not in ("order-select", "order-sign"):
+            problems.append("cds_hooks.coverage_information is for order-select or order-sign")
+        if "coverage" not in hooks.prefetch:
+            problems.append("cds_hooks.coverage_information needs a `coverage` prefetch")
 
     card = m.cds_hooks.card if m.cds_hooks is not None else None
     if card is not None:
