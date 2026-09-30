@@ -1,12 +1,31 @@
 from __future__ import annotations
 
 import json
+from datetime import date
+from pathlib import Path
 from typing import Any
 
 import httpx
+import pytest
 
-from openhealth.sandbox import synthetic_inbox
-from openhealth.sandbox.fhir_workflow import _process_batch, to_resources
+from openhealth.core import clock
+from openhealth.core.decision import Decision
+from openhealth.core.registry import resolve_pack
+from openhealth.errors import OpenHealthError
+from openhealth.evals.harness import load_dataset
+from openhealth.sandbox import example_datasets_dir, fhir_workflow, synthetic_inbox
+from openhealth.sandbox.fhir_records import inbox_entries, referral_entries
+from openhealth.sandbox.fhir_workflow import (
+    INBOX,
+    REFERRAL,
+    _process_batch,
+    seed_bundle,
+    to_resources,
+)
+from openhealth.standards import us_core
+from openhealth.standards.fhir import FhirAdapter
+
+DATASETS = example_datasets_dir() or Path("datasets")
 
 FHIR = "http://fhir.test/fhir"
 DECIDE = "http://engine.test/api/packs/openhealth/patient-inbox-router/fhir/decide"
@@ -78,3 +97,104 @@ def test_synthetic_generation_is_deterministic() -> None:
     assert [len(v) for v in splits.values()] == [1500, 300, 600]
     ids = [r["id"] for split in splits.values() for r in split]
     assert len(ids) == len(set(ids))
+
+
+# -- US Core resources for the sandbox (fhir_records) -------------------------------------------
+
+REFERRAL_CASES = load_dataset(DATASETS / "referral-local-site-example.jsonl").records
+TODAY = date(2026, 10, 15)
+
+
+def referral_case(record: dict[str, Any]) -> dict[str, Any]:
+    """The case's resources as a collection Bundle (one referral and its record)."""
+    entries = referral_entries(record, today=TODAY)
+    return {"resourceType": "Bundle", "type": "collection", "entry": entries}
+
+
+def test_every_seeded_resource_conforms_to_us_core() -> None:
+    """The HL7 validator checks a sample in CI (scripts/sandbox_fhir_sample.py)."""
+    inbox = synthetic_inbox.local_site(n=20)
+    assert us_core.validate([e["resource"] for r in inbox for e in inbox_entries(r)]) == []
+    for record in REFERRAL_CASES:
+        assert us_core.validate(referral_case(record)) == [], record["id"]
+
+
+def test_referral_cases_round_trip_through_the_pack_mapping() -> None:
+    """FHIR -> the referral pack's mapping gives back the dataset's input, moved to today: the
+    same patient, referral and record, with every date shifted by the same gap."""
+    adapter = FhirAdapter.for_pack(resolve_pack(REFERRAL))
+    for record in REFERRAL_CASES:
+        got = adapter.to_input(adapter.index(referral_case(record)))
+        assert got == moved_input(record["input"]), record["id"]
+
+
+def test_referral_cases_decide_the_same_from_fhir(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(clock, "today", lambda: TODAY)
+    decision = Decision.from_hub(REFERRAL)
+    for record in REFERRAL_CASES[:60]:
+        from_fhir, _ = decision.decide_fhir(referral_case(record))
+        direct = decision.decide(moved_input(record["input"]))
+        assert (from_fhir.outcome, from_fhir.recommendation) == (
+            direct.outcome,
+            direct.recommendation,
+        )
+        assert {q: a.label for q, a in from_fhir.answers.items()} == {
+            q: a.label for q, a in direct.answers.items()
+        }
+
+
+def test_seed_bundles_hold_the_requested_cases() -> None:
+    inbox = seed_bundle(INBOX, 10)
+    assert sum(e["resource"]["resourceType"] == "Communication" for e in inbox["entry"]) == 10
+    referral = seed_bundle(REFERRAL, 5)
+    identifiers = [
+        e["resource"]["identifier"][0]["value"]
+        for e in referral["entry"]
+        if e["resource"]["resourceType"] == "Patient"
+    ]
+    assert identifiers == [r["id"] for r in REFERRAL_CASES[:5]]  # labels join back by case id
+    with pytest.raises(OpenHealthError, match="can seed"):
+        seed_bundle("openhealth/ai-guard", 1)
+
+
+def moved_input(data: dict[str, Any]) -> dict[str, Any]:
+    """What the mapping should read: no as-of date (FHIR decides as of today), dates shifted so
+    the case sits at TODAY, and the document dates as FHIR instants."""
+    shift = TODAY - date.fromisoformat(data["as_of"])
+    move = lambda day: (date.fromisoformat(day) + shift).isoformat()  # noqa: E731
+    expected = {k: v for k, v in data.items() if k != "as_of"}
+    expected["documents"] = [
+        {**d, "date": f"{move(d['date'])}T12:00:00Z"} for d in data.get("documents", [])
+    ]
+    for key in ("reports", "labs"):
+        expected[key] = [{**item, "date": move(item["date"])} for item in data.get(key, [])]
+    return expected
+
+
+def test_seeding_twice_is_a_no_op_even_with_hapis_search_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """HAPI caches search results, including counts: the check must ask for fresh ones."""
+    posted: list[dict[str, Any]] = []
+
+    def get(url: str, **kwargs: Any) -> httpx.Response:
+        if url.endswith("/metadata"):
+            return httpx.Response(200, json={})
+        fresh = kwargs["headers"].get("cache-control") == "no-cache"
+        total = sum(
+            1
+            for b in posted
+            for e in b["entry"]
+            if e["resource"]["resourceType"] == "ServiceRequest"
+        )
+        return httpx.Response(200, json={"total": total if fresh else 0})
+
+    def post(url: str, **kwargs: Any) -> httpx.Response:
+        posted.append(kwargs["json"])
+        return httpx.Response(200, json={})
+
+    monkeypatch.setattr(fhir_workflow.httpx, "get", get)
+    monkeypatch.setattr(fhir_workflow.httpx, "post", post)
+    assert fhir_workflow.seed("http://fhir.test/fhir", count=3, pack_id=REFERRAL) == 3
+    assert fhir_workflow.seed("http://fhir.test/fhir", count=3, pack_id=REFERRAL) == 0
+    assert len(posted) == 1

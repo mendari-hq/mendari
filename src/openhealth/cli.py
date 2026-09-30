@@ -401,8 +401,10 @@ def cmd_sandbox_generate(args: argparse.Namespace) -> int:
 def cmd_sandbox_seed(args: argparse.Namespace) -> int:
     from openhealth.sandbox import fhir_workflow
 
-    created = fhir_workflow.seed(args.fhir, count=args.count, wait_seconds=args.wait)
-    print(f"seeded {created} synthetic messages into {args.fhir}")
+    created = fhir_workflow.seed(
+        args.fhir, count=args.count, wait_seconds=args.wait, pack_id=args.pack
+    )
+    print(f"seeded {created} synthetic {args.pack} cases into {args.fhir}")
     return 0
 
 
@@ -573,8 +575,14 @@ def build_parser() -> argparse.ArgumentParser:
     generate.add_argument("--pack-dir", help="default: the kind's reference pack")
     generate.add_argument("--local-out", help="default: datasets/<kind's local-site example>")
     generate.set_defaults(handler=cmd_sandbox_generate)
-    seed = sandbox.add_parser("seed", help="load synthetic Patients + Communications into FHIR")
+    seed = sandbox.add_parser("seed", help="load synthetic cases into FHIR as US Core resources")
     seed.add_argument("--fhir", required=True, help="FHIR R4 base URL")
+    seed.add_argument(
+        "--pack",
+        default="openhealth/patient-inbox-router",
+        choices=["openhealth/patient-inbox-router", "openhealth/referral-router"],
+        help="whose local-site cases (default: the inbox's messages)",
+    )
     seed.add_argument("--count", type=int, default=40)
     seed.add_argument("--wait", type=int, default=180, help="seconds to wait for the server")
     seed.set_defaults(handler=cmd_sandbox_seed)

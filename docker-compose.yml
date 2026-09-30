@@ -39,6 +39,7 @@ services:
       - -c
       - >-
         openhealth sandbox seed --fhir http://fhir:8080/fhir --count 40 --wait 300 &&
+        openhealth sandbox seed --fhir http://fhir:8080/fhir --pack openhealth/referral-router --count 40 &&
         openhealth sandbox worker --fhir http://fhir:8080/fhir --engine http://engine:8000
     restart: on-failure
     healthcheck:
