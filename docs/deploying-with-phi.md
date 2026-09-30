@@ -8,8 +8,13 @@ privacy officer's review) come first.
 ## 1. Run it where your PHI is allowed to be
 
 Run OpenHealth inside your organization's network or an approved cloud account:
-- the engine's container image (`Dockerfile`);
+- the engine's container image, or a per-pack image that serves only one pack
+  (`docker build --build-arg PACK=openhealth/patient-inbox-router .`, which sets
+  `OPENHEALTH_PACKS`);
 - Postgres (not SQLite) for the audit store.
+
+[`deploy/`](../deploy) has two templates: docker compose for one server (set `OPENHEALTH_IMAGE`
+in its `.env`), and Kubernetes. Both include the daily retention and monitoring jobs.
 
 The public sandbox and the project's own Vercel deployment are **synthetic only**.
 
@@ -20,6 +25,7 @@ Set your identity provider, so nobody reaches the dashboard or the API without a
 ```bash
 OPENHEALTH_OIDC_ISSUER=https://login.example.org/realms/clinic
 OPENHEALTH_OIDC_CLIENT_ID=openhealth
+OPENHEALTH_OIDC_CLIENT_SECRET=...      # for a confidential client; from your secret manager
 OPENHEALTH_OIDC_ROLE_MAP="clinicians=reviewer,informatics=admin,ai-committee=governance"
 OPENHEALTH_OIDC_ORG_CLAIM=org          # only if one deployment serves several organizations
 OPENHEALTH_PUBLIC_URL=https://openhealth.example.org

@@ -156,8 +156,14 @@ def create_app(
     auth = Auth(sign_in, store)
     budget = CallBudget(store, budget_limits) if budget_limits else None
     found = discover(packs_paths)
+    only = settings.enabled_packs()  # a per-pack image serves just its pack
+    missing = only - {pack.id for pack in found.packs}
+    if missing:
+        raise OpenHealthError(f"OPENHEALTH_PACKS: packs not installed here: {sorted(missing)}")
     packs: dict[str, Pack] = {}
     for pack in found.packs:
+        if only and pack.id not in only:
+            continue
         current = packs.get(pack.id)
         if current is None or version_key(pack.version) > version_key(current.version):
             packs[pack.id] = pack

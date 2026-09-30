@@ -1,0 +1,54 @@
+# OpenHealth on one server: the engine, Postgres, and the scheduled retention and monitoring jobs.
+#   cp .env.example .env   # then fill it in (see docs/deploying-with-phi.md)
+#   docker compose --env-file .env up -d
+name: openhealth-site
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: openhealth
+      POSTGRES_USER: openhealth
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openhealth"]
+      interval: 5s
+      retries: 10
+
+  engine:
+    image: ${OPENHEALTH_IMAGE:?set OPENHEALTH_IMAGE in .env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://openhealth:${POSTGRES_PASSWORD}@postgres:5432/openhealth
+    command: ["sh", "-c", "openhealth serve --host 0.0.0.0 --port 8000 --db \"$$DATABASE_URL\""]
+    ports:
+      - "127.0.0.1:8000:8000"  # put your TLS reverse proxy in front
+
+  jobs:
+    # Daily: delete kept inputs past retention, then check every pack for drift and degradation.
+    image: ${OPENHEALTH_IMAGE:?set OPENHEALTH_IMAGE in .env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://openhealth:${POSTGRES_PASSWORD}@postgres:5432/openhealth
+    command:
+      - sh
+      - -c
+      - >-
+        while true; do
+        openhealth phi purge --db "$$DATABASE_URL";
+        openhealth monitor --db "$$DATABASE_URL" || true;
+        sleep 86400;
+        done
+    healthcheck:
+      disable: true
+
+volumes:
+  postgres-data:

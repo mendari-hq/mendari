@@ -54,6 +54,13 @@ def fhir_validation() -> FhirValidation:
     return cast(FhirValidation, mode)
 
 
+def enabled_packs() -> frozenset[str]:
+    """$OPENHEALTH_PACKS: the packs this server serves (comma-separated ids); empty: every pack
+    found. The per-pack container images set it to their one pack."""
+    raw = os.environ.get("OPENHEALTH_PACKS", "")
+    return frozenset(item.strip() for item in raw.split(",") if item.strip())
+
+
 def parse_providers(values: Sequence[str] | None) -> dict[str, str]:
     """`slot=variant` pairs from flags, falling back to $OPENHEALTH_PROVIDERS (comma-separated).
 

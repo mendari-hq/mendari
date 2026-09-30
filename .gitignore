@@ -17,6 +17,7 @@ htmlcov/
 .DS_Store
 .vercel/
 .env*
+!.env.example
 # Local agent tooling installed by integrations (not part of the app)
 .agents/
 .claude/skills/
