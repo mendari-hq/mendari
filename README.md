@@ -450,12 +450,16 @@ uv run mypy src tests
 
 ## Roadmap
 
-Full plan and status: [`docs/roadmap.md`](docs/roadmap.md). Done: v0.1 runtime and inbox pack,
-v0.2 model-agnostic core (LLMs, composition, leaderboards), v0.3 the other four packs, and the
-dashboard redesign. Next:
+Full plan and status: [`docs/roadmap.md`](docs/roadmap.md). Done:
+- v0.1 runtime and inbox pack;
+- v0.2 model-agnostic core (LLMs, composition, leaderboards);
+- v0.3 the other four packs;
+- the dashboard redesign;
+- v0.4 healthcare standards: US Core, AuditEvent/Provenance, SMART on FHIR, CDS Hooks fetch,
+  Bulk FHIR.
 
-- **v0.4 Healthcare standards:** US Core validation, `AuditEvent`/`Provenance` export, SMART on
-  FHIR launch (OAuth 2 / OIDC), CDS Hooks that fetch, Bulk FHIR evaluation.
+Next:
+
 - **v0.5 The Hub:** signed pack archives, `openhealth push / pull`, a registry and website.
 - **v0.6 Readiness for organizations:** login with roles, tenancy, monitoring and drift, PHI mode.
 - **v0.7 and v1.0:** CQL, OMOP, Da Vinci CRD/DTR/PAS; then the public open-source launch.
