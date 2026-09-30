@@ -306,6 +306,18 @@ jobs:
       - if: failure()
         run: tail -50 /tmp/zap/engine.log
 
+  docs:
+    # v1.0: the documentation site (mkdocs.yml, every page in docs/) builds with no broken
+    # link, anchor or page left out of the navigation.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv sync --locked --group docs
+      - run: uv run mkdocs build --strict
+
   pilot-check:
     # The v0.6 exit: a pilot organization runs the inbox router with its own identity provider,
     # PHI-safe settings, monitoring and governance approvals. The provider is a real third-party

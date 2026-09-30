@@ -284,6 +284,18 @@ the audit export. Everything
 OpenHealth treats as conforming must pass it, and everything the in-process checks flag must
 fail it.
 
+## Documentation
+
+Every page in [`docs/`](docs) builds into a documentation site with MkDocs Material:
+
+```bash
+uv sync --group docs
+uv run mkdocs serve    # http://127.0.0.1:8000
+```
+
+CI builds it in strict mode, so a broken link fails. It will be hosted once the repository is
+public.
+
 ## Security
 
 [`SECURITY.md`](SECURITY.md) says how to report a vulnerability and how to deploy safely. The

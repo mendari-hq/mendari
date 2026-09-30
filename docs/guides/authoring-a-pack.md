@@ -214,7 +214,7 @@ into one page. Share it with your AI or clinical decision support committee. At 
 ## 10. Share it
 
 - **With colleagues:** open a pull request with the folder in `packs/`. CI validates, tests and
-  evaluates it, and shows its card ([`CONTRIBUTING.md`](../../CONTRIBUTING.md)).
+  evaluates it, and shows its card ([`CONTRIBUTING.md`](https://github.com/Junebugg1214/openhealth-hub/blob/main/CONTRIBUTING.md)).
 - **On a registry:** `openhealth push refill-router --key my-key.pem` signs the pack and
   publishes it, and others `openhealth pull my-clinic/refill-router` and verify it.
 

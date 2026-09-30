@@ -63,4 +63,4 @@ public launch; update it with any change to a trust boundary. The checks named h
 
 ## Reporting a vulnerability
 
-See [`SECURITY.md`](../../SECURITY.md).
+See [`SECURITY.md`](https://github.com/Junebugg1214/openhealth-hub/blob/main/SECURITY.md).
