@@ -450,3 +450,21 @@ over `src/openhealth/dashboard/*.js`, reporting unresolved names (TS2304) and un
 ### Verification
 A PR that moves code says the line-for-line comparison came out clean. No PR ships an unresolved
 or unused module import.
+
+## 2026-09-29 - process
+
+### What happened
+PR #62 went red on ruff: I ran lint, then edited a test expectation and pushed without running
+it again. The new line was 103 columns.
+
+### Root cause
+I treated the checks as a step in the middle of the work instead of the last thing before the
+push.
+
+### Rule
+Run the full local gate (ruff check, ruff format --check, mypy, pytest, the browser suite when the
+dashboard changed, and the dashboard name check) after the last edit, in one command, right
+before `git commit`. Any edit after it means running it again.
+
+### Verification
+No PR goes red on lint, format or types.

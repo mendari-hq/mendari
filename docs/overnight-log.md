@@ -14,9 +14,14 @@ the production-deploy check and the four "small remaining gaps" under "What an A
 | # | Title | Closes | CI |
 |---|---|---|---|
 | — | Production deploy check (no PR) | todo: "Check the production deploy" | — |
-| pending | Plain words in criteria tables and Try-it answer headings | Small gap: "plain words in the Try-it criteria table"; category 4 | pending |
+| [#62](https://github.com/Junebugg1214/openhealth-hub/pull/62) | Plain words in criteria tables and Try-it answer headings | Small gap: "plain words in the Try-it criteria table"; category 4 | Red once (a test line over 100 columns, edited after lint ran), then green; preview checked; merged |
+| pending | Links carry the pack | Small gap: "links that carry the pack"; category 5 | pending |
 
 ## Decisions made on your behalf
+
+- **Your later messages widened the run** (2026-09-29, before you went to bed): the whole project
+  roadmap, v0.4 to v1.0, is approved, and so is new infrastructure where I recommend it. Every
+  milestone still starts with its plan committed to `docs/plans/`, as the roadmap requires.
 
 - **Production check without a PR.** `vercel curl` (authenticated CLI) returned 200 for `/`,
   `/api/health` and `/static/main.js` on the production alias; health reports Postgres, 5 packs,
@@ -28,14 +33,16 @@ the production-deploy check and the four "small remaining gaps" under "What an A
 - **Screenshots are described in the PRs, not attached.** `gh` cannot upload images to a PR, and
   committing screenshots would add unrelated binaries to the repo. Every change was checked in
   the running app at 1440 and 390 px, light and dark.
+- **The pack goes in the query, not the hash** (`?pack=openhealth/ai-guard#review`). Every
+  in-app link is a bare `#view` link and keeps the query, so no link had to change. A pack change
+  replaces the history entry rather than adding one, as before. Back across an earlier pack
+  change shows that pack. An unknown pack falls back to the last one chosen, and the address is
+  corrected.
 - **The engine's reason lines stay as they are** ("not_eligible: hba1c_in_range is no"). They
   come from the runtime, and changing them is business logic, out of scope.
 
 ## Skipped or blocked
 
-- **The whole-project roadmap (v0.4 to v1.0)** is not part of this run. The roadmap requires a
-  plan you approve before any code, and v0.4 onward changes APIs, auth and data models, which
-  tonight's rules exclude. Needed from you: say which milestone to plan first (v0.4 is next).
 - **Items in "What an A still needs" that code can't deliver:** a visual identity (type pairing,
   a designed mark), usability sessions with clinicians and evaluators, production-scale data,
   and a VoiceOver/NVDA, Safari/Firefox and real-device pass. These need people, devices or a
