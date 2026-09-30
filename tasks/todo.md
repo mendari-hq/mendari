@@ -31,8 +31,12 @@ phase (A, B, C) to be done and merged when CI passes.
   configurations at the same point share one named mark, near ones are dodged with a leader, and
   the deployed, safety-first leader and cost/accuracy frontier are named; the sweep names its
   lines at their ends
-- [ ] Phase C: motion (drawer, dialog, resolved cards, tabs, chart marks), fewer boxes, a brand
-  mark, stat labels, designed empty states
+- [x] Phase C: motion (the drawer slides in and out, the dialog fades and scales in, a resolved
+  review card folds away, Evaluations tabs crossfade, chart highlights and the settings sheet
+  ease in; none under reduced motion); controls and the Decision Card's text sections unboxed
+  (boxes kept for tables, charts and review items); the favicon's mark in the top bar in the
+  theme's accent; stat labels 12 px, 500, uppercase, 0.04 em; empty states with an icon, one line
+  and one action
 - [ ] Re-grade with the same measurements; check the production deploy
 
 ## Next: v0.4 Healthcare standards

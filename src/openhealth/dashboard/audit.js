@@ -21,7 +21,7 @@ views.audit = async (main, params) => {
   main.innerHTML = `
     <h1>Audit trail</h1>
     <p class="muted">Every decision and what happened next, in a tamper-evident chain.</p>
-    <div class="row panel">
+    <div class="row toolbar">
       <label for="outcome-filter">Outcome</label>
       <select id="outcome-filter"><option value="">All</option>${OUTCOMES.map((o) => `<option value="${o}" ${o === outcome ? "selected" : ""}>${esc(outcomeText(o))}</option>`).join("")}</select>
       <span class="grow"></span>

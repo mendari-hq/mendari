@@ -4,7 +4,7 @@ import { leaderboardView, wireLeaderboard } from "./leaderboard.js";
 import { providerWords, remoteModels } from "./pack.js";
 import { reportView } from "./report.js";
 import { views, wire } from "./router.js";
-import { $, announce, api, esc, packPath, slotText, state, time, toastError, whileBusy } from "./ui.js";
+import { $, announce, api, emptyState, esc, packPath, reducedMotion, slotText, state, time, toastError, whileBusy } from "./ui.js";
 
 const evalsState = { reports: [] };
 
@@ -38,6 +38,9 @@ function showEvalsTab(requested) {
     else a.removeAttribute("aria-current");
   });
   const body = $("#evals-body");
+  if (body.dataset.tab && body.dataset.tab !== tab && !reducedMotion()) {
+    body.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 160, easing: "ease-out" }); // a crossfade, not a cut
+  }
   body.dataset.tab = tab; // an answer that arrives after the user moved on is dropped
   const empty = (text) => `<div class="panel empty">${text}</div>`;
   if (tab === "compare") {
@@ -52,11 +55,15 @@ function showEvalsTab(requested) {
   } else {
     const reports = evalsState.reports;
     body.innerHTML = reports.length ? `
-      <div class="row panel">
+      <div class="row toolbar">
         <label for="history">Report</label>
         <select id="history">${reports.map((r, i) => `<option value="${i}">${esc(time(r.created_at))} · ${esc(r.dataset.name)} (n=${r.dataset.n})</option>`).join("")}</select>
       </div>
-      <div id="history-report">${reportView(reports[0])}</div>` : empty("No evaluations have been run on this deployment yet. Use “Run on a dataset”.");
+      <div id="history-report">${reportView(reports[0])}</div>` : emptyState({
+      icon: "history", title: "No evaluations run here yet",
+      text: "Run the pack on a dataset to see how this deployment does, next to the published benchmark.",
+      action: { href: "#evals/run", label: "Run on a dataset" },
+    });
     $("#history")?.addEventListener("change", (e) => {
       $("#history-report").innerHTML = reportView(reports[Number(e.target.value)]);
       wire($("#history-report"));
@@ -71,7 +78,7 @@ async function showRunTab(body, empty) {
   const preselected = datasets.find((d) => d.name.includes("local-site")) ?? datasets[0];
   const remote = remoteSlots();
   body.innerHTML = `
-    <div class="row panel">
+    <div class="row toolbar">
       <label for="dataset">Dataset</label>
       <select id="dataset">${datasets.map((d) => `<option value="${esc(d.name)}" ${d === preselected ? "selected" : ""}>${esc(d.name)} (${d.n} records)</option>`).join("")}</select>
       <button type="button" class="primary" id="run-eval">Run evaluation</button>

@@ -3,7 +3,7 @@
 import { chartHtml, sparkline } from "./charts.js";
 import { providerWords } from "./pack.js";
 import { views, wire } from "./router.js";
-import { $, api, esc, icon, money, num, OUTCOMES, outcomeText, pct, slotText, stat, state, storageGet, storageSet, zoneName } from "./ui.js";
+import { $, api, emptyState, esc, icon, money, num, OUTCOMES, outcomeText, pct, slotText, stat, state, storageGet, storageSet, zoneName } from "./ui.js";
 
 views.overview = async (main) => {
   const [stats, chain] = await Promise.all([
@@ -27,11 +27,11 @@ views.overview = async (main) => {
         <h2>Decisions per day <span class="muted">· days in ${esc(zoneName())}</span></h2>
         ${dailyView(stats.daily)}
       </div>` : `
-      <div class="panel empty-state">
-        <h2>No decisions yet</h2>
-        <p class="muted">Decisions appear here as soon as this pack makes one: from Try it, the API, a CDS Hooks call or the sandbox worker.</p>
-        <p class="row"><a class="button primary" href="#try">Try it</a><a class="button" href="/docs">API docs</a></p>
-      </div>`}`;
+      ${emptyState({
+        icon: "inbox", title: "No decisions yet",
+        text: `Decisions appear here as soon as this pack makes one: from Try it, <a href="/docs">the API</a>, a CDS Hooks call or the sandbox worker.`,
+        action: { href: "#try", label: "Try it" },
+      })}`}`;
   main.querySelector(".period-row")?.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-period]");
     if (!button) return;
