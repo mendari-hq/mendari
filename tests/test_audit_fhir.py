@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import itertools
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,7 @@ from fastapi.testclient import TestClient
 
 from openhealth import AuditStore, Decision, DecisionResult, Pack
 from openhealth.cli import main
+from openhealth.core.phi import PhiPolicy
 from openhealth.server.app import create_app
 from openhealth.standards import audit_fhir
 from openhealth.standards.fhir import DECISION_ID_SYSTEM
@@ -171,3 +173,21 @@ def test_the_cli_writes_ndjson(
     assert main(["audit", "export", "--db", str(db), "--out", str(out)]) == 0
     assert "13 resources written" in capsys.readouterr().err
     assert len(out.read_text().splitlines()) == 13  # 7 AuditEvents, 6 Provenances
+
+
+def test_reads_and_purges_of_encrypted_inputs_are_exported(
+    tmp_path: Path, inbox_pack: Pack
+) -> None:
+    """PHI mode's access log in FHIR: a read is action R by the reader, and a purge is action D
+    by the engine."""
+    store = AuditStore(tmp_path / "phi.db", phi=PhiPolicy(mode="encrypt", key=os.urandom(32)))
+    result = Decision(inbox_pack, store=store)(message(SECRET))
+    store.get(result.id, reader="rn-7")
+    store.purge_inputs(0)
+    events = by_type(list(audit_fhir.resources(store.iter_events())), "AuditEvent")
+    read, purged = events[-2], events[-1]
+    assert (read["subtype"][0]["code"], read["action"]) == ("input.read", "R")
+    assert read["agent"][0]["who"]["display"] == "rn-7"
+    assert (purged["subtype"][0]["code"], purged["action"]) == ("input.purged", "D")
+    assert purged["agent"][0]["requestor"] is False
+    assert SECRET not in json.dumps(events)

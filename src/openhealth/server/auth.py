@@ -16,7 +16,7 @@ server is open, as before (production sits behind Vercel Authentication). When c
 | Role | May |
 |---|---|
 | viewer | read |
-| reviewer | read, decide, review, record outcomes, give feedback |
+| reviewer | read (inputs too, under PHI mode), decide, review, record outcomes, give feedback |
 | service (machines) | read, decide, record outcomes |
 | governance | read, approve automation |
 | admin | everything, including evaluations, exports and API keys |
@@ -46,10 +46,12 @@ COOKIE = "openhealth_session"
 ROLES = ("viewer", "reviewer", "service", "governance", "admin")
 PERMISSIONS: dict[str, frozenset[str]] = {
     "viewer": frozenset({"read"}),
-    "reviewer": frozenset({"read", "decide", "review", "outcome"}),
+    "reviewer": frozenset({"read", "read_input", "decide", "review", "outcome"}),
     "service": frozenset({"read", "decide", "outcome"}),
     "governance": frozenset({"read", "approve"}),
-    "admin": frozenset({"read", "decide", "review", "outcome", "approve", "evaluate", "admin"}),
+    "admin": frozenset(
+        {"read", "read_input", "decide", "review", "outcome", "approve", "evaluate", "admin"}
+    ),
 }
 DEFAULT_ORG = "default"
 SESSION_SECONDS = 8 * 3600

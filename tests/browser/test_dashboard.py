@@ -1522,8 +1522,8 @@ def test_the_patient_view_fits_a_phone(page: Page) -> None:
 
 PERMISSIONS = {  # server/auth.py
     "viewer": ["read"],
-    "reviewer": ["decide", "outcome", "read", "review"],
-    "admin": ["admin", "approve", "decide", "evaluate", "outcome", "read", "review"],
+    "reviewer": ["decide", "outcome", "read", "read_input", "review"],
+    "admin": ["admin", "approve", "decide", "evaluate", "outcome", "read", "read_input", "review"],
 }
 
 
@@ -1716,3 +1716,18 @@ def test_monitoring_alerts_lead_the_page(page: Page) -> None:
     expect(page.locator(".callout.warning")).to_contain_text("Confidence drift: PSI 0.31")
     expect(page.locator(".stat.tone-danger")).to_have_count(2)
     expect(page.get_by_role("heading", name="No decisions in the last 30 days")).to_be_visible()
+
+
+def test_an_input_kept_encrypted_says_who_can_read_it(page: Page, live_server: str) -> None:
+    decided = decide_inbox(live_server, "Crushing chest pain and my left arm is numb")
+
+    def restricted(route: Route) -> None:
+        record = route.fetch().json()
+        record["record"]["input"] = None
+        record["input_restricted"] = True
+        route.fulfill(json=record)
+
+    page.route(f"**/api/audit/{decided['id']}", restricted)
+    open_pack(page, INBOX, "audit")
+    page.goto(f"/?pack={INBOX}#audit/{decided['id']}")
+    expect(page.locator(".drawer")).to_contain_text("Input kept encrypted (PHI mode)")

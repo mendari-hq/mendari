@@ -45,6 +45,8 @@ _EVENTS = {
     "review.resolved": ("U", "Review resolved"),
     "outcome.recorded": ("U", "Downstream outcome recorded"),
     "feedback.recorded": ("C", "Feedback recorded"),
+    "input.read": ("R", "Encrypted input read"),  # PHI mode: access logging
+    "input.purged": ("D", "Encrypted input deleted by the retention policy"),
 }
 # What each event says about the decision, as codes (never notes or other free text).
 _DETAILS = {
@@ -143,7 +145,14 @@ def _engine(event: Mapping[str, Any]) -> dict[str, Any]:
 def _actor(event: Mapping[str, Any], payload: Mapping[str, Any]) -> dict[str, Any]:
     if event["event"] == "decision.created":
         return {"who": _engine(event), "requestor": False}
-    name = payload.get("reviewer") or payload.get("reporter") or payload.get("source")
+    if event["event"] == "input.purged":
+        return {"who": _engine(event), "requestor": False}
+    name = (
+        payload.get("reviewer")
+        or payload.get("reporter")
+        or payload.get("reader")
+        or payload.get("source")
+    )
     return {"who": {"display": str(name or "anonymous")}, "requestor": True}
 
 

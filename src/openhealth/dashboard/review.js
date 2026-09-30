@@ -174,7 +174,7 @@ function reviewCard(item) {
       <span class="muted"><time datetime="${esc(item.created_at)}">${esc(time(item.created_at))}</time></span>
       <span class="mono muted">${esc(item.id.slice(0, 8))}</span>
     </div>
-    ${inputView(record.input)}
+    ${inputView(record.input, { restricted: item.input_restricted })}
     <ul class="reasons">${record.reasons.filter((r) => item.priority !== "stat" || !r.startsWith("rule ")).map((r) => `<li>${esc(r)}</li>`).join("")}</ul>
     ${criteriaTable(record.answers)}
     ${may("review") ? `<div class="labels">

@@ -14,15 +14,21 @@ from openhealth.core.audit import AuditStore, Rating
 
 
 def feedback_dataset(
-    store: AuditStore, *, pack_id: str, rating: Rating = "down", limit: int = 1000
+    store: AuditStore,
+    *,
+    pack_id: str,
+    rating: Rating = "down",
+    limit: int = 1000,
+    reader: str | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
-    """(records, skipped): one record per rated decision, from each person's current rating;
-    decisions whose input was stored only as a hash cannot be exported and are counted in
-    `skipped`. A question is labelled only when every rating that answers it gives the same label;
-    a disagreement stays visible in the record's `feedback` list for a person to settle."""
+    """(records, skipped): one record per rated decision, from each person's current rating.
+    Decisions whose input was stored only as a hash cannot be exported and are counted in
+    `skipped`, and so are encrypted inputs without a `reader`. A question is labelled only when
+    every rating that answers it gives the same label; a disagreement stays visible in the
+    record's `feedback` list for a person to settle."""
     by_decision: dict[str, dict[str, Any]] = {}
     skipped: set[str] = set()
-    for item in store.feedback(pack_id=pack_id, rating=rating, limit=limit):
+    for item in store.feedback(pack_id=pack_id, rating=rating, limit=limit, reader=reader):
         record = item["record"]
         if record.get("input") is None:
             skipped.add(item["decision_id"])

@@ -38,7 +38,8 @@ the production-deploy check and the four "small remaining gaps" under "What an A
 | [#83](https://github.com/Junebugg1214/openhealth-hub/pull/83) | v0.6 plan: readiness for health organizations | v0.6 plan | Green first time; preview checked; merged |
 | [#84](https://github.com/Junebugg1214/openhealth-hub/pull/84) | Sign-in for organizations: OIDC, roles, API keys, tenancy | v0.6 item 1 | Green first time; preview checked (open mode, `/api/auth/me` answers `open`); merged |
 | [#85](https://github.com/Junebugg1214/openhealth-hub/pull/85) | Governance approvals in the Decision Card, and the deployment registry | v0.6 item 2 | Red once: the browser job's 24 px check failed on an inline link in the card's facts (on Linux the sentence didn't wrap, so the link was 20 px tall). Replaced the link with words; lesson added; then green |
-| [#86](https://github.com/Junebugg1214/openhealth-hub/pull/86) | Monitoring: observed accuracy, overrides, drift and alerts over time | v0.6 item 3 | pending |
+| [#86](https://github.com/Junebugg1214/openhealth-hub/pull/86) | Monitoring: observed accuracy, overrides, drift and alerts over time | v0.6 item 3 | Green first time; preview checked (`/api/monitoring` answers with real preview traffic); merged |
+| [#87](https://github.com/Junebugg1214/openhealth-hub/pull/87) | PHI mode: hash-only or encrypted inputs, reads logged, retention; deployment guide | v0.6 item 4 | pending |
 
 ## Decisions made on your behalf
 
@@ -203,7 +204,9 @@ the production-deploy check and the four "small remaining gaps" under "What an A
   - governance approvals bound to the pack's digest, so a new version needs a new approval;
   - deployments recorded at startup only when something changed (serverless starts often);
   - PHI encryption is AES-256-GCM through `cryptography` (already a dependency), bound to the
-    decision id.
+    decision id;
+  - encrypted inputs open only for a signed-in reader, since without sign-in there is no one to
+    log the read against. So encrypt mode requires sign-in to be useful, and the guide says so.
 
 ## Skipped or blocked
 

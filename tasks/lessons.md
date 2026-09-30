@@ -489,6 +489,8 @@ checked before the next step.
   before editing, committing or pushing.
 - Before opening a PR, look at `git diff --stat origin/main <branch>`: it must list only this
   PR's files.
+- Opening the PR belongs inside the same `if` as the gate. Once (#87) it followed the `if` on
+  its own line and opened the PR from the branch's previous push while the gate had failed.
 
 ### Verification
 No PR is opened with a diff that touches files outside its scope. No command runs after a failed
