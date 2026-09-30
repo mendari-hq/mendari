@@ -41,7 +41,14 @@ phase (A, B, C) to be done and merged when CI passes.
   projected. No layout shift at any width, no control under 24 px on any capture, 56 px phone
   bar; an A needs identity work, clinician testing, production-scale data and a real
   screen-reader and cross-browser pass (`docs/design-grade.md`, "Re-grade")
-- [ ] Check the production deploy after the last merge
+- [x] Check the production deploy after the last merge: `ad9d3d3` live, `/`, `/api/health` and
+  the modules 200 through `vercel curl` (Postgres, 5 packs), unauthenticated requests 302 to login
+- [ ] Small gaps from the re-grade (`docs/design-grade.md`, "What an A still needs"), one PR each;
+  log in `docs/overnight-log.md`:
+  - [x] Plain words in criteria tables and Try-it answer headings
+  - [ ] Links that carry the pack
+  - [ ] A transition from skeleton to content
+  - [ ] Fewer whole-subtree re-renders
 
 ## Next: v0.4 Healthcare standards
 Plan to be written and approved before any code (roadmap: US Core validation, AuditEvent and

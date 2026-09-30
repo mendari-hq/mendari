@@ -795,7 +795,8 @@ ol.rules p { margin: var(--space-1) 0; }
 .criteria tr.hit-block td { background: var(--outcome-block-soft); }
 .criteria tr.hit-review td { background: var(--outcome-review-soft); }
 .criteria tr.hit-neutral td { background: var(--outcome-abstain-soft); }
-.criteria td:nth-child(-n+5) { white-space: nowrap; }
+.criteria td:nth-child(-n+5):not(.criterion) { white-space: nowrap; }
+.criteria td.criterion { min-width: 16rem; }
 .criteria td.evidence { color: var(--color-text-muted); min-width: 220px; }
 .finding { padding: var(--space-1-5) 0; border-bottom: 1px dashed var(--color-border); }
 
