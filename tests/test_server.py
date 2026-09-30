@@ -140,6 +140,15 @@ def test_dashboard_is_served(client: TestClient) -> None:
     assert client.get("/static/app.js").status_code == 200
 
 
+def test_the_favicon_is_served(client: TestClient) -> None:
+    icon = client.get("/favicon.ico")
+    assert icon.status_code == 200 and icon.headers["content-type"] == "image/x-icon"
+    assert icon.content[:4] == b"\x00\x00\x01\x00"  # an ICO header
+    assert client.get("/static/favicon.svg").headers["content-type"] == "image/svg+xml"
+    page = client.get("/").text
+    assert 'rel="icon" href="/favicon.ico"' in page and 'href="/static/favicon.svg"' in page
+
+
 def test_health_reports_deployment_state(client: TestClient) -> None:
     health = client.get("/api/health").json()
     assert health["storage"] in {"sqlite", "postgres"}
