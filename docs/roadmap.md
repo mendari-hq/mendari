@@ -32,7 +32,7 @@ first** (the Hub only matters once it has five strong packs), **LLMs through Ver
   (`pilot-check`). Nothing is switched on in production, which stays behind Vercel
   Authentication.
 
-Now: **v0.7 Later standards**.
+Now: **v0.7 Later standards** ([plan](plans/v0.7-later-standards.md)).
 
 ## Where we are against the goal
 

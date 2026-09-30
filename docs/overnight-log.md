@@ -41,7 +41,8 @@ the production-deploy check and the four "small remaining gaps" under "What an A
 | [#86](https://github.com/Junebugg1214/openhealth-hub/pull/86) | Monitoring: observed accuracy, overrides, drift and alerts over time | v0.6 item 3 | Green first time; preview checked (`/api/monitoring` answers with real preview traffic); merged |
 | [#87](https://github.com/Junebugg1214/openhealth-hub/pull/87) | PHI mode: hash-only or encrypted inputs, reads logged, retention; deployment guide | v0.6 item 4 | Green first time; preview checked (`phi_mode: off`, so production is unchanged); merged. Opened once ahead of a failed local gate (see lessons); fixed before CI finished |
 | [#88](https://github.com/Junebugg1214/openhealth-hub/pull/88) | Per-pack container images (GHCR on release tags) and on-prem templates | v0.6 item 5 | Green first time (the `docker` job built the per-pack image and saw it serve only its pack); preview checked; merged |
-| [#89](https://github.com/Junebugg1214/openhealth-hub/pull/89) | v0.6 pilot check in CI: a real OIDC provider, keys, PHI, review, governance, monitoring | v0.6 item 6 (the exit) | pending |
+| [#89](https://github.com/Junebugg1214/openhealth-hub/pull/89) | v0.6 pilot check in CI: a real OIDC provider, keys, PHI, review, governance, monitoring | v0.6 item 6 (the exit) | Green first time (the new `pilot-check` job passed against mock-oauth2-server); preview checked; merged. v0.6 done |
+| [#90](https://github.com/Junebugg1214/openhealth-hub/pull/90) | v0.7 plan: CQL, OMOP, Da Vinci CRD/DTR/PAS | v0.7 plan | pending |
 
 ## Decisions made on your behalf
 
@@ -216,6 +217,17 @@ the production-deploy check and the four "small remaining gaps" under "What an A
     identity provider. It's a real third-party OpenID Connect implementation, so the check tests
     interoperability, not only our own fake. Its scriptable sign-in form lets one script sign
     in as each role.
+
+- **v0.7 shape** (details in `docs/plans/v0.7-later-standards.md`):
+  - CQL runs on HAPI FHIR's Clinical Reasoning module (`Library/$evaluate`), the maintained
+    successor of cqf-ruler, rather than a new CQL engine in Python. I checked it by hand
+    against HAPI 8.12 before the plan;
+  - the trial pack gets a `cql` variant that must agree with `criteria` in CI. `criteria` stays
+    the default;
+  - OMOP is read from a CDM 5.4 database with a minimal concept table, and checked by a round
+    trip;
+  - Da Vinci CRD, DTR and PAS wrap the PA pack, each validated by the HL7 validator against its
+    IG.
 
 ## Skipped or blocked
 
