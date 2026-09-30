@@ -2,7 +2,7 @@
 
 import { criteriaTable, inputView } from "./pack.js";
 import { refreshReviewCount, views } from "./router.js";
-import { $, api, esc, focusHeading, icon, outcomeBadge, pct, PRIORITY_TEXT, priorityBadge, state, storageGet, storageSet, time, toast, toastError } from "./ui.js";
+import { $, announce, api, esc, focusHeading, icon, outcomeBadge, pct, PRIORITY_TEXT, priorityBadge, state, storageGet, storageSet, time, toast, toastError } from "./ui.js";
 
 const PRIORITIES = ["stat", "asap", "urgent", "routine"];
 
@@ -44,20 +44,78 @@ function queueCounts(items) {
     .map(([p, n]) => `<span class="badge p-${p}">${n} ${esc(PRIORITY_TEXT[p].toLowerCase())}</span>`).join(" ");
 }
 
-async function resolveCard(button) {
+// Confirming the recommendation is one tap. Any other label is held for UNDO_SECONDS with an Undo
+// button (focused), since the audit chain is append-only and a mis-tap on a phone would otherwise be
+// a permanent override. Leaving the view or the page sends what is held, as if the time ran out.
+const UNDO_SECONDS = 5;
+const held = new Map(); // decision id -> send()
+
+function resolveCard(button) {
   const card = button.closest(".review-card");
   const reviewer = $("#reviewer").value.trim();
   if (!reviewer) {
     $("#reviewer").focus();
     return toastError("Enter a reviewer name first");
   }
+  const label = button.dataset.label;
+  if (label === card.dataset.recommendation) return sendResolution(card, label, reviewer);
+  holdResolution(card, button, label, reviewer);
+}
+
+function holdResolution(card, button, label, reviewer) {
+  const labelButtons = card.querySelectorAll(".labels button");
+  labelButtons.forEach((b) => (b.disabled = true));
+  button.classList.add("held");
+  const what = card.dataset.recommendation ? `Override to <b>${esc(label)}</b>` : `Label <b>${esc(label)}</b>`;
+  const bar = document.createElement("div");
+  bar.className = "undo-bar";
+  bar.innerHTML = `<span>${what} in <span class="undo-seconds">${UNDO_SECONDS}</span> s</span>
+    <button type="button" class="undo">Undo</button><span class="undo-time" aria-hidden="true"></span>`;
+  card.querySelector(".labels").after(bar);
+  let left = UNDO_SECONDS;
+  const tick = setInterval(() => (bar.querySelector(".undo-seconds").textContent = String(--left)), 1000);
+  const release = () => {
+    clearInterval(tick);
+    clearTimeout(timer);
+    held.delete(card.dataset.id);
+    bar.remove();
+  };
+  const send = (options) => {
+    release();
+    return sendResolution(card, label, reviewer, options);
+  };
+  const timer = setTimeout(send, UNDO_SECONDS * 1000);
+  held.set(card.dataset.id, send);
+  bar.querySelector(".undo").addEventListener("click", () => {
+    release();
+    button.classList.remove("held");
+    labelButtons.forEach((b) => (b.disabled = false));
+    button.focus();
+    announce(`Cancelled: ${label} was not sent`);
+  });
+  bar.querySelector(".undo").focus();
+  announce(`${card.dataset.recommendation ? "Override" : "Label"} ${label} sends in ${UNDO_SECONDS} seconds. Press Undo to cancel.`);
+}
+
+// Leaving the queue (another view, another pack) sends what is held; so does closing the page, with
+// keepalive so the request outlives it.
+views.review.leave = () => held.forEach((send) => send());
+window.addEventListener("pagehide", () => held.forEach((send) => send({ keepalive: true })));
+
+async function sendResolution(card, label, reviewer, { keepalive = false } = {}) {
   card.querySelectorAll("button").forEach((b) => (b.disabled = true));
+  const hadFocus = card.contains(document.activeElement) || document.activeElement === document.body;
   try {
     const result = await api(`/api/review/${card.dataset.id}`, {
       method: "POST",
-      body: JSON.stringify({ final_label: button.dataset.label, reviewer }),
+      body: JSON.stringify({ final_label: label, reviewer }),
+      keepalive,
     });
-    // Keyboard reviewers carry on where they were: the next card (or the one before) gets focus.
+    toast(result.human_override ? `Override recorded: ${label}` : `Confirmed: ${label}`);
+    refreshReviewCount();
+    if (!card.isConnected) return; // sent on the way out of the queue
+    // Keyboard reviewers carry on where they were: the next card (or the one before) gets focus,
+    // unless they have already moved on to another.
     const cards = [...document.querySelectorAll(".review-card")];
     const next = cards[cards.indexOf(card) + 1] ?? cards[cards.indexOf(card) - 1];
     const group = card.closest(".review-group");
@@ -66,13 +124,12 @@ async function resolveCard(button) {
     else group.querySelector(".count-plain").textContent = group.querySelectorAll(".review-card").length;
     const left = [...document.querySelectorAll(".review-card")].map((c) => ({ priority: c.dataset.priority }));
     $("#queue-counts").innerHTML = queueCounts(left);
-    if (next) focusHeading(next);
-    else {
+    if (next) {
+      if (hadFocus) focusHeading(next);
+    } else {
       $("#queue").innerHTML = emptyQueue();
-      focusHeading($("main h1"));
+      if (hadFocus) focusHeading($("main h1"));
     }
-    toast(result.human_override ? `Override recorded: ${button.dataset.label}` : `Confirmed: ${button.dataset.label}`);
-    refreshReviewCount();
   } catch (error) {
     toastError(error.message);
     card.querySelectorAll("button").forEach((b) => (b.disabled = false));
@@ -89,6 +146,7 @@ function reviewCard(item) {
   const labels = state.detail.labels;
   const title = recommendation ? `Recommended: ${recommendation}` : "No recommendation: the pack abstained";
   return `<article class="panel review-card${item.priority === "stat" ? " is-stat" : ""}" data-id="${esc(item.id)}" data-priority="${esc(item.priority)}"
+      data-recommendation="${esc(recommendation ?? "")}"
       tabindex="-1" aria-labelledby="card-${esc(item.id)}">
     ${item.priority === "stat" ? `<div class="stat-banner">${icon("alert")}<span><b>Stat.</b> ${esc(ruleReason(record) || "Handle before anything else.")}</span></div>` : ""}
     <div class="row">

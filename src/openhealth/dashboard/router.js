@@ -2,6 +2,7 @@
 
 import { wireCharts } from "./charts.js";
 import { closeDrawer } from "./drawer.js";
+import { skeleton } from "./skeleton.js";
 import { wireTables } from "./table.js";
 import { $, api, esc, focusHeading, state } from "./ui.js";
 
@@ -27,6 +28,7 @@ export function onHashChange() {
 // opens at a section (e.g. "#card/policy") returns that section's heading instead.
 export async function render({ navigated = false } = {}) {
   const { view, params } = route();
+  views[state.view]?.leave?.(); // e.g. the review queue sends overrides still in their undo window
   state.view = view;
   closeDrawer({ restoreFocus: false, closedByUser: false });
   document.querySelectorAll(".nav a[data-view]").forEach((a) => {
@@ -36,7 +38,8 @@ export async function render({ navigated = false } = {}) {
   });
   keepActiveSectionInView();
   const main = $("#view");
-  main.innerHTML = `<div class="empty">Loading…</div>`;
+  main.setAttribute("aria-busy", "true");
+  main.innerHTML = skeleton(view);
   let target = null;
   try {
     target = await views[view](main, params);
@@ -44,6 +47,8 @@ export async function render({ navigated = false } = {}) {
     main.innerHTML = `<div class="panel error-state" role="alert"><h1>Could not load this view</h1>
       <p class="muted">${esc(error.message)}</p><button type="button" class="primary" id="retry">Try again</button></div>`;
     $("#retry").addEventListener("click", () => render({ navigated: true }));
+  } finally {
+    main.removeAttribute("aria-busy");
   }
   if (target) focusHeading(target); // a link to a section lands there, on first load too
   else if (navigated) {

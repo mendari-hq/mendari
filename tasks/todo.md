@@ -17,8 +17,12 @@ phase (A, B, C) to be done and merged when CI passes.
   content-stamped URLs and preloads every module. Spacing on the `--space-*` scale (half steps
   2 and 6 px added), layers on `--z-*`, one toggle-group pattern (joined bar or pills, two
   sizes); a test fails on any raw spacing or z-index value in components
-- [ ] Phase B2: tablet breakpoint and a 56 px phone top bar; skeletons instead of blanking;
-  progress for evaluation runs; an undo window for overrides
+- [x] Phase B2: the section list runs across the top up to 1,024 px (content gets the full width;
+  four stats in two rows of two, never three and one); phones get a 56 px top bar (was 104) with
+  a Settings sheet for theme and pack; views load into skeletons shaped like them, marked
+  aria-busy (no more collapsing to "Loading…"); evaluation runs show an indeterminate bar and the
+  elapsed time; any label but the recommendation waits 5 s with a focused Undo (leaving the view
+  or the page sends it)
 - [ ] Phase B3: charts with direct labels, dodged points, a sparse-history summary; Overview
   trends (period, change, sparkline), with per-day review counts in `/api/stats`
 - [ ] Phase C: motion (drawer, dialog, resolved cards, tabs, chart marks), fewer boxes, a brand

@@ -62,11 +62,11 @@ def console_errors(page: Page) -> list[str]:
 
 
 def show(page: Page, view: str) -> None:
-    """Go to a view and wait until it has rendered (not just its loading placeholder)."""
+    """Go to a view and wait until it has rendered (not just its loading skeleton)."""
     page.goto(f"/#{view}")
     expect(page.locator(f'.nav a[data-view="{view}"]')).to_have_class(re.compile("active"))
     expect(page.locator("main h1")).to_be_visible()
-    expect(page.locator("main .empty", has_text="Loading")).to_have_count(0)
+    expect(page.locator("#view")).not_to_have_attribute("aria-busy", "true")
 
 
 def open_pack(page: Page, pack_id: str, view: str = "overview") -> None:
@@ -443,7 +443,7 @@ def test_charts_fit_a_phone_and_keep_their_text_readable(page: Page, pack_id: st
     for target in ["#overview", "#evals", "#evals/report", "#try"]:
         page.goto(f"/{target}")
         expect(page.locator("main h1")).to_be_visible()
-        expect(page.locator("main .empty", has_text="Loading")).to_have_count(0)
+        expect(page.locator("#view")).not_to_have_attribute("aria-busy", "true")
         assert page.evaluate("document.documentElement.scrollWidth") <= PHONE["width"], target
         widest = page.evaluate(
             "Math.max(0, ...[...document.querySelectorAll('.chart-svg')]"
@@ -983,7 +983,7 @@ def test_touch_screens_get_44_px_targets(browser: Browser, base_url: str) -> Non
         for view in ["audit", "evals/report", "review", "try"]:
             page.goto(f"/#{view}")
             expect(page.locator("main h1")).to_be_visible()
-            expect(page.locator("main .empty", has_text="Loading")).to_have_count(0)
+            expect(page.locator("#view")).not_to_have_attribute("aria-busy", "true")
             assert page.evaluate(SMALL_TARGETS) == [], view
     finally:
         context.close()
@@ -1006,3 +1006,124 @@ def test_a_record_drawer_is_titled_in_words(page: Page, live_server: str) -> Non
     page.add_init_script(f"localStorage.setItem('oh.pack', {json.dumps(INBOX)})")
     page.goto(f"/#audit/{decision['id']}")
     expect(page.locator("#drawer-title")).to_have_text("Human review · nurse")
+
+
+# -- Phase B2: tablet layout, phone top bar, loading, run progress, override undo -----------------
+
+TOP_BAR_HEIGHT = "document.querySelector('.topbar').getBoundingClientRect().height"
+NAV_DIRECTION = "getComputedStyle(document.querySelector('.nav')).flexDirection"
+STAT_ROWS = """() => { const rows = {};
+  for (const s of document.querySelectorAll('.stats-primary > .stat')) {
+    const top = Math.round(s.getBoundingClientRect().top); rows[top] = (rows[top] || 0) + 1; }
+  return Object.values(rows); }"""
+
+
+@pytest.mark.parametrize("width", [768, 1024])
+def test_tablets_get_the_full_width_with_sections_across_the_top(page: Page, width: int) -> None:
+    page.set_viewport_size({"width": width, "height": 900})
+    open_pack(page, INBOX)
+    assert page.evaluate(NAV_DIRECTION) == "row"
+    assert page.evaluate("document.querySelector('main').getBoundingClientRect().width") == width
+    assert page.evaluate(TOP_BAR_HEIGHT) <= 56  # one row
+    assert page.evaluate(STAT_ROWS) == [2, 2]  # four stats: two rows of two, not three and one
+    page.set_viewport_size({"width": 1280, "height": 900})
+    assert page.evaluate(NAV_DIRECTION) == "column"
+    assert page.evaluate(STAT_ROWS) == [4]
+
+
+def test_phones_get_a_56_px_top_bar_with_settings_in_a_sheet(page: Page) -> None:
+    page.set_viewport_size(PHONE)
+    open_pack(page, INBOX)
+    assert page.evaluate(TOP_BAR_HEIGHT) <= 56
+    settings = page.get_by_role("button", name="Settings")
+    expect(page.locator("#pack-select")).to_be_hidden()
+    settings.click()
+    expect(settings).to_have_attribute("aria-expanded", "true")
+    expect(page.get_by_text("Decision Pack", exact=True)).to_be_visible()
+    expect(page.get_by_role("button", name="Dark")).to_be_visible()
+    page.keyboard.press("Escape")
+    expect(page.locator("#pack-select")).to_be_hidden()
+    expect(settings).to_be_focused()
+    settings.click()
+    page.select_option("#pack-select", GUARD)
+    expect(settings).to_have_attribute("aria-expanded", "false")  # choosing a pack closes it
+    expect(page.locator("main h1")).to_contain_text("AI Guard")
+
+
+def test_a_view_keeps_its_shape_while_it_loads(page: Page) -> None:
+    open_pack(page, INBOX, "review")
+    held: list[Route] = []
+    page.route("**/api/stats*", lambda route: held.append(route))
+    page.goto("/#overview")
+    view = page.locator("#view")
+    expect(view).to_have_attribute("aria-busy", "true")
+    expect(view.locator(".skeleton .sk-stat")).to_have_count(4)
+    for route in held:  # release what was held
+        route.continue_()
+    page.unroute("**/api/stats*")
+    expect(view).not_to_have_attribute("aria-busy", "true")
+    expect(view.locator(".skeleton")).to_have_count(0)
+    expect(page.locator(".stats-primary")).to_be_visible()
+
+
+def test_an_evaluation_run_shows_it_is_alive(page: Page) -> None:
+    open_pack(page, INBOX, "evals")
+    page.goto("/#evals/run")
+    held: list[Route] = []
+    page.route(
+        "**/evals",
+        lambda route: held.append(route) if route.request.method == "POST" else route.continue_(),
+    )
+    page.get_by_role("button", name="Run evaluation").click()
+    progress = page.locator(".run-progress")
+    expect(progress).to_contain_text(re.compile(r"Running \d+ records of \S+"))
+    expect(progress.locator(".elapsed")).to_have_text(re.compile(r"^[1-9]\d* s$"))  # it counts
+    expect(page.locator("#dataset")).to_be_disabled()
+    for route in held:  # release the run
+        route.continue_()
+    page.unroute("**/evals")
+    expect(page.locator("#run-report .stats-primary")).to_be_visible(timeout=60_000)
+    expect(progress).to_have_count(0)
+    expect(page.locator("#dataset")).to_be_enabled()
+
+
+def test_an_override_waits_five_seconds_and_can_be_undone(page: Page, live_server: str) -> None:
+    decision = decide_inbox(live_server, "Crushing chest pain again, and I feel faint")
+    sent: list[dict[str, Any]] = []
+    page.on(
+        "request",
+        lambda r: (
+            sent.append(json.loads(r.post_data or "{}"))
+            if r.method == "POST" and decision["id"] in r.url
+            else None
+        ),
+    )
+    page.clock.install()
+    open_pack(page, INBOX, "review")
+    card = page.locator(f'.review-card[data-id="{decision["id"]}"]')
+    physician = card.get_by_role("button", name="physician", exact=True)
+    physician.click()
+    undo = card.get_by_role("button", name="Undo")
+    expect(undo).to_be_focused()
+    expect(card.locator(".undo-bar")).to_contain_text("Override to physician in 5 s")
+    page.clock.run_for(3000)
+    expect(card.locator(".undo-seconds")).to_have_text("2")
+    undo.click()
+    expect(card.locator(".undo-bar")).to_have_count(0)
+    expect(physician).to_be_focused()
+    page.clock.run_for(10_000)
+    assert sent == []  # undone in time: nothing reached the audit chain
+    physician.click()
+    page.clock.run_for(5000)
+    expect(card).to_have_count(0)
+    assert [s["final_label"] for s in sent] == ["physician"]
+
+
+def test_leaving_the_queue_sends_a_held_override(page: Page, live_server: str) -> None:
+    decision = decide_inbox(live_server, "Crushing chest pain once more, sweating")
+    open_pack(page, INBOX, "review")
+    card = page.locator(f'.review-card[data-id="{decision["id"]}"]')
+    card.get_by_role("button", name="billing", exact=True).click()
+    with page.expect_request(lambda r: r.method == "POST" and decision["id"] in r.url) as request:
+        page.locator('.nav a[data-view="audit"]').click()
+    assert json.loads(request.value.post_data or "{}")["final_label"] == "billing"

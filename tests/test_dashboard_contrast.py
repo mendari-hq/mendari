@@ -48,6 +48,7 @@ PAIRS = [
     ("color-on-solid", "color-danger-solid", TEXT),  # the stat chip
     ("color-warning", "color-warning-soft", TEXT),  # sandbox tag, review count
     ("color-text", "outcome-review-soft", TEXT),  # criteria rows that change the decision
+    ("color-text", "color-warning-soft", TEXT),  # an override waiting to be sent (Undo)
     ("color-text", "outcome-block-soft", TEXT),  # confusion matrix: a mistake over a tenth of a row
     ("color-text-muted", "outcome-review-soft", TEXT),
     ("color-bg", "color-text", TEXT),  # toast
