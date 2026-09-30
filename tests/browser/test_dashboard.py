@@ -495,7 +495,8 @@ def test_probability_bars_are_coloured_by_what_the_label_does(page: Page) -> Non
     page.get_by_role("button", name="Decide").click()
     expect(page.locator(f"{verdict}.f-block")).to_have_count(1)  # a block is danger, not green
     expect(page.locator('figure.chart[data-chart$="-verdict"] svg')).to_have_attribute(
-        "aria-label", re.compile(r"^May the draft be sent to the patient\? block \d.*Chosen: block\.$")
+        "aria-label",
+        re.compile(r"^May the draft be sent to the patient\? block \d.*Chosen: block\.$"),
     )
     page.select_option("#example", label="a safe draft passes and waits for one-step approval")
     page.get_by_role("button", name="Decide").click()
