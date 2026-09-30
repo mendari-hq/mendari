@@ -59,7 +59,7 @@ Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 - [x] CDS Hooks that fetch, under an allow-list (one outbound FHIR client for all later calls)
 - [ ] SMART on FHIR EHR launch (PKCE, OIDC), patient context in the dashboard
   - [x] Backend: launch, callback, server-side sessions, patient-context API
-  - [ ] Dashboard "This patient" view
+  - [x] Dashboard "This patient" view
   - [ ] Sandbox launcher (smart-launcher-v2) and a scripted launch
 - [ ] Bulk FHIR `$export` into local-validation datasets
 - [ ] End-to-end exit checks in CI; docs

@@ -172,6 +172,26 @@ def test_going_back_across_a_pack_change_shows_that_pack(page: Page) -> None:
     expect(page.locator("main h1")).to_have_text("Patient Inbox Router")
 
 
+def test_a_pack_that_answers_late_does_not_replace_the_one_chosen_after_it(page: Page) -> None:
+    """Choosing AI Guard, then going back to the inbox before AI Guard has loaded: when AI
+    Guard's answer finally arrives it is dropped, and the inbox stays."""
+    open_pack(page, INBOX, "overview")
+    page.locator('.nav a[data-view="audit"]').click()
+    expect(page.locator("main h1")).to_have_text("Audit trail")
+    held: list[Route] = []
+    page.route(f"**/api/packs/{GUARD}", lambda route: held.append(route))
+    with page.expect_request(f"**/api/packs/{GUARD}"):
+        page.select_option("#pack-select", GUARD)
+    page.go_back()
+    expect(page.locator("main h1")).to_have_text("Patient Inbox Router")
+    for route in held:
+        route.continue_()
+    page.unroute(f"**/api/packs/{GUARD}")
+    page.wait_for_timeout(300)  # time for the late answer and any render it could start
+    expect(page.locator("main h1")).to_have_text("Patient Inbox Router")
+    expect(page.locator("#pack-select")).to_have_value(INBOX)
+
+
 def test_going_back_from_one_record_to_another_keeps_the_drawer_open(
     page: Page, live_server: str
 ) -> None:
@@ -1132,10 +1152,15 @@ def test_a_view_keeps_its_shape_while_it_loads(page: Page) -> None:
     open_pack(page, INBOX, "review")
     held: list[Route] = []
     page.route("**/api/stats*", lambda route: held.append(route))
-    page.goto("/#overview")
+    with page.expect_request("**/api/stats*"):  # held from here on: the view waits for it
+        page.goto("/#overview")
     view = page.locator("#view")
     expect(view).to_have_attribute("aria-busy", "true")
     expect(view.locator(".skeleton .sk-stat")).to_have_count(4)
+    for _ in range(50):  # the route handler has taken the request (it runs just after the event)
+        if held:
+            break
+        page.wait_for_timeout(20)
     for route in held:  # release what was held
         route.continue_()
     page.unroute("**/api/stats*")
@@ -1394,3 +1419,99 @@ def test_every_control_is_at_least_24_px(page: Page, pack_id: str) -> None:
         expect(page.locator("#view")).not_to_have_attribute("aria-busy", "true")
         page.wait_for_load_state("networkidle")
         assert page.evaluate(UNDER_24) == [], view
+
+
+# -- SMART on FHIR: this patient ------------------------------------------------------------------
+
+SMART_SESSION = {
+    "active": True,
+    "iss": "https://ehr.example.org/fhir",
+    "patient": "ref-p1",
+    "encounter": "enc-1",
+    "fhir_user": "Practitioner/pr-1",
+    "scope": "launch openid fhirUser patient/*.rs",
+    "expires_at": 4102444800,
+    "pack": "openhealth/referral-router",
+}
+SMART_PATIENT = {
+    "id": "ref-p1",
+    "name": "Case 1 Synthetic",
+    "gender": "female",
+    "birthDate": "1956-06-15",
+}
+SMART_ITEMS = [
+    {
+        "ref": "ServiceRequest/ref-sr1",
+        "status": "active",
+        "title": "Patient referral",
+        "priority": "urgent",
+        "text": "Atrial fibrillation on the ECG. Please advise on anticoagulation.",
+        "date": "2026-09-30",
+    }
+]
+
+
+def smart_launched(page: Page, decided: list[Any]) -> None:
+    """A browser that came back from an EHR launch (the SMART API answers from fixtures)."""
+    page.route("**/api/smart/session", lambda route: route.fulfill(json=SMART_SESSION))
+    page.route("**/api/smart/patient", lambda route: route.fulfill(json=SMART_PATIENT))
+    page.route("**/api/smart/focus?*", lambda route: route.fulfill(json=SMART_ITEMS))
+
+    def decide(route: Any) -> None:
+        decided.append(json.loads(route.request.post_data or "{}"))
+        route.fulfill(
+            json={
+                "decision": {
+                    "id": "d-1",
+                    "outcome": "HUMAN_REVIEW",
+                    "recommendation": "urgent_review",
+                },
+                "task": {},
+            }
+        )
+
+    page.route("**/api/smart/decide", decide)
+    page.route("**/api/smart/logout", lambda route: route.fulfill(status=204, body=""))
+
+
+def test_without_a_launch_the_patient_view_stays_out_of_the_way(page: Page) -> None:
+    open_pack(page, INBOX)
+    expect(page.locator('.nav a[data-view="patient"]')).to_be_hidden()
+    page.goto(f"/?pack={INBOX}#patient")
+    expect(page.locator(".empty-state h2")).to_have_text("No EHR launch")
+
+
+def test_an_ehr_launch_shows_the_patient_and_decides_their_work_items(page: Page) -> None:
+    decided: list[Any] = []
+    smart_launched(page, decided)
+    page.goto("/?pack=openhealth/referral-router#patient")
+    expect(page.locator('.nav a[data-view="patient"]')).to_be_visible()
+    expect(page.locator("main h1")).to_have_text("This patient")
+    expect(page.locator(".patient-name")).to_have_text("Case 1 Synthetic")
+    expect(page.locator(".patient-banner")).to_contain_text("female")
+    item = page.locator(".work-item")
+    expect(item).to_have_count(1)
+    expect(item).to_contain_text("Atrial fibrillation")
+    expect(item.locator(".badge")).to_have_text("Urgent")
+    item.get_by_role("button", name="Decide").click()
+    expect(item.locator(".work-result")).to_contain_text("urgent_review")
+    expect(item.get_by_role("link", name=re.compile("Open the decision"))).to_have_attribute(
+        "href", "#audit/d-1"
+    )
+    assert decided == [{"pack_id": "openhealth/referral-router", "focus": "ServiceRequest/ref-sr1"}]
+
+
+def test_ending_the_ehr_session_hides_the_patient_view(page: Page) -> None:
+    smart_launched(page, [])
+    page.goto("/?pack=openhealth/referral-router#patient")
+    page.get_by_role("button", name="End session").click()
+    expect(page).to_have_url(re.compile("#overview$"))
+    expect(page.locator('.nav a[data-view="patient"]')).to_be_hidden()
+
+
+def test_the_patient_view_fits_a_phone(page: Page) -> None:
+    page.set_viewport_size(PHONE)
+    smart_launched(page, [])
+    page.goto("/?pack=openhealth/referral-router#patient")
+    expect(page.locator(".work-item")).to_have_count(1)
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
