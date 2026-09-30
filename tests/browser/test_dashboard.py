@@ -1236,3 +1236,76 @@ def test_line_charts_name_their_lines_where_there_is_room(page: Page) -> None:
     page.set_viewport_size(PHONE)
     expect(sweep).not_to_have_class(re.compile("direct"))
     expect(sweep.locator(".chart-legend")).to_be_visible()
+
+
+# -- Phase C: motion, empty states, identity ------------------------------------------------------
+
+ANIMATION = "(el) => getComputedStyle(el).animationName"
+
+
+def test_the_drawer_slides_in_and_out(page: Page) -> None:
+    open_pack(page, INBOX, "audit")
+    page.locator("#audit-table button.open-record").first.click()
+    drawer = page.locator(".drawer")
+    assert drawer.evaluate(ANIMATION) == "drawer-in"
+    page.keyboard.press("Escape")
+    expect(page.get_by_role("dialog")).to_have_count(0)  # at once: no longer a dialog...
+    expect(page.locator(".drawer-root.closing")).to_have_count(1)  # ...while it slides out
+    expect(page.locator(".drawer-root")).to_have_count(0)
+    expect(page.locator("#audit-table button.open-record").first).to_be_focused()
+
+
+def test_nothing_moves_under_reduced_motion(page: Page) -> None:
+    page.emulate_media(reduced_motion="reduce")
+    open_pack(page, INBOX, "audit")
+    page.locator("#audit-table button.open-record").first.click()
+    assert page.locator(".drawer").evaluate(ANIMATION) == "none"
+    page.keyboard.press("Escape")
+    assert page.locator(".drawer-root").count() == 0  # removed at once, no slide
+
+
+def test_empty_views_say_what_goes_there_and_offer_one_action(page: Page) -> None:
+    page.route("**/api/review?*", lambda route: route.fulfill(json=[]))
+    page.route("**/api/feedback?*", lambda route: route.fulfill(json=[]))
+    open_pack(page, INBOX, "review")
+    for view, title, action in [
+        ("review", "Nothing waiting for review", "Open the audit trail"),
+        ("feedback", "Nothing rated yet", "Try a decision"),
+    ]:
+        show(page, view)
+        empty = page.locator(".empty-state")
+        expect(empty.locator(".empty-icon svg")).to_be_visible()
+        expect(empty.get_by_role("heading")).to_have_text(title)
+        expect(empty.get_by_role("link")).to_have_text(action)  # exactly one
+
+
+def test_the_brand_is_a_mark_and_stat_labels_read_as_labels(page: Page) -> None:
+    open_pack(page, INBOX)
+    expect(page.locator(".brand svg.logo")).to_be_visible()
+    expect(page.locator(".brand")).not_to_contain_text("◆")
+    label = page.locator(".stats-primary .stat-label").first
+    assert label.evaluate("(el) => getComputedStyle(el).textTransform") == "uppercase"
+    expect(label).to_have_text("Automated")  # the words themselves are unchanged
+
+
+# Controls smaller than WCAG 2.5.8's 24 x 24 px (links inside a sentence are exempt; there are none
+# left outside sentences).
+UNDER_24 = """() => [...document.querySelectorAll('main a[href], main button, main input, '
+    + 'main select, main textarea, main summary, .nav a, .topbar button, .topbar select, '
+    + 'main [tabindex="0"]')]
+  .filter((el) => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden')
+  .filter((el) => { const r = el.getBoundingClientRect(); return r.width < 24 || r.height < 24; })
+  .filter((el) => !(el.tagName === 'A' && el.closest('p, li')))
+  .map((el) => el.outerHTML.slice(0, 80))"""
+
+
+@pytest.mark.parametrize("pack_id", [INBOX, GUARD])
+def test_every_control_is_at_least_24_px(page: Page, pack_id: str) -> None:
+    page.set_viewport_size(PHONE)
+    open_pack(page, pack_id)
+    for view in [*VIEWS, "evals/report", "evals/run"]:
+        page.goto(f"/#{view}")
+        expect(page.locator("main h1")).to_be_visible()
+        expect(page.locator("#view")).not_to_have_attribute("aria-busy", "true")
+        page.wait_for_load_state("networkidle")
+        assert page.evaluate(UNDER_24) == [], view

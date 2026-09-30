@@ -4,7 +4,7 @@ import { ratingCell } from "./audit.js";
 import { criteriaTable, derivedPrimary, inputView } from "./pack.js";
 import { render, views } from "./router.js";
 import { TABLES } from "./table.js";
-import { $, api, esc, icon, outcomeBadge, packPath, priorityBadge, stat, state, storageGet, storageSet, time, toastError, whileBusy } from "./ui.js";
+import { $, api, emptyState, esc, icon, outcomeBadge, packPath, priorityBadge, stat, state, storageGet, storageSet, time, toastError, whileBusy } from "./ui.js";
 
 views.feedback = async (main) => {
   const rating = storageGet("oh.feedback.rating", "down");
@@ -20,7 +20,7 @@ views.feedback = async (main) => {
       ${stat({ label: "Wrong on automated", value: String(f.down_on_auto), tone: f.down_on_auto ? "danger" : "", foot: "Automated, then rated wrong: confidently wrong" })}
       ${stat({ label: "Ready to become tests", value: String(f.down_with_expected), foot: "Rated wrong, with the right answer" })}
     </div>
-    <div class="row panel">
+    <div class="row toolbar">
       <label for="rating-filter">Show</label>
       <select id="rating-filter">
         <option value="down" ${rating === "down" ? "selected" : ""}>Wrong (${f.down})</option>
@@ -30,8 +30,11 @@ views.feedback = async (main) => {
       <span class="grow"></span>
       <a class="button" href="${packPath()}/feedback/export?rating=down" download>${icon("download")} Download the wrong cases (JSONL)</a>
     </div>
-    ${items.length ? items.map(feedbackCard).join("") : `<div class="panel empty-state"><h2>Nothing here yet</h2>
-      <p class="muted">Rate a decision right or wrong in Try it, or in a record of the audit trail.</p></div>`}`;
+    ${items.length ? items.map(feedbackCard).join("") : emptyState({
+      icon: "message", title: "Nothing rated yet",
+      text: "Rate a decision right or wrong in Try it, or in a record of the audit trail.",
+      action: { href: "#try", label: "Try a decision" },
+    })}`;
   $("#rating-filter").addEventListener("change", (e) => {
     storageSet("oh.feedback.rating", e.target.value);
     render();
@@ -54,7 +57,7 @@ function feedbackCard(item) {
     ${item.note ? `<p><b>Note:</b> ${esc(item.note)}</p>` : ""}
     ${inputView(r.input)}
     ${criteriaTable(r.answers, { evidence: false })}
-    <a href="#audit/${encodeURIComponent(item.decision_id)}">Open the decision <span class="mono">${esc(item.decision_id.slice(0, 8))}</span> ${icon("arrow-right")}</a>
+    <a class="action-link" href="#audit/${encodeURIComponent(item.decision_id)}">Open the decision <span class="mono">${esc(item.decision_id.slice(0, 8))}</span> ${icon("arrow-right")}</a>
   </article>`;
 }
 

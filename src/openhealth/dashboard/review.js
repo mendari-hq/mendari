@@ -2,7 +2,7 @@
 
 import { criteriaTable, inputView } from "./pack.js";
 import { refreshReviewCount, views } from "./router.js";
-import { $, announce, api, esc, focusHeading, icon, outcomeBadge, pct, PRIORITY_TEXT, priorityBadge, state, storageGet, storageSet, time, toast, toastError } from "./ui.js";
+import { $, announce, api, emptyState, esc, focusHeading, icon, outcomeBadge, pct, PRIORITY_TEXT, priorityBadge, reducedMotion, state, storageGet, storageSet, time, toast, toastError } from "./ui.js";
 
 const PRIORITIES = ["stat", "asap", "urgent", "routine"];
 
@@ -15,7 +15,7 @@ views.review = async (main) => {
   main.innerHTML = `
     <h1>Review queue</h1>
     <p class="muted">Decisions waiting for a person, most urgent first.</p>
-    <div class="row panel">
+    <div class="row toolbar">
       <label for="reviewer">Reviewer</label>
       <input id="reviewer" value="${esc(storageGet("oh.reviewer", "sandbox-nurse"))}" autocomplete="name">
       <span class="grow"></span>
@@ -35,8 +35,23 @@ views.review = async (main) => {
   });
 };
 
-const emptyQueue = () => `<div class="panel empty-state"><h2>Nothing waiting for review</h2>
-  <p class="muted">Decisions the policy sends to a person appear here, most urgent first.</p></div>`;
+const emptyQueue = () => emptyState({
+  icon: "check", title: "Nothing waiting for review",
+  text: "Decisions the policy sends to a person appear here, most urgent first.",
+  action: { href: "#audit", label: "Open the audit trail" },
+});
+
+// A resolved card folds away (height and opacity, 200 ms) before the next one takes focus.
+async function collapse(card) {
+  if (!reducedMotion()) {
+    const { height } = card.getBoundingClientRect();
+    card.style.overflow = "hidden";
+    const folded = { height: "0px", opacity: 0, paddingTop: "0px", paddingBottom: "0px", marginTop: "0px", borderWidth: "0px" };
+    await card.animate([{ height: `${height}px`, opacity: 1 }, folded], { duration: 200, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" })
+      .finished.catch(() => {});
+  }
+  card.remove();
+}
 
 function queueCounts(items) {
   if (!items.length) return "Nothing waiting";
@@ -119,7 +134,7 @@ async function sendResolution(card, label, reviewer, { keepalive = false } = {})
     const cards = [...document.querySelectorAll(".review-card")];
     const next = cards[cards.indexOf(card) + 1] ?? cards[cards.indexOf(card) - 1];
     const group = card.closest(".review-group");
-    card.remove();
+    await collapse(card);
     if (!group.querySelector(".review-card")) group.remove();
     else group.querySelector(".count-plain").textContent = group.querySelectorAll(".review-card").length;
     const left = [...document.querySelectorAll(".review-card")].map((c) => ({ priority: c.dataset.priority }));

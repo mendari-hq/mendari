@@ -186,7 +186,7 @@ function decisionView(r) {
       <h2 id="result-title">${icon(RESULT_ICON[r.outcome])}${esc(resultHeadline(r))}</h2>
       <p>${r.recommendation ? `→ <b>${esc(r.recommendation)}</b>` : "No recommendation"}
         ${r.confidence !== null ? ` · confidence ${pct(r.confidence)}` : ""} · ${num(r.latency_ms, 2)} ms ·
-        <a href="#audit/${encodeURIComponent(r.id)}">Decision <span class="mono">${esc(r.id.slice(0, 8))}</span></a></p>
+        <a class="action-link" href="#audit/${encodeURIComponent(r.id)}">Decision <span class="mono">${esc(r.id.slice(0, 8))}</span></a></p>
     </div>
     ${r.fallback ? `<div class="callout ${r.outcome === "BLOCK" ? "danger" : "neutral"}"><b>Instead:</b> ${esc(r.fallback)}</div>` : ""}
     <ul class="reasons">${r.reasons.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>

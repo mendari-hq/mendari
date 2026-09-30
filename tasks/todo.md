@@ -31,9 +31,17 @@ phase (A, B, C) to be done and merged when CI passes.
   configurations at the same point share one named mark, near ones are dodged with a leader, and
   the deployed, safety-first leader and cost/accuracy frontier are named; the sweep names its
   lines at their ends
-- [ ] Phase C: motion (drawer, dialog, resolved cards, tabs, chart marks), fewer boxes, a brand
-  mark, stat labels, designed empty states
-- [ ] Re-grade with the same measurements; check the production deploy
+- [x] Phase C: motion (the drawer slides in and out, the dialog fades and scales in, a resolved
+  review card folds away, Evaluations tabs crossfade, chart highlights and the settings sheet
+  ease in; none under reduced motion); controls and the Decision Card's text sections unboxed
+  (boxes kept for tables, charts and review items); the favicon's mark in the top bar in the
+  theme's accent; stat labels 12 px, 500, uppercase, 0.04 em; empty states with an icon, one line
+  and one action
+- [x] Re-grade with the same measurements (110 captures, same script): **B+** (was C+), as
+  projected. No layout shift at any width, no control under 24 px on any capture, 56 px phone
+  bar; an A needs identity work, clinician testing, production-scale data and a real
+  screen-reader and cross-browser pass (`docs/design-grade.md`, "Re-grade")
+- [ ] Check the production deploy after the last merge
 
 ## Next: v0.4 Healthcare standards
 Plan to be written and approved before any code (roadmap: US Core validation, AuditEvent and

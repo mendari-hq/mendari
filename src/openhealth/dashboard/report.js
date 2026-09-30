@@ -17,7 +17,7 @@ export function reportView(r) {
   const small = (label, value, foot = "") => stat({ size: "small", label, value, foot: esc(foot) });
   const id = `${r.id ?? r.created_at}`.replace(/[^a-zA-Z0-9-]/g, "");
   return `
-    <div class="panel">
+    <div class="report-meta">
       <div class="row"><b>${esc(r.dataset.name)}</b><span class="muted">n=${r.dataset.n} · ${esc(time(r.created_at))} ·
         ${Object.entries(r.providers).map(([s, p]) => `${esc(s)}=${esc(p.variant)}`).join(", ")}</span></div>
     </div>

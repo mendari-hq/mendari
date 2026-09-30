@@ -1,6 +1,6 @@
 // The drawer: one dialog at a time beside the page (full screen on phones).
 
-import { esc, icon } from "./ui.js";
+import { esc, icon, reducedMotion } from "./ui.js";
 
 // One dialog at a time, beside the page (full screen on phones). The page behind is inert, Tab stays
 // inside, Escape or the close button closes it, and focus returns to what opened it.
@@ -41,11 +41,25 @@ export function closeDrawer({ restoreFocus = true, closedByUser = true } = {}) {
   if (!drawer) return;
   const { root, opener, onClose } = drawer;
   drawer = null;
-  root.remove();
   document.querySelectorAll(".topbar, .shell").forEach((el) => (el.inert = false));
   document.body.classList.remove("drawer-open");
   if (restoreFocus && opener?.isConnected) opener.focus();
+  leave(root, { animate: closedByUser });
   if (closedByUser) onClose?.();
+}
+
+// Closed by a person, it slides back out (the page is already usable again: the drawer is inert and
+// no longer a dialog while it goes). Replaced or dropped by a view change, it goes at once.
+function leave(root, { animate }) {
+  if (!animate || reducedMotion()) return root.remove();
+  root.inert = true;
+  const panel = root.querySelector(".drawer");
+  panel.removeAttribute("role");
+  panel.removeAttribute("aria-modal");
+  root.querySelector("#drawer-title")?.removeAttribute("id");
+  root.classList.add("closing");
+  panel.addEventListener("animationend", () => root.remove(), { once: true });
+  setTimeout(() => root.remove(), 400); // in case no animation runs
 }
 
 function keepFocusInside(event, container) {

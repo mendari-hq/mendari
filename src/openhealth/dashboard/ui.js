@@ -134,7 +134,8 @@ export function focusHeading(heading, { scroll = true } = {}) {
   heading.focus({ preventScroll: true });
 }
 
-const scrollBehavior = () => (matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth");
+export const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+const scrollBehavior = () => (reducedMotion() ? "auto" : "smooth");
 
 // Disable a button while its request runs, so a slow provider can't be submitted twice.
 export async function whileBusy(button, busyText, task) {
@@ -156,6 +157,17 @@ export async function whileBusy(button, busyText, task) {
 export const slotText = (slot) => `${slot[0].toUpperCase()}${slot.slice(1).replaceAll("_", " ")}`;
 
 // A stat: a label, a value, and what the value is out of. `html` values are trusted markup.
+// An empty view or section: an icon, what is (not) here in one line, and the one thing to do next.
+// `text` is trusted HTML (it may link somewhere).
+export function emptyState({ icon: name, title, text, action = null, level = 2 }) {
+  return `<div class="empty-state">
+    <span class="empty-icon" aria-hidden="true">${icon(name)}</span>
+    <h${level}>${esc(title)}</h${level}>
+    <p class="muted">${text}</p>
+    ${action ? `<a class="button primary" href="${esc(action.href)}">${esc(action.label)}</a>` : ""}
+  </div>`;
+}
+
 // `trend`: a sparkline beside the value (decorative); `change`: how it moved, in words.
 export function stat({ label, value, foot = "", tone = "", html = false, size = "", trend = "", change = "" }) {
   return `<div class="stat ${size} ${tone ? `tone-${tone}` : ""}">

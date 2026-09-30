@@ -83,7 +83,7 @@ views.card = async (main, params) => {
     <p class="prose lead">${esc(m.summary)}</p>
     <nav class="toc" aria-label="On this page">${CARD_SECTIONS.map(([key, title]) => `<a href="#card/${key}">${esc(title)}</a>`).join("")}</nav>
 
-    <section class="panel card-section" id="card-facts" aria-labelledby="card-facts-title">
+    <section class="card-section" id="card-facts" aria-labelledby="card-facts-title">
       <h2 id="card-facts-title">At a glance</h2>
       <dl class="facts">
         <dt>Risk level</dt><dd><span class="badge risk">${m.risk.level}</span> ${esc(m.risk.category)}</dd>
@@ -97,7 +97,7 @@ views.card = async (main, params) => {
       </dl>
     </section>
 
-    <section class="panel card-section prose" id="card-use" aria-labelledby="card-use-title">
+    <section class="card-section prose" id="card-use" aria-labelledby="card-use-title">
       <h2 id="card-use-title">Intended use</h2>
       <p>${esc(m.card.intended_use)}</p>
       <h3>Users</h3>${list(m.card.intended_users)}
@@ -112,7 +112,7 @@ views.card = async (main, params) => {
       ${Object.entries(m.questions).map(([key, q]) => questionPanel(key, q, key === p.primary)).join("")}
     </section>
 
-    <section class="panel card-section" id="card-policy" aria-labelledby="card-policy-title">
+    <section class="card-section" id="card-policy" aria-labelledby="card-policy-title">
       <h2 id="card-policy-title">Policy</h2>
       <p class="prose muted">Rules are checked in order and the first that matches decides; otherwise the confidence thresholds do.
         An automated outcome is then held for a person if its label is never automated, a provider failed, a required provider
@@ -128,9 +128,9 @@ views.card = async (main, params) => {
       <div class="callout neutral"><b>When it can't decide:</b> ${esc(p.fallback)}</div>
     </section>
 
-    <section class="panel card-section" id="card-providers" aria-labelledby="card-providers-title">
+    <section class="card-section" id="card-providers" aria-labelledby="card-providers-title">
       <h2 id="card-providers-title">Providers</h2>
-      <div class="table-wrap"><table>
+      <div class="panel table-wrap"><table>
         <thead><tr><th scope="col">Slot</th><th scope="col">Answers</th><th scope="col">Deployed</th><th scope="col">Variants</th></tr></thead>
         <tbody>${Object.entries(m.providers).map(([slot, sp]) => `<tr><td>${esc(slotText(slot))} <span class="mono muted">${esc(slot)}</span></td>
           <td>${sp.answers.map((a) => `<code>${esc(a)}</code>`).join(", ")}</td>
@@ -139,7 +139,7 @@ views.card = async (main, params) => {
       </table></div>
     </section>
 
-    <section class="panel card-section" id="card-schemas" aria-labelledby="card-schemas-title">
+    <section class="card-section" id="card-schemas" aria-labelledby="card-schemas-title">
       <h2 id="card-schemas-title">Schemas</h2>
       <details><summary>Input schema (JSON)</summary><pre class="json">${esc(JSON.stringify(d.input_schema, null, 2))}</pre></details>
       <details><summary>Output schema (JSON)</summary><pre class="json">${esc(JSON.stringify(d.output_schema, null, 2))}</pre></details>
