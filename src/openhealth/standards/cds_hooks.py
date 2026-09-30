@@ -5,7 +5,8 @@ orders in `context.draftOrders`. A prefetch key the EHR left out is fetched from
 `fhirServer` with its `fhirAuthorization` token, using the pack's own prefetch template, but only
 when that server is on the deployment's allow-list (`OPENHEALTH_FHIR_ALLOWED_SERVERS`, empty by
 default; see `fhir_client`). Card wording comes from the pack's `cds_hooks.card`; without it, the
-card describes a routing decision.
+card describes a routing decision. A pack that declares `coverage_information` also returns, for
+each decided order, a Da Vinci CRD system action (`standards/davinci.py`).
 """
 
 from __future__ import annotations
@@ -16,11 +17,13 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 from urllib.parse import quote
 
+from openhealth.core import clock
 from openhealth.core.decision import Decision, DecisionResult
 from openhealth.core.pack import Pack
 from openhealth.core.spec import Outcome, Priority
 from openhealth.core.templates import fill
 from openhealth.errors import FhirError
+from openhealth.standards import davinci
 from openhealth.standards.fhir import FhirAdapter
 from openhealth.standards.fhir_client import FhirClient
 
@@ -66,6 +69,7 @@ def invoke(decision: Decision, request: Mapping[str, Any]) -> dict[str, Any]:
     missing = [key for key in hooks.prefetch if not prefetch.get(key)]
     if missing:
         prefetch.update(fetch(hooks.prefetch, missing, request))
+    orders: list[dict[str, Any]] = []
     if hooks.hook in ORDER_HOOKS:
         # One decision per draft order the pack is about (e.g. each referral, not the lab
         # orders signed with it), each with the prefetched record.
@@ -81,7 +85,18 @@ def invoke(decision: Decision, request: Mapping[str, Any]) -> dict[str, Any]:
         if template is not None and template.show is not None and shown not in template.show:
             continue  # decided and audited, but nothing worth interrupting the user for
         cards.append(card(decision.pack, result, task))
-    return {"cards": cards}
+    response: dict[str, Any] = {"cards": cards}
+    coverage = davinci.coverage_reference(prefetch) if hooks.coverage_information else None
+    if coverage is not None:
+        actions = []
+        for order, (result, _) in zip(orders, decided, strict=True):
+            info = hooks.coverage_information.get(result.recommendation or "")
+            if info is not None:
+                extension = davinci.coverage_information(info, result, coverage, clock.today())
+                actions.append(davinci.system_action(order, extension))
+        if actions:
+            response["systemActions"] = actions
+    return response
 
 
 def fetch(

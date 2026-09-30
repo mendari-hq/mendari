@@ -392,6 +392,14 @@ labels, or `none`), optional `indicators`, a `suggestion` label, and `show`, the
 recommendations that produce a card at all (e.g. a `patient-view` service stays silent for
 patients who are clearly not eligible).
 
+An order-hook pack MAY map recommendations to **Da Vinci CRD coverage information** with
+`cds_hooks.coverage_information: {<primary label>: {covered, pa_needed, doc_needed, doc_purpose,
+info_needed, reason}}` (CRD's codes; `reason` is plain words and MUST NOT carry case data). It
+needs a `coverage` prefetch. For each decided order whose recommendation is mapped, the response
+adds a `systemActions` entry: an `update` of the draft order with CRD's `coverage-information`
+extension, naming the patient's Coverage, the date and an assertion id (the decision id). Labels
+without a mapping assert nothing, and cards are unchanged.
+
 ### 9.1 Guard
 
 A pack MAY declare `guard: {draft: <input field>, release: [<primary labels>]}` to sit between a
@@ -444,6 +452,7 @@ produces identical decisions; it simply cannot use the new fields.
 | FHIR `focus_where`; one decision per draft order for `order-select`/`order-sign` | §9 |
 | `dosing` provider; `guard` section and statuses | §5, §9.1 |
 | `cql` provider (a library in the pack, a CQL engine at `$OPENHEALTH_CQL_URL`) | §5 |
+| `cds_hooks.coverage_information` (Da Vinci CRD system actions on order hooks) | §9 |
 | The decision output schema adds an optional `value` to each answer | §4.2 |
 
 To migrate a pack:

@@ -1,6 +1,7 @@
 """Check FHIR resources with the official HL7 FHIR validator against US Core 6.1.0.
 
     uv run python scripts/fhir_validate.py --valid FILE... [--invalid FILE...] [--docker]
+                                           [--ig PACKAGE#VERSION ...]
 
 - `--valid` files must have no errors: they are what OpenHealth produces or accepts as
   conforming (the sandbox's resources, the US Core fixtures, the audit export).
@@ -8,9 +9,11 @@
   flags must also have an error from the validator, so the in-process subset never rejects what
   US Core accepts (which `OPENHEALTH_FHIR_VALIDATION=enforce` would turn into a block).
 
-The validator runs without a terminology server (`-tx n/a`), so the result does not depend on a
-remote service. Java comes from the PATH, or from the eclipse-temurin image with `--docker`.
-Set `FHIR_VALIDATOR_JAR` to the jar (default `var/validator/validator_cli.jar`).
+`--ig` loads more implementation guides next to US Core, e.g. the Da Vinci guides for the prior
+authorization samples (`hl7.fhir.us.davinci-crd#2.2.1`). The validator runs without a terminology
+server (`-tx n/a`), so the result does not depend on a remote service. Java comes from the PATH,
+or from the eclipse-temurin image with `--docker`. Set `FHIR_VALIDATOR_JAR` to the jar (default
+`var/validator/validator_cli.jar`).
 """
 
 from __future__ import annotations
@@ -35,8 +38,11 @@ ARGS = ["-version", "4.0.1", "-ig", "hl7.fhir.us.core#6.1.0", "-tx", "n/a"]
 _RESOURCE = re.compile(r"/\*(\w+/[^*]+)\*/")
 
 
-def run_validator(files: list[Path], docker: bool) -> dict[str, list[dict[str, str]]]:
+def run_validator(
+    files: list[Path], docker: bool, igs: list[str] | None = None
+) -> dict[str, list[dict[str, str]]]:
     """Errors per file: [{"resource": "Patient/p1", "where": ..., "text": ...}]."""
+    args = [*ARGS, *(part for ig in igs or [] for part in ("-ig", ig))]
     with tempfile.TemporaryDirectory(dir=ROOT / "var") as scratch:
         out = Path(scratch) / "out.json"
         if docker:
@@ -44,9 +50,9 @@ def run_validator(files: list[Path], docker: bool) -> dict[str, list[dict[str, s
             jar = f"/work/{JAR.resolve().relative_to(ROOT)}"
             command = ["docker", "run", "--rm", "-v", f"{ROOT}:/work"]
             command += ["-e", "HOME=/work/var/validator/cache", IMAGE, "java", "-jar", jar]
-            command += [*ARGS, *mounted, "-output", f"/work/{out.relative_to(ROOT)}"]
+            command += [*args, *mounted, "-output", f"/work/{out.relative_to(ROOT)}"]
         else:
-            command = ["java", "-jar", str(JAR), *ARGS, *map(str, files), "-output", str(out)]
+            command = ["java", "-jar", str(JAR), *args, *map(str, files), "-output", str(out)]
         subprocess.run(command, check=False, stdout=subprocess.DEVNULL)
         if not out.exists():
             sys.exit("the validator produced no output; run it by hand to see why")
@@ -76,11 +82,12 @@ def main() -> int:
     parser.add_argument("--valid", nargs="*", default=[], type=Path)
     parser.add_argument("--invalid", nargs="*", default=[], type=Path)
     parser.add_argument("--docker", action="store_true", help="run Java in the temurin image")
+    parser.add_argument("--ig", action="append", default=[], help="another IG, package#version")
     args = parser.parse_args()
     files = [*args.valid, *args.invalid]
     if not files:
         parser.error("no files")
-    errors = run_validator(files, args.docker)
+    errors = run_validator(files, args.docker, args.ig)
     failed = False
     for path in args.valid:
         found = errors[str(path)]

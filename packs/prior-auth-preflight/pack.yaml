@@ -1,6 +1,6 @@
 spec_version: "0.2"
 id: openhealth/prior-auth-preflight
-version: 0.1.0
+version: 0.1.1
 name: Prior Authorization Preflight
 summary: >-
   Checks an order against the patient's payer before it is sent for prior authorization: does
@@ -310,3 +310,20 @@ cds_hooks:
       none: info
     show: [submit_ready, needs_attention, not_required]
     suggestion: Create a prior-authorization task
+  # Da Vinci CRD: each decided order also comes back with its coverage information (a system
+  # action updating the order), so the EHR can show whether prior authorization and more
+  # documentation are needed. `not_checked` asserts nothing. (No `doc_purpose: [withpa]`: CRD
+  # 2.2.1's constraint crd-ci-q4 rejects it alongside `auth-needed`; the reason says it instead.)
+  coverage_information:
+    submit_ready:
+      covered: covered
+      pa_needed: auth-needed
+      reason: The payer requires prior authorization; the record has what it asks for.
+    needs_attention:
+      covered: covered
+      pa_needed: auth-needed
+      doc_needed: [clinical]
+      reason: >-
+        The payer requires prior authorization, and clinical documentation it asks for is
+        missing from the record; the card lists what.
+    not_required: {covered: covered, pa_needed: no-auth}

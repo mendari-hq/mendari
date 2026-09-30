@@ -233,6 +233,12 @@ CQL engine at `OPENHEALTH_CQL_URL` (HAPI FHIR with Clinical Reasoning; the sandb
 it on). The trial pack's `cql` variant holds its criteria in CQL. `openhealth agreement` shows
 that it answers like `criteria` on every case, and the CI job `cql` checks it.
 
+**Da Vinci CRD.** The Prior Authorization Preflight's `order-sign` service also returns, for
+each order it decides, a system action that updates the order with CRD's `coverage-information`:
+covered, whether prior authorization and documentation are needed, the patient's Coverage and
+an assertion id, which is the decision id. The HL7 validator checks it against CRD 2.2.1 in CI.
+A pack declares this with `cds_hooks.coverage_information`.
+
 **OMOP CDM.** Research data in OMOP (SQLite or Postgres, with an optional schema such as `cdm`)
 becomes record-pack inputs, one per person, for population-level evaluation:
 

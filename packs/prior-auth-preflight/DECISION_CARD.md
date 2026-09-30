@@ -1,6 +1,6 @@
 # Decision Card: Prior Authorization Preflight
 
-`openhealth/prior-auth-preflight` · version **0.1.0** · Apache-2.0 · published by OpenHealth Hub reference packs (community)
+`openhealth/prior-auth-preflight` · version **0.1.1** · Apache-2.0 · published by OpenHealth Hub reference packs (community)
 
 > Checks an order against the patient's payer before it is sent for prior authorization: does this payer require authorization for this service, and does the record have what the payer asks for? Complete requests are queued for submission; the gaps in the others are listed.
 
@@ -8,8 +8,8 @@
 |---|---|
 | Risk level | **1**, clinical information processing (clinical information) |
 | Automation | AUTO permitted by policy thresholds; every decision is audited. |
-| Pack digest | `sha256:3ba380546066a8f5e1547fc0e87584d241a158ffe09771e80b3f0382297645ad` |
-| Last validation | 2026-09-29 on `test` (n=600, sha256 `17c6f97cd68c…`) |
+| Pack digest | `sha256:bcbb5bee519b3ece753de27be487000dc994aea3a76886c2620b03de29408e8f` |
+| Last validation | 2026-09-30 on `test` (n=600, sha256 `17c6f97cd68c…`) |
 
 ## Intended use
 
@@ -176,7 +176,7 @@ Benchmark `test` (n=600) with structured=`criteria`, notes=`rules`:
 | Accuracy of AUTO decisions | n/a |
 | False automation rate | n/a |
 | Expected human override rate | 0.0% |
-| Latency p50 / p95 | 3.35 / 3.53 ms |
+| Latency p50 / p95 | 3.34 / 3.41 ms |
 | Cost per decision | $0.00000 |
 | Critical `red_flag=yes` | 25/25 detected, 0 automated |
 
@@ -355,6 +355,15 @@ Other questions (accuracy / ECE):
 - **Hand-written note sets**: data/documentation_notes.jsonl (used to write the note rules) and data/documentation_notes_holdout.jsonl (written before the rules and never used to tune them): conservative treatment with enough, too little or unclear duration; red flags and look-alikes; knee mechanical symptoms; sleep apnoea symptoms and insomnia.
 
 ## Version history
+
+### 0.1.1
+
+- Da Vinci CRD: the `order-sign` service also returns, for each decided order, a system action
+  updating the order with CRD's `coverage-information` (`cds_hooks.coverage_information`):
+  `submit_ready` and `needs_attention` are covered with prior authorization needed (and clinical
+  documentation needed for `needs_attention`), `not_required` needs no authorization, and
+  `not_checked` asserts nothing. The assertion id is the decision id. Cards are unchanged.
+  Questions, criteria, rules, policy and data are unchanged.
 
 ### 0.1.0
 
