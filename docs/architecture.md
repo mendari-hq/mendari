@@ -77,8 +77,14 @@
   forbids following it, and the response schema is fixed by the pack. Their responses are validated strictly and bounded in size. A batched
   call sends the union of its variants' `state_fields`; a variant that must not share its
   state sets `batch: false`.
-- **The server** has no authentication in v0.1 and binds to localhost by default. The docker
-  sandbox publishes ports on 127.0.0.1 only.
+- **The server** is open by default and binds to localhost. Production sits behind Vercel
+  Authentication, and the docker sandbox publishes ports on 127.0.0.1 only.
+  - With an OIDC issuer set (`server/auth.py`), every request passes one guard: a signed-in
+    session (PKCE, `id_token` verified with the IdP's JWKS, server-side session, HttpOnly
+    SameSite=Lax cookie) or an API key (stored as SHA-256, revocable).
+  - The guard maps each route to a permission, a role table grants permissions, and unlisted
+    routes need admin.
+  - A matrix test pins which routes are public.
 - **Outbound FHIR reads** go through one client (`standards/fhir_client.py`), so SSRF has a
   single guard. That includes CDS Hooks fetching prefetch the EHR left out, and later SMART and
   Bulk.

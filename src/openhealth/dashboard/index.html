@@ -69,6 +69,11 @@
         <button type="button" data-theme-choice="light" title="Light theme"><svg class="icon" aria-hidden="true"><use href="#i-sun"/></svg><span class="label">Light</span></button>
         <button type="button" data-theme-choice="dark" title="Dark theme"><svg class="icon" aria-hidden="true"><use href="#i-moon"/></svg><span class="label">Dark</span></button>
       </div>
+      <!-- Shown when the deployment has sign-in (OPENHEALTH_OIDC_ISSUER): who, and signing out. -->
+      <span class="signed-in" id="signed-in" hidden>
+        <span class="signed-in-name" id="signed-in-name"></span>
+        <button type="button" id="sign-out">Sign out</button>
+      </span>
       <label class="pack-picker">
         <span class="setting-name">Decision Pack</span>
         <select id="pack-select"></select>

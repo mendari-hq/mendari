@@ -52,3 +52,12 @@ class HubError(OpenHealthError):
     def __init__(self, message: str, status: int = 422):
         self.status = status
         super().__init__(message)
+
+
+class AuthError(OpenHealthError):
+    """Signing in or an API key failed a check, or the principal may not do this. `status` is the
+    HTTP status (401 not signed in, 403 not allowed, 400 a bad login)."""
+
+    def __init__(self, message: str, status: int = 400):
+        self.status = status
+        super().__init__(message)

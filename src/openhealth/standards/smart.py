@@ -16,7 +16,6 @@ browser holds only an opaque session id. SMART is off until `OPENHEALTH_SMART_CL
 from __future__ import annotations
 
 import base64
-import hashlib
 import os
 import secrets
 import time
@@ -25,13 +24,11 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlencode
 
-import jwt
-
-from openhealth.errors import FhirError, SmartError
+from openhealth.errors import AuthError, FhirError, SmartError
+from openhealth.standards import oidc
 from openhealth.standards.fhir_client import GuardedHttp
 
 DEFAULT_SCOPES = "launch openid fhirUser patient/*.rs"
-ALGORITHMS = ["RS256", "ES384"]
 PENDING_SECONDS = 600  # a launch must come back from the authorization server within this
 
 
@@ -78,9 +75,8 @@ def begin(
     (keyed by its `state`)."""
     config = discover(iss, http)
     state = secrets.token_urlsafe(32)
-    verifier = secrets.token_urlsafe(64)
+    verifier, challenge = oidc.pkce()
     nonce = secrets.token_urlsafe(24)
-    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=")
     query = urlencode(
         {
             "response_type": "code",
@@ -90,7 +86,7 @@ def begin(
             "scope": settings.scopes,
             "state": state,
             "aud": iss,
-            "code_challenge": challenge.decode(),
+            "code_challenge": challenge,
             "code_challenge_method": "S256",
             "nonce": nonce,
         }
@@ -159,32 +155,13 @@ def verify_id_token(
     if not pending.get("jwks_uri"):
         raise SmartError("the SMART configuration has no jwks_uri to verify the id_token")
     try:
-        header = jwt.get_unverified_header(id_token)
-    except jwt.PyJWTError:
-        raise SmartError("the id_token is not a JWT") from None
-    if header.get("alg") not in ALGORITHMS:
-        raise SmartError(f"the id_token is signed with {header.get('alg')!r}, not {ALGORITHMS}")
-    keys = [k for k in http.get_json(pending["jwks_uri"]).get("keys", []) if isinstance(k, dict)]
-    matching = [k for k in keys if k.get("kid") == header.get("kid")] if header.get("kid") else keys
-    if not matching:
-        raise SmartError("no key in the server's JWKS matches the id_token")
-    last: jwt.PyJWTError | None = None
-    for jwk in matching:
-        try:
-            claims: dict[str, Any] = jwt.decode(
-                id_token,
-                jwt.PyJWK(jwk, algorithm=header["alg"]).key,
-                algorithms=[header["alg"]],
-                audience=settings.client_id,
-                issuer=pending["issuer"],
-                options={"require": ["exp", "iss", "aud"]},
-                leeway=60,
-            )
-            break
-        except jwt.PyJWTError as error:
-            last = error
-    else:
-        raise SmartError(f"the id_token is not valid: {type(last).__name__}")
-    if claims.get("nonce") != pending["nonce"]:
-        raise SmartError("the id_token's nonce does not match this launch")
-    return claims
+        return oidc.verify_id_token(
+            id_token,
+            issuer=pending["issuer"],
+            audience=settings.client_id,
+            nonce=pending["nonce"],
+            jwks_uri=pending["jwks_uri"],
+            http=http,
+        )
+    except AuthError as error:
+        raise SmartError(str(error).replace("this sign-in", "this launch")) from None

@@ -656,6 +656,13 @@ figure.chart { margin: var(--space-3) 0 0; }
 .rated .icon { width: 14px; height: 14px; }
 .rated.up { color: var(--outcome-auto); }
 .rated.down { color: var(--outcome-block); }
+/* Signed in (organization sign-in): the name and role, and signing out. */
+.signed-in { display: inline-flex; align-items: center; gap: var(--space-2); }
+.signed-in[hidden] { display: none; }
+.signed-in-name { font-size: var(--text-sm); color: var(--color-text-muted); }
+/* The reviewer's name when it comes from the sign-in: shown, not editable. */
+input[readonly] { background: var(--color-surface-sunken); border-style: dashed; }
+
 /* This patient (SMART launch): the banner, then one card per work item. */
 .patient-banner { display: flex; align-items: center; gap: var(--space-3); margin-top: var(--space-4); }
 .patient-icon {
@@ -862,6 +869,11 @@ ol.rules p { margin: var(--space-1) 0; }
   /* The pack's name is the label's first child: the picker becomes a row of its own grid. */
   .topbar.settings-open .pack-picker { display: contents; }
   .topbar.settings-open .pack-picker select { width: 100%; }
+  /* Who is signed in closes the sheet, on a row of its own. */
+  .topbar.settings-open .signed-in:not([hidden]) {
+    grid-column: 1 / -1; order: 1; justify-content: space-between;
+    padding-top: var(--space-3); border-top: 1px solid var(--color-border);
+  }
   main { padding: var(--space-4); }
   h1 { font-size: var(--text-title-compact); line-height: var(--leading-title-compact); }
   .grid-2 { grid-template-columns: minmax(0, 1fr); }

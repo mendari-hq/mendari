@@ -252,6 +252,36 @@ openhealth eval openhealth/referral-router --dataset local.jsonl --share "My sit
 
 The docker sandbox runs a registry on port 8100 (`scripts/hub_seed.py` publishes the five packs).
 
+## Sign-in for organizations
+
+By default the server is open, as production sits behind Vercel Authentication. Setting an
+identity provider switches on sign-in:
+
+```bash
+OPENHEALTH_OIDC_ISSUER=https://login.example.org/realms/clinic   # your IdP (OpenID Connect)
+OPENHEALTH_OIDC_CLIENT_ID=openhealth
+OPENHEALTH_OIDC_ROLE_MAP="clinicians=reviewer,informatics=admin" # IdP role or group -> role
+OPENHEALTH_PUBLIC_URL=https://openhealth.example.org
+```
+
+People sign in with their organization's account, using PKCE and an `id_token` verified with the
+IdP's keys. Machines use **API keys**, which admins create in `POST /api/auth/keys`; they are
+shown once, stored hashed and revocable. Every route has a permission, and anything unlisted
+needs admin:
+
+| Role | May |
+|---|---|
+| viewer | read the dashboard and API |
+| reviewer | also decide (Try it), resolve reviews, record outcomes, give feedback |
+| service | an integration: read, decide, record outcomes |
+| governance | read, approve automation |
+| admin | everything: evaluations, exports, API keys |
+
+With sign-in on, reviews and ratings are recorded for whoever is signed in, and the dashboard
+names them and offers only what their role may do. `OPENHEALTH_OIDC_ORG_CLAIM` names the claim
+that carries the person's organization: one deployment can serve several, and each sees only
+its own decisions, reviews, feedback and reports.
+
 ## Decision Packs
 
 A pack is a directory:

@@ -1515,3 +1515,85 @@ def test_the_patient_view_fits_a_phone(page: Page) -> None:
     page.goto("/?pack=openhealth/referral-router#patient")
     expect(page.locator(".work-item")).to_have_count(1)
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+
+
+# -- organization sign-in ----------------------------------------------------------------------
+
+
+PERMISSIONS = {  # server/auth.py
+    "viewer": ["read"],
+    "reviewer": ["decide", "outcome", "read", "review"],
+    "admin": ["admin", "approve", "decide", "evaluate", "outcome", "read", "review"],
+}
+
+
+def signed_in_as(page: Page, *roles: str) -> None:
+    granted = sorted({p for role in roles for p in PERMISSIONS[role]})
+    principal = {
+        "kind": "user",
+        "name": "Nurse Kim",
+        "roles": list(roles),
+        "permissions": granted,
+        "org": "default",
+    }
+    page.route(
+        "**/api/auth/me",
+        lambda route: route.fulfill(
+            json={"mode": "sign-in", "signed_in": True, "principal": principal}
+        ),
+    )
+
+
+def test_open_mode_shows_no_sign_in(page: Page) -> None:
+    open_pack(page, INBOX)
+    expect(page.locator("#signed-in")).to_be_hidden()
+
+
+def test_the_bar_says_who_is_signed_in(page: Page) -> None:
+    signed_in_as(page, "reviewer")
+    open_pack(page, INBOX)
+    expect(page.locator("#signed-in-name")).to_have_text("Nurse Kim · reviewer")
+    expect(page.get_by_role("button", name="Sign out")).to_be_visible()
+
+
+def test_only_administrators_see_the_evaluation_run(page: Page) -> None:
+    signed_in_as(page, "reviewer")
+    open_pack(page, INBOX, "evals")
+    page.goto(f"/?pack={INBOX}#evals/run")
+    expect(page.locator("#evals-body")).to_contain_text(
+        "Running an evaluation is for administrators"
+    )
+    expect(page.locator("#run-eval")).to_have_count(0)
+
+
+def test_a_viewer_reads_but_is_not_offered_what_the_server_would_refuse(
+    page: Page, live_server: str
+) -> None:
+    decide_inbox(live_server, "Crushing chest pain and my left arm is numb")  # waits for review
+    signed_in_as(page, "viewer")
+    page.goto(f"/?pack={INBOX}#try")
+    expect(page.get_by_role("heading", name="Trying the pack is for reviewers")).to_be_visible()
+    page.goto(f"/?pack={INBOX}#review")
+    card = page.locator(".review-card").first
+    expect(card).to_contain_text("Resolving is for reviewers")
+    expect(page.locator(".review-card .labels")).to_have_count(0)
+
+
+def test_who_is_signed_in_closes_the_phone_settings_sheet(page: Page) -> None:
+    page.set_viewport_size({"width": 390, "height": 844})
+    signed_in_as(page, "reviewer")
+    open_pack(page, INBOX)
+    page.get_by_role("button", name="Settings").click()
+    sheet, signed_in = page.locator("#topbar-actions"), page.locator("#signed-in")
+    expect(signed_in).to_be_visible()
+    sheet_box, row = sheet.bounding_box(), signed_in.bounding_box()
+    assert sheet_box and row
+    assert row["width"] > sheet_box["width"] - 40  # a row of its own, not squeezed into a column
+    assert row["y"] > page.locator("#pack-select").bounding_box()["y"]  # type: ignore[index]
+
+
+def test_a_signed_in_reviewer_reviews_under_their_own_name(page: Page) -> None:
+    signed_in_as(page, "reviewer")
+    page.goto(f"/?pack={INBOX}#review")
+    expect(page.locator("#reviewer")).to_have_value("Nurse Kim")
+    expect(page.locator("#reviewer")).to_have_attribute("readonly", "")

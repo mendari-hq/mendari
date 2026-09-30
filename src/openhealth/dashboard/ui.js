@@ -106,9 +106,14 @@ export function storageSet(key, value) {
 }
 
 export const state = {
-  packs: [], packId: null, detail: null, view: null, smart: null,
+  packs: [], packId: null, detail: null, view: null, smart: null, me: null,
   timezone: DEFAULT_TIMEZONE, timeFormat: timeFormatFor(DEFAULT_TIMEZONE), shortFormat: shortFormatFor(DEFAULT_TIMEZONE),
 };
+
+// What the signed-in person may do ("decide", "review", "evaluate", "approve"...; open mode:
+// everything). The server enforces the same table; this only hides what would be refused.
+export const may = (permission) => !state.me || state.me.permissions.includes(permission);
+export const signedIn = () => Boolean(state.me && state.me.kind !== "open");
 
 export const packPath = () => `/api/packs/${state.packId}`;
 

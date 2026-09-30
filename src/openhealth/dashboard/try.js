@@ -5,7 +5,7 @@ import { feedbackControls } from "./feedback.js";
 import { schemaForm, wireSchemaForm } from "./form.js";
 import { criteriaTable, derivedPrimary, isMessagePack, labelTone, providerWords, questionText } from "./pack.js";
 import { refreshReviewCount, views, wire } from "./router.js";
-import { $, api, esc, focusHeading, icon, num, packPath, pct, PRIORITY_TEXT, state, storageGet, storageSet, toastError, whileBusy } from "./ui.js";
+import { $, api, emptyState, esc, focusHeading, icon, may, num, packPath, pct, PRIORITY_TEXT, state, storageGet, storageSet, toastError, whileBusy } from "./ui.js";
 
 const SAMPLES = [
   { label: "Refill", subject: "Refill request", body: "Hi, I need a refill on my lisinopril. I have about three pills left. Thanks" },
@@ -16,7 +16,16 @@ const SAMPLES = [
   { label: "Vague", subject: "", body: "hello?" },
 ];
 
-views.try = async (main) => (isMessagePack() ? tryMessage(main) : tryRecord(main));
+views.try = async (main) => {
+  if (!may("decide")) {
+    main.innerHTML = `<h1>Try it</h1>${emptyState({
+      icon: "user", title: "Trying the pack is for reviewers",
+      text: "Decisions made here are recorded, so your role can read them but not make them.",
+    })}`;
+    return;
+  }
+  return isMessagePack() ? tryMessage(main) : tryRecord(main);
+};
 
 // Packs whose input is a structured record: edit JSON, starting from the pack's own examples.
 async function tryRecord(main) {
