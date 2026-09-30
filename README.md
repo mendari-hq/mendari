@@ -75,6 +75,17 @@ comparison finds where the pack degrades, and the policy sent every misrouted me
 human instead of automating it. (The synthetic public benchmark is template-generated and
 overstates real-world accuracy. It is a regression test, not a performance estimate.)
 
+### Write your own pack
+
+No programming needed: a pack is YAML. The [authoring guide](docs/guides/authoring-a-pack.md)
+walks a clinician through it:
+
+```bash
+uv run openhealth new refill-router --id my-clinic/refill-router
+uv run openhealth test refill-router
+uv run openhealth eval refill-router --dataset examples
+```
+
 ### Python
 
 ```python
