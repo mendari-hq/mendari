@@ -13,18 +13,22 @@ v0.1 is done and running in production on Vercel. Decisions for what follows: **
 first** (the Hub only matters once it has five strong packs), **LLMs through Vercel AI Gateway**
 (OIDC, no stored keys), and a **public open-source launch at v1.0**.
 
+**Progress (2026-09-29):** v0.1 ✅, v0.2 ✅, v0.3 ✅, and the dashboard redesign
+([plan](ui-ux-review.md), 8 PRs) ✅. Next: **v0.4 Healthcare standards**, starting with its plan.
+
 ## Where we are against the goal
 
 | Goal area | Status | Main gap |
 |---|---|---|
-| Decision Pack spec (schemas, FHIR mapping, policy, tests, evals, card, versions) | ✅ v0.1 | Question types beyond `choice`; multi-question aggregation |
-| Runtime + AUTO / HUMAN_REVIEW / ABSTAIN / BLOCK + risk levels 0–4 | ✅ | Governance approvals in the UI |
-| Providers: rules, Jev, classical ML, combinations (`any_of`) | ✅ | **LLM, local open-source models, CQL**; cascades; Jev batching |
-| Reference packs | ✅ 5 of 5 | A harder, clinician-reviewed benchmark; synthetic AI Guard drafts that fit their questions |
-| Evaluation (accuracy, calibration, abstention, false automation, overrides, latency, cost, subgroups) + local validation | ✅ | Drift over time, multi-site comparison, cost pricing, a harder benchmark |
-| Audit trail (hash chain), review queue, 👍/👎 feedback | ✅ | FHIR AuditEvent/Provenance export |
-| FHIR R4, CDS Hooks (prefetch only), synthetic sandbox (HAPI) | Partial | US Core validation, SMART on FHIR, Bulk FHIR, OAuth/OIDC, CDS Hooks fetch; later CQL, OMOP, Da Vinci CRD/DTR/PAS |
+| Decision Pack spec (schemas, FHIR mapping, policy, tests, evals, card, versions) | ✅ 0.2 | `choice`, `boolean` and `score` questions; derived questions (decision tables) |
+| Runtime + AUTO / HUMAN_REVIEW / ABSTAIN / BLOCK + risk levels 0–4 | ✅ | Governance approvals in the UI (v0.6) |
+| Providers: rules, naive Bayes, Jev, LLMs (Vercel AI Gateway; OpenAI-compatible local models), criteria, dosing; `any_of`, `cascade`, `vote` | ✅ | **CQL** (v0.7) |
+| Reference packs | ✅ 5 of 5 | A harder, clinician-reviewed benchmark |
+| Evaluation (accuracy, calibration, abstention, false automation, overrides, latency, cost, subgroups) + local validation + provider leaderboards for every pack | ✅ | Drift over time, multi-site comparison, a harder benchmark |
+| Audit trail (hash chain), review queue, feedback (right / wrong, with the right answer, changeable) | ✅ | FHIR AuditEvent/Provenance export (v0.4) |
+| FHIR R4, CDS Hooks (prefetch only; `order-sign`, `patient-view`, message hook), synthetic sandbox (HAPI) | Partial | US Core validation, SMART on FHIR, Bulk FHIR, OAuth/OIDC, CDS Hooks fetch (v0.4); later CQL, OMOP, Da Vinci CRD/DTR/PAS |
 | Decision Cards | ✅ | Validation history, hub-hosted cards |
+| Dashboard (every pack; review, audit, evaluations, feedback, card, Try it; both themes; keyboard and accessibility-tree checked) | ✅ redesigned | A VoiceOver check; forms for record-pack inputs (Try it takes JSON today); roles (v0.6) |
 | Hub: publish / pull / search, publisher types, datasets, eval suites, benchmarks | ❌ | The whole registry and website |
 | Developer experience (`pip install`, `from_hub`, `pull`, container per pack) | Partial | PyPI release, remote hub, container images |
 | Org readiness (auth, tenancy, PHI handling, monitoring) | Minimal (Vercel SSO only) | All of it |
@@ -35,7 +39,10 @@ first** (the Hub only matters once it has five strong packs), **LLMs through Ver
 Each milestone gets its own detailed plan for your approval before any code is written, and
 ships as several reviewed PRs.
 
-### v0.2 Model-agnostic core (foundation for the new packs)
+### v0.2 Model-agnostic core (foundation for the new packs) ✅
+_Done 2026-09-29. Question groups shipped as derived questions (decision tables with exact
+probabilities). The harder inbox benchmark did not ship and is an open item in
+`tasks/todo.md`._
 - **Spec 0.2:** new question types `boolean` (maps to Jev `noul`) and `score` alongside
   `choice`; **question groups with aggregation policies** (e.g. "any criterion = no → not
   eligible; any = unknown → review"), which the trial, PA and AI Guard packs all need; derived
@@ -54,7 +61,10 @@ ships as several reviewed PRs.
   model, with accuracy, calibration, false automation, cost and latency); one Jev call per
   decision; all red-flag sets fully caught with the deployed provider mix.
 
-### v0.3 The other four reference packs (content release)
+### v0.3 The other four reference packs (content release) ✅
+_Done 2026-09-29: all five packs deployed with provider leaderboards and the providers chosen
+from them. Risk levels as shipped: Referral Router L1, Prior Authorization Preflight L1,
+Clinical Trial Prescreener L2, AI Guard L2 (`POST /api/packs/{id}/guard`)._
 Each pack gets questions and criteria, rules + Jev + LLM variants, a policy with a justified
 risk level, synthetic data (public, local-shift and held-out safety sets), behaviour tests, a
 benchmark, a Decision Card, a FHIR mapping and a CDS Hook.
@@ -102,7 +112,9 @@ benchmark, a Decision Card, a FHIR mapping and a CDS Hook.
 
 ### v0.6 Readiness for health organizations
 - OIDC login with roles (viewer / reviewer / admin / governance), per-organization tenancy, and
-  API keys for machine clients. This replaces relying only on Vercel SSO.
+  API keys for machine clients. This replaces relying only on Vercel SSO. Running an evaluation
+  becomes admin-only in the dashboard and the API (today it asks for confirmation when it would
+  call remote models; dashboard decision 4).
 - A deployment registry (which pack version runs where), and **governance approvals in the UI**
   (level 2–3 AUTO overrides recorded; level 4 locked).
 - **Monitoring:** confidence drift and observed accuracy over time (from reviews, outcomes and
