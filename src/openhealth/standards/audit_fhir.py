@@ -47,6 +47,7 @@ _EVENTS = {
     "feedback.recorded": ("C", "Feedback recorded"),
     "input.read": ("R", "Encrypted input read"),  # PHI mode: access logging
     "input.purged": ("D", "Encrypted input deleted by the retention policy"),
+    "pas.submitted": ("E", "Prior authorization requested (Da Vinci PAS)"),
 }
 # What each event says about the decision, as codes (never notes or other free text).
 _DETAILS = {
@@ -54,6 +55,7 @@ _DETAILS = {
     "review.resolved": ("final_label", "human_override"),
     "outcome.recorded": ("final_label",),
     "feedback.recorded": ("rating", "expected"),
+    "pas.submitted": ("outcome", "authorization"),
 }
 
 
@@ -151,6 +153,7 @@ def _actor(event: Mapping[str, Any], payload: Mapping[str, Any]) -> dict[str, An
         payload.get("reviewer")
         or payload.get("reporter")
         or payload.get("reader")
+        or payload.get("requested_by")
         or payload.get("source")
     )
     return {"who": {"display": str(name or "anonymous")}, "requestor": True}

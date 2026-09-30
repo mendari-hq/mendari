@@ -246,6 +246,15 @@ decision, which is found by the CRD assertion id on the order. A clinician compl
 missing. It is validated against DTR 2.2.0 in CI, and a pack declares it with
 `cds_hooks.questionnaire`.
 
+**Da Vinci PAS.** For a complete request (`submit_ready`), `POST /api/packs/{pack}/pas` (or
+`openhealth pas build`) builds the PAS request Bundle. It holds a `preauthorization` Claim, the
+patient, Coverage, payer, requesting organization and order from the EHR, and the X12 service
+type and place of service. Nothing is filled in: a missing element is an error that names it.
+With `submit`, it goes to the payer's `Claim/$submit` (`OPENHEALTH_PAS_PAYER_URL`, allow-listed),
+and the payer's decision (outcome, authorization number, review actions) is chained on the
+decision. The sandbox has a mock payer (`openhealth sandbox payer`, compose service `payer`).
+The request and the payer's answer validate against PAS 2.2.1 in CI.
+
 **OMOP CDM.** Research data in OMOP (SQLite or Postgres, with an optional schema such as `cdm`)
 becomes record-pack inputs, one per person, for population-level evaluation:
 

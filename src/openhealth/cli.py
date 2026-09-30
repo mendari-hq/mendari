@@ -619,6 +619,46 @@ def cmd_sandbox_omop_check(args: argparse.Namespace) -> int:
     return 0 if result["identical"] else 1
 
 
+def cmd_sandbox_payer(args: argparse.Namespace) -> int:
+    try:
+        import uvicorn
+    except ImportError:
+        raise OpenHealthError("the payer needs extras: pip install 'openhealth[server]'") from None
+    from openhealth.sandbox.payer import create_payer_app
+
+    uvicorn.run(create_payer_app(), host=args.host, port=args.port, log_level="info")
+    return 0
+
+
+def cmd_pas_build(args: argparse.Namespace) -> int:
+    from openhealth.standards import pas
+
+    record = AuditStore(args.db).get(args.decision)
+    if record is None:
+        raise OpenHealthError(f"no decision {args.decision} in {args.db}")
+
+    def resource(path: str) -> dict[str, Any]:
+        loaded = json.loads(Path(path).read_text(encoding="utf-8"))
+        if not isinstance(loaded, dict) or "resourceType" not in loaded:
+            raise OpenHealthError(f"{path} is not a FHIR resource")
+        return loaded
+
+    bundle = pas.request_bundle(
+        decision={"id": record["id"], "recommendation": record["recommendation"]},
+        order=resource(args.order),
+        patient=resource(args.patient),
+        coverage=resource(args.coverage),
+        insurer=resource(args.insurer),
+        requester=resource(args.requester),
+        service_type=args.service_type,
+        place_of_service=args.place_of_service,
+        diagnoses=args.diagnosis,
+    )
+    Path(args.out).write_text(json.dumps(bundle, indent=2) + "\n", encoding="utf-8")
+    print(f"PAS request for decision {record['id']} written to {args.out}")
+    return 0
+
+
 def cmd_sandbox_bulk_check(args: argparse.Namespace) -> int:
     from openhealth.sandbox import bulk_check
 
@@ -1026,6 +1066,10 @@ def build_parser() -> argparse.ArgumentParser:
     pilot.add_argument("--engine", required=True, help="engine URL (its OPENHEALTH_PUBLIC_URL)")
     pilot.add_argument("--messages", type=int, default=12, help="inbox messages to decide")
     pilot.set_defaults(handler=cmd_sandbox_pilot_check)
+    payer = sandbox.add_parser("payer", help="a mock payer answering Da Vinci PAS requests")
+    payer.add_argument("--host", default="127.0.0.1")
+    payer.add_argument("--port", type=int, default=8200)
+    payer.set_defaults(handler=cmd_sandbox_payer)
     omop_write = sandbox.add_parser(
         "omop", help="write a dataset's records into an OMOP CDM database (synthetic data)"
     )
@@ -1045,6 +1089,20 @@ def build_parser() -> argparse.ArgumentParser:
     bulk_check.add_argument("--fhir", required=True, help="the sandbox's FHIR R4 base URL")
     bulk_check.add_argument("--pack", default="openhealth/referral-router")
     bulk_check.set_defaults(handler=cmd_sandbox_bulk_check)
+
+    pas_cmd = sub.add_parser(
+        "pas", help="Da Vinci PAS prior-authorization requests"
+    ).add_subparsers(dest="pas_command", required=True)
+    pas_build = pas_cmd.add_parser("build", help="the PAS request Bundle for a complete request")
+    pas_build.add_argument("--db", default="var/openhealth.db", help="the audit database")
+    pas_build.add_argument("--decision", required=True, help="a submit_ready decision id")
+    for name in ("patient", "coverage", "insurer", "requester", "order"):
+        pas_build.add_argument(f"--{name}", required=True, help=f"the {name} (FHIR JSON file)")
+    pas_build.add_argument("--service-type", help="X12 service type (1365), e.g. 62")
+    pas_build.add_argument("--place-of-service", help="CMS place of service, e.g. 22")
+    pas_build.add_argument("--diagnosis", action="append", default=[], help="ICD-10-CM (repeat)")
+    pas_build.add_argument("--out", required=True, help="where to write the Bundle")
+    pas_build.set_defaults(handler=cmd_pas_build)
 
     omop_cmd = sub.add_parser(
         "omop", help="OMOP CDM databases as pack inputs (population-level evaluation)"

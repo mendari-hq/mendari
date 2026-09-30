@@ -67,7 +67,7 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         ("GET", r"^/(static/.*|favicon\.ico)$", "public"),
         ("GET", r"^/$", "page"),
         ("GET", r"^/(docs|redoc|openapi\.json)$", "read"),
-        ("POST", r"^/api/packs/[^/]+/[^/]+/(decide|guard|fhir/decide)$", "decide"),
+        ("POST", r"^/api/packs/[^/]+/[^/]+/(decide|guard|fhir/decide|pas)$", "decide"),
         ("POST", r"^/cds-services/[^/]+$", "decide"),
         ("POST", r"^/fhir/Questionnaire/\$questionnaire-package$", "decide"),  # Da Vinci DTR
         ("GET", r"^/cds-services$", "read"),

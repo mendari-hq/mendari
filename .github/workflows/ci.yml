@@ -113,6 +113,7 @@ jobs:
           uv run python scripts/fhir_validate.py
           --ig hl7.fhir.us.davinci-crd#2.2.1
           --ig hl7.fhir.us.davinci-dtr#2.2.0
+          --ig hl7.fhir.us.davinci-pas#2.2.1
           --valid var/fhir-samples/davinci/*.json
 
   sandbox-e2e:
