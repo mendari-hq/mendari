@@ -32,7 +32,8 @@ the production-deploy check and the four "small remaining gaps" under "What an A
 | [#77](https://github.com/Junebugg1214/openhealth-hub/pull/77) | Signed pack archives (.ohpack) and publisher keys | v0.5 item 1 | Opened with a stale diff (my mistake, see decisions), fixed by force-pushing the feature branch; green; merged |
 | [#78](https://github.com/Junebugg1214/openhealth-hub/pull/78) | Registry service: namespaces, publisher keys, immutable signed versions, search | v0.5 item 2 | Green first time; merged |
 | [#79](https://github.com/Junebugg1214/openhealth-hub/pull/79) | Hub client: login, push, pull (verified, pinned keys, cached), search; Decision.from_hub from the registry | v0.5 item 3 | Red once on Python 3.11: a flaky teardown in a test merged with #78, whose unclosed Postgres pool was collected on another thread. Fixed at the root (registry stores close; the app closes its store at shutdown), then green; merged |
-| [#80](https://github.com/Junebugg1214/openhealth-hub/pull/80) | Shareable local-validation reports (metrics only) and site-to-site comparison | v0.5 item 4 | pending |
+| [#80](https://github.com/Junebugg1214/openhealth-hub/pull/80) | Shareable local-validation reports (metrics only) and site comparison | v0.5 item 4 | Green first time; merged |
+| [#81](https://github.com/Junebugg1214/openhealth-hub/pull/81) | Hub website (Next.js): search, pack pages, publishers; CI job hub-site | v0.5 item 5 | pending |
 
 ## Decisions made on your behalf
 
@@ -178,6 +179,12 @@ the production-deploy check and the four "small remaining gaps" under "What an A
   and digest, and the report's own id are dropped. So are subgroup cells and calibration bins
   with fewer than 10 cases, since a tiny cell can reveal one case's outcome. The registry applies
   the same filter to whatever it receives.
+- **Hub website stack:**
+  - Next.js 16 with React 19, TypeScript 5.9 (not 7, whose Next support is unproven), and
+    `react-markdown` for Decision Cards, rendered safely with the card's headings demoted;
+  - ESLint 9: ESLint 10 breaks `eslint-plugin-react`, which `eslint-config-next` bundles.
+  - All versions are pinned, with a lockfile.
+  - Server-rendered from the registry API, no client state: search is a GET form.
 - **Every new v0.4 capability is off until configured**, and no production environment variable
   is changed. Production has no login of its own until v0.6, so outbound FHIR calls and SMART
   stay disabled there.

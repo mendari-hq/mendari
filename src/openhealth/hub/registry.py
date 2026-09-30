@@ -502,10 +502,11 @@ def create_registry_app(
         versions = store.versions(namespace, name)
         if not versions:
             raise HubError(f"no pack {namespace}/{name}", 404)
+        publisher_type = store.namespace(namespace)["publisher_type"]
         return {
             "id": f"{namespace}/{name}",
             "versions": [v["version"] for v in versions],
-            "latest": versions[-1],
+            "latest": {**versions[-1], "publisher_type": publisher_type},
         }
 
     @app.get("/v1/packs/{namespace}/{name}/reports")

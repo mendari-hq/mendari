@@ -133,6 +133,8 @@ def test_verification_sets_the_publisher_type(registry: Registry) -> None:
         "/v1/namespaces/openhealth", json={"publisher_type": "verified"}, headers=admin
     )
     assert patched.json()["publisher_type"] == "verified"
+    pack = registry.client.get("/v1/packs/openhealth/referral-router").json()
+    assert pack["latest"]["publisher_type"] == "verified"
     namespace = registry.client.get("/v1/namespaces/openhealth").json()
     assert namespace["packs"] == ["openhealth/referral-router"]
     assert namespace["keys"][0]["key_id"] == archive.key_id(registry.key.public_key())
