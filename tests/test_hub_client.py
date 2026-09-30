@@ -182,3 +182,18 @@ def test_without_a_registry_the_client_says_how_to_set_one(
 def test_an_unreachable_registry_is_reported(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["login", "--registry", f"http://127.0.0.1:{free_port()}"]) == 1
     assert "could not reach the registry" in capsys.readouterr().err
+
+
+def test_eval_share_sends_the_metrics(
+    hub: Hub, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    token, key = hub.namespace("openhealth")
+    hub.client(token).push(resolve_pack("openhealth/referral-router"), key)
+    assert main(["login", "--registry", hub.url, "--token", token]) == 0
+    dataset = (example_datasets_dir() or Path("datasets")) / "referral-local-site-example.jsonl"
+    args = ["eval", "openhealth/referral-router", "--dataset", str(dataset), "--limit", "20"]
+    assert main([*args, "--baseline", "none", "--share", "Site B"]) == 0
+    assert "shared with the registry as Site B" in capsys.readouterr().err
+    with httpx.Client() as http:
+        sites = http.get(f"{hub.url}/v1/packs/openhealth/referral-router/reports").json()["sites"]
+    assert [(s["site"], s["n"]) for s in sites] == [("Site B", 20)]

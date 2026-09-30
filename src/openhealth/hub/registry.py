@@ -43,6 +43,7 @@ from openhealth.core.db import Backend, Session, connect
 from openhealth.core.pack import Pack
 from openhealth.core.registry import version_key
 from openhealth.errors import HubError, OpenHealthError
+from openhealth.evals.share import shareable, summary
 from openhealth.hub import archive
 
 PublisherType = Literal["community", "verified", "institutional"]
@@ -80,6 +81,16 @@ CREATE TABLE IF NOT EXISTS hub_versions (
 CREATE TABLE IF NOT EXISTS hub_archives (
     archive_sha256  TEXT PRIMARY KEY,
     data            {blob} NOT NULL
+);
+CREATE TABLE IF NOT EXISTS hub_reports (
+    id          TEXT PRIMARY KEY,
+    namespace   TEXT NOT NULL,
+    name        TEXT NOT NULL,
+    version     TEXT NOT NULL,
+    site        TEXT NOT NULL,
+    submitted_by TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    report      TEXT NOT NULL
 )
 """
 
@@ -256,6 +267,49 @@ class RegistryStore:
             raise HubError("archive not found", 404)
         return bytes(row["data"])
 
+    def add_report(
+        self,
+        namespace: str,
+        name: str,
+        version: str,
+        site: str,
+        submitted_by: str,
+        report: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """A site's evaluation of a published version, reduced to what is shareable."""
+        self.version(namespace, name, version)
+        pack = report.get("pack") or {}
+        if (pack.get("id"), pack.get("version")) != (f"{namespace}/{name}", version):
+            raise HubError("the report is about another pack or version")
+        shared = shareable(report)
+        report_id = secrets.token_hex(8)
+        with self._db.session(exclusive=True) as db:
+            db.all(
+                "INSERT INTO hub_reports (id, namespace, name, version, site, submitted_by, "
+                "created_at, report) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    report_id,
+                    namespace,
+                    name,
+                    version,
+                    site,
+                    submitted_by,
+                    _now(),
+                    json.dumps(shared),
+                ),
+            )
+        return {"id": report_id, "site": site, "version": version, **summary(shared)}
+
+    def reports(self, namespace: str, name: str) -> list[dict[str, Any]]:
+        with self._db.session(exclusive=False) as db:
+            rows = db.all(
+                "SELECT id, version, site, submitted_by, created_at, report FROM hub_reports "
+                "WHERE namespace = ? AND name = ? ORDER BY created_at",
+                (namespace, name),
+            )
+        shown = ("id", "version", "site", "submitted_by", "created_at")
+        return [{**{k: r[k] for k in shown}, **summary(json.loads(r["report"]))} for r in rows]
+
     def latest(self) -> list[dict[str, Any]]:
         """The newest version of every pack, with its namespace's publisher type."""
         with self._db.session(exclusive=False) as db:
@@ -342,6 +396,11 @@ class NamespaceRequest(BaseModel):
     name: str = Field(min_length=1, max_length=63)
     publisher_type: PublisherType = "community"
     display_name: str = Field(default="", max_length=200)
+
+
+class ReportRequest(BaseModel):
+    site: str = Field(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9][A-Za-z0-9 ._-]*$")
+    report: dict[str, Any]
 
 
 class PublisherTypeRequest(BaseModel):
@@ -449,6 +508,19 @@ def create_registry_app(
             "latest": versions[-1],
         }
 
+    @app.get("/v1/packs/{namespace}/{name}/reports")
+    def reports(namespace: str, name: str) -> dict[str, Any]:
+        """Each site's results next to the pack's own benchmark, version by version."""
+        versions = store.versions(namespace, name)
+        if not versions:
+            raise HubError(f"no pack {namespace}/{name}", 404)
+        benchmark = {v["version"]: v.get("benchmark") for v in versions}
+        return {
+            "id": f"{namespace}/{name}",
+            "benchmark": benchmark,
+            "sites": store.reports(namespace, name),
+        }
+
     @app.get("/v1/packs/{namespace}/{name}/{version}")
     def pack_version(namespace: str, name: str, version: str) -> dict[str, Any]:
         return store.version(namespace, name, version)
@@ -461,6 +533,21 @@ def create_registry_app(
             media_type="application/octet-stream",
             headers={"x-archive-sha256": found["archive_sha256"]},
         )
+
+    @app.post("/v1/packs/{namespace}/{name}/{version}/reports", status_code=201)
+    def add_report(
+        request: Request, namespace: str, name: str, version: str, body: ReportRequest
+    ) -> dict[str, Any]:
+        """A site shares its local evaluation (metrics only; the registry keeps just the
+        shareable part). Any publisher token may submit; the site name is the site's choice."""
+        token = bearer(request)
+        submitter = "admin" if admin and token and hmac.compare_digest(token, admin) else None
+        submitter = submitter or (store.token_namespace(token) if token else None)
+        if submitter is None:
+            raise HTTPException(401, "a registry token is required to share a report")
+        if len(json.dumps(body.report)) > 2_000_000:
+            raise HTTPException(413, "the report is too large")
+        return store.add_report(namespace, name, version, body.site, submitter, body.report)
 
     @app.get("/v1/search")
     def search(

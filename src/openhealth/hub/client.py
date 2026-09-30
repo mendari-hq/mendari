@@ -22,6 +22,7 @@ import json
 import os
 import shutil
 import tempfile
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -152,6 +153,16 @@ class RegistryClient:
 
     def search(self, **filters: Any) -> list[dict[str, Any]]:
         return list(self._get("/v1/search", **filters))
+
+    def share_report(self, report: Mapping[str, Any], site: str) -> dict[str, Any]:
+        """Share an evaluation of a published pack (the registry keeps only its metrics)."""
+        from openhealth.evals.share import shareable
+
+        pack = report["pack"]
+        namespace, name = str(pack["id"]).split("/")
+        path = f"/v1/packs/{namespace}/{name}/{pack['version']}/reports"
+        response = self._http.post(path, json={"site": site, "report": shareable(report)})
+        return dict(self._json(response))
 
     def add_key(self, namespace: str, public_pem: bytes) -> str:
         body = {"public_pem": public_pem.decode()}

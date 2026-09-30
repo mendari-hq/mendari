@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
@@ -165,3 +166,31 @@ def test_tokens_are_stored_hashed(registry: Registry, db_target: str) -> None:
         stored = [row["token_sha256"] for row in db.all("SELECT token_sha256 FROM hub_tokens")]
     assert stored == [hashlib.sha256(registry.token.encode()).hexdigest()]
     assert registry.client.get("/v1/health").json()["status"] == "ok"
+
+
+def test_sites_share_metrics_and_compare_with_the_benchmark(
+    registry: Registry, db_target: str
+) -> None:
+    registry.publish()
+    report = json.loads((REFERRAL.root / "evals" / "benchmark.json").read_text())
+    publisher = {"authorization": f"Bearer {registry.token}"}
+    path = "/v1/packs/openhealth/referral-router/0.1.1/reports"
+    assert registry.client.post(path, json={"site": "site-a", "report": report}).status_code == 401
+    shared = registry.client.post(
+        path, json={"site": "Site A", "report": report}, headers=publisher
+    )
+    assert shared.status_code == 201, shared.text
+    assert shared.json()["accuracy"] == report["questions"]["next_step"]["accuracy"]
+    other = {**report, "pack": {**report["pack"], "version": "0.0.9"}}
+    assert (
+        registry.client.post(
+            path, json={"site": "x", "report": other}, headers=publisher
+        ).status_code
+        == 422
+    )
+    compared = registry.client.get("/v1/packs/openhealth/referral-router/reports").json()
+    assert [s["site"] for s in compared["sites"]] == ["Site A"]
+    assert compared["benchmark"]["0.1.1"]["accuracy"] is not None
+    with RegistryStore(db_target) as store, store._db.session(exclusive=False) as db:
+        stored = db.one("SELECT report FROM hub_reports")
+    assert stored is not None and "misclassified" not in stored["report"]  # only the shareable part
