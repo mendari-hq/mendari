@@ -417,6 +417,30 @@ def cmd_sandbox_worker(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_sandbox_smart_launch(args: argparse.Namespace) -> int:
+    from openhealth.sandbox import smart_launch
+
+    result = smart_launch.run(
+        engine=args.engine,
+        launcher=args.launcher,
+        fhir=args.fhir,
+        pack_id=args.pack,
+        patient=args.patient,
+        limit=args.limit,
+    )
+    _print_json(result)
+    problems = []
+    if not result["decided"]:
+        problems.append("no work item was decided")
+    if not result["session_ended"]:
+        problems.append("the session did not end at logout")
+    if args.strict and any(item["input_issues"] for item in result["decided"]):
+        problems.append("a decided input did not conform to US Core")
+    for problem in problems:
+        print(f"smart-launch: {problem}", file=sys.stderr)
+    return 1 if problems else 0
+
+
 def cmd_demo(args: argparse.Namespace) -> int:
     from openhealth.sandbox.demo import run_demo
 
@@ -593,6 +617,21 @@ def build_parser() -> argparse.ArgumentParser:
     worker.add_argument("--interval", type=float, default=5.0)
     worker.add_argument("--once", action="store_true")
     worker.set_defaults(handler=cmd_sandbox_worker)
+    smart = sandbox.add_parser(
+        "smart-launch", help="run a SMART EHR launch against the sandbox and decide the work items"
+    )
+    smart.add_argument("--engine", required=True, help="engine URL (its OPENHEALTH_PUBLIC_URL)")
+    smart.add_argument("--launcher", required=True, help="smart-launcher-v2 base URL")
+    smart.add_argument("--fhir", required=True, help="FHIR R4 base URL, to find a patient")
+    smart.add_argument(
+        "--pack",
+        default="openhealth/referral-router",
+        choices=["openhealth/patient-inbox-router", "openhealth/referral-router"],
+    )
+    smart.add_argument("--patient", help="patient id (default: one with a work item)")
+    smart.add_argument("--limit", type=int, default=5, help="decide at most this many items")
+    smart.add_argument("--strict", action="store_true", help="fail on any US Core issue")
+    smart.set_defaults(handler=cmd_sandbox_smart_launch)
 
     sub.add_parser("demo", help="offline end-to-end demo on synthetic data").set_defaults(
         handler=cmd_demo

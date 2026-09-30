@@ -16,6 +16,22 @@ services:
       hapi.fhir.default_encoding: json
       spring.datasource.url: jdbc:h2:mem:openhealth
 
+  launcher:
+    # SMART on FHIR sandbox (smart-launcher-v2): an authorization server in front of HAPI. Its
+    # EHR launch parameter can skip login and consent, so `openhealth sandbox smart-launch` can run
+    # the whole launch over HTTP.
+    image: smartonfhir/smart-launcher-2@sha256:72bd3e3c682ce4c74e6dddb605d89acad7c8aae446ae38079e8dfe8455b84793
+    ports:
+      - "127.0.0.1:8445:80"
+    environment:
+      FHIR_SERVER_R4: http://fhir:8080/fhir
+      FHIR_SERVER_R3: ""
+      FHIR_SERVER_R2: ""
+      SECRET: openhealth-sandbox  # signs the sandbox's tokens; not a secret, synthetic data only
+    depends_on:
+      fhir:
+        condition: service_started
+
   engine:
     build: .
     image: openhealth-engine:0.1.0
@@ -24,8 +40,11 @@ services:
     environment:
       JEV_API_KEY: ${JEV_API_KEY:-}
       OPENHEALTH_PROVIDERS: ${OPENHEALTH_PROVIDERS:-}
-      # CDS Hooks may fetch missing prefetch from the sandbox's own FHIR server, and only there.
-      OPENHEALTH_FHIR_ALLOWED_SERVERS: ${OPENHEALTH_FHIR_ALLOWED_SERVERS:-http://fhir:8080}
+      # CDS Hooks and SMART may read from the sandbox's own FHIR server and launcher, and only there.
+      OPENHEALTH_FHIR_ALLOWED_SERVERS: ${OPENHEALTH_FHIR_ALLOWED_SERVERS:-http://fhir:8080,http://launcher}
+      # SMART launch (a public client; the launcher accepts any client id).
+      OPENHEALTH_SMART_CLIENT_ID: ${OPENHEALTH_SMART_CLIENT_ID:-openhealth-sandbox}
+      OPENHEALTH_PUBLIC_URL: ${OPENHEALTH_PUBLIC_URL:-http://engine:8000}
     volumes:
       - openhealth-data:/data
 

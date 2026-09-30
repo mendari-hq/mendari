@@ -123,6 +123,13 @@ the production-deploy check and the four "small remaining gaps" under "What an A
 - **"This patient" appears only after a launch.** Its nav link is hidden otherwise, so nothing
   changes for anyone not launched from an EHR. Work items are decided on request (a button),
   not on page load, so viewing a patient never writes decisions to the audit trail.
+- **The sandbox's SMART server is smart-launcher-v2, pinned by digest.** Its launch value can skip
+  login and consent, so `openhealth sandbox smart-launch` plays the EHR and the browser over
+  plain HTTP inside the compose network. That's how CI proves the roadmap's exit ("the inbox and
+  referral packs run from a SMART launch against the HAPI sandbox") on every change, with
+  `--strict`, which fails on any US Core issue in a decided input. A human with a browser would
+  need the compose hostnames (`engine`, `launcher`) to resolve on their machine, so the README
+  shows the scripted launch.
 - **Access tokens are stored in the database unencrypted** for their lifetime. There is no key to
   encrypt them with until v0.6's PHI mode; this is noted in the architecture's trust boundaries.
 - **A new dependency, `pyjwt[crypto]` (>=2.10.1,<3; 2.15.1 locked)**, verifies SMART `id_token`s.

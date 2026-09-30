@@ -106,6 +106,39 @@ jobs:
           --valid tests/fixtures/us-core/*.json var/fhir-samples/*.json
           --invalid tests/fixtures/us-core/invalid/*.json
 
+  sandbox-e2e:
+    # The roadmap's v0.4 exit on the real sandbox (docker compose): HAPI FHIR, the SMART launcher
+    # and the engine. The inbox and referral packs run from a scripted SMART EHR launch, and every
+    # input they decide on conforms to US Core.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose up -d --build --wait engine launcher
+      - name: Wait until the workflow has seeded both packs
+        run: |
+          docker compose up -d workflow
+          for i in $(seq 1 60); do
+            total=$(curl -s -H 'cache-control: no-cache' \
+              'http://127.0.0.1:8080/fhir/ServiceRequest?_tag=https%3A%2F%2Fopenhealth.dev%2Ffhir%2Fsandbox%7Csynthetic&_summary=count' \
+              | python3 -c 'import json,sys; print(json.load(sys.stdin).get("total", 0))' 2>/dev/null || echo 0)
+            [ "${total:-0}" -gt 0 ] && echo "seeded ($total referrals)" && exit 0
+            sleep 5
+          done
+          docker compose logs workflow
+          exit 1
+      - name: SMART launch, referral pack
+        run: >-
+          docker compose exec -T engine openhealth sandbox smart-launch --strict
+          --engine http://engine:8000 --launcher http://launcher --fhir http://fhir:8080/fhir
+          --pack openhealth/referral-router
+      - name: SMART launch, inbox pack
+        run: >-
+          docker compose exec -T engine openhealth sandbox smart-launch --strict
+          --engine http://engine:8000 --launcher http://launcher --fhir http://fhir:8080/fhir
+          --pack openhealth/patient-inbox-router
+      - if: failure()
+        run: docker compose logs --tail 200
+
   docker:
     runs-on: ubuntu-latest
     steps:
