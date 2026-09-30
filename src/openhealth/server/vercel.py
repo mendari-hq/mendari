@@ -14,6 +14,8 @@ Configuration comes from the environment:
 - `OPENHEALTH_FHIR_VALIDATION`: US Core checks on FHIR inputs, `warn` (default: issues are
   returned and audited, decisions unchanged), `enforce` (a non-conforming input is blocked) or
   `off`.
+- `OPENHEALTH_FHIR_ALLOWED_SERVERS`: FHIR servers (origins, comma-separated) that CDS Hooks may
+  fetch missing prefetch data from. Empty (default): nothing is fetched.
 - `LLM_MODEL`: default model for `llm` variants (AI Gateway id, e.g. anthropic/claude-sonnet-5).
 - `JEV_API_URL`, `JEV_MODEL`, `JEV_CONNECTOR`: see `openhealth.providers.jev`.
 """

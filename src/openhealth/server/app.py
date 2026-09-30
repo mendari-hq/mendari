@@ -47,6 +47,7 @@ from openhealth.providers import jev, llm
 from openhealth.providers.credentials import key_source
 from openhealth.settings import FhirValidation, providers_for
 from openhealth.standards import audit_fhir, cds_hooks
+from openhealth.standards.fhir_client import allowed_servers
 
 DASHBOARD_DIR = Path(__file__).resolve().parents[1] / "dashboard"
 JsonBody = Annotated[dict[str, Any], Body()]
@@ -114,6 +115,7 @@ def create_app(
 ) -> FastAPI:
     timezone = clock.zone().key  # an invalid OPENHEALTH_TIMEZONE fails here, at startup
     validation = fhir_validation or settings.fhir_validation()  # likewise
+    fhir_servers = sorted(allowed_servers())  # likewise
     store = AuditStore(db_path, migrate_url=migrate_url)
     budget = CallBudget(store, budget_limits) if budget_limits else None
     found = discover(packs_paths)
@@ -186,6 +188,8 @@ def create_app(
             # Calendar days and displayed times use this zone; stored timestamps are UTC.
             "timezone": timezone,
             "fhir_validation": validation,
+            # FHIR servers this deployment may read from (CDS Hooks fetch); empty: none.
+            "fhir_allowed_servers": fhir_servers,
             "providers": {
                 pack_id: {
                     slot: info.variant for slot, info in decision_for(pack_id).provider_info.items()

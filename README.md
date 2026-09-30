@@ -172,6 +172,12 @@ curl "localhost:8000/api/audit/export/fhir?pack_id=openhealth/referral-router&si
 openhealth audit export --db var/openhealth.db --out audit.ndjson       # FHIR NDJSON
 ```
 
+CDS Hooks services fetch the prefetch data an EHR leaves out, using the pack's own prefetch
+templates, the request's `fhirServer` and its `fhirAuthorization` token. They do this only when
+that server's origin is listed in `OPENHEALTH_FHIR_ALLOWED_SERVERS` (for example
+`https://ehr.example.org,http://fhir:8080`). The list is empty by default, and every other server
+is refused.
+
 The CI job `fhir-conformance` runs the HL7 FHIR validator over the same fixtures and a sample of
 the audit export. Everything
 OpenHealth treats as conforming must pass it, and everything the in-process checks flag must

@@ -24,6 +24,8 @@ services:
     environment:
       JEV_API_KEY: ${JEV_API_KEY:-}
       OPENHEALTH_PROVIDERS: ${OPENHEALTH_PROVIDERS:-}
+      # CDS Hooks may fetch missing prefetch from the sandbox's own FHIR server, and only there.
+      OPENHEALTH_FHIR_ALLOWED_SERVERS: ${OPENHEALTH_FHIR_ALLOWED_SERVERS:-http://fhir:8080}
     volumes:
       - openhealth-data:/data
 
