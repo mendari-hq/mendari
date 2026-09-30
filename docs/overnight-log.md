@@ -51,8 +51,9 @@ the production-deploy check and the four "small remaining gaps" under "What an A
 | [#96](https://github.com/Junebugg1214/openhealth-hub/pull/96) | v1.0 plan: public open-source launch | v1.0 plan | Green first time; preview checked; merged |
 | [#97](https://github.com/Junebugg1214/openhealth-hub/pull/97) | Security review: threat model, headers, dependency audit and ZAP scan in CI | v1.0 item 1 | Green first time (the new `security` job: pip-audit and npm audit clean, ZAP 114 passes, no medium or high); preview checked (headers live, every module 200); merged |
 | [#98](https://github.com/Junebugg1214/openhealth-hub/pull/98) | `openhealth new` and a clinician's pack-authoring guide | v1.0 item 2 | Green first time (`hub-e2e` ran `openhealth new` and its tests from the wheel); preview checked; merged |
-| [#99](https://github.com/Junebugg1214/openhealth-hub/pull/99) | The documentation site (MkDocs Material, strict build in CI) | v1.0 item 3 | pending |
+| [#99](https://github.com/Junebugg1214/openhealth-hub/pull/99) | The documentation site (MkDocs Material, strict build in CI) | v1.0 item 3 | Red once for a reason outside the PR (the uv cache-lock timeout, fixed in #100); after the rebase green, the new `docs` job included; preview checked; merged |
 | [#100](https://github.com/Junebugg1214/openhealth-hub/pull/100) | ci: background servers run from the venv, not `uv run` (uv 0.12 holds the cache lock) | CI root cause found on #99 | Green first time (no cache-lock timeouts in hub-e2e, hub-site, security, pilot-check); preview checked; merged |
+| [#101](https://github.com/Junebugg1214/openhealth-hub/pull/101) | The contribution flow: pack-PR workflow with the eval gate, community files | v1.0 item 4 | pending |
 
 ## Decisions made on your behalf
 
@@ -279,7 +280,12 @@ the production-deploy check and the four "small remaining gaps" under "What an A
     version notice. Medium and high alerts fail the build;
   - the docs site uses system fonts, so it makes no third-party requests. Links from docs to
     files outside `docs/` point at the repository, so they work on GitHub and on the site.
-    Hosting waits for the public launch.
+    Hosting waits for the public launch;
+  - governance: a patient-safety objection blocks a change until resolved, and is not
+    outvoted. Reference packs need a named clinical reviewer. Publisher types say who
+    publishes, not that a pack is validated for a site;
+  - the code of conduct adds one line to Contributor Covenant 2.1: sharing real patient
+    information anywhere in the community is unacceptable.
 
 ## Skipped or blocked
 
