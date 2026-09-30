@@ -12,6 +12,7 @@
   --color-bg: #f5f6f8;
   --color-surface: #ffffff;
   --color-surface-sunken: #eef0f3;
+  --color-skeleton-sheen: rgba(255, 255, 255, 0.6);
   --color-border: #dde1e7;  /* decorative dividers only */
   --color-border-strong: #7d8797;  /* form fields: >= 3:1 on every surface (WCAG 1.4.11) */
   --color-text: #17202c;
@@ -112,6 +113,7 @@
   --color-bg: #0e131a;
   --color-surface: #151c26;
   --color-surface-sunken: #1b2430;
+  --color-skeleton-sheen: rgba(255, 255, 255, 0.05);
   --color-border: #2a3544;
   --color-border-strong: #6b7a8f;
   --color-text: #e6ebf2;
@@ -166,14 +168,15 @@ code { font-family: var(--font-mono); font-size: max(0.92em, 12px); }  /* never 
    must wrap (digests, JSON payloads, full ids) opt in with .break-anywhere. */
 .mono { font-family: var(--font-mono); font-size: var(--text-xs); }
 .break-anywhere { overflow-wrap: anywhere; }
-.sr-only {
+/* Visually hidden, still read by screen readers (.setting-name: a label only the phone sheet shows). */
+.sr-only, .setting-name {
   position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
 }
 
 /* 3. Layout ------------------------------------------------------------------------------------- */
 
 /* Anything the app scrolls to and focuses (a result, a card, a card section) clears the sticky top
-   bar, which wraps to two rows on phones. */
+   bar (one row at every width). */
 :root { --topbar-clearance: 72px; }
 [tabindex="-1"] { scroll-margin-top: var(--topbar-clearance); }
 
@@ -192,6 +195,8 @@ code { font-family: var(--font-mono); font-size: max(0.92em, 12px); }  /* never 
 /* Its width is fixed from first paint: filled in later with long pack names, it used to wrap the top
    bar at tablet widths and shift the whole page (a 0.50 layout shift at 768 px). */
 .pack-picker select { width: 15rem; max-width: 100%; }
+.settings-button { display: none; }
+.settings-button[aria-expanded="true"] { background: var(--color-accent-soft); border-color: var(--color-accent); color: var(--color-accent); }
 
 .shell { display: grid; grid-template-columns: 200px minmax(0, 1fr); min-height: calc(100vh - 53px); }
 .nav {
@@ -295,6 +300,9 @@ button.open-record { white-space: nowrap; }
    are context, in one row. A tone (warning, danger) marks a number that needs attention. */
 .stats-primary { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: var(--space-3); margin-top: var(--space-4); }
 .stats-primary.two { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+/* Four stats make one row or two of two, six make two of three: never a row with one left over. */
+.stats-primary:has(> :nth-child(4):last-child) { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.stats-primary:has(> :nth-child(6):last-child) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .stat { padding: var(--space-3) var(--space-4); min-width: 0; }
 .stat-label { color: var(--color-text-muted); font-size: var(--text-sm); overflow-wrap: anywhere; }  /* long question names */
 .stat-value {
@@ -320,6 +328,42 @@ button.open-record { white-space: nowrap; }
 .pack-header .deployed { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
 .badge.risk { color: var(--color-text); background: var(--color-surface-sunken); border: 1px solid var(--color-border-strong); }
 .empty-state p.row { margin-top: var(--space-4); }
+
+/* Loading skeletons (skeleton.js): blocks the size of what is coming, with a slow sheen that stops
+   under reduced motion. The title block matches the h1's line, so nothing moves when it arrives. */
+.skeleton { display: flex; flex-direction: column; gap: var(--space-3); }
+.sk { position: relative; overflow: hidden; border-radius: var(--radius-sm); background: var(--color-surface-sunken); }
+.sk::after {
+  content: ""; position: absolute; inset: 0; transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, var(--color-skeleton-sheen), transparent);
+  animation: sk-sheen 1.6s ease-in-out infinite;
+}
+@keyframes sk-sheen { to { transform: translateX(100%); } }
+.sk-title { height: var(--leading-title); width: min(18rem, 60%); margin-bottom: calc(var(--space-2) - var(--space-3)); }
+.sk-intro { height: 1rem; width: min(32rem, 85%); margin-bottom: var(--space-2); }
+.sk-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: var(--space-3); }
+.sk-stat { height: 6.5rem; border-radius: var(--radius-md); }
+.sk-strip { height: 3rem; border-radius: var(--radius-md); }
+.sk-chart { height: 18rem; border-radius: var(--radius-md); }
+.sk-toolbar { height: 3.75rem; border-radius: var(--radius-md); }
+.sk-card { height: 12rem; border-radius: var(--radius-md); }
+.sk-tabs { height: 2.25rem; width: min(28rem, 100%); }
+.sk-rows { display: flex; flex-direction: column; gap: var(--space-0-5); }
+.sk-row { height: 2.25rem; border-radius: 0; }
+.sk-heading { height: 1.5rem; width: min(14rem, 50%); margin-top: var(--space-4); }
+.sk-line { height: 0.875rem; }
+.sk-line + .sk-line + .sk-line { width: 70%; }
+.sk-form { height: 20rem; border-radius: var(--radius-md); }
+
+/* Indeterminate progress (evaluation runs): a segment sliding along a track; it stands still under
+   reduced motion, and the elapsed time beside it still counts. */
+.progress { position: relative; height: 4px; border-radius: var(--radius-pill); background: var(--color-surface-sunken); overflow: hidden; }
+.progress span {
+  position: absolute; top: 0; bottom: 0; left: 0; width: 30%; border-radius: inherit; background: var(--color-accent);
+  animation: progress-slide 1.4s ease-in-out infinite;
+}
+@keyframes progress-slide { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+.run-progress p { margin: var(--space-3) 0 0; }
 
 /* Badges: outcomes, priorities, statuses. Stat is the one solid chip: it must be seen first. */
 .badge {
@@ -664,6 +708,21 @@ ol.rules > li { margin-bottom: var(--space-3); }
 ol.rules p { margin: var(--space-1) 0; }
 .reasons { margin: var(--space-1-5) 0 var(--space-3); padding-left: var(--space-5); color: var(--color-text-muted); }
 .labels { display: flex; flex-wrap: wrap; gap: var(--space-1-5); }
+/* A label other than the recommendation waits here for five seconds before it is sent; the line along
+   the bottom runs down with the time (it stays full under reduced motion; the seconds still count). */
+.undo-bar {
+  position: relative; overflow: hidden; display: flex; align-items: center; gap: var(--space-3);
+  margin-top: var(--space-3); padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm);
+  background: var(--color-warning-soft); color: var(--color-text);
+}
+.undo-bar > span:first-child { flex: 1; min-width: 0; }
+/* The label being sent stays readable among the disabled ones. */
+.labels button.held:disabled { opacity: 1; border-color: var(--color-warning); background: var(--color-warning-soft); color: var(--color-text); }
+.undo-time {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--color-warning);
+  transform-origin: left; animation: undo-time 5s linear forwards;
+}
+@keyframes undo-time { to { transform: scaleX(0); } }
 
 /* Structured records (packs whose input is not a message) and criteria tables. */
 .record { margin: var(--space-3) 0; }
@@ -685,8 +744,9 @@ ol.rules p { margin: var(--space-1) 0; }
 .mt-4 { margin-top: var(--space-4); }
 .mb-3 { margin-bottom: var(--space-3); }
 
-@media (max-width: 760px) {
-  :root { --topbar-clearance: 120px; }
+/* Tablets and phones: the section list runs across the top, so content gets the full width (a 200 px
+   sidebar left 568 px at 768 px). The theme toggle shows icons only; its words stay for screen readers. */
+@media (max-width: 1024px) {
   /* minmax(0, 1fr), not 1fr: a plain 1fr track grows to its widest table and scrolls the page. */
   .shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; }
   .nav { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--color-border); padding: var(--space-2); }
@@ -696,6 +756,34 @@ ol.rules p { margin: var(--space-1) 0; }
   .nav.scrolled { box-shadow: inset 16px 0 12px -12px rgba(0, 0, 0, 0.3); }
   .nav.scrolled.more-right { box-shadow: inset 16px 0 12px -12px rgba(0, 0, 0, 0.3), inset -16px 0 12px -12px rgba(0, 0, 0, 0.3); }
   .nav a.external { margin-top: 0; }
+  .pack-picker select { width: 13rem; }
+  .stats-primary:is(:has(> :nth-child(4):last-child), :has(> :nth-child(6):last-child)) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .topbar .segmented .label {
+    position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+  }
+}
+
+/* Phones: a 56 px top bar (brand and a Settings button); the theme and the pack open in a sheet
+   under it, with their names shown. */
+@media (max-width: 760px) {
+  .topbar { flex-wrap: nowrap; min-height: 56px; padding: 0 var(--space-2) 0 var(--space-4); }
+  .brand { flex-wrap: nowrap; min-width: 0; }
+  .tag-detail { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .settings-button { display: inline-flex; }
+  .topbar-actions { display: none; }
+  .topbar.settings-open .topbar-actions {
+    position: absolute; top: 100%; left: 0; right: 0;
+    display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: var(--space-3) var(--space-4);
+    padding: var(--space-4); background: var(--color-surface); border-bottom: 1px solid var(--color-border); box-shadow: var(--shadow-2);
+  }
+  .topbar.settings-open :is(.setting-name, .segmented .label) {
+    position: static; width: auto; height: auto; overflow: visible; clip: auto; white-space: normal;
+  }
+  .topbar.settings-open .setting-name { color: var(--color-text-muted); font-size: var(--text-sm); }
+  .topbar.settings-open .segmented { justify-self: start; }
+  /* The pack's name is the label's first child: the picker becomes a row of its own grid. */
+  .topbar.settings-open .pack-picker { display: contents; }
+  .topbar.settings-open .pack-picker select { width: 100%; }
   main { padding: var(--space-4); }
   h1 { font-size: var(--text-title-compact); line-height: var(--leading-title-compact); }
   .grid-2 { grid-template-columns: minmax(0, 1fr); }
@@ -714,10 +802,6 @@ ol.rules p { margin: var(--space-1) 0; }
   th.critical { min-width: 72px; max-width: 100px; }
   .meter { min-width: 36px; }
   .table-scroll { --rank-width: 44px; }
-  /* The theme toggle keeps its icons; the words stay available to screen readers. */
-  .segmented .label {
-    position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
-  }
 }
 
 /* Touch screens: every control at least 44 px, Apple's minimum target. */

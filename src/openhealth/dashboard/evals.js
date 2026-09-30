@@ -4,7 +4,7 @@ import { leaderboardView, wireLeaderboard } from "./leaderboard.js";
 import { providerWords, remoteModels } from "./pack.js";
 import { reportView } from "./report.js";
 import { views, wire } from "./router.js";
-import { $, api, esc, packPath, slotText, state, time, toastError, whileBusy } from "./ui.js";
+import { $, announce, api, esc, packPath, slotText, state, time, toastError, whileBusy } from "./ui.js";
 
 const evalsState = { reports: [] };
 
@@ -83,6 +83,8 @@ async function showRunTab(body, empty) {
     const button = e.currentTarget;
     const dataset = datasets.find((d) => d.name === $("#dataset").value);
     if (remote.length && !(await confirmRun(dataset, remote))) return button.focus();
+    const stopProgress = runProgress($("#run-report"), dataset);
+    $("#dataset").disabled = true;
     await whileBusy(button, "Running…", async () => {
       try {
         const report = await api(`${packPath()}/evals`, { method: "POST", body: JSON.stringify({ dataset: dataset.name }) });
@@ -90,11 +92,36 @@ async function showRunTab(body, empty) {
         $("#run-report").innerHTML = reportView(report);
         wire($("#run-report"));
       } catch (error) {
+        $("#run-report").innerHTML = empty("The run did not finish. Choose a dataset and try again.");
         toastError(error.message);
+      } finally {
+        stopProgress();
+        $("#dataset").disabled = false;
       }
     });
   });
 }
+
+// A run is one request that returns when every record is done, so progress can't be a percentage:
+// an indeterminate bar says it is alive, and the elapsed time says for how long.
+function runProgress(container, dataset) {
+  const started = Date.now();
+  container.innerHTML = `<div class="panel run-progress">
+      <div class="progress" aria-hidden="true"><span></span></div>
+      <p>Running <b>${dataset.n}</b> records of <b>${esc(dataset.name)}</b> through the deployed configuration.
+        <span class="muted">Elapsed <span class="elapsed">0 s</span></span></p>
+      <p class="muted">The report appears here when every record is done.</p>
+    </div>`;
+  announce(`Running ${dataset.n} records. The report appears when every record is done.`);
+  const elapsed = container.querySelector(".elapsed");
+  const timer = setInterval(() => (elapsed.textContent = elapsedText(Date.now() - started)), 1000);
+  return () => clearInterval(timer);
+}
+
+const elapsedText = (ms) => {
+  const seconds = Math.floor(ms / 1000);
+  return seconds < 60 ? `${seconds} s` : `${Math.floor(seconds / 60)} min ${String(seconds % 60).padStart(2, "0")} s`;
+};
 
 // Slots whose deployed provider calls a remote model (Jev, an LLM), in words.
 const remoteSlots = () => Object.entries(state.detail.active_providers)

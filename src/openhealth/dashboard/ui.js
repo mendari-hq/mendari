@@ -83,14 +83,19 @@ export function toast(message, { error = false } = {}) {
   el.textContent = message;
   el.classList.toggle("error", error);
   el.classList.add("show");
-  const region = $(error ? "#announce-alert" : "#announce-status");
-  region.textContent = "";
-  requestAnimationFrame(() => (region.textContent = message));
+  announce(message, { error });
   clearTimeout(toast.timer);
   toast.timer = setTimeout(() => el.classList.remove("show"), error ? 8000 : 2600);
 }
 
 export const toastError = (message) => toast(message, { error: true });
+
+// For screen readers only (the eye has it on screen already).
+export function announce(message, { error = false } = {}) {
+  const region = $(error ? "#announce-alert" : "#announce-status");
+  region.textContent = "";
+  requestAnimationFrame(() => (region.textContent = message));
+}
 
 export function storageGet(key, fallback) {
   try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; }

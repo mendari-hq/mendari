@@ -7,12 +7,18 @@ import "./evals.js";
 import "./feedback.js";
 import "./card.js";
 import "./try.js";
-import { onHashChange, render } from "./router.js";
+import { onHashChange, render, route } from "./router.js";
+import { setupSettings } from "./settings.js";
+import { skeleton } from "./skeleton.js";
 import { setupTheme } from "./theme.js";
 import { $, api, DEFAULT_TIMEZONE, esc, focusHeading, loadPack, shortFormatFor, state, storageGet, storageSet, timeFormatFor, watchEdges } from "./ui.js";
 
 async function boot() {
   setupTheme();
+  setupSettings();
+  // The first view's skeleton shows while the packs load, not an empty page.
+  $("#view").setAttribute("aria-busy", "true");
+  $("#view").innerHTML = skeleton(route().view);
   $("#skip-link").addEventListener("click", () => focusHeading($("main h1") ?? $("main"), { scroll: false }));
   watchEdges($(".nav"));
   const health = await api("/api/health").catch(() => null);
@@ -24,6 +30,7 @@ async function boot() {
   state.packs = await api("/api/packs");
   const select = $("#pack-select");
   if (!state.packs.length) {
+    $("#view").removeAttribute("aria-busy");
     $("#view").innerHTML = `<div class="panel empty">No Decision Packs found on the search path.</div>`;
     return;
   }
@@ -42,5 +49,6 @@ async function boot() {
 }
 
 boot().catch((error) => {
+  $("#view").removeAttribute("aria-busy");
   $("#view").innerHTML = `<div class="panel">Could not reach the OpenHealth API: ${esc(error.message)}</div>`;
 });
