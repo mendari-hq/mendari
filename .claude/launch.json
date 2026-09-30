@@ -4,61 +4,25 @@
     {
       "name": "openhealth",
       "runtimeExecutable": "uv",
-      "runtimeArgs": [
-        "run",
-        "openhealth",
-        "serve",
-        "--port",
-        "8391",
-        "--db",
-        "var/dev.db"
-      ],
+      "runtimeArgs": ["run", "openhealth", "serve", "--port", "8391", "--db", "var/dev.db"],
       "port": 8391
     },
     {
       "name": "openhealth-fixtures",
       "runtimeExecutable": "env",
-      "runtimeArgs": [
-        "OPENHEALTH_PACKS_PATH=tests/fixtures/packs",
-        "uv",
-        "run",
-        "openhealth",
-        "serve",
-        "--port",
-        "8392",
-        "--db",
-        "var/fixtures.db"
-      ],
+      "runtimeArgs": ["OPENHEALTH_PACKS_PATH=tests/fixtures/packs", "uv", "run", "openhealth", "serve", "--port", "8392", "--db", "var/fixtures.db"],
       "port": 8392
     },
     {
       "name": "registry",
       "runtimeExecutable": "env",
-      "runtimeArgs": [
-        "OPENHEALTH_REGISTRY_ADMIN_TOKEN=local-admin",
-        "uv",
-        "run",
-        "openhealth",
-        "registry",
-        "serve",
-        "--db",
-        "var/registry.db",
-        "--port",
-        "8100"
-      ],
+      "runtimeArgs": ["OPENHEALTH_REGISTRY_ADMIN_TOKEN=local-admin", "uv", "run", "openhealth", "registry", "serve", "--db", "var/registry.db", "--port", "8100"],
       "port": 8100
     },
     {
       "name": "hub-site",
       "runtimeExecutable": "env",
-      "runtimeArgs": [
-        "REGISTRY_URL=http://127.0.0.1:8100",
-        "npm",
-        "--prefix",
-        "hub",
-        "run",
-        "dev"
-      ],
+      "runtimeArgs": ["REGISTRY_URL=http://127.0.0.1:8100", "npm", "--prefix", "hub", "run", "dev"],
       "port": 3100
     }
   ]
