@@ -131,6 +131,47 @@ def test_a_record_link_opens_its_drawer(page: Page, live_server: str) -> None:
     expect(dialog).to_have_count(0)
 
 
+def test_a_shared_link_opens_the_pack_it_was_copied_from(page: Page, live_server: str) -> None:
+    """The pack is in the address, so a link beats whatever pack the viewer chose last, a record
+    link opens over that pack's list, and moving between views keeps it."""
+    latest = httpx.get(f"{live_server}/api/audit", params={"pack_id": GUARD, "limit": 1}).json()[0]
+    page.add_init_script(f"localStorage.setItem('oh.pack', {json.dumps(INBOX)})")
+    page.goto(f"/?pack={GUARD}#audit/{latest['id']}")
+    expect(page.get_by_role("dialog")).to_contain_text(latest["id"])
+    expect(page.locator("#pack-select")).to_have_value(GUARD)
+    page.get_by_role("button", name="Close").click()
+    page.locator('.nav a[data-view="review"]').click()
+    expect(page).to_have_url(re.compile(f"\\?pack={GUARD}#review$"))
+    expect(page.locator("#pack-select")).to_have_value(GUARD)
+
+
+def test_choosing_a_pack_puts_it_in_the_address(page: Page) -> None:
+    open_pack(page, INBOX, "overview")
+    expect(page).to_have_url(re.compile(f"\\?pack={INBOX}#overview$"))
+    page.select_option("#pack-select", GUARD)
+    expect(page).to_have_url(re.compile(f"\\?pack={GUARD}#overview$"))
+    expect(page.locator("main h1")).to_have_text("AI Guard")
+
+
+def test_an_unknown_pack_in_the_address_falls_back_to_the_last_one(page: Page) -> None:
+    page.add_init_script(f"localStorage.setItem('oh.pack', {json.dumps(GUARD)})")
+    page.goto("/?pack=someone/else#overview")
+    expect(page.locator("#pack-select")).to_have_value(GUARD)
+    expect(page).to_have_url(re.compile(f"\\?pack={GUARD}#overview$"))
+
+
+def test_going_back_across_a_pack_change_shows_that_pack(page: Page) -> None:
+    open_pack(page, INBOX, "overview")
+    page.locator('.nav a[data-view="audit"]').click()
+    expect(page.locator("main h1")).to_have_text("Audit trail")
+    page.select_option("#pack-select", GUARD)
+    expect(page).to_have_url(re.compile(f"\\?pack={GUARD}#audit$"))
+    page.go_back()
+    expect(page).to_have_url(re.compile(f"\\?pack={INBOX}#overview$"))
+    expect(page.locator("#pack-select")).to_have_value(INBOX)
+    expect(page.locator("main h1")).to_have_text("Patient Inbox Router")
+
+
 def test_going_back_from_one_record_to_another_keeps_the_drawer_open(
     page: Page, live_server: str
 ) -> None:
@@ -764,7 +805,7 @@ HEADING_PROBLEMS = """() => {
 def test_keyboard_users_can_skip_to_the_content(page: Page) -> None:
     open_pack(page, INBOX, "feedback")
     page.evaluate("document.activeElement.blur()")
-    page.goto("/#feedback")  # the same document: tabbing starts from the top
+    page.goto(f"/?pack={INBOX}#feedback")  # the same document: tabbing starts from the top
     page.keyboard.press("Tab")
     skip = page.get_by_role("button", name="Skip to content")
     expect(skip).to_be_focused()

@@ -46,7 +46,7 @@ phase (A, B, C) to be done and merged when CI passes.
 - [ ] Small gaps from the re-grade (`docs/design-grade.md`, "What an A still needs"), one PR each;
   log in `docs/overnight-log.md`:
   - [x] Plain words in criteria tables and Try-it answer headings
-  - [ ] Links that carry the pack
+  - [x] Links that carry the pack (`?pack=` in the address)
   - [ ] A transition from skeleton to content
   - [ ] Fewer whole-subtree re-renders
 

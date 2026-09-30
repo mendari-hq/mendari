@@ -35,17 +35,35 @@ async function boot() {
     return;
   }
   select.innerHTML = state.packs.map((p) => `<option value="${esc(p.id)}">${esc(p.name)} ${esc(p.version)}</option>`).join("");
+  const known = (id) => state.packs.some((p) => p.id === id);
   const saved = storageGet("oh.pack", state.packs[0].id);
-  const initial = state.packs.some((p) => p.id === saved) ? saved : state.packs[0].id;
-  select.value = initial;
-  await loadPack(initial);
+  await switchPack([packInAddress(), saved].find(known) ?? state.packs[0].id);
   select.addEventListener("change", async () => {
-    storageSet("oh.pack", select.value);
-    await loadPack(select.value);
+    await switchPack(select.value);
     render();
+  });
+  // Back and Forward can cross a pack change. The address then names another pack than the one
+  // shown, and the browser fires only popstate (hashchange needs everything but the hash to match).
+  window.addEventListener("popstate", async () => {
+    const wanted = packInAddress();
+    if (wanted === state.packId || !known(wanted)) return;
+    await switchPack(wanted);
+    render({ navigated: true });
   });
   window.addEventListener("hashchange", onHashChange);
   render();
+}
+
+// The pack travels in the address ("?pack=openhealth/referral-router#review"), so a shared or
+// bookmarked link opens the pack it was copied from, and a record link opens over that pack's
+// list. Without one, the pack last chosen here. Hash links keep the query, so no link builds it.
+const packInAddress = () => new URLSearchParams(location.search).get("pack");
+
+async function switchPack(packId) {
+  $("#pack-select").value = packId;
+  storageSet("oh.pack", packId);
+  history.replaceState(history.state, "", `?pack=${encodeURIComponent(packId).replaceAll("%2F", "/")}${location.hash}`);
+  await loadPack(packId);
 }
 
 boot().catch((error) => {
