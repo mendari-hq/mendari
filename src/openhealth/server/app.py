@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from fastapi import Body, FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 
@@ -395,6 +395,15 @@ def create_app(
     @app.get("/", include_in_schema=False)
     def dashboard() -> HTMLResponse:
         return HTMLResponse(page, headers={"cache-control": "no-cache"})
+
+    # Browsers ask for /favicon.ico on any page without an icon link (e.g. raw JSON responses).
+    @app.get("/favicon.ico", include_in_schema=False)
+    def favicon() -> FileResponse:
+        return FileResponse(
+            DASHBOARD_DIR / "favicon.ico",
+            media_type="image/x-icon",
+            headers={"cache-control": "public, max-age=86400"},
+        )
 
     app.mount("/static", StaticFiles(directory=DASHBOARD_DIR), name="static")
     return app
