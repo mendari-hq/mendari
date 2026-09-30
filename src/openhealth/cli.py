@@ -248,6 +248,23 @@ def cmd_calibrate(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_agreement(args: argparse.Namespace) -> int:
+    from openhealth.evals.agreement import agreement, pack_cases
+
+    pack = resolve_pack(args.pack)
+    left, right = args.variants
+    cases = pack_cases(pack, args.dataset or None)
+    report = agreement(pack, args.slot, left, right, cases)
+    if args.json:
+        _print_json(report)
+    else:
+        verdict = "agree" if report["agree"] else f"differ {len(report['differences'])} time(s)"
+        print(f"{pack.id} {args.slot}: {left} and {right} {verdict} on {report['cases']} cases")
+        for item in report["differences"][:20]:
+            print(f"  {item['case']}  {item['question']}: {item[left]} vs {item[right]}")
+    return 0 if report["agree"] else 1
+
+
 def cmd_leaderboard(args: argparse.Namespace) -> int:
     from openhealth.evals import evaluate, leaderboard, resolve_dataset
 
@@ -784,6 +801,19 @@ def build_parser() -> argparse.ArgumentParser:
     calibrate.add_argument("--dataset", default="calibration", help="labelled dataset")
     calibrate.add_argument("--limit", type=int, default=200, help="records to use (default 200)")
     calibrate.add_argument("--workers", type=int, default=8, help="parallel calls (default 8)")
+
+    agree = pack_command(
+        "agreement", cmd_agreement, "check that two variants of a slot give the same answers"
+    )
+    agree.add_argument("--slot", required=True, help="provider slot")
+    agree.add_argument("--variants", nargs=2, required=True, metavar="VARIANT")
+    agree.add_argument(
+        "--dataset",
+        action="append",
+        default=[],
+        help="dataset name or file (repeat; default: the pack's tests and every dataset)",
+    )
+    agree.add_argument("--json", action="store_true", help="the full report")
 
     board = pack_command(
         "leaderboard", cmd_leaderboard, "compare provider configurations on the same datasets"

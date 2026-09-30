@@ -16,6 +16,7 @@ services:
       hapi.fhir.default_encoding: json
       spring.datasource.url: jdbc:h2:mem:openhealth
       hapi.fhir.bulk_export_enabled: "true"  # Bulk FHIR $export, for `openhealth bulk export`
+      hapi.fhir.cr.enabled: "true"  # Clinical Reasoning: Library/$evaluate for `cql` providers
 
   launcher:
     # SMART on FHIR sandbox (smart-launcher-v2): an authorization server in front of HAPI. Its
@@ -46,6 +47,8 @@ services:
       # SMART launch (a public client; the launcher accepts any client id).
       OPENHEALTH_SMART_CLIENT_ID: ${OPENHEALTH_SMART_CLIENT_ID:-openhealth-sandbox}
       OPENHEALTH_PUBLIC_URL: ${OPENHEALTH_PUBLIC_URL:-http://engine:8000}
+      # The CQL engine for `cql` provider variants (HAPI's Clinical Reasoning module).
+      OPENHEALTH_CQL_URL: ${OPENHEALTH_CQL_URL:-http://fhir:8080/fhir}
     volumes:
       - openhealth-data:/data
 

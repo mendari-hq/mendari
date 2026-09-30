@@ -92,6 +92,17 @@ class GuardedHttp:
     ) -> dict[str, Any]:
         return self._send("POST", url, headers=headers, data=data)
 
+    def send_json(
+        self,
+        method: str,
+        url: str,
+        body: Mapping[str, Any],
+        headers: Mapping[str, str] | None = None,
+    ) -> dict[str, Any]:
+        """A FHIR JSON request (a CQL `$evaluate`, a Library upload); its JSON answer."""
+        sent = {"content-type": "application/fhir+json", "accept": "application/fhir+json"}
+        return self._send(method, url, headers={**sent, **(headers or {})}, json=dict(body))
+
     def raw(
         self, method: str, url: str, headers: Mapping[str, str] | None = None, **kwargs: Any
     ) -> tuple[int, httpx.Headers, bytes]:

@@ -1,6 +1,6 @@
 # Decision Card: Clinical Trial Prescreener
 
-`openhealth/clinical-trial-prescreener` · version **0.1.1** · Apache-2.0 · published by OpenHealth Hub reference packs (community)
+`openhealth/clinical-trial-prescreener` · version **0.1.2** · Apache-2.0 · published by OpenHealth Hub reference packs (community)
 
 > Checks a patient's record against the eligibility criteria of a synthetic type 2 diabetes study (GLYCEMIA-2): structured criteria are computed from coded data, and exclusions are looked for in the clinic notes. Every result goes to a research coordinator for review.
 
@@ -8,8 +8,8 @@
 |---|---|
 | Risk level | **2**, clinical support |
 | Automation | Human review required by default; AUTO only with a recorded governance override. |
-| Pack digest | `sha256:6c27474f4bcaffeb551401a5c5d11a0d970833c1913f5e0ead1d402c38dc7add` |
-| Last validation | 2026-09-28 on `test` (n=300, sha256 `12d2fb4b741a…`) |
+| Pack digest | `sha256:fa4a16608c225b550435e6229438e04a44f4c82d6b71c03d389d0e48cdbcf15a` |
+| Last validation | 2026-09-30 on `test` (n=300, sha256 `12d2fb4b741a…`) |
 
 ## Intended use
 
@@ -163,7 +163,7 @@ Every decision is one of `AUTO`, `HUMAN_REVIEW`, `ABSTAIN` or `BLOCK`, with a pr
 
 | Slot | Answers | Default | Alternatives |
 |---|---|---|---|
-| `structured` | age_18_75, t2d_diagnosis, hba1c_in_range, stable_metformin, egfr_30_or_more, no_insulin, no_recent_cv_event | `criteria` (criteria) | none |
+| `structured` | age_18_75, t2d_diagnosis, hba1c_in_range, stable_metformin, egfr_30_or_more, no_insulin, no_recent_cv_event | `criteria` (criteria) | `cql` (cql) |
 | `notes` | note_pregnancy, note_pancreatitis, note_active_cancer_treatment, note_recent_cv_event | `rules` (rules) | `jev` (jev), `llm` (llm), `rules_and_jev` (any_of), `rules_and_llm` (any_of) |
 
 ## Validation
@@ -183,7 +183,7 @@ Benchmark `test` (n=300) with structured=`criteria`, notes=`rules`:
 | Accuracy of AUTO decisions | n/a |
 | False automation rate | n/a |
 | Expected human override rate | 0.7% |
-| Latency p50 / p95 | 0.31 / 0.38 ms |
+| Latency p50 / p95 | 0.39 / 0.42 ms |
 | Cost per decision | $0.00000 |
 | Critical `note_pregnancy=yes` | 12/13 detected, 0 automated |
 | Critical `note_pancreatitis=yes` | 6/6 detected, 0 automated |
@@ -364,6 +364,14 @@ Other questions (accuracy / ECE):
 - **Hand-written exclusion sets**: data/exclusions.jsonl (used to write the note rules) and data/exclusions_holdout.jsonl (written before the rules and never used to tune them): pregnancy, pancreatitis, cancer treatment and cardiovascular events, with negated, family-history and remote look-alikes.
 
 ## Version history
+
+### 0.1.2
+
+- A `cql` variant of the `structured` slot: the seven criteria written in CQL
+  (`logic/criteria.cql`), evaluated on a CQL engine (`$OPENHEALTH_CQL_URL`, e.g. HAPI FHIR with
+  Clinical Reasoning). It agrees with `criteria` on every test and dataset case, which CI
+  checks. `criteria` stays the default. Questions, criteria, rules, policy and data are
+  unchanged.
 
 ### 0.1.1
 

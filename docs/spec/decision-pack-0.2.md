@@ -231,7 +231,10 @@ answers MAY be any label of the question, e.g. the service an order code is for,
 MAY carry `when: {field, in}` to apply only while an input field has one of those values),
 `dosing` (dose arithmetic on free text: for each medicine in a pack table, the largest daily
 amount a sentence allows, e.g. "1000 mg every 4 hours" = 6000 mg/day, compared with the maximum;
-`yes` / `no` / `unknown`), `naive_bayes` (local, temperature-calibrated text classifier), `jev`, `llm` (a chat
+`yes` / `no` / `unknown`), `cql` (a CQL library in the pack, evaluated on a CQL engine with the
+input as FHIR R4; each answered question maps to a definition whose String result is the label,
+or whose Boolean result is `yes` / `no`, null being `unknown`), `naive_bayes` (local,
+temperature-calibrated text classifier), `jev`, `llm` (a chat
 model through an OpenAI-compatible API, asked for one probability per label and optionally
 calibrated per question), and three
 composites whose inline `members` are other (non-composite) variants: `any_of` (the most
@@ -440,6 +443,7 @@ produces identical decisions; it simply cannot use the new fields.
 | FHIR `lists`, `age_years`/`base64_text`; card and Task templates naming answers | §9 |
 | FHIR `focus_where`; one decision per draft order for `order-select`/`order-sign` | §9 |
 | `dosing` provider; `guard` section and statuses | §5, §9.1 |
+| `cql` provider (a library in the pack, a CQL engine at `$OPENHEALTH_CQL_URL`) | §5 |
 | The decision output schema adds an optional `value` to each answer | §4.2 |
 
 To migrate a pack:

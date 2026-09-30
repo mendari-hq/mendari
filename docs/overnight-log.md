@@ -42,7 +42,8 @@ the production-deploy check and the four "small remaining gaps" under "What an A
 | [#87](https://github.com/Junebugg1214/openhealth-hub/pull/87) | PHI mode: hash-only or encrypted inputs, reads logged, retention; deployment guide | v0.6 item 4 | Green first time; preview checked (`phi_mode: off`, so production is unchanged); merged. Opened once ahead of a failed local gate (see lessons); fixed before CI finished |
 | [#88](https://github.com/Junebugg1214/openhealth-hub/pull/88) | Per-pack container images (GHCR on release tags) and on-prem templates | v0.6 item 5 | Green first time (the `docker` job built the per-pack image and saw it serve only its pack); preview checked; merged |
 | [#89](https://github.com/Junebugg1214/openhealth-hub/pull/89) | v0.6 pilot check in CI: a real OIDC provider, keys, PHI, review, governance, monitoring | v0.6 item 6 (the exit) | Green first time (the new `pilot-check` job passed against mock-oauth2-server); preview checked; merged. v0.6 done |
-| [#90](https://github.com/Junebugg1214/openhealth-hub/pull/90) | v0.7 plan: CQL, OMOP, Da Vinci CRD/DTR/PAS | v0.7 plan | pending |
+| [#90](https://github.com/Junebugg1214/openhealth-hub/pull/90) | v0.7 plan: CQL, OMOP, Da Vinci CRD/DTR/PAS | v0.7 plan | Green first time; preview checked; merged |
+| [#91](https://github.com/Junebugg1214/openhealth-hub/pull/91) | CQL provider; the trial pack's criteria in CQL, agreeing with `criteria` in CI | v0.7 item 1 | pending |
 
 ## Decisions made on your behalf
 
@@ -227,7 +228,11 @@ the production-deploy check and the four "small remaining gaps" under "What an A
   - OMOP is read from a CDM 5.4 database with a minimal concept table, and checked by a round
     trip;
   - Da Vinci CRD, DTR and PAS wrap the PA pack, each validated by the HL7 validator against its
-    IG.
+    IG;
+  - the trial pack goes to 0.1.2 for its new `cql` variant (a content change, so a new version
+    for the registry's immutable versions). Only its artifacts were regenerated: the other
+    packs' benchmarks differed by run id, timestamp and latency alone, so they stay as they
+    were.
 
 ## Skipped or blocked
 

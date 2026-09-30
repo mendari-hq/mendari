@@ -1,11 +1,11 @@
 {
   "format": "openhealth.eval/1",
-  "id": "ca095d79-0b08-4f21-916a-1b79b777b4c6",
-  "created_at": "2026-09-29T03:29:06+00:00",
+  "id": "5467757a-3d4e-413f-a3f6-84fa6b87f538",
+  "created_at": "2026-09-30T07:49:37+00:00",
   "pack": {
     "id": "openhealth/clinical-trial-prescreener",
-    "version": "0.1.1",
-    "digest": "sha256:6c27474f4bcaffeb551401a5c5d11a0d970833c1913f5e0ead1d402c38dc7add"
+    "version": "0.1.2",
+    "digest": "sha256:fa4a16608c225b550435e6229438e04a44f4c82d6b71c03d389d0e48cdbcf15a"
   },
   "providers": {
     "structured": {
@@ -826,10 +826,10 @@
     }
   ],
   "latency_ms": {
-    "mean": 0.3220415534451604,
-    "p50": 0.31337467953562737,
-    "p95": 0.3764578141272068,
-    "max": 0.661166850477457
+    "mean": 0.3903627907857299,
+    "p50": 0.38529234007000923,
+    "p95": 0.4226663149893284,
+    "max": 0.7957080379128456
   },
   "cost": {
     "total_usd": 0.0,
