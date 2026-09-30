@@ -493,3 +493,21 @@ checked before the next step.
 ### Verification
 No PR is opened with a diff that touches files outside its scope. No command runs after a failed
 gate.
+
+## 2026-09-30 - testing
+
+### What happened
+The Decision Card's "Automates" fact gained an inline link inside a `<dd>`. The 24 px target test
+passed on macOS, where the sentence wrapped so the link's box was two lines tall, and failed in
+CI, where Linux fonts kept it on one 20 px line. The test only exempts links in a `p` or `li`
+(WCAG 2.5.8's inline exception).
+
+### Root cause
+A target size that depends on line wrapping, and fonts that differ between the Mac and CI.
+
+### Rule
+In the dashboard, a link inside running text goes in a `p` or `li`, or isn't a link. Never rely
+on wrapping for a target's size.
+
+### Verification
+`test_every_control_is_at_least_24_px` passes in CI, not only locally.

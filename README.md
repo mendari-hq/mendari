@@ -282,6 +282,16 @@ names them and offers only what their role may do. `OPENHEALTH_OIDC_ORG_CLAIM` n
 that carries the person's organization: one deployment can serve several, and each sees only
 its own decisions, reviews, feedback and reports.
 
+**Governance approvals.** At risk level 2 or 3 a person reviews every decision (ADR-0002) until
+the organization approves automation. Someone with the `governance` role gives the approval
+from the Decision Card, with a reference such as committee minutes and an expiry. It covers one
+exact pack version: a new digest needs a new approval. It is written into every decision it
+affects, chained in the audit log, and can be revoked at once. Level 4 can't be approved.
+
+**Deployments.** Each server records which pack version it runs, with which providers, in
+which environment (`OPENHEALTH_ENVIRONMENT`) and release, whenever that changes. The Decision
+Card lists them (`/api/deployments`).
+
 ## Decision Packs
 
 A pack is a directory:

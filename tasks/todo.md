@@ -6,7 +6,7 @@ Roadmap to the full goal: [`docs/roadmap.md`](../docs/roadmap.md).
 Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 - [x] Plan
 - [x] OIDC login, roles and API keys; tenancy
-- [ ] Deployments and governance approvals
+- [x] Deployments and governance approvals
 - [ ] Monitoring: observed accuracy, overrides, drift, alerts; Monitoring view
 - [ ] PHI mode (hash / encrypt), retention, input reads logged; deployment guide
 - [ ] Container image per pack; on-prem templates

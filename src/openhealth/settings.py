@@ -25,6 +25,25 @@ def display_timezone() -> ZoneInfo:
         raise OpenHealthError(f"OPENHEALTH_TIMEZONE {name!r} is not an IANA time zone") from None
 
 
+def deployment_place() -> tuple[str, str]:
+    """Where this server runs and which release it is, for the deployment registry:
+    $OPENHEALTH_ENVIRONMENT (else Vercel's environment, else "local") and $OPENHEALTH_RELEASE
+    (else the Vercel commit, else the package version)."""
+    from openhealth import __version__
+
+    environment = (
+        os.environ.get("OPENHEALTH_ENVIRONMENT", "").strip()
+        or os.environ.get("VERCEL_ENV", "").strip()
+        or "local"
+    )
+    release = (
+        os.environ.get("OPENHEALTH_RELEASE", "").strip()
+        or os.environ.get("VERCEL_GIT_COMMIT_SHA", "").strip()[:12]
+        or f"openhealth {__version__}"
+    )
+    return environment, release
+
+
 def fhir_validation() -> FhirValidation:
     """US Core checks on FHIR inputs ($OPENHEALTH_FHIR_VALIDATION): `warn` (default) returns and
     audits the issues without changing the decision; `enforce` blocks a non-conforming input

@@ -1,8 +1,8 @@
 // Decision Card: the pack as a document, sections linked as routes ("#card/policy").
 
 import { providerWords, rowLabels } from "./pack.js";
-import { views } from "./router.js";
-import { $, esc, focusHeading, icon, outcomeBadge, priorityBadge, slotText, state, toast, toastError } from "./ui.js";
+import { render, views } from "./router.js";
+import { $, api, esc, focusHeading, icon, may, outcomeBadge, priorityBadge, shortTime, signedIn, slotText, state, time, toast, toastError } from "./ui.js";
 
 function deriveRow(row) {
   const among = row.in ? `of ${row.in.map((m) => `<code>${esc(m)}</code>`).join(", ")}` : "member";
@@ -41,14 +41,15 @@ function conditionText(when) {
 }
 
 // Whether this deployment automates at all, and when. The thresholds say when a decision may be
-// automated; the caps in core/policy.py (risk level, required providers) can rule it out entirely.
-function automationText(d) {
+// automated; the caps in core/policy.py (risk level, required providers) can rule it out entirely,
+// and at levels 2-3 only the organization's approval of this exact version lifts the risk cap.
+function automationText(d, governance) {
   const p = d.manifest.policy;
   const code = (v) => `<code>${esc(v)}</code>`;
   const review = `A person reviews from confidence ${p.thresholds.review.toFixed(2)}; below that it abstains.`;
   if (d.risk.level >= 4) return `Never: at risk level 4 a person reviews every decision. ${review}`;
-  if (d.risk.level >= 2) {
-    return `Not here: at risk level ${d.risk.level} a person reviews every decision (only a recorded governance approval can lift that, and this server takes none). ${review}`;
+  if (d.risk.level >= 2 && !governance.active) {
+    return `Not without an approval: at risk level ${d.risk.level} a person reviews every decision unless your organization approves automation for this version (see Automation approval, below). ${review}`;
   }
   const unmet = Object.entries(p.automation_requires ?? {}).filter(([slot, allowed]) => !allowed.includes(d.active_providers[slot]?.variant));
   if (unmet.length) {
@@ -59,7 +60,22 @@ function automationText(d) {
   const higher = labels.some((l) => l.allow_auto && (l.auto_threshold ?? 0) > p.thresholds.auto);
   const never = labels.some((l) => !l.allow_auto);
   const exceptions = [higher && "some labels need more", never && "some are never automated"].filter(Boolean).join(", ");
-  return `At confidence ${p.thresholds.auto.toFixed(2)} or more${exceptions ? ` (${exceptions}; see Policy)` : ""}. ${review}`;
+  const approved = governance.active ? `Approved by ${esc(governance.active.approver)}: ` : "";
+  return `${approved}At confidence ${p.thresholds.auto.toFixed(2)} or more${exceptions ? ` (${exceptions}; see Policy)` : ""}. ${review}`;
+}
+
+// Where this pack runs: one row each time its version, providers or release changed somewhere.
+function deploymentsSection(rows) {
+  if (!rows.length) return `<p class="prose muted">Not recorded yet: a server records itself the first time it uses the pack.</p>`;
+  const providers = (map) => Object.entries(map).map(([slot, variant]) => `<code>${esc(slot)}</code> ${esc(variant)}`).join(", ");
+  return `<div class="panel table-wrap"><table>
+    <caption class="sr-only">Deployments of this pack, newest first</caption>
+    <thead><tr><th scope="col">Since</th><th scope="col">Environment</th><th scope="col">Version</th><th scope="col">Providers</th><th scope="col">Release</th></tr></thead>
+    <tbody>${rows.map((r) => `<tr><td class="nowrap"><time datetime="${esc(r.started_at)}" title="${esc(time(r.started_at))}">${esc(shortTime(r.started_at))}</time></td>
+      <td>${esc(r.environment)}</td>
+      <td>v${esc(r.pack_version)} <span class="mono muted">${esc(r.pack_digest.slice(7, 19))}</span></td>
+      <td>${providers(r.providers)}</td><td class="mono">${esc(r.release)}</td></tr>`).join("")}</tbody>
+  </table></div>`;
 }
 
 const CARD_SECTIONS = [
@@ -67,6 +83,8 @@ const CARD_SECTIONS = [
   ["use", "Intended use"],
   ["questions", "Questions"],
   ["policy", "Policy"],
+  ["approval", "Automation approval"],
+  ["deployments", "Deployments"],
   ["providers", "Providers"],
   ["schemas", "Schemas"],
 ];
@@ -77,6 +95,8 @@ views.card = async (main, params) => {
   const d = state.detail;
   const m = d.manifest;
   const p = m.policy;
+  const query = `pack_id=${encodeURIComponent(state.packId)}`;
+  const [governance, deployments] = await Promise.all([api(`/api/governance?${query}`), api(`/api/deployments?${query}`)]);
   const list = (items) => `<ul>${items.map((u) => `<li>${esc(u)}</li>`).join("")}</ul>`;
   main.innerHTML = `
     <h1>${esc(m.name)}</h1>
@@ -88,7 +108,7 @@ views.card = async (main, params) => {
       <dl class="facts">
         <dt>Risk level</dt><dd><span class="badge risk">${m.risk.level}</span> ${esc(m.risk.category)}</dd>
         <dt>Decides</dt><dd><code>${esc(p.primary)}</code>: ${d.labels.map((l) => `<code>${esc(l)}</code>`).join(", ")}</dd>
-        <dt>Automates</dt><dd>${automationText(d)}</dd>
+        <dt>Automates</dt><dd>${automationText(d, governance)}</dd>
         <dt>CDS Hooks</dt><dd>${d.cds_service ? `service <code>${esc(d.cds_service)}</code> on <code>${esc(m.cds_hooks.hook)}</code>` : "none"}</dd>
         <dt>Publisher</dt><dd>${esc(m.publisher.name)} <span class="muted">(${esc(m.publisher.type)})</span></dd>
         <dt>Version</dt><dd><span class="mono">${esc(m.id)}</span> v${esc(m.version)} · ${esc(m.license)}</dd>
@@ -128,6 +148,16 @@ views.card = async (main, params) => {
       <div class="callout neutral"><b>When it can't decide:</b> ${esc(p.fallback)}</div>
     </section>
 
+    <section class="card-section" id="card-approval" aria-labelledby="card-approval-title">
+      <h2 id="card-approval-title">Automation approval</h2>
+      ${approvalSection(governance)}
+    </section>
+
+    <section class="card-section" id="card-deployments" aria-labelledby="card-deployments-title">
+      <h2 id="card-deployments-title">Deployments</h2>
+      ${deploymentsSection(deployments)}
+    </section>
+
     <section class="card-section" id="card-providers" aria-labelledby="card-providers-title">
       <h2 id="card-providers-title">Providers</h2>
       <div class="panel table-wrap"><table>
@@ -144,6 +174,7 @@ views.card = async (main, params) => {
       <details><summary>Input schema (JSON)</summary><pre class="json">${esc(JSON.stringify(d.input_schema, null, 2))}</pre></details>
       <details><summary>Output schema (JSON)</summary><pre class="json">${esc(JSON.stringify(d.output_schema, null, 2))}</pre></details>
     </section>`;
+  wireApproval(main);
   main.querySelector("[data-copy]").addEventListener("click", async (event) => {
     try {
       await navigator.clipboard.writeText(event.currentTarget.dataset.copy);
@@ -154,6 +185,56 @@ views.card = async (main, params) => {
   });
   return cardSection(params[0]);
 };
+
+// What the pack's risk level allows, the approval in force, and (for people who may approve)
+// approving or revoking. An approval is for this exact pack: a new version needs a new one.
+function approvalSection(g) {
+  if (g.risk_level >= 4) return `<p class="prose">Risk level 4: never automated. No approval can change that.</p>`;
+  if (!g.approvable) return `<p class="prose">Risk level ${g.risk_level}: automates within its thresholds. No approval is needed.</p>`;
+  const active = g.active
+    ? `<div class="callout neutral"><b>Automation approved</b> by ${esc(g.active.approver)} (${esc(g.active.reference)}),
+        until ${esc(time(g.active.expires_at))}.
+        ${may("approve") ? `<button type="button" data-revoke="${esc(g.active.id)}">Revoke</button>` : ""}</div>`
+    : `<p class="prose">Risk level ${g.risk_level}: a person reviews every decision unless your organization approves automation
+        for this exact version (digest <span class="mono">${esc(g.digest.slice(7, 19))}</span>).</p>`;
+  const form = !g.active && may("approve") ? `<form class="approve-form" id="approve-form">
+      <label for="approval-reference">Reference</label>
+      <input id="approval-reference" required minlength="3" placeholder="e.g. AI committee minutes, 2026-10-01, item 4">
+      ${signedIn() ? "" : `<label for="approval-approver">Approver</label><input id="approval-approver" required>`}
+      <label for="approval-days">For</label>
+      <select id="approval-days"><option value="90">90 days</option><option value="180" selected>180 days</option><option value="365">1 year</option></select>
+      <button type="submit" class="primary">Approve automation</button>
+    </form>` : "";
+  return active + form;
+}
+
+function wireApproval(main) {
+  main.querySelector("#approve-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    try {
+      await api("/api/governance", {
+        method: "POST",
+        body: JSON.stringify({
+          pack_id: state.packId, reference: $("#approval-reference").value, days: Number($("#approval-days").value),
+          approver: $("#approval-approver")?.value || null,
+        }),
+      });
+      toast("Automation approved for this version");
+      render();
+    } catch (error) {
+      toastError(error.message);
+    }
+  });
+  main.querySelector("[data-revoke]")?.addEventListener("click", async (event) => {
+    try {
+      await api(`/api/governance/${encodeURIComponent(event.currentTarget.dataset.revoke)}`, { method: "DELETE" });
+      toast("Approval revoked: a person reviews again");
+      render();
+    } catch (error) {
+      toastError(error.message);
+    }
+  });
+}
 
 views.card.update = (params) => focusHeading(cardSection(params[0]) ?? $("main h1"));
 

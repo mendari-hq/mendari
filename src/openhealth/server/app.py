@@ -11,6 +11,7 @@ import json
 import os
 import re
 from collections.abc import Mapping
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -31,6 +32,7 @@ from openhealth.core.audit import AuditStore
 from openhealth.core.card import benchmark, render_card
 from openhealth.core.decision import CallBudget, Decision
 from openhealth.core.pack import Pack
+from openhealth.core.policy import GovernanceOverride
 from openhealth.core.registry import discover, version_key
 from openhealth.errors import (
     AuthError,
@@ -64,6 +66,13 @@ _STATUS = {
     FhirError: 422,
     PackValidationError: 422,
 }
+
+
+class ApprovalRequest(BaseModel):
+    pack_id: str = Field(min_length=3, max_length=200)
+    reference: str = Field(min_length=3, max_length=300, description="e.g. committee minutes")
+    days: int = Field(default=180, ge=1, le=365, description="how long the approval lasts")
+    approver: str | None = Field(default=None, max_length=200, description="open mode only")
 
 
 class ReviewRequest(BaseModel):
@@ -158,10 +167,32 @@ def create_app(
             chosen, skipped = providers_for(pack.id, slots, overrides)
             if skipped:
                 skipped_settings[pack_id] = skipped
-            decisions[pack_id] = Decision(
-                pack, providers=chosen, store=store, budget=budget, fhir_validation=validation
+            decision = Decision(
+                pack,
+                providers=chosen,
+                store=store,
+                budget=budget,
+                fhir_validation=validation,
+                governance_source=approved_override,
             )
+            environment, release = settings.deployment_place()
+            store.record_deployment(
+                environment=environment,
+                release=release,
+                pack_id=pack.id,
+                pack_version=pack.version,
+                pack_digest=pack.digest,
+                providers={slot: info.variant for slot, info in decision.provider_info.items()},
+            )
+            decisions[pack_id] = decision
         return decisions[pack_id]
+
+    def approved_override(pack: Pack) -> GovernanceOverride | None:
+        """The organization's approval in force for exactly this pack, as the runtime override."""
+        approval = store.active_approval(pack.id, pack.digest)
+        if approval is None:
+            return None
+        return GovernanceOverride(approved_by=approval["approver"], reference=approval["reference"])
 
     def local_datasets(pack: Pack) -> dict[str, Path]:
         if datasets_dir is None or not datasets_dir.is_dir():
@@ -298,6 +329,58 @@ def create_app(
     def decide_fhir(namespace: str, name: str, payload: JsonBody) -> dict[str, Any]:
         result, task = decision_for(f"{namespace}/{name}").decide_fhir(payload)
         return {"decision": result.to_dict(), "task": task}
+
+    # -- governance ------------------------------------------------------------------------------
+
+    @app.get("/api/deployments")
+    def deployments(pack_id: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
+        """Which pack version runs where, with which providers, since when (newest first)."""
+        if pack_id is not None:
+            decision_for(pack_or_404(pack_id).id)  # this server's own row is recorded first
+        return store.deployments(pack_id, limit=min(limit, 200))
+
+    @app.get("/api/governance")
+    def governance(pack_id: str | None = None) -> dict[str, Any]:
+        """Approvals for this organization, and what a pack's risk level allows."""
+        found = store.approvals(pack_id)
+        if pack_id is None:
+            return {"approvals": found}
+        pack = pack_or_404(pack_id)
+        level = int(pack.manifest.risk.level)
+        active = store.active_approval(pack.id, pack.digest)
+        return {
+            "pack_id": pack.id,
+            "risk_level": level,
+            "digest": pack.digest,
+            "approvable": level in (2, 3),
+            "active": active,
+            "approvals": found,
+        }
+
+    @app.post("/api/governance", status_code=201)
+    def approve(request: Request, body: ApprovalRequest) -> dict[str, Any]:
+        pack = pack_or_404(body.pack_id)
+        principal = getattr(request.state, "principal", None)
+        approver = (
+            body.approver if principal is None or principal.kind == "open" else principal.name
+        )
+        expires = datetime.now(UTC) + timedelta(days=body.days)
+        return store.approve_automation(
+            pack_id=pack.id,
+            pack_digest=pack.digest,
+            risk_level=int(pack.manifest.risk.level),
+            approver=approver or "",
+            reference=body.reference,
+            expires_at=expires.isoformat(timespec="seconds"),
+        )
+
+    @app.delete("/api/governance/{approval_id}", status_code=204)
+    def revoke(request: Request, approval_id: str) -> Response:
+        principal = getattr(request.state, "principal", None)
+        name = principal.name if principal is not None else "open mode"
+        if not store.revoke_approval(approval_id, revoked_by=name):
+            raise HTTPException(404, "no such approval")
+        return Response(status_code=204)
 
     # -- evaluation --------------------------------------------------------------------------
 
