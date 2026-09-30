@@ -47,7 +47,7 @@ phase (A, B, C) to be done and merged when CI passes.
   log in `docs/overnight-log.md`:
   - [x] Plain words in criteria tables and Try-it answer headings
   - [x] Links that carry the pack (`?pack=` in the address)
-  - [ ] A transition from skeleton to content
+  - [x] A transition from skeleton to content (the view fades in where its skeleton was)
   - [ ] Fewer whole-subtree re-renders
 
 ## Next: v0.4 Healthcare standards
