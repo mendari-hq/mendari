@@ -468,3 +468,28 @@ before `git commit`. Any edit after it means running it again.
 
 ### Verification
 No PR goes red on lint, format or types.
+
+## 2026-09-30 - process
+
+### What happened
+A rebase stopped on a conflict while the rest of the command chain ran anyway: `gate.sh | tail -2
+&& git commit --amend && git push`. The gate failed, but a pipeline's status is its last command's
+(`tail`, 0). So the amend landed on the half-rebased HEAD and a PR was opened from a stale
+branch, whose diff looked like it reverted a merged PR. Nothing reached `main`. The rebase was
+aborted and redone, and the branch was force-pushed with its correct diff.
+
+### Root cause
+Two things: piping a check through `tail` hides its exit status, and a rebase's success was never
+checked before the next step.
+
+### Rule
+- Never gate an action on a pipeline without `set -o pipefail`. Better, write the check's output
+  to a file and test the command itself: `if gate.sh > log; then ...; fi`.
+- After `git rebase`, check that it completed (`git status` shows no rebase in progress, no `UU`)
+  before editing, committing or pushing.
+- Before opening a PR, look at `git diff --stat origin/main <branch>`: it must list only this
+  PR's files.
+
+### Verification
+No PR is opened with a diff that touches files outside its scope. No command runs after a failed
+gate.
