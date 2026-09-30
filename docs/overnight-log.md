@@ -18,7 +18,8 @@ the production-deploy check and the four "small remaining gaps" under "What an A
 | [#63](https://github.com/Junebugg1214/openhealth-hub/pull/63) | Links carry the pack (?pack= in the address) | Small gap: "links that carry the pack"; category 5 | Green first time; preview checked (including `/?pack=`); merged |
 | [#64](https://github.com/Junebugg1214/openhealth-hub/pull/64) | A view fades in where its skeleton was | Small gap: "a view transition from skeleton to content"; category 9 | Green first time; preview checked; merged |
 | [#65](https://github.com/Junebugg1214/openhealth-hub/pull/65) | Sorting moves the rows instead of redrawing the table | Small gap: "fewer whole-subtree re-renders"; category 10 | Green first time; preview checked; merged |
-| pending | v0.4 plan | v0.4 planning step | pending |
+| [#66](https://github.com/Junebugg1214/openhealth-hub/pull/66) | v0.4 plan | v0.4 planning step | Green; merged (the API answered 502 on merge, the merge had gone through; the branch was deleted by hand) |
+| pending | US Core validation of FHIR inputs | v0.4 item 1 | pending |
 
 ## Decisions made on your behalf
 
@@ -55,6 +56,16 @@ the production-deploy check and the four "small remaining gaps" under "What an A
   sandbox that SMART and Bulk need, then the features that call out (CDS fetch, SMART, Bulk)
   behind one allow-list client, then the end-to-end CI job. Details in
   `docs/plans/v0.4-healthcare-standards.md`.
+- **US Core checks are generated, not hand-written.** `scripts/us_core_subset.py` reads the
+  official `hl7.fhir.us.core#6.1.0` and `hl7.fhir.r4.core#4.0.1` packages (pinned by sha256)
+  and writes the required elements, enumerable required bindings, required category slices and
+  `us-core-*` invariants. Cardinalities and codes therefore can't be misremembered.
+- **The HL7 FHIR validator 6.10.4 (pinned jar, sha256 checked) runs in a new CI job**, without a
+  terminology server (`-tx n/a`), so the result doesn't depend on tx.fhir.org. Conforming
+  fixtures must have zero errors. Every resource the in-process checks flag must be an error for
+  the validator too, so `enforce` can never block what US Core accepts.
+- **`warn` is the default.** It changes no outcome and only adds `input_issues` (paths, no
+  values) to the response and the audit record. `enforce` is opt-in.
 - **Every new v0.4 capability is off until configured**, and no production environment variable
   is changed. Production has no login of its own until v0.6, so outbound FHIR calls and SMART
   stay disabled there.

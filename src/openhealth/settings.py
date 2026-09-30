@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Collection, Mapping, Sequence
+from typing import Literal, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from openhealth.errors import OpenHealthError
@@ -11,6 +12,7 @@ from openhealth.errors import OpenHealthError
 DEFAULT_JEV_DAILY_LIMIT = 500
 DEFAULT_LLM_DAILY_LIMIT = 500
 DEFAULT_TIMEZONE = "America/New_York"
+FhirValidation = Literal["off", "warn", "enforce"]
 
 
 def display_timezone() -> ZoneInfo:
@@ -21,6 +23,16 @@ def display_timezone() -> ZoneInfo:
         return ZoneInfo(name)
     except (ZoneInfoNotFoundError, ValueError):
         raise OpenHealthError(f"OPENHEALTH_TIMEZONE {name!r} is not an IANA time zone") from None
+
+
+def fhir_validation() -> FhirValidation:
+    """US Core checks on FHIR inputs ($OPENHEALTH_FHIR_VALIDATION): `warn` (default) returns and
+    audits the issues without changing the decision; `enforce` blocks a non-conforming input
+    before any provider sees it; `off` skips the checks."""
+    mode = os.environ.get("OPENHEALTH_FHIR_VALIDATION", "").strip().lower() or "warn"
+    if mode not in ("off", "warn", "enforce"):
+        raise OpenHealthError("OPENHEALTH_FHIR_VALIDATION must be off, warn or enforce")
+    return cast(FhirValidation, mode)
 
 
 def parse_providers(values: Sequence[str] | None) -> dict[str, str]:

@@ -6,7 +6,7 @@ import hashlib
 import json
 import time
 import uuid
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -22,6 +22,7 @@ from openhealth.core.spec import Outcome, Priority
 from openhealth.errors import PackValidationError, ProviderError
 from openhealth.providers import Answer, Provider, ProviderInfo, build_provider
 from openhealth.providers.batch import batching
+from openhealth.settings import FhirValidation
 
 if TYPE_CHECKING:
     from openhealth.core.audit import AuditStore
@@ -49,6 +50,8 @@ class DecisionResult:
     output_tokens: int
     input_hash: str
     governance: dict[str, Any] | None = None
+    # US Core findings for a FHIR input (`standards.us_core.Issue.to_dict()`): paths, no values.
+    input_issues: tuple[dict[str, str], ...] = ()
 
     @property
     def confidence(self) -> float | None:
@@ -79,6 +82,7 @@ class DecisionResult:
             "usage": {"input_tokens": self.input_tokens, "output_tokens": self.output_tokens},
             "input_hash": self.input_hash,
             "governance": self.governance,
+            "input_issues": list(self.input_issues),
         }
 
 
@@ -110,6 +114,7 @@ class Decision:
         governance: GovernanceOverride | None = None,
         store: AuditStore | None = None,
         budget: CallBudget | None = None,
+        fhir_validation: FhirValidation = "warn",
     ):
         overrides = dict(providers or {})
         unknown = set(overrides) - set(pack.manifest.providers)
@@ -119,6 +124,7 @@ class Decision:
         self.governance = governance
         self.store = store
         self.budget = budget
+        self.fhir_validation = fhir_validation
         self.providers: dict[str, Provider] = {
             slot: build_provider(pack, slot, overrides.get(slot))
             for slot in pack.manifest.providers
@@ -154,7 +160,15 @@ class Decision:
         errors = sorted(self._validator.iter_errors(inputs), key=lambda e: list(e.path))
         return [f"{'/'.join(map(str, e.path)) or '(root)'}: {e.message}" for e in errors[:10]]
 
-    def decide(self, inputs: Mapping[str, Any]) -> DecisionResult:
+    def decide(
+        self,
+        inputs: Mapping[str, Any],
+        *,
+        input_issues: Sequence[Mapping[str, str]] = (),
+        rejected: Sequence[str] = (),
+    ) -> DecisionResult:
+        """Decide one input. `rejected` (reasons from a standards check, e.g. US Core under
+        `enforce`) blocks the input like a schema failure; `input_issues` are only recorded."""
         started = time.perf_counter()
         manifest = self.pack.manifest
         answers: dict[str, Answer] = {}
@@ -162,7 +176,7 @@ class Decision:
         tokens_in = tokens_out = 0
         cost: float | None = 0.0
 
-        problems = self.validate(inputs)
+        problems = [*rejected, *self.validate(inputs)]
         if problems:
             policy = PolicyResult(
                 outcome=Outcome.BLOCK,
@@ -214,6 +228,7 @@ class Decision:
             output_tokens=tokens_out,
             input_hash=input_hash(inputs),
             governance=self.governance.to_dict() if self.governance else None,
+            input_issues=tuple(dict(issue) for issue in input_issues),
         )
         if self.store is not None:
             self.store.record(result, inputs, store_input=manifest.audit.store_input)
@@ -223,12 +238,30 @@ class Decision:
         self, resources: Mapping[str, Any], *, focus: Mapping[str, Any] | None = None
     ) -> tuple[DecisionResult, dict[str, Any]]:
         """Decide from FHIR R4 resources (a Bundle or {resourceType: resource}); return a Task.
-        `focus` picks the resource to decide about, e.g. one of several draft orders."""
+        `focus` picks the resource to decide about, e.g. one of several draft orders.
+
+        The resources are checked against US Core (`fhir_validation`): under `warn` the issues are
+        recorded in the result; under `enforce` an error blocks the input before any provider."""
+        from openhealth.standards import us_core
         from openhealth.standards.fhir import FhirAdapter
 
         adapter = FhirAdapter.for_pack(self.pack)
         indexed = adapter.index(resources, focus=focus)
-        result = self.decide(adapter.to_input(indexed))
+        issues = []
+        if self.fhir_validation != "off":
+            issues = us_core.validate(resources if focus is None else [resources, focus])
+        rejected = []
+        if self.fhir_validation == "enforce":
+            rejected = [
+                f"not US Core {us_core.US_CORE_VERSION}: {issue.resource} {issue.expression}: "
+                f"{issue.diagnostics}"
+                for issue in us_core.errors(issues)[:10]
+            ]
+        result = self.decide(
+            adapter.to_input(indexed),
+            input_issues=[issue.to_dict() for issue in issues],
+            rejected=rejected,
+        )
         return result, adapter.to_task(result, indexed)
 
 

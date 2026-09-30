@@ -15,14 +15,15 @@ from openhealth.core.pack import Pack
 from openhealth.core.registry import discover, resolve_pack
 from openhealth.errors import OpenHealthError, PackValidationError
 from openhealth.sandbox import example_datasets_dir
-from openhealth.settings import daily_limits, parse_providers, providers_for
+from openhealth.settings import daily_limits, fhir_validation, parse_providers, providers_for
 
 EXIT_DEGRADED = 2
 
 
 def _decision(args: argparse.Namespace, **kwargs: Any) -> Decision:
     pack = resolve_pack(args.pack)
-    return Decision(pack, providers=_providers(pack, parse_providers(args.provider)), **kwargs)
+    providers = _providers(pack, parse_providers(args.provider))
+    return Decision(pack, providers=providers, fhir_validation=fhir_validation(), **kwargs)
 
 
 def _providers(pack: Pack, settings: dict[str, str]) -> dict[str, str]:

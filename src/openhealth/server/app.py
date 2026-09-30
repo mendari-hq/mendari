@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 
-from openhealth import __version__, guard
+from openhealth import __version__, guard, settings
 from openhealth.core import clock
 from openhealth.core.audit import AuditStore
 from openhealth.core.card import benchmark, render_card
@@ -39,7 +39,7 @@ from openhealth.evals.harness import Dataset
 from openhealth.evals.pack_tests import load_cases
 from openhealth.providers import jev, llm
 from openhealth.providers.credentials import key_source
-from openhealth.settings import providers_for
+from openhealth.settings import FhirValidation, providers_for
 from openhealth.standards import cds_hooks
 
 DASHBOARD_DIR = Path(__file__).resolve().parents[1] / "dashboard"
@@ -104,8 +104,10 @@ def create_app(
     datasets_dir: Path | None = None,
     packs_paths: list[Path] | None = None,
     budget_limits: Mapping[str, int | None] | None = None,
+    fhir_validation: FhirValidation | None = None,
 ) -> FastAPI:
     timezone = clock.zone().key  # an invalid OPENHEALTH_TIMEZONE fails here, at startup
+    validation = fhir_validation or settings.fhir_validation()  # likewise
     store = AuditStore(db_path, migrate_url=migrate_url)
     budget = CallBudget(store, budget_limits) if budget_limits else None
     found = discover(packs_paths)
@@ -132,7 +134,9 @@ def create_app(
             chosen, skipped = providers_for(pack.id, slots, overrides)
             if skipped:
                 skipped_settings[pack_id] = skipped
-            decisions[pack_id] = Decision(pack, providers=chosen, store=store, budget=budget)
+            decisions[pack_id] = Decision(
+                pack, providers=chosen, store=store, budget=budget, fhir_validation=validation
+            )
         return decisions[pack_id]
 
     def local_datasets(pack: Pack) -> dict[str, Path]:
@@ -175,6 +179,7 @@ def create_app(
             "storage": store.backend,
             # Calendar days and displayed times use this zone; stored timestamps are UTC.
             "timezone": timezone,
+            "fhir_validation": validation,
             "providers": {
                 pack_id: {
                     slot: info.variant for slot, info in decision_for(pack_id).provider_info.items()

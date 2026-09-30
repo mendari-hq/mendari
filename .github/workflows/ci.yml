@@ -67,6 +67,43 @@ jobs:
       - name: Data and model are byte-identical
         run: git diff --exit-code -- packs datasets ':!packs/*/evals/benchmark.json' ':!packs/*/DECISION_CARD.md'
 
+  fhir-conformance:
+    # US Core 6.1.0 with the official HL7 FHIR validator: what OpenHealth accepts or produces as
+    # conforming has no errors, and every resource the in-process checks flag is an error for the
+    # validator too (scripts/fhir_validate.py).
+    runs-on: ubuntu-latest
+    env:
+      VALIDATOR_VERSION: "6.10.4"
+      VALIDATOR_SHA256: 1106b9d58f9e363e47bea7c4fc065841e5fc91fe9d062775c3bfdd212bd653cc
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            var/validator/validator_cli.jar
+            ~/.fhir
+          key: fhir-validator-${{ env.VALIDATOR_VERSION }}-us-core-6.1.0
+      - name: Download the HL7 FHIR validator (pinned, checksum verified)
+        run: |
+          mkdir -p var/validator
+          if [ ! -f var/validator/validator_cli.jar ]; then
+            curl -sSfL -o var/validator/validator_cli.jar \
+              "https://github.com/hapifhir/org.hl7.fhir.core/releases/download/${VALIDATOR_VERSION}/validator_cli.jar"
+          fi
+          echo "${VALIDATOR_SHA256}  var/validator/validator_cli.jar" | sha256sum -c -
+      - run: uv sync --locked
+      - run: >-
+          uv run python scripts/fhir_validate.py
+          --valid tests/fixtures/us-core/*.json
+          --invalid tests/fixtures/us-core/invalid/*.json
+
   docker:
     runs-on: ubuntu-latest
     steps:

@@ -1,0 +1,1302 @@
+{
+ "generated_by": "scripts/us_core_subset.py",
+ "profiles": {
+  "base-communication": {
+   "codes": {
+    "priority": [
+     [
+      "http://hl7.org/fhir/request-priority",
+      "routine"
+     ],
+     [
+      "http://hl7.org/fhir/request-priority",
+      "urgent"
+     ],
+     [
+      "http://hl7.org/fhir/request-priority",
+      "asap"
+     ],
+     [
+      "http://hl7.org/fhir/request-priority",
+      "stat"
+     ]
+    ],
+    "status": [
+     [
+      "http://hl7.org/fhir/event-status",
+      "preparation"
+     ],
+     [
+      "http://hl7.org/fhir/event-status",
+      "in-progress"
+     ],
+     [
+      "http://hl7.org/fhir/event-status",
+      "not-done"
+     ],
+     [
+      "http://hl7.org/fhir/event-status",
+      "on-hold"
+     ],
+     [
+      "http://hl7.org/fhir/event-status",
+      "stopped"
+     ],
+     [
+      "http://hl7.org/fhir/event-status",
+      "completed"
+     ],
+     [
+      "http://hl7.org/fhir/event-status",
+      "entered-in-error"
+     ],
+     [
+      "http://hl7.org/fhir/event-status",
+      "unknown"
+     ]
+    ]
+   },
+   "invariants": [],
+   "required": [
+    "status",
+    "payload.content[x]"
+   ],
+   "slices": [],
+   "title": "Communication",
+   "type": "Communication",
+   "url": "http://hl7.org/fhir/StructureDefinition/Communication"
+  },
+  "base-medicationstatement": {
+   "codes": {
+    "status": [
+     [
+      "http://hl7.org/fhir/CodeSystem/medication-statement-status",
+      "active"
+     ],
+     [
+      "http://hl7.org/fhir/CodeSystem/medication-statement-status",
+      "completed"
+     ],
+     [
+      "http://hl7.org/fhir/CodeSystem/medication-statement-status",
+      "entered-in-error"
+     ],
+     [
+      "http://hl7.org/fhir/CodeSystem/medication-statement-status",
+      "intended"
+     ],
+     [
+      "http://hl7.org/fhir/CodeSystem/medication-statement-status",
+      "stopped"
+     ],
+     [
+      "http://hl7.org/fhir/CodeSystem/medication-statement-status",
+      "on-hold"
+     ],
+     [
+      "http://hl7.org/fhir/CodeSystem/medication-statement-status",
+      "unknown"
+     ],
+     [
+      "http://hl7.org/fhir/CodeSystem/medication-statement-status",
+      "not-taken"
+     ]
+    ]
+   },
+   "invariants": [],
+   "required": [
+    "status",
+    "medication[x]",
+    "subject"
+   ],
+   "slices": [],
+   "title": "MedicationStatement",
+   "type": "MedicationStatement",
+   "url": "http://hl7.org/fhir/StructureDefinition/MedicationStatement"
+  },
+  "base-observation": {
+   "codes": {
+    "status": [
+     [
+      "http://hl7.org/fhir/observation-status",
+      "registered"
+     ],
+     [
+      "http://hl7.org/fhir/observation-status",
+      "preliminary"
+     ],
+     [
+      "http://hl7.org/fhir/observation-status",
+      "final"
+     ],
+     [
+      "http://hl7.org/fhir/observation-status",
+      "amended"
+     ],
+     [
+      "http://hl7.org/fhir/observation-status",
+      "corrected"
+     ],
+     [
+      "http://hl7.org/fhir/observation-status",
+      "cancelled"
+     ],
+     [
+      "http://hl7.org/fhir/observation-status",
+      "entered-in-error"
+     ],
+     [
+      "http://hl7.org/fhir/observation-status",
+      "unknown"
+     ]
+    ]
+   },
+   "invariants": [],
+   "required": [
+    "status",
+    "code",
+    "component.code"
+   ],
+   "slices": [],
+   "title": "Observation",
+   "type": "Observation",
+   "url": "http://hl7.org/fhir/StructureDefinition/Observation"
+  },
+  "us-core-condition-encounter-diagnosis": {
+   "codes": {
+    "clinicalStatus": [
+     [
+      "http://terminology.hl7.org/CodeSystem/condition-clinical",
+      "active"
+     ],
+     [
+      "http://terminology.hl7.org/CodeSystem/condition-clinical",
+      "recurrence"
+     ],
+     [
+      "http://terminology.hl7.org/CodeSystem/condition-clinical",
+      "relapse"
+     ],
+     [
+      "http://terminology.hl7.org/CodeSystem/condition-clinical",
+      "inactive"
+     ],
+     [
+      "http://terminology.hl7.org/CodeSystem/condition-clinical",
+      "remission"
+     ],
+     [
+      "http://terminology.hl7.org/CodeSystem/condition-clinical",
+      "resolved"
+     ]
+    ],
+    "verificationStatus": [
+     [
+      "http://terminology.hl7.org/CodeSystem/condition-ver-status",
+      "unconfirmed"
+     ],
+     [
+      "http://terminology.hl7.org/CodeSystem/condition-ver-status",
+      "provisional"
+     ],
+     [
+      "http://terminology.hl7.org/CodeSystem/condition-ver-status",
+      "differential"
+     ],
+     [
+      "http://terminology.hl7.org/CodeSystem/condition-ver-status",
+      "confirmed"
+     ],
+     [
+      "http://terminology.hl7.org/CodeSystem/condition-ver-status",
+      "refuted"
+     ],
+     [
+      "http://terminology.hl7.org/CodeSystem/condition-ver-status",
+      "entered-in-error"
+     ]
+    ]
+   },
+   "invariants": [],
+   "required": [
+    "category",
+    "code",
+    "subject"
+   ],
+   "slices": [
+    {
+     "codings": [
+      [
+       "http://terminology.hl7.org/CodeSystem/condition-category",
+       "encounter-diagnosis"
+      ]
+     ],
+     "name": "us-core",
+     "path": "category"
+    }
+   ],
+   "title": "US Core Condition Encounter Diagnosis Profile",
+   "type": "Condition",
+   "url": "http://hl7.org/fhir/us/core/StructureDefinition/us-core-condition-encounter-diagnosis"
+  },
+  "us-core-condition-problems-health-concerns": {
+   "codes": {
+    "clinicalStatus": [
+     [
+      "http://terminology.hl7.org/CodeSystem/condition-clinical",
+      "active"
+     ],
+     [
+      "http://terminology.hl7.org/CodeSystem/condition-clinical",
+      "recurrence"
+     ],
+     [
+      "http://terminology.hl7.org/CodeSystem/condition-clinical",
+      "relapse"
+     ],
+     [
+      "http://terminology.hl7.org/CodeSystem/condition-clinical",
+      "inactive"
+     ],
+     [
+      "http://terminology.hl7.org/CodeSystem/condition-clinical",
+      "remission"
+     ],
+     [
+      "http://terminology.hl7.org/CodeSystem/condition-clinical",
+      "resolved"
+     ]
+    ],
+    "verificationStatus": [
+     [
+      "http://terminology.hl7.org/CodeSystem/condition-ver-status",
+      "unconfirmed"
+     ],
+     [
+      "http://terminology.hl7.org/CodeSystem/condition-ver-status",
+      "provisional"
+     ],
+     [
+      "http://terminology.hl7.org/CodeSystem/condition-ver-status",
+      "differential"
+     ],
+     [
+      "http://terminology.hl7.org/CodeSystem/condition-ver-status",
+      "confirmed"
+     ],
+     [
+      "http://terminology.hl7.org/CodeSystem/condition-ver-status",
+      "refuted"
+     ],
+     [
+      "http://terminology.hl7.org/CodeSystem/condition-ver-status",
+      "entered-in-error"
+     ]
+    ]
+   },
+   "invariants": [],
+   "required": [
+    "category",
+    "code",
+    "subject"
+   ],
+   "slices": [
+    {
+     "codings": [
+      [
+       "http://terminology.hl7.org/CodeSystem/condition-category",
+       "problem-list-item"
+      ],
+      [
+       "http://hl7.org/fhir/us/core/CodeSystem/condition-category",
+       "health-concern"
+      ]
+     ],
+     "name": "us-core",
+     "path": "category"
+    }
+   ],
+   "title": "US Core Condition Problems and Health Concerns Profile",
+   "type": "Condition",
+   "url": "http://hl7.org/fhir/us/core/StructureDefinition/us-core-condition-problems-health-concerns"
+  },
+  "us-core-coverage": {
+   "codes": {
+    "status": [
+     [
+      "http://hl7.org/fhir/fm-status",
+      "active"
+     ],
+     [
+      "http://hl7.org/fhir/fm-status",
+      "cancelled"
+     ],
+     [
+      "http://hl7.org/fhir/fm-status",
+      "draft"
+     ],
+     [
+      "http://hl7.org/fhir/fm-status",
+      "entered-in-error"
+     ]
+    ]
+   },
+   "invariants": [
+    {
+     "human": "Member Id in Coverage.identifier or Coverage.subscriberId SHALL be present",
+     "key": "us-core-15",
+     "path": ""
+    }
+   ],
+   "required": [
+    "status",
+    "beneficiary",
+    "relationship",
+    "payor",
+    "class.type",
+    "class.value",
+    "costToBeneficiary.value[x]"
+   ],
+   "slices": [],
+   "title": "US Core Coverage Profile",
+   "type": "Coverage",
+   "url": "http://hl7.org/fhir/us/core/StructureDefinition/us-core-coverage"
+  },
+  "us-core-diagnosticreport-lab": {
+   "codes": {
+    "status": [
+     [
+      "http://hl7.org/fhir/diagnostic-report-status",
+      "registered"
+     ],
+     [
+      "http://hl7.org/fhir/diagnostic-report-status",
+      "partial"
+     ],
+     [
+      "http://hl7.org/fhir/diagnostic-report-status",
+      "preliminary"
+     ],
+     [
+      "http://hl7.org/fhir/diagnostic-report-status",
+      "final"
+     ],
+     [
+      "http://hl7.org/fhir/diagnostic-report-status",
+      "amended"
+     ],
+     [
+      "http://hl7.org/fhir/diagnostic-report-status",
+      "corrected"
+     ],
+     [
+      "http://hl7.org/fhir/diagnostic-report-status",
+      "appended"
+     ],
+     [
+      "http://hl7.org/fhir/diagnostic-report-status",
+      "cancelled"
+     ],
+     [
+      "http://hl7.org/fhir/diagnostic-report-status",
+      "entered-in-error"
+     ],
+     [
+      "http://hl7.org/fhir/diagnostic-report-status",
+      "unknown"
+     ]
+    ]
+   },
+   "invariants": [
+    {
+     "human": "effective[x] SHALL be present if the status is 'partial', 'preliminary', 'final', 'amended', 'corrected' or 'appended'",
+     "key": "us-core-8",
+     "path": ""
+    },
+    {
+     "human": "issued SHALL be present if the status is 'partial', 'preliminary', 'final', 'amended', 'corrected' or 'appended'",
+     "key": "us-core-9",
+     "path": ""
+    }
+   ],
+   "required": [
+    "status",
+    "category",
+    "code",
+    "subject",
+    "media.link"
+   ],
+   "slices": [
+    {
+     "codings": [
+      [
+       "http://terminology.hl7.org/CodeSystem/v2-0074",
+       "LAB"
+      ]
+     ],
+     "name": "LaboratorySlice",
+     "path": "category"
+    }
+   ],
+   "title": "US Core DiagnosticReport Profile for Laboratory Results Reporting",
+   "type": "DiagnosticReport",
+   "url": "http://hl7.org/fhir/us/core/StructureDefinition/us-core-diagnosticreport-lab"
+  },
+  "us-core-diagnosticreport-note": {
+   "codes": {
+    "status": [
+     [
+      "http://hl7.org/fhir/diagnostic-report-status",
+      "registered"
+     ],
+     [
+      "http://hl7.org/fhir/diagnostic-report-status",
+      "partial"
+     ],
+     [
+      "http://hl7.org/fhir/diagnostic-report-status",
+      "preliminary"
+     ],
+     [
+      "http://hl7.org/fhir/diagnostic-report-status",
+      "final"
+     ],
+     [
+      "http://hl7.org/fhir/diagnostic-report-status",
+      "amended"
+     ],
+     [
+      "http://hl7.org/fhir/diagnostic-report-status",
+      "corrected"
+     ],
+     [
+      "http://hl7.org/fhir/diagnostic-report-status",
+      "appended"
+     ],
+     [
+      "http://hl7.org/fhir/diagnostic-report-status",
+      "cancelled"
+     ],
+     [
+      "http://hl7.org/fhir/diagnostic-report-status",
+      "entered-in-error"
+     ],
+     [
+      "http://hl7.org/fhir/diagnostic-report-status",
+      "unknown"
+     ]
+    ]
+   },
+   "invariants": [
+    {
+     "human": "effective[x] SHALL be present if the status is 'partial', 'preliminary', 'final', 'amended', 'corrected' or 'appended'",
+     "key": "us-core-10",
+     "path": ""
+    }
+   ],
+   "required": [
+    "status",
+    "category",
+    "code",
+    "subject",
+    "media.link"
+   ],
+   "slices": [],
+   "title": "US Core DiagnosticReport Profile for Report and Note Exchange",
+   "type": "DiagnosticReport",
+   "url": "http://hl7.org/fhir/us/core/StructureDefinition/us-core-diagnosticreport-note"
+  },
+  "us-core-documentreference": {
+   "codes": {
+    "docStatus": [
+     [
+      "http://hl7.org/fhir/composition-status",
+      "preliminary"
+     ],
+     [
+      "http://hl7.org/fhir/composition-status",
+      "final"
+     ],
+     [
+      "http://hl7.org/fhir/composition-status",
+      "amended"
+     ],
+     [
+      "http://hl7.org/fhir/composition-status",
+      "entered-in-error"
+     ]
+    ],
+    "relatesTo.code": [
+     [
+      "http://hl7.org/fhir/document-relationship-type",
+      "replaces"
+     ],
+     [
+      "http://hl7.org/fhir/document-relationship-type",
+      "transforms"
+     ],
+     [
+      "http://hl7.org/fhir/document-relationship-type",
+      "signs"
+     ],
+     [
+      "http://hl7.org/fhir/document-relationship-type",
+      "appends"
+     ]
+    ],
+    "status": [
+     [
+      "http://hl7.org/fhir/document-reference-status",
+      "current"
+     ],
+     [
+      "http://hl7.org/fhir/document-reference-status",
+      "superseded"
+     ],
+     [
+      "http://hl7.org/fhir/document-reference-status",
+      "entered-in-error"
+     ]
+    ]
+   },
+   "invariants": [
+    {
+     "human": "DocumentReference.content.attachment.url or DocumentReference.content.attachment.data or both SHALL be present.",
+     "key": "us-core-6",
+     "path": "content.attachment"
+    }
+   ],
+   "required": [
+    "status",
+    "type",
+    "category",
+    "subject",
+    "relatesTo.code",
+    "relatesTo.target",
+    "content",
+    "content.attachment"
+   ],
+   "slices": [],
+   "title": "US Core DocumentReference Profile",
+   "type": "DocumentReference",
+   "url": "http://hl7.org/fhir/us/core/StructureDefinition/us-core-documentreference"
+  },
+  "us-core-encounter": {
+   "codes": {
+    "identifier.use": [
+     [
+      "http://hl7.org/fhir/identifier-use",
+      "usual"
+     ],
+     [
+      "http://hl7.org/fhir/identifier-use",
+      "official"
+     ],
+     [
+      "http://hl7.org/fhir/identifier-use",
+      "temp"
+     ],
+     [
+      "http://hl7.org/fhir/identifier-use",
+      "secondary"
+     ],
+     [
+      "http://hl7.org/fhir/identifier-use",
+      "old"
+     ]
+    ],
+    "location.status": [
+     [
+      "http://hl7.org/fhir/encounter-location-status",
+      "planned"
+     ],
+     [
+      "http://hl7.org/fhir/encounter-location-status",
+      "active"
+     ],
+     [
+      "http://hl7.org/fhir/encounter-location-status",
+      "reserved"
+     ],
+     [
+      "http://hl7.org/fhir/encounter-location-status",
+      "completed"
+     ]
+    ],
+    "status": [
+     [
+      "http://hl7.org/fhir/encounter-status",
+      "planned"
+     ],
+     [
+      "http://hl7.org/fhir/encounter-status",
+      "arrived"
+     ],
+     [
+      "http://hl7.org/fhir/encounter-status",
+      "triaged"
+     ],
+     [
+      "http://hl7.org/fhir/encounter-status",
+      "in-progress"
+     ],
+     [
+      "http://hl7.org/fhir/encounter-status",
+      "onleave"
+     ],
+     [
+      "http://hl7.org/fhir/encounter-status",
+      "finished"
+     ],
+     [
+      "http://hl7.org/fhir/encounter-status",
+      "cancelled"
+     ],
+     [
+      "http://hl7.org/fhir/encounter-status",
+      "entered-in-error"
+     ],
+     [
+      "http://hl7.org/fhir/encounter-status",
+      "unknown"
+     ]
+    ],
+    "statusHistory.status": [
+     [
+      "http://hl7.org/fhir/encounter-status",
+      "planned"
+     ],
+     [
+      "http://hl7.org/fhir/encounter-status",
+      "arrived"
+     ],
+     [
+      "http://hl7.org/fhir/encounter-status",
+      "triaged"
+     ],
+     [
+      "http://hl7.org/fhir/encounter-status",
+      "in-progress"
+     ],
+     [
+      "http://hl7.org/fhir/encounter-status",
+      "onleave"
+     ],
+     [
+      "http://hl7.org/fhir/encounter-status",
+      "finished"
+     ],
+     [
+      "http://hl7.org/fhir/encounter-status",
+      "cancelled"
+     ],
+     [
+      "http://hl7.org/fhir/encounter-status",
+      "entered-in-error"
+     ],
+     [
+      "http://hl7.org/fhir/encounter-status",
+      "unknown"
+     ]
+    ]
+   },
+   "invariants": [],
+   "required": [
+    "identifier.system",
+    "identifier.value",
+    "status",
+    "statusHistory.status",
+    "statusHistory.period",
+    "class",
+    "classHistory.class",
+    "classHistory.period",
+    "type",
+    "subject",
+    "diagnosis.condition",
+    "location.location"
+   ],
+   "slices": [],
+   "title": "US Core Encounter Profile",
+   "type": "Encounter",
+   "url": "http://hl7.org/fhir/us/core/StructureDefinition/us-core-encounter"
+  },
+  "us-core-medicationrequest": {
+   "codes": {
+    "intent": [
+     [
+      "http://hl7.org/fhir/CodeSystem/medicationrequest-intent",
+      "proposal"
+     ],
+     [
+      "http://hl7.org/fhir/CodeSystem/medicationrequest-intent",
+      "plan"
+     ],
+     [
+      "http://hl7.org/fhir/CodeSystem/medicationrequest-intent",
+      "order"
+     ],
+     [
+      "http://hl7.org/fhir/CodeSystem/medicationrequest-intent",
+      "original-order"
+     ],
+     [
+      "http://hl7.org/fhir/CodeSystem/medicationrequest-intent",
+      "reflex-order"
+     ],
+     [
+      "http://hl7.org/fhir/CodeSystem/medicationrequest-intent",
+      "filler-order"
+     ],
+     [
+      "http://hl7.org/fhir/CodeSystem/medicationrequest-intent",
+      "instance-order"
+     ],
+     [
+      "http://hl7.org/fhir/CodeSystem/medicationrequest-intent",
+      "option"
+     ]
+    ],
+    "priority": [
+     [
+      "http://hl7.org/fhir/request-priority",
+      "routine"
+     ],
+     [
+      "http://hl7.org/fhir/request-priority",
+      "urgent"
+     ],
+     [
+      "http://hl7.org/fhir/request-priority",
+      "asap"
+     ],
+     [
+      "http://hl7.org/fhir/request-priority",
+      "stat"
+     ]
+    ],
+    "status": [
+     [
+      "http://hl7.org/fhir/CodeSystem/medicationrequest-status",
+      "active"
+     ],
+     [
+      "http://hl7.org/fhir/CodeSystem/medicationrequest-status",
+      "on-hold"
+     ],
+     [
+      "http://hl7.org/fhir/CodeSystem/medicationrequest-status",
+      "cancelled"
+     ],
+     [
+      "http://hl7.org/fhir/CodeSystem/medicationrequest-status",
+      "completed"
+     ],
+     [
+      "http://hl7.org/fhir/CodeSystem/medicationrequest-status",
+      "entered-in-error"
+     ],
+     [
+      "http://hl7.org/fhir/CodeSystem/medicationrequest-status",
+      "stopped"
+     ],
+     [
+      "http://hl7.org/fhir/CodeSystem/medicationrequest-status",
+      "draft"
+     ],
+     [
+      "http://hl7.org/fhir/CodeSystem/medicationrequest-status",
+      "unknown"
+     ]
+    ]
+   },
+   "invariants": [
+    {
+     "human": "requester SHALL be present if intent is \"order\"",
+     "key": "us-core-21",
+     "path": ""
+    }
+   ],
+   "required": [
+    "status",
+    "intent",
+    "medication[x]",
+    "subject",
+    "substitution.allowed[x]"
+   ],
+   "slices": [],
+   "title": "US Core MedicationRequest Profile",
+   "type": "MedicationRequest",
+   "url": "http://hl7.org/fhir/us/core/StructureDefinition/us-core-medicationrequest"
+  },
+  "us-core-observation-lab": {
+   "codes": {
+    "status": [
+     [
+      "http://hl7.org/fhir/observation-status",
+      "registered"
+     ],
+     [
+      "http://hl7.org/fhir/observation-status",
+      "preliminary"
+     ],
+     [
+      "http://hl7.org/fhir/observation-status",
+      "final"
+     ],
+     [
+      "http://hl7.org/fhir/observation-status",
+      "amended"
+     ],
+     [
+      "http://hl7.org/fhir/observation-status",
+      "corrected"
+     ],
+     [
+      "http://hl7.org/fhir/observation-status",
+      "cancelled"
+     ],
+     [
+      "http://hl7.org/fhir/observation-status",
+      "entered-in-error"
+     ],
+     [
+      "http://hl7.org/fhir/observation-status",
+      "unknown"
+     ]
+    ]
+   },
+   "invariants": [
+    {
+     "human": "If there is no component or hasMember element then either a value[x] or a data absent reason must be present",
+     "key": "us-core-2",
+     "path": ""
+    },
+    {
+     "human": "Datetime must be at least to day.",
+     "key": "us-core-1",
+     "path": "effective[x]"
+    },
+    {
+     "human": "SHALL use UCUM for coded quantity units.",
+     "key": "us-core-3",
+     "path": "value[x]"
+    },
+    {
+     "human": "SHOULD use Snomed CT for coded Results",
+     "key": "us-core-4",
+     "path": "value[x]"
+    }
+   ],
+   "required": [
+    "status",
+    "category",
+    "code",
+    "subject",
+    "component.code"
+   ],
+   "slices": [
+    {
+     "codings": [
+      [
+       "http://terminology.hl7.org/CodeSystem/observation-category",
+       "laboratory"
+      ]
+     ],
+     "name": "us-core",
+     "path": "category"
+    }
+   ],
+   "title": "US Core Laboratory Result Observation Profile",
+   "type": "Observation",
+   "url": "http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-lab"
+  },
+  "us-core-patient": {
+   "codes": {
+    "address.type": [
+     [
+      "http://hl7.org/fhir/address-type",
+      "postal"
+     ],
+     [
+      "http://hl7.org/fhir/address-type",
+      "physical"
+     ],
+     [
+      "http://hl7.org/fhir/address-type",
+      "both"
+     ]
+    ],
+    "address.use": [
+     [
+      "http://hl7.org/fhir/address-use",
+      "home"
+     ],
+     [
+      "http://hl7.org/fhir/address-use",
+      "work"
+     ],
+     [
+      "http://hl7.org/fhir/address-use",
+      "temp"
+     ],
+     [
+      "http://hl7.org/fhir/address-use",
+      "old"
+     ],
+     [
+      "http://hl7.org/fhir/address-use",
+      "billing"
+     ]
+    ],
+    "contact.gender": [
+     [
+      "http://hl7.org/fhir/administrative-gender",
+      "male"
+     ],
+     [
+      "http://hl7.org/fhir/administrative-gender",
+      "female"
+     ],
+     [
+      "http://hl7.org/fhir/administrative-gender",
+      "other"
+     ],
+     [
+      "http://hl7.org/fhir/administrative-gender",
+      "unknown"
+     ]
+    ],
+    "gender": [
+     [
+      "http://hl7.org/fhir/administrative-gender",
+      "male"
+     ],
+     [
+      "http://hl7.org/fhir/administrative-gender",
+      "female"
+     ],
+     [
+      "http://hl7.org/fhir/administrative-gender",
+      "other"
+     ],
+     [
+      "http://hl7.org/fhir/administrative-gender",
+      "unknown"
+     ]
+    ],
+    "identifier.use": [
+     [
+      "http://hl7.org/fhir/identifier-use",
+      "usual"
+     ],
+     [
+      "http://hl7.org/fhir/identifier-use",
+      "official"
+     ],
+     [
+      "http://hl7.org/fhir/identifier-use",
+      "temp"
+     ],
+     [
+      "http://hl7.org/fhir/identifier-use",
+      "secondary"
+     ],
+     [
+      "http://hl7.org/fhir/identifier-use",
+      "old"
+     ]
+    ],
+    "link.type": [
+     [
+      "http://hl7.org/fhir/link-type",
+      "replaced-by"
+     ],
+     [
+      "http://hl7.org/fhir/link-type",
+      "replaces"
+     ],
+     [
+      "http://hl7.org/fhir/link-type",
+      "refer"
+     ],
+     [
+      "http://hl7.org/fhir/link-type",
+      "seealso"
+     ]
+    ],
+    "name.use": [
+     [
+      "http://hl7.org/fhir/name-use",
+      "usual"
+     ],
+     [
+      "http://hl7.org/fhir/name-use",
+      "official"
+     ],
+     [
+      "http://hl7.org/fhir/name-use",
+      "temp"
+     ],
+     [
+      "http://hl7.org/fhir/name-use",
+      "nickname"
+     ],
+     [
+      "http://hl7.org/fhir/name-use",
+      "anonymous"
+     ],
+     [
+      "http://hl7.org/fhir/name-use",
+      "old"
+     ],
+     [
+      "http://hl7.org/fhir/name-use",
+      "maiden"
+     ]
+    ],
+    "telecom.system": [
+     [
+      "http://hl7.org/fhir/contact-point-system",
+      "phone"
+     ],
+     [
+      "http://hl7.org/fhir/contact-point-system",
+      "fax"
+     ],
+     [
+      "http://hl7.org/fhir/contact-point-system",
+      "email"
+     ],
+     [
+      "http://hl7.org/fhir/contact-point-system",
+      "pager"
+     ],
+     [
+      "http://hl7.org/fhir/contact-point-system",
+      "url"
+     ],
+     [
+      "http://hl7.org/fhir/contact-point-system",
+      "sms"
+     ],
+     [
+      "http://hl7.org/fhir/contact-point-system",
+      "other"
+     ]
+    ],
+    "telecom.use": [
+     [
+      "http://hl7.org/fhir/contact-point-use",
+      "home"
+     ],
+     [
+      "http://hl7.org/fhir/contact-point-use",
+      "work"
+     ],
+     [
+      "http://hl7.org/fhir/contact-point-use",
+      "temp"
+     ],
+     [
+      "http://hl7.org/fhir/contact-point-use",
+      "old"
+     ],
+     [
+      "http://hl7.org/fhir/contact-point-use",
+      "mobile"
+     ]
+    ]
+   },
+   "invariants": [
+    {
+     "human": "At least name.given and/or name.family are present or, if neither is available, the Data Absent Reason Extension is present.",
+     "key": "us-core-6",
+     "path": "name"
+    }
+   ],
+   "required": [
+    "identifier",
+    "identifier.system",
+    "identifier.value",
+    "name",
+    "telecom.system",
+    "telecom.value",
+    "gender",
+    "communication.language",
+    "link.other",
+    "link.type"
+   ],
+   "slices": [],
+   "title": "US Core Patient Profile",
+   "type": "Patient",
+   "url": "http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient"
+  },
+  "us-core-procedure": {
+   "codes": {
+    "status": [
+     [
+      "http://hl7.org/fhir/event-status",
+      "preparation"
+     ],
+     [
+      "http://hl7.org/fhir/event-status",
+      "in-progress"
+     ],
+     [
+      "http://hl7.org/fhir/event-status",
+      "not-done"
+     ],
+     [
+      "http://hl7.org/fhir/event-status",
+      "on-hold"
+     ],
+     [
+      "http://hl7.org/fhir/event-status",
+      "stopped"
+     ],
+     [
+      "http://hl7.org/fhir/event-status",
+      "completed"
+     ],
+     [
+      "http://hl7.org/fhir/event-status",
+      "entered-in-error"
+     ],
+     [
+      "http://hl7.org/fhir/event-status",
+      "unknown"
+     ]
+    ]
+   },
+   "invariants": [
+    {
+     "human": "Performed SHALL be present if the status is 'completed' or 'in-progress'",
+     "key": "us-core-7",
+     "path": ""
+    }
+   ],
+   "required": [
+    "status",
+    "code",
+    "subject",
+    "performer.actor",
+    "focalDevice.manipulated"
+   ],
+   "slices": [],
+   "title": "US Core Procedure Profile",
+   "type": "Procedure",
+   "url": "http://hl7.org/fhir/us/core/StructureDefinition/us-core-procedure"
+  },
+  "us-core-servicerequest": {
+   "codes": {
+    "intent": [
+     [
+      "http://hl7.org/fhir/request-intent",
+      "proposal"
+     ],
+     [
+      "http://hl7.org/fhir/request-intent",
+      "plan"
+     ],
+     [
+      "http://hl7.org/fhir/request-intent",
+      "directive"
+     ],
+     [
+      "http://hl7.org/fhir/request-intent",
+      "order"
+     ],
+     [
+      "http://hl7.org/fhir/request-intent",
+      "original-order"
+     ],
+     [
+      "http://hl7.org/fhir/request-intent",
+      "reflex-order"
+     ],
+     [
+      "http://hl7.org/fhir/request-intent",
+      "filler-order"
+     ],
+     [
+      "http://hl7.org/fhir/request-intent",
+      "instance-order"
+     ],
+     [
+      "http://hl7.org/fhir/request-intent",
+      "option"
+     ]
+    ],
+    "priority": [
+     [
+      "http://hl7.org/fhir/request-priority",
+      "routine"
+     ],
+     [
+      "http://hl7.org/fhir/request-priority",
+      "urgent"
+     ],
+     [
+      "http://hl7.org/fhir/request-priority",
+      "asap"
+     ],
+     [
+      "http://hl7.org/fhir/request-priority",
+      "stat"
+     ]
+    ],
+    "status": [
+     [
+      "http://hl7.org/fhir/request-status",
+      "draft"
+     ],
+     [
+      "http://hl7.org/fhir/request-status",
+      "active"
+     ],
+     [
+      "http://hl7.org/fhir/request-status",
+      "on-hold"
+     ],
+     [
+      "http://hl7.org/fhir/request-status",
+      "revoked"
+     ],
+     [
+      "http://hl7.org/fhir/request-status",
+      "completed"
+     ],
+     [
+      "http://hl7.org/fhir/request-status",
+      "entered-in-error"
+     ],
+     [
+      "http://hl7.org/fhir/request-status",
+      "unknown"
+     ]
+    ]
+   },
+   "invariants": [],
+   "required": [
+    "status",
+    "intent",
+    "code",
+    "subject"
+   ],
+   "slices": [],
+   "title": "US Core ServiceRequest Profile",
+   "type": "ServiceRequest",
+   "url": "http://hl7.org/fhir/us/core/StructureDefinition/us-core-servicerequest"
+  }
+ },
+ "source": {
+  "r4": {
+   "package": "hl7.fhir.r4.core#4.0.1",
+   "sha256": "ebd7731df7d36b5b7d39d5fb6c9d77b44bb7fe5742f1a2e87f164738c3289d44"
+  },
+  "us_core": {
+   "package": "hl7.fhir.us.core#6.1.0",
+   "sha256": "ec096f29bc4ce8f04117dfc4ef82e7289c67a7e2188892e86288c45389d158d9"
+  }
+ }
+}
