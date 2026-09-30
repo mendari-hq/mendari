@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
-from playwright.sync_api import Browser, Page, Route, ViewportSize, expect
+from playwright.sync_api import Browser, Locator, Page, Route, ViewportSize, expect
 
 pytestmark = pytest.mark.browser
 
@@ -836,3 +836,89 @@ def test_the_follow_up_shows_one_questions_choices_at_a_time(page: Page) -> None
     visible = page.locator("#result .fb-labels:visible")
     expect(visible).to_have_count(1)
     expect(visible).to_have_attribute("data-question", "unsafe_advice")
+
+
+# -- Try it forms for record packs ----------------------------------------------------------------
+
+TRIAL = "openhealth/clinical-trial-prescreener"
+RECORD_PACKS = [GUARD, TRIAL, "openhealth/prior-auth-preflight", "openhealth/referral-router"]
+
+
+def view_button(page: Page, name: str) -> Locator:
+    return page.get_by_role("group", name="Edit the input as").get_by_role("button", name=name)
+
+
+@pytest.mark.parametrize("pack_id", RECORD_PACKS)
+def test_the_form_carries_every_example_unchanged(
+    page: Page, live_server: str, pack_id: str
+) -> None:
+    """Each behaviour-test example goes into the form generated from the pack's input schema and
+    comes out as the same record: the form never adds, drops or retypes a value."""
+    examples = httpx.get(f"{live_server}/api/packs/{pack_id}/examples").json()
+    open_pack(page, pack_id, "try")
+    expect(page.locator("#record-form [data-path]").first).to_be_visible()  # the form by default
+    for index, example in enumerate(examples):
+        page.select_option("#example", str(index))
+        view_button(page, "JSON").click()
+        assert json.loads(page.input_value("#record")) == example["input"], example["name"]
+        view_button(page, "Form").click()
+
+
+def test_editing_a_form_field_changes_the_decision(page: Page) -> None:
+    open_pack(page, GUARD, "try")
+    page.select_option("#example", label="a safe draft passes and waits for one-step approval")
+    question = page.get_by_label("Question")
+    question.fill("I have heavy pressure in my chest and I'm short of breath right now.")
+    page.get_by_role("button", name="Decide").click()
+    expect(page.locator("#result-title")).to_have_text(re.compile("^Blocked"))
+
+
+def test_rows_are_added_and_removed_from_the_keyboard(page: Page) -> None:
+    open_pack(page, TRIAL, "try")
+    rows = page.locator('#record-form [data-array*="observations"] tbody tr')
+    before = rows.count()
+    page.get_by_role("button", name="Add to observations").focus()
+    page.keyboard.press("Enter")
+    new = before + 1
+    expect(page.get_by_label(f"Observations {new}: Code")).to_be_focused()  # typing can start
+    page.keyboard.type("2345-7")
+    page.keyboard.press("Tab")
+    page.keyboard.type("Glucose")
+    page.keyboard.press("Tab")
+    page.keyboard.type("110")
+    view_button(page, "JSON").click()
+    added = json.loads(page.input_value("#record"))["observations"][-1]
+    assert added == {"code": "2345-7", "name": "Glucose", "value": 110}
+    view_button(page, "Form").click()
+    page.get_by_role("button", name=f"Remove observations {new}").click()
+    expect(rows).to_have_count(before)
+    expect(page.get_by_label(f"Observations {before}: Code")).to_be_focused()
+
+
+def test_invalid_json_stays_in_the_json_view(page: Page) -> None:
+    open_pack(page, GUARD, "try")
+    view_button(page, "JSON").click()
+    page.fill("#record", '{"question": ')
+    view_button(page, "Form").click()
+    expect(page.locator("#announce-alert")).to_contain_text("Not valid JSON")
+    expect(page.locator("#record")).to_be_visible()
+    expect(view_button(page, "JSON")).to_have_attribute("aria-pressed", "true")
+
+
+def test_a_required_field_is_asked_for_before_deciding(page: Page) -> None:
+    open_pack(page, GUARD, "try")
+    decided: list[str] = []
+    page.on("request", lambda r: decided.append(r.url) if r.url.endswith("/decide") else None)
+    page.get_by_label("Draft").fill("")
+    page.get_by_role("button", name="Decide").click()
+    expect(page.locator("#record-form textarea:invalid")).to_have_count(1)
+    assert decided == []  # nothing was sent
+
+
+def test_the_input_view_is_remembered(page: Page) -> None:
+    open_pack(page, GUARD, "try")
+    view_button(page, "JSON").click()
+    page.reload()
+    expect(view_button(page, "JSON")).to_have_attribute("aria-pressed", "true")
+    expect(page.locator("#record")).to_be_visible()
+    expect(page.locator("#record-form")).to_be_hidden()
