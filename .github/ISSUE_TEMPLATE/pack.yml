@@ -1,0 +1,31 @@
+name: Pack content
+description: A pack decides something wrong, misses a case, or its card says something that isn't so.
+labels: [pack]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Clinical content needs clinician review, so tell us why the answer is wrong. Never paste
+        real patient data: rewrite the case synthetically.
+  - type: input
+    id: pack
+    attributes:
+      label: Pack and version
+      placeholder: openhealth/patient-inbox-router@0.3.0
+    validations:
+      required: true
+  - type: textarea
+    id: case
+    attributes:
+      label: The (synthetic) input, what the pack decided, and what it should decide
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Could this harm a patient?
+      options:
+        - "No: a wrong route or extra review"
+        - "Yes: a missed urgent case, or automation that shouldn't happen"
+    validations:
+      required: true

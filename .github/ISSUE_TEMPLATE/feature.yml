@@ -1,0 +1,14 @@
+name: Idea
+description: A feature, a standard to support, or a new pack.
+labels: [idea]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem it solves, and for whom
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you propose
