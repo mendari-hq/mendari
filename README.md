@@ -223,6 +223,35 @@ the audit export. Everything
 OpenHealth treats as conforming must pass it, and everything the in-process checks flag must
 fail it.
 
+## The Hub
+
+Packs travel as **signed archives**. A registry keeps them with **immutable versions**, and anyone
+can pull and verify them:
+
+```bash
+openhealth keys generate --out keys/                        # a publisher key pair (Ed25519)
+openhealth login --registry https://hub.example.org --token <publisher token>
+openhealth keys register --namespace my-site --public-key keys/publisher.pub
+openhealth push packs/my-pack --key keys/publisher.key       # build, sign, publish
+
+pip install openhealth && openhealth pull openhealth/referral-router   # anyone
+openhealth search referral --standard "CDS Hooks"
+openhealth eval openhealth/referral-router --dataset local.jsonl --share "My site"
+```
+
+- **An archive** (`.ohpack`) is deterministic and carries a manifest of file hashes signed with
+  the publisher's key.
+- **`pull`** checks the archive digest the registry recorded, every file hash, the signature and
+  the pack digest before caching the pack. Namespace keys are pinned on first use, and a changed
+  key needs `--accept-new-key`. `Decision.from_hub` pulls on its own when a pack isn't local.
+- **The registry** (`openhealth registry serve`) has namespaces with a publisher type
+  (community, verified, institutional) that its admins set after verification. `--share` sends
+  a site's metrics, never its cases.
+- **The website** (`hub/`, Next.js) searches packs and shows their cards, leaderboards and site
+  reports.
+
+The docker sandbox runs a registry on port 8100 (`scripts/hub_seed.py` publishes the five packs).
+
 ## Decision Packs
 
 A pack is a directory:
@@ -456,11 +485,12 @@ Full plan and status: [`docs/roadmap.md`](docs/roadmap.md). Done:
 - v0.3 the other four packs;
 - the dashboard redesign;
 - v0.4 healthcare standards: US Core, AuditEvent/Provenance, SMART on FHIR, CDS Hooks fetch,
-  Bulk FHIR.
+  Bulk FHIR;
+- v0.5 the Hub: signed pack archives, `openhealth push / pull`, a registry and website (built, not
+  public yet).
 
 Next:
 
-- **v0.5 The Hub:** signed pack archives, `openhealth push / pull`, a registry and website.
 - **v0.6 Readiness for organizations:** login with roles, tenancy, monitoring and drift, PHI mode.
 - **v0.7 and v1.0:** CQL, OMOP, Da Vinci CRD/DTR/PAS; then the public open-source launch.
 

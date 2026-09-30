@@ -33,7 +33,8 @@ the production-deploy check and the four "small remaining gaps" under "What an A
 | [#78](https://github.com/Junebugg1214/openhealth-hub/pull/78) | Registry service: namespaces, publisher keys, immutable signed versions, search | v0.5 item 2 | Green first time; merged |
 | [#79](https://github.com/Junebugg1214/openhealth-hub/pull/79) | Hub client: login, push, pull (verified, pinned keys, cached), search; Decision.from_hub from the registry | v0.5 item 3 | Red once on Python 3.11: a flaky teardown in a test merged with #78, whose unclosed Postgres pool was collected on another thread. Fixed at the root (registry stores close; the app closes its store at shutdown), then green; merged |
 | [#80](https://github.com/Junebugg1214/openhealth-hub/pull/80) | Shareable local-validation reports (metrics only) and site comparison | v0.5 item 4 | Green first time; merged |
-| [#81](https://github.com/Junebugg1214/openhealth-hub/pull/81) | Hub website (Next.js): search, pack pages, publishers; CI job hub-site | v0.5 item 5 | pending |
+| [#81](https://github.com/Junebugg1214/openhealth-hub/pull/81) | Hub website (Next.js): search, pack pages, publishers; CI job hub-site | v0.5 item 5 | Red once (`npm ci` on Node 22 / npm 10 found optional Linux packages missing from the lockfile), fixed by regenerating it and running CI on Node 24; green; merged |
+| [#82](https://github.com/Junebugg1214/openhealth-hub/pull/82) | v0.5 end to end: a clean machine installs, pulls and tests; registry in the sandbox; docs | v0.5 item 6 (the exit) | pending |
 
 ## Decisions made on your behalf
 

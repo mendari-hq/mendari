@@ -62,6 +62,15 @@
 - **Pack content is code-adjacent.** Regexes, models and policies change behaviour. Packs are
   identified by digest and SHOULD be reviewed like code. v0.1 loads packs only from local
   paths.
+- **Packs from a registry are verified before use** (`hub/client.py`):
+  - the archive's SHA-256 recorded by the registry;
+  - every file's hash in the signed manifest;
+  - an Ed25519 signature by a key of the pack's namespace, pinned on first use;
+  - the pack digest after safe extraction (regular files only, no traversal, size caps).
+
+  Versions are immutable in the registry, and publishing needs a namespace token (stored
+  hashed). A registry can't swap a pack without its publisher's key, and it can't swap the key
+  without the user noticing.
 - **Remote providers** (Jev, LLMs) receive only `state_fields` over HTTPS (plain http only
   to a model server on localhost), with credentials read from the environment or the
   deployment's OIDC token. LLM prompts carry the input as JSON data under a system prompt that
