@@ -52,7 +52,7 @@ phase (A, B, C) to be done and merged when CI passes.
 
 ## Current: v0.5 The Hub ([plan](../docs/plans/v0.5-the-hub.md))
 - [x] Plan
-- [ ] Shared database layer (`core/db.py`)
+- [x] Shared database layer (`core/db.py`)
 - [ ] Signed pack archives and publisher keys
 - [ ] Registry service (namespaces, publisher types, keys, immutable versions, search)
 - [ ] CLI login / push / pull / search; `Decision.from_hub` from the registry
