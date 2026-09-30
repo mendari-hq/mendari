@@ -56,7 +56,7 @@ Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 - [x] US Core validation of FHIR inputs (warn by default, enforce on request; HL7 validator in CI)
 - [x] Audit export as FHIR AuditEvent and Provenance
 - [x] Sandbox: referral cases in FHIR (US Core; the inbox's Patients too)
-- [ ] CDS Hooks that fetch, under an allow-list
+- [x] CDS Hooks that fetch, under an allow-list (one outbound FHIR client for all later calls)
 - [ ] SMART on FHIR EHR launch (PKCE, OIDC), patient context in the dashboard
 - [ ] Bulk FHIR `$export` into local-validation datasets
 - [ ] End-to-end exit checks in CI; docs

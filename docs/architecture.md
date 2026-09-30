@@ -70,8 +70,16 @@
   state sets `batch: false`.
 - **The server** has no authentication in v0.1 and binds to localhost by default. The docker
   sandbox publishes ports on 127.0.0.1 only.
-- **CDS Hooks** does not call back into caller-supplied FHIR servers, which avoids SSRF. Data
-  must come through prefetch.
+- **Outbound FHIR reads** go through one client (`standards/fhir_client.py`), so SSRF has a
+  single guard. That includes CDS Hooks fetching prefetch the EHR left out, and later SMART and
+  Bulk.
+  - The server's origin must be on `OPENHEALTH_FHIR_ALLOWED_SERVERS`. It is empty by default, so
+    CDS Hooks then works from prefetch only, as in v0.1.
+  - Plain http is allowed only for loopback and single-label (compose) hosts.
+  - Requests stay under the server's base URL, redirects are refused, and responses are capped
+    at 5 MB of JSON.
+  - A prefetch template's `{{context.x}}` tokens accept FHIR ids only.
+  - Errors never echo the server's body or the token.
 
 ## Sandbox
 

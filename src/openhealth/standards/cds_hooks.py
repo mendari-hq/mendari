@@ -1,16 +1,20 @@
 """CDS Hooks 2.0: expose each pack that declares `cds_hooks` as a CDS service.
 
-The EHR must send the data via `prefetch` (resources or search Bundles), and for order hooks
-the orders in `context.draftOrders`; the service never calls back into the caller's FHIR
-server, which keeps it free of outbound requests to caller-supplied URLs. Card wording comes
-from the pack's `cds_hooks.card`; without it, the card describes a routing decision.
+The EHR sends the data via `prefetch` (resources or search Bundles), and for order hooks the
+orders in `context.draftOrders`. A prefetch key the EHR left out is fetched from the request's
+`fhirServer` with its `fhirAuthorization` token, using the pack's own prefetch template, but only
+when that server is on the deployment's allow-list (`OPENHEALTH_FHIR_ALLOWED_SERVERS`, empty by
+default; see `fhir_client`). Card wording comes from the pack's `cds_hooks.card`; without it, the
+card describes a routing decision.
 """
 
 from __future__ import annotations
 
+import re
 import uuid
 from collections.abc import Iterable, Mapping
 from typing import Any
+from urllib.parse import quote
 
 from openhealth.core.decision import Decision, DecisionResult
 from openhealth.core.pack import Pack
@@ -18,9 +22,12 @@ from openhealth.core.spec import Outcome, Priority
 from openhealth.core.templates import fill
 from openhealth.errors import FhirError
 from openhealth.standards.fhir import FhirAdapter
+from openhealth.standards.fhir_client import FhirClient
 
 # Hooks whose context carries the orders being written (CDS Hooks `draftOrders`).
 ORDER_HOOKS = ("order-select", "order-sign")
+_TOKEN = re.compile(r"\{\{\s*context\.(\w+)\s*\}\}")
+_ID = re.compile(r"^[A-Za-z0-9\-.]{1,64}$")  # a FHIR id
 
 
 def service_id(pack: Pack) -> str:
@@ -55,10 +62,10 @@ def invoke(decision: Decision, request: Mapping[str, Any]) -> dict[str, Any]:
         raise FhirError(f"pack {decision.pack.id} is not a CDS service")
     if request.get("hook") != hooks.hook:
         raise FhirError(f"service expects hook {hooks.hook!r}, got {request.get('hook')!r}")
-    prefetch = request.get("prefetch") or {}
+    prefetch = dict(request.get("prefetch") or {})
     missing = [key for key in hooks.prefetch if not prefetch.get(key)]
     if missing:
-        raise FhirError(f"prefetch required for: {', '.join(missing)}")
+        prefetch.update(fetch(hooks.prefetch, missing, request))
     if hooks.hook in ORDER_HOOKS:
         # One decision per draft order the pack is about (e.g. each referral, not the lab
         # orders signed with it), each with the prefetched record.
@@ -75,6 +82,41 @@ def invoke(decision: Decision, request: Mapping[str, Any]) -> dict[str, Any]:
             continue  # decided and audited, but nothing worth interrupting the user for
         cards.append(card(decision.pack, result, task))
     return {"cards": cards}
+
+
+def fetch(
+    templates: Mapping[str, str], keys: list[str], request: Mapping[str, Any]
+) -> dict[str, Any]:
+    """The prefetch the EHR left out, read from its `fhirServer` (allow-listed servers only)."""
+    server = request.get("fhirServer")
+    if not server:
+        raise FhirError(
+            f"prefetch required for: {', '.join(keys)} (and no fhirServer to fetch from)"
+        )
+    authorization = request.get("fhirAuthorization") or {}
+    token = authorization.get("access_token")
+    if token and str(authorization.get("token_type", "Bearer")).lower() != "bearer":
+        raise FhirError("fhirAuthorization must be a Bearer token")
+    context = request.get("context") or {}
+    queries = {key: fill_template(templates[key], context) for key in keys}
+    with FhirClient(str(server), token=token) as client:
+        return {key: client.read(query) for key, query in queries.items()}
+
+
+def fill_template(template: str, context: Mapping[str, Any]) -> str:
+    """A prefetch template with its `{{context.x}}` tokens filled; each value must be a FHIR id,
+    so nothing but an id can reach the query."""
+
+    def value(match: re.Match[str]) -> str:
+        filled = context.get(match.group(1))
+        if not isinstance(filled, str) or not _ID.match(filled):
+            raise FhirError(f"context.{match.group(1)} is needed to fetch {template.split('?')[0]}")
+        return quote(filled, safe="")
+
+    query = _TOKEN.sub(value, template)
+    if "{{" in query:
+        raise FhirError(f"cannot fill the prefetch template {template!r}")
+    return query
 
 
 def card(pack: Pack, result: DecisionResult, task: Mapping[str, Any]) -> dict[str, Any]:

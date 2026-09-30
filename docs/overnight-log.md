@@ -21,7 +21,8 @@ the production-deploy check and the four "small remaining gaps" under "What an A
 | [#66](https://github.com/Junebugg1214/openhealth-hub/pull/66) | v0.4 plan | v0.4 planning step | Green; merged (the API answered 502 on merge, the merge had gone through; the branch was deleted by hand) |
 | [#67](https://github.com/Junebugg1214/openhealth-hub/pull/67) | US Core 6.1.0 validation of FHIR inputs (warn by default, enforce on request) | v0.4 item 1 | Green first time, including the new `fhir-conformance` job; preview checked with a real FHIR decision on Vercel (profile data loads, issues returned); merged |
 | [#68](https://github.com/Junebugg1214/openhealth-hub/pull/68) | Audit export as FHIR AuditEvent and Provenance | v0.4 item 2 | Green first time; preview streamed NDJSON from Postgres; merged |
-| pending | Sandbox: referral cases in FHIR (US Core), seeding fixed against HAPI's search cache | v0.4 item 3 | pending |
+| [#69](https://github.com/Junebugg1214/openhealth-hub/pull/69) | Sandbox: referral cases in FHIR as US Core resources (and a seeding fix) | v0.4 item 3 | Green first time; preview checked; merged |
+| pending | CDS Hooks fetch missing prefetch from allow-listed FHIR servers | v0.4 item 4 | pending |
 
 ## Decisions made on your behalf
 
@@ -86,6 +87,18 @@ the production-deploy check and the four "small remaining gaps" under "What an A
 - **Found and fixed:** `openhealth sandbox seed` checked "already seeded?" through HAPI's search
   cache, so a second seed within about a minute loaded everything again (seen against the local
   HAPI). The check now asks for fresh results.
+- **One outbound FHIR client for everything that calls a server someone else named**
+  (`standards/fhir_client.py`): CDS fetch now, SMART and Bulk next. Its rules:
+  - the allow-list matches exact origins (so `127.0.0.1` isn't `localhost`);
+  - plain http only for loopback and single-label compose hosts;
+  - paths confined to the base URL, `next` links included;
+  - no redirects, a 10 s timeout, a 5 MB JSON cap;
+  - errors carry no server body and no token.
+- **CDS prefetch templates accept FHIR ids only** in `{{context.x}}` (`[A-Za-z0-9-.]{1,64}`),
+  so a hostile context can't add search parameters. Templates with other tokens
+  (`{{userPractitionerId}}`) are refused rather than guessed.
+- **The docker sandbox allow-lists its own HAPI** (`http://fhir:8080`) by default. Production
+  keeps an empty list.
 - **Every new v0.4 capability is off until configured**, and no production environment variable
   is changed. Production has no login of its own until v0.6, so outbound FHIR calls and SMART
   stay disabled there.
