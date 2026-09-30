@@ -531,3 +531,21 @@ and edit it; never replace it.
 
 ### Verification
 Every new file in a diff shows as added (`??` or `A`) in `git status` before the first commit.
+
+## 2026-09-30 - process
+
+### What happened
+Three CI jobs failed after all their steps had passed, in the setup-uv post step: `uv cache
+prune` timed out waiting for the cache lock. Each of those jobs started a server in the
+background with `uv run … &`. The runner's uv (0.12.21) holds the cache lock for as long as a
+`uv run` process lives.
+
+### Root cause
+Long-lived background processes started through `uv run`.
+
+### Rule
+In CI, start background servers from the venv (`.venv/bin/openhealth …`, after `uv sync`), never
+with `uv run`.
+
+### Verification
+`grep -n 'uv run .*&$' .github/workflows/*.yml` finds nothing.
