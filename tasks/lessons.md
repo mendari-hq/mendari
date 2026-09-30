@@ -427,3 +427,26 @@ connections with `contextlib.closing()`.
 ### Verification
 No PR fails CI on a Python version that wasn't run locally.
 
+
+## 2026-09-29 - process
+
+### What happened
+Splitting `app.js` into ES modules with a script silently dropped the `// ----` section markers
+inside `charts.js`, `table.js` and `form.js`, which were meant to stay whole. Later, a Phase C edit
+used `emptyState` in `feedback.js` without importing it; only the browser suite's every-view test
+caught it, for the packs whose feedback page happened to be empty.
+
+### Root cause
+A mechanical move was trusted without checking that it was only a move. Also, in ES modules a
+missing import fails only at runtime, in the one code path that uses the name.
+
+### Rule
+After a scripted move of code, compare the old and new files line for line (as a multiset of
+lines, ignoring imports and exports) and account for every difference. After editing dashboard
+modules, run a name check before the browser suite: TypeScript's `checkJs` with `noUnusedLocals`
+over `src/openhealth/dashboard/*.js`, reporting unresolved names (TS2304) and unused imports
+(TS6133). TypeScript is not a project dependency, so use any local copy.
+
+### Verification
+A PR that moves code says the line-for-line comparison came out clean. No PR ships an unresolved
+or unused module import.
