@@ -16,6 +16,9 @@ Configuration comes from the environment:
   `off`.
 - `OPENHEALTH_FHIR_ALLOWED_SERVERS`: FHIR servers (origins, comma-separated) that CDS Hooks may
   fetch missing prefetch data from. Empty (default): nothing is fetched.
+- `OPENHEALTH_SMART_CLIENT_ID` (enables the SMART EHR launch), `OPENHEALTH_SMART_CLIENT_SECRET`
+  (confidential clients), `OPENHEALTH_SMART_SCOPES`, `OPENHEALTH_PUBLIC_URL` (this deployment's
+  public origin, for the redirect URI).
 - `LLM_MODEL`: default model for `llm` variants (AI Gateway id, e.g. anthropic/claude-sonnet-5).
 - `JEV_API_URL`, `JEV_MODEL`, `JEV_CONNECTOR`: see `openhealth.providers.jev`.
 """

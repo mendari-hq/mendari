@@ -58,9 +58,14 @@ def test_every_chained_event_becomes_an_audit_event(store: AuditStore, inbox_pac
     events = by_type(exported, "AuditEvent")
     subtypes = [e["subtype"][0]["code"] for e in events]
     assert subtypes == [
-        "decision.created", "decision.created", "decision.created",
-        "review.resolved", "review.resolved", "outcome.recorded", "feedback.recorded",
-    ]  # fmt: skip
+        "decision.created",
+        "decision.created",
+        "decision.created",
+        "review.resolved",
+        "review.resolved",
+        "outcome.recorded",
+        "feedback.recorded",
+    ]
     assert [e["action"] for e in events] == ["C", "C", "C", "U", "U", "U", "C"]
     assert len({r["id"] for r in exported}) == len(exported)
 

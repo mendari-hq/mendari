@@ -19,6 +19,7 @@ import ipaddress
 import json
 import os
 import posixpath
+import re
 from collections.abc import Collection, Mapping
 from typing import Any
 from urllib.parse import urljoin, urlsplit, urlunsplit
@@ -55,6 +56,69 @@ def allowed_servers() -> frozenset[str]:
     return frozenset(origins)
 
 
+class GuardedHttp:
+    """HTTP to allow-listed origins only: no redirects, a timeout, and JSON answers under the size
+    cap. `FhirClient` reads through it; SMART uses it for discovery, token and JWKS requests."""
+
+    def __init__(
+        self,
+        *,
+        allowed: Collection[str] | None = None,
+        transport: httpx.BaseTransport | None = None,
+    ):
+        self.allowed = allowed_servers() if allowed is None else frozenset(allowed)
+        self._client = httpx.Client(timeout=TIMEOUT, follow_redirects=False, transport=transport)
+
+    def __enter__(self) -> GuardedHttp:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()
+
+    def close(self) -> None:
+        self._client.close()
+
+    def check(self, url: str) -> None:
+        origin = _origin(url)
+        if origin is None or origin not in self.allowed:
+            raise FhirError("the FHIR server is not on this deployment's allow-list")
+
+    def get_json(self, url: str, headers: Mapping[str, str] | None = None) -> dict[str, Any]:
+        return self._send("GET", url, headers=headers)
+
+    def post_form(
+        self, url: str, data: Mapping[str, str], headers: Mapping[str, str] | None = None
+    ) -> dict[str, Any]:
+        return self._send("POST", url, headers=headers, data=data)
+
+    def _send(self, method: str, url: str, **kwargs: Any) -> dict[str, Any]:
+        self.check(url)
+        try:
+            with self._client.stream(method, url, **kwargs) as response:
+                if response.is_redirect:
+                    raise FhirError(f"the server redirected (HTTP {response.status_code})")
+                body = bytearray()
+                for chunk in response.iter_bytes():
+                    body += chunk
+                    if len(body) > MAX_BYTES:
+                        raise FhirError(f"the response is larger than {MAX_BYTES} bytes")
+                if not response.is_success:
+                    status = response.status_code
+                    raise FhirError(f"the server answered HTTP {status}{_oauth(bytes(body))}")
+                kind = response.headers.get("content-type", "").split(";")[0].strip().lower()
+                if kind not in _JSON_TYPES:
+                    raise FhirError("the server did not answer with JSON")
+        except httpx.HTTPError as error:
+            raise FhirError(f"could not reach the server ({type(error).__name__})") from None
+        try:
+            data = json.loads(bytes(body))
+        except ValueError:
+            raise FhirError("the server answered with invalid JSON") from None
+        if not isinstance(data, Mapping):
+            raise FhirError("the server answered with something other than a JSON object")
+        return dict(data)
+
+
 class FhirClient:
     """Reads from one FHIR server (its base URL), with an optional bearer token."""
 
@@ -66,17 +130,12 @@ class FhirClient:
         allowed: Collection[str] | None = None,
         transport: httpx.BaseTransport | None = None,
     ):
-        allowed = allowed_servers() if allowed is None else frozenset(allowed)
-        origin = _origin(base_url)
-        if origin is None or origin not in allowed:
-            raise FhirError("the FHIR server is not on this deployment's allow-list")
+        self._http = GuardedHttp(allowed=allowed, transport=transport)
+        self._http.check(base_url)
         self.base = base_url.rstrip("/") + "/"
         self._headers = {"accept": "application/fhir+json"}
         if token:
             self._headers["authorization"] = f"Bearer {token}"
-        self._client = httpx.Client(
-            timeout=TIMEOUT, follow_redirects=False, transport=transport, headers=self._headers
-        )
 
     def __enter__(self) -> FhirClient:
         return self
@@ -85,12 +144,12 @@ class FhirClient:
         self.close()
 
     def close(self) -> None:
-        self._client.close()
+        self._http.close()
 
     def read(self, relative: str) -> dict[str, Any]:
         """GET `relative` (e.g. "Patient/123" or "Observation?patient=123") under the base URL.
         A searchset's `next` pages are followed and merged into one Bundle."""
-        result = self._get(self._resolve(relative))
+        result = self._http.get_json(self._resolve(relative), self._headers)
         if result.get("resourceType") != "Bundle":
             return result
         entries = list(result.get("entry") or [])
@@ -99,7 +158,7 @@ class FhirClient:
             following = next((x.get("url") for x in links if x.get("relation") == "next"), None)
             if not following:
                 break
-            result = self._get(self._resolve(following))
+            result = self._http.get_json(self._resolve(following), self._headers)
             entries += result.get("entry") or []
         return {"resourceType": "Bundle", "type": "searchset", "entry": entries}
 
@@ -114,30 +173,14 @@ class FhirClient:
             raise FhirError("a FHIR request left the server's base URL")
         return urlunsplit((parts.scheme, parts.netloc, path, parts.query, ""))
 
-    def _get(self, url: str) -> dict[str, Any]:
-        try:
-            with self._client.stream("GET", url) as response:
-                if response.is_redirect:
-                    raise FhirError(f"the FHIR server redirected (HTTP {response.status_code})")
-                if not response.is_success:
-                    raise FhirError(f"the FHIR server answered HTTP {response.status_code}")
-                kind = response.headers.get("content-type", "").split(";")[0].strip().lower()
-                if kind not in _JSON_TYPES:
-                    raise FhirError("the FHIR server did not answer with JSON")
-                body = bytearray()
-                for chunk in response.iter_bytes():
-                    body += chunk
-                    if len(body) > MAX_BYTES:
-                        raise FhirError(f"the FHIR response is larger than {MAX_BYTES} bytes")
-        except httpx.HTTPError as error:
-            raise FhirError(f"could not reach the FHIR server ({type(error).__name__})") from None
-        try:
-            data = json.loads(bytes(body))
-        except ValueError:
-            raise FhirError("the FHIR server answered with invalid JSON") from None
-        if not isinstance(data, Mapping):
-            raise FhirError("the FHIR server answered with something other than a resource")
-        return dict(data)
+
+def _oauth(body: bytes) -> str:
+    """An OAuth error code from an error response (" (invalid_grant)"), and nothing else of it."""
+    try:
+        code = json.loads(body).get("error")
+    except (ValueError, AttributeError):
+        return ""
+    return f" ({code})" if isinstance(code, str) and re.fullmatch(r"[a-z_]{1,40}", code) else ""
 
 
 def _origin(url: str) -> str | None:

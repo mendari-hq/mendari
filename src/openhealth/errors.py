@@ -34,3 +34,12 @@ class ReviewError(OpenHealthError):
 
 class FhirError(OpenHealthError):
     """FHIR input is missing required resources or cannot be mapped to the pack input."""
+
+
+class SmartError(OpenHealthError):
+    """A SMART on FHIR launch cannot continue: not configured, a bad or expired state, a token
+    the authorization server should not have issued, or no session."""
+
+    def __init__(self, message: str, status: int = 400):
+        self.status = status
+        super().__init__(message)

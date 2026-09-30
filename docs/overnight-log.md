@@ -22,7 +22,8 @@ the production-deploy check and the four "small remaining gaps" under "What an A
 | [#67](https://github.com/Junebugg1214/openhealth-hub/pull/67) | US Core 6.1.0 validation of FHIR inputs (warn by default, enforce on request) | v0.4 item 1 | Green first time, including the new `fhir-conformance` job; preview checked with a real FHIR decision on Vercel (profile data loads, issues returned); merged |
 | [#68](https://github.com/Junebugg1214/openhealth-hub/pull/68) | Audit export as FHIR AuditEvent and Provenance | v0.4 item 2 | Green first time; preview streamed NDJSON from Postgres; merged |
 | [#69](https://github.com/Junebugg1214/openhealth-hub/pull/69) | Sandbox: referral cases in FHIR as US Core resources (and a seeding fix) | v0.4 item 3 | Green first time; preview checked; merged |
-| pending | CDS Hooks fetch missing prefetch from allow-listed FHIR servers | v0.4 item 4 | pending |
+| [#70](https://github.com/Junebugg1214/openhealth-hub/pull/70) | CDS Hooks fetch missing prefetch from allow-listed FHIR servers | v0.4 item 4 | Green first time; preview checked; merged |
+| pending | SMART on FHIR EHR launch: backend (PKCE, OIDC id_token, server-side sessions, patient context API) | v0.4 item 5, part 1 of 3 | pending |
 
 ## Decisions made on your behalf
 
@@ -99,6 +100,23 @@ the production-deploy check and the four "small remaining gaps" under "What an A
   (`{{userPractitionerId}}`) are refused rather than guessed.
 - **The docker sandbox allow-lists its own HAPI** (`http://fhir:8080`) by default. Production
   keeps an empty list.
+- **SMART ships as three PRs:** the backend (launch, session, patient-context API), the dashboard's
+  "This patient" view, then the sandbox launcher with an end-to-end check.
+- **SMART choices:**
+  - public client with PKCE S256 by default, and a confidential client when a secret is set;
+  - scopes `launch openid fhirUser patient/*.rs`, overridable;
+  - `id_token` verified with the server's JWKS, RS256 or ES384 only (so `none` and HS256 are
+    refused), plus `iss`, `aud`, `exp` and `nonce`, with 60 s leeway;
+  - `openid` requested means an `id_token` is required;
+  - a launch without a patient is refused;
+  - no refresh tokens, and sessions capped at 12 h;
+  - state and session ids stored as SHA-256, and a launch's state works once;
+  - launch errors are an HTML page, since they land in the EHR's browser, with OAuth error codes
+    shown only when they look like codes.
+- **Access tokens are stored in the database unencrypted** for their lifetime. There is no key to
+  encrypt them with until v0.6's PHI mode; this is noted in the architecture's trust boundaries.
+- **A new dependency, `pyjwt[crypto]` (>=2.10.1,<3; 2.15.1 locked)**, verifies SMART `id_token`s.
+  The roadmap's OAuth 2 / OIDC calls for it, and it will sign the Bulk backend-services assertion.
 - **Every new v0.4 capability is off until configured**, and no production environment variable
   is changed. Production has no login of its own until v0.6, so outbound FHIR calls and SMART
   stay disabled there.
