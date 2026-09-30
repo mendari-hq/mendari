@@ -7,7 +7,7 @@ Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 - [x] Plan
 - [x] CQL provider (Library/$evaluate on HAPI FHIR with Clinical Reasoning); the trial pack's
   criteria in CQL, checked against `criteria` in CI (job `cql`; `openhealth agreement`)
-- [ ] OMOP CDM inputs and population evaluation; a synthetic OMOP round trip in CI
+- [x] OMOP CDM inputs and population evaluation; a synthetic OMOP round trip in CI
 - [ ] Da Vinci CRD: `coverage-information` on the PA pack's order-sign response
 - [ ] Da Vinci DTR: questionnaire package for the PA pack's gaps
 - [ ] Da Vinci PAS: request Bundle and submission to a mock payer

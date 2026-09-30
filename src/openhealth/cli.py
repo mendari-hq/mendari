@@ -7,6 +7,7 @@ import json
 import os
 import sys
 from collections.abc import Sequence
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -527,6 +528,97 @@ def cmd_bulk_dataset(args: argparse.Namespace) -> int:
     return 0
 
 
+def _omop_records(args: argparse.Namespace) -> list[dict[str, Any]]:
+    from openhealth.standards import omop
+    from openhealth.standards.bulk import load_labels
+
+    as_of = date.fromisoformat(args.as_of) if args.as_of else None
+    db = omop.open_database(args.db, schema=args.schema)
+    try:
+        people = list(omop.read(db, schema=args.schema, as_of=as_of, limit=args.limit))
+    finally:
+        db.close()
+    labels = load_labels(Path(args.labels)) if getattr(args, "labels", None) else {}
+    records = []
+    for person, record in people:
+        item: dict[str, Any] = {"id": person, "input": record}
+        if person in labels:
+            item["labels"] = labels[person]
+        records.append(item)
+    if not records:
+        raise OpenHealthError(f"no people in {args.db}")
+    return records
+
+
+def cmd_omop_dataset(args: argparse.Namespace) -> int:
+    pack = resolve_pack(args.pack)
+    records = _omop_records(args)
+    decision = Decision(pack)
+    invalid = [r["id"] for r in records if decision.validate(r["input"])]
+    if invalid:
+        raise OpenHealthError(
+            f"{len(invalid)} record(s) don't fit {pack.id}'s input, e.g. {invalid[0]}: "
+            "OMOP gives record packs (conditions, labs, medications) their input"
+        )
+    _write_jsonl(Path(args.out), records)
+    labelled = sum("labels" in r for r in records)
+    print(f"{len(records)} people written to {args.out} ({labelled} labelled)")
+    return 0
+
+
+def cmd_omop_run(args: argparse.Namespace) -> int:
+    from openhealth.standards import omop
+
+    pack = resolve_pack(args.pack)
+    records = _omop_records(args)
+    decision = Decision(pack, providers=_providers(pack, parse_providers(args.provider)))
+    decided = [decision.decide(r["input"]).to_dict() for r in records]
+    report = {
+        "pack": {"id": pack.id, "version": pack.version, "digest": pack.digest},
+        **omop.population(decided, list(pack.manifest.questions), min_cell=args.min_cell),
+    }
+    if args.json:
+        _print_json(report)
+        return 0
+    print(f"{pack.id}: {report['people']} people (cells under {args.min_cell} suppressed)")
+    for outcome, count in report["outcomes"].items():
+        print(f"  {outcome}: {'<' + str(args.min_cell) if count is None else count}")
+    primary = pack.manifest.policy.primary
+    for label, count in report["answers"][primary].items():
+        print(f"  {primary} = {label}: {'<' + str(args.min_cell) if count is None else count}")
+    return 0
+
+
+def cmd_sandbox_omop(args: argparse.Namespace) -> int:
+    from openhealth.evals.harness import load_dataset
+    from openhealth.standards import omop
+
+    source = load_dataset(args.dataset)
+    db = omop.open_database(args.db, schema=args.schema, create=True)
+    try:
+        written = omop.write(
+            db, [(r["id"], r["input"]) for r in source.records], schema=args.schema
+        )
+    finally:
+        db.close()
+    print(f"{written} synthetic people written to {args.db}")
+    return 0
+
+
+def cmd_sandbox_omop_check(args: argparse.Namespace) -> int:
+    from openhealth.sandbox import omop_check
+
+    result = omop_check.run(Path(args.dataset), args.pack)
+    _print_json(result)
+    if not result["identical"]:
+        differences = ", ".join(result["differences"])
+        print(
+            f"omop-check: the OMOP round trip evaluates differently ({differences})",
+            file=sys.stderr,
+        )
+    return 0 if result["identical"] else 1
+
+
 def cmd_sandbox_bulk_check(args: argparse.Namespace) -> int:
     from openhealth.sandbox import bulk_check
 
@@ -934,12 +1026,47 @@ def build_parser() -> argparse.ArgumentParser:
     pilot.add_argument("--engine", required=True, help="engine URL (its OPENHEALTH_PUBLIC_URL)")
     pilot.add_argument("--messages", type=int, default=12, help="inbox messages to decide")
     pilot.set_defaults(handler=cmd_sandbox_pilot_check)
+    omop_write = sandbox.add_parser(
+        "omop", help="write a dataset's records into an OMOP CDM database (synthetic data)"
+    )
+    omop_write.add_argument("--dataset", required=True, help="a JSONL dataset of record inputs")
+    omop_write.add_argument("--db", required=True, help="SQLite path or postgresql:// URL")
+    omop_write.add_argument("--schema", default="", help="database schema (e.g. cdm)")
+    omop_write.set_defaults(handler=cmd_sandbox_omop)
+    omop_check = sandbox.add_parser(
+        "omop-check", help="round-trip a dataset through OMOP and compare the evaluations"
+    )
+    omop_check.add_argument("--dataset", required=True, help="a labelled JSONL dataset")
+    omop_check.add_argument("--pack", default="openhealth/clinical-trial-prescreener")
+    omop_check.set_defaults(handler=cmd_sandbox_omop_check)
     bulk_check = sandbox.add_parser(
         "bulk-check", help="Bulk export the sandbox, evaluate it, and compare with the dataset file"
     )
     bulk_check.add_argument("--fhir", required=True, help="the sandbox's FHIR R4 base URL")
     bulk_check.add_argument("--pack", default="openhealth/referral-router")
     bulk_check.set_defaults(handler=cmd_sandbox_bulk_check)
+
+    omop_cmd = sub.add_parser(
+        "omop", help="OMOP CDM databases as pack inputs (population-level evaluation)"
+    ).add_subparsers(dest="omop_command", required=True)
+    for name, handler, text in (
+        ("dataset", cmd_omop_dataset, "write each person's record as a local dataset"),
+        ("run", cmd_omop_run, "decide every person and report the population (metrics only)"),
+    ):
+        command = omop_cmd.add_parser(name, help=text)
+        command.add_argument("--db", required=True, help="SQLite path or postgresql:// URL")
+        command.add_argument("--schema", default="", help="the CDM's schema (e.g. cdm)")
+        command.add_argument("--pack", required=True, help="a record pack")
+        command.add_argument("--as-of", help="screening date (default: each person's last day)")
+        command.add_argument("--limit", type=int, help="only the first N people")
+        command.set_defaults(handler=handler)
+        if name == "dataset":
+            command.add_argument("--out", required=True, help="JSONL file to write")
+            command.add_argument("--labels", help="JSONL of {id, labels} by person_source_value")
+        else:
+            command.add_argument("--provider", action="append", metavar="SLOT=VARIANT")
+            command.add_argument("--min-cell", type=int, default=10, help="smallest cell shown")
+            command.add_argument("--json", action="store_true")
 
     bulk = sub.add_parser("bulk", help="Bulk FHIR export into local datasets").add_subparsers(
         dest="bulk_command", required=True

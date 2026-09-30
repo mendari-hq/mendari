@@ -228,6 +228,24 @@ opaque, HttpOnly, SameSite=Lax session cookie. The dashboard opens on the launch
 
 SMART is off until the client id is set.
 
+**CQL.** A pack can compute answers with a CQL library (provider type `cql`), evaluated on a
+CQL engine at `OPENHEALTH_CQL_URL` (HAPI FHIR with Clinical Reasoning; the sandbox's HAPI has
+it on). The trial pack's `cql` variant holds its criteria in CQL. `openhealth agreement` shows
+that it answers like `criteria` on every case, and the CI job `cql` checks it.
+
+**OMOP CDM.** Research data in OMOP (SQLite or Postgres, with an optional schema such as `cdm`)
+becomes record-pack inputs, one per person, for population-level evaluation:
+
+```bash
+openhealth omop run --db "$OMOP_URL" --schema cdm --pack openhealth/clinical-trial-prescreener
+openhealth omop dataset --db "$OMOP_URL" --schema cdm --pack openhealth/clinical-trial-prescreener \
+  --labels chart-review.jsonl --out local.jsonl    # then: openhealth eval ... --dataset local.jsonl
+```
+
+`omop run` reports the outcome mix and each question's answers, with cells under 10 people
+suppressed. `openhealth sandbox omop-check` writes a dataset into OMOP, reads it back and checks
+that it evaluates identically (in CI).
+
 The CI job `fhir-conformance` runs the HL7 FHIR validator over the same fixtures and a sample of
 the audit export. Everything
 OpenHealth treats as conforming must pass it, and everything the in-process checks flag must
