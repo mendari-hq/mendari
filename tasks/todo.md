@@ -2,7 +2,17 @@
 
 Roadmap to the full goal: [`docs/roadmap.md`](../docs/roadmap.md).
 
-## Current: design grade phases ([`docs/design-grade.md`](../docs/design-grade.md))
+## Current: v0.6 Readiness for health organizations ([plan](../docs/plans/v0.6-org-readiness.md))
+Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
+- [x] Plan
+- [ ] OIDC login, roles and API keys; tenancy
+- [ ] Deployments and governance approvals
+- [ ] Monitoring: observed accuracy, overrides, drift, alerts; Monitoring view
+- [ ] PHI mode (hash / encrypt), retention, input reads logged; deployment guide
+- [ ] Container image per pack; on-prem templates
+- [ ] Pilot check in CI (a local identity provider)
+
+## Done: design grade phases ([`docs/design-grade.md`](../docs/design-grade.md))
 Graded C+ against Apple, Airbnb and best-in-class data viz on 2026-09-29; the user approved every
 phase (A, B, C) to be done and merged when CI passes.
 - [x] Phase A quick wins: layout shift at 768 px 0.50 -> 0 (the pack picker's width is fixed from
@@ -43,14 +53,14 @@ phase (A, B, C) to be done and merged when CI passes.
   screen-reader and cross-browser pass (`docs/design-grade.md`, "Re-grade")
 - [x] Check the production deploy after the last merge: `ad9d3d3` live, `/`, `/api/health` and
   the modules 200 through `vercel curl` (Postgres, 5 packs), unauthenticated requests 302 to login
-- [ ] Small gaps from the re-grade (`docs/design-grade.md`, "What an A still needs"), one PR each;
+- [x] Small gaps from the re-grade (`docs/design-grade.md`, "What an A still needs"), one PR each;
   log in `docs/overnight-log.md`:
   - [x] Plain words in criteria tables and Try-it answer headings
   - [x] Links that carry the pack (`?pack=` in the address)
   - [x] A transition from skeleton to content (the view fades in where its skeleton was)
   - [x] Fewer whole-subtree re-renders: sorting moves rows instead of redrawing the table
 
-## Current: v0.5 The Hub ([plan](../docs/plans/v0.5-the-hub.md))
+## Done: v0.5 The Hub ([plan](../docs/plans/v0.5-the-hub.md))
 - [x] Plan
 - [x] Shared database layer (`core/db.py`)
 - [x] Signed pack archives and publisher keys
