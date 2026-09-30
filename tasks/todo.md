@@ -23,8 +23,14 @@ phase (A, B, C) to be done and merged when CI passes.
   aria-busy (no more collapsing to "Loading…"); evaluation runs show an indeterminate bar and the
   elapsed time; any label but the recommendation waits 5 s with a focused Undo (leaving the view
   or the page sends it)
-- [ ] Phase B3: charts with direct labels, dodged points, a sparse-history summary; Overview
-  trends (period, change, sparkline), with per-day review counts in `/api/stats`
+- [x] Phase B3: `/api/stats` daily entries gain `reviewed`, `overridden`, `labelled`, `agreed`
+  (read-only, counted on the decision's day; tested on both backends). Overview: a 7 / 30 days /
+  All period for the stats and the outcome mix, each rate with its change against the previous
+  period, sparklines for Automated and Decisions; under 7 days of history a line per day instead
+  of a mostly empty chart; outcome-mix segments with room carry their name and share. Cost chart:
+  configurations at the same point share one named mark, near ones are dodged with a leader, and
+  the deployed, safety-first leader and cost/accuracy frontier are named; the sweep names its
+  lines at their ends
 - [ ] Phase C: motion (drawer, dialog, resolved cards, tabs, chart marks), fewer boxes, a brand
   mark, stat labels, designed empty states
 - [ ] Re-grade with the same measurements; check the production deploy

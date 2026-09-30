@@ -80,6 +80,26 @@ def test_downstream_outcomes_feed_observed_accuracy(store: AuditStore, decide: D
     assert store.stats()["labelled"] == 1  # the accuracy's n
 
 
+def test_daily_review_counts_add_up_to_the_rates(store: AuditStore, decide: Decide) -> None:
+    confirmed, overridden = decide(EMERGENCY), decide(EMERGENCY)
+    store.resolve_review(confirmed.id, final_label="nurse", reviewer="rn-1")
+    store.resolve_review(overridden.id, final_label="physician", reviewer="rn-1")
+    store.resolve_review(decide(REVIEW).id, final_label="front_desk", reviewer="fd-1")  # abstained
+    store.record_outcome(decide(ROUTINE).id, final_label="nurse", source="re-routed by staff")
+    decide(ROUTINE)
+    stats = store.stats()
+    [day] = stats["daily"]
+    assert {k: day[k] for k in ("reviewed", "overridden", "labelled", "agreed")} == {
+        "reviewed": 2,  # the abstention has no recommendation to override
+        "overridden": 1,
+        "labelled": 3,  # two reviews and one downstream outcome
+        "agreed": 1,
+    }
+    assert day["overridden"] / day["reviewed"] == stats["human_override_rate"]
+    assert day["agreed"] / day["labelled"] == stats["observed_accuracy"]
+    assert sum(day[o.value] for o in Outcome) == stats["decisions"] == 5
+
+
 def test_hash_chain_detects_tampering(store: AuditStore, decide: Decide) -> None:
     result = decide(EMERGENCY)
     store.resolve_review(result.id, final_label="nurse", reviewer="rn-1")

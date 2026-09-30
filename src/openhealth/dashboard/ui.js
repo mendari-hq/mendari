@@ -156,10 +156,11 @@ export async function whileBusy(button, busyText, task) {
 export const slotText = (slot) => `${slot[0].toUpperCase()}${slot.slice(1).replaceAll("_", " ")}`;
 
 // A stat: a label, a value, and what the value is out of. `html` values are trusted markup.
-export function stat({ label, value, foot = "", tone = "", html = false, size = "" }) {
+// `trend`: a sparkline beside the value (decorative); `change`: how it moved, in words.
+export function stat({ label, value, foot = "", tone = "", html = false, size = "", trend = "", change = "" }) {
   return `<div class="stat ${size} ${tone ? `tone-${tone}` : ""}">
     <div class="stat-label">${esc(label)}</div>
-    <div class="stat-value">${html ? value : esc(value)}</div>
-    ${foot ? `<div class="stat-foot">${foot}</div>` : ""}
+    <div class="stat-value">${html ? value : esc(value)}${trend}</div>
+    ${foot ? `<div class="stat-foot">${foot}</div>` : ""}${change}
   </div>`;
 }

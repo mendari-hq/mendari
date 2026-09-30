@@ -46,6 +46,7 @@ PAIRS = [
     ("outcome-abstain", "outcome-abstain-soft", TEXT),
     ("outcome-block", "outcome-block-soft", TEXT),
     ("color-on-solid", "color-danger-solid", TEXT),  # the stat chip
+    *[("color-on-outcome", f"outcome-{o}", TEXT) for o in ("auto", "review", "abstain", "block")],
     ("color-warning", "color-warning-soft", TEXT),  # sandbox tag, review count
     ("color-text", "outcome-review-soft", TEXT),  # criteria rows that change the decision
     ("color-text", "color-warning-soft", TEXT),  # an override waiting to be sent (Undo)
