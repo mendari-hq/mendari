@@ -513,3 +513,21 @@ on wrapping for a target's size.
 
 ### Verification
 `test_every_control_is_at_least_24_px` passes in CI, not only locally.
+
+## 2026-09-30 - process
+
+### What happened
+I wrote `SECURITY.md` with a shell heredoc (`cat > SECURITY.md`) without checking that it
+existed. It did, with deployment guidance (Vercel `ssoProtection: all`, remote providers, pack
+supply chain). `git status` showed `M` instead of `??`, which caught it before a commit; the
+content was merged into the new file.
+
+### Root cause
+Shell writes skip the Write tool's read-before-overwrite check.
+
+### Rule
+Before creating a file by shell, run `git ls-files <path>` (or `test -e`). If it exists, read it
+and edit it; never replace it.
+
+### Verification
+Every new file in a diff shows as added (`??` or `A`) in `git status` before the first commit.

@@ -314,7 +314,7 @@ def test_the_theme_is_set_before_any_app_code_runs(
         page.add_init_script(f"localStorage.setItem('oh.theme', {json.dumps(saved)})")
     page.route("**/static/*.js*", lambda route: None)  # never answered
     page.goto("/", wait_until="commit")
-    page.wait_for_function("document.documentElement.hasAttribute('data-theme')")
+    page.wait_for_function("() => document.documentElement.hasAttribute('data-theme')")
     assert page.evaluate("document.documentElement.dataset.theme") == theme
 
 
@@ -1358,10 +1358,10 @@ def test_a_view_fades_in_where_its_skeleton_was(page: Page) -> None:
     view = page.locator("#view")
     expect(view).to_have_class(re.compile("view-enter"))
     assert view.evaluate(ANIMATION) == "fade-in"
-    page.wait_for_function("window.fades === 1")
+    page.wait_for_function("() => window.fades === 1")
     page.locator('.nav a[data-view="audit"]').click()  # every navigation fades in again
     expect(page.locator("main h1")).to_have_text("Audit trail")
-    page.wait_for_function("window.fades === 2")
+    page.wait_for_function("() => window.fades === 2")
 
 
 def test_nothing_moves_under_reduced_motion(page: Page) -> None:

@@ -6,6 +6,7 @@ to localhost; on Vercel it sits behind Vercel Authentication (deployment protect
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
@@ -652,6 +653,20 @@ def create_app(
             response: Response = await call_next(request)
         return response
 
+    csp = content_security_policy(page)
+
+    @app.middleware("http")
+    async def _security_headers(request: Request, call_next: Any) -> Response:
+        """Outermost, so refusals from the guard get the headers too. The API docs pages load
+        Swagger UI and ReDoc from a CDN, so they keep no CSP."""
+        response: Response = await call_next(request)
+        for name, value in SECURITY_HEADERS.items():
+            response.headers.setdefault(name, value)
+        if not request.url.path.startswith(("/docs", "/redoc")):
+            response.headers.setdefault("Content-Security-Policy", csp)
+            response.headers.setdefault("Cross-Origin-Embedder-Policy", "require-corp")
+        return response
+
     add_auth_routes(app, auth)
     add_smart_routes(
         app,
@@ -677,6 +692,43 @@ def create_app(
 
     app.mount("/static", StaticFiles(directory=DASHBOARD_DIR), name="static")
     return app
+
+
+# Every response: no MIME sniffing, no referrer, no framing, no powerful browser features, and
+# cross-origin isolation (no other site shares a browsing context or embeds a response).
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "X-Frame-Options": "DENY",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
+    "Cross-Origin-Opener-Policy": "same-origin",
+    "Cross-Origin-Resource-Policy": "same-origin",
+}
+
+
+def content_security_policy(page: str) -> str:
+    """The dashboard needs nothing but its own origin. Its two inline scripts (the theme script
+    that runs before first paint, and the import map) are allowed by hash, not 'unsafe-inline';
+    style attributes (data-driven bar widths) need 'unsafe-inline' for styles."""
+    inline = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", page, re.S)
+    hashes = " ".join(
+        f"'sha256-{base64.b64encode(hashlib.sha256(script.encode()).digest()).decode()}'"
+        for script in inline
+    )
+    return "; ".join(
+        [
+            "default-src 'self'",
+            f"script-src 'self' {hashes}".strip(),
+            "style-src 'self' 'unsafe-inline'",
+            "img-src 'self' data:",
+            "connect-src 'self'",
+            "font-src 'self'",
+            "object-src 'none'",
+            "base-uri 'none'",
+            "form-action 'self'",
+            "frame-ancestors 'none'",
+        ]
+    )
 
 
 def versioned_dashboard() -> str:
