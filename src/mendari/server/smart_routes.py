@@ -156,7 +156,11 @@ def add_smart_routes(
         summary="The launch's patient",
     )
     def smart_patient(request: Request) -> dict[str, Any]:
-        """The patient in context, read from the EHR's FHIR server: name, age, sex."""
+        """The patient in context, read from the EHR's FHIR server: id, name, gender and birth
+        date.
+
+        Needs the SMART session an EHR launch starts (`/smart/launch`, the `mendari_smart`
+        cookie); without one, `401`."""
         session = session_of(request)
         with FhirClient(session["iss"], token=session["access_token"]) as fhir:
             return patient_summary(fhir.read(f"Patient/{session['patient']}"))
@@ -167,7 +171,10 @@ def add_smart_routes(
         summary="Items to decide about",
     )
     def smart_focus(request: Request, pack_id: str) -> list[dict[str, Any]]:
-        """The patient's resources the pack decides about (e.g. referrals), from the EHR."""
+        """The patient's resources the pack decides about (e.g. referrals), from the EHR.
+
+        Needs the SMART session an EHR launch starts (`/smart/launch`, the `mendari_smart`
+        cookie); without one, `401`."""
         session = session_of(request)
         adapter = FhirAdapter.for_pack(pack_or_404(pack_id))
         with FhirClient(session["iss"], token=session["access_token"]) as fhir:
@@ -179,7 +186,10 @@ def add_smart_routes(
         summary="Decide for the launch's patient",
     )
     def smart_decide(request: Request, body: SmartDecideRequest) -> dict[str, Any]:
-        """Read the record from the EHR, decide, and return the decision and its FHIR Task."""
+        """Read the record from the EHR, decide, and return the decision and its FHIR Task.
+
+        Needs the SMART session an EHR launch starts (`/smart/launch`, the `mendari_smart`
+        cookie); without one, `401`."""
         session = session_of(request)
         decision = decision_for(body.pack_id)
         with FhirClient(session["iss"], token=session["access_token"]) as fhir:

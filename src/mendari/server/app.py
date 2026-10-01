@@ -513,8 +513,10 @@ def create_app(
         `Task` for the work queue.
 
         Inputs are checked against US Core 6.1.0 (`fhir_validation` in `/api/health`: `warn`
-        records issues in `decision.input_issues`, `enforce` blocks). An element of the wrong JSON
-        type is a `400`. An error on this route is an `OperationOutcome`."""
+        records issues in `decision.input_issues`, `enforce` blocks). In every mode, a core element
+        of the wrong JSON type (`resourceType`, `id`, `meta`, `subject`, any `coding`, a Bundle's
+        entries) is a `400`; other elements are checked by US Core, under `fhir_validation`. An
+        error on this route is an `OperationOutcome`."""
         result, task = decision_for(f"{namespace}/{name}").decide_fhir(payload)
         return {"decision": result.to_dict(), "task": task}
 

@@ -573,3 +573,24 @@ line, before merging.
 ### Verification
 The PR shows the preview and production effective configurations as equal (a `diff` with no
 output).
+
+## 2026-10-01 - syntax
+
+### What happened
+A new check that FHIR elements have the right JSON type required `meta.profile` to be an array
+of strings. A review found it rejected valid FHIR: JSON pads a repeating primitive with `null`
+where only its extension (in `_profile`) is present. The same check walked resources recursively,
+so valid FHIR nested about 500 levels deep became a `500`.
+
+### Root cause
+FHIR JSON rules written from memory, and a recursive walk over client-supplied JSON.
+
+### Rule
+A hand-written FHIR JSON check allows `null` items in any repeating primitive, walks with a
+stack (never recursion), and is checked against the R4 StructureDefinitions
+(`scripts/us_core_subset.package()`), not memory. Prefer the HL7 validator or a parsing library
+where one fits.
+
+### Verification
+`tests/test_fhir_errors.py` has a null-padded profile and a 1,500-level nesting case.
+

@@ -214,3 +214,29 @@ def test_structure_errors_carry_paths_not_values() -> None:
     with pytest.raises(FhirStructureError) as raised:
         Decision.from_hub("mendari/patient-inbox-router").decide_fhir(bundle)
     assert SECRET not in str(raised.value) and raised.value.issues
+
+
+def test_a_null_padded_profile_is_valid_fhir(client: TestClient) -> None:
+    """FHIR JSON pads a repeating primitive with null where only its extension is present."""
+    bundle = inbox_bundle()
+    patient = bundle["entry"][0]["resource"]
+    absent = {"url": us_core.DATA_ABSENT, "valueCode": "unknown"}
+    patient["meta"]["profile"] = [*patient["meta"]["profile"], None]
+    patient["meta"]["_profile"] = [None, {"extension": [absent]}]
+    assert [i for i in us_core.validate(bundle) if i.code == "structure"] == []
+    assert client.post(f"{INBOX}/fhir/decide", json=bundle).status_code == 200
+
+
+def test_deeply_nested_valid_fhir_is_decided_not_a_500(client: TestClient) -> None:
+    """Extensions can nest deeper than Python's recursion limit; the checks must not recurse."""
+    nested: dict[str, Any] = {"url": "https://mendari.co/fhir/test/leaf", "valueString": "x"}
+    for depth in range(1500):
+        nested = {"url": f"https://mendari.co/fhir/test/{depth}", "extension": [nested]}
+    bundle = inbox_bundle()
+    communication(bundle)["extension"] = [nested]
+    response = client.post(
+        f"{INBOX}/fhir/decide",
+        content=json.dumps(bundle),
+        headers={"content-type": "application/fhir+json"},
+    )
+    assert response.status_code == 200, response.text

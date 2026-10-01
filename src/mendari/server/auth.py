@@ -379,8 +379,8 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
         summary="List API keys",
     )
     def list_keys(request: Request) -> list[dict[str, Any]]:
-        """Keys of this organization: name, role, who created it, when it was last used. Never
-        the key."""
+        """Keys of this organization: name, role, who created it and when, and when it was
+        revoked. Never the key."""
         principal: Principal = getattr(request.state, "principal", OPEN)
         return store.api_keys(None if principal.kind == "open" else principal.org)
 

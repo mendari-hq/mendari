@@ -92,8 +92,8 @@ All data here is synthetic. This is a research preview, not a medical device.
 
 1. `GET /api/packs` lists the packs.
 2. `GET /api/packs/{pack}/examples` gives synthetic inputs.
-3. `POST /api/packs/{pack}/decide` with one of them returns the decision; its `id` opens the
-   audit record at `GET /api/audit/{{id}}`.
+3. `POST /api/packs/{pack}/decide` with an example's `input` returns the decision; its `id`
+   opens the audit record at `GET /api/audit/{{id}}`.
 
 ### FHIR
 
@@ -123,11 +123,12 @@ def document(
     ordered = sorted(packs, key=lambda pack_id: (pack_id != default_pack, pack_id))
     inputs = {pack_id: _example_input(packs[pack_id]) for pack_id in ordered}
     for path, operations in schema.get("paths", {}).items():
+        fitting = [pack_id for pack_id in ordered if _fits(packs[pack_id], path)]
         for method, operation in operations.items():
             for parameter in operation.get("parameters", []):
                 if parameter.get("in") == "path" and parameter["name"] in ("namespace", "name"):
                     part = 0 if parameter["name"] == "namespace" else 1
-                    values = dict.fromkeys(pack_id.split("/")[part] for pack_id in ordered)
+                    values = dict.fromkeys(pack_id.split("/")[part] for pack_id in fitting)
                     parameter["examples"] = {value: {"value": value} for value in values}
             body = operation.get("requestBody", {}).get("content", {}).get("application/json")
             examples = _body_examples(path, inputs, packs)
@@ -150,6 +151,16 @@ def document(
             },
         }
     return schema
+
+
+def _fits(pack: Pack, path: str) -> bool:
+    """Whether "Try it out" should offer this pack on this path: the guard route needs a pack
+    with a guard, the FHIR route one with a FHIR mapping."""
+    if path.endswith("/guard"):
+        return pack.manifest.guard is not None
+    if path.endswith("/fhir/decide"):
+        return pack.manifest.inputs.fhir is not None
+    return True
 
 
 def _example_input(pack: Pack) -> tuple[str, dict[str, Any]] | None:

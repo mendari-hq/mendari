@@ -342,6 +342,11 @@ produced the two `500`s.
   `MENDARI_OIDC_ENDPOINT_ORIGINS` for a provider's endpoints on other hosts, and a role from
   the `email` claim only when `email_verified` is `true`. `/docs` sends a signed-out browser to
   sign in.
+- Reviewed before shipping by five independent reviewers, each finding checked by a skeptic.
+  The structure rules hold for all 658 R4 StructureDefinitions, and sign-in had no findings.
+  Six low-severity problems were confirmed and fixed: a null-padded `meta.profile` (valid FHIR
+  JSON) was rejected; nesting deeper than about 500 levels was a `500` (the walk is now
+  iterative); and four places where the API docs said more than the code does.
 
 ### Phase 2: core conformance (≈ 4–6 days)
 

@@ -6,7 +6,8 @@ Roadmap to the full goal: [`docs/roadmap.md`](../docs/roadmap.md).
 From the [FHIR and API docs audit](../docs/fhir-and-docs-audit.md); approved by the owner.
 Sign-in: Google, the owner as the only admin.
 - [x] No input crashes a FHIR route: a test that mistypes every element of the US Core fixtures
-  finds the crash sites; an element of the wrong JSON type → `400`
+  finds the crash sites; a core element of the wrong JSON type (`resourceType`, `id`, `meta`,
+  `subject`, any `coding`, Bundle entries) → `400`
 - [x] Errors on FHIR routes (`…/fhir/decide`, `/fhir/…`) are `OperationOutcome`s,
   `application/fhir+json`; an unexpected error is a JSON `500` everywhere, never plain text
 - [x] Validation errors (`422`) no longer echo the request body

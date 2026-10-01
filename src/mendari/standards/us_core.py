@@ -109,7 +109,8 @@ def structure(resource: Mapping[str, Any]) -> list[Issue]:
     if meta is not None and not isinstance(meta, Mapping):
         wrong(f"{kind}.meta", "an object")
     elif meta is not None:
-        if not _array_of(meta.get("profile"), str):
+        # A repeating primitive is null where only its extension (in `_profile`) is present.
+        if not _array_of(meta.get("profile"), (str, type(None))):
             wrong(f"{kind}.meta.profile", "an array of strings")
         for name in ("tag", "security"):
             if not _array_of(meta.get(name), Mapping):
@@ -126,23 +127,24 @@ def structure(resource: Mapping[str, Any]) -> list[Issue]:
     return found
 
 
-def _array_of(value: Any, kind: type) -> bool:
+def _array_of(value: Any, kind: type | tuple[type, ...]) -> bool:
     """Absent, or a JSON array whose items are all of `kind`."""
     return value is None or (isinstance(value, list) and all(isinstance(v, kind) for v in value))
 
 
 def _elements(node: Any, name: str, where: str) -> Iterator[tuple[str, Any]]:
-    """(FHIRPath, value) of every element called `name`, at any depth."""
-    if isinstance(node, Mapping):
-        for key, value in node.items():
-            path = f"{where}.{key}"
-            if key == name:
-                yield path, value
-            else:
-                yield from _elements(value, name, path)
-    elif isinstance(node, list):
-        for index, item in enumerate(node):
-            yield from _elements(item, name, f"{where}[{index}]")
+    """(FHIRPath, value) of every element called `name`, at any depth, in document order. A
+    stack, not recursion: valid FHIR can nest deeper than Python's recursion limit."""
+    stack: list[tuple[str, Any, bool]] = [(where, node, False)]
+    while stack:
+        path, value, matched = stack.pop()
+        if matched:
+            yield path, value
+        elif isinstance(value, Mapping):
+            children = [(f"{path}.{key}", item, key == name) for key, item in value.items()]
+            stack.extend(reversed(children))
+        elif isinstance(value, list):
+            stack.extend(reversed([(f"{path}[{i}]", item, False) for i, item in enumerate(value)]))
 
 
 def errors(issues: list[Issue]) -> list[Issue]:
@@ -174,7 +176,9 @@ def profile_for(resource: Mapping[str, Any]) -> str | None:
     kind = resource.get("resourceType")
     known = profiles()
     for url in _list(_object(resource.get("meta")).get("profile")):
-        name = str(url).split("|")[0].removeprefix(PROFILE_BASE)
+        if not isinstance(url, str):
+            continue
+        name = url.split("|")[0].removeprefix(PROFILE_BASE)
         if name in known and known[name]["type"] == kind:
             return name
     categories = _codings(resource.get("category"))

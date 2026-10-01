@@ -241,6 +241,17 @@ def test_the_api_reference_describes_every_operation(client: TestClient) -> None
         pack_id = example["summary"].split(":")[0]
         decided = client.post(f"/api/packs/{pack_id}/decide", json=example["value"]).json()
         assert decided["outcome"] != "BLOCK", (pack_id, decided["reasons"])
+
+    def offered(path: str) -> list[str]:
+        operation = schema["paths"][path]["post"]
+        name = next(p for p in operation["parameters"] if p["name"] == "name")
+        return list(name["examples"])
+
+    assert offered("/api/packs/{namespace}/{name}/guard") == ["ai-guard"]  # the guard pack
+    fhir_packs = offered("/api/packs/{namespace}/{name}/fhir/decide")
+    assert fhir_packs[0] == "patient-inbox-router" and "ai-guard" not in fhir_packs
+    smart = schema["paths"]["/api/smart/decide"]["post"]
+    assert "SMART session" in smart["description"]  # public to sign-in, not to the launch
     fhir = schema["paths"]["/api/packs/{namespace}/{name}/fhir/decide"]["post"]
     bundle = fhir["requestBody"]["content"]["application/json"]["examples"]["message"]["value"]
     decided = client.post(f"{PACK}/fhir/decide", json=bundle).json()
