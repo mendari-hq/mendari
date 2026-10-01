@@ -16,16 +16,16 @@ import sys
 import tempfile
 from pathlib import Path
 
-from openhealth import AuditStore, Decision
-from openhealth.core.phi import PhiPolicy
-from openhealth.standards import audit_fhir
+from mendari import AuditStore, Decision
+from mendari.core.phi import PhiPolicy
+from mendari.standards import audit_fhir
 
 
 def main(out: Path) -> None:
     with tempfile.TemporaryDirectory() as scratch:
         phi = PhiPolicy(mode="encrypt", key=os.urandom(32))
         store = AuditStore(Path(scratch) / "audit.db", phi=phi)
-        decide = Decision.from_hub("openhealth/patient-inbox-router", store=store)
+        decide = Decision.from_hub("mendari/patient-inbox-router", store=store)
         emergency = {"message": {"body": "Crushing chest pain and my left arm is numb"}}
         confirmed, overridden = decide(emergency), decide(emergency)
         routine = decide({"message": {"body": "Can you send a refill for metformin?"}})

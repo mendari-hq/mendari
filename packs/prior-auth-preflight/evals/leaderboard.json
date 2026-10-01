@@ -1,7 +1,7 @@
 {
-  "format": "openhealth.leaderboard/1",
+  "format": "mendari.leaderboard/1",
   "pack": {
-    "id": "openhealth/prior-auth-preflight",
+    "id": "mendari/prior-auth-preflight",
     "version": "0.1.0"
   },
   "updated_at": "2026-09-29T16:03:32+00:00",

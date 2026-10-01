@@ -8,9 +8,9 @@ from typing import Any
 import httpx
 import pytest
 
-from openhealth.cli import main
-from openhealth.errors import OpenHealthError
-from openhealth.sandbox import pilot_check
+from mendari.cli import main
+from mendari.errors import MendariError
+from mendari.sandbox import pilot_check
 
 ENGINE = "http://engine.test"
 
@@ -18,7 +18,7 @@ ENGINE = "http://engine.test"
 def test_the_pilot_needs_sign_in_and_phi_encryption() -> None:
     health = {"status": "ok", "sign_in": False, "phi_mode": "off"}
     transport = httpx.MockTransport(lambda request: httpx.Response(200, json=health))
-    with pytest.raises(OpenHealthError, match="sign-in on and PHI mode encrypt"):
+    with pytest.raises(MendariError, match="sign-in on and PHI mode encrypt"):
         pilot_check.run(engine=ENGINE, transport=transport)
 
 
@@ -30,7 +30,7 @@ def test_a_sign_in_must_come_back_to_the_engine() -> None:
 
     with (
         httpx.Client(transport=httpx.MockTransport(handler)) as http,
-        pytest.raises(OpenHealthError, match=r"elsewhere\.test"),
+        pytest.raises(MendariError, match=r"elsewhere\.test"),
     ):
         pilot_check.Pilot(ENGINE, http).sign_in("reviewer")
 
@@ -38,7 +38,7 @@ def test_a_sign_in_must_come_back_to_the_engine() -> None:
 def test_a_step_that_answers_the_wrong_status_stops_the_pilot() -> None:
     with httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200))) as http:
         pilot = pilot_check.Pilot(ENGINE, http)
-        with pytest.raises(OpenHealthError, match="the viewer may not resolve a review: HTTP 200"):
+        with pytest.raises(MendariError, match="the viewer may not resolve a review: HTTP 200"):
             pilot.expect(http.get(ENGINE), 403, "the viewer may not resolve a review")
 
 
@@ -51,7 +51,7 @@ def test_the_cli_reports_the_steps_or_the_failure(
     assert '"decided": 1' in capsys.readouterr().out
 
     def fail(**kwargs: Any) -> dict[str, Any]:
-        raise OpenHealthError("the viewer could read an input")
+        raise MendariError("the viewer could read an input")
 
     monkeypatch.setattr(pilot_check, "run", fail)
     assert main(["sandbox", "pilot-check", "--engine", ENGINE]) == 1

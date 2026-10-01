@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-CSS = (Path(__file__).parents[1] / "src" / "openhealth" / "dashboard" / "style.css").read_text()
+CSS = (Path(__file__).parents[1] / "src" / "mendari" / "dashboard" / "style.css").read_text()
 TEXT, UI = 4.5, 3.0  # WCAG AA: normal text; UI components, focus rings and chart marks
 
 

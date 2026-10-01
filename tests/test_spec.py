@@ -5,24 +5,24 @@ from pathlib import Path
 
 import pytest
 
-from openhealth import Pack, load_pack
-from openhealth.core.pack import pack_digest
-from openhealth.core.registry import resolve_pack
-from openhealth.errors import PackNotFoundError, PackValidationError
+from mendari import Pack, load_pack
+from mendari.core.pack import pack_digest
+from mendari.core.registry import resolve_pack
+from mendari.errors import PackNotFoundError, PackValidationError
 
 
 def test_reference_pack_loads(inbox_pack: Pack) -> None:
-    assert inbox_pack.id == "openhealth/patient-inbox-router"
+    assert inbox_pack.id == "mendari/patient-inbox-router"
     assert inbox_pack.manifest.policy.primary == "destination"
     assert inbox_pack.digest.startswith("sha256:")
 
 
 def test_resolve_by_id_and_version(inbox_pack: Pack) -> None:
-    assert resolve_pack("openhealth/patient-inbox-router").root == inbox_pack.root
-    pinned = f"openhealth/patient-inbox-router@{inbox_pack.version}"
+    assert resolve_pack("mendari/patient-inbox-router").root == inbox_pack.root
+    pinned = f"mendari/patient-inbox-router@{inbox_pack.version}"
     assert resolve_pack(pinned).version == inbox_pack.version
     with pytest.raises(PackNotFoundError):
-        resolve_pack("openhealth/patient-inbox-router@9.9.9")
+        resolve_pack("mendari/patient-inbox-router@9.9.9")
 
 
 def test_output_schema_lists_primary_labels(inbox_pack: Pack) -> None:

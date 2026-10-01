@@ -9,12 +9,12 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from openhealth import AuditStore, Decision, Pack
-from openhealth.cli import main
-from openhealth.core import tenancy
-from openhealth.errors import OpenHealthError
-from openhealth.evals.monitoring import _alerts, _psi, check_webhook, monitor
-from openhealth.server.app import create_app
+from mendari import AuditStore, Decision, Pack
+from mendari.cli import main
+from mendari.core import tenancy
+from mendari.errors import MendariError
+from mendari.evals.monitoring import _alerts, _psi, check_webhook, monitor
+from mendari.server.app import create_app
 from tests.conftest import message
 
 ROUTINE = "Can you send a refill for metformin to my pharmacy on Main Street?"  # AUTO
@@ -164,7 +164,7 @@ def test_the_cli_exits_1_on_alerts_and_posts_them(
     ],
 )
 def test_alerts_leave_only_over_https_without_credentials(url: str) -> None:
-    with pytest.raises(OpenHealthError):
+    with pytest.raises(MendariError):
         check_webhook(url)
 
 

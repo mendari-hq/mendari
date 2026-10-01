@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from openhealth.server.app import SECURITY_HEADERS, create_app
+from mendari.server.app import SECURITY_HEADERS, create_app
 
 
 @pytest.fixture
@@ -41,8 +41,8 @@ def test_the_csp_allows_the_dashboards_inline_scripts_and_nothing_else(client: T
 
 
 def test_refusals_carry_the_headers_too(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("OPENHEALTH_OIDC_ISSUER", "https://idp.example.org")
-    monkeypatch.setenv("OPENHEALTH_OIDC_CLIENT_ID", "openhealth")
+    monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
+    monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
     refused = TestClient(create_app(db_path=tmp_path / "a.db")).get("/api/audit")
     assert refused.status_code == 401
     assert refused.headers["x-frame-options"] == "DENY"

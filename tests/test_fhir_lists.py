@@ -11,11 +11,11 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from openhealth import Decision, load_pack
-from openhealth.core.spec import PackManifest
-from openhealth.errors import FhirError, PackValidationError
-from openhealth.standards import cds_hooks
-from openhealth.standards.fhir import FhirAdapter, age_years
+from mendari import Decision, load_pack
+from mendari.core.spec import PackManifest
+from mendari.errors import FhirError, PackValidationError
+from mendari.standards import cds_hooks
+from mendari.standards.fhir import FhirAdapter, age_years
 from tests.conftest import INBOX_DIR
 from tests.test_fhir import COMMUNICATION, PATIENT
 
@@ -172,7 +172,7 @@ def test_patient_view_cards_use_the_packs_wording() -> None:
 
 def test_the_inbox_card_wording_is_unchanged(router: Decision) -> None:
     request = {
-        "hook": "openhealth-message-received",
+        "hook": "mendari-message-received",
         "prefetch": {"communication": COMMUNICATION, "patient": PATIENT},
     }
     card = cds_hooks.invoke(router, request)["cards"][0]
@@ -200,7 +200,7 @@ def test_age_years_and_bad_attachments() -> None:
 def test_validate_parses_the_fhir_mapping(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    from openhealth.cli import main
+    from mendari.cli import main
 
     root = tmp_path / "pack"
     shutil.copytree(MINI, root)

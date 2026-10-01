@@ -11,12 +11,12 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from openhealth import AuditStore, Decision, DecisionResult, Pack
-from openhealth.cli import main
-from openhealth.core.phi import PhiPolicy
-from openhealth.server.app import create_app
-from openhealth.standards import audit_fhir
-from openhealth.standards.fhir import DECISION_ID_SYSTEM
+from mendari import AuditStore, Decision, DecisionResult, Pack
+from mendari.cli import main
+from mendari.core.phi import PhiPolicy
+from mendari.server.app import create_app
+from mendari.standards import audit_fhir
+from mendari.standards.fhir import DECISION_ID_SYSTEM
 from tests.conftest import message
 
 EMERGENCY = "Crushing chest pain and my left arm is numb"  # stat HUMAN_REVIEW -> nurse

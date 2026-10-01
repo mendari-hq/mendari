@@ -8,11 +8,11 @@ from pathlib import Path
 
 import pytest
 
-from openhealth import Decision, GovernanceOverride
-from openhealth.cli import main
-from openhealth.core.policy import Outcome
-from openhealth.guard import check
-from openhealth.sandbox import synthetic_guard
+from mendari import Decision, GovernanceOverride
+from mendari.cli import main
+from mendari.core.policy import Outcome
+from mendari.guard import check
+from mendari.sandbox import synthetic_guard
 
 ROOT = Path(__file__).parents[1]
 PACK_DIR = ROOT / "packs" / "ai-guard"

@@ -6,8 +6,8 @@ from typing import Any
 import httpx
 import pytest
 
-from openhealth.errors import ProviderError
-from openhealth.providers.credentials import ConnectorToken, key_source, resolve_key
+from mendari.errors import ProviderError
+from mendari.providers.credentials import ConnectorToken, key_source, resolve_key
 
 SECRET = "jev-secret-value"
 OIDC = "oidc-identity-token"

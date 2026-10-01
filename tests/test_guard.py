@@ -9,11 +9,11 @@ import yaml
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from openhealth import Decision, GovernanceOverride
-from openhealth.core.spec import PackManifest
-from openhealth.errors import OpenHealthError
-from openhealth.guard import check
-from openhealth.server.app import create_app
+from mendari import Decision, GovernanceOverride
+from mendari.core.spec import PackManifest
+from mendari.errors import MendariError
+from mendari.guard import check
+from mendari.server.app import create_app
 from tests.conftest import INBOX_DIR
 
 MINI = Path(__file__).parent / "fixtures" / "packs" / "guard-mini"
@@ -52,7 +52,7 @@ def test_a_governance_override_releases_passing_drafts() -> None:
 
 def test_invalid_input_is_blocked_and_packs_without_a_guard_refuse() -> None:
     assert check(Decision.from_path(MINI), {"question": "hi"}).status == "blocked"  # no draft
-    with pytest.raises(OpenHealthError, match="no `guard` section"):
+    with pytest.raises(MendariError, match="no `guard` section"):
         check(Decision.from_path(INBOX_DIR), {"message": {"body": "hi"}})
 
 
@@ -72,7 +72,7 @@ def test_guard_section_is_validated() -> None:
 def test_the_guard_endpoint_is_audited(db_target: str) -> None:
     app = create_app(db_path=db_target, packs_paths=[MINI.parent])
     client = TestClient(app)
-    url = "/api/packs/openhealth-test/guard-mini/guard"
+    url = "/api/packs/mendari-test/guard-mini/guard"
     blocked = client.post(url, json=OVERDOSE).json()
     assert blocked["status"] == "blocked" and blocked["reply"] is None
     assert blocked["fallback"].startswith("Do not send the draft")
@@ -80,5 +80,5 @@ def test_the_guard_endpoint_is_audited(db_target: str) -> None:
     assert (held["status"], held["recommendation"]) == ("held_for_review", "pass")
     audited = {r["id"] for r in client.get("/api/audit?limit=10").json()}
     assert {blocked["decision_id"], held["decision_id"]} <= audited
-    no_guard = client.post("/api/packs/openhealth-test/trial-mini/guard", json={})
+    no_guard = client.post("/api/packs/mendari-test/trial-mini/guard", json={})
     assert no_guard.status_code == 400

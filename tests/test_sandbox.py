@@ -8,27 +8,27 @@ from typing import Any
 import httpx
 import pytest
 
-from openhealth.core import clock
-from openhealth.core.decision import Decision
-from openhealth.core.registry import resolve_pack
-from openhealth.errors import OpenHealthError
-from openhealth.evals.harness import load_dataset
-from openhealth.sandbox import example_datasets_dir, fhir_workflow, synthetic_inbox
-from openhealth.sandbox.fhir_records import inbox_entries, referral_entries
-from openhealth.sandbox.fhir_workflow import (
+from mendari.core import clock
+from mendari.core.decision import Decision
+from mendari.core.registry import resolve_pack
+from mendari.errors import MendariError
+from mendari.evals.harness import load_dataset
+from mendari.sandbox import example_datasets_dir, fhir_workflow, synthetic_inbox
+from mendari.sandbox.fhir_records import inbox_entries, referral_entries
+from mendari.sandbox.fhir_workflow import (
     INBOX,
     REFERRAL,
     _process_batch,
     seed_bundle,
     to_resources,
 )
-from openhealth.standards import us_core
-from openhealth.standards.fhir import FhirAdapter
+from mendari.standards import us_core
+from mendari.standards.fhir import FhirAdapter
 
 DATASETS = example_datasets_dir() or Path("datasets")
 
 FHIR = "http://fhir.test/fhir"
-DECIDE = "http://engine.test/api/packs/openhealth/patient-inbox-router/fhir/decide"
+DECIDE = "http://engine.test/api/packs/mendari/patient-inbox-router/fhir/decide"
 
 
 class StaleFhir:
@@ -153,8 +153,8 @@ def test_seed_bundles_hold_the_requested_cases() -> None:
         if e["resource"]["resourceType"] == "Patient"
     ]
     assert identifiers == [r["id"] for r in REFERRAL_CASES[:5]]  # labels join back by case id
-    with pytest.raises(OpenHealthError, match="can seed"):
-        seed_bundle("openhealth/ai-guard", 1)
+    with pytest.raises(MendariError, match="can seed"):
+        seed_bundle("mendari/ai-guard", 1)
 
 
 def moved_input(data: dict[str, Any]) -> dict[str, Any]:

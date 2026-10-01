@@ -1,6 +1,6 @@
 # Security and safety
 
-OpenHealth Hub routes clinical work, so security reports get priority.
+Mendari routes clinical work, so security reports get priority.
 
 ## Reporting a vulnerability
 
@@ -14,7 +14,7 @@ Please report privately, not in a public issue:
 We acknowledge a report within 3 working days and aim to fix critical issues within 14 days. We
 credit reporters who want it, once a fix is released.
 
-**In scope:** the engine (`src/openhealth`), the dashboard, the registry and Hub client, the Hub
+**In scope:** the engine (`src/mendari`), the dashboard, the registry and Hub client, the Hub
 website (`hub/`), the container images and the deployment templates (`deploy/`).
 
 **Out of scope:**
@@ -26,7 +26,7 @@ website (`hub/`), the container images and the deployment templates (`deploy/`).
 
 ## Safety
 
-- OpenHealth is **not a medical device** and makes no clinical claims.
+- Mendari is **not a medical device** and makes no clinical claims.
 - Everything here runs on **synthetic data**. Don't send real protected health information
   (PHI) to it, to the sandbox FHIR server or to remote providers until a deployment follows
   [`docs/deploying-with-phi.md`](docs/deploying-with-phi.md) and the owner approves real-patient
@@ -40,9 +40,9 @@ website (`hub/`), the container images and the deployment templates (`deploy/`).
   (`ssoProtection: all`). The default, "all except custom domains", leaves the production
   domain public. External machine callers, such as an EHR calling CDS Hooks, would need
   Protection Bypass for Automation there, which is not set up.
-- **Sign-in for organizations.** Set `OPENHEALTH_OIDC_ISSUER` and `OPENHEALTH_OIDC_CLIENT_ID`,
+- **Sign-in for organizations.** Set `MENDARI_OIDC_ISSUER` and `MENDARI_OIDC_CLIENT_ID`,
   and every route needs a role. Machines (an EHR calling CDS Hooks, a worker) use API keys.
-- **PHI mode.** `OPENHEALTH_PHI_MODE=hash` stores no input; `encrypt` stores inputs encrypted
+- **PHI mode.** `MENDARI_PHI_MODE=hash` stores no input; `encrypt` stores inputs encrypted
   apart from the audit chain, readable only by signed-in reviewers and admins, and every read
   is logged. Without PHI mode, audit records keep full inputs by default
   (`audit.store_input: full`); use `hash` for any pack that might see sensitive text.
@@ -68,7 +68,7 @@ webhooks.
 Packs contain behaviour: patterns, models, CQL and policies. Review a pack like code before
 running it.
 
-- Registry packs are **signed archives** (Ed25519, deterministic). `openhealth pull` verifies
+- Registry packs are **signed archives** (Ed25519, deterministic). `mendari pull` verifies
   them and pins the publisher's key on first use, and versions are immutable.
 - Every decision and report records the pack's digest. A governance approval to automate at
   risk level 2–3 covers one digest only.

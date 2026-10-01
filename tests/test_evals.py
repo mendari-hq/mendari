@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from openhealth import Decision, Pack
-from openhealth.core.card import benchmark, render_card
-from openhealth.errors import OpenHealthError
-from openhealth.evals import (
+from mendari import Decision, Pack
+from mendari.core.card import benchmark, render_card
+from mendari.errors import MendariError
+from mendari.evals import (
     compare,
     evaluate,
     load_dataset,
@@ -62,7 +62,7 @@ def test_threshold_sweep() -> None:
 def test_dataset_loading_errors(tmp_path: Path) -> None:
     bad = tmp_path / "bad.jsonl"
     bad.write_text('{"input": {}}\n{"labels": {}}\n')
-    with pytest.raises(OpenHealthError, match=r"bad\.jsonl:2"):
+    with pytest.raises(MendariError, match=r"bad\.jsonl:2"):
         load_dataset(bad)
 
 

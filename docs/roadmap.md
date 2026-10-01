@@ -1,4 +1,4 @@
-# OpenHealth Hub roadmap: v0.1 → v1.0
+# Mendari roadmap: v0.1 → v1.0
 
 _Approved 2026-09-28. Living document: update it as milestones land._
 
@@ -40,7 +40,7 @@ first** (the Hub only matters once it has five strong packs), **LLMs through Ver
 
 - **v1.0 Public open-source launch, built** ([plan](plans/v1.0-public-launch.md), #96–#101):
   - a security review (threat model; dependency audit and an OWASP ZAP scan in CI; headers);
-  - the clinician's authoring guide and `openhealth new`;
+  - the clinician's authoring guide and `mendari new`;
   - the docs site;
   - the contribution flow with its eval gate, and the community files;
   - a release workflow, and the README quickstart timed in CI (it finishes well under 10
@@ -129,7 +129,7 @@ must be identical to the same cases read from the dataset file._
   with a server allow-list against SSRF), in addition to prefetch.
 - **Bulk FHIR** `$export` ingestion into local-validation datasets.
 - Exit: the inbox and referral packs run from a SMART launch against the HAPI sandbox; Bulk
-  export → `openhealth eval` works end to end.
+  export → `mendari eval` works end to end.
 
 ### v0.5 The Hub (the "Hugging Face" part) ✅
 _Built and verified 2026-09-30 (#75–#82): signed deterministic archives, the registry (namespaces,
@@ -138,7 +138,7 @@ and pinned pulls, shared site reports, and the Next.js website. CI runs the exit
 virtual environment. It is not deployed publicly: that needs production signing keys and the
 go-ahead to publish (see the overnight log)._
 - A pack distribution format: an immutable, versioned archive with a digest and signature.
-  `openhealth login / push / pull / search`; `Decision.from_hub` fetches, verifies and caches
+  `mendari login / push / pull / search`; `Decision.from_hub` fetches, verifies and caches
   remote packs.
 - **Registry service** (FastAPI + Neon + Vercel Blob) with namespaces and publisher types
   (**community / verified / institutional**), plus a verification process.
@@ -149,7 +149,7 @@ go-ahead to publish (see the overnight log)._
 - Shareable local-validation reports (metrics only; reports already contain no case text), for
   site-to-site comparison.
 - Exit: the five packs are published; on a clean machine
-  `pip install openhealth && openhealth pull openhealth/referral-router` works.
+  `pip install mendari && mendari pull mendari/referral-router` works.
 
 ### v0.6 Readiness for health organizations ✅
 _Built and verified 2026-09-30 (#83–#89). Every control is off until configured. The exit runs

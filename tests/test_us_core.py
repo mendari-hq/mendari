@@ -10,15 +10,15 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from openhealth.core.decision import Decision
-from openhealth.core.spec import Outcome
-from openhealth.errors import OpenHealthError
-from openhealth.server.app import create_app
-from openhealth.settings import fhir_validation
-from openhealth.standards import us_core
+from mendari.core.decision import Decision
+from mendari.core.spec import Outcome
+from mendari.errors import MendariError
+from mendari.server.app import create_app
+from mendari.settings import fhir_validation
+from mendari.standards import us_core
 
 FIXTURES = Path(__file__).parent / "fixtures" / "us-core"
-REFERRAL = "openhealth/referral-router"
+REFERRAL = "mendari/referral-router"
 
 
 def load(name: str) -> dict[str, Any]:
@@ -219,12 +219,12 @@ def test_enforce_lets_a_conforming_input_through() -> None:
 
 
 def test_the_setting(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("OPENHEALTH_FHIR_VALIDATION", raising=False)
+    monkeypatch.delenv("MENDARI_FHIR_VALIDATION", raising=False)
     assert fhir_validation() == "warn"
-    monkeypatch.setenv("OPENHEALTH_FHIR_VALIDATION", " Enforce ")
+    monkeypatch.setenv("MENDARI_FHIR_VALIDATION", " Enforce ")
     assert fhir_validation() == "enforce"
-    monkeypatch.setenv("OPENHEALTH_FHIR_VALIDATION", "strict")
-    with pytest.raises(OpenHealthError, match="off, warn or enforce"):
+    monkeypatch.setenv("MENDARI_FHIR_VALIDATION", "strict")
+    with pytest.raises(MendariError, match="off, warn or enforce"):
         fhir_validation()
 
 

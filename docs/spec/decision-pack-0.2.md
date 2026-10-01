@@ -2,8 +2,8 @@
 
 Status: draft. Supersedes [0.1](decision-pack-0.1.md); every valid 0.1 pack is a valid 0.2
 pack with unchanged behaviour (§13). The key words MUST, SHOULD and MAY are used as in RFC 2119. The reference
-implementation is `openhealth.core.spec` (manifest), `openhealth.core.derive` (derived
-questions) and `openhealth.core.policy` (semantics).
+implementation is `mendari.core.spec` (manifest), `mendari.core.derive` (derived
+questions) and `mendari.core.policy` (semantics).
 Where this document and the implementation disagree, file an issue; the document is intended
 to be normative.
 
@@ -311,7 +311,7 @@ Dataset format: JSON Lines. Each line has an `input` (the pack input), optional 
 (`{question: label}`), optional `attributes` (subgroup metadata such as `language` or
 `site`), and an optional `id`.
 
-An evaluation report (`format: openhealth.eval/1`) MUST include the pack id, version and
+An evaluation report (`format: mendari.eval/1`) MUST include the pack id, version and
 digest; the provider variant and model of each slot; the dataset name, SHA-256 and size; per
 question accuracy (derived questions included), macro-F1, per-label precision/recall/F1, confusion matrix, ECE with
 reliability bins, and Brier score; outcome rates; automation accuracy and false automation
@@ -325,7 +325,7 @@ MUST report the overall delta of primary accuracy and SHOULD localize degradatio
 recall, subgroup, calibration and false automation. Any automated true-critical case is always
 a finding.
 
-A **leaderboard** (`format: openhealth.leaderboard/1`) compares provider configurations. Each
+A **leaderboard** (`format: mendari.leaderboard/1`) compares provider configurations. Each
 row summarises one report: the configuration (slot variants, naming the model of remote
 providers), dataset and size, primary accuracy, macro-F1 and ECE, AUTO and false automation
 rates, critical detection and automated misses, p50/p95 latency, cost per decision and error
@@ -460,7 +460,7 @@ produces identical decisions; it simply cannot use the new fields.
 | FHIR `lists`, `age_years`/`base64_text`; card and Task templates naming answers | §9 |
 | FHIR `focus_where`; one decision per draft order for `order-select`/`order-sign` | §9 |
 | `dosing` provider; `guard` section and statuses | §5, §9.1 |
-| `cql` provider (a library in the pack, a CQL engine at `$OPENHEALTH_CQL_URL`) | §5 |
+| `cql` provider (a library in the pack, a CQL engine at `$MENDARI_CQL_URL`) | §5 |
 | `cds_hooks.coverage_information` (Da Vinci CRD system actions on order hooks) | §9 |
 | `cds_hooks.questionnaire` (Da Vinci DTR `$questionnaire-package`) | §9 |
 | The decision output schema adds an optional `value` to each answer | §4.2 |

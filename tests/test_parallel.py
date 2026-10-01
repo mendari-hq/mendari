@@ -5,8 +5,8 @@ import contextvars
 import json
 import time
 
-from openhealth.parallel import parallel_map
-from openhealth.providers.credentials import vercel_oidc_token
+from mendari.parallel import parallel_map
+from mendari.providers.credentials import vercel_oidc_token
 
 
 def test_workers_keep_the_callers_context() -> None:

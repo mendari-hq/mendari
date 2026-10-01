@@ -1,5 +1,5 @@
 """The eval gate for one changed pack (workflow `packs`): its metrics against `main`'s benchmark
-as Markdown for the job summary; exit 1 on a regression (openhealth.evals.gate).
+as Markdown for the job summary; exit 1 on a regression (mendari.evals.gate).
 
     uv run python scripts/pack_gate.py packs/NAME --report new.json [--main main.json]
 """
@@ -14,8 +14,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from openhealth.core.registry import resolve_pack  # noqa: E402
-from openhealth.evals.gate import gate, markdown  # noqa: E402
+from mendari.core.registry import resolve_pack  # noqa: E402
+from mendari.evals.gate import gate, markdown  # noqa: E402
 
 
 def main() -> int:

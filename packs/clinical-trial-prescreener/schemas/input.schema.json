@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://openhealth.dev/packs/clinical-trial-prescreener/input.schema.json",
+  "$id": "https://mendari.co/packs/clinical-trial-prescreener/input.schema.json",
   "title": "Clinical Trial Prescreener input",
   "description": "A patient's record for prescreening: demographics, coded conditions, lab results, medications and clinic notes. Dates are ISO 8601; the screening date defaults to today.",
   "type": "object",

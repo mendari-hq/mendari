@@ -1,7 +1,7 @@
 {
-  "format": "openhealth.leaderboard/1",
+  "format": "mendari.leaderboard/1",
   "pack": {
-    "id": "openhealth/referral-router",
+    "id": "mendari/referral-router",
     "version": "0.1.1"
   },
   "updated_at": "2026-09-29T05:00:50+00:00",

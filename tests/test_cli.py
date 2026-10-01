@@ -6,13 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from openhealth.cli import EXIT_DEGRADED, main, parse_providers
-from openhealth.errors import OpenHealthError
+from mendari.cli import EXIT_DEGRADED, main, parse_providers
+from mendari.errors import MendariError
 from tests.conftest import INBOX_DIR, LOCAL_DATASET
 
 REFERRAL_DIR = INBOX_DIR.parent / "referral-router"
 
-PACK = "openhealth/patient-inbox-router"
+PACK = "mendari/patient-inbox-router"
 
 
 def test_validate_and_test(capsys: pytest.CaptureFixture[str]) -> None:
@@ -39,7 +39,7 @@ def test_eval_fails_on_degradation_when_asked(
 
 
 def test_errors_are_reported_not_raised(capsys: pytest.CaptureFixture[str]) -> None:
-    assert main(["validate", "openhealth/does-not-exist"]) == 1
+    assert main(["validate", "mendari/does-not-exist"]) == 1
     assert "error:" in capsys.readouterr().err
 
 
@@ -48,9 +48,9 @@ def test_provider_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
         "router": "jev",
         "safety_screen": "rules",
     }
-    monkeypatch.setenv("OPENHEALTH_PROVIDERS", "router=rules")
+    monkeypatch.setenv("MENDARI_PROVIDERS", "router=rules")
     assert parse_providers(None) == {"router": "rules"}
-    with pytest.raises(OpenHealthError):
+    with pytest.raises(MendariError):
         parse_providers(["router"])
 
 

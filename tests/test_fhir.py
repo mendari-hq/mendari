@@ -5,10 +5,10 @@ from typing import Any
 
 import pytest
 
-from openhealth import Decision, Pack
-from openhealth.errors import FhirError
-from openhealth.standards import cds_hooks
-from openhealth.standards.fhir import FhirAdapter, age_band, select
+from mendari import Decision, Pack
+from mendari.errors import FhirError
+from mendari.standards import cds_hooks
+from mendari.standards.fhir import FhirAdapter, age_band, select
 
 COMMUNICATION: dict[str, Any] = {
     "resourceType": "Communication",
@@ -94,13 +94,13 @@ def test_missing_required_resource(inbox_pack: Pack) -> None:
 
 def test_cds_discovery_and_card(router: Decision) -> None:
     services = cds_hooks.discovery([router.pack])["services"]
-    assert services[0]["id"] == "openhealth.patient-inbox-router"
-    assert services[0]["hook"] == "openhealth-message-received"
+    assert services[0]["id"] == "mendari.patient-inbox-router"
+    assert services[0]["hook"] == "mendari-message-received"
 
     response = cds_hooks.invoke(
         router,
         {
-            "hook": "openhealth-message-received",
+            "hook": "mendari-message-received",
             "hookInstance": "d1577c69-dfbe-44ad-ba6d-3e05e953b2ea",
             "context": {"communicationId": "msg-1", "patientId": "pat-1"},
             "prefetch": {"communication": COMMUNICATION, "patient": PATIENT},
@@ -114,4 +114,4 @@ def test_cds_discovery_and_card(router: Decision) -> None:
 
 def test_cds_requires_prefetch(router: Decision) -> None:
     with pytest.raises(FhirError, match="prefetch required"):
-        cds_hooks.invoke(router, {"hook": "openhealth-message-received", "prefetch": {}})
+        cds_hooks.invoke(router, {"hook": "mendari-message-received", "prefetch": {}})

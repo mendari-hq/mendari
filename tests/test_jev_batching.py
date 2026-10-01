@@ -8,12 +8,12 @@ from typing import Any
 import httpx
 import pytest
 
-from openhealth import AuditStore, CallBudget, Decision, Outcome, Pack, load_pack
-from openhealth.errors import ProviderError
-from openhealth.providers import Provider, ProviderInfo
-from openhealth.providers.base import ProviderOutput
-from openhealth.providers.batch import batched_answer, batching
-from openhealth.providers.jev import JevProvider, jev_question, validate_response
+from mendari import AuditStore, CallBudget, Decision, Outcome, Pack, load_pack
+from mendari.errors import ProviderError
+from mendari.providers import Provider, ProviderInfo
+from mendari.providers.base import ProviderOutput
+from mendari.providers.batch import batched_answer, batching
+from mendari.providers.jev import JevProvider, jev_question, validate_response
 from tests.conftest import message
 
 TRIAL_MINI = Path(__file__).parent / "fixtures" / "packs" / "trial-mini"

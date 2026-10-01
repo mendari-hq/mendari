@@ -3,7 +3,7 @@
 ## Components
 
 ```text
-            ┌──────────────────────────── openhealth serve ────────────────────────────┐
+            ┌──────────────────────────── mendari serve ────────────────────────────┐
  EHR/app ──►│ REST /api/packs/{ns}/{name}/decide      FHIR /…/fhir/decide   /cds-services│
             │        │                                   │ FhirAdapter          │        │
             │        ▼                                   ▼                      ▼        │
@@ -21,7 +21,7 @@
 - **Spec and pack loading** (`core/spec.py`, `core/pack.py`): pydantic models, cross-reference
   validation, file confinement, content digest.
 - **Registry** (`core/registry.py`): resolves `namespace/name[@version]` from
-  `OPENHEALTH_PACKS_PATH` and the bundled packs.
+  `MENDARI_PACKS_PATH` and the bundled packs.
 - **Runtime** (`core/decision.py`): binds a pack to concrete provider variants. It validates
   input, collects answers, applies policy and optionally records the result.
 - **Derived questions** (`core/derive.py`): computes decision-table questions from their
@@ -91,7 +91,7 @@
 - **Outbound FHIR reads** go through one client (`standards/fhir_client.py`), so SSRF has a
   single guard. That includes CDS Hooks fetching prefetch the EHR left out, and later SMART and
   Bulk.
-  - The server's origin must be on `OPENHEALTH_FHIR_ALLOWED_SERVERS`. It is empty by default, so
+  - The server's origin must be on `MENDARI_FHIR_ALLOWED_SERVERS`. It is empty by default, so
     CDS Hooks then works from prefetch only, as in v0.1.
   - Plain http is allowed only for loopback and single-label (compose) hosts.
   - Requests stay under the server's base URL, redirects are refused, and responses are capped
@@ -117,6 +117,6 @@
 ## Sandbox
 
 `docker compose up` runs HAPI FHIR (R4, in-memory), the engine image, and a worker that seeds
-synthetic Patients and Communications tagged `https://openhealth.dev/fhir/sandbox|synthetic`.
+synthetic Patients and Communications tagged `https://mendari.co/fhir/sandbox|synthetic`.
 The worker then routes each in-progress Communication through the engine, writes a `Task`, and
 marks the Communication completed. Only tagged resources are ever touched.

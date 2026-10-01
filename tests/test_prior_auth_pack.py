@@ -11,11 +11,11 @@ from typing import Any
 
 import pytest
 
-from openhealth import Decision
-from openhealth.cli import main
-from openhealth.core.policy import Outcome
-from openhealth.sandbox import synthetic_prior_auth
-from openhealth.standards import cds_hooks
+from mendari import Decision
+from mendari.cli import main
+from mendari.core.policy import Outcome
+from mendari.sandbox import synthetic_prior_auth
+from mendari.standards import cds_hooks
 
 ROOT = Path(__file__).parents[1]
 PACK_DIR = ROOT / "packs" / "prior-auth-preflight"

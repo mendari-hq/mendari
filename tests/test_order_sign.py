@@ -8,10 +8,10 @@ from typing import Any
 
 import pytest
 
-from openhealth import Decision
-from openhealth.errors import FhirError
-from openhealth.standards import cds_hooks
-from openhealth.standards.fhir import FhirAdapter
+from mendari import Decision
+from mendari.errors import FhirError
+from mendari.standards import cds_hooks
+from mendari.standards.fhir import FhirAdapter
 
 MINI = Path(__file__).parent / "fixtures" / "packs" / "referral-mini"
 REFERRAL = {"system": "http://snomed.info/sct", "code": "3457005"}

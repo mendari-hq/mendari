@@ -3,7 +3,7 @@
 _Status: proposal with the user's decisions recorded (section 8), awaiting the go-ahead for
 Phase 0. Reviewed 2026-09-29. No application code was changed._
 
-Scope: the developer dashboard served at `/` (`src/openhealth/dashboard/`). The API, the data
+Scope: the developer dashboard served at `/` (`src/mendari/dashboard/`). The API, the data
 models and every computation stay as they are. Every number the redesign shows comes from the
 existing endpoints (`/api/packs/{id}`, `/api/stats`, `/api/review`, `/api/audit`, `/api/evals`,
 `/api/feedback`, `/api/packs/{id}/examples`). No mock or placeholder data.
@@ -59,7 +59,7 @@ follows the OS only. `versioned_dashboard()` (`server/app.py:374`) stamps `app.j
   probabilities, criteria answers with evidence, reasons, fallback, and hash-chain events.
 
 **How this review was done.**
-- Ran the app locally (`openhealth serve`, free default providers, the local `var/dev.db`).
+- Ran the app locally (`mendari serve`, free default providers, the local `var/dev.db`).
 - Viewed every screen at 1440×900 and 390×844, in light and emulated dark mode. Screenshots
   were captured in the review session, not committed.
 - Data used: the Patient Inbox Router (154 decisions, 13 pending, feedback), AI Guard
@@ -486,14 +486,14 @@ Business logic, APIs and computations are not touched in any phase.
 
 **Phase 0b: Eastern time everywhere people look (≈ 0.5–1 day, backend and display;
 decision 6)**
-- **Files:** `settings.py` (`OPENHEALTH_TIMEZONE`), `core/audit.py` (day grouping in
+- **Files:** `settings.py` (`MENDARI_TIMEZONE`), `core/audit.py` (day grouping in
   `stats`, the usage-counter date), `server/app.py` (report the time zone in `/api/health`),
   `cli.py`, `core/card.py` and `evals/render.py` (human-readable dates), `app.js` (one `formatTime` helper with
   `Intl.DateTimeFormat` and the time zone; "ET" labels), `pyproject.toml` (`tzdata`), tests
   at the EDT/EST transitions.
 - **Acceptance:**
   - a decision at 9 PM Eastern counts on that Eastern day;
-  - stored timestamps and the audit chain are unchanged (`openhealth audit verify` still
+  - stored timestamps and the audit chain are unchanged (`mendari audit verify` still
     passes on existing databases).
 
 **Phase 1: design tokens and theming (≈ 1–1.5 days)**
@@ -675,7 +675,7 @@ The distinctiveness comes from precision and hierarchy, not decoration.
      - "Skip" keeps the plain thumbs-down.
    - **Payoff.** A thumbs-down with its right answer is a ready-made test case. The Feedback
      page counts "ready to become tests", and the JSONL export fills `labels` for those
-     records, so they go straight into `openhealth eval --dataset`.
+     records, so they go straight into `mendari eval --dataset`.
    - **Less noise.** Rating controls live in the Try it result and the audit drawer. The
      audit table shows the recorded rating as a read-only icon column instead of 200 buttons.
      The review queue needs none: a reviewer's final label already is feedback.
@@ -699,7 +699,7 @@ The distinctiveness comes from precision and hierarchy, not decoration.
    - **Stays UTC ISO-8601** (stored decisions, the audit hash chain, API JSON, FHIR
      resources). Changing stored timestamps would break the tamper-evident chain, and UTC
      instants are what FHIR and other systems expect. They are converted only for display.
-   - **Implementation:** one setting, `OPENHEALTH_TIMEZONE`, defaulting to
+   - **Implementation:** one setting, `MENDARI_TIMEZONE`, defaulting to
      `America/New_York`. Stats group days by it; the budget counter uses its date;
      `/api/health` reports it so the dashboard formats with it.
    - **New dependency:** `tzdata` (first-party PSF package, pure data). It guarantees the

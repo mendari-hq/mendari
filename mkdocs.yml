@@ -1,9 +1,9 @@
-# The OpenHealth Hub documentation site: every page in docs/.
+# The Mendari documentation site: every page in docs/.
 #   uv sync --group docs && uv run mkdocs serve      # http://127.0.0.1:8000
 #   uv run mkdocs build --strict                      # what CI runs: a broken link fails
-site_name: OpenHealth Hub
+site_name: Mendari
 site_description: Open, auditable Decision Packs for healthcare
-repo_url: https://github.com/Junebugg1214/openhealth-hub
+repo_url: https://github.com/Junebugg1214/mendari
 edit_uri: edit/main/docs/
 strict: true
 

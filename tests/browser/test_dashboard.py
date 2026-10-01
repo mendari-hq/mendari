@@ -18,14 +18,14 @@ from playwright.sync_api import Browser, Locator, Page, Route, ViewportSize, exp
 
 pytestmark = pytest.mark.browser
 
-INBOX = "openhealth/patient-inbox-router"
-GUARD = "openhealth/ai-guard"
+INBOX = "mendari/patient-inbox-router"
+GUARD = "mendari/ai-guard"
 PACKS = [
     GUARD,
-    "openhealth/clinical-trial-prescreener",
+    "mendari/clinical-trial-prescreener",
     INBOX,
-    "openhealth/prior-auth-preflight",
-    "openhealth/referral-router",
+    "mendari/prior-auth-preflight",
+    "mendari/referral-router",
 ]
 VIEWS = ["overview", "review", "audit", "evals", "feedback", "card", "try"]
 PHONE: ViewportSize = {"width": 390, "height": 844}
@@ -525,7 +525,7 @@ def test_every_chart_has_a_summary_and_its_data_table(page: Page) -> None:
 
 
 # The trial pack has the longest question names (e.g. in its report's critical-catch stats).
-@pytest.mark.parametrize("pack_id", [INBOX, GUARD, "openhealth/clinical-trial-prescreener"])
+@pytest.mark.parametrize("pack_id", [INBOX, GUARD, "mendari/clinical-trial-prescreener"])
 def test_charts_fit_a_phone_and_keep_their_text_readable(page: Page, pack_id: str) -> None:
     page.set_viewport_size(PHONE)
     open_pack(page, pack_id)
@@ -772,7 +772,7 @@ def test_the_decision_card_is_a_document_with_linked_sections(page: Page) -> Non
     [
         (INBOX, "At confidence 0.90 or more (some labels need more; see Policy)."),
         (GUARD, "Not without an approval: at risk level 2 a person reviews every decision"),
-        ("openhealth/referral-router", "Not with the deployed providers: automation needs"),
+        ("mendari/referral-router", "Not with the deployed providers: automation needs"),
     ],
 )
 def test_the_card_says_whether_this_deployment_automates(
@@ -938,8 +938,8 @@ def test_the_follow_up_shows_one_questions_choices_at_a_time(page: Page) -> None
 
 # -- Try it forms for record packs ----------------------------------------------------------------
 
-TRIAL = "openhealth/clinical-trial-prescreener"
-RECORD_PACKS = [GUARD, TRIAL, "openhealth/prior-auth-preflight", "openhealth/referral-router"]
+TRIAL = "mendari/clinical-trial-prescreener"
+RECORD_PACKS = [GUARD, TRIAL, "mendari/prior-auth-preflight", "mendari/referral-router"]
 
 
 def view_button(page: Page, name: str) -> Locator:
@@ -1431,7 +1431,7 @@ SMART_SESSION = {
     "fhir_user": "Practitioner/pr-1",
     "scope": "launch openid fhirUser patient/*.rs",
     "expires_at": 4102444800,
-    "pack": "openhealth/referral-router",
+    "pack": "mendari/referral-router",
 }
 SMART_PATIENT = {
     "id": "ref-p1",
@@ -1484,7 +1484,7 @@ def test_without_a_launch_the_patient_view_stays_out_of_the_way(page: Page) -> N
 def test_an_ehr_launch_shows_the_patient_and_decides_their_work_items(page: Page) -> None:
     decided: list[Any] = []
     smart_launched(page, decided)
-    page.goto("/?pack=openhealth/referral-router#patient")
+    page.goto("/?pack=mendari/referral-router#patient")
     expect(page.locator('.nav a[data-view="patient"]')).to_be_visible()
     expect(page.locator("main h1")).to_have_text("This patient")
     expect(page.locator(".patient-name")).to_have_text("Case 1 Synthetic")
@@ -1498,12 +1498,12 @@ def test_an_ehr_launch_shows_the_patient_and_decides_their_work_items(page: Page
     expect(item.get_by_role("link", name=re.compile("Open the decision"))).to_have_attribute(
         "href", "#audit/d-1"
     )
-    assert decided == [{"pack_id": "openhealth/referral-router", "focus": "ServiceRequest/ref-sr1"}]
+    assert decided == [{"pack_id": "mendari/referral-router", "focus": "ServiceRequest/ref-sr1"}]
 
 
 def test_ending_the_ehr_session_hides_the_patient_view(page: Page) -> None:
     smart_launched(page, [])
-    page.goto("/?pack=openhealth/referral-router#patient")
+    page.goto("/?pack=mendari/referral-router#patient")
     page.get_by_role("button", name="End session").click()
     expect(page).to_have_url(re.compile("#overview$"))
     expect(page.locator('.nav a[data-view="patient"]')).to_be_hidden()
@@ -1512,7 +1512,7 @@ def test_ending_the_ehr_session_hides_the_patient_view(page: Page) -> None:
 def test_the_patient_view_fits_a_phone(page: Page) -> None:
     page.set_viewport_size(PHONE)
     smart_launched(page, [])
-    page.goto("/?pack=openhealth/referral-router#patient")
+    page.goto("/?pack=mendari/referral-router#patient")
     expect(page.locator(".work-item")).to_have_count(1)
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
 
@@ -1600,8 +1600,8 @@ def test_a_signed_in_reviewer_reviews_under_their_own_name(page: Page) -> None:
 
 
 def test_a_level_2_pack_can_be_approved_to_automate_from_its_card(page: Page) -> None:
-    open_pack(page, "openhealth/clinical-trial-prescreener", "card")
-    page.goto("/?pack=openhealth/clinical-trial-prescreener#card/approval")
+    open_pack(page, "mendari/clinical-trial-prescreener", "card")
+    page.goto("/?pack=mendari/clinical-trial-prescreener#card/approval")
     section = page.locator("#card-approval")
     expect(section).to_contain_text(
         "a person reviews every decision unless your organization approves"

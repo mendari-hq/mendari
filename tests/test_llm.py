@@ -9,11 +9,11 @@ import httpx
 import pytest
 import yaml
 
-from openhealth import AuditStore, CallBudget, Decision, Pack, load_pack
-from openhealth.errors import OpenHealthError, ProviderError
-from openhealth.providers import ProviderInfo, llm
-from openhealth.providers.llm import LlmProvider, fit_calibration, validate_response
-from openhealth.settings import daily_limits
+from mendari import AuditStore, CallBudget, Decision, Pack, load_pack
+from mendari.errors import MendariError, ProviderError
+from mendari.providers import ProviderInfo, llm
+from mendari.providers.llm import LlmProvider, fit_calibration, validate_response
+from mendari.settings import daily_limits
 from tests.conftest import INBOX_DIR, message
 
 REFILL = "Hi, I need a refill on my metoprolol. I have about a week's worth of pills left."
@@ -277,16 +277,16 @@ def test_one_call_answers_both_slots_and_is_budgeted(
 
 
 def test_daily_limits_include_llm(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("OPENHEALTH_LLM_DAILY_LIMIT", "25")
+    monkeypatch.setenv("MENDARI_LLM_DAILY_LIMIT", "25")
     assert daily_limits()["llm"] == 25
-    monkeypatch.setenv("OPENHEALTH_LLM_DAILY_LIMIT", "lots")
-    with pytest.raises(OpenHealthError, match="OPENHEALTH_LLM_DAILY_LIMIT"):
+    monkeypatch.setenv("MENDARI_LLM_DAILY_LIMIT", "lots")
+    with pytest.raises(MendariError, match="MENDARI_LLM_DAILY_LIMIT"):
         daily_limits()
 
 
 def test_none_lifts_a_daily_limit(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("OPENHEALTH_JEV_DAILY_LIMIT", "None")
-    monkeypatch.setenv("OPENHEALTH_LLM_DAILY_LIMIT", "25")
+    monkeypatch.setenv("MENDARI_JEV_DAILY_LIMIT", "None")
+    monkeypatch.setenv("MENDARI_LLM_DAILY_LIMIT", "25")
     assert daily_limits() == {"jev": None, "llm": 25}
 
 
@@ -364,7 +364,7 @@ def test_a_malformed_answer_never_discards_another_slots_safety_answer(
 
 
 def test_rate_limits_are_retried_once(inbox_pack: Pack, monkeypatch: pytest.MonkeyPatch) -> None:
-    from openhealth.providers import http
+    from mendari.providers import http
 
     monkeypatch.setenv("AI_GATEWAY_API_KEY", "k")
     monkeypatch.setattr(http, "_sleep", lambda _: None)

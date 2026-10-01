@@ -14,14 +14,14 @@
           ],
           "tag": [
             {
-              "system": "https://openhealth.dev/fhir/sandbox",
+              "system": "https://mendari.co/fhir/sandbox",
               "code": "synthetic"
             }
           ]
         },
         "identifier": [
           {
-            "system": "https://openhealth.dev/fhir/synthetic-case",
+            "system": "https://mendari.co/fhir/synthetic-case",
             "value": "pa-us-core-1"
           }
         ],
@@ -71,7 +71,7 @@
         "id": "pa-payer",
         "identifier": [
           {
-            "system": "https://openhealth.dev/fhir/synthetic-payer",
+            "system": "https://mendari.co/fhir/synthetic-payer",
             "value": "acme-health"
           }
         ],
@@ -101,7 +101,7 @@
           {
             "reference": "Organization/pa-payer",
             "identifier": {
-              "system": "https://openhealth.dev/fhir/synthetic-payer",
+              "system": "https://mendari.co/fhir/synthetic-payer",
               "value": "acme-health"
             }
           }

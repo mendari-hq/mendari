@@ -32,7 +32,7 @@ export default async function PublisherPage({ params }: { params: Promise<Params
         <p className="muted">Nothing published yet.</p>
       )}
       <h2>Signing keys</h2>
-      <p className="muted">Every archive from this publisher is signed by one of these keys; <code>openhealth pull</code> checks it.</p>
+      <p className="muted">Every archive from this publisher is signed by one of these keys; <code>mendari pull</code> checks it.</p>
       <ul>{found.keys.map((key) => <li key={key.key_id} className="mono">{key.key_id}</li>)}</ul>
     </>
   );

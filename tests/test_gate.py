@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from openhealth.evals.gate import gate, markdown
+from mendari.evals.gate import gate, markdown
 
 BENCHMARK = Path(__file__).resolve().parents[1] / "packs/patient-inbox-router/evals/benchmark.json"
 
@@ -52,5 +52,5 @@ def test_accuracy_and_false_automation_within_tolerance() -> None:
 def test_a_new_pack_is_shown_and_passes() -> None:
     rows, failures = gate(benchmark(), None, 0.03)
     assert failures == [] and all(r["main"] is None for r in rows)
-    text = markdown("openhealth/new", rows, failures, new=True)
+    text = markdown("mendari/new", rows, failures, new=True)
     assert "nothing on `main` to compare with" in text and "| destination accuracy |" in text

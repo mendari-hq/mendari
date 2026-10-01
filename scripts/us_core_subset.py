@@ -1,6 +1,6 @@
-"""Generate `src/openhealth/standards/us_core_6_1_0.json` from the official FHIR packages.
+"""Generate `src/mendari/standards/us_core_6_1_0.json` from the official FHIR packages.
 
-The in-process US Core check (`openhealth.standards.us_core`) reads that file. It holds, for each
+The in-process US Core check (`mendari.standards.us_core`) reads that file. It holds, for each
 profile the packs' FHIR mappings read:
 
 - `required`: element paths with a minimum cardinality of 1 (a child counts only where its parent
@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
-OUT = ROOT / "src/openhealth/standards/us_core_6_1_0.json"
+OUT = ROOT / "src/mendari/standards/us_core_6_1_0.json"
 CACHE = ROOT / "var/fhir-packages"
 PACKAGES = {
     "us_core": (

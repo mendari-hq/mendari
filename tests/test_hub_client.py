@@ -15,18 +15,18 @@ import pytest
 import uvicorn
 from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat
 
-from openhealth.cli import main
-from openhealth.core.decision import Decision
-from openhealth.core.pack import Pack, load_pack
-from openhealth.core.registry import resolve_pack
-from openhealth.errors import HubError, PackNotFoundError
-from openhealth.hub import archive, client
-from openhealth.hub.client import RegistryClient, pull
-from openhealth.hub.registry import create_registry_app
-from openhealth.sandbox import example_datasets_dir
+from mendari.cli import main
+from mendari.core.decision import Decision
+from mendari.core.pack import Pack, load_pack
+from mendari.core.registry import resolve_pack
+from mendari.errors import HubError, PackNotFoundError
+from mendari.hub import archive, client
+from mendari.hub.client import RegistryClient, pull
+from mendari.hub.registry import create_registry_app
+from mendari.sandbox import example_datasets_dir
 
 ADMIN = "admin-token-for-tests"
-REFERRAL_DIR = resolve_pack("openhealth/referral-router").root
+REFERRAL_DIR = resolve_pack("mendari/referral-router").root
 
 
 def free_port() -> int:
@@ -84,7 +84,7 @@ def copy_pack(tmp_path: Path, pack_id: str, version: str = "0.1.1") -> Pack:
     target = tmp_path / "packs" / pack_id.replace("/", "-") / version
     shutil.copytree(REFERRAL_DIR, target)
     manifest = (target / "pack.yaml").read_text()
-    manifest = manifest.replace("id: openhealth/referral-router", f"id: {pack_id}", 1)
+    manifest = manifest.replace("id: mendari/referral-router", f"id: {pack_id}", 1)
     manifest = manifest.replace("version: 0.1.1", f"version: {version}", 1)
     (target / "pack.yaml").write_text(manifest)
     return load_pack(target)
@@ -145,7 +145,7 @@ def test_from_hub_pulls_a_pack_that_is_not_local(
     hub.client(token).push(copy_pack(tmp_path, "site-a/referrals"), key)
     with pytest.raises(PackNotFoundError, match="no registry"):
         Decision.from_hub("site-a/referrals")
-    monkeypatch.setenv("OPENHEALTH_REGISTRY_URL", hub.url)
+    monkeypatch.setenv("MENDARI_REGISTRY_URL", hub.url)
     decision = Decision.from_hub("site-a/referrals")
     dataset = (example_datasets_dir() or Path("datasets")) / "referral-local-site-example.jsonl"
     case = json.loads(dataset.read_text().splitlines()[0])
@@ -176,7 +176,7 @@ def test_without_a_registry_the_client_says_how_to_set_one(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     assert main(["search", "x"]) == 1
-    assert "openhealth login --registry URL" in capsys.readouterr().err
+    assert "mendari login --registry URL" in capsys.readouterr().err
 
 
 def test_an_unreachable_registry_is_reported(capsys: pytest.CaptureFixture[str]) -> None:
@@ -187,13 +187,13 @@ def test_an_unreachable_registry_is_reported(capsys: pytest.CaptureFixture[str])
 def test_eval_share_sends_the_metrics(
     hub: Hub, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    token, key = hub.namespace("openhealth")
-    hub.client(token).push(resolve_pack("openhealth/referral-router"), key)
+    token, key = hub.namespace("mendari")
+    hub.client(token).push(resolve_pack("mendari/referral-router"), key)
     assert main(["login", "--registry", hub.url, "--token", token]) == 0
     dataset = (example_datasets_dir() or Path("datasets")) / "referral-local-site-example.jsonl"
-    args = ["eval", "openhealth/referral-router", "--dataset", str(dataset), "--limit", "20"]
+    args = ["eval", "mendari/referral-router", "--dataset", str(dataset), "--limit", "20"]
     assert main([*args, "--baseline", "none", "--share", "Site B"]) == 0
     assert "shared with the registry as Site B" in capsys.readouterr().err
     with httpx.Client() as http:
-        sites = http.get(f"{hub.url}/v1/packs/openhealth/referral-router/reports").json()["sites"]
+        sites = http.get(f"{hub.url}/v1/packs/mendari/referral-router/reports").json()["sites"]
     assert [(s["site"], s["n"]) for s in sites] == [("Site B", 20)]

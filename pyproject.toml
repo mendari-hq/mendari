@@ -1,11 +1,11 @@
 [project]
-name = "openhealth"
+name = "mendari"
 version = "0.1.0"
 description = "Open infrastructure for packaging, evaluating, governing and deploying healthcare decision logic as Decision Packs."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
-authors = [{ name = "OpenHealth Hub contributors" }]
+authors = [{ name = "Mendari contributors" }]
 keywords = ["healthcare", "fhir", "cds-hooks", "decision-support", "evaluation", "ai-governance"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -28,15 +28,15 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Only needed to run the server yourself (`openhealth serve`); Vercel runs the ASGI app directly.
+# Only needed to run the server yourself (`mendari serve`); Vercel runs the ASGI app directly.
 server = ["uvicorn>=0.29"]
 
 [project.scripts]
-openhealth = "openhealth.cli:main"
+mendari = "mendari.cli:main"
 
 [dependency-groups]
 dev = [
-    "openhealth[server]",
+    "mendari[server]",
     "pytest>=8.0",
     "ruff>=0.6",
     "mypy>=1.11",
@@ -54,11 +54,11 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/openhealth"]
+packages = ["src/mendari"]
 
 [tool.hatch.build.targets.wheel.force-include]
-"packs" = "openhealth/_packs"
-"datasets" = "openhealth/_datasets"
+"packs" = "mendari/_packs"
+"datasets" = "mendari/_datasets"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -82,7 +82,7 @@ ignore = ["RUF012"]
 
 [tool.mypy]
 python_version = "3.11"
-packages = ["openhealth"]
+packages = ["mendari"]
 mypy_path = "src"
 ignore_missing_imports = true
 warn_unused_ignores = true

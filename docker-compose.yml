@@ -3,8 +3,8 @@
 #   docker compose up --build
 #
 # Dashboard: http://localhost:8000   FHIR: http://localhost:8080/fhir
-# To use Jev:  JEV_API_KEY=... OPENHEALTH_PROVIDERS=router=jev docker compose up
-name: openhealth
+# To use Jev:  JEV_API_KEY=... MENDARI_PROVIDERS=router=jev docker compose up
+name: mendari
 
 services:
   fhir:
@@ -14,13 +14,13 @@ services:
     environment:
       hapi.fhir.fhir_version: R4
       hapi.fhir.default_encoding: json
-      spring.datasource.url: jdbc:h2:mem:openhealth
-      hapi.fhir.bulk_export_enabled: "true"  # Bulk FHIR $export, for `openhealth bulk export`
+      spring.datasource.url: jdbc:h2:mem:mendari
+      hapi.fhir.bulk_export_enabled: "true"  # Bulk FHIR $export, for `mendari bulk export`
       hapi.fhir.cr.enabled: "true"  # Clinical Reasoning: Library/$evaluate for `cql` providers
 
   launcher:
     # SMART on FHIR sandbox (smart-launcher-v2): an authorization server in front of HAPI. Its
-    # EHR launch parameter can skip login and consent, so `openhealth sandbox smart-launch` can run
+    # EHR launch parameter can skip login and consent, so `mendari sandbox smart-launch` can run
     # the whole launch over HTTP.
     image: smartonfhir/smart-launcher-2@sha256:72bd3e3c682ce4c74e6dddb605d89acad7c8aae446ae38079e8dfe8455b84793
     ports:
@@ -29,62 +29,62 @@ services:
       FHIR_SERVER_R4: http://fhir:8080/fhir
       FHIR_SERVER_R3: ""
       FHIR_SERVER_R2: ""
-      SECRET: openhealth-sandbox  # signs the sandbox's tokens; not a secret, synthetic data only
+      SECRET: mendari-sandbox     # signs the sandbox's tokens; not a secret, synthetic data only
     depends_on:
       fhir:
         condition: service_started
 
   engine:
     build: .
-    image: openhealth-engine:0.1.0
+    image: mendari-engine:0.1.0
     ports:
       - "127.0.0.1:8000:8000"
     environment:
       JEV_API_KEY: ${JEV_API_KEY:-}
-      OPENHEALTH_PROVIDERS: ${OPENHEALTH_PROVIDERS:-}
+      MENDARI_PROVIDERS: ${MENDARI_PROVIDERS:-}
       # CDS Hooks and SMART may read from the sandbox's own FHIR server and launcher, and only there.
-      OPENHEALTH_FHIR_ALLOWED_SERVERS: ${OPENHEALTH_FHIR_ALLOWED_SERVERS:-http://fhir:8080,http://launcher,http://payer:8200}
+      MENDARI_FHIR_ALLOWED_SERVERS: ${MENDARI_FHIR_ALLOWED_SERVERS:-http://fhir:8080,http://launcher,http://payer:8200}
       # SMART launch (a public client; the launcher accepts any client id).
-      OPENHEALTH_SMART_CLIENT_ID: ${OPENHEALTH_SMART_CLIENT_ID:-openhealth-sandbox}
-      OPENHEALTH_PUBLIC_URL: ${OPENHEALTH_PUBLIC_URL:-http://engine:8000}
+      MENDARI_SMART_CLIENT_ID: ${MENDARI_SMART_CLIENT_ID:-mendari-sandbox}
+      MENDARI_PUBLIC_URL: ${MENDARI_PUBLIC_URL:-http://engine:8000}
       # The CQL engine for `cql` provider variants (HAPI's Clinical Reasoning module).
-      OPENHEALTH_CQL_URL: ${OPENHEALTH_CQL_URL:-http://fhir:8080/fhir}
+      MENDARI_CQL_URL: ${MENDARI_CQL_URL:-http://fhir:8080/fhir}
       # Da Vinci PAS submissions go to the sandbox's mock payer.
-      OPENHEALTH_PAS_PAYER_URL: ${OPENHEALTH_PAS_PAYER_URL:-http://payer:8200}
+      MENDARI_PAS_PAYER_URL: ${MENDARI_PAS_PAYER_URL:-http://payer:8200}
     volumes:
-      - openhealth-data:/data
+      - mendari-data:/data
 
   payer:
     # A mock payer for Da Vinci PAS: certifies every well-formed prior-authorization request.
-    image: openhealth-engine:0.1.0
+    image: mendari-engine:0.1.0
     depends_on:
       engine:
         condition: service_healthy
-    command: openhealth sandbox payer --host 0.0.0.0 --port 8200
+    command: mendari sandbox payer --host 0.0.0.0 --port 8200
     ports:
       - "127.0.0.1:8200:8200"
     healthcheck:
       disable: true  # the image's healthcheck is for the engine's HTTP server
 
   registry:
-    # The pack registry (openhealth.hub): push and pull signed packs locally. The admin token is
+    # The pack registry (mendari.hub): push and pull signed packs locally. The admin token is
     # for this sandbox only; seed it with `scripts/hub_seed.py --registry http://127.0.0.1:8100`.
-    image: openhealth-engine:0.1.0
+    image: mendari-engine:0.1.0
     depends_on:
       engine:
         condition: service_healthy
-    command: openhealth registry serve --host 0.0.0.0 --port 8100 --db /data/registry.db
+    command: mendari registry serve --host 0.0.0.0 --port 8100 --db /data/registry.db
     ports:
       - "127.0.0.1:8100:8100"
     environment:
-      OPENHEALTH_REGISTRY_ADMIN_TOKEN: ${OPENHEALTH_REGISTRY_ADMIN_TOKEN:-sandbox-admin}
+      MENDARI_REGISTRY_ADMIN_TOKEN: ${MENDARI_REGISTRY_ADMIN_TOKEN:-sandbox-admin}
     volumes:
-      - openhealth-data:/data
+      - mendari-data:/data
     healthcheck:
       disable: true  # the image's healthcheck is for the engine's HTTP server
 
   workflow:
-    image: openhealth-engine:0.1.0
+    image: mendari-engine:0.1.0
     depends_on:
       engine:
         condition: service_healthy
@@ -94,12 +94,12 @@ services:
       - sh
       - -c
       - >-
-        openhealth sandbox seed --fhir http://fhir:8080/fhir --count 40 --wait 300 &&
-        openhealth sandbox seed --fhir http://fhir:8080/fhir --pack openhealth/referral-router --count 40 &&
-        openhealth sandbox worker --fhir http://fhir:8080/fhir --engine http://engine:8000
+        mendari sandbox seed --fhir http://fhir:8080/fhir --count 40 --wait 300 &&
+        mendari sandbox seed --fhir http://fhir:8080/fhir --pack mendari/referral-router --count 40 &&
+        mendari sandbox worker --fhir http://fhir:8080/fhir --engine http://engine:8000
     restart: on-failure
     healthcheck:
       disable: true  # the image's healthcheck is for the engine's HTTP server
 
 volumes:
-  openhealth-data:
+  mendari-data:

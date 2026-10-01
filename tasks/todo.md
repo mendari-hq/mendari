@@ -1,13 +1,24 @@
-# OpenHealth Hub: task tracking
+# Mendari: task tracking
 
 Roadmap to the full goal: [`docs/roadmap.md`](../docs/roadmap.md).
+
+## Done: the rename to Mendari (2026-09-30)
+`openhealth` was taken on PyPI by another project, so OpenHealth Hub became **Mendari**
+(mendari.co).
+- [x] Repository renamed to `Junebugg1214/mendari` (still private)
+- [x] Package, import and CLI `mendari`; settings `MENDARI_*` (the `OPENHEALTH_*` names still
+  work); pack ids `mendari/…`; identifiers `https://mendari.co/…`; images `mendari-engine`
+- [x] Kept: the Vercel project and URLs (`openhealth-hub`), the Jev connector
+  (`jev/openhealth-hub`) and the Neon database name; dated records (the overnight log and the
+  milestone plans) carry a rename note instead of being rewritten
+- [ ] A "coming soon" page on mendari.co (a separate Vercel project; DNS at Porkbun)
 
 ## Done (built; the launch is the owner's): v1.0 Public open-source launch ([plan](../docs/plans/v1.0-public-launch.md))
 Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 - [x] Plan
 - [x] Security review: threat model, security headers, dependency audit and ZAP scan in CI,
   SECURITY.md
-- [x] `openhealth new` and a clinician's pack-authoring guide
+- [x] `mendari new` and a clinician's pack-authoring guide
 - [x] Docs site (MkDocs Material, `mkdocs build --strict` in CI)
 - [x] Contribution flow: pack-PR workflow with the eval gate; CONTRIBUTING, CODE_OF_CONDUCT,
   GOVERNANCE, templates
@@ -19,7 +30,7 @@ Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 - [x] Plan
 - [x] CQL provider (Library/$evaluate on HAPI FHIR with Clinical Reasoning); the trial pack's
-  criteria in CQL, checked against `criteria` in CI (job `cql`; `openhealth agreement`)
+  criteria in CQL, checked against `criteria` in CI (job `cql`; `mendari agreement`)
 - [x] OMOP CDM inputs and population evaluation; a synthetic OMOP round trip in CI
 - [x] Da Vinci CRD: `coverage-information` on the PA pack's order-sign response (validated
   against CRD 2.2.1)
@@ -106,7 +117,7 @@ Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
   - [x] Backend: launch, callback, server-side sessions, patient-context API
   - [x] Dashboard "This patient" view
   - [x] Sandbox launcher (smart-launcher-v2) and a scripted launch; CI job `sandbox-e2e`
-- [x] Bulk FHIR `$export` into local-validation datasets (backend services auth; `openhealth sandbox bulk-check` in CI)
+- [x] Bulk FHIR `$export` into local-validation datasets (backend services auth; `mendari sandbox bulk-check` in CI)
 - [x] End-to-end exit checks in CI (`sandbox-e2e`); docs
 
 ## Open items outside a milestone
@@ -129,7 +140,7 @@ roles, feedback that captures the right answer, Eastern time everywhere people l
   line, a new view starts at the top with its heading focused, no `aria-live` on `main`, every
   control named, Decide shows progress and can't be submitted twice, the sandbox notice stays on
   phones, reduced motion respected, the record example picker matches its input
-- [x] Phase 0b: Eastern time everywhere people look. `OPENHEALTH_TIMEZONE` (default
+- [x] Phase 0b: Eastern time everywhere people look. `MENDARI_TIMEZONE` (default
   `America/New_York`, `tzdata` added) sets calendar days (Overview daily volume), the daily call
   counters, "today" for criteria and FHIR ages, card dates and every time the dashboard shows
   (with EDT/EST, whatever the viewer's clock); `/api/health` reports it. Stored timestamps, the
@@ -223,8 +234,8 @@ roles, feedback that captures the right answer, Eastern time everywhere people l
 Plan approved 2026-09-29 (3 PRs): runtime → the pack (risk level 2, the user's choice) →
 leaderboard and deployed choice.
 - [x] PR 1 runtime: `dosing` provider (dose arithmetic in code), `guard` section,
-  `openhealth.guard.check` and `POST /api/packs/{id}/guard` (released / held_for_review / blocked)
-- [x] PR 2 `openhealth/ai-guard` 0.1.0 (L2): six checks (screen: rules default, jev, llm,
+  `mendari.guard.check` and `POST /api/packs/{id}/guard` (released / held_for_review / blocked)
+- [x] PR 2 `mendari/ai-guard` 0.1.0 (L2): six checks (screen: rules default, jev, llm,
   rules_and_jev, rules_and_llm; dosing in code), derived `verdict` pass / review / block,
   possible-block rule (P >= 0.3) with a nurse-triage fallback; synthetic data (calibration 300 /
   test 600, local 300) and hand-written draft sets. Rules: 11/12 blocks tuning, 4/9 held out;
@@ -234,21 +245,21 @@ leaderboard and deployed choice.
 - [x] PR 3 leaderboard (`evals/leaderboard.json`, 34 rows on 0.1.1): rules; Jev, Claude Sonnet 5,
   Claude Haiku 4.5 and gpt-oss-120b, alone and with the rules. With the rules every model-backed
   screen blocked 21/21 hand-written drafts to block; none released
-- [x] `OPENHEALTH_JEV_DAILY_LIMIT=none` (no limit, still counted), at the user's request
-- [x] Deployed with the user's choice: `openhealth/ai-guard:screen=rules_and_jev`. Live: a
+- [x] `MENDARI_JEV_DAILY_LIMIT=none` (no limit, still counted), at the user's request
+- [x] Deployed with the user's choice: `mendari/ai-guard:screen=rules_and_jev`. Live: a
   missed emergency, a stroke in words the rules don't list and an unlisted-brand overdose are
   blocked; a safe draft waits for one-step approval
 - [x] 0.1.2: synthetic drafts fit their questions; leaderboard re-measured (LLM screens 0.90-0.98
   verdict accuracy, rules + Jev 0.80-0.88)
-- [x] Switched to the user's new choice: `openhealth/ai-guard:screen=rules_and_llm` with
-  `LLM_MODEL=anthropic/claude-sonnet-5` and `OPENHEALTH_LLM_DAILY_LIMIT=none` (production and
+- [x] Switched to the user's new choice: `mendari/ai-guard:screen=rules_and_llm` with
+  `LLM_MODEL=anthropic/claude-sonnet-5` and `MENDARI_LLM_DAILY_LIMIT=none` (production and
   preview). Sonnet + rules was the only screen that never missed a draft to block in any run
 
 ## Done: v0.3 Prior Authorization Preflight
 Plan approved 2026-09-29 (3 PRs): runtime → the pack → leaderboard and deployed choice.
 - [x] PR 1 runtime: derive `when` over several members (AND) and label lists in `any`/`all`;
   `criteria` answers any question label and checks may carry a field `when`
-- [x] PR 2 `openhealth/prior-auth-preflight` 0.1.0 (L1): service/payer requirement sets as
+- [x] PR 2 `mendari/prior-auth-preflight` 0.1.0 (L1): service/payer requirement sets as
   derive rows, structured elements (criteria) and note elements (rules default), synthetic
   data (calibration 300 / test 600, local 300) and hand-written note sets. Rules: 7/7 red flags
   tuning, 3/6 held out; nothing automated without a model (`automation_requires`).
@@ -256,7 +267,7 @@ Plan approved 2026-09-29 (3 PRs): runtime → the pack → leaderboard and deplo
   alone and with rules. Every model-backed config caught 6/6 held-out red flags, none
   automated, 100 % next step held out, 0 false automation; rules_and_jev automates 33-47 %
   at $0.00003 and 0.2 s.
-- [x] Deployed with the user's choice: `openhealth/prior-auth-preflight:notes=rules_and_jev`
+- [x] Deployed with the user's choice: `mendari/prior-auth-preflight:notes=rules_and_jev`
   (production and preview); redeployed; `/api/health` confirms. Live order-sign: a complete
   lumbar MRI is submitted automatically, a knee arthroscopy with gaps goes to a person, the
   lab order is ignored, and a red flag the rules miss is caught by Jev (urgent review).
@@ -268,12 +279,12 @@ deployed choice.
   Task/card templates naming answers (`{specialty}`), spec 0.2 doc
 - [x] PR 2 FHIR `focus_where` and CDS `order-sign` (draftOrders in context, one card per referral);
   `exists.undated`; fixture pack `referral-mini`
-- [x] PR 3 `openhealth/referral-router` 0.1.0 (L1): specialty (naive Bayes), urgency and clear
+- [x] PR 3 `mendari/referral-router` 0.1.0 (L1): specialty (naive Bayes), urgency and clear
   question (rules), checklist (criteria), derived `next_step` with `when` rows; synthetic
   referrals (train 1500 / calibration 300 / test 600, local 300) and hand-written urgent sets.
   Rules: 16/16 tuning, 7/12 held out, and all 5 misses would have been automated, so the new
   `policy.automation_requires` allows AUTO only with a model in the urgency screen. Also:
-  `openhealth train` on an untrained pack, YAML errors in pack/policy reported cleanly,
+  `mendari train` on an untrained pack, YAML errors in pack/policy reported cleanly,
   `validate` checks behaviour-test inputs against the schema.
 - [x] PR 4a (#29) 0.1.1: `clear_question` escalates `yes` in rules_and_* (the rules alone sent
   clear referrals back; found in the comparison)
@@ -281,8 +292,8 @@ deployed choice.
   holdout/tuning/test-100/local-100. Every model-backed config caught every urgent referral,
   none automated. rules_and_jev: 100 % next_step held out, AUTO 27-47 % with 0 false
   automation, 0.2 s, $0.00004. Jev daily limit raised to 2000 (production) with the user.
-- [x] Deployed with the user's choice: `openhealth/referral-router:specialty_reader=jev` and
-  `openhealth/referral-router:triage_screen=rules_and_jev` (production and preview); redeployed;
+- [x] Deployed with the user's choice: `mendari/referral-router:specialty_reader=jev` and
+  `mendari/referral-router:triage_screen=rules_and_jev` (production and preview); redeployed;
   `/api/health` confirms; live order-sign gives return_for_info, urgent_review and an AUTO
   schedule on three referrals, and ignores the lab order.
 
@@ -292,7 +303,7 @@ dashboard and deployment → leaderboard and deployed choice.
 - [x] PR 1 runtime: derive rows scoped with `in`, `criteria` provider, reasons naming the
   deciding criteria, pack-scoped provider settings
 - [x] PR 2 FHIR lists/transforms and multi-resource index; CDS card wording from the pack
-- [x] PR 3 `openhealth/clinical-trial-prescreener` 0.1.0 (synthetic GLYCEMIA-2 study):
+- [x] PR 3 `mendari/clinical-trial-prescreener` 0.1.0 (synthetic GLYCEMIA-2 study):
   7 structured criteria (`criteria`), 4 note exclusions (English rules default; Jev/LLM
   variants), derived `eligibility`, L2 policy with pregnancy/CV review flags, FHIR mapping,
   ResearchStudy, `patient-view` card; `synthetic_trial.py` (test 300, calibration 200, local
@@ -310,8 +321,8 @@ dashboard and deployment → leaderboard and deployed choice.
   the rules lowered eligibility to 92% held out / 87% local. Card 0.1.1 says so.
 - [ ] Jev-alone rows on test and the local site (200 Jev calls; needed the next day's budget;
   now under "Open items" above)
-- [x] Deployed notes reader chosen with the user: `notes=jev`. OPENHEALTH_PROVIDERS (production
-  and preview) = `router=jev,safety_screen=rules_and_jev,openhealth/clinical-trial-prescreener:notes=jev`
+- [x] Deployed notes reader chosen with the user: `notes=jev`. MENDARI_PROVIDERS (production
+  and preview) = `router=jev,safety_screen=rules_and_jev,mendari/clinical-trial-prescreener:notes=jev`
 
 ## Done: v0.2 Model-agnostic core
 - [x] Detailed v0.2 plan approved (5 PRs: spec, Jev batching, composition, LLM, leaderboard)
@@ -319,14 +330,14 @@ dashboard and deployment → leaderboard and deployed choice.
   probabilities), `min_score`/`max_score` rules; `docs/spec/decision-pack-0.2.md`; fixture pack
   `tests/fixtures/packs/trial-mini`
 - [x] LLM provider via Vercel AI Gateway (Claude default; OpenAI-compatible local models),
-  `openhealth calibrate`, gateway-reported cost, `OPENHEALTH_LLM_DAILY_LIMIT`
+  `mendari calibrate`, gateway-reported cost, `MENDARI_LLM_DAILY_LIMIT`
 - [x] Composition: `cascade` and weighted `vote` (shared composite base; shared temperature
   calibration in `providers/calibration.py`)
 - [x] Jev: one call per decision (per-decision batching, one budget unit), `noul` / `score`
   mapping (live check of `score`/`noul` deferred to the trial pack in v0.3)
 - [ ] Harder inbox benchmark + held-out splits for every critical label (now under "Open items"
   above)
-- [x] Leaderboard (`openhealth leaderboard`, card + dashboard), inbox pack 0.2.0 variants
+- [x] Leaderboard (`mendari leaderboard`, card + dashboard), inbox pack 0.2.0 variants
   (`llm`, `cascade`, `rules_and_llm`)
 - [x] Leaderboard LLM rows: Claude Sonnet 5, Claude Haiku 4.5, gpt-oss-120b (each with
   `rules_and_llm` and LLM-only screens)
@@ -338,7 +349,7 @@ dashboard and deployment → leaderboard and deployed choice.
   pinned (Production and Preview)
 - [x] Emergency threshold: spec 0.2 `min_probability`; inbox 0.3.0 escalates at P(urgent) ≥ 0.35
 - [x] `urgency` reworded (instructions and criteria agree; doubt handled by the policy)
-- [x] Leaderboard Jev rows for pack 0.3.0 (production, jev-1.13.0; `OPENHEALTH_JEV_DAILY_LIMIT`
+- [x] Leaderboard Jev rows for pack 0.3.0 (production, jev-1.13.0; `MENDARI_JEV_DAILY_LIMIT`
   raised to 700 in production)
 - [x] Preview databases: Neon branch per preview again, deleted on PR close
   (`neon-preview-cleanup` workflow); evaluations keep the request context (OIDC) in threads
@@ -348,10 +359,10 @@ dashboard and deployment → leaderboard and deployed choice.
 
 ---
 
-# Done: OpenHealth v0.1 — Decision Pack runtime + Patient Inbox Router
+# Done: Mendari v0.1 — Decision Pack runtime + Patient Inbox Router
 
 ## Objective
-A runnable, fully synthetic reference implementation of OpenHealth Hub v0.1: a Decision Pack
+A runnable, fully synthetic reference implementation of Mendari v0.1: a Decision Pack
 spec, a model-agnostic runtime, and one high-quality reference pack (Patient Inbox Router) that
 routes synthetic patient messages while measuring accuracy, calibration, abstention, overrides,
 latency and cost.
@@ -374,7 +385,7 @@ latency and cost.
 ## Notes
 - Jev adapter: typed `choice` questions, ≤8 per call, 2–255 labels, probabilities must sum
   to 1, chosen label must be the argmax. Endpoint, model and key are deployment settings.
-- OpenHealth is fully separate from other projects: its own repo, Vercel project, connector
+- Mendari is fully separate from other projects: its own repo, Vercel project, connector
   (`jev/openhealth-hub`), database and test containers. Nothing is shared.
 - Core abstraction: a pack declares *questions* (labels + criteria). Providers answer questions
   with probability distributions. Policy turns answers into an outcome (ADR-0001).
@@ -402,7 +413,7 @@ latency and cost.
 - [x] Pin a concrete Jev model: `JEV_MODEL=jev-1.13.0` (v0.2).
 - [x] Neon preview branching so previews don't write to the production database (v0.2).
 - [x] LLM provider (v0.2). The CQL provider is roadmap v0.7.
-- [ ] Remote hub (`openhealth pull`, signed packs): roadmap v0.5. Server authentication: v0.6.
+- [ ] Remote hub (`mendari pull`, signed packs): roadmap v0.5. Server authentication: v0.6.
   AuditEvent export: v0.4.
 - [x] Other four reference packs (Referral Router, PA Preflight, Trial Prescreener, AI Guard)
   (v0.3).

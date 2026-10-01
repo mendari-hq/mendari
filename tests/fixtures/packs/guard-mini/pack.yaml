@@ -1,11 +1,11 @@
 # Test fixture for the AI Guard runtime: the `dosing` provider, a blocking policy rule and the
 # `guard` section. Not a real pack.
 spec_version: "0.2"
-id: openhealth-test/guard-mini
+id: mendari-test/guard-mini
 version: 0.1.0
 name: Guard Mini (test fixture)
 summary: Toy guard for LLM draft replies, used to test the v0.3 runtime.
-publisher: {name: OpenHealth tests, type: community}
+publisher: {name: Mendari tests, type: community}
 license: Apache-2.0
 risk:
   level: 2
@@ -13,7 +13,7 @@ risk:
   rationale: Test fixture.
 card:
   intended_use: Test fixture only.
-  intended_users: [OpenHealth developers]
+  intended_users: [Mendari developers]
   patient_population: Synthetic.
 inputs:
   schema: schemas/input.schema.json

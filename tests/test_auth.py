@@ -17,18 +17,18 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
-from openhealth.core import tenancy
-from openhealth.core.audit import AuditStore
-from openhealth.errors import OpenHealthError
-from openhealth.server import auth as auth_module
-from openhealth.server.app import create_app
-from openhealth.server.auth import auth_settings, permission_for
-from openhealth.standards.fhir_client import GuardedHttp
+from mendari.core import tenancy
+from mendari.core.audit import AuditStore
+from mendari.errors import MendariError
+from mendari.server import auth as auth_module
+from mendari.server.app import create_app
+from mendari.server.auth import auth_settings, permission_for
+from mendari.standards.fhir_client import GuardedHttp
 from tests.conftest import message
 
 IDP = "https://idp.example.org"
-CLIENT = "openhealth-org"
-INBOX = "openhealth/patient-inbox-router"
+CLIENT = "mendari-org"
+INBOX = "mendari/patient-inbox-router"
 ROUTINE = "Can you send a refill for metformin to my pharmacy on Main Street?"
 
 
@@ -88,15 +88,15 @@ def idp() -> FakeIdp:
 
 @pytest.fixture
 def app(tmp_path: Path, idp: FakeIdp, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
-    monkeypatch.setenv("OPENHEALTH_OIDC_ISSUER", IDP)
-    monkeypatch.setenv("OPENHEALTH_OIDC_CLIENT_ID", CLIENT)
-    monkeypatch.setenv("OPENHEALTH_OIDC_ROLE_MAP", "clinicians=reviewer")
+    monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
+    monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", CLIENT)
+    monkeypatch.setenv("MENDARI_OIDC_ROLE_MAP", "clinicians=reviewer")
     transport = httpx.MockTransport(idp)
     monkeypatch.setattr(
         auth_module, "GuardedHttp", lambda **kw: GuardedHttp(transport=transport, **kw)
     )
     with TestClient(
-        create_app(db_path=tmp_path / "a.db"), base_url="https://openhealth.test"
+        create_app(db_path=tmp_path / "a.db"), base_url="https://mendari.test"
     ) as client:
         yield client
 
@@ -167,7 +167,7 @@ def test_reviews_and_ratings_are_recorded_for_whoever_is_signed_in(
 
 def test_an_account_without_a_role_is_refused(app: TestClient, idp: FakeIdp) -> None:
     done = sign_in(app, idp, roles=["marketing"])
-    assert done.status_code == 403 and "no OpenHealth role" in done.text
+    assert done.status_code == 403 and "no Mendari role" in done.text
 
 
 def test_api_keys_work_for_machines_are_hashed_and_revocable(
@@ -220,8 +220,8 @@ def test_a_sign_in_works_once(app: TestClient, idp: FakeIdp) -> None:
 
 
 def test_open_mode_is_the_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("OPENHEALTH_OIDC_ISSUER", raising=False)
-    monkeypatch.delenv("OPENHEALTH_OIDC_CLIENT_ID", raising=False)
+    monkeypatch.delenv("MENDARI_OIDC_ISSUER", raising=False)
+    monkeypatch.delenv("MENDARI_OIDC_CLIENT_ID", raising=False)
     client = TestClient(create_app(db_path=tmp_path / "a.db"))
     assert client.get("/api/auth/me").json()["mode"] == "open"
     assert client.get("/api/audit").status_code == 200
@@ -231,16 +231,16 @@ def test_open_mode_is_the_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
 @pytest.mark.parametrize(
     ("env", "message_part"),
     [
-        ({"OPENHEALTH_OIDC_ISSUER": IDP}, "set both"),
+        ({"MENDARI_OIDC_ISSUER": IDP}, "set both"),
         (
-            {"OPENHEALTH_OIDC_ISSUER": "http://idp.example.org", "OPENHEALTH_OIDC_CLIENT_ID": "c"},
+            {"MENDARI_OIDC_ISSUER": "http://idp.example.org", "MENDARI_OIDC_CLIENT_ID": "c"},
             "https",
         ),
         (
             {
-                "OPENHEALTH_OIDC_ISSUER": IDP,
-                "OPENHEALTH_OIDC_CLIENT_ID": "c",
-                "OPENHEALTH_OIDC_ROLE_MAP": "a=root",
+                "MENDARI_OIDC_ISSUER": IDP,
+                "MENDARI_OIDC_CLIENT_ID": "c",
+                "MENDARI_OIDC_ROLE_MAP": "a=root",
             },
             "not a role",
         ),
@@ -249,11 +249,11 @@ def test_open_mode_is_the_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
 def test_bad_settings_fail_at_startup(
     monkeypatch: pytest.MonkeyPatch, env: dict[str, str], message_part: str
 ) -> None:
-    for name in ("OPENHEALTH_OIDC_ISSUER", "OPENHEALTH_OIDC_CLIENT_ID", "OPENHEALTH_OIDC_ROLE_MAP"):
+    for name in ("MENDARI_OIDC_ISSUER", "MENDARI_OIDC_CLIENT_ID", "MENDARI_OIDC_ROLE_MAP"):
         monkeypatch.delenv(name, raising=False)
     for name, value in env.items():
         monkeypatch.setenv(name, value)
-    with pytest.raises(OpenHealthError, match=message_part):
+    with pytest.raises(MendariError, match=message_part):
         auth_settings()
 
 
@@ -297,13 +297,13 @@ def test_organizations_never_see_each_others_work(
     app: TestClient, idp: FakeIdp, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """One deployment, two organizations: each sees only its own decisions, reviews and stats."""
-    monkeypatch.setenv("OPENHEALTH_OIDC_ORG_CLAIM", "org")
+    monkeypatch.setenv("MENDARI_OIDC_ORG_CLAIM", "org")
     transport = httpx.MockTransport(idp)
     monkeypatch.setattr(
         auth_module, "GuardedHttp", lambda **kw: GuardedHttp(transport=transport, **kw)
     )
     client = TestClient(
-        create_app(db_path=tmp_path / "two-orgs.db"), base_url="https://openhealth.test"
+        create_app(db_path=tmp_path / "two-orgs.db"), base_url="https://mendari.test"
     )
     keys = {}
     for org in ("clinic-a", "clinic-b"):

@@ -17,11 +17,11 @@ never in a public issue. Most contributions will be one of these:
 
 ## Contribute a new pack
 
-Start with `openhealth new <dir> --id <namespace>/<name>` and the
+Start with `mendari new <dir> --id <namespace>/<name>` and the
 [pack-authoring guide](docs/guides/authoring-a-pack.md), which needs no programming. A pack is
 ready for review when:
 
-- `openhealth validate <dir>` and `openhealth test <dir>` pass;
+- `mendari validate <dir>` and `mendari test <dir>` pass;
 - the Decision Card states intended use, users, population, out-of-scope uses and known
   failure modes honestly;
 - the risk level matches the intended use (see `docs/spec/decision-pack-0.2.md` §7);

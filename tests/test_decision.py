@@ -3,13 +3,13 @@ from __future__ import annotations
 import pytest
 from jsonschema import Draft202012Validator
 
-from openhealth import AuditStore, Decision, Outcome, Pack
-from openhealth.errors import PackValidationError
+from mendari import AuditStore, Decision, Outcome, Pack
+from mendari.errors import PackValidationError
 from tests.conftest import message
 
 
 def test_from_hub(router: Decision) -> None:
-    decision = Decision.from_hub("openhealth/patient-inbox-router")
+    decision = Decision.from_hub("mendari/patient-inbox-router")
     assert decision.pack.digest == router.pack.digest
     assert decision.provider_info["router"].variant == "naive_bayes"
 

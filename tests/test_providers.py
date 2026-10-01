@@ -6,12 +6,12 @@ from typing import Any
 import httpx
 import pytest
 
-from openhealth import Pack
-from openhealth.errors import PackValidationError, ProviderError
-from openhealth.providers import Provider, ProviderInfo, build_provider
-from openhealth.providers.jev import JevProvider, validate_response
-from openhealth.providers.naive_bayes import tokenize, train
-from openhealth.providers.rules import within_one_edit
+from mendari import Pack
+from mendari.errors import PackValidationError, ProviderError
+from mendari.providers import Provider, ProviderInfo, build_provider
+from mendari.providers.jev import JevProvider, validate_response
+from mendari.providers.naive_bayes import tokenize, train
+from mendari.providers.rules import within_one_edit
 from tests.conftest import message
 
 # -- rules -------------------------------------------------------------------------------------
@@ -348,7 +348,7 @@ def test_jev_answers_show_jevs_own_confidence_and_cost_input_tokens_only(
 
 
 def test_jev_scores_have_at_most_ten_levels(inbox_pack: Pack) -> None:
-    from openhealth.core.spec import Question
+    from mendari.core.spec import Question
 
     levels = {f"l{i}": {"score": i, "criterion": f"Level {i}."} for i in range(11)}
     question = Question.model_validate({"type": "score", "instructions": "x", "levels": levels})
@@ -377,7 +377,7 @@ def test_jev_retries_once_when_rate_limited_or_overloaded(
     calls: int,
     code: str | None,
 ) -> None:
-    from openhealth.providers import http
+    from mendari.providers import http
 
     waits: list[float] = []
     jev_env.setattr(http, "_sleep", waits.append)

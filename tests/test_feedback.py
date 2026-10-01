@@ -7,13 +7,13 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from openhealth import AuditStore, Decision, Pack
-from openhealth.cli import main
-from openhealth.errors import ReviewError
-from openhealth.evals import load_dataset
-from openhealth.evals.feedback import feedback_dataset
-from openhealth.evals.harness import evaluate
-from openhealth.server.app import create_app
+from mendari import AuditStore, Decision, Pack
+from mendari.cli import main
+from mendari.errors import ReviewError
+from mendari.evals import load_dataset
+from mendari.evals.feedback import feedback_dataset
+from mendari.evals.harness import evaluate
+from mendari.server.app import create_app
 from tests.conftest import INBOX_DIR, LOCAL_DATASET, ROOT, message
 
 # AUTO, destination = medical_assistant
@@ -79,7 +79,7 @@ def test_export_is_a_dataset_to_label(inbox_pack: Pack, store: AuditStore, tmp_p
 
 def test_feedback_api_and_export(db_target: str) -> None:
     client = TestClient(create_app(db_path=db_target, datasets_dir=LOCAL_DATASET.parent))
-    pack = "/api/packs/openhealth/patient-inbox-router"
+    pack = "/api/packs/mendari/patient-inbox-router"
     decision = client.post(f"{pack}/decide", json=message(AUTO_REFILL)).json()
 
     missing = client.post(f"/api/audit/{decision['id']}/feedback", json={"rating": "sideways"})
@@ -107,7 +107,7 @@ def test_feedback_api_and_export(db_target: str) -> None:
 
     export = client.get(f"{pack}/feedback/export")
     assert export.headers["content-type"].startswith("application/x-ndjson")
-    assert export.headers["x-openhealth-skipped"] == "0"
+    assert export.headers["x-mendari-skipped"] == "0"
     lines = [json.loads(line) for line in export.text.splitlines()]
     assert lines[0]["feedback"][1]["note"] == "wrong team"
     assert lines[0]["labels"] == {"destination": "front_desk"}

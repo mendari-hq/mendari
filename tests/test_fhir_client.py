@@ -12,10 +12,10 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from openhealth.errors import FhirError, OpenHealthError
-from openhealth.server.app import create_app
-from openhealth.standards import cds_hooks, fhir_client
-from openhealth.standards.fhir_client import FhirClient, allowed_servers
+from mendari.errors import FhirError, MendariError
+from mendari.server.app import create_app
+from mendari.standards import cds_hooks, fhir_client
+from mendari.standards.fhir_client import FhirClient, allowed_servers
 
 EHR = "https://ehr.example.org/fhir"
 TOKEN = "secret-token-value"
@@ -41,7 +41,7 @@ def client(handler: Handler, base: str = EHR, **kwargs: Any) -> FhirClient:
 
 def test_the_allow_list_takes_origins_only(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(
-        "OPENHEALTH_FHIR_ALLOWED_SERVERS",
+        "MENDARI_FHIR_ALLOWED_SERVERS",
         "https://ehr.example.org, http://fhir:8080,http://localhost:8080",
     )
     assert allowed_servers() == {
@@ -49,7 +49,7 @@ def test_the_allow_list_takes_origins_only(monkeypatch: pytest.MonkeyPatch) -> N
         "http://fhir:8080",
         "http://localhost:8080",
     }
-    monkeypatch.delenv("OPENHEALTH_FHIR_ALLOWED_SERVERS")
+    monkeypatch.delenv("MENDARI_FHIR_ALLOWED_SERVERS")
     assert allowed_servers() == frozenset()  # default: nothing is fetched
 
 
@@ -65,8 +65,8 @@ def test_the_allow_list_takes_origins_only(monkeypatch: pytest.MonkeyPatch) -> N
 def test_the_allow_list_rejects_anything_but_a_safe_origin(
     monkeypatch: pytest.MonkeyPatch, value: str
 ) -> None:
-    monkeypatch.setenv("OPENHEALTH_FHIR_ALLOWED_SERVERS", value)
-    with pytest.raises(OpenHealthError, match="OPENHEALTH_FHIR_ALLOWED_SERVERS"):
+    monkeypatch.setenv("MENDARI_FHIR_ALLOWED_SERVERS", value)
+    with pytest.raises(MendariError, match="MENDARI_FHIR_ALLOWED_SERVERS"):
         allowed_servers()
 
 
@@ -241,7 +241,7 @@ def referral_ehr() -> tuple[dict[str, Any], dict[str, Any], Handler, list[httpx.
 
 
 def allow_ehr(monkeypatch: pytest.MonkeyPatch, handler: Handler) -> None:
-    monkeypatch.setenv("OPENHEALTH_FHIR_ALLOWED_SERVERS", "https://ehr.example.org")
+    monkeypatch.setenv("MENDARI_FHIR_ALLOWED_SERVERS", "https://ehr.example.org")
     patched = functools.partial(FhirClient, transport=httpx.MockTransport(handler))
     monkeypatch.setattr(cds_hooks, "FhirClient", patched)
 
@@ -253,7 +253,7 @@ def test_cds_hooks_fetches_missing_prefetch_from_an_allowed_server(
     allow_ehr(monkeypatch, handler)
     app = TestClient(create_app(db_path=tmp_path / "a.db"))
     assert app.get("/api/health").json()["fhir_allowed_servers"] == ["https://ehr.example.org"]
-    response = app.post("/cds-services/openhealth.referral-router", json=request)
+    response = app.post("/cds-services/mendari.referral-router", json=request)
     assert response.status_code == 200, response.text
     assert len(response.json()["cards"]) == 1
     urls = sorted(str(r.url).removeprefix(EHR) for r in seen)
@@ -274,7 +274,7 @@ def test_prefetch_that_was_sent_is_not_fetched(
     patient = json.loads((FIXTURES / "referral.json").read_text())["entry"][0]["resource"]
     request["prefetch"] = {"patient": patient}
     TestClient(create_app(db_path=tmp_path / "a.db")).post(
-        "/cds-services/openhealth.referral-router", json=request
+        "/cds-services/mendari.referral-router", json=request
     )
     assert all("/Patient/" not in str(r.url) for r in seen)
     assert len(seen) == 3
@@ -282,14 +282,14 @@ def test_prefetch_that_was_sent_is_not_fetched(
 
 def test_a_server_off_the_list_is_refused(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     request, _, handler, seen = referral_ehr()
-    monkeypatch.delenv("OPENHEALTH_FHIR_ALLOWED_SERVERS", raising=False)
+    monkeypatch.delenv("MENDARI_FHIR_ALLOWED_SERVERS", raising=False)
     monkeypatch.setattr(
         cds_hooks,
         "FhirClient",
         functools.partial(FhirClient, transport=httpx.MockTransport(handler)),
     )
     response = TestClient(create_app(db_path=tmp_path / "a.db")).post(
-        "/cds-services/openhealth.referral-router", json=request
+        "/cds-services/mendari.referral-router", json=request
     )
     assert response.status_code == 422
     assert "allow-list" in response.text
@@ -301,7 +301,7 @@ def test_without_a_fhir_server_prefetch_is_still_required(tmp_path: Path) -> Non
     request, _, _, _ = referral_ehr()
     del request["fhirServer"]
     response = TestClient(create_app(db_path=tmp_path / "a.db")).post(
-        "/cds-services/openhealth.referral-router", json=request
+        "/cds-services/mendari.referral-router", json=request
     )
     assert response.status_code == 422
     assert "prefetch required for: patient, documents, reports, labs" in response.text

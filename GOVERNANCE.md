@@ -1,6 +1,6 @@
 # Governance
 
-OpenHealth Hub is an open-source project for healthcare decisions, so it is governed with two
+Mendari is an open-source project for healthcare decisions, so it is governed with two
 aims: move openly, and never trade safety for speed.
 
 ## Roles
@@ -29,7 +29,7 @@ the existing maintainers agree.
 
 ## Reference packs and publishers
 
-- A **reference pack** (`openhealth/…`) needs green CI, including the eval gate, and a clinical
+- A **reference pack** (`mendari/…`) needs green CI, including the eval gate, and a clinical
   reviewer's sign-off in the PR. Its Decision Card says honestly what it was and wasn't reviewed
   for.
 - Publishers on the Hub are `community` by default. A publisher becomes **`verified`** when a

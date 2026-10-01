@@ -1,7 +1,7 @@
 {
-  "format": "openhealth.leaderboard/1",
+  "format": "mendari.leaderboard/1",
   "pack": {
-    "id": "openhealth/clinical-trial-prescreener",
+    "id": "mendari/clinical-trial-prescreener",
     "version": "0.1.0"
   },
   "updated_at": "2026-09-29T03:28:16+00:00",

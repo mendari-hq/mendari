@@ -1,4 +1,4 @@
-"""Regenerate src/openhealth/dashboard/favicon.ico from favicon.svg (run after editing the SVG).
+"""Regenerate src/mendari/dashboard/favicon.ico from favicon.svg (run after editing the SVG).
 
 The .ico holds 16, 32 and 48 px PNGs rendered by Chromium (the browser tests' dev dependency):
     uv run python scripts/make-favicon.py
@@ -11,7 +11,7 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
-DASHBOARD = Path(__file__).resolve().parents[1] / "src" / "openhealth" / "dashboard"
+DASHBOARD = Path(__file__).resolve().parents[1] / "src" / "mendari" / "dashboard"
 SIZES = (16, 32, 48)
 
 

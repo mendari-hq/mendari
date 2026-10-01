@@ -1,9 +1,13 @@
-# Changelog: openhealth/clinical-trial-prescreener
+# Changelog: mendari/clinical-trial-prescreener
+
+Renamed on 2026-09-30, when the project became Mendari: this pack was `openhealth/clinical-trial-prescreener`.
+Its id, its publisher's name and its `https://mendari.co/...` identifiers changed; its criteria,
+rules, models, data and results did not.
 
 ## 0.1.2
 
 - A `cql` variant of the `structured` slot: the seven criteria written in CQL
-  (`logic/criteria.cql`), evaluated on a CQL engine (`$OPENHEALTH_CQL_URL`, e.g. HAPI FHIR with
+  (`logic/criteria.cql`), evaluated on a CQL engine (`$MENDARI_CQL_URL`, e.g. HAPI FHIR with
   Clinical Reasoning). It agrees with `criteria` on every test and dataset case, which CI
   checks. `criteria` stays the default. Questions, criteria, rules, policy and data are
   unchanged.

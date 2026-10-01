@@ -16,7 +16,7 @@ Every safety-critical label is declared under `evaluation.critical`, and a relea
 guard critical labels enable `typo_tolerance`.
 
 ### Verification
-`openhealth eval ... --dataset test` prints `Critical urgency=urgent  N/N detected, 0 automated`.
+`mendari eval ... --dataset test` prints `Critical urgency=urgent  N/N detected, 0 automated`.
 
 ## 2026-09-25 - process
 
@@ -57,7 +57,7 @@ in the sandbox, `Task?_summary=count` equals the number of seeded Communications
 ## 2026-09-27 - process
 
 ### What happened
-A local test Postgres for OpenHealth was started on port 55432, which another project's
+A local test Postgres for Mendari was started on port 55432, which another project's
 database container already owned. The new container never got the port, so the first test run
 connected to the other project's database. Authentication failed, so nothing was read or
 written, but the tests were pointed at the wrong system.
@@ -66,14 +66,14 @@ written, but the tests were pointed at the wrong system.
 Assumed a `docker run` succeeded (its output was discarded) and assumed a port was free.
 
 ### Rule
-OpenHealth never shares resources with other projects. Before using a local port, check which
+Mendari never shares resources with other projects. Before using a local port, check which
 container owns it (`docker ps`, `lsof -iTCP:<port>`). After starting a container, verify it
 with `docker port <name>` and by querying `current_database()` before running tests.
-OpenHealth's test database is `openhealth_test` on 127.0.0.1:56432.
+Mendari's test database is `mendari_test` on 127.0.0.1:56432.
 
 ### Verification
-`docker port openhealth-pg-test` shows `127.0.0.1:56432`, and
-`select current_database()` returns `openhealth_test`.
+`docker port mendari-pg-test` shows `127.0.0.1:56432`, and
+`select current_database()` returns `mendari_test`.
 
 ## 2026-09-28 - process
 
@@ -130,7 +130,7 @@ Auto-merge only waits for *required* checks. With none configured it merges at o
 confirm the PR shows auto-merge *pending*, not merged.
 
 ### Verification
-`gh api repos/Junebugg1214/openhealth-hub/branches/main/protection` lists the five checks,
+`gh api repos/Junebugg1214/mendari/branches/main/protection` lists the five checks,
 and `gh pr view <n> --json autoMergeRequest` is non-null while checks run.
 
 ## 2026-09-28 - testing
@@ -152,7 +152,7 @@ are an offline floor; deployments combine them with a model (`safety_screen=rule
 Any reported miss becomes a behaviour test in `tests/cases.yaml`.
 
 ### Verification
-`openhealth eval <pack> --dataset red_flags_holdout --provider safety_screen=rules_and_jev`
+`mendari eval <pack> --dataset red_flags_holdout --provider safety_screen=rules_and_jev`
 shows every urgent case detected and none automated.
 
 ## 2026-09-28 - process
@@ -199,7 +199,7 @@ plus the branches of open PRs.
 ## 2026-09-29 - process
 
 ### What happened
-PR 5 had auto-merge on. While its CI ran, I changed `OPENHEALTH_PROVIDERS` on Vercel and pushed
+PR 5 had auto-merge on. While its CI ran, I changed `MENDARI_PROVIDERS` on Vercel and pushed
 a follow-up commit. The PR merged from its first commit 5 seconds before the setting changed:
 production kept the old notes reader, and the follow-up commit never reached `main`.
 
@@ -255,7 +255,7 @@ block style or `>-` for sentences. Recurred in AI Guard's card text ("4/9 held o
 missed"): write every multi-line list item in `pack.yaml` as `- >-`, never as a plain scalar.
 
 ### Verification
-`openhealth validate` now checks every behaviour-test input against the input schema (except
+`mendari validate` now checks every behaviour-test input against the input schema (except
 tests that expect BLOCK) and reports YAML errors in `pack.yaml` and `policy.yaml` as
 validation errors.
 
@@ -325,7 +325,7 @@ checked.
 
 ### What happened
 Lifting the Jev daily limit, I patched Vercel env entry `hXL1behAMcHlzzTS` to `none` from
-memory. That entry was production's `OPENHEALTH_PROVIDERS`, not the Jev limit. The running
+memory. That entry was production's `MENDARI_PROVIDERS`, not the Jev limit. The running
 deployment was unaffected (env applies at deploy time), but the next production deploy would
 have failed at startup. The user restored it with me after the permission check stopped my
 follow-up.
@@ -444,7 +444,7 @@ missing import fails only at runtime, in the one code path that uses the name.
 After a scripted move of code, compare the old and new files line for line (as a multiset of
 lines, ignoring imports and exports) and account for every difference. After editing dashboard
 modules, run a name check before the browser suite: TypeScript's `checkJs` with `noUnusedLocals`
-over `src/openhealth/dashboard/*.js`, reporting unresolved names (TS2304) and unused imports
+over `src/mendari/dashboard/*.js`, reporting unresolved names (TS2304) and unused imports
 (TS6133). TypeScript is not a project dependency, so use any local copy.
 
 ### Verification
@@ -548,7 +548,7 @@ background with `uv run … &`. The runner's uv (0.12.21) holds the cache lock f
 Long-lived background processes started through `uv run`.
 
 ### Rule
-In CI, start background servers from the venv (`.venv/bin/openhealth …`, after `uv sync`), never
+In CI, start background servers from the venv (`.venv/bin/mendari …`, after `uv sync`), never
 with `uv run`.
 
 ### Verification

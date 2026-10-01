@@ -1,10 +1,10 @@
 # Test fixture for spec 0.2 features: boolean and score questions, and a derived question.
 spec_version: "0.2"
-id: openhealth-test/trial-mini
+id: mendari-test/trial-mini
 version: 0.1.0
 name: Trial Mini (test fixture)
 summary: Toy trial prescreen used to test spec 0.2 features. Not a real pack.
-publisher: {name: OpenHealth tests, type: community}
+publisher: {name: Mendari tests, type: community}
 license: Apache-2.0
 risk:
   level: 2
@@ -12,7 +12,7 @@ risk:
   rationale: Clinician-facing eligibility suggestion; human review by default.
 card:
   intended_use: Test fixture only.
-  intended_users: [OpenHealth developers]
+  intended_users: [Mendari developers]
   patient_population: Synthetic.
 inputs:
   schema: schemas/input.schema.json

@@ -10,9 +10,9 @@ from typing import Any
 import httpx
 import pytest
 
-from openhealth.cli import main
-from openhealth.errors import OpenHealthError
-from openhealth.sandbox import smart_launch
+from mendari.cli import main
+from mendari.errors import MendariError
+from mendari.sandbox import smart_launch
 
 
 def test_the_launch_value_is_what_the_launcher_decodes() -> None:
@@ -36,11 +36,11 @@ def test_a_patient_with_a_work_item_is_found(monkeypatch: pytest.MonkeyPatch) ->
         return httpx.Response(200, json={"entry": [entry]}, request=httpx.Request("GET", url))
 
     monkeypatch.setattr(smart_launch.httpx, "get", get)
-    assert smart_launch.find_patient("http://fhir:8080/fhir/", "openhealth/referral-router") == "42"
+    assert smart_launch.find_patient("http://fhir:8080/fhir/", "mendari/referral-router") == "42"
     assert seen[0]["url"] == "http://fhir:8080/fhir/ServiceRequest"
     assert seen[0]["headers"]["cache-control"] == "no-cache"  # HAPI caches searches
-    with pytest.raises(OpenHealthError, match="launches"):
-        smart_launch.find_patient("http://fhir:8080/fhir", "openhealth/ai-guard")
+    with pytest.raises(MendariError, match="launches"):
+        smart_launch.find_patient("http://fhir:8080/fhir", "mendari/ai-guard")
 
 
 def test_the_cli_fails_unless_something_was_decided_and_the_session_ended(

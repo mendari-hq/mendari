@@ -8,14 +8,14 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from openhealth import Decision, Pack, load_pack
-from openhealth.cli import main
-from openhealth.core.card import render_card
-from openhealth.evals import evaluate, leaderboard, resolve_dataset
-from openhealth.server.app import create_app
+from mendari import Decision, Pack, load_pack
+from mendari.cli import main
+from mendari.core.card import render_card
+from mendari.evals import evaluate, leaderboard, resolve_dataset
+from mendari.server.app import create_app
 from tests.conftest import INBOX_DIR
 
-PACK = "/api/packs/openhealth/patient-inbox-router"
+PACK = "/api/packs/mendari/patient-inbox-router"
 
 
 def report(pack: Pack, dataset: str, **providers: str) -> dict[str, Any]:

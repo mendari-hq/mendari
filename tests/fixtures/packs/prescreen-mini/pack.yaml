@@ -1,11 +1,11 @@
 # Test fixture for v0.3 runtime features: the `criteria` provider, derive rows scoped with `in`,
 # FHIR `lists` (a Patient-focused record), and pack-defined CDS card wording. Not a real pack.
 spec_version: "0.2"
-id: openhealth-test/prescreen-mini
+id: mendari-test/prescreen-mini
 version: 0.1.0
 name: Prescreen Mini (test fixture)
 summary: Toy trial prescreen over structured data and notes, used to test the v0.3 runtime.
-publisher: {name: OpenHealth tests, type: community}
+publisher: {name: Mendari tests, type: community}
 license: Apache-2.0
 risk:
   level: 2
@@ -13,7 +13,7 @@ risk:
   rationale: Clinician-facing eligibility suggestion; human review by default.
 card:
   intended_use: Test fixture only.
-  intended_users: [OpenHealth developers]
+  intended_users: [Mendari developers]
   patient_population: Synthetic.
 inputs:
   schema: schemas/input.schema.json

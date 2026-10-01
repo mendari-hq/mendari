@@ -17,12 +17,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {name: openhealth-engine, pack: ""}
-          - {name: openhealth-patient-inbox-router, pack: openhealth/patient-inbox-router}
-          - {name: openhealth-referral-router, pack: openhealth/referral-router}
-          - {name: openhealth-prior-auth-preflight, pack: openhealth/prior-auth-preflight}
-          - {name: openhealth-clinical-trial-prescreener, pack: openhealth/clinical-trial-prescreener}
-          - {name: openhealth-ai-guard, pack: openhealth/ai-guard}
+          - {name: mendari-engine, pack: ""}
+          - {name: mendari-patient-inbox-router, pack: mendari/patient-inbox-router}
+          - {name: mendari-referral-router, pack: mendari/referral-router}
+          - {name: mendari-prior-auth-preflight, pack: mendari/prior-auth-preflight}
+          - {name: mendari-clinical-trial-prescreener, pack: mendari/clinical-trial-prescreener}
+          - {name: mendari-ai-guard, pack: mendari/ai-guard}
     steps:
       - uses: actions/checkout@v4
       - uses: docker/login-action@v3
@@ -39,5 +39,5 @@ jobs:
         run: |
           image="ghcr.io/${OWNER,,}/${NAME}:${VERSION}"
           docker build --build-arg PACK="$PACK" -t "$image" .
-          if [ -n "$PACK" ]; then docker run --rm "$image" openhealth test "$PACK"; fi
+          if [ -n "$PACK" ]; then docker run --rm "$image" mendari test "$PACK"; fi
           docker push "$image"

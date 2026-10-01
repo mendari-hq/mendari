@@ -12,17 +12,17 @@ from typing import Any
 import httpx
 import pytest
 
-from openhealth.cli import main
-from openhealth.core.pack import Pack
-from openhealth.core.registry import resolve_pack
-from openhealth.errors import PackValidationError, ProviderError
-from openhealth.evals.agreement import agreement, pack_cases
-from openhealth.providers import build_provider
-from openhealth.providers import cql as cql_module
-from openhealth.standards import record_fhir
-from openhealth.standards.fhir_client import GuardedHttp
+from mendari.cli import main
+from mendari.core.pack import Pack
+from mendari.core.registry import resolve_pack
+from mendari.errors import PackValidationError, ProviderError
+from mendari.evals.agreement import agreement, pack_cases
+from mendari.providers import build_provider
+from mendari.providers import cql as cql_module
+from mendari.standards import record_fhir
+from mendari.standards.fhir_client import GuardedHttp
 
-TRIAL = "openhealth/clinical-trial-prescreener"
+TRIAL = "mendari/clinical-trial-prescreener"
 ENGINE = "https://cql.example.org/fhir"
 
 
@@ -109,7 +109,7 @@ def engine(trial: Pack, monkeypatch: pytest.MonkeyPatch) -> FakeEngine:
 
 
 def use(fake: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("OPENHEALTH_CQL_URL", ENGINE)
+    monkeypatch.setenv("MENDARI_CQL_URL", ENGINE)
     transport = httpx.MockTransport(fake)
     monkeypatch.setattr(
         cql_module,
@@ -171,11 +171,11 @@ def test_the_engine_must_be_configured_and_allow_listed(
     trial: Pack, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     provider = build_provider(trial, "structured", "cql")
-    monkeypatch.delenv("OPENHEALTH_CQL_URL", raising=False)
+    monkeypatch.delenv("MENDARI_CQL_URL", raising=False)
     with pytest.raises(ProviderError, match="not_configured"):
         provider.preflight()
-    monkeypatch.setenv("OPENHEALTH_CQL_URL", ENGINE)
-    monkeypatch.delenv("OPENHEALTH_FHIR_ALLOWED_SERVERS", raising=False)
+    monkeypatch.setenv("MENDARI_CQL_URL", ENGINE)
+    monkeypatch.delenv("MENDARI_FHIR_ALLOWED_SERVERS", raising=False)
     with pytest.raises(ProviderError, match="allow-list"):
         provider.answer(pack_cases(trial, [])[0][1])
 
