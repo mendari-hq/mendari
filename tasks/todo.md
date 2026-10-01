@@ -11,7 +11,9 @@ Roadmap to the full goal: [`docs/roadmap.md`](../docs/roadmap.md).
 - [x] Kept: the Vercel project and URLs (`openhealth-hub`), the Jev connector
   (`jev/openhealth-hub`) and the Neon database name; dated records (the overnight log and the
   milestone plans) carry a rename note instead of being rewritten
-- [ ] A "coming soon" page on mendari.co (a separate Vercel project; DNS at Porkbun)
+- [x] A "coming soon" page for mendari.co: `web/`, its own Vercel project `mendari-web`;
+  mendari.ai and the www names redirect to it
+- [ ] DNS at Porkbun pointed at Vercel (the owner's)
 
 ## Done (built; the launch is the owner's): v1.0 Public open-source launch ([plan](../docs/plans/v1.0-public-launch.md))
 Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
