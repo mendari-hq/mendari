@@ -8,7 +8,12 @@ server is open, as before (production sits behind Vercel Authentication). When c
   with the issuer's JWKS (`standards/oidc.py`). The session is server-side, behind an opaque
   HttpOnly, SameSite=Lax cookie. Roles come from a claim (`MENDARI_OIDC_ROLE_CLAIM`, default
   `roles`), optionally renamed by `MENDARI_OIDC_ROLE_MAP` ("clinicians=reviewer,it=admin").
+  With an identity provider that has no roles (Google, say), the claim can be `email`, mapped
+  person by person ("owner@example.org=admin"); an email gives a role only when the provider
+  says it is verified (`email_verified`).
   The organization comes from `MENDARI_OIDC_ORG_CLAIM` (default: one organization).
+- **The identity provider's endpoints** must be on the issuer's origin, or listed in
+  `MENDARI_OIDC_ENDPOINT_ORIGINS` (Google's token and key endpoints are on other hosts).
 - **Machines** send `Authorization: Bearer ohk_...`: API keys that admins create, which are
   shown once, stored as SHA-256, carry a role and can be revoked.
 - **Every route has a permission**, and anything not listed needs `admin` (deny by default).
@@ -38,7 +43,7 @@ from fastapi.responses import RedirectResponse, Response
 from pydantic import BaseModel, Field
 
 from mendari.core.audit import AuditStore
-from mendari.errors import AuthError, MendariError
+from mendari.errors import AuthError, FhirError, MendariError
 from mendari.standards import oidc
 from mendari.standards.fhir_client import GuardedHttp, allowed_servers
 
@@ -66,7 +71,8 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         ("*", r"^/(smart|api/smart)/", "public"),  # SMART launches carry their own session
         ("GET", r"^/(static/.*|favicon\.ico)$", "public"),
         ("GET", r"^/$", "page"),
-        ("GET", r"^/(docs|redoc|openapi\.json)$", "read"),
+        ("GET", r"^/(docs|redoc)$", "page"),  # a signed-out browser is sent to sign in
+        ("GET", r"^/openapi\.json$", "read"),
         ("POST", r"^/api/packs/[^/]+/[^/]+/(decide|guard|fhir/decide|pas)$", "decide"),
         ("POST", r"^/cds-services/[^/]+$", "decide"),
         ("POST", r"^/fhir/Questionnaire/\$questionnaire-package$", "decide"),  # Da Vinci DTR
@@ -93,6 +99,7 @@ class AuthSettings:
     role_map: dict[str, str]
     org_claim: str | None
     public_url: str | None
+    endpoint_origins: frozenset[str] = frozenset()
     scopes: str = "openid profile email"
 
 
@@ -124,6 +131,7 @@ def auth_settings() -> AuthSettings | None:
         role_map=role_map,
         org_claim=os.environ.get("MENDARI_OIDC_ORG_CLAIM", "").strip() or None,
         public_url=os.environ.get("MENDARI_PUBLIC_URL", "").strip().rstrip("/") or None,
+        endpoint_origins=allowed_servers("MENDARI_OIDC_ENDPOINT_ORIGINS"),
     )
 
 
@@ -161,6 +169,8 @@ def permission_for(method: str, path: str) -> str:
 
 
 def roles_from(claims: Mapping[str, Any], settings: AuthSettings) -> frozenset[str]:
+    if settings.role_claim == "email" and claims.get("email_verified") is not True:
+        return frozenset()  # anyone can claim an address they have not proven
     raw = claims.get(settings.role_claim) or []
     values = [raw] if isinstance(raw, str) else [str(v) for v in raw if isinstance(v, str | int)]
     mapped = {settings.role_map.get(v, v) for v in values}
@@ -230,14 +240,21 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
 
     def http_for(options: AuthSettings) -> GuardedHttp:
         issuer_origin = f"{urlsplit(options.issuer).scheme}://{urlsplit(options.issuer).netloc}"
-        return GuardedHttp(allowed={*allowed_servers(), issuer_origin})
+        return GuardedHttp(allowed={*allowed_servers(), issuer_origin, *options.endpoint_origins})
 
     @app.get("/auth/login", include_in_schema=False)
     def login(request: Request, next: str = "/") -> Response:
         options = configured()
         target = next if next.startswith("/") and not next.startswith("//") else "/"
         with http_for(options) as http:
-            config = oidc.discover(options.issuer, http)
+            try:
+                config = oidc.discover(options.issuer, http)
+            except FhirError as failure:  # the guarded client's errors (unreachable, not allowed)
+                raise AuthError(
+                    f"the identity provider cannot be used ({failure}); its endpoints must be on "
+                    "the issuer's origin or listed in MENDARI_OIDC_ENDPOINT_ORIGINS",
+                    502,
+                ) from None
         verifier, challenge = oidc.pkce()
         state, nonce = secrets.token_urlsafe(32), secrets.token_urlsafe(24)
         redirect_uri = f"{options.public_url or str(request.base_url).rstrip('/')}/auth/callback"
@@ -328,8 +345,13 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
         response.delete_cookie(COOKIE, path="/", secure=True, httponly=True, samesite="lax")
         return response
 
-    @app.get("/api/auth/me")
+    @app.get(
+        "/api/auth/me",
+        tags=["Sign-in"],
+        summary="Who am I",
+    )
     def me(request: Request) -> dict[str, Any]:
+        """Whether sign-in is on here, and the signed-in person or key with their roles."""
         principal = auth.principal(request)
         if principal is None:
             return {"mode": "sign-in", "signed_in": False}
@@ -337,20 +359,39 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
         mode = "sign-in" if signed_in else "open"
         return {"mode": mode, "signed_in": signed_in, "principal": principal.to_dict()}
 
-    @app.post("/api/auth/keys", status_code=201)
+    @app.post(
+        "/api/auth/keys",
+        status_code=201,
+        tags=["Sign-in"],
+        summary="Create an API key",
+    )
     def create_key(request: Request, body: KeyRequest) -> dict[str, Any]:
+        """A key for a machine (`Authorization: Bearer ohk_…`) with one role. The key is in this
+        response only; it is stored hashed."""
         principal: Principal = getattr(request.state, "principal", OPEN)
         return store.create_api_key(
             name=body.name, role=body.role, org=principal.org, created_by=principal.name
         )
 
-    @app.get("/api/auth/keys")
+    @app.get(
+        "/api/auth/keys",
+        tags=["Sign-in"],
+        summary="List API keys",
+    )
     def list_keys(request: Request) -> list[dict[str, Any]]:
+        """Keys of this organization: name, role, who created it and when, and when it was
+        revoked. Never the key."""
         principal: Principal = getattr(request.state, "principal", OPEN)
         return store.api_keys(None if principal.kind == "open" else principal.org)
 
-    @app.delete("/api/auth/keys/{key_id}", status_code=204)
+    @app.delete(
+        "/api/auth/keys/{key_id}",
+        status_code=204,
+        tags=["Sign-in"],
+        summary="Revoke an API key",
+    )
     def revoke_key(request: Request, key_id: str) -> Response:
+        """Revoke a key; requests that send it are refused from now on."""
         principal: Principal = getattr(request.state, "principal", OPEN)
         if not store.revoke_api_key(key_id, None if principal.kind == "open" else principal.org):
             raise AuthError("no such key", 404)

@@ -573,3 +573,41 @@ line, before merging.
 ### Verification
 The PR shows the preview and production effective configurations as equal (a `diff` with no
 output).
+
+## 2026-10-01 - syntax
+
+### What happened
+A new check that FHIR elements have the right JSON type required `meta.profile` to be an array
+of strings. A review found it rejected valid FHIR: JSON pads a repeating primitive with `null`
+where only its extension (in `_profile`) is present. The same check walked resources recursively,
+so valid FHIR nested about 500 levels deep became a `500`.
+
+### Root cause
+FHIR JSON rules written from memory, and a recursive walk over client-supplied JSON.
+
+### Rule
+A hand-written FHIR JSON check allows `null` items in any repeating primitive, walks with a
+stack (never recursion), and is checked against the R4 StructureDefinitions
+(`scripts/us_core_subset.package()`), not memory. Prefer the HL7 validator or a parsing library
+where one fits.
+
+### Verification
+`tests/test_fhir_errors.py` has a null-padded profile and a 1,500-level nesting case.
+
+## 2026-10-01 - testing
+
+### What happened
+A test for deeply nested FHIR passed locally (Python 3.12) and failed in CI on 3.11: the
+test's own `json.dumps` hit the recursion limit, which 3.11's JSON encoder and parser share
+with the interpreter (3.12 gave them their own).
+
+### Root cause
+The suite ran on one Python version locally, and CI runs three (3.11, 3.12, 3.13).
+
+### Rule
+A test that touches interpreter limits (recursion, sizes, the JSON codec) runs on every Python
+version CI runs before pushing: `uv run --python 3.11 --isolated pytest …`, then 3.12 and 3.13.
+
+### Verification
+The deep-nesting tests in `tests/test_fhir_errors.py` pass on 3.11, 3.12 and 3.13 locally.
+

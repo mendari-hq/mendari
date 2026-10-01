@@ -33,10 +33,12 @@ ROUTINE = "Can you send a refill for metformin to my pharmacy on Main Street?"
 
 
 class FakeIdp:
-    def __init__(self) -> None:
+    def __init__(self, token_url: str = f"{IDP}/token", jwks_url: str = f"{IDP}/jwks") -> None:
         self.key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         self.codes: dict[str, dict[str, Any]] = {}
         self.claims: dict[str, Any] = {}
+        self.token_url = token_url  # Google's, for one, are not on the issuer's host
+        self.jwks_url = jwks_url
 
     def authorize(self, url: str, **claims: Any) -> str:
         params = {k: v[0] for k, v in parse_qs(urlsplit(url).query).items()}
@@ -52,14 +54,14 @@ class FakeIdp:
                 json={
                     "issuer": IDP,
                     "authorization_endpoint": f"{IDP}/authorize",
-                    "token_endpoint": f"{IDP}/token",
-                    "jwks_uri": f"{IDP}/jwks",
+                    "token_endpoint": self.token_url,
+                    "jwks_uri": self.jwks_url,
                 },
             )
-        if url == f"{IDP}/jwks":
+        if url == self.jwks_url:
             jwk = json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(self.key.public_key()))
             return httpx.Response(200, json={"keys": [{**jwk, "kid": "k1"}]})
-        if url == f"{IDP}/token":
+        if url == self.token_url:
             form = {k: v[0] for k, v in parse_qs(request.content.decode()).items()}
             code = self.codes.pop(form["code"], None)
             if code is None or not form.get("code_verifier"):
@@ -88,17 +90,20 @@ def idp() -> FakeIdp:
 
 @pytest.fixture
 def app(tmp_path: Path, idp: FakeIdp, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
+    monkeypatch.setenv("MENDARI_OIDC_ROLE_MAP", "clinicians=reviewer")
+    with signing_in_with(idp, tmp_path, monkeypatch) as client:
+        yield client
+
+
+def signing_in_with(idp: FakeIdp, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
+    """A server whose sign-in uses `idp` (the role settings come from the test's environment)."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", CLIENT)
-    monkeypatch.setenv("MENDARI_OIDC_ROLE_MAP", "clinicians=reviewer")
     transport = httpx.MockTransport(idp)
     monkeypatch.setattr(
         auth_module, "GuardedHttp", lambda **kw: GuardedHttp(transport=transport, **kw)
     )
-    with TestClient(
-        create_app(db_path=tmp_path / "a.db"), base_url="https://mendari.test"
-    ) as client:
-        yield client
+    return TestClient(create_app(db_path=tmp_path / "a.db"), base_url="https://mendari.test")
 
 
 def sign_in(app: TestClient, idp: FakeIdp, **claims: Any) -> Any:
@@ -356,3 +361,72 @@ def test_organizations_never_see_each_others_work(
         AuditStore(tmp_path / "two-orgs.db").save_report(report)
     assert [r["id"] for r in client.get("/api/evals", headers=keys["clinic-a"]).json()] == ["r1"]
     assert client.get("/api/evals", headers=keys["clinic-b"]).json() == []
+
+
+def test_a_role_from_an_email_needs_the_provider_to_have_verified_it(
+    tmp_path: Path, idp: FakeIdp, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """For providers without roles (Google): one person, one role, by verified email."""
+    monkeypatch.setenv("MENDARI_OIDC_ROLE_CLAIM", "email")
+    monkeypatch.setenv("MENDARI_OIDC_ROLE_MAP", "owner@example.org=admin")
+    with signing_in_with(idp, tmp_path, monkeypatch) as app:
+        unverified = sign_in(app, idp, email="owner@example.org", email_verified=False)
+        assert unverified.status_code == 403
+        claimed = sign_in(app, idp, email="owner@example.org", email_verified="true")
+        assert claimed.status_code == 403  # a string is not the provider's boolean
+        stranger = sign_in(app, idp, email="someone@example.org", email_verified=True)
+        assert stranger.status_code == 403
+        owner = sign_in(app, idp, email="owner@example.org", email_verified=True)
+        assert owner.status_code == 302
+        me = app.get("/api/auth/me").json()
+        assert me["signed_in"] and me["principal"]["roles"] == ["admin"]
+
+
+def test_the_providers_endpoints_on_other_hosts_must_be_listed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    idp = FakeIdp(
+        token_url="https://tokens.example.net/token", jwks_url="https://keys.example.net/k"
+    )
+    monkeypatch.setenv("MENDARI_OIDC_ROLE_MAP", "clinicians=reviewer")
+    with signing_in_with(idp, tmp_path, monkeypatch) as app:
+        refused = app.get("/auth/login", follow_redirects=False)
+        assert refused.status_code == 502
+        assert "MENDARI_OIDC_ENDPOINT_ORIGINS" in refused.text
+    monkeypatch.setenv(
+        "MENDARI_OIDC_ENDPOINT_ORIGINS", "https://tokens.example.net,https://keys.example.net"
+    )
+    with signing_in_with(idp, tmp_path, monkeypatch) as app:
+        assert sign_in(app, idp, roles=["clinicians"]).status_code == 302
+        assert app.get("/api/auth/me").json()["principal"]["roles"] == ["reviewer"]
+
+
+@pytest.mark.parametrize("value", ["http://tokens.example.net", "https://keys.example.net/k"])
+def test_endpoint_origins_must_be_https_origins(
+    value: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
+    monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", CLIENT)
+    monkeypatch.setenv("MENDARI_OIDC_ENDPOINT_ORIGINS", value)
+    with pytest.raises(MendariError, match="MENDARI_OIDC_ENDPOINT_ORIGINS"):
+        auth_settings()
+
+
+def test_the_api_reference_asks_a_browser_to_sign_in(app: TestClient, idp: FakeIdp) -> None:
+    docs = app.get("/docs", follow_redirects=False)
+    assert docs.status_code == 302 and docs.headers["location"] == "/auth/login?next=/docs"
+    assert app.get("/openapi.json").status_code == 401
+    sign_in(app, idp, roles=["clinicians"])
+    assert app.get("/docs").status_code == 200
+    schema = app.get("/openapi.json").json()
+    assert set(schema["components"]["securitySchemes"]) == {"apiKey", "session"}
+    operations = {
+        (method.upper(), path): operation
+        for path, methods in schema["paths"].items()
+        for method, operation in methods.items()
+    }
+    assert operations[("GET", "/api/health")]["security"] == []
+    decide = operations[("POST", "/api/packs/{namespace}/{name}/decide")]
+    assert decide["security"] == [{"apiKey": []}, {"session": []}]
+    assert "the `decide` permission" in decide["description"]
+    assert "Sign-in is on" in schema["info"]["description"]

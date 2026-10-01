@@ -25,7 +25,7 @@ from mendari.core import clock
 from mendari.core.pack import Pack
 from mendari.core.spec import Outcome
 from mendari.core.templates import fill, unknown_placeholders
-from mendari.errors import FhirError, PackValidationError
+from mendari.errors import FhirError, FhirStructureError, PackValidationError
 
 if TYPE_CHECKING:
     from mendari.core.decision import DecisionResult
@@ -177,8 +177,9 @@ class FhirAdapter:
     def to_task(self, result: DecisionResult, indexed: Mapping[str, Any]) -> dict[str, Any]:
         focus: Mapping[str, Any] = next(iter(_as_list(indexed.get(self.mapping.focus))), {})
         patient: Mapping[str, Any] = next(iter(_as_list(indexed.get("Patient"))), {})
-        subject = (focus.get("subject") or {}).get("reference") or (
-            f"Patient/{patient['id']}" if patient.get("id") else None
+        reference = _object(focus.get("subject")).get("reference")
+        subject = (reference if isinstance(reference, str) else None) or (
+            f"Patient/{patient['id']}" if isinstance(patient.get("id"), str) else None
         )
         handled_by = result.recommendation or "manual-triage"
         template = self.mapping.task
@@ -215,7 +216,7 @@ class FhirAdapter:
             ],
             "note": [{"text": reason} for reason in result.reasons],
         }
-        if focus.get("id"):
+        if isinstance(focus.get("id"), str):
             task["focus"] = {"reference": f"{self.mapping.focus}/{focus['id']}"}
         if subject:
             task["for"] = {"reference": subject}
@@ -298,20 +299,38 @@ def age_band(birth_date: str, today: date | None = None) -> str | None:
 
 
 def iter_resources(value: Any) -> Iterator[Mapping[str, Any]]:
-    """Every resource in a Bundle, a resource, or a mapping/list of either (flattened)."""
+    """Every resource in a Bundle, a resource, or a mapping/list of either (flattened). A Bundle
+    whose entries are not objects, or an entry whose resource is not one, is not FHIR JSON."""
     if isinstance(value, list):
         for item in value:
             yield from iter_resources(item)
     elif isinstance(value, Mapping):
         if value.get("resourceType") == "Bundle":
-            for entry in value.get("entry") or []:
-                if isinstance(entry, Mapping):
-                    yield from iter_resources(entry.get("resource"))
+            entries = value.get("entry")
+            if entries is not None and not isinstance(entries, list):
+                raise FhirStructureError([_wrong_type("Bundle.entry", "an array of objects")])
+            for index, entry in enumerate(entries or []):
+                where = f"Bundle.entry[{index}]"
+                if not isinstance(entry, Mapping):
+                    raise FhirStructureError([_wrong_type(where, "an object")])
+                resource = entry.get("resource")
+                if resource is not None and not isinstance(resource, Mapping):
+                    raise FhirStructureError([_wrong_type(f"{where}.resource", "an object")])
+                yield from iter_resources(resource)
         elif "resourceType" in value:
             yield value
         else:
             for item in value.values():
                 yield from iter_resources(item)
+
+
+def _wrong_type(expression: str, expected: str) -> dict[str, str]:
+    element = expression.rsplit(".", 1)[-1].split("[")[0]
+    return {"expression": expression, "diagnostics": f"{element} must be {expected}"}
+
+
+def _object(value: Any) -> Mapping[str, Any]:
+    return value if isinstance(value, Mapping) else {}
 
 
 def _as_list(value: Any) -> list[Any]:
