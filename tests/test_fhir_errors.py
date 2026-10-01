@@ -227,16 +227,38 @@ def test_a_null_padded_profile_is_valid_fhir(client: TestClient) -> None:
     assert client.post(f"{INBOX}/fhir/decide", json=bundle).status_code == 200
 
 
-def test_deeply_nested_valid_fhir_is_decided_not_a_500(client: TestClient) -> None:
-    """Extensions can nest deeper than Python's recursion limit; the checks must not recurse."""
+DEPTH = 1500  # extension levels: two JSON containers each, past Python's recursion limit
+
+
+def test_the_checks_walk_deeply_nested_fhir_without_recursion() -> None:
+    """Extensions can nest deeper than Python's recursion limit (valid R4); the structure walk
+    must not recurse. Before, about 500 levels was a RecursionError, a 500 over HTTP."""
     nested: dict[str, Any] = {"url": "https://mendari.co/fhir/test/leaf", "valueString": "x"}
-    for depth in range(1500):
+    for depth in range(DEPTH):
         nested = {"url": f"https://mendari.co/fhir/test/{depth}", "extension": [nested]}
+    resource = {**communication(inbox_bundle()), "extension": [nested]}
+    assert us_core.structure(resource) == []
+    nested["extension"][0]["valueCoding"] = {"code": "x"}  # a Coding, not `coding`: fine
+    resource["category"] = [{"coding": "x"}]
+    assert [i.expression for i in us_core.structure(resource)] == [
+        "Communication.category[0].coding"
+    ]
+
+
+def test_deeply_nested_fhir_over_http_is_never_a_500(client: TestClient) -> None:
+    """The JSON is built as text: before 3.12, Python's JSON encoder and parser share the
+    recursion limit. Then the parser refuses the body (a 400); from 3.12 it is decided."""
+    leaf = '{"url":"https://mendari.co/fhir/test/leaf","valueString":"x"}'
+    nested = leaf
+    for depth in range(DEPTH):
+        nested = f'{{"url":"https://mendari.co/fhir/test/{depth}","extension":[{nested}]}}'
     bundle = inbox_bundle()
-    communication(bundle)["extension"] = [nested]
+    communication(bundle)["extension"] = ["PLACEHOLDER"]
+    body = json.dumps(bundle).replace('"PLACEHOLDER"', nested)
     response = client.post(
-        f"{INBOX}/fhir/decide",
-        content=json.dumps(bundle),
-        headers={"content-type": "application/fhir+json"},
+        f"{INBOX}/fhir/decide", content=body, headers={"content-type": "application/fhir+json"}
     )
-    assert response.status_code == 200, response.text
+    if response.status_code == 400:
+        assert outcome_of(response, 400)[0]["code"] == "invalid"
+    else:
+        assert response.status_code == 200, response.text

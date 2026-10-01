@@ -594,3 +594,20 @@ where one fits.
 ### Verification
 `tests/test_fhir_errors.py` has a null-padded profile and a 1,500-level nesting case.
 
+## 2026-10-01 - testing
+
+### What happened
+A test for deeply nested FHIR passed locally (Python 3.12) and failed in CI on 3.11: the
+test's own `json.dumps` hit the recursion limit, which 3.11's JSON encoder and parser share
+with the interpreter (3.12 gave them their own).
+
+### Root cause
+The suite ran on one Python version locally, and CI runs three (3.11, 3.12, 3.13).
+
+### Rule
+A test that touches interpreter limits (recursion, sizes, the JSON codec) runs on every Python
+version CI runs before pushing: `uv run --python 3.11 --isolated pytest …`, then 3.12 and 3.13.
+
+### Verification
+The deep-nesting tests in `tests/test_fhir_errors.py` pass on 3.11, 3.12 and 3.13 locally.
+
