@@ -24,6 +24,12 @@
       "runtimeExecutable": "env",
       "runtimeArgs": ["REGISTRY_URL=http://127.0.0.1:8100", "npm", "--prefix", "hub", "run", "dev"],
       "port": 3100
+    },
+    {
+      "name": "web",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "3200", "--bind", "127.0.0.1", "--directory", "web"],
+      "port": 3200
     }
   ]
 }

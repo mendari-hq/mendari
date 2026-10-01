@@ -553,3 +553,23 @@ with `uv run`.
 
 ### Verification
 `grep -n 'uv run .*&$' .github/workflows/*.yml` finds nothing.
+
+## 2026-09-30 - process
+
+### What happened
+The rename PR kept the old `OPENHEALTH_*` setting names working, and the tests passed. The
+Vercel preview's `/api/health` still showed four packs on their default providers instead of
+Jev or the LLM: production's `OPENHEALTH_PROVIDERS` scopes choices to `openhealth/…` pack ids,
+and those no longer matched `mendari/…`.
+
+### Root cause
+A rename reaches setting values as well as names, and the tests only covered names.
+
+### Rule
+When a rename or migration must leave a deployment's configuration unchanged, compare the
+preview's effective configuration (`/api/health`: providers, limits) with production's, line by
+line, before merging.
+
+### Verification
+The PR shows the preview and production effective configurations as equal (a `diff` with no
+output).
