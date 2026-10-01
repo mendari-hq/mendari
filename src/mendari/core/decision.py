@@ -19,7 +19,13 @@ from mendari.core.pack import Pack, load_pack
 from mendari.core.policy import GovernanceOverride, PolicyResult, apply_policy
 from mendari.core.registry import resolve_pack
 from mendari.core.spec import Outcome, Priority
-from mendari.errors import HubError, PackNotFoundError, PackValidationError, ProviderError
+from mendari.errors import (
+    FhirStructureError,
+    HubError,
+    PackNotFoundError,
+    PackValidationError,
+    ProviderError,
+)
 from mendari.providers import Answer, Provider, ProviderInfo, build_provider
 from mendari.providers.batch import batching
 from mendari.settings import FhirValidation
@@ -261,16 +267,23 @@ class Decision:
         """Decide from FHIR R4 resources (a Bundle or {resourceType: resource}); return a Task.
         `focus` picks the resource to decide about, e.g. one of several draft orders.
 
-        The resources are checked against US Core (`fhir_validation`): under `warn` the issues are
-        recorded in the result; under `enforce` an error blocks the input before any provider."""
+        Input that is not FHIR JSON (an element of the wrong JSON type) raises
+        `FhirStructureError` whatever the mode. The resources are checked against US Core
+        (`fhir_validation`): under `warn` the issues are recorded in the result; under `enforce` an
+        error blocks the input before any provider."""
         from mendari.standards import us_core
         from mendari.standards.fhir import FhirAdapter
 
         adapter = FhirAdapter.for_pack(self.pack)
+        issues = us_core.validate(resources if focus is None else [resources, focus])
+        malformed = [issue for issue in issues if issue.code == "structure"]
+        if malformed:
+            raise FhirStructureError(
+                [{"expression": i.expression, "diagnostics": i.diagnostics} for i in malformed]
+            )
+        if self.fhir_validation == "off":
+            issues = []
         indexed = adapter.index(resources, focus=focus)
-        issues = []
-        if self.fhir_validation != "off":
-            issues = us_core.validate(resources if focus is None else [resources, focus])
         rejected = []
         if self.fhir_validation == "enforce":
             rejected = [

@@ -36,6 +36,18 @@ class FhirError(MendariError):
     """FHIR input is missing required resources or cannot be mapped to the pack input."""
 
 
+class FhirStructureError(FhirError):
+    """FHIR input is not FHIR JSON: an element has the wrong JSON type (a string where an object
+    belongs, say). `issues` are OperationOutcome-shaped ({expression, diagnostics}), paths only,
+    never values."""
+
+    def __init__(self, issues: list[dict[str, str]]):
+        self.issues = issues
+        shown = "; ".join(f"{i['expression']}: {i['diagnostics']}" for i in issues[:5])
+        more = f" (and {len(issues) - 5} more)" if len(issues) > 5 else ""
+        super().__init__(f"not valid FHIR JSON: {shown}{more}")
+
+
 class SmartError(MendariError):
     """A SMART on FHIR launch cannot continue: not configured, a bad or expired state, a token
     the authorization server should not have issued, or no session."""

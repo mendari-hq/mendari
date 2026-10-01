@@ -349,6 +349,9 @@ MENDARI_OIDC_ROLE_MAP="clinicians=reviewer,informatics=admin" # IdP role or grou
 MENDARI_PUBLIC_URL=https://mendari.example.org
 ```
 
+With a provider that has no roles, such as Google, set `MENDARI_OIDC_ROLE_CLAIM=email` and map
+verified emails to roles ([the Google setup](docs/deploying-with-phi.md#2-sign-in-and-roles)).
+
 People sign in with their organization's account, using PKCE and an `id_token` verified with the
 IdP's keys. Machines use **API keys**, which admins create in `POST /api/auth/keys`; they are
 shown once, stored hashed and revocable. Every route has a permission, and anything unlisted

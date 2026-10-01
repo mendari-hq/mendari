@@ -121,7 +121,11 @@ def add_smart_routes(
         )
         return response
 
-    @app.get("/api/smart/session")
+    @app.get(
+        "/api/smart/session",
+        tags=["SMART on FHIR"],
+        summary="The SMART launch session",
+    )
     def smart_session(request: Request) -> dict[str, Any]:
         """The launch's context, or `{"active": false}` (every dashboard load asks, so no launch
         is an answer, not an error)."""
@@ -132,8 +136,13 @@ def add_smart_routes(
         shown = ("iss", "patient", "encounter", "fhir_user", "scope", "expires_at", "pack")
         return {"active": True, **{key: session.get(key) for key in shown}}
 
-    @app.post("/api/smart/logout")
+    @app.post(
+        "/api/smart/logout",
+        tags=["SMART on FHIR"],
+        summary="End the SMART session",
+    )
     def smart_logout(request: Request) -> Response:
+        """Forget the EHR launch (its tokens are deleted)."""
         sid = request.cookies.get(COOKIE)
         if sid:
             store.smart_delete(sid)
@@ -141,21 +150,36 @@ def add_smart_routes(
         response.delete_cookie(COOKIE, path="/", secure=True, httponly=True, samesite="lax")
         return response
 
-    @app.get("/api/smart/patient")
+    @app.get(
+        "/api/smart/patient",
+        tags=["SMART on FHIR"],
+        summary="The launch's patient",
+    )
     def smart_patient(request: Request) -> dict[str, Any]:
+        """The patient in context, read from the EHR's FHIR server: name, age, sex."""
         session = session_of(request)
         with FhirClient(session["iss"], token=session["access_token"]) as fhir:
             return patient_summary(fhir.read(f"Patient/{session['patient']}"))
 
-    @app.get("/api/smart/focus")
+    @app.get(
+        "/api/smart/focus",
+        tags=["SMART on FHIR"],
+        summary="Items to decide about",
+    )
     def smart_focus(request: Request, pack_id: str) -> list[dict[str, Any]]:
+        """The patient's resources the pack decides about (e.g. referrals), from the EHR."""
         session = session_of(request)
         adapter = FhirAdapter.for_pack(pack_or_404(pack_id))
         with FhirClient(session["iss"], token=session["access_token"]) as fhir:
             return focus_items(fhir, adapter, session["patient"])
 
-    @app.post("/api/smart/decide")
+    @app.post(
+        "/api/smart/decide",
+        tags=["SMART on FHIR"],
+        summary="Decide for the launch's patient",
+    )
     def smart_decide(request: Request, body: SmartDecideRequest) -> dict[str, Any]:
+        """Read the record from the EHR, decide, and return the decision and its FHIR Task."""
         session = session_of(request)
         decision = decision_for(body.pack_id)
         with FhirClient(session["iss"], token=session["access_token"]) as fhir:

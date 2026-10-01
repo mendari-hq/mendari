@@ -217,3 +217,32 @@ def test_calls_that_cannot_authenticate_use_no_budget(
     report = client.post(f"{PACK}/evals", json={"dataset": "red_flags"}).json()
     assert report["errors"] == {"credential_unavailable": 38}
     assert client.get("/api/health").json()["jev"]["calls_today"] == 0
+
+
+def test_the_api_reference_describes_every_operation(client: TestClient) -> None:
+    """/docs is the product's face to developers: every operation is grouped, named and
+    explained, and "Try it out" starts from a synthetic input that really decides."""
+    schema = client.get("/openapi.json").json()
+    tags = {tag["name"] for tag in schema["tags"]}
+    operations = [
+        (method.upper(), path, operation)
+        for path, methods in schema["paths"].items()
+        for method, operation in methods.items()
+    ]
+    for method, path, operation in operations:
+        assert len(operation.get("tags", [])) == 1 and operation["tags"][0] in tags, (method, path)
+        assert operation.get("summary") and operation.get("description"), (method, path)
+    assert "securitySchemes" not in schema.get("components", {})  # sign-in is off here
+    assert "Sign-in is off here" in schema["info"]["description"]
+    decide = schema["paths"]["/api/packs/{namespace}/{name}/decide"]["post"]
+    examples = decide["requestBody"]["content"]["application/json"]["examples"]
+    assert next(iter(examples)) == "patient-inbox-router"  # the default pack comes first
+    for example in examples.values():
+        pack_id = example["summary"].split(":")[0]
+        decided = client.post(f"/api/packs/{pack_id}/decide", json=example["value"]).json()
+        assert decided["outcome"] != "BLOCK", (pack_id, decided["reasons"])
+    fhir = schema["paths"]["/api/packs/{namespace}/{name}/fhir/decide"]["post"]
+    bundle = fhir["requestBody"]["content"]["application/json"]["examples"]["message"]["value"]
+    decided = client.post(f"{PACK}/fhir/decide", json=bundle).json()
+    assert decided["task"]["resourceType"] == "Task"
+    assert decided["decision"]["input_issues"] == []  # the example conforms to US Core

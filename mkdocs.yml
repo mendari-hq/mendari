@@ -62,4 +62,5 @@ nav:
       - "Plan: v1.0 public launch": plans/v1.0-public-launch.md
       - Dashboard design review: ui-ux-review.md
       - Dashboard design grade: design-grade.md
+      - FHIR and API docs audit: fhir-and-docs-audit.md
       - Overnight build log: overnight-log.md

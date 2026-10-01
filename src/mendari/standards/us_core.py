@@ -11,6 +11,10 @@ A profile is chosen by `meta.profile` when it names one of these, otherwise by r
 profile (MedicationStatement, Communication, non-laboratory Observations) get the base R4
 checks. Issues never include values from the resource, only paths, so they can be logged and
 returned without exposing patient data.
+
+Before any profile, `structure` checks the elements whose JSON type every R4 resource agrees on
+(`resourceType`, `id`, `meta`, `subject`, every `coding`). A resource that fails it is not FHIR
+JSON, so its profile is not checked. Full structural validation is the HL7 validator's.
 """
 
 from __future__ import annotations
@@ -27,6 +31,7 @@ from mendari.standards.fhir import iter_resources
 DATA = Path(__file__).with_name("us_core_6_1_0.json")
 US_CORE_VERSION = "6.1.0"
 PROFILE_BASE = "http://hl7.org/fhir/us/core/StructureDefinition/"
+R4_BASE = "http://hl7.org/fhir/StructureDefinition/"
 DATA_ABSENT = "http://hl7.org/fhir/StructureDefinition/data-absent-reason"
 UCUM = "http://unitsofmeasure.org"
 SNOMED = "http://snomed.info/sct"
@@ -35,7 +40,7 @@ _REPORTED = ("partial", "preliminary", "final", "amended", "corrected", "appende
 _ORDERS = ("order", "original-order", "reflex-order", "filler-order", "instance-order")
 
 Severity = Literal["error", "warning"]
-IssueCode = Literal["required", "code-invalid", "invariant"]
+IssueCode = Literal["required", "code-invalid", "invariant", "structure"]
 
 
 @dataclass(frozen=True)
@@ -68,10 +73,76 @@ def validate(resources: Any) -> list[Issue]:
         if resource.get("id") and key in seen:
             continue  # the same resource in two prefetch results is checked once
         seen.add(key)
-        name = profile_for(resource)
+        malformed = structure(resource)
+        issues += malformed
+        name = None if malformed else profile_for(resource)
         if name is not None:
             issues += check(resource, name)
     return issues
+
+
+def structure(resource: Mapping[str, Any]) -> list[Issue]:
+    """Elements of the wrong JSON type, among those every R4 resource types the same way."""
+    kind = resource.get("resourceType")
+    if not isinstance(kind, str):
+        return [
+            Issue(
+                "error",
+                "structure",
+                "resourceType",
+                "resourceType must be a string",
+                "resource",
+                R4_BASE + "Resource",
+            )
+        ]
+    label = f"{kind}/{resource['id']}" if isinstance(resource.get("id"), str) else kind
+    found: list[Issue] = []
+
+    def wrong(expression: str, expected: str) -> None:
+        element = expression.rsplit(".", 1)[-1].split("[")[0]
+        diagnostics = f"{element} must be {expected}"
+        found.append(Issue("error", "structure", expression, diagnostics, label, R4_BASE + kind))
+
+    if "id" in resource and not isinstance(resource["id"], str):
+        wrong(f"{kind}.id", "a string")
+    meta = resource.get("meta")
+    if meta is not None and not isinstance(meta, Mapping):
+        wrong(f"{kind}.meta", "an object")
+    elif meta is not None:
+        if not _array_of(meta.get("profile"), str):
+            wrong(f"{kind}.meta.profile", "an array of strings")
+        for name in ("tag", "security"):
+            if not _array_of(meta.get(name), Mapping):
+                wrong(f"{kind}.meta.{name}", "an array of objects")
+    subject = resource.get("subject")
+    references = subject if isinstance(subject, list) else [subject]
+    if subject is not None and not _array_of(references, Mapping):
+        wrong(f"{kind}.subject", "an object (a Reference)")
+    elif any(not isinstance(_object(r).get("reference", ""), str) for r in references):
+        wrong(f"{kind}.subject.reference", "a string")
+    for where, coding in _elements(resource, "coding", kind):
+        if not _array_of(coding, Mapping):
+            wrong(where, "an array of objects (Codings)")
+    return found
+
+
+def _array_of(value: Any, kind: type) -> bool:
+    """Absent, or a JSON array whose items are all of `kind`."""
+    return value is None or (isinstance(value, list) and all(isinstance(v, kind) for v in value))
+
+
+def _elements(node: Any, name: str, where: str) -> Iterator[tuple[str, Any]]:
+    """(FHIRPath, value) of every element called `name`, at any depth."""
+    if isinstance(node, Mapping):
+        for key, value in node.items():
+            path = f"{where}.{key}"
+            if key == name:
+                yield path, value
+            else:
+                yield from _elements(value, name, path)
+    elif isinstance(node, list):
+        for index, item in enumerate(node):
+            yield from _elements(item, name, f"{where}[{index}]")
 
 
 def errors(issues: list[Issue]) -> list[Issue]:
@@ -102,7 +173,7 @@ def operation_outcome(issues: list[Issue]) -> dict[str, Any]:
 def profile_for(resource: Mapping[str, Any]) -> str | None:
     kind = resource.get("resourceType")
     known = profiles()
-    for url in (resource.get("meta") or {}).get("profile", []):
+    for url in _list(_object(resource.get("meta")).get("profile")):
         name = str(url).split("|")[0].removeprefix(PROFILE_BASE)
         if name in known and known[name]["type"] == kind:
             return name
@@ -224,9 +295,17 @@ def _codings(value: Any) -> set[tuple[str, str]]:
         (str(coding.get("system")), str(coding.get("code")))
         for concept in concepts
         if isinstance(concept, Mapping)
-        for coding in concept.get("coding", [])
+        for coding in _list(concept.get("coding"))
         if isinstance(coding, Mapping)
     }
+
+
+def _object(value: Any) -> Mapping[str, Any]:
+    return value if isinstance(value, Mapping) else {}
+
+
+def _list(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
 
 
 # -- the profiles' us-core-* invariants, by (type, key) -----------------------------------------
@@ -237,8 +316,14 @@ Rule = Callable[[Mapping[str, Any], str], list[str]]
 def _patient_name(resource: Mapping[str, Any], kind: str) -> list[str]:
     bad = []
     for where, name in _items(resource, "name", kind):
+        if not isinstance(name, Mapping):
+            bad.append(where)  # a HumanName is an object
+            continue
         has_parts = bool(name.get("family") or name.get("given"))
-        absent = any(e.get("url") == DATA_ABSENT for e in name.get("extension", []))
+        absent = any(
+            isinstance(e, Mapping) and e.get("url") == DATA_ABSENT
+            for e in _list(name.get("extension"))
+        )
         if has_parts == absent:
             bad.append(where)
     return bad
@@ -248,7 +333,9 @@ def _attachment(resource: Mapping[str, Any], kind: str) -> list[str]:
     return [
         where
         for where, attachment in _items(resource, "content.attachment", kind)
-        if not (attachment.get("url") or attachment.get("data"))
+        if not (
+            isinstance(attachment, Mapping) and (attachment.get("url") or attachment.get("data"))
+        )
     ]
 
 
@@ -265,7 +352,7 @@ def _full_date(resource: Mapping[str, Any], kind: str) -> list[str]:
 
 
 def _ucum(resource: Mapping[str, Any], kind: str) -> list[str]:
-    system = (resource.get("valueQuantity") or {}).get("system")
+    system = _object(resource.get("valueQuantity")).get("system")
     return [f"{kind}.value"] if system not in (None, UCUM) else []
 
 
@@ -290,7 +377,8 @@ def _performed(resource: Mapping[str, Any], kind: str) -> list[str]:
 
 def _member_id(resource: Mapping[str, Any], kind: str) -> list[str]:
     member = (f"{TERMINOLOGY}/v2-0203", "MB")
-    typed = any(member in _codings(i.get("type")) for i in resource.get("identifier", []))
+    identifiers = [i for i in _list(resource.get("identifier")) if isinstance(i, Mapping)]
+    typed = any(member in _codings(i.get("type")) for i in identifiers)
     return [] if typed or resource.get("subscriberId") else [f"{kind}.identifier"]
 
 

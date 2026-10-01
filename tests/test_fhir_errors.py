@@ -1,0 +1,216 @@
+"""Malformed input and errors: no input crashes a FHIR route, FHIR routes answer errors with an
+OperationOutcome, and no error echoes what the client sent."""
+
+from __future__ import annotations
+
+import copy
+import json
+from collections.abc import Iterator
+from pathlib import Path
+from typing import Any
+
+import pytest
+from fastapi.testclient import TestClient
+
+from mendari.core.decision import Decision
+from mendari.errors import FhirError, FhirStructureError
+from mendari.server.app import create_app
+from mendari.standards import us_core
+from mendari.standards.fhir import FhirAdapter
+
+FIXTURES = Path(__file__).parent / "fixtures" / "us-core"
+PACKS = {
+    "inbox.json": "mendari/patient-inbox-router",
+    "referral.json": "mendari/referral-router",
+    "prior-auth.json": "mendari/prior-auth-preflight",
+    "trial.json": "mendari/clinical-trial-prescreener",
+}
+INBOX = "/api/packs/mendari/patient-inbox-router"
+SECRET = "Synthetic secret: chest pain since noon"  # must never come back in an error
+WRONG_TYPES: list[Any] = ["x", 7, {"x": 1}, ["x"]]
+
+
+def element_paths(node: Any, prefix: tuple[Any, ...] = ()) -> Iterator[tuple[Any, ...]]:
+    if isinstance(node, dict):
+        items: Any = node.items()
+    elif isinstance(node, list):
+        items = enumerate(node)
+    else:
+        return
+    for key, value in items:
+        if key != "resourceType":
+            yield (*prefix, key)
+        yield from element_paths(value, (*prefix, key))
+
+
+def replaced(document: Any, path: tuple[Any, ...], value: Any) -> Any:
+    changed = copy.deepcopy(document)
+    node = changed
+    for key in path[:-1]:
+        node = node[key]
+    node[path[-1]] = value
+    return changed
+
+
+@pytest.mark.parametrize("fixture", sorted(PACKS))
+def test_no_mistyped_element_crashes_the_fhir_layer(fixture: str) -> None:
+    """Every element of a US Core fixture, replaced by each wrong JSON type: the checks, the
+    mapping and the Task either work or raise a FhirError (an HTTP 4xx), never anything else."""
+    seed = json.loads((FIXTURES / fixture).read_text(encoding="utf-8"))
+    decision = Decision.from_hub(PACKS[fixture])
+    adapter = FhirAdapter.for_pack(decision.pack)
+    result, _ = decision.decide_fhir(seed)
+    for path in element_paths(seed):
+        for wrong in WRONG_TYPES:
+            mistyped = replaced(seed, path, wrong)
+            try:
+                issues = us_core.validate(mistyped)
+                if any(issue.code == "structure" for issue in issues):
+                    continue
+                indexed = adapter.index(mistyped)
+                adapter.to_input(indexed)
+                adapter.to_task(result, indexed)
+            except FhirError:
+                pass
+
+
+@pytest.fixture
+def client(tmp_path: Path) -> TestClient:
+    return TestClient(create_app(db_path=tmp_path / "e.db"), raise_server_exceptions=False)
+
+
+def inbox_bundle() -> dict[str, Any]:
+    bundle: dict[str, Any] = json.loads((FIXTURES / "inbox.json").read_text(encoding="utf-8"))
+    return bundle
+
+
+def communication(bundle: dict[str, Any]) -> dict[str, Any]:
+    found: dict[str, Any] = bundle["entry"][1]["resource"]
+    assert found["resourceType"] == "Communication"
+    return found
+
+
+def outcome_of(response: Any, status: int) -> list[dict[str, Any]]:
+    assert response.status_code == status, response.text
+    assert response.headers["content-type"].startswith("application/fhir+json")
+    body = response.json()
+    assert body["resourceType"] == "OperationOutcome"
+    assert all(issue["severity"] == "error" for issue in body["issue"])
+    issues: list[dict[str, Any]] = body["issue"]
+    return issues
+
+
+@pytest.mark.parametrize(
+    ("element", "value", "expression"),
+    [
+        ("meta", "x", "Communication.meta"),
+        ("subject", "Patient/in-p1", "Communication.subject"),
+        ("subject", {"reference": 7}, "Communication.subject.reference"),
+        ("id", 7, "Communication.id"),
+    ],
+)
+def test_an_element_of_the_wrong_json_type_is_a_400(
+    client: TestClient, element: str, value: Any, expression: str
+) -> None:
+    """These crashed with a plain-text 500 before (meta and subject in the audit)."""
+    bundle = inbox_bundle()
+    communication(bundle)[element] = value
+    issues = outcome_of(client.post(f"{INBOX}/fhir/decide", json=bundle), 400)
+    assert [(i["code"], i["expression"]) for i in issues] == [("structure", [expression])]
+
+
+def test_malformed_bundles_and_codings_are_400s(client: TestClient) -> None:
+    entry_not_array = {"resourceType": "Bundle", "type": "collection", "entry": {"x": 1}}
+    issues = outcome_of(client.post(f"{INBOX}/fhir/decide", json=entry_not_array), 400)
+    assert issues[0]["expression"] == ["Bundle.entry"]
+    resource_not_object = {"resourceType": "Bundle", "entry": [{"resource": "Communication"}]}
+    issues = outcome_of(client.post(f"{INBOX}/fhir/decide", json=resource_not_object), 400)
+    assert issues[0]["expression"] == ["Bundle.entry[0].resource"]
+    bundle = inbox_bundle()
+    communication(bundle)["category"] = [{"coding": {"code": "x"}}]
+    issues = outcome_of(client.post(f"{INBOX}/fhir/decide", json=bundle), 400)
+    assert issues[0]["expression"] == ["Communication.category[0].coding"]
+
+
+def test_structure_is_checked_even_with_validation_off(tmp_path: Path) -> None:
+    """`off` skips the US Core checks, not the check that the input is FHIR JSON at all."""
+    app = create_app(db_path=tmp_path / "off.db", fhir_validation="off")
+    client = TestClient(app, raise_server_exceptions=False)
+    bundle = inbox_bundle()
+    communication(bundle)["meta"] = "x"
+    outcome_of(client.post(f"{INBOX}/fhir/decide", json=bundle), 400)
+    communication(bundle)["meta"] = {}
+    communication(bundle)["status"] = "not-a-status"  # a US Core finding: not checked when off
+    response = client.post(f"{INBOX}/fhir/decide", json=bundle)
+    assert response.status_code == 200 and response.json()["decision"]["input_issues"] == []
+
+
+def test_fhir_route_errors_are_operation_outcomes(client: TestClient) -> None:
+    missing = client.post(f"{INBOX}/fhir/decide", json={"resourceType": "Patient", "id": "p"})
+    assert outcome_of(missing, 422)[0]["code"] == "processing"
+    unknown_pack = client.post("/api/packs/mendari/nope/fhir/decide", json=inbox_bundle())
+    assert outcome_of(unknown_pack, 404)[0]["code"] == "not-found"
+    no_route = client.get("/fhir/metadata")
+    assert outcome_of(no_route, 404)[0]["code"] == "not-found"
+    dtr = client.post("/fhir/Questionnaire/$questionnaire-package", json={"resourceType": "x"})
+    assert "Coverage" in outcome_of(dtr, 422)[0]["diagnostics"]
+
+
+def test_a_body_that_is_not_a_json_object_is_a_400_without_an_echo(client: TestClient) -> None:
+    response = client.post(
+        f"{INBOX}/fhir/decide", content=SECRET, headers={"content-type": "text/plain"}
+    )
+    issues = outcome_of(response, 400)
+    assert issues[0]["code"] == "structure" and SECRET not in response.text
+
+
+def test_validation_errors_do_not_echo_the_request(client: TestClient) -> None:
+    """FastAPI's 422 carries the offending `input`; ours keeps only where and what."""
+    response = client.post(
+        "/api/review/some-id", json={"final_label": SECRET, "reviewer": "", "note": 7}
+    )
+    assert response.status_code == 422
+    assert SECRET not in response.text
+    problems = response.json()["detail"]
+    assert problems and all(set(problem) == {"type", "loc", "msg"} for problem in problems)
+
+
+def test_mendari_api_errors_keep_their_shape(client: TestClient) -> None:
+    response = client.post("/api/packs/mendari/nope/decide", json={})
+    assert response.status_code == 404
+    assert response.headers["content-type"] == "application/json"
+    assert response.json()["error"] == "PackNotFoundError"
+
+
+def test_an_unexpected_error_is_a_json_500_that_says_nothing(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken(*_: Any, **__: Any) -> None:
+        raise RuntimeError(SECRET)
+
+    monkeypatch.setattr(us_core, "validate", broken)
+    fhir = client.post(f"{INBOX}/fhir/decide", json=inbox_bundle())
+    assert outcome_of(fhir, 500)[0]["code"] == "exception" and SECRET not in fhir.text
+    assert fhir.headers["x-content-type-options"] == "nosniff"
+    monkeypatch.setattr(Decision, "decide", broken)
+    api = client.post(f"{INBOX}/decide", json={"message": {"body": "hi"}})
+    assert api.status_code == 500 and api.json() == {
+        "error": "InternalError",
+        "detail": "internal error",
+    }
+
+
+def test_a_provider_that_is_not_set_up_is_a_503(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("JEV_API_URL", raising=False)
+    response = client.get("/api/providers/jev/models")
+    assert response.status_code == 503 and response.json()["error"] == "ProviderError"
+
+
+def test_structure_errors_carry_paths_not_values() -> None:
+    bundle = inbox_bundle()
+    communication(bundle)["subject"] = SECRET
+    with pytest.raises(FhirStructureError) as raised:
+        Decision.from_hub("mendari/patient-inbox-router").decide_fhir(bundle)
+    assert SECRET not in str(raised.value) and raised.value.issues

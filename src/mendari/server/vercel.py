@@ -21,7 +21,8 @@ Configuration comes from the environment:
   public origin, for the redirect URI).
 - `MENDARI_OIDC_ISSUER`, `MENDARI_OIDC_CLIENT_ID` (switch on sign-in; unset: open, behind
   Vercel Authentication), `MENDARI_OIDC_CLIENT_SECRET`, `MENDARI_OIDC_ROLE_CLAIM`,
-  `MENDARI_OIDC_ROLE_MAP`, `MENDARI_OIDC_ORG_CLAIM`.
+  `MENDARI_OIDC_ROLE_MAP`, `MENDARI_OIDC_ORG_CLAIM`, `MENDARI_OIDC_ENDPOINT_ORIGINS` (the
+  provider's endpoints on other hosts, e.g. Google's).
 - `LLM_MODEL`: default model for `llm` variants (AI Gateway id, e.g. anthropic/claude-sonnet-5).
 - `JEV_API_URL`, `JEV_MODEL`, `JEV_CONNECTOR`: see `mendari.providers.jev`.
 """

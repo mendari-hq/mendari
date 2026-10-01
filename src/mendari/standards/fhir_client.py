@@ -35,9 +35,10 @@ MAX_PAGES = 10  # a search's `next` links followed at most this many times
 _JSON_TYPES = ("application/fhir+json", "application/json")
 
 
-def allowed_servers() -> frozenset[str]:
-    """Origins from $MENDARI_FHIR_ALLOWED_SERVERS (comma-separated), checked at startup."""
-    raw = os.environ.get("MENDARI_FHIR_ALLOWED_SERVERS", "")
+def allowed_servers(variable: str = "MENDARI_FHIR_ALLOWED_SERVERS") -> frozenset[str]:
+    """Origins from $MENDARI_FHIR_ALLOWED_SERVERS (comma-separated), checked at startup. Other
+    allow-lists of the same form (`variable`) are read the same way."""
+    raw = os.environ.get(variable, "")
     origins = set()
     for item in (part.strip() for part in raw.split(",")):
         if not item:
@@ -45,12 +46,12 @@ def allowed_servers() -> frozenset[str]:
         origin = _origin(item)
         if origin is None or origin != item.rstrip("/"):
             raise MendariError(
-                f"MENDARI_FHIR_ALLOWED_SERVERS: {item!r} must be an origin, "
+                f"{variable}: {item!r} must be an origin, "
                 "like https://ehr.example.org or http://fhir:8080"
             )
         if origin.startswith("http://") and not _local(urlsplit(origin).hostname or ""):
             raise MendariError(
-                f"MENDARI_FHIR_ALLOWED_SERVERS: {item!r} must use https "
+                f"{variable}: {item!r} must use https "
                 "(plain http only for localhost or a single-label compose service)"
             )
         origins.add(origin)

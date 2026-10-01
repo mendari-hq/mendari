@@ -31,6 +31,25 @@ MENDARI_OIDC_ORG_CLAIM=org          # only if one deployment serves several orga
 MENDARI_PUBLIC_URL=https://mendari.example.org
 ```
 
+**With an identity provider that has no roles, such as Google**, map people one by one from
+their email. Mendari gives a role to an email only when the provider says it is verified
+(`email_verified`), and Google's token and key endpoints are on other hosts than its issuer, so
+they are listed:
+
+```bash
+MENDARI_OIDC_ISSUER=https://accounts.google.com
+MENDARI_OIDC_CLIENT_ID=1234567890-abc.apps.googleusercontent.com
+MENDARI_OIDC_CLIENT_SECRET=...      # from your secret manager
+MENDARI_OIDC_ENDPOINT_ORIGINS=https://oauth2.googleapis.com,https://www.googleapis.com
+MENDARI_OIDC_ROLE_CLAIM=email
+MENDARI_OIDC_ROLE_MAP="owner@example.org=admin,nurse@example.org=reviewer"
+MENDARI_PUBLIC_URL=https://mendari.example.org
+```
+
+In Google Cloud Console, create an OAuth client of type *Web application* with the redirect URI
+`https://mendari.example.org/auth/callback`. While its consent screen is in *Testing*, only the
+test users listed there can sign in at all, which is a second gate.
+
 Integrations (the EHR, CDS Hooks, a message worker) use API keys with the `service` role.
 Admins create them in `POST /api/auth/keys`; a key is shown once and can be revoked at any time.
 
