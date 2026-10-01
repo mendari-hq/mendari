@@ -16,8 +16,8 @@ the same interface, and every decision ends in an explicit `AUTO`, `HUMAN_REVIEW
 > real patients yet.
 
 > Mendari was called **OpenHealth Hub** until 2026-09-30. Settings under the old `OPENHEALTH_`
-> prefix still work (a `MENDARI_` setting wins when both are set), so existing deployments need
-> no change.
+> prefix still work (a `MENDARI_` setting wins when both are set), and so do old pack ids
+> (`openhealth/…`) in the providers and packs settings, so existing deployments need no change.
 
 ```text
 Clinical/EHR data (FHIR R4, CDS Hooks, REST)

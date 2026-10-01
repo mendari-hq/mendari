@@ -8,6 +8,7 @@ from typing import Literal, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from mendari.errors import MendariError
+from mendari.legacy import current_pack_id
 
 DEFAULT_JEV_DAILY_LIMIT = 500
 DEFAULT_LLM_DAILY_LIMIT = 500
@@ -69,7 +70,7 @@ def enabled_packs() -> frozenset[str]:
     """$MENDARI_PACKS: the packs this server serves (comma-separated ids); empty: every pack
     found. The per-pack container images set it to their one pack."""
     raw = os.environ.get("MENDARI_PACKS", "")
-    return frozenset(item.strip() for item in raw.split(",") if item.strip())
+    return frozenset(current_pack_id(item.strip()) for item in raw.split(",") if item.strip())
 
 
 def parse_providers(values: Sequence[str] | None) -> dict[str, str]:
@@ -85,7 +86,9 @@ def parse_providers(values: Sequence[str] | None) -> dict[str, str]:
         slot, sep, variant = item.partition("=")
         if not sep or not slot.strip() or not variant.strip():
             raise MendariError(f"provider override {item!r} must look like slot=variant")
-        overrides[slot.strip()] = variant.strip()
+        pack, scoped, name = slot.strip().rpartition(":")
+        key = f"{current_pack_id(pack.strip())}:{name.strip()}" if scoped else name.strip()
+        overrides[key] = variant.strip()
     return overrides
 
 
