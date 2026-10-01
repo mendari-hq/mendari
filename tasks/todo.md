@@ -5,18 +5,18 @@ Roadmap to the full goal: [`docs/roadmap.md`](../docs/roadmap.md).
 ## In progress: FHIR and API docs, Phase 1, and sign-in in production (2026-10-01)
 From the [FHIR and API docs audit](../docs/fhir-and-docs-audit.md); approved by the owner.
 Sign-in: Google, the owner as the only admin.
-- [ ] No input crashes a FHIR route: a test that mistypes every element of the US Core fixtures
+- [x] No input crashes a FHIR route: a test that mistypes every element of the US Core fixtures
   finds the crash sites; an element of the wrong JSON type → `400`
-- [ ] Errors on FHIR routes (`…/fhir/decide`, `/fhir/…`) are `OperationOutcome`s,
+- [x] Errors on FHIR routes (`…/fhir/decide`, `/fhir/…`) are `OperationOutcome`s,
   `application/fhir+json`; an unexpected error is a JSON `500` everywhere, never plain text
-- [ ] Validation errors (`422`) no longer echo the request body
-- [ ] An unconfigured provider → `503`; `200 BLOCK` for an invalid input documented
-- [ ] OpenAPI: tags, a summary and description on every operation, real synthetic examples,
+- [x] Validation errors (`422`) no longer echo the request body
+- [x] An unconfigured provider → `503`; `200 BLOCK` for an invalid input documented
+- [x] OpenAPI: tags, a summary and description on every operation, real synthetic examples,
   `securitySchemes` only when sign-in is on; a description that says what Mendari is
-- [ ] Sign-in with Google: the identity provider's token and key hosts on an explicit list
+- [x] Sign-in with Google: the identity provider's token and key hosts on an explicit list
   (`MENDARI_OIDC_ENDPOINT_ORIGINS`); a role from the `email` claim only when it is verified;
   `/docs` sends a signed-out browser to sign in
-- [ ] Docs: `deploying-with-phi.md` (Google), the audit's Phase 1 status
+- [x] Docs: `deploying-with-phi.md` (Google), the audit's Phase 1 status
 - [ ] Production: the owner's Google OAuth client; settings for Production only; preview's
   effective configuration equal to production's before merge; sign-in verified after deploy
 
