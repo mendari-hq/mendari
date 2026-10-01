@@ -60,6 +60,6 @@ lists:
 # Decision -> FHIR Task for the research coordinator's prescreening queue.
 task:
   code_text: Review study prescreen
-  performer_system: https://openhealth.dev/fhir/CodeSystem/research-team
+  performer_system: https://mendari.co/fhir/CodeSystem/research-team
   performer: research-coordinator
   description: "GLYCEMIA-2 prescreen: {recommendation}. Confirm eligibility against the protocol."

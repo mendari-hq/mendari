@@ -3,11 +3,11 @@
     uv run python scripts/fhir_validate.py --valid FILE... [--invalid FILE...] [--docker]
                                            [--ig PACKAGE#VERSION ...]
 
-- `--valid` files must have no errors: they are what OpenHealth produces or accepts as
+- `--valid` files must have no errors: they are what Mendari produces or accepts as
   conforming (the sandbox's resources, the US Core fixtures, the audit export).
-- `--invalid` files hold resources that `openhealth.standards.us_core` flags. Every resource it
+- `--invalid` files hold resources that `mendari.standards.us_core` flags. Every resource it
   flags must also have an error from the validator, so the in-process subset never rejects what
-  US Core accepts (which `OPENHEALTH_FHIR_VALIDATION=enforce` would turn into a block).
+  US Core accepts (which `MENDARI_FHIR_VALIDATION=enforce` would turn into a block).
 
 `--ig` loads more implementation guides next to US Core, e.g. the Da Vinci guides for the prior
 authorization samples (`hl7.fhir.us.davinci-crd#2.2.1`). The validator runs without a terminology
@@ -30,7 +30,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from openhealth.standards import us_core  # noqa: E402
+from mendari.standards import us_core  # noqa: E402
 
 JAR = Path(os.environ.get("FHIR_VALIDATOR_JAR", ROOT / "var/validator/validator_cli.jar"))
 IMAGE = "eclipse-temurin:21-jre"

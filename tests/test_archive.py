@@ -10,12 +10,12 @@ from pathlib import Path
 
 import pytest
 
-from openhealth.cli import main
-from openhealth.core.registry import resolve_pack
-from openhealth.errors import HubError
-from openhealth.hub import archive
+from mendari.cli import main
+from mendari.core.registry import resolve_pack
+from mendari.errors import HubError
+from mendari.hub import archive
 
-REFERRAL = resolve_pack("openhealth/referral-router")
+REFERRAL = resolve_pack("mendari/referral-router")
 
 
 @pytest.fixture(scope="module")
@@ -51,7 +51,7 @@ def test_an_archive_verifies_and_extracts_to_the_same_pack(
     key: archive.Ed25519PrivateKey, tmp_path: Path
 ) -> None:
     verified = archive.verify(archive.build(REFERRAL, key), trusted(key))
-    assert verified.manifest["id"] == "openhealth/referral-router"
+    assert verified.manifest["id"] == "mendari/referral-router"
     assert "DECISION_CARD.md" in verified.files  # attestations are signed too
     pack = archive.extract(verified, tmp_path / "pack")
     assert (pack.id, pack.version, pack.digest) == (REFERRAL.id, REFERRAL.version, REFERRAL.digest)
@@ -127,11 +127,11 @@ def test_the_cli_generates_keys_builds_and_verifies(
     assert "not overwriting" in capsys.readouterr().err
     key = str(tmp_path / "publisher.key")
     assert (
-        main(["pack", "build", "openhealth/referral-router", "--key", key, "--out", str(tmp_path)])
+        main(["pack", "build", "mendari/referral-router", "--key", key, "--out", str(tmp_path)])
         == 0
     )
-    built = tmp_path / "openhealth-referral-router-0.1.1.ohpack"
+    built = tmp_path / "mendari-referral-router-0.1.1.ohpack"
     assert (
         main(["pack", "verify", str(built), "--public-key", str(tmp_path / "publisher.pub")]) == 0
     )
-    assert f"OK openhealth/referral-router@0.1.1 {REFERRAL.digest}" in capsys.readouterr().out
+    assert f"OK mendari/referral-router@0.1.1 {REFERRAL.digest}" in capsys.readouterr().out

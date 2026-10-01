@@ -1,11 +1,11 @@
 {
-  "format": "openhealth.eval/1",
-  "id": "5e4fd63c-3cac-4b5f-9f8a-6c9efc59bd01",
-  "created_at": "2026-09-28T20:34:09+00:00",
+  "format": "mendari.eval/1",
+  "id": "e9d8d122-1a46-43f7-bd71-ef032f3024d5",
+  "created_at": "2026-10-01T02:00:47+00:00",
   "pack": {
-    "id": "openhealth/patient-inbox-router",
+    "id": "mendari/patient-inbox-router",
     "version": "0.3.0",
-    "digest": "sha256:15058428b20562d5d10b537160be04a4b706f7bf08e37b7bc5dba5ada4e49ef2"
+    "digest": "sha256:5e405f4823a58154fe123bbb1e838dc374f12975dbce3a33ce41655704f3bc78"
   },
   "providers": {
     "safety_screen": {
@@ -16,7 +16,7 @@
     "router": {
       "variant": "naive_bayes",
       "type": "naive_bayes",
-      "model": "naive_bayes@6b28c1ac77f0"
+      "model": "naive_bayes@37cb3086c82a"
     }
   },
   "policy": {
@@ -315,10 +315,10 @@
     }
   ],
   "latency_ms": {
-    "mean": 0.14806749182753265,
-    "p50": 0.14337501488626003,
-    "p95": 0.204416923224926,
-    "max": 0.5468330346047878
+    "mean": 0.14390646712854505,
+    "p50": 0.13954192399978638,
+    "p95": 0.19250018522143364,
+    "max": 0.5425829440355301
   },
   "cost": {
     "total_usd": 0.0,

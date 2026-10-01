@@ -1,7 +1,7 @@
 # Decision Pack Specification, version 0.1
 
 Status: draft. The key words MUST, SHOULD and MAY are used as in RFC 2119. The reference
-implementation is `openhealth.core.spec` (manifest) and `openhealth.core.policy` (semantics).
+implementation is `mendari.core.spec` (manifest) and `mendari.core.policy` (semantics).
 Where this document and the implementation disagree, file an issue; the document is intended
 to be normative.
 
@@ -139,7 +139,7 @@ Dataset format: JSON Lines. Each line has an `input` (the pack input), optional 
 (`{question: label}`), optional `attributes` (subgroup metadata such as `language` or
 `site`), and an optional `id`.
 
-An evaluation report (`format: openhealth.eval/1`) MUST include the pack id, version and
+An evaluation report (`format: mendari.eval/1`) MUST include the pack id, version and
 digest; the provider variant and model of each slot; the dataset name, SHA-256 and size; per
 question accuracy, macro-F1, per-label precision/recall/F1, confusion matrix, ECE with
 reliability bins, and Brier score; outcome rates; automation accuracy and false automation

@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from openhealth import Decision
-from openhealth.errors import PackValidationError
+from mendari import Decision
+from mendari.errors import PackValidationError
 
 MINI = Path(__file__).parent / "fixtures" / "packs" / "guard-mini"
 

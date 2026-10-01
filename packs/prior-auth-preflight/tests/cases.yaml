@@ -1,4 +1,4 @@
-# Synthetic behaviour tests shipped with the pack. `openhealth test` runs them against the
+# Synthetic behaviour tests shipped with the pack. `mendari test` runs them against the
 # pack's default providers (keyword rules for the notes, so nothing is automated).
 #
 # Every case is decided on 2026-09-01. The base order is a lumbar MRI for an Acme member with a

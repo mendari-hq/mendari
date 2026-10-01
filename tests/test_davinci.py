@@ -9,14 +9,14 @@ from typing import Any
 
 import pytest
 
-from openhealth.core.decision import Decision
-from openhealth.core.pack import Pack
-from openhealth.core.registry import resolve_pack
-from openhealth.core.spec import cross_reference_problems
-from openhealth.standards import cds_hooks, davinci
+from mendari.core.decision import Decision
+from mendari.core.pack import Pack
+from mendari.core.registry import resolve_pack
+from mendari.core.spec import cross_reference_problems
+from mendari.standards import cds_hooks, davinci
 from tests.test_prior_auth_pack import _order, _prefetch
 
-PA = "openhealth/prior-auth-preflight"
+PA = "mendari/prior-auth-preflight"
 COMPLETE = "Completed 8 weeks of physical therapy. The knee locks when climbing stairs."
 
 
@@ -62,7 +62,7 @@ def test_each_decided_order_comes_back_with_coverage_information(preflight: Deci
     assert parts["coverage"] == [{"reference": "Coverage/c1"}]
     assert parts["covered"] == ["covered"] and parts["pa-needed"] == ["auth-needed"]
     assert "doc-needed" not in parts
-    decision_id = response["cards"][0]["extension"]["openhealth.decision_id"]
+    decision_id = response["cards"][0]["extension"]["mendari.decision_id"]
     assert parts["coverage-assertion-id"] == [decision_id]  # traceable to the audit record
     original = _order("mri", "72148")
     updated = {k: v for k, v in actions[0]["resource"].items() if k != "extension"}
@@ -155,7 +155,7 @@ def test_crd_links_the_questionnaire_only_when_documentation_is_missing(
     missing = cds_hooks.invoke(preflight, request("acme", "Back pain.", _order("mri", "72148")))
     [link] = coverage_info(missing["systemActions"][0])["questionnaire"]
     assert link == (
-        f"https://openhealth.dev/packs/{PA}/Questionnaire/lumbar_mri-acme|{preflight.pack.version}"
+        f"https://mendari.co/packs/{PA}/Questionnaire/lumbar_mri-acme|{preflight.pack.version}"
     )
     ready = cds_hooks.invoke(preflight, request("acme", COMPLETE, _order("mri", "72148")))
     assert "questionnaire" not in coverage_info(ready["systemActions"][0])
@@ -172,7 +172,7 @@ def package_request(*extra: dict[str, Any]) -> dict[str, Any]:
 def test_the_questionnaire_package_is_pre_answered_from_the_decision(tmp_path: Any) -> None:
     from fastapi.testclient import TestClient
 
-    from openhealth.server.app import create_app
+    from mendari.server.app import create_app
 
     client = TestClient(create_app(db_path=tmp_path / "a.db"))
     signed = client.post(

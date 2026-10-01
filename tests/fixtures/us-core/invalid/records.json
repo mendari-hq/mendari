@@ -15,7 +15,7 @@
         },
         "identifier": [
           {
-            "system": "https://openhealth.dev/fhir/synthetic-case",
+            "system": "https://mendari.co/fhir/synthetic-case",
             "value": "bad-1"
           }
         ],

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://openhealth.dev/packs/ai-guard/input.schema.json",
+  "$id": "https://mendari.co/packs/ai-guard/input.schema.json",
   "title": "AI Guard input",
   "description": "A patient's message, a language model's draft reply to it, and optionally what the record shows (medicines, allergies, results) and the patient's age. Text is English, at most 5,000 characters.",
   "type": "object",

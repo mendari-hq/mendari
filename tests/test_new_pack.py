@@ -1,4 +1,4 @@
-"""`openhealth new`: the template pack validates, passes its tests and evaluates as written, as
+"""`mendari new`: the template pack validates, passes its tests and evaluates as written, as
 the authoring guide (docs/guides/authoring-a-pack.md) says."""
 
 from __future__ import annotations
@@ -8,18 +8,18 @@ from pathlib import Path
 import pytest
 import yaml
 
-from openhealth.cli import main
-from openhealth.core.decision import Decision
-from openhealth.core.registry import resolve_pack
-from openhealth.evals import evaluate, resolve_dataset
-from openhealth.evals.pack_tests import run_pack_tests
+from mendari.cli import main
+from mendari.core.decision import Decision
+from mendari.core.registry import resolve_pack
+from mendari.evals import evaluate, resolve_dataset
+from mendari.evals.pack_tests import run_pack_tests
 
 
 def test_a_new_pack_works_as_written(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     target = tmp_path / "refill-router"
     args = ["new", str(target), "--id", "my-clinic/refill-router", "--publisher", "My Clinic"]
     assert main(args) == 0
-    assert "openhealth test" in capsys.readouterr().out
+    assert "mendari test" in capsys.readouterr().out
     pack = resolve_pack(str(target))
     assert pack.id == "my-clinic/refill-router" and pack.manifest.name == "Refill router"
     assert pack.manifest.publisher.name == "My Clinic"
@@ -33,7 +33,7 @@ def test_a_new_pack_works_as_written(tmp_path: Path, capsys: pytest.CaptureFixtu
 
 
 def test_the_template_is_yaml_only_and_says_where_the_guide_is() -> None:
-    from openhealth.cli import TEMPLATE
+    from mendari.cli import TEMPLATE
 
     suffixes = {p.suffix for p in TEMPLATE.rglob("*") if p.is_file()}
     assert suffixes <= {".yaml", ".json", ".jsonl"}  # nothing to program

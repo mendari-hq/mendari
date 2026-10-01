@@ -1,7 +1,7 @@
 {
-  "format": "openhealth.leaderboard/1",
+  "format": "mendari.leaderboard/1",
   "pack": {
-    "id": "openhealth/ai-guard",
+    "id": "mendari/ai-guard",
     "version": "0.1.2"
   },
   "updated_at": "2026-09-29T19:44:35+00:00",

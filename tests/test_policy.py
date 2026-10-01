@@ -3,10 +3,10 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from openhealth import GovernanceOverride, Outcome, Pack, Priority, RiskLevel
-from openhealth.core.policy import apply_policy
-from openhealth.core.spec import PackManifest, Risk
-from openhealth.providers import Answer, ProviderInfo
+from mendari import GovernanceOverride, Outcome, Pack, Priority, RiskLevel
+from mendari.core.policy import apply_policy
+from mendari.core.spec import PackManifest, Risk
+from mendari.providers import Answer, ProviderInfo
 
 INFO = ProviderInfo(slot="test", variant="test", type="test")
 

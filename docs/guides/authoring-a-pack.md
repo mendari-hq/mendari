@@ -5,13 +5,13 @@ check it: the questions you would ask, what each answer means, when a person mus
 evidence that it works. You write it in YAML, a plain-text format, with no programming. This guide
 builds a small pack that routes patient portal messages, one step at a time, in about 30 minutes.
 
-You need OpenHealth installed (`pip install openhealth`, or `uv sync` in a checkout) and a text
+You need Mendari installed (`pip install mendari`, or `uv sync` in a checkout) and a text
 editor. Every command is run in a terminal.
 
 ## 1. Start from the template
 
 ```bash
-openhealth new refill-router --id my-clinic/refill-router --publisher "My Clinic"
+mendari new refill-router --id my-clinic/refill-router --publisher "My Clinic"
 ```
 
 This creates a folder with everything a pack needs:
@@ -27,8 +27,8 @@ This creates a folder with everything a pack needs:
 It already works. Check it:
 
 ```bash
-openhealth validate refill-router    # the pack is well formed
-openhealth test refill-router        # its behaviour tests pass
+mendari validate refill-router       # the pack is well formed
+mendari test refill-router           # its behaviour tests pass
 ```
 
 ## 2. Say what the pack is for
@@ -64,7 +64,7 @@ risk:
     message with urgent symptoms always goes to a nurse.
 ```
 
-| Level | For | What OpenHealth does |
+| Level | For | What Mendari does |
 |---|---|---|
 | 0 | Administrative work | May automate |
 | 1 | Clinical information (routing, extracting) | May automate; every decision is audited |
@@ -165,7 +165,7 @@ you find later:
 ```
 
 ```bash
-openhealth test refill-router
+mendari test refill-router
 ```
 
 ## 8. Measure it on real-looking data
@@ -174,7 +174,7 @@ openhealth test refill-router
 question.
 
 ```bash
-openhealth eval refill-router --dataset examples
+mendari eval refill-router --dataset examples
 ```
 
 The report shows:
@@ -186,25 +186,25 @@ Make this run the pack's published benchmark. Write it to a file, then add
 `benchmark: evals/benchmark.json` under `evaluation:` in `pack.yaml`:
 
 ```bash
-openhealth eval refill-router --dataset examples --baseline none --out refill-router/evals/benchmark.json
+mendari eval refill-router --dataset examples --baseline none --out refill-router/evals/benchmark.json
 ```
 
 Before anyone uses the pack, **evaluate it on your own site's messages** (de-identified, or in a
-secure environment). OpenHealth compares the result with the benchmark, says where it degrades,
+secure environment). Mendari compares the result with the benchmark, says where it degrades,
 and you read every misclassified case:
 
 ```bash
-openhealth eval refill-router --dataset my-site.jsonl
+mendari eval refill-router --dataset my-site.jsonl
 ```
 
 To compare providers, add a variant to the slot in `pack.yaml` (for example `llm: {type: llm}`
 under `reader.variants`). Then run
-`openhealth leaderboard refill-router --run reader=rules --run reader=llm --dataset my-site.jsonl`.
+`mendari leaderboard refill-router --run reader=rules --run reader=llm --dataset my-site.jsonl`.
 
 ## 9. Publish the card
 
 ```bash
-openhealth card refill-router --write    # writes DECISION_CARD.md
+mendari card refill-router --write       # writes DECISION_CARD.md
 ```
 
 The Decision Card gathers the pack's purpose, risk, questions, policy and measured performance
@@ -214,9 +214,9 @@ into one page. Share it with your AI or clinical decision support committee. At 
 ## 10. Share it
 
 - **With colleagues:** open a pull request with the folder in `packs/`. CI validates, tests and
-  evaluates it, and shows its card ([`CONTRIBUTING.md`](https://github.com/Junebugg1214/openhealth-hub/blob/main/CONTRIBUTING.md)).
-- **On a registry:** `openhealth push refill-router --key my-key.pem` signs the pack and
-  publishes it, and others `openhealth pull my-clinic/refill-router` and verify it.
+  evaluates it, and shows its card ([`CONTRIBUTING.md`](https://github.com/Junebugg1214/mendari/blob/main/CONTRIBUTING.md)).
+- **On a registry:** `mendari push refill-router --key my-key.pem` signs the pack and
+  publishes it, and others `mendari pull my-clinic/refill-router` and verify it.
 
 ## Checklist before real use
 

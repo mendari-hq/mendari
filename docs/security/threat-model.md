@@ -1,6 +1,6 @@
 # Threat model
 
-_OpenHealth Hub engine, dashboard and registry, as of v1.0 (2026-09-30). Reviewed before the
+_Mendari engine, dashboard and registry, as of v1.0 (2026-09-30). Reviewed before the
 public launch; update it with any change to a trust boundary. The checks named here run in CI._
 
 ## What we protect
@@ -33,7 +33,7 @@ public launch; update it with any change to a trust boundary. The checks named h
 | S2 | A forged `id_token`, replayed sign-in or open redirect | 1 | PKCE S256, state and nonce used once, `id_token` verified with the issuer's JWKS, `next` limited to this site. | `tests/test_auth.py`; `pilot-check` against a real OIDC provider |
 | S3 | A stolen API key | 2 | Keys are stored as SHA-256, shown once, scoped by role and organization, and revocable. | `test_api_keys_work_for_machines_are_hashed_and_revocable` |
 | S4 | A forged pack or publisher | 5 | Ed25519-signed deterministic archives, keys pinned on first use, and immutable versions. | `tests/test_archive.py`, `tests/test_hub_client.py` |
-| T1 | The audit trail is edited after the fact | 6 | Every event is hash-chained, and `openhealth audit verify` detects any change. PHI inputs live outside the chain, so retention can delete them without breaking it. | `tests/test_audit.py`, `tests/test_phi.py` |
+| T1 | The audit trail is edited after the fact | 6 | Every event is hash-chained, and `mendari audit verify` detects any change. PHI inputs live outside the chain, so retention can delete them without breaking it. | `tests/test_audit.py`, `tests/test_phi.py` |
 | T2 | A pack's logic is swapped at a site | 5, 6 | The pack digest is recorded on every decision and deployment. A governance approval is bound to the digest. | `tests/test_governance.py` |
 | R1 | Someone denies a review or an approval they made | 1 | With sign-in on, the reviewer, reporter and approver are the signed-in principal, whatever the request body says. Each is chained. | `test_reviews_and_ratings_are_recorded_for_whoever_is_signed_in` |
 | I1 | PHI leaks through storage | 6 | PHI mode `hash` stores no input. `encrypt` uses AES-256-GCM bound to the decision id, apart from the chain, with a retention purge. | `tests/test_phi.py` |
@@ -63,4 +63,4 @@ public launch; update it with any change to a trust boundary. The checks named h
 
 ## Reporting a vulnerability
 
-See [`SECURITY.md`](https://github.com/Junebugg1214/openhealth-hub/blob/main/SECURITY.md).
+See [`SECURITY.md`](https://github.com/Junebugg1214/mendari/blob/main/SECURITY.md).

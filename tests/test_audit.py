@@ -5,8 +5,8 @@ from typing import Any
 
 import pytest
 
-from openhealth import AuditStore, CallBudget, Decision, DecisionResult, Outcome, Pack
-from openhealth.errors import ProviderError, ReviewError
+from mendari import AuditStore, CallBudget, Decision, DecisionResult, Outcome, Pack
+from mendari.errors import ProviderError, ReviewError
 from tests.conftest import message
 
 Decide = Callable[[str], DecisionResult]
@@ -183,7 +183,7 @@ def test_postgres_store_survives_server_closed_connections(db_target: str) -> No
         with psycopg.connect(admin_url, autocommit=True) as admin:
             killed = admin.execute(
                 "SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity "
-                "WHERE application_name = 'openhealth' AND pid <> pg_backend_pid()"
+                "WHERE application_name = 'mendari' AND pid <> pg_backend_pid()"
             ).fetchone()
         assert killed is not None and killed[0] >= 1
         assert store.stats()["decisions"] == 0  # served by a fresh connection, no error

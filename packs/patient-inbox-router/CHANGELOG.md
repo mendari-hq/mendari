@@ -1,4 +1,8 @@
-# Changelog: openhealth/patient-inbox-router
+# Changelog: mendari/patient-inbox-router
+
+Renamed on 2026-09-30, when the project became Mendari: this pack was `openhealth/patient-inbox-router`.
+Its id, its publisher's name and its `https://mendari.co/...` identifiers changed; its criteria,
+rules, models, data and results did not.
 
 ## 0.3.0
 

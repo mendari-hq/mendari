@@ -1,4 +1,4 @@
-# OpenHealth Hub dashboard: design grade
+# Mendari dashboard: design grade
 
 _Reviewed 2026-09-29 against `main` at `acc2e56` (after the redesign, Phases 0–5, and the Try-it
 forms). Reviewer's note: I built most of this frontend, so this grade is written as an outside
@@ -15,7 +15,7 @@ against typical internal tools._
 - **Measurements on every capture:** cumulative layout shift during load, distinct font sizes,
   interactive targets under 24 px (WCAG 2.5.8) and under 44 px (Apple HIG), content width against
   the viewport, height of the fixed chrome.
-- **Code:** `src/openhealth/dashboard/` (`app.js` 1,835 lines, `charts.js` 380, `form.js` 242,
+- **Code:** `src/mendari/dashboard/` (`app.js` 1,835 lines, `charts.js` 380, `form.js` 242,
   `table.js` 100, `style.css` 686, `index.html` 88): tokens against raw values, component reuse,
   state handling, motion inventory.
 - **Earlier evidence reused:** the Phase 5 keyboard walkthrough and accessibility-tree audit, and

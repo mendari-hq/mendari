@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://openhealth.dev/packs/prior-auth-preflight/input.schema.json",
+  "$id": "https://mendari.co/packs/prior-auth-preflight/input.schema.json",
   "title": "Prior Authorization Preflight input",
   "description": "An order (service code), the patient's coverage, coded diagnoses, prior procedures and clinic notes. Dates are ISO 8601; the as-of date defaults to today.",
   "type": "object",

@@ -41,9 +41,9 @@ test("a pack page has the facts, the pull command, the leaderboard and the card"
   const errors = watchConsole(page);
   await page.goto("/");
   await page.getByRole("link", { name: "Referral Router" }).click();
-  await expect(page).toHaveURL(/\/packs\/openhealth\/referral-router$/);
+  await expect(page).toHaveURL(/\/packs\/mendari\/referral-router$/);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Referral Router");
-  await expect(page.locator(".pull")).toHaveText("pip install openhealth && openhealth pull openhealth/referral-router");
+  await expect(page.locator(".pull")).toHaveText("pip install mendari && mendari pull mendari/referral-router");
   await expect(page.locator(".fact").first()).toContainText("0.1.1");
   await expect(page.locator(".badge.verified")).toHaveText("verified publisher");
   await expect(page.locator("details").first()).toHaveAttribute("open", "");
@@ -53,22 +53,22 @@ test("a pack page has the facts, the pull command, the leaderboard and the card"
 });
 
 test("a publisher page lists its packs and signing keys", async ({ page }) => {
-  await page.goto("/publishers/openhealth");
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("OpenHealth Hub reference packs");
+  await page.goto("/publishers/mendari");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Mendari reference packs");
   await expect(page.getByText("Verified publisher")).toBeVisible();
   await expect(page.locator("ul").first().getByRole("link")).toHaveCount(5);
   await expect(page.locator("li.mono")).toHaveCount(1);
 });
 
 test("an unknown pack is a 404 page", async ({ page }) => {
-  const response = await page.goto("/packs/openhealth/no-such-pack");
+  const response = await page.goto("/packs/mendari/no-such-pack");
   expect(response?.status()).toBe(404);
   await expect(page.getByRole("heading", { name: "Not found" })).toBeVisible();
 });
 
 test("pages fit a phone", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  for (const path of ["/", "/packs/openhealth/referral-router", "/publishers/openhealth"]) {
+  for (const path of ["/", "/packs/mendari/referral-router", "/publishers/mendari"]) {
     await page.goto(path);
     const fits = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
     expect(fits, path).toBe(true);

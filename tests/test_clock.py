@@ -7,23 +7,23 @@ from datetime import date
 
 import pytest
 
-from openhealth import AuditStore, Decision, Pack
-from openhealth.core import clock
-from openhealth.errors import OpenHealthError
-from openhealth.standards.fhir import age_years
+from mendari import AuditStore, Decision, Pack
+from mendari.core import clock
+from mendari.errors import MendariError
+from mendari.standards.fhir import age_years
 from tests.conftest import message
 
 
 def test_the_default_zone_is_us_eastern(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("OPENHEALTH_TIMEZONE", raising=False)
+    monkeypatch.delenv("MENDARI_TIMEZONE", raising=False)
     assert clock.zone().key == "America/New_York"
-    monkeypatch.setenv("OPENHEALTH_TIMEZONE", "Europe/Paris")
+    monkeypatch.setenv("MENDARI_TIMEZONE", "Europe/Paris")
     assert clock.zone().key == "Europe/Paris"
 
 
 def test_an_unknown_zone_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("OPENHEALTH_TIMEZONE", "Eastern")
-    with pytest.raises(OpenHealthError, match="OPENHEALTH_TIMEZONE"):
+    monkeypatch.setenv("MENDARI_TIMEZONE", "Eastern")
+    with pytest.raises(MendariError, match="MENDARI_TIMEZONE"):
         clock.zone()
 
 
@@ -42,14 +42,14 @@ def test_an_unknown_zone_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_stored_utc_timestamps_fall_on_eastern_days(
     stored: str, eastern_day: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.delenv("OPENHEALTH_TIMEZONE", raising=False)
+    monkeypatch.delenv("MENDARI_TIMEZONE", raising=False)
     assert clock.local_date(stored) == eastern_day
 
 
 def test_a_9_pm_decision_counts_on_that_eastern_day(
     inbox_pack: Pack, store: AuditStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.delenv("OPENHEALTH_TIMEZONE", raising=False)
+    monkeypatch.delenv("MENDARI_TIMEZONE", raising=False)
     result = Decision(inbox_pack)(message("Can you send a refill for metformin?"))
     at_9_pm = dataclasses.replace(result, created_at="2026-09-30T01:00:00.000+00:00")
     store.record(at_9_pm, message("Can you send a refill for metformin?"))
@@ -59,23 +59,23 @@ def test_a_9_pm_decision_counts_on_that_eastern_day(
     assert stored is not None
     assert stored["record"]["created_at"] == "2026-09-30T01:00:00.000+00:00"
     assert store.verify()["ok"]
-    monkeypatch.setenv("OPENHEALTH_TIMEZONE", "UTC")
+    monkeypatch.setenv("MENDARI_TIMEZONE", "UTC")
     assert [day["date"] for day in store.stats()["daily"]] == ["2026-09-30"]
 
 
 def test_daily_call_counters_use_the_local_day(
     store: AuditStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("openhealth.core.clock.today", lambda: date(2026, 9, 29))
+    monkeypatch.setattr("mendari.core.clock.today", lambda: date(2026, 9, 29))
     store.consume("jev", daily_limit=None)
     store.consume("jev", daily_limit=None)
     assert store.usage("jev") == 2
-    monkeypatch.setattr("openhealth.core.clock.today", lambda: date(2026, 9, 30))
+    monkeypatch.setattr("mendari.core.clock.today", lambda: date(2026, 9, 30))
     assert store.usage("jev") == 0  # a new local day starts at local midnight
 
 
 def test_ages_use_the_local_day(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("openhealth.core.clock.today", lambda: date(2026, 9, 29))
+    monkeypatch.setattr("mendari.core.clock.today", lambda: date(2026, 9, 29))
     assert age_years("2008-09-30") == 17
-    monkeypatch.setattr("openhealth.core.clock.today", lambda: date(2026, 9, 30))
+    monkeypatch.setattr("mendari.core.clock.today", lambda: date(2026, 9, 30))
     assert age_years("2008-09-30") == 18

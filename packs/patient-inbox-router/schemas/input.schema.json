@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://openhealth.dev/packs/openhealth/patient-inbox-router/input.schema.json",
+  "$id": "https://mendari.co/packs/mendari/patient-inbox-router/input.schema.json",
   "title": "Patient inbox message",
   "description": "One message from a patient (or caregiver) to the practice. Carries no direct identifiers.",
   "type": "object",

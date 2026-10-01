@@ -31,14 +31,14 @@ jobs:
           for name in $(git diff --name-only "$BASE"...HEAD -- packs/ | cut -d/ -f2 | sort -u); do
             dir="packs/$name"
             if [ ! -f "$dir/pack.yaml" ]; then echo "$dir was removed" >> "$GITHUB_STEP_SUMMARY"; continue; fi
-            uv run openhealth validate "$dir"
-            uv run openhealth test "$dir"
-            uv run openhealth card "$dir" > "/tmp/packs/$name-DECISION_CARD.md"
-            dataset=$(uv run python -c "from openhealth.core.registry import resolve_pack; print(resolve_pack('$dir').manifest.evaluation.benchmark_dataset or '')")
+            uv run mendari validate "$dir"
+            uv run mendari test "$dir"
+            uv run mendari card "$dir" > "/tmp/packs/$name-DECISION_CARD.md"
+            dataset=$(uv run python -c "from mendari.core.registry import resolve_pack; print(resolve_pack('$dir').manifest.evaluation.benchmark_dataset or '')")
             if [ -z "$dataset" ]; then echo "### $name: no benchmark dataset to evaluate" >> "$GITHUB_STEP_SUMMARY"; continue; fi
-            uv run openhealth eval "$dir" --dataset "$dataset" --baseline none --out "/tmp/packs/$name.json"
+            uv run mendari eval "$dir" --dataset "$dataset" --baseline none --out "/tmp/packs/$name.json"
             main_args=()
-            benchmark=$(uv run python -c "from openhealth.core.registry import resolve_pack; print(resolve_pack('$dir').manifest.evaluation.benchmark or '')")
+            benchmark=$(uv run python -c "from mendari.core.registry import resolve_pack; print(resolve_pack('$dir').manifest.evaluation.benchmark or '')")
             if [ -n "$benchmark" ] && git show "$BASE:$dir/$benchmark" > "/tmp/packs/$name-main.json" 2>/dev/null; then
               main_args=(--main "/tmp/packs/$name-main.json")
             fi

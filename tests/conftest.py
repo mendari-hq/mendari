@@ -10,24 +10,24 @@ from typing import Any
 import pytest
 import yaml
 
-from openhealth import AuditStore, Decision, Pack, load_pack
+from mendari import AuditStore, Decision, Pack, load_pack
 
 ROOT = Path(__file__).resolve().parents[1]
 INBOX_DIR = ROOT / "packs" / "patient-inbox-router"
 LOCAL_DATASET = ROOT / "datasets" / "local-site-example.jsonl"
 # Postgres tests run when this points at a disposable database, e.g.
-# postgresql://postgres:openhealth-test@127.0.0.1:56432/openhealth_test (see CLAUDE.md).
-POSTGRES_URL = os.environ.get("OPENHEALTH_TEST_DATABASE_URL", "").strip()
+# postgresql://postgres:mendari-test@127.0.0.1:56432/mendari_test (see CLAUDE.md).
+POSTGRES_URL = os.environ.get("MENDARI_TEST_DATABASE_URL", "").strip()
 
 
 @pytest.fixture(autouse=True)
 def _own_hub_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Each test has its own Hub config and pack cache, never the developer's (the cache is on
     the pack search path)."""
-    monkeypatch.setenv("OPENHEALTH_CONFIG_DIR", str(tmp_path / "hub-config"))
-    monkeypatch.setenv("OPENHEALTH_CACHE_DIR", str(tmp_path / "hub-cache"))
-    monkeypatch.delenv("OPENHEALTH_REGISTRY_URL", raising=False)
-    monkeypatch.delenv("OPENHEALTH_REGISTRY_TOKEN", raising=False)
+    monkeypatch.setenv("MENDARI_CONFIG_DIR", str(tmp_path / "hub-config"))
+    monkeypatch.setenv("MENDARI_CACHE_DIR", str(tmp_path / "hub-cache"))
+    monkeypatch.delenv("MENDARI_REGISTRY_URL", raising=False)
+    monkeypatch.delenv("MENDARI_REGISTRY_TOKEN", raising=False)
 
 
 @pytest.fixture(params=["sqlite", "postgres"])
@@ -37,7 +37,7 @@ def db_target(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[str]:
         yield str(tmp_path / "audit.db")
         return
     if not POSTGRES_URL:
-        pytest.skip("set OPENHEALTH_TEST_DATABASE_URL to run the Postgres backend tests")
+        pytest.skip("set MENDARI_TEST_DATABASE_URL to run the Postgres backend tests")
     import psycopg
 
     schema = f"test_{uuid.uuid4().hex[:12]}"

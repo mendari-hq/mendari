@@ -28,4 +28,4 @@ fields:
 # Decision -> FHIR Task that puts the message in the right team's work queue.
 task:
   code_text: Route patient message
-  performer_system: https://openhealth.dev/fhir/CodeSystem/inbox-destination
+  performer_system: https://mendari.co/fhir/CodeSystem/inbox-destination

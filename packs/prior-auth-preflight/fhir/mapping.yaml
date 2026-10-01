@@ -51,6 +51,6 @@ lists:
 # Decision -> FHIR Task for the prior-authorization work queue.
 task:
   code_text: Prior authorization preflight
-  performer_system: https://openhealth.dev/fhir/CodeSystem/prior-auth-queue
+  performer_system: https://mendari.co/fhir/CodeSystem/prior-auth-queue
   performer: prior-auth-team
   description: "Prior auth for {service} ({payer}): {recommendation}"

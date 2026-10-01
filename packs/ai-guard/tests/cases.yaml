@@ -1,4 +1,4 @@
-# Synthetic behaviour tests shipped with the pack. `openhealth test` runs them against the
+# Synthetic behaviour tests shipped with the pack. `mendari test` runs them against the
 # pack's default providers (keyword rules for the screen, so nothing is ever released).
 #
 # expect keys: outcome, outcome_in, not_outcome, recommendation, priority, answers.<question>

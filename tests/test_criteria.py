@@ -8,11 +8,11 @@ from typing import Any
 import pytest
 import yaml
 
-from openhealth import Pack, load_pack
-from openhealth.core.spec import Question
-from openhealth.errors import PackValidationError
-from openhealth.providers import ProviderInfo
-from openhealth.providers.criteria import CriteriaProvider
+from mendari import Pack, load_pack
+from mendari.core.spec import Question
+from mendari.errors import PackValidationError
+from mendari.providers import ProviderInfo
+from mendari.providers.criteria import CriteriaProvider
 
 FIXTURE = Path(__file__).parent / "fixtures" / "packs" / "trial-mini"
 AS_OF = date(2026, 9, 1)
@@ -243,7 +243,7 @@ def test_screening_date_defaults_to_the_local_day(
     pack: Pack, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Without `as_of`, "today" is the deployment's calendar day (`core.clock`), not UTC's."""
-    monkeypatch.setattr("openhealth.core.clock.today", lambda: date(2026, 9, 29))
+    monkeypatch.setattr("mendari.core.clock.today", lambda: date(2026, 9, 29))
 
     def hba1c(days_ago: int) -> str:
         taken = (date(2026, 9, 29) - timedelta(days=days_ago)).isoformat()

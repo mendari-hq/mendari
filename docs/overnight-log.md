@@ -1,5 +1,10 @@
 # Overnight log: the roadmap to completion
 
+> Written before the project was renamed from OpenHealth Hub to **Mendari** (2026-09-30).
+> Names, commands and paths below are as they were: `openhealth` is now `mendari`,
+> `OPENHEALTH_*` settings are `MENDARI_*` (the old names still work), and pack ids start with
+> `mendari/`.
+
 _Started 2026-09-29, late evening ET. Scope: every item in `docs/design-grade.md`, then (at your
 request during the night) the whole project roadmap, v0.4 to v1.0, all approved in advance.
 Rules: one focused PR per item, merged only on green CI after a self-review, squash merge. The

@@ -1,4 +1,4 @@
-# OpenHealth Hub: project notes for Claude
+# Mendari: project notes for Claude
 
 Python 3.11+ · uv · pydantic v2 · FastAPI · SQLite (local) or Postgres (Vercel) · no frontend build step.
 
@@ -8,21 +8,21 @@ Python 3.11+ · uv · pydantic v2 · FastAPI · SQLite (local) or Postgres (Verc
 uv sync                                   # install (dev group included)
 uv run pytest                             # full suite, < 3 s, warnings are errors
 uv run pytest -m browser                  # dashboard in Chromium (once: uv run playwright install chromium)
-# Postgres backend tests (OpenHealth's own container; never reuse another project's database):
-docker run -d --name openhealth-pg-test -e POSTGRES_PASSWORD=openhealth-test \
-  -e POSTGRES_DB=openhealth_test -p 127.0.0.1:56432:5432 postgres:16-alpine
-OPENHEALTH_TEST_DATABASE_URL=postgresql://postgres:openhealth-test@127.0.0.1:56432/openhealth_test uv run pytest
+# Postgres backend tests (Mendari's own container; never reuse another project's database):
+docker run -d --name mendari-pg-test -e POSTGRES_PASSWORD=mendari-test \
+  -e POSTGRES_DB=mendari_test -p 127.0.0.1:56432:5432 postgres:16-alpine
+MENDARI_TEST_DATABASE_URL=postgresql://postgres:mendari-test@127.0.0.1:56432/mendari_test uv run pytest
 uv run ruff check src tests && uv run ruff format --check src tests
 uv run mypy src tests
-uv run openhealth demo                    # end-to-end smoke test on synthetic data
+uv run mendari demo                       # end-to-end smoke test on synthetic data
 ./scripts/build-reference-pack.sh         # both reference packs: data → train → test → benchmark → card
 docker compose up --build                 # HAPI FHIR + engine + worker sandbox
 ```
 
 ## Rules of the codebase
 
-- **No real PHI, ever.** Test data comes from `openhealth.sandbox.synthetic_*`.
-- **OpenHealth is a separate project.** Never reuse another project's code, connectors,
+- **No real PHI, ever.** Test data comes from `mendari.sandbox.synthetic_*`.
+- **Mendari is a separate project.** Never reuse another project's code, connectors,
   credentials, databases, containers or configuration defaults. Before connecting to a local
   port, check which container owns it (`docker ps`).
 - **Pack artifacts are derived.** Editing templates in `synthetic_*.py`, `pack.yaml`, rules,
@@ -37,7 +37,7 @@ docker compose up --build                 # HAPI FHIR + engine + worker sandbox
   codes and no remote error bodies or credentials in messages.
 - **Reports never contain case text**, only ids.
 - Keep `pack.yaml` criteria human-readable: they are both documentation and Jev instructions.
-- **Dashboard styles use tokens only** (`src/openhealth/dashboard/style.css`, section 1): no hex
+- **Dashboard styles use tokens only** (`src/mendari/dashboard/style.css`, section 1): no hex
   colours, raw spacing or z-index values in components; `tests/test_dashboard_contrast.py` checks
   that, and every colour pair for WCAG AA in both themes. Design plan: `docs/ui-ux-review.md`;
   grade and roadmap: `docs/design-grade.md`.

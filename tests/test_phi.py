@@ -11,12 +11,12 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from openhealth import AuditStore, Decision, Pack
-from openhealth.cli import main
-from openhealth.core.phi import PhiPolicy, phi_policy
-from openhealth.errors import OpenHealthError
-from openhealth.server.app import create_app
-from openhealth.server.auth import Principal
+from mendari import AuditStore, Decision, Pack
+from mendari.cli import main
+from mendari.core.phi import PhiPolicy, phi_policy
+from mendari.errors import MendariError
+from mendari.server.app import create_app
+from mendari.server.auth import Principal
 from tests.conftest import message
 
 KEY = os.urandom(32)
@@ -28,19 +28,19 @@ def encrypting(tmp_path: Path, name: str = "a.db") -> AuditStore:
 
 
 def test_the_settings(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("OPENHEALTH_PHI_MODE", raising=False)
+    monkeypatch.delenv("MENDARI_PHI_MODE", raising=False)
     assert phi_policy().mode == "off"
-    monkeypatch.setenv("OPENHEALTH_PHI_MODE", "encrypt")
-    monkeypatch.delenv("OPENHEALTH_PHI_KEY", raising=False)
-    with pytest.raises(OpenHealthError, match="needs OPENHEALTH_PHI_KEY"):
+    monkeypatch.setenv("MENDARI_PHI_MODE", "encrypt")
+    monkeypatch.delenv("MENDARI_PHI_KEY", raising=False)
+    with pytest.raises(MendariError, match="needs MENDARI_PHI_KEY"):
         phi_policy()
-    monkeypatch.setenv("OPENHEALTH_PHI_KEY", base64.b64encode(b"short").decode())
-    with pytest.raises(OpenHealthError, match="32 random bytes"):
+    monkeypatch.setenv("MENDARI_PHI_KEY", base64.b64encode(b"short").decode())
+    with pytest.raises(MendariError, match="32 random bytes"):
         phi_policy()
-    monkeypatch.setenv("OPENHEALTH_PHI_KEY", base64.b64encode(KEY).decode())
+    monkeypatch.setenv("MENDARI_PHI_KEY", base64.b64encode(KEY).decode())
     assert phi_policy().mode == "encrypt"
-    monkeypatch.setenv("OPENHEALTH_PHI_MODE", "plaintext")
-    with pytest.raises(OpenHealthError, match="off, hash or encrypt"):
+    monkeypatch.setenv("MENDARI_PHI_MODE", "plaintext")
+    with pytest.raises(MendariError, match="off, hash or encrypt"):
         phi_policy()
 
 
@@ -88,10 +88,10 @@ def test_a_ciphertext_only_opens_for_its_own_decision(tmp_path: Path, inbox_pack
             "UPDATE decision_inputs SET ciphertext = ? WHERE decision_id = ?",
             (stolen["ciphertext"], second.id),
         )
-    with pytest.raises(OpenHealthError, match="does not decrypt"):
+    with pytest.raises(MendariError, match="does not decrypt"):
         store.get(second.id, reader="Nurse Kim")
     wrong_key = AuditStore(tmp_path / "a.db", phi=PhiPolicy(mode="encrypt", key=os.urandom(32)))
-    with pytest.raises(OpenHealthError, match="does not decrypt"):
+    with pytest.raises(MendariError, match="does not decrypt"):
         wrong_key.get(first.id, reader="Nurse Kim")
 
 
@@ -123,8 +123,8 @@ def test_only_reviewers_and_admins_read_inputs() -> None:
 def test_the_server_reports_the_mode_and_reads_through_the_policy(
     tmp_path: Path, inbox_pack: Pack, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("OPENHEALTH_PHI_MODE", "encrypt")
-    monkeypatch.setenv("OPENHEALTH_PHI_KEY", base64.b64encode(KEY).decode())
+    monkeypatch.setenv("MENDARI_PHI_MODE", "encrypt")
+    monkeypatch.setenv("MENDARI_PHI_KEY", base64.b64encode(KEY).decode())
     client = TestClient(create_app(db_path=tmp_path / "a.db"))
     assert client.get("/api/health").json()["phi_mode"] == "encrypt"
     decided = client.post(f"/api/packs/{inbox_pack.id}/decide", json=message(SECRET_WORDS)).json()
@@ -138,12 +138,12 @@ def test_the_server_reports_the_mode_and_reads_through_the_policy(
 def test_signed_in_reviewers_read_inputs_and_each_read_is_chained(
     tmp_path: Path, inbox_pack: Pack, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("OPENHEALTH_PHI_MODE", "encrypt")
-    monkeypatch.setenv("OPENHEALTH_PHI_KEY", base64.b64encode(KEY).decode())
-    monkeypatch.setenv("OPENHEALTH_OIDC_ISSUER", "https://idp.example.org")
-    monkeypatch.setenv("OPENHEALTH_OIDC_CLIENT_ID", "openhealth")
+    monkeypatch.setenv("MENDARI_PHI_MODE", "encrypt")
+    monkeypatch.setenv("MENDARI_PHI_KEY", base64.b64encode(KEY).decode())
+    monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
+    monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
     db = tmp_path / "a.db"
-    client = TestClient(create_app(db_path=db), base_url="https://openhealth.test")
+    client = TestClient(create_app(db_path=db), base_url="https://mendari.test")
     keys = {
         role: {
             "authorization": "Bearer "
@@ -178,11 +178,11 @@ def test_the_cli_purges(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    monkeypatch.setenv("OPENHEALTH_PHI_MODE", "encrypt")
-    monkeypatch.setenv("OPENHEALTH_PHI_KEY", base64.b64encode(KEY).decode())
+    monkeypatch.setenv("MENDARI_PHI_MODE", "encrypt")
+    monkeypatch.setenv("MENDARI_PHI_KEY", base64.b64encode(KEY).decode())
     store = encrypting(tmp_path)
     Decision(inbox_pack, store=store)(message(SECRET_WORDS))
     assert main(["phi", "purge", "--db", str(tmp_path / "a.db"), "--days", "30"]) == 0
     assert "0 stored input(s) older than 30 days deleted" in capsys.readouterr().out
-    monkeypatch.delenv("OPENHEALTH_RETENTION_DAYS", raising=False)
+    monkeypatch.delenv("MENDARI_RETENTION_DAYS", raising=False)
     assert main(["phi", "purge", "--db", str(tmp_path / "a.db")]) == 1

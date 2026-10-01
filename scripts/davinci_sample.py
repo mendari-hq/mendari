@@ -1,4 +1,4 @@
-"""Write samples of the Da Vinci resources OpenHealth produces, for the HL7 validator (CI job
+"""Write samples of the Da Vinci resources Mendari produces, for the HL7 validator (CI job
 `fhir-conformance`), each checked against its implementation guide.
 
 - `crd-*.json`: the orders a Prior Authorization Preflight `order-sign` response updates with
@@ -23,10 +23,10 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from openhealth import AuditStore, Decision
-from openhealth.core.pack import Pack
-from openhealth.sandbox import payer as sandbox_payer
-from openhealth.standards import cds_hooks, davinci, pas
+from mendari import AuditStore, Decision
+from mendari.core.pack import Pack
+from mendari.sandbox import payer as sandbox_payer
+from mendari.standards import cds_hooks, davinci, pas
 
 TODAY = date.today()
 CPT = "http://www.ama-assn.org/go/cpt"
@@ -105,7 +105,7 @@ def prefetch(payer: str, note: str) -> dict[str, Any]:
 def main(out: Path) -> None:
     with tempfile.TemporaryDirectory() as scratch:
         store = AuditStore(Path(scratch) / "audit.db")
-        write(out, Decision.from_hub("openhealth/prior-auth-preflight", store=store), store)
+        write(out, Decision.from_hub("mendari/prior-auth-preflight", store=store), store)
         store.close()
 
 
@@ -193,7 +193,7 @@ def write(out: Path, decision: Decision, store: AuditStore) -> None:
         order=ready,
         patient={
             "resourceType": "Patient",
-            "identifier": [{"system": "https://openhealth.dev/fhir/sandbox/mrn", "value": "PA-P1"}],
+            "identifier": [{"system": "https://mendari.co/fhir/sandbox/mrn", "value": "PA-P1"}],
             "name": [{"family": "Synthetic", "given": ["Case"]}],
             "gender": "female",
             "birthDate": "1975-01-01",

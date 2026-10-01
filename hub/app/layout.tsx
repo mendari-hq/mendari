@@ -3,7 +3,7 @@ import Link from "next/link";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: { default: "OpenHealth Hub", template: "%s · OpenHealth Hub" },
+  title: { default: "Mendari Hub", template: "%s · Mendari Hub" },
   description: "Decision Packs for healthcare: packaged, evaluated, signed and shared.",
 };
 
@@ -19,7 +19,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 <rect width="32" height="32" rx="7" />
                 <path d="M16 6.5 25.5 16 16 25.5 6.5 16Z" />
               </svg>
-              OpenHealth Hub
+              Mendari Hub
             </Link>
             <span className="tag">synthetic data only</span>
           </div>

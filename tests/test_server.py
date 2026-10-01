@@ -6,11 +6,11 @@ import re
 import pytest
 from fastapi.testclient import TestClient
 
-from openhealth.server.app import DASHBOARD_DIR, create_app
+from mendari.server.app import DASHBOARD_DIR, create_app
 from tests.conftest import LOCAL_DATASET
 from tests.test_fhir import BUNDLE
 
-PACK = "/api/packs/openhealth/patient-inbox-router"
+PACK = "/api/packs/mendari/patient-inbox-router"
 
 
 @pytest.fixture
@@ -21,17 +21,17 @@ def client(db_target: str) -> TestClient:
 def test_packs_and_card(client: TestClient) -> None:
     packs = client.get("/api/packs").json()
     assert [p["id"] for p in packs] == [
-        "openhealth/ai-guard",
-        "openhealth/clinical-trial-prescreener",
-        "openhealth/patient-inbox-router",
-        "openhealth/prior-auth-preflight",
-        "openhealth/referral-router",
+        "mendari/ai-guard",
+        "mendari/clinical-trial-prescreener",
+        "mendari/patient-inbox-router",
+        "mendari/prior-auth-preflight",
+        "mendari/referral-router",
     ]
     detail = client.get(PACK).json()
     assert detail["active_providers"]["router"]["variant"] == "naive_bayes"
     assert "local-site-example" in detail["datasets"]
     assert detail["benchmark"]["dataset"]["name"] == "test"
-    assert client.get("/api/packs/openhealth/missing").status_code == 404
+    assert client.get("/api/packs/mendari/missing").status_code == 404
 
 
 def test_decide_review_and_audit_flow(client: TestClient) -> None:
@@ -64,7 +64,7 @@ def test_datasets_are_listed_with_their_size(client: TestClient) -> None:
     assert list(datasets) == detail["datasets"]  # the same names, in the same order
     assert datasets["local-site-example"] == len(LOCAL_DATASET.read_text().splitlines())
     assert all(n > 0 for n in datasets.values())
-    assert client.get("/api/packs/openhealth/missing/datasets").status_code == 404
+    assert client.get("/api/packs/mendari/missing/datasets").status_code == 404
 
 
 def test_invalid_input_is_a_recorded_block_not_an_http_error(client: TestClient) -> None:
@@ -82,12 +82,12 @@ def test_fhir_endpoint_returns_task(client: TestClient) -> None:
 def test_cds_hooks_endpoints(client: TestClient) -> None:
     services = {s["id"]: s for s in client.get("/cds-services").json()["services"]}
     assert set(services) == {
-        "openhealth.patient-inbox-router",
-        "openhealth.clinical-trial-prescreener",
-        "openhealth.referral-router",
-        "openhealth.prior-auth-preflight",
+        "mendari.patient-inbox-router",
+        "mendari.clinical-trial-prescreener",
+        "mendari.referral-router",
+        "mendari.prior-auth-preflight",
     }
-    inbox = services["openhealth.patient-inbox-router"]
+    inbox = services["mendari.patient-inbox-router"]
     response = client.post(
         f"/cds-services/{inbox['id']}",
         json={
@@ -117,7 +117,7 @@ def test_local_validation_via_api(client: TestClient) -> None:
 
 
 def test_examples_are_the_packs_behaviour_tests(client: TestClient) -> None:
-    trial = "/api/packs/openhealth/clinical-trial-prescreener"
+    trial = "/api/packs/mendari/clinical-trial-prescreener"
     examples = client.get(f"{trial}/examples").json()
     assert len(examples) == 22
     pregnancy = next(e for e in examples if e["name"].startswith("a pregnancy in the notes"))
@@ -127,12 +127,12 @@ def test_examples_are_the_packs_behaviour_tests(client: TestClient) -> None:
     assert decision["recommendation"] == "not_eligible"
     assert "not_eligible: note_pregnancy is yes" in decision["reasons"]
     assert client.get(f"{PACK}/examples").json()[0]["input"]["message"]["body"]
-    assert client.get("/api/packs/openhealth/missing/examples").status_code == 404
+    assert client.get("/api/packs/mendari/missing/examples").status_code == 404
 
 
 def test_dashboard_is_served(client: TestClient) -> None:
     page = client.get("/")
-    assert page.status_code == 200 and "OpenHealth Hub" in page.text
+    assert page.status_code == 200 and "Mendari" in page.text
     # Asset URLs carry a content hash so a deploy never serves stale JS/CSS: the import map
     # stamps every module, and the entry script and stylesheet are stamped in place.
     assert re.search(r'<script type="module" src="/static/main\.js\?v=[0-9a-f]{12}">', page.text)
@@ -168,7 +168,7 @@ def test_health_reports_deployment_state(client: TestClient) -> None:
     health = client.get("/api/health").json()
     assert health["storage"] in {"sqlite", "postgres"}
     assert health["timezone"] == "America/New_York"
-    assert health["providers"]["openhealth/patient-inbox-router"] == {
+    assert health["providers"]["mendari/patient-inbox-router"] == {
         "safety_screen": "rules",
         "router": "naive_bayes",
     }
@@ -179,8 +179,8 @@ def test_health_reports_deployment_state(client: TestClient) -> None:
 def test_remote_evaluations_are_capped_and_budgeted(
     db_target: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from openhealth.errors import ProviderError
-    from openhealth.providers.jev import JevProvider
+    from mendari.errors import ProviderError
+    from mendari.providers.jev import JevProvider
 
     def unreachable(*_: object) -> None:
         raise ProviderError("timeout")

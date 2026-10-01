@@ -1,4 +1,8 @@
-# Changelog: openhealth/ai-guard
+# Changelog: mendari/ai-guard
+
+Renamed on 2026-09-30, when the project became Mendari: this pack was `openhealth/ai-guard`.
+Its id, its publisher's name and its `https://mendari.co/...` identifiers changed; its criteria,
+rules, models, data and results did not.
 
 ## 0.1.2
 
@@ -38,5 +42,5 @@
 - Risk level 2: a clinician approves every passing draft; releasing drafts automatically
   needs a recorded governance override and a model in the screen.
 - Guard interface (`guard: {draft: draft, release: [pass]}`) for `POST
-  /api/packs/openhealth/ai-guard/guard`. No CDS Hooks service: the guard sits in front of a
+  /api/packs/mendari/ai-guard/guard`. No CDS Hooks service: the guard sits in front of a
   language model, not in an EHR workflow.

@@ -9,13 +9,13 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from openhealth import Decision, Outcome, load_pack
-from openhealth.core.card import render_card
-from openhealth.core.derive import complete_answers, derive_answer, explain
-from openhealth.core.policy import matches
-from openhealth.core.spec import Condition, PackManifest, Question
-from openhealth.evals import evaluate, resolve_dataset
-from openhealth.providers import Answer, ProviderInfo
+from mendari import Decision, Outcome, load_pack
+from mendari.core.card import render_card
+from mendari.core.derive import complete_answers, derive_answer, explain
+from mendari.core.policy import matches
+from mendari.core.spec import Condition, PackManifest, Question
+from mendari.evals import evaluate, resolve_dataset
+from mendari.providers import Answer, ProviderInfo
 from tests.conftest import INBOX_DIR
 
 TRIAL_MINI = Path(__file__).parent / "fixtures" / "packs" / "trial-mini"
@@ -358,7 +358,7 @@ def test_missing_member_makes_the_derived_answer_unavailable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     decision = Decision.from_path(TRIAL_MINI)
-    from openhealth.errors import ProviderError
+    from mendari.errors import ProviderError
 
     def broken(_inputs: Any) -> Any:
         raise ProviderError("provider_unavailable")
@@ -450,7 +450,7 @@ def test_min_probability_acts_on_a_labels_probability_not_on_the_winner() -> Non
 
 
 def test_inbox_escalates_at_the_documented_threshold(inbox_pack: Any) -> None:
-    from openhealth.core.policy import apply_policy
+    from mendari.core.policy import apply_policy
 
     answers = {
         "destination": answer("destination", {"medical_assistant": 0.97, "nurse": 0.03}),

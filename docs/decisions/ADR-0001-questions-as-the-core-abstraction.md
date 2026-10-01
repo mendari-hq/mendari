@@ -4,7 +4,7 @@
 Accepted (v0.1)
 
 ## Context
-OpenHealth must let the same healthcare decision run on deterministic rules, Jev, local ML
+Mendari must let the same healthcare decision run on deterministic rules, Jev, local ML
 models, LLMs, or combinations of them, and must evaluate and govern all of them the same way.
 If a pack's contract were "a model plus its output format", every provider change would
 change the contract, the evaluation and the policy.

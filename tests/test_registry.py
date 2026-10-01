@@ -11,19 +11,19 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from openhealth.core.registry import resolve_pack
-from openhealth.hub import archive
-from openhealth.hub.registry import RegistryStore, create_registry_app
+from mendari.core.registry import resolve_pack
+from mendari.hub import archive
+from mendari.hub.registry import RegistryStore, create_registry_app
 
 ADMIN = "admin-token-for-tests"
-REFERRAL = resolve_pack("openhealth/referral-router")
-GUARD = resolve_pack("openhealth/ai-guard")
+REFERRAL = resolve_pack("mendari/referral-router")
+GUARD = resolve_pack("mendari/ai-guard")
 
 
 @dataclass
 class Registry:
     client: TestClient
-    token: str  # the openhealth namespace's publisher token
+    token: str  # the mendari namespace's publisher token
     key: archive.Ed25519PrivateKey
 
     def publish(
@@ -51,15 +51,15 @@ def registry(db_target: str) -> Iterator[Registry]:
     assert (
         client.post(
             "/v1/namespaces",
-            json={"name": "openhealth", "display_name": "OpenHealth"},
+            json={"name": "mendari", "display_name": "Mendari"},
             headers=admin,
         ).status_code
         == 201
     )
-    token = client.post("/v1/namespaces/openhealth/tokens", headers=admin).json()["token"]
+    token = client.post("/v1/namespaces/mendari/tokens", headers=admin).json()["token"]
     private, public = archive.generate_key()
     added = client.post(
-        "/v1/namespaces/openhealth/keys",
+        "/v1/namespaces/mendari/keys",
         json={"public_pem": public.decode()},
         headers={"authorization": f"Bearer {token}"},
     )
@@ -73,7 +73,7 @@ def test_a_signed_pack_is_published_once_and_read_back(registry: Registry) -> No
     assert published.status_code == 201, published.text
     body = published.json()
     assert (body["id"], body["version"], body["digest"]) == (
-        "openhealth/referral-router",
+        "mendari/referral-router",
         "0.1.1",
         REFERRAL.digest,
     )
@@ -82,14 +82,14 @@ def test_a_signed_pack_is_published_once_and_read_back(registry: Registry) -> No
     assert body["benchmark"]["accuracy"] is not None and body["card_markdown"]
     again = registry.publish()
     assert again.status_code == 409 and "immutable" in again.text
-    pack = registry.client.get("/v1/packs/openhealth/referral-router").json()
+    pack = registry.client.get("/v1/packs/mendari/referral-router").json()
     assert pack["versions"] == ["0.1.1"] and pack["latest"]["digest"] == REFERRAL.digest
 
 
 def test_the_archive_downloads_byte_for_byte(registry: Registry) -> None:
     data = archive.build(REFERRAL, registry.key)
     registry.publish()
-    response = registry.client.get("/v1/packs/openhealth/referral-router/0.1.1/archive")
+    response = registry.client.get("/v1/packs/mendari/referral-router/0.1.1/archive")
     assert response.content == data
     assert response.headers["x-archive-sha256"] == hashlib.sha256(data).hexdigest()
 
@@ -121,8 +121,7 @@ def test_admin_routes_need_the_admin_token(registry: Registry) -> None:
         == 401
     )
     assert (
-        registry.client.post("/v1/namespaces/openhealth/tokens", headers=publisher).status_code
-        == 401
+        registry.client.post("/v1/namespaces/mendari/tokens", headers=publisher).status_code == 401
     )
 
 
@@ -130,16 +129,16 @@ def test_verification_sets_the_publisher_type(registry: Registry) -> None:
     registry.publish()
     admin = {"authorization": f"Bearer {ADMIN}"}
     patched = registry.client.patch(
-        "/v1/namespaces/openhealth", json={"publisher_type": "verified"}, headers=admin
+        "/v1/namespaces/mendari", json={"publisher_type": "verified"}, headers=admin
     )
     assert patched.json()["publisher_type"] == "verified"
-    pack = registry.client.get("/v1/packs/openhealth/referral-router").json()
+    pack = registry.client.get("/v1/packs/mendari/referral-router").json()
     assert pack["latest"]["publisher_type"] == "verified"
-    namespace = registry.client.get("/v1/namespaces/openhealth").json()
-    assert namespace["packs"] == ["openhealth/referral-router"]
+    namespace = registry.client.get("/v1/namespaces/mendari").json()
+    assert namespace["packs"] == ["mendari/referral-router"]
     assert namespace["keys"][0]["key_id"] == archive.key_id(registry.key.public_key())
     found = registry.client.get("/v1/search", params={"publisher_type": "verified"}).json()
-    assert [p["id"] for p in found] == ["openhealth/referral-router"]
+    assert [p["id"] for p in found] == ["mendari/referral-router"]
 
 
 def test_search_by_words_risk_and_standard(registry: Registry) -> None:
@@ -149,17 +148,17 @@ def test_search_by_words_risk_and_standard(registry: Registry) -> None:
     def ids(**params: Any) -> list[str]:
         return [p["id"] for p in registry.client.get("/v1/search", params=params).json()]
 
-    assert ids() == ["openhealth/ai-guard", "openhealth/referral-router"]
-    assert ids(q="referral specialty") == ["openhealth/referral-router"]
-    assert ids(risk=2) == ["openhealth/ai-guard"]
-    assert ids(standard="cds hooks order-sign") == ["openhealth/referral-router"]
+    assert ids() == ["mendari/ai-guard", "mendari/referral-router"]
+    assert ids(q="referral specialty") == ["mendari/referral-router"]
+    assert ids(risk=2) == ["mendari/ai-guard"]
+    assert ids(standard="cds hooks order-sign") == ["mendari/referral-router"]
     assert ids(q="nothing-like-this") == []
     assert "card_markdown" not in registry.client.get("/v1/search").json()[0]
 
 
 def test_unknown_things_are_404(registry: Registry) -> None:
-    assert registry.client.get("/v1/packs/openhealth/none").status_code == 404
-    assert registry.client.get("/v1/packs/openhealth/referral-router/0.0.1").status_code == 404
+    assert registry.client.get("/v1/packs/mendari/none").status_code == 404
+    assert registry.client.get("/v1/packs/mendari/referral-router/0.0.1").status_code == 404
     assert registry.client.get("/v1/namespaces/nobody").status_code == 404
 
 
@@ -176,7 +175,7 @@ def test_sites_share_metrics_and_compare_with_the_benchmark(
     registry.publish()
     report = json.loads((REFERRAL.root / "evals" / "benchmark.json").read_text())
     publisher = {"authorization": f"Bearer {registry.token}"}
-    path = "/v1/packs/openhealth/referral-router/0.1.1/reports"
+    path = "/v1/packs/mendari/referral-router/0.1.1/reports"
     assert registry.client.post(path, json={"site": "site-a", "report": report}).status_code == 401
     shared = registry.client.post(
         path, json={"site": "Site A", "report": report}, headers=publisher
@@ -190,7 +189,7 @@ def test_sites_share_metrics_and_compare_with_the_benchmark(
         ).status_code
         == 422
     )
-    compared = registry.client.get("/v1/packs/openhealth/referral-router/reports").json()
+    compared = registry.client.get("/v1/packs/mendari/referral-router/reports").json()
     assert [s["site"] for s in compared["sites"]] == ["Site A"]
     assert compared["benchmark"]["0.1.1"]["accuracy"] is not None
     with RegistryStore(db_target) as store, store._db.session(exclusive=False) as db:

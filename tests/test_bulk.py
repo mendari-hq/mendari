@@ -14,15 +14,15 @@ import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
 
-from openhealth.cli import main
-from openhealth.core.registry import resolve_pack
-from openhealth.errors import FhirError, OpenHealthError
-from openhealth.sandbox import example_datasets_dir
-from openhealth.sandbox.fhir_records import CASE_SYSTEM, referral_entries
-from openhealth.standards import bulk
-from openhealth.standards.bulk import BulkError
-from openhealth.standards.fhir import FhirAdapter
-from openhealth.standards.fhir_client import GuardedHttp
+from mendari.cli import main
+from mendari.core.registry import resolve_pack
+from mendari.errors import FhirError, MendariError
+from mendari.sandbox import example_datasets_dir
+from mendari.sandbox.fhir_records import CASE_SYSTEM, referral_entries
+from mendari.standards import bulk
+from mendari.standards.bulk import BulkError
+from mendari.standards.fhir import FhirAdapter
+from mendari.standards.fhir_client import GuardedHttp
 
 FHIR = "https://ehr.example.org/fhir"
 LABELS = (example_datasets_dir() or Path("datasets")) / "referral-local-site-example.jsonl"
@@ -263,7 +263,7 @@ def test_an_export_becomes_the_packs_dataset_with_the_sites_labels(tmp_path: Pat
     cases = [json.loads(line) for line in lines[:6]]
     export_dir = referral_export(tmp_path, cases)
     labels = {c["id"]: c["labels"] for c in cases[:4]}  # the site labelled four of six
-    adapter = FhirAdapter.for_pack(resolve_pack("openhealth/referral-router"))
+    adapter = FhirAdapter.for_pack(resolve_pack("mendari/referral-router"))
     records, skipped = bulk.dataset(
         adapter, list(bulk.read_ndjson(export_dir)), labels, key_system=CASE_SYSTEM
     )
@@ -277,7 +277,7 @@ def test_an_export_becomes_the_packs_dataset_with_the_sites_labels(tmp_path: Pat
     assert records[0]["labels"] == cases[0]["labels"]
 
 
-def test_the_cli_builds_a_dataset_that_openhealth_eval_reads(
+def test_the_cli_builds_a_dataset_that_mendari_eval_reads(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     labels = LABELS
@@ -291,7 +291,7 @@ def test_the_cli_builds_a_dataset_that_openhealth_eval_reads(
                 "bulk",
                 "dataset",
                 "--pack",
-                "openhealth/referral-router",
+                "mendari/referral-router",
                 "--ndjson",
                 str(export_dir),
                 "--labels",
@@ -304,8 +304,7 @@ def test_the_cli_builds_a_dataset_that_openhealth_eval_reads(
     )
     assert "5 cases written" in capsys.readouterr().out
     assert (
-        main(["eval", "openhealth/referral-router", "--dataset", str(out), "--baseline", "none"])
-        == 0
+        main(["eval", "mendari/referral-router", "--dataset", str(out), "--baseline", "none"]) == 0
     )
 
 
@@ -313,7 +312,7 @@ def test_the_sandbox_bulk_check_compares_the_export_with_the_file(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The exit check's comparison (its export runs against HAPI in `sandbox-e2e`)."""
-    from openhealth.sandbox import bulk_check
+    from mendari.sandbox import bulk_check
 
     cases = [json.loads(line) for line in LABELS.read_text().splitlines()[:8]]
 
@@ -325,7 +324,7 @@ def test_the_sandbox_bulk_check_compares_the_export_with_the_file(
         }
 
     monkeypatch.setattr(bulk_check.bulk, "export", fake_export)
-    result = bulk_check.run("http://fhir:8080/fhir", "openhealth/referral-router")
+    result = bulk_check.run("http://fhir:8080/fhir", "mendari/referral-router")
     assert result["cases"] == 8 and result["identical"] and result["differences"] == []
-    with pytest.raises(OpenHealthError, match="runs for"):
-        bulk_check.run("http://fhir:8080/fhir", "openhealth/ai-guard")
+    with pytest.raises(MendariError, match="runs for"):
+        bulk_check.run("http://fhir:8080/fhir", "mendari/ai-guard")

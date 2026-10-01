@@ -16,10 +16,10 @@ import httpx
 import pytest
 import uvicorn
 
-from openhealth.sandbox import example_datasets_dir
-from openhealth.server.app import create_app
+from mendari.sandbox import example_datasets_dir
+from mendari.server.app import create_app
 
-INBOX = "openhealth/patient-inbox-router"
+INBOX = "mendari/patient-inbox-router"
 
 
 def _free_port() -> int:
@@ -56,7 +56,7 @@ def _seed(base: str) -> None:
 
 @pytest.fixture(scope="session")
 def live_server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
-    db = Path(tmp_path_factory.mktemp("dashboard")) / "openhealth.db"
+    db = Path(tmp_path_factory.mktemp("dashboard")) / "mendari.db"
     app = create_app(db_path=db, datasets_dir=example_datasets_dir())
     port = _free_port()
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))

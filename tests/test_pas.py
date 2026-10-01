@@ -12,11 +12,11 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from openhealth.sandbox import payer
-from openhealth.server import app as app_module
-from openhealth.server.app import create_app
-from openhealth.standards import audit_fhir, pas
-from openhealth.standards.fhir_client import GuardedHttp
+from mendari.sandbox import payer
+from mendari.server import app as app_module
+from mendari.server.app import create_app
+from mendari.standards import audit_fhir, pas
+from mendari.standards.fhir_client import GuardedHttp
 from tests.test_davinci import COMPLETE, PA, request
 from tests.test_prior_auth_pack import _order
 
@@ -24,7 +24,7 @@ NOW = datetime(2026, 9, 30, 12, 0, tzinfo=UTC)
 PATIENT = {
     "resourceType": "Patient",
     "id": "p1",
-    "identifier": [{"system": "https://openhealth.dev/fhir/sandbox/mrn", "value": "M-1"}],
+    "identifier": [{"system": "https://mendari.co/fhir/sandbox/mrn", "value": "M-1"}],
     "name": [{"family": "Synthetic", "given": ["Case"]}],
     "gender": "female",
     "birthDate": "1975-01-01",
@@ -130,7 +130,7 @@ def test_the_sandbox_payer_certifies_well_formed_requests() -> None:
 def test_the_api_builds_submits_and_chains_the_answer(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("OPENHEALTH_PAS_PAYER_URL", "https://payer.example/fhir")
+    monkeypatch.setenv("MENDARI_PAS_PAYER_URL", "https://payer.example/fhir")
     submitted: list[dict[str, Any]] = []
 
     def payer_endpoint(http_request: httpx.Request) -> httpx.Response:
@@ -152,7 +152,7 @@ def test_the_api_builds_submits_and_chains_the_answer(
         f"/cds-services/{PA.replace('/', '.')}",
         json=request("acme", COMPLETE, _order("mri", "72148")),
     ).json()
-    decision_id = signed["cards"][0]["extension"]["openhealth.decision_id"]
+    decision_id = signed["cards"][0]["extension"]["mendari.decision_id"]
     body = {
         "decision_id": decision_id,
         "patient": PATIENT,

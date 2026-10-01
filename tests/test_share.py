@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import json
 
-from openhealth.core.registry import resolve_pack
-from openhealth.evals.share import MIN_GROUP, shareable, summary
+from mendari.core.registry import resolve_pack
+from mendari.evals.share import MIN_GROUP, shareable, summary
 
 BENCHMARK = json.loads(
-    (resolve_pack("openhealth/referral-router").root / "evals" / "benchmark.json").read_text()
+    (resolve_pack("mendari/referral-router").root / "evals" / "benchmark.json").read_text()
 )
 
 

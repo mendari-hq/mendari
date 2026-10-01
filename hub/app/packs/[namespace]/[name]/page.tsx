@@ -39,11 +39,11 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
         <Fact label="License" value={latest.license} />
       </section>
       <h2>Use it</h2>
-      <code className="pull">pip install openhealth &amp;&amp; openhealth pull {detail.id}</code>
+      <code className="pull">pip install mendari &amp;&amp; mendari pull {detail.id}</code>
       <p className="muted">
         Pulls verify the archive against its signature ({latest.key_id}) and the pack digest{" "}
         <span className="mono">{latest.digest.slice(0, 19)}…</span>, then cache it for{" "}
-        <code>openhealth eval {detail.id} --dataset your-cases.jsonl</code>.
+        <code>mendari eval {detail.id} --dataset your-cases.jsonl</code>.
       </p>
       {rows.length ? <Leaderboard rows={rows} /> : null}
       <h2>Site reports</h2>
@@ -66,7 +66,7 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
           </table>
         </div>
       ) : (
-        <p className="muted">No site has shared an evaluation yet: <code>openhealth eval {detail.id} --dataset … --share &quot;Your site&quot;</code>.</p>
+        <p className="muted">No site has shared an evaluation yet: <code>mendari eval {detail.id} --dataset … --share &quot;Your site&quot;</code>.</p>
       )}
       <h2>Versions</h2>
       <p>{detail.versions.map((version) => <span key={version} className="chip mono">{version}</span>)}</p>

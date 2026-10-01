@@ -20,16 +20,16 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 
-from openhealth.core.audit import AuditStore
-from openhealth.server import smart_routes
-from openhealth.server.app import create_app
-from openhealth.standards.fhir_client import FhirClient, GuardedHttp
+from mendari.core.audit import AuditStore
+from mendari.server import smart_routes
+from mendari.server.app import create_app
+from mendari.standards.fhir_client import FhirClient, GuardedHttp
 
 EHR = "https://ehr.example.org"
 ISS = f"{EHR}/fhir"
-APP = "https://openhealth.test"
-CLIENT = "openhealth-app"
-REFERRAL = "openhealth/referral-router"
+APP = "https://mendari.test"
+CLIENT = "mendari-app"
+REFERRAL = "mendari/referral-router"
 FIXTURE = json.loads((Path(__file__).parent / "fixtures/us-core/referral.json").read_text())
 
 
@@ -128,9 +128,9 @@ def ehr() -> FakeEhr:
 
 @pytest.fixture
 def app(tmp_path: Path, ehr: FakeEhr, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
-    monkeypatch.setenv("OPENHEALTH_SMART_CLIENT_ID", CLIENT)
-    monkeypatch.setenv("OPENHEALTH_PUBLIC_URL", APP)
-    monkeypatch.setenv("OPENHEALTH_FHIR_ALLOWED_SERVERS", EHR)
+    monkeypatch.setenv("MENDARI_SMART_CLIENT_ID", CLIENT)
+    monkeypatch.setenv("MENDARI_PUBLIC_URL", APP)
+    monkeypatch.setenv("MENDARI_FHIR_ALLOWED_SERVERS", EHR)
     transport = httpx.MockTransport(ehr)
     monkeypatch.setattr(
         smart_routes, "GuardedHttp", functools.partial(GuardedHttp, transport=transport)
@@ -347,12 +347,12 @@ def test_an_expired_session_is_gone(
 ) -> None:
     full_launch(app, ehr)
     later = time.time() + 7200
-    monkeypatch.setattr("openhealth.core.audit.time.time", lambda: later)
+    monkeypatch.setattr("mendari.core.audit.time.time", lambda: later)
     assert app.get("/api/smart/session").json() == {"active": False}
 
 
 def test_smart_is_off_until_configured(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("OPENHEALTH_SMART_CLIENT_ID", raising=False)
+    monkeypatch.delenv("MENDARI_SMART_CLIENT_ID", raising=False)
     client = TestClient(create_app(db_path=tmp_path / "a.db"))
     assert client.get("/api/health").json()["smart_launch"] is False
     response = client.get("/smart/launch", params={"iss": ISS, "launch": "x"})

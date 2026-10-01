@@ -14,14 +14,14 @@
           ],
           "tag": [
             {
-              "system": "https://openhealth.dev/fhir/sandbox",
+              "system": "https://mendari.co/fhir/sandbox",
               "code": "synthetic"
             }
           ]
         },
         "identifier": [
           {
-            "system": "https://openhealth.dev/fhir/synthetic-case",
+            "system": "https://mendari.co/fhir/synthetic-case",
             "value": "trial-us-core-1"
           }
         ],

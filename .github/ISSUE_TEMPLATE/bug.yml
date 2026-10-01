@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: >-
-        Never paste real patient data. Use synthetic examples (`openhealth sandbox generate`
+        Never paste real patient data. Use synthetic examples (`mendari sandbox generate`
         makes some).
   - type: textarea
     id: what
@@ -24,4 +24,4 @@ body:
   - type: input
     id: version
     attributes:
-      label: Version (`openhealth --version` or the commit)
+      label: Version (`mendari --version` or the commit)

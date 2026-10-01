@@ -9,12 +9,12 @@ from typing import Any
 
 import pytest
 
-from openhealth.cli import main
-from openhealth.errors import OpenHealthError
-from openhealth.sandbox import omop_check
-from openhealth.standards import omop
+from mendari.cli import main
+from mendari.errors import MendariError
+from mendari.sandbox import omop_check
+from mendari.standards import omop
 
-TRIAL = "openhealth/clinical-trial-prescreener"
+TRIAL = "mendari/clinical-trial-prescreener"
 RECORD: dict[str, Any] = {
     "as_of": "2026-09-01",
     "patient": {"age": 62, "sex": "female"},
@@ -76,10 +76,10 @@ def test_reading_creates_nothing_and_needs_a_screening_date(tmp_path: Path) -> N
     omop.write(db, [("case-1", RECORD)])
     with db.session(exclusive=True) as s:
         s.all("DELETE FROM observation_period")
-    with pytest.raises(OpenHealthError, match="no observation period"):
+    with pytest.raises(MendariError, match="no observation period"):
         list(omop.read(db))
     db.close()
-    with pytest.raises(OpenHealthError, match="schema name"):
+    with pytest.raises(MendariError, match="schema name"):
         omop.open_database(str(tmp_path / "x.db"), schema="cdm; DROP TABLE person")
 
 
@@ -117,5 +117,5 @@ def test_the_cli_writes_datasets_and_reports_populations(
     report = json.loads(capsys.readouterr().out)
     assert report["people"] == 1 and set(report["outcomes"].values()) == {None}  # one person
     assert "Doing well" not in json.dumps(report)
-    inbox = ["omop", "dataset", "--db", str(db), "--pack", "openhealth/patient-inbox-router"]
+    inbox = ["omop", "dataset", "--db", str(db), "--pack", "mendari/patient-inbox-router"]
     assert main([*inbox, "--out", str(tmp_path / "x.jsonl")]) == 1  # not a record pack

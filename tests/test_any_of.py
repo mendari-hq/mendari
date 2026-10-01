@@ -6,10 +6,10 @@ from typing import Any
 import httpx
 import pytest
 
-from openhealth import AuditStore, CallBudget, Decision, Outcome, Pack
-from openhealth.evals import evaluate, resolve_dataset
-from openhealth.providers import build_provider
-from openhealth.providers.jev import JevProvider
+from mendari import AuditStore, CallBudget, Decision, Outcome, Pack
+from mendari.evals import evaluate, resolve_dataset
+from mendari.providers import build_provider
+from mendari.providers.jev import JevProvider
 from tests.conftest import message
 
 GI_BLEED = "I just started to vomit a lot of blood "  # the reported miss, verbatim

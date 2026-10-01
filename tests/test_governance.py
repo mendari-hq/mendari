@@ -8,14 +8,14 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from openhealth.core.audit import AuditStore
-from openhealth.core.registry import resolve_pack
-from openhealth.errors import ReviewError
-from openhealth.evals.pack_tests import load_cases
-from openhealth.server.app import create_app
+from mendari.core.audit import AuditStore
+from mendari.core.registry import resolve_pack
+from mendari.errors import ReviewError
+from mendari.evals.pack_tests import load_cases
+from mendari.server.app import create_app
 
-TRIAL = "openhealth/clinical-trial-prescreener"  # risk level 2
-INBOX = "openhealth/patient-inbox-router"  # risk level 1
+TRIAL = "mendari/clinical-trial-prescreener"  # risk level 2
+INBOX = "mendari/patient-inbox-router"  # risk level 1
 CASE = next(
     c
     for c in load_cases(resolve_pack(TRIAL))
@@ -151,8 +151,8 @@ def test_approvals_and_revocations_are_in_the_hash_chain(app: TestClient, tmp_pa
 def test_a_deployment_is_recorded_when_it_changes_not_at_every_start(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("OPENHEALTH_ENVIRONMENT", "pilot")
-    monkeypatch.setenv("OPENHEALTH_RELEASE", "r1")
+    monkeypatch.setenv("MENDARI_ENVIRONMENT", "pilot")
+    monkeypatch.setenv("MENDARI_RELEASE", "r1")
     db = tmp_path / "a.db"
     first = TestClient(create_app(db_path=db)).get("/api/deployments", params={"pack_id": INBOX})
     [row] = first.json()
@@ -168,7 +168,7 @@ def test_a_deployment_is_recorded_when_it_changes_not_at_every_start(
     again = TestClient(create_app(db_path=db)).get("/api/deployments", params={"pack_id": INBOX})
     assert [r["id"] for r in again.json()] == [row["id"]]  # a restart changes nothing
 
-    monkeypatch.setenv("OPENHEALTH_RELEASE", "r2")
+    monkeypatch.setenv("MENDARI_RELEASE", "r2")
     released = TestClient(create_app(db_path=db))
     rows = released.get("/api/deployments", params={"pack_id": INBOX}).json()
     assert [r["release"] for r in rows] == ["r2", "r1"]
@@ -187,7 +187,7 @@ def test_another_environment_is_its_own_row(
 ) -> None:
     db = tmp_path / "a.db"
     for environment in ("staging", "production"):
-        monkeypatch.setenv("OPENHEALTH_ENVIRONMENT", environment)
+        monkeypatch.setenv("MENDARI_ENVIRONMENT", environment)
         TestClient(create_app(db_path=db)).get("/api/deployments", params={"pack_id": INBOX})
     rows = AuditStore(db).deployments(INBOX)
     assert sorted(r["environment"] for r in rows) == ["production", "staging"]

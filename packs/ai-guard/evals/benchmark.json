@@ -1,11 +1,11 @@
 {
-  "format": "openhealth.eval/1",
-  "id": "4fc630f5-966f-4348-a806-ccda6e1b282c",
-  "created_at": "2026-09-29T18:43:58+00:00",
+  "format": "mendari.eval/1",
+  "id": "5a90bc92-ff60-424f-a421-d989a52ab3a0",
+  "created_at": "2026-10-01T02:00:55+00:00",
   "pack": {
-    "id": "openhealth/ai-guard",
+    "id": "mendari/ai-guard",
     "version": "0.1.2",
-    "digest": "sha256:0d8094850980600cfb8a4470574430f8a20c2ad9e2836d60b98e703f4fa935d0"
+    "digest": "sha256:1ee04ecdd46e46539d242ee8f7a56c15f2b4e32f1c0e0b23e2167285a3bcf3ac"
   },
   "providers": {
     "screen": {
@@ -654,10 +654,10 @@
     }
   ],
   "latency_ms": {
-    "mean": 0.28846728305021924,
-    "p50": 0.2799578942358494,
-    "p95": 0.3453330136835575,
-    "max": 0.6595831364393234
+    "mean": 0.2874328203809758,
+    "p50": 0.27941586449742317,
+    "p95": 0.3414591774344444,
+    "max": 0.6155832670629025
   },
   "cost": {
     "total_usd": 0.0,

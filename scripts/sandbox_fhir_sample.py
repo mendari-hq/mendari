@@ -1,4 +1,4 @@
-"""Write what `openhealth sandbox seed` posts, for the HL7 validator (CI job `fhir-conformance`).
+"""Write what `mendari sandbox seed` posts, for the HL7 validator (CI job `fhir-conformance`).
 
 uv run python scripts/sandbox_fhir_sample.py var/fhir-samples
 """
@@ -9,7 +9,7 @@ import json
 import sys
 from pathlib import Path
 
-from openhealth.sandbox.fhir_workflow import INBOX, REFERRAL, seed_bundle
+from mendari.sandbox.fhir_workflow import INBOX, REFERRAL, seed_bundle
 
 
 def main(out: Path) -> None:

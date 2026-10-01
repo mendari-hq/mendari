@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://openhealth.dev/packs/referral-router/input.schema.json",
+  "$id": "https://mendari.co/packs/referral-router/input.schema.json",
   "title": "Referral Router input",
   "description": "A specialty referral (its reason and the priority the referrer chose) with the patient's recent documents, reports and laboratory results. Dates are ISO 8601; the as-of date defaults to today.",
   "type": "object",

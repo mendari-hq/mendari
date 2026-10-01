@@ -7,12 +7,12 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from openhealth import Decision
-from openhealth.core.spec import PackManifest
-from openhealth.core.templates import fill, unknown_placeholders
-from openhealth.errors import PackValidationError
-from openhealth.standards import cds_hooks
-from openhealth.standards.fhir import FhirAdapter
+from mendari import Decision
+from mendari.core.spec import PackManifest
+from mendari.core.templates import fill, unknown_placeholders
+from mendari.errors import PackValidationError
+from mendari.standards import cds_hooks
+from mendari.standards.fhir import FhirAdapter
 from tests.test_fhir_lists import BUNDLE, MINI, PATIENT_9, RECORD, cds_request, searchset
 
 

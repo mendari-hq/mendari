@@ -1,4 +1,4 @@
-# Synthetic behaviour tests shipped with the pack. `openhealth test` runs them against the
+# Synthetic behaviour tests shipped with the pack. `mendari test` runs them against the
 # pack's default providers. They document, in reviewable form, what the pack must always do.
 #
 # Every case is decided on 2026-09-01. The base record is complete for any specialty: a visit

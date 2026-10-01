@@ -36,6 +36,6 @@ lists:
         path: effectiveDateTime
 task:
   code_text: Review trial prescreen
-  performer_system: https://openhealth.dev/fhir/CodeSystem/trial-team
+  performer_system: https://mendari.co/fhir/CodeSystem/trial-team
   performer: research-coordinator
   description: "Prescreen result: {recommendation}. Review eligibility for the toy study."

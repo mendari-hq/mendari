@@ -7,11 +7,11 @@ from typing import Any
 import httpx
 import pytest
 
-from openhealth import AuditStore, CallBudget, Pack
-from openhealth.errors import PackValidationError, ProviderError
-from openhealth.providers import PROVIDER_TYPES, Provider, ProviderInfo
-from openhealth.providers.calibration import fit_temperature, nll, rescale
-from openhealth.providers.jev import JevProvider
+from mendari import AuditStore, CallBudget, Pack
+from mendari.errors import PackValidationError, ProviderError
+from mendari.providers import PROVIDER_TYPES, Provider, ProviderInfo
+from mendari.providers.calibration import fit_temperature, nll, rescale
+from mendari.providers.jev import JevProvider
 from tests.conftest import message
 
 REFILL = "Hi, I need a refill on my metoprolol. I have about a week's worth of pills left."

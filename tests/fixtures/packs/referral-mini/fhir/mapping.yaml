@@ -23,6 +23,6 @@ lists:
         path: date
 task:
   code_text: Handle referral
-  performer_system: https://openhealth.dev/fhir/CodeSystem/referral-queue
+  performer_system: https://mendari.co/fhir/CodeSystem/referral-queue
   performer: "{specialty}"
   description: "Referral {recommendation} ({specialty})"
