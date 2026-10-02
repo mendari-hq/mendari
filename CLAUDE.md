@@ -15,6 +15,7 @@ docker run -d --name mendari-pg-test -e POSTGRES_PASSWORD=mendari-test \
 MENDARI_TEST_DATABASE_URL=postgresql://postgres:mendari-test@127.0.0.1:56432/mendari_test uv run pytest
 uv run ruff check src tests && uv run ruff format --check src tests
 uv run mypy src tests
+uv run python scripts/check_doc_snippets.py  # the API examples (dashboard/snippets) on a local server
 uv run mendari demo                       # end-to-end smoke test on synthetic data
 ./scripts/build-reference-pack.sh         # both reference packs: data → train → test → benchmark → card
 uv run python scripts/fhir_r4_schema.py   # regenerate the R4 structure rules from HL7's pinned schema

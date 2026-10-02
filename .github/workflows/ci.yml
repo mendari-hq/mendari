@@ -39,6 +39,8 @@ jobs:
       - run: uv run ruff format --check src tests scripts
       - run: uv run mypy src tests
       - run: uv run pytest
+      - name: The API examples work, in open mode and with a service key (README, snippets)
+        run: uv run python scripts/check_doc_snippets.py
       - run: uv run mendari test mendari/patient-inbox-router
       - run: uv run mendari test mendari/clinical-trial-prescreener
       - run: uv run mendari test mendari/referral-router

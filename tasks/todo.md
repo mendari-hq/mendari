@@ -52,8 +52,10 @@ About 18 days of work.
 
 ## Plan: docs experience, Phase 5 (2026-10-02)
 From the audit's "Redesign plan". Branch `claude/phase-5`, after Phase 4b's stages C and G.
-- [ ] **L. Snippets checked in CI**: the quickstart, FHIR and authentication calls as scripts run
+- [x] **L. Snippets checked in CI**: the quickstart, FHIR and authentication calls as scripts run
   against a local server in CI, open mode and with a key; README curl blocks equal to them
+  (Deviation: the FHIR body is the API reference's synthetic Bundle, `api_docs.FHIR_EXAMPLE`; the
+  packs ship no FHIR examples. The key pass skips steps by the route rules, not by a marker.)
 - [ ] **M. Landing at `/docs`**: public and static: what Mendari is, the four outcomes, a diagram,
   a three-call quickstart with copy buttons, FHIR in and out, authentication generated from the
   route rules, links to the reference and Decision Cards; light and dark from the dashboard's
