@@ -34,9 +34,12 @@ About 18 days of work.
   no exception messages under `hash` or `encrypt`
   - Deviations: `count`, `error` and `frames` join the allow-list; the logs threat row is I8 (A
     took I7); FHIR errors carry the id in the header only; the `caplog` test reads stdout now
-- [ ] **F. Sessions and identity**: 30 minutes idle, 8 hours at most, roles recomputed per
+- [x] **F. Sessions and identity**: 30 minutes idle, 8 hours at most, roles recomputed per
   request, `__Host-` names with the old name accepted for one release, sign-in and SMART launch
   tied to the browser; people chained by verified email, keys as `key <id>`
+  - Deviations: a SMART session also ends with the EHR's token; `next` with a backslash or a
+    control character goes to `/`; health shows `sessions`; open-mode outcomes and revocations
+    stay `open mode`; the dashboard shows a banner and never navigates away on its own
 - [ ] **G. Origin checks**: a cross-site or same-site browser request reaches only public and page
   routes, only to read; HSTS
 - [ ] **H. Notes out of the chain**: a `notes` table (sealed under `encrypt`, refused under

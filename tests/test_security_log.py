@@ -66,7 +66,7 @@ def test_every_line_is_json_with_allowed_keys_and_never_a_secret(
 ) -> None:
     key_id, machine = key(tmp_path / "a.db")
     sign_in(app, idp, roles=["admin"], name="Dr Kim", email="kim@example.org")
-    session = app.cookies["mendari_session"]
+    session = app.cookies["__Host-mendari_session"]
     capsys.readouterr()
     decided = app.post(DECIDE, json=message(CASE_TEXT), headers=machine).json()
     app.get("/api/audit", params={"pack_id": QUERY_VALUE})

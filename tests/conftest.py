@@ -14,6 +14,7 @@ import pytest
 import yaml
 
 from mendari import AuditStore, Decision, Pack, load_pack
+from mendari.server import sessions
 
 ROOT = Path(__file__).resolve().parents[1]
 INBOX_DIR = ROOT / "packs" / "patient-inbox-router"
@@ -123,10 +124,19 @@ def message(body: str, **extra: Any) -> dict[str, Any]:
     return {"message": {"body": body, **extra}}
 
 
-def signed_in(store: AuditStore, *, role: str, org: str = "default") -> dict[str, str]:
-    """Request headers for a person signed in with `role` in `org`: a session row as
-    `/auth/callback` makes one. Review is a person's (keys are viewer or service)."""
+def signed_in(
+    store: AuditStore, *, role: str, org: str = "default", host: str = "mendari.test"
+) -> dict[str, str]:
+    """Request headers for a person signed in with `role` in `org` on `host`: a session row as
+    `/auth/callback` makes one (the chain names them `<role>@<org>.example.org`, a verified
+    email), under the cookie name that host uses. Review is a person's (keys are viewer or
+    service)."""
     sid = secrets.token_urlsafe(32)
-    session = {"sub": f"{org}-{role}", "name": f"{org} {role}", "roles": [role], "org": org}
-    store.smart_put(sid, "user", session, int(time.time()) + 3600)
-    return {"cookie": f"mendari_session={sid}"}
+    email = f"{role}@{org}.example.org"
+    claims = {"roles": [role], "email": email, "email_verified": True}
+    row = {"sub": f"{org}-{role}", "name": f"{org} {role}", "actor": email, "claims": claims}
+    session, expires_at = sessions.begin(
+        {**row, "roles": [role], "org": org}, int(time.time()), sessions.Lifetime()
+    )
+    store.smart_put(sid, "user", session, expires_at)
+    return {"cookie": f"{sessions.cookie_name(sessions.SESSION, host)}={sid}"}

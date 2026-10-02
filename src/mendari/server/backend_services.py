@@ -516,7 +516,7 @@ def add_backend_routes(
             name=body.name,
             role=body.role,
             org=principal.org,
-            created_by=principal.name,
+            created_by=principal.actor,
             scopes=scope,
             jwks=keys,
         )
@@ -546,7 +546,7 @@ def add_backend_routes(
         next request. Revoking is recorded in the audit chain."""
         principal: Principal = getattr(request.state, "principal", OPEN)
         org = None if principal.kind == "open" else principal.org
-        if not store.revoke_client(client_id, org, revoked_by=principal.name):
+        if not store.revoke_client(client_id, org, revoked_by=principal.actor):
             raise AuthError("no such client", 404)
         security_log.event(
             "admin.client.revoked", actor=principal.id, org=principal.org, ids=[client_id]

@@ -880,14 +880,43 @@ class AuditStore:
             )
 
     def smart_get(self, key: str, kind: str) -> dict[str, Any] | None:
+        row = self.smart_read(key, kind)
+        return None if row is None else row[0]
+
+    def smart_read(self, key: str, kind: str) -> tuple[dict[str, Any], int] | None:
+        """A live row's data and its `expires_at` (a session's idle expiry, server/sessions.py)."""
         row_key = _session_key(kind, key)
         with self._db.session(exclusive=False) as db:
             row = db.one(
-                "SELECT data FROM smart_sessions WHERE key_sha256 = ? AND kind = ? "
+                "SELECT data, expires_at FROM smart_sessions WHERE key_sha256 = ? AND kind = ? "
                 "AND expires_at > ?",
                 (row_key, kind, int(time.time())),
             )
-        return None if row is None else json.loads(row["data"])
+        return None if row is None else (json.loads(row["data"]), int(row["expires_at"]))
+
+    def smart_touch(self, key: str, kind: str, until: int) -> bool:
+        """Push a live row's expiry forward to `until`, never back: concurrent touches through
+        any number of instances leave the latest, and an ended row stays ended. True if moved."""
+        row_key = _session_key(kind, key)
+        with self._db.session(exclusive=False) as db:
+            moved = db.all(
+                "UPDATE smart_sessions SET expires_at = ? WHERE key_sha256 = ? AND kind = ? "
+                "AND expires_at > ? AND expires_at < ? RETURNING key_sha256",
+                (until, row_key, kind, int(time.time()), until),
+            )
+        return bool(moved)
+
+    def smart_replace(self, key: str, kind: str, data: Mapping[str, Any], expires_at: int) -> bool:
+        """Replace a live row's data and expiry (a session from an earlier release taking up the
+        idle limit); an ended row stays ended. True if replaced."""
+        row_key = _session_key(kind, key)
+        with self._db.session(exclusive=False) as db:
+            replaced = db.all(
+                "UPDATE smart_sessions SET data = ?, expires_at = ? WHERE key_sha256 = ? "
+                "AND kind = ? AND expires_at > ? RETURNING key_sha256",
+                (_canonical(data), expires_at, row_key, kind, int(time.time())),
+            )
+        return bool(replaced)
 
     def smart_take(self, key: str, kind: str) -> dict[str, Any] | None:
         """Read and delete in one statement: a launch's or a sign-in's state works once."""

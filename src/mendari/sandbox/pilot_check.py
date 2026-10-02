@@ -9,7 +9,7 @@ engine's callback. Then:
 1. an admin creates an API key for the message worker (role `service`);
 2. the worker decides synthetic inbox messages with the key;
 3. a reviewer reads the queue (inputs decrypted, each read chained) and resolves a review, which
-   is recorded under the reviewer's name;
+   is recorded under the reviewer's verified email;
 4. a viewer can read a decision but not its input, and can't resolve a review;
 5. someone on the AI committee (role `governance`) approves automation of a level 2 pack, and the
    next decision carries the approval;
@@ -29,13 +29,15 @@ from mendari.evals.pack_tests import load_cases
 from mendari.sandbox import synthetic_inbox
 
 COOKIE = "mendari_session"
+SIGNIN = "mendari_signin"  # ties the engine's /auth/login to its /auth/callback
 INBOX = "mendari/patient-inbox-router"
 TRIAL = "mendari/clinical-trial-prescreener"  # risk level 2
 EMERGENCY = {
     "message": {"body": "Crushing chest pain and my left arm is numb", "channel": "portal"}
 }
 # Who signs in, and the groups the identity provider gives them (the engine maps groups to roles
-# with MENDARI_OIDC_ROLE_MAP; see the CI job `pilot-check`).
+# with MENDARI_OIDC_ROLE_MAP; see the CI job `pilot-check`). The chain names each by their
+# verified email (`email()`).
 PEOPLE = {
     "admin": ("Pilot Admin", ["informatics"]),
     "reviewer": ("Nurse Pilot", ["clinicians"]),
@@ -55,18 +57,17 @@ class Pilot:
         name, groups = PEOPLE[who]
         started = self.http.get(f"{self.engine}/auth/login")
         authorize = _redirect(started, "the engine's /auth/login")
-        claims = {"name": name, "groups": groups}
+        # The engine's cookies are Secure, and the pilot may run on plain http, so this script
+        # carries them by hand: first the one that ties the sign-in to this "browser".
+        binding = _cookie(started, SIGNIN, "sign-in")
+        claims = {"name": name, "groups": groups, "email": email(who), "email_verified": True}
         signed = self.http.post(authorize, data={"username": who, "claims": json.dumps(claims)})
         callback = _redirect(signed, "the identity provider's sign-in form")
         if not callback.startswith(f"{self.engine}/auth/callback"):
             raise MendariError(f"the identity provider sent the browser to {callback[:80]}")
-        done = self.http.get(callback)
+        done = self.http.get(callback, headers={"cookie": binding})
         _redirect(done, "the engine's /auth/callback")
-        # The session cookie is Secure; the pilot may run on plain http, so send it by hand.
-        sid = done.cookies.get(COOKIE)
-        if not sid:
-            raise MendariError("the engine set no session cookie")
-        return {"cookie": f"{COOKIE}={sid}"}
+        return {"cookie": _cookie(done, COOKIE, "session")}
 
     def call(self, method: str, path: str, auth: dict[str, str], **kwargs: Any) -> httpx.Response:
         return self.http.request(method, f"{self.engine}{path}", headers=auth, **kwargs)
@@ -145,7 +146,7 @@ def run(
         )
         if seen["record"]["input"] is not None or not seen.get("input_restricted"):
             raise MendariError("the viewer could read an input")
-        if seen["reviewer"] != PEOPLE["reviewer"][0]:
+        if seen["reviewer"] != email("reviewer"):
             raise MendariError(f"the review is recorded for {seen['reviewer']!r}")
         pilot.expect(
             pilot.call(
@@ -175,7 +176,7 @@ def run(
             200,
             "the worker decides with the approved pack",
         )
-        if (trial.get("governance") or {}).get("approved_by") != PEOPLE["governance"][0]:
+        if (trial.get("governance") or {}).get("approved_by") != email("governance"):
             raise MendariError("the decision does not carry the committee's approval")
 
         monitoring = pilot.expect(
@@ -193,7 +194,7 @@ def run(
             raise MendariError(f"the audit chain does not verify: {chain}")
         events = pilot.call("GET", f"/api/audit/{first['id']}", viewer).json()["events"]
         reads = [e for e in events if e["event"] == "input.read"]
-        if not reads or reads[0]["payload"]["reader"] != PEOPLE["reviewer"][0]:
+        if not reads or reads[0]["payload"]["reader"] != email("reviewer"):
             raise MendariError("the reviewer's read of the input is not in the chain")
 
     return {
@@ -204,6 +205,21 @@ def run(
         "monitoring_last_7_days": week,
         "input_reads_logged": len(reads),
     }
+
+
+def email(who: str) -> str:
+    """The verified email the identity provider gives `who`, which the chain names them by."""
+    return f"{who}@pilot.example.org"
+
+
+def _cookie(response: httpx.Response, base: str, what: str) -> str:
+    """A `cookie` header with the engine's cookie `base` from `response`: `__Host-<base>`, or
+    the plain name on a local or dotless host."""
+    for name in (f"__Host-{base}", base):
+        value = response.cookies.get(name)
+        if value:
+            return f"{name}={value}"
+    raise MendariError(f"the engine set no {what} cookie")
 
 
 def _redirect(response: httpx.Response, what: str) -> str:

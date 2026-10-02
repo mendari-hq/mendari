@@ -4,7 +4,7 @@ import { ratingCell } from "./audit.js";
 import { criteriaTable, derivedPrimary, inputView } from "./pack.js";
 import { render, views } from "./router.js";
 import { TABLES } from "./table.js";
-import { $, api, emptyState, esc, icon, outcomeBadge, packPath, priorityBadge, stat, state, storageGet, storageSet, time, toastError, whileBusy } from "./ui.js";
+import { $, api, emptyState, esc, icon, outcomeBadge, packPath, priorityBadge, signedIn, stat, state, storageGet, storageSet, time, toastError, whileBusy } from "./ui.js";
 
 views.feedback = async (main) => {
   const rating = storageGet("oh.feedback.rating", "down");
@@ -64,7 +64,8 @@ function feedbackCard(item) {
 // One tap records a rating, and it can be changed: the other button switches it (each person's
 // latest rating counts; the audit trail keeps every one). "Wrong" then asks, optionally, what the
 // answer should have been: with it, the case is a ready-made test (docs/ui-ux-review.md, decision 5).
-const reporter = () => storageGet("oh.reviewer", "") || null;
+// Signed in, ratings are recorded as the audit trail names the person; in open mode, the name given.
+const reporter = () => (signedIn() ? state.me.actor : storageGet("oh.reviewer", "") || null);
 
 // This person's current rating of a decision, from its hash-chained events.
 export function myRating(events) {

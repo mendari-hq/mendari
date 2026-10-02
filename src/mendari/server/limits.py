@@ -49,7 +49,7 @@ from fastapi import Request
 
 from mendari.core.audit import AuditStore
 from mendari.errors import MendariError
-from mendari.server import security_log
+from mendari.server import security_log, sessions
 
 Mode = Literal["on", "log", "off"]
 _UNITS = {"s": 1, "min": 60, "h": 3600}
@@ -57,7 +57,6 @@ _RATE = re.compile(r"^(\d+)/(\d*)(s|min|h)(?::(\d+))?$")
 # Every this many takes, an instance purges up to PURGE_BATCH empty buckets.
 PURGE_EVERY = 100
 PURGE_BATCH = 100
-SMART_COOKIE = "mendari_smart"  # server/smart_routes.py COOKIE (not imported: no cycle)
 
 
 @dataclass(frozen=True)
@@ -242,7 +241,7 @@ class Limiter:
         elif request.url.path == "/api/smart/decide":
             # An EHR launch's session (no Mendari principal), by a digest that cannot be used to
             # find the session's row; without a cookie the route answers 401 itself.
-            cookie = request.cookies.get(SMART_COOKIE)
+            cookie, _ = sessions.read(request, sessions.SMART)
             if not cookie:
                 return None
             key = "smart:" + hashlib.sha256(f"rate-limit\0{cookie}".encode()).hexdigest()[:16]

@@ -97,6 +97,48 @@ In Google Cloud Console, create an OAuth client of type *Web application* with t
 `https://mendari.example.org/auth/callback`. While its consent screen is in *Testing*, only the
 test users listed there can sign in at all, which is a second gate.
 
+**Sessions.** A person's session ends after 30 minutes without a request and 8 hours after
+signing in, whichever comes first, and when the browser closes (the cookie has no expiry of its
+own; the server decides). Set your own policy within bounds; a value outside them stops the
+server at startup:
+
+```bash
+MENDARI_SESSION_IDLE_MINUTES=30     # 5 to 120
+MENDARI_SESSION_MAX_HOURS=8         # 1 to 12
+```
+
+Signed in, `/api/health` shows them (`sessions`). An EHR launch's session follows the same
+rules and also ends when the EHR's token does. More about sessions:
+
+- **Roles apply at once.** Each request works out the person's roles again from the claims kept
+  at sign-in and the role settings as they are then, so taking a group out of
+  `MENDARI_OIDC_ROLE_MAP` (and redeploying) ends that access on the next request, not when the
+  session ends. A person left with no role gets a `401` and must sign in again. Changing
+  `MENDARI_OIDC_ROLE_CLAIM` does the same to everyone whose role came from the old claim.
+- **Cookies** are `__Host-mendari_session` (and `__Host-mendari_smart` for an EHR launch):
+  HttpOnly, Secure, SameSite=Lax, for this exact host only, so another subdomain of your domain
+  cannot set or replace them. On `localhost`, `127.0.0.1` and dotless hosts (a compose service)
+  they keep their plain names, `mendari_session` and `mendari_smart`. Serve Mendari over https:
+  browsers refuse Secure cookies on plain http anywhere but localhost.
+- **A sign-in works only in the browser that started it.** `/auth/login` (and `/smart/launch`)
+  set a ten-minute cookie (`__Host-mendari_signin`, `__Host-mendari_launch`) that the callback
+  must bring back, so a callback link sent to someone else signs nobody in. A second sign-in
+  started in another tab replaces the first, which then asks to sign in again. A script that
+  signs in over plain http carries the cookies by hand, as `mendari sandbox pilot-check` does.
+- **The dashboard says so when a session ends** ("Your session ended. Sign in again.") and
+  brings the person back to the same view after signing in; what they were typing stays on the
+  page.
+
+**Who the audit chain names.** Reviews, ratings, approvals, outcomes, input reads and key and
+client changes are chained under the signed-in person's **verified email** (the provider says
+`email_verified: true`), else their identity provider's subject qualified by its issuer
+(`https://login.example.org/realms/clinic|8f2c…`), never their display name. Keys are named
+`key <id>` and Backend Services clients `client <id>`. Chained events are never rewritten, so
+an email in the chain stays there; ask your identity provider to send verified emails (most
+do with the `email` scope, which Mendari asks for) if you want readable names. In open mode
+(no sign-in, synthetic data only) the client gives the reviewer, reporter and approver, and each
+must be an identifier: no spaces, at most 100 characters.
+
 Integrations (the EHR, CDS Hooks, a message worker) use API keys with the `service` role (or
 `viewer`, to read only; review and approval are a person's, so no key has those roles). Admins
 create them in `POST /api/auth/keys` while signed in (no key, an admin key included, may manage
@@ -172,7 +214,10 @@ no authorization endpoint (no user or patient launch) and no `patient/` or `user
 
 Sessions and pending sign-ins are server-side rows keyed by their kind and value. A release
 that changes how they are keyed (Phase 4 did) ends every session: people sign in again, and an
-EHR launches the app again.
+EHR launches the app again. Phase 4b signs nobody out: sessions from before it keep their
+8 hours (and take up the idle limit at their next request), their old cookie name is still read
+for them for one release, their roles are the ones they signed in with, and a sign-in or launch
+in flight at the deploy completes once without the browser cookie.
 
 ## 3. PHI mode
 
@@ -285,7 +330,11 @@ collector, journald) and keep it as your policy says; Mendari keeps no log table
       `MENDARI_ORG_DAILY_LIMITS=decisions=5000`, its firewall rule enforced after 7 days in log
       mode ([`deploy/vercel/`](https://github.com/Junebugg1214/mendari/tree/main/deploy/vercel)); choose your own numbers from a
       week of your traffic.
-- [ ] A viewer can't read an input; a reviewer can, and the read appears in the audit chain.
+- [ ] A viewer can't read an input; a reviewer can, and the read appears in the audit chain
+      under the reviewer's verified email.
+- [ ] Signed in, `/api/health` shows the `sessions` policy you chose, the session cookie is
+      `__Host-mendari_session` (in the browser's developer tools), and a session left alone past
+      the idle time is refused ("Your session ended. Sign in again.").
 - [ ] Integrations that record outcomes send `source` as an identifier (`ehr`, not a sentence)
       and a label of the pack's primary question.
 - [ ] The security log reaches your log system: a refused request (a wrong key) appears there as

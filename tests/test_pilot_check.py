@@ -34,11 +34,17 @@ def test_the_pilot_reads_the_phi_mode_once_the_admin_has_signed_in() -> None:
             public = {"status": "ok", "version": "1", "sign_in": True}
             return httpx.Response(200, json={**public, "phi_mode": "off"} if signed_in else public)
         if path == "/auth/login":
-            return httpx.Response(302, headers={"location": "http://idp.test/authorize?state=s"})
+            started = {
+                "location": "http://idp.test/authorize?state=s",
+                "set-cookie": "__Host-mendari_signin=b; Secure; Path=/",
+            }
+            return httpx.Response(302, headers=started)
         if path == "/authorize":
             return httpx.Response(302, headers={"location": f"{ENGINE}/auth/callback?code=c"})
         if path == "/auth/callback":
-            return httpx.Response(302, headers={"location": "/", "set-cookie": "mendari_session=s"})
+            assert request.headers["cookie"] == "__Host-mendari_signin=b"  # carried by hand
+            done = {"location": "/", "set-cookie": "__Host-mendari_session=s; Secure; Path=/"}
+            return httpx.Response(302, headers=done)
         return httpx.Response(200, json={"principal": {"roles": ["admin"]}})
 
     with pytest.raises(MendariError, match="sign-in on and PHI mode encrypt"):
@@ -49,7 +55,11 @@ def test_the_pilot_reads_the_phi_mode_once_the_admin_has_signed_in() -> None:
 def test_a_sign_in_must_come_back_to_the_engine() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/auth/login":
-            return httpx.Response(302, headers={"location": "http://idp.test/authorize?state=s"})
+            started = {
+                "location": "http://idp.test/authorize?state=s",
+                "set-cookie": "mendari_signin=b; Secure; Path=/",
+            }
+            return httpx.Response(302, headers=started)
         return httpx.Response(302, headers={"location": "http://elsewhere.test/cb?code=c"})
 
     with (

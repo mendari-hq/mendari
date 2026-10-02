@@ -17,7 +17,7 @@ from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal
-from urllib.parse import parse_qsl
+from urllib.parse import parse_qsl, urlsplit
 
 import httpx
 from fastapi import Body, FastAPI, HTTPException, Request
@@ -68,7 +68,7 @@ from mendari.evals.pack_tests import load_cases
 from mendari.legacy import current_pack_id
 from mendari.providers import jev, llm
 from mendari.providers.credentials import key_source
-from mendari.server import api_docs, security_log
+from mendari.server import api_docs, security_log, sessions
 from mendari.server.auth import (
     OPEN,
     Auth,
@@ -155,12 +155,23 @@ class ApprovalRequest(BaseModel):
     pack_id: str = Field(min_length=3, max_length=200)
     reference: str = Field(min_length=3, max_length=300, description="e.g. committee minutes")
     days: int = Field(default=180, ge=1, le=365, description="how long the approval lasts")
-    approver: str | None = Field(default=None, max_length=200, description="open mode only")
+    approver: str | None = Field(
+        default=None,
+        max_length=200,
+        description="open mode only, an identifier (no spaces, at most 100 characters); with "
+        "sign-in on, the approval is recorded for whoever is signed in",
+    )
 
 
 class ReviewRequest(BaseModel):
     final_label: str = Field(min_length=1, max_length=200)
-    reviewer: str = Field(min_length=1, max_length=200)
+    reviewer: str = Field(
+        min_length=1,
+        max_length=200,
+        description="open mode: who reviews, an identifier (no spaces, at most 100 characters); "
+        "with sign-in on, the review is recorded for whoever is signed in, whatever this says",
+        examples=["sandbox-nurse"],
+    )
     note: str | None = Field(default=None, max_length=2000)
 
 
@@ -201,7 +212,12 @@ class ExpectedAnswer(BaseModel):
 
 class FeedbackRequest(BaseModel):
     rating: Literal["up", "down"]
-    reporter: str | None = Field(default=None, max_length=200)
+    reporter: str | None = Field(
+        default=None,
+        max_length=200,
+        description="open mode: who rates, an identifier (no spaces, at most 100 characters); "
+        "with sign-in on, the rating is recorded for whoever is signed in",
+    )
     note: str | None = Field(default=None, max_length=1000)
     # On a thumbs-down, what the answer to one of the decision's questions should have been.
     expected: ExpectedAnswer | None = None
@@ -226,11 +242,24 @@ REMOTE_EVAL_LIMIT = 200
 REMOTE_EVAL_WORKERS = 8
 
 
-def acting_as(request: Request, claimed: str | None) -> str | None:
-    """Who a review or rating is recorded for: with sign-in on, the signed-in person or API key,
-    whatever the request body says; in open mode, the name the client gives."""
+# A name the client gives in open mode (reviewer, reporter, approver): it is chained for good, so
+# an identifier ("sandbox-nurse", an email), never a sentence.
+NAME_ID = re.compile(r"[^\s\x00-\x1f\x7f-\x9f]{1,100}")
+
+
+def acting_as(request: Request, claimed: str | None, field: str = "reviewer") -> str | None:
+    """Who a review, rating or approval is recorded for: with sign-in on, the signed-in person or
+    API key as the chain names them (`Principal.actor`), whatever the request body says; in open
+    mode, the name the client gives, which must be an identifier: no spaces, at most 100
+    characters (`422` otherwise)."""
     principal = getattr(request.state, "principal", None)
-    return principal.name if principal is not None and principal.kind != "open" else claimed
+    if principal is not None and principal.kind != "open":
+        return str(principal.actor)
+    if claimed is not None and not NAME_ID.fullmatch(claimed):
+        raise HTTPException(
+            422, f"{field} must be an identifier: no spaces, at most 100 characters"
+        )
+    return claimed
 
 
 def principal_of(request: Request) -> Principal:
@@ -245,7 +274,7 @@ def input_reader(request: Request) -> str | None:
     principal = getattr(request.state, "principal", None)
     if principal is None or principal.kind == "open" or not principal.may("read_input"):
         return None
-    return str(principal.name)
+    return str(principal.actor)
 
 
 def create_app(
@@ -268,12 +297,13 @@ def create_app(
     body_limit = settings.max_body_bytes()  # likewise
     rate_limits = limit_settings(sign_in=sign_in is not None)  # likewise
     org_limits = settings.org_daily_limits()  # likewise
+    session_lifetime = sessions.lifetime()  # likewise
     security_log.configure()
     webhook = os.environ.get("MENDARI_ALERT_WEBHOOK", "").strip()
     if org_limits and webhook:
         check_webhook(webhook)  # likewise: a quota's alert must be able to leave
     store = AuditStore(db_path, migrate_url=migrate_url, phi=phi)
-    auth = Auth(sign_in, store, tokens=backend is not None)
+    auth = Auth(sign_in, store, tokens=backend is not None, lifetime=session_lifetime)
     limiter = Limiter(store, rate_limits)
     budget = (
         CallBudget(
@@ -418,6 +448,7 @@ def create_app(
                 permission_for=permission_for if auth.enabled else None,
                 token_url=None if backend is None else backend.token_url,
                 limit_for=limit_class if limiter.mode == "on" else None,
+                session_cookie=session_cookie_name(),
             )
         return app.openapi_schema
 
@@ -530,6 +561,11 @@ def create_app(
                 "daily_limit": (budget_limits or {}).get("llm"),
             },
             "rate_limits": limiter.describe(),
+            # Browser sessions: ended after this long without a request, and at most after.
+            "sessions": {
+                "idle_minutes": session_lifetime.idle // 60,
+                "max_hours": session_lifetime.absolute // 3600,
+            },
             # The caller's organization only: another's usage is its own business.
             "org_quotas": {
                 "daily_limits": org_limits,
@@ -715,10 +751,7 @@ def create_app(
         reference (e.g. committee minutes) and how long it lasts. It applies to exactly this
         pack version (its digest)."""
         pack = pack_or_404(body.pack_id)
-        principal = getattr(request.state, "principal", None)
-        approver = (
-            body.approver if principal is None or principal.kind == "open" else principal.name
-        )
+        approver = acting_as(request, body.approver, "approver")
         expires = datetime.now(UTC) + timedelta(days=body.days)
         approval = store.approve_automation(
             pack_id=pack.id,
@@ -739,9 +772,7 @@ def create_app(
     )
     def revoke(request: Request, approval_id: str) -> Response:
         """Revoke an approval; the pack's automation falls back to its risk-level cap."""
-        principal = getattr(request.state, "principal", None)
-        name = principal.name if principal is not None else "open mode"
-        if not store.revoke_approval(approval_id, revoked_by=name):
+        if not store.revoke_approval(approval_id, revoked_by=principal_of(request).actor):
             raise HTTPException(404, "no such approval")
         log_event(request, "governance.revoked", ids=[approval_id])
         return Response(status_code=204)
@@ -911,7 +942,7 @@ def create_app(
         handled), for monitoring: one of the labels of the decision's question. `source` names
         that system as an identifier; who recorded it is the caller (the signed-in person or API
         key), whatever the body says."""
-        recorded_by = principal_of(http).name
+        recorded_by = principal_of(http).actor
         store.record_outcome(
             decision_id,
             final_label=request.final_label,
@@ -931,7 +962,7 @@ def create_app(
         return store.record_feedback(
             decision_id,
             rating=request.rating,
-            reporter=acting_as(http, request.reporter),
+            reporter=acting_as(http, request.reporter, "reporter"),
             note=request.note,
             expected=request.expected.model_dump() if request.expected else None,
         )
@@ -1388,6 +1419,7 @@ def create_app(
         pack_or_404=pack_or_404,
         decision_for=decision_for,
         default_pack=default_pack,
+        lifetime=session_lifetime,
     )
 
     @app.get("/", include_in_schema=False)
@@ -1599,6 +1631,13 @@ def form_items(body: bytes) -> list[tuple[str, str]]:
     except ValueError:
         problem = "the form body has more than 1000 parameters"
     raise SearchError([{"code": "invalid", "diagnostics": problem}])
+
+
+def session_cookie_name() -> str:
+    """The session cookie's name for the API reference, which is one document for every host:
+    the plain name only when `MENDARI_PUBLIC_URL` is a local host (server/sessions.py)."""
+    host = urlsplit(os.environ.get("MENDARI_PUBLIC_URL", "").strip()).hostname
+    return sessions.cookie_name(sessions.SESSION, host or "public.invalid")
 
 
 def fhir_base(request: Request) -> str:

@@ -277,7 +277,9 @@ client), `MENDARI_PUBLIC_URL`, and put the EHR's FHIR server and authorization s
 
 The launch is OAuth 2 with PKCE (S256). The `id_token` is verified against the server's JWKS
 (`iss`, `aud`, `exp`, `nonce`). The access token stays on the server; the browser holds an
-opaque, HttpOnly, SameSite=Lax session cookie. The dashboard opens on the launch's patient:
+opaque, HttpOnly, SameSite=Lax `__Host-mendari_smart` session cookie, which ends like a
+person's session (and when the EHR's token does), and the callback works only in the browser
+that started the launch. The dashboard opens on the launch's patient:
 - `GET /api/smart/patient`;
 - their messages or referrals: `GET /api/smart/focus?pack_id=`;
 - deciding one: `POST /api/smart/decide`, which reads the record through the pack's CDS prefetch
@@ -405,7 +407,19 @@ With a provider that has no roles, such as Google, set `MENDARI_OIDC_ROLE_CLAIM=
 verified emails to roles ([the Google setup](docs/deploying-with-phi.md#2-sign-in-and-roles)).
 
 People sign in with their organization's account, using PKCE and an `id_token` verified with the
-IdP's keys. Machines use **API keys** (`Authorization: Bearer ohk_…`), which signed-in admins
+IdP's keys, in the browser that started the sign-in only (a callback link sent to someone else
+signs nobody in). The session is a server-side row behind a `__Host-mendari_session` cookie
+(plain `mendari_session` on localhost and dotless hosts). Each request works out the person's
+roles again from the claims kept at sign-in and the settings as they are then, so a role taken
+out of the map ends that access at once:
+
+| Setting | Effect |
+|---|---|
+| `MENDARI_SESSION_IDLE_MINUTES` | A session ends after this long without a request (default 30; 5 to 120) |
+| `MENDARI_SESSION_MAX_HOURS` | ...and this long after signing in, however busy (default 8; 1 to 12) |
+
+The dashboard then says "Your session ended. Sign in again." and comes back to the same view.
+Machines use **API keys** (`Authorization: Bearer ohk_…`), which signed-in admins
 create in `POST /api/auth/keys` (never a key: managing credentials is people-only). A key is
 shown once, stored hashed and revocable. It has the `viewer` or `service` role, expires (90 days
 by default, 365 at most), and can be narrowed with **scopes**: SMART's `system/Task.rs`,
@@ -431,8 +445,12 @@ Every route has a permission, and anything unlisted needs admin:
 | governance | read, approve automation |
 | admin | everything: evaluations, exports, chain verification; with a signed-in person, API keys and clients |
 
-With sign-in on, reviews and ratings are recorded for whoever is signed in, and the dashboard
-names them and offers only what their role may do. `MENDARI_OIDC_ORG_CLAIM` names the claim
+With sign-in on, reviews, ratings, approvals and outcomes are recorded for whoever is signed in,
+and the dashboard shows them as the audit chain names them and offers only what their role may
+do. The chain names a person by their verified email, else by their identity provider's subject
+qualified by its issuer (`<issuer>|<subject>`), never by a display name; a key as `key <id>`
+and a Backend Services client as `client <id>`. In open mode the client names the reviewer,
+reporter and approver, and each must be an identifier (no spaces, at most 100 characters). `MENDARI_OIDC_ORG_CLAIM` names the claim
 that carries the person's organization: one deployment can serve several, and each sees only
 its own decisions, reviews, feedback and reports.
 

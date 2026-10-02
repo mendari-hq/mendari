@@ -264,7 +264,7 @@ def test_a_person_registers_a_client_and_the_chain_records_it(server: Server) ->
     assert client["scope"] == default_scope("service")  # everything the role can use
     assert DECIDE in client["scope"] and OUTCOME in client["scope"]
     assert [(k["kid"], k["kty"]) for k in client["keys"]] == [("rsa-1", "RSA"), ("ec-1", "EC")]
-    assert client["created_by"] == "default admin" and client["org"] == "default"
+    assert client["created_by"] == "admin@default.example.org" and client["org"] == "default"
     listed = server.http.get("/api/auth/clients", headers=admin).json()
     assert [c["client_id"] for c in listed] == [client["client_id"]]
     assert listed[0]["revoked_at"] is None and "jwks" not in listed[0]
@@ -280,7 +280,7 @@ def test_a_person_registers_a_client_and_the_chain_records_it(server: Server) ->
     again = server.http.delete(f"/api/auth/clients/{client['client_id']}", headers=admin)
     assert again.status_code == 404
     listed = server.http.get("/api/auth/clients", headers=admin).json()
-    assert listed[0]["revoked_by"] == "default admin" and listed[0]["revoked_at"]
+    assert listed[0]["revoked_by"] == "admin@default.example.org" and listed[0]["revoked_at"]
 
     with AuditStore(server.db) as store, store._db.session(exclusive=False) as session:
         rows = session.all(

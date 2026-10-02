@@ -115,7 +115,8 @@ def test_retention_purges_inputs_and_keeps_the_chain(tmp_path: Path, inbox_pack:
 
 def test_only_reviewers_and_admins_read_inputs() -> None:
     def principal(kind: str, role: str) -> Principal:
-        return Principal(kind=kind, name=role, roles=frozenset({role}), id=f"{kind}:{role}")
+        identity = f"{kind}:{role}"
+        return Principal(kind=kind, name=role, roles=frozenset({role}), id=identity, actor=identity)
 
     assert principal("user", "viewer").may("read_input") is False
     assert principal("key", "service").may("read_input") is False
@@ -153,7 +154,7 @@ def test_signed_in_reviewers_read_inputs_and_each_read_is_chained(
     keys = {
         "reviewer": signed_in(
             encrypting(tmp_path), role="reviewer"
-        ),  # a person: "default reviewer"
+        ),  # a person: reviewer@default.example.org
         "viewer": {"authorization": f"Bearer {viewer['key']}"},
     }
     urgent = message("Crushing chest pain, " + SECRET_WORDS)  # waits for review
@@ -171,7 +172,8 @@ def test_signed_in_reviewers_read_inputs_and_each_read_is_chained(
 
     events = client.get(f"/api/audit/{decided['id']}", headers=keys["viewer"]).json()["events"]
     readers = [e["payload"]["reader"] for e in events if e["event"] == "input.read"]
-    assert readers == ["default reviewer"] * 3  # the reviewer's three reads; none for the viewer
+    # The reviewer's three reads, under their verified email; none for the viewer.
+    assert readers == ["reviewer@default.example.org"] * 3
     assert encrypting(tmp_path).verify()["ok"] is True
 
 

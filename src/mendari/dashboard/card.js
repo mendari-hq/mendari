@@ -200,7 +200,7 @@ function approvalSection(g) {
   const form = !g.active && may("approve") ? `<form class="approve-form" id="approve-form">
       <label for="approval-reference">Reference</label>
       <input id="approval-reference" required minlength="3" placeholder="e.g. AI committee minutes, 2026-10-01, item 4">
-      ${signedIn() ? "" : `<label for="approval-approver">Approver</label><input id="approval-approver" required>`}
+      ${signedIn() ? "" : `<label for="approval-approver">Approver</label><input id="approval-approver" required maxlength="100" pattern="\\S+" spellcheck="false" title="An identifier, without spaces: the audit trail keeps it">`}
       <label for="approval-days">For</label>
       <select id="approval-days"><option value="90">90 days</option><option value="180" selected>180 days</option><option value="365">1 year</option></select>
       <button type="submit" class="primary">Approve automation</button>

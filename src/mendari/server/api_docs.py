@@ -83,9 +83,12 @@ def description(
     pack = default_pack or "{namespace}/{name}"
     auth = (
         "**Sign-in is on.** People sign in at `/auth/login`; the dashboard and these pages use "
-        "that session. Machines send `Authorization: Bearer ohk_…`, an API key an admin creates "
-        "with `POST /api/auth/keys`. Each key has one role, `viewer` or `service`, and expires "
-        "(90 days unless asked, 365 at most). Optional scopes narrow it: SMART v2 resource "
+        "that session, which ends after 30 minutes without a request or 8 hours (unless the "
+        "deployment sets otherwise). Reviews, ratings, approvals and outcomes are recorded for "
+        "whoever is signed in: a person by their verified email, else `<issuer>|<subject>`; a "
+        "key as `key <id>`. Machines send `Authorization: Bearer ohk_…`, an API key an admin "
+        "creates with `POST /api/auth/keys`. Each key has one role, `viewer` or `service`, and "
+        "expires (90 days unless asked, 365 at most). Optional scopes narrow it: SMART v2 resource "
         "scopes for the FHIR reads (`system/Task.rs`, `system/*.rs`, …) and "
         f"`{scopes.DECIDE}` or `{scopes.OUTCOME}` for Mendari's own actions; a scoped key "
         'reaches only what its scopes name (a `403` with `error="insufficient_scope"` and the '
@@ -185,11 +188,13 @@ def document(
     permission_for: Callable[[str, str], str] | None,
     token_url: str | None = None,
     limit_for: Callable[[str, str], str | None] | None = None,
+    session_cookie: str = "mendari_session",
 ) -> dict[str, Any]:
     """Add examples and (when `permission_for` is given, i.e. sign-in is on) security to a
     generated OpenAPI document; with `token_url` (SMART Backend Services on), the token flow
     too, on the operations a token's scope can reach; with `limit_for` (rate limits on, the
-    class of an operation or None), the `429` a limited operation can answer."""
+    class of an operation or None), the `429` a limited operation can answer. `session_cookie`
+    is the session cookie's name at the public URL (server/sessions.py)."""
     ordered = sorted(packs, key=lambda pack_id: (pack_id != default_pack, pack_id))
     inputs = {pack_id: _example_input(packs[pack_id]) for pack_id in ordered}
     for path, operations in schema.get("paths", {}).items():
@@ -220,8 +225,11 @@ def document(
             "session": {
                 "type": "apiKey",
                 "in": "cookie",
-                "name": "mendari_session",
-                "description": "The session cookie a person gets by signing in at `/auth/login`.",
+                "name": session_cookie,
+                "description": "The session cookie a person gets by signing in at `/auth/login` "
+                "(`mendari_session` without the prefix on localhost and dotless hosts). It ends "
+                "after 30 minutes without a request or 8 hours, whichever is first (unless the "
+                "deployment sets otherwise), and with the browser.",
             },
         }
         if token_url is not None:

@@ -67,9 +67,9 @@ def service_key(db: str) -> dict[str, str]:
     return {"authorization": f"Bearer {made['key']}"}
 
 
-def person(db: str, role: str = "admin") -> dict[str, str]:
+def person(db: str, role: str = "admin", host: str = "mendari.test") -> dict[str, str]:
     with AuditStore(db) as store:
-        return signed_in(store, role=role)
+        return signed_in(store, role=role, host=host)
 
 
 def buckets(db: str) -> list[str]:
@@ -200,7 +200,8 @@ def test_two_app_instances_share_one_count(db_target: str, monkeypatch: pytest.M
     assert_retry_after(second.post(DECIDE, json=message(ROUTINE), headers=key))
     assert_retry_after(first.post(DECIDE, json=message(ROUTINE), headers=key))
     # Another principal has its own bucket.
-    assert first.post(DECIDE, json=message(ROUTINE), headers=person(db_target)).status_code == 200
+    other = person(db_target, host="testserver")
+    assert first.post(DECIDE, json=message(ROUTINE), headers=other).status_code == 200
 
 
 # -- refusals -------------------------------------------------------------------------------------
@@ -376,7 +377,7 @@ def test_bucket_keys_hold_no_secret(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     client.get("/auth/login", follow_redirects=False)
     client.post(DECIDE, json={}, headers=key)
     client.post(DECIDE, json={}, headers=session)
-    client.post("/api/smart/decide", json={}, headers={"cookie": f"mendari_smart={smart}"})
+    client.post("/api/smart/decide", json={}, headers={"cookie": f"__Host-mendari_smart={smart}"})
     found = buckets(db)
     secrets = [
         key["authorization"].split()[1],
@@ -577,7 +578,7 @@ def test_health_shows_the_limits_to_someone_signed_in_only(
     db = str(tmp_path / "health.db")
     client = TestClient(create_app(db_path=db))
     assert "rate_limits" not in client.get("/api/health").json()
-    shown = client.get("/api/health", headers=person(db, "viewer")).json()
+    shown = client.get("/api/health", headers=person(db, "viewer", "testserver")).json()
     assert shown["rate_limits"]["mode"] == "on"
     assert shown["rate_limits"]["limits"]["decide"] == "1200/min:200"
     assert shown["rate_limits"]["client_ip_source"].startswith("the connection")
@@ -611,7 +612,8 @@ def test_the_api_reference_says_what_is_limited_only_when_limits_are_on(
 ) -> None:
     sign_in_on(monkeypatch, "on")
     db = str(tmp_path / "docs.db")
-    schema = TestClient(create_app(db_path=db)).get("/openapi.json", headers=person(db)).json()
+    reader = person(db, host="testserver")
+    schema = TestClient(create_app(db_path=db)).get("/openapi.json", headers=reader).json()
     paths = schema["paths"]
     assert (
         "Retry-After"
@@ -623,7 +625,8 @@ def test_the_api_reference_says_what_is_limited_only_when_limits_are_on(
     assert "decisions 600/min:100" in schema["info"]["description"]
     monkeypatch.setenv("MENDARI_RATE_LIMITS", "log")
     db = str(tmp_path / "log.db")
-    schema = TestClient(create_app(db_path=db)).get("/openapi.json", headers=person(db)).json()
+    reader = person(db, host="testserver")
+    schema = TestClient(create_app(db_path=db)).get("/openapi.json", headers=reader).json()
     assert "Rate limits" not in schema["info"]["description"]
     assert "429" not in schema["paths"]["/api/packs/{namespace}/{name}/decide"]["post"]["responses"]
 

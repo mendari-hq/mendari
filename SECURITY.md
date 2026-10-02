@@ -50,6 +50,16 @@ website (`hub/`), the container images and the deployment templates (`deploy/`).
   scopes (SMART v2 `system/` reads, Mendari's decide and outcome URIs): a scoped key reaches
   only the routes its scopes name. Creating and revoking keys are recorded in the audit chain.
   `/api` answers are `Cache-Control: no-store`.
+- **Sessions.** A person's session (and an EHR launch's) is a server-side row behind an opaque
+  HttpOnly, Secure, SameSite=Lax `__Host-` cookie with no expiry of its own. It ends after 30
+  minutes without a request (`MENDARI_SESSION_IDLE_MINUTES`, 5 to 120) and 8 hours after sign-in
+  (`MENDARI_SESSION_MAX_HOURS`, 1 to 12), both held in the row's expiry, which a request moves
+  forward at most every 5 minutes and never past the limit. Roles are worked out on every
+  request from the claims kept at sign-in and the current settings, so a role taken away ends
+  access at once. A sign-in (or an EHR launch) is tied to the browser that started it by a
+  ten-minute cookie whose digest the pending row keeps, compared in constant time at the
+  callback (login CSRF). The audit chain names a person by their verified email, else
+  `<issuer>|<subject>`; a key as `key <id>`, a client as `client <id>`.
 - **SMART Backend Services (off by default).** `MENDARI_BACKEND_SERVICES=on` (refused without
   sign-in and `MENDARI_PUBLIC_URL`) lets clients that a signed-in admin registers, with a public
   JWK Set by value, exchange a signed assertion (RS384 or ES384, `aud` exactly the token URL,
