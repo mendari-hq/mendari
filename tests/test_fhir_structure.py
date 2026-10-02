@@ -85,7 +85,7 @@ def test_the_file_is_hl7s_r4_schema_pinned_with_its_patches_listed() -> None:
     assert data["source"]["sha256"] == (
         "2230406893b4cf002a4ee1e5e2bbeca22ac5d2d4931b3e9ef7b9594bbc376a01"
     )
-    assert len(data["source"]["patches"]) == 6
+    assert len(data["source"]["patches"]) == 7  # the 5 patches, the resource choice, descriptions
     assert len(data["resourceTypes"]) == 146
     assert {"Patient", "Bundle", "Parameters", "Communication"} <= set(data["resourceTypes"])
 
@@ -353,6 +353,8 @@ def test_booleans_are_not_numbers(value: bool) -> None:
         ("valueDateTime", "2026-10-01T12:00:00Z", True),
         ("valueDateTime", "2026-10-01T12:00:00", False),  # a time needs its zone
         ("valueString", "No\u00a0break", True),  # (?a): a no-break space is not whitespace here
+        ("valueString", "Soft\x0bbreak", True),  # a word processor's line break: a warning only
+        ("valueMarkdown", "Page\x0cbreak", True),  # a scanned report's page break, likewise
         ("valueCode", " padded", False),
     ],
 )
@@ -600,3 +602,61 @@ def test_hl7s_r4_examples() -> None:
         "SearchParameter-questionnaireresponse-extensions-QuestionnaireResponse-item-subject.json",
     ]
     assert flagged == []
+
+
+def test_an_extensible_binding_takes_codes_beyond_the_example_list() -> None:
+    """R4 binds Expression.language as extensible; CQL and SDC use media types the schema's list
+    leaves out, and that is valid R4."""
+    expression = {"language": "text/cql-identifier", "expression": "Eligible"}
+    extension = {"url": "http://hl7.org/fhir/StructureDefinition/cqf-expression"}
+    resource = patient(extension=[{**extension, "valueExpression": expression}])
+    assert check(resource) == []
+
+
+def test_a_required_canonical_may_be_carried_by_its_extension_alone() -> None:
+    """Like every primitive, a required canonical is present when only `_x` is."""
+    absent = {"extension": [{"url": us_core.DATA_ABSENT, "valueCode": "unknown"}]}
+    report = {
+        "resourceType": "MeasureReport",
+        "id": "r1",
+        "status": "complete",
+        "type": "summary",
+        "_measure": absent,
+        "period": {"start": "2026-01-01"},
+    }
+    assert check(report) == []
+
+
+R4_CORE = Path(__file__).parents[1] / "var" / "fhir-packages" / "hl7.fhir.r4.core-4.0.1.tgz"
+
+
+@pytest.mark.skipif(not R4_CORE.exists(), reason="hl7.fhir.r4.core is not cached in var/")
+def test_every_enumeration_is_a_required_binding_in_r4() -> None:
+    """A code outside an enumeration is reported as outside a required value set, so each one
+    must be a required binding in R4 itself (the schema enumerated one extensible binding)."""
+    strength: dict[str, str] = {}
+    with tarfile.open(R4_CORE) as archive:
+        for member in archive.getmembers():
+            if not (member.isfile() and member.name.startswith("package/StructureDefinition-")):
+                continue
+            handle = archive.extractfile(member)
+            definition = json.loads(handle.read()) if handle else {}
+            if definition.get("derivation") == "constraint":
+                continue
+            for element in definition.get("snapshot", {}).get("element", []):
+                if element.get("binding"):
+                    strength[element["path"]] = element["binding"]["strength"]
+    unresolved = []
+    for name, definition in fhir_structure.rules().definitions.items():
+        root, *backbones = name.split("_")
+        for element, schema in definition.get("properties", {}).items():
+            if "enum" not in (schema.get("items") or schema):
+                continue
+            tail = ".".join([b[0].lower() + b[1:] for b in backbones] + [element])
+            found = {
+                strength[p] for p in strength if p.split(".")[0] == root and p.endswith("." + tail)
+            }
+            if not found:
+                unresolved.append(f"{root}.{tail}")  # the schema's alias for a backbone
+            assert found <= {"required"}, (root, tail, found)
+    assert unresolved == ["CapabilityStatement.interaction1.code"]  # rest.interaction: required

@@ -259,3 +259,27 @@ def test_audit_fhir_provenance_targets_the_decision() -> None:
     }
     provenance = audit_fhir.provenance(event)
     assert provenance["target"][0]["identifier"] == {"system": DECISION_ID_SYSTEM, "value": "d1"}
+
+
+@pytest.mark.parametrize(
+    ("failure", "issue"),
+    [
+        ("budget_exhausted", "throttled"),
+        ("timeout", "timeout"),
+        ("invalid_response", "exception"),
+        ("jev:budget_exhausted, rules:invalid_response", "throttled"),  # any_of, vote
+        ("llm:timeout", "timeout"),
+    ],
+)
+def test_provider_failures_keep_their_kind(failure: str, issue: str) -> None:
+    assert decide_op._provider_issue(failure) == issue
+
+
+def test_a_pack_without_fhir_input_is_a_422(client: TestClient) -> None:
+    response = client.post("/fhir/$decide", json=parameters("mendari/ai-guard", load("inbox.json")))
+    assert outcome_of(response, 422)[0]["code"] == "processing"
+
+
+def test_the_definition_promises_only_what_happens() -> None:
+    description = decide_op.operation_definition()["description"]
+    assert "503" not in description and "never echoed" not in description

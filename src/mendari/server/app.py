@@ -219,8 +219,9 @@ def create_app(
         current = packs.get(pack.id)
         if current is None or version_key(pack.version) > version_key(current.version):
             packs[pack.id] = pack
-    # Every CodeSystem and NamingSystem the served packs need; a conflict fails at startup.
-    terms = Terminology.for_packs(packs.values())
+    # Every CodeSystem and NamingSystem the served packs need. A pack whose terminology cannot
+    # be built is reported in /api/health (`invalid`) and served without it.
+    terms, terminology_problems = Terminology.serving(packs.values())
     decisions: dict[str, Decision] = {}
     overrides = dict(providers or {})
 
@@ -375,7 +376,7 @@ def create_app(
             "status": "ok",
             "version": __version__,
             "packs": len(packs),
-            "invalid": found.problems,
+            "invalid": {**found.problems, **terminology_problems},
             "storage": store.backend,
             # Calendar days and displayed times use this zone; stored timestamps are UTC.
             "timezone": timezone,
@@ -948,15 +949,17 @@ def create_app(
     )
     def fhir_metadata(request: Request) -> Response:
         """What this deployment's FHIR routes do, built from the routes that are mounted. Mendari
-        is a decision engine, not a FHIR data server: it serves no clinical resources. `date`
-        is when the served packs and release went live here; the ETag follows the content."""
+        is a decision engine, not a FHIR data server: it serves no clinical resources. `version`
+        changes with any change to the statement and `date` is when that version went live
+        here; the ETag follows the content."""
+        place = settings.deployment_place()
         statement = capability.capability_statement(
             mounted_routes(app),
             packs,
             sign_in=auth.enabled,
-            date=live_since(),
+            since=lambda version: store.capability_since(place[0], version),
             public_url=os.environ.get("MENDARI_PUBLIC_URL", "").strip() or None,
-            place=settings.deployment_place(),
+            place=place,
         )
         body = json.dumps(statement, separators=(",", ":"))
         etag = f'W/"{hashlib.sha256(body.encode()).hexdigest()[:16]}"'
@@ -964,19 +967,6 @@ def create_app(
         if request.headers.get("if-none-match") == etag:
             return Response(status_code=304, headers=headers)
         return Response(body, media_type="application/fhir+json", headers=headers)
-
-    def live_since() -> str:
-        """When the current packs and release went live in this environment: the newest
-        deployment record among the served packs (recorded once per change, not per start)."""
-        environment, _ = settings.deployment_place()
-        started = []
-        for pack_id in sorted(packs):
-            decision_for(pack_id)  # records this server's deployment of the pack, once
-            rows = store.deployments(pack_id, limit=50)
-            here = next((r for r in rows if r["environment"] == environment), None)
-            if here is not None:
-                started.append(str(here["started_at"]))
-        return max(started, default=datetime.now(UTC).isoformat(timespec="seconds"))
 
     @app.get(
         "/fhir/CodeSystem/{resource_id}",

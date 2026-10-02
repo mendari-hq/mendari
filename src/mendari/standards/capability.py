@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import html
+import json
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -59,6 +60,10 @@ def _has_questionnaire(packs: Iterable[Pack]) -> bool:
     return any(p.manifest.cds_hooks and p.manifest.cds_hooks.questionnaire for p in packs)
 
 
+def _takes_fhir(packs: Iterable[Pack]) -> bool:
+    return any(p.manifest.inputs.fhir for p in packs)
+
+
 CAPABILITIES: tuple[FhirCapability, ...] = (
     FhirCapability(
         "POST",
@@ -69,6 +74,7 @@ CAPABILITIES: tuple[FhirCapability, ...] = (
         documentation="Decide one case with a Decision Pack: Parameters (pack, version, data, "
         "focus) in, a collection Bundle (GuidanceResponse, RequestGroup, Task, Parameters, "
         "OperationOutcome, Provenance) out. Every call is recorded in the audit trail.",
+        serves=_takes_fhir,
     ),
     FhirCapability(
         "POST",
@@ -96,19 +102,20 @@ def capability_statement(
     packs: Mapping[str, Pack],
     *,
     sign_in: bool,
-    date: str,
+    since: Callable[[str], str],
     public_url: str | None = None,
     place: tuple[str, str] | None = None,
 ) -> dict[str, Any]:
     """The statement for the mounted `routes` ((method, path) pairs) and the served `packs`.
-    `date` is when it last changed (when the current packs and release went live here)."""
+    `version` is a digest of everything else in it, so any change makes a new one, and `date` is
+    `since(version)`: when that version went live here (`AuditStore.capability_since`)."""
     mounted = set(routes)
     offered = [
         c
         for c in CAPABILITIES
         if (c.method, c.path) in mounted and (c.serves is None or c.serves(packs.values()))
     ]
-    pack_refs = sorted(f"{p.id}@{p.version}" for p in packs.values())
+    pack_refs = sorted(f"{p.id}@{p.version}" for p in packs.values() if p.manifest.inputs.fhir)
     rest: dict[str, Any] = {
         "mode": "server",
         "documentation": NOT_A_DATA_SERVER,
@@ -132,12 +139,12 @@ def capability_statement(
         "resourceType": "CapabilityStatement",
         "id": "mendari",
         "text": _narrative(pack_refs, offered),
-        "version": f"{__version__}+{_digest(packs)}",
+        "version": "",
         "name": "MendariCapabilityStatement",
         "title": "Mendari FHIR R4 capabilities",
         "status": "active",
         "experimental": False,
-        "date": date,
+        "date": "",
         "publisher": "Mendari",
         "description": NOT_A_DATA_SERVER,
         "kind": "instance",
@@ -149,13 +156,16 @@ def capability_statement(
     }
     if public_url:
         statement["implementation"]["url"] = f"{public_url.rstrip('/')}/fhir"
+    content = json.dumps({**statement, "date": ""}, sort_keys=True, separators=(",", ":"))
+    statement["version"] = f"{__version__}+{hashlib.sha256(content.encode()).hexdigest()[:8]}"
+    statement["date"] = since(statement["version"])
     return statement
 
 
 def _operation(capability: FhirCapability, packs: list[str] | None = None) -> dict[str, Any]:
     documentation = capability.documentation
     if packs is not None:
-        documentation += f" Packs served here (pack@version): {', '.join(packs) or 'none'}."
+        documentation += f" Packs with FHIR input served here: {', '.join(packs) or 'none'}."
     operation: dict[str, Any] = {"name": capability.name, "definition": capability.definition}
     if documentation:
         operation["documentation"] = documentation
@@ -167,8 +177,9 @@ def _security(sign_in: bool) -> str:
         return (
             "Mendari's sign-in is on. Send an API key (Authorization: Bearer ohk_...) or use a "
             "browser session from /auth/login (OpenID Connect). Roles decide access: $decide "
-            "and $questionnaire-package need the decide permission (reviewer, service, admin); "
-            "metadata and the conformance resources need none. This is not a SMART on FHIR "
+            "and $questionnaire-package need the decide permission (reviewer, service, admin), the "
+            "CodeSystems and NamingSystems the read permission (any role); metadata and the "
+            "OperationDefinition need none. This is not a SMART on FHIR "
             "resource server: it accepts no SMART access tokens and has no "
             ".well-known/smart-configuration. Toward EHRs, Mendari is a SMART app."
         )
@@ -186,18 +197,12 @@ def _implementation(place: tuple[str, str] | None) -> str:
     return f"Mendari ({environment}, {release})"
 
 
-def _digest(packs: Mapping[str, Pack]) -> str:
-    """A short digest of the served packs, so the version changes when they do."""
-    served = "\n".join(sorted(f"{p.id}@{p.version} {p.digest}" for p in packs.values()))
-    return hashlib.sha256(served.encode()).hexdigest()[:8]
-
-
 def _narrative(packs: list[str], offered: list[FhirCapability]) -> dict[str, str]:
     operations = ", ".join(f"${c.name}" for c in offered if c.kind == "operation") or "none"
     reads = ", ".join(sorted({c.resource or "" for c in offered if c.kind == "read"})) or "none"
     text = (
         f"<p>Mendari {html.escape(__version__)}: FHIR R4 (JSON). Operations: "
-        f"{html.escape(operations)}. Read: {html.escape(reads)}. Packs: "
+        f"{html.escape(operations)}. Read: {html.escape(reads)}. Packs with FHIR input: "
         f"{html.escape(', '.join(packs) or 'none')}. No clinical resources are stored or "
         "served.</p>"
     )

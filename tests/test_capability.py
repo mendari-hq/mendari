@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -119,3 +120,50 @@ def test_security_says_what_this_deployment_does(
     body = statement(signed)  # public: no sign-in needed to discover the server
     assert "Bearer ohk_" in body["rest"][0]["security"]["description"]
     assert body["implementation"]["url"] == "https://mendari.example.org/fhir"
+
+
+def test_the_date_moves_with_the_version_and_never_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R4: `date` changes when `version` does. Serving an earlier pack set again is a new change
+    here, so it gets a new date, not the old one."""
+    seen = []
+    for packs in ("", "mendari/patient-inbox-router", ""):
+        monkeypatch.setenv("MENDARI_PACKS", packs)
+        body = statement(TestClient(create_app(db_path=tmp_path / "v.db")))
+        seen.append((body["version"], body["date"]))
+    (first, d1), (second, d2), (third, d3) = seen
+    assert first != second and third == first  # the version is the content's
+    assert d1 < d2 < d3
+
+
+def test_any_change_to_the_statement_is_a_new_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, client: TestClient
+) -> None:
+    open_mode = statement(client)["version"]
+    monkeypatch.setenv("MENDARI_PUBLIC_URL", "https://mendari.example.org")
+    with_url = statement(TestClient(create_app(db_path=tmp_path / "u.db")))["version"]
+    assert with_url != open_mode  # not only the packs: every part of the statement counts
+
+
+def test_decide_lists_only_packs_that_take_fhir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, client: TestClient
+) -> None:
+    decide = next(o for o in statement(client)["rest"][0]["operation"] if o["name"] == "decide")
+    assert "mendari/referral-router@" in decide["documentation"]
+    assert "mendari/ai-guard" not in decide["documentation"]  # the guard takes no FHIR
+    monkeypatch.setenv("MENDARI_PACKS", "mendari/ai-guard")
+    rest = statement(TestClient(create_app(db_path=tmp_path / "g.db")))["rest"][0]
+    assert "operation" not in rest  # no pack here takes FHIR, so no $decide is advertised
+
+
+def test_a_pack_whose_terminology_cannot_be_built_is_reported_not_fatal(tmp_path: Path) -> None:
+    """One pack's broken FHIR mapping must not stop the server (it did not before Phase 2)."""
+    broken = tmp_path / "pack"
+    shutil.copytree(Path(__file__).parents[1] / "packs" / "patient-inbox-router", broken)
+    (broken / "fhir" / "mapping.yaml").write_text("fhir_version: R5\n")
+    app = create_app(db_path=tmp_path / "b.db", packs_paths=[broken])
+    client = TestClient(app)
+    invalid = client.get("/api/health").json()["invalid"]
+    assert any("terminology" in problem for problem in invalid.values()), invalid
+    assert client.get("/fhir/metadata").status_code == 200

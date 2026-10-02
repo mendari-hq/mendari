@@ -108,6 +108,22 @@ class Terminology:
     def for_packs(cls, packs: Iterable[Pack]) -> Terminology:
         return cls(tuple(resources(packs)))
 
+    @classmethod
+    def serving(cls, packs: Iterable[Pack]) -> tuple[Terminology, dict[str, str]]:
+        """The terminology for every pack that can have one, and why the others cannot (a FHIR
+        mapping that does not load, an id or url another pack already uses). A server skips
+        such a pack's terminology and reports it, rather than not starting."""
+        kept: list[Pack] = []
+        problems: dict[str, str] = {}
+        for pack in sorted(packs, key=lambda p: p.id):
+            try:
+                resources([*kept, pack])
+            except MendariError as error:
+                problems[pack.id] = f"terminology: {error}"
+                continue
+            kept.append(pack)
+        return cls.for_packs(kept), problems
+
     def get(self, resource_type: str, resource_id: str) -> dict[str, Any] | None:
         return next(
             (

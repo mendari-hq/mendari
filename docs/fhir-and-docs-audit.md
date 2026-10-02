@@ -392,6 +392,18 @@ the HL7 validator and the official R4 definitions). Changes from the plan above:
   stores it assigns one).
 - CodeSystems are served by each deployment, not published on mendari.co (a launch decision).
 - Added: FHIR media types (`406`/`415`), and the privacy fix for rejection reasons.
+- Reviewed before shipping by five independent reviewers, each finding checked by a skeptic.
+  Ten problems were confirmed, none high: text with a vertical tab or form feed was a `400`
+  (the HL7 validator only warns); `Expression.language` was treated as a required binding
+  (it is the only one of the schema's 246 enumerations R4 binds as extensible); a required
+  canonical carried by its extension alone was flagged; `$decide` claimed the input is never
+  echoed (answer evidence can name what matched) and promised a `503` it never returns; provider
+  failures under combined providers lost their issue type; `$decide` was advertised for packs
+  without FHIR input; one pack's broken FHIR mapping stopped the server; with sign-in on, the
+  CodeSystems exposed pack criteria publicly (they now need `read`); and the
+  CapabilityStatement's `date` could stay or go back when its content changed (its `version` is
+  now a digest of the whole statement, and `date` when that version went live here). All fixed,
+  each with a test.
 
 ### Phase 3: search and Bundles (≈ 3–5 days, only what fits Mendari)
 

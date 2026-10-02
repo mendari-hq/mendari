@@ -19,7 +19,8 @@ what no other engine could run. R4 has a resource for a decision-support result,
 - `Provenance`: the audit trail's own for this decision, with the GuidanceResponse and Task as
   targets.
 
-The input is never echoed.
+The input resources are not echoed. An answer's `evidence` can name what matched in them (a
+keyword, a code, a value): it explains the decision to the client that sent the data.
 """
 
 from __future__ import annotations
@@ -262,7 +263,7 @@ def _issues(result: DecisionResult) -> list[dict[str, Any]]:
     issues += [
         {
             "severity": "warning",
-            "code": _PROVIDER_ISSUE.get(code, "exception"),
+            "code": _provider_issue(code),
             "diagnostics": f"question {question}: its provider failed ({code})",
         }
         for question, code in sorted(result.errors.items())
@@ -272,6 +273,16 @@ def _issues(result: DecisionResult) -> list[dict[str, Any]]:
         for problem in result.schema_problems
     ]
     return issues
+
+
+def _provider_issue(failure: str) -> str:
+    """The issue type for a question's provider failure: its stable code, or for a combined
+    provider (`any_of`, `vote`) the members' codes (`member:code, ...`)."""
+    codes = {part.rpartition(":")[2].strip() for part in failure.split(",")}
+    for code, issue in _PROVIDER_ISSUE.items():
+        if code in codes:
+            return issue
+    return "exception"
 
 
 def _output(result: DecisionResult, pack: Pack) -> dict[str, Any]:
@@ -355,11 +366,14 @@ _DESCRIPTION = (
     "fallback, never the blocked action. The `Parameters` carry the recommendation, priority, "
     "confidence and every question's answer, labels coded in the pack's question CodeSystems. "
     "An `OperationOutcome` lists findings and provider failures by path and rule. A `Provenance` "
-    "records the engine as author and the input by hash. The input is never echoed.\n\n"
+    "records the engine as author and the input by hash. The input resources are not echoed; "
+    "an answer's evidence can name what matched in them (a keyword, a code, a value).\n\n"
     "Errors are an `OperationOutcome`: 400 for a malformed request or FHIR JSON of the wrong "
-    "shape, 404 for an unknown pack or a version this deployment does not serve, 422 when "
-    "`data` lacks a resource the pack needs or holds several resources to decide about without "
-    "`focus`, 503 when a provider is not set up here."
+    "shape, 404 for an unknown pack or a version this deployment does not serve, 422 when the "
+    "pack takes no FHIR input, when `data` lacks a resource the pack needs, or when it holds "
+    "several resources to decide about without `focus`. A provider that cannot answer does not "
+    "fail the call: the decision is recorded, the failure is a warning in the OperationOutcome, "
+    "and the policy treats the question as unanswered."
 )
 _PACK_DOC = "The Decision Pack, as `namespace/name` (e.g. `mendari/patient-inbox-router`)."
 _VERSION_DOC = (

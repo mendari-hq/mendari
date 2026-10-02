@@ -137,6 +137,12 @@ CREATE TABLE IF NOT EXISTS api_keys (
     created_at  TEXT NOT NULL,
     revoked_at  TEXT
 );
+CREATE TABLE IF NOT EXISTS capability_versions (
+    environment  TEXT NOT NULL,
+    version      TEXT NOT NULL,
+    since        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS capability_versions_since ON capability_versions (environment, since);
 CREATE TABLE IF NOT EXISTS smart_sessions (
     key_sha256  TEXT PRIMARY KEY,
     kind        TEXT NOT NULL,
@@ -768,6 +774,26 @@ class AuditStore:
             )
             self._append(db, f"deployment:{deployment['id']}", "deployment.recorded", deployment)
         return {**deployment, "providers": dict(providers)}
+
+    def capability_since(self, environment: str, version: str) -> str:
+        """When this environment started serving this version of its FHIR CapabilityStatement:
+        the time recorded when the version first replaced another one here. A statement's
+        `date` must change when its version does, and never go back, so a version served again
+        after another one gets a new time."""
+        with self._db.session(exclusive=True) as db:
+            last = db.one(
+                "SELECT version, since FROM capability_versions WHERE environment = ? "
+                "ORDER BY since DESC LIMIT 1",
+                (environment,),
+            )
+            if last is not None and last["version"] == version:
+                return str(last["since"])
+            since = _now()
+            db.all(
+                "INSERT INTO capability_versions (environment, version, since) VALUES (?, ?, ?)",
+                (environment, version, since),
+            )
+        return since
 
     def deployments(self, pack_id: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
         """Newest first. Deployments belong to the server, so every organization sees them."""

@@ -12,14 +12,21 @@ The published schema needs these patches, each recorded in the output's `source.
 1. `"type": "object"` on every complex type. The schema leaves it off, so a string where an
    object belongs passes.
 2. The `_x` sibling (its id and extensions) of every `canonical` element that lacks one, such as
-   `Meta._profile`. Every other primitive element has it.
+   `Meta._profile`. Every other primitive element has it. A canonical element is also taken off
+   its parent's `required` list, like every other primitive, since its `_x` alone may carry it.
 3. ASCII semantics, `(?a)`, for the `string` and `markdown` pattern: Python's `\\S` is Unicode,
-   so the pattern rejects a no-break space, which FHIR allows. The `code` pattern keeps Unicode
-   semantics, so a code with a no-break space is still rejected.
+   so the pattern rejects a no-break space, which FHIR allows. The pattern also accepts a vertical
+   tab and a form feed (a word processor's soft line break, a page break), which the HL7
+   validator only warns about. The `code` pattern keeps Unicode semantics, so a code with a
+   no-break space is still rejected.
 4. `integer`, `positiveInt` and `unsignedInt` as JSON Schema integers within 32 bits, with a
    minimum of 1 and 0 for the last two. The schema types them as any number, and its patterns
    only apply to strings, so 1.5, 0 for a positiveInt and 2147483648 passed; the HL7 validator
    rejects all three.
+5. No `enum` on `Expression.language`: R4 binds it as extensible (CQL and SDC use other media
+   types), and the schema enumerates it as if it were required. It is the only one of the
+   schema's 246 enumerations whose R4 binding is not required (`tests/test_fhir_structure.py`
+   checks this against the `hl7.fhir.r4.core` package when it is cached).
 
 The 146-way `oneOf` of `ResourceList` becomes a choice by `resourceType` (the
 `resourceChoice` keyword): one resource definition is checked instead of all of them. The
@@ -50,6 +57,8 @@ SHA256 = "2230406893b4cf002a4ee1e5e2bbeca22ac5d2d4931b3e9ef7b9594bbc376a01"
 SIZE = 3_386_892
 ZIP_SHA256 = "75e5560da3cf503895a44c8ca7af17a83b4cca6c2cb5ba1883d2aec0d1cb5ac6"
 STRING_PATTERN = "^[ \\r\\n\\t\\S]+$"
+TEXT_PATTERN = "(?a)^[ \\r\\n\\t\\x0b\\x0c\\S]+$"
+EXTENSIBLE_ENUMS = (("Expression", "language"),)  # R4 binds these as extensible
 INT32 = (-(2**31), 2**31 - 1)
 INTEGERS = {"integer": INT32[0], "positiveInt": 1, "unsignedInt": 0}  # name: minimum
 
@@ -91,28 +100,41 @@ def type_objects(definitions: dict[str, Any]) -> int:
     return len(complex_types)
 
 
-def canonical_siblings(definitions: dict[str, Any]) -> int:
-    added = 0
+def canonical_siblings(definitions: dict[str, Any]) -> tuple[int, int]:
+    added = unrequired = 0
     element = {"$ref": "#/definitions/Element"}
     for definition in definitions.values():
         properties = definition.get("properties", {})
         for name, schema in list(properties.items()):
             if (schema.get("items") or schema).get("$ref") != "#/definitions/canonical":
                 continue
+            required = definition.get("required", [])
+            if name in required:
+                required.remove(name)
+                unrequired += 1
+                if not required:
+                    definition.pop("required")
             if "_" + name not in properties:
                 repeating = schema.get("type") == "array"
                 properties["_" + name] = (
                     {"items": dict(element), "type": "array"} if repeating else dict(element)
                 )
                 added += 1
-    return added
+    return added, unrequired
 
 
 def ascii_strings(definitions: dict[str, Any]) -> int:
     patched = [s for s in schemas(definitions) if s.get("pattern") == STRING_PATTERN]
     for schema in patched:
-        schema["pattern"] = "(?a)" + STRING_PATTERN
+        schema["pattern"] = TEXT_PATTERN
     return len(patched)
+
+
+def extensible_enums(definitions: dict[str, Any]) -> int:
+    for definition, element in EXTENSIBLE_ENUMS:
+        schema = definitions[definition]["properties"][element]
+        (schema.get("items") or schema).pop("enum")
+    return len(EXTENSIBLE_ENUMS)
 
 
 def integers(definitions: dict[str, Any]) -> int:
@@ -138,10 +160,13 @@ def build(data: bytes) -> dict[str, Any]:
     resource_types = sorted(schema["discriminator"]["mapping"])
     patches = [
         f"type object on {type_objects(definitions)} complex types",
-        f"_x sibling (Element) for {canonical_siblings(definitions)} canonical elements",
-        f"(?a) on {ascii_strings(definitions)} string and markdown patterns (not code)",
+        "_x sibling (Element) for {} canonical elements; {} required ones made optional, as "
+        "for every other primitive".format(*canonical_siblings(definitions)),
+        f"(?a), and vertical tab and form feed allowed, on {ascii_strings(definitions)} string "
+        "and markdown patterns (not code)",
         f"integer within 32 bits, minimum 1 (positiveInt) or 0 (unsignedInt), on "
         f"{integers(definitions)} integer, positiveInt and unsignedInt schemas",
+        f"no enum on {extensible_enums(definitions)} extensible binding (Expression.language)",
         f"ResourceList: a choice by resourceType among {len(resource_types)} resource types, "
         "instead of oneOf",
         "description keyword removed",
