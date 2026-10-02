@@ -70,7 +70,7 @@ def test_review_rejects_unknown_labels_and_anonymous_reviewers(
     store: AuditStore, decide: Decide
 ) -> None:
     result = decide(EMERGENCY)
-    with pytest.raises(ReviewError, match="not a valid label"):
+    with pytest.raises(ReviewError, match="not one of the labels"):
         store.resolve_review(result.id, final_label="pharmacist", reviewer="rn-1")
     with pytest.raises(ReviewError, match="reviewer"):
         store.resolve_review(result.id, final_label="nurse", reviewer=" ")
@@ -78,7 +78,7 @@ def test_review_rejects_unknown_labels_and_anonymous_reviewers(
 
 def test_downstream_outcomes_feed_observed_accuracy(store: AuditStore, decide: Decide) -> None:
     result = decide(ROUTINE)
-    store.record_outcome(result.id, final_label="nurse", source="re-routed by staff")
+    store.record_outcome(result.id, final_label="nurse", source="staff-reroute", recorded_by="rn-9")
     assert store.stats()["observed_accuracy"] == 0.0
     assert store.stats()["labelled"] == 1  # the accuracy's n
 
@@ -88,7 +88,9 @@ def test_daily_review_counts_add_up_to_the_rates(store: AuditStore, decide: Deci
     store.resolve_review(confirmed.id, final_label="nurse", reviewer="rn-1")
     store.resolve_review(overridden.id, final_label="physician", reviewer="rn-1")
     store.resolve_review(decide(REVIEW).id, final_label="front_desk", reviewer="fd-1")  # abstained
-    store.record_outcome(decide(ROUTINE).id, final_label="nurse", source="re-routed by staff")
+    store.record_outcome(
+        decide(ROUTINE).id, final_label="nurse", source="staff-reroute", recorded_by="rn-9"
+    )
     decide(ROUTINE)
     stats = store.stats()
     [day] = stats["daily"]
@@ -221,7 +223,7 @@ def test_item_is_get_without_a_reader_and_never_writes(inbox_pack: Pack, db_targ
 def test_events_of_many_decisions_come_in_one_batch(store: AuditStore, decide: Decide) -> None:
     first, second, third = decide(EMERGENCY), decide(ROUTINE), decide(REVIEW)
     store.resolve_review(first.id, final_label="nurse", reviewer="rn-1")  # interleaved
-    store.record_outcome(second.id, final_label="nurse", source="ehr")
+    store.record_outcome(second.id, final_label="nurse", source="ehr", recorded_by="rn-9")
     found = store.decision_events([first.id, second.id, third.id, "unknown"])
     for decision in (first, second, third):
         expected = store.get(decision.id)

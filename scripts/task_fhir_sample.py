@@ -43,7 +43,9 @@ def main(out: Path) -> None:
         reviewed = decide({"message": {"body": "Crushing chest pain and my left arm is numb"}})
         store.resolve_review(reviewed.id, final_label="physician", reviewer="rn-1")
         store.record_feedback(reviewed.id, rating="up")
-        store.record_outcome(reviewed.id, final_label="nurse", source="staff re-route")
+        store.record_outcome(
+            reviewed.id, final_label="nurse", source="staff-reroute", recorded_by="rn-9"
+        )
         automated = decide({"message": {"body": "Can you send a refill for metformin?"}})
         abstained = decide({"message": {"body": "hello?"}})
         store.resolve_review(abstained.id, final_label="front_desk", reviewer="fd-1")

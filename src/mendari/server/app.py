@@ -36,7 +36,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from mendari import __version__, guard, settings
 from mendari.core import clock, tenancy
-from mendari.core.audit import AuditStore
+from mendari.core.audit import SYSTEM_ID, AuditStore
 from mendari.core.card import benchmark, render_card
 from mendari.core.decision import CallBudget, Decision
 from mendari.core.pack import Pack
@@ -45,6 +45,7 @@ from mendari.core.policy import GovernanceOverride
 from mendari.core.registry import discover, version_key
 from mendari.errors import (
     AuthError,
+    ClientError,
     FhirError,
     FhirStructureError,
     MendariError,
@@ -52,6 +53,7 @@ from mendari.errors import (
     PackValidationError,
     ProviderError,
     ReviewError,
+    ScopeError,
     SmartError,
 )
 from mendari.evals import compare, evaluate, leaderboard, load_dataset, resolve_dataset
@@ -59,10 +61,27 @@ from mendari.evals.feedback import feedback_dataset
 from mendari.evals.harness import Dataset
 from mendari.evals.monitoring import monitor
 from mendari.evals.pack_tests import load_cases
+from mendari.legacy import current_pack_id
 from mendari.providers import jev, llm
 from mendari.providers.credentials import key_source
 from mendari.server import api_docs
-from mendari.server.auth import Auth, add_auth_routes, auth_settings, permission_for
+from mendari.server.auth import (
+    OPEN,
+    Auth,
+    Principal,
+    add_auth_routes,
+    auth_settings,
+    challenge,
+    credential_in_url_or_form,
+    names_a_credential,
+    permission_for,
+    read_body,
+)
+from mendari.server.backend_services import (
+    DISCOVERY_PATH,
+    add_backend_routes,
+    backend_settings,
+)
 from mendari.server.smart_routes import add_smart_routes, error_page
 from mendari.settings import FhirValidation, providers_for
 from mendari.standards import (
@@ -92,6 +111,8 @@ _STATUS = {
     FhirError: 422,
     PackValidationError: 422,
     PasError: 422,
+    ScopeError: 422,
+    ClientError: 422,
 }
 # A provider that cannot answer (e.g. listing Jev's models): not set up here, or the upstream
 # service failed; never a client error.
@@ -127,14 +148,23 @@ class ApprovalRequest(BaseModel):
 
 
 class ReviewRequest(BaseModel):
-    final_label: str = Field(min_length=1)
+    final_label: str = Field(min_length=1, max_length=200)
     reviewer: str = Field(min_length=1, max_length=200)
     note: str | None = Field(default=None, max_length=2000)
 
 
 class OutcomeRequest(BaseModel):
-    final_label: str = Field(min_length=1)
-    source: str = Field(min_length=1, max_length=200)
+    final_label: str = Field(
+        min_length=1, max_length=200, description="one of the labels of the decision's question"
+    )
+    source: str = Field(
+        min_length=1,
+        max_length=100,
+        pattern=SYSTEM_ID.pattern,
+        description='the system that observed it, as an identifier (e.g. "ehr", "mendari"), '
+        "never free text: it is chained and exported",
+        examples=["ehr"],
+    )
 
 
 class PriorAuthorizationRequest(BaseModel):
@@ -192,6 +222,12 @@ def acting_as(request: Request, claimed: str | None) -> str | None:
     return principal.name if principal is not None and principal.kind != "open" else claimed
 
 
+def principal_of(request: Request) -> Principal:
+    """Who the guard let through (`open mode` when sign-in is off)."""
+    principal: Principal = getattr(request.state, "principal", None) or OPEN
+    return principal
+
+
 def input_reader(request: Request) -> str | None:
     """Who may see inputs kept encrypted (PHI mode `encrypt`): a signed-in person or key whose
     role may read them. Without sign-in there is no one to log the read against, so no one."""
@@ -216,22 +252,22 @@ def create_app(
     fhir_servers = sorted(allowed_servers())  # likewise
     smart_options = smart_settings()
     sign_in = auth_settings()  # an invalid sign-in setting fails here, at startup
+    backend = backend_settings(sign_in)  # likewise: on, it needs sign-in and a public URL
     phi = phi_policy()  # a bad PHI setting (or a missing key) fails here, at startup
     store = AuditStore(db_path, migrate_url=migrate_url, phi=phi)
-    auth = Auth(sign_in, store)
+    auth = Auth(sign_in, store, tokens=backend is not None)
     budget = CallBudget(store, budget_limits) if budget_limits else None
     found = discover(packs_paths)
     only = settings.enabled_packs()  # a per-pack image serves just its pack
     missing = only - {pack.id for pack in found.packs}
     if missing:
         raise MendariError(f"MENDARI_PACKS: packs not installed here: {sorted(missing)}")
-    packs: dict[str, Pack] = {}
+    installed: dict[str, Pack] = {}  # the newest version of every pack found, served or not
     for pack in found.packs:
-        if only and pack.id not in only:
-            continue
-        current = packs.get(pack.id)
+        current = installed.get(pack.id)
         if current is None or version_key(pack.version) > version_key(current.version):
-            packs[pack.id] = pack
+            installed[pack.id] = pack
+    packs = {pack_id: pack for pack_id, pack in installed.items() if not only or pack_id in only}
     # Every CodeSystem and NamingSystem the served packs need. A pack whose terminology cannot
     # be built is reported in /api/health (`invalid`) and served without it.
     terms, terminology_problems = Terminology.serving(packs.values())
@@ -273,6 +309,16 @@ def create_app(
             decisions[pack_id] = decision
         return decisions[pack_id]
 
+    def question_labels(pack_id: str, question: str) -> list[str] | None:
+        """An installed pack's labels for one of its questions (None: not installed, or no such
+        question), for decisions whose record has no answer to check a label against. Installed,
+        not only served: a per-pack instance can share a database with other packs' decisions,
+        and decisions from before the rename carry the old pack id."""
+        pack = installed.get(current_pack_id(pack_id))
+        if pack is None or question not in pack.manifest.questions:
+            return None
+        return pack.manifest.labels(question)
+
     def approved_override(pack: Pack) -> GovernanceOverride | None:
         """The organization's approval in force for exactly this pack, as the runtime override."""
         approval = store.active_approval(pack.id, pack.digest)
@@ -302,7 +348,11 @@ def create_app(
         title="Mendari",
         version=__version__,
         summary="Run, review, audit and evaluate healthcare decisions.",
-        description=api_docs.description(sign_in=auth.enabled, default_pack=default_pack),
+        description=api_docs.description(
+            sign_in=auth.enabled,
+            default_pack=default_pack,
+            token_url=None if backend is None else backend.token_url,
+        ),
         openapi_tags=api_docs.TAGS,
     )
 
@@ -321,6 +371,7 @@ def create_app(
                 packs=packs,
                 default_pack=default_pack,
                 permission_for=permission_for if auth.enabled else None,
+                token_url=None if backend is None else backend.token_url,
             )
         return app.openapi_schema
 
@@ -684,12 +735,14 @@ def create_app(
         summary="Resolve a review",
     )
     def resolve(decision_id: str, request: ReviewRequest, http: Request) -> dict[str, Any]:
-        """Record a reviewer's final label for a decision in the queue."""
+        """Record a reviewer's final label for a decision in the queue: one of the labels of the
+        decision's question."""
         return store.resolve_review(
             decision_id,
             final_label=request.final_label,
             reviewer=acting_as(http, request.reviewer) or "",
             note=request.note,
+            labels=question_labels,
         )
 
     @app.get(
@@ -770,11 +823,20 @@ def create_app(
         tags=["Review and feedback"],
         summary="Record what really happened",
     )
-    def record_outcome(decision_id: str, request: OutcomeRequest) -> dict[str, str]:
+    def record_outcome(decision_id: str, request: OutcomeRequest, http: Request) -> dict[str, str]:
         """Record the final label from a downstream system (e.g. where the message was really
-        handled), for monitoring."""
-        store.record_outcome(decision_id, final_label=request.final_label, source=request.source)
-        return {"id": decision_id, "final_label": request.final_label}
+        handled), for monitoring: one of the labels of the decision's question. `source` names
+        that system as an identifier; who recorded it is the caller (the signed-in person or API
+        key), whatever the body says."""
+        recorded_by = principal_of(http).name
+        store.record_outcome(
+            decision_id,
+            final_label=request.final_label,
+            source=request.source,
+            recorded_by=recorded_by,
+            labels=question_labels,
+        )
+        return {"id": decision_id, "final_label": request.final_label, "recorded_by": recorded_by}
 
     @app.post(
         "/api/audit/{decision_id}/feedback",
@@ -970,6 +1032,7 @@ def create_app(
             mounted_routes(app),
             packs,
             sign_in=auth.enabled,
+            backend_services=backend is not None,
             since=lambda version: store.capability_since(place[0], version),
             public_url=os.environ.get("MENDARI_PUBLIC_URL", "").strip() or None,
             place=place,
@@ -1107,7 +1170,15 @@ def create_app(
         route does, so the event loop never waits on the database."""
 
         async def endpoint(request: Request) -> Response:
-            items = [*request.query_params.multi_items(), *form_items(await request.body())]
+            body = await read_body(request, MAX_SEARCH_FORM_BYTES)
+            if body is None:
+                kib = MAX_SEARCH_FORM_BYTES // 1024
+                issue = {"code": "too-costly", "diagnostics": f"a search form is {kib} KiB at most"}
+                return operation_outcome(413, [issue])
+            form = form_items(body)
+            if names_a_credential(name for name, _ in form):
+                raise credential_in_url_or_form()
+            items = [*request.query_params.multi_items(), *form]
             if any(name == "_format" and not _offered(value) for name, value in items):
                 return _refuse(406, "only JSON is offered: _format must be json")
             return await run_in_threadpool(search_page, request, resource, items)
@@ -1132,7 +1203,8 @@ def create_app(
             summary=f"Search {what} (POST)",
             description=f"`GET /fhir/{resource}` with its parameters in a form body "
             "(`application/x-www-form-urlencoded`), so they stay out of URLs and logs. "
-            "Parameters in the URL count too, before the body's.",
+            "Parameters in the URL count too, before the body's. The form is 256 KiB at most "
+            "(a `413` otherwise).",
             openapi_extra={"requestBody": _search_form(resource)},
         )
 
@@ -1142,8 +1214,9 @@ def create_app(
 
     @app.middleware("http")
     async def _fhir_media_types(request: Request, call_next: Any) -> Response:
-        """FHIR routes speak FHIR R4 JSON only. Inside the guard, so sign-in answers first."""
-        if _FHIR_ROUTE.match(request.url.path):
+        """FHIR routes speak FHIR R4 JSON only. Inside the guard, so sign-in answers first. The
+        SMART configuration is plain JSON whatever the client accepts (SMART App Launch 2.2)."""
+        if _FHIR_ROUTE.match(request.url.path) and request.url.path != DISCOVERY_PATH:
             refused = fhir_media_refusal(request)
             if refused is not None:
                 return refused
@@ -1152,8 +1225,12 @@ def create_app(
 
     @app.middleware("http")
     async def _guard(request: Request, call_next: Any) -> Response:
-        """Every request passes the sign-in guard (a no-op in open mode)."""
+        """Every request passes the sign-in guard (a no-op in open mode). A credential in a URL
+        is refused first, in every mode: it would end up in logs and histories. No body is read
+        here: the routes that read a form refuse a credential in it, after this check."""
         try:
+            if names_a_credential(request.query_params):
+                raise credential_in_url_or_form()
             refused = auth.check(request)
         except AuthError as error:
             return error_response(request.url.path, error.status, error)
@@ -1173,12 +1250,20 @@ def create_app(
         response: Response = await call_next(request)
         for name, value in SECURITY_HEADERS.items():
             response.headers.setdefault(name, value)
+        path = request.url.path
+        if path.startswith("/api/"):  # data, often an organization's: never stored anywhere
+            response.headers["Cache-Control"] = "no-store"
+        api = path.startswith(("/api/", "/fhir/")) or path == "/fhir"
+        if api and response.status_code in (401, 403):  # RFC 7235 and 6750: say how to sign in
+            response.headers.setdefault("WWW-Authenticate", challenge())
         if not request.url.path.startswith(("/docs", "/redoc")):
             response.headers.setdefault("Content-Security-Policy", csp)
             response.headers.setdefault("Cross-Origin-Embedder-Policy", "require-corp")
         return response
 
     add_auth_routes(app, auth)
+    if backend is not None:
+        add_backend_routes(app, backend, store)
     add_smart_routes(
         app,
         settings=smart_options,
@@ -1216,15 +1301,19 @@ def mounted_routes(app: FastAPI) -> list[tuple[str, str]]:
 
 
 def error_response(path: str, status: int, error: MendariError) -> JSONResponse:
-    """`{"error", "detail"}` on Mendari's own API; an OperationOutcome on FHIR routes."""
+    """`{"error", "detail"}` on Mendari's own API; an OperationOutcome on FHIR routes. A
+    sign-in refusal carries its `WWW-Authenticate` challenge."""
+    asked = error.challenge if isinstance(error, AuthError) else None
+    headers = {"WWW-Authenticate": asked} if asked else None
     if not _FHIR_ROUTE.match(path):
-        return JSONResponse({"error": type(error).__name__, "detail": str(error)}, status)
+        body = {"error": type(error).__name__, "detail": str(error)}
+        return JSONResponse(body, status, headers=headers)
     if isinstance(error, FhirStructureError):
         return operation_outcome(status, [{"code": "structure", **i} for i in error.issues])
     code = _ISSUE_TYPE.get(status, "processing")
     if isinstance(error, PackNotFoundError):
         code = "not-found"
-    return operation_outcome(status, [{"code": code, "diagnostics": str(error)}])
+    return operation_outcome(status, [{"code": code, "diagnostics": str(error)}], headers)
 
 
 _JSON_FORMATS = {"json", "application/json", "application/fhir+json", "text/json"}
@@ -1260,6 +1349,9 @@ def fhir_media_refusal(request: Request) -> JSONResponse | None:
 def _offered(format_parameter: str) -> bool:
     """Whether a `_format` value asks for JSON, the only format offered."""
     return format_parameter.split(";")[0].strip().lower() in _JSON_FORMATS
+
+
+MAX_SEARCH_FORM_BYTES = 256 * 1024
 
 
 def form_items(body: bytes) -> list[tuple[str, str]]:

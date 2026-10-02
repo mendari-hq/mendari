@@ -28,8 +28,8 @@ views.audit = async (main, params) => {
       <label for="outcome-filter">Outcome</label>
       <select id="outcome-filter"><option value="">All</option>${OUTCOMES.map((o) => `<option value="${o}" ${o === outcome ? "selected" : ""}>${esc(outcomeText(o))}</option>`).join("")}</select>
       <span class="grow"></span>
-      <button id="verify">Verify chain</button>
-      <span id="verify-result"></span>
+      ${may("admin") ? `<button id="verify">Verify chain</button>
+      <span id="verify-result"></span>` : ""}
     </div>
     <div class="panel" id="audit-table"></div>`;
   const load = async () => {
@@ -45,7 +45,7 @@ views.audit = async (main, params) => {
     if (row) location.hash = `#audit/${encodeURIComponent(row.dataset.id)}`;
   });
   $("#outcome-filter").addEventListener("change", load);
-  $("#verify").addEventListener("click", async () => {
+  $("#verify")?.addEventListener("click", async () => {
     const result = await api("/api/audit/verify");
     $("#verify-result").innerHTML = result.ok
       ? `<span class="badge s-ok">verified · ${result.events} events</span>`

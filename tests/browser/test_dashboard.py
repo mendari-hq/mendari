@@ -653,6 +653,23 @@ def test_the_overview_leads_with_what_people_act_on(page: Page) -> None:
     expect(page).to_have_url(re.compile("#review$"))
 
 
+def test_only_administrators_are_offered_the_chain_verification(page: Page) -> None:
+    """Verifying the whole chain needs `admin` on the server; a viewer's dashboard neither asks
+    for it nor offers it, and still renders."""
+    viewer = {"kind": "user", "name": "Viewer", "roles": ["viewer"], "permissions": ["read"]}
+    me = {"mode": "sign-in", "signed_in": True, "principal": {**viewer, "org": "default"}}
+    page.route("**/api/auth/me", lambda route: route.fulfill(json=me))
+    asked: list[str] = []
+    page.on("request", lambda r: asked.append(r.url) if "/api/audit/verify" in r.url else None)
+    open_pack(page, INBOX)
+    expect(page.locator(".stats-primary .stat")).to_have_count(4)
+    expect(page.locator(".stats-secondary")).not_to_contain_text("Audit chain")
+    show(page, "audit")
+    expect(page.locator("#audit-table")).to_be_visible()
+    expect(page.locator("#verify")).to_have_count(0)
+    assert asked == []
+
+
 def test_a_pack_without_decisions_says_what_to_do(page: Page) -> None:
     def no_decisions(route: Route) -> None:
         route.fulfill(json={**route.fetch().json(), "decisions": 0})

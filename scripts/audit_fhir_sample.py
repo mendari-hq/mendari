@@ -31,7 +31,9 @@ def main(out: Path) -> None:
         routine = decide({"message": {"body": "Can you send a refill for metformin?"}})
         store.resolve_review(confirmed.id, final_label="nurse", reviewer="rn-1")
         store.resolve_review(overridden.id, final_label="physician", reviewer="rn-2")
-        store.record_outcome(routine.id, final_label="front_desk", source="staff re-route")
+        store.record_outcome(
+            routine.id, final_label="front_desk", source="staff-reroute", recorded_by="rn-9"
+        )
         expected = {"question": "destination", "label": "front_desk"}
         store.record_feedback(routine.id, rating="down", expected=expected)
         store.get(confirmed.id, reader="rn-1")  # an access, logged

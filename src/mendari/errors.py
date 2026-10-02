@@ -74,8 +74,20 @@ class HubError(MendariError):
 
 class AuthError(MendariError):
     """Signing in or an API key failed a check, or the principal may not do this. `status` is the
-    HTTP status (401 not signed in, 403 not allowed, 400 a bad login)."""
+    HTTP status (401 not signed in, 403 not allowed, 400 a bad login); `challenge` the
+    `WWW-Authenticate` value the answer carries, if any (RFC 6750)."""
 
-    def __init__(self, message: str, status: int = 400):
+    def __init__(self, message: str, status: int = 400, *, challenge: str | None = None):
         self.status = status
+        self.challenge = challenge
         super().__init__(message)
+
+
+class ScopeError(MendariError):
+    """A scope that Mendari does not grant: unknown, for something not served (a write, a
+    resource type, a granular or patient scope), or beyond the credential's role (a `422`)."""
+
+
+class ClientError(MendariError):
+    """A SMART Backend Services client that cannot be registered: a JWK Set holding a private or
+    symmetric key, a weak or unsupported key, or one Mendari cannot verify with (a `422`)."""

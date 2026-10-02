@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import os
+import secrets
 import shutil
+import time
 import uuid
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -96,3 +98,12 @@ def pack_copy(tmp_path: Path) -> Callable[..., Path]:
 
 def message(body: str, **extra: Any) -> dict[str, Any]:
     return {"message": {"body": body, **extra}}
+
+
+def signed_in(store: AuditStore, *, role: str, org: str = "default") -> dict[str, str]:
+    """Request headers for a person signed in with `role` in `org`: a session row as
+    `/auth/callback` makes one. Review is a person's (keys are viewer or service)."""
+    sid = secrets.token_urlsafe(32)
+    session = {"sub": f"{org}-{role}", "name": f"{org} {role}", "roles": [role], "org": org}
+    store.smart_put(sid, "user", session, int(time.time()) + 3600)
+    return {"cookie": f"mendari_session={sid}"}

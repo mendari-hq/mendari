@@ -10,13 +10,15 @@ Both backends run the same SQL (written with `?` placeholders) and the same hash
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
+import re
 import secrets
 import statistics
 import time
 import uuid
-from collections.abc import Hashable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Hashable, Iterator, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -43,6 +45,11 @@ RESULT_EVENTS = ("decision.created", "review.resolved", "outcome.recorded")
 _REVIEWABLE = (Outcome.HUMAN_REVIEW.value, Outcome.ABSTAIN.value)
 # Arbitrary constant key for the Postgres advisory lock that serialises hash-chain appends.
 _CHAIN_LOCK = 0x0E4_A0D17
+# A system that reports a downstream outcome, named as an identifier ("ehr", "mendari",
+# "urn:oid:1.2.3"), never free text: it is chained for good and exported in FHIR.
+SYSTEM_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,99}$")
+# A served pack's labels for one of its questions, by (pack id, question); None when unknown.
+QuestionLabels = Callable[[str, str], Sequence[str] | None]
 
 _TABLES = """
 CREATE TABLE IF NOT EXISTS decisions (
@@ -143,7 +150,10 @@ CREATE TABLE IF NOT EXISTS api_keys (
     org         TEXT NOT NULL,
     created_by  TEXT NOT NULL,
     created_at  TEXT NOT NULL,
-    revoked_at  TEXT
+    revoked_at  TEXT,
+    scopes      TEXT,
+    expires_at  TEXT,
+    revoked_by  TEXT
 );
 CREATE TABLE IF NOT EXISTS capability_versions (
     environment  TEXT NOT NULL,
@@ -156,7 +166,26 @@ CREATE TABLE IF NOT EXISTS smart_sessions (
     kind        TEXT NOT NULL,
     expires_at  INTEGER NOT NULL,
     data        TEXT NOT NULL
-)
+);
+CREATE TABLE IF NOT EXISTS oauth_clients (
+    client_id   TEXT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    org         TEXT NOT NULL,
+    role        TEXT NOT NULL,
+    scopes      TEXT NOT NULL,
+    jwks        TEXT NOT NULL,
+    created_by  TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    revoked_at  TEXT,
+    revoked_by  TEXT
+);
+CREATE TABLE IF NOT EXISTS oauth_tokens (
+    token_sha256  TEXT PRIMARY KEY,
+    client_id     TEXT NOT NULL,
+    scope         TEXT NOT NULL,
+    expires_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS oauth_tokens_expiry ON oauth_tokens (expires_at)
 """
 
 # Columns added after their table's first release. New databases get them from _TABLES; older
@@ -170,7 +199,19 @@ _ADDED_COLUMNS = (
     # 1 when the input was refused before any provider ran (Phase 3); NULL on older rows, which
     # fall back to "BLOCK without confidence" (_REFUSED, task_fhir.refused).
     ("decisions", "refused", "INTEGER"),
+    # Scoped keys that expire (Phase 4, ADR-0004): NULL scopes is a key with its role's
+    # permissions; a NULL expiry is set once at startup (_expire_legacy_keys).
+    ("api_keys", "scopes", "TEXT"),
+    ("api_keys", "expires_at", "TEXT"),
+    ("api_keys", "revoked_by", "TEXT"),
 )
+# API keys (ADR-0004): machines are viewer or service; a key lives 90 days unless asked
+# otherwise, 365 at most; keys made before keys expired get 30 days from the first start of
+# the release that brought expiry.
+MACHINE_ROLES = ("viewer", "service")
+KEY_DAYS = 90
+KEY_MAX_DAYS = 365
+LEGACY_KEY_DAYS = 30
 
 _PRIORITY_ORDER = (
     "CASE priority WHEN 'stat' THEN 0 WHEN 'asap' THEN 1 WHEN 'urgent' THEN 2 ELSE 3 END"
@@ -179,6 +220,11 @@ _PRIORITY_ORDER = (
 
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="milliseconds")
+
+
+def _later(delta: timedelta) -> str:
+    """A time `delta` from now, formatted as `_now()` is (so the two compare as text)."""
+    return (datetime.now(UTC) + delta).isoformat(timespec="milliseconds")
 
 
 def _canonical(value: Any) -> str:
@@ -195,6 +241,18 @@ def _migrate(db: _Session) -> None:
             added.add(column)
     if "superseded_by" in added:
         _supersede_earlier_ratings(db)
+    _expire_legacy_keys(db)
+
+
+def _expire_legacy_keys(db: _Session) -> None:
+    """Keys from before keys expired (expires_at NULL) expire LEGACY_KEY_DAYS after the first
+    start that finds them. Idempotent: only rows still NULL change, and every new key has an
+    expiry. A key lookup refuses a NULL expiry (one written by an older instance during a
+    rollout) until the next start gives it one."""
+    db.all(
+        "UPDATE api_keys SET expires_at = ? WHERE expires_at IS NULL",
+        (_later(timedelta(days=LEGACY_KEY_DAYS)),),
+    )
 
 
 def _supersede_earlier_ratings(db: _Session) -> None:
@@ -288,9 +346,16 @@ class AuditStore:
                 )
 
     def resolve_review(
-        self, decision_id: str, *, final_label: str, reviewer: str, note: str | None = None
+        self,
+        decision_id: str,
+        *,
+        final_label: str,
+        reviewer: str,
+        note: str | None = None,
+        labels: QuestionLabels | None = None,
     ) -> dict[str, Any]:
-        """A human confirms or corrects a HUMAN_REVIEW / ABSTAIN decision."""
+        """A human confirms or corrects a HUMAN_REVIEW / ABSTAIN decision with one of the labels
+        of its primary question (`_check_label`)."""
         if not reviewer.strip():
             raise ReviewError("a reviewer identity is required")
         with self._db.session(exclusive=True) as db:
@@ -302,10 +367,7 @@ class AuditStore:
                 raise ReviewError(f"unknown decision {decision_id}")
             if row["review_status"] != "pending":
                 raise ReviewError(f"decision {decision_id} is not awaiting review")
-            record = json.loads(row["record"])
-            labels = record["answers"].get(record["primary"], {}).get("probabilities") or {}
-            if labels and final_label not in labels:
-                raise ReviewError(f"{final_label!r} is not a valid label ({sorted(labels)})")
+            _check_label(row["pack_id"], json.loads(row["record"]), final_label, labels)
             # Overriding means disagreeing with a recommendation; an abstention made none.
             recommendation = row["recommendation"]
             override = None if recommendation is None else recommendation != final_label
@@ -330,23 +392,39 @@ class AuditStore:
             self._append(db, decision_id, "review.resolved", payload)
         return {"id": decision_id, "resolved_at": resolved_at, **payload}
 
-    def record_outcome(self, decision_id: str, *, final_label: str, source: str) -> None:
+    def record_outcome(
+        self,
+        decision_id: str,
+        *,
+        final_label: str,
+        source: str,
+        recorded_by: str,
+        labels: QuestionLabels | None = None,
+    ) -> None:
         """Downstream ground truth for a decision that was not reviewed (e.g. staff re-routed an
-        AUTO message). Feeds live accuracy and drift monitoring."""
+        AUTO message). Feeds live accuracy and drift monitoring.
+
+        `final_label` is one of the labels of the decision's primary question (`_check_label`),
+        `source` the reporting system as an identifier (`SYSTEM_ID`), and `recorded_by` who
+        recorded it (the signed-in person or API key; "open mode" without sign-in)."""
+        if not SYSTEM_ID.fullmatch(source):
+            raise ReviewError("the source must be a system identifier, such as 'ehr'")
+        if not recorded_by.strip():
+            raise ReviewError("who records an outcome is required")
         with self._db.session(exclusive=True) as db:
             scope, scoped = _scope()
             row = db.one(
-                f"SELECT review_status FROM decisions d WHERE id = ? AND {scope}",
+                f"SELECT review_status, pack_id, record FROM decisions d WHERE id = ? AND {scope}",
                 (decision_id, *scoped),
             )
             if row is None:
                 raise ReviewError(f"unknown decision {decision_id}")
             if row["review_status"] == "pending":
                 raise ReviewError("resolve the pending review instead of recording an outcome")
+            _check_label(row["pack_id"], json.loads(row["record"]), final_label, labels)
             db.all("UPDATE decisions SET final_label = ? WHERE id = ?", (final_label, decision_id))
-            self._append(
-                db, decision_id, "outcome.recorded", {"final_label": final_label, "source": source}
-            )
+            payload = {"final_label": final_label, "source": source, "recorded_by": recorded_by}
+            self._append(db, decision_id, "outcome.recorded", payload)
 
     def record_event(self, decision_id: str, event: str, payload: Mapping[str, Any]) -> None:
         """A follow-up on a decision (e.g. `pas.submitted`), chained after its other events."""
@@ -691,45 +769,74 @@ class AuditStore:
         more = len(rows) > query.limit
         return Page(events, (events[-1]["seq"],) if more else None, total)
 
-    # -- SMART launches and sessions (standards/smart.py) --------------------------------
-    # Keyed by the SHA-256 of the state or session id the browser holds, so the table alone
-    # cannot be replayed; rows expire with the launch or the access token. Not part of the
-    # audit chain.
+    # -- the session table: sign-ins, SMART launches, sessions, one-time claims ----------------
+    # Each row is keyed by sha256(kind || 0x00 || value), the value being the state, session id
+    # or claim the caller holds: the table alone cannot be replayed, and a value of one kind can
+    # never name a row of another (a kind is a short name without NUL). Every read, take and
+    # delete is scoped to its kind. Rows expire; expired ones are purged on the next put. Not part
+    # of the audit chain, so no operation here takes the chain's lock: a take is one
+    # `DELETE ... RETURNING`, a claim one `INSERT ... ON CONFLICT`, each atomic on its own.
+    # Rows keyed before the kind was in the digest are never found again and expire.
 
     def smart_put(self, key: str, kind: str, data: Mapping[str, Any], expires_at: int) -> None:
+        row = _session_key(kind, key)
         now = int(time.time())
-        with self._db.session(exclusive=True) as db:
+        with self._db.session(exclusive=False) as db:
             db.all("DELETE FROM smart_sessions WHERE expires_at <= ?", (now,))
             db.all(
                 "INSERT INTO smart_sessions (key_sha256, kind, expires_at, data) "
                 "VALUES (?, ?, ?, ?)",
-                (_key(key), kind, expires_at, _canonical(data)),
+                (row, kind, expires_at, _canonical(data)),
             )
 
     def smart_get(self, key: str, kind: str) -> dict[str, Any] | None:
+        row_key = _session_key(kind, key)
         with self._db.session(exclusive=False) as db:
             row = db.one(
                 "SELECT data FROM smart_sessions WHERE key_sha256 = ? AND kind = ? "
                 "AND expires_at > ?",
-                (_key(key), kind, int(time.time())),
+                (row_key, kind, int(time.time())),
             )
         return None if row is None else json.loads(row["data"])
 
     def smart_take(self, key: str, kind: str) -> dict[str, Any] | None:
-        """Read and delete in one step: a launch's state works once."""
-        with self._db.session(exclusive=True) as db:
+        """Read and delete in one statement: a launch's or a sign-in's state works once."""
+        row_key = _session_key(kind, key)
+        with self._db.session(exclusive=False) as db:
             row = db.one(
-                "SELECT data, expires_at FROM smart_sessions WHERE key_sha256 = ? AND kind = ?",
-                (_key(key), kind),
+                "DELETE FROM smart_sessions WHERE key_sha256 = ? AND kind = ? "
+                "RETURNING data, expires_at",
+                (row_key, kind),
             )
-            db.all("DELETE FROM smart_sessions WHERE key_sha256 = ?", (_key(key),))
         if row is None or row["expires_at"] <= int(time.time()):
             return None
         return json.loads(row["data"])
 
-    def smart_delete(self, key: str) -> None:
-        with self._db.session(exclusive=True) as db:
-            db.all("DELETE FROM smart_sessions WHERE key_sha256 = ?", (_key(key),))
+    def smart_delete(self, key: str, kind: str) -> None:
+        """Delete this kind's row for `key` (a logout ends its own kind of session only)."""
+        row_key = _session_key(kind, key)
+        with self._db.session(exclusive=False) as db:
+            db.all("DELETE FROM smart_sessions WHERE key_sha256 = ? AND kind = ?", (row_key, kind))
+
+    def smart_claim(self, kind: str, value: str, expires_at: int) -> bool:
+        """Claim `value` once until `expires_at` (e.g. an assertion's `jti`): True for the first
+        claim, False while that claim lasts; an expired claim can be made again. One statement,
+        so concurrent claims through any number of connections or instances have one winner."""
+        row_key = _session_key(kind, value)
+        now = int(time.time())
+        if expires_at <= now:
+            raise ValueError("a claim must expire in the future")
+        with self._db.session(exclusive=False) as db:
+            won = db.all(
+                "INSERT INTO smart_sessions (key_sha256, kind, expires_at, data) "
+                "VALUES (?, ?, ?, '{}') "
+                "ON CONFLICT (key_sha256) DO UPDATE SET kind = excluded.kind, "
+                "expires_at = excluded.expires_at, data = excluded.data "
+                "WHERE smart_sessions.expires_at <= ? "
+                "RETURNING key_sha256",
+                (row_key, kind, expires_at, now),
+            )
+        return bool(won)
 
     # -- governance approvals -------------------------------------------------------------------
     # A deploying organization's recorded decision to let a level 2-3 pack automate (ADR-0002):
@@ -885,44 +992,212 @@ class AuditStore:
         return [{**row, "providers": json.loads(row["providers"])} for row in rows]
 
     # -- API keys (server/auth.py) --------------------------------------------------------------
+    # Stored as SHA-256 (the secret is in the creation's answer and nowhere else), with a role
+    # (viewer or service), optional scopes (server/scopes.py), an expiry and, once revoked, who
+    # revoked it. Creating and revoking are chained under "key:<id>", never with the secret or
+    # its hash.
 
-    def create_api_key(self, *, name: str, role: str, org: str, created_by: str) -> dict[str, Any]:
-        """A new key; its secret is in the result and nowhere else (stored as SHA-256)."""
+    def create_api_key(
+        self,
+        *,
+        name: str,
+        role: str,
+        org: str,
+        created_by: str,
+        scopes: str | None = None,
+        days: int = KEY_DAYS,
+    ) -> dict[str, Any]:
+        """A new key for a machine; its secret is in the result and nowhere else. `scopes` (the
+        caller has checked them, server/scopes.py) narrow the role; None keeps the role's."""
+        if role not in MACHINE_ROLES:
+            raise ValueError(f"a key's role is one of {MACHINE_ROLES}")
+        if not 1 <= days <= KEY_MAX_DAYS:
+            raise ValueError(f"a key lives 1 to {KEY_MAX_DAYS} days")
         secret = "ohk_" + secrets.token_urlsafe(32)
-        key_id = secrets.token_hex(6)
+        key = {
+            "id": secrets.token_hex(6),
+            "name": name,
+            "role": role,
+            "org": org,
+            "scope": scopes,
+            "created_by": created_by,
+            "created_at": _now(),
+            "expires_at": _later(timedelta(days=days)),
+        }
         with self._db.session(exclusive=True) as db:
             db.all(
-                "INSERT INTO api_keys (id, key_sha256, name, role, org, created_by, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (key_id, _key(secret), name, role, org, created_by, _now()),
+                "INSERT INTO api_keys (id, key_sha256, name, role, org, created_by, created_at, "
+                "scopes, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    key["id"],
+                    _key(secret),
+                    name,
+                    role,
+                    org,
+                    created_by,
+                    key["created_at"],
+                    scopes,
+                    key["expires_at"],
+                ),
             )
-        return {"id": key_id, "name": name, "role": role, "org": org, "key": secret}
+            self._append(db, f"key:{key['id']}", "key.created", key)
+        return {**key, "key": secret}
 
     def api_keys(self, org: str | None = None) -> list[dict[str, Any]]:
+        """Every key (of `org`, if given), oldest first; never the secret or its hash."""
         where, params = ("WHERE org = ?", (org,)) if org else ("", ())
         with self._db.session(exclusive=False) as db:
             return db.all(
-                "SELECT id, name, role, org, created_by, created_at, revoked_at FROM api_keys "
-                f"{where} ORDER BY created_at",
+                "SELECT id, name, role, org, scopes AS scope, created_by, created_at, "
+                f"expires_at, revoked_at, revoked_by FROM api_keys {where} ORDER BY created_at",
                 params,
             )
 
     def api_key(self, secret: str) -> dict[str, Any] | None:
-        """The key a secret belongs to, unless it was revoked."""
+        """The key a secret belongs to, unless it was revoked or has expired (one query; a key
+        without an expiry is refused too)."""
         with self._db.session(exclusive=False) as db:
             return db.one(
-                "SELECT id, name, role, org FROM api_keys "
-                "WHERE key_sha256 = ? AND revoked_at IS NULL",
-                (_key(secret),),
+                "SELECT id, name, role, org, scopes AS scope, expires_at FROM api_keys "
+                "WHERE key_sha256 = ? AND revoked_at IS NULL AND expires_at > ?",
+                (_key(secret), _now()),
             )
 
-    def revoke_api_key(self, key_id: str, org: str | None = None) -> bool:
+    def revoke_api_key(self, key_id: str, org: str | None = None, *, revoked_by: str) -> bool:
+        """Revoke a key of `org` (any, if None); False for an unknown or already revoked one."""
         with self._db.session(exclusive=True) as db:
             row = db.one("SELECT org FROM api_keys WHERE id = ? AND revoked_at IS NULL", (key_id,))
             if row is None or (org and row["org"] != org):
                 return False
-            db.all("UPDATE api_keys SET revoked_at = ? WHERE id = ?", (_now(), key_id))
+            revoked = {"id": key_id, "revoked_by": revoked_by, "revoked_at": _now()}
+            db.all(
+                "UPDATE api_keys SET revoked_at = ?, revoked_by = ? WHERE id = ?",
+                (revoked["revoked_at"], revoked_by, key_id),
+            )
+            self._append(db, f"key:{key_id}", "key.revoked", revoked)
         return True
+
+    # -- SMART Backend Services: clients and access tokens (ADR-0004) -------------------------
+    # A client is a machine (viewer or service) of one organization, with the scopes it may be
+    # granted and a public JWK Set registered by value (server/backend_services.py checks both).
+    # Registering and revoking are chained under "client:<id>", with the keys' ids and RFC 7638
+    # thumbprints. An access token is stored as SHA-256 with its client, the scope it was granted
+    # and its expiry, nothing else: each lookup joins the client, so a change to its role,
+    # scopes or organization, or its revocation, applies to its tokens at once.
+
+    def register_client(
+        self,
+        *,
+        name: str,
+        role: str,
+        org: str,
+        created_by: str,
+        scopes: str,
+        jwks: Sequence[Mapping[str, Any]],
+    ) -> dict[str, Any]:
+        """A new client; `scopes` and `jwks` were checked by the caller. Its id is Mendari's."""
+        if role not in MACHINE_ROLES:
+            raise ValueError(f"a client's role is one of {MACHINE_ROLES}")
+        if not scopes.split() or not jwks:
+            raise ValueError("a client is registered with scopes and at least one key")
+        client = {
+            "client_id": secrets.token_hex(12),
+            "name": name,
+            "role": role,
+            "org": org,
+            "scope": scopes,
+            "keys": _key_summary(jwks),
+            "created_by": created_by,
+            "created_at": _now(),
+        }
+        with self._db.session(exclusive=True) as db:
+            db.all(
+                "INSERT INTO oauth_clients (client_id, name, org, role, scopes, jwks, created_by, "
+                "created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    client["client_id"],
+                    name,
+                    org,
+                    role,
+                    scopes,
+                    _canonical({"keys": list(jwks)}),
+                    created_by,
+                    client["created_at"],
+                ),
+            )
+            self._append(db, f"client:{client['client_id']}", "client.registered", client)
+        return client
+
+    def clients(self, org: str | None = None) -> list[dict[str, Any]]:
+        """Every client (of `org`, if given), oldest first, with its keys' ids and thumbprints."""
+        where, params = ("WHERE org = ?", (org,)) if org else ("", ())
+        with self._db.session(exclusive=False) as db:
+            rows = db.all(
+                "SELECT client_id, name, role, org, scopes AS scope, jwks, created_by, "
+                f"created_at, revoked_at, revoked_by FROM oauth_clients {where} "
+                "ORDER BY created_at",
+                params,
+            )
+        return [
+            {**{k: v for k, v in row.items() if k != "jwks"}, "keys": _key_summary(_jwks(row))}
+            for row in rows
+        ]
+
+    def client(self, client_id: str) -> dict[str, Any] | None:
+        """A client that is not revoked, with its public keys; None otherwise."""
+        with self._db.session(exclusive=False) as db:
+            row = db.one(
+                "SELECT client_id, name, role, org, scopes AS scope, jwks FROM oauth_clients "
+                "WHERE client_id = ? AND revoked_at IS NULL",
+                (client_id,),
+            )
+        return None if row is None else {**row, "jwks": _jwks(row)}
+
+    def revoke_client(self, client_id: str, org: str | None = None, *, revoked_by: str) -> bool:
+        """Revoke a client of `org` (any, if None) and drop its tokens; False for an unknown or
+        already revoked one. Its tokens stop working at once either way (`access_token`)."""
+        with self._db.session(exclusive=True) as db:
+            row = db.one(
+                "SELECT org FROM oauth_clients WHERE client_id = ? AND revoked_at IS NULL",
+                (client_id,),
+            )
+            if row is None or (org and row["org"] != org):
+                return False
+            revoked = {"client_id": client_id, "revoked_by": revoked_by, "revoked_at": _now()}
+            db.all(
+                "UPDATE oauth_clients SET revoked_at = ?, revoked_by = ? WHERE client_id = ?",
+                (revoked["revoked_at"], revoked_by, client_id),
+            )
+            db.all("DELETE FROM oauth_tokens WHERE client_id = ?", (client_id,))
+            self._append(db, f"client:{client_id}", "client.revoked", revoked)
+        return True
+
+    def issue_token(self, client_id: str, scope: str, seconds: int) -> tuple[str, int]:
+        """A new access token for a client (already authenticated) and the scope it was granted;
+        the secret and its expiry (Unix time). Stored hashed; expired tokens are purged."""
+        secret = "mat_" + secrets.token_urlsafe(32)
+        now = int(time.time())
+        expires_at = now + seconds
+        with self._db.session(exclusive=False) as db:
+            db.all("DELETE FROM oauth_tokens WHERE expires_at <= ?", (now,))
+            db.all(
+                "INSERT INTO oauth_tokens (token_sha256, client_id, scope, expires_at) "
+                "VALUES (?, ?, ?, ?)",
+                (_key(secret), client_id, scope, expires_at),
+            )
+        return secret, expires_at
+
+    def access_token(self, secret: str) -> dict[str, Any] | None:
+        """What an access token stands for, read from its client now (one join): None for an
+        unknown or expired token, or one whose client was revoked."""
+        with self._db.session(exclusive=False) as db:
+            return db.one(
+                "SELECT c.client_id, c.name, c.role, c.org, c.scopes AS registered, t.scope, "
+                "t.expires_at FROM oauth_tokens t JOIN oauth_clients c "
+                "ON c.client_id = t.client_id WHERE t.token_sha256 = ? AND t.expires_at > ? "
+                "AND c.revoked_at IS NULL",
+                (_key(secret), int(time.time())),
+            )
 
     def iter_events(self, **filters: Any) -> Iterator[dict[str, Any]]:
         """Every event `events()` matches, page by page, without loading the whole chain."""
@@ -1258,6 +1533,25 @@ def _feedback_item(row: Mapping[str, Any]) -> dict[str, Any]:
     return item
 
 
+def _check_label(
+    pack_id: str, record: Mapping[str, Any], label: str, labels: QuestionLabels | None
+) -> None:
+    """A final label must be one of the labels of the decision's primary question: those its
+    answer gave probabilities for (the pack version that decided), or else, for a decision with
+    no answer (refused before any provider ran, or its provider failed), the installed pack's.
+    With neither, no label can be checked, so none is accepted."""
+    primary = record.get("primary")
+    answer = (record.get("answers") or {}).get(primary) or {}
+    known = list(answer.get("probabilities") or ())
+    if not known and labels is not None and isinstance(primary, str):
+        known = list(labels(pack_id, primary) or ())
+    if not known:
+        raise ReviewError("this decision's labels are unknown here, so no label can be recorded")
+    if label not in known:
+        # The label is not echoed: a caller could have put anything there.
+        raise ReviewError(f"not one of the labels of this decision's question ({sorted(known)})")
+
+
 def _scope() -> tuple[str, tuple[str, ...]]:
     """The SQL condition (on the table aliased `d`) that keeps a query to the organization this
     request acts for; nothing in open mode. Rows from before tenancy belong to the default one."""
@@ -1269,6 +1563,36 @@ def _scope() -> tuple[str, tuple[str, ...]]:
 
 def _key(secret: str) -> str:
     return hashlib.sha256(secret.encode()).hexdigest()
+
+
+def _jwks(row: Mapping[str, Any]) -> list[dict[str, Any]]:
+    keys: list[dict[str, Any]] = json.loads(row["jwks"])["keys"]
+    return keys
+
+
+def _key_summary(jwks: Sequence[Mapping[str, Any]]) -> list[dict[str, str]]:
+    """A client's keys as chained and listed: id, type and RFC 7638 thumbprint, which name a
+    public key without repeating it."""
+    return [{"kid": k["kid"], "kty": k["kty"], "thumbprint": _thumbprint(k)} for k in jwks]
+
+
+def _thumbprint(jwk: Mapping[str, Any]) -> str:
+    """RFC 7638: SHA-256 of the key's required members, in order, without whitespace."""
+    members = ("e", "kty", "n") if jwk["kty"] == "RSA" else ("crv", "kty", "x", "y")
+    body = json.dumps({m: jwk[m] for m in members}, separators=(",", ":"), sort_keys=True)
+    digest = hashlib.sha256(body.encode()).digest()
+    return base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
+
+
+_SESSION_KIND = re.compile(r"[a-z][a-z0-9-]{0,39}")
+
+
+def _session_key(kind: str, value: str) -> str:
+    """A session-table row's key: sha256(kind || 0x00 || value). Kinds are short lowercase names
+    (never a NUL), so two (kind, value) pairs share a preimage only if they are equal."""
+    if not _SESSION_KIND.fullmatch(kind):
+        raise ValueError(f"not a session kind: {kind!r}")
+    return hashlib.sha256(kind.encode() + b"\x00" + value.encode()).hexdigest()
 
 
 def _sha(value: Any) -> str:

@@ -2,6 +2,42 @@
 
 Roadmap to the full goal: [`docs/roadmap.md`](../docs/roadmap.md).
 
+## Built: authentication and authorization, Phase 4 (2026-10-02)
+From the [audit](../docs/fhir-and-docs-audit.md) Phase 4, after research (three researchers and a
+security-minded critic). The owner chose the token endpoint plus scoped keys, a 30-day expiry for
+existing keys, and URI scopes ([ADR-0004](../docs/decisions/ADR-0004-machine-access-tokens-and-scopes.md)).
+Branch `claude/fhir-phase-4`. About 6.5–7 days.
+- [x] **Session table** (a flaw the critic confirmed in production code): public logout deletes
+  rows of any kind by a key the caller chooses. Deletes are scoped to a kind, keys are
+  domain-separated digests, reads and takes are non-exclusive, and `smart_claim` gives
+  one-time use
+- [x] **Bearer handling**: an `Authorization` header decides alone (no cookie fallback, scheme
+  case-insensitive); the prefix decides key (`ohk_`) or token (`mat_`), anything else is a 401;
+  no credentials in URLs or forms; `WWW-Authenticate` on 401/403; a people-only `keys` permission
+  for `/api/auth/(keys|clients)`; audit verify and FHIR export need admin; `no-store` on `/api`
+- [x] **One scope language** (`server/scopes.py`): SMART v2 `system/` scopes for what is served,
+  the v1 mapping, the decide and outcome URIs; effective = role ∩ scopes; strict for keys,
+  requested ∩ registered for tokens; a route × principal × role × scope matrix test
+- [x] **Scoped keys**: `scopes`, `expires_at`, `revoked_by` (additive); 90 days by default, 365
+  at most; new keys `viewer` or `service`; existing keys expire 30 days after deploy; create and
+  revoke chained
+- [x] **SMART Backend Services** (`MENDARI_BACKEND_SERVICES`, off by default; refuses open mode
+  and a missing public URL): `POST /auth/token`, RS384/ES384 assertions checked before any write,
+  jti once per client, opaque five-minute `mat_` tokens with authorization read per request,
+  clients with a JWKS by value, people-only and chained; Mendari's Bulk client as the end-to-end
+  test
+- [x] **Discovery**: `/fhir/.well-known/smart-configuration` only when on (`application/json`);
+  the CapabilityStatement's security says SMART only when on
+- [x] **Outcome integrity**: `source` a system identifier, `recorded_by` the principal,
+  `final_label` one of the labels
+- [x] **Docs**: ADR-0004, threat model, SECURITY.md, deploying-with-phi.md, API docs, README, the
+  audit's status
+- Phase 4b, before Vercel Authentication is lifted or any PHI: notes out of the chain (encrypted
+  side table), a keyed input hash, an access and security log, rate limits and per-organization
+  quotas, session idle timeout and `__Host-` cookie, Origin checks, Dependabot and pinned actions
+- Deferred until asked: external authorization servers, JWKS URLs, pack-scoped keys, rotation,
+  last-used tracking, a new key format, the dashboard Keys view
+
 ## Built: FHIR search, Phase 3 (2026-10-02)
 From the [audit](../docs/fhir-and-docs-audit.md) Phase 3, after research (three researchers and a
 critic). The owner chose a Task per decision ([ADR-0003](../docs/decisions/ADR-0003-a-served-task-is-a-decision.md)).
@@ -96,7 +132,7 @@ Sign-in: Google, the owner as the only admin.
   (`MENDARI_OIDC_ENDPOINT_ORIGINS`); a role from the `email` claim only when it is verified;
   `/docs` sends a signed-out browser to sign in
 - [x] Docs: `deploying-with-phi.md` (Google), the audit's Phase 1 status
-- [ ] Production: the owner's Google OAuth client; settings for Production only; preview's
+- [x] Production: the owner's Google OAuth client; settings for Production only; preview's
   effective configuration equal to production's before merge; sign-in verified after deploy
 
 ## Done: the rename to Mendari (2026-09-30)

@@ -395,9 +395,23 @@ With a provider that has no roles, such as Google, set `MENDARI_OIDC_ROLE_CLAIM=
 verified emails to roles ([the Google setup](docs/deploying-with-phi.md#2-sign-in-and-roles)).
 
 People sign in with their organization's account, using PKCE and an `id_token` verified with the
-IdP's keys. Machines use **API keys**, which admins create in `POST /api/auth/keys`; they are
-shown once, stored hashed and revocable. Every route has a permission, and anything unlisted
-needs admin:
+IdP's keys. Machines use **API keys** (`Authorization: Bearer ohk_…`), which signed-in admins
+create in `POST /api/auth/keys` (never a key: managing credentials is people-only). A key is
+shown once, stored hashed and revocable. It has the `viewer` or `service` role, expires (90 days
+by default, 365 at most), and can be narrowed with **scopes**: SMART's `system/Task.rs`,
+`system/AuditEvent.rs`, `system/Provenance.rs`, `system/CodeSystem.rs`, `system/NamingSystem.r`
+or `system/*.rs` for FHIR reads, and `https://mendari.co/fhir/scope/decide` and
+`.../outcome` for deciding and recording outcomes. A scope only narrows a role.
+
+Machines that speak **SMART Backend Services** (EHRs, integration engines, Da Vinci clients) can
+get five-minute tokens instead, when a deployment turns it on (`MENDARI_BACKEND_SERVICES=on`;
+it needs sign-in and `MENDARI_PUBLIC_URL`). An admin registers the client's public keys
+(`POST /api/auth/clients`); the client signs an assertion (RS384 or ES384) and exchanges it at
+`POST /auth/token`; `/fhir/.well-known/smart-configuration` describes it. See
+[ADR-0004](docs/decisions/ADR-0004-machine-access-tokens-and-scopes.md) and
+[deploying with real patient data](docs/deploying-with-phi.md).
+
+Every route has a permission, and anything unlisted needs admin:
 
 | Role | May |
 |---|---|
@@ -405,7 +419,7 @@ needs admin:
 | reviewer | also decide (Try it), resolve reviews, record outcomes, give feedback |
 | service | an integration: read, decide, record outcomes |
 | governance | read, approve automation |
-| admin | everything: evaluations, exports, API keys |
+| admin | everything: evaluations, exports, chain verification; with a signed-in person, API keys and clients |
 
 With sign-in on, reviews and ratings are recorded for whoever is signed in, and the dashboard
 names them and offers only what their role may do. `MENDARI_OIDC_ORG_CLAIM` names the claim

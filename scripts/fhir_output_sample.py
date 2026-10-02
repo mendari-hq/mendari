@@ -109,7 +109,7 @@ def served_reads_and_searches(client: TestClient) -> dict[str, Any]:
         )
     )
     call(client.post(f"/api/audit/{reviewed}/feedback", json={"rating": "up"}))
-    outcome = {"final_label": "nurse", "source": "staff re-route"}
+    outcome = {"final_label": "nurse", "source": "staff-reroute"}
     call(client.post(f"/api/audit/{reviewed}/outcome", json=outcome))
     decided("Can you send a refill for metformin?")
     decided("hello?")

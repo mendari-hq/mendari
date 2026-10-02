@@ -36,7 +36,9 @@ def trail(store: AuditStore, pack: Pack) -> tuple[DecisionResult, DecisionResult
     )
     store.resolve_review(confirmed.id, final_label="nurse", reviewer="rn-1", note=SECRET)
     store.resolve_review(overridden.id, final_label="physician", reviewer="rn-2")
-    store.record_outcome(automated.id, final_label="front_desk", source="staff re-route")
+    store.record_outcome(
+        automated.id, final_label="front_desk", source="staff-reroute", recorded_by="rn-9"
+    )
     store.record_feedback(
         automated.id,
         rating="down",
@@ -194,8 +196,17 @@ def test_reads_and_purges_of_encrypted_inputs_are_exported(
     assert SECRET not in json.dumps(events)
 
 
-# Chained under `governance:<id>` or `deployment:<id>`, not a decision; the export never reads them.
-NOT_ON_A_DECISION = {"governance.approved", "governance.revoked", "deployment.recorded"}
+# Chained under `governance:<id>`, `deployment:<id>` or `key:<id>`, not a decision; the export
+# never reads them.
+NOT_ON_A_DECISION = {
+    "governance.approved",
+    "governance.revoked",
+    "deployment.recorded",
+    "key.created",
+    "key.revoked",
+    "client.registered",
+    "client.revoked",
+}
 
 
 def test_every_event_the_code_records_has_an_audit_event_code() -> None:
@@ -229,7 +240,7 @@ def test_audit_entries_are_immutable_versions_narrated_from_codes(
         provenance = resource["resourceType"] == "Provenance"
         decision = resource["target"][0] if provenance else resource["entity"][0]["what"]
         assert decision["identifier"]["value"] in div
-        for private in (SECRET, "rn-1", "rn-2", "staff re-route", "chest pain"):
+        for private in (SECRET, "rn-1", "rn-2", "rn-9", "staff-reroute", "chest pain"):
             assert private not in div
     for event in by_type(exported, "AuditEvent"):
         assert [c["system"] for c in event["subtype"]] == [audit_fhir.EVENT_SYSTEM]

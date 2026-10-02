@@ -100,7 +100,13 @@ def record(
             final = True
         if final and rng.random() < 0.4:
             clock.now += timedelta(minutes=rng.randrange(1, 600))
-            store.record_outcome(result.id, final_label=rng.choice(LABELS), source="ehr")
+            store.record_outcome(
+                result.id,
+                final_label=rng.choice(LABELS),
+                source="ehr",
+                recorded_by="rn-9",
+                labels=lambda pack_id, question: LABELS,  # a refused input has no answer
+            )
         if rng.random() < 0.3:
             clock.now += timedelta(minutes=rng.randrange(1, 600))
             store.record_feedback(result.id, rating="up", note=SECRET)
