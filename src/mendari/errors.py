@@ -81,3 +81,8 @@ class AuthError(MendariError):
         self.status = status
         self.challenge = challenge
         super().__init__(message)
+
+
+class ScopeError(MendariError):
+    """A scope that Mendari does not grant: unknown, for something not served (a write, a
+    resource type, a granular or patient scope), or beyond the credential's role (a `422`)."""

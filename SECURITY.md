@@ -44,8 +44,12 @@ website (`hub/`), the container images and the deployment templates (`deploy/`).
   and every route needs a role. Machines (an EHR calling CDS Hooks, a worker) use API keys, sent
   as `Authorization: Bearer ohk_…` and nowhere else: an `Authorization` header decides alone (no
   fallback to the session cookie), a credential in a URL or a form is refused, and refusals
-  carry `WWW-Authenticate`. Only a signed-in person manages keys, never a key. `/api` answers
-  are `Cache-Control: no-store`.
+  carry `WWW-Authenticate`. Only a signed-in person manages keys, never a key. A key is a
+  `viewer` or a `service`, expires (90 days unless asked, 365 at most; keys from before this
+  rule expire 30 days after the release that brought it first starts), and can be narrowed by
+  scopes (SMART v2 `system/` reads, Mendari's decide and outcome URIs): a scoped key reaches
+  only the routes its scopes name. Creating and revoking keys are recorded in the audit chain.
+  `/api` answers are `Cache-Control: no-store`.
 - **PHI mode.** `MENDARI_PHI_MODE=hash` stores no input; `encrypt` stores inputs encrypted
   apart from the audit chain, readable only by signed-in reviewers and admins, and every read
   is logged. Without PHI mode, audit records keep full inputs by default

@@ -17,7 +17,7 @@ from mendari.core.phi import PhiPolicy, phi_policy
 from mendari.errors import MendariError
 from mendari.server.app import create_app
 from mendari.server.auth import Principal
-from tests.conftest import message
+from tests.conftest import message, signed_in
 
 KEY = os.urandom(32)
 SECRET_WORDS = "my neighbour Rosalind Q. Example has chest pain"
@@ -144,14 +144,14 @@ def test_signed_in_reviewers_read_inputs_and_each_read_is_chained(
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
     db = tmp_path / "a.db"
     client = TestClient(create_app(db_path=db), base_url="https://mendari.test")
+    viewer = encrypting(tmp_path).create_api_key(
+        name="nurse viewer", role="viewer", org="default", created_by="test"
+    )
     keys = {
-        role: {
-            "authorization": "Bearer "
-            + encrypting(tmp_path).create_api_key(
-                name=f"nurse {role}", role=role, org="default", created_by="test"
-            )["key"]
-        }
-        for role in ("reviewer", "viewer")
+        "reviewer": signed_in(
+            encrypting(tmp_path), role="reviewer"
+        ),  # a person: "default reviewer"
+        "viewer": {"authorization": f"Bearer {viewer['key']}"},
     }
     urgent = message("Crushing chest pain, " + SECRET_WORDS)  # waits for review
     path = f"/api/packs/{inbox_pack.id}/decide"
@@ -168,7 +168,7 @@ def test_signed_in_reviewers_read_inputs_and_each_read_is_chained(
 
     events = client.get(f"/api/audit/{decided['id']}", headers=keys["viewer"]).json()["events"]
     readers = [e["payload"]["reader"] for e in events if e["event"] == "input.read"]
-    assert readers == ["key nurse reviewer"] * 3  # the reviewer's three reads; none for the viewer
+    assert readers == ["default reviewer"] * 3  # the reviewer's three reads; none for the viewer
     assert encrypting(tmp_path).verify()["ok"] is True
 
 

@@ -13,6 +13,7 @@ from typing import Any
 
 from mendari.core.pack import Pack
 from mendari.evals.pack_tests import load_cases
+from mendari.server import scopes
 
 TAGS = [
     {"name": "Decisions", "description": "Run a Decision Pack on an input and get its decision."},
@@ -75,10 +76,14 @@ def description(*, sign_in: bool, default_pack: str | None) -> str:
     auth = (
         "**Sign-in is on.** People sign in at `/auth/login`; the dashboard and these pages use "
         "that session. Machines send `Authorization: Bearer ohk_…`, an API key an admin creates "
-        "with `POST /api/auth/keys`. Each key has one role (viewer, reviewer, service, "
-        "governance, admin), and each operation below names the permission it needs. An "
-        "`Authorization` header decides alone: a credential in it that is not valid is a `401`, "
-        "even with a session cookie. Credentials are never accepted in a URL or a form "
+        "with `POST /api/auth/keys`. Each key has one role, `viewer` or `service`, and expires "
+        "(90 days unless asked, 365 at most). Optional scopes narrow it: SMART v2 resource "
+        "scopes for the FHIR reads (`system/Task.rs`, `system/*.rs`, …) and "
+        f"`{scopes.DECIDE}` or `{scopes.OUTCOME}` for Mendari's own actions; a scoped key "
+        'reaches only what its scopes name (a `403` with `error="insufficient_scope"` and the '
+        "scope needed otherwise). Each operation below names the permission and the scope it "
+        "needs. An `Authorization` header decides alone: a credential in it that is not valid "
+        "is a `401`, even with a session cookie. Credentials are never accepted in a URL or a form "
         "(`access_token` is a `400`). Refusals carry `WWW-Authenticate` (RFC 6750), and `/api` "
         "answers are `Cache-Control: no-store`. Only a signed-in person manages keys, never a key."
         if sign_in
@@ -149,13 +154,14 @@ def document(
             if body is not None and examples:
                 body["examples"] = examples
             if permission_for is not None:
-                _secure(operation, permission_for(method.upper(), path))
+                _secure(operation, method.upper(), path, permission_for(method.upper(), path))
     if permission_for is not None:
         schema.setdefault("components", {})["securitySchemes"] = {
             "apiKey": {
                 "type": "http",
                 "scheme": "bearer",
-                "description": "An API key (`ohk_…`) from `POST /api/auth/keys`.",
+                "description": "An API key (`ohk_…`) from `POST /api/auth/keys`: a role "
+                "(viewer or service), optional scopes, an expiry.",
             },
             "session": {
                 "type": "apiKey",
@@ -222,7 +228,7 @@ def _body_examples(
     }
 
 
-def _secure(operation: dict[str, Any], permission: str) -> None:
+def _secure(operation: dict[str, Any], method: str, path: str, permission: str) -> None:
     if permission == "public":
         operation["security"] = []
         return
@@ -233,4 +239,10 @@ def _secure(operation: dict[str, Any], permission: str) -> None:
         return
     operation["security"] = [{"apiKey": []}, {"session": []}]
     needed = "any signed-in role" if permission == "page" else f"the `{permission}` permission"
+    scope = scopes.needed(method, path)
+    needed += (
+        f" and, for a scoped key, the scope `{scope}`"
+        if scope
+        else "; a scoped key may not call this"
+    )
     operation["description"] = f"{operation.get('description', '')}\n\n**Needs** {needed}.".strip()

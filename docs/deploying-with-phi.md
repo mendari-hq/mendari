@@ -50,11 +50,36 @@ In Google Cloud Console, create an OAuth client of type *Web application* with t
 `https://mendari.example.org/auth/callback`. While its consent screen is in *Testing*, only the
 test users listed there can sign in at all, which is a second gate.
 
-Integrations (the EHR, CDS Hooks, a message worker) use API keys with the `service` role.
-Admins create them in `POST /api/auth/keys` while signed in (no key, an admin key included, may
-manage keys); a key is shown once and can be revoked at any time. Send it as
+Integrations (the EHR, CDS Hooks, a message worker) use API keys with the `service` role (or
+`viewer`, to read only; review and approval are a person's, so no key has those roles). Admins
+create them in `POST /api/auth/keys` while signed in (no key, an admin key included, may manage
+keys); a key is shown once and can be revoked at any time. Send it as
 `Authorization: Bearer ohk_…` only: Mendari refuses a credential in a URL or a form, where it
 would end up in logs.
+
+Give each key the least it needs:
+
+- **Scopes** narrow a key's role to the routes they name, and a scoped key reaches nothing
+  else. FHIR reads use SMART v2 scopes for what is served (`system/Task.rs`,
+  `system/AuditEvent.rs`, `system/Provenance.rs`, `system/CodeSystem.rs`,
+  `system/NamingSystem.r`, or `system/*.rs`); deciding, at every entry point (`$decide`, CDS
+  Hooks, DTR, PAS and the REST routes), needs `https://mendari.co/fhir/scope/decide`, and
+  recording an outcome `https://mendari.co/fhir/scope/outcome`. An EHR that only calls CDS
+  Hooks services needs `{"role": "service", "scope": "https://mendari.co/fhir/scope/decide"}`.
+  No scope reaches Mendari's own reads under `/api` or the CDS Hooks discovery list
+  (`GET /cds-services`): read those signed in, or with an unscoped key.
+- **Expiry**: `days`, 90 unless asked, 365 at most. Make a new key before the old one expires;
+  `GET /api/auth/keys` shows when each does.
+
+Creating and revoking a key are recorded in the audit chain (who, when, the role, scope and
+expiry; never the key).
+
+**Upgrading from a release without key expiry (before Phase 4).** The first start of this
+release gives every existing key an expiry 30 days later, once (`GET /api/auth/keys` shows it).
+Existing keys keep their role until then, even `reviewer`, `governance` or `admin`, but no key
+may manage keys. Replace them with `viewer` or `service` keys, with scopes, before they expire,
+and revoke any you no longer need now. A key written by an older instance still running during
+the rollout has no expiry and is refused until the next start gives it one.
 
 Sessions and pending sign-ins are server-side rows keyed by their kind and value. A release
 that changes how they are keyed (Phase 4 did) ends every session: people sign in again, and an

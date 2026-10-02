@@ -149,7 +149,10 @@ CREATE TABLE IF NOT EXISTS api_keys (
     org         TEXT NOT NULL,
     created_by  TEXT NOT NULL,
     created_at  TEXT NOT NULL,
-    revoked_at  TEXT
+    revoked_at  TEXT,
+    scopes      TEXT,
+    expires_at  TEXT,
+    revoked_by  TEXT
 );
 CREATE TABLE IF NOT EXISTS capability_versions (
     environment  TEXT NOT NULL,
@@ -176,7 +179,19 @@ _ADDED_COLUMNS = (
     # 1 when the input was refused before any provider ran (Phase 3); NULL on older rows, which
     # fall back to "BLOCK without confidence" (_REFUSED, task_fhir.refused).
     ("decisions", "refused", "INTEGER"),
+    # Scoped keys that expire (Phase 4, ADR-0004): NULL scopes is a key with its role's
+    # permissions; a NULL expiry is set once at startup (_expire_legacy_keys).
+    ("api_keys", "scopes", "TEXT"),
+    ("api_keys", "expires_at", "TEXT"),
+    ("api_keys", "revoked_by", "TEXT"),
 )
+# API keys (ADR-0004): machines are viewer or service; a key lives 90 days unless asked
+# otherwise, 365 at most; keys made before keys expired get 30 days from the first start of
+# the release that brought expiry.
+MACHINE_ROLES = ("viewer", "service")
+KEY_DAYS = 90
+KEY_MAX_DAYS = 365
+LEGACY_KEY_DAYS = 30
 
 _PRIORITY_ORDER = (
     "CASE priority WHEN 'stat' THEN 0 WHEN 'asap' THEN 1 WHEN 'urgent' THEN 2 ELSE 3 END"
@@ -185,6 +200,11 @@ _PRIORITY_ORDER = (
 
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="milliseconds")
+
+
+def _later(delta: timedelta) -> str:
+    """A time `delta` from now, formatted as `_now()` is (so the two compare as text)."""
+    return (datetime.now(UTC) + delta).isoformat(timespec="milliseconds")
 
 
 def _canonical(value: Any) -> str:
@@ -201,6 +221,18 @@ def _migrate(db: _Session) -> None:
             added.add(column)
     if "superseded_by" in added:
         _supersede_earlier_ratings(db)
+    _expire_legacy_keys(db)
+
+
+def _expire_legacy_keys(db: _Session) -> None:
+    """Keys from before keys expired (expires_at NULL) expire LEGACY_KEY_DAYS after the first
+    start that finds them. Idempotent: only rows still NULL change, and every new key has an
+    expiry. A key lookup refuses a NULL expiry (one written by an older instance during a
+    rollout) until the next start gives it one."""
+    db.all(
+        "UPDATE api_keys SET expires_at = ? WHERE expires_at IS NULL",
+        (_later(timedelta(days=LEGACY_KEY_DAYS)),),
+    )
 
 
 def _supersede_earlier_ratings(db: _Session) -> None:
@@ -940,43 +972,89 @@ class AuditStore:
         return [{**row, "providers": json.loads(row["providers"])} for row in rows]
 
     # -- API keys (server/auth.py) --------------------------------------------------------------
+    # Stored as SHA-256 (the secret is in the creation's answer and nowhere else), with a role
+    # (viewer or service), optional scopes (server/scopes.py), an expiry and, once revoked, who
+    # revoked it. Creating and revoking are chained under "key:<id>", never with the secret or
+    # its hash.
 
-    def create_api_key(self, *, name: str, role: str, org: str, created_by: str) -> dict[str, Any]:
-        """A new key; its secret is in the result and nowhere else (stored as SHA-256)."""
+    def create_api_key(
+        self,
+        *,
+        name: str,
+        role: str,
+        org: str,
+        created_by: str,
+        scopes: str | None = None,
+        days: int = KEY_DAYS,
+    ) -> dict[str, Any]:
+        """A new key for a machine; its secret is in the result and nowhere else. `scopes` (the
+        caller has checked them, server/scopes.py) narrow the role; None keeps the role's."""
+        if role not in MACHINE_ROLES:
+            raise ValueError(f"a key's role is one of {MACHINE_ROLES}")
+        if not 1 <= days <= KEY_MAX_DAYS:
+            raise ValueError(f"a key lives 1 to {KEY_MAX_DAYS} days")
         secret = "ohk_" + secrets.token_urlsafe(32)
-        key_id = secrets.token_hex(6)
+        key = {
+            "id": secrets.token_hex(6),
+            "name": name,
+            "role": role,
+            "org": org,
+            "scope": scopes,
+            "created_by": created_by,
+            "created_at": _now(),
+            "expires_at": _later(timedelta(days=days)),
+        }
         with self._db.session(exclusive=True) as db:
             db.all(
-                "INSERT INTO api_keys (id, key_sha256, name, role, org, created_by, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (key_id, _key(secret), name, role, org, created_by, _now()),
+                "INSERT INTO api_keys (id, key_sha256, name, role, org, created_by, created_at, "
+                "scopes, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    key["id"],
+                    _key(secret),
+                    name,
+                    role,
+                    org,
+                    created_by,
+                    key["created_at"],
+                    scopes,
+                    key["expires_at"],
+                ),
             )
-        return {"id": key_id, "name": name, "role": role, "org": org, "key": secret}
+            self._append(db, f"key:{key['id']}", "key.created", key)
+        return {**key, "key": secret}
 
     def api_keys(self, org: str | None = None) -> list[dict[str, Any]]:
+        """Every key (of `org`, if given), oldest first; never the secret or its hash."""
         where, params = ("WHERE org = ?", (org,)) if org else ("", ())
         with self._db.session(exclusive=False) as db:
             return db.all(
-                "SELECT id, name, role, org, created_by, created_at, revoked_at FROM api_keys "
-                f"{where} ORDER BY created_at",
+                "SELECT id, name, role, org, scopes AS scope, created_by, created_at, "
+                f"expires_at, revoked_at, revoked_by FROM api_keys {where} ORDER BY created_at",
                 params,
             )
 
     def api_key(self, secret: str) -> dict[str, Any] | None:
-        """The key a secret belongs to, unless it was revoked."""
+        """The key a secret belongs to, unless it was revoked or has expired (one query; a key
+        without an expiry is refused too)."""
         with self._db.session(exclusive=False) as db:
             return db.one(
-                "SELECT id, name, role, org FROM api_keys "
-                "WHERE key_sha256 = ? AND revoked_at IS NULL",
-                (_key(secret),),
+                "SELECT id, name, role, org, scopes AS scope, expires_at FROM api_keys "
+                "WHERE key_sha256 = ? AND revoked_at IS NULL AND expires_at > ?",
+                (_key(secret), _now()),
             )
 
-    def revoke_api_key(self, key_id: str, org: str | None = None) -> bool:
+    def revoke_api_key(self, key_id: str, org: str | None = None, *, revoked_by: str) -> bool:
+        """Revoke a key of `org` (any, if None); False for an unknown or already revoked one."""
         with self._db.session(exclusive=True) as db:
             row = db.one("SELECT org FROM api_keys WHERE id = ? AND revoked_at IS NULL", (key_id,))
             if row is None or (org and row["org"] != org):
                 return False
-            db.all("UPDATE api_keys SET revoked_at = ? WHERE id = ?", (_now(), key_id))
+            revoked = {"id": key_id, "revoked_by": revoked_by, "revoked_at": _now()}
+            db.all(
+                "UPDATE api_keys SET revoked_at = ?, revoked_by = ? WHERE id = ?",
+                (revoked["revoked_at"], revoked_by, key_id),
+            )
+            self._append(db, f"key:{key_id}", "key.revoked", revoked)
         return True
 
     def iter_events(self, **filters: Any) -> Iterator[dict[str, Any]]:

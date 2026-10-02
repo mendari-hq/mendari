@@ -196,8 +196,15 @@ def test_reads_and_purges_of_encrypted_inputs_are_exported(
     assert SECRET not in json.dumps(events)
 
 
-# Chained under `governance:<id>` or `deployment:<id>`, not a decision; the export never reads them.
-NOT_ON_A_DECISION = {"governance.approved", "governance.revoked", "deployment.recorded"}
+# Chained under `governance:<id>`, `deployment:<id>` or `key:<id>`, not a decision; the export
+# never reads them.
+NOT_ON_A_DECISION = {
+    "governance.approved",
+    "governance.revoked",
+    "deployment.recorded",
+    "key.created",
+    "key.revoked",
+}
 
 
 def test_every_event_the_code_records_has_an_audit_event_code() -> None:

@@ -22,6 +22,7 @@ from mendari import AuditStore, Decision, Outcome
 from mendari.server.app import create_app
 from mendari.standards import audit_fhir, fhir_structure, task_fhir
 from mendari.standards.fhir import DECISION_ID_SYSTEM
+from tests.conftest import signed_in
 from tests.test_fhir_structure import load_script
 
 INBOX = "mendari/patient-inbox-router"
@@ -317,19 +318,19 @@ def test_reading_and_searching_never_write_to_the_audit_trail(
 
 @pytest.fixture
 def two_orgs(db_target: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
-    """Sign-in on, and an API key per organization and role (made in the store, as an admin's
-    `POST /api/auth/keys` would)."""
+    """Sign-in on, a viewer key per organization (made in the store, as an admin's
+    `POST /api/auth/keys` would) and a signed-in reviewer per organization."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
     with TestClient(create_app(db_path=db_target), base_url=SERVER) as client:
         keys: dict[str, dict[str, str]] = {}
         with AuditStore(db_target) as store:
             for org in ("clinic-a", "clinic-b"):
-                for role in ("reviewer", "viewer"):
-                    made = store.create_api_key(
-                        name=f"{org} {role}", role=role, org=org, created_by="test"
-                    )
-                    keys[f"{org} {role}"] = {"authorization": f"Bearer {made['key']}"}
+                made = store.create_api_key(
+                    name=f"{org} viewer", role="viewer", org=org, created_by="test"
+                )
+                keys[f"{org} viewer"] = {"authorization": f"Bearer {made['key']}"}
+                keys[f"{org} reviewer"] = signed_in(store, role="reviewer", org=org)
         yield client, keys
 
 

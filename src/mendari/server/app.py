@@ -52,6 +52,7 @@ from mendari.errors import (
     PackValidationError,
     ProviderError,
     ReviewError,
+    ScopeError,
     SmartError,
 )
 from mendari.evals import compare, evaluate, leaderboard, load_dataset, resolve_dataset
@@ -100,6 +101,7 @@ _STATUS = {
     FhirError: 422,
     PackValidationError: 422,
     PasError: 422,
+    ScopeError: 422,
 }
 # A provider that cannot answer (e.g. listing Jev's models): not set up here, or the upstream
 # service failed; never a client error.
