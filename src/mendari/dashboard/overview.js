@@ -3,12 +3,13 @@
 import { chartHtml, sparkline } from "./charts.js";
 import { providerWords } from "./pack.js";
 import { views, wire } from "./router.js";
-import { $, api, emptyState, esc, icon, money, num, OUTCOMES, outcomeText, pct, slotText, stat, state, storageGet, storageSet, zoneName } from "./ui.js";
+import { $, api, emptyState, esc, icon, may, money, num, OUTCOMES, outcomeText, pct, slotText, stat, state, storageGet, storageSet, zoneName } from "./ui.js";
 
 views.overview = async (main) => {
   const [stats, chain] = await Promise.all([
     api(`/api/stats?pack_id=${encodeURIComponent(state.packId)}`),
-    api("/api/audit/verify"),
+    // Verifying the chain reads every event: administrators only (the server says the same).
+    may("admin") ? api("/api/audit/verify") : null,
   ]);
   const d = state.detail;
   const total = stats.decisions;
@@ -141,11 +142,11 @@ function secondaryStats(stats, chain, now, before, days, trendDays) {
     })}
     ${stat({ size: "small", label: "Latency p95", value: stats.latency_ms.p95 === null ? "n/a" : `${num(stats.latency_ms.p95, 2)} ms`, foot: "all time" })}
     ${stat({ size: "small", label: "Cost / decision", value: money(stats.cost_usd.per_decision), foot: "all time" })}
-    ${stat({
+    ${chain ? stat({
       size: "small", label: "Audit chain", html: true, tone: chain.ok ? "" : "danger",
       value: chain.ok ? `${icon("shield-check")} Verified` : `${icon("shield-x")} Broken at event ${esc(chain.broken_at)}`,
       foot: `${chain.events.toLocaleString()} events`,
-    })}
+    }) : ""}
     ${stat({
       size: "small", label: "Feedback", html: true,
       value: `${icon("thumbs-up")}<span class="sr-only">Right:</span> ${f.up} <span class="muted" aria-hidden="true">·</span> ${icon("thumbs-down")}<span class="sr-only">Wrong:</span> ${f.down}`,

@@ -2,7 +2,8 @@
 
 - **AuditEvent** for every event in the hash chain (`decision.created`, `review.resolved`,
   `outcome.recorded`, `feedback.recorded`):
-  - who acted: the engine running the pack, or the reviewer, reporter or downstream source;
+  - who acted: the engine running the pack, or the reviewer, reporter, reader, requester, or
+    whoever recorded a downstream outcome (the signed-in person or API key);
   - what it acted on: the decision, by the identifier its FHIR `Task` carries;
   - the event's place in the chain (`seq`, `prev_hash`, `hash`), so the export keeps the tamper
     evidence: consecutive events link up, and each hash can be checked against the store.
@@ -11,7 +12,13 @@
     hash);
   - a review (`UPDATE`; the reviewer verifies the recommendation, or authors a label when
     overriding it or when there was none, an abstention);
-  - a downstream outcome (`UPDATE`).
+  - a downstream outcome (`UPDATE`, authored by whoever recorded it).
+
+**A downstream outcome's source** is the system that observed it, an identifier
+(`core.audit.SYSTEM_ID`), not an agent: it is in the AuditEvent's `source.site`. Before Phase 4
+the outcome's agent was its source, a string the caller chose; an event recorded then has no
+recorder (`recorded_by`), so its agent is "not recorded", and its source is shown only when it
+is an identifier.
 
 Like evaluation reports, the export carries identifiers and codes, never case text: free-text
 review and feedback notes stay in the store, and inputs are referred to by hash. Narratives are
@@ -36,7 +43,7 @@ import uuid
 from collections.abc import Iterable, Iterator, Mapping
 from typing import Any
 
-from mendari.core.audit import RESULT_EVENTS
+from mendari.core.audit import RESULT_EVENTS, SYSTEM_ID
 from mendari.standards.fhir import DECISION_ID_SYSTEM, PACK_ID_SYSTEM, narrative
 
 EVENT_SYSTEM = "https://mendari.co/fhir/CodeSystem/audit-event"
@@ -54,6 +61,8 @@ _SERVER = {
 }
 _PARTICIPANT = f"{TERMINOLOGY}/provenance-participant-type"
 _OBJECT = {"system": f"{TERMINOLOGY}/audit-entity-type", "code": "2", "display": "System Object"}
+# An outcome recorded before its recorder was (Phase 4).
+NOT_RECORDED = "not recorded"
 # Every event the store chains on a decision (a test checks the code records no other). Unknown
 # ones are still exported, with the event name as display.
 _EVENTS = {
@@ -144,7 +153,7 @@ def audit_event(event: Mapping[str, Any], *, base: str | None = None) -> dict[st
         "recorded": event["created_at"],
         "outcome": "0",
         "agent": [_actor(event, payload)],
-        "source": {"observer": {"display": "Mendari"}, "type": [_SERVER]},
+        "source": _source(event),
         "entity": [
             {"what": _decision(event, _task(event, base)), "type": _OBJECT, "detail": details}
         ],
@@ -168,7 +177,10 @@ def provenance(
         # and so does labelling an abstention (no recommendation: `human_override` is None).
         confirmed = kind == "review.resolved" and payload.get("human_override") is False
         role = "verifier" if confirmed else "author"
-        agent = {"display": str(payload.get("reviewer") or payload.get("source") or "unknown")}
+        if kind == "outcome.recorded":
+            agent = {"display": str(payload.get("recorded_by") or NOT_RECORDED)}
+        else:
+            agent = {"display": str(payload.get("reviewer") or "unknown")}
     summary = (
         f"{activity} of decision {event['decision_id']} ({kind}); agent role {role}, "
         f"recorded {event['created_at']}."
@@ -224,14 +236,28 @@ def _actor(event: Mapping[str, Any], payload: Mapping[str, Any]) -> dict[str, An
         return {"who": engine(event), "requestor": False}
     if event["event"] == "input.purged":
         return {"who": engine(event), "requestor": False}
+    if event["event"] == "outcome.recorded":
+        return {
+            "who": {"display": str(payload.get("recorded_by") or NOT_RECORDED)},
+            "requestor": True,
+        }
     name = (
         payload.get("reviewer")
         or payload.get("reporter")
         or payload.get("reader")
         or payload.get("requested_by")
-        or payload.get("source")
     )
     return {"who": {"display": str(name or "anonymous")}, "requestor": True}
+
+
+def _source(event: Mapping[str, Any]) -> dict[str, Any]:
+    """Mendari observed every event; a downstream outcome also names the system that reported
+    it, as `site`, when that is an identifier (always, since Phase 4)."""
+    source: dict[str, Any] = {"observer": {"display": "Mendari"}, "type": [_SERVER]}
+    reported = event["payload"].get("source") if event["event"] == "outcome.recorded" else None
+    if isinstance(reported, str) and SYSTEM_ID.fullmatch(reported):
+        source = {"site": reported, **source}
+    return source
 
 
 def _facts(event: Mapping[str, Any]) -> Iterator[tuple[str, str]]:

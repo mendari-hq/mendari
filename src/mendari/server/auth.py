@@ -16,7 +16,13 @@ server is open, as before (production sits behind Vercel Authentication). When c
   `MENDARI_OIDC_ENDPOINT_ORIGINS` (Google's token and key endpoints are on other hosts).
 - **Machines** send `Authorization: Bearer ohk_...`: API keys that admins create, which are
   shown once, stored as SHA-256, carry a role and can be revoked.
+- **An `Authorization` header decides alone** (ADR-0004): with one there is no fallback to the
+  session cookie. The scheme is `Bearer` (any case), and the credential's prefix says what it is:
+  `ohk_` a key, `mat_` an access token (refused until the token endpoint exists); anything else
+  is refused. A credential is never accepted in a URL or a form (`access_token`).
 - **Every route has a permission**, and anything not listed needs `admin` (deny by default).
+  Managing keys and clients (`keys`) is for people who signed in, never for a key or token,
+  whatever its role: a stolen credential must not mint one that outlives it.
 
 | Role | May |
 |---|---|
@@ -24,7 +30,7 @@ server is open, as before (production sits behind Vercel Authentication). When c
 | reviewer | read (inputs too, under PHI mode), decide, review, record outcomes, give feedback |
 | service (machines) | read, decide, record outcomes |
 | governance | read, approve automation |
-| admin | everything, including evaluations, exports and API keys |
+| admin | everything, including evaluations, exports and (people only) API keys |
 """
 
 from __future__ import annotations
@@ -48,6 +54,9 @@ from mendari.standards import oidc
 from mendari.standards.fhir_client import GuardedHttp, allowed_servers
 
 COOKIE = "mendari_session"
+REALM = "mendari"
+KEY_PREFIX = "ohk_"
+TOKEN_PREFIX = "mat_"  # SMART Backend Services access tokens (ADR-0004), not issued yet
 ROLES = ("viewer", "reviewer", "service", "governance", "admin")
 PERMISSIONS: dict[str, frozenset[str]] = {
     "viewer": frozenset({"read"}),
@@ -55,9 +64,21 @@ PERMISSIONS: dict[str, frozenset[str]] = {
     "service": frozenset({"read", "decide", "outcome"}),
     "governance": frozenset({"read", "approve"}),
     "admin": frozenset(
-        {"read", "read_input", "decide", "review", "outcome", "approve", "evaluate", "admin"}
+        {
+            "read",
+            "read_input",
+            "decide",
+            "review",
+            "outcome",
+            "approve",
+            "evaluate",
+            "admin",
+            "keys",
+        }
     ),
 }
+# Permissions only a person who signed in holds, whatever a key's (or a token's) role says.
+PEOPLE_ONLY = frozenset({"keys"})
 DEFAULT_ORG = "default"
 SESSION_SECONDS = 8 * 3600
 
@@ -94,7 +115,9 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         ("POST", r"^/api/audit/[^/]+/feedback$", "review"),
         ("POST", r"^/api/audit/[^/]+/outcome$", "outcome"),
         ("GET", r"^/api/packs/[^/]+/[^/]+/feedback/export$", "admin"),  # case inputs, in bulk
-        ("*", r"^/api/auth/keys", "admin"),
+        ("*", r"^/api/auth/(keys|clients)", "keys"),
+        # The whole chain, read or exported: administrators only.
+        ("GET", r"^/api/audit/(verify|export/fhir)$", "admin"),
         ("POST", r"^/api/governance$", "approve"),
         ("DELETE", r"^/api/governance/[^/]+$", "approve"),
         ("GET", r"^/api/", "read"),
@@ -157,20 +180,41 @@ class Principal:
     def may(self, permission: str) -> bool:
         if self.kind == "open":
             return True
-        return any(permission in PERMISSIONS.get(role, frozenset()) for role in self.roles)
+        return permission in self.permissions()
+
+    def permissions(self) -> frozenset[str]:
+        """What the roles grant; for a key (or a token), never a people-only permission."""
+        granted = frozenset().union(*(PERMISSIONS.get(role, frozenset()) for role in self.roles))
+        return granted if self.kind in ("user", "open") else granted - PEOPLE_ONLY
 
     def to_dict(self) -> dict[str, Any]:
-        granted = set().union(*(PERMISSIONS.get(role, frozenset()) for role in self.roles))
         return {
             "kind": self.kind,
             "name": self.name,
             "roles": sorted(self.roles),
-            "permissions": sorted(granted),
+            "permissions": sorted(self.permissions()),
             "org": self.org,
         }
 
 
 OPEN = Principal(kind="open", name="open mode", roles=frozenset({"admin"}))
+
+
+# RFC 6750's b64token, at a length no credential Mendari issues comes near.
+_BEARER = re.compile(r"[A-Za-z0-9\-._~+/]{1,512}={0,2}")
+
+
+def challenge(error: str | None = None) -> str:
+    """A `WWW-Authenticate` value (RFC 6750): the realm, and the error when a credential was
+    sent (`invalid_token`), was not enough (`insufficient_scope`) or was sent wrongly
+    (`invalid_request`)."""
+    return f'Bearer realm="{REALM}"' + (f', error="{error}"' if error else "")
+
+
+def invalid_token() -> AuthError:
+    """One answer for every credential that is not valid: unknown, revoked, expired, malformed or
+    of a kind not accepted here. It never says which, nor echoes the credential."""
+    return AuthError("the credential is not valid", 401, challenge=challenge("invalid_token"))
 
 
 def permission_for(method: str, path: str) -> str:
@@ -206,15 +250,21 @@ class Auth:
         return self.settings is not None
 
     def principal(self, request: Request) -> Principal | None:
+        """Who sends this request; None for no one, or for a credential that is not valid."""
+        try:
+            return self.authenticate(request)
+        except AuthError:
+            return None
+
+    def authenticate(self, request: Request) -> Principal | None:
+        """The request's principal; None when it carries no credential at all. An
+        `Authorization` header decides alone: a credential in it that is not valid is an
+        `AuthError` (401), never a fall back to the session cookie."""
         if self.settings is None:
             return OPEN
-        header = request.headers.get("authorization", "")
-        if header.startswith("Bearer ohk_"):
-            key = self.store.api_key(header.removeprefix("Bearer ").strip())
-            if key is None:
-                return None
-            roles = frozenset({key["role"]})
-            return Principal(kind="key", name=f"key {key['name']}", roles=roles, org=key["org"])
+        headers = request.headers.getlist("authorization")
+        if headers:
+            return self._bearer(headers)
         sid = request.cookies.get(COOKIE)
         session = self.store.smart_get(sid, "user") if sid else None
         if session is None:
@@ -222,21 +272,47 @@ class Auth:
         roles = frozenset(session["roles"])
         return Principal(kind="user", name=session["name"], roles=roles, org=session["org"])
 
+    def _bearer(self, headers: list[str]) -> Principal:
+        """The principal an `Authorization` header names, by the credential's prefix."""
+        if len(headers) != 1:
+            raise AuthError(
+                "send one Authorization header", 400, challenge=challenge("invalid_request")
+            )
+        scheme, _, credential = headers[0].strip().partition(" ")
+        if scheme.lower() != "bearer":
+            # Not a bearer credential: RFC 6750 gives no error code to an unsupported scheme.
+            raise AuthError("send Authorization: Bearer <credential>", 401, challenge=challenge())
+        credential = credential.strip()
+        if not _BEARER.fullmatch(credential):
+            raise invalid_token()
+        if credential.startswith(KEY_PREFIX):
+            key = self.store.api_key(credential)
+            if key is None:
+                raise invalid_token()
+            roles = frozenset({key["role"]})
+            return Principal(kind="key", name=f"key {key['name']}", roles=roles, org=key["org"])
+        if credential.startswith(TOKEN_PREFIX):
+            raise invalid_token()  # no access token is valid until Mendari issues them
+        raise invalid_token()  # no credential Mendari issues
+
     def check(self, request: Request) -> Response | None:
         """None when the request may go on; otherwise the response that refuses it."""
         permission = permission_for(request.method, request.url.path)
         if permission == "public" or self.settings is None:
             return None
-        principal = self.principal(request)
+        principal = self.authenticate(request)
         if permission == "page":
             if principal is None:
                 target = f"/auth/login?next={quote(request.url.path)}"
                 return RedirectResponse(target, status_code=302)
             return None
         if principal is None:
-            raise AuthError("sign in first, or send an API key", 401)
+            raise AuthError("sign in first, or send an API key", 401, challenge=challenge())
         if not principal.may(permission):
-            raise AuthError(f"your role may not {permission} here", 403)
+            refused = challenge("insufficient_scope")
+            if permission in PEOPLE_ONLY and principal.kind != "user":
+                raise AuthError("only a person who signed in may do this", 403, challenge=refused)
+            raise AuthError(f"your role may not {permission} here", 403, challenge=refused)
         request.state.principal = principal
         return None
 
@@ -352,7 +428,7 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
     def logout(request: Request) -> Response:
         sid = request.cookies.get(COOKIE)
         if sid:
-            store.smart_delete(sid)
+            store.smart_delete(sid, "user")
         response = Response(status_code=204)
         response.delete_cookie(COOKIE, path="/", secure=True, httponly=True, samesite="lax")
         return response

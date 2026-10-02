@@ -82,7 +82,10 @@ def chain_item() -> dict[str, Any]:
             ),
             event(11, "feedback.recorded", "14:25:00.000", {"rating": "up", "note": SECRET}),
             event(
-                12, "outcome.recorded", "15:00:00.000", {"final_label": "front_desk", "source": "x"}
+                12,
+                "outcome.recorded",
+                "15:00:00.000",
+                {"final_label": "front_desk", "source": "x", "recorded_by": "rn-9"},
             ),
         ],
     }
@@ -248,7 +251,7 @@ def test_the_latest_version_agrees_with_the_columns_search_reads(
     """Search filters status in SQL over the same columns (`task_status`)."""
     ids = [decide(store, inbox_pack, body).id for body in (ROUTINE, EMERGENCY, UNSURE, None)]
     store.resolve_review(ids[1], final_label="physician", reviewer="rn-1")
-    store.record_outcome(ids[1], final_label="nurse", source="ehr")
+    store.record_outcome(ids[1], final_label="nurse", source="ehr", recorded_by="rn-9")
     for decision_id in ids:
         item = store.item(decision_id)
         assert item is not None
@@ -262,7 +265,7 @@ def test_versions_match_the_provenances_of_the_audit_trail(
     result = decide(store, inbox_pack, EMERGENCY)
     store.resolve_review(result.id, final_label="physician", reviewer="rn-1")
     store.record_feedback(result.id, rating="down", note=SECRET)
-    store.record_outcome(result.id, final_label="nurse", source="ehr")
+    store.record_outcome(result.id, final_label="nurse", source="ehr", recorded_by="rn-9")
     item = store.item(result.id)
     assert item is not None
     tasks = task_fhir.task_versions(item, BASE)

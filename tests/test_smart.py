@@ -339,7 +339,7 @@ def test_launch_state_and_session_ids_are_stored_hashed(
     assert sid
     with AuditStore(tmp_path / "a.db")._db.session(exclusive=False) as db:
         keys = [row["key_sha256"] for row in db.all("SELECT key_sha256 FROM smart_sessions")]
-    assert hashlib.sha256(sid.encode()).hexdigest() in keys and sid not in keys
+    assert hashlib.sha256(b"session\x00" + sid.encode()).hexdigest() in keys and sid not in keys
 
 
 def test_an_expired_session_is_gone(
@@ -369,5 +369,5 @@ def test_the_store_keeps_launches_single_use_and_expires_them(store: AuditStore)
     store.smart_put("old", "session", {"patient": "p"}, now - 1)
     assert store.smart_get("old", "session") is None
     store.smart_put("sid", "session", {"patient": "p"}, now + 60)
-    store.smart_delete("sid")
+    store.smart_delete("sid", "session")
     assert store.smart_get("sid", "session") is None

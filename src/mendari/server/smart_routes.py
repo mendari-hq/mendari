@@ -145,7 +145,7 @@ def add_smart_routes(
         """Forget the EHR launch (its tokens are deleted)."""
         sid = request.cookies.get(COOKIE)
         if sid:
-            store.smart_delete(sid)
+            store.smart_delete(sid, "session")
         response = Response(status_code=204)
         response.delete_cookie(COOKIE, path="/", secure=True, httponly=True, samesite="lax")
         return response

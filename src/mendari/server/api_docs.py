@@ -76,7 +76,11 @@ def description(*, sign_in: bool, default_pack: str | None) -> str:
         "**Sign-in is on.** People sign in at `/auth/login`; the dashboard and these pages use "
         "that session. Machines send `Authorization: Bearer ohk_…`, an API key an admin creates "
         "with `POST /api/auth/keys`. Each key has one role (viewer, reviewer, service, "
-        "governance, admin), and each operation below names the permission it needs."
+        "governance, admin), and each operation below names the permission it needs. An "
+        "`Authorization` header decides alone: a credential in it that is not valid is a `401`, "
+        "even with a session cookie. Credentials are never accepted in a URL or a form "
+        "(`access_token` is a `400`). Refusals carry `WWW-Authenticate` (RFC 6750), and `/api` "
+        "answers are `Cache-Control: no-store`. Only a signed-in person manages keys, never a key."
         if sign_in
         else "**Sign-in is off here**: anyone who can reach this deployment can call every "
         "operation. Set `MENDARI_OIDC_ISSUER` and `MENDARI_OIDC_CLIENT_ID` to require it."
@@ -221,6 +225,11 @@ def _body_examples(
 def _secure(operation: dict[str, Any], permission: str) -> None:
     if permission == "public":
         operation["security"] = []
+        return
+    if permission == "keys":  # people only (server/auth.py PEOPLE_ONLY)
+        operation["security"] = [{"session": []}]
+        needed = "a signed-in person with the `keys` permission (an administrator; never a key)"
+        operation["description"] = f"{operation.get('description', '')}\n\n**Needs** {needed}."
         return
     operation["security"] = [{"apiKey": []}, {"session": []}]
     needed = "any signed-in role" if permission == "page" else f"the `{permission}` permission"

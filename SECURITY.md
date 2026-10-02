@@ -41,7 +41,11 @@ website (`hub/`), the container images and the deployment templates (`deploy/`).
   domain public. External machine callers, such as an EHR calling CDS Hooks, would need
   Protection Bypass for Automation there, which is not set up.
 - **Sign-in for organizations.** Set `MENDARI_OIDC_ISSUER` and `MENDARI_OIDC_CLIENT_ID`,
-  and every route needs a role. Machines (an EHR calling CDS Hooks, a worker) use API keys.
+  and every route needs a role. Machines (an EHR calling CDS Hooks, a worker) use API keys, sent
+  as `Authorization: Bearer ohk_…` and nowhere else: an `Authorization` header decides alone (no
+  fallback to the session cookie), a credential in a URL or a form is refused, and refusals
+  carry `WWW-Authenticate`. Only a signed-in person manages keys, never a key. `/api` answers
+  are `Cache-Control: no-store`.
 - **PHI mode.** `MENDARI_PHI_MODE=hash` stores no input; `encrypt` stores inputs encrypted
   apart from the audit chain, readable only by signed-in reviewers and admins, and every read
   is logged. Without PHI mode, audit records keep full inputs by default

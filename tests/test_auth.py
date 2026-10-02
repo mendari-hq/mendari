@@ -306,6 +306,14 @@ def test_every_route_has_the_permission_it_should(tmp_path: Path) -> None:
     assert permission_for("GET", "/fhir/Task/t1/_history/2") == "read"
     assert permission_for("GET", "/fhir/Task/t1/_history") == "admin"  # no history Bundles
     assert permission_for("POST", "/fhir/Task") == "admin"  # no create
+    # Managing keys and clients: people only (`keys`), and nothing under them falls to read.
+    keys = {(m, p) for m, p in routes if p.startswith("/api/auth/keys")}
+    assert keys and {permission_for(m, p) for m, p in keys} == {"keys"}
+    assert permission_for("GET", "/api/auth/clients") == "keys"
+    assert permission_for("GET", "/api/auth/clients/c1") == "keys"
+    assert permission_for("GET", "/api/audit/verify") == "admin"
+    assert permission_for("GET", "/api/audit/export/fhir") == "admin"
+    assert permission_for("GET", "/api/audit/d1") == "read"
 
 
 def test_no_fhir_data_route_is_public(tmp_path: Path) -> None:
@@ -367,7 +375,8 @@ def test_organizations_never_see_each_others_work(
         ).status_code
         == 409
     )  # unknown, not a leak
-    assert client.get("/api/audit/export/fhir", headers=keys["clinic-b"]).text == ""
+    # The export is the whole chain: administrators only, and each sees its own organization's.
+    assert client.get("/api/audit/export/fhir", headers=keys["clinic-b"]).status_code == 403
     assert client.get("/api/stats", headers=keys["clinic-a"]).json()["decisions"] == 1
 
     rated = client.post(
@@ -391,6 +400,10 @@ def test_organizations_never_see_each_others_work(
         AuditStore(tmp_path / "two-orgs.db").save_report(report)
     assert [r["id"] for r in client.get("/api/evals", headers=keys["clinic-a"]).json()] == ["r1"]
     assert client.get("/api/evals", headers=keys["clinic-b"]).json() == []
+    sign_in(client, idp, roles=["admin"], org="clinic-b")
+    assert client.get("/api/audit/export/fhir").text == ""
+    sign_in(client, idp, roles=["admin"], org="clinic-a")
+    assert decided["id"] in client.get("/api/audit/export/fhir").text
 
 
 def test_a_role_from_an_email_needs_the_provider_to_have_verified_it(
@@ -460,3 +473,229 @@ def test_the_api_reference_asks_a_browser_to_sign_in(app: TestClient, idp: FakeI
     assert decide["security"] == [{"apiKey": []}, {"session": []}]
     assert "the `decide` permission" in decide["description"]
     assert "Sign-in is on" in schema["info"]["description"]
+
+
+# -- bearer credentials (ADR-0004) ---------------------------------------------------------------
+
+REALM = 'Bearer realm="mendari"'
+INVALID = f'{REALM}, error="invalid_token"'
+
+
+def key_for(app: TestClient, idp: FakeIdp, role: str = "service") -> str:
+    sign_in(app, idp, roles=["admin"])
+    secret = app.post("/api/auth/keys", json={"name": f"a {role}", "role": role}).json()["key"]
+    app.cookies.clear()
+    return str(secret)
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        "Bearer junk",  # no prefix Mendari issues
+        "Bearer ohk_unknown",  # a key's prefix, no such key
+        "Bearer mat_0123456789",  # an access token: none is valid until Mendari issues them
+        "Bearer ohk_a b",  # not one token
+        "Bearer ",
+        "Bearer ohk_a=b",  # not a b64token
+        "Bearer ohk_" + "a" * 600,  # longer than any credential Mendari issues
+    ],
+)
+def test_a_credential_that_is_not_valid_never_falls_back_to_the_session(
+    app: TestClient, idp: FakeIdp, header: str
+) -> None:
+    sign_in(app, idp, roles=["admin"])  # a valid session cookie rides along
+    assert app.get("/api/audit").status_code == 200
+    refused = app.get("/api/audit", headers={"authorization": header})
+    assert refused.status_code == 401
+    assert refused.headers["www-authenticate"] == INVALID
+    assert refused.json() == {"error": "AuthError", "detail": "the credential is not valid"}
+    me = app.get("/api/auth/me", headers={"authorization": header}).json()
+    assert me == {"mode": "sign-in", "signed_in": False}
+
+
+@pytest.mark.parametrize("header", ["Basic dXNlcjpwYXNz", "Token ohk_x", "ohk_x", ""])
+def test_another_scheme_is_refused_without_an_error_code(
+    app: TestClient, idp: FakeIdp, header: str
+) -> None:
+    """RFC 6750: a request with no bearer credential gets the challenge, but no error code."""
+    sign_in(app, idp, roles=["admin"])
+    refused = app.get("/api/audit", headers={"authorization": header})
+    assert refused.status_code == 401
+    assert refused.headers["www-authenticate"] == REALM
+
+
+def test_the_scheme_matches_in_any_case(app: TestClient, idp: FakeIdp) -> None:
+    secret = key_for(app, idp)
+    for scheme in ("Bearer", "bearer", "BEARER", "bEaReR"):
+        sent = app.get("/api/audit", headers={"authorization": f"{scheme} {secret}"})
+        assert sent.status_code == 200, scheme
+
+
+def test_two_authorization_headers_are_refused(app: TestClient, idp: FakeIdp) -> None:
+    secret = key_for(app, idp)
+    both = [("authorization", f"Bearer {secret}"), ("authorization", "Bearer ohk_other")]
+    refused = app.get("/api/audit", headers=both)
+    assert refused.status_code == 400
+    assert refused.headers["www-authenticate"] == f'{REALM}, error="invalid_request"'
+
+
+def test_a_refusal_never_echoes_the_credential(app: TestClient, idp: FakeIdp) -> None:
+    secret = key_for(app, idp)
+    sign_in(app, idp, roles=["admin"])
+    app.delete(f"/api/auth/keys/{app.get('/api/auth/keys').json()[0]['id']}")
+    app.cookies.clear()
+    for path in ("/api/audit", "/fhir/Task"):
+        refused = app.get(path, headers={"authorization": f"Bearer {secret}"})
+        assert refused.status_code == 401 and secret not in refused.text
+        assert refused.headers["www-authenticate"] == INVALID
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "form"),
+    [
+        ("GET", "/api/audit?access_token={key}", None),
+        ("GET", "/api/health?Access_Token={key}", None),  # public routes too, any case
+        ("GET", "/fhir/Task?access%5Ftoken={key}", None),
+        ("GET", "/?access_token={key}", None),
+        ("POST", "/fhir/Task/_search", "status=completed&access_token={key}"),
+        ("POST", "/auth/logout", "access_token={key}"),
+    ],
+)
+def test_a_credential_in_a_url_or_a_form_is_refused(
+    app: TestClient, idp: FakeIdp, method: str, path: str, form: str | None
+) -> None:
+    secret = key_for(app, idp)
+    content = form.format(key=secret) if form else None
+    headers = {"content-type": "application/x-www-form-urlencoded"} if form else {}
+    refused = app.request(method, path.format(key=secret), content=content, headers=headers)
+    assert refused.status_code == 400
+    assert refused.headers["www-authenticate"] == f'{REALM}, error="invalid_request"'
+    assert secret not in refused.text
+
+
+def test_a_form_search_still_reads_its_body(app: TestClient, idp: FakeIdp) -> None:
+    """The guard reads a form body to look for `access_token`; the route still gets it."""
+    secret = key_for(app, idp, role="viewer")
+    found = app.post(
+        "/fhir/Task/_search",
+        content="_summary=count",
+        headers={
+            "authorization": f"Bearer {secret}",
+            "content-type": "application/x-www-form-urlencoded",
+        },
+    )
+    assert found.status_code == 200 and found.json()["total"] == 0
+
+
+def test_a_credential_in_a_url_is_refused_in_open_mode_too(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("MENDARI_OIDC_ISSUER", raising=False)
+    monkeypatch.delenv("MENDARI_OIDC_CLIENT_ID", raising=False)
+    client = TestClient(create_app(db_path=tmp_path / "a.db"))
+    assert client.get("/api/audit", params={"access_token": "ohk_x"}).status_code == 400
+    assert client.get("/api/audit").status_code == 200
+
+
+def test_every_refusal_on_the_api_and_fhir_says_how_to_authenticate(
+    app: TestClient, idp: FakeIdp
+) -> None:
+    """RFC 7235 and 6750: a 401 or 403 carries `WWW-Authenticate`; `insufficient_scope` when the
+    credential is valid but not enough."""
+    for path in ("/api/audit", "/fhir/Task", "/fhir/Task/x", "/openapi.json", "/api/smart/patient"):
+        refused = app.get(path)
+        assert refused.status_code == 401, path
+        assert refused.headers["www-authenticate"] == REALM, path
+    viewer = {"authorization": f"Bearer {key_for(app, idp, role='viewer')}"}
+    for method, path in (
+        ("POST", f"/api/packs/{INBOX}/decide"),
+        ("POST", "/fhir/$decide"),
+        ("GET", "/api/audit/verify"),
+    ):
+        refused = app.request(method, path, json={}, headers=viewer)
+        assert refused.status_code == 403, path
+        assert refused.headers["www-authenticate"] == f'{REALM}, error="insufficient_scope"'
+    fhir = app.post("/fhir/$decide", json={}, headers=viewer)
+    assert fhir.json()["resourceType"] == "OperationOutcome"
+    assert app.get("/api/health").headers.get("www-authenticate") is None
+
+
+def test_keys_are_managed_by_people_only(app: TestClient, idp: FakeIdp) -> None:
+    """A key never manages keys or clients, whatever its role (an admin key included): a stolen
+    key must not mint a credential that outlives it."""
+    admin_key = {"authorization": f"Bearer {key_for(app, idp, role='admin')}"}
+    insufficient = f'{REALM}, error="insufficient_scope"'
+    for method, path in (
+        ("GET", "/api/auth/keys"),
+        ("POST", "/api/auth/keys"),
+        ("DELETE", "/api/auth/keys/abc"),
+        ("GET", "/api/auth/clients"),
+        ("POST", "/api/auth/clients"),
+    ):
+        refused = app.request(method, path, json={"name": "x", "role": "viewer"}, headers=admin_key)
+        assert refused.status_code == 403, (method, path)
+        assert refused.headers["www-authenticate"] == insufficient
+        assert refused.json()["detail"] == "only a person who signed in may do this"
+    assert app.get("/api/audit/verify", headers=admin_key).status_code == 200  # still an admin
+    me = app.get("/api/auth/me", headers=admin_key).json()["principal"]
+    assert me["kind"] == "key" and "admin" in me["permissions"] and "keys" not in me["permissions"]
+    sign_in(app, idp, roles=["admin"])
+    assert "keys" in app.get("/api/auth/me").json()["principal"]["permissions"]
+    assert app.get("/api/auth/keys").status_code == 200
+    sign_in(app, idp, roles=["governance"])
+    assert app.get("/api/auth/keys").status_code == 403
+
+
+def test_verifying_and_exporting_the_chain_need_admin(app: TestClient, idp: FakeIdp) -> None:
+    for role in ("viewer", "clinicians", "governance"):
+        sign_in(app, idp, roles=[role])
+        assert app.get("/api/audit/verify").status_code == 403, role
+        assert app.get("/api/audit/export/fhir").status_code == 403, role
+        assert app.get("/api/audit").status_code == 200, role
+    service = {"authorization": f"Bearer {key_for(app, idp)}"}
+    assert app.get("/api/audit/verify", headers=service).status_code == 403
+    sign_in(app, idp, roles=["admin"])
+    assert app.get("/api/audit/verify").json()["ok"] is True
+    assert app.get("/api/audit/export/fhir").status_code == 200
+
+
+def test_api_answers_are_never_stored(app: TestClient, idp: FakeIdp) -> None:
+    """`no-store` on /api, whoever asks and whatever the answer; not on the dashboard page or
+    static files, which hold no data."""
+    assert app.get("/api/health").headers["cache-control"] == "no-store"
+    assert app.get("/api/audit").headers["cache-control"] == "no-store"  # a 401 too
+    sign_in(app, idp, roles=["admin"])
+    for path in ("/api/audit", "/api/auth/me", "/api/auth/keys", "/api/audit/export/fhir"):
+        assert app.get(path).headers["cache-control"] == "no-store", path
+    assert app.get("/").headers["cache-control"] == "no-cache"
+    assert app.get("/favicon.ico").headers["cache-control"] == "public, max-age=86400"
+    assert "no-store" not in app.get("/static/style.css").headers.get("cache-control", "")
+    assert app.get("/fhir/metadata").headers["cache-control"] == "no-cache"
+
+
+def test_an_outcome_is_recorded_for_whoever_sends_it(app: TestClient, idp: FakeIdp) -> None:
+    """Like a review's reviewer: the signed-in person or the key, whatever the body says."""
+    machine = {"authorization": f"Bearer {key_for(app, idp)}"}
+    decided = app.post(f"/api/packs/{INBOX}/decide", json=message(ROUTINE), headers=machine)
+    outcome = {"final_label": "nurse", "source": "ehr", "recorded_by": "Dr Somebody Else"}
+    recorded = app.post(f"/api/audit/{decided.json()['id']}/outcome", json=outcome, headers=machine)
+    assert recorded.json()["recorded_by"] == "key a service"
+    sign_in(app, idp, name="Nurse Kim", roles=["clinicians"])
+    events = app.get(f"/api/audit/{decided.json()['id']}").json()["events"]
+    assert events[-1]["payload"]["recorded_by"] == "key a service"
+    assert "Dr Somebody Else" not in json.dumps(events)
+    app.post(f"/api/audit/{decided.json()['id']}/outcome", json=outcome)
+    events = app.get(f"/api/audit/{decided.json()['id']}").json()["events"]
+    assert events[-1]["payload"]["recorded_by"] == "Nurse Kim"
+
+
+def test_the_api_reference_says_keys_are_managed_by_people(app: TestClient, idp: FakeIdp) -> None:
+    sign_in(app, idp, roles=["admin"])
+    paths = app.get("/openapi.json").json()["paths"]
+    create = paths["/api/auth/keys"]["post"]
+    assert create["security"] == [{"session": []}]
+    assert "never a key" in create["description"]
+    verify = paths["/api/audit/verify"]["get"]
+    assert "the `admin` permission" in verify["description"]
+    outcome = paths["/api/audit/{decision_id}/outcome"]["post"]
+    assert "the `outcome` permission" in outcome["description"]

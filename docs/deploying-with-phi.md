@@ -51,7 +51,14 @@ In Google Cloud Console, create an OAuth client of type *Web application* with t
 test users listed there can sign in at all, which is a second gate.
 
 Integrations (the EHR, CDS Hooks, a message worker) use API keys with the `service` role.
-Admins create them in `POST /api/auth/keys`; a key is shown once and can be revoked at any time.
+Admins create them in `POST /api/auth/keys` while signed in (no key, an admin key included, may
+manage keys); a key is shown once and can be revoked at any time. Send it as
+`Authorization: Bearer ohk_…` only: Mendari refuses a credential in a URL or a form, where it
+would end up in logs.
+
+Sessions and pending sign-ins are server-side rows keyed by their kind and value. A release
+that changes how they are keyed (Phase 4 did) ends every session: people sign in again, and an
+EHR launches the app again.
 
 ## 3. PHI mode
 
@@ -117,4 +124,6 @@ that covers PHI.
 - [ ] `/api/health` shows `sign_in: true`, `phi_mode: encrypt`, and only the providers and FHIR
       servers you expect.
 - [ ] A viewer can't read an input; a reviewer can, and the read appears in the audit chain.
+- [ ] Integrations that record outcomes send `source` as an identifier (`ehr`, not a sentence)
+      and a label of the pack's primary question.
 - [ ] Retention and monitoring are scheduled; `mendari audit verify` passes.

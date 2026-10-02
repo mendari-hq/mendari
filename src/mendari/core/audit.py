@@ -12,11 +12,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import secrets
 import statistics
 import time
 import uuid
-from collections.abc import Hashable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Hashable, Iterator, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -43,6 +44,11 @@ RESULT_EVENTS = ("decision.created", "review.resolved", "outcome.recorded")
 _REVIEWABLE = (Outcome.HUMAN_REVIEW.value, Outcome.ABSTAIN.value)
 # Arbitrary constant key for the Postgres advisory lock that serialises hash-chain appends.
 _CHAIN_LOCK = 0x0E4_A0D17
+# A system that reports a downstream outcome, named as an identifier ("ehr", "mendari",
+# "urn:oid:1.2.3"), never free text: it is chained for good and exported in FHIR.
+SYSTEM_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,99}$")
+# A served pack's labels for one of its questions, by (pack id, question); None when unknown.
+QuestionLabels = Callable[[str, str], Sequence[str] | None]
 
 _TABLES = """
 CREATE TABLE IF NOT EXISTS decisions (
@@ -288,9 +294,16 @@ class AuditStore:
                 )
 
     def resolve_review(
-        self, decision_id: str, *, final_label: str, reviewer: str, note: str | None = None
+        self,
+        decision_id: str,
+        *,
+        final_label: str,
+        reviewer: str,
+        note: str | None = None,
+        labels: QuestionLabels | None = None,
     ) -> dict[str, Any]:
-        """A human confirms or corrects a HUMAN_REVIEW / ABSTAIN decision."""
+        """A human confirms or corrects a HUMAN_REVIEW / ABSTAIN decision with one of the labels
+        of its primary question (`_check_label`)."""
         if not reviewer.strip():
             raise ReviewError("a reviewer identity is required")
         with self._db.session(exclusive=True) as db:
@@ -302,10 +315,7 @@ class AuditStore:
                 raise ReviewError(f"unknown decision {decision_id}")
             if row["review_status"] != "pending":
                 raise ReviewError(f"decision {decision_id} is not awaiting review")
-            record = json.loads(row["record"])
-            labels = record["answers"].get(record["primary"], {}).get("probabilities") or {}
-            if labels and final_label not in labels:
-                raise ReviewError(f"{final_label!r} is not a valid label ({sorted(labels)})")
+            _check_label(row["pack_id"], json.loads(row["record"]), final_label, labels)
             # Overriding means disagreeing with a recommendation; an abstention made none.
             recommendation = row["recommendation"]
             override = None if recommendation is None else recommendation != final_label
@@ -330,23 +340,39 @@ class AuditStore:
             self._append(db, decision_id, "review.resolved", payload)
         return {"id": decision_id, "resolved_at": resolved_at, **payload}
 
-    def record_outcome(self, decision_id: str, *, final_label: str, source: str) -> None:
+    def record_outcome(
+        self,
+        decision_id: str,
+        *,
+        final_label: str,
+        source: str,
+        recorded_by: str,
+        labels: QuestionLabels | None = None,
+    ) -> None:
         """Downstream ground truth for a decision that was not reviewed (e.g. staff re-routed an
-        AUTO message). Feeds live accuracy and drift monitoring."""
+        AUTO message). Feeds live accuracy and drift monitoring.
+
+        `final_label` is one of the labels of the decision's primary question (`_check_label`),
+        `source` the reporting system as an identifier (`SYSTEM_ID`), and `recorded_by` who
+        recorded it (the signed-in person or API key; "open mode" without sign-in)."""
+        if not SYSTEM_ID.fullmatch(source):
+            raise ReviewError("the source must be a system identifier, such as 'ehr'")
+        if not recorded_by.strip():
+            raise ReviewError("who records an outcome is required")
         with self._db.session(exclusive=True) as db:
             scope, scoped = _scope()
             row = db.one(
-                f"SELECT review_status FROM decisions d WHERE id = ? AND {scope}",
+                f"SELECT review_status, pack_id, record FROM decisions d WHERE id = ? AND {scope}",
                 (decision_id, *scoped),
             )
             if row is None:
                 raise ReviewError(f"unknown decision {decision_id}")
             if row["review_status"] == "pending":
                 raise ReviewError("resolve the pending review instead of recording an outcome")
+            _check_label(row["pack_id"], json.loads(row["record"]), final_label, labels)
             db.all("UPDATE decisions SET final_label = ? WHERE id = ?", (final_label, decision_id))
-            self._append(
-                db, decision_id, "outcome.recorded", {"final_label": final_label, "source": source}
-            )
+            payload = {"final_label": final_label, "source": source, "recorded_by": recorded_by}
+            self._append(db, decision_id, "outcome.recorded", payload)
 
     def record_event(self, decision_id: str, event: str, payload: Mapping[str, Any]) -> None:
         """A follow-up on a decision (e.g. `pas.submitted`), chained after its other events."""
@@ -691,45 +717,74 @@ class AuditStore:
         more = len(rows) > query.limit
         return Page(events, (events[-1]["seq"],) if more else None, total)
 
-    # -- SMART launches and sessions (standards/smart.py) --------------------------------
-    # Keyed by the SHA-256 of the state or session id the browser holds, so the table alone
-    # cannot be replayed; rows expire with the launch or the access token. Not part of the
-    # audit chain.
+    # -- the session table: sign-ins, SMART launches, sessions, one-time claims ----------------
+    # Each row is keyed by sha256(kind || 0x00 || value), the value being the state, session id
+    # or claim the caller holds: the table alone cannot be replayed, and a value of one kind can
+    # never name a row of another (a kind is a short name without NUL). Every read, take and
+    # delete is scoped to its kind. Rows expire; expired ones are purged on the next put. Not part
+    # of the audit chain, so no operation here takes the chain's lock: a take is one
+    # `DELETE ... RETURNING`, a claim one `INSERT ... ON CONFLICT`, each atomic on its own.
+    # Rows keyed before the kind was in the digest are never found again and expire.
 
     def smart_put(self, key: str, kind: str, data: Mapping[str, Any], expires_at: int) -> None:
+        row = _session_key(kind, key)
         now = int(time.time())
-        with self._db.session(exclusive=True) as db:
+        with self._db.session(exclusive=False) as db:
             db.all("DELETE FROM smart_sessions WHERE expires_at <= ?", (now,))
             db.all(
                 "INSERT INTO smart_sessions (key_sha256, kind, expires_at, data) "
                 "VALUES (?, ?, ?, ?)",
-                (_key(key), kind, expires_at, _canonical(data)),
+                (row, kind, expires_at, _canonical(data)),
             )
 
     def smart_get(self, key: str, kind: str) -> dict[str, Any] | None:
+        row_key = _session_key(kind, key)
         with self._db.session(exclusive=False) as db:
             row = db.one(
                 "SELECT data FROM smart_sessions WHERE key_sha256 = ? AND kind = ? "
                 "AND expires_at > ?",
-                (_key(key), kind, int(time.time())),
+                (row_key, kind, int(time.time())),
             )
         return None if row is None else json.loads(row["data"])
 
     def smart_take(self, key: str, kind: str) -> dict[str, Any] | None:
-        """Read and delete in one step: a launch's state works once."""
-        with self._db.session(exclusive=True) as db:
+        """Read and delete in one statement: a launch's or a sign-in's state works once."""
+        row_key = _session_key(kind, key)
+        with self._db.session(exclusive=False) as db:
             row = db.one(
-                "SELECT data, expires_at FROM smart_sessions WHERE key_sha256 = ? AND kind = ?",
-                (_key(key), kind),
+                "DELETE FROM smart_sessions WHERE key_sha256 = ? AND kind = ? "
+                "RETURNING data, expires_at",
+                (row_key, kind),
             )
-            db.all("DELETE FROM smart_sessions WHERE key_sha256 = ?", (_key(key),))
         if row is None or row["expires_at"] <= int(time.time()):
             return None
         return json.loads(row["data"])
 
-    def smart_delete(self, key: str) -> None:
-        with self._db.session(exclusive=True) as db:
-            db.all("DELETE FROM smart_sessions WHERE key_sha256 = ?", (_key(key),))
+    def smart_delete(self, key: str, kind: str) -> None:
+        """Delete this kind's row for `key` (a logout ends its own kind of session only)."""
+        row_key = _session_key(kind, key)
+        with self._db.session(exclusive=False) as db:
+            db.all("DELETE FROM smart_sessions WHERE key_sha256 = ? AND kind = ?", (row_key, kind))
+
+    def smart_claim(self, kind: str, value: str, expires_at: int) -> bool:
+        """Claim `value` once until `expires_at` (e.g. an assertion's `jti`): True for the first
+        claim, False while that claim lasts; an expired claim can be made again. One statement,
+        so concurrent claims through any number of connections or instances have one winner."""
+        row_key = _session_key(kind, value)
+        now = int(time.time())
+        if expires_at <= now:
+            raise ValueError("a claim must expire in the future")
+        with self._db.session(exclusive=False) as db:
+            won = db.all(
+                "INSERT INTO smart_sessions (key_sha256, kind, expires_at, data) "
+                "VALUES (?, ?, ?, '{}') "
+                "ON CONFLICT (key_sha256) DO UPDATE SET kind = excluded.kind, "
+                "expires_at = excluded.expires_at, data = excluded.data "
+                "WHERE smart_sessions.expires_at <= ? "
+                "RETURNING key_sha256",
+                (row_key, kind, expires_at, now),
+            )
+        return bool(won)
 
     # -- governance approvals -------------------------------------------------------------------
     # A deploying organization's recorded decision to let a level 2-3 pack automate (ADR-0002):
@@ -1258,6 +1313,25 @@ def _feedback_item(row: Mapping[str, Any]) -> dict[str, Any]:
     return item
 
 
+def _check_label(
+    pack_id: str, record: Mapping[str, Any], label: str, labels: QuestionLabels | None
+) -> None:
+    """A final label must be one of the labels of the decision's primary question: those its
+    answer gave probabilities for (the pack version that decided), or else, for a decision with
+    no answer (an input refused before any provider ran), the served pack's. With neither, no
+    label can be checked, so none is accepted."""
+    primary = record.get("primary")
+    answer = (record.get("answers") or {}).get(primary) or {}
+    known = list(answer.get("probabilities") or ())
+    if not known and labels is not None and isinstance(primary, str):
+        known = list(labels(pack_id, primary) or ())
+    if not known:
+        raise ReviewError("this decision's labels are unknown here, so no label can be recorded")
+    if label not in known:
+        # The label is not echoed: a caller could have put anything there.
+        raise ReviewError(f"not one of the labels of this decision's question ({sorted(known)})")
+
+
 def _scope() -> tuple[str, tuple[str, ...]]:
     """The SQL condition (on the table aliased `d`) that keeps a query to the organization this
     request acts for; nothing in open mode. Rows from before tenancy belong to the default one."""
@@ -1269,6 +1343,17 @@ def _scope() -> tuple[str, tuple[str, ...]]:
 
 def _key(secret: str) -> str:
     return hashlib.sha256(secret.encode()).hexdigest()
+
+
+_SESSION_KIND = re.compile(r"[a-z][a-z0-9-]{0,39}")
+
+
+def _session_key(kind: str, value: str) -> str:
+    """A session-table row's key: sha256(kind || 0x00 || value). Kinds are short lowercase names
+    (never a NUL), so two (kind, value) pairs share a preimage only if they are equal."""
+    if not _SESSION_KIND.fullmatch(kind):
+        raise ValueError(f"not a session kind: {kind!r}")
+    return hashlib.sha256(kind.encode() + b"\x00" + value.encode()).hexdigest()
 
 
 def _sha(value: Any) -> str:

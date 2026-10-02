@@ -33,7 +33,9 @@ def seed(
             db.all("UPDATE decisions SET created_at = ? WHERE id = ?", (when, result.id))
         if final is not None:
             label = result.recommendation if final == "same" else final
-            store.record_outcome(result.id, final_label=str(label), source="staff re-route")
+            store.record_outcome(
+                result.id, final_label=str(label), source="staff-reroute", recorded_by="rn-9"
+            )
         ids.append(result.id)
     return ids
 

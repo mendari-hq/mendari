@@ -16,7 +16,7 @@ from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal
-from urllib.parse import parse_qsl
+from urllib.parse import parse_qsl, unquote_plus
 
 from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -36,7 +36,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from mendari import __version__, guard, settings
 from mendari.core import clock, tenancy
-from mendari.core.audit import AuditStore
+from mendari.core.audit import SYSTEM_ID, AuditStore
 from mendari.core.card import benchmark, render_card
 from mendari.core.decision import CallBudget, Decision
 from mendari.core.pack import Pack
@@ -62,7 +62,15 @@ from mendari.evals.pack_tests import load_cases
 from mendari.providers import jev, llm
 from mendari.providers.credentials import key_source
 from mendari.server import api_docs
-from mendari.server.auth import Auth, add_auth_routes, auth_settings, permission_for
+from mendari.server.auth import (
+    OPEN,
+    Auth,
+    Principal,
+    add_auth_routes,
+    auth_settings,
+    challenge,
+    permission_for,
+)
 from mendari.server.smart_routes import add_smart_routes, error_page
 from mendari.settings import FhirValidation, providers_for
 from mendari.standards import (
@@ -127,14 +135,23 @@ class ApprovalRequest(BaseModel):
 
 
 class ReviewRequest(BaseModel):
-    final_label: str = Field(min_length=1)
+    final_label: str = Field(min_length=1, max_length=200)
     reviewer: str = Field(min_length=1, max_length=200)
     note: str | None = Field(default=None, max_length=2000)
 
 
 class OutcomeRequest(BaseModel):
-    final_label: str = Field(min_length=1)
-    source: str = Field(min_length=1, max_length=200)
+    final_label: str = Field(
+        min_length=1, max_length=200, description="one of the labels of the decision's question"
+    )
+    source: str = Field(
+        min_length=1,
+        max_length=100,
+        pattern=SYSTEM_ID.pattern,
+        description='the system that observed it, as an identifier (e.g. "ehr", "mendari"), '
+        "never free text: it is chained and exported",
+        examples=["ehr"],
+    )
 
 
 class PriorAuthorizationRequest(BaseModel):
@@ -190,6 +207,12 @@ def acting_as(request: Request, claimed: str | None) -> str | None:
     whatever the request body says; in open mode, the name the client gives."""
     principal = getattr(request.state, "principal", None)
     return principal.name if principal is not None and principal.kind != "open" else claimed
+
+
+def principal_of(request: Request) -> Principal:
+    """Who the guard let through (`open mode` when sign-in is off)."""
+    principal: Principal = getattr(request.state, "principal", None) or OPEN
+    return principal
 
 
 def input_reader(request: Request) -> str | None:
@@ -272,6 +295,14 @@ def create_app(
             )
             decisions[pack_id] = decision
         return decisions[pack_id]
+
+    def question_labels(pack_id: str, question: str) -> list[str] | None:
+        """A served pack's labels for one of its questions (None: not served, or no such
+        question), for decisions whose record has no answer to check a label against."""
+        pack = packs.get(pack_id)
+        if pack is None or question not in pack.manifest.questions:
+            return None
+        return pack.manifest.labels(question)
 
     def approved_override(pack: Pack) -> GovernanceOverride | None:
         """The organization's approval in force for exactly this pack, as the runtime override."""
@@ -684,12 +715,14 @@ def create_app(
         summary="Resolve a review",
     )
     def resolve(decision_id: str, request: ReviewRequest, http: Request) -> dict[str, Any]:
-        """Record a reviewer's final label for a decision in the queue."""
+        """Record a reviewer's final label for a decision in the queue: one of the labels of the
+        decision's question."""
         return store.resolve_review(
             decision_id,
             final_label=request.final_label,
             reviewer=acting_as(http, request.reviewer) or "",
             note=request.note,
+            labels=question_labels,
         )
 
     @app.get(
@@ -770,11 +803,20 @@ def create_app(
         tags=["Review and feedback"],
         summary="Record what really happened",
     )
-    def record_outcome(decision_id: str, request: OutcomeRequest) -> dict[str, str]:
+    def record_outcome(decision_id: str, request: OutcomeRequest, http: Request) -> dict[str, str]:
         """Record the final label from a downstream system (e.g. where the message was really
-        handled), for monitoring."""
-        store.record_outcome(decision_id, final_label=request.final_label, source=request.source)
-        return {"id": decision_id, "final_label": request.final_label}
+        handled), for monitoring: one of the labels of the decision's question. `source` names
+        that system as an identifier; who recorded it is the caller (the signed-in person or API
+        key), whatever the body says."""
+        recorded_by = principal_of(http).name
+        store.record_outcome(
+            decision_id,
+            final_label=request.final_label,
+            source=request.source,
+            recorded_by=recorded_by,
+            labels=question_labels,
+        )
+        return {"id": decision_id, "final_label": request.final_label, "recorded_by": recorded_by}
 
     @app.post(
         "/api/audit/{decision_id}/feedback",
@@ -1152,8 +1194,15 @@ def create_app(
 
     @app.middleware("http")
     async def _guard(request: Request, call_next: Any) -> Response:
-        """Every request passes the sign-in guard (a no-op in open mode)."""
+        """Every request passes the sign-in guard (a no-op in open mode). A credential in a URL
+        or a form is refused first, in every mode: it would end up in logs and histories."""
         try:
+            if await _carries_access_token(request):
+                raise AuthError(
+                    "send credentials in the Authorization header, never in a URL or a form",
+                    400,
+                    challenge=challenge("invalid_request"),
+                )
             refused = auth.check(request)
         except AuthError as error:
             return error_response(request.url.path, error.status, error)
@@ -1173,6 +1222,12 @@ def create_app(
         response: Response = await call_next(request)
         for name, value in SECURITY_HEADERS.items():
             response.headers.setdefault(name, value)
+        path = request.url.path
+        if path.startswith("/api/"):  # data, often an organization's: never stored anywhere
+            response.headers["Cache-Control"] = "no-store"
+        api = path.startswith(("/api/", "/fhir/")) or path == "/fhir"
+        if api and response.status_code in (401, 403):  # RFC 7235 and 6750: say how to sign in
+            response.headers.setdefault("WWW-Authenticate", challenge())
         if not request.url.path.startswith(("/docs", "/redoc")):
             response.headers.setdefault("Content-Security-Policy", csp)
             response.headers.setdefault("Cross-Origin-Embedder-Policy", "require-corp")
@@ -1205,6 +1260,24 @@ def create_app(
     return app
 
 
+_ACCESS_TOKEN = "access_token"
+
+
+async def _carries_access_token(request: Request) -> bool:
+    """Whether a request sends an `access_token` in its URL or a form body (RFC 6750 allows
+    both; Mendari accepts neither)."""
+    if any(name.lower() == _ACCESS_TOKEN for name in request.query_params):
+        return True
+    media = request.headers.get("content-type", "").split(";")[0].strip().lower()
+    if media != _FORM:
+        return False
+    body = await request.body()  # kept for the route (Starlette replays it)
+    names = (part.split(b"=", 1)[0] for part in body.split(b"&"))
+    return any(
+        unquote_plus(name.decode("latin-1")).strip().lower() == _ACCESS_TOKEN for name in names
+    )
+
+
 def mounted_routes(app: FastAPI) -> list[tuple[str, str]]:
     """(method, path) of every route the app serves."""
     return [
@@ -1216,15 +1289,19 @@ def mounted_routes(app: FastAPI) -> list[tuple[str, str]]:
 
 
 def error_response(path: str, status: int, error: MendariError) -> JSONResponse:
-    """`{"error", "detail"}` on Mendari's own API; an OperationOutcome on FHIR routes."""
+    """`{"error", "detail"}` on Mendari's own API; an OperationOutcome on FHIR routes. A
+    sign-in refusal carries its `WWW-Authenticate` challenge."""
+    asked = error.challenge if isinstance(error, AuthError) else None
+    headers = {"WWW-Authenticate": asked} if asked else None
     if not _FHIR_ROUTE.match(path):
-        return JSONResponse({"error": type(error).__name__, "detail": str(error)}, status)
+        body = {"error": type(error).__name__, "detail": str(error)}
+        return JSONResponse(body, status, headers=headers)
     if isinstance(error, FhirStructureError):
         return operation_outcome(status, [{"code": "structure", **i} for i in error.issues])
     code = _ISSUE_TYPE.get(status, "processing")
     if isinstance(error, PackNotFoundError):
         code = "not-found"
-    return operation_outcome(status, [{"code": code, "diagnostics": str(error)}])
+    return operation_outcome(status, [{"code": code, "diagnostics": str(error)}], headers)
 
 
 _JSON_FORMATS = {"json", "application/json", "application/fhir+json", "text/json"}
