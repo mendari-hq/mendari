@@ -22,6 +22,7 @@ from typing import Any
 SANDBOX_TAG = {"system": "https://mendari.co/fhir/sandbox", "code": "synthetic"}
 CASE_SYSTEM = "https://mendari.co/fhir/synthetic-case"
 CHANNEL_SYSTEM = "https://mendari.co/fhir/CodeSystem/message-channel"
+CHANNELS = {"portal": "Patient portal", "sms": "Text message (SMS)", "email": "Email"}
 US_CORE = "http://hl7.org/fhir/us/core/StructureDefinition/"
 SNOMED = "http://snomed.info/sct"
 LOINC = "http://loinc.org"

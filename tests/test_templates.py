@@ -9,7 +9,7 @@ from pydantic import ValidationError
 
 from mendari import Decision
 from mendari.core.spec import PackManifest
-from mendari.core.templates import fill, unknown_placeholders
+from mendari.core.templates import expansions, fill, unknown_placeholders
 from mendari.errors import PackValidationError
 from mendari.standards import cds_hooks
 from mendari.standards.fhir import FhirAdapter
@@ -28,6 +28,17 @@ def test_placeholders_are_built_ins_or_questions() -> None:
         "specialty.x",
     ]
     assert unknown_placeholders("unbalanced {", questions) == ["unbalanced {"]
+
+
+def test_expansions_are_every_text_fill_can_give() -> None:
+    choices = {"specialty": ["cardiology", "unknown"], "priority": ["routine", "stat"]}
+    assert expansions("{specialty}-{priority}-{specialty}", choices) == [
+        ("cardiology-routine-cardiology", {"specialty": "cardiology", "priority": "routine"}),
+        ("cardiology-stat-cardiology", {"specialty": "cardiology", "priority": "stat"}),
+        ("unknown-routine-unknown", {"specialty": "unknown", "priority": "routine"}),
+        ("unknown-stat-unknown", {"specialty": "unknown", "priority": "stat"}),
+    ]
+    assert expansions("prior-auth-team", choices) == [("prior-auth-team", {})]
 
 
 def test_answers_fill_templates_and_missing_ones_read_unknown() -> None:
