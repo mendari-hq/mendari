@@ -4,15 +4,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import time
 import uuid
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, ValidationError
 
 from mendari.core.derive import complete_answers, explain
 from mendari.core.pack import Pack, load_pack
@@ -181,8 +182,11 @@ class Decision:
         return self.decide(inputs)
 
     def validate(self, inputs: Any) -> list[str]:
-        errors = sorted(self._validator.iter_errors(inputs), key=lambda e: list(e.path))
-        return [f"{'/'.join(map(str, e.path)) or '(root)'}: {e.message}" for e in errors[:10]]
+        """Why the input fails the pack's input schema, at most ten reasons. Each names where
+        and which rule of the schema, never the value: jsonschema's own messages quote the
+        input, and reasons are stored in the audit trail and copied into the FHIR Task."""
+        errors = sorted(self._validator.iter_errors(inputs), key=lambda e: list(map(str, e.path)))
+        return [f"{_where(error.path)}: {_schema_rule(error)}" for error in errors[:10]]
 
     def decide(
         self,
@@ -300,6 +304,66 @@ class Decision:
 
 
 _FALLBACK = (Outcome.ABSTAIN, Outcome.BLOCK)
+
+
+_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]{0,63}$")
+
+
+def _where(path: Iterable[Any]) -> str:
+    """A path in the input. A key the schema does not name is the client's text, so only keys
+    shaped like a field name are shown."""
+    parts = [str(p) if isinstance(p, int) or _KEY.match(str(p)) else "*" for p in path]
+    return "/".join(parts) or "(root)"
+
+
+def _schema_rule(error: ValidationError) -> str:
+    """What the schema requires, in words built from the schema alone (`validator_value` is the
+    pack's own schema), never from the instance."""
+    keyword, expected = error.validator, error.validator_value
+    present = error.instance if isinstance(error.instance, Mapping) else {}
+    if keyword == "required":
+        names = expected if isinstance(expected, list) else []
+        missing = [str(name) for name in names if name not in present]
+        return f"{', '.join(missing) or 'a field'} is required"
+    if keyword == "type":
+        kinds = expected if isinstance(expected, list) else [expected]
+        return f"must be of type {' or '.join(map(str, kinds))}"
+    if keyword in ("enum", "const"):
+        return "is not one of the values the schema allows"
+    if keyword in ("minLength", "maxLength", "minItems", "maxItems"):
+        bound = "at least" if keyword.startswith("min") else "at most"
+        unit = "characters" if keyword.endswith("Length") else "items"
+        return f"must have {bound} {expected} {unit}"
+    if keyword in ("minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum"):
+        relation = {
+            "minimum": "at least",
+            "maximum": "at most",
+            "exclusiveMinimum": "more than",
+            "exclusiveMaximum": "less than",
+        }[str(keyword)]
+        return f"must be {relation} {expected}"
+    if keyword == "pattern":
+        return "does not match the pattern the schema requires"
+    if keyword == "format":
+        return f"is not a valid {expected}"
+    if keyword in ("additionalProperties", "unevaluatedProperties"):
+        schema = error.schema if isinstance(error.schema, Mapping) else {}
+        allowed = set(schema.get("properties") or {})
+        patterns = list(schema.get("patternProperties") or {})
+        extra = [
+            str(key)
+            for key in present
+            if key not in allowed and not any(re.search(p, str(key)) for p in patterns)
+        ]
+        named = [key for key in extra if _KEY.match(key)]
+        unnamed = len(extra) - len(named)
+        listed = [*named, *([f"{unnamed} more"] if unnamed and named else [])]
+        return (
+            f"has fields the schema does not allow: {', '.join(listed)}"
+            if named
+            else ("has a field the schema does not allow")
+        )
+    return f"does not satisfy the schema's {keyword} rule"
 
 
 def input_hash(inputs: Any) -> str:
