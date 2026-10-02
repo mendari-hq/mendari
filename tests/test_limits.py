@@ -37,7 +37,7 @@ from mendari.server.limits import (
     limit_settings,
 )
 from mendari.standards.fhir_client import GuardedHttp
-from tests.conftest import ROOT, message, signed_in
+from tests.conftest import ROOT, message, security_lines, signed_in, without_request_id
 from tests.test_auth import IDP, FakeIdp
 from tests.test_backend_services import (
     PUBLIC_URL,
@@ -243,7 +243,7 @@ def test_each_refusal_says_when_to_retry_in_the_routes_own_shape(
     assert client.post(DECIDE, json={}, headers=key).status_code == 200  # a recorded BLOCK
     api = client.post(DECIDE, json=message(ROUTINE), headers=key)
     assert 55 <= assert_retry_after(api) <= 60
-    assert api.json() == {
+    assert without_request_id(api.json(), api) == {
         "error": "RateLimited",
         "detail": f"too many requests (decide: 1/min); retry in {api.headers['retry-after']} s",
     }
@@ -266,7 +266,7 @@ def test_a_daily_budget_or_quota_says_retry_after_midnight() -> None:
 
 
 def test_log_mode_counts_and_never_refuses(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """`log` is the shadow mode (CI's ZAP scan, a first week in production): the limiter runs,
     says once what it would refuse, and refuses nothing."""
@@ -274,11 +274,12 @@ def test_log_mode_counts_and_never_refuses(
     db = str(tmp_path / "log.db")
     client = TestClient(create_app(db_path=db))
     key = service_key(db)
-    with caplog.at_level(logging.WARNING, logger="mendari.limits"):
-        answers = [client.post(DECIDE, json={}, headers=key).status_code for _ in range(5)]
+    capsys.readouterr()
+    answers = [client.post(DECIDE, json={}, headers=key).status_code for _ in range(5)]
     assert answers == [200] * 5
-    reached = [r.getMessage() for r in caplog.records if "rate limit reached" in r.getMessage()]
-    assert len(reached) == 1 and "log mode: not refused" in reached[0]
+    reached = [e for e in security_lines(capsys.readouterr().out) if e["event"] == "ratelimit.hit"]
+    assert len(reached) == 1 and reached[0]["reason"] == "decide:log_mode"
+    assert reached[0]["outcome"] == "ok" and reached[0]["actor"].startswith("key:")
     assert [b.partition(":")[0] for b in buckets(db)] == ["decide|key"]  # counted all the same
 
 
@@ -593,6 +594,7 @@ def test_mendari_serve_trusts_forwarded_addresses_only_from_the_proxies_given(
     db = str(tmp_path / "serve.db")
     assert cli.main(["serve", "--db", db]) == 0
     assert ran["proxy_headers"] is True and ran["forwarded_allow_ips"] == "127.0.0.1"
+    assert ran["access_log"] is False  # uvicorn's line has the query string; Mendari's has not
     assert client_ip_source() == "x-forwarded-for from 127.0.0.1, else the connection"
     cli.main(["serve", "--db", db, "--forwarded-allow-ips", "10.0.0.0/8"])
     assert ran["forwarded_allow_ips"] == "10.0.0.0/8"

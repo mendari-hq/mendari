@@ -32,6 +32,7 @@ from mendari.core.audit import AuditStore
 from mendari.core.decision import Decision
 from mendari.core.pack import Pack
 from mendari.errors import FhirError, SmartError
+from mendari.server import security_log
 from mendari.standards import smart
 from mendari.standards.cds_hooks import fill_template
 from mendari.standards.fhir import FhirAdapter
@@ -198,12 +199,15 @@ def add_smart_routes(
 
 
 def error_page(message: str, status: int) -> HTMLResponse:
-    """Launch errors land in the EHR's browser, so they get a page rather than JSON."""
+    """Launch errors land in the EHR's browser, so they get a page rather than JSON, with the
+    request's id for the person to quote (server/security_log.py)."""
+    rid = security_log.request_id()
+    reference = f"<p>Reference: <code>{html.escape(rid)}</code></p>" if rid else ""
     body = (
         "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'>"
         "<title>Mendari: launch failed</title>"
         "<body style='font:16px system-ui;max-width:36rem;margin:3rem auto;padding:0 1rem'>"
-        f"<h1>The launch did not complete</h1><p>{html.escape(message)}</p>"
+        f"<h1>The launch did not complete</h1><p>{html.escape(message)}</p>{reference}"
         "<p><a href='/'>Open the dashboard</a></p>"
     )
     return HTMLResponse(body, status_code=status)

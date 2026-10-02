@@ -21,10 +21,11 @@ Reads are not limited here (the edge covers floods, and a read writes nothing pe
 Per-IP keys are used only where no one has signed in yet: a hospital sits behind one address.
 
 **Mode** (`MENDARI_RATE_LIMITS`): `on` (refuse with `429` and `Retry-After`), `log` (count and
-log, never refuse) or `off`. The default is `on` with sign-in and `off` in open mode, where every
-caller is one principal. Overrides follow the mode, comma-separated:
-`MENDARI_RATE_LIMITS=on,decide=1200/min:200,evaluate=20/h` (`count/[n]unit[:burst]`, unit `s`,
-`min` or `h`). A bad value fails at startup.
+log, never refuse) or `off`. The default is `on` with sign-in and `off` in open mode, where
+every caller is one principal. The first refusal of a bucket, until it has room again, is a
+`ratelimit.hit` line in the security log (`server/security_log.py`). Overrides follow the
+mode, comma-separated: `MENDARI_RATE_LIMITS=on,decide=1200/min:200,evaluate=20/h`
+(`count/[n]unit[:burst]`, unit `s`, `min` or `h`). A bad value fails at startup.
 
 **The algorithm** is GCRA, one statement on one row per bucket (`AuditStore.rate_take`): a
 bucket admits `burst` requests at once and then one every `period / count`, with no burst at
@@ -36,7 +37,6 @@ from __future__ import annotations
 
 import hashlib
 import ipaddress
-import logging
 import math
 import os
 import re
@@ -49,8 +49,7 @@ from fastapi import Request
 
 from mendari.core.audit import AuditStore
 from mendari.errors import MendariError
-
-logger = logging.getLogger("mendari.limits")
+from mendari.server import security_log
 
 Mode = Literal["on", "log", "off"]
 _UNITS = {"s": 1, "min": 60, "h": 3600}
@@ -281,18 +280,22 @@ class Limiter:
     ) -> RateLimited | None:
         retry_after = max(1, math.ceil(wait_ms / 1000))
         with self._lock:
-            if self._logged.get(bucket, 0) <= now:  # once per bucket until it has room again
+            first = self._logged.get(bucket, 0) <= now  # once per bucket until it has room again
+            if first:
                 if len(self._logged) > 10_000:
                     self._logged.clear()
                 self._logged[bucket] = now + wait_ms
-                logger.warning(
-                    "rate limit reached: %s (%s) by %s; retry in %d s%s",
-                    kind,
-                    rate,
-                    bucket.partition("|")[2].partition(":")[0],
-                    retry_after,
-                    "" if self.mode == "on" else " (log mode: not refused)",
-                )
+        if first:
+            # The bucket's opaque id, without the address (the line's `ip` has it): `key:<id>`,
+            # `user:<hash>`, `client:<id>` (failed assertions), `smart:<digest>`; none for sign-in.
+            key = bucket.partition("|")[2]
+            actor = next((part for part in key.split("|") if not part.startswith("ip:")), None)
+            security_log.event(
+                "ratelimit.hit",
+                outcome="limited" if self.mode == "on" else "ok",
+                reason=kind if self.mode == "on" else f"{kind}:log_mode",
+                actor=actor,
+            )
         return RateLimited(f"{kind}: {rate}", retry_after) if self.mode == "on" else None
 
     def _maybe_purge(self, now: int) -> None:

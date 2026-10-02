@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import secrets
 import shutil
@@ -103,6 +104,19 @@ def pack_copy(tmp_path: Path) -> Callable[..., Path]:
         return target
 
     return make
+
+
+def security_lines(stdout: str) -> list[dict[str, Any]]:
+    """The security log's lines in captured stdout (server/security_log.py), parsed: each one
+    must be a JSON object on its own line."""
+    return [json.loads(line) for line in stdout.splitlines() if line.startswith('{"ts":')]
+
+
+def without_request_id(body: dict[str, Any], response: Any) -> dict[str, Any]:
+    """A JSON error body without its `request_id`, which must be the response's
+    `X-Request-Id`."""
+    assert body.get("request_id") == response.headers["x-request-id"]
+    return {key: value for key, value in body.items() if key != "request_id"}
 
 
 def message(body: str, **extra: Any) -> dict[str, Any]:

@@ -84,6 +84,19 @@ website (`hub/`), the container images and the deployment templates (`deploy/`).
   evaluations; over one, decisions fall back to human review, and one alert goes to the
   webhook a day. At the edge, one Vercel firewall rule limits `/auth/` and `/smart/` per IP
   (`deploy/vercel/`), first in log mode.
+- **Security log.** JSON lines on stdout (`server/security_log.py`), into Vercel's runtime logs
+  or the site's own log system: one access line per `/api`, `/fhir`, `/cds-services` and
+  `/auth` request (the route's template, the status, the caller's opaque id, organization and
+  address, the latency), and the security events: sign-ins and their refusals with a reason,
+  refused credentials and permissions, tokens issued and refused, rate limits hit, quotas
+  reached, key, client and governance changes, exports, evaluations and, under `encrypt`, the
+  inputs a reader was shown (decision ids and a count). Fields come from an allow-list:
+  never a credential, a query value, a body, a header or case text. Every response carries an
+  `X-Request-Id` (Vercel's id there, else a well-formed client one, else a new uuid), repeated
+  in JSON errors as `request_id`. An unhandled exception is logged as its type and frames;
+  under PHI mode `hash` or `encrypt` its message never reaches a log. `mendari serve` turns off
+  uvicorn's access log, which prints query strings. What must last (input reads, key, client
+  and governance changes) is in the audit chain too.
 - **Headers.** Every response has a strict CSP (the dashboard's inline scripts by hash only),
   no framing, nosniff, no referrer and cross-origin isolation.
 

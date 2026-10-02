@@ -17,7 +17,8 @@ sign-in configured and `MENDARI_PUBLIC_URL` set; otherwise the server refuses to
   `exp` (required, at most five minutes ahead, 30 s of skew); `jti` (1 to 256 characters). Only
   then is the `jti` claimed, once per client, until the assertion expires. Every failure of the
   assertion is the same `invalid_client` (401); the reason is logged with the client's id only
-  (and only once the client is known), never with the assertion or a library's message.
+  (and only once the client is known) in the security log (`auth.token.refused`,
+  `server/security_log.py`), never with the assertion or a library's message.
 - **Access tokens** are opaque (`mat_…`), live five minutes, and are stored as SHA-256 with the
   client, the scope granted (what was asked, within what the client registered) and the expiry.
   Each request reads the client's role, scopes, organization and revocation afresh (one join in
@@ -34,7 +35,6 @@ from __future__ import annotations
 import base64
 import binascii
 import json
-import logging
 import os
 import re
 import time
@@ -52,7 +52,7 @@ from starlette.concurrency import run_in_threadpool
 
 from mendari.core.audit import AuditStore
 from mendari.errors import AuthError, ClientError, MendariError, ScopeError
-from mendari.server import scopes
+from mendari.server import scopes, security_log
 from mendari.server.auth import (
     OPEN,
     PERMISSIONS,
@@ -62,8 +62,6 @@ from mendari.server.auth import (
     read_body,
 )
 from mendari.server.limits import Limiter, client_ip
-
-logger = logging.getLogger("mendari.auth")
 
 ALGORITHMS = {"RS384": "RSA", "ES384": "EC"}  # the signing algorithm, and its key type
 ASSERTION_TYPE = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
@@ -412,16 +410,18 @@ def exchange(
         except (ScopeError, KeyError):
             raise _Refused("registration", client_id) from None  # refuse, never widen
     except _Refused as refused:
-        logger.info(
-            "token refused: %s (client %s)", refused.reason, refused.client_id or "not known"
+        known = f"client:{refused.client_id}" if refused.client_id else None
+        security_log.event(
+            "auth.token.refused", outcome="refused", reason=refused.reason, actor=known
         )
         raise OAuthError("invalid_client", 401) from None
     granted = scopes.parse_lenient(form["scope"]).narrow(registered)
+    actor = f"client:{client_id}"
     if not granted.scope:
-        logger.info("token refused: scope (client %s)", client_id)
+        security_log.event("auth.token.refused", outcome="refused", reason="scope", actor=actor)
         raise OAuthError("invalid_scope")
     token, _ = store.issue_token(client_id, granted.scope, TOKEN_SECONDS)
-    logger.info("token issued (client %s)", client_id)
+    security_log.event("auth.token.issued", actor=actor, org=str(client["org"]))
     return {
         "access_token": token,
         "token_type": "bearer",
@@ -520,6 +520,12 @@ def add_backend_routes(
             scopes=scope,
             jwks=keys,
         )
+        security_log.event(
+            "admin.client.registered",
+            actor=principal.id,
+            org=principal.org,
+            ids=[str(client["client_id"])],
+        )
         return {**client, "token_endpoint": settings.token_url}
 
     @app.get("/api/auth/clients", tags=["Sign-in"], summary="List SMART Backend Services clients")
@@ -542,6 +548,9 @@ def add_backend_routes(
         org = None if principal.kind == "open" else principal.org
         if not store.revoke_client(client_id, org, revoked_by=principal.name):
             raise AuthError("no such client", 404)
+        security_log.event(
+            "admin.client.revoked", actor=principal.id, org=principal.org, ids=[client_id]
+        )
         return Response(status_code=204)
 
 

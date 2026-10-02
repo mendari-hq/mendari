@@ -34,7 +34,7 @@ from mendari.server.auth import Auth, AuthSettings, auth_settings, permission_fo
 from mendari.server.backend_services import check_jwks, default_scope
 from mendari.server.scopes import DECIDE, OUTCOME, needed, parse, parse_lenient
 from mendari.standards.fhir_client import GuardedHttp
-from tests.conftest import message, signed_in
+from tests.conftest import message, signed_in, without_request_id
 
 IDP = "https://idp.example.org"
 REALM = 'Bearer realm="mendari"'
@@ -751,7 +751,10 @@ def test_a_credential_that_is_not_valid_never_falls_back_to_the_session(
     refused = app.get("/api/audit", headers={"authorization": header})
     assert refused.status_code == 401
     assert refused.headers["www-authenticate"] == INVALID
-    assert refused.json() == {"error": "AuthError", "detail": "the credential is not valid"}
+    assert without_request_id(refused.json(), refused) == {
+        "error": "AuthError",
+        "detail": "the credential is not valid",
+    }
     me = app.get("/api/auth/me", headers={"authorization": header}).json()
     assert me == {"mode": "sign-in", "signed_in": False}
 
@@ -1035,7 +1038,10 @@ def test_an_expired_key_is_refused_like_any_credential_that_is_not_valid(
     refused = app.get("/api/audit", headers=machine)
     assert refused.status_code == 401
     assert refused.headers["www-authenticate"] == INVALID
-    assert refused.json() == {"error": "AuthError", "detail": "the credential is not valid"}
+    assert without_request_id(refused.json(), refused) == {
+        "error": "AuthError",
+        "detail": "the credential is not valid",
+    }
 
 
 @pytest.mark.parametrize(

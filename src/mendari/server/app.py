@@ -68,7 +68,7 @@ from mendari.evals.pack_tests import load_cases
 from mendari.legacy import current_pack_id
 from mendari.providers import jev, llm
 from mendari.providers.credentials import key_source
-from mendari.server import api_docs
+from mendari.server import api_docs, security_log
 from mendari.server.auth import (
     OPEN,
     Auth,
@@ -89,7 +89,7 @@ from mendari.server.backend_services import (
     oauth_error,
     throttled,
 )
-from mendari.server.limits import Limiter, RateLimited, limit_settings
+from mendari.server.limits import Limiter, RateLimited, client_ip, limit_settings
 from mendari.server.smart_routes import add_smart_routes, error_page
 from mendari.settings import FhirValidation, providers_for
 from mendari.standards import (
@@ -268,6 +268,7 @@ def create_app(
     body_limit = settings.max_body_bytes()  # likewise
     rate_limits = limit_settings(sign_in=sign_in is not None)  # likewise
     org_limits = settings.org_daily_limits()  # likewise
+    security_log.configure()
     webhook = os.environ.get("MENDARI_ALERT_WEBHOOK", "").strip()
     if org_limits and webhook:
         check_webhook(webhook)  # likewise: a quota's alert must be able to leave
@@ -370,6 +371,15 @@ def create_app(
             raise PackNotFoundError(f"unknown dataset {name!r}")
         return load_dataset(path)
 
+    def logged_reads(request: Request, items: list[dict[str, Any]], id_key: str = "id") -> None:
+        """Under PHI mode `encrypt`, a security log line for the inputs a reader was shown (their
+        decision ids and how many); each read is chained too (`input.read`)."""
+        if phi.mode != "encrypt" or input_reader(request) is None:
+            return
+        shown = [str(item[id_key]) for item in items if item.get("input_restricted") is False]
+        if shown:
+            log_event(request, "phi.inputs.read", ids=shown, count=len(shown))
+
     default_pack = INBOX if INBOX in packs else next(iter(sorted(packs)), None)
     app = FastAPI(
         title="Mendari",
@@ -444,7 +454,7 @@ def create_app(
                 for p in problems
             ]
             return operation_outcome(400, issues)
-        return JSONResponse({"detail": problems}, 422)
+        return JSONResponse(identified({"detail": problems}), 422)
 
     @app.exception_handler(StarletteHTTPException)
     async def _http_error(request: Request, error: StarletteHTTPException) -> Response:
@@ -452,17 +462,21 @@ def create_app(
             code = _ISSUE_TYPE.get(error.status_code, "processing")
             issue = {"code": code, "diagnostics": str(error.detail)}
             return operation_outcome(error.status_code, [issue], error.headers)
-        return JSONResponse({"detail": error.detail}, error.status_code, error.headers)
+        body = identified({"detail": error.detail})
+        return JSONResponse(body, error.status_code, error.headers)
 
     @app.exception_handler(Exception)
     async def _unexpected(request: Request, error: Exception) -> Response:
-        """A bug: a JSON 500 that says nothing about the input (the traceback goes to the log).
-        It is answered outside the middleware, so it sets the security headers itself."""
+        """A bug: a JSON 500 that says nothing about the input (the security log has its type
+        and frames). It is answered outside the middleware, so it sets the security headers and
+        the request id itself."""
+        rid = getattr(request.state, "request_id", None)
+        headers = {**SECURITY_HEADERS, **({"X-Request-Id": rid} if rid else {})}
         if _FHIR_ROUTE.match(request.url.path):
             issue = {"code": "exception", "diagnostics": "internal error"}
-            return operation_outcome(500, [issue], SECURITY_HEADERS)
+            return operation_outcome(500, [issue], headers)
         body = {"error": "InternalError", "detail": "internal error"}
-        return JSONResponse(body, 500, headers=SECURITY_HEADERS)
+        return JSONResponse({**body, **({"request_id": rid} if rid else {})}, 500, headers=headers)
 
     # -- packs -------------------------------------------------------------------------------
 
@@ -706,7 +720,7 @@ def create_app(
             body.approver if principal is None or principal.kind == "open" else principal.name
         )
         expires = datetime.now(UTC) + timedelta(days=body.days)
-        return store.approve_automation(
+        approval = store.approve_automation(
             pack_id=pack.id,
             pack_digest=pack.digest,
             risk_level=int(pack.manifest.risk.level),
@@ -714,6 +728,8 @@ def create_app(
             reference=body.reference,
             expires_at=expires.isoformat(timespec="seconds"),
         )
+        log_event(request, "governance.approved", ids=[str(approval["id"])])
+        return approval
 
     @app.delete(
         "/api/governance/{approval_id}",
@@ -727,6 +743,7 @@ def create_app(
         name = principal.name if principal is not None else "open mode"
         if not store.revoke_approval(approval_id, revoked_by=name):
             raise HTTPException(404, "no such approval")
+        log_event(request, "governance.revoked", ids=[approval_id])
         return Response(status_code=204)
 
     # -- evaluation --------------------------------------------------------------------------
@@ -736,7 +753,7 @@ def create_app(
         tags=["Evaluation and monitoring"],
         summary="Run an evaluation",
     )
-    def run_eval(namespace: str, name: str, request: EvalRequest) -> dict[str, Any]:
+    def run_eval(namespace: str, name: str, request: EvalRequest, http: Request) -> dict[str, Any]:
         """Evaluate the pack (or another provider configuration) on one of its datasets, and compare
         with the published benchmark. Calls to remote providers are capped at 200 cases."""
         pack_id = f"{namespace}/{name}"
@@ -756,6 +773,7 @@ def create_app(
         elif request.limit:
             dataset = dataset.head(request.limit)
         workers = REMOTE_EVAL_WORKERS if decision.is_remote else 1
+        log_event(http, "eval.run", ids=[pack.id], count=len(dataset.records))
         report = evaluate(decision, dataset, workers=workers)
         baseline = benchmark(pack)
         if baseline is not None and request.dataset != pack.manifest.evaluation.benchmark_dataset:
@@ -785,7 +803,9 @@ def create_app(
         request: Request, pack_id: str | None = None, limit: int = 100
     ) -> list[dict[str, Any]]:
         """Decisions waiting for a human (`HUMAN_REVIEW`, `ABSTAIN`), most urgent first."""
-        return store.pending_reviews(pack_id, limit=min(limit, 500), reader=input_reader(request))
+        queue = store.pending_reviews(pack_id, limit=min(limit, 500), reader=input_reader(request))
+        logged_reads(request, queue)
+        return queue
 
     @app.post(
         "/api/review/{decision_id}",
@@ -839,10 +859,14 @@ def create_app(
         summary="Export the audit trail as FHIR",
     )
     def export_audit_fhir(
-        pack_id: str | None = None, since: str | None = None, until: str | None = None
+        request: Request,
+        pack_id: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
     ) -> StreamingResponse:
         """The audit trail as FHIR NDJSON (AuditEvent and Provenance, ids and codes only),
         streamed in chain order; `since` / `until` bound the event time (ISO 8601, UTC)."""
+        log_event(request, "export.audit")  # its filters are query values: not logged
         lines = (
             json.dumps(resource, separators=(",", ":")) + "\n"
             for resource in audit_fhir.resources(
@@ -861,6 +885,7 @@ def create_app(
         record = store.get(decision_id, reader=input_reader(request))
         if record is None:
             raise HTTPException(404, f"unknown decision {decision_id}")
+        logged_reads(request, [record])
         return record
 
     @app.get(
@@ -923,9 +948,11 @@ def create_app(
         limit: int = 100,
     ) -> list[dict[str, Any]]:
         """Ratings, newest first."""
-        return store.feedback(
+        ratings = store.feedback(
             pack_id=pack_id, rating=rating, limit=min(limit, 500), reader=input_reader(request)
         )
+        logged_reads(request, ratings, id_key="decision_id")
+        return ratings
 
     @app.get(
         "/api/packs/{namespace}/{name}/feedback/export",
@@ -941,6 +968,10 @@ def create_app(
         records, skipped = feedback_dataset(
             store, pack_id=pack.id, rating=rating, reader=input_reader(request)
         )
+        log_event(request, "export.feedback", ids=[pack.id], count=len(records))
+        if phi.mode == "encrypt" and input_reader(request) is not None and records:
+            shown = [str(record["id"]).removeprefix("feedback-") for record in records]
+            log_event(request, "phi.inputs.read", ids=shown, count=len(shown))
         body = "".join(json.dumps(record, ensure_ascii=False) + "\n" for record in records)
         return Response(
             body,
@@ -1320,8 +1351,8 @@ def create_app(
 
     @app.middleware("http")
     async def _security_headers(request: Request, call_next: Any) -> Response:
-        """Outermost, so refusals from the guard get the headers too. The API docs pages load
-        Swagger UI and ReDoc from a CDN, so they keep no CSP."""
+        """Outside the guard, so refusals from the guard get the headers too. The API docs pages
+        load Swagger UI and ReDoc from a CDN, so they keep no CSP."""
         response: Response = await call_next(request)
         for name, value in SECURITY_HEADERS.items():
             response.headers.setdefault(name, value)
@@ -1335,6 +1366,17 @@ def create_app(
             response.headers.setdefault("Content-Security-Policy", csp)
             response.headers.setdefault("Cross-Origin-Embedder-Policy", "require-corp")
         return response
+
+    # Outermost: every request gets its id first and its access line last, refusals included
+    # (server/security_log.py). The routes are read per request: some are added below.
+    app.add_middleware(
+        security_log.RequestLog,
+        routes=lambda: app.router.routes,
+        ip_of=client_ip,
+        open_mode=not auth.enabled,
+        phi_mode=phi.mode,
+        on_vercel=bool(os.environ.get("VERCEL")),
+    )
 
     add_auth_routes(app, auth)
     if backend is not None:
@@ -1375,6 +1417,12 @@ def mounted_routes(app: FastAPI) -> list[tuple[str, str]]:
     ]
 
 
+def identified(body: dict[str, Any]) -> dict[str, Any]:
+    """A JSON error body with the request's id (`X-Request-Id`), for a person to quote."""
+    rid = security_log.request_id()
+    return body if rid is None else {**body, "request_id": rid}
+
+
 def error_response(path: str, status: int, error: MendariError) -> JSONResponse:
     """`{"error", "detail"}` on Mendari's own API; an OperationOutcome on FHIR routes. A
     sign-in refusal carries its `WWW-Authenticate` challenge, a `429` its `Retry-After`."""
@@ -1382,7 +1430,7 @@ def error_response(path: str, status: int, error: MendariError) -> JSONResponse:
     headers = {"WWW-Authenticate": asked} if asked else {}
     headers.update(retry_headers(error))
     if not _FHIR_ROUTE.match(path):
-        body = {"error": type(error).__name__, "detail": str(error)}
+        body = identified({"error": type(error).__name__, "detail": str(error)})
         return JSONResponse(body, status, headers=headers)
     if isinstance(error, FhirStructureError):
         return operation_outcome(status, [{"code": "structure", **i} for i in error.issues])
@@ -1393,6 +1441,12 @@ def error_response(path: str, status: int, error: MendariError) -> JSONResponse:
 
 
 quota_logger = logging.getLogger("mendari.limits")
+
+
+def log_event(request: Request, name: str, **fields: Any) -> None:
+    """A security log line for something the request's principal did (server/security_log.py)."""
+    principal = principal_of(request)
+    security_log.event(name, actor=principal.id, org=principal.org, **fields)
 
 
 def retry_headers(error: MendariError) -> dict[str, str]:
@@ -1424,12 +1478,13 @@ def limited_response(path: str, error: RateLimited) -> Response:
 
 def quota_alert(webhook: str | None) -> QuotaReached:
     """What happens the first time an organization reaches a daily quota (once a day, whichever
-    instance counts that call): a warning in the log and, with `MENDARI_ALERT_WEBHOOK`, one post
+    instance counts that call): a `quota.reached` line in the security log (the limit as its
+    `count`) and, with `MENDARI_ALERT_WEBHOOK`, one post
     with the organization, the metric and the limit (no case data). Never fails the decision:
     a webhook that is down loses the alert, not the request."""
 
     def alert(org: str, metric: str, limit: int) -> None:
-        quota_logger.warning("daily quota reached: %s=%d for organization %s", metric, limit, org)
+        security_log.event("quota.reached", outcome="limited", reason=metric, org=org, count=limit)
         if webhook is None:
             return
         body = {
@@ -1531,7 +1586,7 @@ class BodyCap:
         """The `413` a route gives (`_http_error`): an OperationOutcome on FHIR routes."""
         if _FHIR_ROUTE.match(path):
             return operation_outcome(413, [{"code": "too-costly", "diagnostics": self.detail}])
-        return JSONResponse({"detail": self.detail}, 413)
+        return JSONResponse(identified({"detail": self.detail}), 413)
 
 
 def form_items(body: bytes) -> list[tuple[str, str]]:

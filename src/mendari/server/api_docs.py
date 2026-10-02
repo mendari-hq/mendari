@@ -116,7 +116,9 @@ All data here is synthetic. This is a research preview, not a medical device.
    opens the audit record at `GET /api/audit/{{id}}`.
 
 A request body is 4 MiB at most unless the deployment sets `MENDARI_MAX_BODY_BYTES`; a larger
-one is a `413`.{_limits(rate_limits)}
+one is a `413`. Every answer carries an `X-Request-Id`, and JSON errors on `/api` repeat it as
+`request_id`: quote it when you report a problem. Off Vercel, an `X-Request-Id` you send (8 to
+128 of `A-Za-z0-9._:-`) is used.{_limits(rate_limits)}
 
 ### FHIR
 

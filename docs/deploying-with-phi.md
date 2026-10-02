@@ -231,7 +231,44 @@ that covers PHI.
   role approves that exact version on its Decision Card (a reference such as committee minutes,
   and an expiry). Level 4 never automates.
 
-## 6. Before go-live
+## 6. Logs
+
+Mendari writes a security log to **stdout**, one JSON object per line, for incident response.
+Send the container's stdout to your log system (Docker's logging driver, your Kubernetes log
+collector, journald) and keep it as your policy says; Mendari keeps no log table of its own.
+
+- **One access line per request** to `/api`, `/fhir`, `/cds-services` and `/auth`
+  (`"event":"request"`), refused ones included, not `/api/health` or static files: the method,
+  the route's template (`/api/audit/{decision_id}`, never the path or its query), the status,
+  the caller (`user:<hash>`, `key:<id>`, `client:<id>`, `open` or `anonymous`), its organization
+  and address, and the latency.
+- **Security events**, each with a fixed `reason` code: `auth.signin.ok|refused`,
+  `auth.logout`, `auth.credential.refused`, `auth.permission.refused`,
+  `auth.token.issued|refused`, `ratelimit.hit` (once per bucket until it has room again),
+  `quota.reached`, `admin.key.created|revoked`, `admin.client.registered|revoked`,
+  `governance.approved|revoked`, `eval.run`, `export.audit|feedback`, `phi.inputs.read` (the
+  decision ids a reader was shown, and how many) and `error.unhandled` (the exception's type and
+  stack frames).
+- **Never in a line:** a credential, a token, an assertion, a query value, a request body, a
+  header, a name or an email, case text, or an exception's message (fields come from an
+  allow-list). Under PHI mode `hash` or `encrypt`, an unhandled exception reaches the server
+  as one that names only its type, so its own traceback print carries no message either.
+- **Request ids.** Every response carries `X-Request-Id`, and JSON errors on `/api` repeat it
+  as `request_id` (a sign-in error page shows it as a reference). Mendari takes your proxy's or
+  client's `X-Request-Id` when it is 8 to 128 of `A-Za-z0-9._:-`, else makes a uuid4; on
+  Vercel it is Vercel's own id. Ask users to quote it.
+- **Client addresses** are only right behind a trusted proxy (`--forwarded-allow-ips`, §1).
+- **`mendari serve`** turns off uvicorn's access log, which prints query strings (a sign-in
+  callback's code, a search's values). If your proxy logs requests, check what it keeps of
+  query strings: credentials are refused in URLs, and FHIR searches can send their criteria in
+  a POST form (`/fhir/{type}/_search`).
+- **What must last** is in the audit chain as well: every input read under `encrypt`, and key,
+  client and governance changes. The log is for finding what happened around them.
+- **The project's own Vercel deployment** (synthetic data only) keeps stdout as runtime logs:
+  an hour on Hobby, a day on Pro, 30 days with Observability Plus. A log drain (Pro) keeps
+  them longer; add one when the first outside developer gets a key.
+
+## 7. Before go-live
 
 - [ ] Validate the pack on your own data: `mendari eval <pack> --dataset local.jsonl` (or
       Bulk FHIR: `mendari bulk export` then `bulk dataset`), and compare with the benchmark.
@@ -251,4 +288,7 @@ that covers PHI.
 - [ ] A viewer can't read an input; a reviewer can, and the read appears in the audit chain.
 - [ ] Integrations that record outcomes send `source` as an identifier (`ehr`, not a sentence)
       and a label of the pack's primary question.
+- [ ] The security log reaches your log system: a refused request (a wrong key) appears there as
+      an `auth.credential.refused` line and a `request` line with the `X-Request-Id` the
+      response carried, and no line holds a key, a query value or case text.
 - [ ] Retention and monitoring are scheduled; `mendari audit verify` passes.

@@ -336,11 +336,14 @@ def cmd_serve(args: argparse.Namespace) -> int:
         budget_limits=daily_limits(),
         datasets_dir=Path(args.datasets_dir) if args.datasets_dir else example_datasets_dir(),
     )
+    # No uvicorn access log: its line carries the query string (a sign-in callback's code and
+    # state, a search's values). Mendari's own access line (server/security_log.py) replaces it.
     uvicorn.run(
         app,
         host=args.host,
         port=args.port,
         log_level="info",
+        access_log=False,
         proxy_headers=args.proxy_headers,
         forwarded_allow_ips=trusted,
     )

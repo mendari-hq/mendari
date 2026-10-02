@@ -26,7 +26,7 @@ from mendari.server.auth import Auth, AuthSettings, Principal, person_id
 from mendari.server.scopes import DECIDE
 from mendari.standards import oidc
 from mendari.standards.fhir_client import GuardedHttp
-from tests.conftest import message
+from tests.conftest import message, without_request_id
 from tests.test_auth import IDP, FakeIdp, key_for, sign_in, signing_in_with
 
 FIXTURE = Path(__file__).parent / "fixtures" / "us-core" / "inbox.json"
@@ -353,7 +353,9 @@ def test_a_chunked_body_is_refused_once_it_passes_the_cap(capped: Any) -> None:
     chunks = [b'{"message": {"body": "', *[b"x" * 8192] * 10, b'"}}']  # no declared length
     refused = client.post(f"{INBOX}/decide", content=iter(chunks))
     assert refused.status_code == 413
-    assert refused.json() == {"detail": "a request body is 65536 bytes at most"}
+    assert without_request_id(refused.json(), refused) == {
+        "detail": "a request body is 65536 bytes at most"
+    }
     assert client.get("/api/audit").json() == []  # nothing was decided
     fhir = {"content-type": "application/fhir+json"}
     for content in (b" " * (SMALL + 1), iter([b" " * SMALL, b" "])):  # declared, then chunked

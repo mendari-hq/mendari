@@ -29,9 +29,11 @@ About 18 days of work.
   - Deviations: overrides follow the mode in the one variable; sign-in counts `/auth/login` and
     the SMART launch (callbacks left to the edge), SMART decide by a digest of its session;
     token failures count `invalid_client` only; one firewall rule (`/auth/`, `/smart/`, 120/min)
-- [ ] **E. Security log**: JSON lines on stdout from an allow-list of fields, a request id, one
+- [x] **E. Security log**: JSON lines on stdout from an allow-list of fields, a request id, one
   access line per API request, security events; no credential, query value, body or case text;
   no exception messages under `hash` or `encrypt`
+  - Deviations: `count`, `error` and `frames` join the allow-list; the logs threat row is I8 (A
+    took I7); FHIR errors carry the id in the header only; the `caplog` test reads stdout now
 - [ ] **F. Sessions and identity**: 30 minutes idle, 8 hours at most, roles recomputed per
   request, `__Host-` names with the old name accepted for one release, sign-in and SMART launch
   tied to the browser; people chained by verified email, keys as `key <id>`
