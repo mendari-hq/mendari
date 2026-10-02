@@ -36,6 +36,7 @@ import uuid
 from collections.abc import Iterable, Iterator, Mapping
 from typing import Any
 
+from mendari.core.audit import RESULT_EVENTS
 from mendari.standards.fhir import DECISION_ID_SYSTEM, PACK_ID_SYSTEM, narrative
 
 EVENT_SYSTEM = "https://mendari.co/fhir/CodeSystem/audit-event"
@@ -65,8 +66,9 @@ _EVENTS = {
     "pas.submitted": ("E", "Prior authorization requested (Da Vinci PAS)"),
 }
 # The activities that create or change a decision's result: each gets a Provenance and makes a
-# new version of the decision's Task (task_fhir.py). Other events change neither.
-VERSION_EVENTS = ("decision.created", "review.resolved", "outcome.recorded")
+# new version of the decision's Task (task_fhir.py). Other events change neither. The store's
+# own list, so a search on a Task's lastUpdated reads the same events.
+VERSION_EVENTS = RESULT_EVENTS
 # What each event says about the decision, as codes (never notes or other free text).
 _DETAILS = {
     "decision.created": ("outcome", "recommendation", "priority"),

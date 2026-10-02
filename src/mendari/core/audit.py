@@ -16,7 +16,7 @@ import secrets
 import statistics
 import time
 import uuid
-from collections.abc import Iterator, Mapping
+from collections.abc import Hashable, Iterator, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -26,6 +26,7 @@ from mendari.core.db import Backend as _Backend
 from mendari.core.db import Session as _Session
 from mendari.core.db import connect
 from mendari.core.phi import PhiPolicy
+from mendari.core.query import Atom, Page, Query, Within
 from mendari.core.spec import Outcome
 from mendari.errors import ProviderError, ReviewError
 
@@ -35,6 +36,10 @@ if TYPE_CHECKING:
     from mendari.core.decision import DecisionResult
 
 GENESIS = "0" * 64
+# The events that create or change a decision's result. Each makes a new version of the
+# decision's FHIR Task and gets a Provenance (standards/task_fhir.py, audit_fhir.py); the others
+# (feedback, input reads and purges, PAS submissions) change neither.
+RESULT_EVENTS = ("decision.created", "review.resolved", "outcome.recorded")
 _REVIEWABLE = (Outcome.HUMAN_REVIEW.value, Outcome.ABSTAIN.value)
 # Arbitrary constant key for the Postgres advisory lock that serialises hash-chain appends.
 _CHAIN_LOCK = 0x0E4_A0D17
@@ -513,15 +518,10 @@ class AuditStore:
         scope, scoped = _scope()
         with self._db.session(exclusive=False) as db:
             row = db.one(
-                "SELECT e.seq, e.decision_id, e.event, e.payload, e.created_at, e.prev_hash, "
-                "e.hash, d.pack_id, d.pack_version, d.record FROM audit_events e "
-                "JOIN decisions d ON d.id = e.decision_id WHERE e.decision_id = ? AND e.seq = ? "
-                f"AND {scope}",
+                f"SELECT {_JOINED} WHERE e.decision_id = ? AND e.seq = ? AND {scope}",
                 (decision_id, seq, *scoped),
             )
-        if row is None:
-            return None
-        return {**row, "payload": json.loads(row["payload"]), "record": json.loads(row["record"])}
+        return None if row is None else _joined(row)
 
     def reveal_inputs(
         self, items: list[dict[str, Any]], reader: str | None, *, id_key: str = "id"
@@ -629,16 +629,62 @@ class AuditStore:
                 params.append(value)
         with self._db.session(exclusive=False) as db:
             rows = db.all(
-                "SELECT e.seq, e.decision_id, e.event, e.payload, e.created_at, e.prev_hash, "
-                "e.hash, d.pack_id, d.pack_version, d.record FROM audit_events e "
-                f"JOIN decisions d ON d.id = e.decision_id WHERE {' AND '.join(clauses)} "
-                "ORDER BY e.seq LIMIT ?",
+                f"SELECT {_JOINED} WHERE {' AND '.join(clauses)} ORDER BY e.seq LIMIT ?",
                 (*params, limit),
             )
-        return [
-            {**row, "payload": json.loads(row["payload"]), "record": json.loads(row["record"])}
-            for row in rows
-        ]
+        return [_joined(row) for row in rows]
+
+    def search_decisions(self, query: Query) -> Page:
+        """Decisions matching a query (`core/query.py`), newest first (by `created_at`, then
+        `id`, both descending), each with all its events as `item()` gives them: one query for
+        the page and one for its events, however long the page. Keyset paging: `query.after` is
+        the `(created_at, id)` of the last decision already returned."""
+        conditions, params = _conditions(query.where, _DECISION_SQL)
+        scope, scoped = _scope()
+        where = " AND ".join([scope, *conditions])
+        keyset = "" if query.after is None else " AND (d.created_at, d.id) < (?, ?)"
+        with self._db.session(exclusive=False) as db:
+            rows = _page(
+                db,
+                f"SELECT d.* FROM decisions d WHERE {where}{keyset} "
+                "ORDER BY d.created_at DESC, d.id DESC LIMIT ?",
+                (*scoped, *params, *(query.after or ())),
+                query.limit,
+            )
+            items = [_row(row) for row in rows[: query.limit]]
+            trails = _events_of(db, [item["id"] for item in items]) if items else {}
+            counted = f"SELECT COUNT(*) AS n FROM decisions d WHERE {where}"
+            total = _total(db, counted, (*scoped, *params)) if query.count else None
+        for item in items:
+            item["events"] = trails[item["id"]]
+        more = len(rows) > query.limit
+        return Page(items, (items[-1]["created_at"], items[-1]["id"]) if more else None, total)
+
+    def search_events(self, query: Query) -> Page:
+        """Chained decision events matching a query (`core/query.py`), in chain order, each
+        joined with its decision as `events()` gives them. Keyset paging: `query.after` is the
+        `(seq,)` of the last event already returned. Appends are serialised by the chain lock,
+        so `seq` order is commit order: a walk neither repeats nor skips an event, even while
+        events are added."""
+        conditions, params = _conditions(query.where, _EVENT_SQL)
+        scope, scoped = _scope()
+        where = " AND ".join([scope, *conditions])
+        keyset = "" if query.after is None else " AND e.seq > ?"
+        with self._db.session(exclusive=False) as db:
+            rows = _page(
+                db,
+                f"SELECT {_JOINED} WHERE {where}{keyset} ORDER BY e.seq LIMIT ?",
+                (*scoped, *params, *(query.after or ())),
+                query.limit,
+            )
+            counted = (
+                "SELECT COUNT(*) AS n FROM audit_events e JOIN decisions d "
+                f"ON d.id = e.decision_id WHERE {where}"
+            )
+            total = _total(db, counted, (*scoped, *params)) if query.count else None
+        events = [_joined(row) for row in rows[: query.limit]]
+        more = len(rows) > query.limit
+        return Page(events, (events[-1]["seq"],) if more else None, total)
 
     # -- SMART launches and sessions (standards/smart.py) --------------------------------
     # Keyed by the SHA-256 of the state or session id the browser holds, so the table alone
@@ -1068,6 +1114,103 @@ def _events_of(db: _Session, decision_ids: list[str]) -> dict[str, list[dict[str
         event = {k: v for k, v in row.items() if k != "decision_id"}
         found[row["decision_id"]].append({**event, "payload": json.loads(row["payload"])})
     return found
+
+
+# A chained event joined with its decision's pack and record (`events()`, `event()`).
+_JOINED = (
+    "e.seq, e.decision_id, e.event, e.payload, e.created_at, e.prev_hash, e.hash, d.pack_id, "
+    "d.pack_version, d.record FROM audit_events e JOIN decisions d ON d.id = e.decision_id"
+)
+
+
+def _joined(row: Mapping[str, Any]) -> dict[str, Any]:
+    return {**row, "payload": json.loads(row["payload"]), "record": json.loads(row["record"])}
+
+
+# -- searches (core/query.py) ----------------------------------------------------------------
+# A refused input: no provider ran, so the primary question has no confidence. The same
+# predicate on the same columns as `task_fhir.task_status`, so that what a FHIR Task renders and
+# what a search on its status finds cannot disagree (a test checks both on every kind).
+_REFUSED = "(d.outcome = 'BLOCK' AND d.confidence IS NULL)"
+_STATES = {
+    "refused": _REFUSED,
+    "pending": f"(d.review_status = 'pending' AND NOT {_REFUSED})",
+    "final": f"(d.review_status <> 'pending' AND NOT {_REFUSED})",
+}
+# When the last event that changed a decision's result was chained: its Task's lastUpdated.
+_UPDATED = (
+    "(SELECT v.created_at FROM audit_events v WHERE v.decision_id = d.id AND v.event IN ("
+    + ", ".join(f"'{kind}'" for kind in RESULT_EVENTS)
+    + ") ORDER BY v.seq DESC LIMIT 1)"
+)
+# What each field a query may name is in SQL: a column (or expression), a pair of columns, or
+# one predicate per value (the states).
+_Field = str | tuple[str, str] | Mapping[str, str]
+_DECISION_SQL: dict[str, _Field] = {
+    "id": "d.id",
+    "outcome": "d.outcome",
+    "priority": "d.priority",
+    "pack": ("d.pack_id", "d.pack_version"),
+    "state": _STATES,
+    "created": "d.created_at",
+    "updated": _UPDATED,
+}
+_EVENT_SQL: dict[str, _Field] = {
+    "event": ("e.decision_id", "e.seq"),
+    "decision": "e.decision_id",
+    "kind": "e.event",
+    "recorded": "e.created_at",
+}
+
+
+def _conditions(
+    where: Sequence[Sequence[Atom]], fields: Mapping[str, _Field]
+) -> tuple[list[str], list[Any]]:
+    """A query's conditions as SQL (ANDed by the caller), with their parameters."""
+    clauses: list[str] = []
+    params: list[Any] = []
+    for condition in where:
+        parts = []
+        for atom in condition:
+            sql, values = _atom(atom, fields[atom.field])
+            parts.append(sql)
+            params += values
+        clauses.append(f"({' OR '.join(parts)})" if parts else "1 = 0")
+    return clauses, params
+
+
+def _atom(atom: Atom, target: _Field) -> tuple[str, list[Any]]:
+    if isinstance(atom, Within):
+        assert isinstance(target, str), atom.field
+        sides = [(f"{target} >= ?", atom.low), (f"{target} < ?", atom.high)]
+        present = [(sql, value) for sql, value in sides if value is not None]
+        inside = " AND ".join(sql for sql, _ in present) or "1 = 1"
+        return (f"NOT ({inside})" if atom.outside else f"({inside})"), [v for _, v in present]
+    values = sorted(atom.values, key=repr)  # a stable statement for a given query
+    if not values:
+        return "1 = 0", []
+    if isinstance(target, str):
+        return f"{target} IN ({', '.join('?' for _ in values)})", values
+    if isinstance(target, tuple):
+        pairs = " OR ".join(f"({target[0]} = ? AND {target[1]} = ?)" for _ in values)
+        return f"({pairs})", [part for pair in values for part in _pair(pair)]
+    return f"({' OR '.join(target[str(value)] for value in values)})", []
+
+
+def _pair(value: Hashable) -> tuple[Any, Any]:
+    if not (isinstance(value, tuple) and len(value) == 2):
+        raise ValueError(f"expected a pair, got {value!r}")
+    return value[0], value[1]
+
+
+def _page(db: _Session, sql: str, params: Sequence[Any], limit: int) -> list[dict[str, Any]]:
+    """Up to `limit` rows and one more (whether there is a next page), or none for 0."""
+    return db.all(sql, (*params, limit + 1)) if limit > 0 else []
+
+
+def _total(db: _Session, sql: str, params: Sequence[Any]) -> int:
+    row = db.one(sql, params)
+    return int(row["n"]) if row else 0
 
 
 def _row(row: Mapping[str, Any]) -> dict[str, Any]:

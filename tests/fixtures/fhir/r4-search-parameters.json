@@ -1,0 +1,629 @@
+{
+ "source": "hl7.fhir.r4.core#4.0.1",
+ "bases": [
+  "Task",
+  "AuditEvent",
+  "Provenance",
+  "CodeSystem",
+  "Resource",
+  "DomainResource"
+ ],
+ "parameters": [
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/AuditEvent-action",
+   "code": "action",
+   "type": "token",
+   "base": [
+    "AuditEvent"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/AuditEvent-address",
+   "code": "address",
+   "type": "string",
+   "base": [
+    "AuditEvent"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/AuditEvent-agent",
+   "code": "agent",
+   "type": "reference",
+   "base": [
+    "AuditEvent"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/AuditEvent-agent-name",
+   "code": "agent-name",
+   "type": "string",
+   "base": [
+    "AuditEvent"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/AuditEvent-agent-role",
+   "code": "agent-role",
+   "type": "token",
+   "base": [
+    "AuditEvent"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/AuditEvent-altid",
+   "code": "altid",
+   "type": "token",
+   "base": [
+    "AuditEvent"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/AuditEvent-date",
+   "code": "date",
+   "type": "date",
+   "base": [
+    "AuditEvent"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/AuditEvent-entity",
+   "code": "entity",
+   "type": "reference",
+   "base": [
+    "AuditEvent"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/AuditEvent-entity-name",
+   "code": "entity-name",
+   "type": "string",
+   "base": [
+    "AuditEvent"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/AuditEvent-entity-role",
+   "code": "entity-role",
+   "type": "token",
+   "base": [
+    "AuditEvent"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/AuditEvent-entity-type",
+   "code": "entity-type",
+   "type": "token",
+   "base": [
+    "AuditEvent"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/AuditEvent-outcome",
+   "code": "outcome",
+   "type": "token",
+   "base": [
+    "AuditEvent"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/AuditEvent-patient",
+   "code": "patient",
+   "type": "reference",
+   "base": [
+    "AuditEvent"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/AuditEvent-policy",
+   "code": "policy",
+   "type": "uri",
+   "base": [
+    "AuditEvent"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/AuditEvent-site",
+   "code": "site",
+   "type": "token",
+   "base": [
+    "AuditEvent"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/AuditEvent-source",
+   "code": "source",
+   "type": "reference",
+   "base": [
+    "AuditEvent"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/AuditEvent-subtype",
+   "code": "subtype",
+   "type": "token",
+   "base": [
+    "AuditEvent"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/AuditEvent-type",
+   "code": "type",
+   "type": "token",
+   "base": [
+    "AuditEvent"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/CodeSystem-code",
+   "code": "code",
+   "type": "token",
+   "base": [
+    "CodeSystem"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/CodeSystem-content-mode",
+   "code": "content-mode",
+   "type": "token",
+   "base": [
+    "CodeSystem"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/CodeSystem-language",
+   "code": "language",
+   "type": "token",
+   "base": [
+    "CodeSystem"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/CodeSystem-supplements",
+   "code": "supplements",
+   "type": "reference",
+   "base": [
+    "CodeSystem"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/CodeSystem-system",
+   "code": "system",
+   "type": "uri",
+   "base": [
+    "CodeSystem"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/DomainResource-text",
+   "code": "_text",
+   "type": "string",
+   "base": [
+    "DomainResource"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/Provenance-agent",
+   "code": "agent",
+   "type": "reference",
+   "base": [
+    "Provenance"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/Provenance-agent-role",
+   "code": "agent-role",
+   "type": "token",
+   "base": [
+    "Provenance"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/Provenance-agent-type",
+   "code": "agent-type",
+   "type": "token",
+   "base": [
+    "Provenance"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/Provenance-entity",
+   "code": "entity",
+   "type": "reference",
+   "base": [
+    "Provenance"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/Provenance-location",
+   "code": "location",
+   "type": "reference",
+   "base": [
+    "Provenance"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/Provenance-patient",
+   "code": "patient",
+   "type": "reference",
+   "base": [
+    "Provenance"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/Provenance-recorded",
+   "code": "recorded",
+   "type": "date",
+   "base": [
+    "Provenance"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/Provenance-signature-type",
+   "code": "signature-type",
+   "type": "token",
+   "base": [
+    "Provenance"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/Provenance-target",
+   "code": "target",
+   "type": "reference",
+   "base": [
+    "Provenance"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/Provenance-when",
+   "code": "when",
+   "type": "date",
+   "base": [
+    "Provenance"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/Resource-content",
+   "code": "_content",
+   "type": "string",
+   "base": [
+    "Resource"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/Resource-id",
+   "code": "_id",
+   "type": "token",
+   "base": [
+    "Resource"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/Resource-lastUpdated",
+   "code": "_lastUpdated",
+   "type": "date",
+   "base": [
+    "Resource"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/Resource-profile",
+   "code": "_profile",
+   "type": "uri",
+   "base": [
+    "Resource"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/Resource-query",
+   "code": "_query",
+   "type": "token",
+   "base": [
+    "Resource"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/Resource-security",
+   "code": "_security",
+   "type": "token",
+   "base": [
+    "Resource"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/Resource-source",
+   "code": "_source",
+   "type": "uri",
+   "base": [
+    "Resource"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/Resource-tag",
+   "code": "_tag",
+   "type": "token",
+   "base": [
+    "Resource"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/Task-authored-on",
+   "code": "authored-on",
+   "type": "date",
+   "base": [
+    "Task"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/Task-based-on",
+   "code": "based-on",
+   "type": "reference",
+   "base": [
+    "Task"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/Task-business-status",
+   "code": "business-status",
+   "type": "token",
+   "base": [
+    "Task"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/Task-code",
+   "code": "code",
+   "type": "token",
+   "base": [
+    "Task"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/Task-encounter",
+   "code": "encounter",
+   "type": "reference",
+   "base": [
+    "Task"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/Task-focus",
+   "code": "focus",
+   "type": "reference",
+   "base": [
+    "Task"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/Task-group-identifier",
+   "code": "group-identifier",
+   "type": "token",
+   "base": [
+    "Task"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/Task-identifier",
+   "code": "identifier",
+   "type": "token",
+   "base": [
+    "Task"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/Task-intent",
+   "code": "intent",
+   "type": "token",
+   "base": [
+    "Task"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/Task-modified",
+   "code": "modified",
+   "type": "date",
+   "base": [
+    "Task"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/Task-owner",
+   "code": "owner",
+   "type": "reference",
+   "base": [
+    "Task"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/Task-part-of",
+   "code": "part-of",
+   "type": "reference",
+   "base": [
+    "Task"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/Task-patient",
+   "code": "patient",
+   "type": "reference",
+   "base": [
+    "Task"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/Task-performer",
+   "code": "performer",
+   "type": "token",
+   "base": [
+    "Task"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/Task-period",
+   "code": "period",
+   "type": "date",
+   "base": [
+    "Task"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/Task-priority",
+   "code": "priority",
+   "type": "token",
+   "base": [
+    "Task"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/Task-requester",
+   "code": "requester",
+   "type": "reference",
+   "base": [
+    "Task"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/Task-status",
+   "code": "status",
+   "type": "token",
+   "base": [
+    "Task"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/Task-subject",
+   "code": "subject",
+   "type": "reference",
+   "base": [
+    "Task"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/conformance-context",
+   "code": "context",
+   "type": "token",
+   "base": [
+    "CodeSystem"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/conformance-context-quantity",
+   "code": "context-quantity",
+   "type": "quantity",
+   "base": [
+    "CodeSystem"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/conformance-context-type",
+   "code": "context-type",
+   "type": "token",
+   "base": [
+    "CodeSystem"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/conformance-context-type-quantity",
+   "code": "context-type-quantity",
+   "type": "composite",
+   "base": [
+    "CodeSystem"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/conformance-context-type-value",
+   "code": "context-type-value",
+   "type": "composite",
+   "base": [
+    "CodeSystem"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/conformance-date",
+   "code": "date",
+   "type": "date",
+   "base": [
+    "CodeSystem"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/conformance-description",
+   "code": "description",
+   "type": "string",
+   "base": [
+    "CodeSystem"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/conformance-identifier",
+   "code": "identifier",
+   "type": "token",
+   "base": [
+    "CodeSystem"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/conformance-jurisdiction",
+   "code": "jurisdiction",
+   "type": "token",
+   "base": [
+    "CodeSystem"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/conformance-name",
+   "code": "name",
+   "type": "string",
+   "base": [
+    "CodeSystem"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/conformance-publisher",
+   "code": "publisher",
+   "type": "string",
+   "base": [
+    "CodeSystem"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/conformance-status",
+   "code": "status",
+   "type": "token",
+   "base": [
+    "CodeSystem"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/conformance-title",
+   "code": "title",
+   "type": "string",
+   "base": [
+    "CodeSystem"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/conformance-url",
+   "code": "url",
+   "type": "uri",
+   "base": [
+    "CodeSystem"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/conformance-version",
+   "code": "version",
+   "type": "token",
+   "base": [
+    "CodeSystem"
+   ]
+  },
+  {
+   "url": "http://hl7.org/fhir/SearchParameter/filter",
+   "code": "_filter",
+   "type": "special",
+   "base": [
+    "Resource"
+   ]
+  }
+ ]
+}
