@@ -216,6 +216,21 @@ reviews and outcomes vary. Every read and search is scoped to the caller's organ
 needs the `read` permission (never public), and never writes. Also fixed: reviewing an ABSTAIN
 rendered the reviewer as Provenance `verifier`; it is `author`.
 
+### Status after Phase 4 (2026-10-02)
+
+| # | Item | After Phase 3 | Now | What changed |
+|---|---|---|---|---|
+| 8 | Security | Implemented for this deployment | **Implemented**: sign-in, scoped machine access, SMART Backend Services (off by default) | API keys are `viewer` or `service`, expire (90 days, 365 at most; older keys 30 days after deploy) and take SMART scopes (`system/<Type>.rs`) or Mendari's URI scopes (decide, outcome). A deployment can turn on **SMART Backend Services**: `POST /auth/token` takes an RS384/ES384 client assertion (checked before any write; jti once per client) and returns a five-minute opaque token whose authorization is read on every request; `/fhir/.well-known/smart-configuration` and the CapabilityStatement say so only when it is on ([ADR-0004](decisions/ADR-0004-machine-access-tokens-and-scopes.md)). Managing keys and clients is people-only and chained. A bearer credential decides alone, never with a cookie fallback; never in a URL. |
+
+Also fixed, found by the Phase 4 research: the public logout deleted session-table rows of any
+kind by a key the caller chose (a pending sign-in, or replay protection); rows are now keyed per
+kind, and deletes are scoped to a kind. Outcomes record who recorded them, take a system
+identifier as `source` (no free text into the chain or FHIR) and a label of the pack. Still
+behind Vercel Authentication: nothing external reaches the API until the owner lifts it.
+**Phase 4b** (before that, or any PHI): review and feedback notes out of the chain, a keyed input
+hash, an access log, rate limits and quotas, session idle timeout, Origin checks, supply-chain
+pinning; then the external security review.
+
 ## Validator and reference-server comparison
 
 ### HL7 FHIR Validator 6.10.4 (R4 4.0.1, US Core 6.1.0, no terminology server)
@@ -452,6 +467,11 @@ the owner's choice of a Task per decision. The `$decide` work-item Task's relati
 | SMART Backend Services / `system/*.rs` scopes accepted as bearer tokens for the FHIR routes (Phase 2–3), mapped onto Mendari roles | `server/auth.py`, `standards/oidc.py`, `standards/smart.py` | 2–3 d |
 | `.well-known/smart-configuration` only if Mendari becomes a SMART resource server; otherwise state in the CapabilityStatement that it is a SMART app | `server/smart_routes.py` | 0.5 d |
 | The planned security review before any PHI (README status note) | — | external |
+
+**Status (2026-10-02): built** after research (three researchers and a security-minded critic),
+with the owner's choices: the token endpoint plus scoped keys, older keys expiring 30 days after
+deploy, and URI scopes. Signed JWT access tokens, JWKS URLs and external authorization servers
+are deferred (ADR-0004); hardening before PHI is Phase 4b.
 
 ### Phase 5: docs experience (≈ 4–5 days)
 
