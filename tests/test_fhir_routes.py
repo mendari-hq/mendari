@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import base64
 import os
+import uuid
 from collections.abc import Iterator
+from dataclasses import replace
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from typing import Any
@@ -16,7 +18,7 @@ from urllib.parse import urlsplit
 import pytest
 from fastapi.testclient import TestClient
 
-from mendari import AuditStore
+from mendari import AuditStore, Decision, Outcome
 from mendari.server.app import create_app
 from mendari.standards import audit_fhir, fhir_structure, task_fhir
 from mendari.standards.fhir import DECISION_ID_SYSTEM
@@ -144,6 +146,8 @@ def test_audit_events_and_provenances_are_read_by_their_ids(
         "/fhir/AuditEvent/{d}",
         "/fhir/Provenance/{d}-1",  # nor the other way round
         "/fhir/Provenance/{d}-p99999999999999999999",
+        "/fhir/AuditEvent/{d}-01",  # not the id Mendari writes: a read returns the id asked for
+        "/fhir/Provenance/{d}-p01",
     ],
 )
 def test_unknown_ids_are_a_404_outcome(client: TestClient, path: str) -> None:
@@ -427,3 +431,47 @@ def test_every_sample_ci_validates_passes_the_structural_gate(client: TestClient
     assert lenient[-1]["search"]["mode"] == "outcome"
     count = answers["served-searchset-count"]
     assert count["total"] == 3 and "entry" not in count
+
+
+def test_a_search_too_costly_for_the_database_is_a_400(client: TestClient) -> None:
+    """Huge OR lists or repeats reached SQL and failed there (a 500); they are refused first."""
+    ids = ",".join(f"d{i}-1" for i in range(101))
+    too_many = client.post("/fhir/AuditEvent/_search", data={"_id": ids})
+    assert too_many.status_code == 400
+    assert too_many.json()["issue"][0]["code"] == "too-costly"
+    repeats = tuple(("date", f"ne2026-01-{day:02d}") for day in range(1, 22))
+    assert client.get("/fhir/AuditEvent", params=repeats).status_code == 400
+    assert client.get("/fhir/AuditEvent", params=repeats[:20]).status_code == 200
+
+
+def test_prefer_handling_is_read_from_every_prefer_field(client: TestClient) -> None:
+    """RFC 7240 allows preferences in several Prefer fields."""
+    fields = [("prefer", "return=minimal"), ("prefer", "handling=strict")]
+    response = client.get("/fhir/Task", params={"stauts": "requested"}, headers=fields)
+    assert response.status_code == 400
+
+
+def test_a_policy_block_without_confidence_is_completed_not_failed(
+    client: TestClient, db_target: str
+) -> None:
+    """Only a refused input is `failed`. A BLOCK rule on another question can leave the primary
+    unanswered (no confidence); the stored `refused` flag tells the two apart, and rows from
+    before the flag fall back to "BLOCK without confidence"."""
+    decision = Decision.from_hub(INBOX)
+    made = decision({"message": {"body": "Can you send a refill for metformin?"}})
+    others = {k: v for k, v in made.answers.items() if k != made.primary}
+    policy = replace(
+        made, id=str(uuid.uuid4()), outcome=Outcome.BLOCK, recommendation=None, answers=others
+    )
+    refused = decision({"message": {"body": ""}})
+    assert policy.confidence is None and not policy.rejected and refused.rejected
+    with AuditStore(db_target) as store:
+        store.record(policy, {"message": {"body": "x"}})
+        store.record(refused, {"message": {"body": ""}})
+    assert ok(client.get(f"/fhir/Task/{policy.id}"))["status"] == "completed"
+    assert ok(client.get(f"/fhir/Task/{refused.id}"))["status"] == "failed"
+    found = ok(client.get("/fhir/Task", params={"status": "failed"}))
+    assert [e["resource"]["id"] for e in found["entry"]] == [refused.id]
+    with AuditStore(db_target) as store, store._db.session(exclusive=True) as db:
+        db.all("UPDATE decisions SET refused = NULL")  # as written before the column
+    assert ok(client.get(f"/fhir/Task/{refused.id}"))["status"] == "failed"

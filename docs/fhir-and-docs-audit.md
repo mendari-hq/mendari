@@ -430,7 +430,19 @@ the HL7 validator and the official R4 definitions). Changes from the plan above:
 
 **Status (2026-10-02): built** as planned after research (three researchers and a critic), with
 the owner's choice of a Task per decision. The `$decide` work-item Task's relative references
-(a Phase 2 defect the research found) are a separate task.
+(a Phase 2 defect the research found) were fixed separately, in #108.
+- Reviewed before shipping by five independent reviewers, each finding checked by a skeptic.
+  No leak across organizations was found: reads, searches, counts and forged or replayed
+  cursors stayed within the caller's organization on SQLite and Postgres, and no case text
+  reached any resource under the three PHI modes. Five problems were confirmed, all low, and
+  fixed with tests: very long value lists or many repeats reached the database as a `500` (now
+  a `400` too-costly: at most 100 values and 20 repeats per parameter); `Prefer:
+  handling=strict` in a second Prefer field was ignored; AuditEvent and Provenance ids with a
+  leading zero read another id; and a refused input was inferred (a BLOCK without
+  confidence), which a pack with a BLOCK rule on another question would have broken: it is
+  now recorded with the decision (`decisions.refused`, an additive column; older rows keep
+  the inference). Reviewing an ABSTAIN now renders the reviewer as Provenance `author`, in the
+  `/api/audit` export too, without a new `versionId`: a rendering change, nothing stored.
 
 ### Phase 4: security (≈ 4–6 days)
 

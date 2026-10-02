@@ -1081,7 +1081,9 @@ def create_app(
 
     def search_page(request: Request, resource: str, items: list[tuple[str, str]]) -> Response:
         """One `searchset` page: the URL's parameters, then a POST body's (R4 http.html)."""
-        search = parse_search(SPECS[resource], items, handling(request.headers.get("prefer")))
+        search = parse_search(
+            SPECS[resource], items, handling(", ".join(request.headers.getlist("prefer")) or None)
+        )
         base = fhir_base(request)
         found = fhir_search.find(store, search, base=base, terminology=terms)
         bundle = searchset(

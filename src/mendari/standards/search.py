@@ -71,6 +71,10 @@ PRIORITY_SYSTEM = "http://hl7.org/fhir/request-priority"
 
 DEFAULT_COUNT = 50
 MAX_COUNT = 500
+# Bounds on what one search asks the database to do: values ORed in one parameter, and repeats
+# of one parameter (ANDed). Beyond them a search is a 400 (too-costly), not a database error.
+MAX_VALUES = 100
+MAX_REPEATS = 20
 CURSOR = "cursor"  # Mendari's paging parameter: reserved, not an R4 name
 # Presentation, not criteria: every FHIR interaction takes them, so they are never "ignored".
 _PRESENTATION = frozenset({"_format", "_pretty"})
@@ -354,6 +358,10 @@ def _criterion(
         values = tuple(_values(param, modifier or None, raw_value))
     except ValueError as error:
         return [_issue("value", f"{param.name}: {error}")]
+    if len(values) > MAX_VALUES:
+        return [_issue("too-costly", f"{param.name}: at most {MAX_VALUES} values in one list")]
+    if sum(clause.name == param.name for clause in search.clauses) >= MAX_REPEATS:
+        return [_issue("too-costly", f"{param.name}: at most {MAX_REPEATS} repeats")]
     search.clauses.append(Clause(param.name, modifier or None, values))
     search.used.append((raw_name, raw_value))
     return []

@@ -62,7 +62,8 @@ CREATE TABLE IF NOT EXISTS decisions (
     human_override  INTEGER,
     reviewer        TEXT,
     resolved_at     TEXT,
-    org             TEXT
+    org             TEXT,
+    refused         INTEGER
 );
 CREATE INDEX IF NOT EXISTS decisions_queue ON decisions (review_status, priority, created_at);
 CREATE INDEX IF NOT EXISTS decisions_pack ON decisions (pack_id, created_at);
@@ -166,6 +167,9 @@ _ADDED_COLUMNS = (
     ("feedback", "superseded_by", "TEXT"),
     ("decisions", "org", "TEXT"),  # tenancy (v0.6); NULL is the default organization
     ("eval_reports", "org", "TEXT"),
+    # 1 when the input was refused before any provider ran (Phase 3); NULL on older rows, which
+    # fall back to "BLOCK without confidence" (_REFUSED, task_fhir.refused).
+    ("decisions", "refused", "INTEGER"),
 )
 
 _PRIORITY_ORDER = (
@@ -257,7 +261,7 @@ class AuditStore:
             db.all(
                 "INSERT INTO decisions (id, created_at, pack_id, pack_version, outcome, "
                 "recommendation, priority, confidence, latency_ms, cost_usd, record, "
-                "review_status, org) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "review_status, org, refused) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     result.id,
                     result.created_at,
@@ -272,6 +276,7 @@ class AuditStore:
                     _canonical(record),
                     status,
                     tenancy.current() or tenancy.DEFAULT_ORG,
+                    int(result.rejected),
                 ),
             )
             self._append(db, result.id, "decision.created", {"record_sha256": _sha(record)})
@@ -1128,10 +1133,14 @@ def _joined(row: Mapping[str, Any]) -> dict[str, Any]:
 
 
 # -- searches (core/query.py) ----------------------------------------------------------------
-# A refused input: no provider ran, so the primary question has no confidence. The same
-# predicate on the same columns as `task_fhir.task_status`, so that what a FHIR Task renders and
-# what a search on its status finds cannot disagree (a test checks both on every kind).
-_REFUSED = "(d.outcome = 'BLOCK' AND d.confidence IS NULL)"
+# A refused input: the stored `refused` flag, or, on rows from before it existed, a BLOCK
+# without confidence (no provider ran, so the primary question has none). The same predicate on
+# the same columns as `task_fhir.refused`, so that what a FHIR Task renders and what a search on
+# its status finds cannot disagree (a test checks both on every kind).
+_REFUSED = (
+    "(COALESCE(d.refused, CASE WHEN d.outcome = 'BLOCK' AND d.confidence IS NULL "
+    "THEN 1 ELSE 0 END) = 1)"
+)
 _STATES = {
     "refused": _REFUSED,
     "pending": f"(d.review_status = 'pending' AND NOT {_REFUSED})",

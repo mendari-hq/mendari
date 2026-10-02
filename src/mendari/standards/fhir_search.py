@@ -27,6 +27,7 @@ unknown one is. Reads never write, whatever the PHI mode (`AuditStore.item`, nev
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -175,7 +176,9 @@ def event_key(resource_id: str, provenance: bool) -> tuple[str, int] | None:
     """`(decision id, seq)` from an AuditEvent id, `{decision id}-{seq}`, or a Provenance id,
     `{decision id}-p{seq}`; None when the id has neither form."""
     decision_id, separator, seq = resource_id.rpartition("-p" if provenance else "-")
-    if not (decision_id and separator and seq.isascii() and seq.isdigit()):
+    # The seq as Mendari writes it: "07" is not the id of event 7 (a read must return the id
+    # it was asked for, so a non-canonical one is a 404, as in vread).
+    if not (decision_id and separator and re.fullmatch(r"[1-9][0-9]*", seq)):
         return None
     number = int(seq)
     return (decision_id, number) if number < 2**63 else None
