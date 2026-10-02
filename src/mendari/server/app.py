@@ -952,7 +952,7 @@ def create_app(
         created = next(e for e in record["events"] if e["event"] == "decision.created")
         event = {**created, **{k: record[k] for k in ("pack_id", "pack_version", "record")}}
         provenance = audit_fhir.provenance({**event, "decision_id": result.id})
-        bundle = decide_op.response(result, task, pack, provenance)
+        bundle = decide_op.response(result, task, pack, provenance, request.data)
         return JSONResponse(bundle, media_type="application/fhir+json")
 
     @app.get(

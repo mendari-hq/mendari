@@ -19,6 +19,12 @@ what no other engine could run. R4 has a resource for a decision-support result,
 - `Provenance`: the audit trail's own for this decision, with the GuidanceResponse and Task as
   targets.
 
+References between the entries are their `urn:uuid` full URLs. References to the input (the
+Task's `for` and `focus`, the GuidanceResponse's and RequestGroup's `subject`) are the absolute
+URL `data` gives the resource (its entry's RESTful `fullUrl`, e.g.
+`http://example.org/fhir/Patient/1`). When it gives none, the reference is `Type/id`: relative
+to the client's own FHIR server, since it has no base in this Bundle.
+
 The input resources are not echoed. An answer's `evidence` can name what matched in them (a
 keyword, a code, a value): it explains the decision to the client that sent the data.
 """
@@ -26,7 +32,7 @@ keyword, a code, a value): it explains the decision to the client that sent the 
 from __future__ import annotations
 
 import uuid
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -41,6 +47,7 @@ from mendari.standards.fhir import (
     PACK_ID_SYSTEM,
     PACK_TAG_SYSTEM,
     display,
+    iter_entries,
     iter_resources,
     narrative,
 )
@@ -51,6 +58,7 @@ if TYPE_CHECKING:
 _NAMESPACE = uuid.UUID("6f1c1f0e-3d7a-5b7e-9c55-6d656e646172")  # fixed: fullUrls are stable
 _PROVIDER_ISSUE = {"budget_exhausted": "throttled", "timeout": "timeout"}
 _PARAMETERS = {"pack": "valueString", "version": "valueString", "focus": "valueString"}
+_ABSOLUTE = ("http://", "https://")
 
 
 @dataclass(frozen=True)
@@ -120,12 +128,18 @@ def focus_in(data: Mapping[str, Any], reference: str | None) -> dict[str, Any] |
 
 
 def response(
-    result: DecisionResult, task: Mapping[str, Any], pack: Pack, provenance: Mapping[str, Any]
+    result: DecisionResult,
+    task: Mapping[str, Any],
+    pack: Pack,
+    provenance: Mapping[str, Any],
+    data: Mapping[str, Any],
 ) -> dict[str, Any]:
     """The `collection` Bundle `$decide` returns, linked by `urn:uuid` full URLs. `provenance` is
-    the audit trail's Provenance for the decision (`audit_fhir.provenance`)."""
+    the audit trail's Provenance for the decision (`audit_fhir.provenance`); `data` is the input
+    Bundle, whose full URLs make the references to it absolute."""
     urls = {kind: _urn(result, kind) for kind in ("GuidanceResponse", "RequestGroup", "Task")}
     urls |= {kind: _urn(result, kind) for kind in ("Parameters", "OperationOutcome")}
+    task = _located(task, data)
     subject = task.get("for")
     engine = _engine(result)
     issues = _issues(result)
@@ -233,6 +247,43 @@ def operation_definition() -> dict[str, Any]:
 
 def _refuse(code: str, expression: str, diagnostics: str) -> None:
     raise FhirRequestError([{"code": code, "expression": expression, "diagnostics": diagnostics}])
+
+
+def _located(task: Mapping[str, Any], data: Mapping[str, Any]) -> dict[str, Any]:
+    """The Task with `for` and `focus` addressed as `_addresser` says."""
+    address = _addresser(data)
+    located = dict(task)
+    for element in ("for", "focus"):
+        if element in task:
+            located[element] = {**task[element], "reference": address(task[element]["reference"])}
+    return located
+
+
+def _addresser(data: Mapping[str, Any]) -> Callable[[str], str]:
+    """How the output refers to a resource the input refers to. An absolute reference stays.
+    Otherwise it is the absolute URL `data` gives the resource, its entry's `fullUrl` when that is
+    the resource's RESTful URL (`http(s)://[base]/Type/id`), or else `Type/id`, relative to the
+    client's own FHIR server. A `urn:uuid` reference is resolved to its entry first: the output
+    holds no entry with that full URL. The first entry for a type and id decides, as the adapter
+    keeps the first of duplicates."""
+    full_urls: dict[str, str | None] = {}  # Type/id → the first such entry's fullUrl
+    named: dict[str, str] = {}  # fullUrl → Type/id
+    for full_url, resource in iter_entries(data):
+        kind, resource_id = resource.get("resourceType"), resource.get("id")
+        if isinstance(kind, str) and isinstance(resource_id, str):
+            full_urls.setdefault(f"{kind}/{resource_id}", full_url)
+            if full_url is not None:
+                named.setdefault(full_url, f"{kind}/{resource_id}")
+
+    def address(reference: str) -> str:
+        if reference.startswith(_ABSOLUTE):
+            return reference
+        local = named.get(reference, reference)
+        full_url = full_urls.get(local) or ""
+        restful = full_url.startswith(_ABSOLUTE) and full_url.endswith(f"/{local}")
+        return full_url if restful else local
+
+    return address
 
 
 def _urn(result: DecisionResult, kind: str) -> str:
@@ -366,8 +417,13 @@ _DESCRIPTION = (
     "fallback, never the blocked action. The `Parameters` carry the recommendation, priority, "
     "confidence and every question's answer, labels coded in the pack's question CodeSystems. "
     "An `OperationOutcome` lists findings and provider failures by path and rule. A `Provenance` "
-    "records the engine as author and the input by hash. The input resources are not echoed; "
-    "an answer's evidence can name what matched in them (a keyword, a code, a value).\n\n"
+    "records the engine as author and the input by hash. The Task's `for` and `focus`, and the "
+    "`subject` of the GuidanceResponse and RequestGroup, refer to resources in `data` by the "
+    "absolute URL `data` gives them (the entry's RESTful `fullUrl`, e.g. "
+    "`http://example.org/fhir/Patient/1`); when it gives none, by `Type/id`, which is relative "
+    "to the client's own FHIR server (in the returned Bundle it has no base). "
+    "The input resources are not echoed; an answer's evidence can name what matched in them (a "
+    "keyword, a code, a value).\n\n"
     "Errors are an `OperationOutcome`: 400 for a malformed request or FHIR JSON of the wrong "
     "shape, 404 for an unknown pack or a version this deployment does not serve, 422 when the "
     "pack takes no FHIR input, when `data` lacks a resource the pack needs, or when it holds "
@@ -382,7 +438,8 @@ _VERSION_DOC = (
 )
 _DATA_DOC = (
     "The FHIR R4 resources to decide on, as a Bundle of any type. Nested search Bundles are "
-    "flattened; resources are de-duplicated by type and id."
+    "flattened; resources are de-duplicated by type and id. Give each entry its server's "
+    "`fullUrl` (`[base]/Type/id`, as a search returns) so the result refers to it absolutely."
 )
 _FOCUS_DOC = (
     "`ResourceType/id` of the resource in `data` to decide about, when `data` holds several of "
@@ -391,6 +448,7 @@ _FOCUS_DOC = (
 _RETURN_DOC = (
     "A collection Bundle: GuidanceResponse (first), RequestGroup, Task, Parameters, "
     "OperationOutcome (when there are findings) and Provenance, linked by urn:uuid full URLs. "
-    "GuidanceResponse.identifier and Task.identifier carry the decision id "
-    f"({DECISION_ID_SYSTEM}), the key for review, audit and feedback."
+    "References to `data` are the absolute URLs its entries give, else `Type/id`, relative to "
+    "the client's own FHIR server. GuidanceResponse.identifier and Task.identifier carry the "
+    f"decision id ({DECISION_ID_SYSTEM}), the key for review, audit and feedback."
 )
