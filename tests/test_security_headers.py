@@ -58,8 +58,9 @@ _OFF_ORIGIN = re.compile(r"^\s*(?:[a-z][a-z0-9+.-]*:|//|\\\\)", re.I)
 
 
 def _html_responses(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
-    """Every kind of HTML Mendari answers with: the dashboard, the API reference (also reached
-    from FastAPI's old addresses), and the error page of a failed sign-in or SMART launch."""
+    """Every kind of HTML Mendari answers with: the dashboard, the developer landing, the API
+    reference (also reached from ReDoc's old address), and the error page of a failed sign-in or
+    SMART launch."""
     client = TestClient(create_app(db_path=tmp_path / "a.db"))
     pages = {path: client.get(path) for path in ("/", "/docs/reference", "/docs", "/redoc")}
     pages["/smart/callback"] = client.get("/smart/callback")
@@ -97,10 +98,9 @@ def test_every_html_response_has_a_csp_and_loads_nothing_off_origin(
 def test_the_api_reference_is_served_from_vendored_files(client: TestClient) -> None:
     """Swagger UI at the version vendored (scripts/vendor_docs_ui.py), with a policy stricter
     than the dashboard's: no inline script and no inline style at all."""
-    for old in ("/docs", "/redoc"):
-        moved = client.get(old, follow_redirects=False)
-        assert (moved.status_code, moved.headers["location"]) == (308, "/docs/reference")
-        assert moved.headers["content-security-policy"]  # the headers on redirects too
+    moved = client.get("/redoc", follow_redirects=False)  # FastAPI's ReDoc page was here
+    assert (moved.status_code, moved.headers["location"]) == (308, "/docs/reference")
+    assert moved.headers["content-security-policy"]  # the headers on redirects too
     page = client.get("/docs/reference")
     assert page.headers["cache-control"] == "no-cache"
     policy = page.headers["content-security-policy"]

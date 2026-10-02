@@ -78,7 +78,12 @@ website (`hub/`), the container images and the deployment templates (`deploy/`).
   affected.
 - **The API reference** (`/docs/reference`, behind sign-in when it is on) is Swagger UI served from
   files vendored at a pinned version, never a CDN, and its page allows no inline script or
-  style. `/docs` and `/redoc` redirect there.
+  style. `/redoc` redirects there.
+- **The developer landing** (`/docs`) is public, also with sign-in on, so it is static: built at
+  startup from settings and the example scripts, never from a request, it shows the same for
+  every deployment of a release plus whether sign-in, the SMART launch and Backend Services are
+  on. It lists no packs (open mode aside), providers, counts or records, loads only its own
+  files, and allows no inline style.
 
 ## Remote providers
 

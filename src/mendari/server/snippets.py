@@ -4,8 +4,9 @@ Each file is a runnable bash script, split into display steps by `# step: <name>
 comments. The README shows steps verbatim (`tests/test_doc_snippets.py` keeps them equal), and
 `scripts/check_doc_snippets.py` runs every file in CI against a local server, in open mode and
 with a service key, so an example that stops working fails the build instead of a reader. The
-files live under `src/` because the server will show them too (Vercel's function excludes
-`docs/`).
+developer landing at `/docs` shows every step (`server/landing.py`) and the API guide
+(`docs/guides/api.md`) includes the files whole; they live under `src/` because the server reads
+them (Vercel's function excludes `docs/`).
 
 A script uses `$MENDARI` (the server) and sends `Authorization: Bearer $MENDARI_KEY` on every
 call that needs a credential once sign-in is on; open mode ignores the header.

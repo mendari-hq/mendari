@@ -103,7 +103,9 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         ("*", r"^/(smart|api/smart)/", "public"),  # SMART launches carry their own session
         ("GET", r"^/(static/.*|favicon\.ico)$", "public"),
         ("GET", r"^/$", "page"),
-        ("GET", r"^/(docs|redoc)$", "public"),  # redirects to the reference: they show nothing
+        # The developer landing (static, the same for every deployment of a release) and a
+        # redirect from ReDoc's old address to the reference.
+        ("GET", r"^/(docs|redoc)$", "public"),
         ("GET", r"^/docs/reference$", "page"),  # a signed-out browser is sent to sign in
         ("GET", r"^/openapi\.json$", "read"),
         ("POST", r"^/api/packs/[^/]+/[^/]+/(decide|guard|fhir/decide|pas)$", "decide"),

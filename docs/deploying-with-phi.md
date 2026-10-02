@@ -205,8 +205,10 @@ that covers PHI.
 - [ ] `/api/health` shows `sign_in: true`, `phi_mode: encrypt`, and only the providers and FHIR
       servers you expect.
 - [ ] A viewer can't read an input; a reviewer can, and the read appears in the audit chain.
-- [ ] Signed in, `/docs/reference` shows the API reference and the browser console reports no
-      CSP violation (a proxy in front must not replace Mendari's `Content-Security-Policy`).
+- [ ] Signed out, `/docs` shows the developer landing with "Sign-in is on here" and no pack
+      names; signed in, `/docs/reference` shows the API reference. Neither page's browser console
+      reports a CSP violation (a proxy in front must not replace Mendari's
+      `Content-Security-Policy`).
 - [ ] Signed in, on each address people use, review a case on the dashboard and sign out: no
       `403` "cross-site request refused" (list a rewritten name in `MENDARI_TRUSTED_ORIGINS`).
       The answers carry `Strict-Transport-Security`.

@@ -65,7 +65,7 @@ from mendari.evals.pack_tests import load_cases
 from mendari.legacy import current_pack_id
 from mendari.providers import jev, llm
 from mendari.providers.credentials import key_source
-from mendari.server import api_docs
+from mendari.server import api_docs, landing
 from mendari.server.auth import (
     OPEN,
     Auth,
@@ -1299,12 +1299,17 @@ def create_app(
         headers = {"cache-control": "no-cache", "content-security-policy": reference_csp}
         return HTMLResponse(reference, headers=headers)
 
-    # Bookmarks and links to FastAPI's Swagger UI and ReDoc pages, which are gone. Phase 5 puts
-    # a landing page at /docs.
-    @app.get("/docs", include_in_schema=False)
+    # Bookmarks and links to FastAPI's ReDoc page, which is gone.
     @app.get("/redoc", include_in_schema=False)
     def to_api_reference() -> RedirectResponse:
         return RedirectResponse("/docs/reference", status_code=308)
+
+    # The developer landing: public and static (server/landing.py). It lists every route, so it
+    # is built once all are mounted, from settings only.
+    @app.get("/docs", include_in_schema=False)
+    def developer_landing() -> HTMLResponse:
+        headers = {"cache-control": "no-cache", "content-security-policy": landing_csp}
+        return HTMLResponse(landing_page, headers=headers)
 
     # Browsers ask for /favicon.ico on any page without an icon link (e.g. raw JSON responses).
     @app.get("/favicon.ico", include_in_schema=False)
@@ -1314,6 +1319,20 @@ def create_app(
             media_type="image/x-icon",
             headers={"cache-control": "public, max-age=86400"},
         )
+
+    landing_page = landing.page(
+        versioned_page("docs.html"),
+        version=__version__,
+        sign_in=auth.enabled,
+        smart_launch=smart_options is not None,
+        token_url=None if backend is None else backend.token_url,
+        routes=mounted_routes(app),
+        permission_for=permission_for,
+        cards=None if auth.enabled else {pack_id: p.manifest.name for pack_id, p in packs.items()},
+    )
+    # No style attribute anywhere, so no inline style; its inline scripts (the theme script and
+    # the import map) by hash.
+    landing_csp = content_security_policy(landing_page, inline_styles=False)
 
     app.mount("/static", _Static(directory=DASHBOARD_DIR), name="static")
     return app
@@ -1581,6 +1600,8 @@ def content_security_policy(page: str, *, inline_styles: bool = True) -> str:
 _IMPORT_MAP = '<script type="importmap"></script>'
 _ASSET = re.compile(r'\b(src|href)="(/static/[^"?#]+\.(?:js|css))"')
 _VERSIONED_FILE = re.compile(r"^[^/]+/\d+\.\d+\.\d+/[^/]+$")  # <package>/<version>/<file>
+_ENTRY_MODULE = re.compile(r'<script type="module" src="/static/([^"/?#]+\.js)"')
+_IMPORT = re.compile(r'^import (?:[^"\n]* from )?"\./([^"/]+\.js)";$', re.M)
 
 
 def versioned_page(name: str) -> str:
@@ -1590,13 +1611,14 @@ def versioned_page(name: str) -> str:
     (`/static/vendor/<package>/<file>`) is sent to the path of its package's version.
 
     Dashboard modules import each other by plain URL ("./ui.js"): a page with an empty import
-    map gets one that sends each module to its stamped URL, and a modulepreload link per module
-    fetches the whole graph in parallel."""
+    map gets one that sends each module its page's scripts reach to its stamped URL, and a
+    modulepreload link per module fetches that graph in parallel (the dashboard's whole graph
+    from main.js; the /docs landing only docs.js, theme.js and ui.js)."""
     page = (DASHBOARD_DIR / name).read_text(encoding="utf-8")
     if _IMPORT_MAP in page:
         stamped = {
-            f"/static/{path.name}": f"/static/{path.name}?v={_digest(path)}"
-            for path in sorted(DASHBOARD_DIR.glob("*.js"))
+            f"/static/{module}": f"/static/{module}?v={_digest(DASHBOARD_DIR / module)}"
+            for module in _module_graph(_ENTRY_MODULE.findall(page))
         }
         preload = "".join(
             f'\n  <link rel="modulepreload" href="{url}">' for url in stamped.values()
@@ -1614,6 +1636,19 @@ def versioned_page(name: str) -> str:
         return f'{attribute}="{url}?v={_digest(DASHBOARD_DIR / url.removeprefix("/static/"))}"'
 
     return _ASSET.sub(versioned, page)
+
+
+def _module_graph(entries: list[str]) -> list[str]:
+    """Every dashboard module the entry modules import, directly or not, themselves included
+    (static `import … from "./x.js"` lines: the modules use no other kind)."""
+    reached: set[str] = set()
+    waiting = list(entries)
+    while waiting:
+        module = waiting.pop()
+        if module not in reached:
+            reached.add(module)
+            waiting.extend(_IMPORT.findall((DASHBOARD_DIR / module).read_text(encoding="utf-8")))
+    return sorted(reached)
 
 
 def _vendored() -> dict[str, str]:

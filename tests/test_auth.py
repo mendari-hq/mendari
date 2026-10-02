@@ -295,7 +295,7 @@ PUBLIC = {
     # How to talk to the FHIR base: discoverable without signing in.
     ("GET", "/fhir/metadata"),
     ("GET", "/fhir/OperationDefinition/{resource_id}"),
-    # Redirects to the API reference (a page), from the addresses FastAPI's own pages had.
+    # The developer landing (static), and a redirect from ReDoc's old address to the reference.
     ("GET", "/docs"),
     ("GET", "/redoc"),
 }
@@ -692,15 +692,19 @@ def test_endpoint_origins_must_be_https_origins(
 
 
 def test_the_api_reference_asks_a_browser_to_sign_in(app: TestClient, idp: FakeIdp) -> None:
-    for old in ("/docs", "/redoc"):  # FastAPI's pages were here; Phase 5 puts a landing at /docs
-        moved = app.get(old, follow_redirects=False)
-        assert (moved.status_code, moved.headers["location"]) == (308, "/docs/reference")
+    """The landing at /docs is public (tests/test_landing.py); the reference and the OpenAPI
+    document behind it are not."""
+    moved = app.get("/redoc", follow_redirects=False)  # FastAPI's ReDoc page was here
+    assert (moved.status_code, moved.headers["location"]) == (308, "/docs/reference")
+    landing = app.get("/docs", follow_redirects=False)
+    assert landing.status_code == 200 and "Sign-in is on here" in landing.text
     docs = app.get("/docs/reference", follow_redirects=False)
     target = "/auth/login?next=/docs/reference"
     assert docs.status_code == 302 and docs.headers["location"] == target
     assert app.get("/openapi.json").status_code == 401
     sign_in(app, idp, roles=["clinicians"])
-    assert app.get("/docs").status_code == 200 and "swagger-ui-bundle.js" in app.get("/docs").text
+    reference = app.get("/docs/reference")
+    assert reference.status_code == 200 and "swagger-ui-bundle.js" in reference.text
     schema = app.get("/openapi.json").json()
     schemes = schema["components"]["securitySchemes"]
     assert set(schemes) == {"apiKey", "session"}  # no token scheme: Backend Services is off

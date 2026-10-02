@@ -45,8 +45,9 @@ docker compose up --build                 # HAPI FHIR + engine + worker sandbox
   that, and every colour pair for WCAG AA in both themes. Design plan: `docs/ui-ux-review.md`;
   grade and roadmap: `docs/design-grade.md`.
 - **Dashboard scripts are ES modules** with no build step: `main.js` boots, each view registers
-  itself in `views` (`router.js`), shared helpers live in `ui.js`. The server stamps every module
-  URL through the import map, so a new module needs no registration anywhere.
+  itself in `views` (`router.js`), shared helpers live in `ui.js`; `docs.js` runs the `/docs`
+  landing (`docs.html`, filled by `server/landing.py`). The server stamps every module a page's
+  scripts import through that page's import map, so a new module needs no registration anywhere.
 
 ## Layout
 

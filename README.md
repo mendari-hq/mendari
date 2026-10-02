@@ -124,7 +124,7 @@ uv run mendari card mendari/patient-inbox-router         # render the Decision C
 uv run mendari test mendari/clinical-trial-prescreener
 uv run mendari eval mendari/clinical-trial-prescreener --dataset exclusions_holdout
 uv run mendari serve                                     # API + CDS Hooks + dashboard
-                                                         # (API reference: /docs/reference)
+                                                         # (developer docs: /docs)
 uv run mendari audit verify --db var/mendari.db
 ```
 
@@ -171,7 +171,10 @@ curl -sS --fail-with-body "$MENDARI/api/auth/me" -H "Authorization: Bearer $MEND
   | jq .principal
 ```
 
-The full reference is at `/docs/reference` on the server, and FHIR is under
+On a running server, `/docs` is a developer landing with these examples (the server's address
+filled in, a copy button on each), FHIR in and out, and what every call needs; it is public, also
+with sign-in on. The full reference is `/docs/reference`, the [API guide](docs/guides/api.md) has
+the same examples as whole scripts, and FHIR is under
 [Healthcare standards](#healthcare-standards). Every `curl` example in this README (but `vercel
 curl`, which goes through a deployment) is a step of the scripts in
 [`src/mendari/dashboard/snippets/`](src/mendari/dashboard/snippets) (a test keeps them equal),
@@ -430,7 +433,9 @@ uv run mkdocs serve    # http://127.0.0.1:8000
 ```
 
 CI builds it in strict mode, so a broken link fails. It will be hosted once the repository is
-public.
+public. Until then a running server documents itself: `/docs` is the developer landing (a
+quickstart in three calls, FHIR, authentication), and `/docs/reference` the full API reference.
+The [API guide](docs/guides/api.md) covers the same ground in the site.
 
 ## Security
 
@@ -439,7 +444,8 @@ threat model ([`docs/security/threat-model.md`](docs/security/threat-model.md)) 
 threat with its mitigation and the test that checks it. On every change, the CI job `security`
 audits the Python and Hub-site dependencies and runs an OWASP ZAP scan of the API with sign-in
 on. Every response carries a strict CSP and the usual isolation headers (HSTS off localhost), the
-API reference included: it is Swagger UI served from vendored, pinned files, never a CDN. A
+developer landing and the API reference included: the reference is Swagger UI served from
+vendored, pinned files, never a CDN, and the landing loads nothing but its own files. A
 browser request that another site starts reaches only public routes and pages, to read.
 
 ## The Hub

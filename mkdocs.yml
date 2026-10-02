@@ -30,6 +30,11 @@ markdown_extensions:
   - toc:
       permalink: true
   - pymdownx.superfences
+  # The API guide includes the example scripts CI runs (src/mendari/dashboard/snippets/); a
+  # missing one fails the build.
+  - pymdownx.snippets:
+      base_path: [src/mendari/dashboard/snippets]
+      check_paths: true
   - pymdownx.tasklist:
       custom_checkbox: true
 
@@ -43,6 +48,7 @@ nav:
   - Home: index.md
   - Guides:
       - Writing a Decision Pack: guides/authoring-a-pack.md
+      - Using the API: guides/api.md
       - Deploying with real patient data: deploying-with-phi.md
   - Reference:
       - Decision Pack spec 0.2: spec/decision-pack-0.2.md

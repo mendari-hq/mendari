@@ -56,12 +56,16 @@ From the audit's "Redesign plan". Branch `claude/phase-5`, after Phase 4b's stag
   against a local server in CI, open mode and with a key; README curl blocks equal to them
   (Deviation: the FHIR body is the API reference's synthetic Bundle, `api_docs.FHIR_EXAMPLE`; the
   packs ship no FHIR examples. The key pass skips steps by the route rules, not by a marker.)
-- [ ] **M. Landing at `/docs`**: public and static: what Mendari is, the four outcomes, a diagram,
+- [x] **M. Landing at `/docs`**: public and static: what Mendari is, the four outcomes, a diagram,
   a three-call quickstart with copy buttons, FHIR in and out, authentication generated from the
   route rules, links to the reference and Decision Cards; light and dark from the dashboard's
   tokens, contrast-tested, keyboard and screen-reader checked, no CSP exemption
-- [ ] **N. Guides and links**: `docs/guides/api.md` in the mkdocs site from the same snippets;
+  (Deviation: each pack's Decision Card is linked in open mode only; with sign-in on, one link to
+  the dashboard's cards, since which packs run is not public. The table lists every mounted route
+  under `permission_for`. Each page's import map now holds only the modules its scripts reach.)
+- [x] **N. Guides and links**: `docs/guides/api.md` in the mkdocs site from the same snippets;
   README and the OpenAPI description point to `/docs`
+  (Deviation: the guide includes each script whole, not step by step.)
 - Deferred: a public demo deployment (a launch decision), theming the mkdocs site
 
 ## Built: authentication and authorization, Phase 4 (2026-10-02)

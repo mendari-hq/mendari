@@ -3,7 +3,8 @@
 The OpenAPI document is generated from the routes; this adds what generation cannot know: a
 description of the product, the tags, synthetic examples from the packs this deployment serves
 (so "Try it out" starts from a request that works), and, only when sign-in is on, how to
-authenticate. Nothing is claimed that the deployment does not do.
+authenticate. Nothing is claimed that the deployment does not do. What Mendari is and its four
+outcomes are said once, here, for this page and the developer landing (`server/landing.py`).
 """
 
 from __future__ import annotations
@@ -70,6 +71,20 @@ FHIR_EXAMPLE: dict[str, Any] = {
 }
 FHIR_EXAMPLE_PACK = "mendari/patient-inbox-router"
 
+# What Mendari is, in one sentence; the reference's introduction and the /docs landing open with it.
+PRODUCT = (
+    "Mendari runs Decision Packs: versioned, tested healthcare workflow decisions such as which "
+    "team should handle a patient's message, or whether a prior-authorization request is complete."
+)
+# The four outcomes every decision ends in: the code, the dashboard's word for it (ui.js
+# OUTCOME_TEXT), and what it means for the caller.
+OUTCOMES = (
+    ("AUTO", "Automated", "safe to act on"),
+    ("HUMAN_REVIEW", "Human review", "a person decides, with the pack's recommendation"),
+    ("ABSTAIN", "Abstained", "not confident enough to say"),
+    ("BLOCK", "Blocked", "the input or a safety rule stops it"),
+)
+
 
 def description(*, sign_in: bool, default_pack: str | None, token_url: str | None = None) -> str:
     """The page's introduction: what this is, a first request, how to authenticate (and, when
@@ -93,12 +108,13 @@ def description(*, sign_in: bool, default_pack: str | None, token_url: str | Non
         else "**Sign-in is off here**: anyone who can reach this deployment can call every "
         "operation. Set `MENDARI_OIDC_ISSUER` and `MENDARI_OIDC_CLIENT_ID` to require it."
     )
+    outcomes = [f"**`{code}`** ({meaning})" for code, _, meaning in OUTCOMES]
     return f"""
-Mendari runs **Decision Packs**: versioned, tested healthcare workflow decisions such as which
-team should handle a patient's message, or whether a prior-authorization request is complete.
-Every decision ends as **`AUTO`** (safe to act on), **`HUMAN_REVIEW`** (a person decides, with
-the pack's recommendation), **`ABSTAIN`** (not confident enough to say) or **`BLOCK`** (the input
-or a safety rule stops it), and is recorded in a hash-chained audit trail.
+**New here?** [Start at `/docs`](/docs): what Mendari is, a quickstart in three calls, FHIR in
+and out, and authentication, on one page.
+
+{PRODUCT} Every decision ends as {", ".join(outcomes[:-1])} or {outcomes[-1]}, and is recorded
+in a hash-chained audit trail.
 
 All data here is synthetic. This is a research preview, not a medical device.
 
