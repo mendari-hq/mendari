@@ -70,6 +70,8 @@ CREATE TABLE IF NOT EXISTS audit_events (
     prev_hash   TEXT NOT NULL,
     hash        TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS audit_events_decision ON audit_events (decision_id, seq);
+CREATE INDEX IF NOT EXISTS decisions_created ON decisions (created_at, id);
 CREATE TABLE IF NOT EXISTS eval_reports (
     id          TEXT PRIMARY KEY,
     created_at  TEXT NOT NULL,
@@ -476,24 +478,50 @@ class AuditStore:
 
     def get(self, decision_id: str, *, reader: str | None = None) -> dict[str, Any] | None:
         """A decision with its events; under PHI mode `encrypt`, its input only for a `reader`
-        (see `reveal_inputs`)."""
+        (see `reveal_inputs`, which chains the read before the events are fetched)."""
+        with self._db.session(exclusive=False) as db:
+            item = _decision(db, decision_id)
+        if item is None:
+            return None
+        self.reveal_inputs([item], reader)
+        item["events"] = self.decision_events([decision_id])[decision_id]
+        return item
+
+    def item(self, decision_id: str) -> dict[str, Any] | None:
+        """A decision with its events, shaped like `get()` without a reader, for renderings that
+        never show the input (the FHIR Task). Never writes: no `input.read` is chained, whatever
+        the PHI mode, and the input is neither decrypted nor marked restricted. Another
+        organization's decision is None, as an unknown one is."""
+        with self._db.session(exclusive=False) as db:
+            item = _decision(db, decision_id)
+            if item is not None:
+                item["events"] = _events_of(db, [decision_id])[decision_id]
+        return item
+
+    def decision_events(self, decision_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+        """Each decision's events in chain order (as `get()` lists them), in one query for a page
+        of decisions, so a page of N costs one round trip instead of N. Decisions of another
+        organization, and unknown ones, get an empty list."""
+        if not decision_ids:
+            return {}
+        with self._db.session(exclusive=False) as db:
+            return _events_of(db, decision_ids)
+
+    def event(self, decision_id: str, seq: int) -> dict[str, Any] | None:
+        """One chained event of a decision, with its decision's pack and record (as `events()`
+        returns them), or None: unknown, another decision's, or another organization's."""
         scope, scoped = _scope()
         with self._db.session(exclusive=False) as db:
             row = db.one(
-                f"SELECT * FROM decisions d WHERE id = ? AND {scope}", (decision_id, *scoped)
+                "SELECT e.seq, e.decision_id, e.event, e.payload, e.created_at, e.prev_hash, "
+                "e.hash, d.pack_id, d.pack_version, d.record FROM audit_events e "
+                "JOIN decisions d ON d.id = e.decision_id WHERE e.decision_id = ? AND e.seq = ? "
+                f"AND {scope}",
+                (decision_id, seq, *scoped),
             )
         if row is None:
             return None
-        item = _row(row)
-        self.reveal_inputs([item], reader)
-        with self._db.session(exclusive=False) as db:
-            events = db.all(
-                "SELECT seq, event, payload, created_at, prev_hash, hash FROM audit_events "
-                "WHERE decision_id = ? ORDER BY seq",
-                (decision_id,),
-            )
-        item["events"] = [{**e, "payload": json.loads(e["payload"])} for e in events]
-        return item
+        return {**row, "payload": json.loads(row["payload"]), "record": json.loads(row["record"])}
 
     def reveal_inputs(
         self, items: list[dict[str, Any]], reader: str | None, *, id_key: str = "id"
@@ -1015,6 +1043,31 @@ class AuditStore:
                     return {"ok": False, "events": len(events), "broken_at": event["seq"]}
             prev = event["hash"]
         return {"ok": True, "events": len(events), "head": prev}
+
+
+def _decision(db: _Session, decision_id: str) -> dict[str, Any] | None:
+    """One decision row (parsed), if this request's organization may see it."""
+    scope, scoped = _scope()
+    row = db.one(f"SELECT * FROM decisions d WHERE id = ? AND {scope}", (decision_id, *scoped))
+    return None if row is None else _row(row)
+
+
+def _events_of(db: _Session, decision_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+    """The events of these decisions, by decision, in chain order; scoped through the decision,
+    so another organization's decisions come back empty."""
+    scope, scoped = _scope()
+    marks = ", ".join("?" for _ in decision_ids)
+    rows = db.all(
+        "SELECT e.seq, e.decision_id, e.event, e.payload, e.created_at, e.prev_hash, e.hash "
+        "FROM audit_events e JOIN decisions d ON d.id = e.decision_id "
+        f"WHERE e.decision_id IN ({marks}) AND {scope} ORDER BY e.seq",
+        (*decision_ids, *scoped),
+    )
+    found: dict[str, list[dict[str, Any]]] = {decision_id: [] for decision_id in decision_ids}
+    for row in rows:
+        event = {k: v for k, v in row.items() if k != "decision_id"}
+        found[row["decision_id"]].append({**event, "payload": json.loads(row["payload"])})
+    return found
 
 
 def _row(row: Mapping[str, Any]) -> dict[str, Any]:
