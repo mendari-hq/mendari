@@ -95,9 +95,25 @@ running it.
 
 The threat model ([`docs/security/threat-model.md`](docs/security/threat-model.md)) lists each
 threat, its mitigation and the test that checks it. The CI job `security` runs:
-- `pip-audit` on the locked Python dependencies;
+- `pip-audit` on the locked Python dependencies (pip-audit itself is locked in the `dev` group);
 - `npm audit` on the Hub website;
 - an OWASP ZAP scan of the running API with sign-in on, where medium and high risks fail.
+
+The build itself is pinned, and `tests/test_supply_chain.py` (in the default suite) fails on any
+change that loosens it:
+- every GitHub Action is pinned to a full commit SHA, with its version in a comment, and every
+  checkout drops its credentials (`persist-credentials: false`); CI installs one pinned uv;
+- every image (CI services, `docker run`, the Dockerfile's bases, both compose files) is pinned
+  by digest;
+- every file a workflow downloads is checked against a pinned sha256;
+- the Docker image installs exactly `uv.lock` (`uv sync --frozen`), and the build backend
+  (hatchling) is pinned.
+
+Dependabot (`.github/dependabot.yml`) proposes version updates monthly, grouped, for uv, Actions,
+the Dockerfile, the compose files and the Hub website, and only of versions at least 7 days old;
+its branches get no Vercel preview.
+Security updates are not delayed; they need Dependabot alerts and security updates turned on in
+the repository settings.
 
 ## Supported versions
 

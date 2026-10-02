@@ -13,9 +13,10 @@ About 18 days of work.
   OIDC discovery cached an hour per issuer; expired session rows purged 100 at a time on an
   index; public `/api/health` is `{status, version, sign_in}` (details need `read`); a 4 MiB body
   cap (`MENDARI_MAX_BODY_BYTES`, `413`); `auth.check` off the event loop; `Principal.id`
-- [ ] **B. Supply chain**: actions pinned by SHA with `persist-credentials: false`, images by
+- [x] **B. Supply chain**: actions pinned by SHA with `persist-credentials: false`, images by
   digest, the Docker image installed from `uv.lock`, `.github/dependabot.yml` monthly with no
   previews for its branches, `tests/test_supply_chain.py`
+  (Deviation: the docs package's npm entry comes with stage C, which adds the package.)
 - [ ] **C. Docs page safety**: Swagger UI vendored at a pinned version with license and checksums
   at `/docs/reference`; `/docs` and `/redoc` redirect there until Phase 5; a CSP and COEP on every
   response; bearer schemes for keys and tokens in the OpenAPI

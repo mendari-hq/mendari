@@ -14,7 +14,7 @@ Run Mendari inside your organization's network or an approved cloud account:
 - Postgres (not SQLite) for the audit store.
 
 [`deploy/`](https://github.com/Junebugg1214/mendari/tree/main/deploy) has two templates: docker compose for one server (set `MENDARI_IMAGE`
-in its `.env`), and Kubernetes. Both include the daily retention and monitoring jobs.
+in its `.env`, pinned by digest), and Kubernetes. Both include the daily retention and monitoring jobs.
 
 The public sandbox and the project's own Vercel deployment are **synthetic only**.
 
@@ -192,3 +192,4 @@ that covers PHI.
 - [ ] Integrations that record outcomes send `source` as an identifier (`ehr`, not a sentence)
       and a label of the pack's primary question.
 - [ ] Retention and monitoring are scheduled; `mendari audit verify` passes.
+- [ ] The engine image is deployed by digest (`<image>:<tag>@sha256:…`), not by tag alone.

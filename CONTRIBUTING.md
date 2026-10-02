@@ -59,6 +59,26 @@ uv run pytest -m browser    # if you touched the dashboard (once: uv run playwri
 - CI must be green before review. It covers tests on three Pythons, the browser suite, FHIR
   conformance, the sandbox end to end, security scans, the docs build and more.
 
+### Pinned actions and images
+
+Actions, images and downloads are pinned, so a moved tag can't change what CI or the image runs
+(`tests/test_supply_chain.py` enforces it). Dependabot proposes most bumps; when you do one by
+hand:
+
+- **An action:** resolve the tag to its commit, then write
+  `uses: owner/repo@<40-hex sha>  # vX.Y.Z`:
+  `git ls-remote https://github.com/owner/repo.git 'refs/tags/vX.Y.Z*'` (for an annotated tag,
+  take the `^{}` line, which is the commit). New `actions/checkout` steps keep
+  `persist-credentials: false`.
+- **An image:** keep the tag for readers and add the digest of its multi-arch index,
+  `image:tag@sha256:<digest>`, from `docker buildx imagetools inspect image:tag`. Dependabot
+  does not see images in workflow `services:` or `docker run` lines, so check those by hand.
+- **uv:** change `version:` in every `setup-uv` step and the `ghcr.io/astral-sh/uv` stage of the
+  `Dockerfile` together.
+- **A download:** pin its version and its sha256, and check it with `sha256sum -c` right after.
+- **Python dependencies:** `uv lock --upgrade-package <name>`, never a bare `uv lock --upgrade`
+  in a feature PR. The `Dockerfile` installs `uv.lock` exactly.
+
 ## Licence
 
 Contributions are accepted under the project's licence, Apache-2.0: whatever you contribute, you

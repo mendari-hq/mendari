@@ -1,5 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "git": {
+    "deploymentEnabled": {
+      "dependabot/**": false
+    }
+  },
   "functions": {
     "app.py": {
       "maxDuration": 300,

@@ -9,6 +9,8 @@
 # Set `image:` (twice below) to a release image, e.g. ghcr.io/junebugg1214/mendari-engine:v0.6.0,
 # or one pack's image (mendari-referral-router). No release is published yet: until then,
 # build and push your own (`docker build --build-arg PACK=... .`, see deploy/README.md).
+# Deploy by digest, not by tag: `ghcr.io/...:v0.6.0@sha256:<digest>` (find it with
+# `docker buildx imagetools inspect <image>:<tag>`), so a re-pushed tag never changes what runs.
 # then: kubectl apply -f mendari.yaml
 apiVersion: v1
 kind: ConfigMap

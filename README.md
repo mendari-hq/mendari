@@ -153,12 +153,12 @@ recommendation, reasons, fallback, decision_id}`.
 
 ### Container images and on-prem templates
 
-`docker build .` builds the engine with every pack. `--build-arg PACK=mendari/referral-router`
-builds one that serves only that pack (`MENDARI_PACKS`). Tagging a release (`v*`) publishes
-both kinds to GitHub Container Registry (workflow `images`), after testing each; nothing is
-published before that. [`deploy/`](deploy) has templates for a site's own infrastructure:
-docker compose on one server and Kubernetes. Both come with Postgres, your identity provider,
-PHI mode and the daily retention and monitoring jobs.
+`docker build .` builds the engine with every pack, installing exactly `uv.lock` on a base image
+pinned by digest. `--build-arg PACK=mendari/referral-router` builds one that serves only that pack
+(`MENDARI_PACKS`). Tagging a release (`v*`) publishes both kinds to GitHub Container Registry
+(workflow `images`), after testing each; nothing is published before that. [`deploy/`](deploy) has
+templates for a site's own infrastructure: docker compose on one server and Kubernetes. Both come
+with Postgres, your identity provider, PHI mode and the daily retention and monitoring jobs.
 
 ### Docker sandbox
 
