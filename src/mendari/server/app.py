@@ -32,7 +32,9 @@ from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 from starlette.concurrency import run_in_threadpool
+from starlette.datastructures import Headers
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from mendari import __version__, guard, settings
 from mendari.core import clock, tenancy
@@ -133,6 +135,7 @@ _ISSUE_TYPE = {
     404: "not-found",
     405: "not-supported",
     409: "conflict",
+    413: "too-costly",
     422: "processing",
     429: "throttled",
     502: "transient",
@@ -254,6 +257,7 @@ def create_app(
     sign_in = auth_settings()  # an invalid sign-in setting fails here, at startup
     backend = backend_settings(sign_in)  # likewise: on, it needs sign-in and a public URL
     phi = phi_policy()  # a bad PHI setting (or a missing key) fails here, at startup
+    body_limit = settings.max_body_bytes()  # likewise
     store = AuditStore(db_path, migrate_url=migrate_url, phi=phi)
     auth = Auth(sign_in, store, tokens=backend is not None)
     budget = CallBudget(store, budget_limits) if budget_limits else None
@@ -433,12 +437,18 @@ def create_app(
         tags=["Service"],
         summary="Deployment health and settings",
     )
-    def health() -> dict[str, Any]:
-        """Version, packs, storage, the FHIR validation mode, sign-in, PHI mode and which provider
-        answers each pack's questions. Public, for load balancers."""
+    def health(request: Request) -> dict[str, Any]:
+        """Public, for load balancers: `status`, `version` and `sign_in`, and nothing else
+        without a credential (no database work either). A principal that may `read` (everyone
+        in open mode) also gets the deployment's settings: packs, storage, the FHIR validation
+        mode, PHI mode, which provider answers each pack's questions and today's remote calls.
+        """
+        public = {"status": "ok", "version": __version__, "sign_in": auth.enabled}
+        principal = auth.principal(request)  # no credential: no lookup
+        if principal is None or not principal.may("read"):
+            return public
         return {
-            "status": "ok",
-            "version": __version__,
+            **public,
             "packs": len(packs),
             "invalid": {**found.problems, **terminology_problems},
             "storage": store.backend,
@@ -448,7 +458,6 @@ def create_app(
             # FHIR servers this deployment may read from (CDS Hooks fetch); empty: none.
             "fhir_allowed_servers": fhir_servers,
             "smart_launch": smart_options is not None,
-            "sign_in": auth.enabled,
             "phi_mode": phi.mode,
             "providers": {
                 pack_id: {
@@ -1212,6 +1221,10 @@ def create_app(
 
     page = versioned_dashboard()
 
+    # Innermost, so the route reads through it directly: Starlette's middleware would wrap the
+    # 413 it raises mid-body in an exception group, which FastAPI answers with a 400.
+    app.add_middleware(BodyCap, limit=body_limit)
+
     @app.middleware("http")
     async def _fhir_media_types(request: Request, call_next: Any) -> Response:
         """FHIR routes speak FHIR R4 JSON only. Inside the guard, so sign-in answers first. The
@@ -1231,7 +1244,9 @@ def create_app(
         try:
             if names_a_credential(request.query_params):
                 raise credential_in_url_or_form()
-            refused = auth.check(request)
+            # A credential lookup is a database read: in the thread pool, as sync routes are,
+            # so a slow database never stalls the event loop.
+            refused = await run_in_threadpool(auth.check, request)
         except AuthError as error:
             return error_response(request.url.path, error.status, error)
         if refused is not None:
@@ -1352,6 +1367,50 @@ def _offered(format_parameter: str) -> bool:
 
 
 MAX_SEARCH_FORM_BYTES = 256 * 1024
+
+
+class BodyCap:
+    """No request body over `limit` bytes (MENDARI_MAX_BODY_BYTES), whatever the route. It reads
+    nothing itself: a declared length over the limit is refused before anything is read, and
+    the bytes a route reads, chunked or not, are counted as they arrive and stop with a `413`
+    once they pass it. It runs inside the guard, so sign-in answers first and no body is read
+    before the sign-in check."""
+
+    def __init__(self, app: ASGIApp, limit: int) -> None:
+        self.app = app
+        self.limit = limit
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        declared = Headers(scope=scope).get("content-length", "")
+        if declared.isdigit() and int(declared) > self.limit:
+            await self.too_large(scope["path"])(scope, receive, send)
+            return
+        received = 0
+
+        async def counted() -> Message:
+            nonlocal received
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > self.limit:  # a route's handler answers it (`_http_error`)
+                    raise StarletteHTTPException(413, self.detail)
+            return message
+
+        await self.app(scope, counted, send)
+
+    @property
+    def detail(self) -> str:
+        size = f"{self.limit // 2**20} MiB" if self.limit % 2**20 == 0 else f"{self.limit} bytes"
+        return f"a request body is {size} at most"
+
+    def too_large(self, path: str) -> JSONResponse:
+        """The `413` a route gives (`_http_error`): an OperationOutcome on FHIR routes."""
+        if _FHIR_ROUTE.match(path):
+            return operation_outcome(413, [{"code": "too-costly", "diagnostics": self.detail}])
+        return JSONResponse({"detail": self.detail}, 413)
 
 
 def form_items(body: bytes) -> list[tuple[str, str]]:

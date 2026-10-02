@@ -85,13 +85,17 @@ def run(
     with httpx.Client(follow_redirects=False, timeout=60, transport=transport) as http:
         pilot = Pilot(engine, http)
         health = pilot.expect(pilot.call("GET", "/api/health", {}), 200, "health")
-        if not health.get("sign_in") or health.get("phi_mode") != "encrypt":
+        if not health.get("sign_in"):
             raise MendariError("the engine must run with sign-in on and PHI mode encrypt")
 
         admin = pilot.sign_in("admin")
         me = pilot.expect(pilot.call("GET", "/api/auth/me", admin), 200, "the admin signs in")
         if me["principal"]["roles"] != ["admin"]:
             raise MendariError(f"the admin's roles are {me['principal']['roles']}")
+        # The settings are shown to a signed-in reader only; anyone gets status and version.
+        settings = pilot.expect(pilot.call("GET", "/api/health", admin), 200, "settings")
+        if settings.get("phi_mode") != "encrypt":
+            raise MendariError("the engine must run with sign-in on and PHI mode encrypt")
         body = {"name": "message worker", "role": "service"}
         key = pilot.expect(
             pilot.call("POST", "/api/auth/keys", admin, json=body), 201, "an API key is created"

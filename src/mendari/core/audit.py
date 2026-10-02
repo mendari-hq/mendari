@@ -167,6 +167,7 @@ CREATE TABLE IF NOT EXISTS smart_sessions (
     expires_at  INTEGER NOT NULL,
     data        TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS smart_sessions_expiry ON smart_sessions (expires_at);
 CREATE TABLE IF NOT EXISTS oauth_clients (
     client_id   TEXT PRIMARY KEY,
     name        TEXT NOT NULL,
@@ -212,6 +213,8 @@ MACHINE_ROLES = ("viewer", "service")
 KEY_DAYS = 90
 KEY_MAX_DAYS = 365
 LEGACY_KEY_DAYS = 30
+# Expired session-table rows one put deletes (smart_put).
+SESSION_PURGE_BATCH = 100
 
 _PRIORITY_ORDER = (
     "CASE priority WHEN 'stat' THEN 0 WHEN 'asap' THEN 1 WHEN 'urgent' THEN 2 ELSE 3 END"
@@ -288,6 +291,8 @@ class AuditStore:
             migrate_url=migrate_url,
         )
         self.path = str(target) if self._db.kind == "sqlite" else None
+        # environment -> (the CapabilityStatement version served, since when): capability_since
+        self._capability_since: dict[str, tuple[str, str]] = {}
 
     @property
     def backend(self) -> str:
@@ -773,7 +778,7 @@ class AuditStore:
     # Each row is keyed by sha256(kind || 0x00 || value), the value being the state, session id
     # or claim the caller holds: the table alone cannot be replayed, and a value of one kind can
     # never name a row of another (a kind is a short name without NUL). Every read, take and
-    # delete is scoped to its kind. Rows expire; expired ones are purged on the next put. Not part
+    # delete is scoped to its kind. Rows expire; each put purges up to 100 expired ones. Not part
     # of the audit chain, so no operation here takes the chain's lock: a take is one
     # `DELETE ... RETURNING`, a claim one `INSERT ... ON CONFLICT`, each atomic on its own.
     # Rows keyed before the kind was in the digest are never found again and expire.
@@ -782,7 +787,14 @@ class AuditStore:
         row = _session_key(kind, key)
         now = int(time.time())
         with self._db.session(exclusive=False) as db:
-            db.all("DELETE FROM smart_sessions WHERE expires_at <= ?", (now,))
+            # A bounded purge on the expiry index: a flood of anonymous sign-ins (each leaves a
+            # ten-minute pending row) costs every later put at most this many deletes, and
+            # puts still outpace the rows they add.
+            db.all(
+                "DELETE FROM smart_sessions WHERE key_sha256 IN (SELECT key_sha256 FROM "
+                "smart_sessions WHERE expires_at <= ? ORDER BY expires_at LIMIT ?)",
+                (now, SESSION_PURGE_BATCH),
+            )
             db.all(
                 "INSERT INTO smart_sessions (key_sha256, kind, expires_at, data) "
                 "VALUES (?, ?, ?, ?)",
@@ -965,20 +977,33 @@ class AuditStore:
         """When this environment started serving this version of its FHIR CapabilityStatement:
         the time recorded when the version first replaced another one here. A statement's
         `date` must change when its version does, and never go back, so a version served again
-        after another one gets a new time."""
-        with self._db.session(exclusive=True) as db:
-            last = db.one(
-                "SELECT version, since FROM capability_versions WHERE environment = ? "
-                "ORDER BY since DESC LIMIT 1",
-                (environment,),
-            )
-            if last is not None and last["version"] == version:
-                return str(last["since"])
-            since = _now()
-            db.all(
-                "INSERT INTO capability_versions (environment, version, since) VALUES (?, ?, ?)",
-                (environment, version, since),
-            )
+        after another one gets a new time.
+
+        The statement is public, so anyone can make this run: the answer is kept per process
+        and the version is read in a shared session. Only a changed version takes the exclusive
+        one (on Postgres, the chain's lock) and reads again inside it, so concurrent first
+        calls record one time."""
+        known = self._capability_since.get(environment)
+        if known is not None and known[0] == version:
+            return known[1]
+        latest = (
+            "SELECT version, since FROM capability_versions WHERE environment = ? "
+            "ORDER BY since DESC LIMIT 1"
+        )
+        with self._db.session(exclusive=False) as db:
+            last = db.one(latest, (environment,))
+        if last is None or last["version"] != version:
+            with self._db.session(exclusive=True) as db:
+                last = db.one(latest, (environment,))
+                if last is None or last["version"] != version:
+                    last = {"version": version, "since": _now()}
+                    db.all(
+                        "INSERT INTO capability_versions (environment, version, since) "
+                        "VALUES (?, ?, ?)",
+                        (environment, version, last["since"]),
+                    )
+        since = str(last["since"])
+        self._capability_since[environment] = (version, since)
         return since
 
     def deployments(self, pack_id: str | None = None, limit: int = 50) -> list[dict[str, Any]]:

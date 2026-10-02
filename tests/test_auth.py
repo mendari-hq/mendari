@@ -52,6 +52,7 @@ class FakeIdp:
         self.claims: dict[str, Any] = {}
         self.token_url = token_url  # Google's, for one, are not on the issuer's host
         self.jwks_url = jwks_url
+        self.discovered = 0  # fetches of the OpenID configuration
 
     def authorize(self, url: str, **claims: Any) -> str:
         params = {k: v[0] for k, v in parse_qs(urlsplit(url).query).items()}
@@ -62,6 +63,7 @@ class FakeIdp:
     def __call__(self, request: httpx.Request) -> httpx.Response:
         url = str(request.url)
         if url == f"{IDP}/.well-known/openid-configuration":
+            self.discovered += 1
             return httpx.Response(
                 200,
                 json={

@@ -210,11 +210,14 @@ Vercel reads environment variables when a deployment is built, not at runtime.
 ### Rule
 Finish every change a PR depends on (settings, follow-up commits) before enabling auto-merge.
 After changing a Vercel environment variable, redeploy (`vercel redeploy <url> --target
-production`) and confirm the setting in `/api/health` before calling it done.
+production`) and confirm the setting in `/api/health` before calling it done. Since Phase 4b
+the settings are shown only to a principal that may read: open `/api/health` in a browser signed
+in to the dashboard (or send a viewer key); without a credential it is `status`, `version` and
+`sign_in` only.
 
 ### Verification
-`/api/health` shows the expected providers for every pack, and `git log origin/main` contains
-every commit of the PR branch.
+`/api/health`, signed in, shows the expected providers for every pack, and `git log origin/main`
+contains every commit of the PR branch.
 
 ## 2026-09-29 - testing
 

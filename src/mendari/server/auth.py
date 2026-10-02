@@ -41,6 +41,7 @@ server is open, as before (production sits behind Vercel Authentication). When c
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import secrets
@@ -187,6 +188,9 @@ def auth_settings() -> AuthSettings | None:
 class Principal:
     kind: str  # "open", "user", "key" or "client" (an access token's)
     name: str
+    # Stable and opaque, for counting and logging per principal: `user:<16 hex>` (person_id),
+    # `key:<key id>`, `client:<client id>` or `open`. Never a secret, a name or an email.
+    id: str = field(kw_only=True)
     roles: frozenset[str] = field(default_factory=frozenset)
     org: str = DEFAULT_ORG
     grant: Grant | None = None  # a credential's scopes; None: the role's permissions, unnarrowed
@@ -221,7 +225,14 @@ class Principal:
         return shown
 
 
-OPEN = Principal(kind="open", name="open mode", roles=frozenset({"admin"}))
+OPEN = Principal(kind="open", name="open mode", roles=frozenset({"admin"}), id="open")
+
+
+def person_id(issuer: str, subject: str) -> str:
+    """A signed-in person's `Principal.id`: their subject at their identity provider, which is
+    stable and unique only together with the issuer, hashed so it names nobody."""
+    digest = hashlib.sha256(f"{issuer}|{subject}".encode()).hexdigest()
+    return f"user:{digest[:16]}"
 
 
 # RFC 6750's b64token, at a length no credential Mendari issues comes near.
@@ -310,6 +321,7 @@ class Auth:
         self.settings = settings
         self.store = store
         self.tokens = tokens  # SMART Backend Services is on: access tokens are looked up
+        self.discovery = oidc.Discovery()  # the identity provider's configuration, for an hour
 
     @property
     def enabled(self) -> bool:
@@ -336,7 +348,15 @@ class Auth:
         if session is None:
             return None
         roles = frozenset(session["roles"])
-        return Principal(kind="user", name=session["name"], roles=roles, org=session["org"])
+        # Sessions from before the issuer was stored are of the issuer configured now.
+        issuer = str(session.get("iss") or self.settings.issuer)
+        return Principal(
+            kind="user",
+            name=session["name"],
+            roles=roles,
+            org=session["org"],
+            id=person_id(issuer, str(session["sub"])),
+        )
 
     def _bearer(self, headers: list[str]) -> Principal:
         """The principal an `Authorization` header names, by the credential's prefix."""
@@ -366,6 +386,7 @@ class Auth:
                 org=key["org"],
                 grant=grant,
                 expires_at=key["expires_at"],
+                id=f"key:{key['id']}",
             )
         if credential.startswith(TOKEN_PREFIX):
             return self._token(credential)
@@ -390,6 +411,7 @@ class Auth:
             org=token["org"],
             grant=scopes.parse_lenient(token["scope"]).narrow(registered),
             expires_at=expires.isoformat(timespec="milliseconds"),
+            id=f"client:{token['client_id']}",
         )
 
     def check(self, request: Request) -> Response | None:
@@ -447,7 +469,7 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
         target = next if next.startswith("/") and not next.startswith("//") else "/"
         with http_for(options) as http:
             try:
-                config = oidc.discover(options.issuer, http)
+                config = auth.discovery.get(options.issuer, http)
             except FhirError as failure:  # the guarded client's errors (unreachable, not allowed)
                 raise AuthError(
                     f"the identity provider cannot be used ({failure}); its endpoints must be on "
@@ -513,6 +535,8 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
                 jwks_uri=pending["jwks_uri"],
                 http=http,
             )
+        if not isinstance(claims.get("sub"), str) or not claims["sub"]:
+            raise AuthError("the id_token names no subject")  # OpenID Connect requires one
         roles = roles_from(claims, options)
         if not roles:
             raise AuthError("your account has no Mendari role; ask an administrator", 403)
@@ -520,7 +544,13 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
             str(claims.get(options.org_claim) or DEFAULT_ORG) if options.org_claim else DEFAULT_ORG
         )
         name = str(claims.get("name") or claims.get("email") or claims.get("sub"))
-        session = {"sub": claims.get("sub"), "name": name, "roles": sorted(roles), "org": org}
+        session = {
+            "iss": options.issuer,
+            "sub": claims.get("sub"),
+            "name": name,
+            "roles": sorted(roles),
+            "org": org,
+        }
         sid = secrets.token_urlsafe(32)
         store.smart_put(sid, "user", session, int(time.time()) + SESSION_SECONDS)
         response = RedirectResponse(pending["next"], status_code=302)

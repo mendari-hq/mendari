@@ -348,7 +348,9 @@ public.
 threat model ([`docs/security/threat-model.md`](docs/security/threat-model.md)) lists every
 threat with its mitigation and the test that checks it. On every change, the CI job `security`
 audits the Python and Hub-site dependencies and runs an OWASP ZAP scan of the API with sign-in
-on. Every response carries a strict CSP and the usual isolation headers.
+on. Every response carries a strict CSP and the usual isolation headers. A request body is 4 MiB
+at most (`MENDARI_MAX_BODY_BYTES`; a `413` otherwise), and public routes take no lock and do
+little work for a caller without a credential.
 
 ## The Hub
 
@@ -651,7 +653,11 @@ FastAPI function (`[tool.vercel] entrypoint = "mendari.server.vercel:app"`).
    `vercel curl /api/health --deployment <url>`, then merge to `main` for production.
 
 `/api/health` reports the storage backend, active providers, Jev configuration and today's Jev
-usage (never secrets). The FHIR sandbox (HAPI) stays in local `docker compose`.
+usage (never secrets). With sign-in on, only a principal that may read (someone signed in, or a
+key) sees them; anyone else gets `status`, `version` and `sign_in`, enough for a load balancer.
+On a preview without sign-in `vercel curl` shows everything; with sign-in on, open
+`/api/health` in a browser signed in to the dashboard. The FHIR sandbox (HAPI) stays in local
+`docker compose`.
 
 Days and times people see (the dashboard's times and daily volume, daily call counters, "today"
 for criteria and ages, card dates) use `MENDARI_TIMEZONE`, an IANA name defaulting to

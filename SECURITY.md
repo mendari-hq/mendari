@@ -64,6 +64,12 @@ website (`hub/`), the container images and the deployment templates (`deploy/`).
   apart from the audit chain, readable only by signed-in reviewers and admins, and every read
   is logged. Without PHI mode, audit records keep full inputs by default
   (`audit.store_input: full`); use `hash` for any pack that might see sensitive text.
+- **What a caller without a credential can do.** Public routes cost little and take no lock:
+  `/api/health` answers only `status`, `version` and `sign_in` (its settings need a principal
+  that may read), `/fhir/metadata` reads its version without the audit chain's lock, and
+  sign-in keeps the identity provider's configuration for an hour. No request body passes
+  `MENDARI_MAX_BODY_BYTES` (4 MiB unless set): a larger declared length is refused unread, a
+  chunked body once it passes the limit, both with `413` and after the sign-in check.
 - **Headers.** Every response has a strict CSP (the dashboard's inline scripts by hash only),
   no framing, nosniff, no referrer and cross-origin isolation.
 

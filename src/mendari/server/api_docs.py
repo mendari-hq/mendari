@@ -108,6 +108,9 @@ All data here is synthetic. This is a research preview, not a medical device.
 3. `POST /api/packs/{pack}/decide` with an example's `input` returns the decision; its `id`
    opens the audit record at `GET /api/audit/{{id}}`.
 
+A request body is 4 MiB at most unless the deployment sets `MENDARI_MAX_BODY_BYTES`; a larger
+one is a `413`.
+
 ### FHIR
 
 The FHIR base is `/fhir`; [`GET /fhir/metadata`](/fhir/metadata) says what it does.

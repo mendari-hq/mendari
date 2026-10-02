@@ -13,6 +13,8 @@ from mendari.legacy import current_pack_id
 DEFAULT_JEV_DAILY_LIMIT = 500
 DEFAULT_LLM_DAILY_LIMIT = 500
 DEFAULT_TIMEZONE = "America/New_York"
+DEFAULT_MAX_BODY_BYTES = 4 * 1024 * 1024
+MIN_MAX_BODY_BYTES = 64 * 1024
 FhirValidation = Literal["off", "warn", "enforce"]
 
 
@@ -64,6 +66,20 @@ def fhir_validation() -> FhirValidation:
     if mode not in ("off", "warn", "enforce"):
         raise MendariError("MENDARI_FHIR_VALIDATION must be off, warn or enforce")
     return cast(FhirValidation, mode)
+
+
+def max_body_bytes() -> int:
+    """The largest request body the server takes ($MENDARI_MAX_BODY_BYTES; default 4 MiB, under
+    Vercel's 4.5 MB, and room for real FHIR Bundles). At least 64 KiB, so a value meant in
+    another unit cannot refuse every request."""
+    raw = os.environ.get("MENDARI_MAX_BODY_BYTES", "").strip()
+    if not raw:
+        return DEFAULT_MAX_BODY_BYTES
+    if not raw.isdigit() or int(raw) < MIN_MAX_BODY_BYTES:
+        raise MendariError(
+            f"MENDARI_MAX_BODY_BYTES must be a number of bytes, {MIN_MAX_BODY_BYTES} or more"
+        )
+    return int(raw)
 
 
 def enabled_packs() -> frozenset[str]:

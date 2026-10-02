@@ -114,10 +114,13 @@ def test_retention_purges_inputs_and_keeps_the_chain(tmp_path: Path, inbox_pack:
 
 
 def test_only_reviewers_and_admins_read_inputs() -> None:
-    assert Principal(kind="user", name="v", roles=frozenset({"viewer"})).may("read_input") is False
-    assert Principal(kind="key", name="s", roles=frozenset({"service"})).may("read_input") is False
-    assert Principal(kind="user", name="r", roles=frozenset({"reviewer"})).may("read_input") is True
-    assert Principal(kind="user", name="a", roles=frozenset({"admin"})).may("read_input") is True
+    def principal(kind: str, role: str) -> Principal:
+        return Principal(kind=kind, name=role, roles=frozenset({role}), id=f"{kind}:{role}")
+
+    assert principal("user", "viewer").may("read_input") is False
+    assert principal("key", "service").may("read_input") is False
+    assert principal("user", "reviewer").may("read_input") is True
+    assert principal("user", "admin").may("read_input") is True
 
 
 def test_the_server_reports_the_mode_and_reads_through_the_policy(

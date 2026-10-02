@@ -18,6 +18,13 @@ in its `.env`), and Kubernetes. Both include the daily retention and monitoring 
 
 The public sandbox and the project's own Vercel deployment are **synthetic only**.
 
+**Health checks and request size.** Probes and load balancers call `/api/health` without a
+credential and get `status`, `version` and `sign_in` only. The settings (PHI mode, packs,
+providers, the FHIR servers Mendari calls, today's remote calls) are shown to someone signed in,
+or a key, that may read. A request body is 4 MiB at most: raise `MENDARI_MAX_BODY_BYTES` (in
+bytes, 64 KiB or more) if your FHIR Bundles are larger, and give your proxy the same limit
+(nginx's `client_max_body_size`, say). A larger body gets a `413`.
+
 ## 2. Sign-in and roles
 
 Set your identity provider, so nobody reaches the dashboard or the API without an account:
@@ -186,7 +193,8 @@ that covers PHI.
 
 - [ ] Validate the pack on your own data: `mendari eval <pack> --dataset local.jsonl` (or
       Bulk FHIR: `mendari bulk export` then `bulk dataset`), and compare with the benchmark.
-- [ ] `/api/health` shows `sign_in: true`, `phi_mode: encrypt`, and only the providers and FHIR
+- [ ] Without signing in, `/api/health` shows only `status`, `version` and `sign_in: true`.
+      Signed in as an admin, it shows `phi_mode: encrypt` and only the providers and FHIR
       servers you expect.
 - [ ] A viewer can't read an input; a reviewer can, and the read appears in the audit chain.
 - [ ] Integrations that record outcomes send `source` as an identifier (`ehr`, not a sentence)
