@@ -20,7 +20,9 @@ an id). A code in another system matches nothing; it is not an error. **Referenc
 `Task/{id}`, a bare `{id}`, or `{base}/Task/{id}` under this server's FHIR base; another type or
 another server's base matches nothing.
 
-Tenancy is the store's: every page and count is scoped to the request's organization.
+Tenancy is the store's: every page and count is scoped to the request's organization, and so is
+every read (`task`, `audit_event`, `provenance`): another organization's resource is None, as an
+unknown one is. Reads never write, whatever the PHI mode (`AuditStore.item`, never `get`).
 """
 
 from __future__ import annotations
@@ -160,7 +162,7 @@ def _event(clause: Clause, base: str, provenance: bool) -> tuple[Atom, ...] | No
         codes = _codes(clause, _NO_SYSTEM)
         if codes is None:
             return None
-        keys = (_event_key(code, provenance) for code in codes)
+        keys = (event_key(code, provenance) for code in codes)
         return (OneOf("event", frozenset(key for key in keys if key is not None)),)
     if clause.modifier == "identifier":  # entity / target
         codes = _codes(clause, DECISION_ID_SYSTEM)
@@ -169,8 +171,9 @@ def _event(clause: Clause, base: str, provenance: bool) -> tuple[Atom, ...] | No
     return (OneOf("decision", frozenset(d for d in decisions if d is not None)),)
 
 
-def _event_key(resource_id: str, provenance: bool) -> tuple[str, int] | None:
-    """An AuditEvent id is `{decision id}-{seq}`, a Provenance id `{decision id}-p{seq}`."""
+def event_key(resource_id: str, provenance: bool) -> tuple[str, int] | None:
+    """`(decision id, seq)` from an AuditEvent id, `{decision id}-{seq}`, or a Provenance id,
+    `{decision id}-p{seq}`; None when the id has neither form."""
     decision_id, separator, seq = resource_id.rpartition("-p" if provenance else "-")
     if not (decision_id and separator and seq.isascii() and seq.isdigit()):
         return None
@@ -229,6 +232,36 @@ def _events(
         audit_fhir.provenance(row, base=base, version=versions[row["decision_id"]][row["seq"]])
         for row in rows
     ]
+
+
+# -- reads ----------------------------------------------------------------------------------
+
+
+def task(store: AuditStore, resource_id: str, *, base: str) -> list[dict[str, Any]] | None:
+    """Every version of a decision's Task, version 1 first, or None (unknown, or another
+    organization's): `[-1]` is the read, `[n - 1]` the vread of version n."""
+    item = store.item(resource_id)
+    return None if item is None else task_fhir.task_versions(item, base)
+
+
+def audit_event(store: AuditStore, resource_id: str, *, base: str) -> dict[str, Any] | None:
+    key = event_key(resource_id, provenance=False)
+    event = None if key is None else store.event(*key)
+    return None if event is None else audit_fhir.audit_event(event, base=base)
+
+
+def provenance(store: AuditStore, resource_id: str, *, base: str) -> dict[str, Any] | None:
+    """Only the events that change a decision's result have a Provenance; it targets the Task
+    version its event made, numbered from the decision's whole trail."""
+    key = event_key(resource_id, provenance=True)
+    if key is None:
+        return None
+    decision_id, seq = key
+    event = store.event(decision_id, seq)
+    if event is None or event["event"] not in RESULT_EVENTS:
+        return None
+    versions = audit_fhir.task_versions(store.decision_events([decision_id])[decision_id])
+    return audit_fhir.provenance(event, base=base, version=versions[seq])
 
 
 # -- CodeSystem, in memory -------------------------------------------------------------------

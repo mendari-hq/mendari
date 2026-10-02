@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from mendari.server.app import create_app, mounted_routes
-from mendari.standards import capability
+from mendari.standards import capability, search
 
 
 @pytest.fixture
@@ -48,12 +48,52 @@ def test_each_advertised_capability_answers(client: TestClient) -> None:
         for operation in resource.get("operation", []):
             path = f"/fhir/{resource['type']}/${operation['name']}"
             assert client.post(path, json={"resourceType": "Parameters"}).status_code != 404
-        if any(i["code"] == "read" for i in resource.get("interaction", [])):
+        codes = {i["code"] for i in resource.get("interaction", [])}
+        if "read" in codes:
             # an unknown id is a 404 OperationOutcome from the route, not a missing route
             missing = client.get(f"/fhir/{resource['type']}/no-such-id")
             assert (
                 missing.status_code == 404 and missing.json()["resourceType"] == "OperationOutcome"
             )
+        if "vread" in codes:
+            missing = client.get(f"/fhir/{resource['type']}/no-such-id/_history/1")
+            assert missing.status_code == 404
+        if "search-type" in codes:
+            found = client.get(f"/fhir/{resource['type']}")
+            posted = client.post(
+                f"/fhir/{resource['type']}/_search",
+                content="_count=1",
+                headers={"content-type": "application/x-www-form-urlencoded"},
+            )
+            for answer in (found, posted):
+                assert answer.status_code == 200 and answer.json()["type"] == "searchset"
+
+
+def test_search_parameters_are_the_ones_searched(client: TestClient) -> None:
+    """`searchParam` is generated from the table the parser and the store mapping use, with
+    the R4 canonical of each parameter, and only types that are searched list any."""
+    rest = statement(client)["rest"][0]
+    params = {r["type"]: r.get("searchParam") for r in rest["resource"]}
+    for name, spec in search.SPECS.items():
+        listed = params[name]
+        assert listed == search.search_params(spec)
+        assert [p["name"] for p in listed] == [p.name for p in spec.params]
+        assert all(p["documentation"] and p["definition"].startswith("http") for p in listed)
+    assert params["NamingSystem"] is None and params["OperationDefinition"] is None
+    assert "Prefer: handling=lenient" in rest["documentation"]  # the deliberate deviation
+
+
+def test_only_tasks_have_versions_to_read(client: TestClient) -> None:
+    resources = {r["type"]: r for r in statement(client)["rest"][0]["resource"]}
+    task = resources["Task"]
+    assert [i["code"] for i in task["interaction"]] == ["read", "vread", "search-type"]
+    assert task["versioning"] == "versioned" and task["readHistory"] is True
+    assert "ADR-0003" in task["documentation"] and "newest first" in task["documentation"]
+    for immutable in ("AuditEvent", "Provenance"):
+        entry = resources[immutable]
+        assert [i["code"] for i in entry["interaction"]] == ["read", "search-type"]
+        assert entry["readHistory"] is False and "chain order" in entry["documentation"]
+    assert "versioning" not in resources["CodeSystem"]
 
 
 def test_it_claims_nothing_mendari_does_not_do(client: TestClient) -> None:
@@ -64,9 +104,17 @@ def test_it_claims_nothing_mendari_does_not_do(client: TestClient) -> None:
     rest = body["rest"][0]
     assert "service" not in rest["security"]  # API keys and OIDC are neither OAuth nor SMART
     served = {r["type"] for r in rest["resource"]}
-    assert served == {"CodeSystem", "NamingSystem", "OperationDefinition", "Questionnaire"}
-    assert all(i["code"] == "read" for r in rest["resource"] for i in r.get("interaction", []))
+    assert served == {
+        *("CodeSystem", "NamingSystem", "OperationDefinition", "Questionnaire"),
+        *("Task", "AuditEvent", "Provenance"),  # decisions and their audit trail, read-only
+    }
+    interactions = {i["code"] for r in rest["resource"] for i in r.get("interaction", [])}
+    assert interactions == {"read", "vread", "search-type"}  # no writes, no history
     assert "not a FHIR data server" in body["description"]
+    for resource in rest["resource"]:
+        if "interaction" in resource:
+            assert resource["conditionalRead"] == "not-supported"  # no 304 on a derived version
+        assert "searchInclude" not in resource and "searchRevInclude" not in resource
 
 
 def test_operations_name_their_definitions(client: TestClient) -> None:
