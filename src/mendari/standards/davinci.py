@@ -21,6 +21,7 @@ from mendari.core.decision import DecisionResult
 from mendari.core.pack import Pack
 from mendari.core.spec import CoverageInformation
 from mendari.errors import FhirError
+from mendari.standards.fhir import display
 
 CRD = "http://hl7.org/fhir/us/davinci-crd"
 COVERAGE_INFORMATION = f"{CRD}/StructureDefinition/ext-coverage-information"
@@ -253,11 +254,16 @@ def assertion_id(order: Mapping[str, Any]) -> str | None:
     return None
 
 
+def question_system(pack_id: str, question: str) -> str:
+    """The CodeSystem of a question's labels (`terminology.py` generates it)."""
+    return f"{PACKS}/{pack_id}/CodeSystem/{question}"
+
+
 def _coding(pack: Pack, question: str, label: str) -> dict[str, str]:
     return {
-        "system": f"{PACKS}/{pack.id}/CodeSystem/{question}",
+        "system": question_system(pack.id, question),
         "code": label,
-        "display": pack.manifest.questions[question].criteria.get(label, label)[:250],
+        "display": display(pack.manifest.questions[question].criteria.get(label, label)),
     }
 
 

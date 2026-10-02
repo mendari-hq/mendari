@@ -86,6 +86,30 @@ def test_decision_becomes_a_fhir_task(router: Decision) -> None:
     assert task["identifier"][0]["value"] == result.id
 
 
+def test_the_task_says_when_but_leaves_its_version_to_the_server(router: Decision) -> None:
+    """`meta.versionId` belongs to whichever server stores the Task; no profile is claimed (none
+    exists); the narrative has codes, ids and times, never the message or the reasons."""
+    result, task = router.decide_fhir(BUNDLE)
+    assert task["meta"]["lastUpdated"] == result.created_at
+    assert "versionId" not in task["meta"] and "profile" not in task["meta"]
+    assert task["meta"]["tag"][0]["code"] == f"{result.pack_id}@{result.pack_version}"
+    div = task["text"]["div"]
+    assert task["text"]["status"] == "generated"
+    for shown in (result.id, "HUMAN_REVIEW", "stat", "nurse", result.created_at):
+        assert shown in div
+    assert result.reasons and not any(reason in div for reason in result.reasons)
+    for private in ("throat", "medicine", "Help", task["description"]):
+        assert private not in div
+
+
+def test_performer_codes_are_what_the_template_can_fill(router: Decision) -> None:
+    adapter = FhirAdapter.for_pack(router.pack)
+    labels = router.pack.manifest.labels("destination")
+    assert adapter.performer_template == "{recommendation}"
+    assert list(adapter.performer_codes()) == [*labels, "manual-triage"]
+    assert adapter.performer_codes()["nurse"] == {"recommendation": "nurse"}
+
+
 def test_missing_required_resource(inbox_pack: Pack) -> None:
     adapter = FhirAdapter.for_pack(inbox_pack)
     with pytest.raises(FhirError, match="Communication"):

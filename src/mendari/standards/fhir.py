@@ -14,8 +14,9 @@ from __future__ import annotations
 
 import base64
 import binascii
+import html
 import re
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from datetime import date
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -23,8 +24,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from mendari.core import clock
 from mendari.core.pack import Pack
-from mendari.core.spec import Outcome
-from mendari.core.templates import fill, unknown_placeholders
+from mendari.core.spec import Outcome, Priority
+from mendari.core.templates import UNKNOWN, expansions, fill, unknown_placeholders
 from mendari.errors import FhirError, FhirStructureError, PackValidationError
 
 if TYPE_CHECKING:
@@ -32,7 +33,12 @@ if TYPE_CHECKING:
 
 OUTCOME_SYSTEM = "https://mendari.co/fhir/CodeSystem/decision-outcome"
 DECISION_ID_SYSTEM = "https://mendari.co/fhir/NamingSystem/decision-id"
+# A pack version (`namespace/name@version`) is a code in `meta.tag` (the CodeSystem), and an
+# identifier when it acts as the engine, an agent (the NamingSystem).
 PACK_TAG_SYSTEM = "https://mendari.co/fhir/CodeSystem/decision-pack"
+PACK_ID_SYSTEM = "https://mendari.co/fhir/NamingSystem/decision-pack"
+MANUAL_TRIAGE = "manual-triage"  # the performer when there is no recommendation
+DISPLAY_LIMIT = 250
 _SEGMENT = re.compile(r"^(?P<name>[A-Za-z][A-Za-z0-9_]*)(?:\[(?P<index>\*|\d+)\])?$")
 
 
@@ -174,22 +180,50 @@ class FhirAdapter:
             _put(result, target, items)
         return result
 
+    @property
+    def performer_template(self) -> str:
+        """The performer code's template; without one, the Task goes to the recommendation."""
+        return self.mapping.task.performer or "{recommendation}"
+
+    def performer_codes(self) -> dict[str, dict[str, str]]:
+        """Every code `to_task` can put in `performerType`, each with the placeholder values that
+        give it (the first found), for the pack's performer CodeSystem (`terminology.py`)."""
+        manifest = self.pack.manifest
+        choices = {
+            "recommendation": [*manifest.labels(manifest.policy.primary), MANUAL_TRIAGE],
+            "priority": [priority.value for priority in Priority],
+            **{question: [*manifest.labels(question), UNKNOWN] for question in manifest.questions},
+        }
+        codes: dict[str, dict[str, str]] = {}
+        for code, values in expansions(self.performer_template, choices):
+            codes.setdefault(code, values)
+        return codes
+
     def to_task(self, result: DecisionResult, indexed: Mapping[str, Any]) -> dict[str, Any]:
+        """The decision as a Task. Its `meta.versionId` is left to the server that stores it;
+        `meta.lastUpdated` is when the decision was made."""
         focus: Mapping[str, Any] = next(iter(_as_list(indexed.get(self.mapping.focus))), {})
         patient: Mapping[str, Any] = next(iter(_as_list(indexed.get("Patient"))), {})
         reference = _object(focus.get("subject")).get("reference")
         subject = (reference if isinstance(reference, str) else None) or (
             f"Patient/{patient['id']}" if isinstance(patient.get("id"), str) else None
         )
-        handled_by = result.recommendation or "manual-triage"
+        handled_by = result.recommendation or MANUAL_TRIAGE
         template = self.mapping.task
+        pack = f"{result.pack_id}@{result.pack_version}"
+        performer = fill(self.performer_template, result, recommendation=handled_by)
+        # Codes, ids and times only: reasons and descriptions can quote the case.
+        summary = (
+            f"Decision {result.id} by {pack}: {result.outcome.value}, priority "
+            f"{result.priority.value}, performer {performer}. Made {result.created_at}."
+        )
         task: dict[str, Any] = {
             "resourceType": "Task",
             "meta": {
-                "tag": [
-                    {"system": PACK_TAG_SYSTEM, "code": f"{result.pack_id}@{result.pack_version}"}
-                ]
+                "lastUpdated": result.created_at,
+                "tag": [{"system": PACK_TAG_SYSTEM, "code": pack}],
             },
+            "text": narrative(summary),
             "identifier": [{"system": DECISION_ID_SYSTEM, "value": result.id}],
             "status": "ready" if result.outcome is Outcome.AUTO else "requested",
             "businessStatus": {
@@ -203,16 +237,7 @@ class FhirAdapter:
             or fill(template.description, result, recommendation=handled_by),
             "authoredOn": result.created_at,
             "performerType": [
-                {
-                    "coding": [
-                        {
-                            "system": template.performer_system,
-                            "code": fill(template.performer, result, recommendation=handled_by)
-                            if template.performer
-                            else handled_by,
-                        }
-                    ]
-                }
+                {"coding": [{"system": template.performer_system, "code": performer}]}
             ],
             "note": [{"text": reason} for reason in result.reasons],
         }
@@ -225,6 +250,31 @@ class FhirAdapter:
                 {"type": {"text": "confidence"}, "valueDecimal": round(result.confidence, 4)}
             ]
         return task
+
+
+def display(text: str) -> str:
+    """A coding's display from pack text (e.g. a label's criteria): whitespace collapsed and, past
+    250 characters, cut on a word boundary. Mendari's CodeSystems and the codings it emits share
+    this, so a display always matches its CodeSystem."""
+    text = " ".join(text.split())
+    if len(text) <= DISPLAY_LIMIT:
+        return text
+    head = text[:DISPLAY_LIMIT]
+    head = head.rsplit(" ", 1)[0] if " " in head else head[:-1]
+    return head.rstrip(" ,;:") + "…"
+
+
+def narrative(summary: str, rows: Sequence[tuple[str, str]] = ()) -> dict[str, str]:
+    """A generated narrative (`text`, dom-6): a sentence and an optional code/display table.
+    Callers pass codes, ids, times and pack-authored text, never case text."""
+    body = f"<p>{html.escape(summary)}</p>"
+    if rows:
+        cells = "".join(
+            f"<tr><td>{html.escape(code)}</td><td>{html.escape(shown)}</td></tr>"
+            for code, shown in rows
+        )
+        body += f"<table><tr><th>Code</th><th>Display</th></tr>{cells}</table>"
+    return {"status": "generated", "div": f'<div xmlns="http://www.w3.org/1999/xhtml">{body}</div>'}
 
 
 def select(indexed: Mapping[str, Any], path: str) -> list[Any]:
