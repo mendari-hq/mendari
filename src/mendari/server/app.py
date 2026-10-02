@@ -11,10 +11,12 @@ import hashlib
 import json
 import os
 import re
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from datetime import UTC, datetime, timedelta
+from email.utils import format_datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal
+from urllib.parse import parse_qsl
 
 from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -29,6 +31,7 @@ from fastapi.responses import (
 from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
+from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from mendari import __version__, guard, settings
@@ -62,9 +65,19 @@ from mendari.server import api_docs
 from mendari.server.auth import Auth, add_auth_routes, auth_settings, permission_for
 from mendari.server.smart_routes import add_smart_routes, error_page
 from mendari.settings import FhirValidation, providers_for
-from mendari.standards import audit_fhir, capability, cds_hooks, davinci, decide_op, pas
+from mendari.standards import (
+    audit_fhir,
+    capability,
+    cds_hooks,
+    davinci,
+    decide_op,
+    fhir_search,
+    pas,
+)
 from mendari.standards.fhir_client import GuardedHttp, allowed_servers
 from mendari.standards.pas import PasError
+from mendari.standards.search import SPECS, SearchError, handling, searchset
+from mendari.standards.search import parse as parse_search
 from mendari.standards.smart import smart_settings
 from mendari.standards.terminology import Terminology
 
@@ -1004,6 +1017,125 @@ def create_app(
             raise HTTPException(404, "no such resource here")
         return JSONResponse(dict(resource), media_type="application/fhir+json")
 
+    # -- FHIR: decisions and their audit trail, read and searched ------------------------------
+    # Read-only and scoped to the caller's organization in SQL (another organization's resource
+    # is a 404, as an unknown one is); no read writes to the audit trail, whatever the PHI mode.
+
+    @app.get(
+        "/fhir/Task/{resource_id}",
+        tags=["FHIR and CDS Hooks"],
+        summary="Read a decision as a Task",
+    )
+    def fhir_task(request: Request, resource_id: str) -> Response:
+        """A Mendari decision as a FHIR Task (ADR-0003): the decision itself, not the work item it
+        routes. `requested` while it waits for a reviewer in Mendari, `completed` once its answer
+        is final, `failed` when the input was refused; `businessStatus` is the outcome. The
+        latest version; the ETag is `W/"{versionId}"`. No conditional read: an `If-None-Match`
+        always gets the resource."""
+        versions = fhir_search.task(store, resource_id, base=fhir_base(request))
+        if versions is None:
+            raise HTTPException(404, "no such Task here")
+        return served(versions[-1])
+
+    @app.get(
+        "/fhir/Task/{resource_id}/_history/{version_id}",
+        tags=["FHIR and CDS Hooks"],
+        summary="Read a version of a decision's Task",
+    )
+    def fhir_task_version(request: Request, resource_id: str, version_id: str) -> Response:
+        """One version of a decision's Task (vread). Its versions are the events that changed
+        the decision: 1 when it was made, then each review resolved and outcome recorded, in
+        chain order; each version's Provenance is in `relevantHistory`."""
+        versions = fhir_search.task(store, resource_id, base=fhir_base(request))
+        number = int(version_id) if re.fullmatch(r"[1-9]\d{0,8}", version_id) else 0
+        if versions is None or not 1 <= number <= len(versions):
+            raise HTTPException(404, "no such Task version here")
+        return served(versions[number - 1])
+
+    @app.get(
+        "/fhir/AuditEvent/{resource_id}",
+        tags=["FHIR and CDS Hooks"],
+        summary="Read an audit event",
+    )
+    def fhir_audit_event(request: Request, resource_id: str) -> Response:
+        """One event of a decision's hash-chained audit trail (id `{decision id}-{chain
+        position}`), with its hashes; `entity` refers to the decision's Task."""
+        resource = fhir_search.audit_event(store, resource_id, base=fhir_base(request))
+        if resource is None:
+            raise HTTPException(404, "no such AuditEvent here")
+        return served(resource)
+
+    @app.get(
+        "/fhir/Provenance/{resource_id}",
+        tags=["FHIR and CDS Hooks"],
+        summary="Read a decision's provenance",
+    )
+    def fhir_provenance(request: Request, resource_id: str) -> Response:
+        """Who made a version of a decision's Task, and how (id `{decision id}-p{chain
+        position}`): the engine created it, a reviewer verified or changed it, a downstream
+        system recorded what really happened. `target` is the Task version it made."""
+        resource = fhir_search.provenance(store, resource_id, base=fhir_base(request))
+        if resource is None:
+            raise HTTPException(404, "no such Provenance here")
+        return served(resource)
+
+    def search_page(request: Request, resource: str, items: list[tuple[str, str]]) -> Response:
+        """One `searchset` page: the URL's parameters, then a POST body's (R4 http.html)."""
+        search = parse_search(
+            SPECS[resource], items, handling(", ".join(request.headers.getlist("prefer")) or None)
+        )
+        base = fhir_base(request)
+        found = fhir_search.find(store, search, base=base, terminology=terms)
+        bundle = searchset(
+            base=base,
+            search=search,
+            resources=found.resources,
+            total=found.total,
+            next_key=found.next_key,
+            timestamp=datetime.now(UTC).isoformat(timespec="milliseconds"),
+        )
+        return JSONResponse(bundle, media_type="application/fhir+json", headers=PRIVATE)
+
+    def search_get(resource: str) -> Callable[[Request], Response]:
+        def endpoint(request: Request) -> Response:
+            return search_page(request, resource, request.query_params.multi_items())
+
+        return endpoint
+
+    def search_post(resource: str) -> Callable[[Request], Awaitable[Response]]:
+        """Async only to read the form body; the search runs in the thread pool, as every sync
+        route does, so the event loop never waits on the database."""
+
+        async def endpoint(request: Request) -> Response:
+            items = [*request.query_params.multi_items(), *form_items(await request.body())]
+            if any(name == "_format" and not _offered(value) for name, value in items):
+                return _refuse(406, "only JSON is offered: _format must be json")
+            return await run_in_threadpool(search_page, request, resource, items)
+
+        return endpoint
+
+    for resource, (what, order) in SEARCHES.items():
+        app.add_api_route(
+            f"/fhir/{resource}",
+            search_get(resource),
+            methods=["GET"],
+            tags=["FHIR and CDS Hooks"],
+            summary=f"Search {what}",
+            description=_search_description(resource, what, order),
+            openapi_extra={"parameters": _search_parameters(resource)},
+        )
+        app.add_api_route(
+            f"/fhir/{resource}/_search",
+            search_post(resource),
+            methods=["POST"],
+            tags=["FHIR and CDS Hooks"],
+            summary=f"Search {what} (POST)",
+            description=f"`GET /fhir/{resource}` with its parameters in a form body "
+            "(`application/x-www-form-urlencoded`), so they stay out of URLs and logs. "
+            "Parameters in the URL count too, before the body's.",
+            openapi_extra={"requestBody": _search_form(resource)},
+        )
+
     # -- dashboard ---------------------------------------------------------------------------
 
     page = versioned_dashboard()
@@ -1103,9 +1235,11 @@ _R4_VERSIONS = {"4.0", "4.0.1"}
 def fhir_media_refusal(request: Request) -> JSONResponse | None:
     """R4 content negotiation (http.html): only JSON is offered, so `_format` or an Accept
     header that excludes it is a `406`, a request body in another format a `415`, and a
-    `fhirVersion` media type parameter other than R4 is refused the same way."""
+    `fhirVersion` media type parameter other than R4 is refused the same way. A search's body
+    (`POST [type]/_search`) is a form, and only there is a form accepted; a `_format` in that
+    form is checked by the route, which reads the body."""
     requested = request.query_params.get("_format")
-    if requested is not None and requested.split(";")[0].strip().lower() not in _JSON_FORMATS:
+    if requested is not None and not _offered(requested):
         return _refuse(406, "only JSON is offered: _format must be json")
     accept = request.headers.get("accept")
     if accept and not any(_takes_json(media) for media in accept.split(",")):
@@ -1113,11 +1247,126 @@ def fhir_media_refusal(request: Request) -> JSONResponse | None:
     sent = request.headers.get("content-type")
     if sent and request.method in ("POST", "PUT", "PATCH"):
         media, params = _media_type(sent)
-        if media not in ("application/json", "application/fhir+json"):
+        if request.url.path.endswith("/_search"):
+            if media != _FORM:
+                return _refuse(415, f"send the search parameters as a form ({_FORM})")
+        elif media not in ("application/json", "application/fhir+json"):
             return _refuse(415, "send application/fhir+json: other formats are not accepted")
         if params.get("fhirversion", "4.0") not in _R4_VERSIONS:
             return _refuse(415, "this server speaks FHIR R4 (fhirVersion=4.0)")
     return None
+
+
+def _offered(format_parameter: str) -> bool:
+    """Whether a `_format` value asks for JSON, the only format offered."""
+    return format_parameter.split(";")[0].strip().lower() in _JSON_FORMATS
+
+
+def form_items(body: bytes) -> list[tuple[str, str]]:
+    """A search's form body as (name, value) pairs, in order and with empty values kept (the
+    parser decides what an empty value means)."""
+    try:
+        return parse_qsl(body.decode("utf-8"), keep_blank_values=True, max_num_fields=1000)
+    except UnicodeDecodeError:
+        problem = "the form body is not UTF-8"
+    except ValueError:
+        problem = "the form body has more than 1000 parameters"
+    raise SearchError([{"code": "invalid", "diagnostics": problem}])
+
+
+def fhir_base(request: Request) -> str:
+    """The absolute FHIR base that served resources refer to and Bundle links use: under
+    `MENDARI_PUBLIC_URL` when it is set (behind a proxy, the request's own host may be an
+    internal one), else under the request's."""
+    public = os.environ.get("MENDARI_PUBLIC_URL", "").strip().rstrip("/")
+    return f"{public or str(request.base_url).rstrip('/')}/fhir"
+
+
+def served(resource: Mapping[str, Any]) -> JSONResponse:
+    """A read's answer (R4 http.html): the ETag is the version (`W/"n"`), Last-Modified its
+    time. Nothing answers `If-None-Match` with a 304: a version is derived on read, and a
+    release may render it differently, so a client's copy is never confirmed as current."""
+    meta = resource["meta"]
+    modified = datetime.fromisoformat(meta["lastUpdated"]).astimezone(UTC)
+    headers = {
+        **PRIVATE,
+        "etag": f'W/"{meta["versionId"]}"',
+        "last-modified": format_datetime(modified, usegmt=True),
+    }
+    return JSONResponse(dict(resource), media_type="application/fhir+json", headers=headers)
+
+
+# Tenant-scoped FHIR answers: a shared cache (a CDN, a proxy) must never keep one, and a browser
+# must ask again before reusing its own copy.
+PRIVATE = {"cache-control": "private, no-cache"}
+_FORM = "application/x-www-form-urlencoded"
+# What each searchable type searches, and in which order (standards/fhir_search.py).
+SEARCHES = {
+    "Task": ("decisions as Tasks", "newest first (authoredOn, then id)"),
+    "AuditEvent": ("the audit trail", "in chain order, oldest first: the feed to sync from"),
+    "Provenance": ("decision provenance", "in chain order, oldest first"),
+    "CodeSystem": ("Mendari's CodeSystems", "by id"),
+}
+
+
+def _search_description(resource: str, what: str, order: str) -> str:
+    spec = SPECS[resource]
+    names = ", ".join(
+        f"`{p.name}`" + "".join(f" (`:{m}`)" for m in sorted(p.modifiers)) for p in spec.params
+    )
+    scope = (
+        "The same for every organization."
+        if resource == "CodeSystem"
+        else "Only your organization's."
+    )
+    return (
+        f"A `searchset` Bundle of {what}, {order}. {scope} Parameters: {names} (definitions in "
+        "`/fhir/metadata`). `_count` is 50 by default and at most 500; follow the `next` link "
+        "for more. `_total=accurate` adds `total`; `_summary=count` (or `_count=0`) gives only "
+        "it. A parameter R4 does not define for the type is ignored, with a warning entry; a "
+        "standard one Mendari does not support (`patient`, `subject`, `_sort`, ...) is a `400` "
+        "unless `Prefer: handling=lenient`, and `Prefer: handling=strict` refuses unknown ones "
+        "too. Dates are UTC: a date alone is that UTC day, a time needs a zone, and `ap` is not "
+        "supported."
+    )
+
+
+def _search_parameters(resource: str) -> list[dict[str, Any]]:
+    """The type's search parameters as OpenAPI query parameters, for "Try it out"."""
+    return [
+        {
+            "name": name,
+            "in": "query",
+            "required": False,
+            "schema": {"type": "string"},
+            "description": documentation,
+        }
+        for name, documentation in _search_fields(resource)
+    ]
+
+
+def _search_form(resource: str) -> dict[str, Any]:
+    properties = {
+        name: {"type": "string", "description": documentation}
+        for name, documentation in _search_fields(resource)
+    }
+    schema = {"type": "object", "properties": properties}
+    return {"required": False, "content": {_FORM: {"schema": schema}}}
+
+
+def _search_fields(resource: str) -> list[tuple[str, str]]:
+    fields = [
+        (f"{p.name}:{modifier}" if modifier else p.name, p.documentation)
+        for p in SPECS[resource].params
+        for modifier in ("", *sorted(p.modifiers))
+    ]
+    return [
+        *fields,
+        ("_count", "Entries per page: 50 by default, at most 500; 0 for the total only."),
+        ("_total", "accurate adds Bundle.total (none and estimate give none)."),
+        ("_summary", "count: the total and no entries."),
+        ("cursor", "Where a page starts: copy it from a next link, never build it."),
+    ]
 
 
 def _takes_json(media_range: str) -> bool:

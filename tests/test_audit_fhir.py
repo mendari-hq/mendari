@@ -236,3 +236,63 @@ def test_audit_entries_are_immutable_versions_narrated_from_codes(
     created = next(e for e in by_type(exported, "AuditEvent") if e["action"] == "C")
     engine = created["agent"][0]["who"]["identifier"]
     assert engine == {"system": PACK_ID_SYSTEM, "value": inbox_pack.ref}
+
+
+BASE = "https://mendari.example/fhir"
+
+
+def test_reviewing_an_abstention_authors_the_label(store: AuditStore, inbox_pack: Pack) -> None:
+    """An abstention made no recommendation, so its reviewer verifies nothing: they author the
+    label (`human_override` is None, not False)."""
+    result = Decision(inbox_pack, store=store)(message("hello?"))
+    assert result.outcome.value == "ABSTAIN"
+    store.resolve_review(result.id, final_label="front_desk", reviewer="fd-1")
+    item = store.get(result.id)
+    assert item is not None
+    provenance = by_type(
+        [e["resource"] for e in audit_fhir.decision_bundle(item)["entry"]], "Provenance"
+    )
+    review = provenance[-1]
+    assert review["activity"]["coding"][0]["code"] == "UPDATE"
+    assert review["agent"][0]["type"]["coding"][0]["code"] == "author"
+    assert review["agent"][0]["who"] == {"display": "fd-1"}
+
+
+def test_served_resources_refer_to_the_task_by_url(store: AuditStore, inbox_pack: Pack) -> None:
+    """Under /fhir an AuditEvent points at the Task, a Provenance at the Task version its event
+    made; the identifier stays next to the reference."""
+    confirmed, _, automated = trail(store, inbox_pack)
+    for decision in (confirmed, automated):
+        item = store.get(decision.id)
+        assert item is not None
+        events = audit_fhir.joined(item)
+        versions = audit_fhir.task_versions(item["events"])
+        served = list(audit_fhir.resources(events, base=BASE, versions=versions))
+        task = f"{BASE}/Task/{decision.id}"
+        for event in by_type(served, "AuditEvent"):
+            what = event["entity"][0]["what"]
+            assert what["reference"] == task
+            assert what["identifier"] == {"system": DECISION_ID_SYSTEM, "value": decision.id}
+        targets = [p["target"][0]["reference"] for p in by_type(served, "Provenance")]
+        assert targets == [f"{task}/_history/{n}" for n in (1, 2)]
+    # The automated decision: created (version 1), its outcome (2); the feedback made none.
+    assert [e["event"] for e in events] == [
+        "decision.created",
+        "outcome.recorded",
+        "feedback.recorded",
+    ]
+
+
+def test_the_exports_keep_identifiers_only(store: AuditStore, inbox_pack: Pack) -> None:
+    """The /api/audit collection Bundles have urn:uuid full URLs: a reference there would
+    resolve against nothing."""
+    trail(store, inbox_pack)
+    assert '"reference"' not in json.dumps(list(audit_fhir.resources(store.iter_events())))
+
+
+def test_a_served_provenance_needs_its_task_version(store: AuditStore, inbox_pack: Pack) -> None:
+    trail(store, inbox_pack)
+    created = store.events()[0]
+    with pytest.raises(ValueError, match="Task version"):
+        audit_fhir.provenance(created, base=BASE)
+    assert audit_fhir.task_versions([created]) == {created["seq"]: 1}

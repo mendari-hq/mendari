@@ -235,6 +235,24 @@ curl -s -X POST localhost:8000/fhir/\$decide -H 'content-type: application/fhir+
   -d '{"resourceType":"Parameters","parameter":[{"name":"pack","valueString":"mendari/patient-inbox-router"},{"name":"data","resource":'"$(cat tests/fixtures/us-core/inbox.json)"'}]}'
 ```
 
+**Decisions as FHIR, read and searched** (read-only, your organization's only; see
+[ADR-0003](docs/decisions/ADR-0003-a-served-task-is-a-decision.md)). Each decision is a
+**Task**: `requested` while it waits for a reviewer in Mendari's queue, `completed` once the
+answer is final, `failed` when the input was refused. Its versions follow the audit chain
+(created, reviewed, outcome recorded), so `GET /fhir/Task/{id}/_history/{n}` reads one. It
+carries no input text and no patient or subject references, and searching by `patient`,
+`subject` or `focus` is refused (`400`). The audit trail is searchable as **AuditEvent** and
+**Provenance**, in chain order. Search takes GET or a form POST to `/_search`, pages with a
+`next` link (50 by default, at most 500), reads date-only values as the UTC day, and ignores
+unknown parameters with a warning entry (`Prefer: handling=strict` makes them a `400`).
+
+```bash
+curl -s "localhost:8000/fhir/Task?status=requested&_total=accurate"   # the review queue
+curl -s "localhost:8000/fhir/Task/<decision id>/_history/1"           # as first decided
+curl -s "localhost:8000/fhir/AuditEvent?entity=Task/<decision id>"     # its audit trail
+curl -s "localhost:8000/fhir/Provenance?recorded=ge2026-10-01"
+```
+
 The audit trail exports as FHIR R4. Each event in the hash chain becomes an **AuditEvent**, and
 each decision, review and downstream outcome becomes a **Provenance** on the decision's `Task`.
 They carry ids, codes and the chain's hashes, never case text:

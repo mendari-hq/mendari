@@ -81,6 +81,13 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         ("GET", r"^/fhir/(metadata|OperationDefinition/[^/]+)$", "public"),
         # The terminology carries the packs' labels and criteria: read, like /api/packs.
         ("GET", r"^/fhir/(CodeSystem|NamingSystem)/[^/]+$", "read"),
+        # Decisions and their audit trail: read, like /api/audit, and never public: without a
+        # signed-in organization the store's scope is every organization's rows.
+        ("GET", r"^/fhir/Task/[^/]+(/_history/[^/]+)?$", "read"),
+        ("GET", r"^/fhir/(AuditEvent|Provenance)/[^/]+$", "read"),
+        # Search, also as POST (a form body keeps the criteria out of URLs): a read.
+        ("GET", r"^/fhir/(Task|AuditEvent|Provenance|CodeSystem)$", "read"),
+        ("POST", r"^/fhir/(Task|AuditEvent|Provenance|CodeSystem)/_search$", "read"),
         ("GET", r"^/cds-services$", "read"),
         ("POST", r"^/api/packs/[^/]+/[^/]+/evals$", "evaluate"),
         ("POST", r"^/api/review/[^/]+$", "review"),

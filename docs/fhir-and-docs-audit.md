@@ -201,6 +201,21 @@ The scorecard above is the audit as of 2026-10-01. After Phases 1 and 2:
 Also fixed: rejection reasons quoted the input (case text in the audit record and the Task); they
 are now built from the schema alone.
 
+### Status after Phase 3 (2026-10-02)
+
+| # | Item | After Phase 2 | Now | What changed |
+|---|---|---|---|---|
+| 2 | Resources | Conformance reads only | **Read-only decisions and audit trail** | A **Task per decision** (read, vread; [ADR-0003](decisions/ADR-0003-a-served-task-is-a-decision.md)): `requested` while it waits for a Mendari reviewer, `completed`, `failed` for refused input; no input text, no patient or subject references. **AuditEvent** and **Provenance** read, with absolute references to the Task (Provenance: the version it made). Still no clinical resources, no writes. |
+| 4 | Search | Missing | **Implemented** for what is served | Task (`_id`, `identifier`, `status`, `business-status`, `priority`, `authored-on`, `_lastUpdated`, `_tag`), AuditEvent (`_id`, `date`, `entity`, `subtype`, `_lastUpdated`), Provenance (`_id`, `recorded`, `target`, `_lastUpdated`), CodeSystem (`_id`, `url`, `version`). GET and POST `_search`; UTC dates with prefixes; `_count`, `_total`, `_summary=count`; stateless keyset paging with `next` links; absolute fullUrls. Unknown parameters are ignored with a warning entry; unsupported standard ones (`patient`, `subject`, `focus`, …) and modifiers are a `400` (a deliberate deviation from R4's SHOULD-ignore, so a client never gets every patient's decisions while it believes it filtered by one). No chaining, `_include`, `_sort` or history Bundles. |
+| 5 | Bundles | Partial | Partial | `searchset` Bundles that pass the HL7 validator. Still no `transaction`/`batch` (nothing stored to change). |
+| 6 | Versioning | Partial | **Implemented** for what is served | Task versions follow the audit chain (`meta.versionId` 1, 2, 3; vread); ETag `W/"n"`; no conditional read, declared as such. The work-item Task `$decide` returns still has no `versionId` (the EHR's server assigns it). |
+
+Tested by an oracle: for random searches over seeded decisions and events, the SQL result equals
+filtering the rendered resources, page by page, on SQLite and Postgres, while organizations,
+reviews and outcomes vary. Every read and search is scoped to the caller's organization in SQL,
+needs the `read` permission (never public), and never writes. Also fixed: reviewing an ABSTAIN
+rendered the reviewer as Provenance `verifier`; it is `author`.
+
 ## Validator and reference-server comparison
 
 ### HL7 FHIR Validator 6.10.4 (R4 4.0.1, US Core 6.1.0, no terminology server)
@@ -412,6 +427,22 @@ the HL7 validator and the official R4 definitions). Changes from the plan above:
 | Expose decisions as FHIR `Task`s: `GET /fhir/Task?identifier=…&status=…&_lastUpdated=…&_count=…`, with `searchset` Bundles, `self`/`next` links and `_total` | `server/app.py`, `core/audit.py` (query by fields it already stores), `standards/fhir.py` | 2–3 d |
 | `GET /fhir/AuditEvent` and `/fhir/Provenance` search over the audit chain (`entity`, `date`, `_count`), the FHIR face of `/api/audit/export/fhir` | `server/app.py`, `standards/audit_fhir.py` | 1–2 d |
 | `transaction` / `batch`: **not recommended** (no stored resources to change). Accept a `batch` of `$decide` calls only if a customer needs it | — | — |
+
+**Status (2026-10-02): built** as planned after research (three researchers and a critic), with
+the owner's choice of a Task per decision. The `$decide` work-item Task's relative references
+(a Phase 2 defect the research found) were fixed separately, in #108.
+- Reviewed before shipping by five independent reviewers, each finding checked by a skeptic.
+  No leak across organizations was found: reads, searches, counts and forged or replayed
+  cursors stayed within the caller's organization on SQLite and Postgres, and no case text
+  reached any resource under the three PHI modes. Five problems were confirmed, all low, and
+  fixed with tests: very long value lists or many repeats reached the database as a `500` (now
+  a `400` too-costly: at most 100 values and 20 repeats per parameter); `Prefer:
+  handling=strict` in a second Prefer field was ignored; AuditEvent and Provenance ids with a
+  leading zero read another id; and a refused input was inferred (a BLOCK without
+  confidence), which a pack with a BLOCK rule on another question would have broken: it is
+  now recorded with the decision (`decisions.refused`, an additive column; older rows keep
+  the inference). Reviewing an ABSTAIN now renders the reviewer as Provenance `author`, in the
+  `/api/audit` export too, without a new `versionId`: a rendering change, nothing stored.
 
 ### Phase 4: security (≈ 4–6 days)
 

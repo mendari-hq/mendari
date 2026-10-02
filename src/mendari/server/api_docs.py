@@ -19,9 +19,10 @@ TAGS = [
     {
         "name": "FHIR and CDS Hooks",
         "description": "FHIR R4 in and out: the $decide operation and the CapabilityStatement "
-        "(/fhir/metadata), deciding from a Bundle, CDS Hooks services, the audit trail as "
-        "AuditEvent and Provenance, Mendari's CodeSystems, Da Vinci DTR and PAS. Mendari is not a "
-        "FHIR data server: it stores and serves no clinical resources.",
+        "(/fhir/metadata), deciding from a Bundle, CDS Hooks services, decisions as Tasks and "
+        "the audit trail as AuditEvent and Provenance (read and search), Mendari's CodeSystems, "
+        "Da Vinci DTR and PAS. Mendari is not a FHIR data server: it stores and serves no "
+        "clinical resources.",
     },
     {"name": "Packs", "description": "The Decision Packs this deployment serves."},
     {"name": "Review and feedback", "description": "The human review queue, outcomes, ratings."},
@@ -104,8 +105,13 @@ a FHIR Bundle (a `GuidanceResponse` first; act on its `outcome`, not its `status
 bare Bundle, one resource or CDS Hooks prefetch and get Mendari's JSON back, use
 `POST /api/packs/{{namespace}}/{{name}}/fhir/decide`. FHIR input first passes a structural R4
 check (a `400` otherwise), then R4 and US Core 6.1.0 rules; an error on a FHIR route is an
-`OperationOutcome`. Mendari is a decision engine, **not a FHIR data server**: it stores and
-serves no clinical resources.
+`OperationOutcome`.
+
+Decisions are also read and searched as FHIR, your organization's only: each is a read-only
+`Task` (`GET /fhir/Task/{{id}}`; `/_history/{{n}}` for a version; `GET /fhir/Task?status=requested`
+for the review queue), and its audit trail is `/fhir/AuditEvent` and `/fhir/Provenance`.
+`POST /fhir/{{type}}/_search` takes the same parameters as a form. Mendari is a decision engine,
+**not a FHIR data server**: it stores and serves no clinical resources.
 
 ### Authentication
 

@@ -290,16 +290,40 @@ def test_every_route_has_the_permission_it_should(tmp_path: Path) -> None:
         ("GET", "/fhir/metadata"),
         ("GET", "/fhir/OperationDefinition/{resource_id}"),
     }
+    # POST [type]/_search is a FHIR search with its criteria in a form body: a read (R4).
+    searches = {(m, p) for m, p in routes if m == "POST" and p.endswith("/_search")}
+    assert {permission_for(m, p) for m, p in searches} == {"read"}
     writes = [
         (m, p)
         for m, p in routes
-        if m in ("POST", "PUT", "PATCH", "DELETE") and (m, p) not in public
+        if m in ("POST", "PUT", "PATCH", "DELETE") and (m, p) not in public | searches
     ]
     assert all(permission_for(m, p) != "read" for m, p in writes), writes
     assert permission_for("POST", "/api/packs/a/b/evals") == "evaluate"
     assert permission_for("POST", "/fhir/$decide") == "decide"
     assert permission_for("GET", "/fhir/CodeSystem/x") == "read"  # pack labels and criteria
     assert permission_for("GET", "/fhir/Patient/p1") == "admin"  # not a conformance resource
+    assert permission_for("GET", "/fhir/Task/t1/_history/2") == "read"
+    assert permission_for("GET", "/fhir/Task/t1/_history") == "admin"  # no history Bundles
+    assert permission_for("POST", "/fhir/Task") == "admin"  # no create
+
+
+def test_no_fhir_data_route_is_public(tmp_path: Path) -> None:
+    """Every `/fhir` route but the two that say how to talk to the server reads something an
+    organization owns or a pack defines. Without a signed-in organization the store's scope is
+    every organization's rows, so none of them may ever be public."""
+    app = create_app(db_path=tmp_path / "a.db")
+    fhir = {
+        (method, route.path)
+        for route in app.routes
+        if isinstance(route, APIRoute) and route.path.startswith("/fhir/")
+        for method in route.methods or ()
+    }
+    discovery = {("GET", "/fhir/metadata"), ("GET", "/fhir/OperationDefinition/{resource_id}")}
+    data = {(m, p) for m, p in fhir if p.split("/")[2] in ("Task", "AuditEvent", "Provenance")}
+    assert len(data) == 10  # reads, the Task vread, and GET and POST search of each
+    assert {permission_for(m, p) for m, p in data} == {"read"}
+    assert all(permission_for(m, p) != "public" for m, p in fhir - discovery)
     assert permission_for("GET", "/api/packs/a/b/feedback/export") == "admin"
     assert permission_for("DELETE", "/api/something/new") == "admin"  # deny by default
 

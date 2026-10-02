@@ -8,7 +8,13 @@
 - what the FHIR routes serve, from a local server: `capability.json` (`/fhir/metadata`),
   `operation-definition-decide.json`, and `decide-<pack>.json` (`$decide` on each fixture), plus
   `decide-referral-refused.json` (the invalid referral fixture under `enforce`: a refused input,
-  with its findings).
+  with its findings);
+- `served-*.json`: what the read and search routes answer for synthetic decisions made through
+  the API (`served_reads_and_searches`): a Task read and vread (a decision reviewed, rated and
+  given an outcome: versions 1-3), Task searchsets (a page with a `next` link, a lenient search
+  with its warning entry, a `_summary=count` Bundle), an AuditEvent and a Provenance read and
+  searchset, and a CodeSystem searchset. `tests/test_fhir_routes.py` runs the same requests
+  through the in-process structural gate.
 
     uv run python scripts/fhir_output_sample.py var/fhir-samples
 """
@@ -27,6 +33,7 @@ from fastapi.testclient import TestClient
 from mendari import AuditStore, Decision
 from mendari.server.app import create_app
 from mendari.standards import record_fhir
+from mendari.standards.fhir import DECISION_ID_SYSTEM
 
 ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = ROOT / "tests" / "fixtures" / "us-core"
@@ -37,6 +44,8 @@ PACKS = {
     "trial": "mendari/clinical-trial-prescreener",
 }
 RECORDS = ROOT / "packs" / "clinical-trial-prescreener" / "data" / "test.jsonl"
+SERVER = "https://mendari.example"  # a reserved name: the samples' links point nowhere real
+FORM = {"content-type": "application/x-www-form-urlencoded"}
 
 
 def main(out: Path) -> None:
@@ -74,6 +83,66 @@ def served(out: Path) -> None:
                     out / f"decide-{name}.json", decide(client, pack_id, FIXTURES / f"{name}.json")
                 )
     print(f"CapabilityStatement, OperationDefinition and $decide Bundles written to {out}")
+    with tempfile.TemporaryDirectory() as scratch:
+        app = create_app(db_path=Path(scratch) / "search.db")
+        client = TestClient(app, base_url=SERVER, raise_server_exceptions=True)
+        answers = served_reads_and_searches(client)
+    for name, resource in answers.items():
+        write(out / f"{name}.json", resource)
+    print(f"{len(answers)} read and search answers written to {out}/served-*.json")
+
+
+def served_reads_and_searches(client: TestClient) -> dict[str, Any]:
+    """What the `/fhir` read and search routes answer, by sample name, for synthetic decisions
+    made through the API: one reviewed (overridden), rated and given an outcome (Task versions
+    1-3), one automated and one abstention still waiting for review."""
+    inbox = PACKS["inbox"]
+
+    def decided(body: str) -> str:
+        made = call(client.post(f"/api/packs/{inbox}/decide", json={"message": {"body": body}}))
+        return str(made["id"])
+
+    reviewed = decided("Crushing chest pain and my left arm is numb")
+    call(
+        client.post(
+            f"/api/review/{reviewed}", json={"final_label": "physician", "reviewer": "rn-1"}
+        )
+    )
+    call(client.post(f"/api/audit/{reviewed}/feedback", json={"rating": "up"}))
+    outcome = {"final_label": "nurse", "source": "staff re-route"}
+    call(client.post(f"/api/audit/{reviewed}/outcome", json=outcome))
+    decided("Can you send a refill for metformin?")
+    decided("hello?")
+    seq = {e["event"]: e["seq"] for e in call(client.get(f"/api/audit/{reviewed}"))["events"]}
+    lenient = {"prefer": "handling=lenient"}
+    target = f"target:identifier={DECISION_ID_SYSTEM}|{reviewed}&_count=2"
+    return {
+        "served-task": call(client.get(f"/fhir/Task/{reviewed}")),
+        "served-task-v2": call(client.get(f"/fhir/Task/{reviewed}/_history/2")),
+        "served-searchset-task": call(client.get("/fhir/Task?_count=1&_total=accurate")),
+        "served-searchset-lenient": call(
+            client.get("/fhir/Task?status=requested&patient=Patient/p1&stauts=x", headers=lenient)
+        ),
+        "served-searchset-count": call(
+            client.post("/fhir/Task/_search", content="_summary=count", headers=FORM)
+        ),
+        "served-auditevent": call(
+            client.get(f"/fhir/AuditEvent/{reviewed}-{seq['review.resolved']}")
+        ),
+        "served-searchset-auditevent": call(client.get(f"/fhir/AuditEvent?entity=Task/{reviewed}")),
+        "served-provenance": call(
+            client.get(f"/fhir/Provenance/{reviewed}-p{seq['outcome.recorded']}")
+        ),
+        "served-searchset-provenance": call(
+            client.post("/fhir/Provenance/_search", content=target, headers=FORM)
+        ),
+        "served-searchset-codesystem": call(client.get("/fhir/CodeSystem?_count=3")),
+    }
+
+
+def call(response: Any) -> Any:
+    response.raise_for_status()
+    return response.json()
 
 
 def decide(client: TestClient, pack_id: str, fixture: Path) -> Any:

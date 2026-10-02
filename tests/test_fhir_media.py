@@ -84,3 +84,49 @@ def test_mendari_api_routes_are_not_negotiated(client: TestClient) -> None:
         headers={"content-type": "application/json", "accept": "text/html"},
     )
     assert response.status_code == 200
+
+
+FORM = "application/x-www-form-urlencoded"
+
+
+@pytest.mark.parametrize(
+    ("path", "content_type", "status"),
+    [
+        ("/fhir/Task/_search", FORM, 200),
+        ("/fhir/Task/_search", f"{FORM}; charset=utf-8", 200),
+        ("/fhir/AuditEvent/_search", FORM, 200),
+        ("/fhir/Task/_search", "application/fhir+json", 415),  # a search's body is a form
+        ("/fhir/Task/_search", "multipart/form-data; boundary=x", 415),
+        (f"{INBOX}/fhir/decide", FORM, 415),  # a form only where a search reads one
+        ("/fhir/$decide", FORM, 415),
+    ],
+)
+def test_a_form_body_is_accepted_only_by_search(
+    client: TestClient, path: str, content_type: str, status: int
+) -> None:
+    response = client.post(path, content="_count=1", headers={"content-type": content_type})
+    assert response.status_code == status
+    assert response.headers["content-type"].startswith("application/fhir+json")
+
+
+@pytest.mark.parametrize(
+    ("url", "body", "headers", "status"),
+    [
+        ("/fhir/Task/_search", "_count=1", {"accept": "text/html"}, 406),
+        ("/fhir/Task/_search?_format=xml", "_count=1", {}, 406),
+        ("/fhir/Task/_search", "_count=1&_format=xml", {}, 406),  # in the form, too
+        ("/fhir/Task/_search", "_count=1&_format=json&_pretty=true", {}, 200),
+        ("/fhir/Task?_format=application/fhir%2Bxml", None, {}, 406),
+        ("/fhir/Task?_format=json", None, {"accept": "application/fhir+json"}, 200),
+    ],
+)
+def test_a_search_is_negotiated_like_any_fhir_request(
+    client: TestClient, url: str, body: str | None, headers: dict[str, str], status: int
+) -> None:
+    if body is None:
+        response = client.get(url, headers=headers)
+    else:
+        response = client.post(url, content=body, headers={"content-type": FORM, **headers})
+    assert response.status_code == status
+    if status == 200:  # presentation parameters are not criteria: nothing was ignored
+        assert "entry" not in response.json()

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from typing import Any
 
 import pytest
 
 from mendari import AuditStore, CallBudget, Decision, DecisionResult, Outcome, Pack
+from mendari.core import tenancy
+from mendari.core.phi import PhiPolicy
 from mendari.errors import ProviderError, ReviewError
 from tests.conftest import message
 
@@ -187,3 +190,81 @@ def test_postgres_store_survives_server_closed_connections(db_target: str) -> No
             ).fetchone()
         assert killed is not None and killed[0] >= 1
         assert store.stats()["decisions"] == 0  # served by a fresh connection, no error
+
+
+# -- scoped, read-only reads for the FHIR routes (Task, AuditEvent, Provenance) ----------------
+
+
+def test_item_is_get_without_a_reader_and_never_writes(inbox_pack: Pack, db_target: str) -> None:
+    """Under PHI mode `encrypt`, `get(reader=...)` chains an `input.read`; the FHIR reads must
+    not, whatever they read."""
+    phi = PhiPolicy(mode="encrypt", key=os.urandom(32))
+    with AuditStore(db_target, phi=phi) as store:
+        decide = Decision(inbox_pack, store=store)
+        result = decide(message(EMERGENCY))
+        store.resolve_review(result.id, final_label="nurse", reviewer="rn-1")
+        chained = store.verify()["events"]
+        item = store.item(result.id)
+        assert item is not None and item["record"]["input"] is None  # sealed, not decrypted
+        assert store.decision_events([result.id]) == {result.id: item["events"]}
+        assert store.event(result.id, item["events"][0]["seq"]) is not None
+        assert store.verify()["ok"] and store.verify()["events"] == chained
+        plain = store.get(result.id)  # without a reader: marked restricted, nothing chained
+        assert plain is not None and plain.pop("input_restricted") is True
+        assert item == plain
+        assert store.verify()["events"] == chained
+        assert store.item("no-such-decision") is None
+        store.get(result.id, reader="rn-1")  # the control: a read of the input is chained
+        assert store.verify()["events"] == chained + 1
+
+
+def test_events_of_many_decisions_come_in_one_batch(store: AuditStore, decide: Decide) -> None:
+    first, second, third = decide(EMERGENCY), decide(ROUTINE), decide(REVIEW)
+    store.resolve_review(first.id, final_label="nurse", reviewer="rn-1")  # interleaved
+    store.record_outcome(second.id, final_label="nurse", source="ehr")
+    found = store.decision_events([first.id, second.id, third.id, "unknown"])
+    for decision in (first, second, third):
+        expected = store.get(decision.id)
+        assert expected is not None and found[decision.id] == expected["events"]
+    assert [e["event"] for e in found[first.id]] == ["decision.created", "review.resolved"]
+    assert found["unknown"] == []
+    assert store.decision_events([]) == {}
+    seqs = [e["seq"] for e in found[first.id]]
+    assert seqs == sorted(seqs)
+
+
+def test_one_event_by_decision_and_seq(store: AuditStore, decide: Decide) -> None:
+    first, second = decide(EMERGENCY), decide(ROUTINE)
+    created = store.events()[0]
+    event = store.event(first.id, created["seq"])
+    assert event == created  # the shape `events()` exports
+    assert store.event(second.id, created["seq"]) is None  # another decision's event
+    assert store.event(first.id, 10_000) is None
+
+
+def test_another_organization_reads_nothing(store: AuditStore, inbox_pack: Pack) -> None:
+    with tenancy.acting_for("clinic-a"):
+        result = Decision(inbox_pack, store=store)(message(EMERGENCY))
+        seq = store.events()[0]["seq"]
+    with tenancy.acting_for("clinic-b"):
+        assert store.item(result.id) is None
+        assert store.decision_events([result.id]) == {result.id: []}
+        assert store.event(result.id, seq) is None
+    with tenancy.acting_for("clinic-a"):
+        item = store.item(result.id)
+        assert item is not None and len(item["events"]) == 1
+        assert store.event(result.id, seq) is not None
+    assert store.item(result.id) is not None  # open mode: no organization, no filter
+
+
+def test_the_read_indexes_exist(store: AuditStore) -> None:
+    """`audit_events (decision_id, seq)`: a decision's events without scanning the chain;
+    `decisions (created_at, id)`: keyset pages of decisions."""
+    with store._db.session(exclusive=False) as db:
+        if store.backend == "sqlite":
+            rows = db.all("SELECT name FROM sqlite_master WHERE type = 'index'")
+        else:
+            rows = db.all(
+                "SELECT indexname AS name FROM pg_indexes WHERE schemaname = current_schema()"
+            )
+    assert {"audit_events_decision", "decisions_created"} <= {row["name"] for row in rows}

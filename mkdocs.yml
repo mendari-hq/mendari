@@ -53,6 +53,7 @@ nav:
   - Decisions:
       - "ADR-0001: Questions as the core abstraction": decisions/ADR-0001-questions-as-the-core-abstraction.md
       - "ADR-0002: Runtime-enforced risk caps": decisions/ADR-0002-runtime-enforced-risk-caps.md
+      - "ADR-0003: A served Task is a decision": decisions/ADR-0003-a-served-task-is-a-decision.md
   - Project:
       - Roadmap: roadmap.md
       - "Plan: v0.4 healthcare standards": plans/v0.4-healthcare-standards.md
