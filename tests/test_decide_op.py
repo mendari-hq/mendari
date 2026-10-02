@@ -19,6 +19,12 @@ from mendari.standards.terminology import Terminology
 
 FIXTURES = Path(__file__).parent / "fixtures" / "us-core"
 INBOX = "mendari/patient-inbox-router"
+PACKS = {
+    "inbox.json": INBOX,
+    "prior-auth.json": "mendari/prior-auth-preflight",
+    "referral.json": "mendari/referral-router",
+    "trial.json": "mendari/clinical-trial-prescreener",
+}
 MESSAGE = "Can I get a refill of my blood pressure medicine?"  # the fixture's case text
 
 
@@ -45,6 +51,20 @@ def client(tmp_path: Path) -> TestClient:
 
 def entries(bundle: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return {e["resource"]["resourceType"]: e["resource"] for e in bundle["entry"]}
+
+
+def references(node: Any) -> list[str]:
+    """Every `Reference.reference` in a resource or Bundle."""
+    found: list[str] = []
+    stack: list[Any] = [node]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            found += [node["reference"]] if isinstance(node.get("reference"), str) else []
+            stack.extend(node.values())
+        elif isinstance(node, list):
+            stack.extend(node)
+    return found
 
 
 def outcome_of(response: Any, status: int) -> list[dict[str, Any]]:
@@ -75,7 +95,8 @@ def test_a_decision_as_fhir(client: TestClient) -> None:
     assert guidance["outputParameters"]["reference"] == urls["Parameters"]
     assert group["action"][0]["resource"]["reference"] == urls["Task"]
     assert task["basedOn"] == [{"reference": urls["RequestGroup"]}]
-    assert guidance["subject"] == task["for"] == {"reference": "Patient/in-p1"}
+    patient = {"reference": "http://example.org/fhir/Patient/in-p1"}  # the input's fullUrl
+    assert guidance["subject"] == group["subject"] == task["for"] == patient
     outcome = next(p for p in found["Parameters"]["parameter"] if p["name"] == "outcome")
     assert outcome["valueCoding"]["system"] == OUTCOME_SYSTEM
     record = client.get(f"/api/audit/{decision_id}").json()
@@ -160,9 +181,105 @@ def test_focus_picks_the_resource_to_decide_about(client: TestClient) -> None:
         "/fhir/$decide", json=parameters(INBOX, data, focus="Communication/in-c2")
     ).json()
     task = entries(chosen)["Task"]
-    assert task["focus"] == {"reference": "Communication/in-c2"}
+    assert task["focus"] == {"reference": "http://example.org/fhir/Communication/in-c2"}
     missing = client.post("/fhir/$decide", json=parameters(INBOX, data, focus="Communication/x"))
     assert outcome_of(missing, 422)[0]["code"] == "processing"
+
+
+@pytest.mark.parametrize("fixture", sorted(PACKS))
+def test_every_reference_resolves(client: TestClient, fixture: str) -> None:
+    """In a Bundle whose entries have urn:uuid full URLs a relative reference has no base (R4
+    bundle.html), so a reference to the input is the absolute URL the input gives the resource.
+    No other input URL is echoed."""
+    data = load(fixture)
+    given = {entry["fullUrl"] for entry in data["entry"]}
+    bundle = client.post("/fhir/$decide", json=parameters(PACKS[fixture], data)).json()
+    inside = {entry["fullUrl"] for entry in bundle["entry"]}
+    outside = {reference for reference in references(bundle) if reference not in inside}
+    assert outside and outside <= given
+    task = entries(bundle)["Task"]
+    assert {task["for"]["reference"], task["focus"]["reference"]} == outside
+    text = json.dumps(bundle)
+    assert [url for url in given - outside if url in text] == []
+
+
+def without_full_urls(data: dict[str, Any]) -> None:
+    for entry in data["entry"]:
+        del entry["fullUrl"]
+
+
+def urn_full_urls(data: dict[str, Any]) -> None:
+    for index, entry in enumerate(data["entry"]):
+        entry["fullUrl"] = f"urn:uuid:00000000-0000-4000-8000-00000000000{index}"
+
+
+def another_resources_url(data: dict[str, Any]) -> None:
+    data["entry"][0]["fullUrl"] = "http://example.org/fhir/Patient/in-p2"
+    data["entry"][1]["fullUrl"] = "http://example.org/fhir/Communication/in-c1/_history/2"
+
+
+def first_duplicate_has_none(data: dict[str, Any]) -> None:
+    data["entry"] = [{"resource": entry["resource"]} for entry in data["entry"]] + data["entry"]
+
+
+def urn_references(data: dict[str, Any]) -> None:
+    """A `urn:uuid` reference resolves only in the input Bundle, so it becomes `Type/id`."""
+    urn_full_urls(data)
+    data["entry"][1]["resource"]["subject"]["reference"] = data["entry"][0]["fullUrl"]
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        without_full_urls,
+        urn_full_urls,
+        another_resources_url,
+        first_duplicate_has_none,
+        urn_references,
+    ],
+)
+def test_without_an_absolute_full_url_references_are_relative(
+    client: TestClient, change: Any
+) -> None:
+    """Then the reference is `Type/id`: relative to the client's own FHIR server, as the
+    OperationDefinition says."""
+    data = load("inbox.json")
+    change(data)
+    found = entries(client.post("/fhir/$decide", json=parameters(INBOX, data)).json())
+    task = found["Task"]
+    patient = {"reference": "Patient/in-p1"}
+    assert found["GuidanceResponse"]["subject"] == found["RequestGroup"]["subject"] == patient
+    assert task["for"] == patient and task["focus"] == {"reference": "Communication/in-c1"}
+    description = decide_op.operation_definition()["description"]
+    assert "relative to the client's own FHIR server" in description
+
+
+def test_an_absolute_reference_in_the_input_stays(client: TestClient) -> None:
+    data = load("inbox.json")
+    without_full_urls(data)
+    patient = "https://ehr.example.com/r4/Patient/in-p1"
+    data["entry"][1]["resource"]["subject"]["reference"] = patient
+    found = entries(client.post("/fhir/$decide", json=parameters(INBOX, data)).json())
+    assert found["Task"]["for"] == found["GuidanceResponse"]["subject"] == {"reference": patient}
+    assert found["Task"]["focus"] == {"reference": "Communication/in-c1"}
+
+
+def test_references_use_the_full_urls_of_nested_search_bundles(client: TestClient) -> None:
+    """A search Bundle in `data` is flattened, and its entries' full URLs (any base) count."""
+    data = load("inbox.json")
+    base = "https://ehr.example.com/r4"
+    search = {
+        "resourceType": "Bundle",
+        "type": "searchset",
+        "entry": [
+            {**e, "fullUrl": f"{base}/{e['resource']['resourceType']}/{e['resource']['id']}"}
+            for e in data["entry"]
+        ],
+    }
+    nested = {"resourceType": "Bundle", "type": "collection", "entry": [{"resource": search}]}
+    task = entries(client.post("/fhir/$decide", json=parameters(INBOX, nested)).json())["Task"]
+    assert task["for"] == {"reference": f"{base}/Patient/in-p1"}
+    assert task["focus"] == {"reference": f"{base}/Communication/in-c1"}
 
 
 @pytest.mark.parametrize(

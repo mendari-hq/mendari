@@ -223,9 +223,11 @@ takes `Parameters` with the `pack` and the `data` Bundle, and returns the decisi
 `collection` Bundle: a **GuidanceResponse** (act on `outputParameters.outcome`, not on
 `status`), a RequestGroup and the work-queue **Task** (under BLOCK or ABSTAIN, the pack's
 fallback), the answers as Parameters, findings as an OperationOutcome, and the audit trail's
-Provenance. The codes it uses are Mendari CodeSystems and NamingSystems, generated from the code
-and the served packs (`standards/terminology.py`) and served at `/fhir/CodeSystem/{id}` and
-`/fhir/NamingSystem/{id}`. FHIR routes speak FHIR R4 JSON only (`415`/`406` otherwise).
+Provenance. References to the input are the absolute URLs its entries' `fullUrl`s give, or else
+`Type/id`, relative to your own FHIR server. The codes it uses are Mendari CodeSystems and
+NamingSystems, generated from the code and the served packs (`standards/terminology.py`) and
+served at `/fhir/CodeSystem/{id}` and `/fhir/NamingSystem/{id}`. FHIR routes speak FHIR R4 JSON
+only (`415`/`406` otherwise).
 
 ```bash
 curl -s localhost:8000/fhir/metadata
