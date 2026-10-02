@@ -32,6 +32,15 @@ def _own_hub_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("MENDARI_REGISTRY_TOKEN", raising=False)
 
 
+@pytest.fixture(autouse=True)
+def _no_rate_limits(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tests make many requests as one principal: rate limits are off unless a test turns them
+    on (tests/test_limits.py), and no organization has a quota unless a test gives it one."""
+    monkeypatch.setenv("MENDARI_RATE_LIMITS", "off")
+    monkeypatch.delenv("MENDARI_ORG_DAILY_LIMITS", raising=False)
+    monkeypatch.delenv("FORWARDED_ALLOW_IPS", raising=False)
+
+
 @pytest.fixture(params=["sqlite", "postgres"])
 def db_target(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[str]:
     """An empty audit database: a SQLite file, or a fresh Postgres schema dropped afterwards."""

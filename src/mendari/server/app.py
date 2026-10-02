@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import logging
 import os
 import re
 from collections.abc import Awaitable, Callable, Mapping
@@ -18,6 +19,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 from urllib.parse import parse_qsl
 
+import httpx
 from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
@@ -40,7 +42,7 @@ from mendari import __version__, guard, settings
 from mendari.core import clock, tenancy
 from mendari.core.audit import SYSTEM_ID, AuditStore
 from mendari.core.card import benchmark, render_card
-from mendari.core.decision import CallBudget, Decision
+from mendari.core.decision import CallBudget, Decision, QuotaReached
 from mendari.core.pack import Pack
 from mendari.core.phi import phi_policy
 from mendari.core.policy import GovernanceOverride
@@ -61,7 +63,7 @@ from mendari.errors import (
 from mendari.evals import compare, evaluate, leaderboard, load_dataset, resolve_dataset
 from mendari.evals.feedback import feedback_dataset
 from mendari.evals.harness import Dataset
-from mendari.evals.monitoring import monitor
+from mendari.evals.monitoring import check_webhook, monitor
 from mendari.evals.pack_tests import load_cases
 from mendari.legacy import current_pack_id
 from mendari.providers import jev, llm
@@ -81,9 +83,13 @@ from mendari.server.auth import (
 )
 from mendari.server.backend_services import (
     DISCOVERY_PATH,
+    TOKEN_PATH,
     add_backend_routes,
     backend_settings,
+    oauth_error,
+    throttled,
 )
+from mendari.server.limits import Limiter, RateLimited, limit_settings
 from mendari.server.smart_routes import add_smart_routes, error_page
 from mendari.settings import FhirValidation, providers_for
 from mendari.standards import (
@@ -115,6 +121,7 @@ _STATUS = {
     PasError: 422,
     ScopeError: 422,
     ClientError: 422,
+    RateLimited: 429,
 }
 # A provider that cannot answer (e.g. listing Jev's models): not set up here, or the upstream
 # service failed; never a client error.
@@ -123,6 +130,7 @@ _PROVIDER_STATUS = {
     "credential_unavailable": 503,
     "insufficient_credit": 503,
     "budget_exhausted": 429,
+    "quota_exhausted": 429,
     "invalid_input": 400,
 }
 _PROVIDER_UPSTREAM = 502
@@ -258,9 +266,24 @@ def create_app(
     backend = backend_settings(sign_in)  # likewise: on, it needs sign-in and a public URL
     phi = phi_policy()  # a bad PHI setting (or a missing key) fails here, at startup
     body_limit = settings.max_body_bytes()  # likewise
+    rate_limits = limit_settings(sign_in=sign_in is not None)  # likewise
+    org_limits = settings.org_daily_limits()  # likewise
+    webhook = os.environ.get("MENDARI_ALERT_WEBHOOK", "").strip()
+    if org_limits and webhook:
+        check_webhook(webhook)  # likewise: a quota's alert must be able to leave
     store = AuditStore(db_path, migrate_url=migrate_url, phi=phi)
     auth = Auth(sign_in, store, tokens=backend is not None)
-    budget = CallBudget(store, budget_limits) if budget_limits else None
+    limiter = Limiter(store, rate_limits)
+    budget = (
+        CallBudget(
+            store,
+            budget_limits or {},
+            org_limits=org_limits,
+            on_quota_reached=quota_alert(webhook or None),
+        )
+        if budget_limits or org_limits
+        else None
+    )
     found = discover(packs_paths)
     only = settings.enabled_packs()  # a per-pack image serves just its pack
     missing = only - {pack.id for pack in found.packs}
@@ -356,9 +379,17 @@ def create_app(
             sign_in=auth.enabled,
             default_pack=default_pack,
             token_url=None if backend is None else backend.token_url,
+            rate_limits=(
+                {name: str(rate) for name, rate in rate_limits.rates.items()}
+                if limiter.mode == "on"
+                else None
+            ),
         ),
         openapi_tags=api_docs.TAGS,
     )
+
+    def limit_class(method: str, path: str) -> str | None:
+        return limiter.classify(method, path, permission_for(method, path))
 
     def openapi() -> dict[str, Any]:
         if app.openapi_schema is None:
@@ -376,6 +407,7 @@ def create_app(
                 default_pack=default_pack,
                 permission_for=permission_for if auth.enabled else None,
                 token_url=None if backend is None else backend.token_url,
+                limit_for=limit_class if limiter.mode == "on" else None,
             )
         return app.openapi_schema
 
@@ -389,7 +421,9 @@ def create_app(
         if isinstance(error, ProviderError):
             status = _PROVIDER_STATUS.get(error.code, _PROVIDER_UPSTREAM)
         if request.url.path.startswith(("/smart/", "/auth/")):
-            return error_page(str(error), status)
+            page = error_page(str(error), status)
+            page.headers.update(retry_headers(error))
+            return page
         return error_response(request.url.path, status, error)
 
     @app.exception_handler(RequestValidationError)
@@ -441,7 +475,9 @@ def create_app(
         """Public, for load balancers: `status`, `version` and `sign_in`, and nothing else
         without a credential (no database work either). A principal that may `read` (everyone
         in open mode) also gets the deployment's settings: packs, storage, the FHIR validation
-        mode, PHI mode, which provider answers each pack's questions and today's remote calls.
+        mode, PHI mode, which provider answers each pack's questions, today's remote calls, the
+        rate limits (and where the caller's address is read) and the organization's daily
+        quotas with what it used today.
         """
         public = {"status": "ok", "version": __version__, "sign_in": auth.enabled}
         principal = auth.principal(request)  # no credential: no lookup
@@ -478,6 +514,14 @@ def create_app(
                 **llm.deployment_info(),
                 "calls_today": store.usage("llm"),
                 "daily_limit": (budget_limits or {}).get("llm"),
+            },
+            "rate_limits": limiter.describe(),
+            # The caller's organization only: another's usage is its own business.
+            "org_quotas": {
+                "daily_limits": org_limits,
+                "used_today": store.org_usage(
+                    principal.org if principal.kind != "open" else tenancy.DEFAULT_ORG
+                ),
             },
         }
 
@@ -700,7 +744,12 @@ def create_app(
         # A store-less Decision: evaluation traffic must not pollute the operational audit log.
         active = decision_for(pack_id)
         chosen = {slot: info.variant for slot, info in active.provider_info.items()}
-        decision = Decision(pack, providers={**chosen, **(request.providers or {})}, budget=budget)
+        # Provider calls count against the daily budgets, never an organization's quotas.
+        decision = Decision(
+            pack,
+            providers={**chosen, **(request.providers or {})},
+            budget=None if budget is None else budget.for_evaluation(),
+        )
         dataset = dataset_for(pack, request.dataset)
         if decision.is_remote:
             dataset = dataset.head(min(request.limit or REMOTE_EVAL_LIMIT, REMOTE_EVAL_LIMIT))
@@ -1236,17 +1285,28 @@ def create_app(
         response: Response = await call_next(request)
         return response
 
+    def admit(request: Request) -> Response | None:
+        """The sign-in check, then the rate limit (server/limits.py), both before the route:
+        a refused request reads no body, calls no provider and writes nothing to the chain."""
+        refused = auth.check(request)
+        if refused is not None or not limiter.on:
+            return refused
+        permission = permission_for(request.method, request.url.path)
+        over = limiter.check(request, permission, principal_of(request).id)
+        return None if over is None else limited_response(request.url.path, over)
+
     @app.middleware("http")
     async def _guard(request: Request, call_next: Any) -> Response:
-        """Every request passes the sign-in guard (a no-op in open mode). A credential in a URL
-        is refused first, in every mode: it would end up in logs and histories. No body is read
-        here: the routes that read a form refuse a credential in it, after this check."""
+        """Every request passes the sign-in guard (a no-op in open mode) and the rate limits. A
+        credential in a URL is refused first, in every mode: it would end up in logs and
+        histories. No body is read here: the routes that read a form refuse a credential in
+        it, after this check."""
         try:
             if names_a_credential(request.query_params):
                 raise credential_in_url_or_form()
-            # A credential lookup is a database read: in the thread pool, as sync routes are,
-            # so a slow database never stalls the event loop.
-            refused = await run_in_threadpool(auth.check, request)
+            # A credential lookup and a limit are database work: in the thread pool, as sync
+            # routes are, so a slow database never stalls the event loop.
+            refused = await run_in_threadpool(admit, request)
         except AuthError as error:
             return error_response(request.url.path, error.status, error)
         if refused is not None:
@@ -1278,7 +1338,7 @@ def create_app(
 
     add_auth_routes(app, auth)
     if backend is not None:
-        add_backend_routes(app, backend, store)
+        add_backend_routes(app, backend, store, limiter if limiter.on else None)
     add_smart_routes(
         app,
         settings=smart_options,
@@ -1317,9 +1377,10 @@ def mounted_routes(app: FastAPI) -> list[tuple[str, str]]:
 
 def error_response(path: str, status: int, error: MendariError) -> JSONResponse:
     """`{"error", "detail"}` on Mendari's own API; an OperationOutcome on FHIR routes. A
-    sign-in refusal carries its `WWW-Authenticate` challenge."""
+    sign-in refusal carries its `WWW-Authenticate` challenge, a `429` its `Retry-After`."""
     asked = error.challenge if isinstance(error, AuthError) else None
-    headers = {"WWW-Authenticate": asked} if asked else None
+    headers = {"WWW-Authenticate": asked} if asked else {}
+    headers.update(retry_headers(error))
     if not _FHIR_ROUTE.match(path):
         body = {"error": type(error).__name__, "detail": str(error)}
         return JSONResponse(body, status, headers=headers)
@@ -1329,6 +1390,66 @@ def error_response(path: str, status: int, error: MendariError) -> JSONResponse:
     if isinstance(error, PackNotFoundError):
         code = "not-found"
     return operation_outcome(status, [{"code": code, "diagnostics": str(error)}], headers)
+
+
+quota_logger = logging.getLogger("mendari.limits")
+
+
+def retry_headers(error: MendariError) -> dict[str, str]:
+    """`Retry-After` (and `no-store`, so no cache keeps the refusal) for a rate limit, and for a
+    daily budget or quota, which start over at local midnight."""
+    if isinstance(error, RateLimited):
+        seconds = error.retry_after
+    elif isinstance(error, ProviderError) and error.code in ("budget_exhausted", "quota_exhausted"):
+        seconds = clock.seconds_until_tomorrow()
+    else:
+        return {}
+    return {"Retry-After": str(seconds), "Cache-Control": "no-store"}
+
+
+def limited_response(path: str, error: RateLimited) -> Response:
+    """A `429` in the shape the route speaks: OAuth's at the token endpoint, a page for a
+    browser signing in or launched from an EHR, an OperationOutcome on FHIR routes, else JSON.
+    Always with `Retry-After` and `no-store`."""
+    if path == TOKEN_PATH:
+        return oauth_error(throttled(error.retry_after))
+    if path in ("/auth/login", "/smart/launch"):
+        page = error_page(
+            f"Too many sign-ins from your network: try again in {error.retry_after} s.", 429
+        )
+        page.headers.update(retry_headers(error))
+        return page
+    return error_response(path, 429, error)
+
+
+def quota_alert(webhook: str | None) -> QuotaReached:
+    """What happens the first time an organization reaches a daily quota (once a day, whichever
+    instance counts that call): a warning in the log and, with `MENDARI_ALERT_WEBHOOK`, one post
+    with the organization, the metric and the limit (no case data). Never fails the decision:
+    a webhook that is down loses the alert, not the request."""
+
+    def alert(org: str, metric: str, limit: int) -> None:
+        quota_logger.warning("daily quota reached: %s=%d for organization %s", metric, limit, org)
+        if webhook is None:
+            return
+        body = {
+            "source": "mendari",
+            "organization": org,
+            "alerts": [
+                {
+                    "severity": "warning",
+                    "kind": "quota_reached",
+                    "message": f"daily {metric} quota of {limit} reached; until midnight, "
+                    "decisions fall back to human review",
+                }
+            ],
+        }
+        try:
+            httpx.post(webhook, json=body, timeout=5, follow_redirects=False).raise_for_status()
+        except httpx.HTTPError as failure:
+            quota_logger.warning("the quota alert webhook failed (%s)", type(failure).__name__)
+
+    return alert
 
 
 _JSON_FORMATS = {"json", "application/json", "application/fhir+json", "text/json"}

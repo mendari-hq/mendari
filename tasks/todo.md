@@ -22,10 +22,13 @@ About 18 days of work.
 - [ ] **C. Docs page safety**: Swagger UI vendored at a pinned version with license and checksums
   at `/docs/reference`; `/docs` and `/redoc` redirect there until Phase 5; a CSP and COEP on every
   response; bearer schemes for keys and tokens in the OpenAPI
-- [ ] **D. Rate limits and quotas**: a Postgres GCRA limiter per principal on costly routes and
+- [x] **D. Rate limits and quotas**: a Postgres GCRA limiter per principal on costly routes and
   per IP on sign-in and the token endpoint (`MENDARI_RATE_LIMITS` on/log/off), `429` with
   `Retry-After`; per-organization daily decision quotas (`MENDARI_ORG_DAILY_LIMITS`, evaluations
   not counted); Vercel firewall rules as a file and runbook; proxy headers for self-hosted
+  - Deviations: overrides follow the mode in the one variable; sign-in counts `/auth/login` and
+    the SMART launch (callbacks left to the edge), SMART decide by a digest of its session;
+    token failures count `invalid_client` only; one firewall rule (`/auth/`, `/smart/`, 120/min)
 - [ ] **E. Security log**: JSON lines on stdout from an allow-list of fields, a request id, one
   access line per API request, security events; no credential, query value, body or case text;
   no exception messages under `hash` or `encrypt`

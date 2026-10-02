@@ -126,6 +126,28 @@ def daily_limits() -> dict[str, int | None]:
     return limits
 
 
+ORG_METRICS = ("decisions", "jev", "llm")
+
+
+def org_daily_limits() -> dict[str, int]:
+    """$MENDARI_ORG_DAILY_LIMITS: what each organization may use a day, e.g.
+    `decisions=5000,jev=2000,llm=200` (decisions, and the remote calls they make by provider
+    type; evaluations never count). Unset: no per-organization quota. Over a quota a decision
+    falls back to human review, as over a provider's daily budget."""
+    limits: dict[str, int] = {}
+    for item in os.environ.get("MENDARI_ORG_DAILY_LIMITS", "").split(","):
+        if not item.strip():
+            continue
+        metric, sep, value = (part.strip() for part in item.partition("="))
+        if not sep or metric not in ORG_METRICS or not value.isdigit() or metric in limits:
+            raise MendariError(
+                "MENDARI_ORG_DAILY_LIMITS must look like decisions=5000,jev=2000,llm=200 "
+                f"(each of {', '.join(ORG_METRICS)} at most once, a non-negative integer)"
+            )
+        limits[metric] = int(value)
+    return limits
+
+
 def providers_for(
     pack_id: str, slots: Mapping[str, Collection[str]], settings: Mapping[str, str]
 ) -> tuple[dict[str, str], list[str]]:

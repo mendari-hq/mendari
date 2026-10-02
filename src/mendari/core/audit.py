@@ -186,7 +186,20 @@ CREATE TABLE IF NOT EXISTS oauth_tokens (
     scope         TEXT NOT NULL,
     expires_at    INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS oauth_tokens_expiry ON oauth_tokens (expires_at)
+CREATE INDEX IF NOT EXISTS oauth_tokens_expiry ON oauth_tokens (expires_at);
+CREATE TABLE IF NOT EXISTS rate_limits (
+    bucket      TEXT PRIMARY KEY,
+    tat         BIGINT NOT NULL,
+    expires_at  BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS rate_limits_expiry ON rate_limits (expires_at);
+CREATE TABLE IF NOT EXISTS org_usage (
+    day         TEXT NOT NULL,
+    org         TEXT NOT NULL,
+    metric      TEXT NOT NULL,
+    count       INTEGER NOT NULL,
+    PRIMARY KEY (day, org, metric)
+)
 """
 
 # Columns added after their table's first release. New databases get them from _TABLES; older
@@ -546,6 +559,71 @@ class AuditStore:
             )
         if daily_limit is not None and (row is None or row["calls"] > daily_limit):
             raise ProviderError("budget_exhausted", f"daily {provider} limit of {daily_limit}")
+
+    def consume_org(self, org: str, metric: str, *, daily_limit: int) -> int | None:
+        """Count one `metric` (decisions, or a provider type's calls) for `org` today; the count
+        it reached, or None when the organization's daily limit was already reached (nothing
+        counted). One statement, so instances never count past the limit together."""
+        with self._db.session(exclusive=False) as db:
+            row = db.one(
+                "INSERT INTO org_usage (day, org, metric, count) VALUES (?, ?, ?, 1) "
+                "ON CONFLICT (day, org, metric) DO UPDATE SET count = org_usage.count + 1 "
+                "WHERE org_usage.count < ? RETURNING count",
+                (clock.today().isoformat(), org, metric, daily_limit),
+            )
+        if row is None or int(row["count"]) > daily_limit:  # a limit of 0 admits nothing
+            return None
+        return int(row["count"])
+
+    def org_usage(self, org: str) -> dict[str, int]:
+        """What `org` has used today, by metric."""
+        with self._db.session(exclusive=False) as db:
+            rows = db.all(
+                "SELECT metric, count FROM org_usage WHERE day = ? AND org = ?",
+                (clock.today().isoformat(), org),
+            )
+        return {row["metric"]: int(row["count"]) for row in rows}
+
+    # -- rate limits (server/limits.py) -------------------------------------------------------
+    # GCRA on one row per bucket: `tat` is when the bucket would be empty again (ms since the
+    # epoch). A request is admitted when the bucket, with it, runs at most `tolerance` ahead of
+    # now; each admitted request moves `tat` one `interval` on. Not part of the audit chain:
+    # no lock but the row's own.
+
+    def rate_take(self, bucket: str, interval: int, tolerance: int, now: int) -> int | None:
+        """Admit one request into `bucket` (None), or refuse it without counting it: the
+        milliseconds until it would be admitted. One statement, atomic across instances."""
+        with self._db.session(exclusive=False) as db:
+            admitted = db.one(
+                "INSERT INTO rate_limits (bucket, tat, expires_at) VALUES (?, ?, ?) "
+                f"ON CONFLICT (bucket) DO UPDATE SET tat = {_FROM} + ?, expires_at = {_FROM} + ? "
+                f"WHERE {_FROM} + ? - ? <= ? RETURNING tat",
+                (
+                    *(bucket, now + interval, now + interval),
+                    *(now, now, interval),
+                    *(now, now, interval),
+                    *(now, now, interval, tolerance, now),
+                ),
+            )
+            if admitted is not None:
+                return None
+            row = db.one("SELECT tat FROM rate_limits WHERE bucket = ?", (bucket,))
+        return _wait(row, interval, tolerance, now)
+
+    def rate_peek(self, bucket: str, interval: int, tolerance: int, now: int) -> int | None:
+        """What `rate_take` would answer, without counting anything."""
+        with self._db.session(exclusive=False) as db:
+            row = db.one("SELECT tat FROM rate_limits WHERE bucket = ?", (bucket,))
+        return _wait(row, interval, tolerance, now)
+
+    def rate_purge(self, now: int, batch: int) -> None:
+        """Delete up to `batch` buckets that are empty again (equivalent to no row)."""
+        with self._db.session(exclusive=False) as db:
+            db.all(
+                "DELETE FROM rate_limits WHERE bucket IN (SELECT bucket FROM rate_limits "
+                "WHERE expires_at <= ? ORDER BY expires_at LIMIT ?)",
+                (now, batch),
+            )
 
     def usage(self, provider: str) -> int:
         day = clock.today().isoformat()
@@ -1610,6 +1688,17 @@ def _thumbprint(jwk: Mapping[str, Any]) -> str:
 
 
 _SESSION_KIND = re.compile(r"[a-z][a-z0-9-]{0,39}")
+
+
+# A bucket's start for the next request: its `tat`, or now if that has passed (GCRA's max).
+_FROM = "(CASE WHEN rate_limits.tat > ? THEN rate_limits.tat ELSE ? END)"
+
+
+def _wait(row: Mapping[str, Any] | None, interval: int, tolerance: int, now: int) -> int | None:
+    """Milliseconds until a bucket at `row` admits one more request; None: it admits now."""
+    tat = max(int(row["tat"]), now) if row is not None else now
+    wait = tat + interval - tolerance - now
+    return wait if wait > 0 else None
 
 
 def _session_key(kind: str, value: str) -> str:

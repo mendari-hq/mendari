@@ -308,9 +308,12 @@ jobs:
       - name: Start the engine with sign-in on, and an administrator's session for the scanner
         # Keys are viewer or service only (ADR-0004), so the scanner signs in as a person would:
         # a session row for an admin, sent as the session cookie.
+        # The scan calls the decide routes thousands of times as one admin: limits run in `log`
+        # mode, so the limiter's code is exercised but never refuses.
         env:
           MENDARI_OIDC_ISSUER: https://idp.example.org
           MENDARI_OIDC_CLIENT_ID: mendari
+          MENDARI_RATE_LIMITS: log
         run: |
           mkdir -p /tmp/zap && chmod 777 /tmp/zap
           sid=$(uv run python -c "import secrets, time; from mendari.core.audit import AuditStore; sid = secrets.token_urlsafe(32); AuditStore('/tmp/zap/scan.db').smart_put(sid, 'user', {'sub': 'zap', 'name': 'zap', 'roles': ['admin'], 'org': 'default'}, int(time.time()) + 7200); print(sid)")

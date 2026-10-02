@@ -48,7 +48,10 @@ public deployment.
   (decide, the AI guard, evaluations, exports), in Postgres so every instance shares the count,
   with `429` and `Retry-After`. Organizations get daily decision quotas, and at launch Jev and LLM
   get finite daily ceilings (about 2,000 and 200; the owner's choice); over a quota, decisions
-  fall back to human review. Reads are not limited in the app.
+  fall back to human review. Reads are not limited in the app. The app's limiter is GCRA, one
+  statement on one row per bucket, run after the sign-in check and before any body is read,
+  model called or event chained; `log` mode counts without refusing, and the firewall rule
+  starts in log mode too. Evaluations spend the deployment's budgets, never a quota.
 - **A security log on stdout, the chain for PHI.** One JSON line per API request and security
   event, from an allow-list of fields: never a credential, a query value, a body or case text.
   Reads of PHI stay chained. No new log tables.

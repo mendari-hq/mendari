@@ -350,7 +350,11 @@ threat with its mitigation and the test that checks it. On every change, the CI 
 audits the Python and Hub-site dependencies and runs an OWASP ZAP scan of the API with sign-in
 on. Every response carries a strict CSP and the usual isolation headers. A request body is 4 MiB
 at most (`MENDARI_MAX_BODY_BYTES`; a `413` otherwise), and public routes take no lock and do
-little work for a caller without a credential.
+little work for a caller without a credential. With sign-in on, decisions, the AI guard,
+evaluations and exports are rate limited per caller, and sign-in and the token endpoint per
+address, in the database so every instance shares the count (`MENDARI_RATE_LIMITS`; a `429` with
+`Retry-After`); organizations can have daily quotas (`MENDARI_ORG_DAILY_LIMITS`), over which
+decisions fall back to human review.
 
 ## The Hub
 
@@ -651,6 +655,15 @@ FastAPI function (`[tool.vercel] entrypoint = "mendari.server.vercel:app"`).
    an unauthenticated request to production gets redirected to login.
 4. Push a branch to get a preview deployment, check it with
    `vercel curl /api/health --deployment <url>`, then merge to `main` for production.
+
+**Limits and spending.** With sign-in on, the app's rate limits are on
+(`MENDARI_RATE_LIMITS`, see [`docs/deploying-with-phi.md`](docs/deploying-with-phi.md)), and the
+client address is Vercel's `X-Forwarded-For`. The edge layer is one Vercel firewall rule per IP
+on `/auth/` and `/smart/`, kept as a file with its runbook in
+[`deploy/vercel/`](deploy/vercel/README.md); it starts in log mode. When Vercel Authentication
+is lifted, the project's deployment runs with finite daily ceilings and quotas:
+`MENDARI_JEV_DAILY_LIMIT=2000`, `MENDARI_LLM_DAILY_LIMIT=200` and
+`MENDARI_ORG_DAILY_LIMITS=decisions=5000`.
 
 `/api/health` reports the storage backend, active providers, Jev configuration and today's Jev
 usage (never secrets). With sign-in on, only a principal that may read (someone signed in, or a

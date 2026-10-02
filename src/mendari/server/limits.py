@@ -1,0 +1,307 @@
+"""Rate limits on the routes that cost something, shared by every instance (ADR-0005).
+
+Two layers: the edge (Vercel's firewall, or a site's proxy) limits per IP on the routes anyone
+can reach signed out; this module limits in the database, so every serverless instance and
+replica shares one count. It runs in the guard after the sign-in check and before anything that
+costs: no body is read, no provider is called and nothing is chained for a refused request.
+
+**What is limited, and by what key** (the class comes from the route's permission and path):
+
+| Class | Routes | Key | Default |
+|---|---|---|---|
+| `signin` | `GET /auth/login`, `GET /smart/launch` | IP | 60/min |
+| `token` | `POST /auth/token`, before its body is read | IP | 60/min |
+| `token_failures` | a refused assertion at `/auth/token` | IP and client | 10/10min |
+| `decide` | every decision entry point, SMART decide too | principal | 600/min, burst 100 |
+| `guard` | `POST …/guard` (an LLM call) | principal | 60/min |
+| `evaluate` | `POST …/evals` | principal | 6/h |
+| `export` | the audit FHIR export, the feedback export | principal | 10/h |
+
+Reads are not limited here (the edge covers floods, and a read writes nothing permanent).
+Per-IP keys are used only where no one has signed in yet: a hospital sits behind one address.
+
+**Mode** (`MENDARI_RATE_LIMITS`): `on` (refuse with `429` and `Retry-After`), `log` (count and
+log, never refuse) or `off`. The default is `on` with sign-in and `off` in open mode, where every
+caller is one principal. Overrides follow the mode, comma-separated:
+`MENDARI_RATE_LIMITS=on,decide=1200/min:200,evaluate=20/h` (`count/[n]unit[:burst]`, unit `s`,
+`min` or `h`). A bad value fails at startup.
+
+**The algorithm** is GCRA, one statement on one row per bucket (`AuditStore.rate_take`): a
+bucket admits `burst` requests at once and then one every `period / count`, with no burst at
+window edges, constant storage and an exact `Retry-After`. Buckets are named by class and key,
+never by a secret: `decide|key:<id>`, `signin|ip:<address>`.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import ipaddress
+import logging
+import math
+import os
+import re
+import threading
+import time
+from dataclasses import dataclass
+from typing import Literal, cast
+
+from fastapi import Request
+
+from mendari.core.audit import AuditStore
+from mendari.errors import MendariError
+
+logger = logging.getLogger("mendari.limits")
+
+Mode = Literal["on", "log", "off"]
+_UNITS = {"s": 1, "min": 60, "h": 3600}
+_RATE = re.compile(r"^(\d+)/(\d*)(s|min|h)(?::(\d+))?$")
+# Every this many takes, an instance purges up to PURGE_BATCH empty buckets.
+PURGE_EVERY = 100
+PURGE_BATCH = 100
+SMART_COOKIE = "mendari_smart"  # server/smart_routes.py COOKIE (not imported: no cycle)
+
+
+@dataclass(frozen=True)
+class Rate:
+    """`count` requests per `seconds`, `burst` of them at once (GCRA)."""
+
+    count: int
+    seconds: int
+    burst: int
+
+    @property
+    def interval_ms(self) -> int:
+        """The time one request uses up: a bucket refills one request per interval."""
+        return max(1, round(self.seconds * 1000 / self.count))
+
+    @property
+    def tolerance_ms(self) -> int:
+        """How far ahead of now a bucket may run: `burst` requests' worth."""
+        return self.interval_ms * self.burst
+
+    def __str__(self) -> str:
+        """In the setting's own syntax (`600/min:100`), so health shows what to set."""
+        unit, size = next((u, n) for u, n in _UNITS_LARGEST_FIRST if self.seconds % n == 0)
+        times = self.seconds // size
+        burst = f":{self.burst}" if self.burst != self.count else ""
+        return f"{self.count}/{times if times != 1 else ''}{unit}{burst}"
+
+
+_UNITS_LARGEST_FIRST = (("h", 3600), ("min", 60), ("s", 1))
+DEFAULT_RATES: dict[str, Rate] = {
+    "signin": Rate(60, 60, 60),
+    "token": Rate(60, 60, 60),
+    "token_failures": Rate(10, 600, 10),
+    "decide": Rate(600, 60, 100),
+    "guard": Rate(60, 60, 60),
+    "evaluate": Rate(6, 3600, 6),
+    "export": Rate(10, 3600, 10),
+}
+
+_GUARD = re.compile(r"^/api/packs/[^/]+/[^/]+/guard$")
+_EXPORTS = re.compile(r"^/api/(audit/export/fhir|packs/[^/]+/[^/]+/feedback/export)$")
+
+
+@dataclass(frozen=True)
+class LimitSettings:
+    mode: Mode
+    rates: dict[str, Rate]
+
+
+def limit_settings(*, sign_in: bool) -> LimitSettings:
+    """From `MENDARI_RATE_LIMITS`; see the module docstring. Raises at startup on a bad value."""
+    raw = os.environ.get("MENDARI_RATE_LIMITS", "").strip()
+    mode: str = ""
+    rates = dict(DEFAULT_RATES)
+    for item in (part.strip() for part in raw.split(",")):
+        if not item:
+            continue
+        name, sep, value = item.partition("=")
+        if not sep:
+            if mode or item.lower() not in ("on", "log", "off"):
+                raise MendariError(
+                    "MENDARI_RATE_LIMITS: give one mode (on, log or off), then overrides "
+                    "such as decide=1200/min:200"
+                )
+            mode = item.lower()
+            continue
+        name = name.strip()
+        if name not in DEFAULT_RATES:
+            raise MendariError(
+                f"MENDARI_RATE_LIMITS: no limit named {name!r} (one of {', '.join(DEFAULT_RATES)})"
+            )
+        rates[name] = parse_rate(value.strip(), name)
+    if not mode:
+        mode = "on" if sign_in else "off"
+    return LimitSettings(mode=cast(Mode, mode), rates=rates)
+
+
+def parse_rate(value: str, name: str) -> Rate:
+    """`count/[n]unit[:burst]`, e.g. `600/min:100`, `10/10min`, `6/h`; the burst is the count
+    unless given."""
+    match = _RATE.match(value)
+    if match is None:
+        raise MendariError(
+            f"MENDARI_RATE_LIMITS: {name}={value!r} must look like 600/min, 10/10min or 600/min:100"
+        )
+    count, times, unit, burst = match.groups()
+    seconds = int(times or 1) * _UNITS[unit]
+    rate = Rate(int(count), seconds, int(burst) if burst else int(count))
+    if rate.count < 1 or rate.burst < 1 or seconds < 1:
+        raise MendariError(f"MENDARI_RATE_LIMITS: {name}={value!r} must allow at least one request")
+    return rate
+
+
+def client_ip(request: Request) -> str:
+    """The caller's address. On Vercel, the first `X-Forwarded-For` value, which Vercel sets
+    itself (a client's own value is overwritten); elsewhere the connection's address, which
+    uvicorn replaces with `X-Forwarded-For` only from the proxies it trusts
+    (`mendari serve --forwarded-allow-ips`, `FORWARDED_ALLOW_IPS`). Anything that is not an IP
+    address counts as one shared `unknown`, so a header can never name a bucket."""
+    address = ""
+    if os.environ.get("VERCEL"):
+        address = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+    if not address and request.client is not None:
+        address = request.client.host
+    try:
+        return str(ipaddress.ip_address(address))
+    except ValueError:
+        return "unknown"
+
+
+def client_ip_source() -> str:
+    """Where `client_ip` reads the address, for `/api/health`: a proxy left unconfigured puts
+    every person behind it in one sign-in bucket, and this makes that visible."""
+    if os.environ.get("VERCEL"):
+        return "x-forwarded-for (set by Vercel)"
+    trusted = os.environ.get("FORWARDED_ALLOW_IPS")
+    if trusted is None:
+        return "the connection (x-forwarded-for trusted from 127.0.0.1 only)"
+    if not trusted.strip():
+        return "the connection (x-forwarded-for not trusted)"
+    return f"x-forwarded-for from {trusted.strip()}, else the connection"
+
+
+class RateLimited(MendariError):
+    """A request over its class's limit: `retry_after` whole seconds (at least 1)."""
+
+    def __init__(self, limit: str, retry_after: int):
+        self.limit = limit
+        self.retry_after = retry_after
+        super().__init__(f"too many requests ({limit}); retry in {retry_after} s")
+
+
+class Limiter:
+    """Counts requests per class and key in the store; see the module docstring."""
+
+    def __init__(self, store: AuditStore, settings: LimitSettings):
+        self.store = store
+        self.mode = settings.mode
+        self.rates = settings.rates
+        self._takes = 0
+        self._logged: dict[str, int] = {}  # bucket -> until when a refusal is not logged again
+        self._lock = threading.Lock()
+
+    @property
+    def on(self) -> bool:
+        return self.mode != "off"
+
+    def describe(self) -> dict[str, object]:
+        """For `/api/health` (signed in): the mode and every class's rate."""
+        return {
+            "mode": self.mode,
+            "client_ip_source": client_ip_source(),
+            "limits": {name: str(rate) for name, rate in self.rates.items()},
+        }
+
+    def classify(self, method: str, path: str, permission: str) -> str | None:
+        """The class a request counts against, or None (not limited here)."""
+        if method == "GET" and path in ("/auth/login", "/smart/launch"):
+            return "signin"
+        if method == "POST" and path == "/auth/token":
+            return "token"
+        if method == "POST" and path == "/api/smart/decide":
+            return "decide"
+        if permission == "decide":
+            return "guard" if _GUARD.match(path) else "decide"
+        if permission == "evaluate":
+            return "evaluate"
+        if method == "GET" and _EXPORTS.match(path):
+            return "export"
+        return None
+
+    def check(self, request: Request, permission: str, principal_id: str) -> RateLimited | None:
+        """Count this request against its class; the refusal to answer with, if it is over
+        (never in `log` mode). `principal_id` is the guard's principal (`open` in open mode)."""
+        if self.mode == "off":
+            return None
+        kind = self.classify(request.method, request.url.path, permission)
+        if kind is None:
+            return None
+        if kind in ("signin", "token"):
+            key = f"ip:{client_ip(request)}"
+        elif request.url.path == "/api/smart/decide":
+            # An EHR launch's session (no Mendari principal), by a digest that cannot be used to
+            # find the session's row; without a cookie the route answers 401 itself.
+            cookie = request.cookies.get(SMART_COOKIE)
+            if not cookie:
+                return None
+            key = "smart:" + hashlib.sha256(f"rate-limit\0{cookie}".encode()).hexdigest()[:16]
+        else:
+            key = principal_id
+        return self.hit(kind, key)
+
+    def hit(self, kind: str, key: str) -> RateLimited | None:
+        """Count one request in bucket `kind|key`; the refusal if it is over the limit."""
+        rate = self.rates[kind]
+        bucket = f"{kind}|{key}"
+        now = _now_ms()
+        wait_ms = self.store.rate_take(bucket, rate.interval_ms, rate.tolerance_ms, now)
+        self._maybe_purge(now)
+        return None if wait_ms is None else self._refused(kind, bucket, rate, wait_ms, now)
+
+    def blocked(self, kind: str, key: str) -> RateLimited | None:
+        """Whether bucket `kind|key` is over its limit now, without counting (failure counts,
+        which `hit` charges only when a request fails)."""
+        if self.mode == "off":
+            return None
+        rate = self.rates[kind]
+        bucket = f"{kind}|{key}"
+        now = _now_ms()
+        wait_ms = self.store.rate_peek(bucket, rate.interval_ms, rate.tolerance_ms, now)
+        return None if wait_ms is None else self._refused(kind, bucket, rate, wait_ms, now)
+
+    def fail(self, kind: str, key: str) -> None:
+        """Charge one failure to `kind|key` (the refusal, if any, comes on the next request)."""
+        if self.mode != "off":
+            self.hit(kind, key)
+
+    def _refused(
+        self, kind: str, bucket: str, rate: Rate, wait_ms: int, now: int
+    ) -> RateLimited | None:
+        retry_after = max(1, math.ceil(wait_ms / 1000))
+        with self._lock:
+            if self._logged.get(bucket, 0) <= now:  # once per bucket until it has room again
+                if len(self._logged) > 10_000:
+                    self._logged.clear()
+                self._logged[bucket] = now + wait_ms
+                logger.warning(
+                    "rate limit reached: %s (%s) by %s; retry in %d s%s",
+                    kind,
+                    rate,
+                    bucket.partition("|")[2].partition(":")[0],
+                    retry_after,
+                    "" if self.mode == "on" else " (log mode: not refused)",
+                )
+        return RateLimited(f"{kind}: {rate}", retry_after) if self.mode == "on" else None
+
+    def _maybe_purge(self, now: int) -> None:
+        with self._lock:
+            self._takes += 1
+            due = self._takes % PURGE_EVERY == 0
+        if due:
+            self.store.rate_purge(now, PURGE_BATCH)
+
+
+def _now_ms() -> int:
+    return int(time.time() * 1000)

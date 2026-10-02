@@ -25,6 +25,46 @@ or a key, that may read. A request body is 4 MiB at most: raise `MENDARI_MAX_BOD
 bytes, 64 KiB or more) if your FHIR Bundles are larger, and give your proxy the same limit
 (nginx's `client_max_body_size`, say). A larger body gets a `413`.
 
+**Rate limits.** With sign-in on, Mendari limits what costs something, counted in the database
+so every replica shares the count. Reads are not limited. Over a limit the answer is a `429`
+with `Retry-After` (seconds), before any body is read, model called or record written: JSON on
+`/api`, an OperationOutcome (`throttled`) on FHIR routes, OAuth's `temporarily_unavailable` at
+the token endpoint.
+
+| What | Counted per | Default |
+|---|---|---|
+| Signing in (`/auth/login`, the SMART launch) | client address | 60 a minute |
+| The token endpoint, before its body is read | client address | 60 a minute |
+| Failed assertions at the token endpoint | client address and client | 10 in 10 minutes |
+| Decisions, at every entry point (REST, FHIR `$decide`, CDS Hooks, DTR, PAS, SMART) | API key, client or person | 600 a minute, 100 at once |
+| The AI guard (an LLM call) | API key, client or person | 60 a minute |
+| Evaluations | caller | 6 an hour |
+| Exports (the audit FHIR export, the feedback export) | caller | 10 an hour |
+
+`MENDARI_RATE_LIMITS` is `on` (the default with sign-in), `log` (count and log what would be
+refused, refuse nothing) or `off` (the default in open mode), optionally followed by overrides:
+`MENDARI_RATE_LIMITS=on,decide=1200/min:200,evaluate=20/h` (`count/[n]unit[:burst]`, unit `s`,
+`min` or `h`). A bad value stops the server at startup. Signed in, `/api/health` shows the mode,
+every limit and `client_ip_source`.
+
+**Behind a proxy.** Sign-in and the token endpoint count per client address, so the engine must
+see the client's, not your proxy's. `mendari serve` takes `X-Forwarded-For` only from the
+proxies in `--forwarded-allow-ips` (or `FORWARDED_ALLOW_IPS`; default `127.0.0.1`), and the
+templates set it. Limit per address at the proxy too, on `/auth/` and `/smart/` only (a
+hospital sends everyone's traffic from one address):
+[`deploy/onprem/nginx-limits.conf`](https://github.com/Junebugg1214/mendari/blob/main/deploy/onprem/nginx-limits.conf)
+is an example.
+
+**Daily quotas per organization.** `MENDARI_ORG_DAILY_LIMITS=decisions=5000,jev=2000,llm=200`
+caps what each organization uses a day: decisions, and the remote model calls they make. Unset,
+there is none. Evaluations never count against them (they spend the deployment's daily budgets,
+`MENDARI_JEV_DAILY_LIMIT` and `MENDARI_LLM_DAILY_LIMIT`, only). Over a quota a decision is still
+made and recorded, but no provider runs and it goes to the review queue (`ABSTAIN` or
+`HUMAN_REVIEW`, with `quota_exhausted` in its errors), as over a daily budget: a quota never
+makes anything more automatic. The first time an organization reaches a quota each day,
+Mendari logs it and posts one alert to `MENDARI_ALERT_WEBHOOK` (the organization, the quota and
+its limit; no case data). Quotas start over at local midnight (`MENDARI_TIMEZONE`).
+
 ## 2. Sign-in and roles
 
 Set your identity provider, so nobody reaches the dashboard or the API without an account:
@@ -123,8 +163,10 @@ no authorization endpoint (no user or patient launch) and no `patient/` or `user
   /api/auth/clients/{client_id}` revokes one, and its tokens stop working on the next request.
   Registering and revoking are recorded in the audit chain.
 - To change a client's keys or scopes, register a new client and revoke the old one.
-- The token endpoint has no rate limit of its own yet: keep the deployment behind its access
-  gate (Vercel Authentication, a VPN) until one is in place.
+- The token endpoint takes 60 requests a minute per client address. After 10 failed
+  assertions in 10 minutes from one address for one client, that pair gets a `429` until the
+  oldest failure has aged out; another client, or the same client from another address, is not
+  affected (never by the client alone: anyone who knows a client's id could lock it out).
 - A deployment's tokens and one-time `jti` claims live in its database. Don't share a database
   (and a public URL) between preview and production.
 
@@ -173,7 +215,7 @@ By default, nothing. Each of these is off until you configure it:
 |---|---|---|
 | Remote model providers (Jev, LLMs through Vercel AI Gateway) | `MENDARI_PROVIDERS` | The pack's declared `state_fields` only |
 | Reading your FHIR server (CDS Hooks fetch, SMART, Bulk) | `MENDARI_FHIR_ALLOWED_SERVERS` | Nothing leaves; Mendari reads from servers you list |
-| Alerts | `MENDARI_ALERT_WEBHOOK` | Pack ids and alert messages (no case data) |
+| Alerts | `MENDARI_ALERT_WEBHOOK` | Pack ids and alert messages; an organization's id when it reaches a daily quota (no case data) |
 | Shared evaluation reports | `mendari eval --share` (manual) | Metrics only; no cases, ids or small groups |
 
 For PHI, prefer local providers (rules, naive Bayes, criteria, dosing), or a local model server
@@ -196,6 +238,16 @@ that covers PHI.
 - [ ] Without signing in, `/api/health` shows only `status`, `version` and `sign_in: true`.
       Signed in as an admin, it shows `phi_mode: encrypt` and only the providers and FHIR
       servers you expect.
+- [ ] Signed in, `/api/health` shows `rate_limits.mode: on` and a `client_ip_source` that is your
+      proxy's `X-Forwarded-For` (not the connection). One API key past its decide limit gets a
+      `429` with `Retry-After` (lower `decide` in `MENDARI_RATE_LIMITS` on a test instance to
+      check), and your proxy limits `/auth/` per address.
+- [ ] Daily budgets and quotas are set and visible in `/api/health` (`jev`, `llm`,
+      `org_quotas`). The project's own public deployment launches with
+      `MENDARI_JEV_DAILY_LIMIT=2000`, `MENDARI_LLM_DAILY_LIMIT=200` and
+      `MENDARI_ORG_DAILY_LIMITS=decisions=5000`, its firewall rule enforced after 7 days in log
+      mode ([`deploy/vercel/`](https://github.com/Junebugg1214/mendari/tree/main/deploy/vercel)); choose your own numbers from a
+      week of your traffic.
 - [ ] A viewer can't read an input; a reviewer can, and the read appears in the audit chain.
 - [ ] Integrations that record outcomes send `source` as an identifier (`ehr`, not a sentence)
       and a label of the pack's primary question.

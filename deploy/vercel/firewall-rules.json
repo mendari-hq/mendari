@@ -1,0 +1,26 @@
+{
+  "rules": [
+    {
+      "name": "Mendari sign-in per IP",
+      "description": "Per-address limit on the routes anyone can reach signed out (sign-in, callbacks, the token endpoint, the SMART launch). Starts in log mode; see deploy/vercel/README.md.",
+      "active": true,
+      "conditionGroup": [
+        {"conditions": [{"type": "path", "op": "pre", "value": "/auth/"}]},
+        {"conditions": [{"type": "path", "op": "pre", "value": "/smart/"}]}
+      ],
+      "action": {
+        "mitigate": {
+          "action": "rate_limit",
+          "rateLimit": {
+            "algo": "fixed_window",
+            "window": 60,
+            "limit": 120,
+            "keys": ["ip"],
+            "action": "log"
+          },
+          "actionDuration": null
+        }
+      }
+    }
+  ]
+}

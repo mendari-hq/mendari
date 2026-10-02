@@ -58,8 +58,8 @@ website (`hub/`), the container images and the deployment templates (`deploy/`).
   `invalid_client`. A token reads its client's role, scopes, organization and revocation on
   each request, so revoking a client stops its tokens at once. Machines are `viewer` or
   `service`; no key or token registers a client. Registering and revoking clients are chained.
-  Mendari fetches no client key (no JWKS URLs) and the endpoint has no rate limit of its own
-  yet, so it stays behind Vercel Authentication.
+  Mendari fetches no client key (no JWKS URLs). The endpoint takes 60 requests a minute per
+  address, and 10 failed assertions in 10 minutes per address and client.
 - **PHI mode.** `MENDARI_PHI_MODE=hash` stores no input; `encrypt` stores inputs encrypted
   apart from the audit chain, readable only by signed-in reviewers and admins, and every read
   is logged. Without PHI mode, audit records keep full inputs by default
@@ -70,6 +70,20 @@ website (`hub/`), the container images and the deployment templates (`deploy/`).
   sign-in keeps the identity provider's configuration for an hour. No request body passes
   `MENDARI_MAX_BODY_BYTES` (4 MiB unless set): a larger declared length is refused unread, a
   chunked body once it passes the limit, both with `413` and after the sign-in check.
+- **Rate limits and quotas.** With sign-in on (`MENDARI_RATE_LIMITS`, default `on` then), the
+  costly routes are limited per caller (decisions 600 a minute with bursts of 100 at every
+  entry point, the AI guard 60 a minute, evaluations 6 an hour, exports 10 an hour) and
+  sign-in and the token endpoint per address (60 a minute), with one GCRA row per bucket in the
+  database, so every instance shares the count. The check runs in the guard after the sign-in
+  check: a refused request reads no body, calls no provider and writes nothing to the chain. A
+  `429` carries `Retry-After` and `no-store`. Buckets are named by class and an opaque id
+  (`key:<id>`, `user:<hash>`, `ip:<address>`), never a credential. Reads are not limited in the
+  app. The client address is Vercel's `X-Forwarded-For`, or, self-hosted, the connection's
+  unless the proxy is trusted (`mendari serve --forwarded-allow-ips`). Per-organization daily
+  quotas (`MENDARI_ORG_DAILY_LIMITS`) count decisions and their remote calls, never
+  evaluations; over one, decisions fall back to human review, and one alert goes to the
+  webhook a day. At the edge, one Vercel firewall rule limits `/auth/` and `/smart/` per IP
+  (`deploy/vercel/`), first in log mode.
 - **Headers.** Every response has a strict CSP (the dashboard's inline scripts by hash only),
   no framing, nosniff, no referrer and cross-origin isolation.
 

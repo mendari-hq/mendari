@@ -21,6 +21,13 @@ data:
   MENDARI_OIDC_ROLE_MAP: clinicians=reviewer,informatics=admin,ai-committee=governance
   MENDARI_PHI_MODE: encrypt
   MENDARI_RETENTION_DAYS: "90"
+  # The ingress controller's pod network: X-Forwarded-For is trusted only from it, so rate
+  # limits on sign-in count per client, not per ingress pod. /api/health (signed in) shows
+  # `client_ip_source`. Limit per address on /auth/ and /smart/ at the ingress too, e.g. with
+  # ingress-nginx: nginx.ingress.kubernetes.io/limit-rpm: "120" on an Ingress for those paths.
+  FORWARDED_ALLOW_IPS: 10.0.0.0/8
+  # Rate limits are on with sign-in. Per-organization daily quotas, off unless set:
+  # MENDARI_ORG_DAILY_LIMITS: decisions=5000
 ---
 apiVersion: apps/v1
 kind: Deployment

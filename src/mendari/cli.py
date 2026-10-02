@@ -325,13 +325,25 @@ def cmd_serve(args: argparse.Namespace) -> int:
         raise MendariError("the server needs extras: pip install 'mendari[server]'") from None
     from mendari.server.app import create_app
 
+    # Behind a proxy, the client's address (rate limits per address, the log) comes from
+    # X-Forwarded-For, but only from the proxies trusted here. The environment carries the
+    # choice to /api/health (`client_ip_source`), as it would for uvicorn run directly.
+    trusted = args.forwarded_allow_ips or os.environ.get("FORWARDED_ALLOW_IPS") or "127.0.0.1"
+    os.environ["FORWARDED_ALLOW_IPS"] = trusted if args.proxy_headers else ""
     app = create_app(
         db_path=args.db,
         providers=parse_providers(args.provider),
         budget_limits=daily_limits(),
         datasets_dir=Path(args.datasets_dir) if args.datasets_dir else example_datasets_dir(),
     )
-    uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+    uvicorn.run(
+        app,
+        host=args.host,
+        port=args.port,
+        log_level="info",
+        proxy_headers=args.proxy_headers,
+        forwarded_allow_ips=trusted,
+    )
     return 0
 
 
@@ -1017,6 +1029,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     serve.add_argument("--datasets-dir", help="extra evaluation datasets for the dashboard")
     serve.add_argument("--provider", action="append", metavar="SLOT=VARIANT")
+    serve.add_argument(
+        "--proxy-headers",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="take the client's address from X-Forwarded-For sent by a trusted proxy "
+        "(default: on, as uvicorn)",
+    )
+    serve.add_argument(
+        "--forwarded-allow-ips",
+        help="the proxies trusted for X-Forwarded-For: addresses or networks, comma-separated "
+        "(default: $FORWARDED_ALLOW_IPS, else 127.0.0.1); rate limits on sign-in count per "
+        "client address, so set it to your proxy's",
+    )
     serve.set_defaults(handler=cmd_serve)
 
     audit = sub.add_parser("audit", help="audit trail tools").add_subparsers(

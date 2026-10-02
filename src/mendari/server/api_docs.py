@@ -70,9 +70,16 @@ FHIR_EXAMPLE: dict[str, Any] = {
 FHIR_EXAMPLE_PACK = "mendari/patient-inbox-router"
 
 
-def description(*, sign_in: bool, default_pack: str | None, token_url: str | None = None) -> str:
+def description(
+    *,
+    sign_in: bool,
+    default_pack: str | None,
+    token_url: str | None = None,
+    rate_limits: Mapping[str, str] | None = None,
+) -> str:
     """The page's introduction: what this is, a first request, how to authenticate (and, when
-    SMART Backend Services is on, `token_url`: how machines get tokens)."""
+    SMART Backend Services is on, `token_url`: how machines get tokens), and, when they are on,
+    the `rate_limits` (class: rate)."""
     pack = default_pack or "{namespace}/{name}"
     auth = (
         "**Sign-in is on.** People sign in at `/auth/login`; the dashboard and these pages use "
@@ -109,7 +116,7 @@ All data here is synthetic. This is a research preview, not a medical device.
    opens the audit record at `GET /api/audit/{{id}}`.
 
 A request body is 4 MiB at most unless the deployment sets `MENDARI_MAX_BODY_BYTES`; a larger
-one is a `413`.
+one is a `413`.{_limits(rate_limits)}
 
 ### FHIR
 
@@ -133,6 +140,22 @@ for the review queue), and its audit trail is `/fhir/AuditEvent` and `/fhir/Prov
 
 [Open the dashboard](/) to try packs without code, or [read this reference in ReDoc](/redoc).
 """.strip()
+
+
+def _limits(rates: Mapping[str, str] | None) -> str:
+    if not rates:
+        return ""
+    return (
+        "\n\n**Rate limits.** Costly operations are limited per caller (an API key, a client, a "
+        "person), counted across every instance of this deployment: decisions "
+        f"{rates['decide']} (at every entry point), the AI guard {rates['guard']}, evaluations "
+        f"{rates['evaluate']} and exports {rates['export']}; signing in {rates['signin']} and "
+        f"the token endpoint {rates['token']} per address. Reads are not limited here. Over a "
+        "limit the answer is a `429` with `Retry-After` (seconds) and `Cache-Control: "
+        "no-store`: JSON on `/api`, an OperationOutcome (`throttled`) on FHIR routes, OAuth's "
+        "`temporarily_unavailable` at the token endpoint. A daily budget or an organization's "
+        "daily quota never refuses a decision: over it, decisions fall back to human review."
+    )
 
 
 def _backend_services(token_url: str) -> str:
@@ -159,10 +182,12 @@ def document(
     default_pack: str | None,
     permission_for: Callable[[str, str], str] | None,
     token_url: str | None = None,
+    limit_for: Callable[[str, str], str | None] | None = None,
 ) -> dict[str, Any]:
     """Add examples and (when `permission_for` is given, i.e. sign-in is on) security to a
     generated OpenAPI document; with `token_url` (SMART Backend Services on), the token flow
-    too, on the operations a token's scope can reach."""
+    too, on the operations a token's scope can reach; with `limit_for` (rate limits on, the
+    class of an operation or None), the `429` a limited operation can answer."""
     ordered = sorted(packs, key=lambda pack_id: (pack_id != default_pack, pack_id))
     inputs = {pack_id: _example_input(packs[pack_id]) for pack_id in ordered}
     for path, operations in schema.get("paths", {}).items():
@@ -180,6 +205,8 @@ def document(
             if permission_for is not None:
                 permission = permission_for(method.upper(), path)
                 _secure(operation, method.upper(), path, permission, tokens=token_url is not None)
+            if limit_for is not None and limit_for(method.upper(), path) is not None:
+                operation.setdefault("responses", {})["429"] = TOO_MANY
     if permission_for is not None:
         schemes: dict[str, Any] = {
             "apiKey": {
@@ -211,6 +238,11 @@ def document(
         schema.setdefault("components", {})["securitySchemes"] = schemes
     return schema
 
+
+TOO_MANY = {
+    "description": "Too many requests from this caller: retry after `Retry-After` seconds.",
+    "headers": {"Retry-After": {"description": "Seconds to wait", "schema": {"type": "integer"}}},
+}
 
 _SCOPE_TEXT = {
     **{

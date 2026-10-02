@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from jsonschema import Draft202012Validator, ValidationError
 
+from mendari.core import tenancy
 from mendari.core.derive import complete_answers, explain
 from mendari.core.pack import Pack, load_pack
 from mendari.core.policy import GovernanceOverride, PolicyResult, apply_policy
@@ -99,21 +100,58 @@ class DecisionResult:
         }
 
 
+# Called the first time an organization reaches one of its daily quotas (org, metric, limit).
+QuotaReached = Callable[[str, str, int], None]
+
+
 class CallBudget:
     """Daily call limits per provider type (e.g. {"jev": 500}; None counts calls without a
-    limit), counted in the audit store.
+    limit), counted in the audit store, and per-organization daily quotas (`org_limits`:
+    `decisions`, and the remote calls they make by provider type, e.g. {"decisions": 5000}).
 
-    A provider over budget fails like any other provider (`budget_exhausted`), so the policy
-    falls back safely instead of automating.
+    A provider over budget fails like any other provider (`budget_exhausted`), and a decision
+    over its organization's quota fails every provider (`quota_exhausted`), so the policy falls
+    back to human review instead of automating. `on_quota_reached` hears of each quota once a
+    day per organization: when the call that reaches it is counted.
     """
 
-    def __init__(self, store: AuditStore, limits: Mapping[str, int | None]):
+    def __init__(
+        self,
+        store: AuditStore,
+        limits: Mapping[str, int | None],
+        *,
+        org_limits: Mapping[str, int] | None = None,
+        on_quota_reached: QuotaReached | None = None,
+    ):
         self.store = store
         self.limits = dict(limits)
+        self.org_limits = dict(org_limits or {})
+        self.on_quota_reached = on_quota_reached
 
     def acquire(self, provider_type: str) -> None:
+        if provider_type in self.org_limits:
+            self._charge_org(provider_type)
         if provider_type in self.limits:
             self.store.consume(provider_type, daily_limit=self.limits[provider_type])
+
+    def admit_decision(self) -> None:
+        """Count one decision against its organization's quota (`quota_exhausted` over it)."""
+        if "decisions" in self.org_limits:
+            self._charge_org("decisions")
+
+    def for_evaluation(self) -> CallBudget:
+        """The deployment's daily budgets without the organizations' quotas: an evaluation
+        spends provider calls, never an organization's decisions."""
+        return CallBudget(self.store, self.limits)
+
+    def _charge_org(self, metric: str) -> None:
+        org = tenancy.current() or tenancy.DEFAULT_ORG
+        limit = self.org_limits[metric]
+        count = self.store.consume_org(org, metric, daily_limit=limit)
+        if count is None:
+            raise ProviderError("quota_exhausted", f"this organization's daily {metric} quota")
+        if count == limit and self.on_quota_reached is not None:
+            self.on_quota_reached(org, metric, limit)
 
 
 class Decision:
@@ -213,6 +251,12 @@ class Decision:
         governance = self.governance
         if governance is None and self.governance_source is not None:
             governance = self.governance_source(self.pack)
+        over_quota: ProviderError | None = None
+        if self.budget is not None:
+            try:
+                self.budget.admit_decision()
+            except ProviderError as error:
+                over_quota = error  # every provider fails with it, so nothing automates
         schema_problems = self.validate(inputs)
         problems = [*rejected, *schema_problems]
         if problems:
@@ -226,6 +270,8 @@ class Decision:
             with batching(self.providers.values()):
                 for slot, provider in self.providers.items():
                     try:
+                        if over_quota is not None:
+                            raise over_quota
                         provider.preflight()
                         output = provider.answer(inputs)
                     except ProviderError as error:

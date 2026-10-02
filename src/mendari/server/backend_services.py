@@ -23,6 +23,10 @@ sign-in configured and `MENDARI_PUBLIC_URL` set; otherwise the server refuses to
   Each request reads the client's role, scopes, organization and revocation afresh (one join in
   `AuditStore.access_token`), and acts in the client's organization.
 - **Discovery** is `GET /fhir/.well-known/smart-configuration`, mounted only when on.
+- **Rate limits** (`server/limits.py`, with sign-in): 60 token requests a minute per address,
+  counted before the body is read, and 10 failed assertions in 10 minutes per address and
+  client, checked before the assertion is. Over either, `429 temporarily_unavailable` with
+  `Retry-After`.
 """
 
 from __future__ import annotations
@@ -57,6 +61,7 @@ from mendari.server.auth import (
     names_a_credential,
     read_body,
 )
+from mendari.server.limits import Limiter, client_ip
 
 logger = logging.getLogger("mendari.auth")
 
@@ -229,11 +234,13 @@ class ClientRequest(BaseModel):
 
 
 class OAuthError(Exception):
-    """An OAuth error answer (RFC 6749 §5.2): one code, a fixed description, never the input."""
+    """An OAuth error answer (RFC 6749 §5.2): one code, a fixed description, never the input.
+    `retry_after` (seconds) for a `429`."""
 
-    def __init__(self, error: str, status: int = 400):
+    def __init__(self, error: str, status: int = 400, *, retry_after: int | None = None):
         self.error = error
         self.status = status
+        self.retry_after = retry_after
         super().__init__(error)
 
 
@@ -252,12 +259,35 @@ _DESCRIPTIONS = {
     "unsupported_grant_type": "only grant_type=client_credentials is supported",
     "invalid_client": "client authentication failed",
     "invalid_scope": "none of the requested scopes can be granted to this client",
+    # RFC 6749 has no code for a rate limit at the token endpoint; this one is registered for
+    # the authorization endpoint and says the same thing (a 429 with Retry-After says when).
+    "temporarily_unavailable": "too many token requests: retry later",
 }
 
 
 def oauth_error(error: OAuthError) -> JSONResponse:
     body = {"error": error.error, "error_description": _DESCRIPTIONS[error.error]}
-    return JSONResponse(body, error.status, headers=_NO_STORE)
+    headers = dict(_NO_STORE)
+    if error.retry_after is not None:
+        headers["retry-after"] = str(error.retry_after)
+    return JSONResponse(body, error.status, headers=headers)
+
+
+def throttled(retry_after: int) -> OAuthError:
+    """A token request over a rate limit (server/limits.py): `429`, OAuth-shaped."""
+    return OAuthError("temporarily_unavailable", 429, retry_after=retry_after)
+
+
+def claimed_client(form: Mapping[str, str]) -> str | None:
+    """The client a token request says it is, unverified (the assertion's `iss`, else the form's
+    `client_id`), only when it has the shape of a client id: what assertion failures are
+    counted against, with the caller's address."""
+    parts = form.get("client_assertion", "")[:MAX_ASSERTION_BYTES].split(".")
+    claims = _segment(parts[1]) if len(parts) == 3 else None
+    for candidate in ((claims or {}).get("iss"), form.get("client_id")):
+        if isinstance(candidate, str) and _CLIENT_ID.fullmatch(candidate):
+            return candidate
+    return None
 
 
 def read_form(content_type: str, body: bytes) -> dict[str, str]:
@@ -403,8 +433,32 @@ def exchange(
 # -- routes -----------------------------------------------------------------------------------
 
 
-def add_backend_routes(app: FastAPI, settings: BackendSettings, store: AuditStore) -> None:
+def add_backend_routes(
+    app: FastAPI, settings: BackendSettings, store: AuditStore, limiter: Limiter | None = None
+) -> None:
     configuration = smart_configuration(settings)
+
+    def limited_exchange(form: Mapping[str, str], request: Request) -> dict[str, Any]:
+        """`exchange`, refused with a `429` while this address has failed too often for the
+        client it names (`token_failures`, checked before the assertion is), and each
+        `invalid_client` counted there. Never by the client alone: anyone who knows a client's
+        id could then lock it out."""
+        key = f"ip:{client_ip(request)}|client:{claimed_client(form) or 'unknown'}"
+        if limiter is not None:
+            over = limiter.blocked("token_failures", key)
+            if over is not None:
+                raise throttled(over.retry_after)
+        try:
+            return exchange(
+                form,
+                has_authorization="authorization" in request.headers,
+                settings=settings,
+                store=store,
+            )
+        except OAuthError as refused:
+            if limiter is not None and refused.error == "invalid_client":
+                limiter.fail("token_failures", key)
+            raise
 
     @app.post(
         TOKEN_PATH,
@@ -419,19 +473,15 @@ def add_backend_routes(app: FastAPI, settings: BackendSettings, store: AuditStor
         client asks for; it gets what it asked for within what it registered, and the answer's
         `scope` says what that is. Errors are OAuth's: `invalid_request`,
         `unsupported_grant_type` and `invalid_scope` (400), `invalid_client` (401) for any
-        assertion that does not authenticate the client."""
+        assertion that does not authenticate the client, and `temporarily_unavailable` (429,
+        with `Retry-After`) when this address sends too many requests or, for one client, too
+        many failed assertions."""
         try:
             body = await read_body(request, MAX_FORM_BYTES)
             if body is None:
                 raise OAuthError("invalid_request")
             form = read_form(request.headers.get("content-type", ""), body)
-            answer = await run_in_threadpool(
-                exchange,
-                form,
-                has_authorization="authorization" in request.headers,
-                settings=settings,
-                store=store,
-            )
+            answer = await run_in_threadpool(limited_exchange, form, request)
         except OAuthError as refused:
             return oauth_error(refused)
         return JSONResponse(answer, headers=_NO_STORE)
