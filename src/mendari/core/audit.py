@@ -10,6 +10,7 @@ Both backends run the same SQL (written with `?` placeholders) and the same hash
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import re
@@ -165,7 +166,26 @@ CREATE TABLE IF NOT EXISTS smart_sessions (
     kind        TEXT NOT NULL,
     expires_at  INTEGER NOT NULL,
     data        TEXT NOT NULL
-)
+);
+CREATE TABLE IF NOT EXISTS oauth_clients (
+    client_id   TEXT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    org         TEXT NOT NULL,
+    role        TEXT NOT NULL,
+    scopes      TEXT NOT NULL,
+    jwks        TEXT NOT NULL,
+    created_by  TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    revoked_at  TEXT,
+    revoked_by  TEXT
+);
+CREATE TABLE IF NOT EXISTS oauth_tokens (
+    token_sha256  TEXT PRIMARY KEY,
+    client_id     TEXT NOT NULL,
+    scope         TEXT NOT NULL,
+    expires_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS oauth_tokens_expiry ON oauth_tokens (expires_at)
 """
 
 # Columns added after their table's first release. New databases get them from _TABLES; older
@@ -1057,6 +1077,128 @@ class AuditStore:
             self._append(db, f"key:{key_id}", "key.revoked", revoked)
         return True
 
+    # -- SMART Backend Services: clients and access tokens (ADR-0004) -------------------------
+    # A client is a machine (viewer or service) of one organization, with the scopes it may be
+    # granted and a public JWK Set registered by value (server/backend_services.py checks both).
+    # Registering and revoking are chained under "client:<id>", with the keys' ids and RFC 7638
+    # thumbprints. An access token is stored as SHA-256 with its client, the scope it was granted
+    # and its expiry, nothing else: each lookup joins the client, so a change to its role,
+    # scopes or organization, or its revocation, applies to its tokens at once.
+
+    def register_client(
+        self,
+        *,
+        name: str,
+        role: str,
+        org: str,
+        created_by: str,
+        scopes: str,
+        jwks: Sequence[Mapping[str, Any]],
+    ) -> dict[str, Any]:
+        """A new client; `scopes` and `jwks` were checked by the caller. Its id is Mendari's."""
+        if role not in MACHINE_ROLES:
+            raise ValueError(f"a client's role is one of {MACHINE_ROLES}")
+        if not scopes.split() or not jwks:
+            raise ValueError("a client is registered with scopes and at least one key")
+        client = {
+            "client_id": secrets.token_hex(12),
+            "name": name,
+            "role": role,
+            "org": org,
+            "scope": scopes,
+            "keys": _key_summary(jwks),
+            "created_by": created_by,
+            "created_at": _now(),
+        }
+        with self._db.session(exclusive=True) as db:
+            db.all(
+                "INSERT INTO oauth_clients (client_id, name, org, role, scopes, jwks, created_by, "
+                "created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    client["client_id"],
+                    name,
+                    org,
+                    role,
+                    scopes,
+                    _canonical({"keys": list(jwks)}),
+                    created_by,
+                    client["created_at"],
+                ),
+            )
+            self._append(db, f"client:{client['client_id']}", "client.registered", client)
+        return client
+
+    def clients(self, org: str | None = None) -> list[dict[str, Any]]:
+        """Every client (of `org`, if given), oldest first, with its keys' ids and thumbprints."""
+        where, params = ("WHERE org = ?", (org,)) if org else ("", ())
+        with self._db.session(exclusive=False) as db:
+            rows = db.all(
+                "SELECT client_id, name, role, org, scopes AS scope, jwks, created_by, "
+                f"created_at, revoked_at, revoked_by FROM oauth_clients {where} "
+                "ORDER BY created_at",
+                params,
+            )
+        return [
+            {**{k: v for k, v in row.items() if k != "jwks"}, "keys": _key_summary(_jwks(row))}
+            for row in rows
+        ]
+
+    def client(self, client_id: str) -> dict[str, Any] | None:
+        """A client that is not revoked, with its public keys; None otherwise."""
+        with self._db.session(exclusive=False) as db:
+            row = db.one(
+                "SELECT client_id, name, role, org, scopes AS scope, jwks FROM oauth_clients "
+                "WHERE client_id = ? AND revoked_at IS NULL",
+                (client_id,),
+            )
+        return None if row is None else {**row, "jwks": _jwks(row)}
+
+    def revoke_client(self, client_id: str, org: str | None = None, *, revoked_by: str) -> bool:
+        """Revoke a client of `org` (any, if None) and drop its tokens; False for an unknown or
+        already revoked one. Its tokens stop working at once either way (`access_token`)."""
+        with self._db.session(exclusive=True) as db:
+            row = db.one(
+                "SELECT org FROM oauth_clients WHERE client_id = ? AND revoked_at IS NULL",
+                (client_id,),
+            )
+            if row is None or (org and row["org"] != org):
+                return False
+            revoked = {"client_id": client_id, "revoked_by": revoked_by, "revoked_at": _now()}
+            db.all(
+                "UPDATE oauth_clients SET revoked_at = ?, revoked_by = ? WHERE client_id = ?",
+                (revoked["revoked_at"], revoked_by, client_id),
+            )
+            db.all("DELETE FROM oauth_tokens WHERE client_id = ?", (client_id,))
+            self._append(db, f"client:{client_id}", "client.revoked", revoked)
+        return True
+
+    def issue_token(self, client_id: str, scope: str, seconds: int) -> tuple[str, int]:
+        """A new access token for a client (already authenticated) and the scope it was granted;
+        the secret and its expiry (Unix time). Stored hashed; expired tokens are purged."""
+        secret = "mat_" + secrets.token_urlsafe(32)
+        now = int(time.time())
+        expires_at = now + seconds
+        with self._db.session(exclusive=False) as db:
+            db.all("DELETE FROM oauth_tokens WHERE expires_at <= ?", (now,))
+            db.all(
+                "INSERT INTO oauth_tokens (token_sha256, client_id, scope, expires_at) "
+                "VALUES (?, ?, ?, ?)",
+                (_key(secret), client_id, scope, expires_at),
+            )
+        return secret, expires_at
+
+    def access_token(self, secret: str) -> dict[str, Any] | None:
+        """What an access token stands for, read from its client now (one join): None for an
+        unknown or expired token, or one whose client was revoked."""
+        with self._db.session(exclusive=False) as db:
+            return db.one(
+                "SELECT c.client_id, c.name, c.role, c.org, c.scopes AS registered, t.scope, "
+                "t.expires_at FROM oauth_tokens t JOIN oauth_clients c "
+                "ON c.client_id = t.client_id WHERE t.token_sha256 = ? AND t.expires_at > ? "
+                "AND c.revoked_at IS NULL",
+                (_key(secret), int(time.time())),
+            )
+
     def iter_events(self, **filters: Any) -> Iterator[dict[str, Any]]:
         """Every event `events()` matches, page by page, without loading the whole chain."""
         after = 0
@@ -1421,6 +1563,25 @@ def _scope() -> tuple[str, tuple[str, ...]]:
 
 def _key(secret: str) -> str:
     return hashlib.sha256(secret.encode()).hexdigest()
+
+
+def _jwks(row: Mapping[str, Any]) -> list[dict[str, Any]]:
+    keys: list[dict[str, Any]] = json.loads(row["jwks"])["keys"]
+    return keys
+
+
+def _key_summary(jwks: Sequence[Mapping[str, Any]]) -> list[dict[str, str]]:
+    """A client's keys as chained and listed: id, type and RFC 7638 thumbprint, which name a
+    public key without repeating it."""
+    return [{"kid": k["kid"], "kty": k["kty"], "thumbprint": _thumbprint(k)} for k in jwks]
+
+
+def _thumbprint(jwk: Mapping[str, Any]) -> str:
+    """RFC 7638: SHA-256 of the key's required members, in order, without whitespace."""
+    members = ("e", "kty", "n") if jwk["kty"] == "RSA" else ("crv", "kty", "x", "y")
+    body = json.dumps({m: jwk[m] for m in members}, separators=(",", ":"), sort_keys=True)
+    digest = hashlib.sha256(body.encode()).digest()
+    return base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
 
 
 _SESSION_KIND = re.compile(r"[a-z][a-z0-9-]{0,39}")

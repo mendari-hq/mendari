@@ -70,8 +70,9 @@ FHIR_EXAMPLE: dict[str, Any] = {
 FHIR_EXAMPLE_PACK = "mendari/patient-inbox-router"
 
 
-def description(*, sign_in: bool, default_pack: str | None) -> str:
-    """The page's introduction: what this is, a first request, how to authenticate."""
+def description(*, sign_in: bool, default_pack: str | None, token_url: str | None = None) -> str:
+    """The page's introduction: what this is, a first request, how to authenticate (and, when
+    SMART Backend Services is on, `token_url`: how machines get tokens)."""
     pack = default_pack or "{namespace}/{name}"
     auth = (
         "**Sign-in is on.** People sign in at `/auth/login`; the dashboard and these pages use "
@@ -86,6 +87,7 @@ def description(*, sign_in: bool, default_pack: str | None) -> str:
         "is a `401`, even with a session cookie. Credentials are never accepted in a URL or a form "
         "(`access_token` is a `400`). Refusals carry `WWW-Authenticate` (RFC 6750), and `/api` "
         "answers are `Cache-Control: no-store`. Only a signed-in person manages keys, never a key."
+        + (_backend_services(token_url) if token_url else "")
         if sign_in
         else "**Sign-in is off here**: anyone who can reach this deployment can call every "
         "operation. Set `MENDARI_OIDC_ISSUER` and `MENDARI_OIDC_CLIENT_ID` to require it."
@@ -130,15 +132,34 @@ for the review queue), and its audit trail is `/fhir/AuditEvent` and `/fhir/Prov
 """.strip()
 
 
+def _backend_services(token_url: str) -> str:
+    return (
+        "\n\n**SMART Backend Services is on.** A client a signed-in admin registers "
+        "(`POST /api/auth/clients`: a role, `viewer` or `service`, the scopes it may be granted, "
+        "and its public JWK Set) gets a five-minute access token at "
+        f"`POST {token_url}`: a form with `grant_type=client_credentials`, "
+        "`client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer`, "
+        "`client_assertion` (a JWT signed RS384 or ES384 with the client's private key: `iss` "
+        f"and `sub` the `client_id`, `aud` exactly `{token_url}`, `exp` at most five minutes "
+        "ahead, a `jti` used once) and `scope`. The token (`Authorization: Bearer mat_…`) gets "
+        "what was asked within what the client registered, reaches only the routes its scopes "
+        "name, and acts in the client's organization; revoking the client stops its tokens at "
+        "once. `GET /fhir/.well-known/smart-configuration` describes this. There is no "
+        "authorization endpoint and no refresh token."
+    )
+
+
 def document(
     schema: dict[str, Any],
     *,
     packs: Mapping[str, Pack],
     default_pack: str | None,
     permission_for: Callable[[str, str], str] | None,
+    token_url: str | None = None,
 ) -> dict[str, Any]:
     """Add examples and (when `permission_for` is given, i.e. sign-in is on) security to a
-    generated OpenAPI document."""
+    generated OpenAPI document; with `token_url` (SMART Backend Services on), the token flow
+    too, on the operations a token's scope can reach."""
     ordered = sorted(packs, key=lambda pack_id: (pack_id != default_pack, pack_id))
     inputs = {pack_id: _example_input(packs[pack_id]) for pack_id in ordered}
     for path, operations in schema.get("paths", {}).items():
@@ -154,9 +175,10 @@ def document(
             if body is not None and examples:
                 body["examples"] = examples
             if permission_for is not None:
-                _secure(operation, method.upper(), path, permission_for(method.upper(), path))
+                permission = permission_for(method.upper(), path)
+                _secure(operation, method.upper(), path, permission, tokens=token_url is not None)
     if permission_for is not None:
-        schema.setdefault("components", {})["securitySchemes"] = {
+        schemes: dict[str, Any] = {
             "apiKey": {
                 "type": "http",
                 "scheme": "bearer",
@@ -170,7 +192,32 @@ def document(
                 "description": "The session cookie a person gets by signing in at `/auth/login`.",
             },
         }
+        if token_url is not None:
+            schemes["smartBackendServices"] = {
+                "type": "oauth2",
+                "description": "SMART Backend Services: a registered client's five-minute access "
+                "token (`mat_…`), from a `client_credentials` grant authenticated with a "
+                "`private_key_jwt` assertion (RS384 or ES384), never a client secret.",
+                "flows": {
+                    "clientCredentials": {
+                        "tokenUrl": token_url,
+                        "scopes": {name: _SCOPE_TEXT[name] for name in scopes.supported()},
+                    }
+                },
+            }
+        schema.setdefault("components", {})["securitySchemes"] = schemes
     return schema
+
+
+_SCOPE_TEXT = {
+    **{
+        f"system/{kind}.{letters}": f"read{' and search' if 's' in letters else ''} {kind}"
+        for kind, letters in scopes.SERVED.items()
+    },
+    "system/*.rs": "read and search every type served",
+    scopes.DECIDE: "decide, at every decision entry point",
+    scopes.OUTCOME: "record a decision's downstream outcome",
+}
 
 
 def _fits(pack: Pack, path: str) -> bool:
@@ -228,7 +275,9 @@ def _body_examples(
     }
 
 
-def _secure(operation: dict[str, Any], method: str, path: str, permission: str) -> None:
+def _secure(
+    operation: dict[str, Any], method: str, path: str, permission: str, *, tokens: bool = False
+) -> None:
     if permission == "public":
         operation["security"] = []
         return
@@ -237,12 +286,15 @@ def _secure(operation: dict[str, Any], method: str, path: str, permission: str) 
         needed = "a signed-in person with the `keys` permission (an administrator; never a key)"
         operation["description"] = f"{operation.get('description', '')}\n\n**Needs** {needed}."
         return
-    operation["security"] = [{"apiKey": []}, {"session": []}]
-    needed = "any signed-in role" if permission == "page" else f"the `{permission}` permission"
     scope = scopes.needed(method, path)
+    operation["security"] = [{"apiKey": []}, {"session": []}]
+    if tokens and scope:  # an access token reaches only what its scope names
+        operation["security"].insert(1, {"smartBackendServices": [scope]})
+    needed = "any signed-in role" if permission == "page" else f"the `{permission}` permission"
+    credential = "a scoped key or an access token" if tokens else "a scoped key"
     needed += (
-        f" and, for a scoped key, the scope `{scope}`"
+        f" and, for {credential}, the scope `{scope}`"
         if scope
-        else "; a scoped key may not call this"
+        else f"; {credential} may not call this"
     )
     operation["description"] = f"{operation.get('description', '')}\n\n**Needs** {needed}.".strip()

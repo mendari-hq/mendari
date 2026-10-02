@@ -45,6 +45,7 @@ from mendari.core.policy import GovernanceOverride
 from mendari.core.registry import discover, version_key
 from mendari.errors import (
     AuthError,
+    ClientError,
     FhirError,
     FhirStructureError,
     MendariError,
@@ -71,6 +72,11 @@ from mendari.server.auth import (
     auth_settings,
     challenge,
     permission_for,
+)
+from mendari.server.backend_services import (
+    DISCOVERY_PATH,
+    add_backend_routes,
+    backend_settings,
 )
 from mendari.server.smart_routes import add_smart_routes, error_page
 from mendari.settings import FhirValidation, providers_for
@@ -102,6 +108,7 @@ _STATUS = {
     PackValidationError: 422,
     PasError: 422,
     ScopeError: 422,
+    ClientError: 422,
 }
 # A provider that cannot answer (e.g. listing Jev's models): not set up here, or the upstream
 # service failed; never a client error.
@@ -241,9 +248,10 @@ def create_app(
     fhir_servers = sorted(allowed_servers())  # likewise
     smart_options = smart_settings()
     sign_in = auth_settings()  # an invalid sign-in setting fails here, at startup
+    backend = backend_settings(sign_in)  # likewise: on, it needs sign-in and a public URL
     phi = phi_policy()  # a bad PHI setting (or a missing key) fails here, at startup
     store = AuditStore(db_path, migrate_url=migrate_url, phi=phi)
-    auth = Auth(sign_in, store)
+    auth = Auth(sign_in, store, tokens=backend is not None)
     budget = CallBudget(store, budget_limits) if budget_limits else None
     found = discover(packs_paths)
     only = settings.enabled_packs()  # a per-pack image serves just its pack
@@ -335,7 +343,11 @@ def create_app(
         title="Mendari",
         version=__version__,
         summary="Run, review, audit and evaluate healthcare decisions.",
-        description=api_docs.description(sign_in=auth.enabled, default_pack=default_pack),
+        description=api_docs.description(
+            sign_in=auth.enabled,
+            default_pack=default_pack,
+            token_url=None if backend is None else backend.token_url,
+        ),
         openapi_tags=api_docs.TAGS,
     )
 
@@ -354,6 +366,7 @@ def create_app(
                 packs=packs,
                 default_pack=default_pack,
                 permission_for=permission_for if auth.enabled else None,
+                token_url=None if backend is None else backend.token_url,
             )
         return app.openapi_schema
 
@@ -1014,6 +1027,7 @@ def create_app(
             mounted_routes(app),
             packs,
             sign_in=auth.enabled,
+            backend_services=backend is not None,
             since=lambda version: store.capability_since(place[0], version),
             public_url=os.environ.get("MENDARI_PUBLIC_URL", "").strip() or None,
             place=place,
@@ -1186,8 +1200,9 @@ def create_app(
 
     @app.middleware("http")
     async def _fhir_media_types(request: Request, call_next: Any) -> Response:
-        """FHIR routes speak FHIR R4 JSON only. Inside the guard, so sign-in answers first."""
-        if _FHIR_ROUTE.match(request.url.path):
+        """FHIR routes speak FHIR R4 JSON only. Inside the guard, so sign-in answers first. The
+        SMART configuration is plain JSON whatever the client accepts (SMART App Launch 2.2)."""
+        if _FHIR_ROUTE.match(request.url.path) and request.url.path != DISCOVERY_PATH:
             refused = fhir_media_refusal(request)
             if refused is not None:
                 return refused
@@ -1236,6 +1251,8 @@ def create_app(
         return response
 
     add_auth_routes(app, auth)
+    if backend is not None:
+        add_backend_routes(app, backend, store)
     add_smart_routes(
         app,
         settings=smart_options,

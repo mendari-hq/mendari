@@ -20,15 +20,18 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import Request
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
+from jwt.algorithms import RSAAlgorithm
 from starlette.routing import Route
 
 from mendari.core import tenancy
 from mendari.core.audit import MACHINE_ROLES, AuditStore
 from mendari.errors import AuthError, MendariError
 from mendari.server import auth as auth_module
+from mendari.server import scopes as scopes_module
 from mendari.server.app import create_app
 from mendari.server.auth import Auth, AuthSettings, auth_settings, permission_for
-from mendari.server.scopes import DECIDE, OUTCOME, needed, parse
+from mendari.server.backend_services import check_jwks, default_scope
+from mendari.server.scopes import DECIDE, OUTCOME, needed, parse, parse_lenient
 from mendari.standards.fhir_client import GuardedHttp
 from tests.conftest import message, signed_in
 
@@ -271,6 +274,9 @@ def test_bad_settings_fail_at_startup(
         auth_settings()
 
 
+# Mounted only with SMART Backend Services on: its discovery and its token endpoint.
+BACKEND_PUBLIC = {("GET", "/fhir/.well-known/smart-configuration"), ("POST", "/auth/token")}
+_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 PUBLIC = {
     ("GET", "/api/health"),
     ("GET", "/api/auth/me"),
@@ -430,11 +436,19 @@ def attempt(auth: Auth, method: str, path: str, headers: dict[str, str]) -> tupl
     return (200, "") if refused is None else (refused.status_code, "")
 
 
-def test_every_route_principal_role_and_scope_gets_what_it_should(tmp_path: Path) -> None:
-    """Every route the app serves (from `app.routes`) for: open mode, no one, a person of each
-    role, an unscoped key of each role (viewer and service as made now; the others as keys from
-    before Phase 4) and scoped keys. A scope only narrows, and a scoped key reaches only the
-    routes `ROUTE_SCOPE` names, with that scope."""
+def test_every_route_principal_role_and_scope_gets_what_it_should(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every route the app serves (from `app.routes`, SMART Backend Services on) for: open mode,
+    no one, a person of each role, an unscoped key of each role (viewer and service as made now;
+    the others as keys from before Phase 4), scoped keys, and access tokens of clients of each
+    machine role (registered with everything the role can use, or with the scoped keys'
+    scopes). A scope only narrows, and a scoped key or a token reaches only the routes
+    `ROUTE_SCOPE` names, with that scope."""
+    monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
+    monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", CLIENT)
+    monkeypatch.setenv("MENDARI_PUBLIC_URL", "https://mendari.test")
+    monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "on")
     app = create_app(db_path=tmp_path / "routes.db")
     routes = sorted(
         (method, route.path)
@@ -442,7 +456,12 @@ def test_every_route_principal_role_and_scope_gets_what_it_should(tmp_path: Path
         if isinstance(route, Route)
         for method in route.methods or ()
     )
-    assert {r for r in routes if permission_for(*r) == "public"} == PUBLIC
+    assert {r for r in routes if permission_for(*r) == "public"} == PUBLIC | BACKEND_PUBLIC
+    assert {r for r in routes if r[1].startswith("/api/auth/clients")} == {
+        ("GET", "/api/auth/clients"),
+        ("POST", "/api/auth/clients"),
+        ("DELETE", "/api/auth/clients/{client_id}"),
+    }
     assert set(ROUTE_SCOPE) <= set(routes)
     assert {r: needed(*r) for r in routes if needed(*r)} == ROUTE_SCOPE
     for route, scope in ROUTE_SCOPE.items():  # a scope stands for the route's own permission
@@ -477,9 +496,25 @@ def test_every_route_principal_role_and_scope_gets_what_it_should(tmp_path: Path
             name=scope, role=role, org="default", created_by="t", scopes=granted
         )
         principals.append(("key", role, scope, {"authorization": f"Bearer {made['key']}"}))
+    jwks = check_jwks(
+        {"keys": [{**json.loads(RSAAlgorithm.to_jwk(_KEY.public_key())), "kid": "k"}]}
+    )
+    # (role, registered, asked): everything; less than registered; more than registered.
+    everything = " ".join(scopes_module.supported())
+    clients = [(role, default_scope(role), everything) for role in MACHINE_ROLES]
+    clients += [(role, default_scope(role), scope) for role, scope in SCOPED_KEYS]
+    clients += [(role, scope, everything) for role, scope in SCOPED_KEYS]
+    for role, scope, asked in clients:
+        registered = parse(scope, permissions=auth_module.PERMISSIONS[role]).scope
+        client = store.register_client(
+            name=scope, role=role, org="default", created_by="t", scopes=registered, jwks=jwks
+        )
+        granted = parse_lenient(asked).narrow(parse(registered)).scope
+        token, _ = store.issue_token(client["client_id"], granted, 300)
+        principals.append(("client", role, granted, {"authorization": f"Bearer {token}"}))
 
     guards = {"open": Auth(None, store)}
-    signed = Auth(settings, store)
+    signed = Auth(settings, store, tokens=True)
     wrong = [
         (kind, role, scope, method, path, got, want)
         for kind, role, scope, headers in principals
@@ -500,7 +535,7 @@ def test_every_route_principal_role_and_scope_gets_what_it_should(tmp_path: Path
         for method, path in routes
         if attempt(signed, method, path, headers)[0] == 200
     }
-    assert reached == PUBLIC | set(ROUTE_SCOPE)  # every scoped route is reachable by some key
+    assert reached == PUBLIC | BACKEND_PUBLIC | set(ROUTE_SCOPE)  # each reachable by some key
 
 
 def test_no_fhir_data_route_is_public(tmp_path: Path) -> None:
@@ -692,7 +727,7 @@ def key_for(app: TestClient, idp: FakeIdp, role: str = "service") -> str:
     [
         "Bearer junk",  # no prefix Mendari issues
         "Bearer ohk_unknown",  # a key's prefix, no such key
-        "Bearer mat_0123456789",  # an access token: none is valid until Mendari issues them
+        "Bearer mat_0123456789",  # an access token, and Backend Services is off here
         "Bearer ohk_a b",  # not one token
         "Bearer ",
         "Bearer ohk_a=b",  # not a b64token

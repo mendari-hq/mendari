@@ -9,8 +9,11 @@ What it does not claim, on purpose:
 - no `implementationGuide` or `instantiates`: R4 reads `implementationGuide` as support "in
   their entirety", and Mendari implements one of the four operations a Da Vinci DTR payer
   service must offer, and serves no US Core resources;
-- no `security.service` code: Mendari's API keys and OIDC browser sessions are neither OAuth
-  resource-server security nor SMART on FHIR, so `security.description` says what they are;
+- no `security.service` code unless SMART Backend Services is on (`MENDARI_BACKEND_SERVICES`):
+  Mendari's API keys and OIDC browser sessions are neither OAuth resource-server security nor
+  SMART on FHIR, so `security.description` says what they are. With it on, the service is
+  `SMART-on-FHIR` (the token endpoint is in `.well-known/smart-configuration`; the deprecated
+  oauth-uris extension is not used);
 - no clinical resources: Mendari stores and serves none. Its FHIR is a decision operation, its
   decisions as read-only Tasks (ADR-0003) with their audit trail, the conformance resources
   that describe it, and the Da Vinci operation;
@@ -35,6 +38,11 @@ from mendari.core.pack import Pack
 from mendari.standards.search import DEFAULT_COUNT, MAX_COUNT, SPECS, search_params
 
 DECIDE_URL = "https://mendari.co/fhir/OperationDefinition/decide"
+SMART_ON_FHIR = {
+    "system": "http://terminology.hl7.org/CodeSystem/restful-security-service",
+    "code": "SMART-on-FHIR",
+    "display": "SMART-on-FHIR",
+}
 DTR_QUESTIONNAIRE_PACKAGE = (
     "http://hl7.org/fhir/us/davinci-dtr/OperationDefinition/questionnaire-package|2.2.0"
 )
@@ -176,6 +184,7 @@ def capability_statement(
     since: Callable[[str], str],
     public_url: str | None = None,
     place: tuple[str, str] | None = None,
+    backend_services: bool = False,
 ) -> dict[str, Any]:
     """The statement for the mounted `routes` ((method, path) pairs) and the served `packs`.
     `version` is a digest of everything else in it, so any change makes a new one, and `date` is
@@ -193,6 +202,12 @@ def capability_statement(
         "documentation": f"{NOT_A_DATA_SERVER} {SEARCH_RULES}" if searched else NOT_A_DATA_SERVER,
         "security": {"cors": False, "description": _security(sign_in)},
     }
+    if backend_services:
+        rest["security"] = {
+            "cors": False,
+            "service": [{"coding": [SMART_ON_FHIR]}],
+            "description": _security(sign_in, backend_services=True),
+        }
     by_type: dict[str, list[FhirCapability]] = {}
     for capability in offered:
         if capability.resource is not None:
@@ -263,7 +278,26 @@ def _operation(capability: FhirCapability, packs: list[str] | None = None) -> di
     return operation
 
 
-def _security(sign_in: bool) -> str:
+def _security(sign_in: bool, *, backend_services: bool = False) -> str:
+    if backend_services:  # only ever with sign-in on (server/backend_services.py)
+        return (
+            "Mendari's sign-in is on, and it is a SMART Backend Services server: a registered "
+            "client gets a five-minute access token at the token_endpoint named in "
+            ".well-known/smart-configuration (client_credentials with a private_key_jwt "
+            "assertion, RS384 or ES384) and sends it as Authorization: Bearer mat_.... It "
+            "grants system/ scopes for what is served (Task, AuditEvent, Provenance and "
+            "CodeSystem .rs, NamingSystem .r, system/*.rs; SMART v1 forms map to them) and two "
+            "URI scopes for Mendari's actions: https://mendari.co/fhir/scope/decide ($decide "
+            "and $questionnaire-package) and https://mendari.co/fhir/scope/outcome. A token "
+            "reaches only what its scopes name, within its client's role, and acts in its "
+            "client's organization. There is no authorization endpoint: no user or patient "
+            "launch, so no patient/ or user/ scopes. API keys (Authorization: Bearer ohk_...) "
+            "and browser sessions from /auth/login (OpenID Connect) work too. Every read, "
+            "search page and total covers only the caller's organization (another's resource "
+            "is a 404, as an unknown one is). Metadata, the OperationDefinition and the SMART "
+            "configuration need no credential. Answers about decisions are Cache-Control: "
+            "private, no-cache. Toward EHRs, Mendari is also a SMART app."
+        )
     if sign_in:
         return (
             "Mendari's sign-in is on. Send an API key (Authorization: Bearer ohk_...) or use a "

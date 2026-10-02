@@ -81,6 +81,46 @@ may manage keys. Replace them with `viewer` or `service` keys, with scopes, befo
 and revoke any you no longer need now. A key written by an older instance still running during
 the rollout has no expiry and is refused until the next start gives it one.
 
+**SMART Backend Services (optional, off by default).** For an EHR, an integration engine or a
+Da Vinci client that expects SMART Backend Services instead of an API key, turn on Mendari's
+own token endpoint. It needs sign-in (above) and the public URL, or the server refuses to start:
+
+```bash
+MENDARI_BACKEND_SERVICES=on
+MENDARI_PUBLIC_URL=https://mendari.example.org   # assertions are addressed to its /auth/token
+```
+
+Then an admin, signed in, registers each client with its **public** JWK Set (the client keeps
+its private key; Mendari fetches no key from a URL), a machine's role and the scopes it may be
+granted (the same scopes as keys; left out, everything the role can use):
+
+```bash
+curl -X POST https://mendari.example.org/api/auth/clients \
+  -H 'cookie: mendari_session=…' -H 'content-type: application/json' \
+  -d '{"name": "ehr-crd", "role": "service",
+       "scope": "https://mendari.co/fhir/scope/decide system/Task.rs",
+       "jwks": {"keys": [{"kty": "RSA", "kid": "ehr-2026", "n": "…", "e": "AQAB"}]}}'
+```
+
+The answer gives the `client_id` and the `token_endpoint`. Keys are RSA of 2048 bits or more
+(RS384) or EC P-384 (ES384), each with its own `kid`; a JWK Set holding a private or symmetric
+key is refused (treat that key as exposed). The client finds the token endpoint at
+`/fhir/.well-known/smart-configuration`, signs an assertion (`iss` and `sub` its `client_id`,
+`aud` exactly `https://mendari.example.org/auth/token`, `exp` at most five minutes ahead, a new
+`jti` each time), and posts `grant_type=client_credentials` with it and a `scope`. It gets a
+five-minute token (`Authorization: Bearer mat_…`) for what it asked within what it was
+registered for, in the organization of the admin who registered it. There is no refresh token,
+no authorization endpoint (no user or patient launch) and no `patient/` or `user/` scope.
+
+- `GET /api/auth/clients` lists clients with their keys' ids and thumbprints; `DELETE
+  /api/auth/clients/{client_id}` revokes one, and its tokens stop working on the next request.
+  Registering and revoking are recorded in the audit chain.
+- To change a client's keys or scopes, register a new client and revoke the old one.
+- The token endpoint has no rate limit of its own yet: keep the deployment behind its access
+  gate (Vercel Authentication, a VPN) until one is in place.
+- A deployment's tokens and one-time `jti` claims live in its database. Don't share a database
+  (and a public URL) between preview and production.
+
 Sessions and pending sign-ins are server-side rows keyed by their kind and value. A release
 that changes how they are keyed (Phase 4 did) ends every session: people sign in again, and an
 EHR launches the app again.

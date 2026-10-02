@@ -204,6 +204,8 @@ NOT_ON_A_DECISION = {
     "deployment.recorded",
     "key.created",
     "key.revoked",
+    "client.registered",
+    "client.revoked",
 }
 
 

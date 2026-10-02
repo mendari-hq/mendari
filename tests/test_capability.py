@@ -10,6 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from mendari.server.app import create_app, mounted_routes
+from mendari.server.backend_services import DISCOVERY_PATH
 from mendari.standards import capability, search
 
 
@@ -26,17 +27,28 @@ def statement(client: TestClient) -> dict[str, Any]:
     return body
 
 
+# Not FHIR interactions: the statement itself, and SMART's configuration (plain JSON, mounted
+# only with Backend Services on; the statement names it through `security.service`).
+NOT_ADVERTISED = {("GET", "/fhir/metadata"), ("GET", DISCOVERY_PATH)}
+
+
+@pytest.mark.parametrize("backend_services", [False, True], ids=["off", "on"])
 def test_every_fhir_route_is_advertised_and_everything_advertised_is_mounted(
-    client: TestClient,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend_services: bool
 ) -> None:
     """Both ways, so the statement can neither claim a missing route nor forget a new one."""
-    fhir_routes = {
-        (method, path)
-        for method, path in mounted_routes(client.app)  # type: ignore[arg-type]
-        if path.startswith("/fhir/") and path != "/fhir/metadata"
-    }
+    if backend_services:
+        monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
+        monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari-org")
+        monkeypatch.setenv("MENDARI_PUBLIC_URL", "https://mendari.test")
+        monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "on")
+    app = create_app(db_path=tmp_path / "routes.db")
+    mounted = {(m, p) for m, p in mounted_routes(app) if p.startswith("/fhir/")}
+    assert (("GET", DISCOVERY_PATH) in mounted) is backend_services
     registry = {(c.method, c.path) for c in capability.CAPABILITIES}
-    assert fhir_routes == registry
+    assert mounted - NOT_ADVERTISED == registry
+    statement = TestClient(app).get("/fhir/metadata").json()
+    assert ("service" in statement["rest"][0]["security"]) is backend_services
 
 
 def test_each_advertised_capability_answers(client: TestClient) -> None:

@@ -18,9 +18,13 @@ server is open, as before (production sits behind Vercel Authentication). When c
   shown once, stored as SHA-256, carry a machine's role (viewer or service), optionally scopes
   that narrow it (`server/scopes.py`), and an expiry (90 days unless asked, 365 at most), and
   can be revoked. A scoped key reaches only the routes its scopes name.
+- **Machines may also use SMART Backend Services** when a deployment turns it on
+  (`server/backend_services.py`): a registered client exchanges a signed assertion for a
+  five-minute access token (`Bearer mat_...`). Each request reads the client's current role,
+  scopes, organization and revocation; a token reaches only the routes its scopes name.
 - **An `Authorization` header decides alone** (ADR-0004): with one there is no fallback to the
   session cookie. The scheme is `Bearer` (any case), and the credential's prefix says what it is:
-  `ohk_` a key, `mat_` an access token (refused until the token endpoint exists); anything else
+  `ohk_` a key, `mat_` an access token (refused unless Backend Services is on); anything else
   is refused. A credential is never accepted in a URL or a form (`access_token`).
 - **Every route has a permission**, and anything not listed needs `admin` (deny by default).
   Managing keys and clients (`keys`) is for people who signed in, never for a key or token,
@@ -43,6 +47,7 @@ import secrets
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any, Literal
 from urllib.parse import quote, urlencode, urlsplit
 
@@ -50,7 +55,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse, Response
 from pydantic import BaseModel, Field
 
-from mendari.core.audit import KEY_DAYS, KEY_MAX_DAYS, AuditStore
+from mendari.core.audit import KEY_DAYS, KEY_MAX_DAYS, MACHINE_ROLES, AuditStore
 from mendari.errors import AuthError, FhirError, MendariError, ScopeError
 from mendari.server import scopes
 from mendari.server.scopes import Grant
@@ -60,7 +65,7 @@ from mendari.standards.fhir_client import GuardedHttp, allowed_servers
 COOKIE = "mendari_session"
 REALM = "mendari"
 KEY_PREFIX = "ohk_"
-TOKEN_PREFIX = "mat_"  # SMART Backend Services access tokens (ADR-0004), not issued yet
+TOKEN_PREFIX = "mat_"  # SMART Backend Services access tokens (ADR-0004)
 ROLES = ("viewer", "reviewer", "service", "governance", "admin")
 PERMISSIONS: dict[str, frozenset[str]] = {
     "viewer": frozenset({"read"}),
@@ -104,8 +109,10 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         ("POST", r"^/cds-services/[^/]+$", "decide"),
         ("POST", r"^/fhir/Questionnaire/\$questionnaire-package$", "decide"),  # Da Vinci DTR
         ("POST", r"^/fhir/\$decide$", "decide"),
-        # How to talk to this FHIR base: public, so clients can discover it.
+        # How to talk to this FHIR base: public, so clients can discover it. The SMART
+        # configuration is mounted only when Backend Services is on (server/backend_services.py).
         ("GET", r"^/fhir/(metadata|OperationDefinition/[^/]+)$", "public"),
+        ("GET", r"^/fhir/\.well-known/smart-configuration$", "public"),
         # The terminology carries the packs' labels and criteria: read, like /api/packs.
         ("GET", r"^/fhir/(CodeSystem|NamingSystem)/[^/]+$", "read"),
         # Decisions and their audit trail: read, like /api/audit, and never public: without a
@@ -178,12 +185,12 @@ def auth_settings() -> AuthSettings | None:
 
 @dataclass(frozen=True)
 class Principal:
-    kind: str  # "open", "user" or "key"
+    kind: str  # "open", "user", "key" or "client" (an access token's)
     name: str
     roles: frozenset[str] = field(default_factory=frozenset)
     org: str = DEFAULT_ORG
     grant: Grant | None = None  # a credential's scopes; None: the role's permissions, unnarrowed
-    expires_at: str | None = None  # a key's expiry
+    expires_at: str | None = None  # a key's or an access token's expiry
 
     def may(self, permission: str) -> bool:
         if self.kind == "open":
@@ -208,7 +215,7 @@ class Principal:
             "permissions": sorted(self.permissions()),
             "org": self.org,
         }
-        if self.kind == "key":
+        if self.kind in ("key", "client"):
             scope = None if self.grant is None else self.grant.scope
             shown |= {"scope": scope, "expires_at": self.expires_at}
         return shown
@@ -268,9 +275,10 @@ class KeyRequest(BaseModel):
 class Auth:
     """Resolves the principal of a request and guards every route."""
 
-    def __init__(self, settings: AuthSettings | None, store: AuditStore):
+    def __init__(self, settings: AuthSettings | None, store: AuditStore, *, tokens: bool = False):
         self.settings = settings
         self.store = store
+        self.tokens = tokens  # SMART Backend Services is on: access tokens are looked up
 
     @property
     def enabled(self) -> bool:
@@ -329,8 +337,29 @@ class Auth:
                 expires_at=key["expires_at"],
             )
         if credential.startswith(TOKEN_PREFIX):
-            raise invalid_token()  # no access token is valid until Mendari issues them
+            return self._token(credential)
         raise invalid_token()  # no credential Mendari issues
+
+    def _token(self, credential: str) -> Principal:
+        """An access token's client as it is now: its role, organization and scopes (the scope
+        granted, within what the client registers today); refused once the client is revoked,
+        and always when Backend Services is off."""
+        token = self.store.access_token(credential) if self.tokens else None
+        if token is None or token["role"] not in MACHINE_ROLES:
+            raise invalid_token()
+        try:
+            registered = scopes.parse(token["registered"], permissions=PERMISSIONS[token["role"]])
+        except ScopeError:
+            raise invalid_token() from None  # a registration no longer granted: refuse
+        expires = datetime.fromtimestamp(token["expires_at"], UTC)
+        return Principal(
+            kind="client",
+            name=f"client {token['client_id']}",
+            roles=frozenset({token["role"]}),
+            org=token["org"],
+            grant=scopes.parse_lenient(token["scope"]).narrow(registered),
+            expires_at=expires.isoformat(timespec="milliseconds"),
+        )
 
     def check(self, request: Request) -> Response | None:
         """None when the request may go on; otherwise the response that refuses it."""

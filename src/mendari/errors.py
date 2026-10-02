@@ -86,3 +86,8 @@ class AuthError(MendariError):
 class ScopeError(MendariError):
     """A scope that Mendari does not grant: unknown, for something not served (a write, a
     resource type, a granular or patient scope), or beyond the credential's role (a `422`)."""
+
+
+class ClientError(MendariError):
+    """A SMART Backend Services client that cannot be registered: a JWK Set holding a private or
+    symmetric key, a weak or unsupported key, or one Mendari cannot verify with (a `422`)."""

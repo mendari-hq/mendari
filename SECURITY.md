@@ -50,6 +50,16 @@ website (`hub/`), the container images and the deployment templates (`deploy/`).
   scopes (SMART v2 `system/` reads, Mendari's decide and outcome URIs): a scoped key reaches
   only the routes its scopes name. Creating and revoking keys are recorded in the audit chain.
   `/api` answers are `Cache-Control: no-store`.
+- **SMART Backend Services (off by default).** `MENDARI_BACKEND_SERVICES=on` (refused without
+  sign-in and `MENDARI_PUBLIC_URL`) lets clients that a signed-in admin registers, with a public
+  JWK Set by value, exchange a signed assertion (RS384 or ES384, `aud` exactly the token URL,
+  five minutes at most, its `jti` once) for a five-minute opaque token (`Bearer mat_…`). Every
+  assertion check runs before anything is written, and every failure is the same
+  `invalid_client`. A token reads its client's role, scopes, organization and revocation on
+  each request, so revoking a client stops its tokens at once. Machines are `viewer` or
+  `service`; no key or token registers a client. Registering and revoking clients are chained.
+  Mendari fetches no client key (no JWKS URLs) and the endpoint has no rate limit of its own
+  yet, so it stays behind Vercel Authentication.
 - **PHI mode.** `MENDARI_PHI_MODE=hash` stores no input; `encrypt` stores inputs encrypted
   apart from the audit chain, readable only by signed-in reviewers and admins, and every read
   is logged. Without PHI mode, audit records keep full inputs by default
