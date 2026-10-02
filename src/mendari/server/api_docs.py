@@ -1,4 +1,4 @@
-"""What `/docs`, `/redoc` and `/openapi.json` say about this deployment.
+"""What `/docs/reference` and `/openapi.json` say about this deployment.
 
 The OpenAPI document is generated from the routes; this adds what generation cannot know: a
 description of the product, the tags, synthetic examples from the packs this deployment serves
@@ -14,6 +14,7 @@ from typing import Any
 from mendari.core.pack import Pack
 from mendari.evals.pack_tests import load_cases
 from mendari.server import scopes
+from mendari.server.auth import COOKIE
 
 TAGS = [
     {"name": "Decisions", "description": "Run a Decision Pack on an input and get its decision."},
@@ -128,7 +129,8 @@ for the review queue), and its audit trail is `/fhir/AuditEvent` and `/fhir/Prov
 
 {auth}
 
-[Open the dashboard](/) to try packs without code, or [read this reference in ReDoc](/redoc).
+[Open the dashboard](/) to try packs without code. The OpenAPI document itself is
+[`/openapi.json`](/openapi.json).
 """.strip()
 
 
@@ -188,16 +190,25 @@ def document(
             "session": {
                 "type": "apiKey",
                 "in": "cookie",
-                "name": "mendari_session",
-                "description": "The session cookie a person gets by signing in at `/auth/login`.",
+                "name": COOKIE,
+                "description": "The session cookie a person gets by signing in at `/auth/login`. "
+                "On this page your browser sends it by itself: there is nothing to enter.",
             },
         }
         if token_url is not None:
+            schemes["accessToken"] = {
+                "type": "http",
+                "scheme": "bearer",
+                "description": "A SMART Backend Services access token (`mat_…`) that your "
+                f"client got at `POST {token_url}` (see `smartBackendServices`).",
+            }
             schemes["smartBackendServices"] = {
                 "type": "oauth2",
                 "description": "SMART Backend Services: a registered client's five-minute access "
                 "token (`mat_…`), from a `client_credentials` grant authenticated with a "
-                "`private_key_jwt` assertion (RS384 or ES384), never a client secret.",
+                "`private_key_jwt` assertion (RS384 or ES384), never a client secret. This page "
+                "cannot run that flow (it would ask for a client secret, which Mendari refuses): "
+                "get a token with your client, then enter it under `accessToken`.",
                 "flows": {
                     "clientCredentials": {
                         "tokenUrl": token_url,
@@ -289,7 +300,7 @@ def _secure(
     scope = scopes.needed(method, path)
     operation["security"] = [{"apiKey": []}, {"session": []}]
     if tokens and scope:  # an access token reaches only what its scope names
-        operation["security"].insert(1, {"smartBackendServices": [scope]})
+        operation["security"][1:1] = [{"smartBackendServices": [scope]}, {"accessToken": []}]
     needed = "any signed-in role" if permission == "page" else f"the `{permission}` permission"
     credential = "a scoped key or an access token" if tokens else "a scoped key"
     needed += (

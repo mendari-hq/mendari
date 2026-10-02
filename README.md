@@ -124,6 +124,7 @@ uv run mendari card mendari/patient-inbox-router         # render the Decision C
 uv run mendari test mendari/clinical-trial-prescreener
 uv run mendari eval mendari/clinical-trial-prescreener --dataset exclusions_holdout
 uv run mendari serve                                     # API + CDS Hooks + dashboard
+                                                         # (API reference: /docs/reference)
 uv run mendari audit verify --db var/mendari.db
 ```
 
@@ -348,7 +349,8 @@ public.
 threat model ([`docs/security/threat-model.md`](docs/security/threat-model.md)) lists every
 threat with its mitigation and the test that checks it. On every change, the CI job `security`
 audits the Python and Hub-site dependencies and runs an OWASP ZAP scan of the API with sign-in
-on. Every response carries a strict CSP and the usual isolation headers.
+on. Every response carries a strict CSP and the usual isolation headers, the API reference
+included: it is Swagger UI served from vendored, pinned files, never a CDN.
 
 ## The Hub
 

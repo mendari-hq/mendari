@@ -17,9 +17,11 @@ About 18 days of work.
   digest, the Docker image installed from `uv.lock`, `.github/dependabot.yml` monthly with no
   previews for its branches, `tests/test_supply_chain.py`
   (Deviation: the docs package's npm entry comes with stage C, which adds the package.)
-- [ ] **C. Docs page safety**: Swagger UI vendored at a pinned version with license and checksums
+- [x] **C. Docs page safety**: Swagger UI vendored at a pinned version with license and checksums
   at `/docs/reference`; `/docs` and `/redoc` redirect there until Phase 5; a CSP and COEP on every
   response; bearer schemes for keys and tokens in the OpenAPI
+  (Deviation: 5.33.0, not 5.33.1, which was a day old against the 7-day cooldown; the bundle's
+  third-party license file ships too.)
 - [ ] **D. Rate limits and quotas**: a Postgres GCRA limiter per principal on costly routes and
   per IP on sign-in and the token endpoint (`MENDARI_RATE_LIMITS` on/log/off), `429` with
   `Retry-After`; per-organization daily decision quotas (`MENDARI_ORG_DAILY_LIMITS`, evaluations

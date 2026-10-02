@@ -66,3 +66,17 @@ updates:
     groups:
       hub:
         update-types: [minor, patch]
+
+  # Swagger UI for /docs/reference, vendored rather than installed: a pull request here changes
+  # package.json and the lockfile only, and CI fails (tests/test_vendor.py) until someone runs
+  # scripts/vendor_docs_ui.py in it, reads the external hosts it reports, and commits the files.
+  - package-ecosystem: npm
+    directory: /src/mendari/dashboard/vendor/swagger-ui
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 3
+    groups:
+      docs-ui:
+        patterns: ["*"]

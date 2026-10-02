@@ -189,6 +189,8 @@ that covers PHI.
 - [ ] `/api/health` shows `sign_in: true`, `phi_mode: encrypt`, and only the providers and FHIR
       servers you expect.
 - [ ] A viewer can't read an input; a reviewer can, and the read appears in the audit chain.
+- [ ] Signed in, `/docs/reference` shows the API reference and the browser console reports no
+      CSP violation (a proxy in front must not replace Mendari's `Content-Security-Policy`).
 - [ ] Integrations that record outcomes send `source` as an identifier (`ehr`, not a sentence)
       and a label of the pack's primary question.
 - [ ] Retention and monitoring are scheduled; `mendari audit verify` passes.
