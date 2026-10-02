@@ -351,9 +351,18 @@ def age_band(birth_date: str, today: date | None = None) -> str | None:
 def iter_resources(value: Any) -> Iterator[Mapping[str, Any]]:
     """Every resource in a Bundle, a resource, or a mapping/list of either (flattened). A Bundle
     whose entries are not objects, or an entry whose resource is not one, is not FHIR JSON."""
+    for _, resource in iter_entries(value):
+        yield resource
+
+
+def iter_entries(
+    value: Any, full_url: str | None = None
+) -> Iterator[tuple[str | None, Mapping[str, Any]]]:
+    """`iter_resources`, each resource with the `fullUrl` of the Bundle entry that holds it
+    (None outside a Bundle, or for an entry without one)."""
     if isinstance(value, list):
         for item in value:
-            yield from iter_resources(item)
+            yield from iter_entries(item)
     elif isinstance(value, Mapping):
         if value.get("resourceType") == "Bundle":
             entries = value.get("entry")
@@ -366,12 +375,13 @@ def iter_resources(value: Any) -> Iterator[Mapping[str, Any]]:
                 resource = entry.get("resource")
                 if resource is not None and not isinstance(resource, Mapping):
                     raise FhirStructureError([_wrong_type(f"{where}.resource", "an object")])
-                yield from iter_resources(resource)
+                url = entry.get("fullUrl")
+                yield from iter_entries(resource, url if isinstance(url, str) else None)
         elif "resourceType" in value:
-            yield value
+            yield full_url, value
         else:
             for item in value.values():
-                yield from iter_resources(item)
+                yield from iter_entries(item)
 
 
 def _wrong_type(expression: str, expected: str) -> dict[str, str]:

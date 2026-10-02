@@ -192,6 +192,10 @@ Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
   dropdowns and date pickers, editable tables for lists, JSON for anything else), with the JSON
   one click away; every behaviour-test example of the four record packs round-trips unchanged
 - [ ] VoiceOver spot check of the redesigned dashboard (a person at the Mac; script in the QA report)
+- [x] `$decide` references resolve: the Task's `for`/`focus` and the `subject`s are the absolute
+  `fullUrl` the input gives the resource, else `Type/id` (stated as relative to the client's
+  server); a `urn:uuid` input reference becomes `Type/id`. The `/api/…/fhir/decide` Task is
+  unchanged: it is a standalone resource the client stores, where `Type/id` resolves
 
 ## Done: Dashboard redesign ([`docs/ui-ux-review.md`](../docs/ui-ux-review.md))
 Plan approved 2026-09-29 (8 PRs, about 10 working days); the user's decisions are in the plan's
