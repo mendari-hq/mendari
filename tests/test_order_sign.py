@@ -43,7 +43,7 @@ def ecg(days: int) -> dict[str, Any]:
     return {
         "resourceType": "DocumentReference",
         "id": f"ecg-{days}",
-        "date": when,
+        "date": f"{when}T09:00:00Z",  # an instant in R4
         "type": {"coding": [{"system": "http://loinc.org", "code": "11524-6"}]},
     }
 

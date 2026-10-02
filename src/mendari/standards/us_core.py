@@ -12,9 +12,8 @@ profile (MedicationStatement, Communication, non-laboratory Observations) get th
 checks. Issues never include values from the resource, only paths, so they can be logged and
 returned without exposing patient data.
 
-Before any profile, `structure` checks the elements whose JSON type every R4 resource agrees on
-(`resourceType`, `id`, `meta`, `subject`, every `coding`). A resource that fails it is not FHIR
-JSON, so its profile is not checked. Full structural validation is the HL7 validator's.
+Input reaches these checks only after the structural R4 gate (`fhir_structure.py`): every
+element has the JSON type and format R4 gives it, so the checks here can rely on the shape.
 """
 
 from __future__ import annotations
@@ -40,7 +39,7 @@ _REPORTED = ("partial", "preliminary", "final", "amended", "corrected", "appende
 _ORDERS = ("order", "original-order", "reflex-order", "filler-order", "instance-order")
 
 Severity = Literal["error", "warning"]
-IssueCode = Literal["required", "code-invalid", "invariant", "structure"]
+IssueCode = Literal["required", "code-invalid", "invariant", "structure", "value"]
 
 
 @dataclass(frozen=True)
@@ -65,7 +64,9 @@ def profiles() -> dict[str, dict[str, Any]]:
 
 
 def validate(resources: Any) -> list[Issue]:
-    """Check every resource in a Bundle, a resource, a list or a CDS Hooks prefetch object."""
+    """Check every resource in a Bundle, a resource, a list or a CDS Hooks prefetch object
+    against its profile. The input must have passed the structural gate
+    (`fhir_structure.check`) first: a profile is only meaningful on FHIR JSON."""
     issues: list[Issue] = []
     seen: set[tuple[str, str]] = set()
     for resource in iter_resources(resources):
@@ -73,78 +74,17 @@ def validate(resources: Any) -> list[Issue]:
         if resource.get("id") and key in seen:
             continue  # the same resource in two prefetch results is checked once
         seen.add(key)
-        malformed = structure(resource)
-        issues += malformed
-        name = None if malformed else profile_for(resource)
+        name = profile_for(resource)
         if name is not None:
             issues += check(resource, name)
     return issues
 
 
-def structure(resource: Mapping[str, Any]) -> list[Issue]:
-    """Elements of the wrong JSON type, among those every R4 resource types the same way."""
-    kind = resource.get("resourceType")
-    if not isinstance(kind, str):
-        return [
-            Issue(
-                "error",
-                "structure",
-                "resourceType",
-                "resourceType must be a string",
-                "resource",
-                R4_BASE + "Resource",
-            )
-        ]
-    label = f"{kind}/{resource['id']}" if isinstance(resource.get("id"), str) else kind
-    found: list[Issue] = []
-
-    def wrong(expression: str, expected: str) -> None:
-        element = expression.rsplit(".", 1)[-1].split("[")[0]
-        diagnostics = f"{element} must be {expected}"
-        found.append(Issue("error", "structure", expression, diagnostics, label, R4_BASE + kind))
-
-    if "id" in resource and not isinstance(resource["id"], str):
-        wrong(f"{kind}.id", "a string")
-    meta = resource.get("meta")
-    if meta is not None and not isinstance(meta, Mapping):
-        wrong(f"{kind}.meta", "an object")
-    elif meta is not None:
-        # A repeating primitive is null where only its extension (in `_profile`) is present.
-        if not _array_of(meta.get("profile"), (str, type(None))):
-            wrong(f"{kind}.meta.profile", "an array of strings")
-        for name in ("tag", "security"):
-            if not _array_of(meta.get(name), Mapping):
-                wrong(f"{kind}.meta.{name}", "an array of objects")
-    subject = resource.get("subject")
-    references = subject if isinstance(subject, list) else [subject]
-    if subject is not None and not _array_of(references, Mapping):
-        wrong(f"{kind}.subject", "an object (a Reference)")
-    elif any(not isinstance(_object(r).get("reference", ""), str) for r in references):
-        wrong(f"{kind}.subject.reference", "a string")
-    for where, coding in _elements(resource, "coding", kind):
-        if not _array_of(coding, Mapping):
-            wrong(where, "an array of objects (Codings)")
-    return found
-
-
-def _array_of(value: Any, kind: type | tuple[type, ...]) -> bool:
-    """Absent, or a JSON array whose items are all of `kind`."""
-    return value is None or (isinstance(value, list) and all(isinstance(v, kind) for v in value))
-
-
-def _elements(node: Any, name: str, where: str) -> Iterator[tuple[str, Any]]:
-    """(FHIRPath, value) of every element called `name`, at any depth, in document order. A
-    stack, not recursion: valid FHIR can nest deeper than Python's recursion limit."""
-    stack: list[tuple[str, Any, bool]] = [(where, node, False)]
-    while stack:
-        path, value, matched = stack.pop()
-        if matched:
-            yield path, value
-        elif isinstance(value, Mapping):
-            children = [(f"{path}.{key}", item, key == name) for key, item in value.items()]
-            stack.extend(reversed(children))
-        elif isinstance(value, list):
-            stack.extend(reversed([(f"{path}[{i}]", item, False) for i, item in enumerate(value)]))
+def standard(profile: str) -> str:
+    """What a profile URL holds a resource to, for messages: "US Core 6.1.0" or "R4 Patient"."""
+    if profile.startswith(PROFILE_BASE):
+        return f"US Core {US_CORE_VERSION}"
+    return f"R4 {profile.removeprefix(R4_BASE)}"
 
 
 def errors(issues: list[Issue]) -> list[Issue]:

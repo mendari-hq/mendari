@@ -37,9 +37,10 @@ class FhirError(MendariError):
 
 
 class FhirStructureError(FhirError):
-    """FHIR input is not FHIR JSON: an element has the wrong JSON type (a string where an object
-    belongs, say). `issues` are OperationOutcome-shaped ({expression, diagnostics}), paths only,
-    never values."""
+    """FHIR input is not FHIR R4 JSON: an element has the wrong JSON type (a string where an
+    object belongs, say), is not an R4 element, or a primitive does not have its format.
+    `issues` are OperationOutcome-shaped ({code, expression, diagnostics}; code `structure` or
+    `value`), paths only, never values."""
 
     def __init__(self, issues: list[dict[str, str]]):
         self.issues = issues

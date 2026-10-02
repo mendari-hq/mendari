@@ -326,7 +326,11 @@ def iter_resources(value: Any) -> Iterator[Mapping[str, Any]]:
 
 def _wrong_type(expression: str, expected: str) -> dict[str, str]:
     element = expression.rsplit(".", 1)[-1].split("[")[0]
-    return {"expression": expression, "diagnostics": f"{element} must be {expected}"}
+    return {
+        "code": "structure",
+        "expression": expression,
+        "diagnostics": f"{element} must be {expected}",
+    }
 
 
 def _object(value: Any) -> Mapping[str, Any]:
