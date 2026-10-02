@@ -2,6 +2,42 @@
 
 Roadmap to the full goal: [`docs/roadmap.md`](../docs/roadmap.md).
 
+## Planned: FHIR search, Phase 3 (2026-10-02)
+From the [audit](../docs/fhir-and-docs-audit.md) Phase 3, after research (three researchers and a
+critic). The owner chose a Task per decision ([ADR-0003](../docs/decisions/ADR-0003-a-served-task-is-a-decision.md)).
+Branch `claude/fhir-phase-3`. About 4–5 days.
+- [ ] **Task per decision** (`standards/task_fhir.py`): derived on read from the decision row
+  and its chain events, nothing new stored. `requested` (waiting for a Mendari reviewer),
+  `completed`, `failed` (refused input: one column-only predicate shared by rendering and SQL);
+  outputs from event payloads (`record_outcome` overwrites `final_label`); versions = the
+  version-making events (created, review resolved, outcome recorded); no `for`, `focus` or
+  notes beyond reasons; reasons left out for refused inputs (older records may quote input)
+- [ ] **Read and vread**: `GET /fhir/Task/{id}`, `/_history/{vid}`; `GET /fhir/AuditEvent/{id}`,
+  `/fhir/Provenance/{id}`; ETag `W/"n"`, no conditional read; 404 across organizations
+- [ ] **Search core** (`standards/search.py`): one table of supported parameters drives the
+  parser, the SQL filters, the CapabilityStatement and the tests. GET and POST `_search`
+  (form body: R4 SHALL). Unknown parameters ignored with a warning entry; unsupported standard
+  ones (`patient`, `subject`, `focus`, …) and modifiers a `400`; `Prefer: handling=strict`.
+  UTC dates with prefixes (no `ap`); `_count` 50 (max 500); `_total` only when asked;
+  `_summary=count`; stateless keyset `cursor`; absolute fullUrls; `Cache-Control: private`
+- [ ] **Parameters**: Task `_id`, `identifier`, `status`, `business-status`, `priority`,
+  `authored-on`, `_lastUpdated`, `_tag`; AuditEvent `_id`, `date`, `entity` (also
+  `:identifier`), `subtype`, `_lastUpdated`; Provenance `_id`, `recorded`, `target` (also
+  `:identifier`), `_lastUpdated`; CodeSystem `url`, `version`
+- [ ] **Audit resources on `/fhir`** carry absolute references to the Task (Provenance: the
+  version it made); the `/api/audit` exports keep identifiers only. Reviewing an ABSTAIN
+  renders the reviewer as author, not verifier
+- [ ] **Store**: batched event fetch per page; indexes `audit_events (decision_id, seq)` and
+  `decisions (created_at, id)`; tenancy in SQL on every page and count; reads never write
+- [ ] **CapabilityStatement**: read, vread, search-type with every searchParam (R4 canonicals);
+  `conditionalRead: not-supported`; prose updated. Auth: `read`, never `public` (a test)
+- [ ] **CI**: Task versions, searchsets (with next links, a warning entry, `_summary=count`) and
+  the audit reads in the validator run; Postgres for every new query
+- [ ] **Docs**: README, API docs, the audit's status after Phase 3, this file
+- Deferred: a monotonic chain clock; AuditEvent `action`/`_sort`, Provenance `agent-type`;
+  `NamingSystem?value`; HEAD; `_history` Bundles; patient search; salting the input hash;
+  moving `$decide`'s work item to `groupIdentifier`
+
 ## Built: FHIR core conformance, Phase 2 (2026-10-01/02)
 From the [audit](../docs/fhir-and-docs-audit.md) Phase 2, revised after research (three
 researchers and a critic; evidence from the HL7 validator and the official R4 definitions).
