@@ -1,7 +1,8 @@
 """The v0.6 pilot, scripted: an organization runs the inbox router with its own identity provider,
 PHI-safe settings, monitoring and governance approvals (the roadmap's exit check).
 
-It runs against an engine configured for sign-in and PHI mode `encrypt`, and an OpenID Connect
+It runs against an engine configured for sign-in, PHI mode `encrypt` and an input hash key
+(`MENDARI_INPUT_HASH_KEY`: every decision's input hash is keyed), and an OpenID Connect
 provider with a scriptable sign-in form (the CI job uses navikt's mock-oauth2-server). Every
 person signs in through the real flow: the engine's `/auth/login`, the provider's form, the
 engine's callback. Then:
@@ -111,6 +112,7 @@ def run(
             for item in inputs
         ]
         pilot.steps.append(f"the worker decides {len(decided)} messages with its API key")
+        require_keyed_hashes(decided)
 
         reviewer = pilot.sign_in("reviewer")
         queue = pilot.expect(
@@ -200,6 +202,13 @@ def run(
         "monitoring_last_7_days": week,
         "input_reads_logged": len(reads),
     }
+
+
+def require_keyed_hashes(decided: list[dict[str, Any]]) -> None:
+    """Every decision's input hash is the keyed HMAC (`hmac-sha256:<key id>:<hex>`): a plain
+    SHA-256 of a short input can be found by guessing."""
+    if not all(str(item.get("input_hash")).startswith("hmac-sha256:") for item in decided):
+        raise MendariError("the input hashes are not keyed: set MENDARI_INPUT_HASH_KEY")
 
 
 def _redirect(response: httpx.Response, what: str) -> str:

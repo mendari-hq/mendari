@@ -447,8 +447,9 @@ def create_app(
         summary="Deployment health and settings",
     )
     def health() -> dict[str, Any]:
-        """Version, packs, storage, the FHIR validation mode, sign-in, PHI mode and which provider
-        answers each pack's questions. Public, for load balancers."""
+        """Version, packs, storage, the FHIR validation mode, sign-in, PHI mode, the input hash's
+        kind and key id, and which provider answers each pack's questions. Public, for load
+        balancers."""
         return {
             "status": "ok",
             "version": __version__,
@@ -463,6 +464,9 @@ def create_app(
             "smart_launch": smart_options is not None,
             "sign_in": auth.enabled,
             "phi_mode": phi.mode,
+            # How new records' input hashes are made: `hmac-sha256:<key id>` under
+            # MENDARI_INPUT_HASH_KEY (required in PHI modes hash and encrypt), else `sha256`.
+            "input_hash": phi.hash_kind,
             "providers": {
                 pack_id: {
                     slot: info.variant for slot, info in decision_for(pack_id).provider_info.items()
@@ -571,7 +575,11 @@ def create_app(
         Every decision is recorded in the audit trail and ends as `AUTO`, `HUMAN_REVIEW`,
         `ABSTAIN` or `BLOCK`. **An input that fails the pack's schema is not an HTTP error:** it
         is a recorded decision with `outcome: BLOCK` and the reason in `reasons`, so check
-        `outcome`, not only the status code."""
+        `outcome`, not only the status code.
+
+        The answer is complete, with each answer's `evidence`; the audit record keeps it only as
+        the PHI mode allows (`GET /api/audit/{id}`). `input_hash` is `hmac-sha256:<key id>:<hex>`
+        where the deployment has an input hash key (always with PHI), else `sha256:<hex>`."""
         return decision_for(f"{namespace}/{name}").decide(payload).to_dict()
 
     @app.post(
@@ -815,7 +823,12 @@ def create_app(
         """One decision with every event recorded on it. An event with a note has `note_status`
         (`open`, `sealed` or `erased`) and `note`, its text when open: notes are read as inputs
         are, so under PHI mode `encrypt` only by reviewers and admins, and each read is chained
-        (`input.read`)."""
+        (`input.read`).
+
+        The record keeps no value of the input outside PHI mode `off`: under `hash` (or for a
+        pack that keeps only the hash) its answers' `evidence` is empty; under `encrypt` the
+        evidence is sealed with the input and comes back with it. An input issue names its
+        resource by type and position (`Patient (entry 2)`), never by its id."""
         record = store.get(decision_id, reader=input_reader(request))
         if record is None:
             raise HTTPException(404, f"unknown decision {decision_id}")

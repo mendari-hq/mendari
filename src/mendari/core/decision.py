@@ -65,6 +65,9 @@ class DecisionResult:
     rejected: bool = field(default=False, compare=False)
     # The pack-schema part of those reasons (standards rejections are in `input_issues`).
     schema_problems: tuple[str, ...] = field(default=(), compare=False)
+    # How the stored record names each resource an input issue names (`us_core.record_labels`):
+    # "Patient (entry 2)" for "Patient/MRN4821937". In memory only, like `rejected`.
+    labels: Mapping[str, str] = field(default_factory=dict, compare=False)
 
     @property
     def confidence(self) -> float | None:
@@ -97,6 +100,23 @@ class DecisionResult:
             "governance": self.governance,
             "input_issues": list(self.input_issues),
         }
+
+    def to_record(self) -> dict[str, Any]:
+        """`to_dict()` as the audit trail keeps it: the input issues, and the reasons that refused
+        an input over them, name a resource by its type and position, never by its logical id
+        (which can be a medical record number), since the record's digest is chained for good.
+        What the caller gets back (`to_dict`, the OperationOutcome) keeps the id, to find the
+        resource. The audit store also leaves out evidence it may not keep (`AuditStore.record`)."""
+        record = self.to_dict()
+        labels = {
+            issue["resource"]: self.labels.get(issue["resource"]) or _type_only(issue["resource"])
+            for issue in self.input_issues
+        }
+        record["input_issues"] = [
+            {**issue, "resource": labels[issue["resource"]]} for issue in self.input_issues
+        ]
+        record["reasons"] = [_relabel(reason, labels) for reason in self.reasons]
+        return record
 
 
 class CallBudget:
@@ -200,9 +220,11 @@ class Decision:
         *,
         input_issues: Sequence[Mapping[str, str]] = (),
         rejected: Sequence[str] = (),
+        labels: Mapping[str, str] | None = None,
     ) -> DecisionResult:
         """Decide one input. `rejected` (reasons from a standards check, e.g. US Core under
-        `enforce`) blocks the input like a schema failure; `input_issues` are only recorded."""
+        `enforce`) blocks the input like a schema failure; `input_issues` are only recorded, and
+        `labels` says how the stored record names the resources they name (`to_record`)."""
         started = time.perf_counter()
         manifest = self.pack.manifest
         answers: dict[str, Answer] = {}
@@ -245,6 +267,8 @@ class Decision:
             if primary.derive is not None:
                 policy = replace(policy, reasons=(*policy.reasons, *explain(primary, answers)))
 
+        # Keyed under the deployment's input hash key when it has one (`core/phi.py`).
+        hashed = input_hash(inputs) if self.store is None else self.store.phi.input_hash(inputs)
         result = DecisionResult(
             id=str(uuid.uuid4()),
             created_at=datetime.now(UTC).isoformat(timespec="milliseconds"),
@@ -264,11 +288,12 @@ class Decision:
             cost_usd=cost,
             input_tokens=tokens_in,
             output_tokens=tokens_out,
-            input_hash=input_hash(inputs),
+            input_hash=hashed,
             governance=governance.to_dict() if governance else None,
             input_issues=tuple(dict(issue) for issue in input_issues),
             rejected=bool(problems),
             schema_problems=tuple(schema_problems),
+            labels=dict(labels or {}),
         )
         if self.store is not None:
             self.store.record(result, inputs, store_input=manifest.audit.store_input)
@@ -314,6 +339,7 @@ class Decision:
             adapter.to_input(indexed),
             input_issues=[issue.to_dict() for issue in issues],
             rejected=rejected,
+            labels=us_core.record_labels(given, issues),
         )
         return result, adapter.to_task(result, indexed)
 
@@ -381,6 +407,22 @@ def _schema_rule(error: ValidationError) -> str:
     return f"does not satisfy the schema's {keyword} rule"
 
 
+def _type_only(label: str) -> str:
+    """A resource label without its id: "Patient/p1" -> "Patient"."""
+    return label.partition("/")[0]
+
+
+def _relabel(reason: str, labels: Mapping[str, str]) -> str:
+    """A refusal reason ("input rejected: not US Core 6.1.0: Patient/p1 Patient.gender: ...")
+    with each resource named as the record names it. A label is followed by a space and a
+    FHIRPath, and a FHIR id has no space, so the match is exact."""
+    for label, kept in labels.items():
+        reason = reason.replace(f": {label} ", f": {kept} ")
+    return reason
+
+
 def input_hash(inputs: Any) -> str:
+    """The unkeyed `sha256:` of an input, for a decision made without a store (a store keys it
+    under its deployment's input hash key, `PhiPolicy.input_hash`)."""
     canonical = json.dumps(inputs, sort_keys=True, separators=(",", ":"), default=str)
     return "sha256:" + hashlib.sha256(canonical.encode()).hexdigest()

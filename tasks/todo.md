@@ -35,9 +35,10 @@ About 18 days of work.
   `hash`), a salted commitment in the chain, `note.erased`, PAS payer text sealed, batched
   `input.read` writes; old chained notes hidden from readers without `read_input`
   (governance `reference` stays chained, as the critic's stage H left it out)
-- [ ] **I. Record hygiene and keyed hash**: evidence dropped under `hash` and sealed under
+- [x] **I. Record hygiene and keyed hash**: evidence dropped under `hash` and sealed under
   `encrypt`; Patient ids in issues stored as type and position; `MENDARI_INPUT_HASH_KEY` HMAC
   required in `hash` and `encrypt`
+  (issue labels are positional in every mode, not only PHI ones; the two keys must differ)
 - [ ] **K. Wrap-up**: threat model, SECURITY.md, the go-live checklist, README, the audit's status,
   review (five reviewers and a skeptic), a packet for the external review
 - At launch (owner): Jev 2,000 and LLM 200 a day, 5,000 decisions per organization a day, the

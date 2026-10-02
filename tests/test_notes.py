@@ -32,7 +32,7 @@ from mendari.server import app as app_module
 from mendari.server.app import create_app
 from mendari.standards import audit_fhir, pas
 from mendari.standards.fhir_client import GuardedHttp
-from tests.conftest import message, signed_in
+from tests.conftest import HASH_KEY_B64, message, signed_in
 
 KEY = os.urandom(32)
 SECRET = "SECRET-NOTE Rosalind Q. Example, MRN 4821937"
@@ -157,6 +157,7 @@ def test_the_api_answers_a_note_under_hash_with_422(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("MENDARI_PHI_MODE", "hash")
+    monkeypatch.setenv("MENDARI_INPUT_HASH_KEY", HASH_KEY_B64)
     client = TestClient(create_app(db_path=tmp_path / "a.db"))
     decided = client.post(f"/api/packs/{INBOX}/decide", json=message(URGENT)).json()
     review = {"final_label": "nurse", "reviewer": "rn-1", "note": SECRET}
@@ -280,6 +281,7 @@ def test_retention_erases_old_notes_with_the_inputs(
         db.all("UPDATE notes SET created_at = ? WHERE decision_id = ?", (long_ago, old))
         db.all("UPDATE decision_inputs SET created_at = ? WHERE decision_id = ?", (long_ago, old))
     monkeypatch.setenv("MENDARI_PHI_MODE", "encrypt")
+    monkeypatch.setenv("MENDARI_INPUT_HASH_KEY", HASH_KEY_B64)
     monkeypatch.setenv("MENDARI_PHI_KEY", base64.b64encode(KEY).decode())
     assert main(["phi", "purge", "--db", str(path), "--days", "365"]) == 0
     assert "1 stored input(s) deleted and 2 note(s) erased" in capsys.readouterr().out
@@ -398,6 +400,7 @@ def signed_in_app(
     db_target: str, monkeypatch: pytest.MonkeyPatch
 ) -> Iterator[tuple[TestClient, AuditStore]]:
     monkeypatch.setenv("MENDARI_PHI_MODE", "encrypt")
+    monkeypatch.setenv("MENDARI_INPUT_HASH_KEY", HASH_KEY_B64)
     monkeypatch.setenv("MENDARI_PHI_KEY", base64.b64encode(KEY).decode())
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
@@ -484,6 +487,7 @@ def test_a_payers_authorization_number_is_in_no_payload_or_export(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: PhiMode
 ) -> None:
     monkeypatch.setenv("MENDARI_PHI_MODE", mode)
+    monkeypatch.setenv("MENDARI_INPUT_HASH_KEY", HASH_KEY_B64)
     monkeypatch.setenv("MENDARI_PHI_KEY", base64.b64encode(KEY).decode())
     client = TestClient(create_app(db_path=tmp_path / "a.db"))
     decision_id = submit_prior_authorization(client, monkeypatch)

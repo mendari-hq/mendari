@@ -131,7 +131,8 @@ CREATE INDEX IF NOT EXISTS feedback_decision ON feedback (decision_id);
 CREATE TABLE IF NOT EXISTS decision_inputs (
     decision_id  TEXT PRIMARY KEY,
     created_at   TEXT NOT NULL,
-    ciphertext   TEXT NOT NULL
+    ciphertext   TEXT NOT NULL,
+    details      TEXT
 );
 CREATE TABLE IF NOT EXISTS governance_approvals (
     id           TEXT PRIMARY KEY,
@@ -230,6 +231,9 @@ _ADDED_COLUMNS = (
     ("api_keys", "scopes", "TEXT"),
     ("api_keys", "expires_at", "TEXT"),
     ("api_keys", "revoked_by", "TEXT"),
+    # What a record leaves out beside its kept input, sealed (Phase 4b): each answer's evidence.
+    # NULL: none, or a row from before.
+    ("decision_inputs", "details", "TEXT"),
 )
 # API keys (ADR-0004): machines are viewer or service; a key lives 90 days unless asked
 # otherwise, 365 at most; keys made before keys expired get 30 days from the first start of
@@ -337,9 +341,16 @@ class AuditStore:
         *,
         store_input: Literal["full", "hash"] = "full",
     ) -> None:
-        record = result.to_dict()
+        """Keep a decision and chain its digest. The input, and each answer's evidence (which can
+        quote it: a lab value and its date), stay in the record only under PHI mode `off` with a
+        pack that keeps inputs; under `encrypt` with such a pack both are sealed apart
+        (`decision_inputs`), so retention can delete them; otherwise neither is kept. The
+        caller's own answer (`/decide`) is unchanged."""
+        record = result.to_record()
         keep = store_input == "full" and self.phi.mode != "hash"
-        record["input"] = dict(inputs) if keep and self.phi.mode == "off" else None
+        in_record = keep and self.phi.mode == "off"
+        record["input"] = dict(inputs) if in_record else None
+        evidence = {} if in_record else _take_evidence(record)
         status = "pending" if result.outcome.value in _REVIEWABLE else "not_required"
         with self._db.session(exclusive=True) as db:
             db.all(
@@ -365,10 +376,16 @@ class AuditStore:
             )
             self._append(db, result.id, "decision.created", {"record_sha256": _sha(record)})
             if keep and self.phi.mode == "encrypt":  # apart from the chained record
+                details = {"evidence": evidence}
                 db.all(
-                    "INSERT INTO decision_inputs (decision_id, created_at, ciphertext) "
-                    "VALUES (?, ?, ?)",
-                    (result.id, result.created_at, self.phi.encrypt(result.id, dict(inputs))),
+                    "INSERT INTO decision_inputs (decision_id, created_at, ciphertext, details) "
+                    "VALUES (?, ?, ?, ?)",
+                    (
+                        result.id,
+                        result.created_at,
+                        self.phi.encrypt(result.id, dict(inputs)),
+                        self.phi.seal_details(result.id, details) if evidence else None,
+                    ),
                 )
 
     def resolve_review(
@@ -811,7 +828,8 @@ class AuditStore:
     ) -> list[dict[str, Any]]:
         """PHI mode `encrypt` keeps inputs apart from the records. Each item (a record under
         `record`) whose input was kept gets it back for a `reader`, someone who may see inputs,
-        and every such read is written to the hash chain. Anyone else gets `input_restricted`.
+        with its answers' evidence (sealed beside it), and every such read is written to the hash
+        chain. Anyone else gets `input_restricted`.
 
         Notes follow inputs (see "notes"): those of the item's `events` (`get`) and, with
         `own_notes`, the item's own (a rating's note has the rating's id). Each such event or
@@ -834,7 +852,7 @@ class AuditStore:
         marks = ", ".join("?" for _ in ids)
         with self._db.session(exclusive=False) as db:
             rows = db.all(
-                "SELECT decision_id, ciphertext FROM decision_inputs "
+                "SELECT decision_id, ciphertext, details FROM decision_inputs "
                 f"WHERE decision_id IN ({marks})",
                 tuple(ids),
             )
@@ -850,6 +868,11 @@ class AuditStore:
         sealed = {row["decision_id"]: row["ciphertext"] for row in rows}
         readable = bool(reader) and self.phi.mode == "encrypt"
         opened = {k: self.phi.decrypt(k, v) for k, v in sealed.items()} if readable else {}
+        details = {
+            row["decision_id"]: self.phi.open_details(row["decision_id"], row["details"])
+            for row in rows
+            if row["decision_id"] in opened and row["details"]
+        }
         # Who read what: inputs, then notes; outside mode off a note opens for a reader only.
         reads: dict[str, list[str]] = {decision_id: [] for decision_id in opened}
         gated = self.phi.mode != "off"
@@ -876,6 +899,7 @@ class AuditStore:
             if decision_id in sealed:
                 item["record"]["input"] = opened.get(decision_id)
                 item["input_restricted"] = decision_id not in opened
+                _give_evidence(item["record"], details.get(decision_id, {}).get("evidence", {}))
             for event in item.get("events") or ():
                 _show_note(event, views, reader)
             if own_notes:
@@ -1910,6 +1934,24 @@ def _legacy_fields(event: Mapping[str, Any]) -> dict[str, Any]:
         return {}
     fields = LEGACY_TEXT.get(event["event"], ())
     return {key: payload[key] for key in fields if payload.get(key) is not None}
+
+
+def _take_evidence(record: dict[str, Any]) -> dict[str, list[str]]:
+    """Empty each answer's evidence in a record about to be stored; what there was, by question
+    (only questions that had some)."""
+    taken: dict[str, list[str]] = {}
+    for question, answer in record["answers"].items():
+        if answer.get("evidence"):
+            taken[question] = answer["evidence"]
+        answer["evidence"] = []
+    return taken
+
+
+def _give_evidence(record: dict[str, Any], evidence: Mapping[str, list[str]]) -> None:
+    """Put sealed evidence back into the record it was taken from, for a reader."""
+    for question, given in evidence.items():
+        if question in record["answers"]:
+            record["answers"][question]["evidence"] = given
 
 
 def _legacy_text(item: Mapping[str, Any], own_notes: bool) -> bool:

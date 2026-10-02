@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import os
 import secrets
 import shutil
@@ -20,6 +21,9 @@ LOCAL_DATASET = ROOT / "datasets" / "local-site-example.jsonl"
 # Postgres tests run when this points at a disposable database, e.g.
 # postgresql://postgres:mendari-test@127.0.0.1:56432/mendari_test (see CLAUDE.md).
 POSTGRES_URL = os.environ.get("MENDARI_TEST_DATABASE_URL", "").strip()
+# An input hash key (MENDARI_INPUT_HASH_KEY), which PHI modes hash and encrypt require.
+INPUT_HASH_KEY = secrets.token_bytes(32)
+HASH_KEY_B64 = base64.b64encode(INPUT_HASH_KEY).decode()
 
 
 @pytest.fixture(autouse=True)

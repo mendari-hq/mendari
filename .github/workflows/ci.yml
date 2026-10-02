@@ -383,10 +383,11 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync --locked
-      - name: Start the engine (sign-in on, PHI mode encrypt)
+      - name: Start the engine (sign-in on, PHI mode encrypt, keyed input hashes)
         run: |
           for i in $(seq 1 60); do curl -sf "$MENDARI_OIDC_ISSUER/.well-known/openid-configuration" > /dev/null && break; sleep 1; done
           export MENDARI_PHI_KEY=$(python3 -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())")
+          export MENDARI_INPUT_HASH_KEY=$(python3 -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())")
           .venv/bin/mendari serve --port 8000 --db /tmp/pilot.db > /tmp/engine.log 2>&1 &
           for i in $(seq 1 60); do curl -sf http://127.0.0.1:8000/api/health > /dev/null && break; sleep 1; done
       - run: uv run mendari sandbox pilot-check --engine http://127.0.0.1:8000

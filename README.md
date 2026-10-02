@@ -453,6 +453,11 @@ mendari monitor --db "$DATABASE_URL" --org clinic-a --webhook https://alerts.exa
 **PHI mode.** `MENDARI_PHI_MODE=hash` keeps no input at all, only its hash.
 `MENDARI_PHI_MODE=encrypt` keeps inputs encrypted (AES-256-GCM, `MENDARI_PHI_KEY`) apart
 from the audit chain. Only signed-in reviewers and admins read them, and each read is chained.
+Both modes need `MENDARI_INPUT_HASH_KEY` (32 random bytes, base64, not the PHI key): the input
+hash becomes an HMAC (`hmac-sha256:<key id>:<hex>`) that guessing cannot match, and the engine
+refuses to start without it. In both, the chained record keeps no evidence values (sealed with
+the input under `encrypt`) and names a resource in an input issue by type and position
+(`Patient (entry 2)`), not by its id; the caller's own answer is unchanged.
 `mendari phi purge` applies `MENDARI_RETENTION_DAYS` without breaking the chain. Notes (review
 and rating notes, a payer's answer to a prior authorization) follow inputs: they are kept apart
 from the chain, which holds only a salted commitment to each, sealed under `encrypt` and refused
@@ -467,10 +472,10 @@ Card lists them (`/api/deployments`).
 **The pilot, end to end.** `mendari sandbox pilot-check --engine URL` plays a pilot
 organization against an engine with sign-in and PHI mode `encrypt`. People sign in through the
 real OpenID Connect flow, an admin creates a key for the message worker, and the worker
-decides. A reviewer reads the queue (each input read is logged) and resolves; a viewer can't.
-The AI committee approves a level 2 pack, then monitoring and the audit chain are checked. CI
-runs it against [mock-oauth2-server](https://github.com/navikt/mock-oauth2-server) (job
-`pilot-check`).
+decides (every input hash keyed). A reviewer reads the queue (each input read is logged) and
+resolves; a viewer can't. The AI committee approves a level 2 pack, then monitoring and the
+audit chain are checked. CI runs it against
+[mock-oauth2-server](https://github.com/navikt/mock-oauth2-server) (job `pilot-check`).
 
 ## Decision Packs
 
