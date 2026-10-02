@@ -151,7 +151,7 @@ def test_fhir_route_errors_are_operation_outcomes(client: TestClient) -> None:
     assert outcome_of(missing, 422)[0]["code"] == "processing"
     unknown_pack = client.post("/api/packs/mendari/nope/fhir/decide", json=inbox_bundle())
     assert outcome_of(unknown_pack, 404)[0]["code"] == "not-found"
-    no_route = client.get("/fhir/metadata")
+    no_route = client.get("/fhir/Patient/p1")  # Mendari serves no clinical resources
     assert outcome_of(no_route, 404)[0]["code"] == "not-found"
     dtr = client.post("/fhir/Questionnaire/$questionnaire-package", json={"resourceType": "x"})
     assert "Coverage" in outcome_of(dtr, 422)[0]["diagnostics"]

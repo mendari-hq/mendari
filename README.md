@@ -216,6 +216,23 @@ required value set, is an issue of the same kind, labelled with the base R4 prof
 | `enforce` | An input with an error is blocked before any provider sees it, like a JSON Schema failure. |
 | `off` | No profile or required-element checks (the structural check still runs). |
 
+**The FHIR base, `/fhir`.** Mendari is a decision engine, not a FHIR data server: it stores and
+serves no clinical resources. `GET /fhir/metadata` is its CapabilityStatement, built from the
+routes that are mounted. `POST /fhir/$decide` (defined at `/fhir/OperationDefinition/decide`)
+takes `Parameters` with the `pack` and the `data` Bundle, and returns the decision as a FHIR
+`collection` Bundle: a **GuidanceResponse** (act on `outputParameters.outcome`, not on
+`status`), a RequestGroup and the work-queue **Task** (under BLOCK or ABSTAIN, the pack's
+fallback), the answers as Parameters, findings as an OperationOutcome, and the audit trail's
+Provenance. The codes it uses are Mendari CodeSystems and NamingSystems, generated from the code
+and the served packs (`standards/terminology.py`) and served at `/fhir/CodeSystem/{id}` and
+`/fhir/NamingSystem/{id}`. FHIR routes speak FHIR R4 JSON only (`415`/`406` otherwise).
+
+```bash
+curl -s localhost:8000/fhir/metadata
+curl -s -X POST localhost:8000/fhir/\$decide -H 'content-type: application/fhir+json' \
+  -d '{"resourceType":"Parameters","parameter":[{"name":"pack","valueString":"mendari/patient-inbox-router"},{"name":"data","resource":'"$(cat tests/fixtures/us-core/inbox.json)"'}]}'
+```
+
 The audit trail exports as FHIR R4. Each event in the hash chain becomes an **AuditEvent**, and
 each decision, review and downstream outcome becomes a **Provenance** on the decision's `Task`.
 They carry ids, codes and the chain's hashes, never case text:

@@ -26,6 +26,7 @@ from fastapi.responses import (
     Response,
     StreamingResponse,
 )
+from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -61,10 +62,11 @@ from mendari.server import api_docs
 from mendari.server.auth import Auth, add_auth_routes, auth_settings, permission_for
 from mendari.server.smart_routes import add_smart_routes, error_page
 from mendari.settings import FhirValidation, providers_for
-from mendari.standards import audit_fhir, cds_hooks, davinci, pas
+from mendari.standards import audit_fhir, capability, cds_hooks, davinci, decide_op, pas
 from mendari.standards.fhir_client import GuardedHttp, allowed_servers
 from mendari.standards.pas import PasError
 from mendari.standards.smart import smart_settings
+from mendari.standards.terminology import Terminology
 
 DASHBOARD_DIR = Path(__file__).resolve().parents[1] / "dashboard"
 INBOX = "mendari/patient-inbox-router"
@@ -217,6 +219,8 @@ def create_app(
         current = packs.get(pack.id)
         if current is None or version_key(pack.version) > version_key(current.version):
             packs[pack.id] = pack
+    # Every CodeSystem and NamingSystem the served packs need; a conflict fails at startup.
+    terms = Terminology.for_packs(packs.values())
     decisions: dict[str, Decision] = {}
     overrides = dict(providers or {})
 
@@ -512,11 +516,13 @@ def create_app(
         The pack's `fhir/mapping.yaml` maps them onto its input. Returns the decision and a FHIR
         `Task` for the work queue.
 
-        Inputs are checked against US Core 6.1.0 (`fhir_validation` in `/api/health`: `warn`
-        records issues in `decision.input_issues`, `enforce` blocks). In every mode, a core element
-        of the wrong JSON type (`resourceType`, `id`, `meta`, `subject`, any `coding`, a Bundle's
-        entries) is a `400`; other elements are checked by US Core, under `fhir_validation`. An
-        error on this route is an `OperationOutcome`."""
+        Inputs first pass a structural R4 check in every mode: an unknown element or resource
+        type, an element of the wrong JSON type, or a primitive without its format is a `400`
+        OperationOutcome (issue code `structure` or `value`). A complex element R4 requires, a
+        code outside an R4 required value set, and US Core 6.1.0's rules are checked under
+        `fhir_validation` (`/api/health`): `warn` records them in `decision.input_issues`,
+        `enforce` blocks. An error on this route is an `OperationOutcome`. For FHIR out as well,
+        use `POST /fhir/$decide`."""
         result, task = decision_for(f"{namespace}/{name}").decide_fhir(payload)
         return {"decision": result.to_dict(), "task": task}
 
@@ -902,6 +908,112 @@ def create_app(
         result = davinci.questionnaire_package(payload, lookup, packs, authored)
         return JSONResponse(result, media_type="application/fhir+json")
 
+    # -- FHIR: the $decide operation and conformance resources --------------------------------
+
+    @app.post(
+        "/fhir/$decide",
+        tags=["FHIR and CDS Hooks"],
+        summary="$decide: a decision as FHIR",
+    )
+    def fhir_decide(payload: JsonBody) -> JSONResponse:
+        """Mendari's FHIR operation (system level, POST only): `Parameters` in (`pack`, `version`,
+        `data` as a Bundle, `focus`), a `collection` Bundle out. Its first entry, a
+        `GuidanceResponse`, is the decision; act on `outputParameters.outcome`, never on
+        `status`. Then a RequestGroup and the Task (under BLOCK and ABSTAIN, the pack's fallback),
+        the answers as Parameters, an OperationOutcome when there are findings, and the audit
+        trail's Provenance. The definition: `/fhir/OperationDefinition/decide`. Errors are
+        OperationOutcomes."""
+        request = decide_op.parse(payload)
+        pack = pack_or_404(request.pack)
+        if request.version is not None and request.version != pack.version:
+            raise PackNotFoundError(
+                f"{pack.id} is served here at version {pack.version}, not {request.version}"
+            )
+        decision = decision_for(pack.id)
+        focus = decide_op.focus_in(request.data, request.focus)
+        result, task = decision.decide_fhir(request.data, focus=focus)
+        record = store.get(result.id)
+        if record is None:  # every decision this server makes is recorded
+            raise RuntimeError(f"decision {result.id} is not in the audit trail")
+        created = next(e for e in record["events"] if e["event"] == "decision.created")
+        event = {**created, **{k: record[k] for k in ("pack_id", "pack_version", "record")}}
+        provenance = audit_fhir.provenance({**event, "decision_id": result.id})
+        bundle = decide_op.response(result, task, pack, provenance)
+        return JSONResponse(bundle, media_type="application/fhir+json")
+
+    @app.get(
+        "/fhir/metadata",
+        tags=["FHIR and CDS Hooks"],
+        summary="CapabilityStatement",
+    )
+    def fhir_metadata(request: Request) -> Response:
+        """What this deployment's FHIR routes do, built from the routes that are mounted. Mendari
+        is a decision engine, not a FHIR data server: it serves no clinical resources. `date`
+        is when the served packs and release went live here; the ETag follows the content."""
+        statement = capability.capability_statement(
+            mounted_routes(app),
+            packs,
+            sign_in=auth.enabled,
+            date=live_since(),
+            public_url=os.environ.get("MENDARI_PUBLIC_URL", "").strip() or None,
+            place=settings.deployment_place(),
+        )
+        body = json.dumps(statement, separators=(",", ":"))
+        etag = f'W/"{hashlib.sha256(body.encode()).hexdigest()[:16]}"'
+        headers = {"etag": etag, "cache-control": "no-cache"}
+        if request.headers.get("if-none-match") == etag:
+            return Response(status_code=304, headers=headers)
+        return Response(body, media_type="application/fhir+json", headers=headers)
+
+    def live_since() -> str:
+        """When the current packs and release went live in this environment: the newest
+        deployment record among the served packs (recorded once per change, not per start)."""
+        environment, _ = settings.deployment_place()
+        started = []
+        for pack_id in sorted(packs):
+            decision_for(pack_id)  # records this server's deployment of the pack, once
+            rows = store.deployments(pack_id, limit=50)
+            here = next((r for r in rows if r["environment"] == environment), None)
+            if here is not None:
+                started.append(str(here["started_at"]))
+        return max(started, default=datetime.now(UTC).isoformat(timespec="seconds"))
+
+    @app.get(
+        "/fhir/CodeSystem/{resource_id}",
+        tags=["FHIR and CDS Hooks"],
+        summary="Read a Mendari CodeSystem",
+    )
+    def fhir_code_system(resource_id: str) -> JSONResponse:
+        """One of the CodeSystems Mendari's FHIR uses (decision outcomes, audit events, packs,
+        work queues, each pack's question labels), generated from the code and the served
+        packs. Its canonical `url` is on mendari.co; each deployment serves its own copy."""
+        return conformance(terms.get("CodeSystem", resource_id))
+
+    @app.get(
+        "/fhir/NamingSystem/{resource_id}",
+        tags=["FHIR and CDS Hooks"],
+        summary="Read a Mendari NamingSystem",
+    )
+    def fhir_naming_system(resource_id: str) -> JSONResponse:
+        """One of the identifier systems Mendari's FHIR uses (decision ids, input hashes, pack
+        versions)."""
+        return conformance(terms.get("NamingSystem", resource_id))
+
+    @app.get(
+        "/fhir/OperationDefinition/{resource_id}",
+        tags=["FHIR and CDS Hooks"],
+        summary="Read the $decide OperationDefinition",
+    )
+    def fhir_operation_definition(resource_id: str) -> JSONResponse:
+        """The definition of `$decide` (id `decide`). Da Vinci's `$questionnaire-package` is
+        defined by the DTR implementation guide, not here."""
+        return conformance(decide_op.operation_definition() if resource_id == "decide" else None)
+
+    def conformance(resource: Mapping[str, Any] | None) -> JSONResponse:
+        if resource is None:
+            raise HTTPException(404, "no such resource here")
+        return JSONResponse(dict(resource), media_type="application/fhir+json")
+
     # -- dashboard ---------------------------------------------------------------------------
 
     page = versioned_dashboard()
@@ -969,6 +1081,16 @@ def create_app(
 
     app.mount("/static", StaticFiles(directory=DASHBOARD_DIR), name="static")
     return app
+
+
+def mounted_routes(app: FastAPI) -> list[tuple[str, str]]:
+    """(method, path) of every route the app serves."""
+    return [
+        (method, route.path)
+        for route in app.routes
+        if isinstance(route, APIRoute)
+        for method in route.methods or ()
+    ]
 
 
 def error_response(path: str, status: int, error: MendariError) -> JSONResponse:

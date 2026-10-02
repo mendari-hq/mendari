@@ -8,7 +8,7 @@ import re
 import time
 import uuid
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -60,6 +60,11 @@ class DecisionResult:
     # Base R4 and US Core findings for a FHIR input (`standards.us_core.Issue.to_dict()`): paths,
     # no values.
     input_issues: tuple[dict[str, str], ...] = ()
+    # Why the input was refused before any provider ran (`$decide` reports these as failure).
+    # In memory only: not in `to_dict`, so the audit record keeps its shape.
+    rejected: bool = field(default=False, compare=False)
+    # The pack-schema part of those reasons (standards rejections are in `input_issues`).
+    schema_problems: tuple[str, ...] = field(default=(), compare=False)
 
     @property
     def confidence(self) -> float | None:
@@ -208,7 +213,8 @@ class Decision:
         governance = self.governance
         if governance is None and self.governance_source is not None:
             governance = self.governance_source(self.pack)
-        problems = [*rejected, *self.validate(inputs)]
+        schema_problems = self.validate(inputs)
+        problems = [*rejected, *schema_problems]
         if problems:
             policy = PolicyResult(
                 outcome=Outcome.BLOCK,
@@ -261,6 +267,8 @@ class Decision:
             input_hash=input_hash(inputs),
             governance=governance.to_dict() if governance else None,
             input_issues=tuple(dict(issue) for issue in input_issues),
+            rejected=bool(problems),
+            schema_problems=tuple(schema_problems),
         )
         if self.store is not None:
             self.store.record(result, inputs, store_input=manifest.audit.store_input)

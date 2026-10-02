@@ -18,9 +18,10 @@ TAGS = [
     {"name": "Decisions", "description": "Run a Decision Pack on an input and get its decision."},
     {
         "name": "FHIR and CDS Hooks",
-        "description": "FHIR R4 in and out: decide from a Bundle, CDS Hooks services, the audit "
-        "trail as AuditEvent and Provenance, Da Vinci DTR and PAS. Mendari is not a FHIR server: "
-        "it stores no FHIR resources.",
+        "description": "FHIR R4 in and out: the $decide operation and the CapabilityStatement "
+        "(/fhir/metadata), deciding from a Bundle, CDS Hooks services, the audit trail as "
+        "AuditEvent and Provenance, Mendari's CodeSystems, Da Vinci DTR and PAS. Mendari is not a "
+        "FHIR data server: it stores and serves no clinical resources.",
     },
     {"name": "Packs", "description": "The Decision Packs this deployment serves."},
     {"name": "Review and feedback", "description": "The human review queue, outcomes, ratings."},
@@ -97,11 +98,14 @@ All data here is synthetic. This is a research preview, not a medical device.
 
 ### FHIR
 
-Send FHIR R4 (a Bundle, one resource, or CDS Hooks prefetch) to
-`POST /api/packs/{{namespace}}/{{name}}/fhir/decide` for the decision and a FHIR `Task`. Inputs
-are checked against US Core 6.1.0, and an error on a FHIR route is an `OperationOutcome`.
-Mendari is a decision service, **not a FHIR server**: there is no CapabilityStatement or
-resource API.
+The FHIR base is `/fhir`; [`GET /fhir/metadata`](/fhir/metadata) says what it does.
+`POST /fhir/$decide` takes `Parameters` (`pack`, `data` as a Bundle) and returns the decision as
+a FHIR Bundle (a `GuidanceResponse` first; act on its `outcome`, not its `status`). To send a
+bare Bundle, one resource or CDS Hooks prefetch and get Mendari's JSON back, use
+`POST /api/packs/{{namespace}}/{{name}}/fhir/decide`. FHIR input first passes a structural R4
+check (a `400` otherwise), then R4 and US Core 6.1.0 rules; an error on a FHIR route is an
+`OperationOutcome`. Mendari is a decision engine, **not a FHIR data server**: it stores and
+serves no clinical resources.
 
 ### Authentication
 
@@ -179,13 +183,22 @@ def _example_input(pack: Pack) -> tuple[str, dict[str, Any]] | None:
 def _body_examples(
     path: str, inputs: Mapping[str, tuple[str, dict[str, Any]] | None], packs: Mapping[str, Pack]
 ) -> dict[str, Any]:
-    if path == "/api/packs/{namespace}/{name}/fhir/decide":
+    if path in ("/api/packs/{namespace}/{name}/fhir/decide", "/fhir/$decide"):
         if FHIR_EXAMPLE_PACK not in packs:
             return {}
+        value: dict[str, Any] = FHIR_EXAMPLE
+        if path == "/fhir/$decide":
+            value = {
+                "resourceType": "Parameters",
+                "parameter": [
+                    {"name": "pack", "valueString": FHIR_EXAMPLE_PACK},
+                    {"name": "data", "resource": FHIR_EXAMPLE},
+                ],
+            }
         return {
             "message": {
                 "summary": f"{FHIR_EXAMPLE_PACK}: a patient's message (synthetic)",
-                "value": FHIR_EXAMPLE,
+                "value": value,
             }
         }
     if path not in ("/api/packs/{namespace}/{name}/decide", "/api/packs/{namespace}/{name}/guard"):

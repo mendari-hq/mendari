@@ -49,6 +49,11 @@ class FhirStructureError(FhirError):
         super().__init__(f"not valid FHIR JSON: {shown}{more}")
 
 
+class FhirRequestError(FhirStructureError):
+    """A FHIR operation's request is malformed: a missing, repeated or unknown parameter, or a
+    parameter of the wrong type (a `400`, like the structure errors it extends)."""
+
+
 class SmartError(MendariError):
     """A SMART on FHIR launch cannot continue: not configured, a bad or expired state, a token
     the authorization server should not have issued, or no session."""
