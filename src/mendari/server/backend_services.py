@@ -49,7 +49,14 @@ from starlette.concurrency import run_in_threadpool
 from mendari.core.audit import AuditStore
 from mendari.errors import AuthError, ClientError, MendariError, ScopeError
 from mendari.server import scopes
-from mendari.server.auth import OPEN, PERMISSIONS, AuthSettings, Principal
+from mendari.server.auth import (
+    OPEN,
+    PERMISSIONS,
+    AuthSettings,
+    Principal,
+    names_a_credential,
+    read_body,
+)
 
 logger = logging.getLogger("mendari.auth")
 
@@ -255,7 +262,8 @@ def oauth_error(error: OAuthError) -> JSONResponse:
 
 def read_form(content_type: str, body: bytes) -> dict[str, str]:
     """The token request's form: urlencoded UTF-8, at most 16 KiB, no parameter twice
-    (RFC 6749 §3.2), else `invalid_request`."""
+    (RFC 6749 §3.2) and no `access_token` (RFC 6750 §2.2: never read), else
+    `invalid_request`."""
     if content_type.split(";")[0].strip().lower() != _FORM or len(body) > MAX_FORM_BYTES:
         raise OAuthError("invalid_request")
     try:
@@ -263,7 +271,7 @@ def read_form(content_type: str, body: bytes) -> dict[str, str]:
     except (UnicodeDecodeError, ValueError):
         raise OAuthError("invalid_request") from None
     names = [name for name, _ in items]
-    if len(set(names)) != len(names):
+    if len(set(names)) != len(names) or names_a_credential(names):
         raise OAuthError("invalid_request")
     return dict(items)
 
@@ -413,10 +421,10 @@ def add_backend_routes(app: FastAPI, settings: BackendSettings, store: AuditStor
         `unsupported_grant_type` and `invalid_scope` (400), `invalid_client` (401) for any
         assertion that does not authenticate the client."""
         try:
-            declared = request.headers.get("content-length", "0")
-            if not declared.isdigit() or int(declared) > MAX_FORM_BYTES:
+            body = await read_body(request, MAX_FORM_BYTES)
+            if body is None:
                 raise OAuthError("invalid_request")
-            form = read_form(request.headers.get("content-type", ""), await request.body())
+            form = read_form(request.headers.get("content-type", ""), body)
             answer = await run_in_threadpool(
                 exchange,
                 form,

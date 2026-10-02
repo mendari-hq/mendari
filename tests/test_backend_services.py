@@ -561,7 +561,9 @@ def test_the_form_must_be_a_form_once_and_small(server: Server) -> None:
     with_header = server.http.post("/auth/token", data=form, headers=bearer("mat_x"))
     assert (with_header.status_code, with_header.json()["error"]) == (400, "invalid_request")
     leaked = server.http.post("/auth/token", data={**form, "access_token": "mat_x"})
-    assert leaked.status_code == 400  # never a credential in a form (stage 1's guard)
+    assert (leaked.status_code, leaked.json()["error"]) == (400, "invalid_request")
+    chunked = server.http.post("/auth/token", content=iter([b"a=" * MAX_FORM_BYTES]), headers=kind)
+    assert (chunked.status_code, chunked.json()["error"]) == (400, "invalid_request")
     assert server.http.post("/auth/token", data=form).status_code == 200
 
 

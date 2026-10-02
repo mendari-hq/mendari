@@ -16,7 +16,7 @@ from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal
-from urllib.parse import parse_qsl, unquote_plus
+from urllib.parse import parse_qsl
 
 from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -61,6 +61,7 @@ from mendari.evals.feedback import feedback_dataset
 from mendari.evals.harness import Dataset
 from mendari.evals.monitoring import monitor
 from mendari.evals.pack_tests import load_cases
+from mendari.legacy import current_pack_id
 from mendari.providers import jev, llm
 from mendari.providers.credentials import key_source
 from mendari.server import api_docs
@@ -71,7 +72,10 @@ from mendari.server.auth import (
     add_auth_routes,
     auth_settings,
     challenge,
+    credential_in_url_or_form,
+    names_a_credential,
     permission_for,
+    read_body,
 )
 from mendari.server.backend_services import (
     DISCOVERY_PATH,
@@ -258,13 +262,12 @@ def create_app(
     missing = only - {pack.id for pack in found.packs}
     if missing:
         raise MendariError(f"MENDARI_PACKS: packs not installed here: {sorted(missing)}")
-    packs: dict[str, Pack] = {}
+    installed: dict[str, Pack] = {}  # the newest version of every pack found, served or not
     for pack in found.packs:
-        if only and pack.id not in only:
-            continue
-        current = packs.get(pack.id)
+        current = installed.get(pack.id)
         if current is None or version_key(pack.version) > version_key(current.version):
-            packs[pack.id] = pack
+            installed[pack.id] = pack
+    packs = {pack_id: pack for pack_id, pack in installed.items() if not only or pack_id in only}
     # Every CodeSystem and NamingSystem the served packs need. A pack whose terminology cannot
     # be built is reported in /api/health (`invalid`) and served without it.
     terms, terminology_problems = Terminology.serving(packs.values())
@@ -307,9 +310,11 @@ def create_app(
         return decisions[pack_id]
 
     def question_labels(pack_id: str, question: str) -> list[str] | None:
-        """A served pack's labels for one of its questions (None: not served, or no such
-        question), for decisions whose record has no answer to check a label against."""
-        pack = packs.get(pack_id)
+        """An installed pack's labels for one of its questions (None: not installed, or no such
+        question), for decisions whose record has no answer to check a label against. Installed,
+        not only served: a per-pack instance can share a database with other packs' decisions,
+        and decisions from before the rename carry the old pack id."""
+        pack = installed.get(current_pack_id(pack_id))
         if pack is None or question not in pack.manifest.questions:
             return None
         return pack.manifest.labels(question)
@@ -1165,7 +1170,15 @@ def create_app(
         route does, so the event loop never waits on the database."""
 
         async def endpoint(request: Request) -> Response:
-            items = [*request.query_params.multi_items(), *form_items(await request.body())]
+            body = await read_body(request, MAX_SEARCH_FORM_BYTES)
+            if body is None:
+                kib = MAX_SEARCH_FORM_BYTES // 1024
+                issue = {"code": "too-costly", "diagnostics": f"a search form is {kib} KiB at most"}
+                return operation_outcome(413, [issue])
+            form = form_items(body)
+            if names_a_credential(name for name, _ in form):
+                raise credential_in_url_or_form()
+            items = [*request.query_params.multi_items(), *form]
             if any(name == "_format" and not _offered(value) for name, value in items):
                 return _refuse(406, "only JSON is offered: _format must be json")
             return await run_in_threadpool(search_page, request, resource, items)
@@ -1190,7 +1203,8 @@ def create_app(
             summary=f"Search {what} (POST)",
             description=f"`GET /fhir/{resource}` with its parameters in a form body "
             "(`application/x-www-form-urlencoded`), so they stay out of URLs and logs. "
-            "Parameters in the URL count too, before the body's.",
+            "Parameters in the URL count too, before the body's. The form is 256 KiB at most "
+            "(a `413` otherwise).",
             openapi_extra={"requestBody": _search_form(resource)},
         )
 
@@ -1212,14 +1226,11 @@ def create_app(
     @app.middleware("http")
     async def _guard(request: Request, call_next: Any) -> Response:
         """Every request passes the sign-in guard (a no-op in open mode). A credential in a URL
-        or a form is refused first, in every mode: it would end up in logs and histories."""
+        is refused first, in every mode: it would end up in logs and histories. No body is read
+        here: the routes that read a form refuse a credential in it, after this check."""
         try:
-            if await _carries_access_token(request):
-                raise AuthError(
-                    "send credentials in the Authorization header, never in a URL or a form",
-                    400,
-                    challenge=challenge("invalid_request"),
-                )
+            if names_a_credential(request.query_params):
+                raise credential_in_url_or_form()
             refused = auth.check(request)
         except AuthError as error:
             return error_response(request.url.path, error.status, error)
@@ -1277,24 +1288,6 @@ def create_app(
 
     app.mount("/static", StaticFiles(directory=DASHBOARD_DIR), name="static")
     return app
-
-
-_ACCESS_TOKEN = "access_token"
-
-
-async def _carries_access_token(request: Request) -> bool:
-    """Whether a request sends an `access_token` in its URL or a form body (RFC 6750 allows
-    both; Mendari accepts neither)."""
-    if any(name.lower() == _ACCESS_TOKEN for name in request.query_params):
-        return True
-    media = request.headers.get("content-type", "").split(";")[0].strip().lower()
-    if media != _FORM:
-        return False
-    body = await request.body()  # kept for the route (Starlette replays it)
-    names = (part.split(b"=", 1)[0] for part in body.split(b"&"))
-    return any(
-        unquote_plus(name.decode("latin-1")).strip().lower() == _ACCESS_TOKEN for name in names
-    )
 
 
 def mounted_routes(app: FastAPI) -> list[tuple[str, str]]:
@@ -1356,6 +1349,9 @@ def fhir_media_refusal(request: Request) -> JSONResponse | None:
 def _offered(format_parameter: str) -> bool:
     """Whether a `_format` value asks for JSON, the only format offered."""
     return format_parameter.split(";")[0].strip().lower() in _JSON_FORMATS
+
+
+MAX_SEARCH_FORM_BYTES = 256 * 1024
 
 
 def form_items(body: bytes) -> list[tuple[str, str]]:

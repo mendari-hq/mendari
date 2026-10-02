@@ -45,7 +45,7 @@ import os
 import re
 import secrets
 import time
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Literal
@@ -240,6 +240,37 @@ def invalid_token() -> AuthError:
     """One answer for every credential that is not valid: unknown, revoked, expired, malformed or
     of a kind not accepted here. It never says which, nor echoes the credential."""
     return AuthError("the credential is not valid", 401, challenge=challenge("invalid_token"))
+
+
+def credential_in_url_or_form() -> AuthError:
+    """RFC 6750 lets a client send its credential as an `access_token` query or form parameter;
+    Mendari reads neither, and refuses both: they end up in logs and histories."""
+    return AuthError(
+        "send credentials in the Authorization header, never in a URL or a form",
+        400,
+        challenge=challenge("invalid_request"),
+    )
+
+
+def names_a_credential(names: Iterable[str]) -> bool:
+    """Whether query or form parameter names include `access_token`, in any case."""
+    return any(name.strip().lower() == "access_token" for name in names)
+
+
+async def read_body(request: Request, limit: int) -> bytes | None:
+    """A request body of at most `limit` bytes, else None: a declared length over the limit is
+    refused unread, and a body without one (chunked) is read only until it passes the limit.
+    Only routes read bodies, after the sign-in check, so a caller without a credential never
+    makes Mendari read one."""
+    declared = request.headers.get("content-length")
+    if declared is not None and (not declared.isdigit() or int(declared) > limit):
+        return None
+    body = bytearray()
+    async for chunk in request.stream():
+        body += chunk
+        if len(body) > limit:
+            return None
+    return bytes(body)
 
 
 def permission_for(method: str, path: str) -> str:

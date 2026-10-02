@@ -1538,8 +1538,8 @@ def _check_label(
 ) -> None:
     """A final label must be one of the labels of the decision's primary question: those its
     answer gave probabilities for (the pack version that decided), or else, for a decision with
-    no answer (an input refused before any provider ran), the served pack's. With neither, no
-    label can be checked, so none is accepted."""
+    no answer (refused before any provider ran, or its provider failed), the installed pack's.
+    With neither, no label can be checked, so none is accepted."""
     primary = record.get("primary")
     answer = (record.get("answers") or {}).get(primary) or {}
     known = list(answer.get("probabilities") or ())

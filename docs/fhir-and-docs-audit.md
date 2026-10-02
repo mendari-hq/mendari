@@ -472,6 +472,18 @@ the owner's choice of a Task per decision. The `$decide` work-item Task's relati
 with the owner's choices: the token endpoint plus scoped keys, older keys expiring 30 days after
 deploy, and URI scopes. Signed JWT access tokens, JWKS URLs and external authorization servers
 are deferred (ADR-0004); hardening before PHI is Phase 4b.
+- Reviewed before shipping by five independent reviewers, each finding checked by a skeptic.
+  No bypass was found: the token endpoint held against forged algorithms, keys, headers,
+  claims and concurrent replays on Postgres, and no key, token or scope reached a route,
+  organization or permission it should not. Two problems were confirmed and fixed with tests.
+  The check for a credential in a form read every form body before sign-in was checked, so a
+  caller without a credential could make the server read and parse a large body (on a
+  self-hosted install, enough to exhaust its memory). Now no body is read before the sign-in
+  check: the routes that read a form refuse a credential in it, and read at most 16 KiB (the
+  token form) or 256 KiB (a search form), a chunked body only that far. And a decision with
+  no answer under a pack id from before the rename, or of a pack another instance serves,
+  could no longer be reviewed: its labels now come from every installed pack, by its current
+  id.
 
 ### Phase 5: docs experience (≈ 4–5 days)
 

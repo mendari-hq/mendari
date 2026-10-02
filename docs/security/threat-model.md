@@ -51,6 +51,7 @@ public launch; update it with any change to a trust boundary. The checks named h
 | I6 | The browser leaks a session or page | 1 | HttpOnly, Secure, SameSite=Lax cookies. Headers: a CSP with the dashboard's inline scripts by hash only, `frame-ancestors 'none'`, nosniff, no referrer, COOP/COEP/CORP. | `tests/test_security_headers.py`; ZAP |
 | D1 | Oversized or slow upstream answers hold the server | 3 | One outbound client: allow-listed origins, no redirects, timeouts and size caps. | `tests/test_fhir_client.py` |
 | D2 | Provider costs run away | 4 | Daily call budgets per provider type, visible in `/api/health`. | `test_daily_budget_is_enforced` (`tests/test_audit.py`) |
+| D3 | A caller without a credential makes the server read large bodies | 1 | No request body is read before the sign-in check; routes read bodies with a cap (the token form 16 KiB, a search form 256 KiB), a chunked one only up to it. A credential in a form is refused by the route that reads it. | `test_no_body_is_read_before_the_sign_in_check`, `test_a_chunked_body_is_read_only_until_it_passes_the_limit`, `test_a_search_form_is_read_only_up_to_its_limit` |
 | E1 | SSRF: making the engine call internal addresses | 3 | Every outbound call (FHIR, CQL, OIDC, PAS, webhook) goes through the allow-list. Webhooks must use https. | `tests/test_fhir_client.py`, `tests/test_monitoring.py` |
 | E2 | A role does more than it may | 1 | A role table grants permissions, a matrix test covers every route for every principal kind, role and scope, and the dashboard hides what the server would refuse. Verifying and exporting the whole chain need `admin`. Machines are `viewer` or `service`. | `tests/test_auth.py`, browser tests |
 | E3 | Automation beyond what the risk allows | runtime | Policy only lowers automation. Level 4 is never automated, and levels 2–3 only under a recorded, unexpired approval of that digest. | `tests/test_policy.py`, `tests/test_governance.py` |
@@ -68,8 +69,9 @@ public launch; update it with any change to a trust boundary. The checks named h
   needs clinician review and local validation, and every pack's card says so.
 - **Synthetic data only** until the owner's go-ahead for real patients, after this review.
 - **The token endpoint has no rate limit of its own yet** (Phase 4b). A failed assertion costs
-  one indexed client lookup and, for a known client, one signature check; nothing is written
-  or fetched. Until then it is unreachable behind Vercel Authentication, and Vercel's WAF is
+  reading at most 16 KiB (a chunked body is read only that far), one indexed client lookup
+  and, for a known client, one signature check; nothing is written or fetched. No other
+  request body is read before the sign-in check. Until then it is unreachable behind Vercel Authentication, and Vercel's WAF is
   the place for a per-IP limit.
 - **One database, one public URL.** Tokens and `jti` claims are rows in the deployment's
   database. Two deployments that share a database and a `MENDARI_PUBLIC_URL` (a preview

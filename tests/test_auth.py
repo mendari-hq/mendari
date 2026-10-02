@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import re
 import secrets
 import time
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -28,8 +29,8 @@ from mendari.core.audit import MACHINE_ROLES, AuditStore
 from mendari.errors import AuthError, MendariError
 from mendari.server import auth as auth_module
 from mendari.server import scopes as scopes_module
-from mendari.server.app import create_app
-from mendari.server.auth import Auth, AuthSettings, auth_settings, permission_for
+from mendari.server.app import MAX_SEARCH_FORM_BYTES, create_app
+from mendari.server.auth import Auth, AuthSettings, auth_settings, permission_for, read_body
 from mendari.server.backend_services import check_jwks, default_scope
 from mendari.server.scopes import DECIDE, OUTCOME, needed, parse, parse_lenient
 from mendari.standards.fhir_client import GuardedHttp
@@ -332,6 +333,12 @@ def test_every_route_has_the_permission_it_should(tmp_path: Path) -> None:
     assert permission_for("GET", "/api/audit/verify") == "admin"
     assert permission_for("GET", "/api/audit/export/fhir") == "admin"
     assert permission_for("GET", "/api/audit/d1") == "read"
+    # A person's accountability: no machine role has these (ROLE_PERMISSIONS below).
+    assert permission_for("POST", "/api/review/d1") == "review"
+    assert permission_for("POST", "/api/audit/d1/feedback") == "review"
+    assert permission_for("POST", "/api/governance") == "approve"
+    assert permission_for("DELETE", "/api/governance/a1") == "approve"
+    assert permission_for("POST", "/api/audit/d1/outcome") == "outcome"
 
 
 # -- the matrix: route x principal kind x role x scope (ADR-0004) -------------------------------
@@ -792,33 +799,71 @@ def test_a_refusal_never_echoes_the_credential(app: TestClient, idp: FakeIdp) ->
         ("GET", "/fhir/Task?access%5Ftoken={key}", None),
         ("GET", "/?access_token={key}", None),
         ("POST", "/fhir/Task/_search", "status=completed&access_token={key}"),
-        ("POST", "/auth/logout", "access_token={key}"),
+        ("POST", "/fhir/Task/_search", "ACCESS%5FTOKEN+={key}"),
     ],
 )
 def test_a_credential_in_a_url_or_a_form_is_refused(
     app: TestClient, idp: FakeIdp, method: str, path: str, form: str | None
 ) -> None:
-    secret = key_for(app, idp)
+    """A form is read by its route, after the sign-in check: there the request also carries a
+    valid credential, and the one in the form is refused all the same."""
+    secret = key_for(app, idp, role="viewer")
     content = form.format(key=secret) if form else None
     headers = {"content-type": "application/x-www-form-urlencoded"} if form else {}
+    if form:
+        headers["authorization"] = f"Bearer {key_for(app, idp, role='viewer')}"
     refused = app.request(method, path.format(key=secret), content=content, headers=headers)
     assert refused.status_code == 400
     assert refused.headers["www-authenticate"] == f'{REALM}, error="invalid_request"'
     assert secret not in refused.text
 
 
-def test_a_form_search_still_reads_its_body(app: TestClient, idp: FakeIdp) -> None:
-    """The guard reads a form body to look for `access_token`; the route still gets it."""
+def test_no_body_is_read_before_the_sign_in_check(
+    app: TestClient, idp: FakeIdp, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A caller without a credential never makes Mendari read a body, however large."""
+
+    async def unread(*args: object) -> AsyncIterator[bytes]:  # Starlette makes one, unread
+        raise AssertionError("a body was read before the sign-in check")
+        yield b""
+
+    async def unread_body(*args: object) -> bytes:
+        raise AssertionError("a body was read before the sign-in check")
+
+    monkeypatch.setattr(Request, "stream", unread)
+    monkeypatch.setattr(Request, "body", unread_body)
+    form = {"content-type": "application/x-www-form-urlencoded"}
+    for path in ("/api/governance", "/fhir/Task/_search", "/api/review/x", "/nowhere"):
+        refused = app.post(path, content=b"a&" * 1000, headers=form)
+        assert refused.status_code == 401, path
+
+
+def test_a_search_form_is_read_only_up_to_its_limit(app: TestClient, idp: FakeIdp) -> None:
     secret = key_for(app, idp, role="viewer")
-    found = app.post(
-        "/fhir/Task/_search",
-        content="_summary=count",
-        headers={
-            "authorization": f"Bearer {secret}",
-            "content-type": "application/x-www-form-urlencoded",
-        },
-    )
+    headers = {
+        "authorization": f"Bearer {secret}",
+        "content-type": "application/x-www-form-urlencoded",
+    }
+    found = app.post("/fhir/Task/_search", content="_summary=count", headers=headers)
     assert found.status_code == 200 and found.json()["total"] == 0
+    padded = "_summary=count&pad=" + "x" * MAX_SEARCH_FORM_BYTES
+    for content in (padded, iter([padded.encode()])):  # declared, then chunked
+        too_large = app.post("/fhir/Task/_search", content=content, headers=headers)
+        assert too_large.status_code == 413
+        assert too_large.json()["issue"][0]["code"] == "too-costly"
+
+
+def test_a_chunked_body_is_read_only_until_it_passes_the_limit() -> None:
+    received = 0
+
+    async def receive() -> dict[str, object]:
+        nonlocal received
+        received += 1
+        return {"type": "http.request", "body": b"x" * 1024, "more_body": True}  # never ends
+
+    request = Request({"type": "http", "method": "POST", "headers": []}, receive)
+    assert asyncio.run(read_body(request, 4096)) is None
+    assert received == 5
 
 
 def test_a_credential_in_a_url_is_refused_in_open_mode_too(

@@ -6,6 +6,8 @@ caller chooses freely may end up there as text."""
 from __future__ import annotations
 
 import json
+import sqlite3
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +15,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from mendari import AuditStore, Decision, Pack
-from mendari.errors import ReviewError
+from mendari.errors import ProviderError, ReviewError
+from mendari.providers.jev import JevProvider
 from mendari.server.app import create_app
 from mendari.standards import audit_fhir
 from tests.conftest import ROOT, message
@@ -98,6 +101,42 @@ def test_a_refused_input_is_checked_against_the_served_packs_labels(
     url = f"/api/audit/{decision}/outcome"
     assert client.post(url, json={"final_label": "pharmacist", "source": "ehr"}).status_code == 409
     assert client.post(url, json={"final_label": "nurse", "source": "ehr"}).status_code == 200
+
+
+def test_decisions_of_old_or_unserved_packs_still_take_a_label(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, inbox_pack: Pack
+) -> None:
+    """A decision with no answer takes its labels from the installed pack, also when its record
+    carries the id from before the rename (`openhealth/…`) and when this instance serves another
+    pack (a per-pack image sharing the database). Else its review would stay pending for good."""
+
+    def unreachable(*_: object) -> None:
+        raise ProviderError("timeout")
+
+    monkeypatch.setenv("JEV_API_URL", "https://jev.test/v1/decide")
+    monkeypatch.setenv("JEV_MODEL", "jev-test-model")
+    monkeypatch.setenv("JEV_API_KEY", "test-key")
+    monkeypatch.delenv("JEV_CONNECTOR", raising=False)
+    monkeypatch.setattr(JevProvider, "_send", unreachable)
+    db = tmp_path / "a.db"
+    deciding = TestClient(create_app(db_path=db, providers={"router": "jev"}))
+    abstained = decided(deciding, inbox_pack, message(ROUTINE))
+    refused = decided(deciding, inbox_pack, {"message": {}})
+    record = deciding.get(f"/api/audit/{abstained}").json()
+    assert (record["outcome"], record["review_status"]) == ("ABSTAIN", "pending")
+    assert inbox_pack.manifest.policy.primary not in record["record"]["answers"]
+    with closing(sqlite3.connect(db)) as connection, connection:
+        connection.execute(
+            "UPDATE decisions SET pack_id = ? WHERE id IN (?, ?)",
+            ("openhealth/patient-inbox-router", abstained, refused),
+        )
+    monkeypatch.setenv("MENDARI_PACKS", "mendari/ai-guard")
+    client = TestClient(create_app(db_path=db))
+    for label, status in (("pharmacist", 409), ("nurse", 200)):
+        review = {"final_label": label, "reviewer": "rn-1"}
+        assert client.post(f"/api/review/{abstained}", json=review).status_code == status
+        outcome = {"final_label": label, "source": "ehr"}
+        assert client.post(f"/api/audit/{refused}/outcome", json=outcome).status_code == status
 
 
 def test_without_any_labels_nothing_is_recorded(store: AuditStore, inbox_pack: Pack) -> None:
