@@ -2,6 +2,48 @@
 
 Roadmap to the full goal: [`docs/roadmap.md`](../docs/roadmap.md).
 
+## Planned: FHIR core conformance, Phase 2 (2026-10-01)
+From the [audit](../docs/fhir-and-docs-audit.md) Phase 2, revised after research (three
+researchers and a critic; evidence from the HL7 validator and the official R4 definitions).
+Branch `claude/fhir-phase-2`. About 6–7 days.
+- [ ] **Reasons never quote input** (a privacy bug found by the critic): a pack-schema
+  rejection's reasons come from jsonschema messages, which quote the value, so case text
+  reaches `reasons`, `Task.note` and the plaintext audit record. Build them from path and
+  keyword only; a test with a marked synthetic string
+- [ ] **Structural R4 gate**: HL7's R4 JSON Schema (CC0), digest-pinned and patched by
+  `scripts/fhir_r4_schema.py` into `standards/fhir_r4_structure.json`, checked by an iterative
+  walker (`standards/fhir_structure.py`) that replaces `us_core.structure()`. Wrong JSON type,
+  unknown element or resource type, bad format → `400` in every mode; a base-R4 required
+  element or code → an issue under `fhir_validation`, labelled by its own profile. jsonschema
+  is the test oracle. Not `fhir.resources`: it has no R4 (its R4B rejects valid R4)
+- [ ] **Terminology**: `standards/terminology.py` generates Mendari's CodeSystems (decision
+  outcome, audit events, packs, performer queues, each pack's question labels) and
+  NamingSystems (decision id, input hash, engine) from the code and packs, versioned by the
+  served pack set; `GET /fhir/CodeSystem/{id}`, `/fhir/NamingSystem/{id}`; one display helper
+  shared with Da Vinci output; the engine gets a NamingSystem instead of a CodeSystem URL
+- [ ] **`POST /fhir/$decide`** (system-level): `Parameters` (pack, version, data Bundle, focus)
+  in; a `collection` Bundle out: GuidanceResponse, RequestGroup → Task, output Parameters,
+  OperationOutcome for issues, and the audit trail's Provenance. Its OperationDefinition at
+  `/fhir/OperationDefinition/decide`. Under BLOCK/ABSTAIN the proposed action is the fallback
+- [ ] **`GET /fhir/metadata`**: a CapabilityStatement built from the mounted routes (a test both
+  ways), security in prose (not SMART, not OAuth), no `implementationGuide`/`instantiates`,
+  `date` and ETag from the release and packs; conformance reads public
+- [ ] **FHIR media types** on `/fhir/…`: `application/fhir+json`; `406` for XML Accept or
+  `_format`, `415` for an XML body
+- [ ] **Produced resources**: `meta.lastUpdated` on Task, AuditEvent, Provenance; `versionId`
+  only on the immutable AuditEvent and Provenance (the Task's waits for Phase 3); no
+  `meta.profile` (no profiles exist); narratives (dom-6)
+- [ ] **CI**: the validator loads the generated terminology (`--ig`), so a code Mendari emits
+  that its CodeSystem lacks is an error; it validates the CapabilityStatement, the
+  OperationDefinition, a `$decide` Bundle, Tasks and the record Bundle; an expected-warnings
+  list (the AuditEvent subtype stays a Mendari code: a REST subtype would claim interactions
+  that never happened)
+- [ ] **Docs**: API docs, README and the audit say what is served, "structural R4 check" (never
+  "validated"), and that Mendari is still not a FHIR data server
+- Deferred: publishing on mendari.co (launch decision); search (Phase 3); renaming performer
+  systems (changes pack digests); PAS's decision identifier system; checking the
+  `Communication.medium` code system
+
 ## In progress: FHIR and API docs, Phase 1, and sign-in in production (2026-10-01)
 From the [FHIR and API docs audit](../docs/fhir-and-docs-audit.md); approved by the owner.
 Sign-in: Google, the owner as the only admin.
