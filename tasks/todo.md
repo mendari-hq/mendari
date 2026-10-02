@@ -32,8 +32,10 @@ About 18 days of work.
 - [ ] **F. Sessions and identity**: 30 minutes idle, 8 hours at most, roles recomputed per
   request, `__Host-` names with the old name accepted for one release, sign-in and SMART launch
   tied to the browser; people chained by verified email, keys as `key <id>`
-- [ ] **G. Origin checks**: a cross-site or same-site browser request reaches only public and page
+- [x] **G. Origin checks**: a cross-site or same-site browser request reaches only public and page
   routes, only to read; HSTS
+  (Deviation: without Fetch Metadata a foreign or `null` Origin limits GET too, not only unsafe
+  methods, and an unknown `Sec-Fetch-Site` counts as cross-site: both fail closed.)
 - [ ] **H. Notes out of the chain**: a `notes` table (sealed under `encrypt`, refused under
   `hash`), a salted commitment in the chain, `note.erased`, PAS payer text sealed, batched
   `input.read` writes; old chained notes hidden from readers without `read_input`

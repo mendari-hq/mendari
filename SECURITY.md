@@ -66,7 +66,16 @@ website (`hub/`), the container images and the deployment templates (`deploy/`).
   (`audit.store_input: full`); use `hash` for any pack that might see sensitive text.
 - **Headers.** Every response has a strict CSP, pages and the API reference included: each
   page's own inline scripts by hash only, nothing from another origin. Every response also gets
-  no framing, nosniff, no referrer and cross-origin isolation.
+  no framing, nosniff, no referrer and cross-origin isolation, and HSTS on any host but
+  `localhost` or a loopback address. Cookies say `SameSite=Lax` explicitly.
+- **Requests from other sites.** A browser request that another site starts (`Sec-Fetch-Site`
+  `cross-site` or `same-site`; in a browser without Fetch Metadata, an `Origin` that is `null`
+  or not this site) reaches only public routes and pages, and only with GET or HEAD: a link to
+  the dashboard works, a link to an API route or a form that signs you out gets a `403`. This
+  applies to requests with a Mendari cookie and no `Authorization` header, and in open mode to
+  all. This site is the request's own host, `MENDARI_PUBLIC_URL`, and any alias listed in
+  `MENDARI_TRUSTED_ORIGINS`. Scripts that send neither header (curl, the pilot check) are not
+  affected.
 - **The API reference** (`/docs/reference`, behind sign-in when it is on) is Swagger UI served from
   files vendored at a pinned version, never a CDN, and its page allows no inline script or
   style. `/docs` and `/redoc` redirect there.

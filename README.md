@@ -349,8 +349,9 @@ public.
 threat model ([`docs/security/threat-model.md`](docs/security/threat-model.md)) lists every
 threat with its mitigation and the test that checks it. On every change, the CI job `security`
 audits the Python and Hub-site dependencies and runs an OWASP ZAP scan of the API with sign-in
-on. Every response carries a strict CSP and the usual isolation headers, the API reference
-included: it is Swagger UI served from vendored, pinned files, never a CDN.
+on. Every response carries a strict CSP and the usual isolation headers (HSTS off localhost), the
+API reference included: it is Swagger UI served from vendored, pinned files, never a CDN. A
+browser request that another site starts reaches only public routes and pages, to read.
 
 ## The Hub
 
@@ -427,6 +428,11 @@ With sign-in on, reviews and ratings are recorded for whoever is signed in, and 
 names them and offers only what their role may do. `MENDARI_OIDC_ORG_CLAIM` names the claim
 that carries the person's organization: one deployment can serve several, and each sees only
 its own decisions, reviews, feedback and reports.
+
+A link or form on another site cannot act with a signed-in browser: such a request reaches only
+public routes and pages, with GET or HEAD (a `403` otherwise). If a proxy serves Mendari under a
+name that is neither the request's host nor `MENDARI_PUBLIC_URL`, list it in
+`MENDARI_TRUSTED_ORIGINS` (comma-separated origins).
 
 **Governance approvals.** At risk level 2 or 3 a person reviews every decision (ADR-0002) until
 the organization approves automation. Someone with the `governance` role gives the approval

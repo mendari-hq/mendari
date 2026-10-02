@@ -121,6 +121,22 @@ no authorization endpoint (no user or patient launch) and no `patient/` or `user
 - A deployment's tokens and one-time `jti` claims live in its database. Don't share a database
   (and a public URL) between preview and production.
 
+**Requests from other sites.** A browser request another site starts reaches only public
+routes and pages, and only to read: a link to the dashboard works, while a link to an API
+route, or a form on another site that posts here, gets a `403` ("cross-site request refused").
+This site is the address the request was sent to, the origin of `MENDARI_PUBLIC_URL`, and any
+alias you list. If people reach Mendari through a name that a proxy rewrites before it gets
+here (so the request arrives for another host), list that name, or the dashboard's own buttons
+get that `403`:
+
+```bash
+MENDARI_TRUSTED_ORIGINS=https://mendari.example.org,https://decisions.example.org   # origins only
+```
+
+A value that is not exactly an origin stops the server at startup. Scripts with a session
+cookie and no `Origin` or `Sec-Fetch-Site` header (curl, the pilot check) are not affected. Any
+host but `localhost` also gets HSTS, so serve Mendari over https only.
+
 Sessions and pending sign-ins are server-side rows keyed by their kind and value. A release
 that changes how they are keyed (Phase 4 did) ends every session: people sign in again, and an
 EHR launches the app again.
@@ -191,6 +207,9 @@ that covers PHI.
 - [ ] A viewer can't read an input; a reviewer can, and the read appears in the audit chain.
 - [ ] Signed in, `/docs/reference` shows the API reference and the browser console reports no
       CSP violation (a proxy in front must not replace Mendari's `Content-Security-Policy`).
+- [ ] Signed in, on each address people use, review a case on the dashboard and sign out: no
+      `403` "cross-site request refused" (list a rewritten name in `MENDARI_TRUSTED_ORIGINS`).
+      The answers carry `Strict-Transport-Security`.
 - [ ] Integrations that record outcomes send `source` as an identifier (`ehr`, not a sentence)
       and a label of the pack's primary question.
 - [ ] Retention and monitoring are scheduled; `mendari audit verify` passes.

@@ -83,6 +83,7 @@ from mendari.server.backend_services import (
     add_backend_routes,
     backend_settings,
 )
+from mendari.server.origin import OriginCheck, is_local_host, trusted_origins
 from mendari.server.smart_routes import add_smart_routes, error_page
 from mendari.settings import FhirValidation, providers_for
 from mendari.standards import (
@@ -258,6 +259,7 @@ def create_app(
     phi = phi_policy()  # a bad PHI setting (or a missing key) fails here, at startup
     store = AuditStore(db_path, migrate_url=migrate_url, phi=phi)
     auth = Auth(sign_in, store, tokens=backend is not None)
+    origins = OriginCheck(open_mode=not auth.enabled, trusted=trusted_origins())  # likewise
     budget = CallBudget(store, budget_limits) if budget_limits else None
     found = discover(packs_paths)
     only = settings.enabled_packs()  # a per-pack image serves just its pack
@@ -1235,10 +1237,13 @@ def create_app(
 
     @app.middleware("http")
     async def _guard(request: Request, call_next: Any) -> Response:
-        """Every request passes the sign-in guard (a no-op in open mode). A credential in a URL
-        is refused first, in every mode: it would end up in logs and histories. No body is read
-        here: the routes that read a form refuse a credential in it, after this check."""
+        """Every request passes the sign-in guard (a no-op in open mode). First, a request another
+        site started reaches only a public route or a page, to read (`server/origin.py`). Then a
+        credential in a URL is refused, in every mode: it would end up in logs and histories. No
+        body is read here: the routes that read a form refuse a credential in it, after this
+        check."""
         try:
+            origins.check(request)
             if names_a_credential(request.query_params):
                 raise credential_in_url_or_form()
             refused = auth.check(request)
@@ -1257,7 +1262,7 @@ def create_app(
     async def _security_headers(request: Request, call_next: Any) -> Response:
         """Outermost, so refusals from the guard get the headers too. Every response gets a CSP
         and COEP: a page sets its own policy (computed from its HTML), anything else gets the
-        dashboard's."""
+        dashboard's. Any host but this machine also gets HSTS."""
         response: Response = await call_next(request)
         for name, value in SECURITY_HEADERS.items():
             response.headers.setdefault(name, value)
@@ -1269,6 +1274,8 @@ def create_app(
             response.headers.setdefault("WWW-Authenticate", challenge())
         response.headers.setdefault("Content-Security-Policy", csp)
         response.headers.setdefault("Cross-Origin-Embedder-Policy", "require-corp")
+        if not is_local_host(request.url.hostname):  # browsers ignore it over plain http
+            response.headers.setdefault("Strict-Transport-Security", HSTS)
         return response
 
     add_auth_routes(app, auth)
@@ -1538,6 +1545,10 @@ SECURITY_HEADERS = {
     "Cross-Origin-Opener-Policy": "same-origin",
     "Cross-Origin-Resource-Policy": "same-origin",
 }
+
+
+# Two years, this host only: a custom domain's siblings (the Hub, the website) decide their own.
+HSTS = "max-age=63072000"
 
 
 def content_security_policy(page: str, *, inline_styles: bool = True) -> str:
