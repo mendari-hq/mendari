@@ -2,6 +2,61 @@
 
 Roadmap to the full goal: [`docs/roadmap.md`](../docs/roadmap.md).
 
+## Plan: hardening before PHI, Phase 4b (2026-10-02)
+From the [audit](../docs/fhir-and-docs-audit.md) Phase 4b line, after research (four researchers
+and a critic). The owner chose finite spending ceilings plus per-organization quotas at launch,
+verified emails for people in the chain, and the pilot site's own servers for the first PHI
+([ADR-0005](../docs/decisions/ADR-0005-hardening-before-phi.md)). Built in three lanes
+(`claude/phase-4b` spine, `claude/phase-4b-web`, `claude/phase-4b-notes`), then integrated.
+About 18 days of work.
+- [ ] **A. Public surface**: the capability statement reads its version without the chain lock;
+  OIDC discovery cached an hour per issuer; expired session rows purged 100 at a time on an
+  index; public `/api/health` is `{status, version, sign_in}` (details need `read`); a 4 MiB body
+  cap (`MENDARI_MAX_BODY_BYTES`, `413`); `auth.check` off the event loop; `Principal.id`
+- [ ] **B. Supply chain**: actions pinned by SHA with `persist-credentials: false`, images by
+  digest, the Docker image installed from `uv.lock`, `.github/dependabot.yml` monthly with no
+  previews for its branches, `tests/test_supply_chain.py`
+- [ ] **C. Docs page safety**: Swagger UI vendored at a pinned version with license and checksums
+  at `/docs/reference`; `/docs` and `/redoc` redirect there until Phase 5; a CSP and COEP on every
+  response; bearer schemes for keys and tokens in the OpenAPI
+- [ ] **D. Rate limits and quotas**: a Postgres GCRA limiter per principal on costly routes and
+  per IP on sign-in and the token endpoint (`MENDARI_RATE_LIMITS` on/log/off), `429` with
+  `Retry-After`; per-organization daily decision quotas (`MENDARI_ORG_DAILY_LIMITS`, evaluations
+  not counted); Vercel firewall rules as a file and runbook; proxy headers for self-hosted
+- [ ] **E. Security log**: JSON lines on stdout from an allow-list of fields, a request id, one
+  access line per API request, security events; no credential, query value, body or case text;
+  no exception messages under `hash` or `encrypt`
+- [ ] **F. Sessions and identity**: 30 minutes idle, 8 hours at most, roles recomputed per
+  request, `__Host-` names with the old name accepted for one release, sign-in and SMART launch
+  tied to the browser; people chained by verified email, keys as `key <id>`
+- [ ] **G. Origin checks**: a cross-site or same-site browser request reaches only public and page
+  routes, only to read; HSTS
+- [ ] **H. Notes out of the chain**: a `notes` table (sealed under `encrypt`, refused under
+  `hash`), a salted commitment in the chain, `note.erased`, PAS payer text sealed, batched
+  `input.read` writes; old chained notes hidden from readers without `read_input`
+- [ ] **I. Record hygiene and keyed hash**: evidence dropped under `hash` and sealed under
+  `encrypt`; Patient ids in issues stored as type and position; `MENDARI_INPUT_HASH_KEY` HMAC
+  required in `hash` and `encrypt`
+- [ ] **K. Wrap-up**: threat model, SECURITY.md, the go-live checklist, README, the audit's status,
+  review (five reviewers and a skeptic), a packet for the external review
+- At launch (owner): Jev 2,000 and LLM 200 a day, 5,000 decisions per organization a day, the
+  firewall rules enforced after 7 days in log mode, then Vercel Authentication lifted
+- Deferred: a PHI keyring and `rekey`, database tables for security events, limits on reads,
+  sealing the EHR token and a Mendari principal for `/api/smart/decide` (before the SMART launch
+  is turned on with sign-in), removing the old cookie name (next release)
+
+## Plan: docs experience, Phase 5 (2026-10-02)
+From the audit's "Redesign plan". Branch `claude/phase-5`, after Phase 4b's stages C and G.
+- [ ] **L. Snippets checked in CI**: the quickstart, FHIR and authentication calls as scripts run
+  against a local server in CI, open mode and with a key; README curl blocks equal to them
+- [ ] **M. Landing at `/docs`**: public and static: what Mendari is, the four outcomes, a diagram,
+  a three-call quickstart with copy buttons, FHIR in and out, authentication generated from the
+  route rules, links to the reference and Decision Cards; light and dark from the dashboard's
+  tokens, contrast-tested, keyboard and screen-reader checked, no CSP exemption
+- [ ] **N. Guides and links**: `docs/guides/api.md` in the mkdocs site from the same snippets;
+  README and the OpenAPI description point to `/docs`
+- Deferred: a public demo deployment (a launch decision), theming the mkdocs site
+
 ## Built: authentication and authorization, Phase 4 (2026-10-02)
 From the [audit](../docs/fhir-and-docs-audit.md) Phase 4, after research (three researchers and a
 security-minded critic). The owner chose the token endpoint plus scoped keys, a 30-day expiry for
