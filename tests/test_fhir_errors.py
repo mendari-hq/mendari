@@ -156,12 +156,13 @@ def test_fhir_route_errors_are_operation_outcomes(client: TestClient) -> None:
     assert "Coverage" in outcome_of(dtr, 422)[0]["diagnostics"]
 
 
-def test_a_body_that_is_not_a_json_object_is_a_400_without_an_echo(client: TestClient) -> None:
-    response = client.post(
+def test_a_body_that_is_not_a_json_object_is_refused_without_an_echo(client: TestClient) -> None:
+    as_text = client.post(
         f"{INBOX}/fhir/decide", content=SECRET, headers={"content-type": "text/plain"}
     )
-    issues = outcome_of(response, 400)
-    assert issues[0]["code"] == "structure" and SECRET not in response.text
+    assert outcome_of(as_text, 415)[0]["code"] == "not-supported" and SECRET not in as_text.text
+    as_array = client.post(f"{INBOX}/fhir/decide", json=[SECRET])
+    assert outcome_of(as_array, 400)[0]["code"] == "structure" and SECRET not in as_array.text
 
 
 def test_validation_errors_do_not_echo_the_request(client: TestClient) -> None:

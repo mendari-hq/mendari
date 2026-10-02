@@ -907,6 +907,16 @@ def create_app(
     page = versioned_dashboard()
 
     @app.middleware("http")
+    async def _fhir_media_types(request: Request, call_next: Any) -> Response:
+        """FHIR routes speak FHIR R4 JSON only. Inside the guard, so sign-in answers first."""
+        if _FHIR_ROUTE.match(request.url.path):
+            refused = fhir_media_refusal(request)
+            if refused is not None:
+                return refused
+        response: Response = await call_next(request)
+        return response
+
+    @app.middleware("http")
     async def _guard(request: Request, call_next: Any) -> Response:
         """Every request passes the sign-in guard (a no-op in open mode)."""
         try:
@@ -971,6 +981,55 @@ def error_response(path: str, status: int, error: MendariError) -> JSONResponse:
     if isinstance(error, PackNotFoundError):
         code = "not-found"
     return operation_outcome(status, [{"code": code, "diagnostics": str(error)}])
+
+
+_JSON_FORMATS = {"json", "application/json", "application/fhir+json", "text/json"}
+_JSON_ACCEPTED = {"*/*", "application/*", "application/json", "application/fhir+json"}
+_R4_VERSIONS = {"4.0", "4.0.1"}
+
+
+def fhir_media_refusal(request: Request) -> JSONResponse | None:
+    """R4 content negotiation (http.html): only JSON is offered, so `_format` or an Accept
+    header that excludes it is a `406`, a request body in another format a `415`, and a
+    `fhirVersion` media type parameter other than R4 is refused the same way."""
+    requested = request.query_params.get("_format")
+    if requested is not None and requested.split(";")[0].strip().lower() not in _JSON_FORMATS:
+        return _refuse(406, "only JSON is offered: _format must be json")
+    accept = request.headers.get("accept")
+    if accept and not any(_takes_json(media) for media in accept.split(",")):
+        return _refuse(406, "only application/fhir+json (FHIR R4) is offered")
+    sent = request.headers.get("content-type")
+    if sent and request.method in ("POST", "PUT", "PATCH"):
+        media, params = _media_type(sent)
+        if media not in ("application/json", "application/fhir+json"):
+            return _refuse(415, "send application/fhir+json: other formats are not accepted")
+        if params.get("fhirversion", "4.0") not in _R4_VERSIONS:
+            return _refuse(415, "this server speaks FHIR R4 (fhirVersion=4.0)")
+    return None
+
+
+def _takes_json(media_range: str) -> bool:
+    media, params = _media_type(media_range)
+    try:
+        weight = float(params.get("q", "1"))
+    except ValueError:
+        weight = 1.0
+    return (
+        media in _JSON_ACCEPTED and weight > 0 and params.get("fhirversion", "4.0") in _R4_VERSIONS
+    )
+
+
+def _media_type(value: str) -> tuple[str, dict[str, str]]:
+    media, *rest = value.split(";")
+    params = {}
+    for part in rest:
+        name, _, setting = part.partition("=")
+        params[name.strip().lower()] = setting.strip().strip('"')
+    return media.strip().lower(), params
+
+
+def _refuse(status: int, diagnostics: str) -> JSONResponse:
+    return operation_outcome(status, [{"code": "not-supported", "diagnostics": diagnostics}])
 
 
 def operation_outcome(
