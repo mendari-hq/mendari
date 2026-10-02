@@ -1,9 +1,9 @@
 """Write a sample of the FHIR audit export for the HL7 validator (CI job `fhir-conformance`).
 
 A throwaway store (in PHI mode `encrypt`) gets synthetic decisions from the inbox pack: one
-confirmed in review, one overridden, one automated with a downstream outcome and feedback. One
-input is read and then purged by retention. The full export (AuditEvent and Provenance) is
-written as a `collection` Bundle.
+confirmed in review, one overridden (with a note, later erased on request), one automated with
+a downstream outcome and feedback. One input is read and then purged by retention. The full
+export (AuditEvent and Provenance) is written as a `collection` Bundle.
 
     uv run python scripts/audit_fhir_sample.py var/fhir-samples/audit-export.json
 """
@@ -30,13 +30,17 @@ def main(out: Path) -> None:
         confirmed, overridden = decide(emergency), decide(emergency)
         routine = decide({"message": {"body": "Can you send a refill for metformin?"}})
         store.resolve_review(confirmed.id, final_label="nurse", reviewer="rn-1")
-        store.resolve_review(overridden.id, final_label="physician", reviewer="rn-2")
+        note = "Synthetic note: seen by the on-call physician"
+        override = store.resolve_review(
+            overridden.id, final_label="physician", reviewer="rn-2", note=note
+        )
         store.record_outcome(
             routine.id, final_label="front_desk", source="staff-reroute", recorded_by="rn-9"
         )
         expected = {"question": "destination", "label": "front_desk"}
         store.record_feedback(routine.id, rating="down", expected=expected)
         store.get(confirmed.id, reader="rn-1")  # an access, logged
+        store.erase_note(override["note_ref"]["id"], erased_by="rn-2", reason="error")
         store.purge_inputs(0)  # retention
         resources = list(audit_fhir.resources(store.iter_events()))
         store.close()

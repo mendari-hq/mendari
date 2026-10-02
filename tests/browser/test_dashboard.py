@@ -770,6 +770,61 @@ def test_the_feedback_page_leads_with_the_cases_to_act_on(page: Page, live_serve
     expect(page.get_by_role("dialog")).to_contain_text(decision["id"])
 
 
+def test_a_note_shows_to_whoever_may_read_it_and_is_sealed_for_others(
+    page: Page, live_server: str
+) -> None:
+    """Notes are kept apart from the audit chain and follow inputs: the drawer and the feedback
+    page show a note to whoever may read it (PHI mode off here) and only say "sealed" to anyone
+    else, never the text, in the event or in its payload."""
+    decision = decide_inbox(live_server, REFILL)
+    note = "Wanted a 90-day supply"
+    httpx.post(
+        f"{live_server}/api/audit/{decision['id']}/feedback",
+        json={"rating": "down", "reporter": "note-test", "note": note},
+    )
+    page.add_init_script(f"localStorage.setItem('oh.pack', {json.dumps(INBOX)})")
+    page.goto(f"/#audit/{decision['id']}")
+    rated = page.get_by_role("dialog").locator(".timeline li", has_text="Feedback recorded")
+    expect(rated.locator(".event-note")).to_have_text(f"Note: {note}")
+    show(page, "feedback")
+    card = page.locator(".feedback-card", has=page.locator(f'a[href="#audit/{decision["id"]}"]'))
+    expect(card).to_contain_text(f"Note: {note}")
+
+    def sealed(route: Route) -> None:  # what a viewer gets under PHI mode encrypt
+        body = route.fetch().json()
+        items = body["events"] if isinstance(body, dict) else body
+        for item in items:
+            if item.get("note_status"):
+                item.update(note_status="sealed", note=None)
+        route.fulfill(json=body)
+
+    page.route(f"**/api/audit/{decision['id']}", sealed)
+    page.route("**/api/feedback?*", sealed)
+    show(page, "feedback")
+    expect(card).to_contain_text("Note: only reviewers and admins can read it.")
+    expect(card).not_to_contain_text(note)
+    page.goto(f"/#audit/{decision['id']}")
+    dialog = page.get_by_role("dialog")
+    expect(rated.locator(".event-note")).to_have_text(
+        "Note (only reviewers and admins can read it)"
+    )
+    expect(dialog).not_to_contain_text(note)
+
+
+def test_phi_mode_hash_offers_no_note_field(page: Page) -> None:
+    """PHI mode hash keeps no free text (the server refuses a note), so there is none to fill."""
+
+    def hashing(route: Route) -> None:
+        route.fulfill(json={**route.fetch().json(), "phi_mode": "hash"})
+
+    page.route("**/api/health", hashing)
+    open_pack(page, INBOX, "try")
+    page.get_by_role("button", name="Decide").click()
+    page.locator("#result").get_by_role("button", name="Wrong").click()
+    expect(page.locator("#result .fb-save")).to_be_visible()
+    expect(page.locator("#result .fb-note")).to_have_count(0)
+
+
 def test_the_decision_card_is_a_document_with_linked_sections(page: Page) -> None:
     open_pack(page, INBOX, "card")
     page.get_by_role("navigation", name="On this page").get_by_role("link", name="Policy").click()

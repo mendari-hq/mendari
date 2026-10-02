@@ -31,9 +31,10 @@ About 18 days of work.
   tied to the browser; people chained by verified email, keys as `key <id>`
 - [ ] **G. Origin checks**: a cross-site or same-site browser request reaches only public and page
   routes, only to read; HSTS
-- [ ] **H. Notes out of the chain**: a `notes` table (sealed under `encrypt`, refused under
+- [x] **H. Notes out of the chain**: a `notes` table (sealed under `encrypt`, refused under
   `hash`), a salted commitment in the chain, `note.erased`, PAS payer text sealed, batched
   `input.read` writes; old chained notes hidden from readers without `read_input`
+  (governance `reference` stays chained, as the critic's stage H left it out)
 - [ ] **I. Record hygiene and keyed hash**: evidence dropped under `hash` and sealed under
   `encrypt`; Patient ids in issues stored as type and position; `MENDARI_INPUT_HASH_KEY` HMAC
   required in `hash` and `encrypt`

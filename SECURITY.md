@@ -64,6 +64,11 @@ website (`hub/`), the container images and the deployment templates (`deploy/`).
   apart from the audit chain, readable only by signed-in reviewers and admins, and every read
   is logged. Without PHI mode, audit records keep full inputs by default
   (`audit.store_input: full`); use `hash` for any pack that might see sensitive text.
+- **Notes.** Review and rating notes and a payer's words are kept apart from the audit chain,
+  which keeps only a salted commitment to each: sealed with inputs under `encrypt`, refused
+  under `hash`, and readable as inputs are. Retention and `mendari notes erase` erase them, and
+  the chain still verifies (`mendari audit verify --notes` checks the commitments). Notes chained
+  by earlier releases are shown only to those who may read inputs.
 - **Headers.** Every response has a strict CSP (the dashboard's inline scripts by hash only),
   no framing, nosniff, no referrer and cross-origin isolation.
 

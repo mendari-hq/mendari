@@ -49,6 +49,7 @@ from mendari.errors import (
     FhirError,
     FhirStructureError,
     MendariError,
+    NoteError,
     PackNotFoundError,
     PackValidationError,
     ProviderError,
@@ -107,6 +108,7 @@ _DATASET_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _STATUS = {
     PackNotFoundError: 404,
     ReviewError: 409,
+    NoteError: 422,
     FhirStructureError: 400,  # before FhirError: the first match wins
     FhirError: 422,
     PackValidationError: 422,
@@ -147,10 +149,21 @@ class ApprovalRequest(BaseModel):
     approver: str | None = Field(default=None, max_length=200, description="open mode only")
 
 
+# A review's or a rating's note (core/audit.py, "notes"), as the API reference describes it.
+_NOTE = (
+    "free text, kept apart from the audit chain (which keeps a commitment to it) and readable "
+    "as inputs are; refused with 422 under PHI mode hash, which keeps no free text"
+)
+
+
 class ReviewRequest(BaseModel):
     final_label: str = Field(min_length=1, max_length=200)
     reviewer: str = Field(min_length=1, max_length=200)
-    note: str | None = Field(default=None, max_length=2000)
+    note: str | None = Field(
+        default=None,
+        max_length=2000,
+        description=_NOTE,
+    )
 
 
 class OutcomeRequest(BaseModel):
@@ -191,7 +204,7 @@ class ExpectedAnswer(BaseModel):
 class FeedbackRequest(BaseModel):
     rating: Literal["up", "down"]
     reporter: str | None = Field(default=None, max_length=200)
-    note: str | None = Field(default=None, max_length=1000)
+    note: str | None = Field(default=None, max_length=1000, description=_NOTE)
     # On a thumbs-down, what the answer to one of the decision's questions should have been.
     expected: ExpectedAnswer | None = None
 
@@ -736,7 +749,7 @@ def create_app(
     )
     def resolve(decision_id: str, request: ReviewRequest, http: Request) -> dict[str, Any]:
         """Record a reviewer's final label for a decision in the queue: one of the labels of the
-        decision's question."""
+        decision's question. A note is kept apart from the audit chain; the answer repeats it."""
         return store.resolve_review(
             decision_id,
             final_label=request.final_label,
@@ -799,7 +812,10 @@ def create_app(
         summary="Get a decision",
     )
     def audit_record(request: Request, decision_id: str) -> dict[str, Any]:
-        """One decision with every event recorded on it."""
+        """One decision with every event recorded on it. An event with a note has `note_status`
+        (`open`, `sealed` or `erased`) and `note`, its text when open: notes are read as inputs
+        are, so under PHI mode `encrypt` only by reviewers and admins, and each read is chained
+        (`input.read`)."""
         record = store.get(decision_id, reader=input_reader(request))
         if record is None:
             raise HTTPException(404, f"unknown decision {decision_id}")
@@ -844,7 +860,8 @@ def create_app(
         summary="Rate a decision",
     )
     def give_feedback(decision_id: str, request: FeedbackRequest, http: Request) -> dict[str, Any]:
-        """Thumbs up or down, and on a thumbs-down the right answer."""
+        """Thumbs up or down, and on a thumbs-down the right answer, with an optional note (kept
+        apart from the audit chain)."""
         return store.record_feedback(
             decision_id,
             rating=request.rating,
@@ -864,7 +881,7 @@ def create_app(
         rating: Literal["up", "down"] | None = None,
         limit: int = 100,
     ) -> list[dict[str, Any]]:
-        """Ratings, newest first."""
+        """Ratings, newest first; each note as `GET /api/audit/{decision_id}` shows notes."""
         return store.feedback(
             pack_id=pack_id, rating=rating, limit=min(limit, 500), reader=input_reader(request)
         )
@@ -935,7 +952,9 @@ def create_app(
         namespace: str, name: str, body: PriorAuthorizationRequest, http: Request
     ) -> dict[str, Any]:
         """Da Vinci PAS: the request Bundle for a complete request (`submit_ready`), and with
-        `submit`, the payer's answer, which is chained on the decision (`pas.submitted`)."""
+        `submit`, the payer's answer, which is chained on the decision (`pas.submitted`): its
+        outcome and review actions; the authorization number and disposition are kept as a
+        note (PHI mode `hash` keeps neither)."""
         pack = pack_or_404(f"{namespace}/{name}")
         record = store.get(body.decision_id)
         if record is None or record["pack_id"] != pack.id:
@@ -956,10 +975,12 @@ def create_app(
             payer = settings.pas_payer_url()
             with GuardedHttp() as client:
                 submitted = pas.submit(bundle, payer, client)
+            codes = {key: submitted[key] for key in ("outcome", "review_actions")}
             store.record_event(
                 record["id"],
                 "pas.submitted",
-                {**submitted, "requested_by": acting_as(http, None) or "open mode"},
+                {**codes, "requested_by": acting_as(http, None) or "open mode"},
+                note=None if phi.mode == "hash" else pas.payer_note(submitted),
             )
         return {"bundle": bundle, "submitted": submitted}
 

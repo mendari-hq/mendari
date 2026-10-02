@@ -183,6 +183,7 @@ def test_the_cli_purges(
     store = encrypting(tmp_path)
     Decision(inbox_pack, store=store)(message(SECRET_WORDS))
     assert main(["phi", "purge", "--db", str(tmp_path / "a.db"), "--days", "30"]) == 0
-    assert "0 stored input(s) older than 30 days deleted" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "0 stored input(s) deleted and 0 note(s) erased, older than 30 days" in out
     monkeypatch.delenv("MENDARI_RETENTION_DAYS", raising=False)
     assert main(["phi", "purge", "--db", str(tmp_path / "a.db")]) == 1

@@ -287,8 +287,9 @@ def test_no_case_text_or_notes_in_any_phi_mode(tmp_path: Path, inbox_pack: Pack,
     key = os.urandom(32) if mode == "encrypt" else b""
     store = AuditStore(tmp_path / "phi.db", phi=PhiPolicy(mode=mode, key=key))  # type: ignore[arg-type]
     result = decide(store, inbox_pack, f"{EMERGENCY} {SECRET}")
-    store.resolve_review(result.id, final_label="nurse", reviewer="rn-1", note=SECRET)
-    store.record_feedback(result.id, rating="up", note=SECRET)
+    note = None if mode == "hash" else SECRET  # PHI mode hash refuses notes (tests/test_notes.py)
+    store.resolve_review(result.id, final_label="nurse", reviewer="rn-1", note=note)
+    store.record_feedback(result.id, rating="up", note=note)
     refused = Decision(inbox_pack, store=store)({"message": {"body": 7, "x": SECRET}})
     for decision_id in (result.id, refused.id):
         item = store.item(decision_id)

@@ -41,6 +41,14 @@ views.feedback = async (main) => {
   });
 };
 
+// A rating's note: kept apart from the audit chain, shown only to those who may read inputs.
+function noteText(item) {
+  if (item.note_status === "open") return `<p><b>Note:</b> ${esc(item.note)}</p>`;
+  if (item.note_status === "sealed") return `<p class="muted">Note: only reviewers and admins can read it.</p>`;
+  if (item.note_status === "erased") return `<p class="muted">Note: erased.</p>`;
+  return "";
+}
+
 function feedbackCard(item) {
   const r = item.record;
   const wrong = item.rating === "down";
@@ -54,7 +62,7 @@ function feedbackCard(item) {
     </div>
     ${item.expected ? `<p class="right-answer">${icon("check")} <b>Right answer:</b> <code>${esc(item.expected.question)}</code> should be <b>${esc(item.expected.label)}</b>
       <span class="muted">(it said ${esc(r.answers[item.expected.question]?.label ?? "nothing")})</span></p>` : ""}
-    ${item.note ? `<p><b>Note:</b> ${esc(item.note)}</p>` : ""}
+    ${noteText(item)}
     ${inputView(r.input, { restricted: item.input_restricted })}
     ${criteriaTable(r.answers, { evidence: false })}
     <a class="action-link" href="#audit/${encodeURIComponent(item.decision_id)}">Open the decision <span class="mono">${esc(item.decision_id.slice(0, 8))}</span> ${icon("arrow-right")}</a>
@@ -104,8 +112,8 @@ export function feedbackControls(record, current = null) {
         `<option value="${esc(q.question)}">${esc(q.question)}${q.question === record.primary ? " (the decision)" : ""} · answered ${esc(q.answer)}</option>`).join("")}</select></label>` : ""}
       ${choices.map((q, i) => `<div class="choices fb-labels" role="group" data-question="${esc(q.question)}"
         aria-label="Right answer for ${esc(q.question)}"${i ? " hidden" : ""}>${answerChoices(q)}</div>`).join("")}
-      <label class="fb-field" for="fb-note-${id}">Note <span class="muted">(optional)</span></label>
-      <input id="fb-note-${id}" class="fb-note" maxlength="1000" placeholder="What was wrong?">
+      ${state.phiMode === "hash" ? "" : `<label class="fb-field" for="fb-note-${id}">Note <span class="muted">(optional)</span></label>
+      <input id="fb-note-${id}" class="fb-note" maxlength="1000" placeholder="What was wrong?">`}
       <div class="row mt-3"><button type="button" class="primary fb-save">Save</button><button type="button" class="fb-skip">Skip</button></div>
     </div>
   </div>`;
@@ -159,7 +167,7 @@ document.addEventListener("click", async (event) => {
       } else {
         if (!pressed) await sendRating(box, { rating: "down" });
         follow.hidden = false; // wrong: optionally say what it should have been
-        (follow.querySelector("select, [data-expected-label]") ?? follow.querySelector(".fb-note")).focus();
+        (follow.querySelector("select, [data-expected-label], .fb-note") ?? follow.querySelector(".fb-save")).focus();
       }
     } else if (label) {
       const on = label.getAttribute("aria-pressed") !== "true";
@@ -169,7 +177,8 @@ document.addEventListener("click", async (event) => {
     } else if (event.target.closest(".fb-save")) {
       const group = box.querySelector(".fb-labels:not([hidden])");
       const picked = group?.querySelector('[aria-pressed="true"]');
-      const note = box.querySelector(".fb-note").value.trim() || null;
+      // PHI mode hash keeps no free text, so there is no note field (the server would refuse one).
+      const note = box.querySelector(".fb-note")?.value.trim() || null;
       const expected = picked ? { question: group.dataset.question, label: picked.dataset.expectedLabel } : undefined;
       if (expected || note) await whileBusy(event.target.closest(".fb-save"), "Saving…", () => sendRating(box, { rating: "down", note, expected }));
       closeFollowUp(box);

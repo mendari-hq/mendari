@@ -149,14 +149,41 @@ Under `encrypt`:
   against. Encrypt mode needs step 2.
 
 **Retention.** Schedule `mendari phi purge --db "$DATABASE_URL"` (daily, for example). It
-deletes kept inputs older than `MENDARI_RETENTION_DAYS` and records each deletion in the
-chain. Decisions, reviews and the chain itself stay, and `mendari audit verify` still passes.
+deletes kept inputs and erases notes older than `MENDARI_RETENTION_DAYS`, and records each
+deletion in the chain. Decisions, reviews and the chain itself stay, and `mendari audit verify` still passes.
 
 **The key.**
 - Keep `MENDARI_PHI_KEY` in your secret manager, never in the repository or an image.
 - Losing it makes stored inputs unreadable. The decisions and the chain are unaffected.
 - To rotate it: purge (or let retention expire) the inputs kept under the old key, then switch.
   Re-encrypting in place is not provided.
+
+**Notes.** A reviewer's or a rater's note, and a payer's answer to a prior authorization (its
+authorization number and disposition), are free text. They are kept in a `notes` table, never in
+the audit chain:
+- the chain keeps `note: null` and a `note_ref`: the note's id and a salted SHA-256 commitment.
+  The salt is only in the note's row, so the commitment says nothing about the text;
+- under `encrypt` a note is sealed with the same key as inputs (AES-256-GCM, bound to the note
+  and its decision). Like inputs, it opens only for **reviewers** and **admins**, and each read
+  is chained (`input.read` names the notes read);
+- under `hash`, a review or rating with a note is refused (`422`): `hash` keeps no free text.
+  The dashboard offers no note field there, and a payer's words are not kept;
+- under `off`, notes are kept in the clear for whoever may read the decision;
+- notes written into the chain by earlier releases stay there (the chain is never rewritten),
+  but are shown only to those who may read inputs.
+
+`mendari phi purge` also erases notes older than `MENDARI_RETENTION_DAYS`. To erase one note now:
+
+```bash
+mendari notes erase --db "$DATABASE_URL" --id <note_ref.id> --reason request --by dpo@example.org
+```
+
+Erasing keeps the note's row (id, decision, when) and drops its text and salt. It chains
+`note.erased`, with the reason and who. The chain still verifies, and
+`mendari audit verify --notes` (with `MENDARI_PHI_KEY` set) checks every kept note against its
+commitment. **Erasure is not instant everywhere:** database backups, your database's
+point-in-time history (Neon keeps deleted rows for its history window) and exports made earlier
+still hold the note until they expire or you delete them.
 
 ## 4. What leaves your network
 
@@ -189,6 +216,8 @@ that covers PHI.
 - [ ] `/api/health` shows `sign_in: true`, `phi_mode: encrypt`, and only the providers and FHIR
       servers you expect.
 - [ ] A viewer can't read an input; a reviewer can, and the read appears in the audit chain.
+- [ ] A viewer sees a review note only as sealed; a reviewer reads it, and
+      `mendari audit verify --notes` passes.
 - [ ] Integrations that record outcomes send `source` as an identifier (`ehr`, not a sentence)
       and a label of the pack's primary question.
 - [ ] Retention and monitoring are scheduled; `mendari audit verify` passes.

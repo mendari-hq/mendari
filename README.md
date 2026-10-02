@@ -453,7 +453,11 @@ mendari monitor --db "$DATABASE_URL" --org clinic-a --webhook https://alerts.exa
 **PHI mode.** `MENDARI_PHI_MODE=hash` keeps no input at all, only its hash.
 `MENDARI_PHI_MODE=encrypt` keeps inputs encrypted (AES-256-GCM, `MENDARI_PHI_KEY`) apart
 from the audit chain. Only signed-in reviewers and admins read them, and each read is chained.
-`mendari phi purge` applies `MENDARI_RETENTION_DAYS` without breaking the chain. Read
+`mendari phi purge` applies `MENDARI_RETENTION_DAYS` without breaking the chain. Notes (review
+and rating notes, a payer's answer to a prior authorization) follow inputs: they are kept apart
+from the chain, which holds only a salted commitment to each, sealed under `encrypt` and refused
+under `hash`. Retention erases them too, `mendari notes erase` erases one at once, and
+`mendari audit verify --notes` checks the kept ones. Read
 [`docs/deploying-with-phi.md`](docs/deploying-with-phi.md) before any real patient data.
 
 **Deployments.** Each server records which pack version it runs, with which providers, in
@@ -543,7 +547,7 @@ up) or wrong (thumbs down), with an optional note. A thumbs-down can also say wh
 should have been, for the decision itself or for one of its checks
 (`POST /api/audit/{id}/feedback` with `"expected": {"question": ..., "label": ...}`); the label
 must be one the decision could have given. Each rating is appended to the decision's
-hash-chained audit trail. A person can change their rating: their latest one counts, and the
+hash-chained audit trail; its note is kept apart from it, so it can be erased. A person can change their rating: their latest one counts, and the
 audit trail keeps both (people are told apart by reporter name; unnamed ratings of a decision
 count as one person). The **Feedback** view lists the thumbs-down cases, and a thumbs-down on an
 AUTO decision counts as "confidently wrong".
