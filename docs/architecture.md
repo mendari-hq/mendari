@@ -39,8 +39,9 @@
 - **Evals** (`evals/`): pure metrics, the harness, the local-vs-benchmark comparison, and the
   pack behaviour tests.
 - **Standards** (`standards/`): FHIR R4 mapping and `Task` output, CDS Hooks discovery and
-  cards, US Core 6.1.0 checks on FHIR inputs (`us_core.py`, generated from the official
-  packages), and the audit trail as AuditEvent and Provenance (`audit_fhir.py`).
+  cards, the structural R4 check on FHIR inputs (`fhir_structure.py`, from HL7's R4 JSON
+  Schema), US Core 6.1.0 checks on them (`us_core.py`, generated from the official packages),
+  and the audit trail as AuditEvent and Provenance (`audit_fhir.py`).
 
 ## Request lifecycle
 

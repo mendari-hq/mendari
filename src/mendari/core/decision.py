@@ -56,7 +56,8 @@ class DecisionResult:
     output_tokens: int
     input_hash: str
     governance: dict[str, Any] | None = None
-    # US Core findings for a FHIR input (`standards.us_core.Issue.to_dict()`): paths, no values.
+    # Base R4 and US Core findings for a FHIR input (`standards.us_core.Issue.to_dict()`): paths,
+    # no values.
     input_issues: tuple[dict[str, str], ...] = ()
 
     @property
@@ -267,27 +268,33 @@ class Decision:
         """Decide from FHIR R4 resources (a Bundle or {resourceType: resource}); return a Task.
         `focus` picks the resource to decide about, e.g. one of several draft orders.
 
-        Input that is not FHIR JSON (an element of the wrong JSON type) raises
-        `FhirStructureError` whatever the mode. The resources are checked against US Core
-        (`fhir_validation`): under `warn` the issues are recorded in the result; under `enforce` an
-        error blocks the input before any provider."""
-        from mendari.standards import us_core
+        Input that is not FHIR R4 JSON (an unknown element or resource type, a wrong JSON type, a
+        malformed primitive) raises `FhirStructureError` whatever the mode. A complex element R4
+        requires, a code outside its required value set, and US Core's own rules are issues under
+        `fhir_validation`: under `warn` they are recorded in the result; under `enforce` an error
+        blocks the input before any provider."""
+        from mendari.standards import fhir_structure, us_core
         from mendari.standards.fhir import FhirAdapter
 
         adapter = FhirAdapter.for_pack(self.pack)
-        issues = us_core.validate(resources if focus is None else [resources, focus])
-        malformed = [issue for issue in issues if issue.code == "structure"]
+        given = resources if focus is None else [resources, focus]
+        base = fhir_structure.check(given)
+        malformed = fhir_structure.blocking(base)
         if malformed:
             raise FhirStructureError(
-                [{"expression": i.expression, "diagnostics": i.diagnostics} for i in malformed]
+                [
+                    {"code": i.code, "expression": i.expression, "diagnostics": i.diagnostics}
+                    for i in malformed
+                ]
             )
-        if self.fhir_validation == "off":
-            issues = []
+        issues = []
+        if self.fhir_validation != "off":
+            issues = fhir_structure.merge(base, us_core.validate(given))
         indexed = adapter.index(resources, focus=focus)
         rejected = []
         if self.fhir_validation == "enforce":
             rejected = [
-                f"not US Core {us_core.US_CORE_VERSION}: {issue.resource} {issue.expression}: "
+                f"not {us_core.standard(issue.profile)}: {issue.resource} {issue.expression}: "
                 f"{issue.diagnostics}"
                 for issue in us_core.errors(issues)[:10]
             ]

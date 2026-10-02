@@ -5,9 +5,10 @@
 
 - `--valid` files must have no errors: they are what Mendari produces or accepts as
   conforming (the sandbox's resources, the US Core fixtures, the audit export).
-- `--invalid` files hold resources that `mendari.standards.us_core` flags. Every resource it
-  flags must also have an error from the validator, so the in-process subset never rejects what
-  US Core accepts (which `MENDARI_FHIR_VALIDATION=enforce` would turn into a block).
+- `--invalid` files hold resources that `mendari.standards.us_core` or the structural R4 gate
+  (`fhir_structure`) flags. Every resource they flag must also have an error from the validator,
+  so the in-process checks never reject what R4 and US Core accept (which
+  `MENDARI_FHIR_VALIDATION=enforce` would turn into a block).
 
 `--ig` loads more implementation guides next to US Core, e.g. the Da Vinci guides for the prior
 authorization samples (`hl7.fhir.us.davinci-crd#2.2.1`). The validator runs without a terminology
@@ -30,7 +31,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from mendari.standards import us_core  # noqa: E402
+from mendari.standards import fhir_structure, us_core  # noqa: E402
 
 JAR = Path(os.environ.get("FHIR_VALIDATOR_JAR", ROOT / "var/validator/validator_cli.jar"))
 IMAGE = "eclipse-temurin:21-jre"
@@ -97,11 +98,13 @@ def main() -> int:
             print(f"    {error['where']}: {error['text']}")
         failed |= bool(found)
     for path in args.invalid:
-        flagged = {i.resource for i in us_core.validate(json.loads(path.read_text()))}
+        document = json.loads(path.read_text())
+        found = fhir_structure.check(document) + us_core.validate(document)
+        flagged = {i.resource for i in found}
         confirmed = {e["resource"] for e in errors[str(path)]}
         missed = sorted(flagged - confirmed)
-        status = "ok" if not missed else "the validator accepts what us_core flags"
-        print(f"invalid  {path}: {len(flagged)} flagged by us_core, {status}")
+        status = "ok" if not missed else "the validator accepts what Mendari flags"
+        print(f"invalid  {path}: {len(flagged)} flagged in process, {status}")
         for resource in missed:
             print(f"    {resource}")
         failed |= bool(missed)

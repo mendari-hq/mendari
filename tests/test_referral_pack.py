@@ -142,12 +142,12 @@ def _record() -> dict[str, dict[str, Any]]:
         }
 
     def coded(kind: str, id_: str, code: str, date_field: str, days: int) -> dict[str, Any]:
-        element = "type" if kind == "DocumentReference" else "code"
+        document = kind == "DocumentReference"
         return {
             "resourceType": kind,
             "id": id_,
-            element: {"coding": [{"code": code}]},
-            date_field: _ago(days),
+            "type" if document else "code": {"coding": [{"code": code}]},
+            date_field: f"{_ago(days)}T09:00:00Z" if document else _ago(days),  # date: an instant
         }
 
     patient = {"resourceType": "Patient", "id": "p1", "gender": "male"}

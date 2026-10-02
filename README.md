@@ -199,17 +199,22 @@ exactly like the same cases read from the dataset file.
 
 ## Healthcare standards
 
-FHIR inputs (`/api/packs/{pack}/fhir/decide`, CDS Hooks, `mendari decide --fhir`) are checked
-against **US Core 6.1.0** in process. The checks cover required elements, required bindings,
-the required category slices and the profiles' `us-core-*` invariants. They are generated from
-the official packages by `scripts/us_core_subset.py`. `MENDARI_FHIR_VALIDATION` chooses what
-happens:
+FHIR inputs (`/api/packs/{pack}/fhir/decide`, CDS Hooks, `mendari decide --fhir`) first pass a
+**structural R4 check** against HL7's R4 JSON Schema (digest-pinned and patched by
+`scripts/fhir_r4_schema.py`): an unknown element or resource type, an element of the wrong JSON
+type, or a primitive without its format is a `400` in every mode. This is a structural check,
+not validation. Then they are checked against **US Core 6.1.0** in process. The checks cover
+required elements, required bindings, the required category slices and the profiles'
+`us-core-*` invariants. They are generated from the official packages by
+`scripts/us_core_subset.py`. A complex element R4 itself requires, or a code outside an R4
+required value set, is an issue of the same kind, labelled with the base R4 profile.
+`MENDARI_FHIR_VALIDATION` chooses what happens to these issues:
 
 | Setting | Effect |
 |---|---|
 | `warn` (default) | The decision is unchanged. The issues come back in `decision.input_issues` and are audited, as paths without values. |
 | `enforce` | An input with an error is blocked before any provider sees it, like a JSON Schema failure. |
-| `off` | No checks. |
+| `off` | No profile or required-element checks (the structural check still runs). |
 
 The audit trail exports as FHIR R4. Each event in the hash chain becomes an **AuditEvent**, and
 each decision, review and downstream outcome becomes a **Provenance** on the decision's `Task`.

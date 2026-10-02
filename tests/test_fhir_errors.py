@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 from mendari.core.decision import Decision
 from mendari.errors import FhirError, FhirStructureError
 from mendari.server.app import create_app
-from mendari.standards import us_core
+from mendari.standards import fhir_structure, us_core
 from mendari.standards.fhir import FhirAdapter
 
 FIXTURES = Path(__file__).parent / "fixtures" / "us-core"
@@ -54,8 +54,9 @@ def replaced(document: Any, path: tuple[Any, ...], value: Any) -> Any:
 
 @pytest.mark.parametrize("fixture", sorted(PACKS))
 def test_no_mistyped_element_crashes_the_fhir_layer(fixture: str) -> None:
-    """Every element of a US Core fixture, replaced by each wrong JSON type: the checks, the
-    mapping and the Task either work or raise a FhirError (an HTTP 4xx), never anything else."""
+    """Every element of a US Core fixture, replaced by each wrong JSON type: the structural gate
+    rejects it, or the US Core checks, the mapping and the Task either work or raise a FhirError
+    (an HTTP 4xx), never anything else."""
     seed = json.loads((FIXTURES / fixture).read_text(encoding="utf-8"))
     decision = Decision.from_hub(PACKS[fixture])
     adapter = FhirAdapter.for_pack(decision.pack)
@@ -63,10 +64,10 @@ def test_no_mistyped_element_crashes_the_fhir_layer(fixture: str) -> None:
     for path in element_paths(seed):
         for wrong in WRONG_TYPES:
             mistyped = replaced(seed, path, wrong)
+            if fhir_structure.blocking(fhir_structure.check(mistyped)):
+                continue
             try:
-                issues = us_core.validate(mistyped)
-                if any(issue.code == "structure" for issue in issues):
-                    continue
+                us_core.validate(mistyped)
                 indexed = adapter.index(mistyped)
                 adapter.to_input(indexed)
                 adapter.to_task(result, indexed)
@@ -223,7 +224,7 @@ def test_a_null_padded_profile_is_valid_fhir(client: TestClient) -> None:
     absent = {"url": us_core.DATA_ABSENT, "valueCode": "unknown"}
     patient["meta"]["profile"] = [*patient["meta"]["profile"], None]
     patient["meta"]["_profile"] = [None, {"extension": [absent]}]
-    assert [i for i in us_core.validate(bundle) if i.code == "structure"] == []
+    assert fhir_structure.check(bundle) == []
     assert client.post(f"{INBOX}/fhir/decide", json=bundle).status_code == 200
 
 
@@ -231,16 +232,16 @@ DEPTH = 1500  # extension levels: two JSON containers each, past Python's recurs
 
 
 def test_the_checks_walk_deeply_nested_fhir_without_recursion() -> None:
-    """Extensions can nest deeper than Python's recursion limit (valid R4); the structure walk
+    """Extensions can nest deeper than Python's recursion limit (valid R4); the structural gate
     must not recurse. Before, about 500 levels was a RecursionError, a 500 over HTTP."""
     nested: dict[str, Any] = {"url": "https://mendari.co/fhir/test/leaf", "valueString": "x"}
     for depth in range(DEPTH):
         nested = {"url": f"https://mendari.co/fhir/test/{depth}", "extension": [nested]}
     resource = {**communication(inbox_bundle()), "extension": [nested]}
-    assert us_core.structure(resource) == []
+    assert fhir_structure.check(resource) == []
     nested["extension"][0]["valueCoding"] = {"code": "x"}  # a Coding, not `coding`: fine
     resource["category"] = [{"coding": "x"}]
-    assert [i.expression for i in us_core.structure(resource)] == [
+    assert [i.expression for i in fhir_structure.check(resource)] == [
         "Communication.category[0].coding"
     ]
 
