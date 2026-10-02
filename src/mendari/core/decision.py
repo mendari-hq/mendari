@@ -4,15 +4,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import time
 import uuid
-from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, ValidationError
 
 from mendari.core.derive import complete_answers, explain
 from mendari.core.pack import Pack, load_pack
@@ -56,8 +57,14 @@ class DecisionResult:
     output_tokens: int
     input_hash: str
     governance: dict[str, Any] | None = None
-    # US Core findings for a FHIR input (`standards.us_core.Issue.to_dict()`): paths, no values.
+    # Base R4 and US Core findings for a FHIR input (`standards.us_core.Issue.to_dict()`): paths,
+    # no values.
     input_issues: tuple[dict[str, str], ...] = ()
+    # Why the input was refused before any provider ran (`$decide` reports these as failure).
+    # In memory only: not in `to_dict`, so the audit record keeps its shape.
+    rejected: bool = field(default=False, compare=False)
+    # The pack-schema part of those reasons (standards rejections are in `input_issues`).
+    schema_problems: tuple[str, ...] = field(default=(), compare=False)
 
     @property
     def confidence(self) -> float | None:
@@ -181,8 +188,11 @@ class Decision:
         return self.decide(inputs)
 
     def validate(self, inputs: Any) -> list[str]:
-        errors = sorted(self._validator.iter_errors(inputs), key=lambda e: list(e.path))
-        return [f"{'/'.join(map(str, e.path)) or '(root)'}: {e.message}" for e in errors[:10]]
+        """Why the input fails the pack's input schema, at most ten reasons. Each names where
+        and which rule of the schema, never the value: jsonschema's own messages quote the
+        input, and reasons are stored in the audit trail and copied into the FHIR Task."""
+        errors = sorted(self._validator.iter_errors(inputs), key=lambda e: list(map(str, e.path)))
+        return [f"{_where(error.path)}: {_schema_rule(error)}" for error in errors[:10]]
 
     def decide(
         self,
@@ -203,7 +213,8 @@ class Decision:
         governance = self.governance
         if governance is None and self.governance_source is not None:
             governance = self.governance_source(self.pack)
-        problems = [*rejected, *self.validate(inputs)]
+        schema_problems = self.validate(inputs)
+        problems = [*rejected, *schema_problems]
         if problems:
             policy = PolicyResult(
                 outcome=Outcome.BLOCK,
@@ -256,6 +267,8 @@ class Decision:
             input_hash=input_hash(inputs),
             governance=governance.to_dict() if governance else None,
             input_issues=tuple(dict(issue) for issue in input_issues),
+            rejected=bool(problems),
+            schema_problems=tuple(schema_problems),
         )
         if self.store is not None:
             self.store.record(result, inputs, store_input=manifest.audit.store_input)
@@ -267,27 +280,33 @@ class Decision:
         """Decide from FHIR R4 resources (a Bundle or {resourceType: resource}); return a Task.
         `focus` picks the resource to decide about, e.g. one of several draft orders.
 
-        Input that is not FHIR JSON (an element of the wrong JSON type) raises
-        `FhirStructureError` whatever the mode. The resources are checked against US Core
-        (`fhir_validation`): under `warn` the issues are recorded in the result; under `enforce` an
-        error blocks the input before any provider."""
-        from mendari.standards import us_core
+        Input that is not FHIR R4 JSON (an unknown element or resource type, a wrong JSON type, a
+        malformed primitive) raises `FhirStructureError` whatever the mode. A complex element R4
+        requires, a code outside its required value set, and US Core's own rules are issues under
+        `fhir_validation`: under `warn` they are recorded in the result; under `enforce` an error
+        blocks the input before any provider."""
+        from mendari.standards import fhir_structure, us_core
         from mendari.standards.fhir import FhirAdapter
 
         adapter = FhirAdapter.for_pack(self.pack)
-        issues = us_core.validate(resources if focus is None else [resources, focus])
-        malformed = [issue for issue in issues if issue.code == "structure"]
+        given = resources if focus is None else [resources, focus]
+        base = fhir_structure.check(given)
+        malformed = fhir_structure.blocking(base)
         if malformed:
             raise FhirStructureError(
-                [{"expression": i.expression, "diagnostics": i.diagnostics} for i in malformed]
+                [
+                    {"code": i.code, "expression": i.expression, "diagnostics": i.diagnostics}
+                    for i in malformed
+                ]
             )
-        if self.fhir_validation == "off":
-            issues = []
+        issues = []
+        if self.fhir_validation != "off":
+            issues = fhir_structure.merge(base, us_core.validate(given))
         indexed = adapter.index(resources, focus=focus)
         rejected = []
         if self.fhir_validation == "enforce":
             rejected = [
-                f"not US Core {us_core.US_CORE_VERSION}: {issue.resource} {issue.expression}: "
+                f"not {us_core.standard(issue.profile)}: {issue.resource} {issue.expression}: "
                 f"{issue.diagnostics}"
                 for issue in us_core.errors(issues)[:10]
             ]
@@ -300,6 +319,66 @@ class Decision:
 
 
 _FALLBACK = (Outcome.ABSTAIN, Outcome.BLOCK)
+
+
+_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]{0,63}$")
+
+
+def _where(path: Iterable[Any]) -> str:
+    """A path in the input. A key the schema does not name is the client's text, so only keys
+    shaped like a field name are shown."""
+    parts = [str(p) if isinstance(p, int) or _KEY.match(str(p)) else "*" for p in path]
+    return "/".join(parts) or "(root)"
+
+
+def _schema_rule(error: ValidationError) -> str:
+    """What the schema requires, in words built from the schema alone (`validator_value` is the
+    pack's own schema), never from the instance."""
+    keyword, expected = error.validator, error.validator_value
+    present = error.instance if isinstance(error.instance, Mapping) else {}
+    if keyword == "required":
+        names = expected if isinstance(expected, list) else []
+        missing = [str(name) for name in names if name not in present]
+        return f"{', '.join(missing) or 'a field'} is required"
+    if keyword == "type":
+        kinds = expected if isinstance(expected, list) else [expected]
+        return f"must be of type {' or '.join(map(str, kinds))}"
+    if keyword in ("enum", "const"):
+        return "is not one of the values the schema allows"
+    if keyword in ("minLength", "maxLength", "minItems", "maxItems"):
+        bound = "at least" if keyword.startswith("min") else "at most"
+        unit = "characters" if keyword.endswith("Length") else "items"
+        return f"must have {bound} {expected} {unit}"
+    if keyword in ("minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum"):
+        relation = {
+            "minimum": "at least",
+            "maximum": "at most",
+            "exclusiveMinimum": "more than",
+            "exclusiveMaximum": "less than",
+        }[str(keyword)]
+        return f"must be {relation} {expected}"
+    if keyword == "pattern":
+        return "does not match the pattern the schema requires"
+    if keyword == "format":
+        return f"is not a valid {expected}"
+    if keyword in ("additionalProperties", "unevaluatedProperties"):
+        schema = error.schema if isinstance(error.schema, Mapping) else {}
+        allowed = set(schema.get("properties") or {})
+        patterns = list(schema.get("patternProperties") or {})
+        extra = [
+            str(key)
+            for key in present
+            if key not in allowed and not any(re.search(p, str(key)) for p in patterns)
+        ]
+        named = [key for key in extra if _KEY.match(key)]
+        unnamed = len(extra) - len(named)
+        listed = [*named, *([f"{unnamed} more"] if unnamed and named else [])]
+        return (
+            f"has fields the schema does not allow: {', '.join(listed)}"
+            if named
+            else ("has a field the schema does not allow")
+        )
+    return f"does not satisfy the schema's {keyword} rule"
 
 
 def input_hash(inputs: Any) -> str:

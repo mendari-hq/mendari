@@ -8,6 +8,7 @@ Python 3.11+ · uv · pydantic v2 · FastAPI · SQLite (local) or Postgres (Verc
 uv sync                                   # install (dev group included)
 uv run pytest                             # full suite, < 3 s, warnings are errors
 uv run pytest -m browser                  # dashboard in Chromium (once: uv run playwright install chromium)
+uv run pytest -m slow                     # the structural R4 gate over HL7's 5,309 R4 examples (if cached)
 # Postgres backend tests (Mendari's own container; never reuse another project's database):
 docker run -d --name mendari-pg-test -e POSTGRES_PASSWORD=mendari-test \
   -e POSTGRES_DB=mendari_test -p 127.0.0.1:56432:5432 postgres:16-alpine
@@ -16,6 +17,7 @@ uv run ruff check src tests && uv run ruff format --check src tests
 uv run mypy src tests
 uv run mendari demo                       # end-to-end smoke test on synthetic data
 ./scripts/build-reference-pack.sh         # both reference packs: data → train → test → benchmark → card
+uv run python scripts/fhir_r4_schema.py   # regenerate the R4 structure rules from HL7's pinned schema
 docker compose up --build                 # HAPI FHIR + engine + worker sandbox
 ```
 

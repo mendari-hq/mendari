@@ -26,6 +26,7 @@ from fastapi.responses import (
     Response,
     StreamingResponse,
 )
+from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -61,10 +62,11 @@ from mendari.server import api_docs
 from mendari.server.auth import Auth, add_auth_routes, auth_settings, permission_for
 from mendari.server.smart_routes import add_smart_routes, error_page
 from mendari.settings import FhirValidation, providers_for
-from mendari.standards import audit_fhir, cds_hooks, davinci, pas
+from mendari.standards import audit_fhir, capability, cds_hooks, davinci, decide_op, pas
 from mendari.standards.fhir_client import GuardedHttp, allowed_servers
 from mendari.standards.pas import PasError
 from mendari.standards.smart import smart_settings
+from mendari.standards.terminology import Terminology
 
 DASHBOARD_DIR = Path(__file__).resolve().parents[1] / "dashboard"
 INBOX = "mendari/patient-inbox-router"
@@ -217,6 +219,9 @@ def create_app(
         current = packs.get(pack.id)
         if current is None or version_key(pack.version) > version_key(current.version):
             packs[pack.id] = pack
+    # Every CodeSystem and NamingSystem the served packs need. A pack whose terminology cannot
+    # be built is reported in /api/health (`invalid`) and served without it.
+    terms, terminology_problems = Terminology.serving(packs.values())
     decisions: dict[str, Decision] = {}
     overrides = dict(providers or {})
 
@@ -371,7 +376,7 @@ def create_app(
             "status": "ok",
             "version": __version__,
             "packs": len(packs),
-            "invalid": found.problems,
+            "invalid": {**found.problems, **terminology_problems},
             "storage": store.backend,
             # Calendar days and displayed times use this zone; stored timestamps are UTC.
             "timezone": timezone,
@@ -512,11 +517,13 @@ def create_app(
         The pack's `fhir/mapping.yaml` maps them onto its input. Returns the decision and a FHIR
         `Task` for the work queue.
 
-        Inputs are checked against US Core 6.1.0 (`fhir_validation` in `/api/health`: `warn`
-        records issues in `decision.input_issues`, `enforce` blocks). In every mode, a core element
-        of the wrong JSON type (`resourceType`, `id`, `meta`, `subject`, any `coding`, a Bundle's
-        entries) is a `400`; other elements are checked by US Core, under `fhir_validation`. An
-        error on this route is an `OperationOutcome`."""
+        Inputs first pass a structural R4 check in every mode: an unknown element or resource
+        type, an element of the wrong JSON type, or a primitive without its format is a `400`
+        OperationOutcome (issue code `structure` or `value`). A complex element R4 requires, a
+        code outside an R4 required value set, and US Core 6.1.0's rules are checked under
+        `fhir_validation` (`/api/health`): `warn` records them in `decision.input_issues`,
+        `enforce` blocks. An error on this route is an `OperationOutcome`. For FHIR out as well,
+        use `POST /fhir/$decide`."""
         result, task = decision_for(f"{namespace}/{name}").decide_fhir(payload)
         return {"decision": result.to_dict(), "task": task}
 
@@ -902,9 +909,114 @@ def create_app(
         result = davinci.questionnaire_package(payload, lookup, packs, authored)
         return JSONResponse(result, media_type="application/fhir+json")
 
+    # -- FHIR: the $decide operation and conformance resources --------------------------------
+
+    @app.post(
+        "/fhir/$decide",
+        tags=["FHIR and CDS Hooks"],
+        summary="$decide: a decision as FHIR",
+    )
+    def fhir_decide(payload: JsonBody) -> JSONResponse:
+        """Mendari's FHIR operation (system level, POST only): `Parameters` in (`pack`, `version`,
+        `data` as a Bundle, `focus`), a `collection` Bundle out. Its first entry, a
+        `GuidanceResponse`, is the decision; act on `outputParameters.outcome`, never on
+        `status`. Then a RequestGroup and the Task (under BLOCK and ABSTAIN, the pack's fallback),
+        the answers as Parameters, an OperationOutcome when there are findings, and the audit
+        trail's Provenance. The definition: `/fhir/OperationDefinition/decide`. Errors are
+        OperationOutcomes."""
+        request = decide_op.parse(payload)
+        pack = pack_or_404(request.pack)
+        if request.version is not None and request.version != pack.version:
+            raise PackNotFoundError(
+                f"{pack.id} is served here at version {pack.version}, not {request.version}"
+            )
+        decision = decision_for(pack.id)
+        focus = decide_op.focus_in(request.data, request.focus)
+        result, task = decision.decide_fhir(request.data, focus=focus)
+        record = store.get(result.id)
+        if record is None:  # every decision this server makes is recorded
+            raise RuntimeError(f"decision {result.id} is not in the audit trail")
+        created = next(e for e in record["events"] if e["event"] == "decision.created")
+        event = {**created, **{k: record[k] for k in ("pack_id", "pack_version", "record")}}
+        provenance = audit_fhir.provenance({**event, "decision_id": result.id})
+        bundle = decide_op.response(result, task, pack, provenance)
+        return JSONResponse(bundle, media_type="application/fhir+json")
+
+    @app.get(
+        "/fhir/metadata",
+        tags=["FHIR and CDS Hooks"],
+        summary="CapabilityStatement",
+    )
+    def fhir_metadata(request: Request) -> Response:
+        """What this deployment's FHIR routes do, built from the routes that are mounted. Mendari
+        is a decision engine, not a FHIR data server: it serves no clinical resources. `version`
+        changes with any change to the statement and `date` is when that version went live
+        here; the ETag follows the content."""
+        place = settings.deployment_place()
+        statement = capability.capability_statement(
+            mounted_routes(app),
+            packs,
+            sign_in=auth.enabled,
+            since=lambda version: store.capability_since(place[0], version),
+            public_url=os.environ.get("MENDARI_PUBLIC_URL", "").strip() or None,
+            place=place,
+        )
+        body = json.dumps(statement, separators=(",", ":"))
+        etag = f'W/"{hashlib.sha256(body.encode()).hexdigest()[:16]}"'
+        headers = {"etag": etag, "cache-control": "no-cache"}
+        if request.headers.get("if-none-match") == etag:
+            return Response(status_code=304, headers=headers)
+        return Response(body, media_type="application/fhir+json", headers=headers)
+
+    @app.get(
+        "/fhir/CodeSystem/{resource_id}",
+        tags=["FHIR and CDS Hooks"],
+        summary="Read a Mendari CodeSystem",
+    )
+    def fhir_code_system(resource_id: str) -> JSONResponse:
+        """One of the CodeSystems Mendari's FHIR uses (decision outcomes, audit events, packs,
+        work queues, each pack's question labels), generated from the code and the served
+        packs. Its canonical `url` is on mendari.co; each deployment serves its own copy."""
+        return conformance(terms.get("CodeSystem", resource_id))
+
+    @app.get(
+        "/fhir/NamingSystem/{resource_id}",
+        tags=["FHIR and CDS Hooks"],
+        summary="Read a Mendari NamingSystem",
+    )
+    def fhir_naming_system(resource_id: str) -> JSONResponse:
+        """One of the identifier systems Mendari's FHIR uses (decision ids, input hashes, pack
+        versions)."""
+        return conformance(terms.get("NamingSystem", resource_id))
+
+    @app.get(
+        "/fhir/OperationDefinition/{resource_id}",
+        tags=["FHIR and CDS Hooks"],
+        summary="Read the $decide OperationDefinition",
+    )
+    def fhir_operation_definition(resource_id: str) -> JSONResponse:
+        """The definition of `$decide` (id `decide`). Da Vinci's `$questionnaire-package` is
+        defined by the DTR implementation guide, not here."""
+        return conformance(decide_op.operation_definition() if resource_id == "decide" else None)
+
+    def conformance(resource: Mapping[str, Any] | None) -> JSONResponse:
+        if resource is None:
+            raise HTTPException(404, "no such resource here")
+        return JSONResponse(dict(resource), media_type="application/fhir+json")
+
     # -- dashboard ---------------------------------------------------------------------------
 
     page = versioned_dashboard()
+
+    @app.middleware("http")
+    async def _fhir_media_types(request: Request, call_next: Any) -> Response:
+        """FHIR routes speak FHIR R4 JSON only. Inside the guard, so sign-in answers first."""
+        if _FHIR_ROUTE.match(request.url.path):
+            refused = fhir_media_refusal(request)
+            if refused is not None:
+                return refused
+        response: Response = await call_next(request)
+        return response
 
     @app.middleware("http")
     async def _guard(request: Request, call_next: Any) -> Response:
@@ -961,6 +1073,16 @@ def create_app(
     return app
 
 
+def mounted_routes(app: FastAPI) -> list[tuple[str, str]]:
+    """(method, path) of every route the app serves."""
+    return [
+        (method, route.path)
+        for route in app.routes
+        if isinstance(route, APIRoute)
+        for method in route.methods or ()
+    ]
+
+
 def error_response(path: str, status: int, error: MendariError) -> JSONResponse:
     """`{"error", "detail"}` on Mendari's own API; an OperationOutcome on FHIR routes."""
     if not _FHIR_ROUTE.match(path):
@@ -971,6 +1093,55 @@ def error_response(path: str, status: int, error: MendariError) -> JSONResponse:
     if isinstance(error, PackNotFoundError):
         code = "not-found"
     return operation_outcome(status, [{"code": code, "diagnostics": str(error)}])
+
+
+_JSON_FORMATS = {"json", "application/json", "application/fhir+json", "text/json"}
+_JSON_ACCEPTED = {"*/*", "application/*", "application/json", "application/fhir+json"}
+_R4_VERSIONS = {"4.0", "4.0.1"}
+
+
+def fhir_media_refusal(request: Request) -> JSONResponse | None:
+    """R4 content negotiation (http.html): only JSON is offered, so `_format` or an Accept
+    header that excludes it is a `406`, a request body in another format a `415`, and a
+    `fhirVersion` media type parameter other than R4 is refused the same way."""
+    requested = request.query_params.get("_format")
+    if requested is not None and requested.split(";")[0].strip().lower() not in _JSON_FORMATS:
+        return _refuse(406, "only JSON is offered: _format must be json")
+    accept = request.headers.get("accept")
+    if accept and not any(_takes_json(media) for media in accept.split(",")):
+        return _refuse(406, "only application/fhir+json (FHIR R4) is offered")
+    sent = request.headers.get("content-type")
+    if sent and request.method in ("POST", "PUT", "PATCH"):
+        media, params = _media_type(sent)
+        if media not in ("application/json", "application/fhir+json"):
+            return _refuse(415, "send application/fhir+json: other formats are not accepted")
+        if params.get("fhirversion", "4.0") not in _R4_VERSIONS:
+            return _refuse(415, "this server speaks FHIR R4 (fhirVersion=4.0)")
+    return None
+
+
+def _takes_json(media_range: str) -> bool:
+    media, params = _media_type(media_range)
+    try:
+        weight = float(params.get("q", "1"))
+    except ValueError:
+        weight = 1.0
+    return (
+        media in _JSON_ACCEPTED and weight > 0 and params.get("fhirversion", "4.0") in _R4_VERSIONS
+    )
+
+
+def _media_type(value: str) -> tuple[str, dict[str, str]]:
+    media, *rest = value.split(";")
+    params = {}
+    for part in rest:
+        name, _, setting = part.partition("=")
+        params[name.strip().lower()] = setting.strip().strip('"')
+    return media.strip().lower(), params
+
+
+def _refuse(status: int, diagnostics: str) -> JSONResponse:
+    return operation_outcome(status, [{"code": "not-supported", "diagnostics": diagnostics}])
 
 
 def operation_outcome(

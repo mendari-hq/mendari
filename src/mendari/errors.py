@@ -37,15 +37,21 @@ class FhirError(MendariError):
 
 
 class FhirStructureError(FhirError):
-    """FHIR input is not FHIR JSON: an element has the wrong JSON type (a string where an object
-    belongs, say). `issues` are OperationOutcome-shaped ({expression, diagnostics}), paths only,
-    never values."""
+    """FHIR input is not FHIR R4 JSON: an element has the wrong JSON type (a string where an
+    object belongs, say), is not an R4 element, or a primitive does not have its format.
+    `issues` are OperationOutcome-shaped ({code, expression, diagnostics}; code `structure` or
+    `value`), paths only, never values."""
 
     def __init__(self, issues: list[dict[str, str]]):
         self.issues = issues
         shown = "; ".join(f"{i['expression']}: {i['diagnostics']}" for i in issues[:5])
         more = f" (and {len(issues) - 5} more)" if len(issues) > 5 else ""
         super().__init__(f"not valid FHIR JSON: {shown}{more}")
+
+
+class FhirRequestError(FhirStructureError):
+    """A FHIR operation's request is malformed: a missing, repeated or unknown parameter, or a
+    parameter of the wrong type (a `400`, like the structure errors it extends)."""
 
 
 class SmartError(MendariError):

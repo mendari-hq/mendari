@@ -32,8 +32,8 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - run: uv sync --locked
-      - run: uv run ruff check src tests
-      - run: uv run ruff format --check src tests
+      - run: uv run ruff check src tests scripts
+      - run: uv run ruff format --check src tests scripts
       - run: uv run mypy src tests
       - run: uv run pytest
       - run: uv run mendari test mendari/patient-inbox-router
@@ -69,10 +69,30 @@ jobs:
       - name: The trial pack's local-site example evaluates identically through OMOP CDM
         run: uv run mendari sandbox omop-check --dataset datasets/trial-local-site-example.jsonl
 
+  r4-structure:
+    # The structural R4 gate's rules are derived from HL7's R4 JSON Schema, pinned by digest:
+    # regenerating them must change nothing. The download is cached by that digest, so an
+    # hl7.org outage only matters on a cold cache.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - uses: actions/cache@v4
+        with:
+          path: var/fhir-packages/fhir.schema.json.zip
+          key: fhir-r4-schema-2230406893b4cf002a4ee1e5e2bbeca22ac5d2d4931b3e9ef7b9594bbc376a01
+      - run: uv sync --locked
+      - run: uv run python scripts/fhir_r4_schema.py
+      - name: The derived file is byte-identical
+        run: git diff --exit-code -- src/mendari/standards/fhir_r4_structure.json
+
   fhir-conformance:
     # US Core 6.1.0 with the official HL7 FHIR validator: what Mendari accepts or produces as
-    # conforming has no errors, and every resource the in-process checks flag is an error for the
-    # validator too (scripts/fhir_validate.py).
+    # conforming has no errors and no unexpected warnings, and every resource the in-process
+    # checks flag is an error for the validator too (scripts/fhir_validate.py). Mendari's own
+    # terminology is loaded as a folder, so a code it emits that its CodeSystem lacks is an error.
     runs-on: ubuntu-latest
     env:
       VALIDATOR_VERSION: "6.10.4"
@@ -101,16 +121,20 @@ jobs:
           fi
           echo "${VALIDATOR_SHA256}  var/validator/validator_cli.jar" | sha256sum -c -
       - run: uv sync --locked
+      - run: uv run python scripts/fhir_terminology.py var/fhir-terminology
       - run: uv run python scripts/audit_fhir_sample.py var/fhir-samples/audit-export.json
       - run: uv run python scripts/sandbox_fhir_sample.py var/fhir-samples
+      - run: uv run python scripts/fhir_output_sample.py var/fhir-samples
       - run: >-
           uv run python scripts/fhir_validate.py
-          --valid tests/fixtures/us-core/*.json var/fhir-samples/*.json
+          --ig var/fhir-terminology
+          --valid tests/fixtures/us-core/*.json var/fhir-samples/*.json var/fhir-terminology/*.json
           --invalid tests/fixtures/us-core/invalid/*.json
       - run: uv run python scripts/davinci_sample.py var/fhir-samples/davinci
       - name: Da Vinci resources conform to their implementation guides
         run: >-
           uv run python scripts/fhir_validate.py
+          --ig var/fhir-terminology
           --ig hl7.fhir.us.davinci-crd#2.2.1
           --ig hl7.fhir.us.davinci-dtr#2.2.0
           --ig hl7.fhir.us.davinci-pas#2.2.1

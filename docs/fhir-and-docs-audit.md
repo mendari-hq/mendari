@@ -181,6 +181,26 @@ every path.
 | 9 | **Interoperability test** | **Implemented for outputs; missing for a server** | HL7 validator: 0 errors across 18 files (Mendari's own outputs, sandbox inputs, Da Vinci samples), already enforced in CI. HAPI comparison: no equivalent behaviour, because there is no FHIR API. See next section. |
 | 10 | **Errors** | **Partial** | Three error shapes: `{"error","detail"}` (Mendari errors), `{"detail": "…"}` (`HTTPException`, unknown routes), FastAPI's `{"detail":[…]}` validation list, which echoes the input. None is an `OperationOutcome`, including under `/fhir/`. Two crash paths return `500` with a plain-text body. Status codes are otherwise sensible (`404`, `409`, `422`), except `400` for an unconfigured provider and `200` for a blocked input. |
 
+### Status after Phase 2 (2026-10-02)
+
+The scorecard above is the audit as of 2026-10-01. After Phases 1 and 2:
+
+| # | Item | Then | Now | What changed |
+|---|---|---|---|---|
+| 1 | Conformance | Missing | **Implemented** for what Mendari serves | `GET /fhir/metadata`: a CapabilityStatement built from the mounted routes (a test checks both ways), ETag and `304`, `date` from when the packs and release went live. No `implementationGuide`, `instantiates` or SMART claims. |
+| 2 | Resources | Missing as a server | Unchanged **by design** | Mendari serves the conformance resources that describe it (CodeSystem, NamingSystem, OperationDefinition: read) and no clinical resources. It is a decision engine, not a FHIR data server. |
+| 3 | Validation | Partial | **Implemented** for structure | A structural R4 gate from HL7's R4 JSON Schema (digest-pinned, patched, iterative): a `400` in every mode. Base-R4 required elements and enumerated codes, and US Core 6.1.0, follow `fhir_validation`. **Deviation from this audit:** a bad required code is a finding, not a `400` (the schema enumerates only some value sets, so making them a `400` would be inconsistent). |
+| 4 | Search | Missing | Missing | Phase 3. |
+| 5 | Bundles | Partial | Partial | `$decide` returns a `collection` Bundle that passes the HL7 validator. No `transaction`/`batch` (not planned: nothing stored to change). |
+| 6 | Versioning | Missing | **Partial** | `meta.lastUpdated` on Task, AuditEvent and Provenance; `versionId` only on the immutable AuditEvent and Provenance; ETag on the CapabilityStatement. The Task's `versionId` waits for Phase 3; no `meta.profile` (no Mendari profiles exist). |
+| 7 | Terminology | Partial | **Implemented** for Mendari's own codes | CodeSystems and NamingSystems generated from the code and served packs, served at `/fhir/CodeSystem/{id}` and `/fhir/NamingSystem/{id}`, and loaded into CI's validator, so a code Mendari emits that its CodeSystem lacks fails CI. External code systems are still checked without a terminology server. |
+| 8 | Security | Partial | **Implemented** for this deployment | Google sign-in in production (Phase 1). The CapabilityStatement says in prose what authentication is, and that Mendari is not a SMART resource server. |
+| 9 | Interoperability | Outputs only | **Wider** | CI validates the CapabilityStatement, the OperationDefinition, `$decide` Bundles (including a refused input), Tasks, the record Bundle and the terminology, and fails on any unexpected warning. |
+| 10 | Errors | Partial | **Implemented** on FHIR routes | OperationOutcome everywhere on FHIR routes, `406`/`415` for non-JSON or non-R4 media types, never a `500` for bad input. |
+
+Also fixed: rejection reasons quoted the input (case text in the audit record and the Task); they
+are now built from the schema alone.
+
 ## Validator and reference-server comparison
 
 ### HL7 FHIR Validator 6.10.4 (R4 4.0.1, US Core 6.1.0, no terminology server)
@@ -199,7 +219,7 @@ in this audit.
 | `var/fhir-samples/davinci/` (7 files; with CRD 2.2.1, DTR 2.2.0, PAS 2.2.1) | CRD cards, DTR packages, PAS request and response | 0 each |
 | `tests/fixtures/us-core/invalid/{records,referral}.json` | Resources the in-process checks reject (8 + 3 flagged) | the validator also errors on every flagged resource, so the in-process subset rejects nothing that US Core accepts |
 
-**Warnings on the Task and audit Bundle** (`fhir_validate.py` counts only errors, so I tallied
+**Warnings on the Task and audit Bundle** (`fhir_validate.py` counted only errors then, so I tallied
 these by hand):
 - Mendari's CodeSystems (`decision-outcome`, `inbox-destination`, `audit-event`) can't be found,
   so their codes can't be validated (roadmap Phase 2: publish them).
@@ -358,6 +378,32 @@ produced the two `500`s.
 | `meta.versionId`, `meta.lastUpdated` and `meta.profile` on produced Task / AuditEvent / Provenance | `standards/fhir.py`, `standards/audit_fhir.py` | 0.5 d |
 | Publish Mendari's CodeSystems (outcome, destinations, audit subtypes) as resources at their URLs; bind them in the CapabilityStatement | new `standards/codesystems/`, `server/app.py`, `web/` | 1 d |
 | Add the produced Task and the record Bundle to CI's validator run | `.github/workflows/ci.yml`, `scripts/` | 0.25 d |
+
+**Status (2026-10-02): built**, after research by three researchers and a critic (evidence from
+the HL7 validator and the official R4 definitions). Changes from the plan above:
+- `fhir.resources` was not used: its last R4 release needs pydantic v1, and its R4B models
+  rejected 62 of HL7's 5,309 official R4 examples. The gate is HL7's R4 JSON Schema instead,
+  patched (`scripts/fhir_r4_schema.py`) and checked by an iterative walker, with `jsonschema` as
+  the test oracle. It replaces Phase 1's hand-written structure checks.
+- The decision operation is `POST /fhir/$decide` (system level), not `PlanDefinition/$apply`:
+  R4's `$apply` reads the subject from the server's own data, and a pack's logic is not a
+  PlanDefinition. It returns a GuidanceResponse, the R4 resource for a decision-support result.
+- `meta.profile` is not set (no profiles exist), and the Task gets no `versionId` (the server that
+  stores it assigns one).
+- CodeSystems are served by each deployment, not published on mendari.co (a launch decision).
+- Added: FHIR media types (`406`/`415`), and the privacy fix for rejection reasons.
+- Reviewed before shipping by five independent reviewers, each finding checked by a skeptic.
+  Ten problems were confirmed, none high: text with a vertical tab or form feed was a `400`
+  (the HL7 validator only warns); `Expression.language` was treated as a required binding
+  (it is the only one of the schema's 246 enumerations R4 binds as extensible); a required
+  canonical carried by its extension alone was flagged; `$decide` claimed the input is never
+  echoed (answer evidence can name what matched) and promised a `503` it never returns; provider
+  failures under combined providers lost their issue type; `$decide` was advertised for packs
+  without FHIR input; one pack's broken FHIR mapping stopped the server; with sign-in on, the
+  CodeSystems exposed pack criteria publicly (they now need `read`); and the
+  CapabilityStatement's `date` could stay or go back when its content changed (its `version` is
+  now a digest of the whole statement, and `date` when that version went live here). All fixed,
+  each with a test.
 
 ### Phase 3: search and Bundles (≈ 3–5 days, only what fits Mendari)
 

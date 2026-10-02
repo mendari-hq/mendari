@@ -76,6 +76,11 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         ("POST", r"^/api/packs/[^/]+/[^/]+/(decide|guard|fhir/decide|pas)$", "decide"),
         ("POST", r"^/cds-services/[^/]+$", "decide"),
         ("POST", r"^/fhir/Questionnaire/\$questionnaire-package$", "decide"),  # Da Vinci DTR
+        ("POST", r"^/fhir/\$decide$", "decide"),
+        # How to talk to this FHIR base: public, so clients can discover it.
+        ("GET", r"^/fhir/(metadata|OperationDefinition/[^/]+)$", "public"),
+        # The terminology carries the packs' labels and criteria: read, like /api/packs.
+        ("GET", r"^/fhir/(CodeSystem|NamingSystem)/[^/]+$", "read"),
         ("GET", r"^/cds-services$", "read"),
         ("POST", r"^/api/packs/[^/]+/[^/]+/evals$", "evaluate"),
         ("POST", r"^/api/review/[^/]+$", "review"),

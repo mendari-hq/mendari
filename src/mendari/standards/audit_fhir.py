@@ -13,7 +13,12 @@
   - a downstream outcome (`UPDATE`).
 
 Like evaluation reports, the export carries identifiers and codes, never case text: free-text
-review and feedback notes stay in the store, and inputs are referred to by hash.
+review and feedback notes stay in the store, and inputs are referred to by hash. Narratives are
+built from the same codes, ids and times.
+
+Both are immutable entries with deterministic ids, so each is version `1`, last updated when it
+was recorded. The subtype stays a Mendari code (`terminology.py` publishes the CodeSystem): a
+FHIR `restful-interaction` subtype would claim REST interactions that never happened.
 """
 
 from __future__ import annotations
@@ -23,7 +28,7 @@ import uuid
 from collections.abc import Iterable, Iterator, Mapping
 from typing import Any
 
-from mendari.standards.fhir import DECISION_ID_SYSTEM, PACK_TAG_SYSTEM
+from mendari.standards.fhir import DECISION_ID_SYSTEM, PACK_ID_SYSTEM, narrative
 
 EVENT_SYSTEM = "https://mendari.co/fhir/CodeSystem/audit-event"
 INPUT_HASH_SYSTEM = "https://mendari.co/fhir/NamingSystem/input-hash"
@@ -40,6 +45,8 @@ _SERVER = {
 }
 _PARTICIPANT = f"{TERMINOLOGY}/provenance-participant-type"
 _OBJECT = {"system": f"{TERMINOLOGY}/audit-entity-type", "code": "2", "display": "System Object"}
+# Every event the store chains on a decision (a test checks the code records no other). Unknown
+# ones are still exported, with the event name as display.
 _EVENTS = {
     "decision.created": ("C", "Decision created"),
     "review.resolved": ("U", "Review resolved"),
@@ -89,9 +96,15 @@ def audit_event(event: Mapping[str, Any]) -> dict[str, Any]:
     ]
     facts = dict(_facts(event))
     details += [{"type": key, "valueString": value} for key, value in facts.items()]
+    summary = (
+        f"{display} ({event['event']}, action {action}) on decision {event['decision_id']}, "
+        f"audit chain entry {event['seq']}, recorded {event['created_at']}."
+    )
     return {
         "resourceType": "AuditEvent",
         "id": f"{event['decision_id']}-{event['seq']}",
+        "meta": _immutable(event),
+        "text": narrative(summary),
         "type": _REST,
         "subtype": [{"system": EVENT_SYSTEM, "code": event["event"], "display": display}],
         "action": action,
@@ -115,9 +128,15 @@ def provenance(event: Mapping[str, Any]) -> dict[str, Any]:
         confirmed = kind == "review.resolved" and not payload.get("human_override")
         role = "verifier" if confirmed else "author"
         agent = {"display": str(payload.get("reviewer") or payload.get("source") or "unknown")}
+    summary = (
+        f"{activity} of decision {event['decision_id']} ({kind}); agent role {role}, "
+        f"recorded {event['created_at']}."
+    )
     resource: dict[str, Any] = {
         "resourceType": "Provenance",
         "id": f"{event['decision_id']}-p{event['seq']}",
+        "meta": _immutable(event),
+        "text": narrative(summary),
         "target": [_decision(event)],
         "recorded": event["created_at"],
         "activity": {"coding": [{"system": f"{TERMINOLOGY}/v3-DataOperation", "code": activity}]},
@@ -130,6 +149,10 @@ def provenance(event: Mapping[str, Any]) -> dict[str, Any]:
     return resource
 
 
+def _immutable(event: Mapping[str, Any]) -> dict[str, str]:
+    return {"versionId": "1", "lastUpdated": event["created_at"]}
+
+
 def _decision(event: Mapping[str, Any]) -> dict[str, Any]:
     decision_id = event["decision_id"]
     return {
@@ -140,7 +163,7 @@ def _decision(event: Mapping[str, Any]) -> dict[str, Any]:
 
 def _engine(event: Mapping[str, Any]) -> dict[str, Any]:
     pack = f"{event['pack_id']}@{event['pack_version']}"
-    identifier = {"system": PACK_TAG_SYSTEM, "value": pack}
+    identifier = {"system": PACK_ID_SYSTEM, "value": pack}
     return {"identifier": identifier, "display": f"Mendari engine · {pack}"}
 
 

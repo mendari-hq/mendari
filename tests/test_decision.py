@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 from jsonschema import Draft202012Validator
 
@@ -63,3 +65,37 @@ def test_decisions_are_recorded_when_a_store_is_attached(inbox_pack: Pack) -> No
     assert stored is not None
     assert stored["record"]["input"]["message"]["body"].startswith("My A1c")
     assert stored["events"][0]["event"] == "decision.created"
+
+
+SECRET = "Synthetic secret: chest pain since noon"  # must never leave the input
+
+
+@pytest.mark.parametrize(
+    "bad_input",
+    [
+        {"message": {"body": SECRET * 300}},  # longer than maxLength
+        {"message": {"body": SECRET, "channel": SECRET}},  # not in the enum
+        {"message": {"body": SECRET, "subject": SECRET * 20}},  # longer than maxLength
+        {"message": {"body": SECRET}, "patient": {"preferred_language": SECRET}},  # pattern
+        {"message": {"body": SECRET, SECRET: SECRET}},  # a key the schema does not allow
+        {"message": {"body": 7, "subject": [SECRET]}},  # wrong types
+    ],
+)
+def test_rejection_reasons_never_quote_the_input(
+    router: Decision, bad_input: dict[str, object]
+) -> None:
+    """jsonschema's messages quote the value; reasons are stored in the audit trail and copied
+    into the FHIR Task, so they are built from the schema alone."""
+    result = router(bad_input)
+    assert result.outcome is Outcome.BLOCK and result.reasons
+    assert SECRET not in json.dumps(result.to_dict())
+
+
+def test_rejection_reasons_still_say_where_and_why(router: Decision) -> None:
+    result = router({"message": {"body": "", "channel": "fax"}, "unexpected": True})
+    assert result.reasons == (
+        "input rejected: (root): has fields the schema does not allow: unexpected",
+        "input rejected: message/body: must have at least 1 characters",
+        "input rejected: message/body: does not match the pattern the schema requires",
+        "input rejected: message/channel: is not one of the values the schema allows",
+    )

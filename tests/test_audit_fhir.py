@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import itertools
 import json
 import os
@@ -16,8 +17,8 @@ from mendari.cli import main
 from mendari.core.phi import PhiPolicy
 from mendari.server.app import create_app
 from mendari.standards import audit_fhir
-from mendari.standards.fhir import DECISION_ID_SYSTEM
-from tests.conftest import message
+from mendari.standards.fhir import DECISION_ID_SYSTEM, PACK_ID_SYSTEM
+from tests.conftest import ROOT, message
 
 EMERGENCY = "Crushing chest pain and my left arm is numb"  # stat HUMAN_REVIEW -> nurse
 ROUTINE = "Can you send a refill for metformin to my pharmacy on Main Street?"  # AUTO
@@ -191,3 +192,47 @@ def test_reads_and_purges_of_encrypted_inputs_are_exported(
     assert (purged["subtype"][0]["code"], purged["action"]) == ("input.purged", "D")
     assert purged["agent"][0]["requestor"] is False
     assert SECRET not in json.dumps(events)
+
+
+# Chained under `governance:<id>` or `deployment:<id>`, not a decision; the export never reads them.
+NOT_ON_A_DECISION = {"governance.approved", "governance.revoked", "deployment.recorded"}
+
+
+def test_every_event_the_code_records_has_an_audit_event_code() -> None:
+    """The audit-event CodeSystem (standards/terminology.py) is generated from `_EVENTS`, so an
+    event recorded on a decision but missing there would be exported with an undefined code."""
+    recorded: set[str] = set()
+    for path in (ROOT / "src" / "mendari").rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+                continue
+            position = {"_append": 2, "record_event": 1}.get(node.func.attr)
+            if position is None or len(node.args) <= position:
+                continue
+            event = node.args[position]
+            if isinstance(event, ast.Name) and event.id == "event":
+                continue  # `record_event` passing its caller's literal on
+            assert isinstance(event, ast.Constant), f"{path}: an event name that is not a literal"
+            recorded.add(str(event.value))
+    assert recorded - NOT_ON_A_DECISION == set(audit_fhir._EVENTS)
+
+
+def test_audit_entries_are_immutable_versions_narrated_from_codes(
+    store: AuditStore, inbox_pack: Pack
+) -> None:
+    trail(store, inbox_pack)
+    exported = list(audit_fhir.resources(store.iter_events()))
+    for resource in exported:
+        assert resource["meta"] == {"versionId": "1", "lastUpdated": resource["recorded"]}
+        assert resource["text"]["status"] == "generated"
+        div = resource["text"]["div"]
+        provenance = resource["resourceType"] == "Provenance"
+        decision = resource["target"][0] if provenance else resource["entity"][0]["what"]
+        assert decision["identifier"]["value"] in div
+        for private in (SECRET, "rn-1", "rn-2", "staff re-route", "chest pain"):
+            assert private not in div
+    for event in by_type(exported, "AuditEvent"):
+        assert [c["system"] for c in event["subtype"]] == [audit_fhir.EVENT_SYSTEM]
+    created = next(e for e in by_type(exported, "AuditEvent") if e["action"] == "C")
+    engine = created["agent"][0]["who"]["identifier"]
+    assert engine == {"system": PACK_ID_SYSTEM, "value": inbox_pack.ref}

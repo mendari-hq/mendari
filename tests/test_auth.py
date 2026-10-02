@@ -286,6 +286,9 @@ def test_every_route_has_the_permission_it_should(tmp_path: Path) -> None:
         ("GET", "/api/smart/patient"),
         ("GET", "/api/smart/focus"),
         ("POST", "/api/smart/decide"),
+        # How to talk to the FHIR base: discoverable without signing in.
+        ("GET", "/fhir/metadata"),
+        ("GET", "/fhir/OperationDefinition/{resource_id}"),
     }
     writes = [
         (m, p)
@@ -294,6 +297,9 @@ def test_every_route_has_the_permission_it_should(tmp_path: Path) -> None:
     ]
     assert all(permission_for(m, p) != "read" for m, p in writes), writes
     assert permission_for("POST", "/api/packs/a/b/evals") == "evaluate"
+    assert permission_for("POST", "/fhir/$decide") == "decide"
+    assert permission_for("GET", "/fhir/CodeSystem/x") == "read"  # pack labels and criteria
+    assert permission_for("GET", "/fhir/Patient/p1") == "admin"  # not a conformance resource
     assert permission_for("GET", "/api/packs/a/b/feedback/export") == "admin"
     assert permission_for("DELETE", "/api/something/new") == "admin"  # deny by default
 

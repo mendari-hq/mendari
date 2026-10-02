@@ -63,8 +63,11 @@ packages = ["src/mendari"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # Browser tests (tests/browser) need Chromium and a live server: run them with `-m browser`.
-addopts = "-q -m 'not browser'"
-markers = ["browser: dashboard tests in a real browser (uv run pytest -m browser)"]
+addopts = "-q -m 'not browser and not slow'"
+markers = [
+    "browser: dashboard tests in a real browser (uv run pytest -m browser)",
+    "slow: corpora outside the repository, when cached in var/ (uv run pytest -m slow)",
+]
 filterwarnings = [
     "error",
     # Starlette's TestClient warns about its own httpx dependency; nothing we can act on.

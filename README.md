@@ -199,17 +199,39 @@ exactly like the same cases read from the dataset file.
 
 ## Healthcare standards
 
-FHIR inputs (`/api/packs/{pack}/fhir/decide`, CDS Hooks, `mendari decide --fhir`) are checked
-against **US Core 6.1.0** in process. The checks cover required elements, required bindings,
-the required category slices and the profiles' `us-core-*` invariants. They are generated from
-the official packages by `scripts/us_core_subset.py`. `MENDARI_FHIR_VALIDATION` chooses what
-happens:
+FHIR inputs (`/api/packs/{pack}/fhir/decide`, CDS Hooks, `mendari decide --fhir`) first pass a
+**structural R4 check** against HL7's R4 JSON Schema (digest-pinned and patched by
+`scripts/fhir_r4_schema.py`): an unknown element or resource type, an element of the wrong JSON
+type, or a primitive without its format is a `400` in every mode. This is a structural check,
+not validation. Then they are checked against **US Core 6.1.0** in process. The checks cover
+required elements, required bindings, the required category slices and the profiles'
+`us-core-*` invariants. They are generated from the official packages by
+`scripts/us_core_subset.py`. A complex element R4 itself requires, or a code outside an R4
+required value set, is an issue of the same kind, labelled with the base R4 profile.
+`MENDARI_FHIR_VALIDATION` chooses what happens to these issues:
 
 | Setting | Effect |
 |---|---|
 | `warn` (default) | The decision is unchanged. The issues come back in `decision.input_issues` and are audited, as paths without values. |
 | `enforce` | An input with an error is blocked before any provider sees it, like a JSON Schema failure. |
-| `off` | No checks. |
+| `off` | No profile or required-element checks (the structural check still runs). |
+
+**The FHIR base, `/fhir`.** Mendari is a decision engine, not a FHIR data server: it stores and
+serves no clinical resources. `GET /fhir/metadata` is its CapabilityStatement, built from the
+routes that are mounted. `POST /fhir/$decide` (defined at `/fhir/OperationDefinition/decide`)
+takes `Parameters` with the `pack` and the `data` Bundle, and returns the decision as a FHIR
+`collection` Bundle: a **GuidanceResponse** (act on `outputParameters.outcome`, not on
+`status`), a RequestGroup and the work-queue **Task** (under BLOCK or ABSTAIN, the pack's
+fallback), the answers as Parameters, findings as an OperationOutcome, and the audit trail's
+Provenance. The codes it uses are Mendari CodeSystems and NamingSystems, generated from the code
+and the served packs (`standards/terminology.py`) and served at `/fhir/CodeSystem/{id}` and
+`/fhir/NamingSystem/{id}`. FHIR routes speak FHIR R4 JSON only (`415`/`406` otherwise).
+
+```bash
+curl -s localhost:8000/fhir/metadata
+curl -s -X POST localhost:8000/fhir/\$decide -H 'content-type: application/fhir+json' \
+  -d '{"resourceType":"Parameters","parameter":[{"name":"pack","valueString":"mendari/patient-inbox-router"},{"name":"data","resource":'"$(cat tests/fixtures/us-core/inbox.json)"'}]}'
+```
 
 The audit trail exports as FHIR R4. Each event in the hash chain becomes an **AuditEvent**, and
 each decision, review and downstream outcome becomes a **Provenance** on the decision's `Task`.
