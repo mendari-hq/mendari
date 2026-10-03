@@ -276,12 +276,17 @@ never rewritten. Still open:
   [`security/review-packet.md`](security/review-packet.md); then the owner's launch order:
   ceilings and quotas set, the firewall rule enforced after 7 days in log mode, then Vercel
   Authentication lifted.
-- **The SMART launch** is being gated before it is turned on anywhere with sign-in (ADR-0006).
-  The EHR's token, the patient and the PKCE verifier are now sealed at rest (threat I11), and
-  with sign-in on a launch is a principal of its EHR's registered organization that may view,
-  or view and decide, and nothing else (threat E7). With sign-in on, every new decision names
-  who asked for it, in the chain and in the FHIR exports (threat R1). A browser that only
-  launched opens the dashboard on the patient view alone, pinned to its launch (threat E7).
+- **The SMART launch** is gated for use with sign-in (ADR-0006, built 2026-10-03; its review
+  is still to come). The EHR's token, the patient and the PKCE verifier are sealed at rest
+  (threat I11), and with sign-in on a launch is a principal of its EHR's registered
+  organization that may view, or view and decide, and nothing else (threat E7). With sign-in
+  on, every new decision names who asked for it, in the chain and in the FHIR exports (threat
+  R1). A browser that only launched opens the dashboard on the patient view alone, pinned to
+  its launch (threat E7). CI's `sandbox-e2e` now also launches from the SMART launcher into an
+  engine with sign-in on and checks the organization and who the chain names, and
+  `mendari smart check <base>` checks an EHR's registration, discovery, PKCE and keys before
+  go-live. It stays off in production; iframe launches and refresh tokens wait for the pilot
+  EHR.
 - **The old cookie names** (`mendari_session`, `mendari_smart`) are still read on hosts that use
   `__Host-` names, for sessions from before Phase 4b; the next release stops reading them.
 

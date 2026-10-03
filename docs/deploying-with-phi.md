@@ -178,7 +178,11 @@ MENDARI_SMART_EHRS=https://ehr.example.org/fhir/r4=clinic:decide   # <FHIR base>
 ```
 
 - **Register the base exactly as the EHR sends it** in the launch's `iss` (scheme and host in
-  any case, a trailing slash ignored, the path as it is). Two tenants on one EHR host are two
+  any case, a trailing slash ignored, the path as it is), then check it with the deployment's
+  settings: `mendari smart check https://ehr.example.org/fhir/r4` prints the registration key,
+  whether its origin is allowed and how it is registered, the SMART client and scopes, and the
+  EHR's discovery, PKCE S256 and keys, each `ok`, `warn` or `fail` (exit 1 on any `fail`). It
+  reads only the EHR's public configuration and keys. Two tenants on one EHR host are two
   bases, so two organizations; one base serving several organizations is not supported.
   Register only an EHR whose sign-in you trust: its id_token is what names the clinician.
 - **What is refused, at the launch, never at startup:** a base not registered (before anything
@@ -509,6 +513,7 @@ startup, so a typo never runs with a weaker setting.
 | `MENDARI_TRUSTED_ORIGINS` | none | Other origins people use (a name a proxy rewrites), comma-separated | 2 |
 | `MENDARI_SMART_CLIENT_ID` | unset: no EHR launch | The SMART app's client id at the EHR; turns the launch on | 2 |
 | `MENDARI_SMART_EHRS` | none: with sign-in on, every launch refused | The EHRs that may launch: `<FHIR base>=<org>:view` or `:decide`, comma-separated | 2 |
+| `MENDARI_SMART_SCOPES` | `launch openid fhirUser patient/*.rs` | What a launch asks the EHR for; with sign-in on it must keep `openid fhirUser`, and `offline_access` refuses every launch | 2 |
 | `MENDARI_PHI_MODE` | `off` | `hash` or `encrypt` for real patient data | 3 |
 | `MENDARI_PHI_KEY` | none | 32 bytes, base64; seals inputs, evidence and notes under `encrypt` | 3 |
 | `MENDARI_INPUT_HASH_KEY` | none | 32 bytes, base64, not the PHI key; required under `hash` and `encrypt` | 3 |
@@ -541,6 +546,13 @@ reads of PHI, then operations. Keep the answers with your go-live record.
       providers and FHIR servers you expect.
 - [ ] Daily budgets and quotas are set and visible there (`jev.daily_limit`,
       `llm.daily_limit`, `org_quotas`). Choose them from a week of your traffic.
+- [ ] Only if you turn on EHR launches: each EHR is registered in `MENDARI_SMART_EHRS` (§2)
+      and `mendari smart check <base>`, run with the server's settings, reports no `fail` for
+      it. Then launch from the EHR in a new window or its embedded window (not an iframe, which
+      fails with `browser`): the clinician sees the patient view alone, a decision there is in
+      the audit trail of the registered organization, under the EHR's `<issuer>|<subject>` (or
+      verified email), and a second launch in the same browser leaves the first window saying
+      it was replaced.
 - [ ] The session cookie is `__Host-mendari_session` (in the browser's developer tools), and a
       session left alone past the idle time is refused ("Your session ended. Sign in again.").
 - [ ] On each address people use, signed in: review a case on the dashboard and sign out, with

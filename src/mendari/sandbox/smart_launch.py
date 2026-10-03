@@ -11,16 +11,24 @@ The launcher's launch value asks it to skip login and consent. The script then u
 like the dashboard does: the patient's work items, a decision for each, and logging out. This is
 the roadmap's exit check: "the inbox and referral packs run from a SMART launch against the HAPI
 sandbox".
+
+With sign-in on and the launcher registered (`MENDARI_SMART_EHRS`, the compose profile
+`signin`), `expect_org` also reads the engine's own audit store (`db`, so the script runs next
+to the engine) for who each decision's `decision.created` event says asked, as that
+organization: a decision another organization owns reads as nobody (ADR-0006).
 """
 
 from __future__ import annotations
 
 import base64
 import json
+import re
 from typing import Any
 
 import httpx
 
+from mendari.core import tenancy
+from mendari.core.audit import AuditStore
 from mendari.errors import MendariError
 from mendari.sandbox.fhir_records import SANDBOX_TAG
 
@@ -68,8 +76,14 @@ def run(
     patient: str | None = None,
     provider: str = "sandbox-clinician",
     limit: int = 5,
+    expect_org: str | None = None,
+    db: str | None = None,
 ) -> dict[str, Any]:
-    """Launch, decide up to `limit` of the patient's work items, log out; return what happened."""
+    """Launch, decide up to `limit` of the patient's work items, log out; return what happened.
+    With `expect_org`, also who each decision's chain says asked, read from `db` as that
+    organization (`requested_by`)."""
+    if expect_org is not None and db is None:
+        raise MendariError("checking the organization needs the engine's database (db)")
     engine = engine.rstrip("/")
     patient = patient or find_patient(fhir, pack_id)
     iss = f"{launcher.rstrip('/')}/v/r4/fhir"
@@ -108,13 +122,37 @@ def run(
             )
         browser.post(f"{engine}/api/smart/logout", headers=cookie).raise_for_status()
         ended = _json(browser.get(f"{engine}/api/smart/session", headers=cookie))
-    return {
+    result = {
         "patient": session["patient"],
         "fhir_user": session.get("fhir_user"),
         "work_items": len(items),
         "decided": decided,
         "session_ended": not ended["active"],
     }
+    if expect_org is not None and db is not None:
+        ids = [item["decision_id"] for item in decided]
+        result |= {"org": expect_org, "requested_by": who_asked(db, expect_org, ids)}
+    return result
+
+
+def who_asked(db: str, org: str, decision_ids: list[str]) -> list[str | None]:
+    """For each decision, who its `decision.created` event says asked (`requested_by`), read as
+    `org`: None for a decision `org` does not own, or one that names nobody (open mode)."""
+    named: list[str | None] = []
+    with AuditStore(db) as store, tenancy.acting_for(org):
+        for decision_id in decision_ids:
+            item = store.item(decision_id)
+            events = item["events"] if item is not None else []
+            created = next((e for e in events if e["event"] == "decision.created"), None)
+            named.append(created["payload"].get("requested_by") if created else None)
+    return named
+
+
+def names_launcher_user(actor: str | None, launcher: str) -> bool:
+    """Whether the chain names the launch's user as the launcher's id_token does with no verified
+    email: `<issuer>|<subject>`, the issuer on the launcher's own origin."""
+    issuer = re.escape(launcher.rstrip("/"))
+    return actor is not None and re.fullmatch(rf"{issuer}(/[^\s|]*)?\|\S+", actor) is not None
 
 
 def _cookie(response: httpx.Response, base: str, what: str) -> str:

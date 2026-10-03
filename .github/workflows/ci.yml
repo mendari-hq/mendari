@@ -161,13 +161,15 @@ jobs:
   sandbox-e2e:
     # The roadmap's v0.4 exit on the real sandbox (docker compose): HAPI FHIR, the SMART launcher
     # and the engine. The inbox and referral packs run from a scripted SMART EHR launch, and every
-    # input they decide on conforms to US Core.
+    # input they decide on conforms to US Core. A second engine (profile `signin`) has sign-in on
+    # and the launcher registered for organization `pilot` (ADR-0006): its launches must decide
+    # in that organization, chained as the launcher's `<issuer>|<subject>`.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
           persist-credentials: false
-      - run: docker compose up -d --build --wait engine launcher
+      - run: docker compose --profile signin up -d --build --wait engine launcher engine-signin
       - name: Wait until the workflow has seeded both packs
         run: |
           docker compose up -d workflow
@@ -190,13 +192,25 @@ jobs:
           docker compose exec -T engine mendari sandbox smart-launch --strict
           --engine http://engine:8000 --launcher http://launcher --fhir http://fhir:8080/fhir
           --pack mendari/patient-inbox-router
+      - name: The launcher, as `mendari smart check` sees it with sign-in on
+        run: docker compose exec -T engine-signin mendari smart check http://launcher/v/r4/fhir
+      - name: SMART launch with sign-in on, referral pack, in the registered organization
+        run: >-
+          docker compose exec -T engine-signin mendari sandbox smart-launch --strict
+          --engine http://engine-signin:8000 --launcher http://launcher --fhir http://fhir:8080/fhir
+          --pack mendari/referral-router --expect-org pilot --db /data/mendari.db
+      - name: SMART launch with sign-in on, inbox pack, in the registered organization
+        run: >-
+          docker compose exec -T engine-signin mendari sandbox smart-launch --strict
+          --engine http://engine-signin:8000 --launcher http://launcher --fhir http://fhir:8080/fhir
+          --pack mendari/patient-inbox-router --expect-org pilot --db /data/mendari.db
       - name: Bulk export -> dataset -> mendari eval (referral pack)
         # The export's cases must evaluate exactly like the same cases read from the dataset file.
         run: >-
           docker compose exec -T engine mendari sandbox bulk-check
           --fhir http://fhir:8080/fhir --pack mendari/referral-router
       - if: failure()
-        run: docker compose logs --tail 200
+        run: docker compose --profile signin logs --tail 200
 
   hub-site:
     # The Hub website (hub/, Next.js) against a real registry holding the five reference packs.

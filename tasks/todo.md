@@ -31,8 +31,12 @@ registered EHR; no iframe and no refresh until the pilot EHR is known
   (Deviation: the launch pin is checked again before every render and every decision, and a
   window opened on `#patient` with no pin takes the launch it shows; the 401 message applies to
   signed-in people too, who were told to sign in again.)
-- [ ] **5. CI and wrap-up**: `sandbox-e2e` with sign-in on and a registered EHR, `mendari smart
+- [x] **5. CI and wrap-up**: `sandbox-e2e` with sign-in on and a registered EHR, `mendari smart
   check`, threat model, SECURITY.md, deploying-with-phi.md, review packet addendum, audit status
+  (Deviation: `--expect-org` reads the organization and `requested_by` from the engine's own
+  store (`--db`, run in its container), not over HTTP, since the profile's identity provider is
+  a placeholder nobody signs in through; `smart check` also reports the SMART client and scopes,
+  which refuse launches too.)
 - [ ] **Review**: reviewers and a skeptic per finding, then fixes
 - Deferred: iframe mode and refresh (when the pilot EHR is known), sealing sign-in rows (with a
   PHI keyring), token revocation at logout, a registration table, one FHIR base for several

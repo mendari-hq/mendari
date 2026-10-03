@@ -54,6 +54,29 @@ services:
     volumes:
       - mendari-data:/data
 
+  engine-signin:
+    # The same engine with sign-in on (profile `signin`, for CI's `sandbox-e2e`): the launcher is
+    # registered to decide for organization `pilot`, so its launches are `ehr` principals of
+    # that organization, named by the launcher's id_token (ADR-0006). Nobody signs in to
+    # Mendari here: the issuer below turns sign-in on and is never called.
+    #   docker compose --profile signin up -d --build --wait engine launcher engine-signin
+    profiles: [signin]
+    image: mendari-engine:0.1.0
+    depends_on:
+      engine:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8001:8000"
+    environment:
+      MENDARI_FHIR_ALLOWED_SERVERS: http://fhir:8080,http://launcher
+      MENDARI_SMART_CLIENT_ID: mendari-sandbox
+      MENDARI_PUBLIC_URL: http://engine-signin:8000
+      MENDARI_OIDC_ISSUER: https://idp.example.org
+      MENDARI_OIDC_CLIENT_ID: mendari-sandbox
+      MENDARI_SMART_EHRS: http://launcher/v/r4/fhir=pilot:decide
+    volumes:
+      - mendari-signin-data:/data
+
   payer:
     # A mock payer for Da Vinci PAS: certifies every well-formed prior-authorization request.
     image: mendari-engine:0.1.0
@@ -103,3 +126,4 @@ services:
 
 volumes:
   mendari-data:
+  mendari-signin-data:

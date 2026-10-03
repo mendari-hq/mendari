@@ -65,7 +65,12 @@ Each bullet is one control; the threat model names the row and the tests behind 
   is read on every request, so unregistering an EHR ends its launches at once, and signing out
   of Mendari ends the browser's launch too. The dashboard shows a browser that only launched
   the patient view alone, pinned to its launch: a window whose launch a later one replaced says
-  so and shows no patient. Open mode with no EHR registered launches as before.
+  so and shows no patient. Launch in a new window or the EHR's embedded window: an iframe
+  launch fails safely (`browser`), and a launch ends with the EHR's token. Before go-live,
+  `mendari smart check <base>` reports what a launch from that base would meet here
+  (registration, allow-list, scopes, the EHR's discovery, PKCE S256 and keys), and CI launches
+  from a real SMART launcher with sign-in on. Open mode with no EHR registered launches as
+  before.
 - **Sessions.** A person's session (and an EHR launch's) is a server-side row behind an opaque
   HttpOnly, Secure, SameSite=Lax cookie with no expiry of its own, named `__Host-mendari_session`
   (`__Host-mendari_smart`) so only this exact host can set it; loopback and dotless hosts keep
