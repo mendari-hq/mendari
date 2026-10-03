@@ -63,6 +63,7 @@ nav:
       - "ADR-0003: A served Task is a decision": decisions/ADR-0003-a-served-task-is-a-decision.md
       - "ADR-0004: Machine access, tokens and scopes": decisions/ADR-0004-machine-access-tokens-and-scopes.md
       - "ADR-0005: Hardening before PHI": decisions/ADR-0005-hardening-before-phi.md
+      - "ADR-0006: An EHR launch is a principal": decisions/ADR-0006-an-ehr-launch-is-a-principal.md
   - Project:
       - Roadmap: roadmap.md
       - "Plan: v0.4 healthcare standards": plans/v0.4-healthcare-standards.md
