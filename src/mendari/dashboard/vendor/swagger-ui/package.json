@@ -1,0 +1,9 @@
+{
+  "name": "mendari-vendored-swagger-ui",
+  "private": true,
+  "description": "Swagger UI for /docs/reference, vendored (never installed): Dependabot proposes updates here, and scripts/vendor_docs_ui.py fetches the pinned version and checks it.",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "swagger-ui-dist": "5.33.0"
+  }
+}

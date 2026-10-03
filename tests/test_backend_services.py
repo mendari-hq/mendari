@@ -773,13 +773,22 @@ def test_the_api_reference_describes_the_token_flow(server: Server) -> None:
     assert flow["type"] == "oauth2"
     assert flow["flows"]["clientCredentials"]["tokenUrl"] == TOKEN_URL
     assert list(flow["flows"]["clientCredentials"]["scopes"]) == scopes.supported()
+    assert "cannot run that flow" in flow["description"]  # no client secret, ever
+    # A token is pasted as a plain bearer, where its scope reaches.
+    token = schema["components"]["securitySchemes"]["accessToken"]
+    assert (token["type"], token["scheme"]) == ("http", "bearer") and "mat_" in token["description"]
     paths = schema["paths"]
     search = paths["/fhir/Task"]["get"]
-    assert {"smartBackendServices": ["system/Task.s"]} in search["security"]
+    assert search["security"] == [
+        {"apiKey": []},
+        {"smartBackendServices": ["system/Task.s"]},
+        {"accessToken": []},
+        {"session": []},
+    ]
     assert "a scoped key or an access token, the scope `system/Task.s`" in search["description"]
     assert {"smartBackendServices": [DECIDE]} in paths["/fhir/$decide"]["post"]["security"]
     stats = paths["/api/stats"]["get"]
-    assert all("smartBackendServices" not in s for s in stats["security"])
+    assert stats["security"] == [{"apiKey": []}, {"session": []}]
     assert "a scoped key or an access token may not call this" in stats["description"]
     assert paths["/api/auth/clients"]["post"]["security"] == [{"session": []}]
     assert paths["/auth/token"]["post"]["security"] == []

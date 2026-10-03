@@ -124,6 +124,7 @@ uv run mendari card mendari/patient-inbox-router         # render the Decision C
 uv run mendari test mendari/clinical-trial-prescreener
 uv run mendari eval mendari/clinical-trial-prescreener --dataset exclusions_holdout
 uv run mendari serve                                     # API + CDS Hooks + dashboard
+                                                         # (API reference: /docs/reference)
 uv run mendari audit verify --db var/mendari.db
 ```
 
@@ -153,12 +154,12 @@ recommendation, reasons, fallback, decision_id}`.
 
 ### Container images and on-prem templates
 
-`docker build .` builds the engine with every pack. `--build-arg PACK=mendari/referral-router`
-builds one that serves only that pack (`MENDARI_PACKS`). Tagging a release (`v*`) publishes
-both kinds to GitHub Container Registry (workflow `images`), after testing each; nothing is
-published before that. [`deploy/`](deploy) has templates for a site's own infrastructure:
-docker compose on one server and Kubernetes. Both come with Postgres, your identity provider,
-PHI mode and the daily retention and monitoring jobs.
+`docker build .` builds the engine with every pack, installing exactly `uv.lock` on a base image
+pinned by digest. `--build-arg PACK=mendari/referral-router` builds one that serves only that pack
+(`MENDARI_PACKS`). Tagging a release (`v*`) publishes both kinds to GitHub Container Registry
+(workflow `images`), after testing each; nothing is published before that. [`deploy/`](deploy) has
+templates for a site's own infrastructure: docker compose on one server and Kubernetes. Both come
+with Postgres, your identity provider, PHI mode and the daily retention and monitoring jobs.
 
 ### Docker sandbox
 
@@ -350,10 +351,12 @@ public.
 threat model ([`docs/security/threat-model.md`](docs/security/threat-model.md)) lists every
 threat with its mitigation and the test that checks it. On every change, the CI job `security`
 audits the Python and Hub-site dependencies and runs an OWASP ZAP scan of the API with sign-in
-on. Every response carries a strict CSP and the usual isolation headers. A request body is 4 MiB
-at most (`MENDARI_MAX_BODY_BYTES`; a `413` otherwise), and public routes take no lock and do
-little work for a caller without a credential. With sign-in on, decisions, the AI guard,
-evaluations and exports are rate limited per caller, and sign-in and the token endpoint per
+on. Every response carries a strict CSP and the usual isolation headers (HSTS off localhost), the
+API reference included: it is Swagger UI served from vendored, pinned files, never a CDN. A
+browser request that another site starts reaches only public routes and pages, to read. A request
+body is 4 MiB at most (`MENDARI_MAX_BODY_BYTES`; a `413` otherwise), and public routes take no
+lock and do little work for a caller without a credential. With sign-in on, decisions, the AI
+guard, evaluations and exports are rate limited per caller, and sign-in and the token endpoint per
 address, in the database so every instance shares the count (`MENDARI_RATE_LIMITS`; a `429` with
 `Retry-After`); organizations can have daily quotas (`MENDARI_ORG_DAILY_LIMITS`), over which
 decisions fall back to human review. A security log goes to stdout as JSON lines: one access line
@@ -453,6 +456,11 @@ and a Backend Services client as `client <id>`. In open mode the client names th
 reporter and approver, and each must be an identifier (no spaces, at most 100 characters). `MENDARI_OIDC_ORG_CLAIM` names the claim
 that carries the person's organization: one deployment can serve several, and each sees only
 its own decisions, reviews, feedback and reports.
+
+A link or form on another site cannot act with a signed-in browser: such a request reaches only
+public routes and pages, with GET or HEAD (a `403` otherwise). If a proxy serves Mendari under a
+name that is neither the request's host nor `MENDARI_PUBLIC_URL`, list it in
+`MENDARI_TRUSTED_ORIGINS` (comma-separated origins).
 
 **Governance approvals.** At risk level 2 or 3 a person reviews every decision (ADR-0002) until
 the organization approves automation. Someone with the `governance` role gives the approval

@@ -27,6 +27,7 @@ from fastapi.responses import (
     FileResponse,
     HTMLResponse,
     JSONResponse,
+    RedirectResponse,
     Response,
     StreamingResponse,
 )
@@ -90,6 +91,7 @@ from mendari.server.backend_services import (
     throttled,
 )
 from mendari.server.limits import Limiter, RateLimited, client_ip, limit_settings
+from mendari.server.origin import OriginCheck, is_local_host, trusted_origins
 from mendari.server.smart_routes import add_smart_routes, error_page
 from mendari.settings import FhirValidation, providers_for
 from mendari.standards import (
@@ -109,6 +111,7 @@ from mendari.standards.smart import smart_settings
 from mendari.standards.terminology import Terminology
 
 DASHBOARD_DIR = Path(__file__).resolve().parents[1] / "dashboard"
+VENDOR_DIR = DASHBOARD_DIR / "vendor"  # third-party front-end code (scripts/vendor_docs_ui.py)
 INBOX = "mendari/patient-inbox-router"
 JsonBody = Annotated[dict[str, Any], Body()]
 _DATASET_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
@@ -304,6 +307,7 @@ def create_app(
         check_webhook(webhook)  # likewise: a quota's alert must be able to leave
     store = AuditStore(db_path, migrate_url=migrate_url, phi=phi)
     auth = Auth(sign_in, store, tokens=backend is not None, lifetime=session_lifetime)
+    origins = OriginCheck(open_mode=not auth.enabled, trusted=trusted_origins())  # likewise
     limiter = Limiter(store, rate_limits)
     budget = (
         CallBudget(
@@ -426,6 +430,11 @@ def create_app(
             ),
         ),
         openapi_tags=api_docs.TAGS,
+        # FastAPI's own pages load Swagger UI and ReDoc from a CDN, unpinned, into this origin.
+        # Mendari serves its reference from vendored files instead (/docs/reference).
+        docs_url=None,
+        redoc_url=None,
+        swagger_ui_oauth2_redirect_url=None,
     )
 
     def limit_class(method: str, path: str) -> str | None:
@@ -1330,7 +1339,10 @@ def create_app(
 
     # -- dashboard ---------------------------------------------------------------------------
 
-    page = versioned_dashboard()
+    page = versioned_page("index.html")
+    # The API reference: Swagger UI from vendored files, which needs no inline style.
+    reference = versioned_page("docs/reference.html")
+    reference_csp = content_security_policy(reference, inline_styles=False)
 
     # Innermost, so the route reads through it directly: Starlette's middleware would wrap the
     # 413 it raises mid-body in an exception group, which FastAPI answers with a 400.
@@ -1359,11 +1371,13 @@ def create_app(
 
     @app.middleware("http")
     async def _guard(request: Request, call_next: Any) -> Response:
-        """Every request passes the sign-in guard (a no-op in open mode) and the rate limits. A
-        credential in a URL is refused first, in every mode: it would end up in logs and
-        histories. No body is read here: the routes that read a form refuse a credential in
-        it, after this check."""
+        """Every request passes the sign-in guard (a no-op in open mode) and the rate limits.
+        First, a request another site started reaches only a public route or a page, to read
+        (`server/origin.py`). Then a credential in a URL is refused, in every mode: it would end
+        up in logs and histories. No body is read here: the routes that read a form refuse a
+        credential in it, after this check."""
         try:
+            origins.check(request)
             if names_a_credential(request.query_params):
                 raise credential_in_url_or_form()
             # A credential lookup and a limit are database work: in the thread pool, as sync
@@ -1382,8 +1396,9 @@ def create_app(
 
     @app.middleware("http")
     async def _security_headers(request: Request, call_next: Any) -> Response:
-        """Outside the guard, so refusals from the guard get the headers too. The API docs pages
-        load Swagger UI and ReDoc from a CDN, so they keep no CSP."""
+        """Outside the guard, so refusals from the guard get the headers too. Every response gets
+        a CSP and COEP: a page sets its own policy (computed from its HTML), anything else gets
+        the dashboard's. Any host but this machine also gets HSTS."""
         response: Response = await call_next(request)
         for name, value in SECURITY_HEADERS.items():
             response.headers.setdefault(name, value)
@@ -1393,9 +1408,10 @@ def create_app(
         api = path.startswith(("/api/", "/fhir/")) or path == "/fhir"
         if api and response.status_code in (401, 403):  # RFC 7235 and 6750: say how to sign in
             response.headers.setdefault("WWW-Authenticate", challenge())
-        if not request.url.path.startswith(("/docs", "/redoc")):
-            response.headers.setdefault("Content-Security-Policy", csp)
-            response.headers.setdefault("Cross-Origin-Embedder-Policy", "require-corp")
+        response.headers.setdefault("Content-Security-Policy", csp)
+        response.headers.setdefault("Cross-Origin-Embedder-Policy", "require-corp")
+        if not is_local_host(request.url.hostname):  # browsers ignore it over plain http
+            response.headers.setdefault("Strict-Transport-Security", HSTS)
         return response
 
     # Outermost: every request gets its id first and its access line last, refusals included
@@ -1426,6 +1442,18 @@ def create_app(
     def dashboard() -> HTMLResponse:
         return HTMLResponse(page, headers={"cache-control": "no-cache"})
 
+    @app.get("/docs/reference", include_in_schema=False)
+    def api_reference() -> HTMLResponse:
+        headers = {"cache-control": "no-cache", "content-security-policy": reference_csp}
+        return HTMLResponse(reference, headers=headers)
+
+    # Bookmarks and links to FastAPI's Swagger UI and ReDoc pages, which are gone. Phase 5 puts
+    # a landing page at /docs.
+    @app.get("/docs", include_in_schema=False)
+    @app.get("/redoc", include_in_schema=False)
+    def to_api_reference() -> RedirectResponse:
+        return RedirectResponse("/docs/reference", status_code=308)
+
     # Browsers ask for /favicon.ico on any page without an icon link (e.g. raw JSON responses).
     @app.get("/favicon.ico", include_in_schema=False)
     def favicon() -> FileResponse:
@@ -1435,7 +1463,7 @@ def create_app(
             headers={"cache-control": "public, max-age=86400"},
         )
 
-    app.mount("/static", StaticFiles(directory=DASHBOARD_DIR), name="static")
+    app.mount("/static", _Static(directory=DASHBOARD_DIR), name="static")
     return app
 
 
@@ -1792,20 +1820,26 @@ SECURITY_HEADERS = {
 }
 
 
-def content_security_policy(page: str) -> str:
-    """The dashboard needs nothing but its own origin. Its two inline scripts (the theme script
-    that runs before first paint, and the import map) are allowed by hash, not 'unsafe-inline';
-    style attributes (data-driven bar widths) need 'unsafe-inline' for styles."""
+# Two years, this host only: a custom domain's siblings (the Hub, the website) decide their own.
+HSTS = "max-age=63072000"
+
+
+def content_security_policy(page: str, *, inline_styles: bool = True) -> str:
+    """A page's policy: nothing but its own origin. Its inline scripts are allowed by hash, not
+    'unsafe-inline' (the dashboard has two: the theme script that runs before first paint, and
+    the import map). The dashboard's style attributes (data-driven bar widths) need
+    'unsafe-inline' for styles; a page without any passes `inline_styles=False`."""
     inline = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", page, re.S)
     hashes = " ".join(
         f"'sha256-{base64.b64encode(hashlib.sha256(script.encode()).digest()).decode()}'"
         for script in inline
     )
+    styles = "'self' 'unsafe-inline'" if inline_styles else "'self'"
     return "; ".join(
         [
             "default-src 'self'",
             f"script-src 'self' {hashes}".strip(),
-            "style-src 'self' 'unsafe-inline'",
+            f"style-src {styles}",
             "img-src 'self' data:",
             "connect-src 'self'",
             "font-src 'self'",
@@ -1817,26 +1851,71 @@ def content_security_policy(page: str) -> str:
     )
 
 
-def versioned_dashboard() -> str:
-    """index.html with each asset URL stamped by a hash of its content, so a deploy that
-    changes a module or the stylesheet can never be served stale from a browser or CDN cache.
+_IMPORT_MAP = '<script type="importmap"></script>'
+_ASSET = re.compile(r'\b(src|href)="(/static/[^"?#]+\.(?:js|css))"')
+_VERSIONED_FILE = re.compile(r"^[^/]+/\d+\.\d+\.\d+/[^/]+$")  # <package>/<version>/<file>
 
-    Modules import each other by plain URL ("./ui.js"); the import map sends each one to its
-    stamped URL, and a modulepreload link per module fetches the whole graph in parallel."""
-    page = (DASHBOARD_DIR / "index.html").read_text(encoding="utf-8")
-    stamped = {
-        f"/static/{path.name}": f"/static/{path.name}?v={_digest(path)}"
-        for path in sorted(DASHBOARD_DIR.glob("*.js"))
-    }
-    preload = "".join(f'\n  <link rel="modulepreload" href="{url}">' for url in stamped.values())
-    import_map = json.dumps({"imports": stamped})
-    page = page.replace(
-        '<script type="importmap"></script>',
-        f'<script type="importmap">{import_map}</script>{preload}',
-    )
-    page = page.replace('src="/static/main.js"', f'src="{stamped["/static/main.js"]}"')
-    style = f"/static/style.css?v={_digest(DASHBOARD_DIR / 'style.css')}"
-    return page.replace("/static/style.css", style)
+
+def versioned_page(name: str) -> str:
+    """A page under dashboard/ with each asset URL versioned, so a deploy that changes a file
+    can never be served stale from a browser or CDN cache: Mendari's own modules and stylesheets
+    are stamped with a hash of their content (`?v=`), and a vendored file
+    (`/static/vendor/<package>/<file>`) is sent to the path of its package's version.
+
+    Dashboard modules import each other by plain URL ("./ui.js"): a page with an empty import
+    map gets one that sends each module to its stamped URL, and a modulepreload link per module
+    fetches the whole graph in parallel."""
+    page = (DASHBOARD_DIR / name).read_text(encoding="utf-8")
+    if _IMPORT_MAP in page:
+        stamped = {
+            f"/static/{path.name}": f"/static/{path.name}?v={_digest(path)}"
+            for path in sorted(DASHBOARD_DIR.glob("*.js"))
+        }
+        preload = "".join(
+            f'\n  <link rel="modulepreload" href="{url}">' for url in stamped.values()
+        )
+        import_map = json.dumps({"imports": stamped})
+        page = page.replace(_IMPORT_MAP, f'<script type="importmap">{import_map}</script>{preload}')
+    vendored = _vendored()
+
+    def versioned(match: re.Match[str]) -> str:
+        attribute, url = match[1], match[2]
+        if url.startswith("/static/vendor/"):
+            if url not in vendored:
+                raise RuntimeError(f"{name}: {url} is in no vendored package's manifest.json")
+            return f'{attribute}="{vendored[url]}"'
+        return f'{attribute}="{url}?v={_digest(DASHBOARD_DIR / url.removeprefix("/static/"))}"'
+
+    return _ASSET.sub(versioned, page)
+
+
+def _vendored() -> dict[str, str]:
+    """`/static/vendor/<package>/<file>` -> the file's URL under its package's version, from
+    each package's manifest.json (scripts/vendor_docs_ui.py writes it, and checks the files)."""
+    urls: dict[str, str] = {}
+    for path in sorted(VENDOR_DIR.glob("*/manifest.json")):
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        package = f"/static/vendor/{path.parent.name}"
+        urls.update(
+            {f"{package}/{f}": f"{package}/{manifest['version']}/{f}" for f in manifest["files"]}
+        )
+    return urls
+
+
+class _Static(StaticFiles):
+    """The dashboard's files. A vendored file's path names its package's version, so its content
+    never changes there: browsers keep it a year without asking again."""
+
+    def file_response(
+        self, full_path: os.PathLike[str] | str, *args: Any, **kwargs: Any
+    ) -> Response:
+        response = super().file_response(full_path, *args, **kwargs)
+        path = Path(full_path)
+        if path.is_relative_to(VENDOR_DIR) and _VERSIONED_FILE.match(
+            path.relative_to(VENDOR_DIR).as_posix()
+        ):
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
 
 
 def _digest(path: Path) -> str:

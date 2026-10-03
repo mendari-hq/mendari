@@ -107,8 +107,21 @@ website (`hub/`), the container images and the deployment templates (`deploy/`).
   under PHI mode `hash` or `encrypt` its message never reaches a log. `mendari serve` turns off
   uvicorn's access log, which prints query strings. What must last (input reads, key, client
   and governance changes) is in the audit chain too.
-- **Headers.** Every response has a strict CSP (the dashboard's inline scripts by hash only),
-  no framing, nosniff, no referrer and cross-origin isolation.
+- **Headers.** Every response has a strict CSP, pages and the API reference included: each
+  page's own inline scripts by hash only, nothing from another origin. Every response also gets
+  no framing, nosniff, no referrer and cross-origin isolation, and HSTS on any host but
+  `localhost` or a loopback address. Cookies say `SameSite=Lax` explicitly.
+- **Requests from other sites.** A browser request that another site starts (`Sec-Fetch-Site`
+  `cross-site` or `same-site`; in a browser without Fetch Metadata, an `Origin` that is `null`
+  or not this site) reaches only public routes and pages, and only with GET or HEAD: a link to
+  the dashboard works, a link to an API route or a form that signs you out gets a `403`. This
+  applies to requests with a Mendari cookie and no `Authorization` header, and in open mode to
+  all. This site is the request's own host, `MENDARI_PUBLIC_URL`, and any alias listed in
+  `MENDARI_TRUSTED_ORIGINS`. Scripts that send neither header (curl, the pilot check) are not
+  affected.
+- **The API reference** (`/docs/reference`, behind sign-in when it is on) is Swagger UI served from
+  files vendored at a pinned version, never a CDN, and its page allows no inline script or
+  style. `/docs` and `/redoc` redirect there.
 
 ## Remote providers
 
@@ -138,9 +151,28 @@ running it.
 
 The threat model ([`docs/security/threat-model.md`](docs/security/threat-model.md)) lists each
 threat, its mitigation and the test that checks it. The CI job `security` runs:
-- `pip-audit` on the locked Python dependencies;
+- `pip-audit` on the locked Python dependencies (pip-audit itself is locked in the `dev` group);
 - `npm audit` on the Hub website;
 - an OWASP ZAP scan of the running API with sign-in on, where medium and high risks fail.
+
+The build itself is pinned, and `tests/test_supply_chain.py` (in the default suite) fails on any
+change that loosens it:
+- every GitHub Action is pinned to a full commit SHA, with its version in a comment, and every
+  checkout drops its credentials (`persist-credentials: false`); CI installs one pinned uv;
+- every image (CI services, `docker run`, the Dockerfile's bases, both compose files) is pinned
+  by digest;
+- every file a workflow downloads is checked against a pinned sha256;
+- the Docker image installs exactly `uv.lock` (`uv sync --frozen`), and the build backend
+  (hatchling) is pinned;
+- the vendored Swagger UI matches its pin: the npm integrity value in its lockfile, and each
+  file's sha256 (`tests/test_vendor.py`).
+
+Dependabot (`.github/dependabot.yml`) proposes version updates monthly, grouped, for uv, Actions,
+the Dockerfile, the compose files, the Hub website and the vendored Swagger UI, and only of
+versions at least 7 days old; its branches get no Vercel preview. A Swagger UI update fails CI
+until someone runs `scripts/vendor_docs_ui.py` in its pull request and reviews what it reports.
+Security updates are not delayed; they need Dependabot alerts and security updates turned on in
+the repository settings.
 
 ## Supported versions
 

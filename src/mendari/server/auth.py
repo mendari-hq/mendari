@@ -109,7 +109,8 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         ("*", r"^/(smart|api/smart)/", "public"),  # SMART launches carry their own session
         ("GET", r"^/(static/.*|favicon\.ico)$", "public"),
         ("GET", r"^/$", "page"),
-        ("GET", r"^/(docs|redoc)$", "page"),  # a signed-out browser is sent to sign in
+        ("GET", r"^/(docs|redoc)$", "public"),  # redirects to the reference: they show nothing
+        ("GET", r"^/docs/reference$", "page"),  # a signed-out browser is sent to sign in
         ("GET", r"^/openapi\.json$", "read"),
         ("POST", r"^/api/packs/[^/]+/[^/]+/(decide|guard|fhir/decide|pas)$", "decide"),
         ("POST", r"^/cds-services/[^/]+$", "decide"),

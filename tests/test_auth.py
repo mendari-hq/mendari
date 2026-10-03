@@ -352,6 +352,9 @@ PUBLIC = {
     # How to talk to the FHIR base: discoverable without signing in.
     ("GET", "/fhir/metadata"),
     ("GET", "/fhir/OperationDefinition/{resource_id}"),
+    # Redirects to the API reference (a page), from the addresses FastAPI's own pages had.
+    ("GET", "/docs"),
+    ("GET", "/redoc"),
 }
 
 
@@ -382,6 +385,10 @@ def test_every_route_has_the_permission_it_should(tmp_path: Path) -> None:
     assert permission_for("GET", "/fhir/Task/t1/_history/2") == "read"
     assert permission_for("GET", "/fhir/Task/t1/_history") == "admin"  # no history Bundles
     assert permission_for("POST", "/fhir/Task") == "admin"  # no create
+    # The pages: a signed-out browser is sent to sign in. FastAPI's own docs pages are gone.
+    pages = {(m, p) for m, p in routes if permission_for(m, p) == "page"}
+    assert pages == {("GET", "/"), ("GET", "/docs/reference")}
+    assert not [p for _, p in routes if p.startswith("/docs/") and p != "/docs/reference"]
     # Managing keys and clients: people only (`keys`), and nothing under them falls to read.
     keys = {(m, p) for m, p in routes if p.startswith("/api/auth/keys")}
     assert keys and {permission_for(m, p) for m, p in keys} == {"keys"}
@@ -742,14 +749,19 @@ def test_endpoint_origins_must_be_https_origins(
 
 
 def test_the_api_reference_asks_a_browser_to_sign_in(app: TestClient, idp: FakeIdp) -> None:
-    docs = app.get("/docs", follow_redirects=False)
-    assert docs.status_code == 302 and docs.headers["location"] == "/auth/login?next=/docs"
+    for old in ("/docs", "/redoc"):  # FastAPI's pages were here; Phase 5 puts a landing at /docs
+        moved = app.get(old, follow_redirects=False)
+        assert (moved.status_code, moved.headers["location"]) == (308, "/docs/reference")
+    docs = app.get("/docs/reference", follow_redirects=False)
+    target = "/auth/login?next=/docs/reference"
+    assert docs.status_code == 302 and docs.headers["location"] == target
     assert app.get("/openapi.json").status_code == 401
     sign_in(app, idp, roles=["clinicians"])
-    assert app.get("/docs").status_code == 200
+    assert app.get("/docs").status_code == 200 and "swagger-ui-bundle.js" in app.get("/docs").text
     schema = app.get("/openapi.json").json()
-    assert set(schema["components"]["securitySchemes"]) == {"apiKey", "session"}
-    session = schema["components"]["securitySchemes"]["session"]
+    schemes = schema["components"]["securitySchemes"]
+    assert set(schemes) == {"apiKey", "session"}  # no token scheme: Backend Services is off
+    session = schemes["session"]  # the cookie sign-in sets, on this (non-local) host
     assert session["name"] == "__Host-mendari_session" and "30 minutes" in session["description"]
     operations = {
         (method.upper(), path): operation

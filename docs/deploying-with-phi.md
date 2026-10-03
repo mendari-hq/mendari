@@ -14,7 +14,7 @@ Run Mendari inside your organization's network or an approved cloud account:
 - Postgres (not SQLite) for the audit store.
 
 [`deploy/`](https://github.com/Junebugg1214/mendari/tree/main/deploy) has two templates: docker compose for one server (set `MENDARI_IMAGE`
-in its `.env`), and Kubernetes. Both include the daily retention and monitoring jobs.
+in its `.env`, pinned by digest), and Kubernetes. Both include the daily retention and monitoring jobs.
 
 The public sandbox and the project's own Vercel deployment are **synthetic only**.
 
@@ -212,6 +212,22 @@ no authorization endpoint (no user or patient launch) and no `patient/` or `user
 - A deployment's tokens and one-time `jti` claims live in its database. Don't share a database
   (and a public URL) between preview and production.
 
+**Requests from other sites.** A browser request another site starts reaches only public
+routes and pages, and only to read: a link to the dashboard works, while a link to an API
+route, or a form on another site that posts here, gets a `403` ("cross-site request refused").
+This site is the address the request was sent to, the origin of `MENDARI_PUBLIC_URL`, and any
+alias you list. If people reach Mendari through a name that a proxy rewrites before it gets
+here (so the request arrives for another host), list that name, or the dashboard's own buttons
+get that `403`:
+
+```bash
+MENDARI_TRUSTED_ORIGINS=https://mendari.example.org,https://decisions.example.org   # origins only
+```
+
+A value that is not exactly an origin stops the server at startup. Scripts with a session
+cookie and no `Origin` or `Sec-Fetch-Site` header (curl, the pilot check) are not affected. Any
+host but `localhost` also gets HSTS, so serve Mendari over https only.
+
 Sessions and pending sign-ins are server-side rows keyed by their kind and value. A release
 that changes how they are keyed (Phase 4 did) ends every session: people sign in again, and an
 EHR launches the app again. Phase 4b signs nobody out: sessions from before it keep their
@@ -335,9 +351,15 @@ collector, journald) and keep it as your policy says; Mendari keeps no log table
 - [ ] Signed in, `/api/health` shows the `sessions` policy you chose, the session cookie is
       `__Host-mendari_session` (in the browser's developer tools), and a session left alone past
       the idle time is refused ("Your session ended. Sign in again.").
+- [ ] Signed in, `/docs/reference` shows the API reference and the browser console reports no
+      CSP violation (a proxy in front must not replace Mendari's `Content-Security-Policy`).
+- [ ] Signed in, on each address people use, review a case on the dashboard and sign out: no
+      `403` "cross-site request refused" (list a rewritten name in `MENDARI_TRUSTED_ORIGINS`).
+      The answers carry `Strict-Transport-Security`.
 - [ ] Integrations that record outcomes send `source` as an identifier (`ehr`, not a sentence)
       and a label of the pack's primary question.
 - [ ] The security log reaches your log system: a refused request (a wrong key) appears there as
       an `auth.credential.refused` line and a `request` line with the `X-Request-Id` the
       response carried, and no line holds a key, a query value or case text.
 - [ ] Retention and monitoring are scheduled; `mendari audit verify` passes.
+- [ ] The engine image is deployed by digest (`<image>:<tag>@sha256:…`), not by tag alone.

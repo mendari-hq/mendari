@@ -16,12 +16,15 @@ About 18 days of work.
   - Deviations: the cap counts every method and sits innermost (Starlette's middleware turns a
     mid-body 413 into a 400), 64 KiB at least; sessions now store `iss`, and an id_token
     without `sub` is refused
-- [ ] **B. Supply chain**: actions pinned by SHA with `persist-credentials: false`, images by
+- [x] **B. Supply chain**: actions pinned by SHA with `persist-credentials: false`, images by
   digest, the Docker image installed from `uv.lock`, `.github/dependabot.yml` monthly with no
   previews for its branches, `tests/test_supply_chain.py`
-- [ ] **C. Docs page safety**: Swagger UI vendored at a pinned version with license and checksums
+  (Deviation: the docs package's npm entry comes with stage C, which adds the package.)
+- [x] **C. Docs page safety**: Swagger UI vendored at a pinned version with license and checksums
   at `/docs/reference`; `/docs` and `/redoc` redirect there until Phase 5; a CSP and COEP on every
   response; bearer schemes for keys and tokens in the OpenAPI
+  (Deviation: 5.33.0, not 5.33.1, which was a day old against the 7-day cooldown; the bundle's
+  third-party license file ships too.)
 - [x] **D. Rate limits and quotas**: a Postgres GCRA limiter per principal on costly routes and
   per IP on sign-in and the token endpoint (`MENDARI_RATE_LIMITS` on/log/off), `429` with
   `Retry-After`; per-organization daily decision quotas (`MENDARI_ORG_DAILY_LIMITS`, evaluations
@@ -40,8 +43,10 @@ About 18 days of work.
   - Deviations: a SMART session also ends with the EHR's token; `next` with a backslash or a
     control character goes to `/`; health shows `sessions`; open-mode outcomes and revocations
     stay `open mode`; the dashboard shows a banner and never navigates away on its own
-- [ ] **G. Origin checks**: a cross-site or same-site browser request reaches only public and page
+- [x] **G. Origin checks**: a cross-site or same-site browser request reaches only public and page
   routes, only to read; HSTS
+  (Deviation: without Fetch Metadata a foreign or `null` Origin limits GET too, not only unsafe
+  methods, and an unknown `Sec-Fetch-Site` counts as cross-site: both fail closed.)
 - [ ] **H. Notes out of the chain**: a `notes` table (sealed under `encrypt`, refused under
   `hash`), a salted commitment in the chain, `note.erased`, PAS payer text sealed, batched
   `input.read` writes; old chained notes hidden from readers without `read_input`

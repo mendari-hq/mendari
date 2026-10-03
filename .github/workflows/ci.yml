@@ -17,7 +17,7 @@ jobs:
         python: ["3.11", "3.12", "3.13"]
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
         env:
           POSTGRES_PASSWORD: mendari-test
           POSTGRES_DB: mendari_test
@@ -27,9 +27,12 @@ jobs:
     env:
       MENDARI_TEST_DATABASE_URL: postgresql://postgres:mendari-test@localhost:5432/mendari_test
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
+        with:
+          version: "0.12.22"
           python-version: ${{ matrix.python }}
       - run: uv sync --locked
       - run: uv run ruff check src tests scripts
@@ -46,9 +49,12 @@ jobs:
     # The dashboard in a real browser (tests/browser, skipped by the default pytest run).
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
+        with:
+          version: "0.12.22"
           python-version: "3.12"
       - run: uv sync --locked
       - run: uv run playwright install --with-deps chromium
@@ -58,9 +64,12 @@ jobs:
     # Derived pack artifacts (synthetic data, trained model) must be reproducible from source.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
+        with:
+          version: "0.12.22"
           python-version: "3.12"
       - run: uv sync --locked
       - run: ./scripts/build-reference-pack.sh
@@ -75,11 +84,14 @@ jobs:
     # hl7.org outage only matters on a cold cache.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
+        with:
+          version: "0.12.22"
           python-version: "3.12"
-      - uses: actions/cache@v4
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
         with:
           path: var/fhir-packages/fhir.schema.json.zip
           key: fhir-r4-schema-2230406893b4cf002a4ee1e5e2bbeca22ac5d2d4931b3e9ef7b9594bbc376a01
@@ -98,15 +110,18 @@ jobs:
       VALIDATOR_VERSION: "6.10.4"
       VALIDATOR_SHA256: 1106b9d58f9e363e47bea7c4fc065841e5fc91fe9d062775c3bfdd212bd653cc
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
+        with:
+          version: "0.12.22"
           python-version: "3.12"
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3  # v4.9.1
         with:
           distribution: temurin
           java-version: "21"
-      - uses: actions/cache@v4
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
         with:
           path: |
             var/validator/validator_cli.jar
@@ -147,7 +162,9 @@ jobs:
     # input they decide on conforms to US Core.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          persist-credentials: false
       - run: docker compose up -d --build --wait engine launcher
       - name: Wait until the workflow has seeded both packs
         run: |
@@ -186,9 +203,12 @@ jobs:
       MENDARI_REGISTRY_ADMIN_TOKEN: ci-only-admin-token
       REGISTRY_URL: http://127.0.0.1:8100
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
+        with:
+          version: "0.12.22"
           python-version: "3.12"
       - run: uv sync --locked
       - name: Start a registry and publish the five packs
@@ -198,7 +218,7 @@ jobs:
           .venv/bin/mendari registry serve --db /tmp/registry.db --port 8100 &
           for i in $(seq 1 30); do curl -sf http://127.0.0.1:8100/v1/health && break; sleep 1; done
           uv run python scripts/hub_seed.py --registry http://127.0.0.1:8100
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
         with:
           node-version: "24"
           cache: npm
@@ -225,9 +245,12 @@ jobs:
     env:
       MENDARI_REGISTRY_ADMIN_TOKEN: ci-only-admin-token
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
+        with:
+          version: "0.12.22"
           python-version: "3.12"
       - run: uv sync --locked
       - name: Start a registry and publish the five packs
@@ -256,7 +279,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       cql:
-        image: hapiproject/hapi:v8.12.0-1
+        image: hapiproject/hapi:v8.12.0-1@sha256:d7f38d3676900b07e8a7d3500426eaf8d90ea9ced9a6726416f080f68e230fb0
         ports: ["58090:8080"]
         env:
           HAPI_FHIR_FHIR_VERSION: R4
@@ -265,9 +288,12 @@ jobs:
       MENDARI_CQL_URL: http://127.0.0.1:58090/fhir
       MENDARI_FHIR_ALLOWED_SERVERS: http://127.0.0.1:58090
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
+        with:
+          version: "0.12.22"
           python-version: "3.12"
       - run: uv sync --locked
       - name: Wait for the CQL engine
@@ -290,16 +316,19 @@ jobs:
     # high risks fail (scripts/zap_check.py).
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
+        with:
+          version: "0.12.22"
           python-version: "3.12"
       - run: uv sync --locked
-      - name: Python dependencies have no known vulnerabilities (pip-audit)
+      - name: Python dependencies have no known vulnerabilities (pip-audit, itself locked)
         run: |
           uv export --frozen --all-extras --all-groups --no-emit-project --format requirements-txt -o /tmp/requirements.txt
-          uvx --from 'pip-audit==2.10.1' pip-audit --disable-pip --no-deps -r /tmp/requirements.txt
-      - uses: actions/setup-node@v4
+          uv run --frozen pip-audit --disable-pip --no-deps -r /tmp/requirements.txt
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
         with:
           node-version: "24"
       - name: The Hub website's dependencies have no high or critical advisories (npm audit)
@@ -323,7 +352,7 @@ jobs:
           for i in $(seq 1 60); do curl -sf http://127.0.0.1:8000/api/health > /dev/null && exit 0; sleep 1; done; exit 1
       - name: OWASP ZAP API scan (pinned image)
         run: >-
-          docker run --rm --network host -v /tmp/zap:/zap/wrk:rw ghcr.io/zaproxy/zaproxy:2.16.1
+          docker run --rm --network host -v /tmp/zap:/zap/wrk:rw ghcr.io/zaproxy/zaproxy:2.16.1@sha256:7840969c7c9fead565bf9734b12f49f6886db90b1d35b1f74d79710bbd081dab
           zap-api-scan.py -t http://127.0.0.1:8000/openapi.json -f openapi -J zap.json -I
           -z "-config replacer.full_list(0).description=auth
           -config replacer.full_list(0).enabled=true
@@ -341,9 +370,12 @@ jobs:
     # link, anchor or page left out of the navigation.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
+        with:
+          version: "0.12.22"
           python-version: "3.12"
       - run: uv sync --locked --group docs
       - run: uv run mkdocs build --strict
@@ -355,9 +387,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
+        with:
+          version: "0.12.22"
           python-version: "3.12"
           enable-cache: false
       - run: python3 scripts/run_quickstart.py
@@ -369,7 +404,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       idp:
-        image: ghcr.io/navikt/mock-oauth2-server:6.0.4
+        image: ghcr.io/navikt/mock-oauth2-server:6.0.4@sha256:47374fe063995d9b6d39ebb6ea21eb5f765025bf0aa08b61b08b439eb91adaf0
         ports: ["58080:8080"]
         env:
           JSON_CONFIG: '{"interactiveLogin": true}'
@@ -381,9 +416,12 @@ jobs:
       MENDARI_PHI_MODE: encrypt
       MENDARI_PUBLIC_URL: http://127.0.0.1:8000
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
+        with:
+          version: "0.12.22"
           python-version: "3.12"
       - run: uv sync --locked
       - name: Start the engine (sign-in on, PHI mode encrypt)
@@ -399,7 +437,9 @@ jobs:
   docker:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          persist-credentials: false
       - run: docker build -t mendari-engine:ci .
       - run: docker run --rm mendari-engine:ci mendari test mendari/patient-inbox-router
       - run: docker run --rm mendari-engine:ci mendari test mendari/clinical-trial-prescreener
