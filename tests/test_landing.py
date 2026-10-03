@@ -119,6 +119,7 @@ def test_the_landing_describes_phase_4b_without_this_deployments_settings(
     monkeypatch.delenv("MENDARI_OIDC_CLIENT_ID")
     for text in (usual, TestClient(create_app(db_path=tmp_path / "c.db")).get("/docs").text):
         assert "A browser request that another site starts reaches only public routes" in text
+        assert "whether or not the browser sends the session cookie" in text  # logout CSRF
 
 
 def _table(text: str) -> dict[tuple[str, str], str]:
@@ -208,3 +209,5 @@ def test_the_api_reference_sends_newcomers_to_the_landing() -> None:
     text = api_docs.description(sign_in=False, default_pack=None)
     assert text.startswith("**New here?** [Start at `/docs`](/docs)")
     assert all(f"**`{code}`**" in text for code, _, _ in api_docs.OUTCOMES)
+    # Like the landing, it says another site's form is refused with or without the cookie.
+    assert "whether or not the browser sends the session cookie" in " ".join(text.split())

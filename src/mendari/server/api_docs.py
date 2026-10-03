@@ -160,9 +160,11 @@ for the review queue), and its audit trail is `/fhir/AuditEvent` and `/fhir/Prov
 {auth}
 
 A browser request that another site starts (`Sec-Fetch-Site: cross-site` or `same-site`, or
-without it an `Origin` that is not this site) reaches only public routes and pages, with `GET`
-or `HEAD`; anything else is a `403` ("cross-site request refused"). Scripts and integrations
-send neither header and are not affected.
+without it an `Origin` that is `null` or not this site) reaches only public routes and pages,
+with `GET` or `HEAD`; anything else is a `403` ("cross-site request refused"), and a form on
+another site that posts here gets it whether or not the browser sends the session cookie (so
+another site cannot sign anyone out). Scripts and integrations send neither header and are not
+affected.
 
 [Open the dashboard](/) to try packs without code. The OpenAPI document itself is
 [`/openapi.json`](/openapi.json).

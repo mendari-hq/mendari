@@ -182,7 +182,9 @@ def _smart(launch: bool) -> str:
 _CROSS_SITE = (
     "A browser request that another site starts reaches only public routes and pages, with "
     "<code>GET</code> or <code>HEAD</code>; anything else is a <code>403</code> (cross-site "
-    "request refused). Scripts and integrations send no such header and are not affected."
+    "request refused), and a form on another site that posts here gets it whether or not the "
+    "browser sends the session cookie (so another site cannot sign anyone out). Scripts and "
+    "integrations send no such header and are not affected."
 )
 
 
