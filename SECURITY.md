@@ -139,13 +139,14 @@ Each bullet is one control; the threat model names the row and the tests behind 
   see sensitive text. In both modes the chained record keeps no evidence values (sealed with
   the input under `encrypt`) and no resource ids (an input issue names `Patient (entry 2)`), and
   the input hash is an HMAC-SHA256 under `MENDARI_INPUT_HASH_KEY` (`hmac-sha256:<key id>:<hex>`),
-  without which the engine refuses to start: a plain SHA-256 of a short input can be found by
+  without which the engine (and `mendari decide --db`) refuses to start: a plain SHA-256 of a short input can be found by
   guessing. The two keys must differ.
 - **Notes.** Review and rating notes and a payer's words are kept apart from the audit chain,
   which keeps only a salted commitment to each: sealed with inputs under `encrypt`, refused
   under `hash`, and readable as inputs are. Retention and `mendari notes erase` erase them, and
   the chain still verifies (`mendari audit verify --notes` checks the commitments). Notes chained
-  by earlier releases are shown only to those who may read inputs. A governance approval's
+  by earlier releases are shown only to those who may read inputs. A payer's outcome and review
+  actions are chained only as codes; text in their place is dropped. A governance approval's
   `reference` (a pointer to minutes) stays chained.
 - **Headers and the API reference.** Every response has a strict CSP, pages and the API
   reference included: each page's own inline scripts by hash only, nothing from another origin.

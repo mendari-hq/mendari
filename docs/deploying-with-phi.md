@@ -253,7 +253,8 @@ What the decision record (whose digest is chained for good) keeps of an input, i
   `MENDARI_INPUT_HASH_KEY`. A plain SHA-256 of a short or structured input (an age, a sex and an
   order code) is found by guessing in seconds, and anyone who may read a decision sees its hash;
   without the key, guesses match nothing. The engine refuses to start in `hash` or `encrypt`
-  without this key. In `off` mode without it, the hash stays the plain `sha256:` of earlier
+  without this key, and so does `mendari decide --db`, which records a decision under the
+  deployment's PHI mode, as the server does. In `off` mode without it, the hash stays the plain `sha256:` of earlier
   releases, as on records already chained.
 
 Under `encrypt`:
@@ -296,6 +297,9 @@ the audit chain:
   is chained (`input.read` names the notes read);
 - under `hash`, a review or rating with a note is refused (`422`): `hash` keeps no free text.
   The dashboard offers no note field there, and a payer's words are not kept;
+- in every mode, the chain keeps a payer's outcome and review actions only as codes (R4's
+  `queued`, `complete`, `error` or `partial`; an X12 306 code such as `A1`): text in their
+  place is dropped;
 - under `off`, notes are kept in the clear for whoever may read the decision;
 - notes written into the chain by earlier releases stay there (the chain is never rewritten),
   but are shown only to those who may read inputs.

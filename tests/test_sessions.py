@@ -8,6 +8,7 @@ from __future__ import annotations
 import sqlite3
 import time
 from collections.abc import Callable, Iterator
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
@@ -360,7 +361,7 @@ def test_the_binding_cookie_is_short_lived_and_cleared_after_use(
 
 
 def pending_rows(db: Path, kind: str) -> int:
-    with sqlite3.connect(db) as connection:
+    with closing(sqlite3.connect(db)) as connection:
         query = "SELECT COUNT(*) FROM smart_sessions WHERE kind = ?"
         return int(connection.execute(query, (kind,)).fetchone()[0])
 

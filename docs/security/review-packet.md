@@ -70,7 +70,7 @@ and the sandbox.
 
 **Phase 4b, hardening before PHI** ([ADR-0005](../decisions/ADR-0005-hardening-before-phi.md)):
 - **What is kept for good.** Notes and a payer's text left the chain for a `notes` table, with a
-  salted commitment in the chain. Under `hash` the record keeps no evidence values, and under
+  salted commitment in the chain; a payer's outcome and review actions stay only as codes. Under `hash` the record keeps no evidence values, and under
   `encrypt` they are sealed with the input. Input issues name resources by type and position.
   The input hash is an HMAC under `MENDARI_INPUT_HASH_KEY`. People are chained by verified
   email, keys as `key <id>`.

@@ -442,8 +442,13 @@ def test_viewers_never_see_a_note_and_reviewers_do(
 # -- prior authorization: the payer's words are a note --------------------------------------------
 
 
-def submit_prior_authorization(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> str:
-    """A decided prior authorization request, submitted to a mocked payer; its decision id."""
+def submit_prior_authorization(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    payer_says: Callable[[dict[str, Any]], None] | None = None,
+) -> str:
+    """A decided prior authorization request, submitted to a mocked payer (whose ClaimResponse
+    `payer_says` may change); its decision id."""
     from mendari.sandbox import payer
     from tests.test_davinci import COMPLETE, PA, request
     from tests.test_pas import COVERAGE, INSURER, PATIENT, REQUESTER
@@ -456,6 +461,8 @@ def submit_prior_authorization(client: TestClient, monkeypatch: pytest.MonkeyPat
         for entry in answer["entry"]:
             if entry["resource"]["resourceType"] == "ClaimResponse":
                 entry["resource"]["preAuthRef"] = "AUTH-4821937"
+                if payer_says is not None:
+                    payer_says(entry["resource"])
         return httpx.Response(200, json=answer, headers={"content-type": "application/fhir+json"})
 
     transport = httpx.MockTransport(payer_endpoint)
@@ -505,6 +512,60 @@ def test_a_payers_authorization_number_is_in_no_payload_or_export(
         assert shown is not None
         [event] = [e for e in shown["events"] if e["event"] == "pas.submitted"]
         assert json.loads(event["note"])["authorization"] == "AUTH-4821937"
+
+
+PAYER_TEXT = "approved for Rosalind Q. Example, MRN 4821937"
+
+
+def payer_writes_text_for_codes(claim_response: dict[str, Any]) -> None:
+    """A non-conformant payer: text in `outcome` and in a review action code."""
+    claim_response["outcome"] = PAYER_TEXT
+    for item in claim_response["item"]:
+        for adjudication in item["adjudication"]:
+            for extension in adjudication.get("extension") or []:
+                for part in extension.get("extension") or []:
+                    if part["url"].endswith("extension-reviewActionCode"):
+                        part["valueCodeableConcept"]["coding"][0]["code"] = f"A1 {PAYER_TEXT}"
+
+
+@pytest.mark.parametrize("mode", ["off", "hash", "encrypt"])
+def test_a_payers_text_in_place_of_a_code_is_in_no_payload_or_export(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: PhiMode
+) -> None:
+    monkeypatch.setenv("MENDARI_PHI_MODE", mode)
+    monkeypatch.setenv("MENDARI_INPUT_HASH_KEY", HASH_KEY_B64)
+    monkeypatch.setenv("MENDARI_PHI_KEY", base64.b64encode(KEY).decode())
+    client = TestClient(create_app(db_path=tmp_path / "a.db"))
+    decision_id = submit_prior_authorization(client, monkeypatch, payer_writes_text_for_codes)
+    assert "MRN 4821937" not in stored(keeping(tmp_path / "a.db", mode))
+    record = client.get(f"/api/audit/{decision_id}").json()
+    [event] = [e for e in record["events"] if e["event"] == "pas.submitted"]
+    assert (event["payload"]["outcome"], event["payload"]["review_actions"]) == (None, [])
+    for url in (f"/api/audit/{decision_id}", "/api/audit/export/fhir"):
+        assert "MRN 4821937" not in client.get(url).text, url
+
+
+def test_the_chain_keeps_only_codes_from_the_payer() -> None:
+    def answer(outcome: Any, *codes: Any) -> dict[str, Any]:
+        system = f"{pas.X12}/306"
+        actions = [
+            {"url": "x/extension-reviewActionCode", "valueCodeableConcept": {"coding": [c]}}
+            for c in ({"system": system, "code": code} for code in codes)
+        ]
+        item = {
+            "adjudication": [
+                {"extension": [{"url": "x/extension-reviewAction", "extension": actions}]}
+            ]
+        }
+        response = {"resourceType": "ClaimResponse", "outcome": outcome, "item": [item]}
+        return pas.outcome({"resourceType": "Bundle", "entry": [{"resource": response}]})
+
+    kept = answer("complete", "A1", "A3", "a1", "A1 text", "ABCD", "")
+    assert (kept["outcome"], kept["review_actions"]) == ("complete", ["A1", "A3"])
+    for code in ("partial", "queued", "error"):
+        assert answer(code)["outcome"] == code
+    for text in ("approved", "Complete", "x" * 2000, {"code": "complete"}, ["complete"], 1):
+        assert answer(text)["outcome"] is None, text
 
 
 def test_the_payers_words_are_capped_and_must_be_text() -> None:

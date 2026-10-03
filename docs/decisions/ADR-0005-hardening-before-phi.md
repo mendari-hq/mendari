@@ -36,7 +36,7 @@ public deployment.
   `input.read`. Notes chained before this decision are hidden at read time from anyone without
   `read_input`; the chain itself is never rewritten. A governance approval's `reference` (an
   administrator's pointer to minutes, not case text) stays chained. The FHIR exports carry
-  codes only.
+  codes only, and a payer's outcome and review actions are chained only if they are codes.
 - **Evidence follows the input.** Under `hash` (and for a pack that keeps only the hash) the
   stored record keeps no evidence values; under `encrypt` they are sealed with the input. A
   resource id in an input issue is stored as its type and position (`Patient (entry 2)`), in

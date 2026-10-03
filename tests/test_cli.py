@@ -1,14 +1,27 @@
 from __future__ import annotations
 
+import base64
 import json
+import os
 import shutil
 from pathlib import Path
 
 import pytest
 
+from mendari import AuditStore
 from mendari.cli import EXIT_DEGRADED, main, parse_providers
 from mendari.errors import MendariError
-from tests.conftest import INBOX_DIR, LOCAL_DATASET
+from tests.conftest import HASH_KEY_B64, INBOX_DIR, LOCAL_DATASET
+from tests.test_record_hygiene import (
+    KEYED,
+    LAB_DATE,
+    LAB_VALUE,
+    MRN,
+    TRIAL,
+    marked_bundle,
+    planted,
+    stored_text,
+)
 
 REFERRAL_DIR = INBOX_DIR.parent / "referral-router"
 
@@ -24,6 +37,34 @@ def test_validate_and_test(capsys: pytest.CaptureFixture[str]) -> None:
 def test_decide_text(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["decide", PACK, "--text", "Can I pay my bill online?"]) == 0
     assert json.loads(capsys.readouterr().out)["recommendation"] == "billing"
+
+
+@pytest.mark.parametrize("mode", ["hash", "encrypt"])
+def test_decide_records_under_the_deployments_phi_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], mode: str
+) -> None:
+    """`decide --db` keeps what the server would: no input or evidence in the chained record
+    (`encrypt` seals them apart), a keyed input hash, and no start without the hash key."""
+    case = tmp_path / "case.json"
+    case.write_text(json.dumps(marked_bundle()), encoding="utf-8")
+    db = tmp_path / "a.db"
+    decide = ["decide", TRIAL, "--fhir", "--input", str(case), "--db", str(db)]
+    monkeypatch.setenv("MENDARI_PHI_MODE", mode)
+    monkeypatch.setenv("MENDARI_PHI_KEY", base64.b64encode(os.urandom(32)).decode())
+    monkeypatch.delenv("MENDARI_INPUT_HASH_KEY", raising=False)
+    assert main(decide) == 1  # refuses to start
+    assert "MENDARI_INPUT_HASH_KEY" in capsys.readouterr().err
+    monkeypatch.setenv("MENDARI_INPUT_HASH_KEY", HASH_KEY_B64)
+    assert main(decide) == 0
+    answered = capsys.readouterr().out
+    assert planted(LAB_VALUE, answered)  # the caller's answer is unchanged
+    store = AuditStore(db)
+    kept = stored_text(store)
+    for mark in (LAB_VALUE, LAB_DATE, MRN):
+        assert not planted(mark, kept), mark
+    [item] = store.query(pack_id=TRIAL)
+    record = store.item(item["id"])
+    assert record is not None and KEYED.match(record["record"]["input_hash"])
 
 
 def test_eval_fails_on_degradation_when_asked(

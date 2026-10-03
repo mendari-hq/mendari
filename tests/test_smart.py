@@ -11,6 +11,7 @@ import json
 import sqlite3
 import time
 from collections.abc import Iterator
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
@@ -274,7 +275,7 @@ def test_a_launch_on_another_name_moves_to_the_public_url_first(
     location = urlsplit(moved.headers["location"])
     assert f"{location.scheme}://{location.netloc}{location.path}" == f"{APP}/smart/launch"
     assert parse_qs(location.query) == {k: [v] for k, v in {**params, "moved": "1"}.items()}
-    with sqlite3.connect(tmp_path / "a.db") as db:
+    with closing(sqlite3.connect(tmp_path / "a.db")) as db:
         assert db.execute("SELECT COUNT(*) FROM smart_sessions").fetchone() == (0,)
     started = alias.get(moved.headers["location"], follow_redirects=False)
     assert started.headers["location"].startswith(f"{EHR}/auth/authorize?")

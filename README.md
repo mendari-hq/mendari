@@ -311,8 +311,8 @@ missing. It is validated against DTR 2.2.0 in CI, and a pack declares it with
 patient, Coverage, payer, requesting organization and order from the EHR, and the X12 service
 type and place of service. Nothing is filled in: a missing element is an error that names it.
 With `submit`, it goes to the payer's `Claim/$submit` (`MENDARI_PAS_PAYER_URL`, allow-listed),
-and the payer's decision (outcome, authorization number, review actions) is chained on the
-decision. The sandbox has a mock payer (`mendari sandbox payer`, compose service `payer`).
+and the payer's decision is chained on the decision as codes: its outcome and review actions
+(text in their place is dropped). Its authorization number and disposition are kept as a note. The sandbox has a mock payer (`mendari sandbox payer`, compose service `payer`).
 The request and the payer's answer validate against PAS 2.2.1 in CI.
 
 **OMOP CDM.** Research data in OMOP (SQLite or Postgres, with an optional schema such as `cdm`)
