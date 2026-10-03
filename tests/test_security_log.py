@@ -22,7 +22,7 @@ from mendari.server import app as app_module
 from mendari.server import security_log
 from mendari.server.app import create_app
 from mendari.server.security_log import FIELDS, InternalError
-from tests.conftest import message, security_lines, signed_in
+from tests.conftest import HASH_KEY_B64, message, security_lines, signed_in
 from tests.test_auth import FakeIdp, sign_in, signing_in_with
 
 INBOX = "mendari/patient-inbox-router"
@@ -230,6 +230,7 @@ def test_an_unhandled_error_logs_its_type_and_frames_never_its_message(
     monkeypatch.setattr(Decision, "decide", broken)
     monkeypatch.setenv("MENDARI_PHI_MODE", "encrypt")
     monkeypatch.setenv("MENDARI_PHI_KEY", base64.b64encode(os.urandom(32)).decode())
+    monkeypatch.setenv("MENDARI_INPUT_HASH_KEY", HASH_KEY_B64)
     app = create_app(db_path=tmp_path / "a.db")
     quiet = TestClient(app, raise_server_exceptions=False)
     capsys.readouterr()
@@ -259,6 +260,7 @@ def test_changes_exports_evaluations_and_input_reads_are_logged_with_ids(
 ) -> None:
     monkeypatch.setenv("MENDARI_PHI_MODE", "encrypt")
     monkeypatch.setenv("MENDARI_PHI_KEY", base64.b64encode(os.urandom(32)).decode())
+    monkeypatch.setenv("MENDARI_INPUT_HASH_KEY", HASH_KEY_B64)
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
     db = tmp_path / "a.db"
@@ -300,6 +302,36 @@ def test_changes_exports_evaluations_and_input_reads_are_logged_with_ids(
     ]
     actors = {e["actor"] for e in lines if e["event"] != "request"}
     assert all(actor.startswith("user:") for actor in actors)
+
+
+def test_a_note_read_without_its_input_is_logged_as_the_chain_has_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Notes are sealed apart from the chain (stage H) and outlive a purged input: a reviewer who
+    opens one gets an `input.read` in the chain, and the log says so too."""
+    phi_key = os.urandom(32)
+    monkeypatch.setenv("MENDARI_PHI_MODE", "encrypt")
+    monkeypatch.setenv("MENDARI_PHI_KEY", base64.b64encode(phi_key).decode())
+    monkeypatch.setenv("MENDARI_INPUT_HASH_KEY", HASH_KEY_B64)
+    monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
+    monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
+    db = tmp_path / "a.db"
+    client = TestClient(create_app(db_path=db), base_url="https://mendari.test")
+    with AuditStore(db) as store:
+        reviewer = signed_in(store, role="reviewer")
+    decided = client.post(DECIDE, json=message("Crushing chest pain"), headers=reviewer).json()
+    review = {"final_label": "nurse", "reviewer": "x", "note": CASE_TEXT}
+    assert client.post(f"/api/review/{decided['id']}", json=review, headers=reviewer).is_success
+    policy = app_module.phi_policy()
+    with AuditStore(db, phi=policy) as store:
+        assert store.purge_inputs(0) == 1  # the note stays
+    capsys.readouterr()
+    shown = client.get(f"/api/audit/{decided['id']}", headers=reviewer).json()
+    assert "input_restricted" not in shown and CASE_TEXT in json.dumps(shown["events"])
+    reads = [e for e in shown["events"] if e["event"] == "input.read"]
+    assert reads[-1]["payload"]["reader"] == "reviewer@default.example.org"
+    [line] = [e for e in logged(capsys) if e["event"] == "phi.inputs.read"]
+    assert (line["ids"], line["count"]) == ([decided["id"]], 1)
 
 
 def test_a_rate_limit_is_logged_once_per_bucket_and_a_quota_once_a_day(

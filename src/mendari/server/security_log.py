@@ -23,7 +23,8 @@ a person can quote it and the line be found.
 request, refused ones included, but not `/api/health` (probes) or static files.
 
 **Events**: `auth.signin.ok|refused`, `auth.logout`, `auth.credential.refused`,
-`auth.permission.refused`, `auth.token.issued|refused`, `smart.launch.refused` (a launch's
+`auth.permission.refused`, `auth.origin.refused` (another site's request, server/origin.py),
+`auth.token.issued|refused`, `smart.launch.refused` (a launch's
 callback in another browser), `ratelimit.hit` (once per bucket until
 it has room again), `quota.reached`, `admin.key.created|revoked`,
 `admin.client.registered|revoked`, `governance.approved|revoked`, `eval.run`,

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 import re
@@ -34,7 +33,7 @@ from mendari.server.auth import Auth, AuthSettings, auth_settings, permission_fo
 from mendari.server.backend_services import check_jwks, default_scope
 from mendari.server.scopes import DECIDE, OUTCOME, needed, parse, parse_lenient
 from mendari.standards.fhir_client import GuardedHttp
-from tests.conftest import message, signed_in, without_request_id
+from tests.conftest import message, run_async, signed_in, without_request_id
 
 IDP = "https://idp.example.org"
 REALM = 'Bearer realm="mendari"'
@@ -936,7 +935,7 @@ def test_a_chunked_body_is_read_only_until_it_passes_the_limit() -> None:
         return {"type": "http.request", "body": b"x" * 1024, "more_body": True}  # never ends
 
     request = Request({"type": "http", "method": "POST", "headers": []}, receive)
-    assert asyncio.run(read_body(request, 4096)) is None
+    assert run_async(read_body(request, 4096)) is None
     assert received == 5
 
 

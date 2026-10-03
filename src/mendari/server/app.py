@@ -278,6 +278,14 @@ def acting_as(request: Request, claimed: str | None, field: str = "reviewer") ->
     return claimed
 
 
+def shown_to_reader(item: Mapping[str, Any]) -> bool:
+    """Whether `reveal_inputs` opened an item's kept input or one of its notes (its own, or an
+    event's) for a reader, which it chains as an `input.read`."""
+    if item.get("input_restricted") is False or item.get("note_status") == "open":
+        return True
+    return any(event.get("note_status") == "open" for event in item.get("events") or ())
+
+
 def principal_of(request: Request) -> Principal:
     """Who the guard let through (`open mode` when sign-in is off)."""
     principal: Principal = getattr(request.state, "principal", None) or OPEN
@@ -419,11 +427,12 @@ def create_app(
         return load_dataset(path)
 
     def logged_reads(request: Request, items: list[dict[str, Any]], id_key: str = "id") -> None:
-        """Under PHI mode `encrypt`, a security log line for the inputs a reader was shown (their
-        decision ids and how many); each read is chained too (`input.read`)."""
-        if phi.mode != "encrypt" or input_reader(request) is None:
+        """Under PHI mode `hash` or `encrypt`, a security log line for the decisions whose kept
+        input or notes a reader was shown (their ids and how many), as the chain has an
+        `input.read` for each (`AuditStore.reveal_inputs`)."""
+        if phi.mode == "off" or input_reader(request) is None:
             return
-        shown = [str(item[id_key]) for item in items if item.get("input_restricted") is False]
+        shown = [str(item[id_key]) for item in items if shown_to_reader(item)]
         if shown:
             log_event(request, "phi.inputs.read", ids=shown, count=len(shown))
 

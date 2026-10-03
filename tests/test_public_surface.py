@@ -26,7 +26,7 @@ from mendari.server.auth import Auth, AuthSettings, Principal, person_id
 from mendari.server.scopes import DECIDE
 from mendari.standards import oidc
 from mendari.standards.fhir_client import GuardedHttp
-from tests.conftest import message, without_request_id
+from tests.conftest import message, run_async, without_request_id
 from tests.test_auth import IDP, FakeIdp, key_for, sign_in, signing_in_with
 
 FIXTURE = Path(__file__).parent / "fixtures" / "us-core" / "inbox.json"
@@ -318,7 +318,7 @@ def asgi_post(app: Any, path: str, headers: dict[str, str], body: bytes) -> tupl
         "server": ("mendari.test", 443),
         "client": ("127.0.0.1", 50000),
     }
-    asyncio.run(app(scope, receive, send))
+    run_async(app(scope, receive, send))
     return next(e["status"] for e in sent if e["type"] == "http.response.start"), taken
 
 

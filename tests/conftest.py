@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import os
@@ -7,9 +8,10 @@ import secrets
 import shutil
 import time
 import uuid
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Coroutine, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 import pytest
 import yaml
@@ -109,6 +111,17 @@ def pack_copy(tmp_path: Path) -> Callable[..., Path]:
         return target
 
     return make
+
+
+T = TypeVar("T")
+
+
+def run_async(coroutine: Coroutine[Any, Any, T]) -> T:
+    """`asyncio.run` in a thread of its own. Once the browser tests have run in this process,
+    Playwright leaves the main thread's event loop marked as running, and `asyncio.run` refuses
+    to start there."""
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, coroutine).result()
 
 
 def security_lines(stdout: str) -> list[dict[str, Any]]:

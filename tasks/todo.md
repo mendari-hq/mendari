@@ -55,6 +55,10 @@ About 18 days of work.
   `encrypt`; Patient ids in issues stored as type and position; `MENDARI_INPUT_HASH_KEY` HMAC
   required in `hash` and `encrypt`
   (issue labels are positional in every mode, not only PHI ones; the two keys must differ)
+- [x] **Integration**: web and notes lanes merged into the spine; origin refusals logged
+  (`auth.origin.refused`) with a request id; the log's `phi.inputs.read` also counts opened notes,
+  as the chain does; other lanes' tests updated for request ids, chained emails and the input
+  hash key; `run_async` for tests sharing a process with Playwright
 - [ ] **K. Wrap-up**: threat model, SECURITY.md, the go-live checklist, README, the audit's status,
   review (five reviewers and a skeptic), a packet for the external review
 - At launch (owner): Jev 2,000 and LLM 200 a day, 5,000 decisions per organization a day, the

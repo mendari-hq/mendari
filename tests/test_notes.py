@@ -435,7 +435,8 @@ def test_viewers_never_see_a_note_and_reviewers_do(
     assert SECRET not in stored(store)  # sealed in `notes`, nowhere in the clear
     item = client.get(f"/api/audit/{decision_id}", headers=machine).json()
     readers = {e["payload"]["reader"] for e in item["events"] if e["event"] == "input.read"}
-    assert readers == {"default reviewer", "default admin"}  # never the viewer
+    # The chain names readers by verified email (Principal.actor), never the viewer.
+    assert readers == {"reviewer@default.example.org", "admin@default.example.org"}
 
 
 # -- prior authorization: the payer's words are a note --------------------------------------------

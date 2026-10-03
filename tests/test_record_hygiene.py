@@ -59,6 +59,12 @@ def marked_bundle(*, conforming: bool = True) -> dict[str, Any]:
     return bundle
 
 
+def planted(mark: str, text: str) -> bool:
+    """Whether `text` holds `mark` as a value of its own: not inside a longer number, such as a
+    timestamp's `…:38.371` or a latency of `18.375`, which hold "8.37" by chance."""
+    return re.search(rf"(?<![\d.]){re.escape(mark)}(?!\d)", text) is not None
+
+
 def policy(mode: PhiMode) -> PhiPolicy:
     return PhiPolicy(mode=mode, key=PHI_KEY, hash_key=INPUT_HASH_KEY)
 
@@ -88,7 +94,7 @@ def test_no_lab_value_date_or_patient_id_is_stored(
     assert LAB_VALUE in answered and LAB_DATE in answered and f"Patient/{MRN}" in answered
     kept = stored_text(store)
     for mark in (LAB_VALUE, LAB_DATE, MRN):
-        assert mark not in kept, mark
+        assert not planted(mark, kept), mark
     item = store.item(result.id)
     assert item is not None
     assert [issue["resource"] for issue in item["record"]["input_issues"]] == ["Patient (entry 1)"]

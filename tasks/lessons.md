@@ -614,3 +614,24 @@ version CI runs before pushing: `uv run --python 3.11 --isolated pytest …`, th
 ### Verification
 The deep-nesting tests in `tests/test_fhir_errors.py` pass on 3.11, 3.12 and 3.13 locally.
 
+
+## 2026-10-02 - testing
+
+### What happened
+Integrating Phase 4b's lanes, the whole suite run in one process (`pytest -o addopts=""`, browser
+tests included) failed in tests that call `asyncio.run`: once Playwright's session has started,
+the main thread's event loop counts as running, and `asyncio.run` refuses to start. Each lane had
+run the browser tests apart, so none saw it. The same run found a planted lab value ("8.37")
+inside a timestamp ("…:38.371") by chance.
+
+### Root cause
+Tests that are right alone but share a process with the browser suite, and a substring check for
+a number in text full of other numbers.
+
+### Rule
+A test runs a coroutine with `tests.conftest.run_async` (its own thread), never `asyncio.run`. A
+check that a planted number is not stored matches it as a value of its own, not inside a longer
+number. The integration gate runs the whole suite in one process.
+
+### Verification
+`uv run pytest -q -o addopts=""` passes with the browser tests in the same run.
