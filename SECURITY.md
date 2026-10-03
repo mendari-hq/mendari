@@ -53,6 +53,30 @@ Each bullet is one control; the threat model names the row and the tests behind 
   scopes (SMART v2 `system/` reads, Mendari's decide and outcome URIs): a scoped key reaches
   only the routes its scopes name. Creating and revoking keys are recorded in the audit chain.
   `/api` answers are `Cache-Control: no-store`.
+- **EHR launches.** With sign-in on, a clinician launched from an EHR (SMART on FHIR) is a
+  principal of their own kind: the EHR's verified id_token names them, in the organization
+  registered for that EHR's FHIR base (`MENDARI_SMART_EHRS="<base>=<org>:<view|decide>"`). A
+  launch may view the patient, or view and decide, as registered, and nothing else: no Mendari
+  role, no other route. Its cookie is a credential on `/api/smart/` only, never with an
+  `Authorization` header, and a person's session is no credential there. A launch from an EHR
+  that is not registered is refused before anything leaves for it; so is one whose scopes lack
+  `openid fhirUser`, whose id_token names no subject, or whose user is not a Practitioner or
+  PractitionerRole (a patient portal). These refuse the launch, never startup. A launch made
+  while sign-in was off is no principal once sign-in is on: it starts again. Register an EHR to
+  an organization your people sign in to (the `MENDARI_OIDC_ORG_CLAIM` claim's value, else
+  `default`), or no reviewer reads its launches' decisions. `MENDARI_SMART_EHRS` is read at
+  startup and every request checks the launch against it, so unregistering an EHR ends its
+  live launches at the next restart or redeploy. Signing out of Mendari ends the browser's
+  launch too, and a later launch in the same browser ends the earlier one. The dashboard shows
+  a browser that only launched the patient view alone, pinned to its launch: a window whose
+  launch a later one replaced says so and shows no patient (it sends its launch with its reads
+  and decisions, and the server refuses a replaced one with `409`). Launch in a new window or the EHR's embedded window: an iframe
+  launch fails safely (`browser`), and a launch ends with the EHR's token. Before go-live,
+  `mendari smart check <base>` reports what a launch from that base would meet here
+  (registration and whether people can sign in to its organization, allow-list, scopes, the
+  EHR's discovery, PKCE S256 and keys), and CI launches
+  from a real SMART launcher with sign-in on. Open mode with no EHR registered launches as
+  before.
 - **Sessions.** A person's session (and an EHR launch's) is a server-side row behind an opaque
   HttpOnly, Secure, SameSite=Lax cookie with no expiry of its own, named `__Host-mendari_session`
   (`__Host-mendari_smart`) so only this exact host can set it; loopback and dotless hosts keep
@@ -61,13 +85,20 @@ Each bullet is one control; the threat model names the row and the tests behind 
   row's expiry, which a request moves forward at most every 5 minutes and never past the limit.
   Roles are worked out on every request from the claims kept at sign-in and the current
   settings, so a role taken away ends access at once. A sign-in (or an EHR launch) is tied to
-  the browser that started it by a ten-minute cookie whose digest the pending row keeps,
-  compared in constant time at the callback (login CSRF). That cookie is host-only, so a
-  sign-in or launch that reaches another name than `MENDARI_PUBLIC_URL`'s (an alias, a second
-  DNS name) is first sent there, once, before anything is bound. The audit chain names a person by
-  their verified email, else `<issuer>|<subject>`; a key as `key <id>`, a client as
-  `client <id>`. For one release the plain cookie name is still read on other hosts, for
-  sessions from before Phase 4b only, so the upgrade signs nobody out.
+  the browser that started it by a ten-minute cookie (login CSRF): a pending sign-in keeps its
+  digest, compared in constant time at the callback, and a pending launch is sealed under it,
+  so it opens only in that browser. That cookie is host-only, so a sign-in or launch that
+  reaches another name than `MENDARI_PUBLIC_URL`'s (an alias, a second DNS name) is first sent
+  there, once, before anything is bound. An EHR launch's rows (its access token, patient and
+  PKCE verifier) are sealed at rest with AES-256-GCM under a key derived from the browser's own
+  cookie: the database alone opens nothing and there is no key to manage. A row that does not
+  open ends the launch, and so does an EHR that answers `401`. No refresh token is kept
+  (`offline_access` in the scopes refuses the launch). People's sign-in rows hold no token and
+  are not sealed. The audit chain names a person by their verified email, else
+  `<issuer>|<subject>` (a launched clinician too, by the EHR's issuer); a key as `key <id>`, a
+  client as `client <id>`. For one release the
+  plain cookie name is still read on other hosts, for sessions from before Phase 4b only, so
+  the upgrade signs nobody out.
 - **Requests from other sites.** A browser request that another site starts (`Sec-Fetch-Site`
   `cross-site` or `same-site`; in a browser without Fetch Metadata, an `Origin` that is `null`
   or not this site) reaches only public routes and pages, and only with GET or HEAD: a link to
@@ -104,7 +135,7 @@ Each bullet is one control; the threat model names the row and the tests behind 
   with one GCRA row per bucket in the database, so every instance shares the count. The check
   runs in the guard after the sign-in check: a refused request reads no body, calls no provider
   and writes nothing to the chain. A `429` carries `Retry-After` and `no-store`. Buckets are
-  named by class and an opaque id (`key:<id>`, `user:<hash>`, `ip:<address>`), never a
+  named by class and an opaque id (`key:<id>`, `user:<hash>`, `ehr:<hash>`, `ip:<address>`), never a
   credential. Reads are not limited in the app. The client address is Vercel's
   `X-Forwarded-For`, or, self-hosted, the connection's unless the proxy is trusted
   (`mendari serve --forwarded-allow-ips`; the compose template trusts its network's fixed

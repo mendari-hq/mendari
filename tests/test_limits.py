@@ -37,7 +37,14 @@ from mendari.server.limits import (
     limit_settings,
 )
 from mendari.standards.fhir_client import GuardedHttp
-from tests.conftest import ROOT, message, security_lines, signed_in, without_request_id
+from tests.conftest import (
+    ROOT,
+    launched,
+    message,
+    security_lines,
+    signed_in,
+    without_request_id,
+)
 from tests.test_auth import IDP, FakeIdp
 from tests.test_backend_services import (
     PUBLIC_URL,
@@ -472,27 +479,35 @@ def test_a_forwarded_address_counts_only_where_it_is_trusted(
 
 
 def test_bucket_keys_hold_no_secret(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An EHR launch's decisions count per principal (`ehr:<hash>`), like anyone's; a launch
+    cookie that names no launch counts nowhere (the guard refuses it first)."""
+    monkeypatch.setenv("MENDARI_SMART_CLIENT_ID", "mendari-app")
+    monkeypatch.setenv("MENDARI_FHIR_ALLOWED_SERVERS", "https://ehr.example.org")
+    monkeypatch.setenv("MENDARI_SMART_EHRS", "https://ehr.example.org/fhir=default:decide")
     client, _ = signing_in(tmp_path, monkeypatch, "on")
     db = str(tmp_path / "signin.db")
     key = service_key(db)
     session = person(db, "reviewer")
-    smart = "smart-session-cookie-value-0123456789"
+    launch = launched(AuditStore(db))
+    junk = {"cookie": "__Host-mendari_smart=smart-session-cookie-value-0123456789"}
     client.get("/auth/login", follow_redirects=False)
     client.post(DECIDE, json={}, headers=key)
     client.post(DECIDE, json={}, headers=session)
-    client.post("/api/smart/decide", json={}, headers={"cookie": f"__Host-mendari_smart={smart}"})
+    assert client.post("/api/smart/decide", json={}, headers=launch).status_code == 422
+    assert client.post("/api/smart/decide", json={}, headers=junk).status_code == 401
     found = buckets(db)
     secrets = [
         key["authorization"].split()[1],
         session["cookie"].split("=", 1)[1],
-        smart,
+        launch["cookie"].split("=", 1)[1],
+        junk["cookie"].split("=", 1)[1],
     ]
     assert not [s for s in secrets if any(s in b or s[4:20] in b for b in found)]
     patterns = [
         r"signin\|ip:203\.0\.113\.5",
         r"decide\|key:[0-9a-f-]+",
         r"decide\|user:[0-9a-f]{16}",
-        r"decide\|smart:[0-9a-f]{16}",
+        r"decide\|ehr:[0-9a-f]{16}",
     ]
     assert len(found) == len(patterns)
     for pattern in patterns:

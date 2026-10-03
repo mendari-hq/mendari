@@ -90,7 +90,8 @@ MENDARI_SESSION_MAX_HOURS=8         # 1 to 12
 ```
 
 Signed in, `/api/health` shows them (`sessions`). An EHR launch's session follows the same
-rules and also ends when the EHR's token does. More about sessions:
+rules and also ends when the EHR's token does, or as soon as the EHR answers `401` to it. More
+about sessions:
 
 - **Roles apply at once.** Each request works out the person's roles again from the claims kept
   at sign-in and the role settings as they are then, so taking a group out of
@@ -112,6 +113,15 @@ rules and also ends when the EHR's token does. More about sessions:
   an internal name, an address) is first sent to `MENDARI_PUBLIC_URL` and starts there. It
   is sent once (the query then carries `moved=1`), so a proxy that rewrites `Host` cannot make
   it loop.
+- **An EHR launch's rows are sealed, with no key to manage.** The launch's session row (the
+  EHR's access token, the patient, the encounter) and its pending row (the PKCE verifier) are
+  encrypted with AES-256-GCM under a key derived from the browser's own cookie, which the
+  database never holds: a database reader, a backup or the database's history opens nothing.
+  There is no setting and nothing to provision, rotate or back up, in every PHI mode. A row
+  that does not open (changed, or written before this release) ends the launch: the clinician
+  opens Mendari again from the EHR. No refresh token is kept, and `offline_access` in
+  `MENDARI_SMART_SCOPES` refuses every launch (the server still starts). People's sign-in rows
+  hold no token and are not sealed.
 - **The dashboard says so when a session ends** ("Your session ended. Sign in again.") and
   brings the person back to the same view after signing in; what they were typing stays on the
   page.
@@ -156,6 +166,59 @@ Existing keys keep their role until then, even `reviewer`, `governance` or `admi
 may manage keys. Replace them with `viewer` or `service` keys, with scopes, before they expire,
 and revoke any you no longer need now. A key written by an older instance still running during
 the rollout has no expiry and is refused until the next start gives it one.
+
+**EHR launches (SMART on FHIR, optional, off by default).** With sign-in on, a clinician the
+EHR launches Mendari for is named by the EHR's own sign-in, in the organization you register
+for that EHR's FHIR base, and may view the patient, or view and decide, as you register it:
+
+```bash
+MENDARI_SMART_CLIENT_ID=<the client id the EHR gave Mendari>
+MENDARI_FHIR_ALLOWED_SERVERS=https://ehr.example.org
+MENDARI_SMART_EHRS=https://ehr.example.org/fhir/r4=default:decide   # <FHIR base>=<org>:<view|decide>
+```
+
+- **Register the organization your people's sign-in gives them**: the launch's decisions,
+  HUMAN_REVIEW ones included, are that organization's, and only its reviewers read them. With
+  `MENDARI_OIDC_ORG_CLAIM` unset (one organization), everyone who signs in is in `default`, so
+  register `default`, as above; with it set, register the claim's value for the organization
+  the EHR serves. An organization nobody signs in to fails closed: the decisions are recorded,
+  but no reviewer ever sees them. With sign-in on, `mendari smart check` fails such a
+  registration.
+- **Register the base exactly as the EHR sends it** in the launch's `iss` (scheme and host in
+  any case, a trailing slash ignored, the path as it is), then check it with the deployment's
+  settings: `mendari smart check https://ehr.example.org/fhir/r4` prints the registration key,
+  whether its origin is allowed and how it is registered (with sign-in on, `fail` when it is
+  registered to an organization other than `default` and `MENDARI_OIDC_ORG_CLAIM` is unset;
+  `warn` in open mode), the SMART client
+  and scopes, and the EHR's discovery, PKCE S256 and keys, each `ok`, `warn` or `fail` (exit 1
+  on any `fail`). It
+  reads only the EHR's public configuration and keys. Two tenants on one EHR host are two
+  bases, so two organizations; one base serving several organizations is not supported.
+  Register only an EHR whose sign-in you trust: its id_token is what names the clinician.
+- **What is refused, at the launch, never at startup:** a base not registered (before anything
+  is sent to it), scopes without `openid fhirUser` in `MENDARI_SMART_SCOPES` (the default has
+  both), an id_token without a subject, and a user who is not a Practitioner or
+  PractitionerRole (a patient portal's). The security log says which (`smart.launch.refused`,
+  reason `unregistered`, `configuration`, `id_token` or `user_type`). Only a malformed
+  `MENDARI_SMART_EHRS`, or a base whose origin is not on `MENDARI_FHIR_ALLOWED_SERVERS`, stops
+  the server. A launch made while sign-in was off (none of these checks ran) ends when sign-in
+  is turned on: the clinician launches again.
+- **A launch reaches only its own routes** (the patient, the items to decide about, and
+  deciding when registered to), never the review queue, the audit trail or packs, and its
+  decisions are the registered organization's, limited per launched clinician. Your reviewers
+  read them in the audit trail as usual. The dashboard shows the clinician the patient view
+  alone, with each decision in place and its id to quote.
+- **Launch in a new window or the EHR's embedded window**, not an iframe (an iframe launch fails
+  with `browser`). One browser holds one launch at a time: a later launch ends the earlier
+  one, a window whose launch a later one replaced says so and shows no patient (the server
+  refuses its reads with `409`), and a launch that ended (its token, idle, or the EHR's `401`)
+  says to open Mendari again from the EHR.
+- **The registration is read at startup**, and every request checks the launch against it:
+  take an EHR out of `MENDARI_SMART_EHRS` (or register it to `view`) and restart or redeploy,
+  and its live launches lose that access from then on. Signing out of Mendari ends the
+  browser's launch too.
+- Signed in, `/api/health` lists your organization's registrations (`smart_ehrs`): an empty
+  list there means the EHR is registered to another organization than yours.
 
 **SMART Backend Services (optional, off by default).** For an EHR, an integration engine or a
 Da Vinci client that expects SMART Backend Services instead of an API key, turn on Mendari's
@@ -223,6 +286,13 @@ EHR launches the app again. Phase 4b signs nobody out: sessions from before it k
 8 hours (and take up the idle limit at their next request), their old cookie name is still read
 for them for one release, their roles are the ones they signed in with, and a sign-in or launch
 in flight at the deploy completes once without the browser cookie.
+
+The release that seals EHR launch rows (ADR-0006) signs nobody out either: people's sessions
+and sign-ins are untouched. An EHR launch in flight at the upgrade, or a launch session from
+before it, does not open and ends: the clinician launches once more from the EHR. Rolling back
+past that release leaves rows the older code cannot read, which breaks only `/api/smart/*`;
+delete them after the rollback, `DELETE FROM smart_sessions WHERE kind IN ('session',
+'pending')`, and EHR launches start again.
 
 ## 3. PHI mode
 
@@ -455,6 +525,9 @@ startup, so a typo never runs with a weaker setting.
 | `MENDARI_SESSION_IDLE_MINUTES` | 30 (5 to 120) | A session ends after this long without a request | 2 |
 | `MENDARI_SESSION_MAX_HOURS` | 8 (1 to 12) | ...and this long after signing in | 2 |
 | `MENDARI_TRUSTED_ORIGINS` | none | Other origins people use (a name a proxy rewrites), comma-separated | 2 |
+| `MENDARI_SMART_CLIENT_ID` | unset: no EHR launch | The SMART app's client id at the EHR; turns the launch on | 2 |
+| `MENDARI_SMART_EHRS` | none: with sign-in on, every launch refused | The EHRs that may launch: `<FHIR base>=<org>:view` or `:decide`, comma-separated; `<org>` is one your people sign in to (`default` without `MENDARI_OIDC_ORG_CLAIM`); read at startup | 2 |
+| `MENDARI_SMART_SCOPES` | `launch openid fhirUser patient/*.rs` | What a launch asks the EHR for; with sign-in on it must keep `openid fhirUser`, and `offline_access` refuses every launch | 2 |
 | `MENDARI_PHI_MODE` | `off` | `hash` or `encrypt` for real patient data | 3 |
 | `MENDARI_PHI_KEY` | none | 32 bytes, base64; seals inputs, evidence and notes under `encrypt` | 3 |
 | `MENDARI_INPUT_HASH_KEY` | none | 32 bytes, base64, not the PHI key; required under `hash` and `encrypt` | 3 |
@@ -483,10 +556,22 @@ reads of PHI, then operations. Keep the answers with your go-live record.
       address (what a "what is my IP" page shows from the same machine), with
       `x_forwarded_for_used: true` behind a proxy (not the proxy's or Docker's gateway's
       address); the `sessions` policy you chose; `smart_launch: false` unless you
-      need it (see the SMART launch in the threat model's residual risks); and only the providers and FHIR
-      servers you expect.
+      need it, and then `smart_ehrs` listing exactly the EHRs you registered (§2); and only the
+      providers and FHIR servers you expect.
 - [ ] Daily budgets and quotas are set and visible there (`jev.daily_limit`,
       `llm.daily_limit`, `org_quotas`). Choose them from a week of your traffic.
+- [ ] Only if you turn on EHR launches: each EHR is registered in `MENDARI_SMART_EHRS` (§2),
+      to the organization your people's sign-in gives them (`default` without
+      `MENDARI_OIDC_ORG_CLAIM`), and `mendari smart check <base>`, run with the server's
+      settings, reports no `fail` for it. Then launch from the EHR in a new window or its
+      embedded window (not an iframe, which fails with `browser`): the clinician sees the
+      patient view alone, a decision there is in the audit trail of the registered
+      organization, under the EHR's `<issuer>|<subject>` (or verified email), and a second
+      launch in the same browser leaves the first window saying it was replaced.
+- [ ] Only if you turn on EHR launches: a reviewer, signed in as usual, opens the launched
+      decision's id (the one the clinician's window shows, "Recorded in your organization's
+      audit trail as …") in the audit trail and sees it; a HUMAN_REVIEW one is in their review
+      queue. A `404` there means the EHR is registered to an organization nobody signs in to.
 - [ ] The session cookie is `__Host-mendari_session` (in the browser's developer tools), and a
       session left alone past the idle time is refused ("Your session ended. Sign in again.").
 - [ ] On each address people use, signed in: review a case on the dashboard and sign out, with

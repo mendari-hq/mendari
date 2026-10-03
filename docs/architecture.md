@@ -53,7 +53,8 @@
    answers, and score answers get their expected value.
 4. Policy: rules, then thresholds, then caps.
 5. The `DecisionResult` is returned. With a store attached, the record is written and
-   `decision.created` is chained. `HUMAN_REVIEW` and `ABSTAIN` enter the review queue.
+   `decision.created` is chained (with sign-in on, naming who asked: `requested_by`).
+   `HUMAN_REVIEW` and `ABSTAIN` enter the review queue.
 6. A reviewer resolves the item (`review.resolved`, with the override flag), or a downstream
    system reports the final label (`outcome.recorded`). Both feed the override rate and the
    observed accuracy.

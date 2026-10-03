@@ -8,7 +8,8 @@ client or an approval) is in the hash chain already; this is for incident respon
 **Fields come from an allow-list** (`FIELDS`), and anything else is dropped by the formatter:
 `ts`, `event`, `outcome`, `reason` (a fixed code), `request_id`, `method`, `route` (the route's
 template, `/api/audit/{decision_id}`: never the raw path or its query), `status`, `actor` (a
-`Principal.id`: `user:<hash>`, `key:<id>`, `client:<id>`, `open` or `anonymous`), `org`, `ip`,
+`Principal.id`: `user:<hash>`, `key:<id>`, `client:<id>`, `ehr:<hash>` (an EHR launch), `open`
+or `anonymous`), `org`, `ip`,
 `ids` (decision, key, client or approval ids), `count`, `latency_ms`, and for an unhandled
 exception its `error` type and `frames` (file, line, function). Never a credential, a token, an
 assertion, a query value, a body, a header, an exception's message or case text: none of them is
@@ -24,9 +25,10 @@ a person can quote it and the line be found.
 
 **Events**: `auth.signin.ok|refused`, `auth.logout`, `auth.credential.refused`,
 `auth.permission.refused`, `auth.origin.refused` (another site's request, server/origin.py),
-`auth.token.issued|refused`, `smart.launch.ok|refused` (an EHR launch that starts a session, or
-one that does not: `state_unknown`, `browser`, `token`, `id_token`, `issuer` and the like,
-server/smart_routes.py), `ratelimit.hit` (once per bucket until it has room again),
+`auth.token.issued|refused`, `smart.launch.ok|refused` (an EHR launch that starts a session,
+with its `ehr:<hash>` and, with sign-in on, its organization; or one that does not:
+`state_unknown`, `browser`, `token`, `id_token`, `issuer`, `unregistered`, `user_type` and the
+like, server/smart_routes.py), `ratelimit.hit` (once per bucket until it has room again),
 `quota.reached`, `admin.key.created|revoked`, `admin.client.registered|revoked`,
 `governance.approved|revoked`, `eval.run`, `export.audit|feedback`, `phi.inputs.read` (decision
 ids and a count) and `error.unhandled`.

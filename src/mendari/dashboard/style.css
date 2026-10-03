@@ -682,7 +682,12 @@ input[readonly] { background: var(--color-surface-sunken); border-style: dashed;
 .patient-name { font-size: var(--text-lg); font-weight: var(--weight-semibold); }
 .work-items { list-style: none; margin: var(--space-4) 0 0; padding: 0; display: grid; gap: var(--space-3); }
 .work-text { margin: var(--space-2) 0; }
-.work-result { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+/* The decision in place: outcome and recommendation (and the record's link), why, and its id. */
+.work-result { display: grid; gap: var(--space-1-5); flex: 1 1 auto; min-width: 0; }
+.work-result:empty { display: none; }
+.decided-line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.work-result :is(.reasons, .decided-id) { margin: 0; }
+.decided-id { overflow-wrap: anywhere; }
 .right-answer { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
 .right-answer .icon { color: var(--outcome-auto); }
 

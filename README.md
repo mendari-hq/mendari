@@ -236,6 +236,18 @@ docker compose exec engine mendari sandbox smart-launch --pack mendari/referral-
   --engine http://engine:8000 --launcher http://launcher --fhir http://fhir:8080/fhir
 ```
 
+The profile `signin` adds a second engine with sign-in on (port 8001) where the launcher is
+registered to decide for organization `pilot`; CI's `sandbox-e2e` checks that its launches
+decide there, chained as the launcher's `<issuer>|<subject>`:
+
+```bash
+docker compose --profile signin up -d --build --wait engine launcher engine-signin
+docker compose exec engine-signin mendari smart check http://launcher/v/r4/fhir
+docker compose exec engine-signin mendari sandbox smart-launch --pack mendari/referral-router \
+  --engine http://engine-signin:8000 --launcher http://launcher --fhir http://fhir:8080/fhir \
+  --expect-org pilot --db /data/mendari.db
+```
+
 **Bulk FHIR into local validation.** Export a site's data, then evaluate a pack on it with the
 site's own labels (ground truth from chart review, joined by an identifier system):
 
@@ -364,21 +376,47 @@ is refused.
 
 **SMART on FHIR EHR launch.** Register `https://<mendari>/smart/launch?pack=<pack id>` as
 the app's launch URL and `https://<mendari>/smart/callback` as its redirect URI in the EHR.
-Then set `MENDARI_SMART_CLIENT_ID`, `MENDARI_SMART_CLIENT_SECRET` (for a confidential
-client), `MENDARI_PUBLIC_URL`, and put the EHR's FHIR server and authorization server on
-`MENDARI_FHIR_ALLOWED_SERVERS`.
+Then set `MENDARI_PUBLIC_URL`, put the EHR's FHIR server and authorization server on
+`MENDARI_FHIR_ALLOWED_SERVERS`, and:
+
+| Setting | Effect |
+|---|---|
+| `MENDARI_SMART_CLIENT_ID` | The app's client id at the EHR; the launch is off until it is set |
+| `MENDARI_SMART_CLIENT_SECRET` | For a confidential client |
+| `MENDARI_SMART_SCOPES` | Default `launch openid fhirUser patient/*.rs`; with sign-in on it must ask for `openid fhirUser`, and `offline_access` is always refused (at the launch, never at startup) |
+| `MENDARI_SMART_EHRS` | The EHRs that may launch, `<FHIR base>=<organization>:view` or `:decide`, comma-separated (the base as the EHR sends it in `iss`; two tenants on one host are two entries). The organization must be one your people sign in to: the value of their `MENDARI_OIDC_ORG_CLAIM` claim, else `default` (one organization: `https://ehr.example.org/fhir=default:decide`); without the claim and with sign-in on, `mendari smart check <base>` fails any other organization. With sign-in on, a launch is a principal of its EHR's organization that may view the patient, or view and decide; a launch from any other EHR, or by a user who is not a Practitioner or PractitionerRole, is refused. Unset with sign-in on: every launch is refused. A malformed value, or a base off the allow-list, fails at startup |
+
+With sign-in on, the EHR's verified sign-in names the clinician (the chain's name: their
+verified email, else `<issuer>|<subject>`), and the launch's cookie reaches only the launch's
+own routes (an `Authorization` header decides alone there too): no review queue, audit trail
+or packs. `MENDARI_SMART_EHRS` is read at startup, so unregistering an EHR ends its live
+launches at the next restart or redeploy; signing out of Mendari ends the browser's launch, a
+later launch in the same browser ends the earlier one, and a launch made while sign-in was off
+starts again once it is on. In open mode with no EHR registered, any allow-listed EHR
+launches, as before. With sign-in on, a browser that only launched opens the dashboard on the
+patient view alone, with the decision shown in place (the organization's reviewers read it in
+the audit trail).
 
 The launch is OAuth 2 with PKCE (S256). The `id_token` is verified against the server's JWKS
-(`iss`, `aud`, `exp`, `nonce`). The access token stays on the server; the browser holds an
-opaque, HttpOnly, SameSite=Lax `__Host-mendari_smart` session cookie, which ends like a
-person's session (and when the EHR's token does), and the callback works only in the browser
-that started the launch. The dashboard opens on the launch's patient:
+(`iss`, `aud`, `exp`, `nonce`). The access token stays on the server, sealed in the session
+row under a key derived from the browser's opaque, HttpOnly, SameSite=Lax `__Host-mendari_smart`
+session cookie, so the database alone never reveals it. The session ends like a person's (and
+when the EHR's token does, or the EHR answers `401` to it), and the callback works only in the
+browser that started the launch. No refresh token is kept: `offline_access` in
+`MENDARI_SMART_SCOPES` is refused at launch. The dashboard opens on the launch's patient,
+pinned to that launch (`#patient/<launch_id>`; a window whose launch a later one in the same
+browser replaced says so, and shows no patient: it sends `X-Mendari-Launch` with the requests
+below, and the server answers `409` to a replaced launch), and says "This EHR launch ended.
+Open Mendari again from the EHR." when the launch's routes answer `401`:
 - `GET /api/smart/patient`;
 - their messages or referrals: `GET /api/smart/focus?pack_id=`;
 - deciding one: `POST /api/smart/decide`, which reads the record through the pack's CDS prefetch
   templates and audits the decision.
 
-SMART is off until the client id is set.
+SMART is off until the client id is set. Launch it in a new window or the EHR's embedded
+window: inside an iframe the launch fails safely. Before go-live, `mendari smart check <FHIR
+base>` reports, with the deployment's settings, the base's registration key, whether it is
+allowed and registered, the scopes, and the EHR's discovery, PKCE S256 and keys.
 
 **CQL.** A pack can compute answers with a CQL library (provider type `cql`), evaluated on a
 CQL engine at `MENDARI_CQL_URL` (HAPI FHIR with Clinical Reasoning; the sandbox's HAPI has
@@ -550,6 +588,7 @@ Every route has a permission, and anything unlisted needs admin:
 | admin | everything: evaluations, exports, chain verification; with a signed-in person, API keys and clients |
 
 With sign-in on, reviews, ratings, approvals and outcomes are recorded for whoever is signed in,
+each new decision names who asked for it (`requested_by`, the requestor in the FHIR exports),
 and the dashboard shows them as the audit chain names them and offers only what their role may
 do. The chain names a person by their verified email, else by their identity provider's subject
 qualified by its issuer (`<issuer>|<subject>`), never by a display name; a key as `key <id>`

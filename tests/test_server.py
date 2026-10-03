@@ -252,7 +252,7 @@ def test_the_api_reference_describes_every_operation(client: TestClient) -> None
     fhir_packs = offered("/api/packs/{namespace}/{name}/fhir/decide")
     assert fhir_packs[0] == "patient-inbox-router" and "ai-guard" not in fhir_packs
     smart = schema["paths"]["/api/smart/decide"]["post"]
-    assert "SMART session" in smart["description"]  # public to sign-in, not to the launch
+    assert "Needs an EHR launch" in smart["description"]  # not a session or a key
     fhir = schema["paths"]["/api/packs/{namespace}/{name}/fhir/decide"]["post"]
     bundle = fhir["requestBody"]["content"]["application/json"]["examples"]["message"]["value"]
     decided = client.post(f"{PACK}/fhir/decide", json=bundle).json()

@@ -29,6 +29,7 @@ from mendari.core.db import Session as _Session
 from mendari.core.db import connect
 from mendari.core.phi import NOTE_AAD, PhiPolicy
 from mendari.core.query import Atom, Page, Query, Within
+from mendari.core.session_seal import SealError, seal, unseal
 from mendari.core.spec import Outcome
 from mendari.errors import MendariError, NoteError, ProviderError, ReviewError
 
@@ -258,6 +259,10 @@ KEY_MAX_DAYS = 365
 LEGACY_KEY_DAYS = 30
 # Expired session-table rows one put deletes (smart_put).
 SESSION_PURGE_BATCH = 100
+# Session-table kinds sealed under the secret that names the row (core/session_seal.py,
+# ADR-0006): an EHR launch's session (its cookie) and its pending launch (its binding cookie,
+# never its `state`, which travels in URLs, so `pending` must be given its secret).
+SEALED_KINDS = frozenset({"session", "pending"})
 
 _PRIORITY_ORDER = (
     "CASE priority WHEN 'stat' THEN 0 WHEN 'asap' THEN 1 WHEN 'urgent' THEN 2 ELSE 3 END"
@@ -363,7 +368,8 @@ class AuditStore:
         quote it: a lab value and its date), stay in the record only under PHI mode `off` with a
         pack that keeps inputs; under `encrypt` with such a pack both are sealed apart
         (`decision_inputs`), so retention can delete them; otherwise neither is kept. The
-        caller's own answer (`/decide`) is unchanged."""
+        caller's own answer (`/decide`) is unchanged. With sign-in on, the chained event also
+        names who asked (`requested_by`, the principal's chain name, `tenancy.requester`)."""
         record = result.to_record()
         keep = store_input == "full" and self.phi.mode != "hash"
         in_record = keep and self.phi.mode == "off"
@@ -392,7 +398,11 @@ class AuditStore:
                     int(result.rejected),
                 ),
             )
-            self._append(db, result.id, "decision.created", {"record_sha256": _sha(record)})
+            created: dict[str, Any] = {"record_sha256": _sha(record)}
+            requester = tenancy.requester()
+            if requester is not None:  # sign-in on: who asked; never in open mode
+                created["requested_by"] = requester
+            self._append(db, result.id, "decision.created", created)
             if keep and self.phi.mode == "encrypt":  # apart from the chained record
                 details = {"evidence": evidence}
                 db.all(
@@ -1143,9 +1153,21 @@ class AuditStore:
     # of the audit chain, so no operation here takes the chain's lock: a take is one
     # `DELETE ... RETURNING`, a claim one `INSERT ... ON CONFLICT`, each atomic on its own.
     # Rows keyed before the kind was in the digest are never found again and expire.
+    # Rows of `SEALED_KINDS` are sealed under `secret` (by default the row's own value): a row
+    # that does not open (another row's data, a changed byte, plaintext from before sealing) is
+    # deleted and read as absent, and a take of one raises `SealError` (the row is gone too).
 
-    def smart_put(self, key: str, kind: str, data: Mapping[str, Any], expires_at: int) -> None:
+    def smart_put(
+        self,
+        key: str,
+        kind: str,
+        data: Mapping[str, Any],
+        expires_at: int,
+        *,
+        secret: str | None = None,
+    ) -> None:
         row = _session_key(kind, key)
+        stored = _sealed(row, kind, key, data, secret)
         now = int(time.time())
         with self._db.session(exclusive=False) as db:
             # A bounded purge on the expiry index: a flood of anonymous sign-ins (each leaves a
@@ -1159,23 +1181,36 @@ class AuditStore:
             db.all(
                 "INSERT INTO smart_sessions (key_sha256, kind, expires_at, data) "
                 "VALUES (?, ?, ?, ?)",
-                (row, kind, expires_at, _canonical(data)),
+                (row, kind, expires_at, _canonical(stored)),
             )
 
-    def smart_get(self, key: str, kind: str) -> dict[str, Any] | None:
-        row = self.smart_read(key, kind)
+    def smart_get(self, key: str, kind: str, *, secret: str | None = None) -> dict[str, Any] | None:
+        row = self.smart_read(key, kind, secret=secret)
         return None if row is None else row[0]
 
-    def smart_read(self, key: str, kind: str) -> tuple[dict[str, Any], int] | None:
-        """A live row's data and its `expires_at` (a session's idle expiry, server/sessions.py)."""
+    def smart_read(
+        self, key: str, kind: str, *, secret: str | None = None
+    ) -> tuple[dict[str, Any], int] | None:
+        """A live row's data and its `expires_at` (a session's idle expiry, server/sessions.py).
+        A sealed row that does not open is deleted: None, as for no row."""
         row_key = _session_key(kind, key)
+        opener = _opener(kind, key, secret)
         with self._db.session(exclusive=False) as db:
             row = db.one(
                 "SELECT data, expires_at FROM smart_sessions WHERE key_sha256 = ? AND kind = ? "
                 "AND expires_at > ?",
                 (row_key, kind, int(time.time())),
             )
-        return None if row is None else (json.loads(row["data"]), int(row["expires_at"]))
+            if row is None:
+                return None
+            try:
+                return _opened(row_key, kind, row["data"], opener), int(row["expires_at"])
+            except SealError:
+                db.all(
+                    "DELETE FROM smart_sessions WHERE key_sha256 = ? AND kind = ?",
+                    (row_key, kind),
+                )
+                return None
 
     def smart_touch(self, key: str, kind: str, until: int) -> bool:
         """Push a live row's expiry forward to `until`, never back: concurrent touches through
@@ -1189,21 +1224,35 @@ class AuditStore:
             )
         return bool(moved)
 
-    def smart_replace(self, key: str, kind: str, data: Mapping[str, Any], expires_at: int) -> bool:
+    def smart_replace(
+        self,
+        key: str,
+        kind: str,
+        data: Mapping[str, Any],
+        expires_at: int,
+        *,
+        secret: str | None = None,
+    ) -> bool:
         """Replace a live row's data and expiry (a session from an earlier release taking up the
         idle limit); an ended row stays ended. True if replaced."""
         row_key = _session_key(kind, key)
+        stored = _sealed(row_key, kind, key, data, secret)
         with self._db.session(exclusive=False) as db:
             replaced = db.all(
                 "UPDATE smart_sessions SET data = ?, expires_at = ? WHERE key_sha256 = ? "
                 "AND kind = ? AND expires_at > ? RETURNING key_sha256",
-                (_canonical(data), expires_at, row_key, kind, int(time.time())),
+                (_canonical(stored), expires_at, row_key, kind, int(time.time())),
             )
         return bool(replaced)
 
-    def smart_take(self, key: str, kind: str) -> dict[str, Any] | None:
-        """Read and delete in one statement: a launch's or a sign-in's state works once."""
+    def smart_take(
+        self, key: str, kind: str, *, secret: str | None = None
+    ) -> dict[str, Any] | None:
+        """Read and delete in one statement: a launch's or a sign-in's state works once. None
+        for no live row; `SealError` for a sealed row that does not open under `secret` (a
+        launch's state brought back by another browser), which is deleted all the same."""
         row_key = _session_key(kind, key)
+        opener = _opener(kind, key, secret)
         with self._db.session(exclusive=False) as db:
             row = db.one(
                 "DELETE FROM smart_sessions WHERE key_sha256 = ? AND kind = ? "
@@ -1212,7 +1261,7 @@ class AuditStore:
             )
         if row is None or row["expires_at"] <= int(time.time()):
             return None
-        return json.loads(row["data"])
+        return _opened(row_key, kind, row["data"], opener)
 
     def smart_delete(self, key: str, kind: str) -> None:
         """Delete this kind's row for `key` (a logout ends its own kind of session only)."""
@@ -2067,6 +2116,32 @@ def _session_key(kind: str, value: str) -> str:
     if not _SESSION_KIND.fullmatch(kind):
         raise ValueError(f"not a session kind: {kind!r}")
     return hashlib.sha256(kind.encode() + b"\x00" + value.encode()).hexdigest()
+
+
+def _opener(kind: str, key: str, secret: str | None) -> str | None:
+    """The secret a row of `kind` is sealed under (None: not a sealed kind)."""
+    if kind not in SEALED_KINDS:
+        return None
+    if secret is None and kind == "pending":
+        raise ValueError("a pending launch is sealed under its binding cookie: pass its secret")
+    return key if secret is None else secret
+
+
+def _sealed(
+    row_key: str, kind: str, key: str, data: Mapping[str, Any], secret: str | None
+) -> Mapping[str, Any]:
+    """What a row stores: `data`, sealed when its kind is."""
+    opener = _opener(kind, key, secret)
+    if opener is None:
+        return data
+    return seal(data, secret=opener, kind=kind, row_key=row_key)
+
+
+def _opened(row_key: str, kind: str, stored: str, opener: str | None) -> dict[str, Any]:
+    data: dict[str, Any] = json.loads(stored)
+    if opener is None:
+        return data
+    return unseal(data, secret=opener, kind=kind, row_key=row_key)
 
 
 def _sha(value: Any) -> str:

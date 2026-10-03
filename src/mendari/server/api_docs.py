@@ -111,8 +111,10 @@ def description(
         "needs. An `Authorization` header decides alone: a credential in it that is not valid "
         "is a `401`, even with a session cookie. Credentials are never accepted in a URL or a form "
         "(`access_token` is a `400`). Refusals carry `WWW-Authenticate` (RFC 6750), and `/api` "
-        "answers are `Cache-Control: no-store`. Only a signed-in person manages keys, never a key."
-        + (_backend_services(token_url) if token_url else "")
+        "answers are `Cache-Control: no-store`. Only a signed-in person manages keys, never a key. "
+        "A clinician an EHR launches (from an EHR registered here, `smartLaunch`) reaches only "
+        "the launch's own routes: `GET /api/smart/patient` and `/focus`, and, registered to "
+        "decide, `POST /api/smart/decide`." + (_backend_services(token_url) if token_url else "")
         if sign_in
         else "**Sign-in is off here**: anyone who can reach this deployment can call every "
         "operation. Set `MENDARI_OIDC_ISSUER` and `MENDARI_OIDC_CLIENT_ID` to require it."
@@ -214,12 +216,14 @@ def document(
     token_url: str | None = None,
     limit_for: Callable[[str, str], str | None] | None = None,
     session_cookie: str = "mendari_session",
+    launch_cookie: str = "mendari_smart",
 ) -> dict[str, Any]:
     """Add examples and (when `permission_for` is given, i.e. sign-in is on) security to a
     generated OpenAPI document; with `token_url` (SMART Backend Services on), the token flow
     too, on the operations a token's scope can reach; with `limit_for` (rate limits on, the
     class of an operation or None), the `429` a limited operation can answer. `session_cookie`
-    is the session cookie's name at the public URL (server/sessions.py)."""
+    is the session cookie's name at the public URL (server/sessions.py), `launch_cookie` an EHR
+    launch's."""
     ordered = sorted(packs, key=lambda pack_id: (pack_id != default_pack, pack_id))
     inputs = {pack_id: _example_input(packs[pack_id]) for pack_id in ordered}
     for path, operations in schema.get("paths", {}).items():
@@ -256,6 +260,18 @@ def document(
                 "after 30 minutes without a request or 8 hours, whichever is first (unless the "
                 "deployment sets otherwise), and with the browser. On this page your browser "
                 "sends it by itself: there is nothing to enter.",
+            },
+            "smartLaunch": {
+                "type": "apiKey",
+                "in": "cookie",
+                "name": launch_cookie,
+                "description": "The cookie an EHR launch sets (`/smart/launch`, then "
+                "`/smart/callback`): a clinician the EHR's sign-in names, from an EHR this "
+                "deployment registers (`MENDARI_SMART_EHRS`) to view, or to view and decide, in "
+                "its registered organization. It is a credential on `/api/smart/` only, and never "
+                "with an `Authorization` header (which decides alone). It ends with the EHR's "
+                "token, after 30 minutes without a request or 8 hours (unless the deployment "
+                "sets otherwise), and with the browser.",
             },
         }
         if token_url is not None:
@@ -359,6 +375,14 @@ def _secure(
 ) -> None:
     if permission == "public":
         operation["security"] = []
+        return
+    if permission in ("launch", "launch_decide"):  # EHR launches only (server/auth.py EHR_ONLY)
+        operation["security"] = [{"smartLaunch": []}]
+        needed = "an EHR launch from an EHR registered here" + (
+            " to decide" if permission == "launch_decide" else ""
+        )
+        needed += " (never a person's session, a key or a token)"
+        operation["description"] = f"{operation.get('description', '')}\n\n**Needs** {needed}."
         return
     if permission == "keys":  # people only (server/auth.py PEOPLE_ONLY)
         operation["security"] = [{"session": []}]

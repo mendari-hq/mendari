@@ -1,0 +1,159 @@
+"""`mendari smart check <FHIR base>`: before go-live, whether an EHR's launches will work here,
+with this deployment's settings as the server would read them (ADR-0006).
+
+It reports, in order:
+1. the registration key: the base as `MENDARI_SMART_EHRS` keys it (normalized);
+2. the allow-list: the base's origin on `MENDARI_FHIR_ALLOWED_SERVERS`;
+3. the registration: the organization and level the base is registered to, whether people can
+   sign in to that organization (without `MENDARI_OIDC_ORG_CLAIM` everyone is in `default`, so
+   a launch registered elsewhere decides where no reviewer reads), and whether an unregistered
+   base may launch (open mode with nothing registered);
+4. the SMART client: `MENDARI_SMART_CLIENT_ID` set, and scopes the launch accepts (no
+   `offline_access`; with sign-in on, `openid fhirUser`);
+5. discovery: the EHR's `.well-known/smart-configuration`, its endpoints on the allow-list;
+6. PKCE: `S256` among the methods the EHR names;
+7. the JWKS: the keys that verify the id_token, at least one usable (RS256 or ES384).
+
+Only the EHR's own servers are called, through the same allow-listed client as a launch (none
+when the base is not allowed), and only for its public configuration and keys: no launch, no
+token. Each finding is `ok`, `warn` (works, but check it) or `fail` (launches will be refused,
+or their decisions reach no reviewer).
+"""
+
+from __future__ import annotations
+
+import os
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
+
+from mendari.errors import FhirError, MendariError
+from mendari.server.auth import DEFAULT_ORG, auth_settings
+from mendari.standards import oidc, smart
+from mendari.standards.fhir_client import GuardedHttp, allowed_servers, origin_of
+
+
+@dataclass(frozen=True)
+class Finding:
+    status: str  # "ok", "warn" or "fail"
+    check: str
+    detail: str
+
+
+Say = Callable[[str, str, str], None]  # (status, check, detail)
+
+
+def check(base: str) -> list[Finding]:
+    """What a launch from `base` (the `iss` the EHR sends) would meet here."""
+    found: list[Finding] = []
+
+    def say(status: str, what: str, detail: str) -> None:
+        found.append(Finding(status, what, detail))
+
+    key = smart.normalize_base(base)
+    if key is None:
+        say("fail", "registration key", "not an http(s) URL without credentials, query or fragment")
+        return found
+    say("ok", "registration key", key)
+    try:
+        allowed = allowed_servers()
+        ehrs = smart.smart_ehrs()
+        signed_in = auth_settings() is not None
+    except MendariError as error:  # the server would not start with these settings
+        say("fail", "settings", str(error))
+        return found
+    origin = origin_of(key)
+    if origin in allowed:
+        say("ok", "allow-list", f"{origin} is on MENDARI_FHIR_ALLOWED_SERVERS")
+    else:
+        say("fail", "allow-list", f"add {origin} to MENDARI_FHIR_ALLOWED_SERVERS")
+    registered = ehrs.get(key)
+    org_claim = os.environ.get("MENDARI_OIDC_ORG_CLAIM", "").strip()
+    if registered is not None and registered.org != DEFAULT_ORG and not org_claim:
+        # Sign-in puts everyone in `default` (server/auth.py): no reviewer could read these.
+        say(
+            "fail" if signed_in else "warn",
+            "registration",
+            f"organization {registered.org}, but without MENDARI_OIDC_ORG_CLAIM everyone who "
+            f"signs in is in {DEFAULT_ORG}: no reviewer would see these launches' decisions. "
+            f"Register it to {DEFAULT_ORG}, or set MENDARI_OIDC_ORG_CLAIM",
+        )
+    elif registered is not None:
+        say("ok", "registration", f"organization {registered.org}, level {registered.level}")
+    elif signed_in or ehrs:
+        say("fail", "registration", f"add {key}=<organization>:<view|decide> to MENDARI_SMART_EHRS")
+    else:
+        say("warn", "registration", "not registered: open mode lets any allowed EHR launch")
+    settings = smart.smart_settings()
+    if settings is None:
+        say("fail", "SMART client", "SMART launch is off: set MENDARI_SMART_CLIENT_ID")
+    else:
+        asked = set(settings.scopes.split())
+        if "offline_access" in asked:
+            say("fail", "SMART client", "MENDARI_SMART_SCOPES asks for offline_access")
+        elif signed_in and not {"openid", "fhirUser"} <= asked:
+            say("fail", "SMART client", "with sign-in on, the scopes must include openid fhirUser")
+        else:
+            say("ok", "SMART client", f"client {settings.client_id}, scopes {settings.scopes}")
+    if origin not in allowed:
+        return found  # nothing is sent to a server off the allow-list
+    with GuardedHttp(allowed=allowed) as http:
+        config = _discovery(key, http, say)
+        if config is not None:
+            _pkce(config, say)
+            _jwks(config, http, say)
+    return found
+
+
+def _discovery(key: str, http: GuardedHttp, say: Say) -> dict[str, Any] | None:
+    url = f"{key}/.well-known/smart-configuration"
+    try:
+        config = http.get_json(url)
+    except FhirError as error:
+        say("fail", "discovery", f"{url}: {error}")
+        return None
+    for name in ("authorization_endpoint", "token_endpoint"):
+        endpoint = config.get(name)
+        if not isinstance(endpoint, str):
+            say("fail", "discovery", f"the SMART configuration has no {name}")
+            return None
+        if origin_of(endpoint) not in http.allowed:
+            say("fail", "discovery", f"{name} is on {origin_of(endpoint)}: allow-list it")
+            return None
+    issuer = config.get("issuer") or key
+    say("ok", "discovery", f"issuer {issuer}; authorize and token on the allow-list")
+    return config
+
+
+def _pkce(config: dict[str, Any], say: Say) -> None:
+    methods = config.get("code_challenge_methods_supported")
+    if methods is None:
+        say("warn", "PKCE S256", "not advertised: Mendari sends S256, the EHR must accept it")
+    elif "S256" in methods:
+        say("ok", "PKCE S256", "supported")
+    else:
+        say("fail", "PKCE S256", f"not supported (only {methods})")
+
+
+def _jwks(config: dict[str, Any], http: GuardedHttp, say: Say) -> None:
+    uri = config.get("jwks_uri")
+    if not isinstance(uri, str):
+        say("fail", "JWKS", "the SMART configuration has no jwks_uri: no id_token can be verified")
+        return
+    try:
+        keys = [k for k in http.get_json(uri).get("keys", []) if isinstance(k, dict)]
+    except FhirError as error:
+        say("fail", "JWKS", f"{uri}: {error}")
+        return
+    usable = [k for k in keys if _usable(k)]
+    if usable:
+        say("ok", "JWKS", f"{len(usable)} of {len(keys)} keys verify {'/'.join(oidc.ALGORITHMS)}")
+    else:
+        say("fail", "JWKS", f"none of {len(keys)} keys is RSA or EC P-384 for signing")
+
+
+def _usable(jwk: dict[str, Any]) -> bool:
+    """A key that can verify an RS256 or ES384 id_token (oidc.ALGORITHMS)."""
+    if jwk.get("use", "sig") != "sig" or jwk.get("alg") not in (None, *oidc.ALGORITHMS):
+        return False
+    return jwk.get("kty") == "RSA" or (jwk.get("kty") == "EC" and jwk.get("crv") == "P-384")

@@ -84,6 +84,8 @@
   <div class="session-ended" id="session-ended" hidden>
     Your session ended. <a id="sign-in-again" href="/auth/login">Sign in again.</a>
   </div>
+  <!-- After a 401 from the launch's own routes (ui.js): only the EHR can launch again. -->
+  <div class="session-ended" id="launch-ended" hidden>This EHR launch ended. Open Mendari again from the EHR.</div>
   <div class="shell">
     <nav class="nav" aria-label="Sections">
       <!-- Shown after a SMART launch from the EHR (patient.js). -->

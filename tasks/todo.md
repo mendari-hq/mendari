@@ -2,6 +2,48 @@
 
 Roadmap to the full goal: [`docs/roadmap.md`](../docs/roadmap.md).
 
+## Built: the SMART launch gated, C5 and S5 (2026-10-03)
+From the Phase 4b review's residual risks, after research (three researchers and a critic). The
+owner chose: the EHR's sign-in identifies the clinician; a launch may view or decide per
+registered EHR; no iframe and no refresh until the pilot EHR is known
+([ADR-0006](../docs/decisions/ADR-0006-an-ehr-launch-is-a-principal.md)). Branch
+`claude/smart-gating`. About 10 days. No schema change.
+- [x] **1. Seal the launch rows (S5)**: session and pending-launch rows sealed (AES-256-GCM, key
+  derived from the row's own cookie, bound to row and kind); a row that will not open ends the
+  launch; an EHR 401 ends it; token syntax checked; `offline_access` refused
+  (Deviation: a take of a sealed row that will not open raises `SealError` rather than reading
+  as absent, so the callback can tell `browser` from `state_unknown`; the row is deleted alike.)
+- [x] **2. The launch is a principal (C5)**: `MENDARI_SMART_EHRS` registration (FHIR base to
+  organization and `view` or `decide`); with sign-in on, unregistered bases, missing
+  `openid fhirUser`, and patient or related-person users refused at launch; `ehr` principals with
+  two permissions of their own; a bearer header decides alone on `/api/smart/*`; signing out ends
+  the launch; limits per principal
+  (Deviation: a person's session alone on a launch route is a `401`, not a `403`: the launch
+  cookie is the only credential there. Signed-in `/api/health` lists only the caller's
+  organization's registrations, every one in open mode.)
+- [x] **3. The chain names who asked**: `requested_by` on new `decision.created` events for every
+  principal with sign-in on; the FHIR requestor agent; validator sample
+  (Deviation: on the Provenance the requester is a second agent with the role "requester" as
+  text and no type, since R4's agent types have no code for one; the HL7 validator accepts it
+  with no new warning.)
+- [x] **4. The dashboard for a launch**: patient view only, decision inline, "open Mendari again
+  from the EHR" after a 401, a replaced launch said so
+  (Deviation: the launch pin is checked again before every render and every decision, and a
+  window opened on `#patient` with no pin takes the launch it shows; the 401 message applies to
+  signed-in people too, who were told to sign in again.)
+- [x] **5. CI and wrap-up**: `sandbox-e2e` with sign-in on and a registered EHR, `mendari smart
+  check`, threat model, SECURITY.md, deploying-with-phi.md, review packet addendum, audit status
+  (Deviation: `--expect-org` reads the organization and `requested_by` from the engine's own
+  store (`--db`, run in its container), not over HTTP, since the profile's identity provider is
+  a placeholder nobody signs in through; `smart check` also reports the SMART client and scopes,
+  which refuse launches too.)
+- [x] **Review**: four reviewers and a skeptic; 8 findings, 4 confirmed and fixed (replaced
+  launches end, open-mode launches end at sign-in on, the pin checked by the server, `smart
+  check` fails an organization nobody signs in to), and "read on every request" corrected
+- Deferred: iframe mode and refresh (when the pilot EHR is known), sealing sign-in rows (with a
+  PHI keyring), token revocation at logout, a registration table, one FHIR base for several
+  organizations
+
 ## Built: hardening before PHI, Phase 4b (2026-10-02)
 From the [audit](../docs/fhir-and-docs-audit.md) Phase 4b line, after research (four researchers
 and a critic). The owner chose finite spending ceilings plus per-organization quotas at launch,

@@ -33,7 +33,8 @@ from mendari.server.auth import Auth, AuthSettings, auth_settings, permission_fo
 from mendari.server.backend_services import check_jwks, default_scope
 from mendari.server.scopes import DECIDE, OUTCOME, needed, parse, parse_lenient
 from mendari.standards.fhir_client import GuardedHttp
-from tests.conftest import message, run_async, signed_in, without_request_id
+from mendari.standards.smart import Registration
+from tests.conftest import launched, message, run_async, signed_in, without_request_id
 
 IDP = "https://idp.example.org"
 REALM = 'Bearer realm="mendari"'
@@ -345,9 +346,6 @@ PUBLIC = {
     ("GET", "/smart/callback"),
     ("GET", "/api/smart/session"),
     ("POST", "/api/smart/logout"),
-    ("GET", "/api/smart/patient"),
-    ("GET", "/api/smart/focus"),
-    ("POST", "/api/smart/decide"),
     # How to talk to the FHIR base: discoverable without signing in.
     ("GET", "/fhir/metadata"),
     ("GET", "/fhir/OperationDefinition/{resource_id}"),
@@ -402,6 +400,14 @@ def test_every_route_has_the_permission_it_should(tmp_path: Path) -> None:
     assert permission_for("POST", "/api/governance") == "approve"
     assert permission_for("DELETE", "/api/governance/a1") == "approve"
     assert permission_for("POST", "/api/audit/d1/outcome") == "outcome"
+    # An EHR launch's own routes: only an `ehr` principal holds these (server/auth.py EHR_ONLY).
+    launch = {(m, p) for m, p in routes if permission_for(m, p) in auth_module.EHR_ONLY}
+    assert launch == {
+        ("GET", "/api/smart/patient"),
+        ("GET", "/api/smart/focus"),
+        ("POST", "/api/smart/decide"),
+    }
+    assert permission_for("POST", "/api/smart/decide") == "launch_decide"
 
 
 # -- the matrix: route x principal kind x role x scope (ADR-0004) -------------------------------
@@ -466,11 +472,36 @@ def covers(scope: str, needed: str) -> bool:
     return granted in ("*", kind) and letter in ("rs" if letters == "read" else letters)
 
 
+# What an EHR launch may do, by its EHR's registered level (server/auth.py EHR_LEVELS).
+EHR_PERMISSIONS = {"view": {"launch"}, "decide": {"launch", "launch_decide"}}
+EHR_VIEW = "https://ehr-view.example.org/fhir"
+EHR_DECIDE = "https://ehr-decide.example.org/fhir"
+
+
 def expected(kind: str, role: str, scope: str | None, method: str, path: str) -> tuple[int, str]:
-    """The status and `WWW-Authenticate` a request should get (200: it may go on)."""
+    """The status and `WWW-Authenticate` a request should get (200: it may go on). An EHR
+    launch (`ehr`, `role` its level) is a credential on `/api/smart/` and the page `/` only;
+    with a person's session too (`ehr+user`, `role` "<level>/<person's role>") the person is
+    the principal everywhere else; with a bearer header (`ehr+key`, `ehr+junk`) the header
+    decides alone, everywhere. A person's session alone is no credential on `/api/smart/`."""
     permission = permission_for(method, path)
     if kind == "open" or permission == "public":
         return 200, ""
+    if kind == "ehr+key":
+        return expected("key", role, scope, method, path)
+    if kind == "ehr+junk":
+        return 401, INVALID
+    if kind.startswith("ehr"):
+        level, _, person = role.partition("/")
+        if path.startswith("/api/smart/"):
+            if permission in EHR_PERMISSIONS[level]:
+                return 200, ""
+            return 403, f'{REALM}, error="insufficient_scope"'
+        if kind == "ehr+user":
+            return expected("user", person, scope, method, path)
+        return (200, "") if path == "/" else expected("anonymous", "", None, method, path)
+    if kind == "user" and path.startswith("/api/smart/"):
+        return expected("anonymous", "", None, method, path)  # a session is no launch there
     if kind == "anonymous":
         return (302, "") if permission == "page" else (401, REALM)
     allowed = ROLE_PERMISSIONS[role] - (set() if kind == "user" else {"keys"})
@@ -513,8 +544,10 @@ def test_every_route_principal_role_and_scope_gets_what_it_should(
     no one, a person of each role, an unscoped key of each role (viewer and service as made now;
     the others as keys from before Phase 4), scoped keys, and access tokens of clients of each
     machine role (registered with everything the role can use, or with the scoped keys'
-    scopes). A scope only narrows, and a scoped key or a token reaches only the routes
-    `ROUTE_SCOPE` names, with that scope."""
+    scopes), and EHR launches at each level, alone, with a person's session, and with a bearer
+    header, valid or not. A scope only narrows, and a scoped key or a token reaches only the
+    routes `ROUTE_SCOPE` names, with that scope. Only an EHR launch reaches the launch's
+    routes, and nothing else with its cookie."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", CLIENT)
     monkeypatch.setenv("MENDARI_PUBLIC_URL", "https://mendari.test")
@@ -583,8 +616,24 @@ def test_every_route_principal_role_and_scope_gets_what_it_should(
         token, _ = store.issue_token(client["client_id"], granted, 300)
         principals.append(("client", role, granted, {"authorization": f"Bearer {token}"}))
 
-    guards = {"open": Auth(None, store)}
-    signed = Auth(settings, store, tokens=True)
+    ehrs = {
+        EHR_VIEW: Registration(base=EHR_VIEW, org="default", level="view"),
+        EHR_DECIDE: Registration(base=EHR_DECIDE, org="default", level="decide"),
+    }
+    service_key = store.create_api_key(name="ehr", role="service", org="default", created_by="t")
+    for level, base in (("view", EHR_VIEW), ("decide", EHR_DECIDE)):
+        cookie = launched(store, iss=base)["cookie"]
+        principals.append(("ehr", level, None, {"cookie": cookie}))
+        for person in ROLE_PERMISSIONS:
+            both = f"{cookie}; {signed_in(store, role=person)['cookie']}"
+            principals.append(("ehr+user", f"{level}/{person}", None, {"cookie": both}))
+        bearer = {"authorization": f"Bearer {service_key['key']}", "cookie": cookie}
+        principals.append(("ehr+key", "service", None, bearer))
+        junk = {"authorization": "Bearer ohk_not-a-key", "cookie": cookie}
+        principals.append(("ehr+junk", "", None, junk))
+
+    guards = {"open": Auth(None, store, ehrs=ehrs)}
+    signed = Auth(settings, store, tokens=True, ehrs=ehrs)
     wrong = [
         (kind, role, scope, method, path, got, want)
         for kind, role, scope, headers in principals
@@ -763,9 +812,11 @@ def test_the_api_reference_asks_a_browser_to_sign_in(app: TestClient, idp: FakeI
     assert reference.status_code == 200 and "swagger-ui-bundle.js" in reference.text
     schema = app.get("/openapi.json").json()
     schemes = schema["components"]["securitySchemes"]
-    assert set(schemes) == {"apiKey", "session"}  # no token scheme: Backend Services is off
+    # No token scheme: Backend Services is off. The launch's cookie is its own scheme.
+    assert set(schemes) == {"apiKey", "session", "smartLaunch"}
     session = schemes["session"]  # the cookie sign-in sets, on this (non-local) host
     assert session["name"] == "__Host-mendari_session" and "30 minutes" in session["description"]
+    assert schemes["smartLaunch"]["name"] == "__Host-mendari_smart"
     operations = {
         (method.upper(), path): operation
         for path, methods in schema["paths"].items()
@@ -775,6 +826,12 @@ def test_the_api_reference_asks_a_browser_to_sign_in(app: TestClient, idp: FakeI
     decide = operations[("POST", "/api/packs/{namespace}/{name}/decide")]
     assert decide["security"] == [{"apiKey": []}, {"session": []}]
     assert "the `decide` permission" in decide["description"]
+    # Only an EHR launch decides there: never a session or a key.
+    launch_decide = operations[("POST", "/api/smart/decide")]
+    assert launch_decide["security"] == [{"smartLaunch": []}]
+    assert "registered here to decide" in launch_decide["description"]
+    assert operations[("GET", "/api/smart/patient")]["security"] == [{"smartLaunch": []}]
+    assert operations[("GET", "/api/smart/session")]["security"] == []
     assert "Sign-in is on" in schema["info"]["description"]
 
 
@@ -829,6 +886,39 @@ def test_a_credential_that_is_not_valid_never_falls_back_to_the_session(
     }
     me = app.get("/api/auth/me", headers={"authorization": header}).json()
     assert me == {"mode": "sign-in", "signed_in": False}
+
+
+def test_a_bearer_header_never_falls_back_to_the_launch_cookie(
+    tmp_path: Path, idp: FakeIdp, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ADR-0004 on the launch's routes too (threat S5): with an `Authorization` header the
+    launch cookie riding along is never looked at. A credential that is not valid is a `401`;
+    a valid key is a key, which no launch route admits (`403`); a person's session there is no
+    credential at all."""
+    ehr = "https://ehr.example.org/fhir"
+    monkeypatch.setenv("MENDARI_SMART_CLIENT_ID", "mendari-app")
+    monkeypatch.setenv("MENDARI_FHIR_ALLOWED_SERVERS", "https://ehr.example.org")
+    monkeypatch.setenv("MENDARI_SMART_EHRS", f"{ehr}=default:decide")
+    monkeypatch.setenv("MENDARI_OIDC_ROLE_MAP", "clinicians=reviewer")
+    app = signing_in_with(idp, tmp_path, monkeypatch)
+    store = AuditStore(tmp_path / "a.db")
+    cookie = launched(store, iss=ehr)
+    assert app.get("/api/smart/session", headers=cookie).json()["active"] is True
+    key = store.create_api_key(name="worker", role="service", org="default", created_by="t")
+    body = {"pack_id": "mendari/referral-router", "focus": "ServiceRequest/ref-sr1"}
+    for header, status in (("Bearer ohk_not-a-key", 401), (f"Bearer {key['key']}", 403)):
+        sent = {**cookie, "authorization": header}
+        for method, path in (
+            ("POST", "/api/smart/decide"),
+            ("GET", "/api/smart/patient"),
+            ("GET", "/api/smart/focus?pack_id=mendari/referral-router"),
+        ):
+            refused = app.request(method, path, json=body, headers=sent)
+            assert refused.status_code == status, (header, path, refused.text)
+        assert app.get("/api/smart/session", headers=sent).json() == {"active": False}
+    person = signed_in(store, role="reviewer")
+    refused = app.post("/api/smart/decide", json=body, headers=person)
+    assert refused.status_code == 401 and "open Mendari again from the EHR" in refused.text
 
 
 @pytest.mark.parametrize("header", ["Basic dXNlcjpwYXNz", "Token ohk_x", "ohk_x", ""])

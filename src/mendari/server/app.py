@@ -109,7 +109,7 @@ from mendari.standards.fhir_client import GuardedHttp, allowed_servers
 from mendari.standards.pas import PasError
 from mendari.standards.search import SPECS, SearchError, handling, searchset
 from mendari.standards.search import parse as parse_search
-from mendari.standards.smart import smart_settings
+from mendari.standards.smart import smart_ehrs, smart_settings
 from mendari.standards.terminology import Terminology
 
 DASHBOARD_DIR = Path(__file__).resolve().parents[1] / "dashboard"
@@ -317,6 +317,9 @@ def create_app(
     validation = fhir_validation or settings.fhir_validation()  # likewise
     fhir_servers = sorted(allowed_servers())  # likewise
     smart_options = smart_settings()
+    # The EHRs whose launches are principals: only a malformed value, or a base off the FHIR
+    # allow-list, fails here; every other SMART check refuses a launch, never the server.
+    ehrs = smart_ehrs()
     sign_in = auth_settings()  # an invalid sign-in setting fails here, at startup
     backend = backend_settings(sign_in)  # likewise: on, it needs sign-in and a public URL
     phi = phi_policy()  # a bad PHI setting (or a missing key) fails here, at startup
@@ -329,7 +332,13 @@ def create_app(
     if org_limits and webhook:
         check_webhook(webhook)  # likewise: a quota's alert must be able to leave
     store = AuditStore(db_path, migrate_url=migrate_url, phi=phi)
-    auth = Auth(sign_in, store, tokens=backend is not None, lifetime=session_lifetime)
+    auth = Auth(
+        sign_in,
+        store,
+        tokens=backend is not None,
+        lifetime=session_lifetime,
+        ehrs=ehrs if smart_options is not None else None,
+    )
     origins = OriginCheck(open_mode=not auth.enabled, trusted=trusted_origins())  # likewise
     limiter = Limiter(store, rate_limits)
     budget = (
@@ -482,6 +491,7 @@ def create_app(
                 token_url=None if backend is None else backend.token_url,
                 limit_for=limit_class if limiter.mode == "on" else None,
                 session_cookie=session_cookie_name(),
+                launch_cookie=session_cookie_name(sessions.SMART),
             )
         return app.openapi_schema
 
@@ -573,6 +583,13 @@ def create_app(
             # FHIR servers this deployment may read from (CDS Hooks fetch); empty: none.
             "fhir_allowed_servers": fhir_servers,
             "smart_launch": smart_options is not None,
+            # The EHRs registered to launch (MENDARI_SMART_EHRS), the caller's organization's
+            # only (every one in open mode): base, organization and level.
+            "smart_ehrs": [
+                {"base": ehr.base, "org": ehr.org, "level": ehr.level}
+                for ehr in sorted(ehrs.values(), key=lambda ehr: ehr.base)
+                if principal.kind == "open" or ehr.org == principal.org
+            ],
             "phi_mode": phi.mode,
             # How new records' input hashes are made: `hmac-sha256:<key id>` under
             # MENDARI_INPUT_HASH_KEY (required in PHI modes hash and encrypt), else `sha256`.
@@ -1450,7 +1467,9 @@ def create_app(
         if refused is not None:
             return refused
         principal = getattr(request.state, "principal", None)
-        with tenancy.acting_for(principal.org if principal and principal.kind != "open" else None):
+        # Who asked, as the chain names them, rides along with the organization (open mode: none).
+        who = principal if principal is not None and principal.kind != "open" else None
+        with tenancy.acting_for(who.org if who else None, who.actor if who else None):
             response: Response = await call_next(request)
         return response
 
@@ -1494,9 +1513,11 @@ def create_app(
         app,
         settings=smart_options,
         store=store,
+        packs=packs,
         pack_or_404=pack_or_404,
         decision_for=decision_for,
         default_pack=default_pack,
+        auth=auth,
         lifetime=session_lifetime,
     )
 
@@ -1742,11 +1763,12 @@ def form_items(body: bytes) -> list[tuple[str, str]]:
     raise SearchError([{"code": "invalid", "diagnostics": problem}])
 
 
-def session_cookie_name() -> str:
-    """The session cookie's name for the API reference, which is one document for every host:
-    the plain name only when `MENDARI_PUBLIC_URL` is a local host (server/sessions.py)."""
+def session_cookie_name(base: str = sessions.SESSION) -> str:
+    """The session (or launch) cookie's name for the API reference, which is one document for
+    every host: the plain name only when `MENDARI_PUBLIC_URL` is a local host
+    (server/sessions.py)."""
     host = urlsplit(os.environ.get("MENDARI_PUBLIC_URL", "").strip()).hostname
-    return sessions.cookie_name(sessions.SESSION, host or "public.invalid")
+    return sessions.cookie_name(base, host or "public.invalid")
 
 
 def fhir_base(request: Request) -> str:

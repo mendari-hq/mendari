@@ -46,8 +46,10 @@ def test_a_public_logout_deletes_only_its_own_kind_of_row(
         ("user-sid", "user"): {"name": "Nurse Kim", "roles": ["reviewer"], "org": "default"},
         ("client-1\njti-abc", "pending"): {"iss": "https://ehr.example.org/fhir"},
     }
+    # A pending launch is sealed under its binding cookie, which the store must be given.
+    binding = {"pending": "binding-cookie"}
     for (value, kind), data in rows.items():
-        store.smart_put(value, kind, data, later)
+        store.smart_put(value, kind, data, later, secret=binding.get(kind))
     crafted = ["state-abc", '"client-1\\012jti-abc"']
     logouts = {
         "/auth/logout": ("mendari_session", "smart-sid"),  # a person's: names a launch's row
@@ -59,7 +61,7 @@ def test_a_public_logout_deletes_only_its_own_kind_of_row(
             done = signed_in.post(path, headers={"cookie": f"{cookie}={value}"})
             assert done.status_code == 204
     for (value, kind), data in rows.items():
-        assert store.smart_get(value, kind) == data, (value, kind)
+        assert store.smart_get(value, kind, secret=binding.get(kind)) == data, (value, kind)
     # Each logout still ends its own kind of session.
     signed_in.cookies.clear()
     signed_in.post("/auth/logout", headers={"cookie": "mendari_session=user-sid"})
@@ -75,7 +77,7 @@ def test_a_value_names_a_row_of_its_own_kind_only(store: AuditStore) -> None:
     store.smart_put("same", "user", {"kind": "user"}, later)
     store.smart_put("same", "session", {"kind": "session"}, later)  # no collision
     assert store.smart_get("same", "user") == {"kind": "user"}
-    assert store.smart_take("same", "pending") is None
+    assert store.smart_take("same", "pending", secret="binding") is None
     store.smart_delete("same", "oidc-pending")
     assert store.smart_take("same", "session") == {"kind": "session"}
     assert store.smart_get("same", "user") == {"kind": "user"}  # untouched by the take
@@ -156,10 +158,10 @@ def test_a_claim_is_atomic_across_connections(store: AuditStore, db_target: str)
 
 
 def test_a_take_works_once(store: AuditStore, db_target: str) -> None:
-    store.smart_put("state-1", "pending", {"n": 1}, int(time.time()) + 60)
+    store.smart_put("state-1", "pending", {"n": 1}, int(time.time()) + 60, secret="binding")
     other = AuditStore(db_target)
-    assert other.smart_take("state-1", "pending") == {"n": 1}
-    assert store.smart_take("state-1", "pending") is None
+    assert other.smart_take("state-1", "pending", secret="binding") == {"n": 1}
+    assert store.smart_take("state-1", "pending", secret="binding") is None
     other.close()
 
 

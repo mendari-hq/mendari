@@ -17,7 +17,8 @@ costs: no body is read, no provider is called and nothing is chained for a refus
 | `evaluate` | `POST …/evals` | principal | 6/h |
 | `export` | the audit FHIR export, the feedback export | principal | 10/h |
 
-Reads are not limited here (the edge covers floods, and a read writes nothing permanent).
+Reads are not limited here (the edge covers floods, and a read writes nothing permanent). An EHR
+launch's decisions count against its `ehr` principal, like anyone's.
 Per-IP keys are used only where no one has signed in yet: a hospital sits behind one address,
 so sign-in allows at least what the edge does (120 a minute per address) and a site behind one
 egress address raises it (`signin=600/min:240`). A CDS Hooks order hook decides each draft
@@ -35,12 +36,11 @@ mode, comma-separated: `MENDARI_RATE_LIMITS=on,decide=1200/min:200,evaluate=20/h
 bucket admits `burst` requests at once and then one every `period / count`, with no burst at
 window edges, constant storage and an exact `Retry-After`. A weighted take (`cost` requests at
 once) is admitted whole or not at all, and never more than the burst. Buckets are named by
-class and key, never by a secret: `decide|key:<id>`, `signin|ip:<address>`.
+class and key, never by a secret: `decide|key:<id>`, `decide|ehr:<hash>`, `signin|ip:<address>`.
 """
 
 from __future__ import annotations
 
-import hashlib
 import ipaddress
 import math
 import os
@@ -54,7 +54,7 @@ from fastapi import Request
 
 from mendari.core.audit import AuditStore
 from mendari.errors import MendariError
-from mendari.server import security_log, sessions
+from mendari.server import security_log
 
 Mode = Literal["on", "log", "off"]
 _UNITS = {"s": 1, "min": 60, "h": 3600}
@@ -260,17 +260,9 @@ class Limiter:
         kind = self.classify(request.method, request.url.path, permission)
         if kind is None:
             return None
-        if kind in ("signin", "token"):
-            key = f"ip:{client_ip(request)}"
-        elif request.url.path == "/api/smart/decide":
-            # An EHR launch's session (no Mendari principal), by a digest that cannot be used to
-            # find the session's row; without a cookie the route answers 401 itself.
-            cookie, _ = sessions.read(request, sessions.SMART)
-            if not cookie:
-                return None
-            key = "smart:" + hashlib.sha256(f"rate-limit\0{cookie}".encode()).hexdigest()[:16]
-        else:
-            key = principal_id
+        # Per address before anyone is known; else per principal, an EHR launch's (`ehr:<hash>`)
+        # included.
+        key = f"ip:{client_ip(request)}" if kind in ("signin", "token") else principal_id
         return self.hit(kind, key)
 
     def hit(self, kind: str, key: str, cost: int = 1) -> RateLimited | None:
@@ -311,7 +303,7 @@ class Limiter:
                 self._logged[bucket] = now + wait_ms
         if first:
             # The bucket's opaque id, without the address (the line's `ip` has it): `key:<id>`,
-            # `user:<hash>`, `client:<id>` (failed assertions), `smart:<digest>`; none for sign-in.
+            # `user:<hash>`, `client:<id>` (failed assertions), `ehr:<hash>`; none for sign-in.
             key = bucket.partition("|")[2]
             actor = next((part for part in key.split("|") if not part.startswith("ip:")), None)
             security_log.event(

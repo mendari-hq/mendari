@@ -472,6 +472,8 @@ def cmd_sandbox_smart_launch(args: argparse.Namespace) -> int:
         pack_id=args.pack,
         patient=args.patient,
         limit=args.limit,
+        expect_org=args.expect_org,
+        db=args.db,
     )
     _print_json(result)
     problems = []
@@ -481,9 +483,25 @@ def cmd_sandbox_smart_launch(args: argparse.Namespace) -> int:
         problems.append("the session did not end at logout")
     if args.strict and any(item["input_issues"] for item in result["decided"]):
         problems.append("a decided input did not conform to US Core")
+    if args.expect_org is not None:
+        for item, actor in zip(result["decided"], result["requested_by"], strict=True):
+            if actor is None:
+                problems.append(f"{item['decision_id']} is not {args.expect_org}'s or names nobody")
+            elif not smart_launch.names_launcher_user(actor, args.launcher):
+                problems.append(f"{item['decision_id']} names {actor!r}, not <issuer>|<subject>")
     for problem in problems:
         print(f"smart-launch: {problem}", file=sys.stderr)
     return 1 if problems else 0
+
+
+def cmd_smart_check(args: argparse.Namespace) -> int:
+    """Whether a launch from an EHR's FHIR base would work with this deployment's settings."""
+    from mendari.server import smart_check
+
+    findings = smart_check.check(args.base)
+    for finding in findings:
+        print(f"{finding.status:<4}  {finding.check:<16}  {finding.detail}")
+    return 1 if any(finding.status == "fail" for finding in findings) else 0
 
 
 def cmd_sandbox_pilot_check(args: argparse.Namespace) -> int:
@@ -1144,6 +1162,15 @@ def build_parser() -> argparse.ArgumentParser:
     smart.add_argument("--patient", help="patient id (default: one with a work item)")
     smart.add_argument("--limit", type=int, default=5, help="decide at most this many items")
     smart.add_argument("--strict", action="store_true", help="fail on any US Core issue")
+    smart.add_argument(
+        "--expect-org",
+        metavar="ORG",
+        help="with sign-in on: fail unless each decision is this organization's and its chain "
+        "names the launcher's user as <issuer>|<subject> (reads --db)",
+    )
+    smart.add_argument(
+        "--db", default="var/mendari.db", help="the engine's database, for --expect-org"
+    )
     smart.set_defaults(handler=cmd_sandbox_smart_launch)
     pilot = sandbox.add_parser(
         "pilot-check",
@@ -1315,6 +1342,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     monitor_cmd.add_argument("--webhook", help="post alerts here (default: $MENDARI_ALERT_WEBHOOK)")
     monitor_cmd.set_defaults(handler=cmd_monitor)
+
+    smart_cmd = sub.add_parser("smart", help="SMART on FHIR EHR launch tools").add_subparsers(
+        dest="smart_command", required=True
+    )
+    smart_check = smart_cmd.add_parser(
+        "check",
+        help="before go-live: an EHR's registration, allow-list, discovery, PKCE and keys, "
+        "with this deployment's settings",
+    )
+    smart_check.add_argument("base", help="the EHR's FHIR base, as it sends it in the launch's iss")
+    smart_check.set_defaults(handler=cmd_smart_check)
 
     phi_cmd = sub.add_parser("phi", help="PHI mode tools").add_subparsers(
         dest="phi_command", required=True

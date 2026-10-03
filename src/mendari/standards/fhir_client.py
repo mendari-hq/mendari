@@ -160,7 +160,9 @@ class GuardedHttp:
                         raise FhirError(f"the response is larger than {MAX_BYTES} bytes")
                 if not response.is_success:
                     status = response.status_code
-                    raise FhirError(f"the server answered HTTP {status}{_oauth(bytes(body))}")
+                    raise FhirError(
+                        f"the server answered HTTP {status}{_oauth(bytes(body))}", status=status
+                    )
                 kind = response.headers.get("content-type", "").split(";")[0].strip().lower()
                 if kind not in _JSON_TYPES:
                     raise FhirError("the server did not answer with JSON")
@@ -237,6 +239,15 @@ def _oauth(body: bytes) -> str:
     except (ValueError, AttributeError):
         return ""
     return f" ({code})" if isinstance(code, str) and re.fullmatch(r"[a-z_]{1,40}", code) else ""
+
+
+def origin_of(url: str) -> str | None:
+    """`scheme://host[:port]` as the allow-list compares origins (the host in lower case, the
+    port as written), or None for anything else, a port that is not a number included."""
+    try:
+        return _origin(url)
+    except ValueError:
+        return None
 
 
 def _origin(url: str) -> str | None:

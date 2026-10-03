@@ -1,8 +1,9 @@
 # External security review: the packet
 
 _For the reviewer of Mendari before any real patient data, and before the project's public
-deployment drops Vercel Authentication. Written at the end of Phase 4b (2026-10-02). Everything
-here runs on synthetic data._
+deployment drops Vercel Authentication. Written at the end of Phase 4b (2026-10-02), with an
+[addendum](#addendum-the-ehr-launch-gated-2026-10-03) on the EHR launch's redesign
+(2026-10-03). Everything here runs on synthetic data._
 
 ## What Mendari is
 
@@ -48,13 +49,17 @@ Paths under `src/mendari/` are given without that prefix.
 
 Who can call what: with sign-in on, every route has a permission (`auth._RULES`), anything
 unlisted needs `admin`, and a few routes are public: `/api/health` (three fields),
-`/api/auth/me`, `/auth/*` (sign-in, callback, logout, the token endpoint), `/smart/*` and
-`/api/smart/*` (the SMART launch), static files, `/docs` (the developer landing of Phase 5:
+`/api/auth/me`, `/auth/*` (sign-in, callback, logout, the token endpoint), `/smart/*` (the
+SMART launch and its callback), `GET /api/smart/session` and `POST /api/smart/logout`, static files, `/docs` (the developer landing of Phase 5:
 built once at startup from settings and the example scripts, the same for every request, listing
 no pack, provider, count or record with sign-in on), the `/redoc` redirect, and
 `/fhir/metadata`, OperationDefinitions and the SMART configuration. The dashboard (`/`) and
 `/docs/reference` are pages: a signed-out browser is sent to sign in. Roles are `viewer`, `reviewer`, `service`, `governance` and
-`admin`. Machines are `viewer` or `service` only; managing keys and clients is for signed-in
+`admin`. A clinician launched from a registered EHR is a principal of kind `ehr`, with no role:
+it holds only `launch` (`GET /api/smart/patient`, `/focus`) and, registered to decide,
+`launch_decide` (`POST /api/smart/decide`), which nobody else holds (threat E7,
+[ADR-0006](../decisions/ADR-0006-an-ehr-launch-is-a-principal.md)); the dashboard page also
+opens for it, on the patient view alone. Machines are `viewer` or `service` only; managing keys and clients is for signed-in
 people only. Without sign-in (open mode) every caller is an admin: that mode is for local use
 and the sandbox.
 
@@ -95,6 +100,101 @@ and the sandbox.
 Nothing in Phase 4b signs anyone out, the schema changes are additive, and the chain is never
 rewritten. The per-stage detail, with each deviation from the plan, is in `tasks/todo.md`.
 
+## Addendum: the EHR launch gated (2026-10-03)
+
+The Phase 4b review left two findings about the SMART on FHIR EHR launch, which is off in
+production (its signed-in `/api/health` said `smart_launch: false` on 2026-10-03). Both are now
+fixed on the branch `claude/smart-gating`, in five stages, before that work's own review. The
+design is [ADR-0006](../decisions/ADR-0006-an-ehr-launch-is-a-principal.md); this is what we
+would like your view on.
+
+**What was wrong.**
+- **C5:** with sign-in on, `POST /api/smart/decide` decided with no Mendari principal: outside
+  roles, scopes and organizations, into the default organization, attributed to nobody. A
+  signed-in viewer holding a launch cookie could decide, and an `Authorization` header sent with
+  a launch cookie was never looked at.
+- **S5:** the session table held the EHR's access token, the patient and the PKCE verifier in
+  clear, under every PHI mode, after expiry too.
+
+**What the owner decided.**
+- **The EHR's verified sign-in identifies the clinician**, in the organization registered for
+  that EHR.
+- **A launch may `view`, or view and `decide`**, as registered, with the decision shown in
+  place; nothing else.
+- **No iframe and no refresh token** until the pilot EHR is known.
+- **People in the chain** are named by verified email, else `<issuer>|<subject>`.
+
+**How it works.**
+- **The registration** (`MENDARI_SMART_EHRS="<FHIR base>=<org>:<view|decide>,…"`) is keyed on
+  the launch's `iss`, normalized (scheme and host in lower case, no trailing slash, the path
+  kept): two tenants on one host are two organizations, and one base serving several
+  organizations is not supported. The organization must be one people sign in to (the
+  `MENDARI_OIDC_ORG_CLAIM` claim's value, else `default`), or the launch's decisions reach no
+  reviewer; with sign-in on, `mendari smart check` fails one that is not. It is read at startup
+  (`standards/smart.py`) and every request checks the launch against it, never against what
+  was stored with the launch: removing a registration ends that EHR's live launches at the next
+  restart or redeploy.
+- **A launch is a principal of kind `ehr`** (`server/auth.py`): its id is a hash of the
+  id_token's issuer and subject, and its organization and level come from the registration. It
+  holds two permissions nobody else holds, `launch` (`GET /api/smart/patient`, `/focus`) and,
+  registered to decide, `launch_decide` (`POST /api/smart/decide`), and no role. Its credential
+  is the launch cookie, and only on `/api/smart/` and the dashboard page (`/`); a person's
+  session is no credential there, and an `Authorization` header decides alone, as everywhere
+  (threat S5).
+- **Refused at the launch, never at startup** (`server/smart_routes.py`), with sign-in on: an
+  unregistered base, before any request leaves; scopes without `openid fhirUser`; an id_token
+  without a subject; a user who is not a Practitioner or PractitionerRole (a patient portal).
+  The sealed session records that these checks ran (`identified`), so a launch made while
+  sign-in was off is no principal once it is on. `offline_access` is refused in every mode. Each refusal is logged with a fixed reason. Only a
+  malformed `MENDARI_SMART_EHRS`, or a base off the FHIR allow-list, stops the server.
+- **Sealed rows** (`core/session_seal.py`, threat I11): the session and pending-launch rows are
+  AES-256-GCM under HKDF-SHA256 of the browser's own cookie (the session cookie; for a pending
+  launch, the cookie that binds it to the browser), with the row's key and kind as associated
+  data. The database alone opens nothing, and there is no server key. A row that does not open
+  ends the launch, and so does an EHR that answers `401`. The access token's syntax is checked
+  (`%x21-7E`, at most 16 KiB) and no refresh token is kept.
+- **The chain names who asked** (`core/audit.py`, `standards/audit_fhir.py`, threat R1): with
+  sign-in on, every new `decision.created` carries `requested_by` (a person, a key, a client or
+  an EHR user), rendered as the requestor in the FHIR AuditEvent and Provenance. Events chained
+  before are never rewritten.
+- **The dashboard** shows a browser that only launched the patient view alone, the decision in
+  place and no link into the audit trail. The window is pinned to its launch
+  (`#patient/<launch_id>`): if a later launch in the same browser replaced it, the window says
+  so and never shows the other patient. The dashboard checks this before every render and
+  every decision, and sends the window's launch (`X-Mendari-Launch`) with the patient, items
+  and decide requests: the server answers `409`, before any EHR read, when the browser's launch
+  is another one now. It also refuses (`403`) a focus resource that is not about the launch's
+  patient. A later launch's callback deletes the launch the browser held until then.
+- **Limits** count a launch's decisions per `ehr` principal. Signing out of Mendari ends the
+  browser's launch too.
+- **Before go-live**, `mendari smart check <base>` reports the registration key, the
+  allow-list, the registration, the scopes, and the EHR's discovery, PKCE S256 and keys
+  (`server/smart_check.py`). In CI, `sandbox-e2e` runs a second engine with sign-in on and the
+  SMART launcher registered, launches from smart-launcher-v2, and checks that each decision is
+  the registered organization's and chained as the launcher's `<issuer>|<subject>`.
+
+**What did not change.** No schema change. People's sign-in rows (`user`, `oidc-pending`) are
+not sealed: they hold no token, and sealing them would sign everyone out. Nobody is signed out,
+and open mode with no EHR registered launches as before. A launch in flight at the upgrade
+starts again once; rolling back past the sealing breaks only `/api/smart/*` until the launch
+rows are deleted (`deploying-with-phi.md` §2).
+
+**Where we would most like your eyes.**
+- Trusting each registered EHR's sign-in, keyed by the `iss` the EHR sends. Whether an EHR binds
+  its `launch` value to the user who started it is the EHR's.
+- The launch cookie as a credential on `/api/smart/` and `/` only, and the Origin check's
+  treatment of the launch routes (threat E6).
+- The sealing key derived from a cookie, with no server secret: a database leak alone opens
+  nothing; a database leak together with a live cookie opens that one row.
+- The wrong-patient pin: the window's launch id, checked by the server on each read and
+  decision (`409`), with no secret in it.
+- The EHR's token, which stays valid at the EHR after a launch ends here until it expires
+  (nothing is revoked).
+
+The tests are named in the threat model's rows E7, I11, S5 and R1, mostly in
+`tests/test_smart.py`, `tests/test_smart_sealing.py`, `tests/test_smart_check.py` and the
+browser suite. The per-stage detail and each deviation from the plan are in `tasks/todo.md`.
+
 ## Where the evidence is
 
 - **The threat model** ([`threat-model.md`](threat-model.md)): every threat by STRIDE id, its
@@ -105,11 +205,14 @@ rewritten. The per-stage detail, with each deviation from the plan, is in `tasks
   `test_session_store.py`, `test_origin.py` (every route × 12 kinds of request × each mode),
   `test_limits.py`, `test_public_surface.py`, `test_security_log.py`, `test_security_headers.py`,
   `test_vendor.py`, `test_supply_chain.py`, `test_phi.py`, `test_notes.py`,
-  `test_record_hygiene.py`, `test_fhir_client.py`, and the browser suite in `tests/browser/`.
+  `test_record_hygiene.py`, `test_fhir_client.py`, `test_smart.py`, `test_smart_sealing.py`,
+  `test_smart_check.py`, and the browser suite in `tests/browser/`.
   Tests marked "SQLite and Postgres" run on both when `MENDARI_TEST_DATABASE_URL` is set.
 - **CI** (`.github/workflows/ci.yml`): the job `security` (pip-audit, npm audit, an OWASP ZAP
   scan with sign-in on), `pilot-check` (a pilot organization end to end against a mock identity
-  provider, PHI mode `encrypt`) and `fhir-conformance` (the HL7 validator).
+  provider, PHI mode `encrypt`), `sandbox-e2e` (SMART launches from smart-launcher-v2, in open
+  mode and into an engine with sign-in on and the launcher registered) and `fhir-conformance`
+  (the HL7 validator).
 - **How to deploy safely:** [`deploying-with-phi.md`](../deploying-with-phi.md), with the
   settings in one table (§8) and the go-live checklist (§9). `SECURITY.md` at the repository's
   root lists the controls in one place.
@@ -162,11 +265,16 @@ Stop with Ctrl-C and `docker stop mendari-review-idp`. Both paths above were run
 ## Known residual risks and deferred items
 
 From the threat model's residual risks, and the plan's deferred list:
-- **The SMART launch is a second authenticator.** `/smart/*` and `/api/smart/*` are public and
-  trust their own cookie: a launch reads the EHR's data and decides with no Mendari principal
-  (its decisions go to the default organization), and the EHR's access token is stored unsealed
-  in the session row. The launch is off unless configured. Both are to be fixed before it is
-  turned on anywhere with sign-in. We would like your view on the design.
+- **An EHR launch trusts the EHR's sign-in.** With sign-in on, a launch is now a principal of
+  the organization its EHR is registered to (`MENDARI_SMART_EHRS`), named by the EHR's verified
+  id_token, that may view the patient or also decide, and nothing else (threat E7); unregistered
+  EHRs and users who are not practitioners are refused at the launch. Its rows (the EHR's access
+  token, the patient, who launched, the PKCE verifier) are sealed at rest under the browser's
+  own cookie (threat I11). A site must register only EHRs whose sign-in it trusts; one FHIR base
+  for several organizations is not supported. Every new decision made with sign-in on names
+  who asked for it in the chain (threat R1). The launch is off unless configured, and runs in
+  a new window or the EHR's embedded window (an iframe launch fails safely); it ends with the
+  EHR's token. The design is in the [addendum](#addendum-the-ehr-launch-gated-2026-10-03).
 - **The old cookie names** (`mendari_session`, `mendari_smart`) are still read on hosts that use
   `__Host-` names, for sessions from before Phase 4b only; the next release stops.
 - **Erasing a note is not instant everywhere:** backups, the database's point-in-time history
