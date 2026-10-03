@@ -2,7 +2,7 @@
 
 Roadmap to the full goal: [`docs/roadmap.md`](../docs/roadmap.md).
 
-## Plan: hardening before PHI, Phase 4b (2026-10-02)
+## Built: hardening before PHI, Phase 4b (2026-10-02)
 From the [audit](../docs/fhir-and-docs-audit.md) Phase 4b line, after research (four researchers
 and a critic). The owner chose finite spending ceilings plus per-organization quotas at launch,
 verified emails for people in the chain, and the pilot site's own servers for the first PHI
@@ -25,7 +25,7 @@ About 18 days of work.
   response; bearer schemes for keys and tokens in the OpenAPI
   (Deviation: 5.33.0, not 5.33.1, which was a day old against the 7-day cooldown; the bundle's
   third-party license file ships too.)
-- [x] **D. Rate limits and quotas**: a Postgres GCRA limiter per principal on costly routes and
+- [x] **D. Rate limits and quotas**: a GCRA limiter in the database per principal on costly routes and
   per IP on sign-in and the token endpoint (`MENDARI_RATE_LIMITS` on/log/off), `429` with
   `Retry-After`; per-organization daily decision quotas (`MENDARI_ORG_DAILY_LIMITS`, evaluations
   not counted); Vercel firewall rules as a file and runbook; proxy headers for self-hosted
@@ -35,8 +35,8 @@ About 18 days of work.
 - [x] **E. Security log**: JSON lines on stdout from an allow-list of fields, a request id, one
   access line per API request, security events; no credential, query value, body or case text;
   no exception messages under `hash` or `encrypt`
-  - Deviations: `count`, `error` and `frames` join the allow-list; the logs threat row is I8 (A
-    took I7); FHIR errors carry the id in the header only; the `caplog` test reads stdout now
+  - Deviations: `count`, `error` and `frames` join the allow-list; FHIR errors carry the id in
+    the header only; the `caplog` test reads stdout now
 - [x] **F. Sessions and identity**: 30 minutes idle, 8 hours at most, roles recomputed per
   request, `__Host-` names with the old name accepted for one release, sign-in and SMART launch
   tied to the browser; people chained by verified email, keys as `key <id>`
@@ -59,13 +59,18 @@ About 18 days of work.
   (`auth.origin.refused`) with a request id; the log's `phi.inputs.read` also counts opened notes,
   as the chain does; other lanes' tests updated for request ids, chained emails and the input
   hash key; `run_async` for tests sharing a process with Playwright
-- [ ] **K. Wrap-up**: threat model, SECURITY.md, the go-live checklist, README, the audit's status,
-  review (five reviewers and a skeptic), a packet for the external review
-- At launch (owner): Jev 2,000 and LLM 200 a day, 5,000 decisions per organization a day, the
+- [x] **K. Wrap-up**: threat model ids made unique and in order (the logs row is I10), SECURITY.md
+  in one order, one go-live checklist with the launch order and a settings table in
+  `deploying-with-phi.md`, README, ADR-0005, the audit's "Status after Phase 4b", the packet
+  for the external review (`docs/security/review-packet.md`)
+- [ ] **Review**: five reviewers and a skeptic, then fixes
+- At launch (owner), after the external review: Jev 2,000 and LLM 200 a day, 5,000 decisions per organization a day, the
   firewall rules enforced after 7 days in log mode, then Vercel Authentication lifted
 - Deferred: a PHI keyring and `rekey`, database tables for security events, limits on reads,
   sealing the EHR token and a Mendari principal for `/api/smart/decide` (before the SMART launch
-  is turned on with sign-in), removing the old cookie name (next release)
+  is turned on with sign-in)
+- Next release: stop reading the old cookie names (`mendari_session`, `mendari_smart`) on hosts
+  that use `__Host-` names (`server/sessions.py`)
 
 ## Plan: docs experience, Phase 5 (2026-10-02)
 From the audit's "Redesign plan". Branch `claude/phase-5`, after Phase 4b's stages C and G.

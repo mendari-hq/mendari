@@ -351,19 +351,24 @@ public.
 threat model ([`docs/security/threat-model.md`](docs/security/threat-model.md)) lists every
 threat with its mitigation and the test that checks it. On every change, the CI job `security`
 audits the Python and Hub-site dependencies and runs an OWASP ZAP scan of the API with sign-in
-on. Every response carries a strict CSP and the usual isolation headers (HSTS off localhost), the
-API reference included: it is Swagger UI served from vendored, pinned files, never a CDN. A
-browser request that another site starts reaches only public routes and pages, to read. A request
+on; GitHub Actions are pinned by commit and images by digest. Every response carries a strict
+CSP and the usual isolation headers (HSTS off localhost), the API reference included: it is
+Swagger UI served from vendored, pinned files, never a CDN. Sessions end after 30 minutes idle
+and 8 hours at most, behind `__Host-` cookies. A browser request that another site starts
+reaches only public routes and pages, to read. A request
 body is 4 MiB at most (`MENDARI_MAX_BODY_BYTES`; a `413` otherwise), and public routes take no
 lock and do little work for a caller without a credential. With sign-in on, decisions, the AI
 guard, evaluations and exports are rate limited per caller, and sign-in and the token endpoint per
 address, in the database so every instance shares the count (`MENDARI_RATE_LIMITS`; a `429` with
 `Retry-After`); organizations can have daily quotas (`MENDARI_ORG_DAILY_LIMITS`), over which
 decisions fall back to human review. A security log goes to stdout as JSON lines: one access line
-per API request and the security events (sign-ins, refusals, rate limits, key, client and
-governance changes, exports, evaluations, input reads), from an allow-list of fields that has no
-room for a credential, a query value, a body or case text. Every response carries an
-`X-Request-Id`, which JSON errors on `/api` repeat as `request_id`.
+per API request and the security events (sign-ins, refusals, requests from other sites, rate
+limits, key, client and governance changes, exports, evaluations, input and note reads), from an
+allow-list of fields that has no room for a credential, a query value, a body or case text.
+Every response carries an `X-Request-Id`, which JSON errors on `/api` repeat as `request_id`.
+Under PHI mode the input hash is keyed and notes stay out of the audit chain (see PHI mode
+below). Every security setting, with its default, is in
+[deploying with real patient data](docs/deploying-with-phi.md#8-settings-at-a-glance).
 
 ## The Hub
 
@@ -396,8 +401,8 @@ The docker sandbox runs a registry on port 8100 (`scripts/hub_seed.py` publishes
 
 ## Sign-in for organizations
 
-By default the server is open, as production sits behind Vercel Authentication. Setting an
-identity provider switches on sign-in:
+By default the server is open: for local use and the sandbox, on `127.0.0.1`. Setting an
+identity provider switches on sign-in, as the project's production deployment does (Google):
 
 ```bash
 MENDARI_OIDC_ISSUER=https://login.example.org/realms/clinic   # your IdP (OpenID Connect)
@@ -488,7 +493,8 @@ mendari monitor --db "$DATABASE_URL" --org clinic-a --webhook https://alerts.exa
 
 **PHI mode.** `MENDARI_PHI_MODE=hash` keeps no input at all, only its hash.
 `MENDARI_PHI_MODE=encrypt` keeps inputs encrypted (AES-256-GCM, `MENDARI_PHI_KEY`) apart
-from the audit chain. Only signed-in reviewers and admins read them, and each read is chained.
+from the audit chain. Only signed-in reviewers and admins read them, and each read is chained
+(and logged).
 Both modes need `MENDARI_INPUT_HASH_KEY` (32 random bytes, base64, not the PHI key): the input
 hash becomes an HMAC (`hmac-sha256:<key id>:<hex>`) that guessing cannot match, and the engine
 refuses to start without it. In both, the chained record keeps no evidence values (sealed with
@@ -689,9 +695,11 @@ FastAPI function (`[tool.vercel] entrypoint = "mendari.server.vercel:app"`).
    OIDC identity; it is never stored in the project's environment variables. With several
    packs, scope a setting to one pack (`mendari/clinical-trial-prescreener:notes=jev`); a
    setting a pack cannot use is skipped and listed in `/api/health`.
-3. Set Vercel Authentication to protect **all deployments**: the app has no login of its own,
-   and the default setting leaves the production domain public. After each deploy, check that
-   an unauthenticated request to production gets redirected to login.
+3. Turn on sign-in for Production ([Sign-in for organizations](#sign-in-for-organizations);
+   the project uses Google, set for Production only). Until the launch, also set Vercel
+   Authentication to protect **all deployments**: previews run without sign-in, and the default
+   setting leaves the production domain public. After each deploy, check that an
+   unauthenticated request to production gets redirected to login.
 4. Push a branch to get a preview deployment, check it with
    `vercel curl /api/health --deployment <url>`, then merge to `main` for production.
 
@@ -699,10 +707,11 @@ FastAPI function (`[tool.vercel] entrypoint = "mendari.server.vercel:app"`).
 (`MENDARI_RATE_LIMITS`, see [`docs/deploying-with-phi.md`](docs/deploying-with-phi.md)), and the
 client address is Vercel's `X-Forwarded-For`. The edge layer is one Vercel firewall rule per IP
 on `/auth/` and `/smart/`, kept as a file with its runbook in
-[`deploy/vercel/`](deploy/vercel/README.md); it starts in log mode. When Vercel Authentication
-is lifted, the project's deployment runs with finite daily ceilings and quotas:
-`MENDARI_JEV_DAILY_LIMIT=2000`, `MENDARI_LLM_DAILY_LIMIT=200` and
-`MENDARI_ORG_DAILY_LIMITS=decisions=5000`.
+[`deploy/vercel/`](deploy/vercel/README.md); it starts in log mode. The launch goes in this
+order: the external security review and its fixes; finite daily ceilings and quotas
+(`MENDARI_JEV_DAILY_LIMIT=2000`, `MENDARI_LLM_DAILY_LIMIT=200` and
+`MENDARI_ORG_DAILY_LIMITS=decisions=5000`); the firewall rule enforced after 7 days in log
+mode; then Vercel Authentication lifted.
 
 **Logs.** The security log is the function's stdout, in Vercel's runtime logs (find a request by
 the `X-Request-Id` a user quotes; on Vercel it is the `x-vercel-id`). Vercel keeps them for a

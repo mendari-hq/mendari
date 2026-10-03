@@ -635,3 +635,29 @@ number. The integration gate runs the whole suite in one process.
 
 ### Verification
 `uv run pytest -q -o addopts=""` passes with the browser tests in the same run.
+
+## 2026-10-02 - process
+
+### What happened
+Phase 4b ran four lanes at once, each with its own worktree and its own database in Mendari's
+one Postgres container (`mendari_test_spine`, `_web`, `_notes`, `_docs`). Each test gets its own
+schema, but the chain's append lock and the cold-start lock are Postgres advisory locks on a
+fixed key, and advisory locks are per database, not per schema. Two suites in one database
+would wait on each other's chain writes, and a test that holds the chain lock on purpose would
+stall the other suite's writes while it runs. Separately, the lanes added threat-model rows on their own, and two
+of them took the same id (I8), which only the wrap-up found.
+
+### Root cause
+Parallel lanes share whatever is keyed above the schema (a database's advisory locks) and
+whatever is numbered by hand in shared documents.
+
+### Rule
+Every parallel lane uses its own Postgres database (`createdb mendari_test_<lane>` in
+`mendari-pg-test`), checked with `current_database()` before the first run. Shared documents
+with numbered ids (the threat model) get their new ids assigned in the plan, one range per lane,
+and the integrator runs `tests/test_threat_model.py`, which fails on a repeated id, rows out of
+order or a named test that does not exist.
+
+### Verification
+`MENDARI_TEST_DATABASE_URL` names the lane's own database in each lane's gate; `uv run pytest
+tests/test_threat_model.py` passes after every merge.
