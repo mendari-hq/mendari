@@ -369,10 +369,12 @@ client), `MENDARI_PUBLIC_URL`, and put the EHR's FHIR server and authorization s
 `MENDARI_FHIR_ALLOWED_SERVERS`.
 
 The launch is OAuth 2 with PKCE (S256). The `id_token` is verified against the server's JWKS
-(`iss`, `aud`, `exp`, `nonce`). The access token stays on the server; the browser holds an
-opaque, HttpOnly, SameSite=Lax `__Host-mendari_smart` session cookie, which ends like a
-person's session (and when the EHR's token does), and the callback works only in the browser
-that started the launch. The dashboard opens on the launch's patient:
+(`iss`, `aud`, `exp`, `nonce`). The access token stays on the server, sealed in the session
+row under a key derived from the browser's opaque, HttpOnly, SameSite=Lax `__Host-mendari_smart`
+session cookie, so the database alone never reveals it. The session ends like a person's (and
+when the EHR's token does, or the EHR answers `401` to it), and the callback works only in the
+browser that started the launch. No refresh token is kept: `offline_access` in
+`MENDARI_SMART_SCOPES` is refused at launch. The dashboard opens on the launch's patient:
 - `GET /api/smart/patient`;
 - their messages or referrals: `GET /api/smart/focus?pack_id=`;
 - deciding one: `POST /api/smart/decide`, which reads the record through the pack's CDS prefetch

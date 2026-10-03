@@ -615,7 +615,7 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
             "token_endpoint": config["token_endpoint"],
             "jwks_uri": config["jwks_uri"],
             # Only this browser may finish the sign-in (login CSRF): its cookie's digest.
-            "browser": sessions.bind(response, request, sessions.SIGNIN),
+            "browser": sessions.bind(response, request, sessions.SIGNIN)[0],
         }
         store.smart_put(state, "oidc-pending", pending, int(time.time()) + sessions.PENDING_SECONDS)
         return response

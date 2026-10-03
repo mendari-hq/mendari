@@ -38,7 +38,13 @@ class NoteError(MendariError):
 
 
 class FhirError(MendariError):
-    """FHIR input is missing required resources or cannot be mapped to the pack input."""
+    """FHIR input is missing required resources or cannot be mapped to the pack input, or a
+    FHIR server could not be read. `status` is the HTTP status the server answered with, when
+    it answered with one (a `401`: the token it was sent no longer works)."""
+
+    def __init__(self, *args: object, status: int | None = None):
+        self.status = status
+        super().__init__(*args)
 
 
 class FhirStructureError(FhirError):

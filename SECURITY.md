@@ -61,13 +61,19 @@ Each bullet is one control; the threat model names the row and the tests behind 
   row's expiry, which a request moves forward at most every 5 minutes and never past the limit.
   Roles are worked out on every request from the claims kept at sign-in and the current
   settings, so a role taken away ends access at once. A sign-in (or an EHR launch) is tied to
-  the browser that started it by a ten-minute cookie whose digest the pending row keeps,
-  compared in constant time at the callback (login CSRF). That cookie is host-only, so a
-  sign-in or launch that reaches another name than `MENDARI_PUBLIC_URL`'s (an alias, a second
-  DNS name) is first sent there, once, before anything is bound. The audit chain names a person by
-  their verified email, else `<issuer>|<subject>`; a key as `key <id>`, a client as
-  `client <id>`. For one release the plain cookie name is still read on other hosts, for
-  sessions from before Phase 4b only, so the upgrade signs nobody out.
+  the browser that started it by a ten-minute cookie (login CSRF): a pending sign-in keeps its
+  digest, compared in constant time at the callback, and a pending launch is sealed under it,
+  so it opens only in that browser. That cookie is host-only, so a sign-in or launch that
+  reaches another name than `MENDARI_PUBLIC_URL`'s (an alias, a second DNS name) is first sent
+  there, once, before anything is bound. An EHR launch's rows (its access token, patient and
+  PKCE verifier) are sealed at rest with AES-256-GCM under a key derived from the browser's own
+  cookie: the database alone opens nothing and there is no key to manage. A row that does not
+  open ends the launch, and so does an EHR that answers `401`. No refresh token is kept
+  (`offline_access` in the scopes refuses the launch). People's sign-in rows hold no token and
+  are not sealed. The audit chain names a person by their verified email, else
+  `<issuer>|<subject>`; a key as `key <id>`, a client as `client <id>`. For one release the
+  plain cookie name is still read on other hosts, for sessions from before Phase 4b only, so
+  the upgrade signs nobody out.
 - **Requests from other sites.** A browser request that another site starts (`Sec-Fetch-Site`
   `cross-site` or `same-site`; in a browser without Fetch Metadata, an `Origin` that is `null`
   or not this site) reaches only public routes and pages, and only with GET or HEAD: a link to

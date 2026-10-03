@@ -277,8 +277,9 @@ never rewritten. Still open:
   ceilings and quotas set, the firewall rule enforced after 7 days in log mode, then Vercel
   Authentication lifted.
 - **The SMART launch** stays a second authenticator (its cookie reaches the EHR's data and
-  decides without a Mendari principal), and the EHR's token is stored unsealed. Both are fixed
-  before the SMART launch is turned on anywhere with sign-in.
+  decides without a Mendari principal). That is fixed before the SMART launch is turned on
+  anywhere with sign-in. The EHR's token, the patient and the PKCE verifier are now sealed at
+  rest (threat I11).
 - **The old cookie names** (`mendari_session`, `mendari_smart`) are still read on hosts that use
   `__Host-` names, for sessions from before Phase 4b; the next release stops reading them.
 

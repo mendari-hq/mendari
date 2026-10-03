@@ -8,9 +8,11 @@ owner chose: the EHR's sign-in identifies the clinician; a launch may view or de
 registered EHR; no iframe and no refresh until the pilot EHR is known
 ([ADR-0006](../docs/decisions/ADR-0006-an-ehr-launch-is-a-principal.md)). Branch
 `claude/smart-gating`. About 10 days. No schema change.
-- [ ] **1. Seal the launch rows (S5)**: session and pending-launch rows sealed (AES-256-GCM, key
+- [x] **1. Seal the launch rows (S5)**: session and pending-launch rows sealed (AES-256-GCM, key
   derived from the row's own cookie, bound to row and kind); a row that will not open ends the
   launch; an EHR 401 ends it; token syntax checked; `offline_access` refused
+  (Deviation: a take of a sealed row that will not open raises `SealError` rather than reading
+  as absent, so the callback can tell `browser` from `state_unknown`; the row is deleted alike.)
 - [ ] **2. The launch is a principal (C5)**: `MENDARI_SMART_EHRS` registration (FHIR base to
   organization and `view` or `decide`); with sign-in on, unregistered bases, missing
   `openid fhirUser`, and patient or related-person users refused at launch; `ehr` principals with

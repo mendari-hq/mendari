@@ -164,9 +164,11 @@ Stop with Ctrl-C and `docker stop mendari-review-idp`. Both paths above were run
 From the threat model's residual risks, and the plan's deferred list:
 - **The SMART launch is a second authenticator.** `/smart/*` and `/api/smart/*` are public and
   trust their own cookie: a launch reads the EHR's data and decides with no Mendari principal
-  (its decisions go to the default organization), and the EHR's access token is stored unsealed
-  in the session row. The launch is off unless configured. Both are to be fixed before it is
-  turned on anywhere with sign-in. We would like your view on the design.
+  (its decisions go to the default organization). The launch is off unless configured, and this
+  is to be fixed before it is turned on anywhere with sign-in. Its rows (the EHR's access token,
+  the patient, the PKCE verifier) are now sealed at rest under the browser's own cookie (threat
+  I11). We would like your view on the design
+  ([ADR-0006](../decisions/ADR-0006-an-ehr-launch-is-a-principal.md)).
 - **The old cookie names** (`mendari_session`, `mendari_smart`) are still read on hosts that use
   `__Host-` names, for sessions from before Phase 4b only; the next release stops.
 - **Erasing a note is not instant everywhere:** backups, the database's point-in-time history

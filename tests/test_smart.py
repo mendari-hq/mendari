@@ -414,10 +414,10 @@ def test_smart_is_off_until_configured(tmp_path: Path, monkeypatch: pytest.Monke
 def test_the_store_keeps_launches_single_use_and_expires_them(store: AuditStore) -> None:
     """Both backends (the `store` fixture runs on SQLite and Postgres)."""
     now = int(time.time())
-    store.smart_put("state-1", "pending", {"iss": ISS}, now + 60)
+    store.smart_put("state-1", "pending", {"iss": ISS}, now + 60, secret="binding")
     assert store.smart_get("state-1", "session") is None  # kinds are separate
-    assert store.smart_take("state-1", "pending") == {"iss": ISS}
-    assert store.smart_take("state-1", "pending") is None  # works once
+    assert store.smart_take("state-1", "pending", secret="binding") == {"iss": ISS}
+    assert store.smart_take("state-1", "pending", secret="binding") is None  # works once
     store.smart_put("old", "session", {"patient": "p"}, now - 1)
     assert store.smart_get("old", "session") is None
     store.smart_put("sid", "session", {"patient": "p"}, now + 60)

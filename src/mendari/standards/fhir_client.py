@@ -160,7 +160,9 @@ class GuardedHttp:
                         raise FhirError(f"the response is larger than {MAX_BYTES} bytes")
                 if not response.is_success:
                     status = response.status_code
-                    raise FhirError(f"the server answered HTTP {status}{_oauth(bytes(body))}")
+                    raise FhirError(
+                        f"the server answered HTTP {status}{_oauth(bytes(body))}", status=status
+                    )
                 kind = response.headers.get("content-type", "").split(";")[0].strip().lower()
                 if kind not in _JSON_TYPES:
                     raise FhirError("the server did not answer with JSON")

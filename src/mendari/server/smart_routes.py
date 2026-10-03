@@ -14,7 +14,10 @@
   prefetch templates; the decision is audited like any other.
 
 The access token never leaves the server, and every FHIR read uses the session's token through
-the allow-listed client. The security log has `smart.launch.ok` for each launch that starts a
+the allow-listed client. The pending launch is sealed under the launch's binding cookie and the
+session under its own cookie (`core/session_seal.py`, ADR-0006): the database alone opens
+neither, a row that does not open ends the launch, and so does an EHR that answers `401` to the
+session's token. The security log has `smart.launch.ok` for each launch that starts a
 session and `smart.launch.refused` for each one that does not, with a fixed reason: never a
 value from the request or the EHR.
 """
@@ -37,6 +40,7 @@ from pydantic import BaseModel, Field
 from mendari.core.audit import AuditStore
 from mendari.core.decision import Decision
 from mendari.core.pack import Pack
+from mendari.core.session_seal import SealError
 from mendari.errors import FhirError, PackNotFoundError, SmartError
 from mendari.server import security_log, sessions
 from mendari.standards import smart
@@ -86,6 +90,24 @@ def add_smart_routes(
             raise SmartError("no SMART session: launch the app from the EHR again", 401)
         return session
 
+    @contextmanager
+    def ehr(request: Request, session: Mapping[str, Any]) -> Iterator[FhirClient]:
+        """The EHR's FHIR server, read with the session's token. When the EHR answers `401`
+        the token is over there (expired early, revoked, the user signed out of the EHR): the
+        session ends here too, and the launch must start again."""
+        try:
+            with FhirClient(session["iss"], token=session["access_token"]) as fhir:
+                yield fhir
+        except FhirError as error:
+            if error.status != 401:
+                raise
+            sid, _ = sessions.read(request, COOKIE)
+            if sid:
+                store.smart_delete(sid, "session")
+            raise SmartError(
+                "the EHR ended this launch: open Mendari again from the EHR", 401
+            ) from None
+
     @app.get("/smart/launch", include_in_schema=False)
     def smart_launch(request: Request, iss: str, launch: str, pack: str | None = None) -> Response:
         with refusals_logged(unreachable="issuer"):
@@ -101,15 +123,15 @@ def add_smart_routes(
             pack_or_404(pack_id)
             redirect_uri = f"{public_url(request)}/smart/callback"
             with GuardedHttp() as http:
-                url, pending = smart.begin(
+                url, state, pending = smart.begin(
                     iss, launch, redirect_uri=redirect_uri, settings=options, http=http
                 )
         pending["pack"] = pack_id
         response = RedirectResponse(url, status_code=302)
-        # Only this browser may finish the launch: its cookie's digest.
-        pending["browser"] = sessions.bind(response, request, sessions.LAUNCH)
+        # Only this browser may finish the launch: the row is sealed under its binding cookie.
+        _, binding = sessions.bind(response, request, sessions.LAUNCH)
         expires = int(time.time()) + smart.PENDING_SECONDS
-        store.smart_put(pending["state"], "pending", pending, expires)
+        store.smart_put(state, "pending", pending, expires, secret=binding)
         return response
 
     @app.get("/smart/callback", include_in_schema=False)
@@ -118,22 +140,32 @@ def add_smart_routes(
     ) -> Response:
         with refusals_logged(unreachable="id_token"):  # the issuer's keys, for the id_token
             options = configured()
-            pending = store.smart_take(state, "pending") if state else None
+            pending = None
+            unopened = False
+            if state:
+                # Taken (once) whoever brings it back; it opens only with the binding cookie
+                # of the browser that started the launch.
+                binding = sessions.binding(request, sessions.LAUNCH) or ""
+                try:
+                    pending = store.smart_take(state, "pending", secret=binding)
+                except SealError:
+                    unopened = True
             if error:
                 shown = error if _OAUTH_ERROR.match(error) else "error"
                 raise SmartError(
                     f"the EHR's authorization server did not authorize the app ({shown})",
                     reason="ehr_error",
                 )
+            if unopened:
+                # Someone else's launch (or one in flight at the upgrade that sealed these rows):
+                # its patient context must not land in this browser.
+                raise SmartError(
+                    "this launch was started in another browser: start it again", reason="browser"
+                )
             if pending is None:
                 raise SmartError(
                     "this launch is unknown, used or expired: start it again from the EHR",
                     reason="state_unknown",
-                )
-            if not sessions.bound(request, sessions.LAUNCH, pending):
-                # Someone else's launch: its patient context must not land in this browser.
-                raise SmartError(
-                    "this launch was started in another browser: start it again", reason="browser"
                 )
             if not code:
                 raise SmartError("the authorization server sent no code", reason="no_code")
@@ -194,9 +226,10 @@ def add_smart_routes(
         date.
 
         Needs the SMART session an EHR launch starts (`/smart/launch`, the
-        `__Host-mendari_smart` cookie); without one, `401`."""
+        `__Host-mendari_smart` cookie); without one, `401`, and `401` when the EHR refuses the
+        launch's token (the launch has ended: open Mendari again from the EHR)."""
         session = session_of(request)
-        with FhirClient(session["iss"], token=session["access_token"]) as fhir:
+        with ehr(request, session) as fhir:
             return patient_summary(fhir.read(f"Patient/{session['patient']}"))
 
     @app.get(
@@ -208,10 +241,11 @@ def add_smart_routes(
         """The patient's resources the pack decides about (e.g. referrals), from the EHR.
 
         Needs the SMART session an EHR launch starts (`/smart/launch`, the
-        `__Host-mendari_smart` cookie); without one, `401`."""
+        `__Host-mendari_smart` cookie); without one, `401`, and `401` when the EHR refuses the
+        launch's token (the launch has ended: open Mendari again from the EHR)."""
         session = session_of(request)
         adapter = FhirAdapter.for_pack(pack_or_404(pack_id))
-        with FhirClient(session["iss"], token=session["access_token"]) as fhir:
+        with ehr(request, session) as fhir:
             return focus_items(fhir, adapter, session["patient"])
 
     @app.post(
@@ -223,10 +257,11 @@ def add_smart_routes(
         """Read the record from the EHR, decide, and return the decision and its FHIR Task.
 
         Needs the SMART session an EHR launch starts (`/smart/launch`, the
-        `__Host-mendari_smart` cookie); without one, `401`."""
+        `__Host-mendari_smart` cookie); without one, `401`, and `401` when the EHR refuses the
+        launch's token (the launch has ended: open Mendari again from the EHR)."""
         session = session_of(request)
         decision = decision_for(body.pack_id)
-        with FhirClient(session["iss"], token=session["access_token"]) as fhir:
+        with ehr(request, session) as fhir:
             result, task = decide_for(decision, fhir, session["patient"], body.focus)
         return {"decision": result.to_dict(), "task": task}
 

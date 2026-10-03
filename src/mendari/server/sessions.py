@@ -181,6 +181,10 @@ def resume(
         return None, True
     now = int(time.time())
     absolute_at = data.get("absolute_at")
+    if isinstance(absolute_at, int) and now >= absolute_at:
+        # The row's clear `expires_at` never passes it; a sealed row's `absolute_at` cannot be
+        # changed, so this holds even against a database writer who moves `expires_at`.
+        return None, True
     if not isinstance(absolute_at, int):
         # From before this release: its expiry is its absolute limit, and the idle limit starts
         # with this request (the one time a session's expiry moves back).
@@ -197,21 +201,27 @@ def resume(
 # -- binding a sign-in or a launch to the browser ------------------------------------------------
 
 
-def bind(response: Response, request: Request, base: str) -> str:
-    """Set a fresh binding cookie (`SIGNIN` or `LAUNCH`) on `response`; return the digest the
-    pending row keeps."""
+def bind(response: Response, request: Request, base: str) -> tuple[str, str]:
+    """Set a fresh binding cookie (`SIGNIN` or `LAUNCH`) on `response`; return its digest (which
+    a pending sign-in keeps) and its value (which a pending launch is sealed under)."""
     value = secrets.token_urlsafe(32)
     set_cookie(response, request, base, value, max_age=PENDING_SECONDS)
-    return _digest(value)
+    return _digest(value), value
+
+
+def binding(request: Request, base: str) -> str | None:
+    """The binding cookie `base` this browser brought back, under its name on this host."""
+    return request.cookies.get(cookie_name(base, request.url.hostname)) or None
 
 
 def bound(request: Request, base: str, pending: Mapping[str, Any]) -> bool:
-    """Whether this browser started the sign-in or launch `pending` records. A pending row from
-    before this release keeps no digest: accepted (it is taken once, and ends in ten minutes)."""
+    """Whether this browser started the sign-in `pending` records. A pending row from before
+    this release keeps no digest: accepted (it is taken once, and ends in ten minutes). (A
+    pending launch needs no digest: it is sealed under the cookie, and opens only with it.)"""
     expected = pending.get("browser")
     if expected is None:
         return True
-    value = request.cookies.get(cookie_name(base, request.url.hostname))
+    value = binding(request, base)
     if not value or not isinstance(expected, str):
         return False
     return hmac.compare_digest(_digest(value), expected)

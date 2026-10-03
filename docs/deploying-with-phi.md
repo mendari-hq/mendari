@@ -90,7 +90,8 @@ MENDARI_SESSION_MAX_HOURS=8         # 1 to 12
 ```
 
 Signed in, `/api/health` shows them (`sessions`). An EHR launch's session follows the same
-rules and also ends when the EHR's token does. More about sessions:
+rules and also ends when the EHR's token does, or as soon as the EHR answers `401` to it. More
+about sessions:
 
 - **Roles apply at once.** Each request works out the person's roles again from the claims kept
   at sign-in and the role settings as they are then, so taking a group out of
@@ -112,6 +113,15 @@ rules and also ends when the EHR's token does. More about sessions:
   an internal name, an address) is first sent to `MENDARI_PUBLIC_URL` and starts there. It
   is sent once (the query then carries `moved=1`), so a proxy that rewrites `Host` cannot make
   it loop.
+- **An EHR launch's rows are sealed, with no key to manage.** The launch's session row (the
+  EHR's access token, the patient, the encounter) and its pending row (the PKCE verifier) are
+  encrypted with AES-256-GCM under a key derived from the browser's own cookie, which the
+  database never holds: a database reader, a backup or the database's history opens nothing.
+  There is no setting and nothing to provision, rotate or back up, in every PHI mode. A row
+  that does not open (changed, or written before this release) ends the launch: the clinician
+  opens Mendari again from the EHR. No refresh token is kept, and `offline_access` in
+  `MENDARI_SMART_SCOPES` refuses every launch (the server still starts). People's sign-in rows
+  hold no token and are not sealed.
 - **The dashboard says so when a session ends** ("Your session ended. Sign in again.") and
   brings the person back to the same view after signing in; what they were typing stays on the
   page.
@@ -223,6 +233,13 @@ EHR launches the app again. Phase 4b signs nobody out: sessions from before it k
 8 hours (and take up the idle limit at their next request), their old cookie name is still read
 for them for one release, their roles are the ones they signed in with, and a sign-in or launch
 in flight at the deploy completes once without the browser cookie.
+
+The release that seals EHR launch rows (ADR-0006) signs nobody out either: people's sessions
+and sign-ins are untouched. An EHR launch in flight at the upgrade, or a launch session from
+before it, does not open and ends: the clinician launches once more from the EHR. Rolling back
+past that release leaves rows the older code cannot read, which breaks only `/api/smart/*`;
+delete them after the rollback, `DELETE FROM smart_sessions WHERE kind IN ('session',
+'pending')`, and EHR launches start again.
 
 ## 3. PHI mode
 

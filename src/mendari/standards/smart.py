@@ -3,20 +3,26 @@ Connect for who the user is.
 
 1. `begin`: the EHR opens `/smart/launch?iss=<FHIR base>&launch=<opaque>`. The server's
    `.well-known/smart-configuration` names its authorization and token endpoints; the app keeps a
-   random `state`, a PKCE verifier and a `nonce`, and sends the browser to `authorize`.
+   random `state`, a PKCE verifier and a `nonce`, and sends the browser to `authorize`. Scopes
+   with `offline_access` are refused here, before any request: a launch never outlives the
+   EHR's token, so no refresh token is asked for or kept.
 2. `complete`: the browser comes back to `/smart/callback?code=&state=`. The code is exchanged at
    the token endpoint (with the verifier), and the `id_token` is verified: signature against the
-   server's JWKS (RS256 or ES384), `iss`, `aud` (this client), `exp` and the `nonce`.
+   server's JWKS (RS256 or ES384), `iss`, `aud` (this client), `exp` and the `nonce`. The access
+   token must be printable ASCII without spaces (`%x21-7E`, so it is safe in a header) and at
+   most 16 KiB; the refresh token, the id_token and the rest of the answer are dropped.
 
 Every request goes through `GuardedHttp`, so the FHIR server and every endpoint it names must be
-on the deployment's allow-list. Tokens stay on the server (see `AuditStore` SMART sessions); the
-browser holds only an opaque session id. SMART is off until `MENDARI_SMART_CLIENT_ID` is set.
+on the deployment's allow-list. Tokens stay on the server, in a session row sealed under the
+browser's opaque session id (`core/session_seal.py`); the browser holds only that id. SMART is
+off until `MENDARI_SMART_CLIENT_ID` is set.
 """
 
 from __future__ import annotations
 
 import base64
 import os
+import re
 import secrets
 import time
 from collections.abc import Mapping
@@ -30,6 +36,8 @@ from mendari.standards.fhir_client import GuardedHttp
 
 DEFAULT_SCOPES = "launch openid fhirUser patient/*.rs"
 PENDING_SECONDS = 600  # a launch must come back from the authorization server within this
+MAX_TOKEN_BYTES = 16 * 1024
+_TOKEN = re.compile(r"[\x21-\x7e]+")  # RFC 6749 VSCHAR without the space: safe in a header
 
 
 @dataclass(frozen=True)
@@ -72,9 +80,14 @@ def discover(iss: str, http: GuardedHttp) -> dict[str, Any]:
 
 def begin(
     iss: str, launch: str, *, redirect_uri: str, settings: SmartSettings, http: GuardedHttp
-) -> tuple[str, dict[str, Any]]:
-    """The authorization URL to send the browser to, and what to keep until it comes back
-    (keyed by its `state`)."""
+) -> tuple[str, str, dict[str, Any]]:
+    """The authorization URL to send the browser to, its `state`, and what to keep until it
+    comes back (sealed in a row keyed by the `state`, which therefore is not in it)."""
+    if "offline_access" in settings.scopes.split():
+        raise SmartError(
+            "MENDARI_SMART_SCOPES asks for offline_access: a launch keeps no refresh token",
+            reason="configuration",
+        )
     config = discover(iss, http)
     state = secrets.token_urlsafe(32)
     verifier, challenge = oidc.pkce()
@@ -95,7 +108,6 @@ def begin(
     )
     endpoint = config["authorization_endpoint"]
     pending = {
-        "state": state,
         "iss": iss,
         "issuer": config.get("issuer") or iss,
         "token_endpoint": config["token_endpoint"],
@@ -105,7 +117,7 @@ def begin(
         "redirect_uri": redirect_uri,
         "scopes": settings.scopes,
     }
-    return f"{endpoint}{'&' if '?' in endpoint else '?'}{query}", pending
+    return f"{endpoint}{'&' if '?' in endpoint else '?'}{query}", state, pending
 
 
 def complete(
@@ -130,6 +142,9 @@ def complete(
         raise SmartError(f"the token exchange failed: {error}", reason="token") from None
     if str(token.get("token_type", "")).lower() != "bearer" or not token.get("access_token"):
         raise SmartError("the token response has no Bearer access token", reason="token")
+    access = token["access_token"]
+    if not isinstance(access, str) or len(access) > MAX_TOKEN_BYTES or not _TOKEN.fullmatch(access):
+        raise SmartError("the access token is not a valid OAuth token", reason="token")
     if not isinstance(token.get("patient"), str):
         raise SmartError("the EHR did not send a patient with the launch", reason="no_patient")
     user = None
@@ -144,7 +159,7 @@ def complete(
     lifetime = int(expires_in) if isinstance(expires_in, int | float) and expires_in > 0 else 3600
     return {
         "iss": pending["iss"],
-        "access_token": token["access_token"],
+        "access_token": access,
         "scope": token.get("scope") or pending["scopes"],
         "patient": token["patient"],
         "encounter": token.get("encounter") if isinstance(token.get("encounter"), str) else None,
