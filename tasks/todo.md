@@ -88,6 +88,11 @@ From the audit's "Redesign plan". Branch `claude/phase-5`, after Phase 4b's stag
 - [x] **N. Guides and links**: `docs/guides/api.md` in the mkdocs site from the same snippets;
   README and the OpenAPI description point to `/docs`
   (Deviation: the guide includes each script whole, not step by step.)
+- [x] **Brought onto Phase 4b**: `claude/phase-4b` merged in; the snippets pass under its rate
+  limits with a key (the check hides the server's security log unless `--show`); the landing's
+  authentication section describes sessions that end, `429` with `Retry-After` and requests from
+  other sites, with defaults only (a deployment's own session lengths and rates stay behind
+  `read`, as stage A keeps them)
 - Deferred: a public demo deployment (a launch decision), theming the mkdocs site
 
 ## Built: authentication and authorization, Phase 4 (2026-10-02)

@@ -49,7 +49,9 @@ Paths under `src/mendari/` are given without that prefix.
 Who can call what: with sign-in on, every route has a permission (`auth._RULES`), anything
 unlisted needs `admin`, and a few routes are public: `/api/health` (three fields),
 `/api/auth/me`, `/auth/*` (sign-in, callback, logout, the token endpoint), `/smart/*` and
-`/api/smart/*` (the SMART launch), static files, the `/docs` and `/redoc` redirects, and
+`/api/smart/*` (the SMART launch), static files, `/docs` (the developer landing of Phase 5:
+built once at startup from settings and the example scripts, the same for every request, listing
+no pack, provider, count or record with sign-in on), the `/redoc` redirect, and
 `/fhir/metadata`, OperationDefinitions and the SMART configuration. The dashboard (`/`) and
 `/docs/reference` are pages: a signed-out browser is sent to sign in. Roles are `viewer`, `reviewer`, `service`, `governance` and
 `admin`. Machines are `viewer` or `service` only; managing keys and clients is for signed-in
@@ -141,7 +143,8 @@ uv run mendari serve --port 8000 --db var/review.db
   (`informatics` maps to `admin`; use `clinicians` for a reviewer, `front-desk` for a viewer).
   On `127.0.0.1` the cookies keep their plain names (`mendari_session`); on any other host with
   a dot they are `__Host-` and need https.
-- **The API reference** is at `/docs/reference` once signed in. Rate limits are on (sign-in is
+- **The API reference** is at `/docs/reference` once signed in; `/docs`, the developer
+  landing, is public. Rate limits are on (sign-in is
   on); `MENDARI_RATE_LIMITS=log` counts without refusing.
 - **The security log** is the server's stdout.
 - **Backend Services:** add `MENDARI_BACKEND_SERVICES=on` and register a client as in

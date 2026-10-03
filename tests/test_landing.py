@@ -98,6 +98,29 @@ def test_with_sign_in_on_the_landing_is_public_and_tells_nothing_of_the_deployme
     assert "Backend Services (signed client assertions" in every.text  # off here
 
 
+def test_the_landing_describes_phase_4b_without_this_deployments_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sessions that end, rate limits with a 429, and requests from other sites are described,
+    but a deployment's own session lengths and rates stay behind `read` (in /api/health and the
+    API reference): the page is the same whatever they are set to."""
+    _sign_in_on(monkeypatch)
+    monkeypatch.setenv("MENDARI_RATE_LIMITS", "on")
+    usual = TestClient(create_app(db_path=tmp_path / "a.db")).get("/docs").text
+    monkeypatch.setenv("MENDARI_RATE_LIMITS", "on,decide=7/min")
+    monkeypatch.setenv("MENDARI_SESSION_IDLE_MINUTES", "11")
+    monkeypatch.setenv("MENDARI_SESSION_MAX_HOURS", "3")
+    tuned = TestClient(create_app(db_path=tmp_path / "b.db")).get("/docs").text
+    assert usual == tuned
+    assert "30 minutes and 8 hours unless the deployment sets otherwise" in usual
+    assert "<code>429</code> with <code>Retry-After</code>" in usual
+    assert "7/min" not in tuned and "11 minutes" not in tuned
+    monkeypatch.delenv("MENDARI_OIDC_ISSUER")
+    monkeypatch.delenv("MENDARI_OIDC_CLIENT_ID")
+    for text in (usual, TestClient(create_app(db_path=tmp_path / "c.db")).get("/docs").text):
+        assert "A browser request that another site starts reaches only public routes" in text
+
+
 def _table(text: str) -> dict[tuple[str, str], str]:
     """(method, path) -> permission, as the landing's table shows them."""
     shown: dict[tuple[str, str], str] = {}

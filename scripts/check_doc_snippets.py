@@ -37,7 +37,7 @@ from pathlib import Path
 import uvicorn
 
 from mendari.core.audit import AuditStore
-from mendari.server import snippets
+from mendari.server import security_log, snippets
 from mendari.server.app import create_app
 from mendari.server.auth import DEFAULT_ORG, PEOPLE_ONLY, PERMISSIONS, permission_for
 
@@ -60,11 +60,14 @@ def _free_port() -> int:
 
 
 @contextmanager
-def _server(db: Path) -> Iterator[str]:
-    """The app on a free port, built from the current environment."""
+def _server(db: Path, *, show: bool = False) -> Iterator[str]:
+    """The app on a free port, built from the current environment. Its security log (a JSON line
+    per request on stdout) is shown only with --show, so a failure is easy to find."""
     app = create_app(db_path=db, budget_limits=NO_REMOTE_CALLS)
     port = _free_port()
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
+    # After uvicorn's logging setup, which enables existing loggers; create_app turns it back on.
+    security_log.logger.disabled = not show
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
     deadline = time.monotonic() + 30
@@ -128,7 +131,7 @@ def run_pass(
         )
         secret = made["key"]
     ok = True
-    with _server(db) as base:
+    with _server(db, show=show) as base:
         if key and _status(f"{base}/api/packs") != 401:
             print("  FAIL sign-in is not on: a request without the key was not refused")
             return False

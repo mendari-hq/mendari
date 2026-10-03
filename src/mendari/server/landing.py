@@ -25,7 +25,7 @@ from html import escape
 from urllib.parse import quote
 
 from mendari.core.audit import KEY_DAYS, KEY_MAX_DAYS
-from mendari.server import api_docs, scopes, snippets
+from mendari.server import api_docs, scopes, sessions, snippets
 from mendari.server.auth import PEOPLE_ONLY, PERMISSIONS, ROLES
 
 _MARKER = re.compile(r"<!-- landing:([a-z-]+) -->")
@@ -178,17 +178,28 @@ def _smart(launch: bool) -> str:
     )
 
 
+# Requests from other sites (`server/origin.py`), in every mode.
+_CROSS_SITE = (
+    "A browser request that another site starts reaches only public routes and pages, with "
+    "<code>GET</code> or <code>HEAD</code>; anything else is a <code>403</code> (cross-site "
+    "request refused). Scripts and integrations send no such header and are not affected."
+)
+
+
 def _auth(sign_in: bool, token_url: str | None) -> str:
     """How to authenticate here, for this deployment's mode: the same facts as the API
-    reference's introduction (`api_docs.description`)."""
+    reference's introduction (`api_docs.description`). Session lengths and rates are given as
+    the defaults only: this deployment's own are in `/api/health` and the API reference, for
+    those who may read (stage A of Phase 4b keeps a deployment's settings off public pages)."""
     if not sign_in:
         return (
             '<p><span class="badge s-warning">Sign-in is off here</span></p>'
             "<p>Anyone who can reach this deployment can call every operation, and the "
             "<code>Authorization</code> header is ignored. To require sign-in, set "
             "<code>MENDARI_OIDC_ISSUER</code> and <code>MENDARI_OIDC_CLIENT_ID</code>: the table "
-            "below is then what each call needs.</p>"
+            f"below is then what each call needs.</p><p>{_CROSS_SITE}</p>"
         )
+    default = sessions.Lifetime()
     backend = (
         "<li><strong>SMART Backend Services is on.</strong> A client a signed-in administrator "
         "registers (<code>POST /api/auth/clients</code>, with its public JWK Set) gets a "
@@ -207,7 +218,9 @@ def _auth(sign_in: bool, token_url: str | None) -> str:
         '<ul class="docs-facts">'
         '<li><strong>People</strong> sign in at <a href="/auth/login">/auth/login</a> with '
         "their organization's identity provider; the dashboard and the API reference use that "
-        "session.</li>"
+        "session, which ends after a time without a request or a time after signing in, "
+        f"whichever comes first ({default.idle // 60} minutes and {default.absolute // 3600} "
+        "hours unless the deployment sets otherwise).</li>"
         "<li><strong>Machines</strong> send <code>Authorization: Bearer ohk_…</code>: an API key "
         "a signed-in administrator creates with <code>POST /api/auth/keys</code>, shown once. A "
         "key has one role, <code>viewer</code> or <code>service</code>, and expires "
@@ -219,6 +232,12 @@ def _auth(sign_in: bool, token_url: str | None) -> str:
         "<li>An <code>Authorization</code> header decides alone: a credential in it that is not "
         "valid is a <code>401</code>, even with a session cookie. A credential never goes in a "
         "URL or a form. Refusals carry <code>WWW-Authenticate</code>.</li>"
+        "<li><strong>Costly calls are rate limited</strong> unless the deployment only counts "
+        "them: decisions, the AI guard, evaluations and exports per caller, signing in and the "
+        "token endpoint per address; reads are not. Over a limit the answer is a "
+        "<code>429</code> with <code>Retry-After</code> (seconds): wait that long, then "
+        "retry. The API reference gives the rates, signed in.</li>"
+        f"<li>{_CROSS_SITE}</li>"
         "</ul>"
     )
 
