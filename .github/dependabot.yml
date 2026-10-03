@@ -55,6 +55,12 @@ updates:
     groups:
       compose-images:
         patterns: ["*"]
+    ignore:
+      # A Postgres major is a deliberate change, never a bump: an existing site's data needs a
+      # dump and restore, and Postgres 18's image moved its data directory (declined in #113).
+      # Minor releases and digests still come.
+      - dependency-name: postgres
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: npm # the Hub website
     directory: /hub
@@ -66,6 +72,11 @@ updates:
     groups:
       hub:
         update-types: [minor, patch]
+    ignore:
+      # Node's types follow the Node the Hub runs on (24 in CI), bumped by hand with it: types for
+      # a newer Node let code call APIs that crash at runtime (declined in #115).
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   # Swagger UI for /docs/reference, vendored rather than installed: a pull request here changes
   # package.json and the lockfile only, and CI fails (tests/test_vendor.py) until someone runs
