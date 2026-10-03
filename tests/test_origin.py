@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import base64
 import functools
+import json
 import os
 import re
 from collections.abc import AsyncIterator, Iterator
@@ -26,7 +27,14 @@ from mendari.server import smart_routes
 from mendari.server.app import create_app, mounted_routes
 from mendari.server.origin import REFUSED, OriginCheck, is_local_host, origin_of, trusted_origins
 from mendari.standards.fhir_client import FhirClient, GuardedHttp
-from tests.conftest import message, signed_in
+from tests.conftest import (
+    HASH_KEY_B64,
+    INPUT_HASH_KEY,
+    message,
+    security_lines,
+    signed_in,
+    without_request_id,
+)
 from tests.test_auth import FakeIdp, sign_in, signing_in_with
 from tests.test_smart import EHR, FakeEhr, full_launch
 
@@ -206,12 +214,51 @@ def test_a_refused_request_never_reaches_the_store_a_body_or_a_handler(
             continue
         refused = client.request(method, concrete(path), headers=cross, content=b"{}")
         assert refused.status_code == 403, (method, path)
-        if app_module._FHIR_ROUTE.match(path):  # an OperationOutcome
+        if app_module._FHIR_ROUTE.match(path):  # an OperationOutcome: the id in the header only
             assert refused.json()["issue"][0]["diagnostics"] == REFUSED, path
+            assert refused.headers["x-request-id"], path
         else:
-            assert refused.json() == {"error": "AuthError", "detail": REFUSED}, path
+            body = without_request_id(refused.json(), refused)
+            assert body == {"error": "AuthError", "detail": REFUSED}, path
         assert refused.headers["x-frame-options"] == "DENY"  # the security headers still apply
     assert SpyStore.calls == []
+
+
+@pytest.mark.parametrize(
+    ("headers", "reason"),
+    [
+        ({"sec-fetch-site": "cross-site"}, "cross_site"),
+        ({"sec-fetch-site": "same-site"}, "same_site"),
+        ({"sec-fetch-site": "something-new"}, "unknown_site"),
+        ({"origin": "https://evil.example"}, "foreign_origin"),
+        ({"origin": "null"}, "null_origin"),
+    ],
+)
+def test_a_refusal_is_logged_with_its_reason_and_answered_with_a_request_id(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    headers: dict[str, str],
+    reason: str,
+) -> None:
+    """Open mode, so every browser request is checked: one `auth.origin.refused` line with a
+    fixed reason (never the header's value), the access line, and the id the 403 carries."""
+    client = TestClient(create_app(db_path=tmp_path / "a.db"), base_url=SITE)
+    capsys.readouterr()
+    refused = client.post("/api/auth/keys", headers={**headers, "evil": "x"}, json={})
+    assert refused.status_code == 403
+    assert without_request_id(refused.json(), refused) == {"error": "AuthError", "detail": REFUSED}
+    rid = refused.headers["x-request-id"]
+    lines = security_lines(capsys.readouterr().out)
+    event, access = lines
+    assert event["event"] == "auth.origin.refused" and event["reason"] == reason
+    assert event["outcome"] == "refused" and event["request_id"] == rid
+    assert access["event"] == "request" and access["status"] == 403
+    assert access["request_id"] == rid and access["outcome"] == "refused"
+    assert "evil.example" not in json.dumps(lines) and "something-new" not in json.dumps(lines)
+    # An address-bar request may only read.
+    client.post("/api/auth/keys", headers={"sec-fetch-site": "none"}, json={})
+    [event, _] = security_lines(capsys.readouterr().out)
+    assert event["reason"] == "unsafe_navigation"
 
 
 def test_a_link_to_the_review_queue_from_another_site_is_refused_and_nothing_is_chained(
@@ -222,10 +269,13 @@ def test_a_link_to_the_review_queue_from_another_site_is_refused_and_nothing_is_
     key = os.urandom(32)
     monkeypatch.setenv("MENDARI_PHI_MODE", "encrypt")
     monkeypatch.setenv("MENDARI_PHI_KEY", base64.b64encode(key).decode())
+    monkeypatch.setenv("MENDARI_INPUT_HASH_KEY", HASH_KEY_B64)
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
     client = TestClient(create_app(db_path=tmp_path / "a.db"), base_url=SITE)
-    chain = AuditStore(tmp_path / "a.db", phi=PhiPolicy(mode="encrypt", key=key))
+    chain = AuditStore(
+        tmp_path / "a.db", phi=PhiPolicy(mode="encrypt", key=key, hash_key=INPUT_HASH_KEY)
+    )
     reviewer = signed_in(chain, role="reviewer")
     decided = client.post(
         f"/api/packs/{inbox_pack.id}/decide",

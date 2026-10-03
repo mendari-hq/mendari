@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import secrets
+import time
 from typing import Any
 
 import jwt
@@ -38,6 +39,26 @@ def discover(issuer: str, http: GuardedHttp) -> dict[str, Any]:
     if config.get("issuer", issuer).rstrip("/") != issuer.rstrip("/"):
         raise AuthError("the identity provider's configuration names another issuer")
     return config
+
+
+class Discovery:
+    """`discover`, remembered per issuer for `ttl` seconds: every anonymous visit to the sign-in
+    page would otherwise fetch the issuer's configuration. A cached configuration's endpoints
+    are checked against each caller's allow-list again, and a failed fetch is not kept."""
+
+    def __init__(self, ttl: float = 3600) -> None:
+        self.ttl = ttl
+        self._found: dict[str, tuple[float, dict[str, Any]]] = {}
+
+    def get(self, issuer: str, http: GuardedHttp) -> dict[str, Any]:
+        found = self._found.get(issuer)
+        if found is not None and time.monotonic() - found[0] < self.ttl:
+            for key in ("authorization_endpoint", "token_endpoint", "jwks_uri"):
+                http.check(found[1][key])
+            return found[1]
+        config = discover(issuer, http)
+        self._found[issuer] = (time.monotonic(), config)
+        return config
 
 
 def verify_id_token(

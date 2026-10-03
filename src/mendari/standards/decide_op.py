@@ -56,7 +56,11 @@ if TYPE_CHECKING:
     from mendari.core.decision import DecisionResult
 
 _NAMESPACE = uuid.UUID("6f1c1f0e-3d7a-5b7e-9c55-6d656e646172")  # fixed: fullUrls are stable
-_PROVIDER_ISSUE = {"budget_exhausted": "throttled", "timeout": "timeout"}
+_PROVIDER_ISSUE = {
+    "budget_exhausted": "throttled",
+    "quota_exhausted": "throttled",
+    "timeout": "timeout",
+}
 _PARAMETERS = {"pack": "valueString", "version": "valueString", "focus": "valueString"}
 _ABSOLUTE = ("http://", "https://")
 

@@ -240,4 +240,5 @@ def test_the_server_reports_the_mode_and_returns_the_issues(tmp_path: Path) -> N
         ("Patient/ref-p1", "Patient.name", "error")
     ]
     record = client.get(f"/api/audit/{response.json()['decision']['id']}").json()
-    assert record["record"]["input_issues"] == issues  # audited with the decision
+    # audited with the decision, the resource named by its type and position, not its id
+    assert record["record"]["input_issues"] == [{**issues[0], "resource": "Patient (entry 1)"}]

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 import re
@@ -34,7 +33,7 @@ from mendari.server.auth import Auth, AuthSettings, auth_settings, permission_fo
 from mendari.server.backend_services import check_jwks, default_scope
 from mendari.server.scopes import DECIDE, OUTCOME, needed, parse, parse_lenient
 from mendari.standards.fhir_client import GuardedHttp
-from tests.conftest import message, signed_in
+from tests.conftest import message, run_async, signed_in, without_request_id
 
 IDP = "https://idp.example.org"
 REALM = 'Bearer realm="mendari"'
@@ -52,6 +51,7 @@ class FakeIdp:
         self.claims: dict[str, Any] = {}
         self.token_url = token_url  # Google's, for one, are not on the issuer's host
         self.jwks_url = jwks_url
+        self.discovered = 0  # fetches of the OpenID configuration
 
     def authorize(self, url: str, **claims: Any) -> str:
         params = {k: v[0] for k, v in parse_qs(urlsplit(url).query).items()}
@@ -62,6 +62,7 @@ class FakeIdp:
     def __call__(self, request: httpx.Request) -> httpx.Response:
         url = str(request.url)
         if url == f"{IDP}/.well-known/openid-configuration":
+            self.discovered += 1
             return httpx.Response(
                 200,
                 json={
@@ -139,8 +140,12 @@ def test_the_dashboard_and_api_need_a_sign_in(app: TestClient) -> None:
 def test_signing_in_starts_a_session_with_the_mapped_role(app: TestClient, idp: FakeIdp) -> None:
     done = sign_in(app, idp, name="Nurse Kim", roles=["clinicians"])
     assert done.status_code == 302 and done.headers["location"] == "/#review"
-    cookie = done.headers["set-cookie"].lower()
+    [cookie] = [c for c in done.headers.get_list("set-cookie") if "mendari_session" in c]
+    assert cookie.startswith("__Host-mendari_session=")  # this host only, never a sibling's
+    cookie = cookie.lower()
     assert "httponly" in cookie and "secure" in cookie and "samesite=lax" in cookie
+    assert "path=/" in cookie and "domain" not in cookie
+    assert "max-age" not in cookie and "expires" not in cookie  # ends with the browser too
     me = app.get("/api/auth/me").json()
     assert me["principal"] == {
         "kind": "user",
@@ -148,6 +153,7 @@ def test_signing_in_starts_a_session_with_the_mapped_role(app: TestClient, idp: 
         "roles": ["reviewer"],
         "permissions": ["decide", "outcome", "read", "read_input", "review"],
         "org": "default",
+        "actor": f"{IDP}|u1",  # no verified email: the subject, qualified by its issuer
     }
     assert app.post("/auth/logout").status_code == 204
     assert app.get("/api/audit").status_code == 401
@@ -171,7 +177,10 @@ def test_each_role_can_do_exactly_its_part(app: TestClient, idp: FakeIdp) -> Non
 def test_reviews_and_ratings_are_recorded_for_whoever_is_signed_in(
     app: TestClient, idp: FakeIdp
 ) -> None:
-    sign_in(app, idp, name="Nurse Kim", roles=["clinicians"])
+    """Under their verified email, never the display name (anyone can rename themselves at the
+    identity provider) nor what the body says."""
+    kim = {"email": "kim@clinic.example.org", "email_verified": True}
+    sign_in(app, idp, name="Nurse Kim", roles=["clinicians"], **kim)
     emergency = message("Crushing chest pain and my left arm is numb")  # waits for review
     decided = app.post(f"/api/packs/{INBOX}/decide", json=emergency).json()
     posed_as = {"final_label": "nurse", "reviewer": "Dr Somebody Else"}
@@ -179,8 +188,55 @@ def test_reviews_and_ratings_are_recorded_for_whoever_is_signed_in(
     rating = {"rating": "up", "reporter": "Dr Somebody Else"}
     assert app.post(f"/api/audit/{decided['id']}/feedback", json=rating).status_code == 200
     record = app.get(f"/api/audit/{decided['id']}").json()
-    assert record["reviewer"] == "Nurse Kim"
-    assert [f["reporter"] for f in app.get("/api/feedback").json()] == ["Nurse Kim"]
+    assert record["reviewer"] == "kim@clinic.example.org"
+    assert [f["reporter"] for f in app.get("/api/feedback").json()] == ["kim@clinic.example.org"]
+    assert app.get("/api/auth/me").json()["principal"]["actor"] == "kim@clinic.example.org"
+
+
+@pytest.mark.parametrize(
+    ("claims", "chained"),
+    [
+        ({"email": "kim@clinic.example.org", "email_verified": True}, "kim@clinic.example.org"),
+        ({"email": "kim@clinic.example.org", "email_verified": "true"}, f"{IDP}|u1"),
+        ({"email": "kim@clinic.example.org"}, f"{IDP}|u1"),  # anyone can claim an address
+        ({}, f"{IDP}|u1"),
+    ],
+)
+def test_people_are_chained_by_verified_email_else_by_issuer_and_subject(
+    app: TestClient, idp: FakeIdp, claims: dict[str, Any], chained: str
+) -> None:
+    """The owner's choice (ADR-0005): chained events are never rewritten, so the chain names a
+    person by what the identity provider vouches for, never by a display name."""
+    sign_in(app, idp, name="Nurse Kim", roles=["clinicians"], **claims)
+    emergency = message("Crushing chest pain and my left arm is numb")  # waits for review
+    decided = app.post(f"/api/packs/{INBOX}/decide", json=emergency).json()
+    app.post(f"/api/review/{decided['id']}", json={"final_label": "nurse", "reviewer": "x"})
+    record = app.get(f"/api/audit/{decided['id']}").json()
+    assert record["reviewer"] == chained
+    assert "Nurse Kim" not in json.dumps(record["events"])
+
+
+def test_open_mode_names_are_identifiers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """In open mode the client names the reviewer, reporter and approver; the chain keeps the
+    name for good, so it must be an identifier: no spaces, at most 100 characters."""
+    monkeypatch.delenv("MENDARI_OIDC_ISSUER", raising=False)
+    client = TestClient(create_app(db_path=tmp_path / "open.db"))
+    emergency = message("Crushing chest pain and my left arm is numb")  # waits for review
+    decided = client.post(f"/api/packs/{INBOX}/decide", json=emergency).json()
+    review, rate = f"/api/review/{decided['id']}", f"/api/audit/{decided['id']}/feedback"
+    for name in ("Dr Somebody", "x" * 101, "nurse\tkim", "nurse\nkim", " nurse", "nurse\u00a0kim"):
+        refused = client.post(review, json={"final_label": "nurse", "reviewer": name})
+        assert refused.status_code == 422 and "reviewer must be an identifier" in refused.text
+        refused = client.post(rate, json={"rating": "up", "reporter": name})
+        assert refused.status_code == 422 and "reporter must be an identifier" in refused.text
+        approval = {"pack_id": "mendari/clinical-trial-prescreener", "reference": "minutes 1"}
+        refused = client.post("/api/governance", json={**approval, "approver": name})
+        assert refused.status_code == 422 and "approver must be an identifier" in refused.text
+    assert client.post(rate, json={"rating": "up", "reporter": "nurse.kim@clinic"}).is_success
+    assert client.post(rate, json={"rating": "up"}).is_success  # no one named: allowed
+    done = client.post(review, json={"final_label": "nurse", "reviewer": "sandbox-nurse"})
+    assert done.status_code == 200
+    assert client.get(f"/api/audit/{decided['id']}").json()["reviewer"] == "sandbox-nurse"
 
 
 def test_an_account_without_a_role_is_refused(app: TestClient, idp: FakeIdp) -> None:
@@ -708,7 +764,8 @@ def test_the_api_reference_asks_a_browser_to_sign_in(app: TestClient, idp: FakeI
     schema = app.get("/openapi.json").json()
     schemes = schema["components"]["securitySchemes"]
     assert set(schemes) == {"apiKey", "session"}  # no token scheme: Backend Services is off
-    assert schemes["session"]["name"] == auth_module.COOKIE  # the cookie sign-in sets
+    session = schemes["session"]  # the cookie sign-in sets, on this (non-local) host
+    assert session["name"] == "__Host-mendari_session" and "30 minutes" in session["description"]
     operations = {
         (method.upper(), path): operation
         for path, methods in schema["paths"].items()
@@ -766,7 +823,10 @@ def test_a_credential_that_is_not_valid_never_falls_back_to_the_session(
     refused = app.get("/api/audit", headers={"authorization": header})
     assert refused.status_code == 401
     assert refused.headers["www-authenticate"] == INVALID
-    assert refused.json() == {"error": "AuthError", "detail": "the credential is not valid"}
+    assert without_request_id(refused.json(), refused) == {
+        "error": "AuthError",
+        "detail": "the credential is not valid",
+    }
     me = app.get("/api/auth/me", headers={"authorization": header}).json()
     assert me == {"mode": "sign-in", "signed_in": False}
 
@@ -879,7 +939,7 @@ def test_a_chunked_body_is_read_only_until_it_passes_the_limit() -> None:
         return {"type": "http.request", "body": b"x" * 1024, "more_body": True}  # never ends
 
     request = Request({"type": "http", "method": "POST", "headers": []}, receive)
-    assert asyncio.run(read_body(request, 4096)) is None
+    assert run_async(read_body(request, 4096)) is None
     assert received == 5
 
 
@@ -975,14 +1035,16 @@ def test_an_outcome_is_recorded_for_whoever_sends_it(app: TestClient, idp: FakeI
     decided = app.post(f"/api/packs/{INBOX}/decide", json=message(ROUTINE), headers=machine)
     outcome = {"final_label": "nurse", "source": "ehr", "recorded_by": "Dr Somebody Else"}
     recorded = app.post(f"/api/audit/{decided.json()['id']}/outcome", json=outcome, headers=machine)
-    assert recorded.json()["recorded_by"] == "key a service"
+    key_id = app.get("/api/auth/me", headers=machine).json()["principal"]["actor"]
+    assert re.fullmatch(r"key [0-9a-f]+", key_id)  # its id: the name is free text
+    assert recorded.json()["recorded_by"] == key_id
     sign_in(app, idp, name="Nurse Kim", roles=["clinicians"])
     events = app.get(f"/api/audit/{decided.json()['id']}").json()["events"]
-    assert events[-1]["payload"]["recorded_by"] == "key a service"
+    assert events[-1]["payload"]["recorded_by"] == key_id
     assert "Dr Somebody Else" not in json.dumps(events)
     app.post(f"/api/audit/{decided.json()['id']}/outcome", json=outcome)
     events = app.get(f"/api/audit/{decided.json()['id']}").json()["events"]
-    assert events[-1]["payload"]["recorded_by"] == "Nurse Kim"
+    assert events[-1]["payload"]["recorded_by"] == f"{IDP}|u1"  # no verified email
 
 
 def test_the_api_reference_says_keys_are_managed_by_people(app: TestClient, idp: FakeIdp) -> None:
@@ -1050,7 +1112,10 @@ def test_an_expired_key_is_refused_like_any_credential_that_is_not_valid(
     refused = app.get("/api/audit", headers=machine)
     assert refused.status_code == 401
     assert refused.headers["www-authenticate"] == INVALID
-    assert refused.json() == {"error": "AuthError", "detail": "the credential is not valid"}
+    assert without_request_id(refused.json(), refused) == {
+        "error": "AuthError",
+        "detail": "the credential is not valid",
+    }
 
 
 @pytest.mark.parametrize(
@@ -1151,7 +1216,7 @@ def test_keys_list_scope_expiry_and_who_revoked_them_never_the_key(
     assert app.delete(f"/api/auth/keys/{made['id']}").status_code == 404  # once
     [listed] = app.get("/api/auth/keys").json()
     assert listed["scope"] == "system/Task.rs" and listed["expires_at"] == made["expires_at"]
-    assert listed["created_by"] == "Ada Admin" and listed["revoked_by"] == "Ada Admin"
+    assert listed["created_by"] == listed["revoked_by"] == f"{IDP}|u1"
     assert listed["revoked_at"] and "key" not in listed
     assert made["key"] not in app.get("/api/auth/keys").text
     store = AuditStore(tmp_path / "a.db")

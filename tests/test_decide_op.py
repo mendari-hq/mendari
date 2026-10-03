@@ -372,7 +372,7 @@ def test_audit_fhir_provenance_targets_the_decision() -> None:
         "payload": {},
         "pack_id": INBOX,
         "pack_version": "0.3.0",
-        "record": {"input_hash": "sha256:00"},
+        "record": {"input_hash": "hmac-sha256:0123456789abcdef:00"},
     }
     provenance = audit_fhir.provenance(event)
     assert provenance["target"][0]["identifier"] == {"system": DECISION_ID_SYSTEM, "value": "d1"}

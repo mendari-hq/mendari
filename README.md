@@ -370,7 +370,9 @@ client), `MENDARI_PUBLIC_URL`, and put the EHR's FHIR server and authorization s
 
 The launch is OAuth 2 with PKCE (S256). The `id_token` is verified against the server's JWKS
 (`iss`, `aud`, `exp`, `nonce`). The access token stays on the server; the browser holds an
-opaque, HttpOnly, SameSite=Lax session cookie. The dashboard opens on the launch's patient:
+opaque, HttpOnly, SameSite=Lax `__Host-mendari_smart` session cookie, which ends like a
+person's session (and when the EHR's token does), and the callback works only in the browser
+that started the launch. The dashboard opens on the launch's patient:
 - `GET /api/smart/patient`;
 - their messages or referrals: `GET /api/smart/focus?pack_id=`;
 - deciding one: `POST /api/smart/decide`, which reads the record through the pack's CDS prefetch
@@ -443,10 +445,25 @@ The [API guide](docs/guides/api.md) covers the same ground in the site.
 threat model ([`docs/security/threat-model.md`](docs/security/threat-model.md)) lists every
 threat with its mitigation and the test that checks it. On every change, the CI job `security`
 audits the Python and Hub-site dependencies and runs an OWASP ZAP scan of the API with sign-in
-on. Every response carries a strict CSP and the usual isolation headers (HSTS off localhost), the
-developer landing and the API reference included: the reference is Swagger UI served from
-vendored, pinned files, never a CDN, and the landing loads nothing but its own files. A
-browser request that another site starts reaches only public routes and pages, to read.
+on; GitHub Actions are pinned by commit and images by digest. Every response carries a strict
+CSP and the usual isolation headers (HSTS off localhost), the developer landing and the API
+reference included: the reference is Swagger UI served from vendored, pinned files, never a CDN,
+and the landing loads nothing but its own files. Sessions end after 30 minutes idle
+and 8 hours at most, behind `__Host-` cookies. A browser request that another site starts
+reaches only public routes and pages, to read. A request
+body is 4 MiB at most (`MENDARI_MAX_BODY_BYTES`; a `413` otherwise), and public routes take no
+lock and do little work for a caller without a credential. With sign-in on, decisions, the AI
+guard, evaluations and exports are rate limited per caller, and sign-in and the token endpoint per
+address, in the database so every instance shares the count (`MENDARI_RATE_LIMITS`; a `429` with
+`Retry-After`); organizations can have daily quotas (`MENDARI_ORG_DAILY_LIMITS`), over which
+decisions fall back to human review. A security log goes to stdout as JSON lines: one access line
+per API request and the security events (sign-ins, refusals, requests from other sites, rate
+limits, key, client and governance changes, exports, evaluations, input and note reads), from an
+allow-list of fields that has no room for a credential, a query value, a body or case text.
+Every response carries an `X-Request-Id`, which JSON errors on `/api` repeat as `request_id`.
+Under PHI mode the input hash is keyed and notes stay out of the audit chain (see PHI mode
+below). Every security setting, with its default, is in
+[deploying with real patient data](docs/deploying-with-phi.md#8-settings-at-a-glance).
 
 ## The Hub
 
@@ -479,8 +496,8 @@ The docker sandbox runs a registry on port 8100 (`scripts/hub_seed.py` publishes
 
 ## Sign-in for organizations
 
-By default the server is open, as production sits behind Vercel Authentication. Setting an
-identity provider switches on sign-in:
+By default the server is open: for local use and the sandbox, on `127.0.0.1`. Setting an
+identity provider switches on sign-in, as the project's production deployment does (Google):
 
 ```bash
 MENDARI_OIDC_ISSUER=https://login.example.org/realms/clinic   # your IdP (OpenID Connect)
@@ -493,7 +510,19 @@ With a provider that has no roles, such as Google, set `MENDARI_OIDC_ROLE_CLAIM=
 verified emails to roles ([the Google setup](docs/deploying-with-phi.md#2-sign-in-and-roles)).
 
 People sign in with their organization's account, using PKCE and an `id_token` verified with the
-IdP's keys. Machines use **API keys** (`Authorization: Bearer ohk_…`), which signed-in admins
+IdP's keys, in the browser that started the sign-in only (a callback link sent to someone else
+signs nobody in). The session is a server-side row behind a `__Host-mendari_session` cookie
+(plain `mendari_session` on localhost and dotless hosts). Each request works out the person's
+roles again from the claims kept at sign-in and the settings as they are then, so a role taken
+out of the map ends that access at once:
+
+| Setting | Effect |
+|---|---|
+| `MENDARI_SESSION_IDLE_MINUTES` | A session ends after this long without a request (default 30; 5 to 120) |
+| `MENDARI_SESSION_MAX_HOURS` | ...and this long after signing in, however busy (default 8; 1 to 12) |
+
+The dashboard then says "Your session ended. Sign in again." and comes back to the same view.
+Machines use **API keys** (`Authorization: Bearer ohk_…`), which signed-in admins
 create in `POST /api/auth/keys` (never a key: managing credentials is people-only). A key is
 shown once, stored hashed and revocable. It has the `viewer` or `service` role, expires (90 days
 by default, 365 at most), and can be narrowed with **scopes**: SMART's `system/Task.rs`,
@@ -519,8 +548,12 @@ Every route has a permission, and anything unlisted needs admin:
 | governance | read, approve automation |
 | admin | everything: evaluations, exports, chain verification; with a signed-in person, API keys and clients |
 
-With sign-in on, reviews and ratings are recorded for whoever is signed in, and the dashboard
-names them and offers only what their role may do. `MENDARI_OIDC_ORG_CLAIM` names the claim
+With sign-in on, reviews, ratings, approvals and outcomes are recorded for whoever is signed in,
+and the dashboard shows them as the audit chain names them and offers only what their role may
+do. The chain names a person by their verified email, else by their identity provider's subject
+qualified by its issuer (`<issuer>|<subject>`), never by a display name; a key as `key <id>`
+and a Backend Services client as `client <id>`. In open mode the client names the reviewer,
+reporter and approver, and each must be an identifier (no spaces, at most 100 characters). `MENDARI_OIDC_ORG_CLAIM` names the claim
 that carries the person's organization: one deployment can serve several, and each sees only
 its own decisions, reviews, feedback and reports.
 
@@ -555,8 +588,18 @@ mendari monitor --db "$DATABASE_URL" --org clinic-a --webhook https://alerts.exa
 
 **PHI mode.** `MENDARI_PHI_MODE=hash` keeps no input at all, only its hash.
 `MENDARI_PHI_MODE=encrypt` keeps inputs encrypted (AES-256-GCM, `MENDARI_PHI_KEY`) apart
-from the audit chain. Only signed-in reviewers and admins read them, and each read is chained.
-`mendari phi purge` applies `MENDARI_RETENTION_DAYS` without breaking the chain. Read
+from the audit chain. Only signed-in reviewers and admins read them, and each read is chained
+(and logged).
+Both modes need `MENDARI_INPUT_HASH_KEY` (32 random bytes, base64, not the PHI key): the input
+hash becomes an HMAC (`hmac-sha256:<key id>:<hex>`) that guessing cannot match, and the engine
+refuses to start without it. In both, the chained record keeps no evidence values (sealed with
+the input under `encrypt`) and names a resource in an input issue by type and position
+(`Patient (entry 2)`), not by its id; the caller's own answer is unchanged.
+`mendari phi purge` applies `MENDARI_RETENTION_DAYS` without breaking the chain. Notes (review
+and rating notes, a payer's answer to a prior authorization) follow inputs: they are kept apart
+from the chain, which holds only a salted commitment to each, sealed under `encrypt` and refused
+under `hash`. Retention erases them too, `mendari notes erase` erases one at once, and
+`mendari audit verify --notes` checks the kept ones. Read
 [`docs/deploying-with-phi.md`](docs/deploying-with-phi.md) before any real patient data.
 
 **Deployments.** Each server records which pack version it runs, with which providers, in
@@ -566,10 +609,10 @@ Card lists them (`/api/deployments`).
 **The pilot, end to end.** `mendari sandbox pilot-check --engine URL` plays a pilot
 organization against an engine with sign-in and PHI mode `encrypt`. People sign in through the
 real OpenID Connect flow, an admin creates a key for the message worker, and the worker
-decides. A reviewer reads the queue (each input read is logged) and resolves; a viewer can't.
-The AI committee approves a level 2 pack, then monitoring and the audit chain are checked. CI
-runs it against [mock-oauth2-server](https://github.com/navikt/mock-oauth2-server) (job
-`pilot-check`).
+decides (every input hash keyed). A reviewer reads the queue (each input read is logged) and
+resolves; a viewer can't. The AI committee approves a level 2 pack, then monitoring and the
+audit chain are checked. CI runs it against
+[mock-oauth2-server](https://github.com/navikt/mock-oauth2-server) (job `pilot-check`).
 
 ## Decision Packs
 
@@ -646,7 +689,7 @@ up) or wrong (thumbs down), with an optional note. A thumbs-down can also say wh
 should have been, for the decision itself or for one of its checks
 (`POST /api/audit/{id}/feedback` with `"expected": {"question": ..., "label": ...}`); the label
 must be one the decision could have given. Each rating is appended to the decision's
-hash-chained audit trail. A person can change their rating: their latest one counts, and the
+hash-chained audit trail; its note is kept apart from it, so it can be erased. A person can change their rating: their latest one counts, and the
 audit trail keeps both (people are told apart by reporter name; unnamed ratings of a decision
 count as one person). The **Feedback** view lists the thumbs-down cases, and a thumbs-down on an
 AUTO decision counts as "confidently wrong".
@@ -747,14 +790,34 @@ FastAPI function (`[tool.vercel] entrypoint = "mendari.server.vercel:app"`).
    OIDC identity; it is never stored in the project's environment variables. With several
    packs, scope a setting to one pack (`mendari/clinical-trial-prescreener:notes=jev`); a
    setting a pack cannot use is skipped and listed in `/api/health`.
-3. Set Vercel Authentication to protect **all deployments**: the app has no login of its own,
-   and the default setting leaves the production domain public. After each deploy, check that
-   an unauthenticated request to production gets redirected to login.
+3. Turn on sign-in for Production ([Sign-in for organizations](#sign-in-for-organizations);
+   the project uses Google, set for Production only). Until the launch, also set Vercel
+   Authentication to protect **all deployments**: previews run without sign-in, and the default
+   setting leaves the production domain public. After each deploy, check that an
+   unauthenticated request to production gets redirected to login.
 4. Push a branch to get a preview deployment, check it with
    `vercel curl /api/health --deployment <url>`, then merge to `main` for production.
 
+**Limits and spending.** With sign-in on, the app's rate limits are on
+(`MENDARI_RATE_LIMITS`, see [`docs/deploying-with-phi.md`](docs/deploying-with-phi.md)), and the
+client address is Vercel's `X-Forwarded-For`. The edge layer is one Vercel firewall rule per IP
+on `/auth/` and `/smart/`, kept as a file with its runbook in
+[`deploy/vercel/`](deploy/vercel/README.md); it starts in log mode. The launch goes in this
+order: the external security review and its fixes; finite daily ceilings and quotas
+(`MENDARI_JEV_DAILY_LIMIT=2000`, `MENDARI_LLM_DAILY_LIMIT=200` and
+`MENDARI_ORG_DAILY_LIMITS=decisions=5000`); the firewall rule enforced after 7 days in log
+mode; then Vercel Authentication lifted.
+
+**Logs.** The security log is the function's stdout, in Vercel's runtime logs (find a request by
+the `X-Request-Id` a user quotes; on Vercel it is the `x-vercel-id`). Vercel keeps them for a
+day on Pro (an hour on Hobby); a log drain keeps them longer.
+
 `/api/health` reports the storage backend, active providers, Jev configuration and today's Jev
-usage (never secrets). The FHIR sandbox (HAPI) stays in local `docker compose`.
+usage (never secrets). With sign-in on, only a principal that may read (someone signed in, or a
+key) sees them; anyone else gets `status`, `version` and `sign_in`, enough for a load balancer.
+On a preview without sign-in `vercel curl` shows everything; with sign-in on, open
+`/api/health` in a browser signed in to the dashboard. The FHIR sandbox (HAPI) stays in local
+`docker compose`.
 
 Days and times people see (the dashboard's times and daily volume, daily call counters, "today"
 for criteria and ages, card dates) use `MENDARI_TIMEZONE`, an IANA name defaulting to

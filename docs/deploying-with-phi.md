@@ -18,6 +18,24 @@ in its `.env`, pinned by digest), and Kubernetes. Both include the daily retenti
 
 The public sandbox and the project's own Vercel deployment are **synthetic only**.
 
+**Health checks and request size.** Probes and load balancers call `/api/health` without a
+credential and get `status`, `version` and `sign_in` only. The settings (PHI mode, packs,
+providers, the FHIR servers Mendari calls, today's remote calls) are shown to someone signed in,
+or a key, that may read. A request body is 4 MiB at most: raise `MENDARI_MAX_BODY_BYTES` (in
+bytes, 64 KiB or more) if your FHIR Bundles are larger, and give your proxy the same limit
+(nginx's `client_max_body_size`, say). A larger body gets a `413`.
+
+**Behind a proxy.** Serve Mendari over https only: its cookies are Secure, and any host but
+`localhost` gets HSTS. The engine needs the client's address, not your proxy's (sign-in and the
+token endpoint are limited per address, and the security log records it). `mendari serve`
+takes `X-Forwarded-For` (`--proxy-headers`, on by default) only from the proxies in
+`--forwarded-allow-ips` (or `FORWARDED_ALLOW_IPS`; default `127.0.0.1`), and the templates set
+it (compose: `.env`; Kubernetes: the ConfigMap). Signed in, `/api/health` shows where the
+address is read (`rate_limits.client_ip_source`). Limit per address at the proxy too, on
+`/auth/` and `/smart/` only (a hospital sends everyone's traffic from one address):
+[`deploy/onprem/nginx-limits.conf`](https://github.com/Junebugg1214/mendari/blob/main/deploy/onprem/nginx-limits.conf)
+is an example. A proxy must not replace Mendari's `Content-Security-Policy` header.
+
 ## 2. Sign-in and roles
 
 Set your identity provider, so nobody reaches the dashboard or the API without an account:
@@ -49,6 +67,48 @@ MENDARI_PUBLIC_URL=https://mendari.example.org
 In Google Cloud Console, create an OAuth client of type *Web application* with the redirect URI
 `https://mendari.example.org/auth/callback`. While its consent screen is in *Testing*, only the
 test users listed there can sign in at all, which is a second gate.
+
+**Sessions.** A person's session ends after 30 minutes without a request and 8 hours after
+signing in, whichever comes first, and when the browser closes (the cookie has no expiry of its
+own; the server decides). Set your own policy within bounds; a value outside them stops the
+server at startup:
+
+```bash
+MENDARI_SESSION_IDLE_MINUTES=30     # 5 to 120
+MENDARI_SESSION_MAX_HOURS=8         # 1 to 12
+```
+
+Signed in, `/api/health` shows them (`sessions`). An EHR launch's session follows the same
+rules and also ends when the EHR's token does. More about sessions:
+
+- **Roles apply at once.** Each request works out the person's roles again from the claims kept
+  at sign-in and the role settings as they are then, so taking a group out of
+  `MENDARI_OIDC_ROLE_MAP` (and redeploying) ends that access on the next request, not when the
+  session ends. A person left with no role gets a `401` and must sign in again. Changing
+  `MENDARI_OIDC_ROLE_CLAIM` does the same to everyone whose role came from the old claim.
+- **Cookies** are `__Host-mendari_session` (and `__Host-mendari_smart` for an EHR launch):
+  HttpOnly, Secure, SameSite=Lax, for this exact host only, so another subdomain of your domain
+  cannot set or replace them. On `localhost`, `127.0.0.1` and dotless hosts (a compose service)
+  they keep their plain names, `mendari_session` and `mendari_smart`. Serve Mendari over https:
+  browsers refuse Secure cookies on plain http anywhere but localhost.
+- **A sign-in works only in the browser that started it.** `/auth/login` (and `/smart/launch`)
+  set a ten-minute cookie (`__Host-mendari_signin`, `__Host-mendari_launch`) that the callback
+  must bring back, so a callback link sent to someone else signs nobody in. A second sign-in
+  started in another tab replaces the first, which then asks to sign in again. A script that
+  signs in over plain http carries the cookies by hand, as `mendari sandbox pilot-check` does.
+- **The dashboard says so when a session ends** ("Your session ended. Sign in again.") and
+  brings the person back to the same view after signing in; what they were typing stays on the
+  page.
+
+**Who the audit chain names.** Reviews, ratings, approvals, outcomes, input reads and key and
+client changes are chained under the signed-in person's **verified email** (the provider says
+`email_verified: true`), else their identity provider's subject qualified by its issuer
+(`https://login.example.org/realms/clinic|8f2c…`), never their display name. Keys are named
+`key <id>` and Backend Services clients `client <id>`. Chained events are never rewritten, so
+an email in the chain stays there; ask your identity provider to send verified emails (most
+do with the `email` scope, which Mendari asks for) if you want readable names. In open mode
+(no sign-in, synthetic data only) the client gives the reviewer, reporter and approver, and each
+must be an identifier: no spaces, at most 100 characters.
 
 Integrations (the EHR, CDS Hooks, a message worker) use API keys with the `service` role (or
 `viewer`, to read only; review and approval are a person's, so no key has those roles). Admins
@@ -96,7 +156,7 @@ granted (the same scopes as keys; left out, everything the role can use):
 
 ```bash
 curl -X POST https://mendari.example.org/api/auth/clients \
-  -H 'cookie: mendari_session=…' -H 'content-type: application/json' \
+  -H 'cookie: __Host-mendari_session=…' -H 'content-type: application/json' \
   -d '{"name": "ehr-crd", "role": "service",
        "scope": "https://mendari.co/fhir/scope/decide system/Task.rs",
        "jwks": {"keys": [{"kty": "RSA", "kid": "ehr-2026", "n": "…", "e": "AQAB"}]}}'
@@ -116,8 +176,10 @@ no authorization endpoint (no user or patient launch) and no `patient/` or `user
   /api/auth/clients/{client_id}` revokes one, and its tokens stop working on the next request.
   Registering and revoking are recorded in the audit chain.
 - To change a client's keys or scopes, register a new client and revoke the old one.
-- The token endpoint has no rate limit of its own yet: keep the deployment behind its access
-  gate (Vercel Authentication, a VPN) until one is in place.
+- The token endpoint takes 60 requests a minute per client address. After 10 failed
+  assertions in 10 minutes from one address for one client, that pair gets a `429` until the
+  oldest failure has aged out; another client, or the same client from another address, is not
+  affected (never by the client alone: anyone who knows a client's id could lock it out).
 - A deployment's tokens and one-time `jti` claims live in its database. Don't share a database
   (and a public URL) between preview and production.
 
@@ -134,26 +196,47 @@ MENDARI_TRUSTED_ORIGINS=https://mendari.example.org,https://decisions.example.or
 ```
 
 A value that is not exactly an origin stops the server at startup. Scripts with a session
-cookie and no `Origin` or `Sec-Fetch-Site` header (curl, the pilot check) are not affected. Any
-host but `localhost` also gets HSTS, so serve Mendari over https only.
+cookie and no `Origin` or `Sec-Fetch-Site` header (curl, the pilot check) are not affected. A
+refusal is logged as `auth.origin.refused` (§7), with a reason code and the request id.
 
 Sessions and pending sign-ins are server-side rows keyed by their kind and value. A release
 that changes how they are keyed (Phase 4 did) ends every session: people sign in again, and an
-EHR launches the app again.
+EHR launches the app again. Phase 4b signs nobody out: sessions from before it keep their
+8 hours (and take up the idle limit at their next request), their old cookie name is still read
+for them for one release, their roles are the ones they signed in with, and a sign-in or launch
+in flight at the deploy completes once without the browser cookie.
 
 ## 3. PHI mode
 
 ```bash
 MENDARI_PHI_MODE=encrypt
 MENDARI_PHI_KEY=$(python -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())")
+MENDARI_INPUT_HASH_KEY=$(python -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())")
 MENDARI_RETENTION_DAYS=90
 ```
 
 | Mode | What is kept of each input |
 |---|---|
 | `off` | As the pack says (`audit.store_input`). For synthetic data only. |
-| `hash` | Nothing but its SHA-256. Reviewers see the decision and its reasons, not the message or record. |
+| `hash` | Nothing but a keyed hash of it (HMAC-SHA256). Reviewers see the decision and its reasons, not the message or record. |
 | `encrypt` | The input, encrypted (AES-256-GCM, bound to its decision), apart from the audit chain. |
+
+What the decision record (whose digest is chained for good) keeps of an input, in `hash` and
+`encrypt`:
+- **no evidence values.** An answer's evidence can quote the input (`4548-4 8.1 % on
+  2026-08-01`). Under `hash`, and for a pack whose `audit.store_input` is `hash`, the record's
+  evidence is empty; under `encrypt` it is sealed with the input (bound to its decision), comes
+  back with it to those who may read inputs, and is deleted with it by retention. The caller's
+  own answer (`/decide`) still carries it;
+- **no resource ids.** An input issue (a US Core finding) names its resource by type and
+  position, `Patient (entry 2)`, in the record and in the reasons that refuse an input; the
+  OperationOutcome returned to the caller keeps the id, to find the resource;
+- **a keyed input hash.** `hmac-sha256:<key id>:<64 hex>`, an HMAC-SHA256 under
+  `MENDARI_INPUT_HASH_KEY`. A plain SHA-256 of a short or structured input (an age, a sex and an
+  order code) is found by guessing in seconds, and anyone who may read a decision sees its hash;
+  without the key, guesses match nothing. The engine refuses to start in `hash` or `encrypt`
+  without this key. In `off` mode without it, the hash stays the plain `sha256:` of earlier
+  releases, as on records already chained.
 
 Under `encrypt`:
 - only signed-in **reviewers** and **admins** get an input back: in a decision's record, the
@@ -165,16 +248,95 @@ Under `encrypt`:
   against. Encrypt mode needs step 2.
 
 **Retention.** Schedule `mendari phi purge --db "$DATABASE_URL"` (daily, for example). It
-deletes kept inputs older than `MENDARI_RETENTION_DAYS` and records each deletion in the
-chain. Decisions, reviews and the chain itself stay, and `mendari audit verify` still passes.
+deletes kept inputs and erases notes older than `MENDARI_RETENTION_DAYS`, and records each
+deletion in the chain. Decisions, reviews and the chain itself stay, and `mendari audit verify` still passes.
 
-**The key.**
-- Keep `MENDARI_PHI_KEY` in your secret manager, never in the repository or an image.
-- Losing it makes stored inputs unreadable. The decisions and the chain are unaffected.
-- To rotate it: purge (or let retention expire) the inputs kept under the old key, then switch.
-  Re-encrypting in place is not provided.
+**The keys.**
+- Keep `MENDARI_PHI_KEY` and `MENDARI_INPUT_HASH_KEY` in your secret manager, never in the
+  repository or an image. They are two different keys (the engine refuses one used as both): the
+  input hash key is needed in `hash` mode, which has no PHI key, and rotating the PHI key leaves
+  hashes alone.
+- Losing the PHI key makes stored inputs, evidence and notes unreadable. The decisions and the
+  chain are unaffected.
+- To rotate the PHI key: purge (or let retention expire) the inputs kept under the old key,
+  then switch. Re-encrypting in place is not provided.
+- The input hash key's id (16 hex digits of an HMAC under it, which reveal nothing about it) is
+  in every keyed hash and in `/api/health` (`input_hash`).
+- To rotate the input hash key, as the PHI key: purge, then switch. Records made before keep the
+  old key's id and are never re-hashed (their digests are chained); Mendari never recomputes an
+  old hash, so nothing breaks, and new records carry the new id. If the key leaks, whoever also
+  holds the database can attack the hashes made under it: switch at once, and treat those
+  hashes as no better than plain SHA-256.
 
-## 4. What leaves your network
+**Notes.** A reviewer's or a rater's note, and a payer's answer to a prior authorization (its
+authorization number and disposition), are free text. They are kept in a `notes` table, never in
+the audit chain:
+- the chain keeps `note: null` and a `note_ref`: the note's id and a salted SHA-256 commitment.
+  The salt is only in the note's row, so the commitment says nothing about the text;
+- under `encrypt` a note is sealed with the same key as inputs (AES-256-GCM, bound to the note
+  and its decision). Like inputs, it opens only for **reviewers** and **admins**, and each read
+  is chained (`input.read` names the notes read);
+- under `hash`, a review or rating with a note is refused (`422`): `hash` keeps no free text.
+  The dashboard offers no note field there, and a payer's words are not kept;
+- under `off`, notes are kept in the clear for whoever may read the decision;
+- notes written into the chain by earlier releases stay there (the chain is never rewritten),
+  but are shown only to those who may read inputs.
+
+`mendari phi purge` also erases notes older than `MENDARI_RETENTION_DAYS`. To erase one note now:
+
+```bash
+mendari notes erase --db "$DATABASE_URL" --id <note_ref.id> --reason request --by dpo@example.org
+```
+
+Erasing keeps the note's row (id, decision, when) and drops its text and salt. It chains
+`note.erased`, with the reason and who. The chain still verifies, and
+`mendari audit verify --notes` (with `MENDARI_PHI_KEY` set) checks every kept note against its
+commitment. **Erasure is not instant everywhere:** database backups, your database's
+point-in-time history (Neon keeps deleted rows for its history window) and exports made earlier
+still hold the note until they expire or you delete them.
+
+## 4. Limits and quotas
+
+**Rate limits.** With sign-in on, Mendari limits what costs something, counted in the database
+so every replica shares the count. Reads are not limited. Over a limit the answer is a `429`
+with `Retry-After` (seconds), before any body is read, model called or record written: JSON on
+`/api`, an OperationOutcome (`throttled`) on FHIR routes, OAuth's `temporarily_unavailable` at
+the token endpoint.
+
+| What | Counted per | Default |
+|---|---|---|
+| Signing in (`/auth/login`, the SMART launch) | client address | 60 a minute |
+| The token endpoint, before its body is read | client address | 60 a minute |
+| Failed assertions at the token endpoint | client address and client | 10 in 10 minutes |
+| Decisions, at every entry point (REST, FHIR `$decide`, CDS Hooks, DTR, PAS, SMART) | API key, client or person | 600 a minute, 100 at once |
+| The AI guard (an LLM call) | API key, client or person | 60 a minute |
+| Evaluations | caller | 6 an hour |
+| Exports (the audit FHIR export, the feedback export) | caller | 10 an hour |
+
+`MENDARI_RATE_LIMITS` is `on` (the default with sign-in), `log` (count and log what would be
+refused, refuse nothing) or `off` (the default in open mode), optionally followed by overrides:
+`MENDARI_RATE_LIMITS=on,decide=1200/min:200,evaluate=20/h` (`count/[n]unit[:burst]`, unit `s`,
+`min` or `h`). A bad value stops the server at startup. Signed in, `/api/health` shows the mode,
+every limit and `client_ip_source`. The client address must be right (§1, *Behind a proxy*).
+
+**Daily quotas per organization.** `MENDARI_ORG_DAILY_LIMITS=decisions=5000,jev=2000,llm=200`
+caps what each organization uses a day: decisions, and the remote model calls they make. Unset,
+there is none. Evaluations never count against them (they spend the deployment's daily budgets,
+`MENDARI_JEV_DAILY_LIMIT` and `MENDARI_LLM_DAILY_LIMIT`, only). Over a quota a decision is still
+made and recorded, but no provider runs and it goes to the review queue (`ABSTAIN` or
+`HUMAN_REVIEW`, with `quota_exhausted` in its errors), as over a daily budget: a quota never
+makes anything more automatic. The first time an organization reaches a quota each day,
+Mendari logs it and posts one alert to `MENDARI_ALERT_WEBHOOK` (the organization, the quota and
+its limit; no case data). Quotas start over at local midnight (`MENDARI_TIMEZONE`).
+
+**At the edge.** A per-address limit in front of Mendari takes floods before they reach it, on
+`/auth/` and `/smart/` only: your proxy (§1), or on Vercel one firewall rule, 120 requests a
+minute per address
+([`deploy/vercel/`](https://github.com/Junebugg1214/mendari/tree/main/deploy/vercel), with its
+runbook). Start such a rule in log mode, read what it would have refused for 7 days, then
+enforce it. Never limit `/api` or `/fhir` per address.
+
+## 5. What leaves your network
 
 By default, nothing. Each of these is off until you configure it:
 
@@ -182,14 +344,14 @@ By default, nothing. Each of these is off until you configure it:
 |---|---|---|
 | Remote model providers (Jev, LLMs through Vercel AI Gateway) | `MENDARI_PROVIDERS` | The pack's declared `state_fields` only |
 | Reading your FHIR server (CDS Hooks fetch, SMART, Bulk) | `MENDARI_FHIR_ALLOWED_SERVERS` | Nothing leaves; Mendari reads from servers you list |
-| Alerts | `MENDARI_ALERT_WEBHOOK` | Pack ids and alert messages (no case data) |
+| Alerts | `MENDARI_ALERT_WEBHOOK` | Pack ids and alert messages; an organization's id when it reaches a daily quota (no case data) |
 | Shared evaluation reports | `mendari eval --share` (manual) | Metrics only; no cases, ids or small groups |
 
 For PHI, prefer local providers (rules, naive Bayes, criteria, dosing), or a local model server
 (an OpenAI-compatible `base_url` on your network). Use a remote model only under an agreement
 that covers PHI.
 
-## 5. Monitoring and governance
+## 6. Monitoring and governance
 
 - **Monitoring:** the Monitoring view shows accuracy against the benchmark, drift and overrides.
   Schedule `mendari monitor --db "$DATABASE_URL"` with `MENDARI_ALERT_WEBHOOK` to be told
@@ -198,21 +360,118 @@ that covers PHI.
   role approves that exact version on its Decision Card (a reference such as committee minutes,
   and an expiry). Level 4 never automates.
 
-## 6. Before go-live
+## 7. Logs
+
+Mendari writes a security log to **stdout**, one JSON object per line, for incident response.
+Send the container's stdout to your log system (Docker's logging driver, your Kubernetes log
+collector, journald) and keep it as your policy says; Mendari keeps no log table of its own.
+
+- **One access line per request** to `/api`, `/fhir`, `/cds-services` and `/auth`
+  (`"event":"request"`), refused ones included, not `/api/health` or static files: the method,
+  the route's template (`/api/audit/{decision_id}`, never the path or its query), the status,
+  the caller (`user:<hash>`, `key:<id>`, `client:<id>`, `open` or `anonymous`), its organization
+  and address, and the latency.
+- **Security events**, each with a fixed `reason` code: `auth.signin.ok|refused`,
+  `auth.logout`, `auth.credential.refused`, `auth.permission.refused`, `auth.origin.refused`
+  (a request another site started, §2), `smart.launch.refused` (a launch finished in another
+  browser), `auth.token.issued|refused`, `ratelimit.hit` (once per bucket until it has room
+  again), `quota.reached`, `admin.key.created|revoked`, `admin.client.registered|revoked`,
+  `governance.approved|revoked`, `eval.run`, `export.audit|feedback`, `phi.inputs.read` (under
+  `hash` or `encrypt`: the decisions whose input or notes a reader was shown, and how many, as
+  the chain's `input.read` has them) and `error.unhandled` (the exception's type and stack
+  frames).
+- **Never in a line:** a credential, a token, an assertion, a query value, a request body, a
+  header, a name or an email, case text, or an exception's message (fields come from an
+  allow-list). Under PHI mode `hash` or `encrypt`, an unhandled exception reaches the server
+  as one that names only its type, so its own traceback print carries no message either.
+- **Request ids.** Every response carries `X-Request-Id`, and JSON errors on `/api` repeat it
+  as `request_id` (a sign-in error page shows it as a reference). Mendari takes your proxy's or
+  client's `X-Request-Id` when it is 8 to 128 of `A-Za-z0-9._:-`, else makes a uuid4; on
+  Vercel it is Vercel's own id. Ask users to quote it.
+- **Client addresses** are only right behind a trusted proxy (`--forwarded-allow-ips`, §1).
+- **`mendari serve`** turns off uvicorn's access log, which prints query strings (a sign-in
+  callback's code, a search's values). If your proxy logs requests, check what it keeps of
+  query strings: credentials are refused in URLs, and FHIR searches can send their criteria in
+  a POST form (`/fhir/{type}/_search`).
+- **What must last** is in the audit chain as well: every input or note read, and key, client
+  and governance changes. The log is for finding what happened around them.
+- **The project's own Vercel deployment** (synthetic data only) keeps stdout as runtime logs:
+  an hour on Hobby, a day on Pro, 30 days with Observability Plus. A log drain (Pro) keeps
+  them longer; add one when the first outside developer gets a key.
+
+## 8. Settings at a glance
+
+The security settings, with their defaults. A value outside its bounds stops the server at
+startup, so a typo never runs with a weaker setting.
+
+| Setting | Default | What it does | § |
+|---|---|---|---|
+| `MENDARI_OIDC_ISSUER`, `MENDARI_OIDC_CLIENT_ID` | unset: open mode | Sign-in; every route then needs a role | 2 |
+| `MENDARI_PUBLIC_URL` | unset | The address people use; required for Backend Services | 2 |
+| `MENDARI_SESSION_IDLE_MINUTES` | 30 (5 to 120) | A session ends after this long without a request | 2 |
+| `MENDARI_SESSION_MAX_HOURS` | 8 (1 to 12) | ...and this long after signing in | 2 |
+| `MENDARI_TRUSTED_ORIGINS` | none | Other origins people use (a name a proxy rewrites), comma-separated | 2 |
+| `MENDARI_PHI_MODE` | `off` | `hash` or `encrypt` for real patient data | 3 |
+| `MENDARI_PHI_KEY` | none | 32 bytes, base64; seals inputs, evidence and notes under `encrypt` | 3 |
+| `MENDARI_INPUT_HASH_KEY` | none | 32 bytes, base64, not the PHI key; required under `hash` and `encrypt` | 3 |
+| `MENDARI_RETENTION_DAYS` | none | How long `mendari phi purge` keeps inputs and notes | 3 |
+| `MENDARI_MAX_BODY_BYTES` | 4 MiB (64 KiB at least) | The largest request body; a `413` above it | 1 |
+| `MENDARI_RATE_LIMITS` | `on` with sign-in, `off` without | `on`, `log` or `off`, then overrides (`decide=1200/min:200`) | 4 |
+| `MENDARI_ORG_DAILY_LIMITS` | unset: none | Per-organization daily quotas: `decisions=…,jev=…,llm=…` | 4 |
+| `MENDARI_JEV_DAILY_LIMIT`, `MENDARI_LLM_DAILY_LIMIT` | unset: none | The deployment's daily remote calls, evaluations included | 4 |
+| `mendari serve --proxy-headers` | on | Read the client address from `X-Forwarded-For` | 1 |
+| `--forwarded-allow-ips`, `FORWARDED_ALLOW_IPS` | `127.0.0.1` | The proxies trusted for `X-Forwarded-For` | 1 |
+
+## 9. Before go-live
+
+In this order: the build, the settings as the server reports them, the browser, the limits,
+reads of PHI, then operations. Keep the answers with your go-live record.
 
 - [ ] Validate the pack on your own data: `mendari eval <pack> --dataset local.jsonl` (or
       Bulk FHIR: `mendari bulk export` then `bulk dataset`), and compare with the benchmark.
-- [ ] `/api/health` shows `sign_in: true`, `phi_mode: encrypt`, and only the providers and FHIR
+- [ ] The engine image is deployed by digest (`<image>:<tag>@sha256:…`), not by tag alone.
+- [ ] `MENDARI_PHI_KEY` and `MENDARI_INPUT_HASH_KEY` come from your secret manager, and they
+      differ.
+- [ ] Without signing in, `/api/health` shows only `status`, `version` and `sign_in: true`.
+- [ ] Signed in as an admin, `/api/health` shows:
+      `phi_mode: encrypt`; `input_hash: hmac-sha256:<key id>` (keyed, not `sha256`);
+      `rate_limits.mode: on` and a `client_ip_source` that is your proxy's `X-Forwarded-For`
+      (not the connection); the `sessions` policy you chose; `smart_launch: false` unless you
+      need it (see the SMART launch in the threat model's residual risks); and only the providers and FHIR
       servers you expect.
-- [ ] A viewer can't read an input; a reviewer can, and the read appears in the audit chain.
+- [ ] Daily budgets and quotas are set and visible there (`jev.daily_limit`,
+      `llm.daily_limit`, `org_quotas`). Choose them from a week of your traffic.
+- [ ] The session cookie is `__Host-mendari_session` (in the browser's developer tools), and a
+      session left alone past the idle time is refused ("Your session ended. Sign in again.").
+- [ ] On each address people use, signed in: review a case on the dashboard and sign out, with
+      no `403` "cross-site request refused" (list a rewritten name in
+      `MENDARI_TRUSTED_ORIGINS`). The answers carry `Strict-Transport-Security`.
 - [ ] Signed out, `/docs` shows the developer landing with "Sign-in is on here" and no pack
       names; signed in, `/docs/reference` shows the API reference. Neither page's browser console
       reports a CSP violation (a proxy in front must not replace Mendari's
       `Content-Security-Policy`).
-- [ ] Signed in, on each address people use, review a case on the dashboard and sign out: no
-      `403` "cross-site request refused" (list a rewritten name in `MENDARI_TRUSTED_ORIGINS`).
-      The answers carry `Strict-Transport-Security`.
+- [ ] One API key past its decide limit gets a `429` with `Retry-After` (lower `decide` in
+      `MENDARI_RATE_LIMITS` on a test instance to check), and your proxy limits `/auth/` per
+      address.
+- [ ] A viewer can't read an input; a reviewer can, and the read is chained: an `input.read`
+      under the reviewer's verified email in the audit chain, and a `phi.inputs.read` line in
+      the log.
+- [ ] A viewer sees a review note only as sealed; a reviewer reads it, and
+      `mendari audit verify --notes` passes.
 - [ ] Integrations that record outcomes send `source` as an identifier (`ehr`, not a sentence)
       and a label of the pack's primary question.
+- [ ] The security log reaches your log system: a refused request (a wrong key) appears there as
+      an `auth.credential.refused` line and a `request` line with the `X-Request-Id` the
+      response carried, and no line holds a key, a query value or case text.
 - [ ] Retention and monitoring are scheduled; `mendari audit verify` passes.
-- [ ] The engine image is deployed by digest (`<image>:<tag>@sha256:…`), not by tag alone.
+
+For the project's own public deployment (synthetic data, Vercel), the owner's launch adds, in
+order:
+
+- [ ] All of Phase 4b, then the external security review and its fixes.
+- [ ] `MENDARI_JEV_DAILY_LIMIT=2000`, `MENDARI_LLM_DAILY_LIMIT=200` and
+      `MENDARI_ORG_DAILY_LIMITS=decisions=5000`, set for Production and confirmed in
+      `/api/health` signed in.
+- [ ] The firewall rule in [`deploy/vercel/`](https://github.com/Junebugg1214/mendari/tree/main/deploy/vercel)
+      added in log mode, its findings read for 7 days, then enforced.
+- [ ] Then Vercel Authentication lifted.

@@ -1,7 +1,8 @@
 """The v0.6 pilot, scripted: an organization runs the inbox router with its own identity provider,
 PHI-safe settings, monitoring and governance approvals (the roadmap's exit check).
 
-It runs against an engine configured for sign-in and PHI mode `encrypt`, and an OpenID Connect
+It runs against an engine configured for sign-in, PHI mode `encrypt` and an input hash key
+(`MENDARI_INPUT_HASH_KEY`: every decision's input hash is keyed), and an OpenID Connect
 provider with a scriptable sign-in form (the CI job uses navikt's mock-oauth2-server). Every
 person signs in through the real flow: the engine's `/auth/login`, the provider's form, the
 engine's callback. Then:
@@ -9,7 +10,7 @@ engine's callback. Then:
 1. an admin creates an API key for the message worker (role `service`);
 2. the worker decides synthetic inbox messages with the key;
 3. a reviewer reads the queue (inputs decrypted, each read chained) and resolves a review, which
-   is recorded under the reviewer's name;
+   is recorded under the reviewer's verified email;
 4. a viewer can read a decision but not its input, and can't resolve a review;
 5. someone on the AI committee (role `governance`) approves automation of a level 2 pack, and the
    next decision carries the approval;
@@ -29,13 +30,15 @@ from mendari.evals.pack_tests import load_cases
 from mendari.sandbox import synthetic_inbox
 
 COOKIE = "mendari_session"
+SIGNIN = "mendari_signin"  # ties the engine's /auth/login to its /auth/callback
 INBOX = "mendari/patient-inbox-router"
 TRIAL = "mendari/clinical-trial-prescreener"  # risk level 2
 EMERGENCY = {
     "message": {"body": "Crushing chest pain and my left arm is numb", "channel": "portal"}
 }
 # Who signs in, and the groups the identity provider gives them (the engine maps groups to roles
-# with MENDARI_OIDC_ROLE_MAP; see the CI job `pilot-check`).
+# with MENDARI_OIDC_ROLE_MAP; see the CI job `pilot-check`). The chain names each by their
+# verified email (`email()`).
 PEOPLE = {
     "admin": ("Pilot Admin", ["informatics"]),
     "reviewer": ("Nurse Pilot", ["clinicians"]),
@@ -55,18 +58,17 @@ class Pilot:
         name, groups = PEOPLE[who]
         started = self.http.get(f"{self.engine}/auth/login")
         authorize = _redirect(started, "the engine's /auth/login")
-        claims = {"name": name, "groups": groups}
+        # The engine's cookies are Secure, and the pilot may run on plain http, so this script
+        # carries them by hand: first the one that ties the sign-in to this "browser".
+        binding = _cookie(started, SIGNIN, "sign-in")
+        claims = {"name": name, "groups": groups, "email": email(who), "email_verified": True}
         signed = self.http.post(authorize, data={"username": who, "claims": json.dumps(claims)})
         callback = _redirect(signed, "the identity provider's sign-in form")
         if not callback.startswith(f"{self.engine}/auth/callback"):
             raise MendariError(f"the identity provider sent the browser to {callback[:80]}")
-        done = self.http.get(callback)
+        done = self.http.get(callback, headers={"cookie": binding})
         _redirect(done, "the engine's /auth/callback")
-        # The session cookie is Secure; the pilot may run on plain http, so send it by hand.
-        sid = done.cookies.get(COOKIE)
-        if not sid:
-            raise MendariError("the engine set no session cookie")
-        return {"cookie": f"{COOKIE}={sid}"}
+        return {"cookie": _cookie(done, COOKIE, "session")}
 
     def call(self, method: str, path: str, auth: dict[str, str], **kwargs: Any) -> httpx.Response:
         return self.http.request(method, f"{self.engine}{path}", headers=auth, **kwargs)
@@ -85,13 +87,17 @@ def run(
     with httpx.Client(follow_redirects=False, timeout=60, transport=transport) as http:
         pilot = Pilot(engine, http)
         health = pilot.expect(pilot.call("GET", "/api/health", {}), 200, "health")
-        if not health.get("sign_in") or health.get("phi_mode") != "encrypt":
+        if not health.get("sign_in"):
             raise MendariError("the engine must run with sign-in on and PHI mode encrypt")
 
         admin = pilot.sign_in("admin")
         me = pilot.expect(pilot.call("GET", "/api/auth/me", admin), 200, "the admin signs in")
         if me["principal"]["roles"] != ["admin"]:
             raise MendariError(f"the admin's roles are {me['principal']['roles']}")
+        # The settings are shown to a signed-in reader only; anyone gets status and version.
+        settings = pilot.expect(pilot.call("GET", "/api/health", admin), 200, "settings")
+        if settings.get("phi_mode") != "encrypt":
+            raise MendariError("the engine must run with sign-in on and PHI mode encrypt")
         body = {"name": "message worker", "role": "service"}
         key = pilot.expect(
             pilot.call("POST", "/api/auth/keys", admin, json=body), 201, "an API key is created"
@@ -111,6 +117,7 @@ def run(
             for item in inputs
         ]
         pilot.steps.append(f"the worker decides {len(decided)} messages with its API key")
+        require_keyed_hashes(decided)
 
         reviewer = pilot.sign_in("reviewer")
         queue = pilot.expect(
@@ -141,7 +148,7 @@ def run(
         )
         if seen["record"]["input"] is not None or not seen.get("input_restricted"):
             raise MendariError("the viewer could read an input")
-        if seen["reviewer"] != PEOPLE["reviewer"][0]:
+        if seen["reviewer"] != email("reviewer"):
             raise MendariError(f"the review is recorded for {seen['reviewer']!r}")
         pilot.expect(
             pilot.call(
@@ -171,7 +178,7 @@ def run(
             200,
             "the worker decides with the approved pack",
         )
-        if (trial.get("governance") or {}).get("approved_by") != PEOPLE["governance"][0]:
+        if (trial.get("governance") or {}).get("approved_by") != email("governance"):
             raise MendariError("the decision does not carry the committee's approval")
 
         monitoring = pilot.expect(
@@ -189,7 +196,7 @@ def run(
             raise MendariError(f"the audit chain does not verify: {chain}")
         events = pilot.call("GET", f"/api/audit/{first['id']}", viewer).json()["events"]
         reads = [e for e in events if e["event"] == "input.read"]
-        if not reads or reads[0]["payload"]["reader"] != PEOPLE["reviewer"][0]:
+        if not reads or reads[0]["payload"]["reader"] != email("reviewer"):
             raise MendariError("the reviewer's read of the input is not in the chain")
 
     return {
@@ -200,6 +207,28 @@ def run(
         "monitoring_last_7_days": week,
         "input_reads_logged": len(reads),
     }
+
+
+def email(who: str) -> str:
+    """The verified email the identity provider gives `who`, which the chain names them by."""
+    return f"{who}@pilot.example.org"
+
+
+def _cookie(response: httpx.Response, base: str, what: str) -> str:
+    """A `cookie` header with the engine's cookie `base` from `response`: `__Host-<base>`, or
+    the plain name on a local or dotless host."""
+    for name in (f"__Host-{base}", base):
+        value = response.cookies.get(name)
+        if value:
+            return f"{name}={value}"
+    raise MendariError(f"the engine set no {what} cookie")
+
+
+def require_keyed_hashes(decided: list[dict[str, Any]]) -> None:
+    """Every decision's input hash is the keyed HMAC (`hmac-sha256:<key id>:<hex>`): a plain
+    SHA-256 of a short input can be found by guessing."""
+    if not all(str(item.get("input_hash")).startswith("hmac-sha256:") for item in decided):
+        raise MendariError("the input hashes are not keyed: set MENDARI_INPUT_HASH_KEY")
 
 
 def _redirect(response: httpx.Response, what: str) -> str:

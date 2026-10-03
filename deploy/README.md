@@ -8,6 +8,8 @@ first: it explains every setting below and the checks to run before go-live.
 |---|---|
 | [`onprem/`](onprem) | One server with Docker: `docker compose --env-file .env up -d` |
 | [`kubernetes/`](kubernetes) | A cluster: `kubectl apply -f kubernetes/mendari.yaml` after creating the secret |
+| [`onprem/nginx-limits.conf`](onprem/nginx-limits.conf) | A reverse proxy in front of either, with per-address limits on sign-in |
+| [`vercel/`](vercel) | The project's own Vercel deployment: its firewall rule and runbook |
 
 Images are published to GitHub Container Registry when a release is tagged (`v*`, workflow
 `images`): `mendari-engine` (every pack) or one image per pack, such as

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+import urllib.parse
 from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -768,6 +769,61 @@ def test_the_feedback_page_leads_with_the_cases_to_act_on(page: Page, live_serve
     expect(card).to_contain_text(f"destination should be {other}")
     card.get_by_role("link", name=re.compile("Open the decision")).click()
     expect(page.get_by_role("dialog")).to_contain_text(decision["id"])
+
+
+def test_a_note_shows_to_whoever_may_read_it_and_is_sealed_for_others(
+    page: Page, live_server: str
+) -> None:
+    """Notes are kept apart from the audit chain and follow inputs: the drawer and the feedback
+    page show a note to whoever may read it (PHI mode off here) and only say "sealed" to anyone
+    else, never the text, in the event or in its payload."""
+    decision = decide_inbox(live_server, REFILL)
+    note = "Wanted a 90-day supply"
+    httpx.post(
+        f"{live_server}/api/audit/{decision['id']}/feedback",
+        json={"rating": "down", "reporter": "note-test", "note": note},
+    )
+    page.add_init_script(f"localStorage.setItem('oh.pack', {json.dumps(INBOX)})")
+    page.goto(f"/#audit/{decision['id']}")
+    rated = page.get_by_role("dialog").locator(".timeline li", has_text="Feedback recorded")
+    expect(rated.locator(".event-note")).to_have_text(f"Note: {note}")
+    show(page, "feedback")
+    card = page.locator(".feedback-card", has=page.locator(f'a[href="#audit/{decision["id"]}"]'))
+    expect(card).to_contain_text(f"Note: {note}")
+
+    def sealed(route: Route) -> None:  # what a viewer gets under PHI mode encrypt
+        body = route.fetch().json()
+        items = body["events"] if isinstance(body, dict) else body
+        for item in items:
+            if item.get("note_status"):
+                item.update(note_status="sealed", note=None)
+        route.fulfill(json=body)
+
+    page.route(f"**/api/audit/{decision['id']}", sealed)
+    page.route("**/api/feedback?*", sealed)
+    show(page, "feedback")
+    expect(card).to_contain_text("Note: only reviewers and admins can read it.")
+    expect(card).not_to_contain_text(note)
+    page.goto(f"/#audit/{decision['id']}")
+    dialog = page.get_by_role("dialog")
+    expect(rated.locator(".event-note")).to_have_text(
+        "Note (only reviewers and admins can read it)"
+    )
+    expect(dialog).not_to_contain_text(note)
+
+
+def test_phi_mode_hash_offers_no_note_field(page: Page) -> None:
+    """PHI mode hash keeps no free text (the server refuses a note), so there is none to fill."""
+
+    def hashing(route: Route) -> None:
+        route.fulfill(json={**route.fetch().json(), "phi_mode": "hash"})
+
+    page.route("**/api/health", hashing)
+    open_pack(page, INBOX, "try")
+    page.get_by_role("button", name="Decide").click()
+    page.locator("#result").get_by_role("button", name="Wrong").click()
+    expect(page.locator("#result .fb-save")).to_be_visible()
+    expect(page.locator("#result .fb-note")).to_have_count(0)
 
 
 def test_the_decision_card_is_a_document_with_linked_sections(page: Page) -> None:
@@ -1552,6 +1608,7 @@ def signed_in_as(page: Page, *roles: str) -> None:
         "roles": list(roles),
         "permissions": granted,
         "org": "default",
+        "actor": "kim@clinic.example.org",
     }
     page.route(
         "**/api/auth/me",
@@ -1612,8 +1669,36 @@ def test_who_is_signed_in_closes_the_phone_settings_sheet(page: Page) -> None:
 def test_a_signed_in_reviewer_reviews_under_their_own_name(page: Page) -> None:
     signed_in_as(page, "reviewer")
     page.goto(f"/?pack={INBOX}#review")
-    expect(page.locator("#reviewer")).to_have_value("Nurse Kim")
+    expect(page.locator("#reviewer")).to_have_value("kim@clinic.example.org")  # as chained
     expect(page.locator("#reviewer")).to_have_attribute("readonly", "")
+
+
+def test_a_session_that_ended_says_so_and_offers_the_way_back(page: Page) -> None:
+    """The server ended the session (30 minutes idle, or its 8 hours): the next call is a 401,
+    and the person is told so, on screen until they act, with a sign-in that comes back here."""
+    signed_in_as(page, "reviewer")
+    open_pack(page, INBOX)
+    banner = page.locator("#session-ended")
+    expect(banner).to_be_hidden()
+    ended = {"detail": "sign in first, or send an API key"}
+    page.route("**/api/review?*", lambda route: route.fulfill(status=401, json=ended))
+    page.goto(f"/?pack={INBOX}#review")
+    expect(banner).to_be_visible()
+    expect(banner).to_have_text("Your session ended. Sign in again.")
+    link = banner.get_by_role("link", name="Sign in again.")
+    href = link.get_attribute("href") or ""
+    assert href.startswith("/auth/login?next=") and urllib.parse.unquote(href).endswith("#review")
+    expect(page.locator("#announce-alert")).to_have_text("Your session ended. Sign in again.")
+
+
+def test_open_mode_never_says_a_session_ended(page: Page) -> None:
+    """Without sign-in a 401 cannot be a session's end: the error is shown as it comes."""
+    open_pack(page, INBOX)
+    refused = {"detail": "refused here"}
+    page.route("**/api/review?*", lambda route: route.fulfill(status=401, json=refused))
+    page.goto(f"/?pack={INBOX}#review")
+    expect(page.locator(".error-state")).to_contain_text("refused here")
+    expect(page.locator("#session-ended")).to_be_hidden()
 
 
 def test_a_level_2_pack_can_be_approved_to_automate_from_its_card(page: Page) -> None:
@@ -1624,12 +1709,12 @@ def test_a_level_2_pack_can_be_approved_to_automate_from_its_card(page: Page) ->
         "a person reviews every decision unless your organization approves"
     )
     page.fill("#approval-reference", "AI committee minutes, item 4")
-    page.fill("#approval-approver", "Dr. Chair")
+    page.fill("#approval-approver", "dr-chair")
     page.get_by_role("button", name="Approve automation").click()
     expect(section).to_contain_text(
-        "Automation approved by Dr. Chair (AI committee minutes, item 4)"
+        "Automation approved by dr-chair (AI committee minutes, item 4)"
     )
-    expect(page.locator("dl.facts")).to_contain_text("Approved by Dr. Chair: At confidence")
+    expect(page.locator("dl.facts")).to_contain_text("Approved by dr-chair: At confidence")
     section.get_by_role("button", name="Revoke").click()
     expect(section.get_by_role("button", name="Approve automation")).to_be_visible()
 

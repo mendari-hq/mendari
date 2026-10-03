@@ -72,8 +72,25 @@ export const icon = (name) => `<svg class="icon" aria-hidden="true"><use href="#
 export async function api(path, options = {}) {
   const response = await fetch(path, { headers: { "content-type": "application/json" }, ...options });
   const body = await response.json().catch(() => null);
+  if (response.status === 401 && signedIn()) throw sessionEnded();
   if (!response.ok) throw new Error((body && (body.detail || body.error)) || response.statusText);
   return body;
+}
+
+// A 401 for someone who was signed in: the session ended (30 minutes idle or its 8 hours, or
+// signed out elsewhere). Say so where it stays on screen, with the way back to this same view.
+// Nothing navigates away by itself: a review note being typed is not lost.
+export const SESSION_ENDED = "Your session ended. Sign in again.";
+
+function sessionEnded() {
+  const banner = $("#session-ended");
+  if (banner.hidden) {
+    const here = `${location.pathname}${location.search}${location.hash}`;
+    $("#sign-in-again").href = `/auth/login?next=${encodeURIComponent(here)}`;
+    banner.hidden = false;
+    announce(SESSION_ENDED, { error: true });
+  }
+  return new Error(SESSION_ENDED);
 }
 
 // A short message. Errors are announced at once (role="alert") and stay on screen longer; other

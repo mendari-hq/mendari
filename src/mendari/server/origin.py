@@ -22,6 +22,9 @@ request comes from:
 It applies to a request that carries a Mendari cookie and no `Authorization` header (a bearer
 credential decides alone, and another site cannot attach one without a CORS preflight, which
 Mendari never grants), and in open mode to every request, since there none needs a credential.
+
+A refusal is a `403` with the request's id, and one `auth.origin.refused` line in the security
+log (server/security_log.py) whose reason is a fixed code, never the header's value.
 """
 
 from __future__ import annotations
@@ -34,11 +37,14 @@ from urllib.parse import urlsplit
 from starlette.requests import Request
 
 from mendari.errors import AuthError, MendariError
+from mendari.server import security_log
 from mendari.server.auth import permission_for
 
 SAFE_METHODS = frozenset({"GET", "HEAD"})
 REACHABLE = frozenset({"public", "page"})  # what another site's request may reach, to read
 REFUSED = "cross-site request refused"
+# The security log's reason for a refusal, by `Sec-Fetch-Site` (anything else: `unknown_site`).
+_REASONS = {"cross-site": "cross_site", "same-site": "same_site", "none": "unsafe_navigation"}
 _DEFAULT_PORTS = {"http": 80, "https": 443}
 
 
@@ -65,6 +71,11 @@ class OriginCheck:
         # Another site started it (or the address bar sent an unsafe method): a page, to read.
         if safe and permission_for("GET", request.url.path) in REACHABLE:
             return
+        if site:
+            reason = _REASONS.get(site, "unknown_site")
+        else:
+            reason = "null_origin" if request.headers.get("origin") == "null" else "foreign_origin"
+        security_log.event("auth.origin.refused", outcome="refused", reason=reason)
         raise AuthError(REFUSED, 403)
 
     def _is_this_site(self, origin: str, request: Request) -> bool:

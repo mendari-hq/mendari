@@ -40,13 +40,14 @@ def test_the_templates_parse_and_hold_no_secrets() -> None:
     kinds = [m["kind"] for m in manifests]
     assert kinds == ["ConfigMap", "Deployment", "Service", "CronJob"]
     config = manifests[0]["data"]
-    assert not {"DATABASE_URL", "MENDARI_PHI_KEY", "MENDARI_OIDC_CLIENT_SECRET"} & set(config)
+    secret_names = {"MENDARI_PHI_KEY", "MENDARI_INPUT_HASH_KEY", "MENDARI_OIDC_CLIENT_SECRET"}
+    assert not {"DATABASE_URL", *secret_names} & set(config)
     example = dict(
         line.split("=", 1)
         for line in (DEPLOY / "onprem" / ".env.example").read_text().splitlines()
         if line and not line.startswith("#")
     )
-    for secret in ("POSTGRES_PASSWORD", "MENDARI_PHI_KEY", "MENDARI_OIDC_CLIENT_SECRET"):
+    for secret in ("POSTGRES_PASSWORD", *secret_names):
         assert example[secret] == "", secret
 
 

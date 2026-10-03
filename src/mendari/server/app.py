@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import logging
 import os
 import re
 from collections.abc import Awaitable, Callable, Mapping
@@ -16,8 +17,9 @@ from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal
-from urllib.parse import parse_qsl
+from urllib.parse import parse_qsl, urlsplit
 
+import httpx
 from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
@@ -33,13 +35,15 @@ from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 from starlette.concurrency import run_in_threadpool
+from starlette.datastructures import Headers
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from mendari import __version__, guard, settings
 from mendari.core import clock, tenancy
 from mendari.core.audit import SYSTEM_ID, AuditStore
 from mendari.core.card import benchmark, render_card
-from mendari.core.decision import CallBudget, Decision
+from mendari.core.decision import CallBudget, Decision, QuotaReached
 from mendari.core.pack import Pack
 from mendari.core.phi import phi_policy
 from mendari.core.policy import GovernanceOverride
@@ -50,6 +54,7 @@ from mendari.errors import (
     FhirError,
     FhirStructureError,
     MendariError,
+    NoteError,
     PackNotFoundError,
     PackValidationError,
     ProviderError,
@@ -60,12 +65,12 @@ from mendari.errors import (
 from mendari.evals import compare, evaluate, leaderboard, load_dataset, resolve_dataset
 from mendari.evals.feedback import feedback_dataset
 from mendari.evals.harness import Dataset
-from mendari.evals.monitoring import monitor
+from mendari.evals.monitoring import check_webhook, monitor
 from mendari.evals.pack_tests import load_cases
 from mendari.legacy import current_pack_id
 from mendari.providers import jev, llm
 from mendari.providers.credentials import key_source
-from mendari.server import api_docs, landing
+from mendari.server import api_docs, landing, security_log, sessions
 from mendari.server.auth import (
     OPEN,
     Auth,
@@ -80,9 +85,13 @@ from mendari.server.auth import (
 )
 from mendari.server.backend_services import (
     DISCOVERY_PATH,
+    TOKEN_PATH,
     add_backend_routes,
     backend_settings,
+    oauth_error,
+    throttled,
 )
+from mendari.server.limits import Limiter, RateLimited, client_ip, limit_settings
 from mendari.server.origin import OriginCheck, is_local_host, trusted_origins
 from mendari.server.smart_routes import add_smart_routes, error_page
 from mendari.settings import FhirValidation, providers_for
@@ -110,12 +119,14 @@ _DATASET_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _STATUS = {
     PackNotFoundError: 404,
     ReviewError: 409,
+    NoteError: 422,
     FhirStructureError: 400,  # before FhirError: the first match wins
     FhirError: 422,
     PackValidationError: 422,
     PasError: 422,
     ScopeError: 422,
     ClientError: 422,
+    RateLimited: 429,
 }
 # A provider that cannot answer (e.g. listing Jev's models): not set up here, or the upstream
 # service failed; never a client error.
@@ -124,6 +135,7 @@ _PROVIDER_STATUS = {
     "credential_unavailable": 503,
     "insufficient_credit": 503,
     "budget_exhausted": 429,
+    "quota_exhausted": 429,
     "invalid_input": 400,
 }
 _PROVIDER_UPSTREAM = 502
@@ -136,6 +148,7 @@ _ISSUE_TYPE = {
     404: "not-found",
     405: "not-supported",
     409: "conflict",
+    413: "too-costly",
     422: "processing",
     429: "throttled",
     502: "transient",
@@ -147,13 +160,35 @@ class ApprovalRequest(BaseModel):
     pack_id: str = Field(min_length=3, max_length=200)
     reference: str = Field(min_length=3, max_length=300, description="e.g. committee minutes")
     days: int = Field(default=180, ge=1, le=365, description="how long the approval lasts")
-    approver: str | None = Field(default=None, max_length=200, description="open mode only")
+    approver: str | None = Field(
+        default=None,
+        max_length=200,
+        description="open mode only, an identifier (no spaces, at most 100 characters); with "
+        "sign-in on, the approval is recorded for whoever is signed in",
+    )
+
+
+# A review's or a rating's note (core/audit.py, "notes"), as the API reference describes it.
+_NOTE = (
+    "free text, kept apart from the audit chain (which keeps a commitment to it) and readable "
+    "as inputs are; refused with 422 under PHI mode hash, which keeps no free text"
+)
 
 
 class ReviewRequest(BaseModel):
     final_label: str = Field(min_length=1, max_length=200)
-    reviewer: str = Field(min_length=1, max_length=200)
-    note: str | None = Field(default=None, max_length=2000)
+    reviewer: str = Field(
+        min_length=1,
+        max_length=200,
+        description="open mode: who reviews, an identifier (no spaces, at most 100 characters); "
+        "with sign-in on, the review is recorded for whoever is signed in, whatever this says",
+        examples=["sandbox-nurse"],
+    )
+    note: str | None = Field(
+        default=None,
+        max_length=2000,
+        description=_NOTE,
+    )
 
 
 class OutcomeRequest(BaseModel):
@@ -193,8 +228,13 @@ class ExpectedAnswer(BaseModel):
 
 class FeedbackRequest(BaseModel):
     rating: Literal["up", "down"]
-    reporter: str | None = Field(default=None, max_length=200)
-    note: str | None = Field(default=None, max_length=1000)
+    reporter: str | None = Field(
+        default=None,
+        max_length=200,
+        description="open mode: who rates, an identifier (no spaces, at most 100 characters); "
+        "with sign-in on, the rating is recorded for whoever is signed in",
+    )
+    note: str | None = Field(default=None, max_length=1000, description=_NOTE)
     # On a thumbs-down, what the answer to one of the decision's questions should have been.
     expected: ExpectedAnswer | None = None
 
@@ -218,11 +258,32 @@ REMOTE_EVAL_LIMIT = 200
 REMOTE_EVAL_WORKERS = 8
 
 
-def acting_as(request: Request, claimed: str | None) -> str | None:
-    """Who a review or rating is recorded for: with sign-in on, the signed-in person or API key,
-    whatever the request body says; in open mode, the name the client gives."""
+# A name the client gives in open mode (reviewer, reporter, approver): it is chained for good, so
+# an identifier ("sandbox-nurse", an email), never a sentence.
+NAME_ID = re.compile(r"[^\s\x00-\x1f\x7f-\x9f]{1,100}")
+
+
+def acting_as(request: Request, claimed: str | None, field: str = "reviewer") -> str | None:
+    """Who a review, rating or approval is recorded for: with sign-in on, the signed-in person or
+    API key as the chain names them (`Principal.actor`), whatever the request body says; in open
+    mode, the name the client gives, which must be an identifier: no spaces, at most 100
+    characters (`422` otherwise)."""
     principal = getattr(request.state, "principal", None)
-    return principal.name if principal is not None and principal.kind != "open" else claimed
+    if principal is not None and principal.kind != "open":
+        return str(principal.actor)
+    if claimed is not None and not NAME_ID.fullmatch(claimed):
+        raise HTTPException(
+            422, f"{field} must be an identifier: no spaces, at most 100 characters"
+        )
+    return claimed
+
+
+def shown_to_reader(item: Mapping[str, Any]) -> bool:
+    """Whether `reveal_inputs` opened an item's kept input or one of its notes (its own, or an
+    event's) for a reader, which it chains as an `input.read`."""
+    if item.get("input_restricted") is False or item.get("note_status") == "open":
+        return True
+    return any(event.get("note_status") == "open" for event in item.get("events") or ())
 
 
 def principal_of(request: Request) -> Principal:
@@ -237,7 +298,7 @@ def input_reader(request: Request) -> str | None:
     principal = getattr(request.state, "principal", None)
     if principal is None or principal.kind == "open" or not principal.may("read_input"):
         return None
-    return str(principal.name)
+    return str(principal.actor)
 
 
 def create_app(
@@ -257,10 +318,28 @@ def create_app(
     sign_in = auth_settings()  # an invalid sign-in setting fails here, at startup
     backend = backend_settings(sign_in)  # likewise: on, it needs sign-in and a public URL
     phi = phi_policy()  # a bad PHI setting (or a missing key) fails here, at startup
+    body_limit = settings.max_body_bytes()  # likewise
+    rate_limits = limit_settings(sign_in=sign_in is not None)  # likewise
+    org_limits = settings.org_daily_limits()  # likewise
+    session_lifetime = sessions.lifetime()  # likewise
+    security_log.configure()
+    webhook = os.environ.get("MENDARI_ALERT_WEBHOOK", "").strip()
+    if org_limits and webhook:
+        check_webhook(webhook)  # likewise: a quota's alert must be able to leave
     store = AuditStore(db_path, migrate_url=migrate_url, phi=phi)
-    auth = Auth(sign_in, store, tokens=backend is not None)
+    auth = Auth(sign_in, store, tokens=backend is not None, lifetime=session_lifetime)
     origins = OriginCheck(open_mode=not auth.enabled, trusted=trusted_origins())  # likewise
-    budget = CallBudget(store, budget_limits) if budget_limits else None
+    limiter = Limiter(store, rate_limits)
+    budget = (
+        CallBudget(
+            store,
+            budget_limits or {},
+            org_limits=org_limits,
+            on_quota_reached=quota_alert(webhook or None),
+        )
+        if budget_limits or org_limits
+        else None
+    )
     found = discover(packs_paths)
     only = settings.enabled_packs()  # a per-pack image serves just its pack
     missing = only - {pack.id for pack in found.packs}
@@ -347,6 +426,16 @@ def create_app(
             raise PackNotFoundError(f"unknown dataset {name!r}")
         return load_dataset(path)
 
+    def logged_reads(request: Request, items: list[dict[str, Any]], id_key: str = "id") -> None:
+        """Under PHI mode `hash` or `encrypt`, a security log line for the decisions whose kept
+        input or notes a reader was shown (their ids and how many), as the chain has an
+        `input.read` for each (`AuditStore.reveal_inputs`)."""
+        if phi.mode == "off" or input_reader(request) is None:
+            return
+        shown = [str(item[id_key]) for item in items if shown_to_reader(item)]
+        if shown:
+            log_event(request, "phi.inputs.read", ids=shown, count=len(shown))
+
     default_pack = INBOX if INBOX in packs else next(iter(sorted(packs)), None)
     app = FastAPI(
         title="Mendari",
@@ -356,6 +445,11 @@ def create_app(
             sign_in=auth.enabled,
             default_pack=default_pack,
             token_url=None if backend is None else backend.token_url,
+            rate_limits=(
+                {name: str(rate) for name, rate in rate_limits.rates.items()}
+                if limiter.mode == "on"
+                else None
+            ),
         ),
         openapi_tags=api_docs.TAGS,
         # FastAPI's own pages load Swagger UI and ReDoc from a CDN, unpinned, into this origin.
@@ -364,6 +458,9 @@ def create_app(
         redoc_url=None,
         swagger_ui_oauth2_redirect_url=None,
     )
+
+    def limit_class(method: str, path: str) -> str | None:
+        return limiter.classify(method, path, permission_for(method, path))
 
     def openapi() -> dict[str, Any]:
         if app.openapi_schema is None:
@@ -381,6 +478,8 @@ def create_app(
                 default_pack=default_pack,
                 permission_for=permission_for if auth.enabled else None,
                 token_url=None if backend is None else backend.token_url,
+                limit_for=limit_class if limiter.mode == "on" else None,
+                session_cookie=session_cookie_name(),
             )
         return app.openapi_schema
 
@@ -394,7 +493,9 @@ def create_app(
         if isinstance(error, ProviderError):
             status = _PROVIDER_STATUS.get(error.code, _PROVIDER_UPSTREAM)
         if request.url.path.startswith(("/smart/", "/auth/")):
-            return error_page(str(error), status)
+            page = error_page(str(error), status)
+            page.headers.update(retry_headers(error))
+            return page
         return error_response(request.url.path, status, error)
 
     @app.exception_handler(RequestValidationError)
@@ -415,7 +516,7 @@ def create_app(
                 for p in problems
             ]
             return operation_outcome(400, issues)
-        return JSONResponse({"detail": problems}, 422)
+        return JSONResponse(identified({"detail": problems}), 422)
 
     @app.exception_handler(StarletteHTTPException)
     async def _http_error(request: Request, error: StarletteHTTPException) -> Response:
@@ -423,17 +524,21 @@ def create_app(
             code = _ISSUE_TYPE.get(error.status_code, "processing")
             issue = {"code": code, "diagnostics": str(error.detail)}
             return operation_outcome(error.status_code, [issue], error.headers)
-        return JSONResponse({"detail": error.detail}, error.status_code, error.headers)
+        body = identified({"detail": error.detail})
+        return JSONResponse(body, error.status_code, error.headers)
 
     @app.exception_handler(Exception)
     async def _unexpected(request: Request, error: Exception) -> Response:
-        """A bug: a JSON 500 that says nothing about the input (the traceback goes to the log).
-        It is answered outside the middleware, so it sets the security headers itself."""
+        """A bug: a JSON 500 that says nothing about the input (the security log has its type
+        and frames). It is answered outside the middleware, so it sets the security headers and
+        the request id itself."""
+        rid = getattr(request.state, "request_id", None)
+        headers = {**SECURITY_HEADERS, **({"X-Request-Id": rid} if rid else {})}
         if _FHIR_ROUTE.match(request.url.path):
             issue = {"code": "exception", "diagnostics": "internal error"}
-            return operation_outcome(500, [issue], SECURITY_HEADERS)
+            return operation_outcome(500, [issue], headers)
         body = {"error": "InternalError", "detail": "internal error"}
-        return JSONResponse(body, 500, headers=SECURITY_HEADERS)
+        return JSONResponse({**body, **({"request_id": rid} if rid else {})}, 500, headers=headers)
 
     # -- packs -------------------------------------------------------------------------------
 
@@ -442,12 +547,20 @@ def create_app(
         tags=["Service"],
         summary="Deployment health and settings",
     )
-    def health() -> dict[str, Any]:
-        """Version, packs, storage, the FHIR validation mode, sign-in, PHI mode and which provider
-        answers each pack's questions. Public, for load balancers."""
+    def health(request: Request) -> dict[str, Any]:
+        """Public, for load balancers: `status`, `version` and `sign_in`, and nothing else
+        without a credential (no database work either). A principal that may `read` (everyone
+        in open mode) also gets the deployment's settings: packs, storage, the FHIR validation
+        mode, PHI mode, the input hash's kind and key id, which provider answers each pack's
+        questions, today's remote calls, the rate limits (and where the caller's address is
+        read), the session policy and the organization's daily quotas with what it used today.
+        """
+        public = {"status": "ok", "version": __version__, "sign_in": auth.enabled}
+        principal = auth.principal(request)  # no credential: no lookup
+        if principal is None or not principal.may("read"):
+            return public
         return {
-            "status": "ok",
-            "version": __version__,
+            **public,
             "packs": len(packs),
             "invalid": {**found.problems, **terminology_problems},
             "storage": store.backend,
@@ -457,8 +570,10 @@ def create_app(
             # FHIR servers this deployment may read from (CDS Hooks fetch); empty: none.
             "fhir_allowed_servers": fhir_servers,
             "smart_launch": smart_options is not None,
-            "sign_in": auth.enabled,
             "phi_mode": phi.mode,
+            # How new records' input hashes are made: `hmac-sha256:<key id>` under
+            # MENDARI_INPUT_HASH_KEY (required in PHI modes hash and encrypt), else `sha256`.
+            "input_hash": phi.hash_kind,
             "providers": {
                 pack_id: {
                     slot: info.variant for slot, info in decision_for(pack_id).provider_info.items()
@@ -478,6 +593,19 @@ def create_app(
                 **llm.deployment_info(),
                 "calls_today": store.usage("llm"),
                 "daily_limit": (budget_limits or {}).get("llm"),
+            },
+            "rate_limits": limiter.describe(),
+            # Browser sessions: ended after this long without a request, and at most after.
+            "sessions": {
+                "idle_minutes": session_lifetime.idle // 60,
+                "max_hours": session_lifetime.absolute // 3600,
+            },
+            # The caller's organization only: another's usage is its own business.
+            "org_quotas": {
+                "daily_limits": org_limits,
+                "used_today": store.org_usage(
+                    principal.org if principal.kind != "open" else tenancy.DEFAULT_ORG
+                ),
             },
         }
 
@@ -567,7 +695,11 @@ def create_app(
         Every decision is recorded in the audit trail and ends as `AUTO`, `HUMAN_REVIEW`,
         `ABSTAIN` or `BLOCK`. **An input that fails the pack's schema is not an HTTP error:** it
         is a recorded decision with `outcome: BLOCK` and the reason in `reasons`, so check
-        `outcome`, not only the status code."""
+        `outcome`, not only the status code.
+
+        The answer is complete, with each answer's `evidence`; the audit record keeps it only as
+        the PHI mode allows (`GET /api/audit/{id}`). `input_hash` is `hmac-sha256:<key id>:<hex>`
+        where the deployment has an input hash key (always with PHI), else `sha256:<hex>`."""
         return decision_for(f"{namespace}/{name}").decide(payload).to_dict()
 
     @app.post(
@@ -657,12 +789,9 @@ def create_app(
         reference (e.g. committee minutes) and how long it lasts. It applies to exactly this
         pack version (its digest)."""
         pack = pack_or_404(body.pack_id)
-        principal = getattr(request.state, "principal", None)
-        approver = (
-            body.approver if principal is None or principal.kind == "open" else principal.name
-        )
+        approver = acting_as(request, body.approver, "approver")
         expires = datetime.now(UTC) + timedelta(days=body.days)
-        return store.approve_automation(
+        approval = store.approve_automation(
             pack_id=pack.id,
             pack_digest=pack.digest,
             risk_level=int(pack.manifest.risk.level),
@@ -670,6 +799,8 @@ def create_app(
             reference=body.reference,
             expires_at=expires.isoformat(timespec="seconds"),
         )
+        log_event(request, "governance.approved", ids=[str(approval["id"])])
+        return approval
 
     @app.delete(
         "/api/governance/{approval_id}",
@@ -679,10 +810,9 @@ def create_app(
     )
     def revoke(request: Request, approval_id: str) -> Response:
         """Revoke an approval; the pack's automation falls back to its risk-level cap."""
-        principal = getattr(request.state, "principal", None)
-        name = principal.name if principal is not None else "open mode"
-        if not store.revoke_approval(approval_id, revoked_by=name):
+        if not store.revoke_approval(approval_id, revoked_by=principal_of(request).actor):
             raise HTTPException(404, "no such approval")
+        log_event(request, "governance.revoked", ids=[approval_id])
         return Response(status_code=204)
 
     # -- evaluation --------------------------------------------------------------------------
@@ -692,7 +822,7 @@ def create_app(
         tags=["Evaluation and monitoring"],
         summary="Run an evaluation",
     )
-    def run_eval(namespace: str, name: str, request: EvalRequest) -> dict[str, Any]:
+    def run_eval(namespace: str, name: str, request: EvalRequest, http: Request) -> dict[str, Any]:
         """Evaluate the pack (or another provider configuration) on one of its datasets, and compare
         with the published benchmark. Calls to remote providers are capped at 200 cases."""
         pack_id = f"{namespace}/{name}"
@@ -700,13 +830,19 @@ def create_app(
         # A store-less Decision: evaluation traffic must not pollute the operational audit log.
         active = decision_for(pack_id)
         chosen = {slot: info.variant for slot, info in active.provider_info.items()}
-        decision = Decision(pack, providers={**chosen, **(request.providers or {})}, budget=budget)
+        # Provider calls count against the daily budgets, never an organization's quotas.
+        decision = Decision(
+            pack,
+            providers={**chosen, **(request.providers or {})},
+            budget=None if budget is None else budget.for_evaluation(),
+        )
         dataset = dataset_for(pack, request.dataset)
         if decision.is_remote:
             dataset = dataset.head(min(request.limit or REMOTE_EVAL_LIMIT, REMOTE_EVAL_LIMIT))
         elif request.limit:
             dataset = dataset.head(request.limit)
         workers = REMOTE_EVAL_WORKERS if decision.is_remote else 1
+        log_event(http, "eval.run", ids=[pack.id], count=len(dataset.records))
         report = evaluate(decision, dataset, workers=workers)
         baseline = benchmark(pack)
         if baseline is not None and request.dataset != pack.manifest.evaluation.benchmark_dataset:
@@ -736,7 +872,9 @@ def create_app(
         request: Request, pack_id: str | None = None, limit: int = 100
     ) -> list[dict[str, Any]]:
         """Decisions waiting for a human (`HUMAN_REVIEW`, `ABSTAIN`), most urgent first."""
-        return store.pending_reviews(pack_id, limit=min(limit, 500), reader=input_reader(request))
+        queue = store.pending_reviews(pack_id, limit=min(limit, 500), reader=input_reader(request))
+        logged_reads(request, queue)
+        return queue
 
     @app.post(
         "/api/review/{decision_id}",
@@ -745,7 +883,7 @@ def create_app(
     )
     def resolve(decision_id: str, request: ReviewRequest, http: Request) -> dict[str, Any]:
         """Record a reviewer's final label for a decision in the queue: one of the labels of the
-        decision's question."""
+        decision's question. A note is kept apart from the audit chain; the answer repeats it."""
         return store.resolve_review(
             decision_id,
             final_label=request.final_label,
@@ -790,10 +928,14 @@ def create_app(
         summary="Export the audit trail as FHIR",
     )
     def export_audit_fhir(
-        pack_id: str | None = None, since: str | None = None, until: str | None = None
+        request: Request,
+        pack_id: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
     ) -> StreamingResponse:
         """The audit trail as FHIR NDJSON (AuditEvent and Provenance, ids and codes only),
         streamed in chain order; `since` / `until` bound the event time (ISO 8601, UTC)."""
+        log_event(request, "export.audit")  # its filters are query values: not logged
         lines = (
             json.dumps(resource, separators=(",", ":")) + "\n"
             for resource in audit_fhir.resources(
@@ -808,10 +950,19 @@ def create_app(
         summary="Get a decision",
     )
     def audit_record(request: Request, decision_id: str) -> dict[str, Any]:
-        """One decision with every event recorded on it."""
+        """One decision with every event recorded on it. An event with a note has `note_status`
+        (`open`, `sealed` or `erased`) and `note`, its text when open: notes are read as inputs
+        are, so under PHI mode `encrypt` only by reviewers and admins, and each read is chained
+        (`input.read`).
+
+        The record keeps no value of the input outside PHI mode `off`: under `hash` (or for a
+        pack that keeps only the hash) its answers' `evidence` is empty; under `encrypt` the
+        evidence is sealed with the input and comes back with it. An input issue names its
+        resource by type and position (`Patient (entry 2)`), never by its id."""
         record = store.get(decision_id, reader=input_reader(request))
         if record is None:
             raise HTTPException(404, f"unknown decision {decision_id}")
+        logged_reads(request, [record])
         return record
 
     @app.get(
@@ -837,7 +988,7 @@ def create_app(
         handled), for monitoring: one of the labels of the decision's question. `source` names
         that system as an identifier; who recorded it is the caller (the signed-in person or API
         key), whatever the body says."""
-        recorded_by = principal_of(http).name
+        recorded_by = principal_of(http).actor
         store.record_outcome(
             decision_id,
             final_label=request.final_label,
@@ -853,11 +1004,12 @@ def create_app(
         summary="Rate a decision",
     )
     def give_feedback(decision_id: str, request: FeedbackRequest, http: Request) -> dict[str, Any]:
-        """Thumbs up or down, and on a thumbs-down the right answer."""
+        """Thumbs up or down, and on a thumbs-down the right answer, with an optional note (kept
+        apart from the audit chain)."""
         return store.record_feedback(
             decision_id,
             rating=request.rating,
-            reporter=acting_as(http, request.reporter),
+            reporter=acting_as(http, request.reporter, "reporter"),
             note=request.note,
             expected=request.expected.model_dump() if request.expected else None,
         )
@@ -873,10 +1025,12 @@ def create_app(
         rating: Literal["up", "down"] | None = None,
         limit: int = 100,
     ) -> list[dict[str, Any]]:
-        """Ratings, newest first."""
-        return store.feedback(
+        """Ratings, newest first; each note as `GET /api/audit/{decision_id}` shows notes."""
+        ratings = store.feedback(
             pack_id=pack_id, rating=rating, limit=min(limit, 500), reader=input_reader(request)
         )
+        logged_reads(request, ratings, id_key="decision_id")
+        return ratings
 
     @app.get(
         "/api/packs/{namespace}/{name}/feedback/export",
@@ -892,6 +1046,10 @@ def create_app(
         records, skipped = feedback_dataset(
             store, pack_id=pack.id, rating=rating, reader=input_reader(request)
         )
+        log_event(request, "export.feedback", ids=[pack.id], count=len(records))
+        if phi.mode == "encrypt" and input_reader(request) is not None and records:
+            shown = [str(record["id"]).removeprefix("feedback-") for record in records]
+            log_event(request, "phi.inputs.read", ids=shown, count=len(shown))
         body = "".join(json.dumps(record, ensure_ascii=False) + "\n" for record in records)
         return Response(
             body,
@@ -944,7 +1102,9 @@ def create_app(
         namespace: str, name: str, body: PriorAuthorizationRequest, http: Request
     ) -> dict[str, Any]:
         """Da Vinci PAS: the request Bundle for a complete request (`submit_ready`), and with
-        `submit`, the payer's answer, which is chained on the decision (`pas.submitted`)."""
+        `submit`, the payer's answer, which is chained on the decision (`pas.submitted`): its
+        outcome and review actions; the authorization number and disposition are kept as a
+        note (PHI mode `hash` keeps neither)."""
         pack = pack_or_404(f"{namespace}/{name}")
         record = store.get(body.decision_id)
         if record is None or record["pack_id"] != pack.id:
@@ -965,10 +1125,12 @@ def create_app(
             payer = settings.pas_payer_url()
             with GuardedHttp() as client:
                 submitted = pas.submit(bundle, payer, client)
+            codes = {key: submitted[key] for key in ("outcome", "review_actions")}
             store.record_event(
                 record["id"],
                 "pas.submitted",
-                {**submitted, "requested_by": acting_as(http, None) or "open mode"},
+                {**codes, "requested_by": acting_as(http, None) or "open mode"},
+                note=None if phi.mode == "hash" else pas.payer_note(submitted),
             )
         return {"bundle": bundle, "submitted": submitted}
 
@@ -1224,6 +1386,10 @@ def create_app(
     reference = versioned_page("docs/reference.html")
     reference_csp = content_security_policy(reference, inline_styles=False)
 
+    # Innermost, so the route reads through it directly: Starlette's middleware would wrap the
+    # 413 it raises mid-body in an exception group, which FastAPI answers with a 400.
+    app.add_middleware(BodyCap, limit=body_limit)
+
     @app.middleware("http")
     async def _fhir_media_types(request: Request, call_next: Any) -> Response:
         """FHIR routes speak FHIR R4 JSON only. Inside the guard, so sign-in answers first. The
@@ -1235,18 +1401,30 @@ def create_app(
         response: Response = await call_next(request)
         return response
 
+    def admit(request: Request) -> Response | None:
+        """The sign-in check, then the rate limit (server/limits.py), both before the route:
+        a refused request reads no body, calls no provider and writes nothing to the chain."""
+        refused = auth.check(request)
+        if refused is not None or not limiter.on:
+            return refused
+        permission = permission_for(request.method, request.url.path)
+        over = limiter.check(request, permission, principal_of(request).id)
+        return None if over is None else limited_response(request.url.path, over)
+
     @app.middleware("http")
     async def _guard(request: Request, call_next: Any) -> Response:
-        """Every request passes the sign-in guard (a no-op in open mode). First, a request another
-        site started reaches only a public route or a page, to read (`server/origin.py`). Then a
-        credential in a URL is refused, in every mode: it would end up in logs and histories. No
-        body is read here: the routes that read a form refuse a credential in it, after this
-        check."""
+        """Every request passes the sign-in guard (a no-op in open mode) and the rate limits.
+        First, a request another site started reaches only a public route or a page, to read
+        (`server/origin.py`). Then a credential in a URL is refused, in every mode: it would end
+        up in logs and histories. No body is read here: the routes that read a form refuse a
+        credential in it, after this check."""
         try:
             origins.check(request)
             if names_a_credential(request.query_params):
                 raise credential_in_url_or_form()
-            refused = auth.check(request)
+            # A credential lookup and a limit are database work: in the thread pool, as sync
+            # routes are, so a slow database never stalls the event loop.
+            refused = await run_in_threadpool(admit, request)
         except AuthError as error:
             return error_response(request.url.path, error.status, error)
         if refused is not None:
@@ -1260,9 +1438,9 @@ def create_app(
 
     @app.middleware("http")
     async def _security_headers(request: Request, call_next: Any) -> Response:
-        """Outermost, so refusals from the guard get the headers too. Every response gets a CSP
-        and COEP: a page sets its own policy (computed from its HTML), anything else gets the
-        dashboard's. Any host but this machine also gets HSTS."""
+        """Outside the guard, so refusals from the guard get the headers too. Every response gets
+        a CSP and COEP: a page sets its own policy (computed from its HTML), anything else gets
+        the dashboard's. Any host but this machine also gets HSTS."""
         response: Response = await call_next(request)
         for name, value in SECURITY_HEADERS.items():
             response.headers.setdefault(name, value)
@@ -1278,9 +1456,20 @@ def create_app(
             response.headers.setdefault("Strict-Transport-Security", HSTS)
         return response
 
+    # Outermost: every request gets its id first and its access line last, refusals included
+    # (server/security_log.py). The routes are read per request: some are added below.
+    app.add_middleware(
+        security_log.RequestLog,
+        routes=lambda: app.router.routes,
+        ip_of=client_ip,
+        open_mode=not auth.enabled,
+        phi_mode=phi.mode,
+        on_vercel=bool(os.environ.get("VERCEL")),
+    )
+
     add_auth_routes(app, auth)
     if backend is not None:
-        add_backend_routes(app, backend, store)
+        add_backend_routes(app, backend, store, limiter if limiter.on else None)
     add_smart_routes(
         app,
         settings=smart_options,
@@ -1288,6 +1477,7 @@ def create_app(
         pack_or_404=pack_or_404,
         decision_for=decision_for,
         default_pack=default_pack,
+        lifetime=session_lifetime,
     )
 
     @app.get("/", include_in_schema=False)
@@ -1348,13 +1538,20 @@ def mounted_routes(app: FastAPI) -> list[tuple[str, str]]:
     ]
 
 
+def identified(body: dict[str, Any]) -> dict[str, Any]:
+    """A JSON error body with the request's id (`X-Request-Id`), for a person to quote."""
+    rid = security_log.request_id()
+    return body if rid is None else {**body, "request_id": rid}
+
+
 def error_response(path: str, status: int, error: MendariError) -> JSONResponse:
     """`{"error", "detail"}` on Mendari's own API; an OperationOutcome on FHIR routes. A
-    sign-in refusal carries its `WWW-Authenticate` challenge."""
+    sign-in refusal carries its `WWW-Authenticate` challenge, a `429` its `Retry-After`."""
     asked = error.challenge if isinstance(error, AuthError) else None
-    headers = {"WWW-Authenticate": asked} if asked else None
+    headers = {"WWW-Authenticate": asked} if asked else {}
+    headers.update(retry_headers(error))
     if not _FHIR_ROUTE.match(path):
-        body = {"error": type(error).__name__, "detail": str(error)}
+        body = identified({"error": type(error).__name__, "detail": str(error)})
         return JSONResponse(body, status, headers=headers)
     if isinstance(error, FhirStructureError):
         return operation_outcome(status, [{"code": "structure", **i} for i in error.issues])
@@ -1362,6 +1559,73 @@ def error_response(path: str, status: int, error: MendariError) -> JSONResponse:
     if isinstance(error, PackNotFoundError):
         code = "not-found"
     return operation_outcome(status, [{"code": code, "diagnostics": str(error)}], headers)
+
+
+quota_logger = logging.getLogger("mendari.limits")
+
+
+def log_event(request: Request, name: str, **fields: Any) -> None:
+    """A security log line for something the request's principal did (server/security_log.py)."""
+    principal = principal_of(request)
+    security_log.event(name, actor=principal.id, org=principal.org, **fields)
+
+
+def retry_headers(error: MendariError) -> dict[str, str]:
+    """`Retry-After` (and `no-store`, so no cache keeps the refusal) for a rate limit, and for a
+    daily budget or quota, which start over at local midnight."""
+    if isinstance(error, RateLimited):
+        seconds = error.retry_after
+    elif isinstance(error, ProviderError) and error.code in ("budget_exhausted", "quota_exhausted"):
+        seconds = clock.seconds_until_tomorrow()
+    else:
+        return {}
+    return {"Retry-After": str(seconds), "Cache-Control": "no-store"}
+
+
+def limited_response(path: str, error: RateLimited) -> Response:
+    """A `429` in the shape the route speaks: OAuth's at the token endpoint, a page for a
+    browser signing in or launched from an EHR, an OperationOutcome on FHIR routes, else JSON.
+    Always with `Retry-After` and `no-store`."""
+    if path == TOKEN_PATH:
+        return oauth_error(throttled(error.retry_after))
+    if path in ("/auth/login", "/smart/launch"):
+        page = error_page(
+            f"Too many sign-ins from your network: try again in {error.retry_after} s.", 429
+        )
+        page.headers.update(retry_headers(error))
+        return page
+    return error_response(path, 429, error)
+
+
+def quota_alert(webhook: str | None) -> QuotaReached:
+    """What happens the first time an organization reaches a daily quota (once a day, whichever
+    instance counts that call): a `quota.reached` line in the security log (the limit as its
+    `count`) and, with `MENDARI_ALERT_WEBHOOK`, one post
+    with the organization, the metric and the limit (no case data). Never fails the decision:
+    a webhook that is down loses the alert, not the request."""
+
+    def alert(org: str, metric: str, limit: int) -> None:
+        security_log.event("quota.reached", outcome="limited", reason=metric, org=org, count=limit)
+        if webhook is None:
+            return
+        body = {
+            "source": "mendari",
+            "organization": org,
+            "alerts": [
+                {
+                    "severity": "warning",
+                    "kind": "quota_reached",
+                    "message": f"daily {metric} quota of {limit} reached; until midnight, "
+                    "decisions fall back to human review",
+                }
+            ],
+        }
+        try:
+            httpx.post(webhook, json=body, timeout=5, follow_redirects=False).raise_for_status()
+        except httpx.HTTPError as failure:
+            quota_logger.warning("the quota alert webhook failed (%s)", type(failure).__name__)
+
+    return alert
 
 
 _JSON_FORMATS = {"json", "application/json", "application/fhir+json", "text/json"}
@@ -1402,6 +1666,50 @@ def _offered(format_parameter: str) -> bool:
 MAX_SEARCH_FORM_BYTES = 256 * 1024
 
 
+class BodyCap:
+    """No request body over `limit` bytes (MENDARI_MAX_BODY_BYTES), whatever the route. It reads
+    nothing itself: a declared length over the limit is refused before anything is read, and
+    the bytes a route reads, chunked or not, are counted as they arrive and stop with a `413`
+    once they pass it. It runs inside the guard, so sign-in answers first and no body is read
+    before the sign-in check."""
+
+    def __init__(self, app: ASGIApp, limit: int) -> None:
+        self.app = app
+        self.limit = limit
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        declared = Headers(scope=scope).get("content-length", "")
+        if declared.isdigit() and int(declared) > self.limit:
+            await self.too_large(scope["path"])(scope, receive, send)
+            return
+        received = 0
+
+        async def counted() -> Message:
+            nonlocal received
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > self.limit:  # a route's handler answers it (`_http_error`)
+                    raise StarletteHTTPException(413, self.detail)
+            return message
+
+        await self.app(scope, counted, send)
+
+    @property
+    def detail(self) -> str:
+        size = f"{self.limit // 2**20} MiB" if self.limit % 2**20 == 0 else f"{self.limit} bytes"
+        return f"a request body is {size} at most"
+
+    def too_large(self, path: str) -> JSONResponse:
+        """The `413` a route gives (`_http_error`): an OperationOutcome on FHIR routes."""
+        if _FHIR_ROUTE.match(path):
+            return operation_outcome(413, [{"code": "too-costly", "diagnostics": self.detail}])
+        return JSONResponse(identified({"detail": self.detail}), 413)
+
+
 def form_items(body: bytes) -> list[tuple[str, str]]:
     """A search's form body as (name, value) pairs, in order and with empty values kept (the
     parser decides what an empty value means)."""
@@ -1412,6 +1720,13 @@ def form_items(body: bytes) -> list[tuple[str, str]]:
     except ValueError:
         problem = "the form body has more than 1000 parameters"
     raise SearchError([{"code": "invalid", "diagnostics": problem}])
+
+
+def session_cookie_name() -> str:
+    """The session cookie's name for the API reference, which is one document for every host:
+    the plain name only when `MENDARI_PUBLIC_URL` is a local host (server/sessions.py)."""
+    host = urlsplit(os.environ.get("MENDARI_PUBLIC_URL", "").strip()).hostname
+    return sessions.cookie_name(sessions.SESSION, host or "public.invalid")
 
 
 def fhir_base(request: Request) -> str:

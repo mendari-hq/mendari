@@ -17,6 +17,7 @@ from mendari.errors import FhirError, FhirStructureError
 from mendari.server.app import create_app
 from mendari.standards import fhir_structure, us_core
 from mendari.standards.fhir import FhirAdapter
+from tests.conftest import without_request_id
 
 FIXTURES = Path(__file__).parent / "fixtures" / "us-core"
 PACKS = {
@@ -196,7 +197,7 @@ def test_an_unexpected_error_is_a_json_500_that_says_nothing(
     assert fhir.headers["x-content-type-options"] == "nosniff"
     monkeypatch.setattr(Decision, "decide", broken)
     api = client.post(f"{INBOX}/decide", json={"message": {"body": "hi"}})
-    assert api.status_code == 500 and api.json() == {
+    assert api.status_code == 500 and without_request_id(api.json(), api) == {
         "error": "InternalError",
         "detail": "internal error",
     }

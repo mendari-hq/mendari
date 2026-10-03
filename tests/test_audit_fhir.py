@@ -217,7 +217,7 @@ def test_every_event_the_code_records_has_an_audit_event_code() -> None:
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
                 continue
-            position = {"_append": 2, "record_event": 1}.get(node.func.attr)
+            position = {"_append": 2, "_append_many": 1, "record_event": 1}.get(node.func.attr)
             if position is None or len(node.args) <= position:
                 continue
             event = node.args[position]
