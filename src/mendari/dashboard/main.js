@@ -83,6 +83,7 @@ function showSignedIn(me) {
   box.hidden = !me?.signed_in;
   if (!me?.signed_in) return;
   $("#signed-in-name").textContent = `${me.principal.name} · ${me.principal.roles.join(", ")}`;
+  $("#signed-in-name").title = `The audit trail records you as ${me.principal.actor}`;
   $("#sign-out").addEventListener("click", async () => {
     await api("/auth/logout", { method: "POST" }).catch(() => null);
     location.assign("/auth/login");

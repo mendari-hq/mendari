@@ -1,4 +1,4 @@
-"""What `/docs`, `/redoc` and `/openapi.json` say about this deployment.
+"""What `/docs/reference` and `/openapi.json` say about this deployment.
 
 The OpenAPI document is generated from the routes; this adds what generation cannot know: a
 description of the product, the tags, synthetic examples from the packs this deployment serves
@@ -70,15 +70,25 @@ FHIR_EXAMPLE: dict[str, Any] = {
 FHIR_EXAMPLE_PACK = "mendari/patient-inbox-router"
 
 
-def description(*, sign_in: bool, default_pack: str | None, token_url: str | None = None) -> str:
+def description(
+    *,
+    sign_in: bool,
+    default_pack: str | None,
+    token_url: str | None = None,
+    rate_limits: Mapping[str, str] | None = None,
+) -> str:
     """The page's introduction: what this is, a first request, how to authenticate (and, when
-    SMART Backend Services is on, `token_url`: how machines get tokens)."""
+    SMART Backend Services is on, `token_url`: how machines get tokens), and, when they are on,
+    the `rate_limits` (class: rate)."""
     pack = default_pack or "{namespace}/{name}"
     auth = (
         "**Sign-in is on.** People sign in at `/auth/login`; the dashboard and these pages use "
-        "that session. Machines send `Authorization: Bearer ohk_…`, an API key an admin creates "
-        "with `POST /api/auth/keys`. Each key has one role, `viewer` or `service`, and expires "
-        "(90 days unless asked, 365 at most). Optional scopes narrow it: SMART v2 resource "
+        "that session, which ends after 30 minutes without a request or 8 hours (unless the "
+        "deployment sets otherwise). Reviews, ratings, approvals and outcomes are recorded for "
+        "whoever is signed in: a person by their verified email, else `<issuer>|<subject>`; a "
+        "key as `key <id>`. Machines send `Authorization: Bearer ohk_…`, an API key an admin "
+        "creates with `POST /api/auth/keys`. Each key has one role, `viewer` or `service`, and "
+        "expires (90 days unless asked, 365 at most). Optional scopes narrow it: SMART v2 resource "
         "scopes for the FHIR reads (`system/Task.rs`, `system/*.rs`, …) and "
         f"`{scopes.DECIDE}` or `{scopes.OUTCOME}` for Mendari's own actions; a scoped key "
         'reaches only what its scopes name (a `403` with `error="insufficient_scope"` and the '
@@ -108,6 +118,11 @@ All data here is synthetic. This is a research preview, not a medical device.
 3. `POST /api/packs/{pack}/decide` with an example's `input` returns the decision; its `id`
    opens the audit record at `GET /api/audit/{{id}}`.
 
+A request body is 4 MiB at most unless the deployment sets `MENDARI_MAX_BODY_BYTES`; a larger
+one is a `413`. Every answer carries an `X-Request-Id`, and JSON errors on `/api` repeat it as
+`request_id`: quote it when you report a problem. Off Vercel, an `X-Request-Id` you send (8 to
+128 of `A-Za-z0-9._:-`) is used.{_limits(rate_limits)}
+
 ### FHIR
 
 The FHIR base is `/fhir`; [`GET /fhir/metadata`](/fhir/metadata) says what it does.
@@ -128,8 +143,31 @@ for the review queue), and its audit trail is `/fhir/AuditEvent` and `/fhir/Prov
 
 {auth}
 
-[Open the dashboard](/) to try packs without code, or [read this reference in ReDoc](/redoc).
+A browser request that another site starts (`Sec-Fetch-Site: cross-site` or `same-site`, or
+without it an `Origin` that is not this site) reaches only public routes and pages, with `GET`
+or `HEAD`; anything else is a `403` ("cross-site request refused"). Scripts and integrations
+send neither header and are not affected.
+
+[Open the dashboard](/) to try packs without code. The OpenAPI document itself is
+[`/openapi.json`](/openapi.json).
 """.strip()
+
+
+def _limits(rates: Mapping[str, str] | None) -> str:
+    if not rates:
+        return ""
+    return (
+        "\n\n**Rate limits.** Costly operations are limited per caller (an API key, a client, a "
+        "person), counted across every instance of this deployment: decisions "
+        f"{rates['decide']} (at every entry point; each draft order a CDS Hooks order hook "
+        f"decides is one, at most 50 a request), the AI guard {rates['guard']}, evaluations "
+        f"{rates['evaluate']} and exports {rates['export']}; signing in {rates['signin']} and "
+        f"the token endpoint {rates['token']} per address. Reads are not limited here. Over a "
+        "limit the answer is a `429` with `Retry-After` (seconds) and `Cache-Control: "
+        "no-store`: JSON on `/api`, an OperationOutcome (`throttled`) on FHIR routes, OAuth's "
+        "`temporarily_unavailable` at the token endpoint. A daily budget or an organization's "
+        "daily quota never refuses a decision: over it, decisions fall back to human review."
+    )
 
 
 def _backend_services(token_url: str) -> str:
@@ -156,10 +194,14 @@ def document(
     default_pack: str | None,
     permission_for: Callable[[str, str], str] | None,
     token_url: str | None = None,
+    limit_for: Callable[[str, str], str | None] | None = None,
+    session_cookie: str = "mendari_session",
 ) -> dict[str, Any]:
     """Add examples and (when `permission_for` is given, i.e. sign-in is on) security to a
     generated OpenAPI document; with `token_url` (SMART Backend Services on), the token flow
-    too, on the operations a token's scope can reach."""
+    too, on the operations a token's scope can reach; with `limit_for` (rate limits on, the
+    class of an operation or None), the `429` a limited operation can answer. `session_cookie`
+    is the session cookie's name at the public URL (server/sessions.py)."""
     ordered = sorted(packs, key=lambda pack_id: (pack_id != default_pack, pack_id))
     inputs = {pack_id: _example_input(packs[pack_id]) for pack_id in ordered}
     for path, operations in schema.get("paths", {}).items():
@@ -177,6 +219,8 @@ def document(
             if permission_for is not None:
                 permission = permission_for(method.upper(), path)
                 _secure(operation, method.upper(), path, permission, tokens=token_url is not None)
+            if limit_for is not None and limit_for(method.upper(), path) is not None:
+                operation.setdefault("responses", {})["429"] = TOO_MANY
     if permission_for is not None:
         schemes: dict[str, Any] = {
             "apiKey": {
@@ -188,16 +232,28 @@ def document(
             "session": {
                 "type": "apiKey",
                 "in": "cookie",
-                "name": "mendari_session",
-                "description": "The session cookie a person gets by signing in at `/auth/login`.",
+                "name": session_cookie,
+                "description": "The session cookie a person gets by signing in at `/auth/login` "
+                "(`mendari_session` without the prefix on localhost and dotless hosts). It ends "
+                "after 30 minutes without a request or 8 hours, whichever is first (unless the "
+                "deployment sets otherwise), and with the browser. On this page your browser "
+                "sends it by itself: there is nothing to enter.",
             },
         }
         if token_url is not None:
+            schemes["accessToken"] = {
+                "type": "http",
+                "scheme": "bearer",
+                "description": "A SMART Backend Services access token (`mat_…`) that your "
+                f"client got at `POST {token_url}` (see `smartBackendServices`).",
+            }
             schemes["smartBackendServices"] = {
                 "type": "oauth2",
                 "description": "SMART Backend Services: a registered client's five-minute access "
                 "token (`mat_…`), from a `client_credentials` grant authenticated with a "
-                "`private_key_jwt` assertion (RS384 or ES384), never a client secret.",
+                "`private_key_jwt` assertion (RS384 or ES384), never a client secret. This page "
+                "cannot run that flow (it would ask for a client secret, which Mendari refuses): "
+                "get a token with your client, then enter it under `accessToken`.",
                 "flows": {
                     "clientCredentials": {
                         "tokenUrl": token_url,
@@ -208,6 +264,11 @@ def document(
         schema.setdefault("components", {})["securitySchemes"] = schemes
     return schema
 
+
+TOO_MANY = {
+    "description": "Too many requests from this caller: retry after `Retry-After` seconds.",
+    "headers": {"Retry-After": {"description": "Seconds to wait", "schema": {"type": "integer"}}},
+}
 
 _SCOPE_TEXT = {
     **{
@@ -289,7 +350,7 @@ def _secure(
     scope = scopes.needed(method, path)
     operation["security"] = [{"apiKey": []}, {"session": []}]
     if tokens and scope:  # an access token reaches only what its scope names
-        operation["security"].insert(1, {"smartBackendServices": [scope]})
+        operation["security"][1:1] = [{"smartBackendServices": [scope]}, {"accessToken": []}]
     needed = "any signed-in role" if permission == "page" else f"the `{permission}` permission"
     credential = "a scoped key or an access token" if tokens else "a scoped key"
     needed += (

@@ -231,6 +231,57 @@ behind Vercel Authentication: nothing external reaches the API until the owner l
 hash, an access log, rate limits and quotas, session idle timeout, Origin checks, supply-chain
 pinning; then the external security review.
 
+### Status after Phase 4b (2026-10-02)
+
+| # | Item | After Phase 4 | Now | What changed |
+|---|---|---|---|---|
+| 8 | Security | Implemented: sign-in, scoped machine access, SMART Backend Services | **Hardened for real patient data on a site's own servers**, pending the external review | The chain commits to notes instead of copying them; the input hash is keyed; rate limits, quotas and a security log; 30-minute idle sessions under `__Host-` cookies, tied to the browser at sign-in; cross-site requests refused; the API reference vendored, every action and image pinned ([ADR-0005](decisions/ADR-0005-hardening-before-phi.md)). |
+
+What changed, in three lanes and then integrated:
+- **What is kept for good.** Review and rating notes and a payer's text left the chain for a
+  `notes` table (sealed under `encrypt`, refused under `hash`), with a salted commitment in the
+  chain, so a note can be erased (`note.erased`) and the chain still verifies. Under `hash` the
+  record keeps no evidence values, and under `encrypt` they are sealed with the input. Input
+  issues name a resource by type and position, not its id. The input hash is an HMAC under
+  `MENDARI_INPUT_HASH_KEY`. People are chained by verified email, keys as `key <id>`. The FHIR
+  audit export carries codes only; its CodeSystem gained `note.erased`, and the validator still
+  passes.
+- **What anyone can make Mendari do.** Public health is three fields; the capability statement
+  takes no chain lock; sign-in caches the provider's configuration; bodies stop at 4 MiB.
+  Costly routes are limited per caller, sign-in and the token endpoint per address, in the
+  database (`429` with `Retry-After`, an OperationOutcome `throttled` on FHIR routes), with
+  daily quotas per organization and one Vercel firewall rule on `/auth/` and `/smart/`.
+- **What the browser and the build trust.** Sessions end after 30 minutes idle and 8 hours at
+  most; roles are worked out per request; cookies are `__Host-`; a sign-in or launch works only
+  in the browser that started it; a request another site starts reaches only public routes and
+  pages, to read; HSTS. Swagger UI is vendored at a pinned version with its checksums, under
+  the same CSP as every page. Actions are pinned by commit, images by digest, and Dependabot
+  proposes updates monthly.
+- **What is recorded for an incident.** JSON lines on stdout from an allow-list of fields: one
+  access line per API request and the security events, a request id on every response.
+
+**Reviewed** by five reviewers and a skeptic, who confirmed 12 findings (3 medium, 9 low; two
+were found twice), all fixed: a CDS order hook is charged one decision per draft order, the
+compose template trusts the proxy it ships with, the sign-in limit fits a hospital behind one
+address, the deployment guide gives the real daily-limit defaults, a sign-in or launch started
+on another host name is sent to the public URL, logout refuses a cross-site POST without a
+cookie, library loggers no longer log URLs, the SMART launch is logged, the chain keeps a
+payer's outcome and review actions only as codes, and `mendari decide --db` records under the
+deployment's PHI mode.
+
+Nobody is signed out by this release, the schema changes are additive (an index, the tables
+`rate_limits`, `org_usage` and `notes`, the column `decision_inputs.details`), and the chain is
+never rewritten. Still open:
+- **The external security review**, with the packet in
+  [`security/review-packet.md`](security/review-packet.md); then the owner's launch order:
+  ceilings and quotas set, the firewall rule enforced after 7 days in log mode, then Vercel
+  Authentication lifted.
+- **The SMART launch** stays a second authenticator (its cookie reaches the EHR's data and
+  decides without a Mendari principal), and the EHR's token is stored unsealed. Both are fixed
+  before the SMART launch is turned on anywhere with sign-in.
+- **The old cookie names** (`mendari_session`, `mendari_smart`) are still read on hosts that use
+  `__Host-` names, for sessions from before Phase 4b; the next release stops reading them.
+
 ## Validator and reference-server comparison
 
 ### HL7 FHIR Validator 6.10.4 (R4 4.0.1, US Core 6.1.0, no terminology server)
@@ -472,6 +523,11 @@ the owner's choice of a Task per decision. The `$decide` work-item Task's relati
 with the owner's choices: the token endpoint plus scoped keys, older keys expiring 30 days after
 deploy, and URI scopes. Signed JWT access tokens, JWKS URLs and external authorization servers
 are deferred (ADR-0004); hardening before PHI is Phase 4b.
+
+**Status (2026-10-02): Phase 4b built** ([ADR-0005](decisions/ADR-0005-hardening-before-phi.md);
+"Status after Phase 4b" above): notes out of the chain, a keyed input hash, rate limits and
+quotas, a security log, idle sessions and `__Host-` cookies, Origin checks, a vendored API
+reference and a pinned supply chain. The external security review comes next.
 - Reviewed before shipping by five independent reviewers, each finding checked by a skeptic.
   No bypass was found: the token endpoint held against forged algorithms, keys, headers,
   claims and concurrent replays on Postgres, and no key, token or scope reached a route,

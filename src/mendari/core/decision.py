@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from jsonschema import Draft202012Validator, ValidationError
 
+from mendari.core import tenancy
 from mendari.core.derive import complete_answers, explain
 from mendari.core.pack import Pack, load_pack
 from mendari.core.policy import GovernanceOverride, PolicyResult, apply_policy
@@ -65,6 +66,9 @@ class DecisionResult:
     rejected: bool = field(default=False, compare=False)
     # The pack-schema part of those reasons (standards rejections are in `input_issues`).
     schema_problems: tuple[str, ...] = field(default=(), compare=False)
+    # How the stored record names each resource an input issue names (`us_core.record_labels`):
+    # "Patient (entry 2)" for "Patient/MRN4821937". In memory only, like `rejected`.
+    labels: Mapping[str, str] = field(default_factory=dict, compare=False)
 
     @property
     def confidence(self) -> float | None:
@@ -98,22 +102,76 @@ class DecisionResult:
             "input_issues": list(self.input_issues),
         }
 
+    def to_record(self) -> dict[str, Any]:
+        """`to_dict()` as the audit trail keeps it: the input issues, and the reasons that refused
+        an input over them, name a resource by its type and position, never by its logical id
+        (which can be a medical record number), since the record's digest is chained for good.
+        What the caller gets back (`to_dict`, the OperationOutcome) keeps the id, to find the
+        resource. The audit store also leaves out evidence it may not keep (`AuditStore.record`)."""
+        record = self.to_dict()
+        labels = {
+            issue["resource"]: self.labels.get(issue["resource"]) or _type_only(issue["resource"])
+            for issue in self.input_issues
+        }
+        record["input_issues"] = [
+            {**issue, "resource": labels[issue["resource"]]} for issue in self.input_issues
+        ]
+        record["reasons"] = [_relabel(reason, labels) for reason in self.reasons]
+        return record
+
+
+# Called the first time an organization reaches one of its daily quotas (org, metric, limit).
+QuotaReached = Callable[[str, str, int], None]
+
 
 class CallBudget:
     """Daily call limits per provider type (e.g. {"jev": 500}; None counts calls without a
-    limit), counted in the audit store.
+    limit), counted in the audit store, and per-organization daily quotas (`org_limits`:
+    `decisions`, and the remote calls they make by provider type, e.g. {"decisions": 5000}).
 
-    A provider over budget fails like any other provider (`budget_exhausted`), so the policy
-    falls back safely instead of automating.
+    A provider over budget fails like any other provider (`budget_exhausted`), and a decision
+    over its organization's quota fails every provider (`quota_exhausted`), so the policy falls
+    back to human review instead of automating. `on_quota_reached` hears of each quota once a
+    day per organization: when the call that reaches it is counted.
     """
 
-    def __init__(self, store: AuditStore, limits: Mapping[str, int | None]):
+    def __init__(
+        self,
+        store: AuditStore,
+        limits: Mapping[str, int | None],
+        *,
+        org_limits: Mapping[str, int] | None = None,
+        on_quota_reached: QuotaReached | None = None,
+    ):
         self.store = store
         self.limits = dict(limits)
+        self.org_limits = dict(org_limits or {})
+        self.on_quota_reached = on_quota_reached
 
     def acquire(self, provider_type: str) -> None:
+        if provider_type in self.org_limits:
+            self._charge_org(provider_type)
         if provider_type in self.limits:
             self.store.consume(provider_type, daily_limit=self.limits[provider_type])
+
+    def admit_decision(self) -> None:
+        """Count one decision against its organization's quota (`quota_exhausted` over it)."""
+        if "decisions" in self.org_limits:
+            self._charge_org("decisions")
+
+    def for_evaluation(self) -> CallBudget:
+        """The deployment's daily budgets without the organizations' quotas: an evaluation
+        spends provider calls, never an organization's decisions."""
+        return CallBudget(self.store, self.limits)
+
+    def _charge_org(self, metric: str) -> None:
+        org = tenancy.current() or tenancy.DEFAULT_ORG
+        limit = self.org_limits[metric]
+        count = self.store.consume_org(org, metric, daily_limit=limit)
+        if count is None:
+            raise ProviderError("quota_exhausted", f"this organization's daily {metric} quota")
+        if count == limit and self.on_quota_reached is not None:
+            self.on_quota_reached(org, metric, limit)
 
 
 class Decision:
@@ -200,9 +258,11 @@ class Decision:
         *,
         input_issues: Sequence[Mapping[str, str]] = (),
         rejected: Sequence[str] = (),
+        labels: Mapping[str, str] | None = None,
     ) -> DecisionResult:
         """Decide one input. `rejected` (reasons from a standards check, e.g. US Core under
-        `enforce`) blocks the input like a schema failure; `input_issues` are only recorded."""
+        `enforce`) blocks the input like a schema failure; `input_issues` are only recorded, and
+        `labels` says how the stored record names the resources they name (`to_record`)."""
         started = time.perf_counter()
         manifest = self.pack.manifest
         answers: dict[str, Answer] = {}
@@ -213,6 +273,12 @@ class Decision:
         governance = self.governance
         if governance is None and self.governance_source is not None:
             governance = self.governance_source(self.pack)
+        over_quota: ProviderError | None = None
+        if self.budget is not None:
+            try:
+                self.budget.admit_decision()
+            except ProviderError as error:
+                over_quota = error  # every provider fails with it, so nothing automates
         schema_problems = self.validate(inputs)
         problems = [*rejected, *schema_problems]
         if problems:
@@ -226,6 +292,8 @@ class Decision:
             with batching(self.providers.values()):
                 for slot, provider in self.providers.items():
                     try:
+                        if over_quota is not None:
+                            raise over_quota
                         provider.preflight()
                         output = provider.answer(inputs)
                     except ProviderError as error:
@@ -245,6 +313,8 @@ class Decision:
             if primary.derive is not None:
                 policy = replace(policy, reasons=(*policy.reasons, *explain(primary, answers)))
 
+        # Keyed under the deployment's input hash key when it has one (`core/phi.py`).
+        hashed = input_hash(inputs) if self.store is None else self.store.phi.input_hash(inputs)
         result = DecisionResult(
             id=str(uuid.uuid4()),
             created_at=datetime.now(UTC).isoformat(timespec="milliseconds"),
@@ -264,11 +334,12 @@ class Decision:
             cost_usd=cost,
             input_tokens=tokens_in,
             output_tokens=tokens_out,
-            input_hash=input_hash(inputs),
+            input_hash=hashed,
             governance=governance.to_dict() if governance else None,
             input_issues=tuple(dict(issue) for issue in input_issues),
             rejected=bool(problems),
             schema_problems=tuple(schema_problems),
+            labels=dict(labels or {}),
         )
         if self.store is not None:
             self.store.record(result, inputs, store_input=manifest.audit.store_input)
@@ -314,6 +385,7 @@ class Decision:
             adapter.to_input(indexed),
             input_issues=[issue.to_dict() for issue in issues],
             rejected=rejected,
+            labels=us_core.record_labels(given, issues),
         )
         return result, adapter.to_task(result, indexed)
 
@@ -381,6 +453,22 @@ def _schema_rule(error: ValidationError) -> str:
     return f"does not satisfy the schema's {keyword} rule"
 
 
+def _type_only(label: str) -> str:
+    """A resource label without its id: "Patient/p1" -> "Patient"."""
+    return label.partition("/")[0]
+
+
+def _relabel(reason: str, labels: Mapping[str, str]) -> str:
+    """A refusal reason ("input rejected: not US Core 6.1.0: Patient/p1 Patient.gender: ...")
+    with each resource named as the record names it. A label is followed by a space and a
+    FHIRPath, and a FHIR id has no space, so the match is exact."""
+    for label, kept in labels.items():
+        reason = reason.replace(f": {label} ", f": {kept} ")
+    return reason
+
+
 def input_hash(inputs: Any) -> str:
+    """The unkeyed `sha256:` of an input, for a decision made without a store (a store keys it
+    under its deployment's input hash key, `PhiPolicy.input_hash`)."""
     canonical = json.dumps(inputs, sort_keys=True, separators=(",", ":"), default=str)
     return "sha256:" + hashlib.sha256(canonical.encode()).hexdigest()

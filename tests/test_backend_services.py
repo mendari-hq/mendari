@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import base64
 import json
-import logging
 import time
 import uuid
 from collections.abc import Iterator
@@ -34,7 +33,7 @@ from mendari.server.backend_services import (
 from mendari.server.scopes import DECIDE, OUTCOME
 from mendari.standards import bulk
 from mendari.standards.fhir_client import GuardedHttp
-from tests.conftest import message, signed_in
+from tests.conftest import message, security_lines, signed_in
 
 PUBLIC_URL = "https://mendari.test"
 TOKEN_URL = f"{PUBLIC_URL}/auth/token"
@@ -265,7 +264,7 @@ def test_a_person_registers_a_client_and_the_chain_records_it(server: Server) ->
     assert client["scope"] == default_scope("service")  # everything the role can use
     assert DECIDE in client["scope"] and OUTCOME in client["scope"]
     assert [(k["kid"], k["kty"]) for k in client["keys"]] == [("rsa-1", "RSA"), ("ec-1", "EC")]
-    assert client["created_by"] == "default admin" and client["org"] == "default"
+    assert client["created_by"] == "admin@default.example.org" and client["org"] == "default"
     listed = server.http.get("/api/auth/clients", headers=admin).json()
     assert [c["client_id"] for c in listed] == [client["client_id"]]
     assert listed[0]["revoked_at"] is None and "jwks" not in listed[0]
@@ -281,7 +280,7 @@ def test_a_person_registers_a_client_and_the_chain_records_it(server: Server) ->
     again = server.http.delete(f"/api/auth/clients/{client['client_id']}", headers=admin)
     assert again.status_code == 404
     listed = server.http.get("/api/auth/clients", headers=admin).json()
-    assert listed[0]["revoked_by"] == "default admin" and listed[0]["revoked_at"]
+    assert listed[0]["revoked_by"] == "admin@default.example.org" and listed[0]["revoked_at"]
 
     with AuditStore(server.db) as store, store._db.session(exclusive=False) as session:
         rows = session.all(
@@ -694,22 +693,31 @@ def test_the_store_registers_machines_only(store: AuditStore) -> None:
 
 
 def test_refusals_are_logged_by_client_id_only(
-    server: Server, caplog: pytest.LogCaptureFixture
+    server: Server, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """In the security log (server/security_log.py, which these lines were dropped before):
+    the reason, and the client's id once it is known, never the assertion or the token."""
     client_id = server.register()
-    caplog.set_level(logging.INFO, logger="mendari.auth")
     bad_signature = assertion(STRANGER, client_id)
     stranger = assertion(RSA_KEY, "0" * 24)
+    capsys.readouterr()
     ask(server.http, bad_signature)
     ask(server.http, stranger)
     ask(server.http, forged({"alg": "RS384", "kid": "rsa-1"}, {"iss": "x\ninjected"}))
     good = assertion(RSA_KEY, client_id)
     token = ask(server.http, good).json()["access_token"]
-    logged = "\n".join(r.getMessage() for r in caplog.records if r.name == "mendari.auth")
-    assert f"token refused: signature (client {client_id})" in logged
-    assert "token refused: client (client not known)" in logged
-    assert "token refused: identity (client not known)" in logged
-    assert f"token issued (client {client_id})" in logged
+    logged = capsys.readouterr().out
+    tokens = [
+        (e["event"], e.get("reason"), e.get("actor"))
+        for e in security_lines(logged)
+        if e["event"].startswith("auth.token.")
+    ]
+    assert tokens == [
+        ("auth.token.refused", "signature", f"client:{client_id}"),
+        ("auth.token.refused", "client", None),
+        ("auth.token.refused", "identity", None),
+        ("auth.token.issued", None, f"client:{client_id}"),
+    ]
     for secret in (bad_signature, stranger, good, token, "0" * 24, "injected"):
         assert secret not in logged
     assert "Signature verification failed" not in logged  # no library text
@@ -765,13 +773,22 @@ def test_the_api_reference_describes_the_token_flow(server: Server) -> None:
     assert flow["type"] == "oauth2"
     assert flow["flows"]["clientCredentials"]["tokenUrl"] == TOKEN_URL
     assert list(flow["flows"]["clientCredentials"]["scopes"]) == scopes.supported()
+    assert "cannot run that flow" in flow["description"]  # no client secret, ever
+    # A token is pasted as a plain bearer, where its scope reaches.
+    token = schema["components"]["securitySchemes"]["accessToken"]
+    assert (token["type"], token["scheme"]) == ("http", "bearer") and "mat_" in token["description"]
     paths = schema["paths"]
     search = paths["/fhir/Task"]["get"]
-    assert {"smartBackendServices": ["system/Task.s"]} in search["security"]
+    assert search["security"] == [
+        {"apiKey": []},
+        {"smartBackendServices": ["system/Task.s"]},
+        {"accessToken": []},
+        {"session": []},
+    ]
     assert "a scoped key or an access token, the scope `system/Task.s`" in search["description"]
     assert {"smartBackendServices": [DECIDE]} in paths["/fhir/$decide"]["post"]["security"]
     stats = paths["/api/stats"]["get"]
-    assert all("smartBackendServices" not in s for s in stats["security"])
+    assert stats["security"] == [{"apiKey": []}, {"session": []}]
     assert "a scoped key or an access token may not call this" in stats["description"]
     assert paths["/api/auth/clients"]["post"]["security"] == [{"session": []}]
     assert paths["/auth/token"]["post"]["security"] == []

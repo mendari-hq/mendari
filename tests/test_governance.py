@@ -49,14 +49,14 @@ def test_an_approval_lets_a_level_2_pack_automate_and_is_written_into_each_decis
             "pack_id": TRIAL,
             "reference": "AI committee minutes 2026-09-30, item 4",
             "days": 30,
-            "approver": "Dr. Chair",
+            "approver": "dr-chair",
         },
     )
     assert approved.status_code == 201, approved.text
     after = decide(app)
     assert after["outcome"] == "AUTO"
     assert after["governance"] == {
-        "approved_by": "Dr. Chair",
+        "approved_by": "dr-chair",
         "reference": "AI committee minutes 2026-09-30, item 4",
         "allow_auto": True,
     }
@@ -67,7 +67,7 @@ def test_an_approval_lets_a_level_2_pack_automate_and_is_written_into_each_decis
 def test_revoking_an_approval_stops_automation_at_once(app: TestClient) -> None:
     approval = app.post(
         "/api/governance",
-        json={"pack_id": TRIAL, "reference": "minutes 12", "approver": "Dr. Chair"},
+        json={"pack_id": TRIAL, "reference": "minutes 12", "approver": "dr-chair"},
     ).json()
     assert decide(app)["outcome"] == "AUTO"
     assert app.delete(f"/api/governance/{approval['id']}").status_code == 204
@@ -123,7 +123,7 @@ def test_an_approval_is_for_exactly_one_pack_and_expires(tmp_path: Path) -> None
 def test_approvals_and_revocations_are_in_the_hash_chain(app: TestClient, tmp_path: Path) -> None:
     approval = app.post(
         "/api/governance",
-        json={"pack_id": TRIAL, "reference": "minutes 12", "approver": "Dr. Chair"},
+        json={"pack_id": TRIAL, "reference": "minutes 12", "approver": "dr-chair"},
     ).json()
     app.delete(f"/api/governance/{approval['id']}")
     store = AuditStore(tmp_path / "a.db")

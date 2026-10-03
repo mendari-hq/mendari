@@ -210,11 +210,14 @@ Vercel reads environment variables when a deployment is built, not at runtime.
 ### Rule
 Finish every change a PR depends on (settings, follow-up commits) before enabling auto-merge.
 After changing a Vercel environment variable, redeploy (`vercel redeploy <url> --target
-production`) and confirm the setting in `/api/health` before calling it done.
+production`) and confirm the setting in `/api/health` before calling it done. Since Phase 4b
+the settings are shown only to a principal that may read: open `/api/health` in a browser signed
+in to the dashboard (or send a viewer key); without a credential it is `status`, `version` and
+`sign_in` only.
 
 ### Verification
-`/api/health` shows the expected providers for every pack, and `git log origin/main` contains
-every commit of the PR branch.
+`/api/health`, signed in, shows the expected providers for every pack, and `git log origin/main`
+contains every commit of the PR branch.
 
 ## 2026-09-29 - testing
 
@@ -611,3 +614,50 @@ version CI runs before pushing: `uv run --python 3.11 --isolated pytest …`, th
 ### Verification
 The deep-nesting tests in `tests/test_fhir_errors.py` pass on 3.11, 3.12 and 3.13 locally.
 
+
+## 2026-10-02 - testing
+
+### What happened
+Integrating Phase 4b's lanes, the whole suite run in one process (`pytest -o addopts=""`, browser
+tests included) failed in tests that call `asyncio.run`: once Playwright's session has started,
+the main thread's event loop counts as running, and `asyncio.run` refuses to start. Each lane had
+run the browser tests apart, so none saw it. The same run found a planted lab value ("8.37")
+inside a timestamp ("…:38.371") by chance.
+
+### Root cause
+Tests that are right alone but share a process with the browser suite, and a substring check for
+a number in text full of other numbers.
+
+### Rule
+A test runs a coroutine with `tests.conftest.run_async` (its own thread), never `asyncio.run`. A
+check that a planted number is not stored matches it as a value of its own, not inside a longer
+number. The integration gate runs the whole suite in one process.
+
+### Verification
+`uv run pytest -q -o addopts=""` passes with the browser tests in the same run.
+
+## 2026-10-02 - process
+
+### What happened
+Phase 4b ran four lanes at once, each with its own worktree and its own database in Mendari's
+one Postgres container (`mendari_test_spine`, `_web`, `_notes`, `_docs`). Each test gets its own
+schema, but the chain's append lock and the cold-start lock are Postgres advisory locks on a
+fixed key, and advisory locks are per database, not per schema. Two suites in one database
+would wait on each other's chain writes, and a test that holds the chain lock on purpose would
+stall the other suite's writes while it runs. Separately, the lanes added threat-model rows on their own, and two
+of them took the same id (I8), which only the wrap-up found.
+
+### Root cause
+Parallel lanes share whatever is keyed above the schema (a database's advisory locks) and
+whatever is numbered by hand in shared documents.
+
+### Rule
+Every parallel lane uses its own Postgres database (`createdb mendari_test_<lane>` in
+`mendari-pg-test`), checked with `current_database()` before the first run. Shared documents
+with numbered ids (the threat model) get their new ids assigned in the plan, one range per lane,
+and the integrator runs `tests/test_threat_model.py`, which fails on a repeated id, rows out of
+order or a named test that does not exist.
+
+### Verification
+`MENDARI_TEST_DATABASE_URL` names the lane's own database in each lane's gate; `uv run pytest
+tests/test_threat_model.py` passes after every merge.

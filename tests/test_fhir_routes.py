@@ -22,7 +22,7 @@ from mendari import AuditStore, Decision, Outcome
 from mendari.server.app import create_app
 from mendari.standards import audit_fhir, fhir_structure, task_fhir
 from mendari.standards.fhir import DECISION_ID_SYSTEM
-from tests.conftest import signed_in
+from tests.conftest import HASH_KEY_B64, signed_in
 from tests.test_fhir_structure import load_script
 
 INBOX = "mendari/patient-inbox-router"
@@ -292,6 +292,7 @@ def test_reading_and_searching_never_write_to_the_audit_trail(
     """Under PHI mode `encrypt`, a read of the input is chained (`input.read`); a FHIR read or
     search shows no input, so it must chain nothing: the trail is the same before and after."""
     monkeypatch.setenv("MENDARI_PHI_MODE", "encrypt")
+    monkeypatch.setenv("MENDARI_INPUT_HASH_KEY", HASH_KEY_B64)
     monkeypatch.setenv("MENDARI_PHI_KEY", base64.b64encode(os.urandom(32)).decode())
     with TestClient(create_app(db_path=db_target), base_url=SERVER) as client:
         decision = reviewed(client)

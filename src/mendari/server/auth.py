@@ -6,12 +6,18 @@ server is open, as before (production sits behind Vercel Authentication). When c
 
 - **People** sign in at `/auth/login`: authorization code with PKCE, and the id_token verified
   with the issuer's JWKS (`standards/oidc.py`). The session is server-side, behind an opaque
-  HttpOnly, SameSite=Lax cookie. Roles come from a claim (`MENDARI_OIDC_ROLE_CLAIM`, default
-  `roles`), optionally renamed by `MENDARI_OIDC_ROLE_MAP` ("clinicians=reviewer,it=admin").
-  With an identity provider that has no roles (Google, say), the claim can be `email`, mapped
-  person by person ("owner@example.org=admin"); an email gives a role only when the provider
-  says it is verified (`email_verified`).
+  HttpOnly, SameSite=Lax `__Host-` cookie, and ends after 30 minutes idle or 8 hours
+  (`server/sessions.py`, which also ties a sign-in to the browser that started it). Roles come
+  from a claim (`MENDARI_OIDC_ROLE_CLAIM`, default `roles`), optionally renamed by
+  `MENDARI_OIDC_ROLE_MAP` ("clinicians=reviewer,it=admin"), and are worked out again on every
+  request from the claims kept with the session and the settings as they are then: a role taken
+  out of the map ends access at once. With an identity provider that has no roles (Google, say),
+  the claim can be `email`, mapped person by person ("owner@example.org=admin"); an email gives a
+  role only when the provider says it is verified (`email_verified`).
   The organization comes from `MENDARI_OIDC_ORG_CLAIM` (default: one organization).
+- **Who the audit chain names** (`Principal.actor`, permanent): a person by their verified email,
+  else by the identity provider's subject qualified by its issuer (`<issuer>|<subject>`); a key
+  as `key <id>`, a client as `client <id>`.
 - **The identity provider's endpoints** must be on the issuer's origin, or listed in
   `MENDARI_OIDC_ENDPOINT_ORIGINS` (Google's token and key endpoints are on other hosts).
 - **Machines** send `Authorization: Bearer ohk_...`: API keys that admins create, which are
@@ -41,6 +47,7 @@ server is open, as before (production sits behind Vercel Authentication). When c
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import secrets
@@ -57,12 +64,12 @@ from pydantic import BaseModel, Field
 
 from mendari.core.audit import KEY_DAYS, KEY_MAX_DAYS, MACHINE_ROLES, AuditStore
 from mendari.errors import AuthError, FhirError, MendariError, ScopeError
-from mendari.server import scopes
+from mendari.server import scopes, security_log, sessions
 from mendari.server.scopes import Grant
 from mendari.standards import oidc
 from mendari.standards.fhir_client import GuardedHttp, allowed_servers
 
-COOKIE = "mendari_session"
+COOKIE = sessions.SESSION  # `__Host-mendari_session` except on local hosts (server/sessions.py)
 REALM = "mendari"
 KEY_PREFIX = "ohk_"
 TOKEN_PREFIX = "mat_"  # SMART Backend Services access tokens (ADR-0004)
@@ -91,7 +98,6 @@ PEOPLE_ONLY = frozenset({"keys"})
 # One refusal for a scoped credential outside its scopes (the challenge names the scope needed).
 OUT_OF_SCOPE = "this credential's scopes do not cover this request"
 DEFAULT_ORG = "default"
-SESSION_SECONDS = 8 * 3600
 
 # (method, path pattern) -> permission, first match wins; unlisted routes need "admin".
 _RULES: list[tuple[str, re.Pattern[str], str]] = [
@@ -103,7 +109,8 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         ("*", r"^/(smart|api/smart)/", "public"),  # SMART launches carry their own session
         ("GET", r"^/(static/.*|favicon\.ico)$", "public"),
         ("GET", r"^/$", "page"),
-        ("GET", r"^/(docs|redoc)$", "page"),  # a signed-out browser is sent to sign in
+        ("GET", r"^/(docs|redoc)$", "public"),  # redirects to the reference: they show nothing
+        ("GET", r"^/docs/reference$", "page"),  # a signed-out browser is sent to sign in
         ("GET", r"^/openapi\.json$", "read"),
         ("POST", r"^/api/packs/[^/]+/[^/]+/(decide|guard|fhir/decide|pas)$", "decide"),
         ("POST", r"^/cds-services/[^/]+$", "decide"),
@@ -187,6 +194,12 @@ def auth_settings() -> AuthSettings | None:
 class Principal:
     kind: str  # "open", "user", "key" or "client" (an access token's)
     name: str
+    # Stable and opaque, for counting and logging per principal: `user:<16 hex>` (person_id),
+    # `key:<key id>`, `client:<client id>` or `open`. Never a secret, a name or an email.
+    id: str = field(kw_only=True)
+    # Who the audit chain records (reviewer, reporter, approver, reader, creator): a person's
+    # verified email or `<issuer>|<subject>` (chain_name), `key <id>`, `client <id>`. Permanent.
+    actor: str = field(kw_only=True)
     roles: frozenset[str] = field(default_factory=frozenset)
     org: str = DEFAULT_ORG
     grant: Grant | None = None  # a credential's scopes; None: the role's permissions, unnarrowed
@@ -214,6 +227,7 @@ class Principal:
             "roles": sorted(self.roles),
             "permissions": sorted(self.permissions()),
             "org": self.org,
+            "actor": self.actor,
         }
         if self.kind in ("key", "client"):
             scope = None if self.grant is None else self.grant.scope
@@ -221,7 +235,43 @@ class Principal:
         return shown
 
 
-OPEN = Principal(kind="open", name="open mode", roles=frozenset({"admin"}))
+OPEN = Principal(
+    kind="open", name="open mode", roles=frozenset({"admin"}), id="open", actor="open mode"
+)
+
+
+def person_id(issuer: str, subject: str) -> str:
+    """A signed-in person's `Principal.id`: their subject at their identity provider, which is
+    stable and unique only together with the issuer, hashed so it names nobody."""
+    digest = hashlib.sha256(f"{issuer}|{subject}".encode()).hexdigest()
+    return f"user:{digest[:16]}"
+
+
+def chain_name(issuer: str, claims: Mapping[str, Any]) -> str:
+    """How the audit chain names a person, for good: their email when the identity provider says
+    it is verified, else their subject qualified by the issuer (a subject is unique only within
+    its issuer). Never the display name, which anyone can change at the provider."""
+    email = claims.get("email")
+    if claims.get("email_verified") is True and isinstance(email, str) and email.strip():
+        return email.strip()
+    return f"{issuer}|{claims.get('sub')}"
+
+
+def kept_claims(claims: Mapping[str, Any], settings: AuthSettings) -> dict[str, Any]:
+    """What a session keeps of the id_token, so its roles can be worked out again on every
+    request: the role claim's values, the email and whether the provider verified it."""
+    kept = {name: claims.get(name) for name in (settings.role_claim, "email", "email_verified")}
+    return {name: value for name, value in kept.items() if value is not None}
+
+
+def safe_next(target: str) -> str:
+    """Where to go after signing in: a path on this site, else `/`. Not `//host` (another site),
+    and nothing with a backslash or a control character, which a browser may read as one."""
+    if not target.startswith("/") or target.startswith("//"):
+        return "/"
+    if "\\" in target or any(ord(c) < 0x20 or ord(c) == 0x7F for c in target):
+        return "/"
+    return target
 
 
 # RFC 6750's b64token, at a length no credential Mendari issues comes near.
@@ -242,13 +292,25 @@ def invalid_token() -> AuthError:
     return AuthError("the credential is not valid", 401, challenge=challenge("invalid_token"))
 
 
+def refused_credential(reason: str, error: AuthError | None = None) -> AuthError:
+    """`error` (by default the one `invalid_token` answer), with the reason the caller is not
+    told in the security log: `malformed`, `unknown_prefix`, `key` (unknown, revoked and expired
+    alike, as the lookup finds none of them), `key_scope`, `token`, `token_scope`, `scheme`,
+    `headers`, `in_url_or_form`."""
+    security_log.event("auth.credential.refused", outcome="refused", reason=reason)
+    return error or invalid_token()
+
+
 def credential_in_url_or_form() -> AuthError:
     """RFC 6750 lets a client send its credential as an `access_token` query or form parameter;
     Mendari reads neither, and refuses both: they end up in logs and histories."""
-    return AuthError(
-        "send credentials in the Authorization header, never in a URL or a form",
-        400,
-        challenge=challenge("invalid_request"),
+    return refused_credential(
+        "in_url_or_form",
+        AuthError(
+            "send credentials in the Authorization header, never in a URL or a form",
+            400,
+            challenge=challenge("invalid_request"),
+        ),
     )
 
 
@@ -306,10 +368,19 @@ class KeyRequest(BaseModel):
 class Auth:
     """Resolves the principal of a request and guards every route."""
 
-    def __init__(self, settings: AuthSettings | None, store: AuditStore, *, tokens: bool = False):
+    def __init__(
+        self,
+        settings: AuthSettings | None,
+        store: AuditStore,
+        *,
+        tokens: bool = False,
+        lifetime: sessions.Lifetime | None = None,
+    ):
         self.settings = settings
         self.store = store
         self.tokens = tokens  # SMART Backend Services is on: access tokens are looked up
+        self.lifetime = lifetime or sessions.Lifetime()  # idle and absolute session expiry
+        self.discovery = oidc.Discovery()  # the identity provider's configuration, for an hour
 
     @property
     def enabled(self) -> bool:
@@ -331,34 +402,62 @@ class Auth:
         headers = request.headers.getlist("authorization")
         if headers:
             return self._bearer(headers)
-        sid = request.cookies.get(COOKIE)
-        session = self.store.smart_get(sid, "user") if sid else None
+        session, sent = sessions.resume(self.store, request, COOKIE, "user", self.lifetime)
         if session is None:
+            if sent:  # ended, expired or never made: a dashboard left open, or a guess
+                security_log.event("auth.credential.refused", outcome="refused", reason="session")
             return None
-        roles = frozenset(session["roles"])
-        return Principal(kind="user", name=session["name"], roles=roles, org=session["org"])
+        # Sessions from before the issuer was stored are of the issuer configured now.
+        issuer = str(session.get("iss") or self.settings.issuer)
+        person = person_id(issuer, str(session["sub"]))
+        claims = session.get("claims")
+        # The roles as the settings give them now; a session from before claims were kept has
+        # the roles of its sign-in, and ends within 8 hours of the deploy.
+        if isinstance(claims, dict):
+            roles = roles_from(claims, self.settings)
+        else:
+            roles = frozenset(session["roles"])
+        if not roles:  # taken out of the role map since signing in: access ends at once
+            security_log.event(
+                "auth.credential.refused", outcome="refused", reason="no_role", actor=person
+            )
+            return None
+        return Principal(
+            kind="user",
+            name=session["name"],
+            roles=roles,
+            org=session["org"],
+            id=person,
+            actor=str(session.get("actor") or f"{issuer}|{session['sub']}"),
+        )
 
     def _bearer(self, headers: list[str]) -> Principal:
         """The principal an `Authorization` header names, by the credential's prefix."""
         if len(headers) != 1:
-            raise AuthError(
-                "send one Authorization header", 400, challenge=challenge("invalid_request")
+            raise refused_credential(
+                "headers",
+                AuthError(
+                    "send one Authorization header", 400, challenge=challenge("invalid_request")
+                ),
             )
         scheme, _, credential = headers[0].strip().partition(" ")
         if scheme.lower() != "bearer":
             # Not a bearer credential: RFC 6750 gives no error code to an unsupported scheme.
-            raise AuthError("send Authorization: Bearer <credential>", 401, challenge=challenge())
+            raise refused_credential(
+                "scheme",
+                AuthError("send Authorization: Bearer <credential>", 401, challenge=challenge()),
+            )
         credential = credential.strip()
         if not _BEARER.fullmatch(credential):
-            raise invalid_token()
+            raise refused_credential("malformed")
         if credential.startswith(KEY_PREFIX):
             key = self.store.api_key(credential)  # None too when revoked or expired
             if key is None:
-                raise invalid_token()
+                raise refused_credential("key")
             try:
                 grant = None if key["scope"] is None else scopes.parse(key["scope"])
-            except ScopeError:
-                raise invalid_token() from None  # a scope no longer granted: refuse, never widen
+            except ScopeError:  # a scope no longer granted: refuse, never widen
+                raise refused_credential("key_scope") from None
             return Principal(
                 kind="key",
                 name=f"key {key['name']}",
@@ -366,10 +465,12 @@ class Auth:
                 org=key["org"],
                 grant=grant,
                 expires_at=key["expires_at"],
+                id=f"key:{key['id']}",
+                actor=f"key {key['id']}",  # its name is free text an admin may reuse
             )
         if credential.startswith(TOKEN_PREFIX):
             return self._token(credential)
-        raise invalid_token()  # no credential Mendari issues
+        raise refused_credential("unknown_prefix")  # no credential Mendari issues
 
     def _token(self, credential: str) -> Principal:
         """An access token's client as it is now: its role, organization and scopes (the scope
@@ -377,11 +478,11 @@ class Auth:
         and always when Backend Services is off."""
         token = self.store.access_token(credential) if self.tokens else None
         if token is None or token["role"] not in MACHINE_ROLES:
-            raise invalid_token()
+            raise refused_credential("token")
         try:
             registered = scopes.parse(token["registered"], permissions=PERMISSIONS[token["role"]])
-        except ScopeError:
-            raise invalid_token() from None  # a registration no longer granted: refuse
+        except ScopeError:  # a registration no longer granted: refuse
+            raise refused_credential("token_scope") from None
         expires = datetime.fromtimestamp(token["expires_at"], UTC)
         return Principal(
             kind="client",
@@ -390,6 +491,8 @@ class Auth:
             org=token["org"],
             grant=scopes.parse_lenient(token["scope"]).narrow(registered),
             expires_at=expires.isoformat(timespec="milliseconds"),
+            id=f"client:{token['client_id']}",
+            actor=f"client {token['client_id']}",
         )
 
     def check(self, request: Request) -> Response | None:
@@ -409,10 +512,13 @@ class Auth:
         if permission not in principal.role_permissions():
             refused = challenge("insufficient_scope")
             if permission in PEOPLE_ONLY and principal.kind != "user":
+                _refused_permission(principal, "people_only")
                 raise AuthError("only a person who signed in may do this", 403, challenge=refused)
+            _refused_permission(principal, permission)
             raise AuthError(f"your role may not {permission} here", 403, challenge=refused)
         _within_scope(principal, request.method, request.url.path)
         if not principal.may(permission):  # implied by the scope check: fail closed if not
+            _refused_permission(principal, "out_of_scope")
             raise AuthError(OUT_OF_SCOPE, 403, challenge=challenge("insufficient_scope"))
         request.state.principal = principal
         return None
@@ -424,8 +530,29 @@ def _within_scope(principal: Principal, method: str, path: str) -> None:
         return
     needed = scopes.needed(method, path)
     if needed is None or not principal.grant.covers(needed):
+        _refused_permission(principal, "out_of_scope")
         refused = challenge("insufficient_scope", scope=needed)
         raise AuthError(OUT_OF_SCOPE, 403, challenge=refused)
+
+
+def _refused_permission(principal: Principal, reason: str) -> None:
+    """A security log line for a principal refused a route: the permission it lacks, or
+    `people_only` or `out_of_scope`."""
+    security_log.event(
+        "auth.permission.refused",
+        outcome="refused",
+        reason=reason,
+        actor=principal.id,
+        org=principal.org,
+    )
+
+
+def _signin_refused(reason: str, *, actor: str | None = None) -> None:
+    """A sign-in that did not complete: `idp_configuration`, `idp_unavailable`, `idp_error`,
+    `state_unknown`, `browser` (the callback reached a browser that did not start the sign-in),
+    `token_exchange`, `id_token_invalid`, `no_subject` or `no_role` (with the person's opaque
+    id)."""
+    security_log.event("auth.signin.refused", outcome="refused", reason=reason, actor=actor)
 
 
 def add_auth_routes(app: FastAPI, auth: Auth) -> None:
@@ -444,11 +571,19 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
     @app.get("/auth/login", include_in_schema=False)
     def login(request: Request, next: str = "/") -> Response:
         options = configured()
-        target = next if next.startswith("/") and not next.startswith("//") else "/"
+        target = safe_next(next)
+        # Started on another name: begin again on the public URL, where the callback lands.
+        moved = sessions.to_public_url(request, options.public_url, "/auth/login", {"next": target})
+        if moved is not None:
+            return moved
         with http_for(options) as http:
             try:
-                config = oidc.discover(options.issuer, http)
+                config = auth.discovery.get(options.issuer, http)
+            except AuthError:
+                _signin_refused("idp_configuration")
+                raise
             except FhirError as failure:  # the guarded client's errors (unreachable, not allowed)
+                _signin_refused("idp_unavailable")
                 raise AuthError(
                     f"the identity provider cannot be used ({failure}); its endpoints must be on "
                     "the issuer's origin or listed in MENDARI_OIDC_ENDPOINT_ORIGINS",
@@ -457,15 +592,6 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
         verifier, challenge = oidc.pkce()
         state, nonce = secrets.token_urlsafe(32), secrets.token_urlsafe(24)
         redirect_uri = f"{options.public_url or str(request.base_url).rstrip('/')}/auth/callback"
-        pending = {
-            "verifier": verifier,
-            "nonce": nonce,
-            "redirect_uri": redirect_uri,
-            "next": target,
-            "token_endpoint": config["token_endpoint"],
-            "jwks_uri": config["jwks_uri"],
-        }
-        store.smart_put(state, "oidc-pending", pending, int(time.time()) + 600)
         query = urlencode(
             {
                 "response_type": "code",
@@ -478,17 +604,35 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
                 "code_challenge_method": "S256",
             }
         )
-        return RedirectResponse(f"{config['authorization_endpoint']}?{query}", status_code=302)
+        response = RedirectResponse(f"{config['authorization_endpoint']}?{query}", status_code=302)
+        pending = {
+            "verifier": verifier,
+            "nonce": nonce,
+            "redirect_uri": redirect_uri,
+            "next": target,
+            "token_endpoint": config["token_endpoint"],
+            "jwks_uri": config["jwks_uri"],
+            # Only this browser may finish the sign-in (login CSRF): its cookie's digest.
+            "browser": sessions.bind(response, request, sessions.SIGNIN),
+        }
+        store.smart_put(state, "oidc-pending", pending, int(time.time()) + sessions.PENDING_SECONDS)
+        return response
 
     @app.get("/auth/callback", include_in_schema=False)
-    def callback(state: str = "", code: str = "", error: str = "") -> Response:
+    def callback(request: Request, state: str = "", code: str = "", error: str = "") -> Response:
         options = configured()
         pending = store.smart_take(state, "oidc-pending") if state else None
         if error:
             reason = error if re.fullmatch(r"[a-z_]{1,40}", error) else "error"
+            _signin_refused("idp_error")
             raise AuthError(f"the identity provider did not sign you in ({reason})")
         if pending is None or not code:
+            _signin_refused("state_unknown")
             raise AuthError("this sign-in is unknown, used or expired: sign in again")
+        if not sessions.bound(request, sessions.SIGNIN, pending):
+            # A callback URL from someone else's sign-in (or one started in another tab since).
+            _signin_refused("browser")
+            raise AuthError("this sign-in was started in another browser or tab: sign in again")
         form = {
             "grant_type": "authorization_code",
             "code": code,
@@ -504,44 +648,61 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
                     pending["token_endpoint"], form, {"accept": "application/json"}
                 )
             except MendariError as failure:
+                _signin_refused("token_exchange")
                 raise AuthError(f"the token exchange failed: {failure}") from None
-            claims = oidc.verify_id_token(
-                str(token.get("id_token", "")),
-                issuer=options.issuer,
-                audience=options.client_id,
-                nonce=pending["nonce"],
-                jwks_uri=pending["jwks_uri"],
-                http=http,
-            )
+            try:
+                claims = oidc.verify_id_token(
+                    str(token.get("id_token", "")),
+                    issuer=options.issuer,
+                    audience=options.client_id,
+                    nonce=pending["nonce"],
+                    jwks_uri=pending["jwks_uri"],
+                    http=http,
+                )
+            except MendariError:
+                _signin_refused("id_token_invalid")
+                raise
+        if not isinstance(claims.get("sub"), str) or not claims["sub"]:
+            _signin_refused("no_subject")
+            raise AuthError("the id_token names no subject")  # OpenID Connect requires one
+        person = person_id(options.issuer, claims["sub"])
         roles = roles_from(claims, options)
         if not roles:
+            _signin_refused("no_role", actor=person)
             raise AuthError("your account has no Mendari role; ask an administrator", 403)
         org = (
             str(claims.get(options.org_claim) or DEFAULT_ORG) if options.org_claim else DEFAULT_ORG
         )
         name = str(claims.get("name") or claims.get("email") or claims.get("sub"))
-        session = {"sub": claims.get("sub"), "name": name, "roles": sorted(roles), "org": org}
-        sid = secrets.token_urlsafe(32)
-        store.smart_put(sid, "user", session, int(time.time()) + SESSION_SECONDS)
-        response = RedirectResponse(pending["next"], status_code=302)
-        response.set_cookie(
-            COOKIE,
-            sid,
-            max_age=SESSION_SECONDS,
-            httponly=True,
-            secure=True,
-            samesite="lax",
-            path="/",
+        session, expires_at = sessions.begin(
+            {
+                "iss": options.issuer,
+                "sub": claims.get("sub"),
+                "name": name,
+                "actor": chain_name(options.issuer, claims),
+                "claims": kept_claims(claims, options),
+                "roles": sorted(roles),  # what the release before this one reads
+                "org": org,
+            },
+            int(time.time()),
+            auth.lifetime,
         )
+        sid = secrets.token_urlsafe(32)
+        store.smart_put(sid, "user", session, expires_at)
+        security_log.event("auth.signin.ok", actor=person, org=org)
+        response = RedirectResponse(pending["next"], status_code=302)
+        sessions.set_cookie(response, request, COOKIE, sid)
+        sessions.clear_cookie(response, request, sessions.SIGNIN)  # used: one sign-in, once
         return response
 
     @app.post("/auth/logout", include_in_schema=False)
     def logout(request: Request) -> Response:
-        sid = request.cookies.get(COOKIE)
+        sid, _ = sessions.read(request, COOKIE)
         if sid:
             store.smart_delete(sid, "user")
+            security_log.event("auth.logout")
         response = Response(status_code=204)
-        response.delete_cookie(COOKIE, path="/", secure=True, httponly=True, samesite="lax")
+        sessions.clear_cookie(response, request, COOKIE)
         return response
 
     @app.get(
@@ -575,14 +736,18 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
         scope = None
         if body.scope is not None:
             scope = scopes.parse(body.scope, permissions=PERMISSIONS[body.role]).scope
-        return store.create_api_key(
+        key = store.create_api_key(
             name=body.name,
             role=body.role,
             org=principal.org,
-            created_by=principal.name,
+            created_by=principal.actor,
             scopes=scope,
             days=body.days,
         )
+        security_log.event(
+            "admin.key.created", actor=principal.id, org=principal.org, ids=[str(key["id"])]
+        )
+        return key
 
     @app.get(
         "/api/auth/keys",
@@ -606,6 +771,7 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
         the audit chain."""
         principal: Principal = getattr(request.state, "principal", OPEN)
         org = None if principal.kind == "open" else principal.org
-        if not store.revoke_api_key(key_id, org, revoked_by=principal.name):
+        if not store.revoke_api_key(key_id, org, revoked_by=principal.actor):
             raise AuthError("no such key", 404)
+        security_log.event("admin.key.revoked", actor=principal.id, org=principal.org, ids=[key_id])
         return Response(status_code=204)

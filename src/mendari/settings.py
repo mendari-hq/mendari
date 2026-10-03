@@ -13,6 +13,8 @@ from mendari.legacy import current_pack_id
 DEFAULT_JEV_DAILY_LIMIT = 500
 DEFAULT_LLM_DAILY_LIMIT = 500
 DEFAULT_TIMEZONE = "America/New_York"
+DEFAULT_MAX_BODY_BYTES = 4 * 1024 * 1024
+MIN_MAX_BODY_BYTES = 64 * 1024
 FhirValidation = Literal["off", "warn", "enforce"]
 
 
@@ -66,6 +68,20 @@ def fhir_validation() -> FhirValidation:
     return cast(FhirValidation, mode)
 
 
+def max_body_bytes() -> int:
+    """The largest request body the server takes ($MENDARI_MAX_BODY_BYTES; default 4 MiB, under
+    Vercel's 4.5 MB, and room for real FHIR Bundles). At least 64 KiB, so a value meant in
+    another unit cannot refuse every request."""
+    raw = os.environ.get("MENDARI_MAX_BODY_BYTES", "").strip()
+    if not raw:
+        return DEFAULT_MAX_BODY_BYTES
+    if not raw.isdigit() or int(raw) < MIN_MAX_BODY_BYTES:
+        raise MendariError(
+            f"MENDARI_MAX_BODY_BYTES must be a number of bytes, {MIN_MAX_BODY_BYTES} or more"
+        )
+    return int(raw)
+
+
 def enabled_packs() -> frozenset[str]:
     """$MENDARI_PACKS: the packs this server serves (comma-separated ids); empty: every pack
     found. The per-pack container images set it to their one pack."""
@@ -107,6 +123,28 @@ def daily_limits() -> dict[str, int | None]:
             limits[provider] = int(raw)
         else:
             raise MendariError(f"{variable} must be a non-negative integer or `none`")
+    return limits
+
+
+ORG_METRICS = ("decisions", "jev", "llm")
+
+
+def org_daily_limits() -> dict[str, int]:
+    """$MENDARI_ORG_DAILY_LIMITS: what each organization may use a day, e.g.
+    `decisions=5000,jev=2000,llm=200` (decisions, and the remote calls they make by provider
+    type; evaluations never count). Unset: no per-organization quota. Over a quota a decision
+    falls back to human review, as over a provider's daily budget."""
+    limits: dict[str, int] = {}
+    for item in os.environ.get("MENDARI_ORG_DAILY_LIMITS", "").split(","):
+        if not item.strip():
+            continue
+        metric, sep, value = (part.strip() for part in item.partition("="))
+        if not sep or metric not in ORG_METRICS or not value.isdigit() or metric in limits:
+            raise MendariError(
+                "MENDARI_ORG_DAILY_LIMITS must look like decisions=5000,jev=2000,llm=200 "
+                f"(each of {', '.join(ORG_METRICS)} at most once, a non-negative integer)"
+            )
+        limits[metric] = int(value)
     return limits
 
 

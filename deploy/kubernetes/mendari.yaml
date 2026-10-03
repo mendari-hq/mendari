@@ -5,10 +5,14 @@
 #   kubectl create secret generic mendari-secrets \
 #     --from-literal=DATABASE_URL='postgresql://...' \
 #     --from-literal=MENDARI_OIDC_CLIENT_SECRET='...' \
-#     --from-literal=MENDARI_PHI_KEY='...'
+#     --from-literal=MENDARI_PHI_KEY='...' \
+#     --from-literal=MENDARI_INPUT_HASH_KEY='...'
+# (the two keys differ: each 32 random bytes, base64)
 # Set `image:` (twice below) to a release image, e.g. ghcr.io/junebugg1214/mendari-engine:v0.6.0,
 # or one pack's image (mendari-referral-router). No release is published yet: until then,
 # build and push your own (`docker build --build-arg PACK=... .`, see deploy/README.md).
+# Deploy by digest, not by tag: `ghcr.io/...:v0.6.0@sha256:<digest>` (find it with
+# `docker buildx imagetools inspect <image>:<tag>`), so a re-pushed tag never changes what runs.
 # then: kubectl apply -f mendari.yaml
 apiVersion: v1
 kind: ConfigMap
@@ -21,6 +25,16 @@ data:
   MENDARI_OIDC_ROLE_MAP: clinicians=reviewer,informatics=admin,ai-committee=governance
   MENDARI_PHI_MODE: encrypt
   MENDARI_RETENTION_DAYS: "90"
+  # The ingress controller's pod network: X-Forwarded-For is trusted only from it, so rate
+  # limits on sign-in count per client, not per ingress pod. 10.0.0.0/8 is only an example: set
+  # your cluster's pod CIDR (Calico's default is 192.168.0.0/16; on EKS, the VPC's), or every
+  # person shares the ingress pods' addresses. Signed in, /api/health must show your browser's
+  # own address as `rate_limits.client_ip`, with `x_forwarded_for_used: true`. Limit per
+  # address on /auth/ and /smart/ at the ingress too, e.g. with ingress-nginx:
+  # nginx.ingress.kubernetes.io/limit-rpm: "120" on an Ingress for those paths.
+  FORWARDED_ALLOW_IPS: 10.0.0.0/8
+  # Rate limits are on with sign-in. Per-organization daily quotas, off unless set:
+  # MENDARI_ORG_DAILY_LIMITS: decisions=5000
 ---
 apiVersion: apps/v1
 kind: Deployment

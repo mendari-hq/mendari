@@ -18,8 +18,8 @@ views.review = async (main) => {
     <div class="row toolbar">
       <label for="reviewer">Reviewer</label>
       ${signedIn()
-        ? `<input id="reviewer" value="${esc(state.me.name)}" readonly title="Reviews are recorded for whoever is signed in">`
-        : `<input id="reviewer" value="${esc(storageGet("oh.reviewer", "sandbox-nurse"))}" autocomplete="name">`}
+        ? `<input id="reviewer" value="${esc(state.me.actor)}" readonly title="Reviews are recorded for whoever is signed in, as the audit trail names them">`
+        : `<input id="reviewer" value="${esc(storageGet("oh.reviewer", "sandbox-nurse"))}" maxlength="100" spellcheck="false" title="An identifier, without spaces: the audit trail keeps it">`}
       <span class="grow"></span>
       <span id="queue-counts" class="queue-counts" aria-live="polite">${queueCounts(items)}</span>
     </div>

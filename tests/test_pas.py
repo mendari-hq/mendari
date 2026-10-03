@@ -171,7 +171,10 @@ def test_the_api_builds_submits_and_chains_the_answer(
 
     record = client.get(f"/api/audit/{decision_id}").json()
     [event] = [e for e in record["events"] if e["event"] == "pas.submitted"]
-    assert event["payload"]["authorization"] == answer["submitted"]["authorization"]
+    # The payer's authorization number is a note, apart from the chain (PHI mode off: readable).
+    authorization = answer["submitted"]["authorization"]
+    assert "authorization" not in event["payload"] and event["payload"]["outcome"] == "complete"
+    assert json.loads(event["note"])["authorization"] == authorization
     audit = [
         r
         for r in audit_fhir.decision_bundle(record)["entry"]

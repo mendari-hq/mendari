@@ -8,7 +8,10 @@ Configuration comes from the environment:
   e.g. `mendari/clinical-trial-prescreener:notes=jev`. A setting that names a slot or
   variant a pack does not have is skipped and reported in `/api/health`.
 - `MENDARI_JEV_DAILY_LIMIT`, `MENDARI_LLM_DAILY_LIMIT`: daily call budgets (`none`: no
-  limit).
+  limit). `MENDARI_ORG_DAILY_LIMITS`: per-organization daily quotas
+  (`decisions=5000,jev=2000,llm=200`; unset: none).
+- `MENDARI_RATE_LIMITS`: `on` (the default with sign-in), `log` or `off`, then overrides
+  (`server/limits.py`). The client address is Vercel's `X-Forwarded-For`.
 - `MENDARI_TIMEZONE`: time zone for calendar days and displayed times (default
   `America/New_York`); stored timestamps stay UTC.
 - `MENDARI_FHIR_VALIDATION`: US Core checks on FHIR inputs, `warn` (default: issues are

@@ -8,8 +8,10 @@ import base64
 import functools
 import hashlib
 import json
+import sqlite3
 import time
 from collections.abc import Iterator
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
@@ -248,6 +250,56 @@ def test_a_launch_state_works_once(app: TestClient, ehr: FakeEhr) -> None:
     assert again.headers["content-type"].startswith("text/html")
 
 
+def test_a_launch_finished_in_another_browser_is_refused(app: TestClient, ehr: FakeEhr) -> None:
+    """Launch CSRF: a callback URL from someone else's launch must not put their patient's
+    context into this browser."""
+    started = launch(app)
+    assert started.headers["set-cookie"].startswith("__Host-mendari_launch=")
+    code = ehr.authorize(started.headers["location"])
+    state = parse_qs(urlsplit(started.headers["location"]).query)["state"][0]
+    other = TestClient(app.app, base_url=APP)
+    landed = other.get("/smart/callback", params={"code": code, "state": state})
+    assert landed.status_code == 400 and "started in another browser" in landed.text
+    assert other.get("/api/smart/session").json() == {"active": False}
+
+
+def test_a_launch_on_another_name_moves_to_the_public_url_first(
+    app: TestClient, ehr: FakeEhr, tmp_path: Path
+) -> None:
+    """The launch binding cookie is host-only and the callback comes back to MENDARI_PUBLIC_URL:
+    a launch on another name begins again there, before anything is bound or written."""
+    alias = TestClient(app.app, base_url="https://mendari-abc.vercel.app")
+    params = {"iss": ISS, "launch": "xyz", "pack": REFERRAL}
+    moved = alias.get("/smart/launch", params=params, follow_redirects=False)
+    assert moved.status_code == 302 and "set-cookie" not in moved.headers
+    location = urlsplit(moved.headers["location"])
+    assert f"{location.scheme}://{location.netloc}{location.path}" == f"{APP}/smart/launch"
+    assert parse_qs(location.query) == {k: [v] for k, v in {**params, "moved": "1"}.items()}
+    with closing(sqlite3.connect(tmp_path / "a.db")) as db:
+        assert db.execute("SELECT COUNT(*) FROM smart_sessions").fetchone() == (0,)
+    started = alias.get(moved.headers["location"], follow_redirects=False)
+    assert started.headers["location"].startswith(f"{EHR}/auth/authorize?")
+    code = ehr.authorize(started.headers["location"])
+    state = parse_qs(urlsplit(started.headers["location"]).query)["state"][0]
+    done = alias.get(
+        f"{APP}/smart/callback", params={"code": code, "state": state}, follow_redirects=False
+    )
+    assert done.status_code == 302 and done.headers["location"] == f"{APP}/?pack={REFERRAL}#patient"
+    assert alias.get(f"{APP}/api/smart/session").json()["active"] is True
+
+
+def test_a_launch_session_ends_when_idle(
+    app: TestClient, ehr: FakeEhr, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    done = full_launch(app, ehr)
+    cookie = next(c for c in done.headers.get_list("set-cookie") if "mendari_smart" in c)
+    assert "max-age" not in cookie.lower()  # ends with the browser too
+    assert app.get("/api/smart/session").json()["active"] is True
+    later = time.time() + 31 * 60
+    monkeypatch.setattr("mendari.core.audit.time.time", lambda: later)
+    assert app.get("/api/smart/session").json() == {"active": False}
+
+
 def test_an_unknown_state_is_refused(app: TestClient) -> None:
     assert app.get("/smart/callback", params={"code": "c", "state": "forged"}).status_code == 400
 
@@ -334,8 +386,8 @@ def test_a_work_item_about_another_patient_is_refused(app: TestClient, ehr: Fake
 def test_launch_state_and_session_ids_are_stored_hashed(
     app: TestClient, ehr: FakeEhr, tmp_path: Path
 ) -> None:
-    done = full_launch(app, ehr)
-    sid = done.cookies.get(smart_routes.COOKIE) or app.cookies.get(smart_routes.COOKIE)
+    full_launch(app, ehr)
+    sid = app.cookies.get(f"__Host-{smart_routes.COOKIE}")
     assert sid
     with AuditStore(tmp_path / "a.db")._db.session(exclusive=False) as db:
         keys = [row["key_sha256"] for row in db.all("SELECT key_sha256 FROM smart_sessions")]

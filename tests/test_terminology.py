@@ -38,12 +38,12 @@ NAME = re.compile(r"^[A-Z][A-Za-z0-9_]{0,254}$")
 PINNED = {
     "0.1.0": {
         "CodeSystem/decision-outcome": "39fd51215c2eb221",
-        "CodeSystem/audit-event": "a8dd1ff314e0ace2",
+        "CodeSystem/audit-event": "d7ed88ca35343047",
         "CodeSystem/sandbox": "8a63d292423bdf66",
         "CodeSystem/message-channel": "0c3b329c01cfcc58",
-        "NamingSystem/decision-id": "f74282944f57d10c",
-        "NamingSystem/input-hash": "cf23f94487b14bdf",
-        "NamingSystem/decision-pack": "fd7cd8bcdf7c302f",
+        "NamingSystem/decision-id": "a3ac1c38e9476b4f",
+        "NamingSystem/input-hash": "fb7c0678a0c9fdbf",
+        "NamingSystem/decision-pack": "677f5f91c8577ec0",
     }
 }
 

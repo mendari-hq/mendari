@@ -25,6 +25,7 @@ from mendari.errors import MendariError
 from mendari.sandbox.fhir_records import SANDBOX_TAG
 
 COOKIE = "mendari_smart"
+LAUNCH = "mendari_launch"  # ties the engine's /smart/launch to its /smart/callback
 _FOCUS = {
     "mendari/patient-inbox-router": "Communication",
     "mendari/referral-router": "ServiceRequest",
@@ -78,16 +79,15 @@ def run(
             params={"iss": iss, "launch": launch_value(patient, provider), "pack": pack_id},
         )
         authorize = _redirect(started, "the engine's launch")
+        # The engine's cookies are Secure and the sandbox runs on plain http, so this script
+        # carries them by hand: first the one that ties the launch to this "browser".
+        binding = _cookie(started, LAUNCH, "launch")
         approved = _redirect(browser.get(authorize), "the launcher's authorize endpoint")
         if not approved.startswith(f"{engine}/smart/callback"):
             raise MendariError(f"the launcher sent the browser to {approved.split('?')[0]}")
-        done = browser.get(approved)
+        done = browser.get(approved, headers={"cookie": binding})
         _redirect(done, "the engine's callback")
-        # The session cookie is Secure; the sandbox runs on plain http, so send it by hand.
-        sid = done.cookies.get(COOKIE)
-        if not sid:
-            raise MendariError("the engine set no session cookie")
-        cookie = {"cookie": f"{COOKIE}={sid}"}
+        cookie = {"cookie": _cookie(done, COOKIE, "session")}
         session = _json(browser.get(f"{engine}/api/smart/session", headers=cookie))
         items = _json(
             browser.get(f"{engine}/api/smart/focus", params={"pack_id": pack_id}, headers=cookie)
@@ -115,6 +115,16 @@ def run(
         "decided": decided,
         "session_ended": not ended["active"],
     }
+
+
+def _cookie(response: httpx.Response, base: str, what: str) -> str:
+    """A `cookie` header with the engine's cookie `base` from `response`: `__Host-<base>`, or
+    the plain name on a local or dotless host (the sandbox's `engine`)."""
+    for name in (f"__Host-{base}", base):
+        value = response.cookies.get(name)
+        if value:
+            return f"{name}={value}"
+    raise MendariError(f"the engine set no {what} cookie")
 
 
 def _redirect(response: httpx.Response, step: str) -> str:

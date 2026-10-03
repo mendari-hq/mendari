@@ -1,0 +1,82 @@
+# Dependabot (docs/security/threat-model.md, E5). Version updates come monthly, grouped, at most
+# three open pull requests per ecosystem: Actions minutes are metered on this private repository
+# and each pull request runs about ten CI jobs. Security updates are not limited or delayed by
+# any of this; the owner turns them on in the repository settings. Dependabot's branches get no
+# Vercel preview (vercel.json, git.deploymentEnabled), so no Neon branch either.
+#
+# A cooldown proposes only versions at least 7 days old, so a release that is withdrawn soon after
+# publication (a hijacked package, a broken tag) is unlikely to reach a pull request. For uv,
+# Actions and npm, minor and patch updates come grouped and a major comes in a pull request of its
+# own, to be read before merging (setup-uv and the artifact actions break between majors).
+# Images in workflow `services:` and `docker run` lines are invisible to Dependabot; they are
+# pinned by digest by hand (tests/test_supply_chain.py; CONTRIBUTING.md says how to bump them).
+version: 2
+updates:
+  - package-ecosystem: uv # pyproject.toml and uv.lock
+    directory: /
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 3
+    groups:
+      python:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions # the SHA pins and their version comments
+    directory: /
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 3
+    groups:
+      actions:
+        update-types: [minor, patch]
+
+  - package-ecosystem: docker # the Dockerfile's base images
+    directory: /
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 3
+    groups:
+      images:
+        patterns: ["*"]
+
+  - package-ecosystem: docker-compose
+    directories: [/, /deploy/onprem]
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 3
+    groups:
+      compose-images:
+        patterns: ["*"]
+
+  - package-ecosystem: npm # the Hub website
+    directory: /hub
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 3
+    groups:
+      hub:
+        update-types: [minor, patch]
+
+  # Swagger UI for /docs/reference, vendored rather than installed: a pull request here changes
+  # package.json and the lockfile only, and CI fails (tests/test_vendor.py) until someone runs
+  # scripts/vendor_docs_ui.py in it, reads the external hosts it reports, and commits the files.
+  - package-ecosystem: npm
+    directory: /src/mendari/dashboard/vendor/swagger-ui
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 3
+    groups:
+      docs-ui:
+        patterns: ["*"]

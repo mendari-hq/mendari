@@ -7,11 +7,17 @@ order). The resources come from the EHR, and the X12 codes the payer needs come 
 or the order. Nothing is filled in: a missing element is an error that names it.
 
 `submit` posts the Bundle to the payer's `Claim/$submit` through the outbound guard (the payer
-must be on `MENDARI_FHIR_ALLOWED_SERVERS`) and reads the decision in the ClaimResponse.
+must be on `MENDARI_FHIR_ALLOWED_SERVERS`) and reads the decision in the ClaimResponse. The
+payer's own words, its authorization number (tied to one patient) and its disposition, are kept
+as a note apart from the audit chain (`payer_note`); the chain keeps the codes, and only codes:
+an outcome that is not one of R4's, or a review action that is not shaped like an X12 306 code,
+is dropped, so a payer's text never reaches the chain.
 """
 
 from __future__ import annotations
 
+import json
+import re
 import uuid
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
@@ -34,6 +40,12 @@ PROFILE = {
     "insurer": f"{PAS}/StructureDefinition/profile-insurer",
     "requestor": f"{PAS}/StructureDefinition/profile-requestor",
 }
+# The longest payer text kept: an authorization number, and a disposition (free text).
+AUTHORIZATION_MAX = 100
+DISPOSITION_MAX = 1000
+# The codes the chain keeps: R4's ClaimResponse.outcome, and the shape of an X12 306 code.
+OUTCOMES = frozenset({"queued", "complete", "error", "partial"})
+REVIEW_ACTION = re.compile(r"[A-Z0-9]{1,3}")
 
 
 class PasError(MendariError):
@@ -178,7 +190,8 @@ def submit(bundle: Mapping[str, Any], payer: str, http: GuardedHttp) -> dict[str
 
 def outcome(answer: Mapping[str, Any]) -> dict[str, Any]:
     """The ClaimResponse in a PAS response Bundle: its outcome, the authorization number, and
-    each item's review action (X12 306: A1 certified, A3 not certified, A4 pended...)."""
+    each item's review action (X12 306: A1 certified, A3 not certified, A4 pended...). An
+    outcome or a review action that is not a code (a payer's mistake) is dropped."""
     entries = [e.get("resource") for e in answer.get("entry") or [] if isinstance(e, Mapping)]
     response = next(
         (r for r in entries if isinstance(r, Mapping) and r.get("resourceType") == "ClaimResponse"),
@@ -194,12 +207,28 @@ def outcome(answer: Mapping[str, Any]) -> dict[str, Any]:
                     for part in extension.get("extension") or []:
                         if part.get("url", "").endswith("extension-reviewActionCode"):
                             actions.append(_code(part.get("valueCodeableConcept"), f"{X12}/306"))
+    code = response.get("outcome")
     return {
-        "outcome": response.get("outcome"),
-        "authorization": response.get("preAuthRef"),
-        "review_actions": [a for a in actions if a],
-        "disposition": response.get("disposition"),
+        "outcome": code if isinstance(code, str) and code in OUTCOMES else None,
+        "authorization": _text(response.get("preAuthRef"), AUTHORIZATION_MAX),
+        "review_actions": [a for a in actions if a and REVIEW_ACTION.fullmatch(a)],
+        "disposition": _text(response.get("disposition"), DISPOSITION_MAX),
     }
+
+
+def payer_note(answer: Mapping[str, Any]) -> str | None:
+    """The payer's words in an answer (`outcome`), as one note (compact, sorted JSON), or None
+    when it gave neither an authorization number nor a disposition."""
+    words = {key: answer.get(key) for key in ("authorization", "disposition")}
+    if not any(words.values()):
+        return None
+    return json.dumps(words, sort_keys=True, separators=(",", ":"))
+
+
+def _text(value: Any, limit: int) -> str | None:
+    """A payer's string, cut to `limit` characters; anything else (a payer's mistake) is
+    dropped rather than kept."""
+    return value[:limit] if isinstance(value, str) and value else None
 
 
 def _code(concept: Any, system: str) -> str | None:

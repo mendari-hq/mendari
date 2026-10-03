@@ -2,6 +2,91 @@
 
 Roadmap to the full goal: [`docs/roadmap.md`](../docs/roadmap.md).
 
+## Built: hardening before PHI, Phase 4b (2026-10-02)
+From the [audit](../docs/fhir-and-docs-audit.md) Phase 4b line, after research (four researchers
+and a critic). The owner chose finite spending ceilings plus per-organization quotas at launch,
+verified emails for people in the chain, and the pilot site's own servers for the first PHI
+([ADR-0005](../docs/decisions/ADR-0005-hardening-before-phi.md)). Built in three lanes
+(`claude/phase-4b` spine, `claude/phase-4b-web`, `claude/phase-4b-notes`), then integrated.
+About 18 days of work.
+- [x] **A. Public surface**: the capability statement reads its version without the chain lock;
+  OIDC discovery cached an hour per issuer; expired session rows purged 100 at a time on an
+  index; public `/api/health` is `{status, version, sign_in}` (details need `read`); a 4 MiB body
+  cap (`MENDARI_MAX_BODY_BYTES`, `413`); `auth.check` off the event loop; `Principal.id`
+  - Deviations: the cap counts every method and sits innermost (Starlette's middleware turns a
+    mid-body 413 into a 400), 64 KiB at least; sessions now store `iss`, and an id_token
+    without `sub` is refused
+- [x] **B. Supply chain**: actions pinned by SHA with `persist-credentials: false`, images by
+  digest, the Docker image installed from `uv.lock`, `.github/dependabot.yml` monthly with no
+  previews for its branches, `tests/test_supply_chain.py`
+  (Deviation: the docs package's npm entry comes with stage C, which adds the package.)
+- [x] **C. Docs page safety**: Swagger UI vendored at a pinned version with license and checksums
+  at `/docs/reference`; `/docs` and `/redoc` redirect there until Phase 5; a CSP and COEP on every
+  response; bearer schemes for keys and tokens in the OpenAPI
+  (Deviation: 5.33.0, not 5.33.1, which was a day old against the 7-day cooldown; the bundle's
+  third-party license file ships too.)
+- [x] **D. Rate limits and quotas**: a GCRA limiter in the database per principal on costly routes and
+  per IP on sign-in and the token endpoint (`MENDARI_RATE_LIMITS` on/log/off), `429` with
+  `Retry-After`; per-organization daily decision quotas (`MENDARI_ORG_DAILY_LIMITS`, evaluations
+  not counted); Vercel firewall rules as a file and runbook; proxy headers for self-hosted
+  - Deviations: overrides follow the mode in the one variable; sign-in counts `/auth/login` and
+    the SMART launch (callbacks left to the edge), SMART decide by a digest of its session;
+    token failures count `invalid_client` only; one firewall rule (`/auth/`, `/smart/`, 120/min)
+- [x] **E. Security log**: JSON lines on stdout from an allow-list of fields, a request id, one
+  access line per API request, security events; no credential, query value, body or case text;
+  no exception messages under `hash` or `encrypt`
+  - Deviations: `count`, `error` and `frames` join the allow-list; FHIR errors carry the id in
+    the header only; the `caplog` test reads stdout now
+- [x] **F. Sessions and identity**: 30 minutes idle, 8 hours at most, roles recomputed per
+  request, `__Host-` names with the old name accepted for one release, sign-in and SMART launch
+  tied to the browser; people chained by verified email, keys as `key <id>`
+  - Deviations: a SMART session also ends with the EHR's token; `next` with a backslash or a
+    control character goes to `/`; health shows `sessions`; open-mode outcomes and revocations
+    stay `open mode`; the dashboard shows a banner and never navigates away on its own
+- [x] **G. Origin checks**: a cross-site or same-site browser request reaches only public and page
+  routes, only to read; HSTS
+  (Deviation: without Fetch Metadata a foreign or `null` Origin limits GET too, not only unsafe
+  methods, and an unknown `Sec-Fetch-Site` counts as cross-site: both fail closed.)
+- [x] **H. Notes out of the chain**: a `notes` table (sealed under `encrypt`, refused under
+  `hash`), a salted commitment in the chain, `note.erased`, PAS payer text sealed, batched
+  `input.read` writes; old chained notes hidden from readers without `read_input`
+  (governance `reference` stays chained, as the critic's stage H left it out)
+- [x] **I. Record hygiene and keyed hash**: evidence dropped under `hash` and sealed under
+  `encrypt`; Patient ids in issues stored as type and position; `MENDARI_INPUT_HASH_KEY` HMAC
+  required in `hash` and `encrypt`
+  (issue labels are positional in every mode, not only PHI ones; the two keys must differ)
+- [x] **Integration**: web and notes lanes merged into the spine; origin refusals logged
+  (`auth.origin.refused`) with a request id; the log's `phi.inputs.read` also counts opened notes,
+  as the chain does; other lanes' tests updated for request ids, chained emails and the input
+  hash key; `run_async` for tests sharing a process with Playwright
+- [x] **K. Wrap-up**: threat model ids made unique and in order (the logs row is I10), SECURITY.md
+  in one order, one go-live checklist with the launch order and a settings table in
+  `deploying-with-phi.md`, README, ADR-0005, the audit's "Status after Phase 4b", the packet
+  for the external review (`docs/security/review-packet.md`)
+- [x] **Review**: five reviewers and a skeptic; 12 findings confirmed (3 medium, 9 low; two found
+  twice), all fixed: CDS order charge, compose proxy trust, sign-in sizing, the daily-limit doc,
+  sign-in on aliases, cookieless logout CSRF, library URL logs, SMART launch log, payer codes
+  only, `decide --db` under the PHI mode
+- At launch (owner), after the external review: Jev 2,000 and LLM 200 a day, 5,000 decisions per organization a day, the
+  firewall rules enforced after 7 days in log mode, then Vercel Authentication lifted
+- Deferred: a PHI keyring and `rekey`, database tables for security events, limits on reads,
+  sealing the EHR token and a Mendari principal for `/api/smart/decide` (before the SMART launch
+  is turned on with sign-in)
+- Next release: stop reading the old cookie names (`mendari_session`, `mendari_smart`) on hosts
+  that use `__Host-` names (`server/sessions.py`)
+
+## Plan: docs experience, Phase 5 (2026-10-02)
+From the audit's "Redesign plan". Branch `claude/phase-5`, after Phase 4b's stages C and G.
+- [ ] **L. Snippets checked in CI**: the quickstart, FHIR and authentication calls as scripts run
+  against a local server in CI, open mode and with a key; README curl blocks equal to them
+- [ ] **M. Landing at `/docs`**: public and static: what Mendari is, the four outcomes, a diagram,
+  a three-call quickstart with copy buttons, FHIR in and out, authentication generated from the
+  route rules, links to the reference and Decision Cards; light and dark from the dashboard's
+  tokens, contrast-tested, keyboard and screen-reader checked, no CSP exemption
+- [ ] **N. Guides and links**: `docs/guides/api.md` in the mkdocs site from the same snippets;
+  README and the OpenAPI description point to `/docs`
+- Deferred: a public demo deployment (a launch decision), theming the mkdocs site
+
 ## Built: authentication and authorization, Phase 4 (2026-10-02)
 From the [audit](../docs/fhir-and-docs-audit.md) Phase 4, after research (three researchers and a
 security-minded critic). The owner chose the token endpoint plus scoped keys, a 30-day expiry for

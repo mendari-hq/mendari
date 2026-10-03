@@ -58,11 +58,13 @@ def discover(iss: str, http: GuardedHttp) -> dict[str, Any]:
     config = http.get_json(f"{iss.rstrip('/')}/.well-known/smart-configuration")
     for key in ("authorization_endpoint", "token_endpoint"):
         if not isinstance(config.get(key), str):
-            raise SmartError(f"the SMART configuration has no {key}")
+            raise SmartError(f"the SMART configuration has no {key}", reason="configuration")
         http.check(config[key])  # every endpoint on the allow-list, not just the FHIR base
     methods = config.get("code_challenge_methods_supported")
     if methods is not None and "S256" not in methods:
-        raise SmartError("the authorization server does not support PKCE with S256")
+        raise SmartError(
+            "the authorization server does not support PKCE with S256", reason="configuration"
+        )
     if config.get("jwks_uri"):
         http.check(config["jwks_uri"])
     return config
@@ -125,15 +127,17 @@ def complete(
     try:
         token = http.post_form(pending["token_endpoint"], form, headers)
     except FhirError as error:
-        raise SmartError(f"the token exchange failed: {error}") from None
+        raise SmartError(f"the token exchange failed: {error}", reason="token") from None
     if str(token.get("token_type", "")).lower() != "bearer" or not token.get("access_token"):
-        raise SmartError("the token response has no Bearer access token")
+        raise SmartError("the token response has no Bearer access token", reason="token")
     if not isinstance(token.get("patient"), str):
-        raise SmartError("the EHR did not send a patient with the launch")
+        raise SmartError("the EHR did not send a patient with the launch", reason="no_patient")
     user = None
     if "openid" in str(pending["scopes"]).split():
         if not token.get("id_token"):
-            raise SmartError("openid was requested but the token response has no id_token")
+            raise SmartError(
+                "openid was requested but the token response has no id_token", reason="id_token"
+            )
         claims = verify_id_token(str(token["id_token"]), pending, settings, http)
         user = claims.get("fhirUser") or claims.get("profile")
     expires_in = token.get("expires_in")
@@ -153,7 +157,9 @@ def verify_id_token(
     id_token: str, pending: Mapping[str, Any], settings: SmartSettings, http: GuardedHttp
 ) -> dict[str, Any]:
     if not pending.get("jwks_uri"):
-        raise SmartError("the SMART configuration has no jwks_uri to verify the id_token")
+        raise SmartError(
+            "the SMART configuration has no jwks_uri to verify the id_token", reason="id_token"
+        )
     try:
         return oidc.verify_id_token(
             id_token,
@@ -164,4 +170,6 @@ def verify_id_token(
             http=http,
         )
     except AuthError as error:
-        raise SmartError(str(error).replace("this sign-in", "this launch")) from None
+        raise SmartError(
+            str(error).replace("this sign-in", "this launch"), reason="id_token"
+        ) from None
