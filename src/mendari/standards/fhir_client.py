@@ -241,6 +241,15 @@ def _oauth(body: bytes) -> str:
     return f" ({code})" if isinstance(code, str) and re.fullmatch(r"[a-z_]{1,40}", code) else ""
 
 
+def origin_of(url: str) -> str | None:
+    """`scheme://host[:port]` as the allow-list compares origins (the host in lower case, the
+    port as written), or None for anything else, a port that is not a number included."""
+    try:
+        return _origin(url)
+    except ValueError:
+        return None
+
+
 def _origin(url: str) -> str | None:
     parts = urlsplit(url.strip())
     if parts.scheme not in ("https", "http") or not parts.hostname:

@@ -90,7 +90,8 @@ def test_a_launch_session_row_holds_nothing_readable(
     assert full_launch(app, ehr).status_code == 302
     [row] = raw_rows(db_target, "session")
     assert_sealed(row["data"])
-    for readable in ("access-0", "ref-p1", "enc-1", "Practitioner", "ehr.example.org", "refresh"):
+    readables = ("access-0", "ref-p1", "enc-1", "Practitioner", "ehr.example.org", "refresh")
+    for readable in (*readables, "clinician-1"):  # who launched is sealed too (ADR-0006)
         assert readable not in row["data"], readable
     # The session works, and what it keeps opens only with the browser's cookie.
     assert app.get("/api/smart/session").json()["patient"] == "ref-p1"
@@ -103,8 +104,9 @@ def test_a_launch_session_row_holds_nothing_readable(
     assert "refresh_token" not in kept and "id_token" not in kept
     assert set(kept) == {
         *("iss", "access_token", "scope", "patient", "encounter", "fhir_user", "expires_at"),
-        *("pack", "v", "absolute_at"),
+        *("pack", "v", "absolute_at", "identity", "actor"),
     }
+    assert kept["identity"] == {"iss": ISS, "sub": "clinician-1"}  # no email kept
 
 
 def test_a_pending_launch_row_holds_no_readable_verifier_or_state(

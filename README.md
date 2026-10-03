@@ -364,9 +364,24 @@ is refused.
 
 **SMART on FHIR EHR launch.** Register `https://<mendari>/smart/launch?pack=<pack id>` as
 the app's launch URL and `https://<mendari>/smart/callback` as its redirect URI in the EHR.
-Then set `MENDARI_SMART_CLIENT_ID`, `MENDARI_SMART_CLIENT_SECRET` (for a confidential
-client), `MENDARI_PUBLIC_URL`, and put the EHR's FHIR server and authorization server on
-`MENDARI_FHIR_ALLOWED_SERVERS`.
+Then set `MENDARI_PUBLIC_URL`, put the EHR's FHIR server and authorization server on
+`MENDARI_FHIR_ALLOWED_SERVERS`, and:
+
+| Setting | Effect |
+|---|---|
+| `MENDARI_SMART_CLIENT_ID` | The app's client id at the EHR; the launch is off until it is set |
+| `MENDARI_SMART_CLIENT_SECRET` | For a confidential client |
+| `MENDARI_SMART_SCOPES` | Default `launch openid fhirUser patient/*.rs`; with sign-in on it must ask for `openid fhirUser`, and `offline_access` is always refused (at the launch, never at startup) |
+| `MENDARI_SMART_EHRS` | The EHRs that may launch, `<FHIR base>=<organization>:view` or `:decide`, comma-separated (the base as the EHR sends it in `iss`; two tenants on one host are two entries). With sign-in on, a launch is a principal of its EHR's organization that may view the patient, or view and decide; a launch from any other EHR, or by a user who is not a Practitioner or PractitionerRole, is refused. Unset with sign-in on: every launch is refused. A malformed value, or a base off the allow-list, fails at startup |
+
+With sign-in on, the EHR's verified sign-in names the clinician (the chain's name: their
+verified email, else `<issuer>|<subject>`), and the launch's cookie reaches only the launch's
+own routes (an `Authorization` header decides alone there too): no review queue, audit trail
+or packs. Unregistering an EHR ends its launches at the next request, and signing out of
+Mendari ends the browser's launch. In open mode with no EHR registered, any allow-listed EHR
+launches, as before. (With sign-in on, the dashboard's view for a browser that only launched
+comes with the next stage of the SMART launch plan; until then such a browser uses the routes
+below.)
 
 The launch is OAuth 2 with PKCE (S256). The `id_token` is verified against the server's JWKS
 (`iss`, `aud`, `exp`, `nonce`). The access token stays on the server, sealed in the session

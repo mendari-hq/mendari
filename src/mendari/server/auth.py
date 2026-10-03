@@ -28,10 +28,20 @@ server is open, as before (production sits behind Vercel Authentication). When c
   (`server/backend_services.py`): a registered client exchanges a signed assertion for a
   five-minute access token (`Bearer mat_...`). Each request reads the client's current role,
   scopes, organization and revocation; a token reaches only the routes its scopes name.
+- **Clinicians launched from an EHR** (SMART on FHIR, `server/smart_routes.py`, ADR-0006) are
+  principals of kind `ehr`: the EHR's verified id_token names them (`ehr:<hash>` of its issuer
+  and subject; the chain's name for them is a verified email, else `<issuer>|<subject>`), and
+  the organization and level (`view` or `decide`) are the EHR's registration
+  (`MENDARI_SMART_EHRS`), read on every request, so unregistering an EHR ends its launches at
+  once. They hold two permissions of their own and nothing else: `launch` (the launch's
+  patient and the items to decide about) and, registered to decide, `launch_decide`. No other
+  principal holds either. Their credential is the launch cookie, and only on `/api/smart/`
+  (and the dashboard page, `/`): anywhere else it is not a credential.
 - **An `Authorization` header decides alone** (ADR-0004): with one there is no fallback to the
-  session cookie. The scheme is `Bearer` (any case), and the credential's prefix says what it is:
-  `ohk_` a key, `mat_` an access token (refused unless Backend Services is on); anything else
-  is refused. A credential is never accepted in a URL or a form (`access_token`).
+  session cookie, nor to the launch cookie. The scheme is `Bearer` (any case), and the
+  credential's prefix says what it is: `ohk_` a key, `mat_` an access token (refused unless
+  Backend Services is on); anything else is refused. A credential is never accepted in a URL or
+  a form (`access_token`).
 - **Every route has a permission**, and anything not listed needs `admin` (deny by default).
   Managing keys and clients (`keys`) is for people who signed in, never for a key or token,
   whatever its role: a stolen credential must not mint one that outlives it.
@@ -43,6 +53,7 @@ server is open, as before (production sits behind Vercel Authentication). When c
 | service (machines) | read, decide, record outcomes |
 | governance | read, approve automation |
 | admin | everything, including evaluations, exports and (people only) API keys |
+| an EHR launch (`ehr`, not a role) | `launch`; registered to decide, also `launch_decide` |
 """
 
 from __future__ import annotations
@@ -66,8 +77,9 @@ from mendari.core.audit import KEY_DAYS, KEY_MAX_DAYS, MACHINE_ROLES, AuditStore
 from mendari.errors import AuthError, FhirError, MendariError, ScopeError
 from mendari.server import scopes, security_log, sessions
 from mendari.server.scopes import Grant
-from mendari.standards import oidc
+from mendari.standards import oidc, smart
 from mendari.standards.fhir_client import GuardedHttp, allowed_servers
+from mendari.standards.smart import Registration
 
 COOKIE = sessions.SESSION  # `__Host-mendari_session` except on local hosts (server/sessions.py)
 REALM = "mendari"
@@ -95,6 +107,14 @@ PERMISSIONS: dict[str, frozenset[str]] = {
 }
 # Permissions only a person who signed in holds, whatever a key's (or a token's) role says.
 PEOPLE_ONLY = frozenset({"keys"})
+# What an EHR launch may do, by its EHR's registered level; no other principal holds these (the
+# mirror of PEOPLE_ONLY), and an EHR launch holds nothing else.
+EHR_LEVELS: dict[str, frozenset[str]] = {
+    "view": frozenset({"launch"}),
+    "decide": frozenset({"launch", "launch_decide"}),
+}
+EHR_ONLY = frozenset({"launch", "launch_decide"})
+LAUNCH_PATH = "/api/smart/"  # where the launch cookie is a credential (and on the page, `/`)
 # One refusal for a scoped credential outside its scopes (the challenge names the scope needed).
 OUT_OF_SCOPE = "this credential's scopes do not cover this request"
 DEFAULT_ORG = "default"
@@ -106,7 +126,13 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         ("GET", r"^/api/health$", "public"),
         ("GET", r"^/api/auth/me$", "public"),
         ("*", r"^/auth/", "public"),
-        ("*", r"^/(smart|api/smart)/", "public"),  # SMART launches carry their own session
+        # The EHR launch and its callback; the launch's context (`{"active": false}` without
+        # one) and ending it. The launch's own routes need an EHR launch (`ehr` principals).
+        ("*", r"^/smart/", "public"),
+        ("GET", r"^/api/smart/session$", "public"),
+        ("POST", r"^/api/smart/logout$", "public"),
+        ("GET", r"^/api/smart/(patient|focus)$", "launch"),
+        ("POST", r"^/api/smart/decide$", "launch_decide"),
         ("GET", r"^/(static/.*|favicon\.ico)$", "public"),
         ("GET", r"^/$", "page"),
         # The developer landing (static, the same for every deployment of a release) and a
@@ -194,18 +220,21 @@ def auth_settings() -> AuthSettings | None:
 
 @dataclass(frozen=True)
 class Principal:
-    kind: str  # "open", "user", "key" or "client" (an access token's)
+    kind: str  # "open", "user", "key", "client" (an access token's) or "ehr" (an EHR launch)
     name: str
     # Stable and opaque, for counting and logging per principal: `user:<16 hex>` (person_id),
-    # `key:<key id>`, `client:<client id>` or `open`. Never a secret, a name or an email.
+    # `key:<key id>`, `client:<client id>`, `ehr:<16 hex>` (ehr_id) or `open`. Never a secret,
+    # a name or an email.
     id: str = field(kw_only=True)
     # Who the audit chain records (reviewer, reporter, approver, reader, creator): a person's
-    # verified email or `<issuer>|<subject>` (chain_name), `key <id>`, `client <id>`. Permanent.
+    # verified email or `<issuer>|<subject>` (chain_name; an EHR launch's user likewise, by the
+    # EHR's issuer), `key <id>`, `client <id>`. Permanent.
     actor: str = field(kw_only=True)
     roles: frozenset[str] = field(default_factory=frozenset)
     org: str = DEFAULT_ORG
     grant: Grant | None = None  # a credential's scopes; None: the role's permissions, unnarrowed
     expires_at: str | None = None  # a key's or an access token's expiry
+    level: str | None = None  # an EHR launch's registered level (`view` or `decide`); no role
 
     def may(self, permission: str) -> bool:
         if self.kind == "open":
@@ -213,8 +242,12 @@ class Principal:
         return permission in self.permissions()
 
     def role_permissions(self) -> frozenset[str]:
-        """What the roles grant; for a key (or a token), never a people-only permission."""
+        """What the roles grant; for a key (or a token), never a people-only permission. An EHR
+        launch has its level's permissions only, and nobody else ever has those."""
+        if self.kind == "ehr":
+            return EHR_LEVELS.get(self.level or "", frozenset())
         granted = frozenset().union(*(PERMISSIONS.get(role, frozenset()) for role in self.roles))
+        granted -= EHR_ONLY
         return granted if self.kind in ("user", "open") else granted - PEOPLE_ONLY
 
     def permissions(self) -> frozenset[str]:
@@ -234,7 +267,18 @@ class Principal:
         if self.kind in ("key", "client"):
             scope = None if self.grant is None else self.grant.scope
             shown |= {"scope": scope, "expires_at": self.expires_at}
+        if self.kind == "ehr":
+            shown["level"] = self.level
         return shown
+
+
+@dataclass(frozen=True)
+class Launch:
+    """An EHR launch this request's launch cookie names: its session (the sealed row's data:
+    the EHR's token, the patient, who launched) and, with sign-in on, its `ehr` principal."""
+
+    session: dict[str, Any]
+    principal: Principal | None
 
 
 OPEN = Principal(
@@ -247,6 +291,13 @@ def person_id(issuer: str, subject: str) -> str:
     stable and unique only together with the issuer, hashed so it names nobody."""
     digest = hashlib.sha256(f"{issuer}|{subject}".encode()).hexdigest()
     return f"user:{digest[:16]}"
+
+
+def ehr_id(issuer: str, subject: str) -> str:
+    """An EHR launch's `Principal.id`: the user's subject at the EHR's identity provider, with
+    its issuer (the verified id_token's `iss`), hashed so it names nobody."""
+    digest = hashlib.sha256(f"{issuer}|{subject}".encode()).hexdigest()
+    return f"ehr:{digest[:16]}"
 
 
 def chain_name(issuer: str, claims: Mapping[str, Any]) -> str:
@@ -298,7 +349,8 @@ def refused_credential(reason: str, error: AuthError | None = None) -> AuthError
     """`error` (by default the one `invalid_token` answer), with the reason the caller is not
     told in the security log: `malformed`, `unknown_prefix`, `key` (unknown, revoked and expired
     alike, as the lookup finds none of them), `key_scope`, `token`, `token_scope`, `scheme`,
-    `headers`, `in_url_or_form`."""
+    `headers`, `in_url_or_form`. (An EHR launch whose EHR is no longer registered is logged
+    with `unregistered`, `Auth.launch`.)"""
     security_log.event("auth.credential.refused", outcome="refused", reason=reason)
     return error or invalid_token()
 
@@ -377,12 +429,15 @@ class Auth:
         *,
         tokens: bool = False,
         lifetime: sessions.Lifetime | None = None,
+        ehrs: Mapping[str, Registration] | None = None,
     ):
         self.settings = settings
         self.store = store
         self.tokens = tokens  # SMART Backend Services is on: access tokens are looked up
         self.lifetime = lifetime or sessions.Lifetime()  # idle and absolute session expiry
         self.discovery = oidc.Discovery()  # the identity provider's configuration, for an hour
+        # The registered EHRs (`MENDARI_SMART_EHRS`) when the SMART launch is on; None when off.
+        self.ehrs = None if ehrs is None else dict(ehrs)
 
     @property
     def enabled(self) -> bool:
@@ -398,12 +453,73 @@ class Auth:
     def authenticate(self, request: Request) -> Principal | None:
         """The request's principal; None when it carries no credential at all. An
         `Authorization` header decides alone: a credential in it that is not valid is an
-        `AuthError` (401), never a fall back to the session cookie."""
+        `AuthError` (401), never a fall back to a cookie. Without one, the launch cookie is the
+        credential on `/api/smart/` (never the person's session there), and the dashboard page
+        (`/`) takes a launch when no one is signed in."""
         if self.settings is None:
             return OPEN
         headers = request.headers.getlist("authorization")
         if headers:
             return self._bearer(headers)
+        path = request.url.path
+        if path.startswith(LAUNCH_PATH):
+            return self._launched(request)
+        person = self._person(request)
+        if person is None and path == "/":
+            return self._launched(request)
+        return person
+
+    def _launched(self, request: Request) -> Principal | None:
+        launch = self.launch(request)
+        return None if launch is None else launch.principal
+
+    def launch(self, request: Request) -> Launch | None:
+        """The EHR launch this request's launch cookie names, once per request (`/api/smart/*`
+        and the guard share it); None for none: SMART off, no cookie or an ended launch, an
+        `Authorization` header with sign-in on (it decides alone), and, with sign-in on or with
+        EHRs registered, a launch whose EHR is not registered (now) or, with sign-in on, that
+        names no one (a launch from before registration)."""
+        if self.ehrs is None:
+            return None
+        cached: Launch | bool | None = getattr(request.state, "launch", False)
+        if cached is not False:
+            return cached if isinstance(cached, Launch) else None
+        found = self._resolve(request)
+        request.state.launch = found
+        return found
+
+    def _resolve(self, request: Request) -> Launch | None:
+        assert self.ehrs is not None
+        if self.enabled and request.headers.getlist("authorization"):
+            return None
+        session, _ = sessions.resume(self.store, request, sessions.SMART, "session", self.lifetime)
+        if session is None:
+            return None
+        if not self.enabled and not self.ehrs:
+            return Launch(session, None)  # open mode, no registrations: as before
+        registered = smart.registration(self.ehrs, str(session.get("iss", "")))
+        if registered is None:
+            security_log.event("auth.credential.refused", outcome="refused", reason="unregistered")
+            return None
+        if not self.enabled:
+            return Launch(session, None)  # open mode: the registration gates the launch only
+        identity = session.get("identity")
+        actor = session.get("actor")
+        if not isinstance(identity, dict) or not isinstance(actor, str):
+            return None  # from before launches named who launched: launch again
+        principal = Principal(
+            kind="ehr",
+            name=str(session.get("fhir_user") or "EHR user"),
+            id=ehr_id(str(identity["iss"]), str(identity["sub"])),
+            actor=actor,
+            org=registered.org,
+            level=registered.level,
+        )
+        return Launch(session, principal)
+
+    def _person(self, request: Request) -> Principal | None:
+        """A person signed in, by the session cookie; None for none."""
+        assert self.settings is not None
         session, sent = sessions.resume(self.store, request, COOKIE, "user", self.lifetime)
         if session is None:
             if sent:  # ended, expired or never made: a dashboard left open, or a guess
@@ -510,13 +626,27 @@ class Auth:
             _within_scope(principal, request.method, request.url.path)
             return None
         if principal is None:
+            if permission in EHR_ONLY:
+                ended = "no EHR launch here: open Mendari again from the EHR"
+                raise AuthError(ended, 401, challenge=challenge())
             raise AuthError("sign in first, or send an API key", 401, challenge=challenge())
         if permission not in principal.role_permissions():
             refused = challenge("insufficient_scope")
             if permission in PEOPLE_ONLY and principal.kind != "user":
                 _refused_permission(principal, "people_only")
                 raise AuthError("only a person who signed in may do this", 403, challenge=refused)
+            if permission in EHR_ONLY and principal.kind != "ehr":
+                _refused_permission(principal, "ehr_only")
+                raise AuthError(
+                    "only a launch from an EHR may do this: open Mendari from the EHR",
+                    403,
+                    challenge=refused,
+                )
             _refused_permission(principal, permission)
+            if principal.kind == "ehr":
+                raise AuthError(
+                    "this EHR is registered here to view, not to decide", 403, challenge=refused
+                )
             raise AuthError(f"your role may not {permission} here", 403, challenge=refused)
         _within_scope(principal, request.method, request.url.path)
         if not principal.may(permission):  # implied by the scope check: fail closed if not
@@ -699,12 +829,18 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
 
     @app.post("/auth/logout", include_in_schema=False)
     def logout(request: Request) -> Response:
+        """Sign out, and end this browser's EHR launch too (a shared workstation)."""
         sid, _ = sessions.read(request, COOKIE)
+        launch, _ = sessions.read(request, sessions.SMART)
         if sid:
             store.smart_delete(sid, "user")
             security_log.event("auth.logout")
+        if launch:
+            store.smart_delete(launch, "session")
         response = Response(status_code=204)
         sessions.clear_cookie(response, request, COOKIE)
+        if launch:
+            sessions.clear_cookie(response, request, sessions.SMART)
         return response
 
     @app.get(

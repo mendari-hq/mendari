@@ -45,7 +45,8 @@ ALIAS = "https://alias.example.org"  # MENDARI_TRUSTED_ORIGINS
 COOKIE = {"cookie": "mendari_session=anything"}
 
 # Every route another site's request may reach (with GET): the public routes and the pages. A
-# link to anything else, the API's reads included, is refused.
+# link to anything else, the API's reads included, is refused: an EHR launch's patient and
+# items to decide about too (they need the launch, `launch`, since ADR-0006).
 NAVIGABLE = {
     "/",
     "/docs",
@@ -59,8 +60,6 @@ NAVIGABLE = {
     "/api/health",
     "/api/auth/me",
     "/api/smart/session",
-    "/api/smart/patient",
-    "/api/smart/focus",
     "/fhir/metadata",
     "/fhir/OperationDefinition/{resource_id}",
     "/fhir/.well-known/smart-configuration",

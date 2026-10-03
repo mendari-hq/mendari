@@ -26,7 +26,7 @@ from urllib.parse import quote
 
 from mendari.core.audit import KEY_DAYS, KEY_MAX_DAYS
 from mendari.server import api_docs, scopes, sessions, snippets
-from mendari.server.auth import PEOPLE_ONLY, PERMISSIONS, ROLES
+from mendari.server.auth import EHR_ONLY, PEOPLE_ONLY, PERMISSIONS, ROLES
 
 _MARKER = re.compile(r"<!-- landing:([a-z-]+) -->")
 
@@ -51,6 +51,8 @@ _SETUP = (
 _ORDER = (
     "public",
     "page",
+    "launch",
+    "launch_decide",
     "read",
     "decide",
     "outcome",
@@ -63,6 +65,9 @@ _ORDER = (
 _WHO = {
     "public": "anyone, with no credential",
     "page": "anyone signed in (a browser that is not is sent to sign in)",
+    "launch": "an EHR launch from an EHR registered here: never a person's session, a key or a "
+    "token",
+    "launch_decide": "an EHR launch from an EHR registered here to decide",
 }
 _LISTED = 8  # a row with more calls than this folds them away
 
@@ -90,7 +95,7 @@ def page(
             "setup": _code("code-setup", _SETUP, "name the server and your key"),
             "quickstart": _steps("quickstart"),
             "fhir": _steps("fhir"),
-            "smart": _smart(smart_launch),
+            "smart": _smart(smart_launch, sign_in=sign_in),
             "auth": _auth(sign_in, token_url),
             "auth-steps": _steps("auth"),
             "auth-table": _auth_table(routes, permission_for, sign_in=sign_in),
@@ -164,12 +169,21 @@ def _steps(file: str) -> str:
     return "".join(items)
 
 
-def _smart(launch: bool) -> str:
+def _smart(launch: bool, *, sign_in: bool) -> str:
     if launch:
+        then = (
+            " Only an EHR the deployment registers (<code>MENDARI_SMART_EHRS</code>) may launch "
+            "it, for a practitioner the EHR's sign-in names: the launch may view that patient's "
+            "work (<code>/api/smart/patient</code>, <code>/api/smart/focus</code>), or also "
+            "decide it (<code>/api/smart/decide</code>), as registered, and its decisions are the "
+            "registered organization's."
+            if sign_in
+            else " It opens the dashboard on that patient's work."
+        )
         return (
             "<p>Mendari runs as a SMART app launched from an EHR: register <code>/smart/launch"
             "</code> on this server as the app's launch URL. The launch reads the patient's record "
-            "with the EHR's own authorization and opens the dashboard on that patient's work.</p>"
+            f"with the EHR's own authorization.{then}</p>"
         )
     return (
         "<p>The SMART launch from an EHR is off here (it needs "
@@ -259,7 +273,7 @@ def _rank(permission: str) -> tuple[int, str]:
 
 def _scope(method: str, path: str, permission: str) -> str:
     """What a scoped key or token needs for the call (`server/scopes.py`)."""
-    if permission in ("public", "page") or permission in PEOPLE_ONLY:
+    if permission in ("public", "page") or permission in PEOPLE_ONLY | EHR_ONLY:
         return ""
     needed = scopes.needed(method, path)
     if needed is None:

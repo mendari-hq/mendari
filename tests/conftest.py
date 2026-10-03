@@ -157,3 +157,32 @@ def signed_in(
     )
     store.smart_put(sid, "user", session, expires_at)
     return {"cookie": f"{sessions.cookie_name(sessions.SESSION, host)}={sid}"}
+
+
+def launched(
+    store: AuditStore,
+    *,
+    iss: str = "https://ehr.example.org/fhir",
+    sub: str = "clinician-1",
+    host: str = "mendari.test",
+) -> dict[str, str]:
+    """Request headers for a browser an EHR launched (from the FHIR base `iss`, by the user
+    `sub` at that EHR): a session row as `/smart/callback` makes one, with who launched, under
+    the launch cookie's name on `host`. No request is ever made with its token."""
+    sid = secrets.token_urlsafe(32)
+    now = int(time.time())
+    row = {
+        "iss": iss,
+        "access_token": f"access-{sid[:8]}",
+        "scope": "launch openid fhirUser patient/*.rs",
+        "patient": "ref-p1",
+        "encounter": None,
+        "fhir_user": "Practitioner/pr-1",
+        "expires_at": now + 3600,
+        "pack": "mendari/referral-router",
+        "identity": {"iss": iss, "sub": sub},
+        "actor": f"{iss}|{sub}",
+    }
+    session, expires_at = sessions.begin(row, now, sessions.Lifetime(), ends_by=now + 3600)
+    store.smart_put(sid, "session", session, expires_at)
+    return {"cookie": f"{sessions.cookie_name(sessions.SMART, host)}={sid}"}

@@ -48,13 +48,17 @@ Paths under `src/mendari/` are given without that prefix.
 
 Who can call what: with sign-in on, every route has a permission (`auth._RULES`), anything
 unlisted needs `admin`, and a few routes are public: `/api/health` (three fields),
-`/api/auth/me`, `/auth/*` (sign-in, callback, logout, the token endpoint), `/smart/*` and
-`/api/smart/*` (the SMART launch), static files, `/docs` (the developer landing of Phase 5:
+`/api/auth/me`, `/auth/*` (sign-in, callback, logout, the token endpoint), `/smart/*` (the
+SMART launch and its callback), `GET /api/smart/session` and `POST /api/smart/logout`, static files, `/docs` (the developer landing of Phase 5:
 built once at startup from settings and the example scripts, the same for every request, listing
 no pack, provider, count or record with sign-in on), the `/redoc` redirect, and
 `/fhir/metadata`, OperationDefinitions and the SMART configuration. The dashboard (`/`) and
 `/docs/reference` are pages: a signed-out browser is sent to sign in. Roles are `viewer`, `reviewer`, `service`, `governance` and
-`admin`. Machines are `viewer` or `service` only; managing keys and clients is for signed-in
+`admin`. A clinician launched from a registered EHR is a principal of kind `ehr`, with no role:
+it holds only `launch` (`GET /api/smart/patient`, `/focus`) and, registered to decide,
+`launch_decide` (`POST /api/smart/decide`), which nobody else holds (threat E7,
+[ADR-0006](../decisions/ADR-0006-an-ehr-launch-is-a-principal.md)); the dashboard page also
+opens for it. Machines are `viewer` or `service` only; managing keys and clients is for signed-in
 people only. Without sign-in (open mode) every caller is an admin: that mode is for local use
 and the sandbox.
 
@@ -162,12 +166,15 @@ Stop with Ctrl-C and `docker stop mendari-review-idp`. Both paths above were run
 ## Known residual risks and deferred items
 
 From the threat model's residual risks, and the plan's deferred list:
-- **The SMART launch is a second authenticator.** `/smart/*` and `/api/smart/*` are public and
-  trust their own cookie: a launch reads the EHR's data and decides with no Mendari principal
-  (its decisions go to the default organization). The launch is off unless configured, and this
-  is to be fixed before it is turned on anywhere with sign-in. Its rows (the EHR's access token,
-  the patient, the PKCE verifier) are now sealed at rest under the browser's own cookie (threat
-  I11). We would like your view on the design
+- **An EHR launch trusts the EHR's sign-in.** With sign-in on, a launch is now a principal of
+  the organization its EHR is registered to (`MENDARI_SMART_EHRS`), named by the EHR's verified
+  id_token, that may view the patient or also decide, and nothing else (threat E7); unregistered
+  EHRs and users who are not practitioners are refused at the launch. Its rows (the EHR's access
+  token, the patient, who launched, the PKCE verifier) are sealed at rest under the browser's
+  own cookie (threat I11). A site must register only EHRs whose sign-in it trusts; one FHIR base
+  for several organizations is not supported. The chain does not yet name who asked for a
+  decision, and the dashboard has no view for a browser that only launched (stages 3 and 4 of
+  the plan). The launch is off unless configured. We would like your view on the design
   ([ADR-0006](../decisions/ADR-0006-an-ehr-launch-is-a-principal.md)).
 - **The old cookie names** (`mendari_session`, `mendari_smart`) are still read on hosts that use
   `__Host-` names, for sessions from before Phase 4b only; the next release stops.

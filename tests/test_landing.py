@@ -146,6 +146,10 @@ def test_the_table_of_what_each_call_needs_is_the_route_rules(
     assert _table(text) == expected
     decide = re.search(r"<li><code>POST /fhir/\$decide</code>(.*?)</li>", text)
     assert decide and scopes.DECIDE in decide[1]
+    # An EHR launch's own routes: who holds them, and no scoped key's note (ADR-0006).
+    launch = re.search(r'<tr data-permission="launch_decide">(.*?)</tr>', text, re.S)
+    assert launch and "registered here to decide" in launch[1]
+    assert "<code>POST /api/smart/decide</code></li>" in launch[1]
     if mode == "backend services":
         assert ("POST", "/auth/token") in expected
         assert f"<code>POST {PUBLIC_URL}/auth/token</code>" in text
@@ -160,6 +164,11 @@ def test_the_smart_launch_is_described_as_it_is(
     on = TestClient(create_app(db_path=tmp_path / "b.db")).get("/docs").text
     assert "register <code>/smart/launch</code>" in on
     assert "The SMART launch from an EHR is off here" not in on
+    assert "MENDARI_SMART_EHRS" not in on  # open mode: any allow-listed EHR launches
+    assert "opens the dashboard on that patient's work" in on
+    _sign_in_on(monkeypatch)
+    signed = TestClient(create_app(db_path=tmp_path / "c.db")).get("/docs").text
+    assert "Only an EHR the deployment registers (<code>MENDARI_SMART_EHRS</code>)" in signed
 
 
 def test_the_quickstart_prints_what_the_server_decides(client: TestClient) -> None:

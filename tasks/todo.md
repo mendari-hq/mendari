@@ -13,11 +13,14 @@ registered EHR; no iframe and no refresh until the pilot EHR is known
   launch; an EHR 401 ends it; token syntax checked; `offline_access` refused
   (Deviation: a take of a sealed row that will not open raises `SealError` rather than reading
   as absent, so the callback can tell `browser` from `state_unknown`; the row is deleted alike.)
-- [ ] **2. The launch is a principal (C5)**: `MENDARI_SMART_EHRS` registration (FHIR base to
+- [x] **2. The launch is a principal (C5)**: `MENDARI_SMART_EHRS` registration (FHIR base to
   organization and `view` or `decide`); with sign-in on, unregistered bases, missing
   `openid fhirUser`, and patient or related-person users refused at launch; `ehr` principals with
   two permissions of their own; a bearer header decides alone on `/api/smart/*`; signing out ends
   the launch; limits per principal
+  (Deviation: a person's session alone on a launch route is a `401`, not a `403`: the launch
+  cookie is the only credential there. Signed-in `/api/health` lists only the caller's
+  organization's registrations, every one in open mode.)
 - [ ] **3. The chain names who asked**: `requested_by` on new `decision.created` events for every
   principal with sign-in on; the FHIR requestor agent; validator sample
 - [ ] **4. The dashboard for a launch**: patient view only, decision inline, "open Mendari again

@@ -167,6 +167,36 @@ may manage keys. Replace them with `viewer` or `service` keys, with scopes, befo
 and revoke any you no longer need now. A key written by an older instance still running during
 the rollout has no expiry and is refused until the next start gives it one.
 
+**EHR launches (SMART on FHIR, optional, off by default).** With sign-in on, a clinician the
+EHR launches Mendari for is named by the EHR's own sign-in, in the organization you register
+for that EHR's FHIR base, and may view the patient, or view and decide, as you register it:
+
+```bash
+MENDARI_SMART_CLIENT_ID=<the client id the EHR gave Mendari>
+MENDARI_FHIR_ALLOWED_SERVERS=https://ehr.example.org
+MENDARI_SMART_EHRS=https://ehr.example.org/fhir/r4=clinic:decide   # <FHIR base>=<org>:<view|decide>
+```
+
+- **Register the base exactly as the EHR sends it** in the launch's `iss` (scheme and host in
+  any case, a trailing slash ignored, the path as it is). Two tenants on one EHR host are two
+  bases, so two organizations; one base serving several organizations is not supported.
+  Register only an EHR whose sign-in you trust: its id_token is what names the clinician.
+- **What is refused, at the launch, never at startup:** a base not registered (before anything
+  is sent to it), scopes without `openid fhirUser` in `MENDARI_SMART_SCOPES` (the default has
+  both), an id_token without a subject, and a user who is not a Practitioner or
+  PractitionerRole (a patient portal's). The security log says which (`smart.launch.refused`,
+  reason `unregistered`, `configuration`, `id_token` or `user_type`). Only a malformed
+  `MENDARI_SMART_EHRS`, or a base whose origin is not on `MENDARI_FHIR_ALLOWED_SERVERS`, stops
+  the server.
+- **A launch reaches only its own routes** (the patient, the items to decide about, and
+  deciding when registered to), never the review queue, the audit trail or packs, and its
+  decisions are the registered organization's, limited per launched clinician. Your reviewers
+  read them in the audit trail as usual.
+- **The registration is read on every request**: take an EHR out of `MENDARI_SMART_EHRS` (or
+  register it to `view`) and redeploy, and its launches lose that access on the next request.
+  Signing out of Mendari ends the browser's launch too.
+- Signed in, `/api/health` lists your organization's registrations (`smart_ehrs`).
+
 **SMART Backend Services (optional, off by default).** For an EHR, an integration engine or a
 Da Vinci client that expects SMART Backend Services instead of an API key, turn on Mendari's
 own token endpoint. It needs sign-in (above) and the public URL, or the server refuses to start:
@@ -472,6 +502,8 @@ startup, so a typo never runs with a weaker setting.
 | `MENDARI_SESSION_IDLE_MINUTES` | 30 (5 to 120) | A session ends after this long without a request | 2 |
 | `MENDARI_SESSION_MAX_HOURS` | 8 (1 to 12) | ...and this long after signing in | 2 |
 | `MENDARI_TRUSTED_ORIGINS` | none | Other origins people use (a name a proxy rewrites), comma-separated | 2 |
+| `MENDARI_SMART_CLIENT_ID` | unset: no EHR launch | The SMART app's client id at the EHR; turns the launch on | 2 |
+| `MENDARI_SMART_EHRS` | none: with sign-in on, every launch refused | The EHRs that may launch: `<FHIR base>=<org>:view` or `:decide`, comma-separated | 2 |
 | `MENDARI_PHI_MODE` | `off` | `hash` or `encrypt` for real patient data | 3 |
 | `MENDARI_PHI_KEY` | none | 32 bytes, base64; seals inputs, evidence and notes under `encrypt` | 3 |
 | `MENDARI_INPUT_HASH_KEY` | none | 32 bytes, base64, not the PHI key; required under `hash` and `encrypt` | 3 |
@@ -500,8 +532,8 @@ reads of PHI, then operations. Keep the answers with your go-live record.
       address (what a "what is my IP" page shows from the same machine), with
       `x_forwarded_for_used: true` behind a proxy (not the proxy's or Docker's gateway's
       address); the `sessions` policy you chose; `smart_launch: false` unless you
-      need it (see the SMART launch in the threat model's residual risks); and only the providers and FHIR
-      servers you expect.
+      need it, and then `smart_ehrs` listing exactly the EHRs you registered (§2); and only the
+      providers and FHIR servers you expect.
 - [ ] Daily budgets and quotas are set and visible there (`jev.daily_limit`,
       `llm.daily_limit`, `org_quotas`). Choose them from a week of your traffic.
 - [ ] The session cookie is `__Host-mendari_session` (in the browser's developer tools), and a
