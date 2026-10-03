@@ -25,6 +25,9 @@ and an EHR launch's (`/smart/launch`) follow the same rules.
   keep its SHA-256 in the pending row; the callback compares them in constant time. A callback URL
   sent to someone else's browser then fails there, instead of signing them in as the sender.
   A pending row from before this release has no digest and is accepted, once, as before.
+  The cookie is host-only, so both start on `MENDARI_PUBLIC_URL`, where the callback comes back:
+  started on another name (a `*.vercel.app` alias, a second DNS name), they first send the
+  browser there (`to_public_url`).
 """
 
 from __future__ import annotations
@@ -37,8 +40,10 @@ import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlencode, urlsplit
 
 from fastapi import Request, Response
+from fastapi.responses import RedirectResponse
 
 from mendari.core.audit import AuditStore
 from mendari.errors import MendariError
@@ -51,6 +56,10 @@ HOST_PREFIX = "__Host-"
 # Rows made under the `__Host-` names carry `v`: the plain name never reaches them.
 VERSION = 2
 PENDING_SECONDS = 600  # a binding cookie lasts as long as the pending row it binds
+# Marks the one redirect to MENDARI_PUBLIC_URL (`to_public_url`), so a proxy that rewrites the
+# Host header (the request then never looks like it is for the public name) cannot loop it.
+MOVED = "moved"
+_DEFAULT_PORTS = {"http": 80, "https": 443}
 
 
 @dataclass(frozen=True)
@@ -206,6 +215,30 @@ def bound(request: Request, base: str, pending: Mapping[str, Any]) -> bool:
     if not value or not isinstance(expected, str):
         return False
     return hmac.compare_digest(_digest(value), expected)
+
+
+def to_public_url(
+    request: Request, public_url: str | None, path: str, params: Mapping[str, str]
+) -> Response | None:
+    """A redirect to `path` with `params` on `public_url` when this request reached another
+    origin (scheme, host, port), so the host-only binding cookie is set where the callback comes
+    back; None when it is there already, when no public URL is set, or once the browser was sent
+    there (`MOVED`)."""
+    if public_url is None or request.query_params.get(MOVED):
+        return None
+    public = urlsplit(public_url)
+    here = request.url
+    if _origin(public.scheme, public.hostname, public.port) == _origin(
+        here.scheme, here.hostname, here.port
+    ):
+        return None
+    query = urlencode({**params, MOVED: "1"})
+    return RedirectResponse(f"{public_url.rstrip('/')}{path}?{query}", status_code=302)
+
+
+def _origin(scheme: str, host: str | None, port: int | None) -> tuple[str, str, int | None]:
+    scheme = scheme.lower()
+    return scheme, (host or "").lower(), port or _DEFAULT_PORTS.get(scheme)
 
 
 def _digest(value: str) -> str:

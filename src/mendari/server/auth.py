@@ -572,6 +572,10 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
     def login(request: Request, next: str = "/") -> Response:
         options = configured()
         target = safe_next(next)
+        # Started on another name: begin again on the public URL, where the callback lands.
+        moved = sessions.to_public_url(request, options.public_url, "/auth/login", {"next": target})
+        if moved is not None:
+            return moved
         with http_for(options) as http:
             try:
                 config = auth.discovery.get(options.issuer, http)

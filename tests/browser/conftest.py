@@ -10,7 +10,9 @@ import socket
 import threading
 import time
 from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
@@ -54,10 +56,9 @@ def _seed(base: str) -> None:
         )
 
 
-@pytest.fixture(scope="session")
-def live_server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
-    db = Path(tmp_path_factory.mktemp("dashboard")) / "mendari.db"
-    app = create_app(db_path=db, datasets_dir=example_datasets_dir())
+@contextmanager
+def serving(app: Any) -> Iterator[int]:
+    """`app` on a free port of 127.0.0.1 until the block ends; yields the port."""
     port = _free_port()
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
     thread = threading.Thread(target=server.run, daemon=True)
@@ -67,11 +68,20 @@ def live_server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
         if time.monotonic() > deadline:
             raise RuntimeError("the dashboard server did not start")
         time.sleep(0.05)
-    base = f"http://127.0.0.1:{port}"
-    _seed(base)
-    yield base
-    server.should_exit = True
-    thread.join(timeout=10)
+    try:
+        yield port
+    finally:
+        server.should_exit = True
+        thread.join(timeout=10)
+
+
+@pytest.fixture(scope="session")
+def live_server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
+    db = Path(tmp_path_factory.mktemp("dashboard")) / "mendari.db"
+    with serving(create_app(db_path=db, datasets_dir=example_datasets_dir())) as port:
+        base = f"http://127.0.0.1:{port}"
+        _seed(base)
+        yield base
 
 
 @pytest.fixture(scope="session")

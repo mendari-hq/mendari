@@ -107,6 +107,11 @@ rules and also ends when the EHR's token does. More about sessions:
   must bring back, so a callback link sent to someone else signs nobody in. A second sign-in
   started in another tab replaces the first, which then asks to sign in again. A script that
   signs in over plain http carries the cookies by hand, as `mendari sandbox pilot-check` does.
+  That cookie belongs to one host, and the callback comes back to `MENDARI_PUBLIC_URL`, so a
+  sign-in or launch started on any other name for the same deployment (a `*.vercel.app` alias,
+  an internal name, an address) is first sent to `MENDARI_PUBLIC_URL` and starts there. It
+  is sent once (the query then carries `moved=1`), so a proxy that rewrites `Host` cannot make
+  it loop.
 - **The dashboard says so when a session ends** ("Your session ended. Sign in again.") and
   brings the person back to the same view after signing in; what they were typing stays on the
   page.
@@ -196,7 +201,9 @@ no authorization endpoint (no user or patient launch) and no `patient/` or `user
 
 **Requests from other sites.** A browser request another site starts reaches only public
 routes and pages, and only to read: a link to the dashboard works, while a link to an API
-route, or a form on another site that posts here, gets a `403` ("cross-site request refused").
+route, or a form on another site that posts here, gets a `403` ("cross-site request refused"),
+whether or not the browser sends the session cookie with it (it does not, for another site's
+form: the cookie is SameSite=Lax), so another site cannot sign anyone out.
 This site is the address the request was sent to, the origin of `MENDARI_PUBLIC_URL`, and any
 alias you list. If people reach Mendari through a name that a proxy rewrites before it gets
 here (so the request arrives for another host), list that name, or the dashboard's own buttons
@@ -393,15 +400,16 @@ Mendari writes a security log to **stdout**, one JSON object per line, for incid
 Send the container's stdout to your log system (Docker's logging driver, your Kubernetes log
 collector, journald) and keep it as your policy says; Mendari keeps no log table of its own.
 
-- **One access line per request** to `/api`, `/fhir`, `/cds-services` and `/auth`
+- **One access line per request** to `/api`, `/fhir`, `/cds-services`, `/auth` and `/smart`
   (`"event":"request"`), refused ones included, not `/api/health` or static files: the method,
   the route's template (`/api/audit/{decision_id}`, never the path or its query), the status,
   the caller (`user:<hash>`, `key:<id>`, `client:<id>`, `open` or `anonymous`), its organization
   and address, and the latency.
 - **Security events**, each with a fixed `reason` code: `auth.signin.ok|refused`,
   `auth.logout`, `auth.credential.refused`, `auth.permission.refused`, `auth.origin.refused`
-  (a request another site started, §2), `smart.launch.refused` (a launch finished in another
-  browser), `auth.token.issued|refused`, `ratelimit.hit` (once per bucket until it has room
+  (a request another site started, §2), `smart.launch.ok|refused` (an EHR launch that started
+  a session, or did not: `state_unknown`, `browser`, `token`, `id_token`, `issuer`, `pack`,
+  `ehr_error` and the like), `auth.token.issued|refused`, `ratelimit.hit` (once per bucket until it has room
   again), `quota.reached`, `admin.key.created|revoked`, `admin.client.registered|revoked`,
   `governance.approved|revoked`, `eval.run`, `export.audit|feedback`, `phi.inputs.read` (under
   `hash` or `encrypt`: the decisions whose input or notes a reader was shown, and how many, as
@@ -416,6 +424,11 @@ collector, journald) and keep it as your policy says; Mendari keeps no log table
   client's `X-Request-Id` when it is 8 to 128 of `A-Za-z0-9._:-`, else makes a uuid4; on
   Vercel it is Vercel's own id. Ask users to quote it.
 - **Client addresses** are only right behind a trusted proxy (`--forwarded-allow-ips`, §1).
+- **Other libraries' lines.** Mendari holds httpx and psycopg's pool at WARNING, since they log
+  each request's URL (a FHIR read names a Patient id) or a connection at INFO, and a host that
+  gives the root logger INFO and a handler (Vercel's runtime does) would print them. Treat
+  `MENDARI_ALERT_WEBHOOK` as a secret, like a credential: most webhook URLs carry their token
+  in the path, and anyone who has it can post to your channel.
 - **`mendari serve`** turns off uvicorn's access log, which prints query strings (a sign-in
   callback's code, a search's values). If your proxy logs requests, check what it keeps of
   query strings: credentials are refused in URLs, and FHIR searches can send their criteria in

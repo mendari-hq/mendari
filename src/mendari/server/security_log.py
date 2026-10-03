@@ -19,16 +19,20 @@ looks like one (`^[A-Za-z0-9._:-]{8,128}$`; anything else could inject into logs
 uuid4. Every response carries it as `X-Request-Id`, and JSON errors on `/api` as `request_id`, so
 a person can quote it and the line be found.
 
-**Access lines** (`event: request`): one per `/api`, `/fhir`, `/cds-services` and `/auth`
-request, refused ones included, but not `/api/health` (probes) or static files.
+**Access lines** (`event: request`): one per `/api`, `/fhir`, `/cds-services`, `/auth` and
+`/smart` request, refused ones included, but not `/api/health` (probes) or static files.
 
 **Events**: `auth.signin.ok|refused`, `auth.logout`, `auth.credential.refused`,
 `auth.permission.refused`, `auth.origin.refused` (another site's request, server/origin.py),
-`auth.token.issued|refused`, `smart.launch.refused` (a launch's
-callback in another browser), `ratelimit.hit` (once per bucket until
-it has room again), `quota.reached`, `admin.key.created|revoked`,
-`admin.client.registered|revoked`, `governance.approved|revoked`, `eval.run`,
-`export.audit|feedback`, `phi.inputs.read` (decision ids and a count) and `error.unhandled`.
+`auth.token.issued|refused`, `smart.launch.ok|refused` (an EHR launch that starts a session, or
+one that does not: `state_unknown`, `browser`, `token`, `id_token`, `issuer` and the like,
+server/smart_routes.py), `ratelimit.hit` (once per bucket until it has room again),
+`quota.reached`, `admin.key.created|revoked`, `admin.client.registered|revoked`,
+`governance.approved|revoked`, `eval.run`, `export.audit|feedback`, `phi.inputs.read` (decision
+ids and a count) and `error.unhandled`.
+
+**Library loggers** that would log a URL or a connection at INFO (httpx, psycopg's pool: see
+`QUIETED`) keep only warnings: on Vercel the runtime gives the root logger INFO and a handler.
 
 **Unhandled exceptions** are logged as their type and stack frames. Under PHI mode `hash` or
 `encrypt` the exception that reaches the server (and its own traceback print) is replaced by
@@ -75,11 +79,15 @@ FIELDS = (
 )
 Outcome = Literal["ok", "refused", "limited", "invalid", "error"]
 REQUEST_ID = re.compile(r"^[A-Za-z0-9._:-]{8,128}$")
-LOGGED_PREFIXES = ("/api/", "/fhir", "/cds-services", "/auth/")
+LOGGED_PREFIXES = ("/api/", "/fhir", "/cds-services", "/auth/", "/smart/")
 NOT_LOGGED = frozenset({"/api/health"})
 MAX_IDS = 500  # the largest page a route answers
 MAX_FRAMES = 30
 MAX_TEXT = 200  # any one string value: a reason, an id, a route
+# Libraries that log a URL or a connection at INFO: httpx every request's URL (a FHIR read's
+# Patient id, the alert webhook's secret path), the pool its connections. On Vercel the runtime
+# sets the root logger to INFO with its own handler, which would print them all.
+QUIETED = ("httpx", "httpcore", "httpx2", "httpcore2", "psycopg.pool")
 
 _request: ContextVar[dict[str, Any] | None] = ContextVar("mendari_request", default=None)
 logger = logging.getLogger(LOGGER)
@@ -113,7 +121,10 @@ class _JsonLines(logging.Formatter):
 def configure() -> None:
     """Give the security logger its own stdout handler, once: INFO and up, and not passed on to
     the root logger, whose handlers (if a host configures any) would print it again, in their
-    own format. Idempotent: `create_app` calls it for every app."""
+    own format. Idempotent: `create_app` calls it for every app. The `QUIETED` libraries keep
+    only their warnings and errors, whatever level the host gives the root logger."""
+    for name in QUIETED:
+        logging.getLogger(name).setLevel(logging.WARNING)
     logger.setLevel(logging.INFO)
     logger.propagate = False
     logger.disabled = False  # a dictConfig that disables existing loggers must not mute this

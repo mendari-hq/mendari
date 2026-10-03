@@ -5,6 +5,7 @@ started them. The store's side runs on SQLite and Postgres (`db_target`)."""
 
 from __future__ import annotations
 
+import sqlite3
 import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -356,6 +357,67 @@ def test_the_binding_cookie_is_short_lived_and_cleared_after_use(
         assert done.status_code == 302
         cleared = [c for c in done.headers.get_list("set-cookie") if "mendari_signin" in c]
         assert cleared and all("max-age=0" in c.lower() for c in cleared)
+
+
+def pending_rows(db: Path, kind: str) -> int:
+    with sqlite3.connect(db) as connection:
+        query = "SELECT COUNT(*) FROM smart_sessions WHERE kind = ?"
+        return int(connection.execute(query, (kind,)).fetchone()[0])
+
+
+def test_a_sign_in_started_on_another_name_moves_to_the_public_url_first(
+    tmp_path: Path, idp: FakeIdp, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The binding cookie is host-only and the callback comes back to MENDARI_PUBLIC_URL, so a
+    sign-in started on another name (a `*.vercel.app` alias, a second DNS name) begins again
+    there, before anything is bound or written; then it completes."""
+    monkeypatch.setenv("MENDARI_OIDC_ROLE_MAP", "clinicians=reviewer")
+    monkeypatch.setenv("MENDARI_PUBLIC_URL", HTTPS)
+    with signing_in_with(idp, tmp_path, monkeypatch) as app:
+        browser = TestClient(app.app, base_url="https://mendari-abc.vercel.app")
+        moved = browser.get(
+            "/auth/login", params={"next": "https://evil.example/"}, follow_redirects=False
+        )
+        assert moved.status_code == 302 and "set-cookie" not in moved.headers
+        assert moved.headers["location"] == f"{HTTPS}/auth/login?next=%2F&moved=1"  # safe_next
+        assert pending_rows(tmp_path / "a.db", "oidc-pending") == 0
+        started = browser.get(moved.headers["location"], follow_redirects=False)
+        assert started.headers["location"].startswith(f"{IDP}/authorize?")
+        code = idp.authorize(started.headers["location"], roles=["clinicians"])
+        state = parse_qs(urlsplit(started.headers["location"]).query)["state"][0]
+        done = browser.get(
+            f"{HTTPS}/auth/callback", params={"code": code, "state": state}, follow_redirects=False
+        )
+        assert done.status_code == 302 and done.headers["location"] == "/"
+        assert browser.get(f"{HTTPS}/api/auth/me").json()["signed_in"] is True
+        # The public URL's origin however it is written stays; another port, scheme or a
+        # trailing dot (another host to a browser) moves.
+        for base, moves in [
+            ("https://MENDARI.test:443", False),
+            ("https://mendari.test.", True),
+            ("https://mendari.test:8443", True),
+            ("http://mendari.test", True),
+        ]:
+            here = TestClient(app.app, base_url=base).get("/auth/login", follow_redirects=False)
+            assert here.headers["location"].startswith(f"{HTTPS}/auth/login?") is moves, base
+
+
+def test_a_proxy_that_rewrites_the_host_gets_one_move_never_a_loop(
+    tmp_path: Path, idp: FakeIdp, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Behind a proxy that rewrites `Host` (to `engine:8000`, say), every request looks like
+    another name: the move happens once, and the sign-in then starts where it arrived, as
+    before (the browser keeps the cookie for the name it used)."""
+    monkeypatch.setenv("MENDARI_PUBLIC_URL", HTTPS)
+    with signing_in_with(idp, tmp_path, monkeypatch) as app:
+        behind = TestClient(app.app, base_url="http://engine:8000")
+        moved = behind.get("/auth/login", follow_redirects=False)
+        assert moved.headers["location"] == f"{HTTPS}/auth/login?next=%2F&moved=1"
+        query = urlsplit(moved.headers["location"]).query
+        started = behind.get(f"/auth/login?{query}", follow_redirects=False)
+        assert started.headers["location"].startswith(f"{IDP}/authorize?")
+        assert started.headers["set-cookie"].startswith("mendari_signin=")
+        assert pending_rows(tmp_path / "a.db", "oidc-pending") == 1
 
 
 def test_a_sign_in_in_flight_at_the_deploy_is_accepted_once(

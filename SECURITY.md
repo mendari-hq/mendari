@@ -62,7 +62,9 @@ Each bullet is one control; the threat model names the row and the tests behind 
   Roles are worked out on every request from the claims kept at sign-in and the current
   settings, so a role taken away ends access at once. A sign-in (or an EHR launch) is tied to
   the browser that started it by a ten-minute cookie whose digest the pending row keeps,
-  compared in constant time at the callback (login CSRF). The audit chain names a person by
+  compared in constant time at the callback (login CSRF). That cookie is host-only, so a
+  sign-in or launch that reaches another name than `MENDARI_PUBLIC_URL`'s (an alias, a second
+  DNS name) is first sent there, once, before anything is bound. The audit chain names a person by
   their verified email, else `<issuer>|<subject>`; a key as `key <id>`, a client as
   `client <id>`. For one release the plain cookie name is still read on other hosts, for
   sessions from before Phase 4b only, so the upgrade signs nobody out.
@@ -70,8 +72,10 @@ Each bullet is one control; the threat model names the row and the tests behind 
   `cross-site` or `same-site`; in a browser without Fetch Metadata, an `Origin` that is `null`
   or not this site) reaches only public routes and pages, and only with GET or HEAD: a link to
   the dashboard works, a link to an API route or a form that signs you out gets a `403`, logged
-  as `auth.origin.refused`. This applies to requests with a Mendari cookie and no
-  `Authorization` header, and in open mode to all. This site is the request's own host,
+  as `auth.origin.refused`. This applies to requests without an `Authorization` header that
+  carry a Mendari cookie or use POST, PUT, PATCH or DELETE (a browser leaves the SameSite=Lax
+  cookie off another site's form, but the answer could still clear it), and in open mode to
+  all. This site is the request's own host,
   `MENDARI_PUBLIC_URL`, and any alias listed in `MENDARI_TRUSTED_ORIGINS`. Scripts that send
   neither header (curl, the pilot check) are not affected.
 - **SMART Backend Services (off by default).** `MENDARI_BACKEND_SERVICES=on` (refused without
@@ -112,18 +116,21 @@ Each bullet is one control; the threat model names the row and the tests behind 
   (`deploy/vercel/`), first in log mode for 7 days; there is no per-IP rule on `/api` or
   `/fhir`, since a hospital sends everyone's traffic from one address.
 - **Security log.** JSON lines on stdout (`server/security_log.py`), into Vercel's runtime logs
-  or the site's own log system: one access line per `/api`, `/fhir`, `/cds-services` and
-  `/auth` request (the route's template, the status, the caller's opaque id, organization and
-  address, the latency), and the security events: sign-ins and their refusals with a reason,
-  refused credentials and permissions, requests refused from other sites, an EHR launch
-  finished in another browser, tokens issued and refused, rate limits hit, quotas reached, key,
+  or the site's own log system: one access line per `/api`, `/fhir`, `/cds-services`, `/auth`
+  and `/smart` request (the route's template, the status, the caller's opaque id, organization
+  and address, the latency), and the security events: sign-ins and EHR launches and their
+  refusals with a reason, refused credentials and permissions, requests refused from other
+  sites, tokens issued and refused, rate limits hit, quotas reached, key,
   client and governance changes, exports, evaluations and, under `hash` or `encrypt`, the
   decisions whose input or notes a reader was shown (their ids and a count). Fields come from
   an allow-list: never a credential, a query value, a body, a header or case text. Every
   response carries an `X-Request-Id` (Vercel's id there, else a well-formed client one, else a
   new uuid), repeated in JSON errors as `request_id`. An unhandled exception is logged as its
   type and frames; under PHI mode `hash` or `encrypt` its message never reaches a log.
-  `mendari serve` turns off uvicorn's access log, which prints query strings. What must last
+  `mendari serve` turns off uvicorn's access log, which prints query strings. Libraries that
+  log URLs at INFO (httpx, psycopg's pool) are held at WARNING, since Vercel's runtime prints
+  every library's INFO lines: a FHIR read's URL names a Patient id. Treat the alert webhook URL
+  (`MENDARI_ALERT_WEBHOOK`) as a secret: most carry their token in the path. What must last
   (input and note reads, key, client and governance changes) is in the audit chain too.
 - **PHI mode and the keyed input hash.** `MENDARI_PHI_MODE=hash` stores no input; `encrypt`
   stores inputs encrypted apart from the audit chain, readable only by signed-in reviewers and

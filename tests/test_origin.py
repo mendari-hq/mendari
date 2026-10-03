@@ -134,13 +134,16 @@ def test_every_route_and_kind_of_request_gets_what_it_should(
     routes: list[tuple[str, str]],
 ) -> None:
     """Each route x each kind of request: with a Mendari cookie, in both modes; with a bearer
-    credential or no cookie with sign-in on (not checked); with no cookie in open mode."""
+    credential (not checked); with no cookie in open mode; and with no cookie with sign-in on,
+    where reads are not checked but unsafe methods are (a browser leaves the SameSite=Lax cookie
+    off another site's form POST, and the answer could still clear it)."""
     trusted = frozenset({PUBLIC, ALIAS})
     signed = OriginCheck(open_mode=False, trusted=trusted)
     open_mode = OriginCheck(open_mode=True, trusted=trusted)
     assert {p for m, p in routes if m == "GET"} >= NAVIGABLE
     wrong = []
     for method, path in routes:
+        safe = method in ("GET", "HEAD")
         for kind, headers in KINDS:
             want = expected(kind, method, path)
             cases = [
@@ -148,7 +151,7 @@ def test_every_route_and_kind_of_request_gets_what_it_should(
                 ("open, cookie", open_mode, {**COOKIE, **headers}, want),
                 ("open, no cookie", open_mode, headers, want),
                 ("bearer", signed, {**COOKIE, "authorization": "Bearer x", **headers}, True),
-                ("no cookie", signed, {"cookie": "other=1", **headers}, True),
+                ("no cookie", signed, {"cookie": "other=1", **headers}, want or safe),
             ]
             for who, check, sent, should in cases:
                 if passes(check, method, path, sent) != should:
@@ -316,12 +319,23 @@ def test_links_from_another_site_to_pages_and_public_routes_work(
 def test_signing_out_from_another_site_is_refused(
     tmp_path: Path, idp: FakeIdp, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A browser leaves the SameSite=Lax session cookie off another site's form POST, so the
+    request carries no cookie at all; answered, its Set-Cookie would still sign the person out."""
     client = signing_in_with(idp, tmp_path, monkeypatch)
     sign_in(client, idp, roles=["admin"])
-    form = {"sec-fetch-site": "cross-site", "content-type": "application/x-www-form-urlencoded"}
-    refused = client.post("/auth/logout", headers=form)
-    assert refused.status_code == 403 and "set-cookie" not in refused.headers
+    browser = TestClient(client.app, base_url=SITE)  # as the browser sends it: no cookie
+    form = {"content-type": "application/x-www-form-urlencoded"}
+    for sent in (
+        {"sec-fetch-site": "cross-site", "origin": "https://evil.example"},
+        {"sec-fetch-site": "same-site", "origin": "https://evil.mendari.test"},
+        {"origin": "https://evil.example"},  # a browser without Fetch Metadata
+        {"origin": "null"},
+    ):
+        refused = browser.post("/auth/logout", headers={**form, **sent})
+        assert refused.status_code == 403 and "set-cookie" not in refused.headers, sent
     assert client.get("/api/auth/me").json()["signed_in"] is True
+    # Not from a browser (no Origin, no Fetch Metadata): a script may still sign out.
+    assert browser.post("/auth/logout").status_code == 204
     assert client.post("/auth/logout", headers={"sec-fetch-site": "same-origin"}).status_code == 204
     assert client.get("/api/auth/me").json()["signed_in"] is False
 
@@ -358,6 +372,8 @@ def test_an_ehr_launch_works_and_its_session_ends_only_from_this_site(
     cross = {"sec-fetch-site": "cross-site"}
     assert client.get("/smart/launch", headers=cross, follow_redirects=False).status_code != 403
     assert client.post("/api/smart/logout", headers=cross).status_code == 403
+    cookieless = TestClient(client.app, base_url=SITE)  # another site's form: no cookie sent
+    assert cookieless.post("/api/smart/logout", headers=cross).status_code == 403
     assert client.post("/api/smart/decide", headers=cross, json={}).status_code == 403
     assert client.get("/api/smart/session").json()["active"] is True
     own = {"sec-fetch-site": "same-origin"}
