@@ -3,13 +3,14 @@
 - **AuditEvent** for every event in the hash chain (`decision.created`, `review.resolved`,
   `outcome.recorded`, `feedback.recorded`):
   - who acted: the engine running the pack, or the reviewer, reporter, reader, requester, or
-    whoever recorded a downstream outcome (the signed-in person or API key);
+    whoever recorded a downstream outcome (the signed-in person or API key); a decision made
+    with sign-in on also names who asked for it (`requested_by`), as the requestor;
   - what it acted on: the decision, by the identifier its FHIR `Task` carries;
   - the event's place in the chain (`seq`, `prev_hash`, `hash`), so the export keeps the tamper
     evidence: consecutive events link up, and each hash can be checked against the store.
 - **Provenance** for the activities that create or change the decision's result:
   - the decision itself (`CREATE`, authored by the engine, from the input identified by its
-    hash);
+    hash; with sign-in on, who asked for it is a second agent, of role "requester");
   - a review (`UPDATE`; the reviewer verifies the recommendation, or authors a label when
     overriding it or when there was none, an abstention);
   - a downstream outcome (`UPDATE`, authored by whoever recorded it).
@@ -62,6 +63,8 @@ _SERVER = {
 }
 _PARTICIPANT = f"{TERMINOLOGY}/provenance-participant-type"
 _OBJECT = {"system": f"{TERMINOLOGY}/audit-entity-type", "code": "2", "display": "System Object"}
+# Who asked for a decision, on its Provenance: a role as text, since no agent type code fits.
+REQUESTER = {"text": "requester"}
 # An outcome recorded before its recorder was (Phase 4).
 NOT_RECORDED = "not recorded"
 # Every event the store chains on a decision (a test checks the code records no other). Unknown
@@ -157,7 +160,7 @@ def audit_event(event: Mapping[str, Any], *, base: str | None = None) -> dict[st
         "action": action,
         "recorded": event["created_at"],
         "outcome": "0",
-        "agent": [_actor(event, payload)],
+        "agent": [_actor(event, payload), *_requested(event, requestor=True)],
         "source": _source(event),
         "entity": [
             {"what": _decision(event, _task(event, base)), "type": _OBJECT, "detail": details}
@@ -198,7 +201,10 @@ def provenance(
         "target": [_decision(event, _task(event, base, version))],
         "recorded": event["created_at"],
         "activity": {"coding": [{"system": f"{TERMINOLOGY}/v3-DataOperation", "code": activity}]},
-        "agent": [{"type": {"coding": [{"system": _PARTICIPANT, "code": role}]}, "who": agent}],
+        "agent": [
+            {"type": {"coding": [{"system": _PARTICIPANT, "code": role}]}, "who": agent},
+            *_requested(event, role=[REQUESTER]),
+        ],
     }
     input_hash = (event.get("record") or {}).get("input_hash")
     if kind == "decision.created" and input_hash:
@@ -234,6 +240,15 @@ def engine(event: Mapping[str, Any]) -> dict[str, Any]:
     pack = f"{event['pack_id']}@{event['pack_version']}"
     identifier = {"system": PACK_ID_SYSTEM, "value": pack}
     return {"identifier": identifier, "display": f"Mendari engine · {pack}"}
+
+
+def _requested(event: Mapping[str, Any], **shown: Any) -> list[dict[str, Any]]:
+    """Who asked for a decision (`requested_by`), as one more agent with the `shown` fields: the
+    AuditEvent marks it the requestor, the Provenance gives it the role "requester" (FHIR's
+    agent types have no code for one). Chained on new `decision.created` events with sign-in on
+    (ADR-0006); older events, and open mode, name nobody."""
+    asked = event["payload"].get("requested_by") if event["event"] == "decision.created" else None
+    return [] if not asked else [{"who": {"display": str(asked)}, **shown}]
 
 
 def _actor(event: Mapping[str, Any], payload: Mapping[str, Any]) -> dict[str, Any]:

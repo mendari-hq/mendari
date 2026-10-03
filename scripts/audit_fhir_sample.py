@@ -2,8 +2,9 @@
 
 A throwaway store (in PHI mode `encrypt`) gets synthetic decisions from the inbox pack: one
 confirmed in review, one overridden (with a note, later erased on request), one automated with
-a downstream outcome and feedback. One input is read and then purged by retention. The full
-export (AuditEvent and Provenance) is written as a `collection` Bundle.
+a downstream outcome and feedback, and one asked for by a signed-in person, so its AuditEvent and
+Provenance name the requester. One input is read and then purged by retention. The full export
+(AuditEvent and Provenance) is written as a `collection` Bundle.
 
     uv run python scripts/audit_fhir_sample.py var/fhir-samples/audit-export.json
 """
@@ -17,6 +18,7 @@ import tempfile
 from pathlib import Path
 
 from mendari import AuditStore, Decision
+from mendari.core import tenancy
 from mendari.core.phi import PhiPolicy
 from mendari.standards import audit_fhir
 
@@ -29,6 +31,9 @@ def main(out: Path) -> None:
         emergency = {"message": {"body": "Crushing chest pain and my left arm is numb"}}
         confirmed, overridden = decide(emergency), decide(emergency)
         routine = decide({"message": {"body": "Can you send a refill for metformin?"}})
+        # As the sign-in guard sets it for a request: the organization, and who asked.
+        with tenancy.acting_for("clinic-a", "nurse.lee@clinic-a.example.org"):
+            decide({"message": {"body": "Please reschedule my appointment to next week"}})
         store.resolve_review(confirmed.id, final_label="nurse", reviewer="rn-1")
         note = "Synthetic note: seen by the on-call physician"
         override = store.resolve_review(

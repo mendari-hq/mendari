@@ -279,8 +279,9 @@ never rewritten. Still open:
 - **The SMART launch** is being gated before it is turned on anywhere with sign-in (ADR-0006).
   The EHR's token, the patient and the PKCE verifier are now sealed at rest (threat I11), and
   with sign-in on a launch is a principal of its EHR's registered organization that may view,
-  or view and decide, and nothing else (threat E7). Still to come: the chain naming who asked,
-  and the dashboard for a browser that only launched.
+  or view and decide, and nothing else (threat E7). With sign-in on, every new decision names
+  who asked for it, in the chain and in the FHIR exports (threat R1). Still to come: the
+  dashboard for a browser that only launched.
 - **The old cookie names** (`mendari_session`, `mendari_smart`) are still read on hosts that use
   `__Host-` names, for sessions from before Phase 4b; the next release stops reading them.
 

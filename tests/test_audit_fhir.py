@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 
 from mendari import AuditStore, Decision, DecisionResult, Pack
 from mendari.cli import main
+from mendari.core import tenancy
 from mendari.core.phi import PhiPolicy
 from mendari.server.app import create_app
 from mendari.standards import audit_fhir
@@ -124,6 +125,34 @@ def test_the_export_carries_codes_never_case_text(store: AuditStore, inbox_pack:
     assert detail(feedback, "expected") == "destination=front_desk"
     review = next(e for e in events if e["subtype"][0]["code"] == "review.resolved")
     assert review["agent"][0] == {"who": {"display": "rn-1"}, "requestor": True}
+
+
+def test_a_decision_names_who_asked_for_it(store: AuditStore, inbox_pack: Pack) -> None:
+    """With sign-in on, `decision.created` names who asked (`requested_by`): the AuditEvent has
+    them as a second agent, the requestor (the engine is not), and the CREATE Provenance as a
+    second agent of role "requester", after the engine that authored it. A decision made with
+    nobody named (open mode, the command line, or before this) has the engine alone."""
+    decide = Decision(inbox_pack, store=store)
+    unnamed = decide(message(ROUTINE))
+    with tenancy.acting_for("clinic-a", "kim@clinic-a.example.org"):
+        named = decide(message(ROUTINE))
+    exported = list(audit_fhir.resources(store.iter_events()))
+    event = {
+        e["entity"][0]["what"]["identifier"]["value"]: e for e in by_type(exported, "AuditEvent")
+    }
+    made = {p["target"][0]["identifier"]["value"]: p for p in by_type(exported, "Provenance")}
+    engine = audit_fhir.engine({"pack_id": inbox_pack.id, "pack_version": inbox_pack.version})
+    assert event[named.id]["agent"] == [
+        {"who": engine, "requestor": False},
+        {"who": {"display": "kim@clinic-a.example.org"}, "requestor": True},
+    ]
+    assert made[named.id]["agent"][1] == {
+        "who": {"display": "kim@clinic-a.example.org"},
+        "role": [{"text": "requester"}],
+    }
+    assert made[named.id]["agent"][0]["who"] == engine
+    assert event[unnamed.id]["agent"] == [{"who": engine, "requestor": False}]
+    assert [a["who"] for a in made[unnamed.id]["agent"]] == [engine]
 
 
 def test_events_page_in_chain_order(store: AuditStore, inbox_pack: Pack) -> None:

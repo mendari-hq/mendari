@@ -1467,7 +1467,9 @@ def create_app(
         if refused is not None:
             return refused
         principal = getattr(request.state, "principal", None)
-        with tenancy.acting_for(principal.org if principal and principal.kind != "open" else None):
+        # Who asked, as the chain names them, rides along with the organization (open mode: none).
+        who = principal if principal is not None and principal.kind != "open" else None
+        with tenancy.acting_for(who.org if who else None, who.actor if who else None):
             response: Response = await call_next(request)
         return response
 

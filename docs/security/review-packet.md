@@ -172,9 +172,9 @@ From the threat model's residual risks, and the plan's deferred list:
   EHRs and users who are not practitioners are refused at the launch. Its rows (the EHR's access
   token, the patient, who launched, the PKCE verifier) are sealed at rest under the browser's
   own cookie (threat I11). A site must register only EHRs whose sign-in it trusts; one FHIR base
-  for several organizations is not supported. The chain does not yet name who asked for a
-  decision, and the dashboard has no view for a browser that only launched (stages 3 and 4 of
-  the plan). The launch is off unless configured. We would like your view on the design
+  for several organizations is not supported. Every new decision made with sign-in on names
+  who asked for it in the chain (threat R1). The dashboard has no view yet for a browser that
+  only launched (stage 4 of the plan). The launch is off unless configured. We would like your view on the design
   ([ADR-0006](../decisions/ADR-0006-an-ehr-launch-is-a-principal.md)).
 - **The old cookie names** (`mendari_session`, `mendari_smart`) are still read on hosts that use
   `__Host-` names, for sessions from before Phase 4b only; the next release stops.

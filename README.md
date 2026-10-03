@@ -567,6 +567,7 @@ Every route has a permission, and anything unlisted needs admin:
 | admin | everything: evaluations, exports, chain verification; with a signed-in person, API keys and clients |
 
 With sign-in on, reviews, ratings, approvals and outcomes are recorded for whoever is signed in,
+each new decision names who asked for it (`requested_by`, the requestor in the FHIR exports),
 and the dashboard shows them as the audit chain names them and offers only what their role may
 do. The chain names a person by their verified email, else by their identity provider's subject
 qualified by its issuer (`<issuer>|<subject>`), never by a display name; a key as `key <id>`

@@ -368,7 +368,8 @@ class AuditStore:
         quote it: a lab value and its date), stay in the record only under PHI mode `off` with a
         pack that keeps inputs; under `encrypt` with such a pack both are sealed apart
         (`decision_inputs`), so retention can delete them; otherwise neither is kept. The
-        caller's own answer (`/decide`) is unchanged."""
+        caller's own answer (`/decide`) is unchanged. With sign-in on, the chained event also
+        names who asked (`requested_by`, the principal's chain name, `tenancy.requester`)."""
         record = result.to_record()
         keep = store_input == "full" and self.phi.mode != "hash"
         in_record = keep and self.phi.mode == "off"
@@ -397,7 +398,11 @@ class AuditStore:
                     int(result.rejected),
                 ),
             )
-            self._append(db, result.id, "decision.created", {"record_sha256": _sha(record)})
+            created: dict[str, Any] = {"record_sha256": _sha(record)}
+            requester = tenancy.requester()
+            if requester is not None:  # sign-in on: who asked; never in open mode
+                created["requested_by"] = requester
+            self._append(db, result.id, "decision.created", created)
             if keep and self.phi.mode == "encrypt":  # apart from the chained record
                 details = {"evidence": evidence}
                 db.all(

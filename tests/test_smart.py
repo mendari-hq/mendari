@@ -27,15 +27,19 @@ from mendari.errors import MendariError
 from mendari.server import smart_routes
 from mendari.server.app import create_app
 from mendari.server.auth import ehr_id
+from mendari.server.scopes import DECIDE
 from mendari.standards.fhir_client import FhirClient, GuardedHttp
 from mendari.standards.smart import normalize_base, smart_ehrs
-from tests.conftest import security_lines, signed_in
+from tests.conftest import message, security_lines, signed_in
+from tests.test_backend_services import RSA_KEY, ask, assertion
 
 EHR = "https://ehr.example.org"
 ISS = f"{EHR}/fhir"
 APP = "https://mendari.test"
 CLIENT = "mendari-app"
 REFERRAL = "mendari/referral-router"
+INBOX = "mendari/patient-inbox-router"
+ROUTINE = "Can you send a refill for metformin to my pharmacy on Main Street?"
 FIXTURE = json.loads((Path(__file__).parent / "fixtures/us-core/referral.json").read_text())
 
 
@@ -529,6 +533,59 @@ def test_a_launch_decides_in_its_registered_organization(
     assert "clinician-1" not in json.dumps(lines)  # the subject itself never
     health = admin(app, db_target, "clinic-a").get("/api/health").json()
     assert health["smart_ehrs"] == [{"base": TENANT_A, "org": "clinic-a", "level": "decide"}]
+
+
+def test_decision_created_names_who_asked(
+    db_target: str, monkeypatch: pytest.MonkeyPatch, tenants: tuple[FakeEhr, FakeEhr]
+) -> None:
+    """With sign-in on, every new `decision.created` names who asked, as the chain names them
+    (`Principal.actor`): a person by verified email, a key and a client by id, an EHR user by the
+    EHR's issuer and subject. Open mode names nobody, an event chained before is never rewritten,
+    and `audit verify` still passes. Both backends."""
+    a, b = tenants
+    opened = signed_site(db_target, monkeypatch, None, a)  # open mode, before sign-in was on
+    before = opened.post(f"/api/packs/{INBOX}/decide", json=message(ROUTINE))
+    assert before.status_code == 200, before.text
+    with AuditStore(db_target) as store:
+        earlier = store.events()
+    monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "on")
+    app = signed_site(db_target, monkeypatch, REGISTERED, a, b)
+    asked: dict[str, str] = {}
+
+    def decide(headers: dict[str, str]) -> str:
+        made = app.post(f"/api/packs/{INBOX}/decide", json=message(ROUTINE), headers=headers)
+        assert made.status_code == 200, made.text
+        return str(made.json()["id"])
+
+    with AuditStore(db_target) as store:
+        person = signed_in(store, role="admin", org="clinic-a")
+    asked[decide(person)] = "admin@clinic-a.example.org"
+    key = app.post("/api/auth/keys", json={"name": "worker", "role": "service"}, headers=person)
+    assert key.status_code == 201, key.text
+    asked[decide({"authorization": f"Bearer {key.json()['key']}"})] = f"key {key.json()['id']}"
+    body = {"name": "integration", "role": "service", "jwks": {"keys": [RSA_KEY.jwk]}}
+    client = app.post("/api/auth/clients", json=body, headers=person).json()["client_id"]
+    token = ask(app, assertion(RSA_KEY, client), DECIDE).json()["access_token"]
+    asked[decide({"authorization": f"Bearer {token}"})] = f"client {client}"
+    assert full_launch(app, a).status_code == 302
+    launched = app.post("/api/smart/decide", json=DECIDE_BODY)
+    assert launched.status_code == 200, launched.text
+    asked[launched.json()["decision"]["id"]] = f"{TENANT_A}|clinician-1"
+
+    with AuditStore(db_target) as store:
+        events = store.events()
+        assert store.verify()["ok"] is True
+    assert events[: len(earlier)] == earlier  # never rewritten
+    created = {e["decision_id"]: e["payload"] for e in events if e["event"] == "decision.created"}
+    assert set(created[before.json()["id"]]) == {"record_sha256"}  # open mode: nobody
+    for decision, actor in asked.items():
+        assert set(created[decision]) == {"record_sha256", "requested_by"}
+        assert created[decision]["requested_by"] == actor
+    trail = admin(app, db_target, "clinic-a").get(
+        f"/api/audit/{launched.json()['decision']['id']}/fhir"
+    )
+    agents = [r["resource"]["agent"] for r in trail.json()["entry"]]
+    assert agents[0][1] == {"who": {"display": f"{TENANT_A}|clinician-1"}, "requestor": True}
 
 
 def test_two_tenants_on_one_origin_map_to_two_organizations(

@@ -21,8 +21,11 @@ registered EHR; no iframe and no refresh until the pilot EHR is known
   (Deviation: a person's session alone on a launch route is a `401`, not a `403`: the launch
   cookie is the only credential there. Signed-in `/api/health` lists only the caller's
   organization's registrations, every one in open mode.)
-- [ ] **3. The chain names who asked**: `requested_by` on new `decision.created` events for every
+- [x] **3. The chain names who asked**: `requested_by` on new `decision.created` events for every
   principal with sign-in on; the FHIR requestor agent; validator sample
+  (Deviation: on the Provenance the requester is a second agent with the role "requester" as
+  text and no type, since R4's agent types have no code for one; the HL7 validator accepts it
+  with no new warning.)
 - [ ] **4. The dashboard for a launch**: patient view only, decision inline, "open Mendari again
   from the EHR" after a 401, a replaced launch said so
 - [ ] **5. CI and wrap-up**: `sandbox-e2e` with sign-in on and a registered EHR, `mendari smart
