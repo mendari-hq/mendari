@@ -1590,6 +1590,176 @@ def test_the_patient_view_fits_a_phone(page: Page) -> None:
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
 
 
+# -- SMART on FHIR: a browser that only launched (sign-in on, no one signed in) --------------------
+
+REFERRAL = "mendari/referral-router"
+LAUNCH_PACKS = [
+    {"id": "mendari/patient-inbox-router", "name": "Patient Inbox Router"},
+    {"id": REFERRAL, "name": "Referral Router"},
+]
+DECIDED = {
+    "decision": {
+        "id": "d-1",
+        "outcome": "HUMAN_REVIEW",
+        "recommendation": "urgent_review",
+        "reasons": ["Anticoagulation question on a new atrial fibrillation finding."],
+    },
+    "task": {},
+}
+
+
+def launch_only(page: Page, session: dict[str, Any]) -> list[str]:
+    """A browser the EHR launched on a deployment with sign-in on, where no one signed in: the
+    launch's routes answer (from `session`, which a test may change), `/api/auth/me` says no one
+    is signed in, and every other API call is refused as the server would refuse it. Returns
+    the API paths the page asked for."""
+    asked: list[str] = []
+
+    def answer(route: Route) -> None:
+        path = urllib.parse.urlsplit(route.request.url).path
+        asked.append(path)
+        if path == "/api/smart/session":
+            route.fulfill(json=session)
+        elif path == "/api/smart/patient":
+            route.fulfill(json=SMART_PATIENT)
+        elif path == "/api/smart/focus":
+            route.fulfill(json=SMART_ITEMS)
+        elif path == "/api/smart/decide":
+            route.fulfill(json=DECIDED)
+        elif path == "/api/smart/logout":
+            route.fulfill(status=204, body="")
+        elif path == "/api/auth/me":
+            route.fulfill(json={"mode": "sign-in", "signed_in": False})
+        elif path == "/api/health":
+            route.fulfill(json={"status": "ok", "version": "test", "sign_in": True})
+        else:
+            route.fulfill(status=401, json={"detail": "sign in first, or send an API key"})
+
+    page.route("**/api/**", answer)
+    return asked
+
+
+def launched_as(launch_id: str) -> dict[str, Any]:
+    return {**SMART_SESSION, "launch_id": launch_id, "packs": LAUNCH_PACKS}
+
+
+def test_a_launch_alone_opens_the_patient_view_only(page: Page) -> None:
+    """The EHR opened this window (`#patient/<launch id>`) and no one is signed in: the patient
+    view is the only section, the packs are the launch's, the decision is shown in place with
+    no link into the audit trail, and nothing outside the launch's routes is asked for."""
+    asked = launch_only(page, launched_as("L1"))
+    page.goto(f"/?pack={REFERRAL}#patient/L1")
+    expect(page.locator(".patient-name")).to_have_text("Case 1 Synthetic")
+    expect(page.locator(".nav a:visible")).to_have_count(1)
+    expect(page.locator(".nav a:visible")).to_have_text("This patient")
+    names = [pack["name"] for pack in LAUNCH_PACKS]
+    expect(page.locator("#pack-select option")).to_have_text(names)
+    expect(page.locator("#signed-in")).to_be_hidden()
+    item = page.locator(".work-item")
+    item.get_by_role("button", name="Decide").click()
+    result = item.locator(".work-result")
+    expect(result).to_contain_text("urgent_review")
+    expect(result.locator(".badge")).to_have_text("Human review")
+    expect(result).to_contain_text("Anticoagulation question")
+    expect(result).to_contain_text("Recorded in your organization's audit trail as d-1.")
+    expect(result.get_by_role("link")).to_have_count(0)
+    page.goto(f"/?pack={REFERRAL}#overview")  # no other section, whatever the address says
+    expect(page.locator("main h1")).to_have_text("This patient")
+    expect(page.locator(".patient-name")).to_have_text("Case 1 Synthetic")
+    outside = {path for path in asked if not path.startswith("/api/smart/")}
+    assert outside <= {"/api/health", "/api/auth/me"}, outside
+
+
+def test_a_signed_in_person_keeps_the_link_to_the_decision(page: Page) -> None:
+    signed_in_as(page, "reviewer")
+    page.route("**/api/smart/session", lambda route: route.fulfill(json=launched_as("L1")))
+    page.route("**/api/smart/patient", lambda route: route.fulfill(json=SMART_PATIENT))
+    page.route("**/api/smart/focus?*", lambda route: route.fulfill(json=SMART_ITEMS))
+    page.route("**/api/smart/decide", lambda route: route.fulfill(json=DECIDED))
+    page.goto(f"/?pack={REFERRAL}#patient/L1")
+    expect(page.locator('.nav a[data-view="overview"]')).to_be_visible()
+    item = page.locator(".work-item")
+    item.get_by_role("button", name="Decide").click()
+    expect(item.locator(".work-result")).to_contain_text("Anticoagulation question")
+    expect(item.get_by_role("link", name=re.compile("Open the decision"))).to_have_attribute(
+        "href", "#audit/d-1"
+    )
+    expect(item.locator(".decided-id")).to_have_count(0)
+
+
+@pytest.mark.parametrize("signed_in", [False, True])
+def test_an_ended_launch_says_to_open_mendari_again_from_the_ehr(
+    page: Page, signed_in: bool
+) -> None:
+    """The EHR ended the launch (its token, or the launch's idle or absolute limit): the launch's
+    routes answer 401. That is said as the launch's end, never as a Mendari session's (signing in
+    would not bring the launch back), for a launch alone and for someone signed in too."""
+    ended = {"detail": "the EHR ended this launch: open Mendari again from the EHR"}
+    if signed_in:
+        signed_in_as(page, "reviewer")
+        page.route("**/api/smart/session", lambda route: route.fulfill(json=launched_as("L1")))
+    else:
+        launch_only(page, launched_as("L1"))
+    page.route("**/api/smart/patient", lambda route: route.fulfill(status=401, json=ended))
+    page.goto(f"/?pack={REFERRAL}#patient/L1")
+    banner = page.locator("#launch-ended")
+    expect(banner).to_be_visible()
+    expect(banner).to_have_text("This EHR launch ended. Open Mendari again from the EHR.")
+    expect(page.locator(".empty-state h2")).to_have_text("This EHR launch ended")
+    expect(page.locator("#session-ended")).to_be_hidden()
+    expect(page.locator("#announce-alert")).to_have_text(
+        "This EHR launch ended. Open Mendari again from the EHR."
+    )
+    expect(page.locator(".patient-name")).to_have_count(0)
+
+
+def test_a_window_whose_launch_was_replaced_says_so(page: Page) -> None:
+    """One browser, one launch at a time: a window pins the launch it shows, and once another
+    launch replaced it (another chart, maybe another patient), the window says so, decides
+    nothing and never shows the other launch's patient."""
+    session = launched_as("L1")
+    asked = launch_only(page, session)
+    page.goto(f"/?pack={REFERRAL}#patient")  # opened without a pin: it takes the one it shows
+    expect(page.locator(".patient-name")).to_have_text("Case 1 Synthetic")
+    expect(page).to_have_url(re.compile("#patient/L1$"))
+    expect(page.locator('.nav a[data-view="patient"]')).to_have_attribute("href", "#patient/L1")
+    session["launch_id"] = "L2"  # the EHR launched again in this browser
+    page.locator(".work-item").get_by_role("button", name="Decide").click()
+    replaced = page.locator(".empty-state h2")
+    expect(replaced).to_have_text("This window's launch was replaced")
+    assert "/api/smart/decide" not in asked
+    asked.clear()
+    page.reload()
+    expect(replaced).to_have_text("This window's launch was replaced")
+    expect(page.locator(".empty-state")).to_contain_text("Open Mendari again from the EHR")
+    expect(page.locator(".patient-name")).to_have_count(0)
+    assert "/api/smart/patient" not in asked and "/api/smart/focus" not in asked
+
+
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+def test_the_launch_alone_fits_a_phone_in_both_themes(page: Page, scheme: str) -> None:
+    page.emulate_media(color_scheme=scheme)  # type: ignore[arg-type]
+    page.set_viewport_size(PHONE)
+    launch_only(page, launched_as("L1"))
+    page.route(
+        "**/api/smart/patient",
+        lambda route: route.fulfill(status=401, json={"detail": "ended"}),
+        times=1,
+    )
+    page.goto(f"/?pack={REFERRAL}#patient/L1")
+    expect(page.locator("#launch-ended")).to_be_visible()
+    pairs = page.evaluate(CONTRAST, "#launch-ended")
+    page.reload()
+    expect(page.locator("html")).to_have_attribute("data-theme", scheme)
+    item = page.locator(".work-item")
+    item.get_by_role("button", name="Decide").click()
+    expect(item.locator(".decided-id")).to_be_visible()
+    pairs += page.evaluate(CONTRAST, "main .badge") + page.evaluate(CONTRAST, "main button.primary")
+    failing = [(text, round(ratio, 2)) for text, ratio in pairs if ratio < 4.5]
+    assert pairs and failing == [], scheme
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+
+
 # -- organization sign-in ----------------------------------------------------------------------
 
 

@@ -169,6 +169,7 @@ def test_the_smart_launch_is_described_as_it_is(
     _sign_in_on(monkeypatch)
     signed = TestClient(create_app(db_path=tmp_path / "c.db")).get("/docs").text
     assert "Only an EHR the deployment registers (<code>MENDARI_SMART_EHRS</code>)" in signed
+    assert "It opens the dashboard on that patient's work alone." in signed
 
 
 def test_the_quickstart_prints_what_the_server_decides(client: TestClient) -> None:

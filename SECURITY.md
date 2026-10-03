@@ -63,7 +63,9 @@ Each bullet is one control; the threat model names the row and the tests behind 
   `openid fhirUser`, whose id_token names no subject, or whose user is not a Practitioner or
   PractitionerRole (a patient portal). These refuse the launch, never startup. The registration
   is read on every request, so unregistering an EHR ends its launches at once, and signing out
-  of Mendari ends the browser's launch too. Open mode with no EHR registered launches as before.
+  of Mendari ends the browser's launch too. The dashboard shows a browser that only launched
+  the patient view alone, pinned to its launch: a window whose launch a later one replaced says
+  so and shows no patient. Open mode with no EHR registered launches as before.
 - **Sessions.** A person's session (and an EHR launch's) is a server-side row behind an opaque
   HttpOnly, Secure, SameSite=Lax cookie with no expiry of its own, named `__Host-mendari_session`
   (`__Host-mendari_smart`) so only this exact host can set it; loopback and dotless hosts keep

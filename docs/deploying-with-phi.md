@@ -191,7 +191,12 @@ MENDARI_SMART_EHRS=https://ehr.example.org/fhir/r4=clinic:decide   # <FHIR base>
 - **A launch reaches only its own routes** (the patient, the items to decide about, and
   deciding when registered to), never the review queue, the audit trail or packs, and its
   decisions are the registered organization's, limited per launched clinician. Your reviewers
-  read them in the audit trail as usual.
+  read them in the audit trail as usual. The dashboard shows the clinician the patient view
+  alone, with each decision in place and its id to quote.
+- **Launch in a new window or the EHR's embedded window**, not an iframe (an iframe launch fails
+  with `browser`). One browser holds one launch at a time: a window whose launch a later one
+  replaced says so and shows no patient, and a launch that ended (its token, idle, or the EHR's
+  `401`) says to open Mendari again from the EHR.
 - **The registration is read on every request**: take an EHR out of `MENDARI_SMART_EHRS` (or
   register it to `view`) and redeploy, and its launches lose that access on the next request.
   Signing out of Mendari ends the browser's launch too.

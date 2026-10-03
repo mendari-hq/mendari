@@ -30,21 +30,24 @@ async function boot() {
     state.shortFormat = shortFormatFor(health?.timezone ?? DEFAULT_TIMEZONE);
     state.timezone = health?.timezone ?? DEFAULT_TIMEZONE;
   } catch { /* an unknown zone name: keep the default */ }
-  // A SMART launch from the EHR leaves a session: the patient's view joins the sections.
-  const [session, packs, me] = await Promise.all([
-    api("/api/smart/session").catch(() => null), api("/api/packs"), api("/api/auth/me").catch(() => null),
+  // A SMART launch from the EHR leaves a session: the patient's view joins the sections. With
+  // sign-in on and no one signed in, the launch is all this browser has: the patient view alone,
+  // with the packs the launch names (the rest of the API would refuse it).
+  const [session, me] = await Promise.all([
+    api("/api/smart/session").catch(() => null), api("/api/auth/me").catch(() => null),
   ]);
   showSignedIn(me);
   state.smart = session?.active ? session : null;
-  $('.nav a[data-view="patient"]').hidden = !state.smart;
-  state.packs = packs;
+  state.launchOnly = Boolean(state.smart && me?.mode === "sign-in" && !me.signed_in);
+  showLaunch();
+  state.packs = state.launchOnly ? state.smart.packs ?? [] : await api("/api/packs");
   const select = $("#pack-select");
   if (!state.packs.length) {
     $("#view").removeAttribute("aria-busy");
     $("#view").innerHTML = `<div class="panel empty">No Decision Packs found on the search path.</div>`;
     return;
   }
-  select.innerHTML = state.packs.map((p) => `<option value="${esc(p.id)}">${esc(p.name)} ${esc(p.version)}</option>`).join("");
+  select.innerHTML = state.packs.map((p) => `<option value="${esc(p.id)}">${esc([p.name, p.version].filter(Boolean).join(" "))}</option>`).join("");
   const known = (id) => state.packs.some((p) => p.id === id);
   const saved = storageGet("oh.pack", state.packs[0].id);
   await switchPack([packInAddress(), saved].find(known) ?? state.packs[0].id);
@@ -74,6 +77,18 @@ async function switchPack(packId) {
   storageSet("oh.pack", packId);
   history.replaceState(history.state, "", `?pack=${encodeURIComponent(packId).replaceAll("%2F", "/")}${location.hash}`);
   await loadPack(packId);
+}
+
+// The patient view's link names the launch the window shows ("#patient/<launch id>"): the one in
+// the address when the EHR opened this window, else the browser's launch now. A launch alone sees
+// no other section.
+function showLaunch() {
+  const link = $('.nav a[data-view="patient"]');
+  link.hidden = !state.smart;
+  const { view, params } = route();
+  const pinned = (view === "patient" && params[0]) || state.smart?.launch_id;
+  if (pinned) link.setAttribute("href", `#patient/${encodeURIComponent(pinned)}`);
+  if (state.launchOnly) document.querySelectorAll(".nav a").forEach((a) => (a.hidden = a !== link));
 }
 
 // With sign-in on, the bar names who is signed in (and their role) and offers signing out.

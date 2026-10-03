@@ -29,7 +29,9 @@ sign-in. The first site with PHI runs Mendari on its own servers, from an EHR no
 - **A launch may view, or view and decide, for the launched patient. Nothing else.** Two new
   permissions, held only by `ehr` principals: reading the patient and the focus resources through
   the EHR, and deciding. They hold no Mendari role. The organization's reviewers use the audit
-  trail. The dashboard shows a launch only the patient view, with the decision inline.
+  trail. The dashboard shows a launch only the patient view, with the decision inline, pinned
+  to the launch that opened the window: a window whose launch was replaced says so and shows no
+  patient (one launch per browser at a time).
 - **A bearer credential decides alone everywhere**, `/api/smart/*` included. Signing out of
   Mendari ends the browser's launch too.
 - **The chain names who asked.** Every new `decision.created` names the requester when sign-in is

@@ -72,6 +72,7 @@ export const icon = (name) => `<svg class="icon" aria-hidden="true"><use href="#
 export async function api(path, options = {}) {
   const response = await fetch(path, { headers: { "content-type": "application/json" }, ...options });
   const body = await response.json().catch(() => null);
+  if (response.status === 401 && path.startsWith("/api/smart/")) throw launchEnded();
   if (response.status === 401 && signedIn()) throw sessionEnded();
   if (!response.ok) throw new Error((body && (body.detail || body.error)) || response.statusText);
   return body;
@@ -91,6 +92,20 @@ function sessionEnded() {
     announce(SESSION_ENDED, { error: true });
   }
   return new Error(SESSION_ENDED);
+}
+
+// A 401 from the launch's own routes: the EHR launch ended (idle, its limit, the EHR's token, or
+// ended elsewhere), whether or not someone is signed in here too. Signing in to Mendari would not
+// bring it back: only the EHR can launch again.
+export const LAUNCH_ENDED = "This EHR launch ended. Open Mendari again from the EHR.";
+
+function launchEnded() {
+  const banner = $("#launch-ended");
+  if (banner.hidden) {
+    banner.hidden = false;
+    announce(LAUNCH_ENDED, { error: true });
+  }
+  return Object.assign(new Error(LAUNCH_ENDED), { launchEnded: true });
 }
 
 // A short message. Errors are announced at once (role="alert") and stay on screen longer; other
@@ -122,8 +137,10 @@ export function storageSet(key, value) {
   try { localStorage.setItem(key, value); } catch { /* private mode: fine */ }
 }
 
+// `launchOnly`: an EHR launch and no one signed in (sign-in on): the patient view is all there is,
+// the packs come from the launch's session, and nothing else is asked of the API.
 export const state = {
-  packs: [], packId: null, detail: null, view: null, smart: null, me: null, phiMode: "off",
+  packs: [], packId: null, detail: null, view: null, smart: null, me: null, launchOnly: false, phiMode: "off",
   timezone: DEFAULT_TIMEZONE, timeFormat: timeFormatFor(DEFAULT_TIMEZONE), shortFormat: shortFormatFor(DEFAULT_TIMEZONE),
 };
 
@@ -137,6 +154,7 @@ export const packPath = () => `/api/packs/${state.packId}`;
 // A pack chosen while another was still loading wins: the older answer is dropped when it arrives.
 export async function loadPack(packId) {
   state.packId = packId;
+  if (state.launchOnly) return; // a launch reads no pack's details (the patient view needs none)
   const detail = await api(`/api/packs/${packId}`);
   if (state.packId === packId) state.detail = detail;
 }

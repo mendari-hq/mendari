@@ -4,9 +4,13 @@
   (`standards/smart.py`), tied to the browser that started it (and so begun on
   `MENDARI_PUBLIC_URL`, where the callback lands); the callback sets an opaque,
   HttpOnly, SameSite=Lax `__Host-` session cookie and sends the browser to the dashboard's "This
-  patient" view for the pack. The session ends after 30 minutes idle, 8 hours, or when the EHR's
+  patient" view for the pack, pinned to this launch (`#patient/<launch_id>`: a window whose
+  launch another launch in the same browser replaced says so, and never shows the other
+  patient). The session ends after 30 minutes idle, 8 hours, or when the EHR's
   token expires, whichever is first (`server/sessions.py`).
 - `GET /api/smart/session` (`{"active": false}` without one), `POST /api/smart/logout`: public.
+  The session names the launch (`launch_id`, not a secret) and the packs it may use (id and
+  name), so a browser that only launched opens the dashboard on the patient view alone.
 - `GET /api/smart/patient`: the launch's patient, for the banner.
 - `GET /api/smart/focus?pack_id=`: the patient's resources the pack decides about (their inbox
   messages, their referrals).
@@ -78,6 +82,7 @@ def add_smart_routes(
     *,
     settings: SmartSettings | None,
     store: AuditStore,
+    packs: Mapping[str, Pack],
     pack_or_404: Callable[[str], Pack],
     decision_for: Callable[[str], Decision],
     default_pack: str | None,
@@ -212,6 +217,9 @@ def add_smart_routes(
                     pending, code, settings=options, http=http, identify=identify
                 )
         session["pack"] = pending["pack"]
+        # The launch's name in the window it opens (`#patient/<launch_id>`): not a secret, it
+        # tells that window whether the browser's launch is still this one.
+        session["launch_id"] = secrets.token_hex(8)
         # Who launched, sealed with the rest: the id_token's issuer and subject, and the name
         # the chain gives them. The address and its verification are not kept.
         identity = session.pop("identity", None)
@@ -230,7 +238,8 @@ def add_smart_routes(
         org = registration.org if registration is not None and auth.enabled else None
         security_log.event("smart.launch.ok", actor=actor, org=org)
         pack = quote(pending["pack"], safe="/")
-        response = RedirectResponse(f"{public_url(request)}/?pack={pack}#patient", status_code=302)
+        opened = f"{public_url(request)}/?pack={pack}#patient/{session['launch_id']}"
+        response = RedirectResponse(opened, status_code=302)
         sessions.set_cookie(response, request, COOKIE, sid)
         sessions.clear_cookie(response, request, sessions.LAUNCH)  # used: one launch, once
         return response
@@ -242,13 +251,23 @@ def add_smart_routes(
     )
     def smart_session(request: Request) -> dict[str, Any]:
         """The launch's context, or `{"active": false}` (every dashboard load asks, so no launch
-        is an answer, not an error)."""
+        is an answer, not an error): the EHR, patient and encounter, who launched (`fhir_user`),
+        the scopes, when the EHR's token expires, the pack launched, the launch's id
+        (`launch_id`: the dashboard window it opened carries it, to tell a replaced launch), and
+        the packs it may use (`packs`: id and name)."""
         launch = auth.launch(request) if settings is not None else None
         if launch is None:
             return {"active": False}
         session = launch.session
         shown = ("iss", "patient", "encounter", "fhir_user", "scope", "expires_at", "pack")
-        return {"active": True, **{key: session.get(key) for key in shown}}
+        context = {key: session.get(key) for key in shown}
+        listed = [{"id": pack.id, "name": pack.manifest.name} for pack in packs.values()]
+        return {
+            "active": True,
+            **context,
+            "launch_id": session.get("launch_id"),
+            "packs": sorted(listed, key=lambda pack: pack["id"]),
+        }
 
     @app.post(
         "/api/smart/logout",

@@ -58,7 +58,7 @@ no pack, provider, count or record with sign-in on), the `/redoc` redirect, and
 it holds only `launch` (`GET /api/smart/patient`, `/focus`) and, registered to decide,
 `launch_decide` (`POST /api/smart/decide`), which nobody else holds (threat E7,
 [ADR-0006](../decisions/ADR-0006-an-ehr-launch-is-a-principal.md)); the dashboard page also
-opens for it. Machines are `viewer` or `service` only; managing keys and clients is for signed-in
+opens for it, on the patient view alone. Machines are `viewer` or `service` only; managing keys and clients is for signed-in
 people only. Without sign-in (open mode) every caller is an admin: that mode is for local use
 and the sandbox.
 

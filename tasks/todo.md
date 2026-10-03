@@ -26,8 +26,11 @@ registered EHR; no iframe and no refresh until the pilot EHR is known
   (Deviation: on the Provenance the requester is a second agent with the role "requester" as
   text and no type, since R4's agent types have no code for one; the HL7 validator accepts it
   with no new warning.)
-- [ ] **4. The dashboard for a launch**: patient view only, decision inline, "open Mendari again
+- [x] **4. The dashboard for a launch**: patient view only, decision inline, "open Mendari again
   from the EHR" after a 401, a replaced launch said so
+  (Deviation: the launch pin is checked again before every render and every decision, and a
+  window opened on `#patient` with no pin takes the launch it shows; the 401 message applies to
+  signed-in people too, who were told to sign in again.)
 - [ ] **5. CI and wrap-up**: `sandbox-e2e` with sign-in on and a registered EHR, `mendari smart
   check`, threat model, SECURITY.md, deploying-with-phi.md, review packet addendum, audit status
 - [ ] **Review**: reviewers and a skeptic per finding, then fixes

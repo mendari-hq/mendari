@@ -8,6 +8,7 @@ import base64
 import functools
 import hashlib
 import json
+import re
 import sqlite3
 import time
 from collections.abc import Iterator
@@ -190,7 +191,6 @@ def test_an_ehr_launch_opens_the_patients_view_with_a_server_side_session(
         follow_redirects=False,
     )
     assert done.status_code == 302
-    assert done.headers["location"] == f"{APP}/?pack={REFERRAL}#patient"
     cookie = done.headers["set-cookie"].lower()
     assert "httponly" in cookie and "secure" in cookie and "samesite=lax" in cookie
     session = app.get("/api/smart/session").json()
@@ -203,8 +203,28 @@ def test_an_ehr_launch_opens_the_patients_view_with_a_server_side_session(
         "scope": "launch openid fhirUser patient/*.rs",
         "expires_at": session["expires_at"],
         "pack": REFERRAL,
+        "launch_id": session["launch_id"],
+        "packs": session["packs"],
     }
+    # The window opens on this launch's patient view, pinned to the launch.
+    assert done.headers["location"] == f"{APP}/?pack={REFERRAL}#patient/{session['launch_id']}"
     assert "access" not in json.dumps(session)  # the token stays on the server
+
+
+def test_each_launch_names_itself_and_the_window_it_opens(app: TestClient, ehr: FakeEhr) -> None:
+    """The callback opens the window on `#patient/<launch_id>`, the session names the same
+    launch and the packs it may use, and a later launch in the same browser is another launch:
+    the first window can tell it was replaced (dashboard/patient.js)."""
+    first = full_launch(app, ehr)
+    one = app.get("/api/smart/session").json()
+    assert first.headers["location"].endswith(f"#patient/{one['launch_id']}")
+    assert re.fullmatch(r"[0-9a-f]{16}", one["launch_id"])
+    listed = {pack["id"]: pack["name"] for pack in app.get("/api/packs").json()}
+    assert one["packs"] == [{"id": i, "name": n} for i, n in sorted(listed.items())]
+    second = full_launch(app, ehr)
+    two = app.get("/api/smart/session").json()
+    assert two["launch_id"] != one["launch_id"]
+    assert second.headers["location"].endswith(f"#patient/{two['launch_id']}")
 
 
 def test_the_patient_banner_and_work_items_come_from_the_ehr(app: TestClient, ehr: FakeEhr) -> None:
@@ -300,7 +320,8 @@ def test_a_launch_on_another_name_moves_to_the_public_url_first(
     done = alias.get(
         f"{APP}/smart/callback", params={"code": code, "state": state}, follow_redirects=False
     )
-    assert done.status_code == 302 and done.headers["location"] == f"{APP}/?pack={REFERRAL}#patient"
+    assert done.status_code == 302
+    assert done.headers["location"].startswith(f"{APP}/?pack={REFERRAL}#patient/")
     assert alias.get(f"{APP}/api/smart/session").json()["active"] is True
 
 
@@ -751,10 +772,15 @@ def test_a_launch_opens_the_dashboard_page_and_nothing_else(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tenants: tuple[FakeEhr, FakeEhr]
 ) -> None:
     """With sign-in on, the launch cookie lets the dashboard page load (no detour to sign in),
-    and is a credential on `/api/smart/` only: the store, packs and API reference stay shut."""
+    and is a credential on `/api/smart/` only: the store, packs and API reference stay shut.
+    What the dashboard's launch-only mode boots on answers: the session, with the launch's id
+    and the packs it may use, and who is signed in (no one)."""
     a, b = tenants
     app = signed_site(tmp_path / "a.db", monkeypatch, REGISTERED, a, b)
-    assert full_launch(app, a).headers["location"] == f"{APP}/?pack={REFERRAL}#patient"
+    location = full_launch(app, a).headers["location"]
+    session = app.get("/api/smart/session").json()
+    assert location == f"{APP}/?pack={REFERRAL}#patient/{session['launch_id']}"
+    assert {"id": REFERRAL, "name": "Referral Router"} in session["packs"]
     assert app.get("/", follow_redirects=False).status_code == 200
     for path in ("/api/audit", "/api/packs", "/api/review", "/openapi.json"):
         assert app.get(path).status_code == 401, path

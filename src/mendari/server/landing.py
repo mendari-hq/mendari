@@ -176,7 +176,7 @@ def _smart(launch: bool, *, sign_in: bool) -> str:
             "it, for a practitioner the EHR's sign-in names: the launch may view that patient's "
             "work (<code>/api/smart/patient</code>, <code>/api/smart/focus</code>), or also "
             "decide it (<code>/api/smart/decide</code>), as registered, and its decisions are the "
-            "registered organization's."
+            "registered organization's. It opens the dashboard on that patient's work alone."
             if sign_in
             else " It opens the dashboard on that patient's work."
         )

@@ -379,9 +379,9 @@ verified email, else `<issuer>|<subject>`), and the launch's cookie reaches only
 own routes (an `Authorization` header decides alone there too): no review queue, audit trail
 or packs. Unregistering an EHR ends its launches at the next request, and signing out of
 Mendari ends the browser's launch. In open mode with no EHR registered, any allow-listed EHR
-launches, as before. (With sign-in on, the dashboard's view for a browser that only launched
-comes with the next stage of the SMART launch plan; until then such a browser uses the routes
-below.)
+launches, as before. With sign-in on, a browser that only launched opens the dashboard on the
+patient view alone, with the decision shown in place (the organization's reviewers read it in
+the audit trail).
 
 The launch is OAuth 2 with PKCE (S256). The `id_token` is verified against the server's JWKS
 (`iss`, `aud`, `exp`, `nonce`). The access token stays on the server, sealed in the session
@@ -389,7 +389,10 @@ row under a key derived from the browser's opaque, HttpOnly, SameSite=Lax `__Hos
 session cookie, so the database alone never reveals it. The session ends like a person's (and
 when the EHR's token does, or the EHR answers `401` to it), and the callback works only in the
 browser that started the launch. No refresh token is kept: `offline_access` in
-`MENDARI_SMART_SCOPES` is refused at launch. The dashboard opens on the launch's patient:
+`MENDARI_SMART_SCOPES` is refused at launch. The dashboard opens on the launch's patient,
+pinned to that launch (`#patient/<launch_id>`; a window whose launch a later one in the same
+browser replaced says so, and shows no patient), and says "This EHR launch ended. Open Mendari
+again from the EHR." when the launch's routes answer `401`:
 - `GET /api/smart/patient`;
 - their messages or referrals: `GET /api/smart/focus?pack_id=`;
 - deciding one: `POST /api/smart/decide`, which reads the record through the pack's CDS prefetch

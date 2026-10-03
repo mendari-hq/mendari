@@ -1513,6 +1513,7 @@ def create_app(
         app,
         settings=smart_options,
         store=store,
+        packs=packs,
         pack_or_404=pack_or_404,
         decision_for=decision_for,
         default_pack=default_pack,
