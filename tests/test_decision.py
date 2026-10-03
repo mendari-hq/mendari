@@ -20,7 +20,7 @@ def test_result_matches_generated_output_schema(router: Decision) -> None:
     result = router(message("Can I get a refill on my atorvastatin?", channel="portal"))
     Draft202012Validator(router.pack.output_schema).validate(result.to_dict())
     assert result.pack_digest == router.pack.digest
-    assert result.input_hash.startswith("sha256:")
+    assert result.input_hash.startswith("sha256:")  # no store, so no input hash key
 
 
 def test_invalid_input_is_blocked_without_calling_providers(router: Decision) -> None:

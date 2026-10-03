@@ -32,6 +32,11 @@ class ReviewError(MendariError):
     """A human-review action is not allowed (unknown item, already resolved, bad label)."""
 
 
+class NoteError(MendariError):
+    """A note cannot be kept here (PHI mode `hash` keeps no free text), or cannot be erased (an
+    unknown or already erased note). A `422`: the request is well formed, but not here."""
+
+
 class FhirError(MendariError):
     """FHIR input is missing required resources or cannot be mapped to the pack input."""
 

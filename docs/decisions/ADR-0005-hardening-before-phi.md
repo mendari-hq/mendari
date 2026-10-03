@@ -28,12 +28,13 @@ So the chain decisions below matter most for self-hosted installs, and the limit
 public deployment.
 
 ## Decision
-- **Commit, don't copy.** A note (review, feedback, governance) and payer text go to a `notes`
+- **Commit, don't copy.** A note (review, feedback) and payer text go to a `notes`
   table: sealed with the PHI key under `encrypt`, plain under `off`, refused (`422`) under
   `hash`, which promises to keep no free text. The chain keeps a reference and a salted
   commitment, so a note can be erased (a chained `note.erased`) and the chain still verifies.
   Notes follow inputs: the same readers, the same retention. Notes chained before this decision
   are hidden at read time from anyone without `read_input`; the chain itself is never rewritten.
+  A governance approval's `reference` (an administrator's pointer to minutes) stays chained.
 - **Evidence follows the input.** Under `hash` the stored record keeps no evidence values; under
   `encrypt` they are sealed with the input. A Patient id in an input issue is stored as its type
   and position.

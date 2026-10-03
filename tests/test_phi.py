@@ -17,7 +17,7 @@ from mendari.core.phi import PhiPolicy, phi_policy
 from mendari.errors import MendariError
 from mendari.server.app import create_app
 from mendari.server.auth import Principal
-from tests.conftest import message, signed_in
+from tests.conftest import HASH_KEY_B64, message, signed_in
 
 KEY = os.urandom(32)
 SECRET_WORDS = "my neighbour Rosalind Q. Example has chest pain"
@@ -29,8 +29,10 @@ def encrypting(tmp_path: Path, name: str = "a.db") -> AuditStore:
 
 def test_the_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("MENDARI_PHI_MODE", raising=False)
+    monkeypatch.delenv("MENDARI_INPUT_HASH_KEY", raising=False)
     assert phi_policy().mode == "off"
     monkeypatch.setenv("MENDARI_PHI_MODE", "encrypt")
+    monkeypatch.setenv("MENDARI_INPUT_HASH_KEY", HASH_KEY_B64)
     monkeypatch.delenv("MENDARI_PHI_KEY", raising=False)
     with pytest.raises(MendariError, match="needs MENDARI_PHI_KEY"):
         phi_policy()
@@ -49,7 +51,7 @@ def test_hash_mode_stores_no_input(tmp_path: Path, inbox_pack: Pack) -> None:
     result = Decision(inbox_pack, store=store)(message(SECRET_WORDS))
     item = store.get(result.id, reader="anyone")
     assert item is not None and item["record"]["input"] is None
-    assert item["record"]["input_hash"].startswith("sha256:")
+    assert item["record"]["input_hash"].startswith("sha256:")  # a store without a hash key
     with store._db.session(exclusive=False) as db:
         assert db.all("SELECT * FROM decision_inputs") == []
 
@@ -128,6 +130,7 @@ def test_the_server_reports_the_mode_and_reads_through_the_policy(
     tmp_path: Path, inbox_pack: Pack, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("MENDARI_PHI_MODE", "encrypt")
+    monkeypatch.setenv("MENDARI_INPUT_HASH_KEY", HASH_KEY_B64)
     monkeypatch.setenv("MENDARI_PHI_KEY", base64.b64encode(KEY).decode())
     client = TestClient(create_app(db_path=tmp_path / "a.db"))
     assert client.get("/api/health").json()["phi_mode"] == "encrypt"
@@ -143,6 +146,7 @@ def test_signed_in_reviewers_read_inputs_and_each_read_is_chained(
     tmp_path: Path, inbox_pack: Pack, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("MENDARI_PHI_MODE", "encrypt")
+    monkeypatch.setenv("MENDARI_INPUT_HASH_KEY", HASH_KEY_B64)
     monkeypatch.setenv("MENDARI_PHI_KEY", base64.b64encode(KEY).decode())
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
@@ -184,10 +188,12 @@ def test_the_cli_purges(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setenv("MENDARI_PHI_MODE", "encrypt")
+    monkeypatch.setenv("MENDARI_INPUT_HASH_KEY", HASH_KEY_B64)
     monkeypatch.setenv("MENDARI_PHI_KEY", base64.b64encode(KEY).decode())
     store = encrypting(tmp_path)
     Decision(inbox_pack, store=store)(message(SECRET_WORDS))
     assert main(["phi", "purge", "--db", str(tmp_path / "a.db"), "--days", "30"]) == 0
-    assert "0 stored input(s) older than 30 days deleted" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "0 stored input(s) deleted and 0 note(s) erased, older than 30 days" in out
     monkeypatch.delenv("MENDARI_RETENTION_DAYS", raising=False)
     assert main(["phi", "purge", "--db", str(tmp_path / "a.db")]) == 1

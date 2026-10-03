@@ -240,14 +240,32 @@ in flight at the deploy completes once without the browser cookie.
 ```bash
 MENDARI_PHI_MODE=encrypt
 MENDARI_PHI_KEY=$(python -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())")
+MENDARI_INPUT_HASH_KEY=$(python -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())")
 MENDARI_RETENTION_DAYS=90
 ```
 
 | Mode | What is kept of each input |
 |---|---|
 | `off` | As the pack says (`audit.store_input`). For synthetic data only. |
-| `hash` | Nothing but its SHA-256. Reviewers see the decision and its reasons, not the message or record. |
+| `hash` | Nothing but a keyed hash of it (HMAC-SHA256). Reviewers see the decision and its reasons, not the message or record. |
 | `encrypt` | The input, encrypted (AES-256-GCM, bound to its decision), apart from the audit chain. |
+
+What the decision record (whose digest is chained for good) keeps of an input, in `hash` and
+`encrypt`:
+- **no evidence values.** An answer's evidence can quote the input (`4548-4 8.1 % on
+  2026-08-01`). Under `hash`, and for a pack whose `audit.store_input` is `hash`, the record's
+  evidence is empty; under `encrypt` it is sealed with the input (bound to its decision), comes
+  back with it to those who may read inputs, and is deleted with it by retention. The caller's
+  own answer (`/decide`) still carries it;
+- **no resource ids.** An input issue (a US Core finding) names its resource by type and
+  position, `Patient (entry 2)`, in the record and in the reasons that refuse an input; the
+  OperationOutcome returned to the caller keeps the id, to find the resource;
+- **a keyed input hash.** `hmac-sha256:<key id>:<64 hex>`, an HMAC-SHA256 under
+  `MENDARI_INPUT_HASH_KEY`. A plain SHA-256 of a short or structured input (an age, a sex and an
+  order code) is found by guessing in seconds, and anyone who may read a decision sees its hash;
+  without the key, guesses match nothing. The engine refuses to start in `hash` or `encrypt`
+  without this key. In `off` mode without it, the hash stays the plain `sha256:` of earlier
+  releases, as on records already chained.
 
 Under `encrypt`:
 - only signed-in **reviewers** and **admins** get an input back: in a decision's record, the
@@ -259,14 +277,52 @@ Under `encrypt`:
   against. Encrypt mode needs step 2.
 
 **Retention.** Schedule `mendari phi purge --db "$DATABASE_URL"` (daily, for example). It
-deletes kept inputs older than `MENDARI_RETENTION_DAYS` and records each deletion in the
-chain. Decisions, reviews and the chain itself stay, and `mendari audit verify` still passes.
+deletes kept inputs and erases notes older than `MENDARI_RETENTION_DAYS`, and records each
+deletion in the chain. Decisions, reviews and the chain itself stay, and `mendari audit verify` still passes.
 
-**The key.**
-- Keep `MENDARI_PHI_KEY` in your secret manager, never in the repository or an image.
-- Losing it makes stored inputs unreadable. The decisions and the chain are unaffected.
-- To rotate it: purge (or let retention expire) the inputs kept under the old key, then switch.
-  Re-encrypting in place is not provided.
+**The keys.**
+- Keep `MENDARI_PHI_KEY` and `MENDARI_INPUT_HASH_KEY` in your secret manager, never in the
+  repository or an image. They are two different keys (the engine refuses one used as both): the
+  input hash key is needed in `hash` mode, which has no PHI key, and rotating the PHI key leaves
+  hashes alone.
+- Losing the PHI key makes stored inputs, evidence and notes unreadable. The decisions and the
+  chain are unaffected.
+- To rotate the PHI key: purge (or let retention expire) the inputs kept under the old key,
+  then switch. Re-encrypting in place is not provided.
+- The input hash key's id (16 hex digits of an HMAC under it, which reveal nothing about it) is
+  in every keyed hash and in `/api/health` (`input_hash`).
+- To rotate the input hash key, as the PHI key: purge, then switch. Records made before keep the
+  old key's id and are never re-hashed (their digests are chained); Mendari never recomputes an
+  old hash, so nothing breaks, and new records carry the new id. If the key leaks, whoever also
+  holds the database can attack the hashes made under it: switch at once, and treat those
+  hashes as no better than plain SHA-256.
+
+**Notes.** A reviewer's or a rater's note, and a payer's answer to a prior authorization (its
+authorization number and disposition), are free text. They are kept in a `notes` table, never in
+the audit chain:
+- the chain keeps `note: null` and a `note_ref`: the note's id and a salted SHA-256 commitment.
+  The salt is only in the note's row, so the commitment says nothing about the text;
+- under `encrypt` a note is sealed with the same key as inputs (AES-256-GCM, bound to the note
+  and its decision). Like inputs, it opens only for **reviewers** and **admins**, and each read
+  is chained (`input.read` names the notes read);
+- under `hash`, a review or rating with a note is refused (`422`): `hash` keeps no free text.
+  The dashboard offers no note field there, and a payer's words are not kept;
+- under `off`, notes are kept in the clear for whoever may read the decision;
+- notes written into the chain by earlier releases stay there (the chain is never rewritten),
+  but are shown only to those who may read inputs.
+
+`mendari phi purge` also erases notes older than `MENDARI_RETENTION_DAYS`. To erase one note now:
+
+```bash
+mendari notes erase --db "$DATABASE_URL" --id <note_ref.id> --reason request --by dpo@example.org
+```
+
+Erasing keeps the note's row (id, decision, when) and drops its text and salt. It chains
+`note.erased`, with the reason and who. The chain still verifies, and
+`mendari audit verify --notes` (with `MENDARI_PHI_KEY` set) checks every kept note against its
+commitment. **Erasure is not instant everywhere:** database backups, your database's
+point-in-time history (Neon keeps deleted rows for its history window) and exports made earlier
+still hold the note until they expire or you delete them.
 
 ## 4. What leaves your network
 
@@ -334,8 +390,8 @@ collector, journald) and keep it as your policy says; Mendari keeps no log table
 - [ ] Validate the pack on your own data: `mendari eval <pack> --dataset local.jsonl` (or
       Bulk FHIR: `mendari bulk export` then `bulk dataset`), and compare with the benchmark.
 - [ ] Without signing in, `/api/health` shows only `status`, `version` and `sign_in: true`.
-      Signed in as an admin, it shows `phi_mode: encrypt` and only the providers and FHIR
-      servers you expect.
+      Signed in as an admin, it shows `phi_mode: encrypt`, `input_hash: hmac-sha256:<key id>`,
+      and only the providers and FHIR servers you expect.
 - [ ] Signed in, `/api/health` shows `rate_limits.mode: on` and a `client_ip_source` that is your
       proxy's `X-Forwarded-For` (not the connection). One API key past its decide limit gets a
       `429` with `Retry-After` (lower `decide` in `MENDARI_RATE_LIMITS` on a test instance to
@@ -356,6 +412,8 @@ collector, journald) and keep it as your policy says; Mendari keeps no log table
 - [ ] Signed in, on each address people use, review a case on the dashboard and sign out: no
       `403` "cross-site request refused" (list a rewritten name in `MENDARI_TRUSTED_ORIGINS`).
       The answers carry `Strict-Transport-Security`.
+- [ ] A viewer sees a review note only as sealed; a reviewer reads it, and
+      `mendari audit verify --notes` passes.
 - [ ] Integrations that record outcomes send `source` as an identifier (`ehr`, not a sentence)
       and a label of the pack's primary question.
 - [ ] The security log reaches your log system: a refused request (a wrong key) appears there as

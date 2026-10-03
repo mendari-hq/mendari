@@ -91,6 +91,22 @@ def errors(issues: list[Issue]) -> list[Issue]:
     return [issue for issue in issues if issue.severity == "error"]
 
 
+def record_labels(resources: Any, issues: list[Issue]) -> dict[str, str]:
+    """How the audit record names each resource the issues name: its type and its position among
+    the input's resources, counted from 1 in the order they arrive ("Patient (entry 2)" for the
+    second), never its logical id, which can be a medical record number. A resource the input
+    does not list (a contained one, or the Bundle itself) is named by its type alone."""
+    positions: dict[str, str] = {}
+    for position, resource in enumerate(iter_resources(resources), start=1):
+        kind, resource_id = resource.get("resourceType"), resource.get("id")
+        if resource_id:
+            positions.setdefault(f"{kind}/{resource_id}", f"{kind} (entry {position})")
+    return {
+        issue.resource: positions.get(issue.resource) or issue.resource.partition("/")[0]
+        for issue in issues
+    }
+
+
 def operation_outcome(issues: list[Issue]) -> dict[str, Any]:
     """The issues as a FHIR OperationOutcome (an empty one says "all OK", as FHIR requires)."""
     if not issues:

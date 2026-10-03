@@ -27,10 +27,10 @@ from mendari.core import clock, tenancy
 from mendari.core.db import Backend as _Backend
 from mendari.core.db import Session as _Session
 from mendari.core.db import connect
-from mendari.core.phi import PhiPolicy
+from mendari.core.phi import NOTE_AAD, PhiPolicy
 from mendari.core.query import Atom, Page, Query, Within
 from mendari.core.spec import Outcome
-from mendari.errors import ProviderError, ReviewError
+from mendari.errors import MendariError, NoteError, ProviderError, ReviewError
 
 Rating = Literal["up", "down"]
 
@@ -50,6 +50,21 @@ _CHAIN_LOCK = 0x0E4_A0D17
 SYSTEM_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,99}$")
 # A served pack's labels for one of its questions, by (pack id, question); None when unknown.
 QuestionLabels = Callable[[str, str], Sequence[str] | None]
+# Notes (Phase 4b, ADR-0005: commit, don't copy). Free text a person or a payer writes about a
+# decision is kept in `notes`, apart from the chain, which keeps `note: null` and a `note_ref`:
+# the note's id and sha256(prefix || salt || text). The 32-byte salt is only in the note's row,
+# so the commitment says nothing about the text, and once the row is erased it is noise.
+# Free text chained as is before then (by event) is never rewritten, only hidden when read.
+LEGACY_TEXT = {
+    "review.resolved": ("note",),
+    "feedback.recorded": ("note",),
+    "pas.submitted": ("authorization", "disposition"),
+}
+# Why a person erases a note (chained, so a code): it should not have been written, or was wrong.
+# Retention erases with its own reason, "retention".
+ERASE_REASONS = ("request", "error")
+# Rows per insert when chaining several events at once (`_append_many`): a page is at most 500.
+_APPEND_BATCH = 500
 
 _TABLES = """
 CREATE TABLE IF NOT EXISTS decisions (
@@ -116,7 +131,8 @@ CREATE INDEX IF NOT EXISTS feedback_decision ON feedback (decision_id);
 CREATE TABLE IF NOT EXISTS decision_inputs (
     decision_id  TEXT PRIMARY KEY,
     created_at   TEXT NOT NULL,
-    ciphertext   TEXT NOT NULL
+    ciphertext   TEXT NOT NULL,
+    details      TEXT
 );
 CREATE TABLE IF NOT EXISTS governance_approvals (
     id           TEXT PRIMARY KEY,
@@ -199,7 +215,18 @@ CREATE TABLE IF NOT EXISTS org_usage (
     metric      TEXT NOT NULL,
     count       INTEGER NOT NULL,
     PRIMARY KEY (day, org, metric)
-)
+);
+CREATE TABLE IF NOT EXISTS notes (
+    id          TEXT PRIMARY KEY,
+    decision_id TEXT NOT NULL,
+    event       TEXT NOT NULL,
+    org         TEXT,
+    created_at  TEXT NOT NULL,
+    sealed      TEXT,
+    erased_at   TEXT,
+    erased_by   TEXT
+);
+CREATE INDEX IF NOT EXISTS notes_decision ON notes (decision_id)
 """
 
 # Columns added after their table's first release. New databases get them from _TABLES; older
@@ -218,6 +245,9 @@ _ADDED_COLUMNS = (
     ("api_keys", "scopes", "TEXT"),
     ("api_keys", "expires_at", "TEXT"),
     ("api_keys", "revoked_by", "TEXT"),
+    # What a record leaves out beside its kept input, sealed (Phase 4b): each answer's evidence.
+    # NULL: none, or a row from before.
+    ("decision_inputs", "details", "TEXT"),
 )
 # API keys (ADR-0004): machines are viewer or service; a key lives 90 days unless asked
 # otherwise, 365 at most; keys made before keys expired get 30 days from the first start of
@@ -329,9 +359,16 @@ class AuditStore:
         *,
         store_input: Literal["full", "hash"] = "full",
     ) -> None:
-        record = result.to_dict()
+        """Keep a decision and chain its digest. The input, and each answer's evidence (which can
+        quote it: a lab value and its date), stay in the record only under PHI mode `off` with a
+        pack that keeps inputs; under `encrypt` with such a pack both are sealed apart
+        (`decision_inputs`), so retention can delete them; otherwise neither is kept. The
+        caller's own answer (`/decide`) is unchanged."""
+        record = result.to_record()
         keep = store_input == "full" and self.phi.mode != "hash"
-        record["input"] = dict(inputs) if keep and self.phi.mode == "off" else None
+        in_record = keep and self.phi.mode == "off"
+        record["input"] = dict(inputs) if in_record else None
+        evidence = {} if in_record else _take_evidence(record)
         status = "pending" if result.outcome.value in _REVIEWABLE else "not_required"
         with self._db.session(exclusive=True) as db:
             db.all(
@@ -357,10 +394,16 @@ class AuditStore:
             )
             self._append(db, result.id, "decision.created", {"record_sha256": _sha(record)})
             if keep and self.phi.mode == "encrypt":  # apart from the chained record
+                details = {"evidence": evidence}
                 db.all(
-                    "INSERT INTO decision_inputs (decision_id, created_at, ciphertext) "
-                    "VALUES (?, ?, ?)",
-                    (result.id, result.created_at, self.phi.encrypt(result.id, dict(inputs))),
+                    "INSERT INTO decision_inputs (decision_id, created_at, ciphertext, details) "
+                    "VALUES (?, ?, ?, ?)",
+                    (
+                        result.id,
+                        result.created_at,
+                        self.phi.encrypt(result.id, dict(inputs)),
+                        self.phi.seal_details(result.id, details) if evidence else None,
+                    ),
                 )
 
     def resolve_review(
@@ -373,9 +416,11 @@ class AuditStore:
         labels: QuestionLabels | None = None,
     ) -> dict[str, Any]:
         """A human confirms or corrects a HUMAN_REVIEW / ABSTAIN decision with one of the labels
-        of its primary question (`_check_label`)."""
+        of its primary question (`_check_label`). A note is kept apart from the chain (`notes`);
+        the answer repeats it to whoever wrote it."""
         if not reviewer.strip():
             raise ReviewError("a reviewer identity is required")
+        note = self._may_keep(note)
         with self._db.session(exclusive=True) as db:
             scope, scoped = _scope()
             row = db.one(
@@ -405,10 +450,11 @@ class AuditStore:
                 "final_label": final_label,
                 "human_override": override,
                 "reviewer": reviewer,
-                "note": note,
+                "note": None,
+                "note_ref": self._keep_note(db, decision_id, "review.resolved", note),
             }
             self._append(db, decision_id, "review.resolved", payload)
-        return {"id": decision_id, "resolved_at": resolved_at, **payload}
+        return {"id": decision_id, "resolved_at": resolved_at, **payload, "note": note}
 
     def record_outcome(
         self,
@@ -444,8 +490,17 @@ class AuditStore:
             payload = {"final_label": final_label, "source": source, "recorded_by": recorded_by}
             self._append(db, decision_id, "outcome.recorded", payload)
 
-    def record_event(self, decision_id: str, event: str, payload: Mapping[str, Any]) -> None:
-        """A follow-up on a decision (e.g. `pas.submitted`), chained after its other events."""
+    def record_event(
+        self,
+        decision_id: str,
+        event: str,
+        payload: Mapping[str, Any],
+        *,
+        note: str | None = None,
+    ) -> None:
+        """A follow-up on a decision (e.g. `pas.submitted`), chained after its other events, with
+        its free text (the payer's words) kept as a note (`note_ref`)."""
+        note = self._may_keep(note)
         with self._db.session(exclusive=True) as db:
             scope, scoped = _scope()
             row = db.one(
@@ -453,7 +508,8 @@ class AuditStore:
             )
             if row is None:
                 raise ReviewError(f"unknown decision {decision_id}")
-            self._append(db, decision_id, event, dict(payload))
+            chained = {**payload, "note_ref": self._keep_note(db, decision_id, event, note)}
+            self._append(db, decision_id, event, chained)
 
     def record_feedback(
         self,
@@ -470,13 +526,14 @@ class AuditStore:
 
         A person can change their rating: the new one replaces their earlier one in counts, lists
         and exports, and both stay in the hash chain. People are told apart by `reporter`; unnamed
-        ratings of a decision count as one person, so a mis-click can always be put right."""
+        ratings of a decision count as one person, so a mis-click can always be put right. The
+        note is kept apart from the chain (`notes`, under the rating's id)."""
         if rating not in ("up", "down"):
             raise ReviewError("rating must be 'up' or 'down'")
         if expected is not None and rating != "down":
             raise ReviewError("only a thumbs-down carries the right answer")
         reporter = (reporter or "").strip() or None
-        note = (note or "").strip() or None
+        note = self._may_keep(note)
         feedback_id = str(uuid.uuid4())
         created_at = _now()
         with self._db.session(exclusive=True) as db:
@@ -495,9 +552,10 @@ class AuditStore:
                 "AND superseded_by IS NULL",
                 (decision_id, reporter or ""),
             )
+            # The `note` column is only read now: rows from before notes left the chain.
             db.all(
                 "INSERT INTO feedback (id, decision_id, created_at, pack_id, rating, reporter, "
-                "note, expected_question, expected_label) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "expected_question, expected_label) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     feedback_id,
                     decision_id,
@@ -505,7 +563,6 @@ class AuditStore:
                     row["pack_id"],
                     rating,
                     reporter,
-                    note,
                     answer and answer["question"],
                     answer and answer["label"],
                 ),
@@ -519,12 +576,21 @@ class AuditStore:
                 "feedback_id": feedback_id,
                 "rating": rating,
                 "reporter": reporter,
-                "note": note,
+                "note": None,
+                "note_ref": self._keep_note(
+                    db, decision_id, "feedback.recorded", note, note_id=feedback_id
+                ),
                 "expected": answer,
                 "replaces": previous["id"] if previous else None,
             }
             self._append(db, decision_id, "feedback.recorded", payload)
-        return {"id": feedback_id, "decision_id": decision_id, "created_at": created_at, **payload}
+        return {
+            "id": feedback_id,
+            "decision_id": decision_id,
+            "created_at": created_at,
+            **payload,
+            "note": note,
+        }
 
     def save_report(self, report: Mapping[str, Any]) -> None:
         with self._db.session(exclusive=False) as db:
@@ -634,28 +700,174 @@ class AuditStore:
         return int(row["calls"]) if row else 0
 
     def _append(self, db: _Session, decision_id: str, event: str, payload: Any) -> None:
+        self._append_many(db, event, [(decision_id, payload)])
+
+    def _append_many(
+        self, db: _Session, event: str, entries: Sequence[tuple[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Chain one kind of event on several decisions (`(decision_id, payload)`), in order:
+        the chain N `_append`s would write, with one read of its head and one insert (per
+        `_APPEND_BATCH` rows), so 2 round trips under the lock instead of 2N. Each row's
+        `prev_hash` is the row before's `hash`, so `verify()` holds only if `seq` follows the
+        insert's order, as an identity column does. The events, as `_events_of` gives them."""
+        if not entries:
+            return []
         last = db.one("SELECT hash FROM audit_events ORDER BY seq DESC LIMIT 1")
         prev = last["hash"] if last else GENESIS
-        created_at = _now()
-        body = _canonical(payload)
-        digest = _chain_hash(prev, decision_id, event, body, created_at)
-        db.all(
-            "INSERT INTO audit_events (decision_id, event, payload, created_at, prev_hash, hash) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (decision_id, event, body, created_at, prev, digest),
+        rows = []
+        for decision_id, payload in entries:
+            created_at = _now()
+            body = _canonical(payload)
+            digest = _chain_hash(prev, decision_id, event, body, created_at)
+            rows.append((decision_id, event, body, created_at, prev, digest))
+            prev = digest
+        chained = []
+        for start in range(0, len(rows), _APPEND_BATCH):
+            batch = rows[start : start + _APPEND_BATCH]
+            marks = ", ".join("(?, ?, ?, ?, ?, ?)" for _ in batch)
+            written = db.all(
+                "INSERT INTO audit_events (decision_id, event, payload, created_at, prev_hash, "
+                f"hash) VALUES {marks} RETURNING seq",
+                [value for row in batch for value in row],
+            )
+            seqs = sorted(int(row["seq"]) for row in written)
+            for (decision_id, kind, body, created_at, before, digest), seq in zip(
+                batch, seqs, strict=True
+            ):
+                chained.append(
+                    {
+                        "seq": seq,
+                        "decision_id": decision_id,
+                        "event": kind,
+                        "payload": json.loads(body),
+                        "created_at": created_at,
+                        "prev_hash": before,
+                        "hash": digest,
+                    }
+                )
+        return chained
+
+    # -- notes ---------------------------------------------------------------------------------
+    # Notes follow inputs. Who may read one: under PHI mode `off`, whoever may read the decision
+    # (as its input is in the record); otherwise only a `reader` (a signed-in role that may read
+    # inputs), and each such read is chained as the decision's `input.read`. A note is kept
+    # sealed (AES-GCM under the PHI key, `phi.seal_note`) under `encrypt`, as plain JSON under
+    # `off` (a row's `sealed` is JSON when it starts with "{", which base64 never does), and is
+    # refused under `hash`, which promises to keep no free text. Erasing a note (a person's
+    # request, or retention) empties its row and chains `note.erased`.
+
+    def _may_keep(self, note: str | None) -> str | None:
+        """The note to keep (None for none or blank); refused before anything is written under
+        PHI mode `hash`, so a review or rating with a note is refused whole, never kept without
+        it."""
+        note = (note or "").strip() or None
+        if note is not None and self.phi.mode == "hash":
+            raise NoteError("PHI mode hash keeps no free text: send it without a note")
+        return note
+
+    def _keep_note(
+        self,
+        db: _Session,
+        decision_id: str,
+        event: str,
+        text: str | None,
+        *,
+        note_id: str | None = None,
+    ) -> dict[str, str] | None:
+        """Keep a note in the session that chains its event; its `note_ref`, or None."""
+        if text is None:
+            return None
+        note_id = note_id or str(uuid.uuid4())
+        salt = secrets.token_bytes(32)
+        body = {"salt": base64.b64encode(salt).decode(), "text": text}
+        sealed = (
+            self.phi.seal_note(note_id, decision_id, body)
+            if self.phi.mode == "encrypt"
+            else _canonical(body)
         )
+        db.all(
+            "INSERT INTO notes (id, decision_id, event, org, created_at, sealed) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (note_id, decision_id, event, tenancy.current() or tenancy.DEFAULT_ORG, _now(), sealed),
+        )
+        return {"id": note_id, "sha256": _commitment(salt, text)}
+
+    def _note_body(self, row: Mapping[str, Any]) -> dict[str, Any] | None:
+        """A kept note's `{salt, text}`; None when sealed under a key this deployment does not
+        have (it is no longer in mode `encrypt`)."""
+        sealed = str(row["sealed"])
+        if sealed.startswith("{"):
+            body: dict[str, Any] = json.loads(sealed)
+            return body
+        if self.phi.mode != "encrypt":
+            return None
+        opened: dict[str, Any] = self.phi.open_note(row["id"], row["decision_id"], sealed)
+        return opened
+
+    def _note_view(self, row: Mapping[str, Any], reader: str | None) -> tuple[str, str | None]:
+        """What one may see of a kept note: ("open", text), ("sealed", None) or ("erased",
+        None)."""
+        if row["sealed"] is None:
+            return "erased", None
+        if self.phi.mode != "off" and not reader:
+            return "sealed", None
+        body = self._note_body(row)
+        return ("sealed", None) if body is None else ("open", str(body["text"]))
+
+    def erase_note(self, note_id: str, *, erased_by: str, reason: str) -> dict[str, Any]:
+        """Erase a note (`mendari notes erase`): its row keeps its id, decision and when, and
+        loses its text and salt, so the commitment chained on its event is noise from now on;
+        `note.erased` is chained on its decision. Backups, the database's history and earlier
+        exports still hold it (docs/deploying-with-phi.md)."""
+        if reason not in ERASE_REASONS:
+            raise NoteError(f"the reason is one of {ERASE_REASONS}")
+        if not SYSTEM_ID.fullmatch(erased_by):
+            raise NoteError("who erases is an identifier, such as an email address")
+        with self._db.session(exclusive=True) as db:
+            row = db.one("SELECT decision_id, sealed FROM notes WHERE id = ?", (note_id,))
+            if row is None or row["sealed"] is None:
+                raise NoteError(f"no note {note_id} to erase")
+            erased_at = _now()
+            db.all(
+                "UPDATE notes SET sealed = NULL, erased_at = ?, erased_by = ? WHERE id = ?",
+                (erased_at, erased_by, note_id),
+            )
+            payload = {"note_id": note_id, "reason": reason, "erased_by": erased_by}
+            self._append(db, row["decision_id"], "note.erased", payload)
+        return {**payload, "decision_id": row["decision_id"], "erased_at": erased_at}
+
+    def purge_notes(self, older_than_days: int) -> int:
+        """Retention, with inputs (`mendari phi purge`): erase notes older than N days."""
+        cutoff = (datetime.now(UTC) - timedelta(days=older_than_days)).isoformat()
+        with self._db.session(exclusive=True) as db:
+            doomed = db.all(
+                "SELECT id, decision_id FROM notes WHERE created_at < ? AND sealed IS NOT NULL "
+                "ORDER BY created_at, id",
+                (cutoff,),
+            )
+            db.all(
+                "UPDATE notes SET sealed = NULL, erased_at = ?, erased_by = 'retention' "
+                "WHERE created_at < ? AND sealed IS NOT NULL",
+                (_now(), cutoff),
+            )
+            retention = {"reason": "retention", "retention_days": older_than_days}
+            erased = [(row["decision_id"], {"note_id": row["id"], **retention}) for row in doomed]
+            self._append_many(db, "note.erased", erased)
+        return len(doomed)
 
     # -- reads ----------------------------------------------------------------------------
 
     def get(self, decision_id: str, *, reader: str | None = None) -> dict[str, Any] | None:
-        """A decision with its events; under PHI mode `encrypt`, its input only for a `reader`
-        (see `reveal_inputs`, which chains the read before the events are fetched)."""
+        """A decision with its events; under PHI mode `encrypt`, its input only for a `reader`,
+        and its events' notes as `reveal_inputs` shows them (the read it chains is the last
+        event)."""
         with self._db.session(exclusive=False) as db:
             item = _decision(db, decision_id)
+            if item is not None:
+                item["events"] = _events_of(db, [decision_id])[decision_id]
         if item is None:
             return None
         self.reveal_inputs([item], reader)
-        item["events"] = self.decision_events([decision_id])[decision_id]
         return item
 
     def item(self, decision_id: str) -> dict[str, Any] | None:
@@ -690,49 +902,112 @@ class AuditStore:
         return None if row is None else _joined(row)
 
     def reveal_inputs(
-        self, items: list[dict[str, Any]], reader: str | None, *, id_key: str = "id"
+        self,
+        items: list[dict[str, Any]],
+        reader: str | None,
+        *,
+        id_key: str = "id",
+        own_notes: bool = False,
     ) -> list[dict[str, Any]]:
         """PHI mode `encrypt` keeps inputs apart from the records. Each item (a record under
         `record`) whose input was kept gets it back for a `reader`, someone who may see inputs,
-        and every such read is written to the hash chain. Anyone else gets `input_restricted`."""
-        ids = [str(item[id_key]) for item in items]
+        with its answers' evidence (sealed beside it), and every such read is written to the hash
+        chain. Anyone else gets `input_restricted`.
+
+        Notes follow inputs (see "notes"): those of the item's `events` (`get`) and, with
+        `own_notes`, the item's own (a rating's note has the rating's id). Each such event or
+        item gets `note` (the text, or None) and `note_status` ("open", "sealed" or "erased");
+        an event chained with its note in the payload, before notes left the chain, shows it only
+        to a `reader` and otherwise has it blanked. A decision whose input or notes a `reader`
+        opened gets one `input.read` (naming the notes), all chained with one append and added
+        to the item's `events`."""
+        ids = list(dict.fromkeys(str(item[id_key]) for item in items))
         if not ids:
             return items
+        refs = [
+            ref["id"]
+            for item in items
+            for event in item.get("events") or ()
+            if isinstance(ref := event["payload"].get("note_ref"), Mapping)
+        ]
+        own = [str(item["id"]) for item in items] if own_notes else []
+        note_ids = list(dict.fromkeys([*refs, *own]))
         marks = ", ".join("?" for _ in ids)
         with self._db.session(exclusive=False) as db:
             rows = db.all(
-                "SELECT decision_id, ciphertext FROM decision_inputs "
+                "SELECT decision_id, ciphertext, details FROM decision_inputs "
                 f"WHERE decision_id IN ({marks})",
                 tuple(ids),
             )
+            notes = (
+                db.all(
+                    "SELECT id, decision_id, sealed FROM notes "
+                    f"WHERE id IN ({', '.join('?' for _ in note_ids)})",
+                    tuple(note_ids),
+                )
+                if note_ids
+                else []
+            )
         sealed = {row["decision_id"]: row["ciphertext"] for row in rows}
-        if not sealed:
-            return items
         readable = bool(reader) and self.phi.mode == "encrypt"
         opened = {k: self.phi.decrypt(k, v) for k, v in sealed.items()} if readable else {}
-        if opened:
+        details = {
+            row["decision_id"]: self.phi.open_details(row["decision_id"], row["details"])
+            for row in rows
+            if row["decision_id"] in opened and row["details"]
+        }
+        # Who read what: inputs, then notes; outside mode off a note opens for a reader only.
+        reads: dict[str, list[str]] = {decision_id: [] for decision_id in opened}
+        gated = self.phi.mode != "off"
+        views: dict[str, tuple[str, str | None]] = {}
+        kept = {row["id"]: row for row in notes}
+        for row in (kept[note_id] for note_id in note_ids if note_id in kept):  # chain order
+            views[row["id"]] = view = self._note_view(row, reader)
+            if gated and view[0] == "open":
+                reads.setdefault(row["decision_id"], []).append(row["id"])
+        if gated and reader:
+            for item in items:
+                if _legacy_text(item, own_notes):
+                    reads.setdefault(str(item[id_key]), [])
+        chained: list[dict[str, Any]] = []
+        if reads:
+            entries = [
+                (decision_id, {"reader": reader, **({"notes": named} if named else {})})
+                for decision_id, named in reads.items()
+            ]
             with self._db.session(exclusive=True) as db:
-                for decision_id in opened:
-                    self._append(db, decision_id, "input.read", {"reader": reader})
+                chained = self._append_many(db, "input.read", entries)
         for item in items:
             decision_id = str(item[id_key])
             if decision_id in sealed:
                 item["record"]["input"] = opened.get(decision_id)
                 item["input_restricted"] = decision_id not in opened
+                _give_evidence(item["record"], details.get(decision_id, {}).get("evidence", {}))
+            for event in item.get("events") or ():
+                _show_note(event, views, reader)
+            if own_notes:
+                _show_own_note(item, views, reader)
+            if "events" in item:
+                item["events"] += [
+                    {k: v for k, v in event.items() if k != "decision_id"}
+                    for event in chained
+                    if event["decision_id"] == decision_id
+                ]
         return items
 
     def purge_inputs(self, older_than_days: int) -> int:
-        """Retention: delete kept (encrypted) inputs older than N days; the chain is untouched."""
+        """Retention: delete kept (encrypted) inputs older than N days; the chain is untouched.
+        Notes have their own purge (`purge_notes`), which `mendari phi purge` runs too."""
         cutoff = (datetime.now(UTC) - timedelta(days=older_than_days)).isoformat()
         with self._db.session(exclusive=True) as db:
             doomed = db.all(
-                "SELECT decision_id FROM decision_inputs WHERE created_at < ?", (cutoff,)
+                "SELECT decision_id FROM decision_inputs WHERE created_at < ? "
+                "ORDER BY created_at, decision_id",
+                (cutoff,),
             )
             db.all("DELETE FROM decision_inputs WHERE created_at < ?", (cutoff,))
-            for row in doomed:
-                self._append(
-                    db, row["decision_id"], "input.purged", {"retention_days": older_than_days}
-                )
+            purged = {"retention_days": older_than_days}
+            self._append_many(db, "input.purged", [(row["decision_id"], purged) for row in doomed])
         return len(doomed)
 
     def query(
@@ -1451,7 +1726,7 @@ class AuditStore:
     ) -> list[dict[str, Any]]:
         """Current feedback (each person's latest rating of a decision), newest first, each with
         the decision it rates and the right answer if the rating gave one; under PHI mode
-        `encrypt`, with inputs for a `reader`."""
+        `encrypt`, with inputs for a `reader`. Notes as `reveal_inputs` shows them."""
         scope, scoped = _scope()
         clauses, params = ["f.superseded_by IS NULL", scope], list(scoped)
         for column, value in (("f.pack_id", pack_id), ("f.rating", rating)):
@@ -1467,7 +1742,8 @@ class AuditStore:
                 "ORDER BY f.created_at DESC LIMIT ?",
                 (*params, limit),
             )
-        return self.reveal_inputs([_feedback_item(r) for r in rows], reader, id_key="decision_id")
+        items = [_feedback_item(r) for r in rows]
+        return self.reveal_inputs(items, reader, id_key="decision_id", own_notes=True)
 
     def reports(self, pack_id: str | None = None) -> list[dict[str, Any]]:
         scope, scoped = _scope()
@@ -1480,14 +1756,18 @@ class AuditStore:
             )
         return [json.loads(row["report"]) for row in rows]
 
-    def verify(self) -> dict[str, Any]:
-        """Recompute the hash chain and each decision record's digest."""
+    def verify(self, *, notes: bool = False) -> dict[str, Any]:
+        """Recompute the hash chain and each decision record's digest. With `notes` (`mendari
+        audit verify --notes`), also each kept note against the commitment its event chained:
+        a note changed, moved to another decision, or missing without a chained `note.erased`
+        breaks verification at that event (`_check_notes`)."""
         with self._db.session(exclusive=False) as db:
             events = db.all("SELECT * FROM audit_events ORDER BY seq")
             records = {
                 row["id"]: json.loads(row["record"])
                 for row in db.all("SELECT id, record FROM decisions")
             }
+            kept = db.all("SELECT id, decision_id, event, sealed FROM notes") if notes else []
         prev = GENESIS
         for event in events:
             expected = _chain_hash(
@@ -1500,7 +1780,49 @@ class AuditStore:
                 if record is None or json.loads(event["payload"])["record_sha256"] != _sha(record):
                     return {"ok": False, "events": len(events), "broken_at": event["seq"]}
             prev = event["hash"]
-        return {"ok": True, "events": len(events), "head": prev}
+        if not notes:
+            return {"ok": True, "events": len(events), "head": prev}
+        broken, counts = self._check_notes(events, {row["id"]: row for row in kept})
+        if broken is not None:
+            return {"ok": False, "events": len(events), "broken_at": broken, "notes": counts}
+        return {"ok": True, "events": len(events), "head": prev, "notes": counts}
+
+    def _check_notes(
+        self, events: list[dict[str, Any]], kept: Mapping[str, Mapping[str, Any]]
+    ) -> tuple[int | None, dict[str, int]]:
+        """The `seq` of the first event whose note does not match its commitment (or None), and
+        how many notes were checked, found erased, or left unchecked (sealed under a key this
+        deployment does not have). A sealed note that does not open with the key fails."""
+        counts = {"checked": 0, "erased": 0, "unchecked": 0}
+        payloads = [(event, json.loads(event["payload"])) for event in events]
+        erased = {p.get("note_id") for e, p in payloads if e["event"] == "note.erased"}
+        for event, payload in payloads:
+            ref = payload.get("note_ref") if isinstance(payload, dict) else None
+            if not isinstance(ref, Mapping):
+                continue
+            row = kept.get(str(ref.get("id")))
+            if row is None or (row["decision_id"], row["event"]) != (
+                event["decision_id"],
+                event["event"],
+            ):
+                return event["seq"], counts
+            if row["sealed"] is None:
+                if ref["id"] not in erased:
+                    return event["seq"], counts
+                counts["erased"] += 1
+                continue
+            try:
+                body = self._note_body(row)
+            except MendariError:
+                return event["seq"], counts
+            if body is None:
+                counts["unchecked"] += 1
+                continue
+            salt = base64.b64decode(str(body.get("salt", "")))
+            if _commitment(salt, str(body.get("text"))) != ref.get("sha256"):
+                return event["seq"], counts
+            counts["checked"] += 1
+        return None, counts
 
 
 def _decision(db: _Session, decision_id: str) -> dict[str, Any] | None:
@@ -1740,6 +2062,78 @@ def _session_key(kind: str, value: str) -> str:
 
 def _sha(value: Any) -> str:
     return hashlib.sha256(_canonical(value).encode()).hexdigest()
+
+
+def _commitment(salt: bytes, text: str) -> str:
+    """A note's commitment, chained in its event's `note_ref`: hiding (a 32-byte salt kept only
+    with the note) and binding (SHA-256)."""
+    return hashlib.sha256(NOTE_AAD + salt + text.encode()).hexdigest()
+
+
+def _legacy_fields(event: Mapping[str, Any]) -> dict[str, Any]:
+    """The free text an event chained itself before notes left the chain (`LEGACY_TEXT`)."""
+    payload = event["payload"]
+    if not isinstance(payload, Mapping) or "note_ref" in payload:
+        return {}
+    fields = LEGACY_TEXT.get(event["event"], ())
+    return {key: payload[key] for key in fields if payload.get(key) is not None}
+
+
+def _take_evidence(record: dict[str, Any]) -> dict[str, list[str]]:
+    """Empty each answer's evidence in a record about to be stored; what there was, by question
+    (only questions that had some)."""
+    taken: dict[str, list[str]] = {}
+    for question, answer in record["answers"].items():
+        if answer.get("evidence"):
+            taken[question] = answer["evidence"]
+        answer["evidence"] = []
+    return taken
+
+
+def _give_evidence(record: dict[str, Any], evidence: Mapping[str, list[str]]) -> None:
+    """Put sealed evidence back into the record it was taken from, for a reader."""
+    for question, given in evidence.items():
+        if question in record["answers"]:
+            record["answers"][question]["evidence"] = given
+
+
+def _legacy_text(item: Mapping[str, Any], own_notes: bool) -> bool:
+    """Whether an item carries free text from before notes left the chain: on one of its events,
+    or (a rating) in its own row's `note` column."""
+    if own_notes and item.get("note") is not None:
+        return True
+    return any(_legacy_fields(event) for event in item.get("events") or ())
+
+
+def _show_note(
+    event: dict[str, Any], views: Mapping[str, tuple[str, str | None]], reader: str | None
+) -> None:
+    """An event's note as `reveal_inputs` shows it (`note`, `note_status`), if it has one."""
+    ref = event["payload"].get("note_ref")
+    if isinstance(ref, Mapping):
+        # A missing row (never deleted, only emptied) is for `verify --notes` to report.
+        event["note_status"], event["note"] = views.get(str(ref.get("id")), ("missing", None))
+        return
+    legacy = _legacy_fields(event)
+    if not legacy:
+        return
+    if reader:
+        text = legacy.get("note") if set(legacy) == {"note"} else _canonical(legacy)
+        event["note_status"], event["note"] = "open", text
+        return
+    event["payload"] = {**event["payload"], **dict.fromkeys(legacy)}
+    event["note_status"], event["note"] = "sealed", None
+
+
+def _show_own_note(
+    item: dict[str, Any], views: Mapping[str, tuple[str, str | None]], reader: str | None
+) -> None:
+    """A rating's note: its row's `note` column before notes left the chain, else its note."""
+    if item.get("note") is not None:
+        item["note_status"] = "open" if reader else "sealed"
+        item["note"] = item["note"] if reader else None
+        return
+    item["note_status"], item["note"] = views.get(str(item["id"]), (None, None))
 
 
 def _chain_hash(prev: str, decision_id: str, event: str, payload: str, created_at: str) -> str:

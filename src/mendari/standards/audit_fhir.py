@@ -20,8 +20,9 @@ the outcome's agent was its source, a string the caller chose; an event recorded
 recorder (`recorded_by`), so its agent is "not recorded", and its source is shown only when it
 is an identifier.
 
-Like evaluation reports, the export carries identifiers and codes, never case text: free-text
-review and feedback notes stay in the store, and inputs are referred to by hash. Narratives are
+Like evaluation reports, the export carries identifiers and codes, never case text: notes
+(review, feedback, the payer's words) stay in the store, and inputs are referred to by hash. A
+note's erasure (`note.erased`) is exported with its reason, a code. Narratives are
 built from the same codes, ids and times.
 
 Both are immutable entries with deterministic ids, so each is version `1`, last updated when it
@@ -70,9 +71,10 @@ _EVENTS = {
     "review.resolved": ("U", "Review resolved"),
     "outcome.recorded": ("U", "Downstream outcome recorded"),
     "feedback.recorded": ("C", "Feedback recorded"),
-    "input.read": ("R", "Encrypted input read"),  # PHI mode: access logging
+    "input.read": ("R", "Encrypted input or notes read"),  # PHI mode: access logging
     "input.purged": ("D", "Encrypted input deleted by the retention policy"),
     "pas.submitted": ("E", "Prior authorization requested (Da Vinci PAS)"),
+    "note.erased": ("D", "Note erased, on request or by the retention policy"),
 }
 # The activities that create or change a decision's result: each gets a Provenance and makes a
 # new version of the decision's Task (task_fhir.py). Other events change neither. The store's
@@ -84,7 +86,10 @@ _DETAILS = {
     "review.resolved": ("final_label", "human_override"),
     "outcome.recorded": ("final_label",),
     "feedback.recorded": ("rating", "expected"),
-    "pas.submitted": ("outcome", "authorization"),
+    # The payer's authorization number is a note now (it names one patient's request); events
+    # that chained it before keep it in the store, not in an export.
+    "pas.submitted": ("outcome",),
+    "note.erased": ("reason",),
 }
 
 
@@ -234,8 +239,10 @@ def engine(event: Mapping[str, Any]) -> dict[str, Any]:
 def _actor(event: Mapping[str, Any], payload: Mapping[str, Any]) -> dict[str, Any]:
     if event["event"] == "decision.created":
         return {"who": engine(event), "requestor": False}
-    if event["event"] == "input.purged":
-        return {"who": engine(event), "requestor": False}
+    if event["event"] == "input.purged" or (
+        event["event"] == "note.erased" and not payload.get("erased_by")
+    ):
+        return {"who": engine(event), "requestor": False}  # the retention policy
     if event["event"] == "outcome.recorded":
         return {
             "who": {"display": str(payload.get("recorded_by") or NOT_RECORDED)},
@@ -246,6 +253,7 @@ def _actor(event: Mapping[str, Any], payload: Mapping[str, Any]) -> dict[str, An
         or payload.get("reporter")
         or payload.get("reader")
         or payload.get("requested_by")
+        or payload.get("erased_by")
     )
     return {"who": {"display": str(name or "anonymous")}, "requestor": True}
 

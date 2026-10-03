@@ -47,7 +47,7 @@ from mendari.standards.fhir import (
 )
 
 PUBLISHER = "Mendari"
-NAMING_SYSTEMS_DATE = "2026-10-01"  # when their definitions last changed (pinned by a test)
+NAMING_SYSTEMS_DATE = "2026-10-02"  # when their definitions last changed (pinned by a test)
 _OWN = "https://mendari.co/fhir/CodeSystem/"
 _ID = re.compile(r"^[A-Za-z0-9\-.]{1,64}$")
 
@@ -84,8 +84,11 @@ NAMING_SYSTEMS = (
         "input-hash",
         audit_fhir.INPUT_HASH_SYSTEM,
         "Mendari input hash",
-        "The SHA-256 of a decision's input (`sha256:` and 64 hex digits), as Provenance.entity "
-        "identifies it; the input itself is never exported.",
+        "A hash of a decision's input, as Provenance.entity identifies it; the input itself is "
+        "never exported. Under a deployment's input hash key (required when it keeps PHI) it is "
+        "`hmac-sha256:`, the key's id (16 hex digits), `:` and 64 hex digits: an HMAC-SHA256 "
+        "only that deployment can recompute. Without a key it is `sha256:` and 64 hex digits, "
+        "the plain SHA-256 of the input's canonical JSON.",
     ),
     (
         "decision-pack",

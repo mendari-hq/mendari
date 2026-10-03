@@ -14,9 +14,17 @@ const EVENT_TEXT = {
   "review.resolved": "Review resolved",
   "outcome.recorded": "Outcome recorded",
   "feedback.recorded": "Feedback recorded",
-  "input.read": "Input read (PHI mode)",
+  "input.read": "Input or notes read (PHI mode)",
   "input.purged": "Input deleted (retention)",
   "pas.submitted": "Sent for prior authorization",
+  "note.erased": "Note erased",
+};
+
+// A note is kept apart from the chain and shown only to those who may read inputs.
+const NOTE_STATUS = {
+  sealed: "Note (only reviewers and admins can read it)",
+  erased: "Note (erased)",
+  missing: "Note (missing: verify the chain with --notes)",
 };
 
 views.audit = async (main, params) => {
@@ -127,12 +135,20 @@ async function openRecord(id) {
   });
 }
 
+// An event's note, when it has one: its text for those who may read it, else what became of it.
+function noteLine(e) {
+  if (!e.note_status) return "";
+  if (e.note_status === "open") return `<p class="event-note"><b>Note:</b> ${esc(e.note)}</p>`;
+  return `<p class="event-note muted">${esc(NOTE_STATUS[e.note_status] ?? "Note")}</p>`;
+}
+
 // The hash chain as an ordered list: what happened, when, and each event's hash.
 function timeline(events) {
   return `<ol class="timeline">${events.map((e) => `<li>
     <div class="row"><b>${esc(EVENT_TEXT[e.event] ?? e.event)}</b>
       <span class="muted"><time datetime="${esc(e.created_at)}">${esc(time(e.created_at))}</time></span>
       <span class="grow"></span><span class="mono muted" title="hash ${esc(e.hash)}">#${e.seq} · ${esc(e.hash.slice(0, 12))}…</span></div>
+    ${noteLine(e)}
     <details><summary>Payload</summary><pre class="json">${esc(JSON.stringify(e.payload, null, 2))}</pre></details>
   </li>`).join("")}</ol>`;
 }

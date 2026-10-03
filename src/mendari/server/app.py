@@ -54,6 +54,7 @@ from mendari.errors import (
     FhirError,
     FhirStructureError,
     MendariError,
+    NoteError,
     PackNotFoundError,
     PackValidationError,
     ProviderError,
@@ -118,6 +119,7 @@ _DATASET_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _STATUS = {
     PackNotFoundError: 404,
     ReviewError: 409,
+    NoteError: 422,
     FhirStructureError: 400,  # before FhirError: the first match wins
     FhirError: 422,
     PackValidationError: 422,
@@ -166,6 +168,13 @@ class ApprovalRequest(BaseModel):
     )
 
 
+# A review's or a rating's note (core/audit.py, "notes"), as the API reference describes it.
+_NOTE = (
+    "free text, kept apart from the audit chain (which keeps a commitment to it) and readable "
+    "as inputs are; refused with 422 under PHI mode hash, which keeps no free text"
+)
+
+
 class ReviewRequest(BaseModel):
     final_label: str = Field(min_length=1, max_length=200)
     reviewer: str = Field(
@@ -175,7 +184,11 @@ class ReviewRequest(BaseModel):
         "with sign-in on, the review is recorded for whoever is signed in, whatever this says",
         examples=["sandbox-nurse"],
     )
-    note: str | None = Field(default=None, max_length=2000)
+    note: str | None = Field(
+        default=None,
+        max_length=2000,
+        description=_NOTE,
+    )
 
 
 class OutcomeRequest(BaseModel):
@@ -221,7 +234,7 @@ class FeedbackRequest(BaseModel):
         description="open mode: who rates, an identifier (no spaces, at most 100 characters); "
         "with sign-in on, the rating is recorded for whoever is signed in",
     )
-    note: str | None = Field(default=None, max_length=1000)
+    note: str | None = Field(default=None, max_length=1000, description=_NOTE)
     # On a thumbs-down, what the answer to one of the decision's questions should have been.
     expected: ExpectedAnswer | None = None
 
@@ -529,9 +542,9 @@ def create_app(
         """Public, for load balancers: `status`, `version` and `sign_in`, and nothing else
         without a credential (no database work either). A principal that may `read` (everyone
         in open mode) also gets the deployment's settings: packs, storage, the FHIR validation
-        mode, PHI mode, which provider answers each pack's questions, today's remote calls, the
-        rate limits (and where the caller's address is read) and the organization's daily
-        quotas with what it used today.
+        mode, PHI mode, the input hash's kind and key id, which provider answers each pack's
+        questions, today's remote calls, the rate limits (and where the caller's address is
+        read), the session policy and the organization's daily quotas with what it used today.
         """
         public = {"status": "ok", "version": __version__, "sign_in": auth.enabled}
         principal = auth.principal(request)  # no credential: no lookup
@@ -549,6 +562,9 @@ def create_app(
             "fhir_allowed_servers": fhir_servers,
             "smart_launch": smart_options is not None,
             "phi_mode": phi.mode,
+            # How new records' input hashes are made: `hmac-sha256:<key id>` under
+            # MENDARI_INPUT_HASH_KEY (required in PHI modes hash and encrypt), else `sha256`.
+            "input_hash": phi.hash_kind,
             "providers": {
                 pack_id: {
                     slot: info.variant for slot, info in decision_for(pack_id).provider_info.items()
@@ -670,7 +686,11 @@ def create_app(
         Every decision is recorded in the audit trail and ends as `AUTO`, `HUMAN_REVIEW`,
         `ABSTAIN` or `BLOCK`. **An input that fails the pack's schema is not an HTTP error:** it
         is a recorded decision with `outcome: BLOCK` and the reason in `reasons`, so check
-        `outcome`, not only the status code."""
+        `outcome`, not only the status code.
+
+        The answer is complete, with each answer's `evidence`; the audit record keeps it only as
+        the PHI mode allows (`GET /api/audit/{id}`). `input_hash` is `hmac-sha256:<key id>:<hex>`
+        where the deployment has an input hash key (always with PHI), else `sha256:<hex>`."""
         return decision_for(f"{namespace}/{name}").decide(payload).to_dict()
 
     @app.post(
@@ -854,7 +874,7 @@ def create_app(
     )
     def resolve(decision_id: str, request: ReviewRequest, http: Request) -> dict[str, Any]:
         """Record a reviewer's final label for a decision in the queue: one of the labels of the
-        decision's question."""
+        decision's question. A note is kept apart from the audit chain; the answer repeats it."""
         return store.resolve_review(
             decision_id,
             final_label=request.final_label,
@@ -921,7 +941,15 @@ def create_app(
         summary="Get a decision",
     )
     def audit_record(request: Request, decision_id: str) -> dict[str, Any]:
-        """One decision with every event recorded on it."""
+        """One decision with every event recorded on it. An event with a note has `note_status`
+        (`open`, `sealed` or `erased`) and `note`, its text when open: notes are read as inputs
+        are, so under PHI mode `encrypt` only by reviewers and admins, and each read is chained
+        (`input.read`).
+
+        The record keeps no value of the input outside PHI mode `off`: under `hash` (or for a
+        pack that keeps only the hash) its answers' `evidence` is empty; under `encrypt` the
+        evidence is sealed with the input and comes back with it. An input issue names its
+        resource by type and position (`Patient (entry 2)`), never by its id."""
         record = store.get(decision_id, reader=input_reader(request))
         if record is None:
             raise HTTPException(404, f"unknown decision {decision_id}")
@@ -967,7 +995,8 @@ def create_app(
         summary="Rate a decision",
     )
     def give_feedback(decision_id: str, request: FeedbackRequest, http: Request) -> dict[str, Any]:
-        """Thumbs up or down, and on a thumbs-down the right answer."""
+        """Thumbs up or down, and on a thumbs-down the right answer, with an optional note (kept
+        apart from the audit chain)."""
         return store.record_feedback(
             decision_id,
             rating=request.rating,
@@ -987,7 +1016,7 @@ def create_app(
         rating: Literal["up", "down"] | None = None,
         limit: int = 100,
     ) -> list[dict[str, Any]]:
-        """Ratings, newest first."""
+        """Ratings, newest first; each note as `GET /api/audit/{decision_id}` shows notes."""
         ratings = store.feedback(
             pack_id=pack_id, rating=rating, limit=min(limit, 500), reader=input_reader(request)
         )
@@ -1064,7 +1093,9 @@ def create_app(
         namespace: str, name: str, body: PriorAuthorizationRequest, http: Request
     ) -> dict[str, Any]:
         """Da Vinci PAS: the request Bundle for a complete request (`submit_ready`), and with
-        `submit`, the payer's answer, which is chained on the decision (`pas.submitted`)."""
+        `submit`, the payer's answer, which is chained on the decision (`pas.submitted`): its
+        outcome and review actions; the authorization number and disposition are kept as a
+        note (PHI mode `hash` keeps neither)."""
         pack = pack_or_404(f"{namespace}/{name}")
         record = store.get(body.decision_id)
         if record is None or record["pack_id"] != pack.id:
@@ -1085,10 +1116,12 @@ def create_app(
             payer = settings.pas_payer_url()
             with GuardedHttp() as client:
                 submitted = pas.submit(bundle, payer, client)
+            codes = {key: submitted[key] for key in ("outcome", "review_actions")}
             store.record_event(
                 record["id"],
                 "pas.submitted",
-                {**submitted, "requested_by": acting_as(http, None) or "open mode"},
+                {**codes, "requested_by": acting_as(http, None) or "open mode"},
+                note=None if phi.mode == "hash" else pas.payer_note(submitted),
             )
         return {"bundle": bundle, "submitted": submitted}
 

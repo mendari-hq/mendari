@@ -7,11 +7,14 @@ order). The resources come from the EHR, and the X12 codes the payer needs come 
 or the order. Nothing is filled in: a missing element is an error that names it.
 
 `submit` posts the Bundle to the payer's `Claim/$submit` through the outbound guard (the payer
-must be on `MENDARI_FHIR_ALLOWED_SERVERS`) and reads the decision in the ClaimResponse.
+must be on `MENDARI_FHIR_ALLOWED_SERVERS`) and reads the decision in the ClaimResponse. The
+payer's own words, its authorization number (tied to one patient) and its disposition, are kept
+as a note apart from the audit chain (`payer_note`); the chain keeps the codes.
 """
 
 from __future__ import annotations
 
+import json
 import uuid
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
@@ -34,6 +37,9 @@ PROFILE = {
     "insurer": f"{PAS}/StructureDefinition/profile-insurer",
     "requestor": f"{PAS}/StructureDefinition/profile-requestor",
 }
+# The longest payer text kept: an authorization number, and a disposition (free text).
+AUTHORIZATION_MAX = 100
+DISPOSITION_MAX = 1000
 
 
 class PasError(MendariError):
@@ -196,10 +202,25 @@ def outcome(answer: Mapping[str, Any]) -> dict[str, Any]:
                             actions.append(_code(part.get("valueCodeableConcept"), f"{X12}/306"))
     return {
         "outcome": response.get("outcome"),
-        "authorization": response.get("preAuthRef"),
+        "authorization": _text(response.get("preAuthRef"), AUTHORIZATION_MAX),
         "review_actions": [a for a in actions if a],
-        "disposition": response.get("disposition"),
+        "disposition": _text(response.get("disposition"), DISPOSITION_MAX),
     }
+
+
+def payer_note(answer: Mapping[str, Any]) -> str | None:
+    """The payer's words in an answer (`outcome`), as one note (compact, sorted JSON), or None
+    when it gave neither an authorization number nor a disposition."""
+    words = {key: answer.get(key) for key in ("authorization", "disposition")}
+    if not any(words.values()):
+        return None
+    return json.dumps(words, sort_keys=True, separators=(",", ":"))
+
+
+def _text(value: Any, limit: int) -> str | None:
+    """A payer's string, cut to `limit` characters; anything else (a payer's mistake) is
+    dropped rather than kept."""
+    return value[:limit] if isinstance(value, str) and value else None
 
 
 def _code(concept: Any, system: str) -> str | None:

@@ -73,7 +73,16 @@ website (`hub/`), the container images and the deployment templates (`deploy/`).
 - **PHI mode.** `MENDARI_PHI_MODE=hash` stores no input; `encrypt` stores inputs encrypted
   apart from the audit chain, readable only by signed-in reviewers and admins, and every read
   is logged. Without PHI mode, audit records keep full inputs by default
-  (`audit.store_input: full`); use `hash` for any pack that might see sensitive text.
+  (`audit.store_input: full`); use `hash` for any pack that might see sensitive text. In both
+  modes the chained record keeps no evidence values (sealed with the input under `encrypt`)
+  and no resource ids (an input issue names `Patient (entry 2)`), and the input hash is an
+  HMAC-SHA256 under `MENDARI_INPUT_HASH_KEY` (`hmac-sha256:<key id>:<hex>`), without which the
+  engine refuses to start: a plain SHA-256 of a short input can be found by guessing.
+- **Notes.** Review and rating notes and a payer's words are kept apart from the audit chain,
+  which keeps only a salted commitment to each: sealed with inputs under `encrypt`, refused
+  under `hash`, and readable as inputs are. Retention and `mendari notes erase` erase them, and
+  the chain still verifies (`mendari audit verify --notes` checks the commitments). Notes chained
+  by earlier releases are shown only to those who may read inputs.
 - **What a caller without a credential can do.** Public routes cost little and take no lock:
   `/api/health` answers only `status`, `version` and `sign_in` (its settings need a principal
   that may read), `/fhir/metadata` reads its version without the audit chain's lock, and

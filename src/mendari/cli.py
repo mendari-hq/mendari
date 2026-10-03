@@ -351,7 +351,11 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
 
 def cmd_audit_verify(args: argparse.Namespace) -> int:
-    status = AuditStore(args.db).verify()
+    from mendari.core.phi import phi_policy
+
+    # Notes sealed under encrypt are checked with this deployment's key ($MENDARI_PHI_KEY).
+    store = AuditStore(args.db, phi=phi_policy()) if args.notes else AuditStore(args.db)
+    status = store.verify(notes=args.notes)
     _print_json(status)
     return 0 if status["ok"] else 1
 
@@ -859,8 +863,25 @@ def cmd_phi_purge(args: argparse.Namespace) -> int:
     days = args.days or int(os.environ.get("MENDARI_RETENTION_DAYS", "0") or 0)
     if days < 1:
         raise MendariError("give --days or set MENDARI_RETENTION_DAYS")
-    purged = AuditStore(args.db, phi=phi_policy()).purge_inputs(days)
-    print(f"{purged} stored input(s) older than {days} days deleted (decisions and chain kept)")
+    store = AuditStore(args.db, phi=phi_policy())
+    purged, erased = store.purge_inputs(days), store.purge_notes(days)
+    print(
+        f"{purged} stored input(s) deleted and {erased} note(s) erased, older than {days} days "
+        "(decisions and chain kept)"
+    )
+    return 0
+
+
+def cmd_notes_erase(args: argparse.Namespace) -> int:
+    from mendari.core.phi import phi_policy
+
+    erased = AuditStore(args.db, phi=phi_policy()).erase_note(
+        args.id, erased_by=args.by, reason=args.reason
+    )
+    print(
+        f"note {erased['note_id']} of decision {erased['decision_id']} erased; "
+        "backups, the database's history and earlier exports still hold it"
+    )
     return 0
 
 
@@ -1052,6 +1073,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     verify = audit.add_parser("verify", help="verify the audit hash chain")
     verify.add_argument("--db", default="var/mendari.db", help="SQLite path or postgresql:// URL")
+    verify.add_argument(
+        "--notes",
+        action="store_true",
+        help="also check each kept note against its chained commitment (with $MENDARI_PHI_KEY)",
+    )
     verify.set_defaults(handler=cmd_audit_verify)
     audit_export = audit.add_parser(
         "export", help="export the audit trail as FHIR NDJSON (AuditEvent, Provenance)"
@@ -1290,10 +1316,31 @@ def build_parser() -> argparse.ArgumentParser:
     phi_cmd = sub.add_parser("phi", help="PHI mode tools").add_subparsers(
         dest="phi_command", required=True
     )
-    purge = phi_cmd.add_parser("purge", help="retention: delete kept inputs older than N days")
+    purge = phi_cmd.add_parser(
+        "purge", help="retention: delete kept inputs and erase notes older than N days"
+    )
     purge.add_argument("--db", default="var/mendari.db", help="SQLite path or postgresql:// URL")
     purge.add_argument("--days", type=int, help="default: $MENDARI_RETENTION_DAYS")
     purge.set_defaults(handler=cmd_phi_purge)
+
+    notes_cmd = sub.add_parser("notes", help="review, feedback and payer notes").add_subparsers(
+        dest="notes_command", required=True
+    )
+    erase = notes_cmd.add_parser(
+        "erase", help="erase a note (its chained commitment stays, and verifies)"
+    )
+    erase.add_argument("--db", default="var/mendari.db", help="SQLite path or postgresql:// URL")
+    erase.add_argument("--id", required=True, help="the note's id (its event's note_ref.id)")
+    erase.add_argument(
+        "--reason",
+        required=True,
+        choices=["request", "error"],
+        help="request: it should not have been written; error: it was wrong (chained)",
+    )
+    erase.add_argument(
+        "--by", required=True, help="who erases it, as an identifier such as an email (chained)"
+    )
+    erase.set_defaults(handler=cmd_notes_erase)
 
     new = sub.add_parser("new", help="start a new pack from a template (YAML only)")
     new.add_argument("dir", help="an empty or new directory")
