@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import re
 from pathlib import Path
 
@@ -49,6 +50,25 @@ def test_the_templates_parse_and_hold_no_secrets() -> None:
     )
     for secret in ("POSTGRES_PASSWORD", *secret_names):
         assert example[secret] == "", secret
+
+
+def test_compose_trusts_x_forwarded_for_from_the_gateway_a_proxy_on_the_host_comes_from() -> None:
+    """Docker's port publishing connects to the engine from the network's gateway, not from
+    127.0.0.1: the network's gateway is fixed, and FORWARDED_ALLOW_IPS defaults to it (in the
+    compose file and in .env.example), so sign-in limits and the log see each person's address."""
+    compose = yaml.safe_load((DEPLOY / "onprem" / "docker-compose.yml").read_text())
+    (network,) = compose["networks"]["default"]["ipam"]["config"]
+    gateway = ipaddress.ip_address(network["gateway"])
+    assert gateway in ipaddress.ip_network(network["subnet"]) and str(gateway) == "172.30.0.1"
+    engine = compose["services"]["engine"]
+    assert engine["ports"] == ["127.0.0.1:8000:8000"]
+    assert engine["environment"]["FORWARDED_ALLOW_IPS"] == "${FORWARDED_ALLOW_IPS:-172.30.0.1}"
+    example = dict(
+        line.split("=", 1)
+        for line in (DEPLOY / "onprem" / ".env.example").read_text().splitlines()
+        if line and not line.startswith("#")
+    )
+    assert example["FORWARDED_ALLOW_IPS"] == str(gateway)
 
 
 def test_every_setting_the_templates_use_is_documented() -> None:

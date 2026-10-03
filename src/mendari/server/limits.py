@@ -9,16 +9,20 @@ costs: no body is read, no provider is called and nothing is chained for a refus
 
 | Class | Routes | Key | Default |
 |---|---|---|---|
-| `signin` | `GET /auth/login`, `GET /smart/launch` | IP | 60/min |
+| `signin` | `GET /auth/login`, `GET /smart/launch` | IP | 300/min, burst 120 |
 | `token` | `POST /auth/token`, before its body is read | IP | 60/min |
 | `token_failures` | a refused assertion at `/auth/token` | IP and client | 10/10min |
-| `decide` | every decision entry point, SMART decide too | principal | 600/min, burst 100 |
+| `decide` | every decision entry point; a CDS draft order is one | principal | 600/min, burst 100 |
 | `guard` | `POST …/guard` (an LLM call) | principal | 60/min |
 | `evaluate` | `POST …/evals` | principal | 6/h |
 | `export` | the audit FHIR export, the feedback export | principal | 10/h |
 
 Reads are not limited here (the edge covers floods, and a read writes nothing permanent).
-Per-IP keys are used only where no one has signed in yet: a hospital sits behind one address.
+Per-IP keys are used only where no one has signed in yet: a hospital sits behind one address,
+so sign-in allows at least what the edge does (120 a minute per address) and a site behind one
+egress address raises it (`signin=600/min:240`). A CDS Hooks order hook decides each draft
+order (at most 50, or the `decide` burst if smaller): the guard counts the request as one
+decision and the route charges the rest in one weighted take before deciding any.
 
 **Mode** (`MENDARI_RATE_LIMITS`): `on` (refuse with `429` and `Retry-After`), `log` (count and
 log, never refuse) or `off`. The default is `on` with sign-in and `off` in open mode, where
@@ -29,8 +33,9 @@ mode, comma-separated: `MENDARI_RATE_LIMITS=on,decide=1200/min:200,evaluate=20/h
 
 **The algorithm** is GCRA, one statement on one row per bucket (`AuditStore.rate_take`): a
 bucket admits `burst` requests at once and then one every `period / count`, with no burst at
-window edges, constant storage and an exact `Retry-After`. Buckets are named by class and key,
-never by a secret: `decide|key:<id>`, `signin|ip:<address>`.
+window edges, constant storage and an exact `Retry-After`. A weighted take (`cost` requests at
+once) is admitted whole or not at all, and never more than the burst. Buckets are named by
+class and key, never by a secret: `decide|key:<id>`, `signin|ip:<address>`.
 """
 
 from __future__ import annotations
@@ -87,7 +92,7 @@ class Rate:
 
 _UNITS_LARGEST_FIRST = (("h", 3600), ("min", 60), ("s", 1))
 DEFAULT_RATES: dict[str, Rate] = {
-    "signin": Rate(60, 60, 60),
+    "signin": Rate(300, 60, 120),
     "token": Rate(60, 60, 60),
     "token_failures": Rate(10, 600, 10),
     "decide": Rate(600, 60, 100),
@@ -180,6 +185,22 @@ def client_ip_source() -> str:
     return f"x-forwarded-for from {trusted.strip()}, else the connection"
 
 
+def forwarded_for_used(request: Request) -> bool:
+    """Whether this request's address (`client_ip`) came from `X-Forwarded-For`: the header holds
+    it, so Vercel or a trusted proxy put it there. For `/api/health`, where a go-live check
+    compares the address with the browser's own: a proxy left untrusted shows its own address
+    and `false`. (A caller that sends its own address in the header reads `true`, rightly
+    about the address.)"""
+    seen = client_ip(request)
+    for value in ",".join(request.headers.getlist("x-forwarded-for")).split(","):
+        try:
+            if str(ipaddress.ip_address(value.strip())) == seen:
+                return True
+        except ValueError:
+            continue
+    return False
+
+
 class RateLimited(MendariError):
     """A request over its class's limit: `retry_after` whole seconds (at least 1)."""
 
@@ -204,11 +225,14 @@ class Limiter:
     def on(self) -> bool:
         return self.mode != "off"
 
-    def describe(self) -> dict[str, object]:
-        """For `/api/health` (signed in): the mode and every class's rate."""
+    def describe(self, request: Request) -> dict[str, object]:
+        """For `/api/health` (signed in): the mode, every class's rate, where the address is
+        read, and the address seen on this request, with whether `X-Forwarded-For` gave it."""
         return {
             "mode": self.mode,
             "client_ip_source": client_ip_source(),
+            "client_ip": client_ip(request),
+            "x_forwarded_for_used": forwarded_for_used(request),
             "limits": {name: str(rate) for name, rate in self.rates.items()},
         }
 
@@ -249,12 +273,13 @@ class Limiter:
             key = principal_id
         return self.hit(kind, key)
 
-    def hit(self, kind: str, key: str) -> RateLimited | None:
-        """Count one request in bucket `kind|key`; the refusal if it is over the limit."""
+    def hit(self, kind: str, key: str, cost: int = 1) -> RateLimited | None:
+        """Count `cost` requests in bucket `kind|key`, all or none; the refusal if they are over
+        the limit (a CDS Hooks order hook charges its draft orders after the first this way)."""
         rate = self.rates[kind]
         bucket = f"{kind}|{key}"
         now = _now_ms()
-        wait_ms = self.store.rate_take(bucket, rate.interval_ms, rate.tolerance_ms, now)
+        wait_ms = self.store.rate_take(bucket, rate.interval_ms, rate.tolerance_ms, now, cost)
         self._maybe_purge(now)
         return None if wait_ms is None else self._refused(kind, bucket, rate, wait_ms, now)
 

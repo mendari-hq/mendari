@@ -91,16 +91,21 @@ Each bullet is one control; the threat model names the row and the tests behind 
   chunked body once it passes the limit, both with `413` and after the sign-in check.
 - **Rate limits and quotas.** Two layers. In the app (`MENDARI_RATE_LIMITS`: `on` by default
   with sign-in, `off` in open mode, `log` to count without refusing), the costly routes are
-  limited per caller (decisions 600 a minute with bursts of 100 at every entry point, the AI
-  guard 60 a minute, evaluations 6 an hour, exports 10 an hour), sign-in and the token endpoint
-  per address (60 a minute), and failed assertions per address and client (10 in 10 minutes),
+  limited per caller (decisions 600 a minute with bursts of 100 at every entry point, each
+  draft order of a CDS Hooks order hook one decision and at most 50 a request; the AI guard 60
+  a minute, evaluations 6 an hour, exports 10 an hour), sign-in per address (300 a minute,
+  bursts of 120, never below the edge's limit: a hospital signs in from one address), the token
+  endpoint per address (60 a minute), and failed assertions per address and client (10 in 10
+  minutes),
   with one GCRA row per bucket in the database, so every instance shares the count. The check
   runs in the guard after the sign-in check: a refused request reads no body, calls no provider
   and writes nothing to the chain. A `429` carries `Retry-After` and `no-store`. Buckets are
   named by class and an opaque id (`key:<id>`, `user:<hash>`, `ip:<address>`), never a
   credential. Reads are not limited in the app. The client address is Vercel's
   `X-Forwarded-For`, or, self-hosted, the connection's unless the proxy is trusted
-  (`mendari serve --forwarded-allow-ips`). Per-organization daily quotas
+  (`mendari serve --forwarded-allow-ips`; the compose template trusts its network's fixed
+  gateway, where a proxy on the host connects from). Signed in, `/api/health` shows the address
+  seen on the request and whether `X-Forwarded-For` gave it. Per-organization daily quotas
   (`MENDARI_ORG_DAILY_LIMITS`) count decisions and their remote calls, never evaluations; over
   one, decisions fall back to human review, and one alert goes to the webhook a day. At the
   edge, one Vercel firewall rule limits `/auth/` and `/smart/` to 120 a minute per IP
@@ -172,7 +177,9 @@ running it.
 The threat model ([`docs/security/threat-model.md`](docs/security/threat-model.md)) lists each
 threat, its mitigation and the test that checks it. The CI job `security` runs:
 - `pip-audit` on the locked Python dependencies (pip-audit itself is locked in the `dev` group);
-- `npm audit` on the Hub website;
+- `npm audit` on the Hub website: its runtime dependencies at `high`, and all of them, dev tools
+  included, at `critical` (a dev tool never reaches the site, and a high advisory in one with no
+  fixed version must not stop every change);
 - an OWASP ZAP scan of the running API with sign-in on, where medium and high risks fail (the
   rate limits run in `log` mode there, so the scan is counted, not refused).
 

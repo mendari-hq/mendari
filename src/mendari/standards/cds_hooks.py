@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 from urllib.parse import quote
 
@@ -22,13 +22,16 @@ from mendari.core.decision import Decision, DecisionResult
 from mendari.core.pack import Pack
 from mendari.core.spec import Outcome, Priority
 from mendari.core.templates import fill
-from mendari.errors import FhirError
+from mendari.errors import CdsHooksError, FhirError
 from mendari.standards import davinci
 from mendari.standards.fhir import FhirAdapter
 from mendari.standards.fhir_client import FhirClient
 
 # Hooks whose context carries the orders being written (CDS Hooks `draftOrders`).
 ORDER_HOOKS = ("order-select", "order-sign")
+# The most draft orders one order hook request may decide: each is a decision (provider calls,
+# a chained record), so an unbounded list would multiply one request's cost.
+MAX_ORDERS = 50
 _TOKEN = re.compile(r"\{\{\s*context\.(\w+)\s*\}\}")
 _ID = re.compile(r"^[A-Za-z0-9\-.]{1,64}$")  # a FHIR id
 
@@ -59,22 +62,39 @@ def discovery(packs: Iterable[Pack]) -> dict[str, Any]:
     return {"services": services}
 
 
-def invoke(decision: Decision, request: Mapping[str, Any]) -> dict[str, Any]:
+def invoke(
+    decision: Decision,
+    request: Mapping[str, Any],
+    *,
+    most: int = MAX_ORDERS,
+    charge: Callable[[int], None] | None = None,
+) -> dict[str, Any]:
+    """The cards (and Da Vinci system actions) for one hook request. An order hook decides each
+    draft order the pack is about, at most `most` of them; `charge` is given the number of
+    decisions about to be made, before anything is fetched or decided (the rate limit), and
+    refuses by raising."""
     hooks = decision.pack.manifest.cds_hooks
     if hooks is None:
         raise FhirError(f"pack {decision.pack.id} is not a CDS service")
     if request.get("hook") != hooks.hook:
         raise FhirError(f"service expects hook {hooks.hook!r}, got {request.get('hook')!r}")
-    prefetch = dict(request.get("prefetch") or {})
-    missing = [key for key in hooks.prefetch if not prefetch.get(key)]
-    if missing:
-        prefetch.update(fetch(hooks.prefetch, missing, request))
     orders: list[dict[str, Any]] = []
     if hooks.hook in ORDER_HOOKS:
         # One decision per draft order the pack is about (e.g. each referral, not the lab
         # orders signed with it), each with the prefetched record.
         context = request.get("context") or {}
         orders = FhirAdapter.for_pack(decision.pack).focus_resources(context.get("draftOrders"))
+        if len(orders) > most:
+            raise CdsHooksError(
+                f"{len(orders)} draft orders to decide; at most {most} in one request"
+            )
+    if charge is not None:
+        charge(len(orders) if hooks.hook in ORDER_HOOKS else 1)
+    prefetch = dict(request.get("prefetch") or {})
+    missing = [key for key in hooks.prefetch if not prefetch.get(key)]
+    if missing:
+        prefetch.update(fetch(hooks.prefetch, missing, request))
+    if hooks.hook in ORDER_HOOKS:
         decided = [decision.decide_fhir(prefetch, focus=order) for order in orders]
     else:
         decided = [decision.decide_fhir(prefetch)]

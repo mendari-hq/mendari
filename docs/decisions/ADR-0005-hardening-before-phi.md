@@ -52,9 +52,11 @@ public deployment.
   per IP, only on the routes anyone can reach signed out: `/auth/` and `/smart/`, 120 a minute,
   never `/api` or `/fhir` (a hospital is one address). It starts in log mode for 7 days. In the
   app (`MENDARI_RATE_LIMITS`, on by default with sign-in), Mendari limits per principal on the
-  costly routes (decisions 600 a minute with bursts of 100, the AI guard 60 a minute,
-  evaluations 6 an hour, exports 10 an hour), and per address on sign-in and the token endpoint
-  (60 a minute) and on failed assertions per address and client (10 in 10 minutes). The
+  costly routes (decisions 600 a minute with bursts of 100, each draft order of a CDS Hooks
+  order hook counted as one and at most 50 a request; the AI guard 60 a minute, evaluations 6
+  an hour, exports 10 an hour), and per address on sign-in (300 a minute, bursts of 120, at
+  least what the edge allows, as a hospital signs in from one address), the token endpoint (60
+  a minute) and failed assertions per address and client (10 in 10 minutes). The
   limiter is GCRA, one statement on one row per bucket in the deployment's database (SQLite or
   Postgres), so every instance shares the count; it runs after the sign-in check and before
   any body is read, model called or event chained, and answers `429` with `Retry-After`. `log`

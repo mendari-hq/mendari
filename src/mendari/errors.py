@@ -59,6 +59,11 @@ class FhirRequestError(FhirStructureError):
     parameter of the wrong type (a `400`, like the structure errors it extends)."""
 
 
+class CdsHooksError(MendariError):
+    """A CDS Hooks request Mendari will not answer as sent: more draft orders to decide than
+    one request may hold (a `400`; the EHR can send them in several requests)."""
+
+
 class SmartError(MendariError):
     """A SMART on FHIR launch cannot continue: not configured, a bad or expired state, a token
     the authorization server should not have issued, or no session."""

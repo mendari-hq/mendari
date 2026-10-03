@@ -15,11 +15,13 @@ Mendari limits requests in two layers ([ADR-0005](../../docs/decisions/ADR-0005-
   on the app's answers in clients.
 
 [`firewall-rules.json`](firewall-rules.json) holds the one rule, 120 requests a minute per
-address on `/auth/` and `/smart/`. That is above the app's own 60 sign-ins and 60 token requests
-a minute per address, so the app answers ordinary bursts with its own `429` and the firewall
-only takes floods. One rule fits every plan (Hobby allows one rate-limit rule). It has no
-persistent action: an address over the limit is never blocked for longer than the window, so
-the owner behind a shared network is never locked out for long.
+address on `/auth/` and `/smart/`. The app's own sign-in limit per address is never below it
+(300 a minute, bursts of 120), since everyone behind one address shares it; the app limits the
+token endpoint to 60 a minute per address itself. So, once enforced, the firewall is the
+tighter layer on sign-in, and stops a flood before it costs a function call. One rule fits
+every plan (Hobby allows one rate-limit rule). It has no persistent action: an address over
+the limit is never blocked for longer than the window, so the owner behind a shared network is
+never locked out for long.
 
 ## Apply it
 
