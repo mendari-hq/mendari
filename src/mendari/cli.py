@@ -111,7 +111,10 @@ def cmd_test(args: argparse.Namespace) -> int:
 
 
 def cmd_decide(args: argparse.Namespace) -> int:
-    store = AuditStore(args.db) if args.db else None
+    from mendari.core.phi import phi_policy
+
+    # Recorded under the deployment's PHI mode, as the server records it (checked first).
+    store = AuditStore(args.db, phi=phi_policy()) if args.db else None
     decision = _decision(args, store=store)
     if args.text is not None:
         payload: Any = {"message": {"body": args.text}}

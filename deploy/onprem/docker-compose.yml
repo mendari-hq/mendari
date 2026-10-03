@@ -25,6 +25,9 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql://mendari:${POSTGRES_PASSWORD}@postgres:5432/mendari
+      # A proxy on the host reaches the engine from the network's gateway (below), so that is
+      # where X-Forwarded-For is trusted from; a proxy elsewhere: set it in .env.
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-172.30.0.1}
     command: ["sh", "-c", "mendari serve --host 0.0.0.0 --port 8000 --db \"$$DATABASE_URL\""]
     ports:
       - "127.0.0.1:8000:8000"  # put your TLS reverse proxy in front
@@ -49,6 +52,16 @@ services:
         done
     healthcheck:
       disable: true
+
+# A fixed subnet, so the gateway the engine sees a proxy on the host connect from (Docker's
+# port publishing connects from it) is known: FORWARDED_ALLOW_IPS trusts it. If 172.30.0.0/24
+# is taken on your host, choose another and set FORWARDED_ALLOW_IPS to its gateway.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+          gateway: 172.30.0.1
 
 volumes:
   postgres-data:

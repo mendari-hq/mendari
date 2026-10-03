@@ -403,8 +403,8 @@ missing. It is validated against DTR 2.2.0 in CI, and a pack declares it with
 patient, Coverage, payer, requesting organization and order from the EHR, and the X12 service
 type and place of service. Nothing is filled in: a missing element is an error that names it.
 With `submit`, it goes to the payer's `Claim/$submit` (`MENDARI_PAS_PAYER_URL`, allow-listed),
-and the payer's decision (outcome, authorization number, review actions) is chained on the
-decision. The sandbox has a mock payer (`mendari sandbox payer`, compose service `payer`).
+and the payer's decision is chained on the decision as codes: its outcome and review actions
+(text in their place is dropped). Its authorization number and disposition are kept as a note. The sandbox has a mock payer (`mendari sandbox payer`, compose service `payer`).
 The request and the payer's answer validate against PAS 2.2.1 in CI.
 
 **OMOP CDM.** Research data in OMOP (SQLite or Postgres, with an optional schema such as `cdm`)
@@ -457,7 +457,7 @@ guard, evaluations and exports are rate limited per caller, and sign-in and the 
 address, in the database so every instance shares the count (`MENDARI_RATE_LIMITS`; a `429` with
 `Retry-After`); organizations can have daily quotas (`MENDARI_ORG_DAILY_LIMITS`), over which
 decisions fall back to human review. A security log goes to stdout as JSON lines: one access line
-per API request and the security events (sign-ins, refusals, requests from other sites, rate
+per API request and the security events (sign-ins and EHR launches, refusals, requests from other sites, rate
 limits, key, client and governance changes, exports, evaluations, input and note reads), from an
 allow-list of fields that has no room for a credential, a query value, a body or case text.
 Every response carries an `X-Request-Id`, which JSON errors on `/api` repeat as `request_id`.
@@ -511,7 +511,8 @@ verified emails to roles ([the Google setup](docs/deploying-with-phi.md#2-sign-i
 
 People sign in with their organization's account, using PKCE and an `id_token` verified with the
 IdP's keys, in the browser that started the sign-in only (a callback link sent to someone else
-signs nobody in). The session is a server-side row behind a `__Host-mendari_session` cookie
+signs nobody in). A sign-in started on another name than `MENDARI_PUBLIC_URL`'s (an alias) is
+sent there first, since the callback comes back to it. The session is a server-side row behind a `__Host-mendari_session` cookie
 (plain `mendari_session` on localhost and dotless hosts). Each request works out the person's
 roles again from the claims kept at sign-in and the settings as they are then, so a role taken
 out of the map ends that access at once:
@@ -557,8 +558,8 @@ reporter and approver, and each must be an identifier (no spaces, at most 100 ch
 that carries the person's organization: one deployment can serve several, and each sees only
 its own decisions, reviews, feedback and reports.
 
-A link or form on another site cannot act with a signed-in browser: such a request reaches only
-public routes and pages, with GET or HEAD (a `403` otherwise). If a proxy serves Mendari under a
+A link or form on another site cannot act with a signed-in browser, or sign it out: such a
+request reaches only public routes and pages, with GET or HEAD (a `403` otherwise). If a proxy serves Mendari under a
 name that is neither the request's host nor `MENDARI_PUBLIC_URL`, list it in
 `MENDARI_TRUSTED_ORIGINS` (comma-separated origins).
 
@@ -580,7 +581,8 @@ enough evidence:
 - an override rate that doubled.
 
 For a scheduler (cron, a Kubernetes CronJob), `mendari monitor` exits 1 on any alert and
-posts them to `--webhook` / `MENDARI_ALERT_WEBHOOK` (https only):
+posts them to `--webhook` / `MENDARI_ALERT_WEBHOOK` (https only; keep the URL as a secret,
+since most carry their token in the path):
 
 ```bash
 mendari monitor --db "$DATABASE_URL" --org clinic-a --webhook https://alerts.example.org/hook

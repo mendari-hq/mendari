@@ -1,7 +1,8 @@
 """SMART on FHIR endpoints: the EHR launch, the session, and the patient's work items.
 
 - `GET /smart/launch?iss=&launch=[&pack=]` and `GET /smart/callback` run the launch
-  (`standards/smart.py`), tied to the browser that started it; the callback sets an opaque,
+  (`standards/smart.py`), tied to the browser that started it (and so begun on
+  `MENDARI_PUBLIC_URL`, where the callback lands); the callback sets an opaque,
   HttpOnly, SameSite=Lax `__Host-` session cookie and sends the browser to the dashboard's "This
   patient" view for the pack. The session ends after 30 minutes idle, 8 hours, or when the EHR's
   token expires, whichever is first (`server/sessions.py`).
@@ -13,7 +14,9 @@
   prefetch templates; the decision is audited like any other.
 
 The access token never leaves the server, and every FHIR read uses the session's token through
-the allow-listed client.
+the allow-listed client. The security log has `smart.launch.ok` for each launch that starts a
+session and `smart.launch.refused` for each one that does not, with a fixed reason: never a
+value from the request or the EHR.
 """
 
 from __future__ import annotations
@@ -22,7 +25,8 @@ import html
 import re
 import secrets
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from typing import Any
 from urllib.parse import quote
 
@@ -33,7 +37,7 @@ from pydantic import BaseModel, Field
 from mendari.core.audit import AuditStore
 from mendari.core.decision import Decision
 from mendari.core.pack import Pack
-from mendari.errors import FhirError, SmartError
+from mendari.errors import FhirError, PackNotFoundError, SmartError
 from mendari.server import security_log, sessions
 from mendari.standards import smart
 from mendari.standards.cds_hooks import fill_template
@@ -66,7 +70,11 @@ def add_smart_routes(
 
     def configured() -> SmartSettings:
         if settings is None:
-            raise SmartError("SMART launch is not configured here (MENDARI_SMART_CLIENT_ID)", 404)
+            raise SmartError(
+                "SMART launch is not configured here (MENDARI_SMART_CLIENT_ID)",
+                404,
+                reason="not_configured",
+            )
         return settings
 
     def public_url(request: Request) -> str:
@@ -80,16 +88,22 @@ def add_smart_routes(
 
     @app.get("/smart/launch", include_in_schema=False)
     def smart_launch(request: Request, iss: str, launch: str, pack: str | None = None) -> Response:
-        options = configured()
-        pack_id = pack or default_pack
-        if pack_id is None:
-            raise SmartError("no pack to launch", 404)
-        pack_or_404(pack_id)
-        redirect_uri = f"{public_url(request)}/smart/callback"
-        with GuardedHttp() as http:
-            url, pending = smart.begin(
-                iss, launch, redirect_uri=redirect_uri, settings=options, http=http
-            )
+        with refusals_logged(unreachable="issuer"):
+            options = configured()
+            # Launched on another name: begin again on the public URL, where the callback lands.
+            params = {"iss": iss, "launch": launch} | ({"pack": pack} if pack else {})
+            moved = sessions.to_public_url(request, options.public_url, "/smart/launch", params)
+            if moved is not None:
+                return moved
+            pack_id = pack or default_pack
+            if pack_id is None:
+                raise SmartError("no pack to launch", 404, reason="pack")
+            pack_or_404(pack_id)
+            redirect_uri = f"{public_url(request)}/smart/callback"
+            with GuardedHttp() as http:
+                url, pending = smart.begin(
+                    iss, launch, redirect_uri=redirect_uri, settings=options, http=http
+                )
         pending["pack"] = pack_id
         response = RedirectResponse(url, status_code=302)
         # Only this browser may finish the launch: its cookie's digest.
@@ -102,21 +116,29 @@ def add_smart_routes(
     def smart_callback(
         request: Request, state: str = "", code: str = "", error: str = ""
     ) -> Response:
-        options = configured()
-        pending = store.smart_take(state, "pending") if state else None
-        if error:
-            reason = error if _OAUTH_ERROR.match(error) else "error"
-            raise SmartError(f"the EHR's authorization server did not authorize the app ({reason})")
-        if pending is None:
-            raise SmartError("this launch is unknown, used or expired: start it again from the EHR")
-        if not sessions.bound(request, sessions.LAUNCH, pending):
-            # Someone else's launch: its patient context must not land in this browser.
-            security_log.event("smart.launch.refused", outcome="refused", reason="browser")
-            raise SmartError("this launch was started in another browser: start it again")
-        if not code:
-            raise SmartError("the authorization server sent no code")
-        with GuardedHttp() as http:
-            session = smart.complete(pending, code, settings=options, http=http)
+        with refusals_logged(unreachable="id_token"):  # the issuer's keys, for the id_token
+            options = configured()
+            pending = store.smart_take(state, "pending") if state else None
+            if error:
+                shown = error if _OAUTH_ERROR.match(error) else "error"
+                raise SmartError(
+                    f"the EHR's authorization server did not authorize the app ({shown})",
+                    reason="ehr_error",
+                )
+            if pending is None:
+                raise SmartError(
+                    "this launch is unknown, used or expired: start it again from the EHR",
+                    reason="state_unknown",
+                )
+            if not sessions.bound(request, sessions.LAUNCH, pending):
+                # Someone else's launch: its patient context must not land in this browser.
+                raise SmartError(
+                    "this launch was started in another browser: start it again", reason="browser"
+                )
+            if not code:
+                raise SmartError("the authorization server sent no code", reason="no_code")
+            with GuardedHttp() as http:
+                session = smart.complete(pending, code, settings=options, http=http)
         session["pack"] = pending["pack"]
         # `expires_at` stays the EHR token's expiry (shown in /api/smart/session); the session
         # ends by then, or earlier when idle or at the absolute limit.
@@ -125,6 +147,7 @@ def add_smart_routes(
         )
         sid = secrets.token_urlsafe(32)
         store.smart_put(sid, "session", row, expires_at)
+        security_log.event("smart.launch.ok")
         pack = quote(pending["pack"], safe="/")
         response = RedirectResponse(f"{public_url(request)}/?pack={pack}#patient", status_code=302)
         sessions.set_cookie(response, request, COOKIE, sid)
@@ -206,6 +229,28 @@ def add_smart_routes(
         with FhirClient(session["iss"], token=session["access_token"]) as fhir:
             result, task = decide_for(decision, fhir, session["patient"], body.focus)
         return {"decision": result.to_dict(), "task": task}
+
+
+@contextmanager
+def refusals_logged(*, unreachable: str) -> Iterator[None]:
+    """One `smart.launch.refused` line for a launch step that fails: the `SmartError`'s fixed
+    reason, `pack` for an unknown pack, and `unreachable` when the allow-listed client refuses
+    or cannot reach a server (the launch's issuer, or the keys that verify its id_token)."""
+    try:
+        yield
+    except SmartError as error:
+        _refused(error.reason)
+        raise
+    except PackNotFoundError:
+        _refused("pack")
+        raise
+    except FhirError:
+        _refused(unreachable)
+        raise
+
+
+def _refused(reason: str) -> None:
+    security_log.event("smart.launch.refused", outcome="refused", reason=reason)
 
 
 def error_page(message: str, status: int) -> HTMLResponse:

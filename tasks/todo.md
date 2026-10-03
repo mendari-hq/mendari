@@ -63,7 +63,10 @@ About 18 days of work.
   in one order, one go-live checklist with the launch order and a settings table in
   `deploying-with-phi.md`, README, ADR-0005, the audit's "Status after Phase 4b", the packet
   for the external review (`docs/security/review-packet.md`)
-- [ ] **Review**: five reviewers and a skeptic, then fixes
+- [x] **Review**: five reviewers and a skeptic; 12 findings confirmed (3 medium, 9 low; two found
+  twice), all fixed: CDS order charge, compose proxy trust, sign-in sizing, the daily-limit doc,
+  sign-in on aliases, cookieless logout CSRF, library URL logs, SMART launch log, payer codes
+  only, `decide --db` under the PHI mode
 - At launch (owner), after the external review: Jev 2,000 and LLM 200 a day, 5,000 decisions per organization a day, the
   firewall rules enforced after 7 days in log mode, then Vercel Authentication lifted
 - Deferred: a PHI keyring and `rekey`, database tables for security events, limits on reads,

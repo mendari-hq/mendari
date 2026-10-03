@@ -19,9 +19,14 @@ request comes from:
 - With neither, the request is not from a browser (curl, ZAP, pilot-check) and passes: a page
   cannot take `Origin` off an unsafe request.
 
-It applies to a request that carries a Mendari cookie and no `Authorization` header (a bearer
-credential decides alone, and another site cannot attach one without a CORS preflight, which
-Mendari never grants), and in open mode to every request, since there none needs a credential.
+It applies to a request without an `Authorization` header (a bearer credential decides alone,
+and another site cannot attach one without a CORS preflight, which Mendari never grants) that
+carries a Mendari cookie or uses an unsafe method (POST, PUT, PATCH, DELETE), and in open mode to
+every request, since there none needs a credential. Unsafe methods are checked with no cookie
+too: the session cookie is SameSite=Lax, so a browser leaves it off another site's form POST,
+yet the answer can still clear it (a form on another site posting to `/auth/logout` would sign
+the person out). Machines send neither header, so curl, EHR servers, CDS clients and the token
+endpoint's backend clients are not affected.
 
 A refusal is a `403` with the request's id, and one `auth.origin.refused` line in the security
 log (server/security_log.py) whose reason is a fixed code, never the header's value.
@@ -56,12 +61,12 @@ class OriginCheck:
     def check(self, request: Request) -> None:
         """Returns when the request may go on; an `AuthError` (403) when another site started
         it and it asks for more than to read a public route or a page. Reads headers only."""
+        safe = request.method in SAFE_METHODS
         if not self.open_mode and (
-            "authorization" in request.headers or not _has_mendari_cookie(request)
+            "authorization" in request.headers or (safe and not _has_mendari_cookie(request))
         ):
             return
         site = request.headers.get("sec-fetch-site", "").strip().lower()
-        safe = request.method in SAFE_METHODS
         if site == "same-origin" or (site == "none" and safe):
             return
         if not site:

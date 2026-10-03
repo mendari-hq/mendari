@@ -50,6 +50,7 @@ from mendari.core.policy import GovernanceOverride
 from mendari.core.registry import discover, version_key
 from mendari.errors import (
     AuthError,
+    CdsHooksError,
     ClientError,
     FhirError,
     FhirStructureError,
@@ -126,6 +127,7 @@ _STATUS = {
     PasError: 422,
     ScopeError: 422,
     ClientError: 422,
+    CdsHooksError: 400,
     RateLimited: 429,
 }
 # A provider that cannot answer (e.g. listing Jev's models): not set up here, or the upstream
@@ -552,8 +554,9 @@ def create_app(
         without a credential (no database work either). A principal that may `read` (everyone
         in open mode) also gets the deployment's settings: packs, storage, the FHIR validation
         mode, PHI mode, the input hash's kind and key id, which provider answers each pack's
-        questions, today's remote calls, the rate limits (and where the caller's address is
-        read), the session policy and the organization's daily quotas with what it used today.
+        questions, today's remote calls, the rate limits (where the caller's address is read,
+        and the address seen on this request), the session policy and the organization's daily
+        quotas with what it used today.
         """
         public = {"status": "ok", "version": __version__, "sign_in": auth.enabled}
         principal = auth.principal(request)  # no credential: no lookup
@@ -594,7 +597,7 @@ def create_app(
                 "calls_today": store.usage("llm"),
                 "daily_limit": (budget_limits or {}).get("llm"),
             },
-            "rate_limits": limiter.describe(),
+            "rate_limits": limiter.describe(request),
             # Browser sessions: ended after this long without a request, and at most after.
             "sessions": {
                 "idle_minutes": session_lifetime.idle // 60,
@@ -1072,6 +1075,12 @@ def create_app(
 
     # -- CDS Hooks ---------------------------------------------------------------------------
 
+    # A request with more orders than the decide limit's burst could never be admitted: with
+    # limits on, the burst is also the most one request may decide.
+    most_orders = cds_hooks.MAX_ORDERS
+    if limiter.mode == "on":
+        most_orders = min(most_orders, limiter.rates["decide"].burst)
+
     @app.get(
         "/cds-services",
         tags=["FHIR and CDS Hooks"],
@@ -1086,12 +1095,23 @@ def create_app(
         tags=["FHIR and CDS Hooks"],
         summary="Call a CDS Hooks service",
     )
-    def cds_invoke(service_id: str, request: JsonBody) -> dict[str, Any]:
-        """A CDS Hooks request (context and prefetch) → cards with the decision and its reasons."""
+    def cds_invoke(service_id: str, request: JsonBody, http: Request) -> dict[str, Any]:
+        """A CDS Hooks request (context and prefetch) → cards with the decision and its reasons.
+        An order hook decides each draft order the pack is about, at most 50 a request: each
+        counts as one decision against the rate limit."""
         pack = next((p for p in packs.values() if cds_hooks.service_id(p) == service_id), None)
         if pack is None:
             raise PackNotFoundError(f"no CDS service {service_id!r}")
-        return cds_hooks.invoke(decision_for(pack.id), request)
+
+        def charge(decisions: int) -> None:
+            """The guard counted the request as one decision; the rest are counted here, all
+            or none, before any is made (a refusal decides nothing)."""
+            if decisions > 1 and limiter.on:
+                over = limiter.hit("decide", principal_of(http).id, cost=decisions - 1)
+                if over is not None:
+                    raise over
+
+        return cds_hooks.invoke(decision_for(pack.id), request, most=most_orders, charge=charge)
 
     @app.post(
         "/api/packs/{namespace}/{name}/pas",

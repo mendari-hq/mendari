@@ -72,7 +72,7 @@ and the sandbox.
 
 **Phase 4b, hardening before PHI** ([ADR-0005](../decisions/ADR-0005-hardening-before-phi.md)):
 - **What is kept for good.** Notes and a payer's text left the chain for a `notes` table, with a
-  salted commitment in the chain. Under `hash` the record keeps no evidence values, and under
+  salted commitment in the chain; a payer's outcome and review actions stay only as codes. Under `hash` the record keeps no evidence values, and under
   `encrypt` they are sealed with the input. Input issues name resources by type and position.
   The input hash is an HMAC under `MENDARI_INPUT_HASH_KEY`. People are chained by verified
   email, keys as `key <id>`.
@@ -81,11 +81,14 @@ and the sandbox.
   read before the sign-in check.
 - **Limits.** GCRA buckets in the database on costly routes per caller and on sign-in and the
   token endpoint per address; per-organization daily quotas; one Vercel firewall rule.
-- **Security log.** JSON lines on stdout from an allow-list of fields, with a request id.
+- **Security log.** JSON lines on stdout from an allow-list of fields, with a request id
+  (sign-in and EHR launch, refusals included); httpx and psycopg's pool held at WARNING.
 - **Sessions.** 30 minutes idle, 8 hours at most, `__Host-` cookies, roles worked out per
-  request, sign-in and launch tied to the browser that started them.
+  request, sign-in and launch tied to the browser that started them (and begun on
+  `MENDARI_PUBLIC_URL`, where their callback lands).
 - **Origin checks.** A request another site starts reaches only public routes and pages, with
-  GET or HEAD.
+  GET or HEAD; an unsafe method is checked even without a cookie (another site's form carries
+  none, but could still sign someone out).
 - **Supply chain.** Swagger UI vendored at a pinned version; actions pinned by commit, images
   by digest; the Docker image installed from `uv.lock`; Dependabot monthly.
 
@@ -137,7 +140,8 @@ uv run mendari serve --port 8000 --db var/review.db
   http://127.0.0.1:8000`. It signs in four people through the real flow, creates a key,
   decides 12 synthetic messages, reads and resolves a review, checks a viewer is refused,
   approves a pack and verifies the chain.
-- **In a browser:** open `http://127.0.0.1:8000/` (use the same host as `MENDARI_PUBLIC_URL`).
+- **In a browser:** open `http://127.0.0.1:8000/` (`MENDARI_PUBLIC_URL`'s host; a sign-in
+  started on another, such as `localhost`, is sent there first).
   The provider's form takes any user name and, as claims, for example
   `{"groups": ["informatics"], "email": "admin@pilot.example.org", "email_verified": true}`
   (`informatics` maps to `admin`; use `clinicians` for a reviewer, `front-desk` for a viewer).

@@ -36,7 +36,7 @@ public deployment.
   `input.read`. Notes chained before this decision are hidden at read time from anyone without
   `read_input`; the chain itself is never rewritten. A governance approval's `reference` (an
   administrator's pointer to minutes, not case text) stays chained. The FHIR exports carry
-  codes only.
+  codes only, and a payer's outcome and review actions are chained only if they are codes.
 - **Evidence follows the input.** Under `hash` (and for a pack that keeps only the hash) the
   stored record keeps no evidence values; under `encrypt` they are sealed with the input. A
   resource id in an input issue is stored as its type and position (`Patient (entry 2)`), in
@@ -52,9 +52,11 @@ public deployment.
   per IP, only on the routes anyone can reach signed out: `/auth/` and `/smart/`, 120 a minute,
   never `/api` or `/fhir` (a hospital is one address). It starts in log mode for 7 days. In the
   app (`MENDARI_RATE_LIMITS`, on by default with sign-in), Mendari limits per principal on the
-  costly routes (decisions 600 a minute with bursts of 100, the AI guard 60 a minute,
-  evaluations 6 an hour, exports 10 an hour), and per address on sign-in and the token endpoint
-  (60 a minute) and on failed assertions per address and client (10 in 10 minutes). The
+  costly routes (decisions 600 a minute with bursts of 100, each draft order of a CDS Hooks
+  order hook counted as one and at most 50 a request; the AI guard 60 a minute, evaluations 6
+  an hour, exports 10 an hour), and per address on sign-in (300 a minute, bursts of 120, at
+  least what the edge allows, as a hospital signs in from one address), the token endpoint (60
+  a minute) and failed assertions per address and client (10 in 10 minutes). The
   limiter is GCRA, one statement on one row per bucket in the deployment's database (SQLite or
   Postgres), so every instance shares the count; it runs after the sign-in check and before
   any body is read, model called or event chained, and answers `429` with `Retry-After`. `log`
@@ -64,8 +66,10 @@ public deployment.
   organization a day; the owner's choice). Over a quota or a ceiling, decisions fall back to
   human review. Evaluations spend the deployment's budgets, never a quota.
 - **A security log on stdout, the chain for PHI.** One JSON line per `/api`, `/fhir`,
-  `/cds-services` and `/auth` request and per security event, from an allow-list of fields:
-  never a credential, a query value, a body or case text. Every response carries a request id.
+  `/cds-services`, `/auth` and `/smart` request and per security event, from an allow-list of
+  fields: never a credential, a query value, a body or case text. Libraries that log URLs at
+  INFO (httpx, psycopg's pool) are held at WARNING, since Vercel's runtime prints every INFO
+  line. Every response carries a request id.
   Reads of PHI stay chained, and the log repeats them by decision id. No new log tables.
 - **Public routes cost little and say little.** Without a credential `/api/health` is
   `{status, version, sign_in}`; the capability statement takes no chain lock; sign-in caches
@@ -73,12 +77,14 @@ public deployment.
   read, and none before the sign-in check.
 - **Sessions:** 30 minutes idle, 8 hours at most, `__Host-` cookie names (with the old name
   accepted for one release, so nobody is signed out), sign-in and SMART launch tied to the
-  browser that started them.
+  browser that started them, and begun on `MENDARI_PUBLIC_URL`, where their callback lands.
 - **Where a request comes from decides what it may reach.** A browser request from another site
   (Fetch Metadata, else `Origin`) reaches only public routes and pages, and only with GET or
   HEAD, keyed on the route permissions rather than a list. It applies to requests with a
-  Mendari cookie and, in open mode, to every request. Machines with a bearer credential are not
-  affected.
+  Mendari cookie, to every POST, PUT, PATCH and DELETE (a browser leaves the SameSite=Lax
+  cookie off another site's form, whose answer could still clear it) and, in open mode, to
+  every request. Machines (a bearer credential, or neither `Origin` nor `Sec-Fetch-Site`) are
+  not affected.
 - **Nothing from a CDN.** The API reference is Swagger UI, vendored at a pinned version with its
   license and checksums, under the same content security policy as every other page. CI actions
   are pinned by commit, images by digest, and Dependabot proposes updates monthly.

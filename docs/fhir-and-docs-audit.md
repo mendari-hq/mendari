@@ -260,6 +260,15 @@ What changed, in three lanes and then integrated:
 - **What is recorded for an incident.** JSON lines on stdout from an allow-list of fields: one
   access line per API request and the security events, a request id on every response.
 
+**Reviewed** by five reviewers and a skeptic, who confirmed 12 findings (3 medium, 9 low; two
+were found twice), all fixed: a CDS order hook is charged one decision per draft order, the
+compose template trusts the proxy it ships with, the sign-in limit fits a hospital behind one
+address, the deployment guide gives the real daily-limit defaults, a sign-in or launch started
+on another host name is sent to the public URL, logout refuses a cross-site POST without a
+cookie, library loggers no longer log URLs, the SMART launch is logged, the chain keeps a
+payer's outcome and review actions only as codes, and `mendari decide --db` records under the
+deployment's PHI mode.
+
 Nobody is signed out by this release, the schema changes are additive (an index, the tables
 `rate_limits`, `org_usage` and `notes`, the column `decision_inputs.details`), and the chain is
 never rewritten. Still open:

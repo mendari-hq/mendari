@@ -175,7 +175,8 @@ def _limits(rates: Mapping[str, str] | None) -> str:
     return (
         "\n\n**Rate limits.** Costly operations are limited per caller (an API key, a client, a "
         "person), counted across every instance of this deployment: decisions "
-        f"{rates['decide']} (at every entry point), the AI guard {rates['guard']}, evaluations "
+        f"{rates['decide']} (at every entry point; each draft order a CDS Hooks order hook "
+        f"decides is one, at most 50 a request), the AI guard {rates['guard']}, evaluations "
         f"{rates['evaluate']} and exports {rates['export']}; signing in {rates['signin']} and "
         f"the token endpoint {rates['token']} per address. Reads are not limited here. Over a "
         "limit the answer is a `429` with `Retry-After` (seconds) and `Cache-Control: "

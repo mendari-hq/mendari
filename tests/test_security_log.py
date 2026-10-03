@@ -5,6 +5,8 @@ a credential, a query value, a body, case text or an exception's message."""
 from __future__ import annotations
 
 import base64
+import functools
+import io
 import json
 import logging
 import os
@@ -12,18 +14,22 @@ import uuid
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
 from mendari import AuditStore
 from mendari.core.decision import Decision
 from mendari.server import app as app_module
-from mendari.server import security_log
-from mendari.server.app import create_app
+from mendari.server import security_log, smart_routes
+from mendari.server.app import create_app, quota_alert
 from mendari.server.security_log import FIELDS, InternalError
+from mendari.standards.fhir_client import FhirClient, GuardedHttp
 from tests.conftest import HASH_KEY_B64, message, security_lines, signed_in
 from tests.test_auth import FakeIdp, sign_in, signing_in_with
+from tests.test_smart import APP, EHR, REFERRAL, FakeEhr, full_launch, launch
 
 INBOX = "mendari/patient-inbox-router"
 TRIAL = "mendari/clinical-trial-prescreener"  # risk level 2: approvable
@@ -376,3 +382,116 @@ def test_the_logger_writes_to_stdout_on_its_own(capsys: pytest.CaptureFixture[st
     capsys.readouterr()
     security_log.event("auth.logout")
     assert json.loads(capsys.readouterr().out)["event"] == "auth.logout"
+
+
+# -- the EHR launch ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def smart(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[TestClient, FakeEhr]]:
+    """An EHR launch, as in tests/test_smart.py."""
+    ehr = FakeEhr()
+    monkeypatch.setenv("MENDARI_SMART_CLIENT_ID", "mendari-app")
+    monkeypatch.setenv("MENDARI_PUBLIC_URL", APP)
+    monkeypatch.setenv("MENDARI_FHIR_ALLOWED_SERVERS", EHR)
+    transport = httpx.MockTransport(ehr)
+    monkeypatch.setattr(
+        smart_routes, "GuardedHttp", functools.partial(GuardedHttp, transport=transport)
+    )
+    monkeypatch.setattr(
+        smart_routes, "FhirClient", functools.partial(FhirClient, transport=transport)
+    )
+    with TestClient(create_app(db_path=tmp_path / "a.db"), base_url=APP) as client:
+        yield client, ehr
+
+
+def test_each_ehr_launch_is_logged_with_its_reason_and_never_its_values(
+    smart: tuple[TestClient, FakeEhr], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A launch is a sign-in: its refusals are logged like `/auth/callback`'s (a forged state is
+    a launch-CSRF or replay probe), and the reference its error page shows is in the log."""
+    client, ehr = smart
+    capsys.readouterr()
+    forged = client.get("/smart/callback", params={"code": QUERY_VALUE, "state": "forged-state"})
+    assert forged.status_code == 400 and "Reference" in forged.text
+    assert client.get("/smart/callback", params={"error": "access_denied"}).status_code == 400
+    assert client.get("/smart/launch").status_code == 422  # no iss or launch
+    elsewhere = {"iss": "https://evil.example/fhir", "launch": QUERY_VALUE, "pack": REFERRAL}
+    assert client.get("/smart/launch", params=elsewhere).status_code != 302
+    started = launch(client)
+    state = parse_qs(urlsplit(started.headers["location"]).query)["state"][0]
+    other = TestClient(client.app, base_url=APP)  # someone else's launch
+    assert other.get("/smart/callback", params={"code": "c", "state": state}).status_code == 400
+    started = launch(client)
+    state = parse_qs(urlsplit(started.headers["location"]).query)["state"][0]
+    unknown = client.get("/smart/callback", params={"code": "not-issued", "state": state})
+    assert unknown.status_code == 400  # the EHR refuses the code
+    assert full_launch(client, ehr).status_code == 302
+    lines = logged(capsys)
+    text = json.dumps(lines)
+    for never in (QUERY_VALUE, "forged-state", "evil.example", "not-issued", "ref-p1", "access-"):
+        assert never not in text, never
+    events = [(e["event"], e.get("reason")) for e in lines if e["event"] != "request"]
+    assert events == [
+        ("smart.launch.refused", "state_unknown"),
+        ("smart.launch.refused", "ehr_error"),
+        ("smart.launch.refused", "issuer"),  # not on the allow-list
+        ("smart.launch.refused", "browser"),
+        ("smart.launch.refused", "token"),
+        ("smart.launch.ok", None),
+    ]
+    access = [(e["route"], e["status"]) for e in lines if e["event"] == "request"]
+    assert access[:3] == [
+        ("/smart/callback", 400),
+        ("/smart/callback", 400),
+        ("/smart/launch", 422),
+    ]
+    assert access[-2:] == [("/smart/launch", 302), ("/smart/callback", 302)]
+    refused = next(e for e in lines if e["event"] == "smart.launch.refused")
+    assert refused["request_id"] == forged.headers["x-request-id"] in forged.text
+
+
+# -- library loggers ----------------------------------------------------------------------------
+
+
+@pytest.fixture
+def info_root() -> Iterator[io.StringIO]:
+    """The root logger as Vercel's runtime leaves it: INFO, with a handler (here, a buffer)."""
+    root = logging.getLogger()
+    saved = root.level, root.handlers[:]
+    printed = io.StringIO()
+    logging.basicConfig(level=logging.INFO, handlers=[logging.StreamHandler(printed)], force=True)
+    try:
+        yield printed
+    finally:
+        for handler in root.handlers[:]:
+            root.removeHandler(handler)
+        root.setLevel(saved[0])
+        for handler in saved[1]:
+            root.addHandler(handler)
+
+
+def test_no_library_logs_a_url_when_the_host_logs_info(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, info_root: io.StringIO
+) -> None:
+    """httpx logs each request's URL at INFO: the alert webhook's secret path, a FHIR read's
+    Patient id. Every app quiets it (and psycopg's pool), whatever the host did before."""
+    for name in security_log.QUIETED:
+        logging.getLogger(name).setLevel(logging.NOTSET)
+    create_app(db_path=tmp_path / "a.db")
+    answered = httpx.MockTransport(lambda request: httpx.Response(200, json={"id": "pt-secret"}))
+
+    def post(url: str, **options: Any) -> httpx.Response:
+        with httpx.Client(transport=answered) as client:
+            return client.post(url, **options)
+
+    monkeypatch.setattr(app_module.httpx, "post", post)
+    webhook = "https://hooks.example.org/services/T000/B000/WebhookSecretToken"
+    quota_alert(webhook)("default", "decisions", 5)
+    with FhirClient(EHR, allowed={EHR}, transport=answered) as fhir:
+        fhir.read("Patient/pt-secret")
+    logging.getLogger("httpx").warning("a warning still shows")
+    printed = info_root.getvalue()
+    assert "a warning still shows" in printed
+    for never in ("WebhookSecretToken", "hooks.example.org", "pt-secret", EHR):
+        assert never not in printed, never

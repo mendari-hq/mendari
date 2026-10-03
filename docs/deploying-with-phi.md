@@ -29,12 +29,23 @@ bytes, 64 KiB or more) if your FHIR Bundles are larger, and give your proxy the 
 `localhost` gets HSTS. The engine needs the client's address, not your proxy's (sign-in and the
 token endpoint are limited per address, and the security log records it). `mendari serve`
 takes `X-Forwarded-For` (`--proxy-headers`, on by default) only from the proxies in
-`--forwarded-allow-ips` (or `FORWARDED_ALLOW_IPS`; default `127.0.0.1`), and the templates set
-it (compose: `.env`; Kubernetes: the ConfigMap). Signed in, `/api/health` shows where the
-address is read (`rate_limits.client_ip_source`). Limit per address at the proxy too, on
-`/auth/` and `/smart/` only (a hospital sends everyone's traffic from one address):
+`--forwarded-allow-ips` (or `FORWARDED_ALLOW_IPS`; default `127.0.0.1`): the address the
+engine sees the proxy connect from, which is not always the one the proxy connects to. In the
+compose template, a proxy on the host connects to `127.0.0.1:8000` but reaches the engine from
+the compose network's gateway: the template fixes that network (`172.30.0.0/24`) and trusts its
+gateway, `172.30.0.1` (change both if the subnet is taken on your host). In Kubernetes, set the
+ConfigMap's value to your ingress controller's pod network. Signed in, `/api/health` shows
+where the address is read (`rate_limits.client_ip_source`), the address seen on that very
+request (`rate_limits.client_ip`) and whether `X-Forwarded-For` gave it
+(`rate_limits.x_forwarded_for_used`): from a browser outside, it must be that browser's own
+address. If it is the proxy's (a `172.x` or `10.x` address, say), everyone shares one sign-in
+limit and the log cannot tell people apart. Limit per address at the proxy too, on `/auth/` and
+`/smart/` only (a hospital sends everyone's traffic from one address):
 [`deploy/onprem/nginx-limits.conf`](https://github.com/Junebugg1214/mendari/blob/main/deploy/onprem/nginx-limits.conf)
-is an example. A proxy must not replace Mendari's `Content-Security-Policy` header.
+is an example, at 120 a minute per address. If your people and EHRs all leave through one
+address (NAT, a Citrix farm), size both for your busiest minute of sign-ins and EHR launches:
+the proxy's rate and burst, and Mendari's own limit (§4). A proxy must not replace Mendari's
+`Content-Security-Policy` header.
 
 ## 2. Sign-in and roles
 
@@ -96,6 +107,11 @@ rules and also ends when the EHR's token does. More about sessions:
   must bring back, so a callback link sent to someone else signs nobody in. A second sign-in
   started in another tab replaces the first, which then asks to sign in again. A script that
   signs in over plain http carries the cookies by hand, as `mendari sandbox pilot-check` does.
+  That cookie belongs to one host, and the callback comes back to `MENDARI_PUBLIC_URL`, so a
+  sign-in or launch started on any other name for the same deployment (a `*.vercel.app` alias,
+  an internal name, an address) is first sent to `MENDARI_PUBLIC_URL` and starts there. It
+  is sent once (the query then carries `moved=1`), so a proxy that rewrites `Host` cannot make
+  it loop.
 - **The dashboard says so when a session ends** ("Your session ended. Sign in again.") and
   brings the person back to the same view after signing in; what they were typing stays on the
   page.
@@ -185,7 +201,9 @@ no authorization endpoint (no user or patient launch) and no `patient/` or `user
 
 **Requests from other sites.** A browser request another site starts reaches only public
 routes and pages, and only to read: a link to the dashboard works, while a link to an API
-route, or a form on another site that posts here, gets a `403` ("cross-site request refused").
+route, or a form on another site that posts here, gets a `403` ("cross-site request refused"),
+whether or not the browser sends the session cookie with it (it does not, for another site's
+form: the cookie is SameSite=Lax), so another site cannot sign anyone out.
 This site is the address the request was sent to, the origin of `MENDARI_PUBLIC_URL`, and any
 alias you list. If people reach Mendari through a name that a proxy rewrites before it gets
 here (so the request arrives for another host), list that name, or the dashboard's own buttons
@@ -235,7 +253,8 @@ What the decision record (whose digest is chained for good) keeps of an input, i
   `MENDARI_INPUT_HASH_KEY`. A plain SHA-256 of a short or structured input (an age, a sex and an
   order code) is found by guessing in seconds, and anyone who may read a decision sees its hash;
   without the key, guesses match nothing. The engine refuses to start in `hash` or `encrypt`
-  without this key. In `off` mode without it, the hash stays the plain `sha256:` of earlier
+  without this key, and so does `mendari decide --db`, which records a decision under the
+  deployment's PHI mode, as the server does. In `off` mode without it, the hash stays the plain `sha256:` of earlier
   releases, as on records already chained.
 
 Under `encrypt`:
@@ -278,6 +297,9 @@ the audit chain:
   is chained (`input.read` names the notes read);
 - under `hash`, a review or rating with a note is refused (`422`): `hash` keeps no free text.
   The dashboard offers no note field there, and a payer's words are not kept;
+- in every mode, the chain keeps a payer's outcome and review actions only as codes (R4's
+  `queued`, `complete`, `error` or `partial`; an X12 306 code such as `A1`): text in their
+  place is dropped;
 - under `off`, notes are kept in the clear for whoever may read the decision;
 - notes written into the chain by earlier releases stay there (the chain is never rewritten),
   but are shown only to those who may read inputs.
@@ -305,10 +327,10 @@ the token endpoint.
 
 | What | Counted per | Default |
 |---|---|---|
-| Signing in (`/auth/login`, the SMART launch) | client address | 60 a minute |
+| Signing in (`/auth/login`, the SMART launch) | client address | 300 a minute, 120 at once |
 | The token endpoint, before its body is read | client address | 60 a minute |
 | Failed assertions at the token endpoint | client address and client | 10 in 10 minutes |
-| Decisions, at every entry point (REST, FHIR `$decide`, CDS Hooks, DTR, PAS, SMART) | API key, client or person | 600 a minute, 100 at once |
+| Decisions, at every entry point (REST, FHIR `$decide`, CDS Hooks, DTR, PAS, SMART); each draft order a CDS Hooks order hook decides is one | API key, client or person | 600 a minute, 100 at once |
 | The AI guard (an LLM call) | API key, client or person | 60 a minute |
 | Evaluations | caller | 6 an hour |
 | Exports (the audit FHIR export, the feedback export) | caller | 10 an hour |
@@ -317,7 +339,23 @@ the token endpoint.
 refused, refuse nothing) or `off` (the default in open mode), optionally followed by overrides:
 `MENDARI_RATE_LIMITS=on,decide=1200/min:200,evaluate=20/h` (`count/[n]unit[:burst]`, unit `s`,
 `min` or `h`). A bad value stops the server at startup. Signed in, `/api/health` shows the mode,
-every limit and `client_ip_source`. The client address must be right (§1, *Behind a proxy*).
+every limit, `client_ip_source` and the address it saw for you. The client address must be
+right (§1, *Behind a proxy*).
+
+**Sign-in behind one address.** Sign-in and the SMART launch are counted per client address,
+because nobody has signed in yet. A hospital usually sends everyone from one egress address,
+so 300 a minute with bursts of 120 is shared by every clinician signing in and every EHR launch
+there. Size it from your busiest minute (a shift change, a clinic opening), with room to spare,
+and raise your proxy's per-address limit to match: for example
+`MENDARI_RATE_LIMITS=on,signin=1200/min:400`. Never set it below the proxy's or the firewall's
+own per-address limit. Over the limit people see "Too many sign-ins from your network" and can
+retry after the seconds shown; anyone else behind that address can use it up too, so keep it
+generous rather than tight.
+
+**CDS Hooks order hooks.** An `order-select` or `order-sign` request decides each draft order
+the pack is about, each one a decision against the decide limit, all counted before the first is
+made. One request decides at most 50 (or the decide burst, if you set it lower); more is a
+`400`, and the EHR sends them in several requests.
 
 **Daily quotas per organization.** `MENDARI_ORG_DAILY_LIMITS=decisions=5000,jev=2000,llm=200`
 caps what each organization uses a day: decisions, and the remote model calls they make. Unset,
@@ -366,15 +404,16 @@ Mendari writes a security log to **stdout**, one JSON object per line, for incid
 Send the container's stdout to your log system (Docker's logging driver, your Kubernetes log
 collector, journald) and keep it as your policy says; Mendari keeps no log table of its own.
 
-- **One access line per request** to `/api`, `/fhir`, `/cds-services` and `/auth`
+- **One access line per request** to `/api`, `/fhir`, `/cds-services`, `/auth` and `/smart`
   (`"event":"request"`), refused ones included, not `/api/health` or static files: the method,
   the route's template (`/api/audit/{decision_id}`, never the path or its query), the status,
   the caller (`user:<hash>`, `key:<id>`, `client:<id>`, `open` or `anonymous`), its organization
   and address, and the latency.
 - **Security events**, each with a fixed `reason` code: `auth.signin.ok|refused`,
   `auth.logout`, `auth.credential.refused`, `auth.permission.refused`, `auth.origin.refused`
-  (a request another site started, §2), `smart.launch.refused` (a launch finished in another
-  browser), `auth.token.issued|refused`, `ratelimit.hit` (once per bucket until it has room
+  (a request another site started, §2), `smart.launch.ok|refused` (an EHR launch that started
+  a session, or did not: `state_unknown`, `browser`, `token`, `id_token`, `issuer`, `pack`,
+  `ehr_error` and the like), `auth.token.issued|refused`, `ratelimit.hit` (once per bucket until it has room
   again), `quota.reached`, `admin.key.created|revoked`, `admin.client.registered|revoked`,
   `governance.approved|revoked`, `eval.run`, `export.audit|feedback`, `phi.inputs.read` (under
   `hash` or `encrypt`: the decisions whose input or notes a reader was shown, and how many, as
@@ -389,6 +428,11 @@ collector, journald) and keep it as your policy says; Mendari keeps no log table
   client's `X-Request-Id` when it is 8 to 128 of `A-Za-z0-9._:-`, else makes a uuid4; on
   Vercel it is Vercel's own id. Ask users to quote it.
 - **Client addresses** are only right behind a trusted proxy (`--forwarded-allow-ips`, §1).
+- **Other libraries' lines.** Mendari holds httpx and psycopg's pool at WARNING, since they log
+  each request's URL (a FHIR read names a Patient id) or a connection at INFO, and a host that
+  gives the root logger INFO and a handler (Vercel's runtime does) would print them. Treat
+  `MENDARI_ALERT_WEBHOOK` as a secret, like a credential: most webhook URLs carry their token
+  in the path, and anyone who has it can post to your channel.
 - **`mendari serve`** turns off uvicorn's access log, which prints query strings (a sign-in
   callback's code, a search's values). If your proxy logs requests, check what it keeps of
   query strings: credentials are refused in URLs, and FHIR searches can send their criteria in
@@ -418,9 +462,9 @@ startup, so a typo never runs with a weaker setting.
 | `MENDARI_MAX_BODY_BYTES` | 4 MiB (64 KiB at least) | The largest request body; a `413` above it | 1 |
 | `MENDARI_RATE_LIMITS` | `on` with sign-in, `off` without | `on`, `log` or `off`, then overrides (`decide=1200/min:200`) | 4 |
 | `MENDARI_ORG_DAILY_LIMITS` | unset: none | Per-organization daily quotas: `decisions=…,jev=…,llm=…` | 4 |
-| `MENDARI_JEV_DAILY_LIMIT`, `MENDARI_LLM_DAILY_LIMIT` | unset: none | The deployment's daily remote calls, evaluations included | 4 |
+| `MENDARI_JEV_DAILY_LIMIT`, `MENDARI_LLM_DAILY_LIMIT` | 500 each; `none`: no limit, still counted | The deployment's daily remote calls, evaluations included | 4 |
 | `mendari serve --proxy-headers` | on | Read the client address from `X-Forwarded-For` | 1 |
-| `--forwarded-allow-ips`, `FORWARDED_ALLOW_IPS` | `127.0.0.1` | The proxies trusted for `X-Forwarded-For` | 1 |
+| `--forwarded-allow-ips`, `FORWARDED_ALLOW_IPS` | `127.0.0.1` (the compose template: its gateway, `172.30.0.1`) | The proxies trusted for `X-Forwarded-For`, as the engine sees them | 1 |
 
 ## 9. Before go-live
 
@@ -435,8 +479,10 @@ reads of PHI, then operations. Keep the answers with your go-live record.
 - [ ] Without signing in, `/api/health` shows only `status`, `version` and `sign_in: true`.
 - [ ] Signed in as an admin, `/api/health` shows:
       `phi_mode: encrypt`; `input_hash: hmac-sha256:<key id>` (keyed, not `sha256`);
-      `rate_limits.mode: on` and a `client_ip_source` that is your proxy's `X-Forwarded-For`
-      (not the connection); the `sessions` policy you chose; `smart_launch: false` unless you
+      `rate_limits.mode: on`; `rate_limits.client_ip` equal to your browser's own public
+      address (what a "what is my IP" page shows from the same machine), with
+      `x_forwarded_for_used: true` behind a proxy (not the proxy's or Docker's gateway's
+      address); the `sessions` policy you chose; `smart_launch: false` unless you
       need it (see the SMART launch in the threat model's residual risks); and only the providers and FHIR
       servers you expect.
 - [ ] Daily budgets and quotas are set and visible there (`jev.daily_limit`,

@@ -93,7 +93,7 @@ def test_limits_are_on_with_sign_in_and_off_in_open_mode(monkeypatch: pytest.Mon
     assert limit_settings(sign_in=False).mode == "off"  # every caller there is one principal
     assert limit_settings(sign_in=True).rates == DEFAULT_RATES
     assert {name: str(rate) for name, rate in DEFAULT_RATES.items()} == {
-        "signin": "60/min",
+        "signin": "300/min:120",
         "token": "60/min",
         "token_failures": "10/10min",
         "decide": "600/min:100",
@@ -160,6 +160,22 @@ def test_a_bucket_admits_its_burst_then_one_per_interval(store: AuditStore) -> N
     assert store.rate_peek("b", 1000, 3000, start + 4000) is None
     with store._db.session(exclusive=False) as session:
         assert session.all("SELECT bucket FROM rate_limits") == []
+
+
+def test_a_weighted_take_counts_all_or_nothing(store: AuditStore) -> None:
+    """`cost` requests at once (a CDS order hook's draft orders): the same as `cost` single
+    takes when they fit, nothing counted when they do not, and never more than the burst."""
+    start = 1_800_000_000_000
+    take = store.rate_take
+    assert take("w", 1000, 3000, start, cost=2) is None
+    assert take("w", 1000, 3000, start, cost=2) == 1000  # one left: two do not fit, none count
+    assert take("w", 1000, 3000, start) is None  # the one left
+    assert take("w", 1000, 3000, start + 1999, cost=2) == 1
+    assert take("w", 1000, 3000, start + 2000, cost=2) is None  # two intervals, two more
+    # More than the burst never fits, even in an empty bucket, and is not counted.
+    assert take("big", 1000, 3000, start, cost=4) == 1000
+    assert store.rate_peek("big", 1000, 3000, start) is None
+    assert take("big", 1000, 3000, start, cost=3) is None
 
 
 def test_sixteen_threads_never_exceed_the_limit(db_target: str) -> None:
@@ -231,6 +247,93 @@ def test_a_refused_request_calls_no_provider_and_writes_nothing(
     with AuditStore(db) as store:
         assert (len(store.query(limit=500)), store.verify()["events"]) == before
         assert store.verify()["ok"]
+
+
+REFERRAL_HOOK = "/cds-services/mendari.referral-router"
+
+
+def order_sign(orders: int) -> dict[str, Any]:
+    """An order-sign request for the referral router: `orders` copies of the fixture's
+    referral as draft orders, each its own id, with the whole record prefetched."""
+    bundle = json.loads((ROOT / "tests" / "fixtures" / "us-core" / "referral.json").read_text())
+    resources = [entry["resource"] for entry in bundle["entry"]]
+    patient = next(r for r in resources if r["resourceType"] == "Patient")
+    referral = next(r for r in resources if r["resourceType"] == "ServiceRequest")
+
+    def searchset(kind: str) -> dict[str, Any]:
+        found = [{"resource": r} for r in resources if r["resourceType"] == kind]
+        return {"resourceType": "Bundle", "type": "searchset", "entry": found}
+
+    drafts = [{"resource": {**referral, "id": f"sr{i}"}} for i in range(orders)]
+    return {
+        "hook": "order-sign",
+        "hookInstance": "d1577c69-dfbe-44ad-ba6d-3e05e953b2ea",
+        "context": {
+            "userId": "Practitioner/1",
+            "patientId": patient["id"],
+            "draftOrders": {"resourceType": "Bundle", "type": "collection", "entry": drafts},
+        },
+        "prefetch": {
+            "patient": patient,
+            "documents": searchset("DocumentReference"),
+            "reports": searchset("DiagnosticReport"),
+            "labs": searchset("Observation"),
+        },
+    }
+
+
+def decisions_in(db: str) -> int:
+    with AuditStore(db) as store:
+        return len(store.query(limit=500))
+
+
+def test_an_order_hook_counts_one_decision_per_draft_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One order-sign request decides each draft order: each is one decision against the
+    limit, all counted before the first is made, and a refused request decides none."""
+    sign_in_on(monkeypatch, "on,decide=5/h")
+    db = str(tmp_path / "orders.db")
+    client = TestClient(create_app(db_path=db))
+    key = service_key(db)
+    three = client.post(REFERRAL_HOOK, json=order_sign(3), headers=key)
+    assert three.status_code == 200, three.text
+    assert len(three.json()["cards"]) == decisions_in(db) == 3
+    # Two left: the guard takes one for the request, the other two orders do not fit.
+    refused = client.post(REFERRAL_HOOK, json=order_sign(3), headers=key)
+    assert assert_retry_after(refused) > 60 and refused.json()["error"] == "RateLimited"
+    assert decisions_in(db) == 3  # the refused request decided nothing
+    # One left: the other two orders were not charged.
+    assert client.post(DECIDE, json=message(ROUTINE), headers=key).status_code == 200
+    assert_retry_after(client.post(DECIDE, json=message(ROUTINE), headers=key))
+
+
+def test_an_order_hook_decides_at_most_fifty_orders_a_request(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sign_in_on(monkeypatch, "on")
+    db = str(tmp_path / "cap.db")
+    client = TestClient(create_app(db_path=db))
+    key = service_key(db)
+    over = client.post(REFERRAL_HOOK, json=order_sign(51), headers=key)
+    assert over.status_code == 400, over.text
+    assert without_request_id(over.json(), over) == {
+        "error": "CdsHooksError",
+        "detail": "51 draft orders to decide; at most 50 in one request",
+    }
+    assert decisions_in(db) == 0
+    assert client.post(REFERRAL_HOOK, json=order_sign(50), headers=key).status_code == 200
+    assert decisions_in(db) == 50
+    # Under a decide limit whose burst is smaller, the burst is the most one request may decide.
+    monkeypatch.setenv("MENDARI_RATE_LIMITS", "on,decide=600/min:4")
+    db = str(tmp_path / "burst.db")
+    client = TestClient(create_app(db_path=db))
+    key = service_key(db)
+    over = client.post(REFERRAL_HOOK, json=order_sign(5), headers=key)
+    assert over.status_code == 400 and "at most 4 in one request" in over.json()["detail"]
+    assert decisions_in(db) == 0
+    # The refused request was one decide request all the same: three of the four are left.
+    assert client.post(REFERRAL_HOOK, json=order_sign(3), headers=key).status_code == 200
 
 
 def test_each_refusal_says_when_to_retry_in_the_routes_own_shape(
@@ -585,6 +688,29 @@ def test_health_shows_the_limits_to_someone_signed_in_only(
     assert shown["org_quotas"] == {"daily_limits": {}, "used_today": {}}
 
 
+def test_health_shows_the_address_seen_and_whether_x_forwarded_for_gave_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The go-live check compares this with the browser's own address: behind a proxy that is
+    not trusted (the compose network's gateway, say), everyone shows the proxy's address."""
+    sign_in_on(monkeypatch, "on")
+    db = str(tmp_path / "seen.db")
+    app: Any = create_app(db_path=db)
+    app = ProxyHeadersMiddleware(app, trusted_hosts="172.30.0.1")  # the compose gateway
+    reader = person(db, "viewer", "testserver")
+
+    def seen(peer: str, forwarded: str | None) -> tuple[str, bool]:
+        headers = {**reader, **({"x-forwarded-for": forwarded} if forwarded else {})}
+        health = TestClient(app, client=(peer, 40000)).get("/api/health", headers=headers)
+        limits = health.json()["rate_limits"]
+        return limits["client_ip"], limits["x_forwarded_for_used"]
+
+    assert seen("172.30.0.1", "203.0.113.50") == ("203.0.113.50", True)
+    assert seen("172.30.0.1", "198.51.100.9, 203.0.113.50") == ("203.0.113.50", True)
+    assert seen("172.17.0.1", "203.0.113.50") == ("172.17.0.1", False)  # a proxy not trusted
+    assert seen("203.0.113.7", None) == ("203.0.113.7", False)
+
+
 def test_mendari_serve_trusts_forwarded_addresses_only_from_the_proxies_given(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -633,18 +759,31 @@ def test_the_api_reference_says_what_is_limited_only_when_limits_are_on(
 
 def test_the_firewall_rule_starts_in_log_mode_on_signed_out_routes_only() -> None:
     """The edge layer (deploy/vercel/firewall-rules.json): per address, only where nobody has
-    signed in yet, above the app's own limits so the app answers ordinary bursts, no
-    persistent block, and in log mode until the owner enforces it."""
+    signed in yet, no persistent block, and in log mode until the owner enforces it."""
     rules = json.loads((ROOT / "deploy" / "vercel" / "firewall-rules.json").read_text())["rules"]
     assert len(rules) == 1  # Hobby allows one rate-limit rule
     mitigate = rules[0]["action"]["mitigate"]
     rate = mitigate["rateLimit"]
     assert mitigate["action"] == "rate_limit" and mitigate["actionDuration"] is None
     assert rate["action"] == "log" and rate["keys"] == ["ip"] and rate["window"] == 60
-    assert rate["limit"] >= DEFAULT_RATES["signin"].count + DEFAULT_RATES["token"].count
     paths = {
         (c["type"], c["op"], c["value"])
         for g in rules[0]["conditionGroup"]
         for c in g["conditions"]
     }
     assert paths == {("path", "pre", "/auth/"), ("path", "pre", "/smart/")}
+
+
+def test_sign_in_allows_at_least_what_the_edge_does() -> None:
+    """A hospital signs everyone in from one address: the app's own per-address sign-in limit
+    is never the tighter layer, neither against the Vercel rule nor the nginx example."""
+    rules = json.loads((ROOT / "deploy" / "vercel" / "firewall-rules.json").read_text())["rules"]
+    vercel = rules[0]["action"]["mitigate"]["rateLimit"]
+    nginx = (ROOT / "deploy" / "onprem" / "nginx-limits.conf").read_text()
+    per_second = re.search(r"zone=mendari_signin:\S+ rate=(\d+)r/s", nginx)
+    bursts = {int(b) for b in re.findall(r"limit_req zone=mendari_signin burst=(\d+)", nginx)}
+    assert per_second is not None and bursts
+    signin = DEFAULT_RATES["signin"]
+    per_minute = signin.count * 60 // signin.seconds
+    assert per_minute >= max(vercel["limit"], int(per_second.group(1)) * 60)
+    assert signin.burst >= max(vercel["limit"], *bursts)

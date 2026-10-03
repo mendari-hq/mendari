@@ -62,7 +62,9 @@ Each bullet is one control; the threat model names the row and the tests behind 
   Roles are worked out on every request from the claims kept at sign-in and the current
   settings, so a role taken away ends access at once. A sign-in (or an EHR launch) is tied to
   the browser that started it by a ten-minute cookie whose digest the pending row keeps,
-  compared in constant time at the callback (login CSRF). The audit chain names a person by
+  compared in constant time at the callback (login CSRF). That cookie is host-only, so a
+  sign-in or launch that reaches another name than `MENDARI_PUBLIC_URL`'s (an alias, a second
+  DNS name) is first sent there, once, before anything is bound. The audit chain names a person by
   their verified email, else `<issuer>|<subject>`; a key as `key <id>`, a client as
   `client <id>`. For one release the plain cookie name is still read on other hosts, for
   sessions from before Phase 4b only, so the upgrade signs nobody out.
@@ -70,8 +72,10 @@ Each bullet is one control; the threat model names the row and the tests behind 
   `cross-site` or `same-site`; in a browser without Fetch Metadata, an `Origin` that is `null`
   or not this site) reaches only public routes and pages, and only with GET or HEAD: a link to
   the dashboard works, a link to an API route or a form that signs you out gets a `403`, logged
-  as `auth.origin.refused`. This applies to requests with a Mendari cookie and no
-  `Authorization` header, and in open mode to all. This site is the request's own host,
+  as `auth.origin.refused`. This applies to requests without an `Authorization` header that
+  carry a Mendari cookie or use POST, PUT, PATCH or DELETE (a browser leaves the SameSite=Lax
+  cookie off another site's form, but the answer could still clear it), and in open mode to
+  all. This site is the request's own host,
   `MENDARI_PUBLIC_URL`, and any alias listed in `MENDARI_TRUSTED_ORIGINS`. Scripts that send
   neither header (curl, the pilot check) are not affected.
 - **SMART Backend Services (off by default).** `MENDARI_BACKEND_SERVICES=on` (refused without
@@ -91,34 +95,42 @@ Each bullet is one control; the threat model names the row and the tests behind 
   chunked body once it passes the limit, both with `413` and after the sign-in check.
 - **Rate limits and quotas.** Two layers. In the app (`MENDARI_RATE_LIMITS`: `on` by default
   with sign-in, `off` in open mode, `log` to count without refusing), the costly routes are
-  limited per caller (decisions 600 a minute with bursts of 100 at every entry point, the AI
-  guard 60 a minute, evaluations 6 an hour, exports 10 an hour), sign-in and the token endpoint
-  per address (60 a minute), and failed assertions per address and client (10 in 10 minutes),
+  limited per caller (decisions 600 a minute with bursts of 100 at every entry point, each
+  draft order of a CDS Hooks order hook one decision and at most 50 a request; the AI guard 60
+  a minute, evaluations 6 an hour, exports 10 an hour), sign-in per address (300 a minute,
+  bursts of 120, never below the edge's limit: a hospital signs in from one address), the token
+  endpoint per address (60 a minute), and failed assertions per address and client (10 in 10
+  minutes),
   with one GCRA row per bucket in the database, so every instance shares the count. The check
   runs in the guard after the sign-in check: a refused request reads no body, calls no provider
   and writes nothing to the chain. A `429` carries `Retry-After` and `no-store`. Buckets are
   named by class and an opaque id (`key:<id>`, `user:<hash>`, `ip:<address>`), never a
   credential. Reads are not limited in the app. The client address is Vercel's
   `X-Forwarded-For`, or, self-hosted, the connection's unless the proxy is trusted
-  (`mendari serve --forwarded-allow-ips`). Per-organization daily quotas
+  (`mendari serve --forwarded-allow-ips`; the compose template trusts its network's fixed
+  gateway, where a proxy on the host connects from). Signed in, `/api/health` shows the address
+  seen on the request and whether `X-Forwarded-For` gave it. Per-organization daily quotas
   (`MENDARI_ORG_DAILY_LIMITS`) count decisions and their remote calls, never evaluations; over
   one, decisions fall back to human review, and one alert goes to the webhook a day. At the
   edge, one Vercel firewall rule limits `/auth/` and `/smart/` to 120 a minute per IP
   (`deploy/vercel/`), first in log mode for 7 days; there is no per-IP rule on `/api` or
   `/fhir`, since a hospital sends everyone's traffic from one address.
 - **Security log.** JSON lines on stdout (`server/security_log.py`), into Vercel's runtime logs
-  or the site's own log system: one access line per `/api`, `/fhir`, `/cds-services` and
-  `/auth` request (the route's template, the status, the caller's opaque id, organization and
-  address, the latency), and the security events: sign-ins and their refusals with a reason,
-  refused credentials and permissions, requests refused from other sites, an EHR launch
-  finished in another browser, tokens issued and refused, rate limits hit, quotas reached, key,
+  or the site's own log system: one access line per `/api`, `/fhir`, `/cds-services`, `/auth`
+  and `/smart` request (the route's template, the status, the caller's opaque id, organization
+  and address, the latency), and the security events: sign-ins and EHR launches and their
+  refusals with a reason, refused credentials and permissions, requests refused from other
+  sites, tokens issued and refused, rate limits hit, quotas reached, key,
   client and governance changes, exports, evaluations and, under `hash` or `encrypt`, the
   decisions whose input or notes a reader was shown (their ids and a count). Fields come from
   an allow-list: never a credential, a query value, a body, a header or case text. Every
   response carries an `X-Request-Id` (Vercel's id there, else a well-formed client one, else a
   new uuid), repeated in JSON errors as `request_id`. An unhandled exception is logged as its
   type and frames; under PHI mode `hash` or `encrypt` its message never reaches a log.
-  `mendari serve` turns off uvicorn's access log, which prints query strings. What must last
+  `mendari serve` turns off uvicorn's access log, which prints query strings. Libraries that
+  log URLs at INFO (httpx, psycopg's pool) are held at WARNING, since Vercel's runtime prints
+  every library's INFO lines: a FHIR read's URL names a Patient id. Treat the alert webhook URL
+  (`MENDARI_ALERT_WEBHOOK`) as a secret: most carry their token in the path. What must last
   (input and note reads, key, client and governance changes) is in the audit chain too.
 - **PHI mode and the keyed input hash.** `MENDARI_PHI_MODE=hash` stores no input; `encrypt`
   stores inputs encrypted apart from the audit chain, readable only by signed-in reviewers and
@@ -127,13 +139,14 @@ Each bullet is one control; the threat model names the row and the tests behind 
   see sensitive text. In both modes the chained record keeps no evidence values (sealed with
   the input under `encrypt`) and no resource ids (an input issue names `Patient (entry 2)`), and
   the input hash is an HMAC-SHA256 under `MENDARI_INPUT_HASH_KEY` (`hmac-sha256:<key id>:<hex>`),
-  without which the engine refuses to start: a plain SHA-256 of a short input can be found by
+  without which the engine (and `mendari decide --db`) refuses to start: a plain SHA-256 of a short input can be found by
   guessing. The two keys must differ.
 - **Notes.** Review and rating notes and a payer's words are kept apart from the audit chain,
   which keeps only a salted commitment to each: sealed with inputs under `encrypt`, refused
   under `hash`, and readable as inputs are. Retention and `mendari notes erase` erase them, and
   the chain still verifies (`mendari audit verify --notes` checks the commitments). Notes chained
-  by earlier releases are shown only to those who may read inputs. A governance approval's
+  by earlier releases are shown only to those who may read inputs. A payer's outcome and review
+  actions are chained only as codes; text in their place is dropped. A governance approval's
   `reference` (a pointer to minutes) stays chained.
 - **Headers and the API reference.** Every response has a strict CSP, pages and the API
   reference included: each page's own inline scripts by hash only, nothing from another origin.
@@ -177,7 +190,9 @@ running it.
 The threat model ([`docs/security/threat-model.md`](docs/security/threat-model.md)) lists each
 threat, its mitigation and the test that checks it. The CI job `security` runs:
 - `pip-audit` on the locked Python dependencies (pip-audit itself is locked in the `dev` group);
-- `npm audit` on the Hub website;
+- `npm audit` on the Hub website: its runtime dependencies at `high`, and all of them, dev tools
+  included, at `critical` (a dev tool never reaches the site, and a high advisory in one with no
+  fixed version must not stop every change);
 - an OWASP ZAP scan of the running API with sign-in on, where medium and high risks fail (the
   rate limits run in `log` mode there, so the scan is counted, not refused).
 

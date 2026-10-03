@@ -8,8 +8,10 @@ import base64
 import functools
 import hashlib
 import json
+import sqlite3
 import time
 from collections.abc import Iterator
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
@@ -259,6 +261,31 @@ def test_a_launch_finished_in_another_browser_is_refused(app: TestClient, ehr: F
     landed = other.get("/smart/callback", params={"code": code, "state": state})
     assert landed.status_code == 400 and "started in another browser" in landed.text
     assert other.get("/api/smart/session").json() == {"active": False}
+
+
+def test_a_launch_on_another_name_moves_to_the_public_url_first(
+    app: TestClient, ehr: FakeEhr, tmp_path: Path
+) -> None:
+    """The launch binding cookie is host-only and the callback comes back to MENDARI_PUBLIC_URL:
+    a launch on another name begins again there, before anything is bound or written."""
+    alias = TestClient(app.app, base_url="https://mendari-abc.vercel.app")
+    params = {"iss": ISS, "launch": "xyz", "pack": REFERRAL}
+    moved = alias.get("/smart/launch", params=params, follow_redirects=False)
+    assert moved.status_code == 302 and "set-cookie" not in moved.headers
+    location = urlsplit(moved.headers["location"])
+    assert f"{location.scheme}://{location.netloc}{location.path}" == f"{APP}/smart/launch"
+    assert parse_qs(location.query) == {k: [v] for k, v in {**params, "moved": "1"}.items()}
+    with closing(sqlite3.connect(tmp_path / "a.db")) as db:
+        assert db.execute("SELECT COUNT(*) FROM smart_sessions").fetchone() == (0,)
+    started = alias.get(moved.headers["location"], follow_redirects=False)
+    assert started.headers["location"].startswith(f"{EHR}/auth/authorize?")
+    code = ehr.authorize(started.headers["location"])
+    state = parse_qs(urlsplit(started.headers["location"]).query)["state"][0]
+    done = alias.get(
+        f"{APP}/smart/callback", params={"code": code, "state": state}, follow_redirects=False
+    )
+    assert done.status_code == 302 and done.headers["location"] == f"{APP}/?pack={REFERRAL}#patient"
+    assert alias.get(f"{APP}/api/smart/session").json()["active"] is True
 
 
 def test_a_launch_session_ends_when_idle(
