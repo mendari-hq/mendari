@@ -73,6 +73,7 @@ export async function api(path, options = {}) {
   const response = await fetch(path, { headers: { "content-type": "application/json" }, ...options });
   const body = await response.json().catch(() => null);
   if (response.status === 401 && path.startsWith("/api/smart/")) throw launchEnded();
+  if (response.status === 409 && path.startsWith("/api/smart/")) throw launchReplaced();
   if (response.status === 401 && signedIn()) throw sessionEnded();
   if (!response.ok) throw new Error((body && (body.detail || body.error)) || response.statusText);
   return body;
@@ -108,6 +109,12 @@ function launchEnded() {
   return Object.assign(new Error(LAUNCH_ENDED), { launchEnded: true });
 }
 
+// A 409 from the launch's own routes: the window's launch (the `X-Mendari-Launch` it sends) is no
+// longer the browser's, a later launch replaced it. The patient view says so in place.
+function launchReplaced() {
+  return Object.assign(new Error("This window's launch was replaced."), { launchReplaced: true });
+}
+
 // A short message. Errors are announced at once (role="alert") and stay on screen longer; other
 // messages are announced politely. The live region is emptied first, so a repeat is announced too.
 export function toast(message, { error = false } = {}) {
@@ -138,9 +145,10 @@ export function storageSet(key, value) {
 }
 
 // `launchOnly`: an EHR launch and no one signed in (sign-in on): the patient view is all there is,
-// the packs come from the launch's session, and nothing else is asked of the API.
+// the packs come from the launch's session, and nothing else is asked of the API. `launchPin`: the
+// launch this window is pinned to (dashboard/patient.js), kept when the address loses it.
 export const state = {
-  packs: [], packId: null, detail: null, view: null, smart: null, me: null, launchOnly: false, phiMode: "off",
+  packs: [], packId: null, detail: null, view: null, smart: null, me: null, launchOnly: false, launchPin: null, phiMode: "off",
   timezone: DEFAULT_TIMEZONE, timeFormat: timeFormatFor(DEFAULT_TIMEZONE), shortFormat: shortFormatFor(DEFAULT_TIMEZONE),
 };
 

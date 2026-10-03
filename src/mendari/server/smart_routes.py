@@ -3,11 +3,12 @@
 - `GET /smart/launch?iss=&launch=[&pack=]` and `GET /smart/callback` run the launch
   (`standards/smart.py`), tied to the browser that started it (and so begun on
   `MENDARI_PUBLIC_URL`, where the callback lands); the callback sets an opaque,
-  HttpOnly, SameSite=Lax `__Host-` session cookie and sends the browser to the dashboard's "This
-  patient" view for the pack, pinned to this launch (`#patient/<launch_id>`: a window whose
-  launch another launch in the same browser replaced says so, and never shows the other
-  patient). The session ends after 30 minutes idle, 8 hours, or when the EHR's
-  token expires, whichever is first (`server/sessions.py`).
+  HttpOnly, SameSite=Lax `__Host-` session cookie (ending the launch the browser held until
+  then: one browser, one launch) and sends the browser to the dashboard's "This patient" view
+  for the pack, pinned to this launch (`#patient/<launch_id>`: a window whose launch another
+  launch in the same browser replaced says so, and never shows the other patient). The session
+  ends after 30 minutes idle, 8 hours, or when the EHR's token expires, whichever is first
+  (`server/sessions.py`).
 - `GET /api/smart/session` (`{"active": false}` without one), `POST /api/smart/logout`: public.
   The session names the launch (`launch_id`, not a secret) and the packs it may use (id and
   name), so a browser that only launched opens the dashboard on the patient view alone.
@@ -16,6 +17,8 @@
   messages, their referrals).
 - `POST /api/smart/decide`: decide one of them, with the record fetched through the pack's own
   prefetch templates; the decision is audited like any other.
+- These three take the launch a dashboard window is pinned to (`X-Mendari-Launch`) and answer
+  `409` when the browser's launch is another one now, before reading anything from the EHR.
 
 **Who launched** (ADR-0006). With sign-in on, a launch is a principal of kind `ehr`
 (`server/auth.py`): the guard resolves it from the launch cookie (`Auth.launch`, which these
@@ -26,8 +29,9 @@ leaves, a launch from an EHR that is not registered (`MENDARI_SMART_EHRS`) is re
 whose scopes do not ask for `openid fhirUser` (`configuration`); at the callback, an id_token
 without a subject (`id_token`) and a user who is not a Practitioner or PractitionerRole
 (`user_type`). The sealed session keeps who launched: the id_token's issuer and subject, and
-the chain's name for them (a verified email, else `<issuer>|<subject>`). Open mode with no EHR
-registered launches as before.
+the chain's name for them (a verified email, else `<issuer>|<subject>`), and whether those
+sign-in on checks ran (`identified`): a launch made while sign-in was off is no principal once
+it is on. Open mode with no EHR registered launches as before.
 
 The access token never leaves the server, and every FHIR read uses the session's token through
 the allow-listed client. The pending launch is sealed under the launch's binding cookie and the
@@ -67,6 +71,7 @@ from mendari.standards.fhir_client import FhirClient, GuardedHttp
 from mendari.standards.smart import SmartSettings
 
 COOKIE = sessions.SMART  # `__Host-mendari_smart` except on local hosts (server/sessions.py)
+PIN_HEADER = "x-mendari-launch"  # the launch a dashboard window is pinned to (its `launch_id`)
 _ID = re.compile(r"^[A-Za-z0-9\-.]{1,64}$")
 _OAUTH_ERROR = re.compile(r"^[a-z_]{1,40}$")
 MAX_FOCUS = 50
@@ -108,10 +113,20 @@ def add_smart_routes(
 
     def session_of(request: Request) -> dict[str, Any]:
         """The launch the guard resolved (with sign-in on it is this request's `ehr`
-        principal); in open mode, resolved here the same way."""
+        principal); in open mode, resolved here the same way. A dashboard window sends the
+        launch it is pinned to (`X-Mendari-Launch`): when a later launch in this browser
+        replaced that one, `409`, before anything is read from the EHR, so the window never
+        shows the other launch's patient. A request without the header is not checked."""
         launch = auth.launch(request) if settings is not None else None
         if launch is None:
             raise SmartError("no SMART session: launch the app from the EHR again", 401)
+        pinned = request.headers.get(PIN_HEADER)
+        if pinned is not None and pinned != launch.session.get("launch_id"):
+            raise SmartError(
+                "this window's launch was replaced by a later one in this browser: "
+                "open Mendari again from the EHR",
+                409,
+            )
         return launch.session
 
     def registered(iss: str) -> smart.Registration | None:
@@ -228,11 +243,21 @@ def add_smart_routes(
             session["identity"] = {"iss": identity["iss"], "sub": identity["sub"]}
             session["actor"] = chain_name(identity["iss"], identity)
             actor = ehr_id(identity["iss"], identity["sub"])
+        if identify:
+            # The checks sign-in on makes (the subject, a Practitioner, `openid fhirUser`) ran:
+            # only such a launch is a principal with sign-in on (`Auth._resolve`), so one made
+            # while sign-in was off is not, once it is on.
+            session["identified"] = True
         # `expires_at` stays the EHR token's expiry (shown in /api/smart/session); the session
         # ends by then, or earlier when idle or at the absolute limit.
         row, expires_at = sessions.begin(
             session, int(time.time()), lifetime, ends_by=session["expires_at"]
         )
+        # One browser, one launch: the launch this browser held until now ends here, so a copy
+        # of its cookie reaches nothing and signing out leaves no launch behind.
+        replaced, _ = sessions.read(request, COOKIE)
+        if replaced:
+            store.smart_delete(replaced, "session")
         sid = secrets.token_urlsafe(32)
         store.smart_put(sid, "session", row, expires_at)
         org = registration.org if registration is not None and auth.enabled else None
@@ -294,7 +319,8 @@ def add_smart_routes(
 
         Needs an EHR launch (`/smart/launch`, the `__Host-mendari_smart` cookie; with sign-in on,
         from a registered EHR); without one, `401`, and `401` when the EHR refuses the launch's
-        token (the launch has ended: open Mendari again from the EHR)."""
+        token (the launch has ended: open Mendari again from the EHR). `409` when
+        `X-Mendari-Launch` names another launch than the browser's (a later one replaced it)."""
         session = session_of(request)
         with ehr(request, session) as fhir:
             return patient_summary(fhir.read(f"Patient/{session['patient']}"))
@@ -309,7 +335,8 @@ def add_smart_routes(
 
         Needs an EHR launch (`/smart/launch`, the `__Host-mendari_smart` cookie; with sign-in on,
         from a registered EHR); without one, `401`, and `401` when the EHR refuses the launch's
-        token (the launch has ended: open Mendari again from the EHR)."""
+        token (the launch has ended: open Mendari again from the EHR). `409` when
+        `X-Mendari-Launch` names another launch than the browser's (a later one replaced it)."""
         session = session_of(request)
         adapter = FhirAdapter.for_pack(pack_or_404(pack_id))
         with ehr(request, session) as fhir:
@@ -326,8 +353,9 @@ def add_smart_routes(
         Needs an EHR launch (`/smart/launch`, the `__Host-mendari_smart` cookie; with sign-in on,
         from an EHR registered to decide); without one, `401`, `403` from an EHR registered to
         view only, and `401` when the EHR refuses the launch's token (the launch has ended: open
-        Mendari again from the EHR). With sign-in on the decision is the EHR's registered
-        organization's."""
+        Mendari again from the EHR). `409` when `X-Mendari-Launch` names another launch than the
+        browser's (a later one replaced it): nothing is read or decided. With sign-in on the
+        decision is the EHR's registered organization's."""
         session = session_of(request)
         decision = decision_for(body.pack_id)
         with ehr(request, session) as fhir:

@@ -4,8 +4,10 @@ with this deployment's settings as the server would read them (ADR-0006).
 It reports, in order:
 1. the registration key: the base as `MENDARI_SMART_EHRS` keys it (normalized);
 2. the allow-list: the base's origin on `MENDARI_FHIR_ALLOWED_SERVERS`;
-3. the registration: the organization and level the base is registered to, and whether an
-   unregistered base may launch (open mode with nothing registered);
+3. the registration: the organization and level the base is registered to, whether people can
+   sign in to that organization (without `MENDARI_OIDC_ORG_CLAIM` everyone is in `default`, so
+   a launch registered elsewhere decides where no reviewer reads), and whether an unregistered
+   base may launch (open mode with nothing registered);
 4. the SMART client: `MENDARI_SMART_CLIENT_ID` set, and scopes the launch accepts (no
    `offline_access`; with sign-in on, `openid fhirUser`);
 5. discovery: the EHR's `.well-known/smart-configuration`, its endpoints on the allow-list;
@@ -14,17 +16,19 @@ It reports, in order:
 
 Only the EHR's own servers are called, through the same allow-listed client as a launch (none
 when the base is not allowed), and only for its public configuration and keys: no launch, no
-token. Each finding is `ok`, `warn` (works, but check it) or `fail` (launches will be refused).
+token. Each finding is `ok`, `warn` (works, but check it) or `fail` (launches will be refused,
+or their decisions reach no reviewer).
 """
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 from mendari.errors import FhirError, MendariError
-from mendari.server.auth import auth_settings
+from mendari.server.auth import DEFAULT_ORG, auth_settings
 from mendari.standards import oidc, smart
 from mendari.standards.fhir_client import GuardedHttp, allowed_servers, origin_of
 
@@ -64,7 +68,17 @@ def check(base: str) -> list[Finding]:
     else:
         say("fail", "allow-list", f"add {origin} to MENDARI_FHIR_ALLOWED_SERVERS")
     registered = ehrs.get(key)
-    if registered is not None:
+    org_claim = os.environ.get("MENDARI_OIDC_ORG_CLAIM", "").strip()
+    if registered is not None and registered.org != DEFAULT_ORG and not org_claim:
+        # Sign-in puts everyone in `default` (server/auth.py): no reviewer could read these.
+        say(
+            "fail" if signed_in else "warn",
+            "registration",
+            f"organization {registered.org}, but without MENDARI_OIDC_ORG_CLAIM everyone who "
+            f"signs in is in {DEFAULT_ORG}: no reviewer would see these launches' decisions. "
+            f"Register it to {DEFAULT_ORG}, or set MENDARI_OIDC_ORG_CLAIM",
+        )
+    elif registered is not None:
         say("ok", "registration", f"organization {registered.org}, level {registered.level}")
     elif signed_in or ehrs:
         say("fail", "registration", f"add {key}=<organization>:<view|decide> to MENDARI_SMART_EHRS")

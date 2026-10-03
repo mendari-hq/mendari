@@ -10,11 +10,15 @@ export const views = {};
 
 // Routes are "#view" or "#view/param": "#audit/<decision id>" opens a record, "#evals/compare"
 // picks an evaluation view, "#patient/<launch id>" the patient of that EHR launch. A browser that
-// only launched (no one signed in) has the patient view and nothing else.
+// only launched (no one signed in) has the patient view and nothing else, still pinned to the
+// window's own launch when the address no longer names it.
 export function route() {
   const [name = "overview", ...params] = (location.hash || "#overview").slice(1).split("/");
-  if (state.launchOnly && name !== "patient") return { view: "patient", params: [] };
-  return { view: views[name] ? name : "overview", params: params.filter(Boolean).map(decodeURIComponent) };
+  const named = params.filter(Boolean).map(decodeURIComponent);
+  if (state.launchOnly && (name !== "patient" || !named.length)) {
+    return { view: "patient", params: state.launchPin ? [state.launchPin] : [] };
+  }
+  return { view: views[name] ? name : "overview", params: named };
 }
 
 // A route change inside the current view (opening a record, switching a tab) updates that view in

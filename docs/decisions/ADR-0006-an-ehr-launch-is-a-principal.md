@@ -22,16 +22,23 @@ sign-in. The first site with PHI runs Mendari on its own servers, from an EHR no
 ## Decision
 - **The EHR's sign-in identifies the clinician.** A launch's verified id_token (issuer and
   subject) makes a principal of kind `ehr`, in the organization registered for that EHR's FHIR
-  base: `MENDARI_SMART_EHRS="<FHIR base>=<org>:<view|decide>,..."`. With sign-in on, a launch
-  from an unregistered base, without `openid fhirUser`, or by a user who is not a Practitioner or
-  PractitionerRole (a patient portal) is refused. The registration is read on every request, so
-  removing it ends that EHR's launches at once. Open mode is unchanged.
+  base: `MENDARI_SMART_EHRS="<FHIR base>=<org>:<view|decide>,..."`. The organization must be
+  one the site's people sign in to (the `MENDARI_OIDC_ORG_CLAIM` claim's value, else
+  `default`), or no reviewer reads the launch's decisions; with sign-in on, `mendari smart
+  check` fails such a registration. With sign-in on, a launch from an unregistered base, without `openid fhirUser`,
+  or by a user who is not a Practitioner or PractitionerRole (a patient portal) is refused, and
+  a launch made while sign-in was off is no principal once it is on: it starts again.
+  `MENDARI_SMART_EHRS` is read at startup and every request checks the launch against it,
+  never against what was stored with the launch, so removing a registration ends that EHR's
+  live launches at the next restart or redeploy. Open mode is unchanged.
 - **A launch may view, or view and decide, for the launched patient. Nothing else.** Two new
   permissions, held only by `ehr` principals: reading the patient and the focus resources through
   the EHR, and deciding. They hold no Mendari role. The organization's reviewers use the audit
   trail. The dashboard shows a launch only the patient view, with the decision inline, pinned
   to the launch that opened the window: a window whose launch was replaced says so and shows no
-  patient (one launch per browser at a time).
+  patient. One launch per browser at a time: a later launch ends the earlier one's session, and
+  the window sends its launch with its reads and decisions, which the server refuses (`409`)
+  once another launch replaced it.
 - **A bearer credential decides alone everywhere**, `/api/smart/*` included. Signing out of
   Mendari ends the browser's launch too.
 - **The chain names who asked.** Every new `decision.created` names the requester when sign-in is

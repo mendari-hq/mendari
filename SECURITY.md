@@ -61,14 +61,20 @@ Each bullet is one control; the threat model names the row and the tests behind 
   `Authorization` header, and a person's session is no credential there. A launch from an EHR
   that is not registered is refused before anything leaves for it; so is one whose scopes lack
   `openid fhirUser`, whose id_token names no subject, or whose user is not a Practitioner or
-  PractitionerRole (a patient portal). These refuse the launch, never startup. The registration
-  is read on every request, so unregistering an EHR ends its launches at once, and signing out
-  of Mendari ends the browser's launch too. The dashboard shows a browser that only launched
-  the patient view alone, pinned to its launch: a window whose launch a later one replaced says
-  so and shows no patient. Launch in a new window or the EHR's embedded window: an iframe
+  PractitionerRole (a patient portal). These refuse the launch, never startup. A launch made
+  while sign-in was off is no principal once sign-in is on: it starts again. Register an EHR to
+  an organization your people sign in to (the `MENDARI_OIDC_ORG_CLAIM` claim's value, else
+  `default`), or no reviewer reads its launches' decisions. `MENDARI_SMART_EHRS` is read at
+  startup and every request checks the launch against it, so unregistering an EHR ends its
+  live launches at the next restart or redeploy. Signing out of Mendari ends the browser's
+  launch too, and a later launch in the same browser ends the earlier one. The dashboard shows
+  a browser that only launched the patient view alone, pinned to its launch: a window whose
+  launch a later one replaced says so and shows no patient (it sends its launch with its reads
+  and decisions, and the server refuses a replaced one with `409`). Launch in a new window or the EHR's embedded window: an iframe
   launch fails safely (`browser`), and a launch ends with the EHR's token. Before go-live,
   `mendari smart check <base>` reports what a launch from that base would meet here
-  (registration, allow-list, scopes, the EHR's discovery, PKCE S256 and keys), and CI launches
+  (registration and whether people can sign in to its organization, allow-list, scopes, the
+  EHR's discovery, PKCE S256 and keys), and CI launches
   from a real SMART launcher with sign-in on. Open mode with no EHR registered launches as
   before.
 - **Sessions.** A person's session (and an EHR launch's) is a server-side row behind an opaque

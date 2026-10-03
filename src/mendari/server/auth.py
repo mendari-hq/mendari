@@ -32,8 +32,11 @@ server is open, as before (production sits behind Vercel Authentication). When c
   principals of kind `ehr`: the EHR's verified id_token names them (`ehr:<hash>` of its issuer
   and subject; the chain's name for them is a verified email, else `<issuer>|<subject>`), and
   the organization and level (`view` or `decide`) are the EHR's registration
-  (`MENDARI_SMART_EHRS`), read on every request, so unregistering an EHR ends its launches at
-  once. They hold two permissions of their own and nothing else: `launch` (the launch's
+  (`MENDARI_SMART_EHRS`, read at startup), looked up on every request, never stored with the
+  launch: removing a registration ends that EHR's live launches at the next restart or
+  redeploy. Only a launch whose callback made the checks sign-in on makes (a subject, a
+  Practitioner, `openid fhirUser`) is one: a launch made while sign-in was off starts again.
+  They hold two permissions of their own and nothing else: `launch` (the launch's
   patient and the items to decide about) and, registered to decide, `launch_decide`. No other
   principal holds either. Their credential is the launch cookie, and only on `/api/smart/`
   (and the dashboard page, `/`): anywhere else it is not a credential.
@@ -477,8 +480,9 @@ class Auth:
         """The EHR launch this request's launch cookie names, once per request (`/api/smart/*`
         and the guard share it); None for none: SMART off, no cookie or an ended launch, an
         `Authorization` header with sign-in on (it decides alone), and, with sign-in on or with
-        EHRs registered, a launch whose EHR is not registered (now) or, with sign-in on, that
-        names no one (a launch from before registration)."""
+        EHRs registered, a launch whose EHR is not registered (in the registrations this
+        process started with) or, with sign-in on, one whose callback did not make sign-in on's
+        checks (made while sign-in was off, or before launches named who launched)."""
         if self.ehrs is None:
             return None
         cached: Launch | bool | None = getattr(request.state, "launch", False)
@@ -505,8 +509,12 @@ class Auth:
             return Launch(session, None)  # open mode: the registration gates the launch only
         identity = session.get("identity")
         actor = session.get("actor")
+        if session.get("identified") is not True:
+            # Launched while sign-in was off (no Practitioner or `openid fhirUser` check ran),
+            # or before launches named who launched: launch again.
+            return None
         if not isinstance(identity, dict) or not isinstance(actor, str):
-            return None  # from before launches named who launched: launch again
+            return None
         principal = Principal(
             kind="ehr",
             name=str(session.get("fhir_user") or "EHR user"),

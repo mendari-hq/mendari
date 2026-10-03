@@ -2,7 +2,7 @@
 
 Roadmap to the full goal: [`docs/roadmap.md`](../docs/roadmap.md).
 
-## Plan: the SMART launch gated, C5 and S5 (2026-10-03)
+## Built: the SMART launch gated, C5 and S5 (2026-10-03)
 From the Phase 4b review's residual risks, after research (three researchers and a critic). The
 owner chose: the EHR's sign-in identifies the clinician; a launch may view or decide per
 registered EHR; no iframe and no refresh until the pilot EHR is known
@@ -37,7 +37,9 @@ registered EHR; no iframe and no refresh until the pilot EHR is known
   store (`--db`, run in its container), not over HTTP, since the profile's identity provider is
   a placeholder nobody signs in through; `smart check` also reports the SMART client and scopes,
   which refuse launches too.)
-- [ ] **Review**: reviewers and a skeptic per finding, then fixes
+- [x] **Review**: four reviewers and a skeptic; 8 findings, 4 confirmed and fixed (replaced
+  launches end, open-mode launches end at sign-in on, the pin checked by the server, `smart
+  check` fails an organization nobody signs in to), and "read on every request" corrected
 - Deferred: iframe mode and refresh (when the pilot EHR is known), sealing sign-in rows (with a
   PHI keyring), token revocation at logout, a registration table, one FHIR base for several
   organizations

@@ -384,13 +384,15 @@ Then set `MENDARI_PUBLIC_URL`, put the EHR's FHIR server and authorization serve
 | `MENDARI_SMART_CLIENT_ID` | The app's client id at the EHR; the launch is off until it is set |
 | `MENDARI_SMART_CLIENT_SECRET` | For a confidential client |
 | `MENDARI_SMART_SCOPES` | Default `launch openid fhirUser patient/*.rs`; with sign-in on it must ask for `openid fhirUser`, and `offline_access` is always refused (at the launch, never at startup) |
-| `MENDARI_SMART_EHRS` | The EHRs that may launch, `<FHIR base>=<organization>:view` or `:decide`, comma-separated (the base as the EHR sends it in `iss`; two tenants on one host are two entries). With sign-in on, a launch is a principal of its EHR's organization that may view the patient, or view and decide; a launch from any other EHR, or by a user who is not a Practitioner or PractitionerRole, is refused. Unset with sign-in on: every launch is refused. A malformed value, or a base off the allow-list, fails at startup |
+| `MENDARI_SMART_EHRS` | The EHRs that may launch, `<FHIR base>=<organization>:view` or `:decide`, comma-separated (the base as the EHR sends it in `iss`; two tenants on one host are two entries). The organization must be one your people sign in to: the value of their `MENDARI_OIDC_ORG_CLAIM` claim, else `default` (one organization: `https://ehr.example.org/fhir=default:decide`); without the claim and with sign-in on, `mendari smart check <base>` fails any other organization. With sign-in on, a launch is a principal of its EHR's organization that may view the patient, or view and decide; a launch from any other EHR, or by a user who is not a Practitioner or PractitionerRole, is refused. Unset with sign-in on: every launch is refused. A malformed value, or a base off the allow-list, fails at startup |
 
 With sign-in on, the EHR's verified sign-in names the clinician (the chain's name: their
 verified email, else `<issuer>|<subject>`), and the launch's cookie reaches only the launch's
 own routes (an `Authorization` header decides alone there too): no review queue, audit trail
-or packs. Unregistering an EHR ends its launches at the next request, and signing out of
-Mendari ends the browser's launch. In open mode with no EHR registered, any allow-listed EHR
+or packs. `MENDARI_SMART_EHRS` is read at startup, so unregistering an EHR ends its live
+launches at the next restart or redeploy; signing out of Mendari ends the browser's launch, a
+later launch in the same browser ends the earlier one, and a launch made while sign-in was off
+starts again once it is on. In open mode with no EHR registered, any allow-listed EHR
 launches, as before. With sign-in on, a browser that only launched opens the dashboard on the
 patient view alone, with the decision shown in place (the organization's reviewers read it in
 the audit trail).
@@ -403,8 +405,9 @@ when the EHR's token does, or the EHR answers `401` to it), and the callback wor
 browser that started the launch. No refresh token is kept: `offline_access` in
 `MENDARI_SMART_SCOPES` is refused at launch. The dashboard opens on the launch's patient,
 pinned to that launch (`#patient/<launch_id>`; a window whose launch a later one in the same
-browser replaced says so, and shows no patient), and says "This EHR launch ended. Open Mendari
-again from the EHR." when the launch's routes answer `401`:
+browser replaced says so, and shows no patient: it sends `X-Mendari-Launch` with the requests
+below, and the server answers `409` to a replaced launch), and says "This EHR launch ended.
+Open Mendari again from the EHR." when the launch's routes answer `401`:
 - `GET /api/smart/patient`;
 - their messages or referrals: `GET /api/smart/focus?pack_id=`;
 - deciding one: `POST /api/smart/decide`, which reads the record through the pack's CDS prefetch

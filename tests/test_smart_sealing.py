@@ -168,7 +168,9 @@ def test_a_tampered_or_plaintext_launch_row_ends_the_launch(
     full_launch(app, ehr)
     [row] = raw_rows(db_target, "session")
     token = json.loads(row["data"])["sealed"]
-    flipped = token[:-2] + ("A" if token[-2] != "A" else "B") + token[-1]
+    # A character well inside the tag: near the end, a base64 character may carry only padding
+    # bits, and changing those changes no byte.
+    flipped = token[:-6] + ("A" if token[-6] != "A" else "B") + token[-5:]
     set_data(db_target, row["key_sha256"], json.dumps({"sealed": flipped}))
     assert app.get("/api/smart/patient").status_code == 401
     assert app.get("/api/smart/session").json() == {"active": False}

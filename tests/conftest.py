@@ -182,6 +182,7 @@ def launched(
         "pack": "mendari/referral-router",
         "identity": {"iss": iss, "sub": sub},
         "actor": f"{iss}|{sub}",
+        "identified": True,  # made with sign-in on: the callback's checks ran
     }
     session, expires_at = sessions.begin(row, now, sessions.Lifetime(), ends_by=now + 3600)
     store.smart_put(sid, "session", session, expires_at)

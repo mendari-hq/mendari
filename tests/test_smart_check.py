@@ -24,10 +24,12 @@ SIGN_IN = {"MENDARI_OIDC_ISSUER": "https://idp.example.org", "MENDARI_OIDC_CLIEN
 
 @pytest.fixture
 def ehr(monkeypatch: pytest.MonkeyPatch) -> FakeEhr:
-    """A registered EHR (sign-in on, `clinic:decide`) whose every request is recorded."""
+    """A registered EHR (sign-in on, people's organization from the `org` claim,
+    `clinic:decide`) whose every request is recorded."""
     fake = FakeEhr()
     for name, value in SIGN_IN.items():
         monkeypatch.setenv(name, value)
+    monkeypatch.setenv("MENDARI_OIDC_ORG_CLAIM", "org")
     monkeypatch.setenv("MENDARI_SMART_CLIENT_ID", CLIENT)
     monkeypatch.setenv("MENDARI_FHIR_ALLOWED_SERVERS", EHR)
     monkeypatch.setenv("MENDARI_SMART_EHRS", f"{ISS}=clinic:decide")
@@ -161,3 +163,40 @@ def test_what_works_but_needs_a_look_is_a_warning(
     assert code == 0
     assert checks["registration"] == checks["PKCE S256"] == "warn"
     assert checks["JWKS"] == "ok"
+
+
+@pytest.mark.parametrize(
+    ("org_claim", "registered", "sign_in", "status"),
+    [
+        ("", "clinic", True, "fail"),  # everyone signs in to `default`: nobody reads `clinic`
+        ("", "default", True, "ok"),  # one organization: its name is `default`
+        ("org", "clinic", True, "ok"),  # people's sign-in names their organization
+        ("", "clinic", False, "warn"),  # open mode: it matters once sign-in is on
+    ],
+)
+def test_a_registration_to_an_organization_nobody_signs_in_to_fails(
+    ehr: FakeEhr,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    org_claim: str,
+    registered: str,
+    sign_in: bool,
+    status: str,
+) -> None:
+    """A launch's decisions are its registered organization's. Without MENDARI_OIDC_ORG_CLAIM
+    everyone who signs in is in `default`, so an EHR registered to any other organization
+    decides where no reviewer can read: HUMAN_REVIEW items would never be reviewed."""
+    monkeypatch.setenv("MENDARI_OIDC_ORG_CLAIM", org_claim)
+    monkeypatch.setenv("MENDARI_SMART_EHRS", f"{ISS}={registered}:decide")
+    if not sign_in:
+        for name in SIGN_IN:
+            monkeypatch.delenv(name)
+    code = main(["smart", "check", ISS])
+    out = capsys.readouterr().out
+    rows = [re.split(r"\s{2,}", line, maxsplit=2) for line in out.splitlines()]
+    found = {check: (state, detail) for state, check, detail in rows}
+    assert found["registration"][0] == status, out
+    assert code == (1 if status == "fail" else 0), out
+    if status != "ok":
+        assert "MENDARI_OIDC_ORG_CLAIM" in found["registration"][1]
+        assert "default" in found["registration"][1]

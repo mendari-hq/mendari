@@ -128,7 +128,12 @@ would like your view on.
 - **The registration** (`MENDARI_SMART_EHRS="<FHIR base>=<org>:<view|decide>,…"`) is keyed on
   the launch's `iss`, normalized (scheme and host in lower case, no trailing slash, the path
   kept): two tenants on one host are two organizations, and one base serving several
-  organizations is not supported. It is read on every request (`standards/smart.py`).
+  organizations is not supported. The organization must be one people sign in to (the
+  `MENDARI_OIDC_ORG_CLAIM` claim's value, else `default`), or the launch's decisions reach no
+  reviewer; with sign-in on, `mendari smart check` fails one that is not. It is read at startup
+  (`standards/smart.py`) and every request checks the launch against it, never against what
+  was stored with the launch: removing a registration ends that EHR's live launches at the next
+  restart or redeploy.
 - **A launch is a principal of kind `ehr`** (`server/auth.py`): its id is a hash of the
   id_token's issuer and subject, and its organization and level come from the registration. It
   holds two permissions nobody else holds, `launch` (`GET /api/smart/patient`, `/focus`) and,
@@ -139,7 +144,8 @@ would like your view on.
 - **Refused at the launch, never at startup** (`server/smart_routes.py`), with sign-in on: an
   unregistered base, before any request leaves; scopes without `openid fhirUser`; an id_token
   without a subject; a user who is not a Practitioner or PractitionerRole (a patient portal).
-  `offline_access` is refused in every mode. Each refusal is logged with a fixed reason. Only a
+  The sealed session records that these checks ran (`identified`), so a launch made while
+  sign-in was off is no principal once it is on. `offline_access` is refused in every mode. Each refusal is logged with a fixed reason. Only a
   malformed `MENDARI_SMART_EHRS`, or a base off the FHIR allow-list, stops the server.
 - **Sealed rows** (`core/session_seal.py`, threat I11): the session and pending-launch rows are
   AES-256-GCM under HKDF-SHA256 of the browser's own cookie (the session cookie; for a pending
@@ -155,8 +161,10 @@ would like your view on.
   place and no link into the audit trail. The window is pinned to its launch
   (`#patient/<launch_id>`): if a later launch in the same browser replaced it, the window says
   so and never shows the other patient. The dashboard checks this before every render and
-  every decision; the server refuses (`403`) a focus resource that is not about the launch's
-  patient.
+  every decision, and sends the window's launch (`X-Mendari-Launch`) with the patient, items
+  and decide requests: the server answers `409`, before any EHR read, when the browser's launch
+  is another one now. It also refuses (`403`) a focus resource that is not about the launch's
+  patient. A later launch's callback deletes the launch the browser held until then.
 - **Limits** count a launch's decisions per `ehr` principal. Signing out of Mendari ends the
   browser's launch too.
 - **Before go-live**, `mendari smart check <base>` reports the registration key, the
@@ -178,7 +186,8 @@ rows are deleted (`deploying-with-phi.md` §2).
   treatment of the launch routes (threat E6).
 - The sealing key derived from a cookie, with no server secret: a database leak alone opens
   nothing; a database leak together with a live cookie opens that one row.
-- The wrong-patient pin, enforced in the dashboard rather than in the decide request.
+- The wrong-patient pin: the window's launch id, checked by the server on each read and
+  decision (`409`), with no secret in it.
 - The EHR's token, which stays valid at the EHR after a launch ends here until it expires
   (nothing is revoked).
 

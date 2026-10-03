@@ -726,12 +726,12 @@ def test_scopes_that_do_not_say_who_launched_are_refused_with_sign_in_on(
     assert a.requests == []
 
 
-def test_unregistering_an_ehr_ends_its_launches_at_once(
+def test_unregistering_an_ehr_ends_its_launches_at_the_next_restart(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tenants: tuple[FakeEhr, FakeEhr]
 ) -> None:
-    """The organization and level are the registration as it is now, never stored with the
-    launch: after a restart without it, the same launch cookie reaches nothing; registered to
-    view, it no longer decides."""
+    """The organization and level are the registration the server started with (read at
+    startup), never stored with the launch: after a restart without it, the same launch cookie
+    reaches nothing; registered to view, it no longer decides."""
     a, b = tenants
     db = tmp_path / "a.db"
     app = signed_site(db, monkeypatch, REGISTERED, a, b)
@@ -766,6 +766,82 @@ def test_signing_out_of_mendari_ends_the_launch(
     app.cookies.set(f"__Host-{smart_routes.COOKIE}", sid, domain="mendari.test")
     assert app.get("/api/smart/session").json() == {"active": False}
     assert app.get("/api/smart/patient").status_code == 401
+
+
+def test_a_later_launch_in_the_same_browser_ends_the_earlier_one(
+    db_target: str, monkeypatch: pytest.MonkeyPatch, tenants: tuple[FakeEhr, FakeEhr]
+) -> None:
+    """One browser holds one launch: the callback deletes the launch the browser's cookie named,
+    so a copy of the earlier cookie reaches nothing, and signing out leaves no launch behind.
+    Both backends."""
+    a, b = tenants
+    app = signed_site(db_target, monkeypatch, REGISTERED, a, b)
+    name = f"__Host-{smart_routes.COOKIE}"
+    assert full_launch(app, a).status_code == 302
+    first = app.cookies.get(name)
+    assert full_launch(app, a).status_code == 302
+    second = app.cookies.get(name)
+    assert first and second and first != second
+    copied = TestClient(app.app, base_url=APP)
+    copied.cookies.set(name, first, domain="mendari.test")
+    assert copied.get("/api/smart/session").json() == {"active": False}
+    assert copied.get("/api/smart/patient").status_code == 401
+    assert app.get("/api/smart/patient").status_code == 200
+    assert app.post("/auth/logout").status_code == 204
+    with AuditStore(db_target) as store:
+        assert store.smart_get(first, "session") is None
+        assert store.smart_get(second, "session") is None
+
+
+def test_a_launch_made_with_sign_in_off_is_refused_once_sign_in_is_on(
+    db_target: str, monkeypatch: pytest.MonkeyPatch, tenants: tuple[FakeEhr, FakeEhr]
+) -> None:
+    """A launch made in open mode (an EHR registered, so it was let in) skipped the checks
+    sign-in on makes at the callback: its user may be a patient portal's. After a restart with
+    sign-in on against the same database it is no principal, and a fresh launch is checked.
+    Both backends."""
+    a, b = tenants
+    signed_site(db_target, monkeypatch, None, a, b)  # open mode, the fake EHRs wired
+    monkeypatch.setenv("MENDARI_SMART_EHRS", REGISTERED)
+    pilot = TestClient(create_app(db_path=db_target), base_url=APP)
+    a.claims = {"fhirUser": "Patient/p1"}  # a patient portal: refused with sign-in on
+    assert full_launch(pilot, a).status_code == 302
+    assert pilot.get("/api/smart/session").json()["fhir_user"] == "Patient/p1"
+    cookies = dict(pilot.cookies)
+    app = signed_site(db_target, monkeypatch, REGISTERED, a, b)
+    app.cookies.update(cookies)
+    assert app.get("/api/smart/session").json() == {"active": False}
+    assert app.get("/api/smart/patient").status_code == 401
+    assert app.post("/api/smart/decide", json=DECIDE_BODY).status_code == 401
+    a.claims = {}  # the clinician launches again, and is checked
+    assert full_launch(app, a).status_code == 302
+    assert app.post("/api/smart/decide", json=DECIDE_BODY).status_code == 200
+
+
+def test_a_window_pinned_to_a_replaced_launch_reads_nothing(app: TestClient, ehr: FakeEhr) -> None:
+    """The dashboard sends the launch its window is pinned to (`X-Mendari-Launch`) with the
+    patient, focus and decide requests: once a later launch replaced it, the server answers
+    `409` before reading anything from the EHR, so the window never shows the other launch's
+    patient. Without the header the routes answer as before."""
+    full_launch(app, ehr)
+    first = app.get("/api/smart/session").json()["launch_id"]
+    full_launch(app, ehr)
+    second = app.get("/api/smart/session").json()["launch_id"]
+    ehr.requests.clear()
+    stale = {"x-mendari-launch": first}
+    for answer in (
+        app.get("/api/smart/patient", headers=stale),
+        app.get("/api/smart/focus", params={"pack_id": REFERRAL}, headers=stale),
+        app.post("/api/smart/decide", json=DECIDE_BODY, headers=stale),
+    ):
+        assert answer.status_code == 409, answer.text
+        assert "replaced" in answer.json()["detail"]
+    assert ehr.requests == []
+    assert app.get("/api/audit").json() == []  # nothing decided
+    current = {"x-mendari-launch": second}
+    assert app.get("/api/smart/patient", headers=current).status_code == 200
+    assert app.post("/api/smart/decide", json=DECIDE_BODY, headers=current).status_code == 200
+    assert app.get("/api/smart/patient").status_code == 200
 
 
 def test_a_launch_opens_the_dashboard_page_and_nothing_else(

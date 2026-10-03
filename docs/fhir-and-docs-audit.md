@@ -276,8 +276,8 @@ never rewritten. Still open:
   [`security/review-packet.md`](security/review-packet.md); then the owner's launch order:
   ceilings and quotas set, the firewall rule enforced after 7 days in log mode, then Vercel
   Authentication lifted.
-- **The SMART launch** is gated for use with sign-in (ADR-0006, built 2026-10-03; its review
-  is still to come). The EHR's token, the patient and the PKCE verifier are sealed at rest
+- **The SMART launch** is gated for use with sign-in (ADR-0006, built and reviewed 2026-10-03:
+  four reviewers and a skeptic, four findings confirmed and fixed). The EHR's token, the patient and the PKCE verifier are sealed at rest
   (threat I11), and with sign-in on a launch is a principal of its EHR's registered
   organization that may view, or view and decide, and nothing else (threat E7). With sign-in
   on, every new decision names who asked for it, in the chain and in the FHIR exports (threat

@@ -1734,6 +1734,13 @@ def test_a_window_whose_launch_was_replaced_says_so(page: Page) -> None:
     expect(page.locator(".empty-state")).to_contain_text("Open Mendari again from the EHR")
     expect(page.locator(".patient-name")).to_have_count(0)
     assert "/api/smart/patient" not in asked and "/api/smart/focus" not in asked
+    # An address that no longer names the launch keeps the window's own pin.
+    page.evaluate("location.hash = '#overview'")
+    expect(replaced).to_have_text("This window's launch was replaced")
+    page.evaluate("location.hash = '#patient'")
+    expect(replaced).to_have_text("This window's launch was replaced")
+    expect(page.locator(".patient-name")).to_have_count(0)
+    assert "/api/smart/patient" not in asked and "/api/smart/focus" not in asked
 
 
 @pytest.mark.parametrize("scheme", ["light", "dark"])

@@ -7,13 +7,16 @@
 // The window is pinned to its launch ("#patient/<launch id>"): the browser holds one launch at a
 // time, so a later launch (another chart, maybe another patient) replaces it. A window whose
 // launch was replaced says so, and never shows the other launch's patient: the wrong-patient
-// safeguard. The launch is asked for again before every render and every decision.
+// safeguard. The launch is asked for again before every render and every decision, and the
+// patient, items and decide requests carry the pin (`X-Mendari-Launch`): the server answers 409
+// to a replaced one, so a launch that replaces this one between those requests shows nothing.
 
 import { render, route, views } from "./router.js";
 import { $, api, emptyState, esc, icon, may, outcomeBadge, priorityBadge, state, toast, toastError, whileBusy } from "./ui.js";
 
 views.patient = async (main, params) => {
   let pinned = params[0] ?? null;
+  if (pinned) state.launchPin = pinned;
   const session = state.smart || pinned ? await api("/api/smart/session") : { active: false };
   const now = session.active ? session : null;
   if (!now || (pinned && now.launch_id !== pinned)) {
@@ -22,15 +25,20 @@ views.patient = async (main, params) => {
     return;
   }
   state.smart = now;
-  if (!pinned && now.launch_id) pinned = pin(now.launch_id); // shown here, so this window's
+  // Opened without a pin: the launch shown here is this window's from now on.
+  if (!pinned && now.launch_id) state.launchPin = pinned = pin(now.launch_id);
   const pack = encodeURIComponent(state.packId);
+  const options = pinnedTo(pinned);
   let patient, items;
   try {
-    [patient, items] = await Promise.all([api("/api/smart/patient"), api(`/api/smart/focus?pack_id=${pack}`)]);
+    [patient, items] = await Promise.all([
+      api("/api/smart/patient", options),
+      api(`/api/smart/focus?pack_id=${pack}`, options),
+    ]);
   } catch (error) {
-    if (!error.launchEnded) throw error;
-    state.smart = null;
-    main.innerHTML = `<h1>This patient</h1>${emptyState(ENDED)}`;
+    if (!error.launchEnded && !error.launchReplaced) throw error;
+    if (error.launchEnded) state.smart = null;
+    main.innerHTML = `<h1>This patient</h1>${emptyState(error.launchEnded ? ENDED : REPLACED)}`;
     return;
   }
   main.innerHTML = `
@@ -55,6 +63,10 @@ const REPLACED = {
   text: "A later launch from the EHR in this browser replaced the one this window opened, maybe for another patient. "
     + "Open Mendari again from the EHR to work on this window's patient.",
 };
+
+// The launch's requests name the window's launch, which the server checks (409 once replaced).
+const pinnedTo = (pinned, options = {}) =>
+  pinned ? { ...options, headers: { "content-type": "application/json", "x-mendari-launch": pinned } } : options;
 
 // The window takes the launch it shows: its address and the section link name it from now on.
 function pin(launchId) {
@@ -103,13 +115,14 @@ async function decide(button, pinned) {
         render();
         return;
       }
-      const { decision } = await api("/api/smart/decide", {
+      const { decision } = await api("/api/smart/decide", pinnedTo(pinned, {
         method: "POST",
         body: JSON.stringify({ pack_id: state.packId, focus: button.dataset.decide }),
-      });
+      }));
       result.innerHTML = decided(decision);
     } catch (error) {
-      toastError(error.message);
+      if (error.launchReplaced) render(); // replaced since the check above: the view says so
+      else toastError(error.message);
     }
   });
 }
