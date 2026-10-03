@@ -3,7 +3,8 @@
 The OpenAPI document is generated from the routes; this adds what generation cannot know: a
 description of the product, the tags, synthetic examples from the packs this deployment serves
 (so "Try it out" starts from a request that works), and, only when sign-in is on, how to
-authenticate. Nothing is claimed that the deployment does not do.
+authenticate. Nothing is claimed that the deployment does not do. What Mendari is and its four
+outcomes are said once, here, for this page and the developer landing (`server/landing.py`).
 """
 
 from __future__ import annotations
@@ -69,6 +70,20 @@ FHIR_EXAMPLE: dict[str, Any] = {
 }
 FHIR_EXAMPLE_PACK = "mendari/patient-inbox-router"
 
+# What Mendari is, in one sentence; the reference's introduction and the /docs landing open with it.
+PRODUCT = (
+    "Mendari runs Decision Packs: versioned, tested healthcare workflow decisions such as which "
+    "team should handle a patient's message, or whether a prior-authorization request is complete."
+)
+# The four outcomes every decision ends in: the code, the dashboard's word for it (ui.js
+# OUTCOME_TEXT), and what it means for the caller.
+OUTCOMES = (
+    ("AUTO", "Automated", "safe to act on"),
+    ("HUMAN_REVIEW", "Human review", "a person decides, with the pack's recommendation"),
+    ("ABSTAIN", "Abstained", "not confident enough to say"),
+    ("BLOCK", "Blocked", "the input or a safety rule stops it"),
+)
+
 
 def description(
     *,
@@ -102,12 +117,13 @@ def description(
         else "**Sign-in is off here**: anyone who can reach this deployment can call every "
         "operation. Set `MENDARI_OIDC_ISSUER` and `MENDARI_OIDC_CLIENT_ID` to require it."
     )
+    outcomes = [f"**`{code}`** ({meaning})" for code, _, meaning in OUTCOMES]
     return f"""
-Mendari runs **Decision Packs**: versioned, tested healthcare workflow decisions such as which
-team should handle a patient's message, or whether a prior-authorization request is complete.
-Every decision ends as **`AUTO`** (safe to act on), **`HUMAN_REVIEW`** (a person decides, with
-the pack's recommendation), **`ABSTAIN`** (not confident enough to say) or **`BLOCK`** (the input
-or a safety rule stops it), and is recorded in a hash-chained audit trail.
+**New here?** [Start at `/docs`](/docs): what Mendari is, a quickstart in three calls, FHIR in
+and out, and authentication, on one page.
+
+{PRODUCT} Every decision ends as {", ".join(outcomes[:-1])} or {outcomes[-1]}, and is recorded
+in a hash-chained audit trail.
 
 All data here is synthetic. This is a research preview, not a medical device.
 
@@ -144,9 +160,11 @@ for the review queue), and its audit trail is `/fhir/AuditEvent` and `/fhir/Prov
 {auth}
 
 A browser request that another site starts (`Sec-Fetch-Site: cross-site` or `same-site`, or
-without it an `Origin` that is not this site) reaches only public routes and pages, with `GET`
-or `HEAD`; anything else is a `403` ("cross-site request refused"). Scripts and integrations
-send neither header and are not affected.
+without it an `Origin` that is `null` or not this site) reaches only public routes and pages,
+with `GET` or `HEAD`; anything else is a `403` ("cross-site request refused"), and a form on
+another site that posts here gets it whether or not the browser sends the session cookie (so
+another site cannot sign anyone out). Scripts and integrations send neither header and are not
+affected.
 
 [Open the dashboard](/) to try packs without code. The OpenAPI document itself is
 [`/openapi.json`](/openapi.json).

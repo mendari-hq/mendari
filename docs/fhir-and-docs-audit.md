@@ -385,6 +385,23 @@ Keep the generated OpenAPI as the source of truth, and put a real front door in 
    request/response models with `examples` drawn from pack examples; `securitySchemes` (bearer
    API key, OIDC) applied per route from `auth._RULES`; documented error responses.
 
+### Status after Phase 5 (2026-10-02)
+
+| Area | Then | Now |
+|---|---|---|
+| **Overview** | Missing | **`/docs` is a developer landing**, public also with sign-in on: what Mendari is in two sentences, the four outcomes as the dashboard's chips, an inline SVG diagram with the same flow as a list, links to `/fhir/metadata`, the reference, the dashboard and the Decision Cards. Light and dark from the dashboard's tokens, contrast-tested; a skip link, landmarks, one `h1`, keyboard-scrollable examples. |
+| **Getting started** | Missing | **A quickstart in three calls** (list the packs, decide, read the audit record), FHIR in and out (`$decide`, search, the trail as FHIR, CDS Hooks, SMART) and authentication, each example with a copy button. The examples are the scripts CI runs against a local server in open mode and with a `service` key (Phase 5, stage L), so they work as written; the mkdocs site's [API guide](guides/api.md) includes the same files. |
+| **Authentication** | No auth explanation | The landing says how this deployment's mode works (open, sign-in, keys and scopes, Backend Services when on) and what Phase 4b added (sessions that end, rate limits answered with a `429` and `Retry-After`, requests from other sites limited to reading pages), without this deployment's own session lengths or rates, which stay behind sign-in; it lists **every route with what it needs**, built from the route rules, so it cannot drift. |
+| **Try it out** | First result a failure; Swagger from a CDN with no CSP | `/docs/reference` is Swagger UI vendored at a pinned version under a strict CSP (Phase 4b, stage C), its examples synthetic and deciding as tested. It and `/openapi.json` stay behind sign-in; the reference's introduction sends newcomers to `/docs`. |
+| **Visual quality** | Default Swagger UI, light only | The landing is Mendari's own design system in both themes; the reference follows the dashboard's theme choice. |
+
+**Deviations from the redesign plan above.** The reference is Swagger UI, not Scalar or Redoc, and
+there is no separate `/docs/swagger`: one renderer, chosen for its size and its CSP (no inline
+style). The landing's examples are static and synthetic in every mode instead of each pack's
+examples, so a signed-out visitor learns nothing about which packs run; open mode adds a link to
+each pack's Decision Card. A public demo deployment, where visitors could try calls without an
+account, remains a launch decision.
+
 ## Roadmap to a credible FHIR API and docs
 
 **A decision first.** "Production-grade FHIR API" can mean two things, and they cost very

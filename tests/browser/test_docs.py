@@ -27,7 +27,7 @@ def test_try_it_out_works_under_the_csp_and_nothing_leaves_the_origin(
     page.on("pageerror", lambda error: errors.append(str(error)))
     page.add_init_script(WATCH_CSP)
 
-    page.goto("/docs")  # the old address: a 308 to the reference
+    page.goto("/redoc")  # ReDoc's old address: a 308 to the reference
     assert page.url == f"{live_server}/docs/reference"
     expect(page.locator(".swagger-ui .info .title")).to_contain_text("Mendari")
     operation = page.locator(

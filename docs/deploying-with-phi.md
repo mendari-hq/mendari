@@ -492,8 +492,10 @@ reads of PHI, then operations. Keep the answers with your go-live record.
 - [ ] On each address people use, signed in: review a case on the dashboard and sign out, with
       no `403` "cross-site request refused" (list a rewritten name in
       `MENDARI_TRUSTED_ORIGINS`). The answers carry `Strict-Transport-Security`.
-- [ ] Signed in, `/docs/reference` shows the API reference and the browser console reports no
-      CSP violation.
+- [ ] Signed out, `/docs` shows the developer landing with "Sign-in is on here" and no pack
+      names from this deployment (the examples use a fixed synthetic pack); signed in,
+      `/docs/reference` shows the API reference. Neither page's browser console reports a CSP
+      violation (a proxy in front must not replace Mendari's `Content-Security-Policy`).
 - [ ] One API key past its decide limit gets a `429` with `Retry-After` (lower `decide` in
       `MENDARI_RATE_LIMITS` on a test instance to check), and your proxy limits `/auth/` per
       address.

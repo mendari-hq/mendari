@@ -74,6 +74,12 @@ PAIRS = [
     ("color-danger", "color-surface", UI),
     ("color-accent", "color-surface", UI),
     ("color-text-muted", "color-surface", UI),  # chart axes, reference lines and gridline labels
+    # Phase 5, the developer landing (/docs): examples and their bars are text and muted text on
+    # the sunken surface, step numbers accent on accent-soft, the diagram's boxes text and muted
+    # text on the surface with border-strong edges and muted arrows on the page, its outcomes and
+    # chips the outcome pairs: all above. New: a copy button that has copied turns success.
+    ("color-success", "color-surface", TEXT),
+    ("color-text-muted", "color-bg", UI),  # the diagram's arrows
 ]
 
 

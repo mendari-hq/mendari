@@ -124,9 +124,62 @@ uv run mendari card mendari/patient-inbox-router         # render the Decision C
 uv run mendari test mendari/clinical-trial-prescreener
 uv run mendari eval mendari/clinical-trial-prescreener --dataset exclusions_holdout
 uv run mendari serve                                     # API + CDS Hooks + dashboard
-                                                         # (API reference: /docs/reference)
+                                                         # (developer docs: /docs)
 uv run mendari audit verify --db var/mendari.db
 ```
+
+### REST API
+
+With `uv run mendari serve` running, in another terminal (the examples need `curl` and `jq`):
+
+```bash
+export MENDARI=http://localhost:8000   # the server
+export MENDARI_KEY=                    # with sign-in on: an API key (ohk_…); open mode ignores it
+```
+
+List the packs, decide on a synthetic patient message (one of the pack's behaviour tests), and
+read the decision's audit record:
+
+```bash
+curl -sS --fail-with-body "$MENDARI/api/packs" -H "Authorization: Bearer $MENDARI_KEY" \
+  | jq '.[] | {id, version, risk}'
+```
+
+```bash
+decision=$(curl -sS --fail-with-body -X POST \
+  "$MENDARI/api/packs/mendari/patient-inbox-router/decide" \
+  -H "Authorization: Bearer $MENDARI_KEY" -H 'content-type: application/json' \
+  -d '{"message": {"subject": "Refill request", "body": "Hi, I need a refill on my lisinopril. I have about three pills left. Thanks"}}')
+jq '{id, outcome, recommendation, priority, reasons}' <<<"$decision"
+id=$(jq -r .id <<<"$decision")
+```
+
+```bash
+curl -sS --fail-with-body "$MENDARI/api/audit/$id" -H "Authorization: Bearer $MENDARI_KEY" \
+  | jq '{outcome, review_status, events: [.events[].event]}'
+```
+
+Check `outcome`, not only the status code: an input that fails the pack's schema is a recorded
+decision with `outcome: BLOCK`. Whether sign-in is on, and what your key may do:
+
+```bash
+curl -sS --fail-with-body "$MENDARI/api/auth/me" | jq '{mode, signed_in}'
+```
+
+```bash
+curl -sS --fail-with-body "$MENDARI/api/auth/me" -H "Authorization: Bearer $MENDARI_KEY" \
+  | jq .principal
+```
+
+On a running server, `/docs` is a developer landing with these examples (the server's address
+filled in, a copy button on each), FHIR in and out, and what every call needs; it is public, also
+with sign-in on. The full reference is `/docs/reference`, the [API guide](docs/guides/api.md) has
+the same examples as whole scripts, and FHIR is under
+[Healthcare standards](#healthcare-standards). Every `curl` example in this README (but `vercel
+curl`, which goes through a deployment) is a step of the scripts in
+[`src/mendari/dashboard/snippets/`](src/mendari/dashboard/snippets) (a test keeps them equal),
+and CI runs those scripts against a local server, in open mode and with a `service` key
+(`scripts/check_doc_snippets.py`), so an example that stops working fails the build.
 
 ### Guarding an LLM's replies
 
@@ -231,9 +284,32 @@ served at `/fhir/CodeSystem/{id}` and `/fhir/NamingSystem/{id}`. FHIR routes spe
 only (`415`/`406` otherwise).
 
 ```bash
-curl -s localhost:8000/fhir/metadata
-curl -s -X POST localhost:8000/fhir/\$decide -H 'content-type: application/fhir+json' \
-  -d '{"resourceType":"Parameters","parameter":[{"name":"pack","valueString":"mendari/patient-inbox-router"},{"name":"data","resource":'"$(cat tests/fixtures/us-core/inbox.json)"'}]}'
+curl -sS --fail-with-body "$MENDARI/fhir/metadata" | jq '{fhirVersion, software}'
+```
+
+With a synthetic patient message as a Bundle (with sign-in on, `MENDARI_KEY` as in the
+[REST quickstart](#rest-api)):
+
+```bash
+bundle=$(curl -sS --fail-with-body -X POST "$MENDARI/fhir/\$decide" \
+  -H "Authorization: Bearer $MENDARI_KEY" -H 'content-type: application/fhir+json' \
+  -d '{"resourceType": "Parameters", "parameter": [
+    {"name": "pack", "valueString": "mendari/patient-inbox-router"},
+    {"name": "data", "resource": {"resourceType": "Bundle", "type": "collection", "entry": [
+      {"fullUrl": "urn:uuid:7f1c2a4e-0d1b-4c55-9a51-3c1e2d000001", "resource": {
+        "resourceType": "Patient", "id": "example-patient",
+        "meta": {"tag": [{"system": "https://mendari.co/fhir/sandbox", "code": "synthetic"}]},
+        "identifier": [{"system": "https://mendari.co/fhir/synthetic-case", "value": "1"}],
+        "name": [{"family": "Synthetic", "given": ["Example"]}],
+        "gender": "unknown", "birthDate": "1984-06-15"}},
+      {"fullUrl": "urn:uuid:7f1c2a4e-0d1b-4c55-9a51-3c1e2d000002", "resource": {
+        "resourceType": "Communication", "id": "example-message", "status": "in-progress",
+        "subject": {"reference": "Patient/example-patient"}, "sent": "2026-09-29T13:00:00Z",
+        "payload": [{"contentString": "Can I get a refill of my blood pressure medicine?"}]}}]}}]}')
+jq '[.entry[].resource.resourceType]' <<<"$bundle"  # a GuidanceResponse first
+jq '.entry[].resource | select(.resourceType == "Parameters").parameter[]
+  | select(.name == "outcome")' <<<"$bundle"       # act on the outcome, not on `status`
+id=$(jq -r '.entry[0].resource.identifier[0].value' <<<"$bundle")  # the decision id
 ```
 
 **Decisions as FHIR, read and searched** (read-only, your organization's only; see
@@ -248,10 +324,14 @@ carries no input text and no patient or subject references, and searching by `pa
 unknown parameters with a warning entry (`Prefer: handling=strict` makes them a `400`).
 
 ```bash
-curl -s "localhost:8000/fhir/Task?status=requested&_total=accurate"   # the review queue
-curl -s "localhost:8000/fhir/Task/<decision id>/_history/1"           # as first decided
-curl -s "localhost:8000/fhir/AuditEvent?entity=Task/<decision id>"     # its audit trail
-curl -s "localhost:8000/fhir/Provenance?recorded=ge2026-10-01"
+curl -sS --fail-with-body "$MENDARI/fhir/Task?status=requested&_total=accurate" \
+  -H "Authorization: Bearer $MENDARI_KEY" | jq .total                   # the review queue
+curl -sS --fail-with-body "$MENDARI/fhir/Task/$id/_history/1" \
+  -H "Authorization: Bearer $MENDARI_KEY" | jq '{id, status, meta}'     # as first decided
+curl -sS --fail-with-body "$MENDARI/fhir/AuditEvent?entity=Task/$id" \
+  -H "Authorization: Bearer $MENDARI_KEY" | jq '[.entry[].resource.id]' # its audit trail
+curl -sS --fail-with-body "$MENDARI/fhir/Provenance?target=Task/$id" \
+  -H "Authorization: Bearer $MENDARI_KEY" | jq '[.entry[].resource.id]'
 ```
 
 The audit trail exports as FHIR R4. Each event in the hash chain becomes an **AuditEvent**, and
@@ -259,8 +339,20 @@ each decision, review and downstream outcome becomes a **Provenance** on the dec
 They carry ids, codes and the chain's hashes, never case text:
 
 ```bash
-curl localhost:8000/api/audit/<decision id>/fhir                        # one decision, a Bundle
-curl "localhost:8000/api/audit/export/fhir?pack_id=mendari/referral-router&since=2026-09-01"
+curl -sS --fail-with-body "$MENDARI/api/audit/$id/fhir" -H "Authorization: Bearer $MENDARI_KEY" \
+  | jq '[.entry[].resource.resourceType]'
+```
+
+The whole trail, for a signed-in administrator (or in open mode; never with a key), and from
+the database with the CLI:
+
+```bash
+curl -sS --fail-with-body \
+  "$MENDARI/api/audit/export/fhir?pack_id=mendari/patient-inbox-router&since=2026-09-01" \
+  | jq -c '{resourceType, id}'
+```
+
+```bash
 mendari audit export --db var/mendari.db --out audit.ndjson             # FHIR NDJSON
 ```
 
@@ -343,7 +435,9 @@ uv run mkdocs serve    # http://127.0.0.1:8000
 ```
 
 CI builds it in strict mode, so a broken link fails. It will be hosted once the repository is
-public.
+public. Until then a running server documents itself: `/docs` is the developer landing (a
+quickstart in three calls, FHIR, authentication), and `/docs/reference` the full API reference.
+The [API guide](docs/guides/api.md) covers the same ground in the site.
 
 ## Security
 
@@ -352,8 +446,9 @@ threat model ([`docs/security/threat-model.md`](docs/security/threat-model.md)) 
 threat with its mitigation and the test that checks it. On every change, the CI job `security`
 audits the Python and Hub-site dependencies and runs an OWASP ZAP scan of the API with sign-in
 on; GitHub Actions are pinned by commit and images by digest. Every response carries a strict
-CSP and the usual isolation headers (HSTS off localhost), the API reference included: it is
-Swagger UI served from vendored, pinned files, never a CDN. Sessions end after 30 minutes idle
+CSP and the usual isolation headers (HSTS off localhost), the developer landing and the API
+reference included: the reference is Swagger UI served from vendored, pinned files, never a CDN,
+and the landing loads nothing but its own files. Sessions end after 30 minutes idle
 and 8 hours at most, behind `__Host-` cookies. A browser request that another site starts
 reaches only public routes and pages, to read. A request
 body is 4 MiB at most (`MENDARI_MAX_BODY_BYTES`; a `413` otherwise), and public routes take no
@@ -763,6 +858,7 @@ uv run playwright install chromium     # once, for the dashboard's browser tests
 uv run pytest -m browser               # the dashboard in a real browser (free: default providers)
 uv run ruff check src tests && uv run ruff format --check src tests
 uv run mypy src tests
+uv run python scripts/check_doc_snippets.py   # the API examples against a local server (curl, jq)
 ./scripts/build-reference-pack.sh      # regenerate data → train → test → benchmark → card
 ```
 

@@ -15,6 +15,7 @@ docker run -d --name mendari-pg-test -e POSTGRES_PASSWORD=mendari-test \
 MENDARI_TEST_DATABASE_URL=postgresql://postgres:mendari-test@127.0.0.1:56432/mendari_test uv run pytest
 uv run ruff check src tests && uv run ruff format --check src tests
 uv run mypy src tests
+uv run python scripts/check_doc_snippets.py  # the API examples (dashboard/snippets) on a local server
 uv run mendari demo                       # end-to-end smoke test on synthetic data
 ./scripts/build-reference-pack.sh         # both reference packs: data → train → test → benchmark → card
 uv run python scripts/fhir_r4_schema.py   # regenerate the R4 structure rules from HL7's pinned schema
@@ -44,8 +45,9 @@ docker compose up --build                 # HAPI FHIR + engine + worker sandbox
   that, and every colour pair for WCAG AA in both themes. Design plan: `docs/ui-ux-review.md`;
   grade and roadmap: `docs/design-grade.md`.
 - **Dashboard scripts are ES modules** with no build step: `main.js` boots, each view registers
-  itself in `views` (`router.js`), shared helpers live in `ui.js`. The server stamps every module
-  URL through the import map, so a new module needs no registration anywhere.
+  itself in `views` (`router.js`), shared helpers live in `ui.js`; `docs.js` runs the `/docs`
+  landing (`docs.html`, filled by `server/landing.py`). The server stamps every module a page's
+  scripts import through that page's import map, so a new module needs no registration anywhere.
 
 ## Layout
 

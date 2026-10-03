@@ -154,7 +154,12 @@ Each bullet is one control; the threat model names the row and the tests behind 
   (two years) on any host but `localhost` or a loopback address. Cookies say `SameSite=Lax`
   explicitly. The API reference (`/docs/reference`, behind sign-in when it is on) is Swagger UI
   served from files vendored at a pinned version, never a CDN, and its page allows no inline
-  script or style. `/docs` and `/redoc` redirect there.
+  script or style. `/redoc` redirects there.
+- **The developer landing** (`/docs`) is public, also with sign-in on, so it is static: built at
+  startup from settings and the example scripts, never from a request, it shows the same for
+  every deployment of a release plus whether sign-in, the SMART launch and Backend Services are
+  on. It lists no packs (open mode aside), providers, counts or records, loads only its own
+  files, and allows no inline style.
 
 ## Remote providers
 

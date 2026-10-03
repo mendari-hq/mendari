@@ -134,13 +134,14 @@ def test_dashboard_is_served(client: TestClient) -> None:
     page = client.get("/")
     assert page.status_code == 200 and "Mendari" in page.text
     # Asset URLs carry a content hash so a deploy never serves stale JS/CSS: the import map
-    # stamps every module, and the entry script and stylesheet are stamped in place.
+    # stamps every module main.js reaches (every module but the /docs landing's), and the entry
+    # script and stylesheet are stamped in place.
     assert re.search(r'<script type="module" src="/static/main\.js\?v=[0-9a-f]{12}">', page.text)
     assert re.search(r'/static/style\.css\?v=[0-9a-f]{12}"', page.text)
     found = re.search(r'<script type="importmap">(.*?)</script>', page.text)
     assert found
     stamped = json.loads(found[1])["imports"]
-    modules = sorted(p.name for p in DASHBOARD_DIR.glob("*.js"))
+    modules = sorted(p.name for p in DASHBOARD_DIR.glob("*.js") if p.name != "docs.js")
     assert sorted(stamped) == [f"/static/{name}" for name in modules]
     for url in stamped.values():
         assert re.fullmatch(r"/static/[a-z]+\.js\?v=[0-9a-f]{12}", url)
