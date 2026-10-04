@@ -706,7 +706,8 @@ def create_app(
         summary="Example inputs",
     )
     def pack_examples(namespace: str, name: str) -> list[dict[str, Any]]:
-        """Synthetic example inputs: the pack's own behaviour tests."""
+        """Synthetic example inputs: the pack's own behaviour tests. Tests that do not load, or
+        hold a value JSON cannot (a date, binary, a lone surrogate), answer `422` naming why."""
         pack = pack_or_404(f"{namespace}/{name}")
         return [
             {

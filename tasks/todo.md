@@ -59,6 +59,22 @@ identically.
   file and the error's type, never the value. The expansion cap weighs scalar text at its
   JSON-escaped length, and the API reference includes a pack's example only when it is at most
   64 KB as JSON (a 2 MB tests file of `"\0"` made `/openapi.json` 180 MB).
+- [x] **8. A pack reads only digested files; YAML numbers bounded (E9, D7)**: the refusals in
+  7 compared spellings, so on a case-insensitive filesystem `EVALS/t.yaml`, `__PYCACHE__/t.yaml`
+  or `logic/decision_card.md` read a file the digest skips, and a `cql` `library:` was not
+  checked at load (it could live in `evals/` anywhere). `load_pack` now hashes first and keeps
+  the hashed files' identities (device, inode); `Pack.path`, and every read at load, accepts an
+  existing file only if it is one of them, whatever spells it. The written-path checks stay for
+  their messages, naming the field (`library` added). Attestations are read through
+  `Pack.attestation` only, and `evaluation.benchmark` must be in `evals/`. Pack YAML loads with
+  a `SafeLoader` subclass that refuses a number of more than 4,300 characters (underscores
+  removed) or 4 `:` parts before building it, and an integer of more than 4,300 digits, in every
+  base (a 480 KB base-60 integer took 23.6 s). A behaviour test that is not JSON (a lone
+  surrogate, `!!binary`, a date, a set, NaN) is a validation problem named by type:
+  `mendari validate` reports it, `GET …/examples` answers `422` (was a `500`). A
+  `ConstructorError` is named by type, line and column, never its text; a parse error keeps the
+  parser's message, as the docs now say. Spec §3, §10, §11, §13, SECURITY.md, threat model E9
+  and D7, authoring guide.
 - Verified: the five packs decide every dataset record and `tests/cases.yaml` example (default
   providers and every local variant combination, 9,958 decisions) identically to `origin/main`
   run on its own source, in one long process, in a fresh process per pack and variant set, and

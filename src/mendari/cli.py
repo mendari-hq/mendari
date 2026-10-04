@@ -288,7 +288,7 @@ def cmd_leaderboard(args: argparse.Namespace) -> int:
             print(f"{leaderboard.config_label(report['providers'])} on {dataset.name}: {status}")
     if not reports:
         raise MendariError("nothing to add: pass --run and --dataset, or --report")
-    target = Path(args.out) if args.out else pack.path(leaderboard.PATH)
+    target = Path(args.out) if args.out else pack.attestation(leaderboard.PATH)
     existing = None
     if target.is_file() and not args.fresh:
         existing = json.loads(target.read_text(encoding="utf-8"))

@@ -31,9 +31,16 @@ are not allowed. Checking an input never fetches a URL or reads another file. Th
 semantic version of at most 64 characters, and YAML anchors are fine within reason: a file that
 uses them may expand to at most 1,000,000 nodes and 32,000,000 characters of text (as JSON
 writes it: a control character counts six) once its aliases are counted where they are used. A
-`.venv` or other hidden folder beside the pack's files is not part of the pack, and is ignored;
-so a path in `pack.yaml` may not go through one (nor `__pycache__`), or into `evals/` or a
-`DECISION_CARD.md`, since none of them is in the pack's digest.
+number may be at most 4,300 characters long (underscores aside) and have at most 4 `:` parts. A
+`.venv` or other hidden folder beside the pack's files is not part of the pack, and is ignored.
+
+Everything the pack decides or tests with must be inside its digest, the identity a governance
+approval covers: the files named by `inputs.schema`, `inputs.fhir`, `policy`, `tests`,
+`evaluation.datasets` and each provider's `config`, `library`, `model_file` and `calibration`.
+None of them may go through a hidden folder or `__pycache__`, or be in `evals/` or a
+`DECISION_CARD.md`, however the path is spelled (on macOS and Windows `EVALS/` is `evals/`).
+`evaluation.benchmark` is the opposite: a published result about the pack, it lives in `evals/`.
+Behaviour tests must be plain JSON values: quote a date (`"2024-01-01"`), and use no `!!binary`.
 
 It already works. Check it:
 

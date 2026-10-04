@@ -21,6 +21,7 @@ from mendari.core import registry as registry_module
 from mendari.core.pack import MAX_YAML_CHARS, MAX_YAML_NODES, load_yaml
 from mendari.core.registry import version_key
 from mendari.errors import PackValidationError
+from mendari.evals.pack_tests import load_cases
 from mendari.server.api_docs import MAX_EXAMPLE_BYTES
 from mendari.server.app import create_app
 from mendari.standards import terminology as terminology_module
@@ -447,7 +448,6 @@ def test_an_unused_variant_cannot_carry_an_expanding_manifest(tmp_path: Path) ->
     ("line", "error"),
     [
         ("x_released: 2024-02-30", "ValueError"),
-        ("x_count: " + "9" * 5000, "ValueError"),
         ("x_count: !!int 0x", "ValueError"),
         ("x_flag: !!bool maybe", "KeyError"),
         ("x_when: !!timestamp bad", "AttributeError"),
@@ -456,7 +456,6 @@ def test_an_unused_variant_cannot_carry_an_expanding_manifest(tmp_path: Path) ->
     ],
     ids=[
         "impossible-date",
-        "over-long-integer",
         "int",
         "bool",
         "timestamp",
@@ -467,10 +466,10 @@ def test_an_unused_variant_cannot_carry_an_expanding_manifest(tmp_path: Path) ->
 def test_a_yaml_value_python_cannot_build_is_the_packs_problem(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], line: str, error: str
 ) -> None:
-    """SafeConstructor raises a plain ValueError for an impossible date or an integer of more
-    than 4,300 digits, and a KeyError, AttributeError or IndexError for an explicitly tagged
-    scalar it cannot read: `load_pack` raised it and `mendari validate` printed a traceback.
-    The problem names the file and the error's type, never the value (the error's text)."""
+    """SafeConstructor raises a plain ValueError for an impossible date, and a KeyError,
+    AttributeError or IndexError for an explicitly tagged scalar it cannot read: `load_pack`
+    raised it and `mendari validate` printed a traceback. The problem names the file and the
+    error's type, never the value (the error's text)."""
     root = tmp_path / "pack"
     shutil.copytree(INBOX_DIR, root)
     _append("pack.yaml", f"\n{line}\n")(root)
@@ -480,3 +479,129 @@ def test_a_yaml_value_python_cannot_build_is_the_packs_problem(
     assert main(["validate", str(root)]) == 1
     err = capsys.readouterr().err
     assert "pack.yaml: invalid YAML value" in err and "Traceback" not in err
+
+
+# -- numbers, constructor errors and test inputs that are not JSON ------------------------------
+
+LONG = "a number of more than 4,300 characters"
+
+
+@pytest.mark.parametrize(
+    ("value", "reason"),
+    [
+        ("9" * 5000, LONG),
+        ("0x" + "f" * 5000, LONG),
+        ("0" + "7" * 5000, LONG),
+        ("0b" + "1" * 5000, LONG),
+        ("!!int " + "9" * 5000, LONG),
+        ("1" * 5000 + ".5", LONG),
+        (":".join(["1"] * 240_000), LONG),  # 480 KB: PyYAML took 23.6 s to build it
+        ("1:2:3:4:5", "a number of more than 4 ':' parts (base 60)"),
+        ("1:2:3:4:5.5", "a number of more than 4 ':' parts (base 60)"),
+        ("0x" + "f" * 3998, "an integer of more than 4,300 digits"),
+    ],
+    ids=[
+        "decimal",
+        "hex",
+        "octal",
+        "binary",
+        "tagged",
+        "float",
+        "sexagesimal-480kb",
+        "five-parts",
+        "five-parts-float",
+        "hex-over-4300-digits",
+    ],
+)
+def test_a_number_is_bounded_before_it_is_built_in_every_base(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], value: str, reason: str
+) -> None:
+    """Python refuses only decimal integers of more than 4,300 digits: a hexadecimal, octal,
+    binary or base-60 one was built (a base-60 one in quadratic time), and a long hexadecimal
+    integer in a test input made `mendari validate` print a traceback."""
+    root = tmp_path / "pack"
+    shutil.copytree(INBOX_DIR, root)
+    _append("pack.yaml", f"\nx_count: {value}\n")(root)
+    lines = (root / "pack.yaml").read_text().count("\n")
+    started = time.perf_counter()
+    with pytest.raises(PackValidationError) as raised:
+        load_pack(root)
+    assert time.perf_counter() - started < 2
+    assert raised.value.problems == [f"pack.yaml: {reason} (line {lines}, column 10)"]
+    assert main(["validate", str(root)]) == 1
+    err = capsys.readouterr().err
+    assert reason in err and "Traceback" not in err
+
+
+def test_numbers_within_the_bounds_still_load(tmp_path: Path) -> None:
+    path = tmp_path / "n.yaml"
+    path.write_text(
+        "a: 190:20:30\nb: 0x_ff\nc: 1:2:3:4.5\nd: 1_000\ne: -017\nf: 0b101\n"
+        f"g: {'9' * 4300}\nh: 6.02e+23\n"
+    )
+    loaded = load_yaml(path, "n.yaml", "x")
+    assert loaded["a"] == 685230 and loaded["b"] == 255 and loaded["d"] == 1000
+    assert loaded["c"] == pytest.approx(((1 * 60 + 2) * 60 + 3) * 60 + 4.5)
+    assert (loaded["e"], loaded["f"], loaded["g"], loaded["h"]) == (
+        -15,
+        5,
+        int("9" * 4300),
+        6.02e23,
+    )
+
+
+def test_a_constructor_error_names_its_type_and_place_never_the_value(tmp_path: Path) -> None:
+    """A `ConstructorError` (a YAMLError) was reported with its text, which quotes the value and
+    a snippet of the file; it is now named by type, line and column, like any other value the
+    constructor cannot build."""
+    root = tmp_path / "pack"
+    shutil.copytree(INBOX_DIR, root)
+    _append("pack.yaml", "\nx_secret: !canary-tag canary-value\n")(root)
+    lines = (root / "pack.yaml").read_text().count("\n")
+    with pytest.raises(PackValidationError) as raised:
+        load_pack(root)
+    assert raised.value.problems == [
+        f"pack.yaml: invalid YAML value (ConstructorError, line {lines}, column 11)"
+    ]
+    # A file that does not parse keeps the parser's message: what it expected, and where.
+    _append("pack.yaml", "x_broken: [1, 2\n")(root)
+    with pytest.raises(PackValidationError, match=r"pack\.yaml: invalid YAML: while parsing"):
+        load_pack(root)
+
+
+@pytest.mark.parametrize(
+    ("value", "what"),
+    [
+        ('"\\ud800"', "a string with a lone surrogate"),
+        ("!!binary aGVsbG8=", "a value of type bytes"),
+        ("2024-01-01", "a value of type date"),
+        ("2024-01-01T10:00:00Z", "a value of type datetime"),
+        (".nan", "a number that is not finite"),
+        ("!!set {a}", "a value of type set"),
+    ],
+    ids=["surrogate", "binary", "date", "datetime", "nan", "set"],
+)
+def test_a_test_input_that_is_not_json_is_a_validation_problem(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], value: str, what: str
+) -> None:
+    """A lone surrogate or `!!binary` in a test input made `GET .../examples` answer 500 (the
+    response could not be encoded), and a date was served as text though no input can hold
+    one. Such an input is the pack's validation problem, named by type, never a 500 or a
+    traceback."""
+    outside = tmp_path / "outside"
+    count = len(yaml.safe_load((INBOX_DIR / "tests" / "cases.yaml").read_text()))
+    case = f"\n- name: odd\n  input: {{message: {{body: hello}}, x_odd: {value}}}\n  expect: {{}}\n"
+    pack = _outsider(outside, _append("tests/cases.yaml", case))
+    problem = f"tests/cases.yaml case {count + 1}: not JSON, it holds {what}"
+    with pytest.raises(PackValidationError) as raised:
+        load_cases(load_pack(pack))
+    assert raised.value.problems == [problem]
+    assert main(["validate", str(pack)]) == 1
+    err = capsys.readouterr().err
+    assert problem in err and "Traceback" not in err
+    client = TestClient(create_app(db_path=tmp_path / "e.db", packs_paths=[outside, PACKS]))
+    examples = client.get(f"/api/packs/outsider/{INBOX_DIR.name}/examples")
+    assert examples.status_code == 422
+    assert problem in examples.text
+    assert client.get("/openapi.json").status_code == 200
+    assert client.get(f"/api/packs/mendari/{INBOX_DIR.name}/examples").status_code == 200

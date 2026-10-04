@@ -29,9 +29,9 @@ RISK_AUTOMATION = {
 
 def benchmark(pack: Pack) -> dict[str, Any] | None:
     relative = pack.manifest.evaluation.benchmark
-    if relative is None or not pack.path(relative).is_file():
+    if relative is None or not pack.attestation(relative).is_file():
         return None
-    with pack.path(relative).open(encoding="utf-8") as handle:
+    with pack.attestation(relative).open(encoding="utf-8") as handle:
         report: dict[str, Any] = json.load(handle)
     return report
 

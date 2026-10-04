@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import stat
 from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
@@ -33,6 +34,16 @@ _DIGEST_EXCLUDED_FILES = {"DECISION_CARD.md"}
 # largest file has under 2,000 nodes and 20,000 characters.
 MAX_YAML_NODES = 1_000_000
 MAX_YAML_CHARS = 32_000_000  # characters of scalar text, JSON-escaped
+# A YAML number is refused before it is built when its text (underscores removed) is longer
+# than this, or has more `:` parts than `MAX_YAML_NUMBER_PARTS` (`1:30:00`, base 60): PyYAML
+# builds a long sexagesimal number in quadratic time, and Python's 4,300-digit refusal covers
+# decimal integers only. An integer is also refused when it has more decimal digits than this
+# (a hexadecimal one of 4,000 characters does), so every value can be printed.
+MAX_YAML_NUMBER_CHARS = 4_300
+MAX_YAML_NUMBER_PARTS = 4
+_INT_LIMIT = 10**MAX_YAML_NUMBER_CHARS
+# The files `pack_digest` hashes, by identity on disk: (st_dev, st_ino).
+FileIds = frozenset[tuple[int, int]]
 
 
 @dataclass(frozen=True)
@@ -44,6 +55,9 @@ class Pack:
     # Provider configs already read (and checked) at load, by pack-relative path: `read_yaml`
     # returns them rather than reading the file again.
     parsed: dict[str, Any] = field(default_factory=dict, compare=False, repr=False)
+    # The files `pack_digest` hashed at load, by identity on disk; None: computed when first
+    # needed (a `Pack` built by hand).
+    digested: FileIds | None = field(default=None, compare=False, repr=False)
 
     @property
     def id(self) -> str:
@@ -58,9 +72,24 @@ class Pack:
         return f"{self.id}@{self.version}"
 
     def path(self, relative: str) -> Path:
-        """Resolve a pack-relative path, refusing anything that escapes the pack directory or
-        goes through a hidden entry or `__pycache__` (not part of the pack, nor its digest)."""
-        return _confined(self.root, relative, self.id)
+        """A file of the pack, for what it decides or tests with: `relative` resolved inside the
+        pack, and, if anything is there, one of the files `pack_digest` hashed, compared by the
+        file on disk, so no spelling (a case variant on a case-insensitive filesystem, a link)
+        reaches a file the digest leaves out. A path that escapes the pack, goes through a hidden
+        entry or `__pycache__` or is an attestation is refused naming why; any other file
+        outside the digest is refused too. A path with nothing there is returned (a file to
+        write, or one a caller checks for)."""
+        return _pack_file(self.root, relative, self.id, self._digested)
+
+    def attestation(self, relative: str) -> Path:
+        """A file *about* the pack, which its digest leaves out: in `evals/` (its benchmark and
+        leaderboard) or a `DECISION_CARD.md`. Read by fixed names (and `evaluation.benchmark`),
+        never as what the pack decides with."""
+        return _attestation_file(self.root, relative, self.id)
+
+    @cached_property
+    def _digested(self) -> FileIds:
+        return self.digested if self.digested is not None else _digest(self.root)[1]
 
     def read_yaml(self, relative: str) -> Any:
         if relative in self.parsed:
@@ -118,12 +147,15 @@ def load_pack(path: str | Path, *, missing_models_ok: bool = False) -> Pack:
     """Load and validate a pack. `missing_models_ok` lets `mendari train` load a pack whose
     trained artifacts (`model_file`, `calibration`) do not exist yet."""
     root = Path(path).resolve()
-    manifest_path = root / MANIFEST
     links = _outside_links(root)
     if links:
         raise PackValidationError(
             str(path), [f"{link}: a symbolic link that leads outside the pack" for link in links]
         )
+    # Hashed first: everything below is read through `_pack_file`, which accepts only a file the
+    # digest covers, whatever spelling reaches it.
+    digest, digested = _digest(root)
+    manifest_path = _pack_file(root, MANIFEST, str(path), digested)
     if not manifest_path.is_file():
         raise PackValidationError(str(path), [f"{MANIFEST} not found in {root}"])
     raw = load_yaml(manifest_path, MANIFEST, str(path))
@@ -133,7 +165,7 @@ def load_pack(path: str | Path, *, missing_models_ok: bool = False) -> Pack:
 
     # `policy: policy.yaml` keeps governance-relevant settings in their own reviewable file.
     if isinstance(raw.get("policy"), str):
-        policy_path = _confined(root, raw["policy"], label, "policy")
+        policy_path = _pack_file(root, raw["policy"], label, digested, "policy")
         if not policy_path.is_file():
             raise PackValidationError(label, [f"policy file {raw['policy']!r} not found"])
         raw["policy"] = load_yaml(policy_path, raw["policy"], label)
@@ -146,12 +178,14 @@ def load_pack(path: str | Path, *, missing_models_ok: bool = False) -> Pack:
     problems = [
         f"missing file {relative!r}"
         for where, relative in _referenced_files(manifest, models=not missing_models_ok)
-        if not _confined(root, relative, label, where).is_file()
+        if not _pack_file(root, relative, label, digested, where).is_file()
     ]
     if problems:
         raise PackValidationError(manifest.id, problems)
+    if manifest.evaluation.benchmark is not None:
+        _attestation_file(root, manifest.evaluation.benchmark, label, "evaluation.benchmark")
 
-    schema_path = _confined(root, manifest.inputs.json_schema, label)
+    schema_path = _pack_file(root, manifest.inputs.json_schema, label, digested)
     try:
         with schema_path.open(encoding="utf-8") as handle:
             input_schema = json.load(handle)
@@ -162,7 +196,7 @@ def load_pack(path: str | Path, *, missing_models_ok: bool = False) -> Pack:
     if problems:
         raise PackValidationError(manifest.id, problems)
     parsed = {
-        relative: load_yaml(_confined(root, relative, label), relative, manifest.id)
+        relative: load_yaml(_pack_file(root, relative, label, digested), relative, manifest.id)
         for relative in _rules_files(manifest)
     }
     problems = _pattern_problems(input_schema, parsed)  # jsonschema compiles them too
@@ -179,35 +213,55 @@ def load_pack(path: str | Path, *, missing_models_ok: bool = False) -> Pack:
     return Pack(
         manifest=manifest,
         root=root,
-        digest=pack_digest(root),
+        digest=digest,
         input_schema=input_schema,
         parsed=parsed,
+        digested=digested,
     )
 
 
 def pack_digest(root: Path) -> str:
     """sha256 over every file that defines the pack's behaviour, in a stable order."""
+    return _digest(root)[0]
+
+
+def _digest(root: Path) -> tuple[str, FileIds]:
+    """The pack digest, and the identity on disk of every file it hashed (of the file read, so
+    a link inside the pack counts as the file it leads to)."""
     digest = hashlib.sha256()
+    digested = set()
     for file in sorted(p for p in root.rglob("*") if p.is_file()):
         relative = file.relative_to(root)
         if _attestation(relative.parts) or any(_excluded(part) for part in relative.parts):
             continue
+        with file.open("rb") as handle:
+            content = handle.read()
+            status = os.fstat(handle.fileno())
+        digested.add((status.st_dev, status.st_ino))
         digest.update(relative.as_posix().encode())
         digest.update(b"\0")
-        digest.update(file.read_bytes())
+        digest.update(content)
         digest.update(b"\0")
-    return "sha256:" + digest.hexdigest()
+    return "sha256:" + digest.hexdigest(), frozenset(digested)
+
+
+# Manifest fields naming a file the pack decides or tests with, in a provider variant or a
+# composite member's config. Every one is checked at load, naming the field; a file read under
+# any other key goes through `Pack.path`, which accepts only a digested file as well.
+_PROVIDER_FILE_KEYS = ("config", "library", "model_file", "calibration")
+_TRAINED_FILE_KEYS = ("model_file", "calibration")  # may not exist yet (`missing_models_ok`)
 
 
 def _referenced_files(m: PackManifest, *, models: bool = True) -> list[tuple[str, str]]:
-    """Every file the manifest names, as (the manifest field naming it, its path)."""
+    """Every file the manifest names that must be inside the digest, as (the manifest field
+    naming it, its path). `evaluation.benchmark` is not one: it is an attestation."""
     files = [("inputs.schema", m.inputs.json_schema)]
     files += [(f"evaluation.datasets.{name}", path) for name, path in m.evaluation.datasets.items()]
     if m.inputs.fhir:
         files.append(("inputs.fhir", m.inputs.fhir))
     if m.tests:
         files.append(("tests", m.tests))
-    keys = ("config", "model_file", "calibration") if models else ("config",)
+    keys = [key for key in _PROVIDER_FILE_KEYS if models or key not in _TRAINED_FILE_KEYS]
     for slot_name, slot in m.providers.items():
         for variant_name, variant in slot.variants.items():
             where = f"providers.{slot_name}.variants.{variant_name}"
@@ -268,17 +322,61 @@ def _pattern_problems(input_schema: Any, rules: dict[str, Any]) -> list[str]:
     return problems
 
 
+class _NumberRefused(ValueError):
+    """A YAML number `_PackLoader` will not build, and why."""
+
+    def __init__(self, reason: str, node: yaml.Node):
+        super().__init__(reason)
+        self.reason = reason
+        self.mark = node.start_mark
+
+
+class _PackLoader(yaml.SafeLoader):
+    """The safe loader, with every number (an int or a float, implicit or tagged, in any base)
+    bounded before it is built: see `MAX_YAML_NUMBER_CHARS`."""
+
+    def construct_yaml_int(self, node: yaml.ScalarNode) -> int:
+        _check_number(node)
+        value: int = super().construct_yaml_int(node)
+        if abs(value) >= _INT_LIMIT:
+            raise _NumberRefused(f"an integer of more than {MAX_YAML_NUMBER_CHARS:,} digits", node)
+        return value
+
+    def construct_yaml_float(self, node: yaml.ScalarNode) -> float:
+        _check_number(node)
+        value: float = super().construct_yaml_float(node)
+        return value
+
+
+_PackLoader.add_constructor("tag:yaml.org,2002:int", _PackLoader.construct_yaml_int)
+_PackLoader.add_constructor("tag:yaml.org,2002:float", _PackLoader.construct_yaml_float)
+
+
+def _check_number(node: yaml.Node) -> None:
+    if not isinstance(node.value, str):
+        return  # not a scalar: the safe constructor refuses it
+    text = node.value.replace("_", "")
+    if len(text) > MAX_YAML_NUMBER_CHARS:
+        raise _NumberRefused(f"a number of more than {MAX_YAML_NUMBER_CHARS:,} characters", node)
+    if text.count(":") >= MAX_YAML_NUMBER_PARTS:
+        raise _NumberRefused(
+            f"a number of more than {MAX_YAML_NUMBER_PARTS} ':' parts (base 60)", node
+        )
+
+
 def load_yaml(path: Path, name: str, label: str) -> Any:
     """A YAML file of a pack, parsed safely. One that does not parse, is not UTF-8, nests too
     deep for the parser, holds a value Python cannot build (a date such as 2024-02-30, an
-    integer of more than 4,300 digits, an explicitly tagged scalar such as `!!bool maybe` or
-    `!!float ''`), refers to itself or, using anchors, expands past `MAX_YAML_NODES` or
-    `MAX_YAML_CHARS` is the pack's problem (a `PackValidationError` naming `name`), never a raw
-    error or a stall. A value the constructor cannot build is reported by its error's type
-    only: the error's text holds the value, which can be anything the pack wrote."""
+    explicitly tagged scalar such as `!!bool maybe` or `!!float ''`) or a number over the
+    bounds (`MAX_YAML_NUMBER_CHARS`, `MAX_YAML_NUMBER_PARTS`), refers to itself or, using
+    anchors, expands past `MAX_YAML_NODES` or `MAX_YAML_CHARS` is the pack's problem (a
+    `PackValidationError` naming `name`), never a raw error or a stall. A value the constructor
+    cannot build is reported by its error's type and its line and column only: the error's text
+    holds the value, which can be anything the pack wrote. A file that does not parse keeps the
+    parser's message (what it expected, where, and the line around it)."""
     try:
         text = path.read_text(encoding="utf-8")
-        loader = yaml.SafeLoader(text)
+        loader = _PackLoader(text)
         try:
             node = loader.get_single_node()
             if node is None:
@@ -289,21 +387,28 @@ def load_yaml(path: Path, name: str, label: str) -> Any:
                     raise PackValidationError(label, [f"{name}: {problem}"])
             try:
                 return loader.construct_document(node)
-            except yaml.YAMLError:
-                raise
-            except Exception as error:  # SafeConstructor's own, unwrapped (ValueError, KeyError…)
-                problem = f"{name}: invalid YAML value ({type(error).__name__})"
+            except _NumberRefused as error:
+                problem = f"{name}: {error.reason} ({_at(error.mark)})"
+                raise PackValidationError(label, [problem]) from None
+            except Exception as error:  # ConstructorError, or SafeConstructor's own, unwrapped
+                mark = getattr(error, "problem_mark", None)
+                at = f", {_at(mark)}" if isinstance(mark, yaml.Mark) else ""
+                problem = f"{name}: invalid YAML value ({type(error).__name__}{at})"
                 raise PackValidationError(label, [problem]) from None
         finally:
             loader.dispose()
     except (PackValidationError, OSError):  # ours, or the file cannot be read: not its content
         raise
-    except yaml.YAMLError as error:
+    except yaml.YAMLError as error:  # the file does not parse: the parser's message
         raise PackValidationError(label, [f"{name}: invalid YAML: {error}"]) from None
     except Exception as error:  # not UTF-8, nested too deep for the parser, …
         raise PackValidationError(
             label, [f"{name}: invalid YAML ({type(error).__name__})"]
         ) from None
+
+
+def _at(mark: yaml.Mark) -> str:
+    return f"line {mark.line + 1}, column {mark.column + 1}"
 
 
 def _expansion_problem(root: yaml.Node) -> str | None:
@@ -387,12 +492,12 @@ def _excluded(name: str) -> bool:
 
 
 def _confined(root: Path, relative: str, label: str, field: str | None = None) -> Path:
-    """`relative` resolved inside `root`, or a `PackValidationError`: a path that escapes the
-    pack, or that goes through a hidden entry or `__pycache__` as written or once links are
-    resolved. Those are not part of the pack (`pack_digest` and the archive skip them, as an
-    archive name with a hidden segment is refused). A path the manifest names (`field`, the
-    field naming it) may not be an attestation either (`evals/`, `DECISION_CARD.md`, read by
-    their fixed names), so whatever a pack decides with is inside its digest."""
+    """`relative` resolved inside `root`, or a `PackValidationError` naming `field` (the
+    manifest field naming the path, if any): a path that escapes the pack, or that goes through
+    a hidden entry or `__pycache__` as written or once links are resolved. Those are not part of
+    the pack (`pack_digest` and the archive skip them, as an archive name with a hidden segment
+    is refused). These checks read the path as written, for a clear message; what decides
+    whether a file of the pack may be read is its identity on disk (`_pack_file`)."""
     where = f"{field}: " if field else ""
     resolved = (root / relative).resolve()
     if not resolved.is_relative_to(root):
@@ -405,10 +510,47 @@ def _confined(root: Path, relative: str, label: str, field: str | None = None) -
             "part of the pack (nor its digest)"
         )
         raise PackValidationError(label, [problem])
-    if field is not None and _attestation(parts):
+    return resolved
+
+
+def _pack_file(
+    root: Path, relative: str, label: str, digested: FileIds, field: str | None = None
+) -> Path:
+    """A file the pack decides or tests with (`Pack.path`): `_confined`, not an attestation,
+    and, if anything but a directory is there, one of the files `pack_digest` hashed
+    (`digested`), compared by the file on disk. A spelling the digest does not hash (`EVALS/` or
+    `__PYCACHE__/` on a case-insensitive filesystem, a link to a left-out file) is refused
+    however it is written, so whatever a pack decides with is inside its digest."""
+    resolved = _confined(root, relative, label, field)
+    where = f"{field}: " if field else ""
+    if _attestation(resolved.relative_to(root).parts):
         problem = (
             f"{where}path {relative!r} is in evals/ or a DECISION_CARD.md, attestations about the "
             "pack that are not part of its digest"
+        )
+        raise PackValidationError(label, [problem])
+    try:
+        status = os.stat(resolved)
+    except (FileNotFoundError, NotADirectoryError):
+        return resolved  # nothing there to read: a file to write, or one a caller checks for
+    if stat.S_ISDIR(status.st_mode) or (status.st_dev, status.st_ino) in digested:
+        return resolved
+    problem = (
+        f"{where}path {relative!r} is not one of the files the pack's digest covers (it leaves "
+        "out hidden entries, __pycache__, evals/ and DECISION_CARD.md, however a path spells them)"
+    )
+    raise PackValidationError(label, [problem])
+
+
+def _attestation_file(root: Path, relative: str, label: str, field: str | None = None) -> Path:
+    """A file about the pack (`Pack.attestation`): `_confined`, and in `evals/` or a
+    `DECISION_CARD.md`, which the digest leaves out."""
+    resolved = _confined(root, relative, label, field)
+    if not _attestation(resolved.relative_to(root).parts):
+        where = f"{field}: " if field else ""
+        problem = (
+            f"{where}path {relative!r} is not in evals/ or a DECISION_CARD.md: an attestation "
+            "about the pack is kept outside its digest"
         )
         raise PackValidationError(label, [problem])
     return resolved

@@ -228,14 +228,21 @@ limits, designed with that feature). What a pack cannot do today is below.
 - A pack reads only its own files. Every path it names must resolve, symbolic links followed,
   inside the pack's directory; a directory pack holding a symbolic link that leads outside it
   is refused at load (hidden entries and `__pycache__` are not part of a pack, never digested,
-  archived or read, so a `.venv` beside its files is fine). A path the pack reads may not go
-  through one either, as written or with links resolved, and a path its manifest names may not
-  be in `evals/` or a `DECISION_CARD.md` (attestations about the pack, also left out of the
-  digest): a manifest naming one (say `config: .logic/rules.yaml`) is refused at load, naming
-  the field, so whatever a pack decides with is inside its digest, the identity a governance
-  approval covers. The files read by a fixed name (`CHANGELOG.md`, `DECISION_CARD.md`,
-  `evals/*.json`) go through the same check, and `mendari card --write` does not write through
-  a link. A signed archive holds regular files only (no symbolic or hard
+  archived or read, so a `.venv` beside its files is fine). Whatever a pack decides or tests
+  with is inside its digest, the identity a governance approval covers: `load_pack` hashes the
+  pack first, and every file it or a provider then reads (`Pack.path`) must be one of the files
+  hashed, compared by the file on disk (device and inode), not by how the path is spelled. So
+  a case variant on a case-insensitive filesystem (`EVALS/rules.yaml`, `__PYCACHE__/x.yaml`,
+  `logic/decision_card.md` on macOS or Windows), a link, a file added after the load or a key
+  the load does not list cannot reach a file the digest leaves out. The manifest fields naming
+  such a file (`inputs.schema`, `inputs.fhir`, `policy`, `tests`, `evaluation.datasets`, and a
+  provider's `config`, `library`, `model_file` and `calibration`) are checked at load, and a
+  refusal names the field and why (through a hidden entry or `__pycache__`, in `evals/` or a
+  `DECISION_CARD.md`, or not a file the digest covers). The attestations, left out of the
+  digest, are read only through a separate accessor (`Pack.attestation`) by their fixed names
+  (`evals/benchmark.json`, `evals/leaderboard.json`, `DECISION_CARD.md`) and
+  `evaluation.benchmark`, the one manifest path that must be in `evals/`; `mendari card --write`
+  does not write through a link. A signed archive holds regular files only (no symbolic or hard
   link, device, FIFO or sparse file), each named `pack/` and then plain path segments (none
   empty, `.`, `..` or hidden, no backslash), and extracting it writes nothing outside the
   destination. An archive is read as a stream with its caps checked while it expands, before
@@ -269,8 +276,16 @@ limits, designed with that feature). What a pack cannot do today is below.
   control character counts six), counted on the parsed graph before anything walks it, so a few
   lines of aliases cannot make loading exponential, or make a page that shows the file
   gigabytes long; the API reference embeds a pack's example only when it is at most 64 KB as
-  JSON. A YAML value Python cannot build (a date such as 2024-02-30, a tagged `!!bool maybe`)
-  is the pack's error too, named by the file and the error's type. A
+  JSON. A YAML number is bounded before it is built, in every base: its text (underscores
+  removed) at most 4,300 characters and 4 `:` parts, an integer at most 4,300 decimal digits,
+  so a base-60 number cannot make loading quadratic. A YAML value Python cannot build (a date
+  such as 2024-02-30, a tagged `!!bool maybe`, an unknown tag) is the pack's error too, named by
+  the file, the error's type and its line and column, never the value; a file that does not
+  parse keeps the parser's message (what it expected, with the line around it). A behaviour
+  test that is not JSON (a date, `!!binary`, a set, a lone surrogate, a number that is not
+  finite) is the pack's validation problem, named by case number and the value's type:
+  `mendari validate` reports it and `GET /api/packs/{id}/examples` answers `422`, never a `500`
+  or a traceback. A
   version has at most 64 characters, so comparing versions never fails. Publishing a pack to
   the registry that does not load, or whose card is not text, is refused with a `422` and its
   reason, never a server error; the registry shows a benchmark's dataset name, count and

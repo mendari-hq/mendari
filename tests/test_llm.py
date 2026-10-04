@@ -381,6 +381,7 @@ def test_calibration_is_fitted_and_applied_to_the_same_model_only(
         < fitted["questions"]["destination"]["nll_before"]
     )
     (pack.root / "models/router-llm-calibration.json").write_text(json.dumps(fitted))
+    pack = load_pack(pack.root)  # a file written after a load is not in that load's digest
 
     calibrated = router(pack, calibration="models/router-llm-calibration.json")
     answer = calibrated.answer(message(REFILL)).answers["destination"]

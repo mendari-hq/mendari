@@ -89,13 +89,27 @@ Validation rules (all MUST hold):
   (a control character counts six), once every alias is expanded (an alias counts each time it
   is used), and no alias inside its own anchor. A file without an anchor has no alias, and is
   not counted. Every value in it is one the safe loader can build: a value it cannot (a date
-  such as 2024-02-30, an explicitly tagged `!!bool maybe`) makes the pack invalid.
+  such as 2024-02-30, an explicitly tagged `!!bool maybe`) makes the pack invalid. So does a
+  number (an integer or a float, in any base, implicit or tagged) whose text, underscores
+  removed, is longer than 4,300 characters or has more than 4 `:` parts (base 60, as in
+  `1:30:00`), and an integer of more than 4,300 decimal digits: each is refused before it is
+  built.
 - Every referenced file exists inside the pack. A directory pack MUST NOT hold a symbolic link
   that resolves outside the pack's directory. Hidden entries (a name starting with `.`) and
   `__pycache__` are not part of the pack (not digested, archived or read), so a `.venv` in the
-  pack's folder is fine. A path the manifest names MUST NOT go through one, as written or once
-  links are resolved, nor be in `evals/` or a `DECISION_CARD.md` (§11): everything a pack
-  decides with is inside its digest.
+  pack's folder is fine.
+- Every file a pack decides or tests with MUST be one its digest hashes (§11). The manifest
+  fields naming one are `inputs.schema`, `inputs.fhir`, `policy` (when it names a file),
+  `tests`, `evaluation.datasets.<name>`, and, in a provider variant or a composite member,
+  `config`, `library`, `model_file` and `calibration`. Such a path MUST NOT go through a hidden
+  entry or `__pycache__` (as written or once links are resolved) nor be in `evals/` or a
+  `DECISION_CARD.md`, and the file it reaches MUST be one the digest hashes, compared as a file
+  on disk rather than by spelling: on a case-insensitive filesystem `EVALS/rules.yaml` is
+  `evals/rules.yaml`, and is refused. A file read under any other key is held to the same rule
+  when it is read.
+- `evaluation.benchmark` is the one manifest path that MUST be an attestation: in `evals/`
+  (it may not exist yet). A leaderboard (`evals/leaderboard.json`) and the card
+  (`DECISION_CARD.md`) are read by those fixed names.
 - The input schema is self-contained: `$ref`, `$dynamicRef` and `$recursiveRef` start with `#`
   and resolve to a schema (an object or a boolean) in the document; `$schema`, if present, is at
   the root only and names `https://json-schema.org/draft/2020-12/schema`; `$id` is at the root
@@ -461,14 +475,17 @@ requires a recorded governance override (§7). The reference server exposes this
 `tests/cases.yaml` is a list of `{name, input, expect}`. `expect` may contain `outcome`,
 `outcome_in`, `not_outcome`, `recommendation`, `priority` and `answers.<question>`. Tests
 describe behaviour that every provider variant is expected to preserve, especially the
-safety behaviour.
+safety behaviour. Every case MUST be JSON once loaded: a date, binary (`!!binary`), a set, a
+string with a lone surrogate or a number that is not finite makes the tests invalid, named by
+the case's number and the value's type.
 
 ## 11. Identity and versioning
 
 The pack digest is the SHA-256 over every file in the pack (path and content, in sorted order)
 except `evals/` and `DECISION_CARD.md`, which are attestations *about* the pack, and hidden
-entries and `__pycache__`, which are not part of it (§3). A path the manifest names may be in
-none of these, so the digest covers everything the pack decides with. Every decision and
+entries and `__pycache__`, which are not part of it (§3). Every file the pack decides or tests
+with is one the digest hashes, compared as a file on disk (§3), so the digest covers everything
+the pack decides with; `evaluation.benchmark`, an attestation, is in `evals/`. Every decision and
 evaluation report records the digest, so an audit record identifies the exact behaviour that
 produced it.
 
@@ -489,10 +506,12 @@ produces identical decisions; it simply cannot use the new fields. One restricti
 packs of every version: a `jev` or `llm` variant may not name the environment variables its
 provider reads (§5); a directory pack may not hold a symbolic link out of it, and an input
 schema must be self-contained, a version has at most 64 characters, a YAML file that uses
-anchors expands to at most 1,000,000 nodes and 32,000,000 characters as JSON (§3), a path the
-manifest names goes through no hidden entry or `__pycache__` and is not in `evals/` or a
-`DECISION_CARD.md` (§3), and every pattern (input-schema `patternProperties` keys included)
-compiles, at most 2,000 characters and 500 per pack (§5). No published pack did any of these.
+anchors expands to at most 1,000,000 nodes and 32,000,000 characters as JSON and holds no
+number over 4,300 characters or 4 `:` parts (§3), every file the pack decides or tests with is
+one its digest hashes, however a path spells it, and `evaluation.benchmark` is in `evals/` (§3),
+every behaviour test is JSON (§10), and every pattern (input-schema `patternProperties` keys
+included) compiles, at most 2,000 characters and 500 per pack (§5). No published pack did any
+of these.
 
 | Change | Section |
 |---|---|
@@ -513,7 +532,8 @@ compiles, at most 2,000 characters and 500 per pack (§5). No published pack did
 | `jev` and `llm` variants may not name the environment variables a provider reads (`*_env`; every spec version) | §5 |
 | A `cql` library's declaration is its first statement (every spec version) | §5 |
 | Every pack pattern (rules patterns, input-schema `pattern`s and `patternProperties` keys) compiles with `re`, at most 2,000 characters, at most 500 per pack, checked at load (every spec version) | §5 |
-| A version of at most 64 characters; YAML using anchors of at most 1,000,000 nodes and 32,000,000 characters as JSON, aliases expanded; manifest paths through no hidden entry, `__pycache__`, `evals/` or `DECISION_CARD.md` (every spec version) | §3 |
+| A version of at most 64 characters; YAML using anchors of at most 1,000,000 nodes and 32,000,000 characters as JSON, aliases expanded; YAML numbers of at most 4,300 characters and 4 `:` parts; every file a pack decides or tests with is one its digest hashes, compared on disk, and `evaluation.benchmark` is in `evals/` (every spec version) | §3 |
+| Every behaviour test is JSON: no date, binary, set, lone surrogate or non-finite number (every spec version) | §10 |
 | No symbolic link out of a directory pack; a self-contained input schema (local references only, no nested `$schema` or `$id`, no `$dynamicAnchor`, no `format: regex`; every spec version) | §3 |
 
 To migrate a pack:

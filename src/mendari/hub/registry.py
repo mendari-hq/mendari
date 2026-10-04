@@ -368,13 +368,13 @@ def _version_row(row: Mapping[str, Any]) -> dict[str, Any]:
 def describe(pack: Pack, verified: archive.Verified) -> dict[str, Any]:
     """What the registry shows and searches: from the pack itself, never from the uploader."""
     m = pack.manifest
-    benchmark = _json(pack.path("evals/benchmark.json"))
-    leaderboard = _json(pack.path("evals/leaderboard.json"))
+    benchmark = _json(pack.attestation("evals/benchmark.json"))
+    leaderboard = _json(pack.attestation("evals/leaderboard.json"))
     questions = (benchmark or {}).get("questions")
     primary = questions.get(m.policy.primary) if isinstance(questions, dict) else None
     primary = primary if isinstance(primary, dict) else {}
     dataset = (benchmark or {}).get("dataset")
-    card = _text(pack.path("DECISION_CARD.md"), "DECISION_CARD.md")
+    card = _text(pack.attestation("DECISION_CARD.md"), "DECISION_CARD.md")
     return {
         "pack_name": m.name,
         "summary": " ".join(m.summary.split()),

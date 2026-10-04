@@ -118,7 +118,7 @@ def critical_text(item: Mapping[str, Any]) -> str:
 
 
 def load(pack: Pack) -> dict[str, Any] | None:
-    path = pack.path(PATH)
+    path = pack.attestation(PATH)
     if not path.is_file():
         return None
     board: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))

@@ -321,11 +321,12 @@ def test_metadata_that_cannot_be_served_is_refused_before_it_is_stored(
 
 def test_a_shipped_benchmark_and_leaderboard_are_shown_as_they_are(registry: Registry) -> None:
     shown = registry.publish().json()
-    benchmark = json.loads(REFERRAL.path("evals/benchmark.json").read_text())
+    benchmark = json.loads(REFERRAL.attestation("evals/benchmark.json").read_text())
     primary = benchmark["questions"][REFERRAL.manifest.policy.primary]
     assert shown["benchmark"] == {
         "dataset": benchmark["dataset"]["name"],
         "n": primary["n"],
         "accuracy": primary["accuracy"],
     }
-    assert shown["leaderboard"] == json.loads(REFERRAL.path("evals/leaderboard.json").read_text())
+    leaderboard = REFERRAL.attestation("evals/leaderboard.json")
+    assert shown["leaderboard"] == json.loads(leaderboard.read_text())

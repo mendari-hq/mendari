@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import sys
 from collections.abc import Callable
+from functools import partial
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -272,6 +275,193 @@ def test_pack_path_refuses_a_hidden_entry_and_shipped_packs_are_unaffected(
     assert inbox_pack.path("./logic/../logic/routing_rules.yaml").is_file()
     for pack_dir in sorted(INBOX_DIR.parent.iterdir()):
         assert load_pack(pack_dir).digest == pack_digest(pack_dir)
+
+
+# -- a pack reads only files its digest hashes, compared by the file on disk -------------------
+
+
+def _case_insensitive(directory: Path) -> bool:
+    probe = directory / "case-probe"
+    probe.write_text("")
+    try:
+        return (directory / "CASE-PROBE").exists()
+    finally:
+        probe.unlink()
+
+
+@pytest.mark.parametrize(
+    ("actual", "spelled"),
+    [
+        ("__pycache__/t.yaml", "__PYCACHE__/t.yaml"),
+        ("evals/t.yaml", "EVALS/t.yaml"),
+        ("logic/DECISION_CARD.md", "logic/decision_card.md"),
+    ],
+)
+def test_a_case_variant_of_a_left_out_path_is_refused(
+    inbox_copy: Path, actual: str, spelled: str
+) -> None:
+    """On a case-insensitive filesystem (macOS, Windows) `config: EVALS/t.yaml` read
+    `evals/t.yaml`, which `pack_digest` skips: the refusals compared spellings, so editing the
+    rules changed decisions under the same digest. A file is now accepted by its identity on
+    disk, whatever spells it."""
+    if not _case_insensitive(inbox_copy):
+        pytest.skip("needs a case-insensitive filesystem")
+    root = inbox_copy
+    before = pack_digest(root)
+    target = root / actual
+    target.parent.mkdir(parents=True, exist_ok=True)
+    (root / "logic" / "routing_rules.yaml").rename(target)
+    assert pack_digest(root) != before  # the rules left the digest
+    manifest = root / "pack.yaml"
+    manifest.write_text(manifest.read_text().replace("logic/routing_rules.yaml", spelled))
+    with pytest.raises(PackValidationError) as raised:
+        load_pack(root)
+    assert raised.value.problems == [
+        f"providers.router.variants.rules.config: path {spelled!r} is not one of the files the "
+        "pack's digest covers (it leaves out hidden entries, __pycache__, evals/ and "
+        "DECISION_CARD.md, however a path spells them)"
+    ]
+
+
+def test_pack_path_refuses_a_case_variant_of_an_attestation(inbox_pack: Pack) -> None:
+    if not _case_insensitive(inbox_pack.root / "logic"):
+        pytest.skip("needs a case-insensitive filesystem")
+    for spelled in ["EVALS/benchmark.json", "decision_card.md", "Evals/../EVALS/benchmark.json"]:
+        with pytest.raises(PackValidationError, match="not one of the files the pack's digest"):
+            inbox_pack.path(spelled)
+
+
+@pytest.mark.parametrize(
+    ("library", "problem"),
+    [
+        ("evals/criteria.cql", "is in evals/ or a DECISION_CARD.md"),
+        (".logic/criteria.cql", "goes through a hidden entry or __pycache__"),
+        ("logic/missing.cql", None),
+    ],
+)
+def test_a_cql_library_is_checked_at_load_naming_the_field(
+    tmp_path: Path, library: str, problem: str | None
+) -> None:
+    """`library:` was not among the manifest paths checked at load, so a CQL library could live
+    in `evals/`, outside the digest, on any filesystem."""
+    root = tmp_path / "trial"
+    shutil.copytree(INBOX_DIR.parent / "clinical-trial-prescreener", root)
+    if problem is not None:
+        (root / library).parent.mkdir(parents=True, exist_ok=True)
+        (root / "logic" / "criteria.cql").rename(root / library)
+    manifest = root / "pack.yaml"
+    manifest.write_text(
+        manifest.read_text().replace("library: logic/criteria.cql", f"library: {library}")
+    )
+    with pytest.raises(PackValidationError) as raised:
+        load_pack(root)
+    field = "providers.structured.variants.cql.library"
+    if problem is None:
+        assert raised.value.problems == [f"missing file {library!r}"]
+    else:
+        assert len(raised.value.problems) == 1
+        assert raised.value.problems[0].startswith(f"{field}: path {library!r} {problem}")
+
+
+def test_pack_path_accepts_only_a_file_the_digest_hashed(inbox_copy: Path) -> None:
+    """Any filesystem: a file the load did not hash (created after it, or under a key the
+    manifest check does not list) is refused by `Pack.path`, so no provider reads it."""
+    root = inbox_copy
+    pack = load_pack(root)
+    assert pack.path("logic/routing_rules.yaml").is_file()
+    assert not pack.path("logic/not-there.yaml").exists()  # a file to write, or to check for
+    (root / "logic" / "later.yaml").write_text("rules: []\n")
+    with pytest.raises(PackValidationError, match=r"'logic/later\.yaml' is not one of the files"):
+        pack.path("logic/later.yaml")
+    with pytest.raises(PackValidationError, match=r"is in evals/ or a DECISION_CARD\.md"):
+        pack.path("evals/benchmark.json")
+    assert pack.attestation("evals/benchmark.json").is_file()
+    assert pack.attestation("DECISION_CARD.md").is_file()
+    with pytest.raises(PackValidationError, match=r"is not in evals/ or a DECISION_CARD\.md"):
+        pack.attestation("logic/routing_rules.yaml")
+    with pytest.raises(PackValidationError, match="goes through a hidden entry"):
+        pack.attestation("evals/.x.json")
+
+
+def test_the_benchmark_must_be_an_attestation(inbox_copy: Path) -> None:
+    """`evaluation.benchmark` is the one manifest path that must be outside the digest: a
+    published benchmark is about the pack, and publishing one must not change its identity."""
+    manifest = inbox_copy / "pack.yaml"
+    text = manifest.read_text().replace(
+        "benchmark: evals/benchmark.json", "benchmark: logic/benchmark.json"
+    )
+    manifest.write_text(text)
+    with pytest.raises(PackValidationError) as raised:
+        load_pack(inbox_copy)
+    assert raised.value.problems == [
+        "evaluation.benchmark: path 'logic/benchmark.json' is not in evals/ or a "
+        "DECISION_CARD.md: an attestation about the pack is kept outside its digest"
+    ]
+
+
+def test_every_shipped_pack_reads_only_digested_files() -> None:
+    """Every file a shipped pack opens while it loads, builds every provider variant (and its
+    FHIR mapping), reads its tests and decides them is one `pack_digest` hashes, by the file on
+    disk. Watched with an audit hook on `open`, independently of `Pack.path`."""
+    for pack_dir in sorted(INBOX_DIR.parent.iterdir()):
+        root = pack_dir.resolve()
+        digested = [
+            file
+            for file in root.rglob("*")
+            if file.is_file()
+            and not any(
+                p.startswith(".") or p == "__pycache__" for p in file.relative_to(root).parts
+            )
+            and file.relative_to(root).parts[0] != "evals"
+            and file.name != "DECISION_CARD.md"
+        ]
+        opened = _opened_under(root, partial(_exercise, root))
+        assert opened, pack_dir.name
+        for path in opened:
+            assert any(os.path.samefile(path, file) for file in digested), (pack_dir.name, path)
+
+
+def _exercise(root: Path) -> None:
+    from mendari.core.decision import Decision
+    from mendari.evals.pack_tests import load_cases
+    from mendari.providers import build_provider
+    from mendari.standards.fhir import FhirAdapter
+
+    pack = load_pack(root)
+    for slot, spec in pack.manifest.providers.items():
+        for variant in spec.variants:
+            build_provider(pack, slot, variant)
+    if pack.manifest.inputs.fhir:
+        FhirAdapter.for_pack(pack)
+    run = Decision(pack)
+    for case in load_cases(pack):
+        run.decide(case["input"])
+
+
+_WATCHED: list[tuple[Path, list[Path]]] = []
+_HOOKED: list[bool] = []
+
+
+def _audit(event: str, args: tuple[Any, ...]) -> None:
+    if event != "open" or not _WATCHED or not isinstance(args[0], str | Path):
+        return
+    root, opened = _WATCHED[-1]
+    path = Path(args[0])
+    if path.is_absolute() and path.is_relative_to(root):
+        opened.append(path)
+
+
+def _opened_under(root: Path, action: Callable[[], None]) -> list[Path]:
+    if not _HOOKED:  # an audit hook cannot be removed: added once, idle unless watching
+        sys.addaudithook(_audit)
+        _HOOKED.append(True)
+    opened: list[Path] = []
+    _WATCHED.append((root, opened))
+    try:
+        action()
+    finally:
+        _WATCHED.pop()
+    return opened
 
 
 def test_the_card_reads_the_changelog_only_inside_the_pack(

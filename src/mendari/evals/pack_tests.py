@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -24,7 +26,47 @@ def load_cases(pack: Pack) -> list[dict[str, Any]]:
     cases = pack.read_yaml(pack.manifest.tests) or []
     if not isinstance(cases, list):
         raise PackValidationError(pack.id, [f"{pack.manifest.tests}: expected a list of cases"])
+    problems = [
+        f"{pack.manifest.tests} case {number}: not JSON, it holds {what}"
+        for number, case in enumerate(cases, start=1)
+        if (what := _not_json(case)) is not None
+    ]
+    if problems:
+        raise PackValidationError(pack.id, problems)
     return cases
+
+
+def _not_json(value: Any) -> str | None:
+    """What in `value` a JSON response cannot carry (encoded as UTF-8, numbers finite), named
+    by its type, or None. YAML builds dates, bytes (`!!binary`), sets and strings with a lone
+    surrogate (`"\\ud800"`), none of which an input, an example or a decision can hold. The text
+    is never part of the answer: it is whatever the pack wrote."""
+    try:
+        json.dumps(value, ensure_ascii=False, allow_nan=False).encode("utf-8")
+    except RecursionError:
+        return "values nested too deep"
+    except (TypeError, ValueError):  # UnicodeEncodeError is a ValueError
+        pass
+    else:
+        return None
+    stack = [value]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, dict):
+            stack.extend(item)  # the keys
+            stack.extend(item.values())
+        elif isinstance(item, list | tuple):
+            stack.extend(item)
+        elif isinstance(item, str):
+            try:
+                item.encode("utf-8")
+            except UnicodeEncodeError:
+                return "a string with a lone surrogate"
+        elif isinstance(item, float) and not math.isfinite(item):
+            return "a number that is not finite"
+        elif not (item is None or isinstance(item, bool | int | float)):
+            return f"a value of type {type(item).__name__}"
+    return "a value JSON cannot hold"
 
 
 def run_pack_tests(decision: Decision) -> list[CaseOutcome]:
