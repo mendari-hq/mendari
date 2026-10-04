@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 from mendari.core.pack import Pack, load_pack, pack_digest
 from mendari.core.registry import resolve_pack
 from mendari.hub import archive
+from mendari.hub import registry as registry_module
 from mendari.hub.registry import RegistryStore, create_registry_app
 
 ADMIN = "admin-token-for-tests"
@@ -270,3 +271,61 @@ def test_an_over_long_version_is_refused_and_search_keeps_working(
     search = registry.client.get("/v1/search")
     assert search.status_code == 200
     assert [item["version"] for item in search.json()] == [REFERRAL.version]
+
+
+def _nested(depth: int) -> Any:
+    value: Any = 1
+    for _ in range(depth):
+        value = [value]
+    return value
+
+
+def test_a_deeply_nested_attestation_is_shown_as_none_and_search_keeps_working(
+    registry: Registry, tmp_path: Path
+) -> None:
+    """`describe` stored `dataset.name`, `n`, `accuracy` and the leaderboard as any JSON value.
+    One nested 300 levels deep was committed, then the response serializer gave up (about 255
+    levels): the publish was a 500, and so was `GET /v1/search` for everyone, for good."""
+    assert registry.publish(GUARD).status_code == 201
+    root = tmp_path / "pack"
+    shutil.copytree(REFERRAL.root, root)
+    benchmark = json.loads((root / "evals" / "benchmark.json").read_text())
+    benchmark["dataset"] = {"name": _nested(300)}
+    primary = benchmark["questions"][REFERRAL.manifest.policy.primary]
+    primary["n"], primary["accuracy"] = True, float("nan")
+    (root / "evals" / "benchmark.json").write_text(json.dumps(benchmark))
+    (root / "evals" / "leaderboard.json").write_text(json.dumps({"rows": _nested(300)}))
+    answer = registry.publish(load_pack(root))
+    assert answer.status_code == 201, answer.text
+    assert answer.json()["benchmark"] == {"dataset": None, "n": None, "accuracy": None}
+    assert answer.json()["leaderboard"] is None
+    assert registry.client.get("/v1/search").status_code == 200
+    for path in ("", f"/{REFERRAL.version}"):
+        assert registry.client.get(f"/v1/packs/{REFERRAL.id}{path}").status_code == 200
+
+
+def test_metadata_that_cannot_be_served_is_refused_before_it_is_stored(
+    registry: Registry, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def describe(pack: Any, verified: Any) -> dict[str, Any]:
+        return {"pack_name": "x", "deep": _nested(300)}
+
+    monkeypatch.setattr(registry_module, "describe", describe)
+    refused = registry.publish()
+    assert refused.status_code == 422, refused.text
+    assert "the pack's metadata cannot be served (PydanticSerializationError)" in refused.text
+    monkeypatch.undo()
+    assert registry.client.get("/v1/search").json() == []
+    assert registry.publish().status_code == 201
+
+
+def test_a_shipped_benchmark_and_leaderboard_are_shown_as_they_are(registry: Registry) -> None:
+    shown = registry.publish().json()
+    benchmark = json.loads(REFERRAL.path("evals/benchmark.json").read_text())
+    primary = benchmark["questions"][REFERRAL.manifest.policy.primary]
+    assert shown["benchmark"] == {
+        "dataset": benchmark["dataset"]["name"],
+        "n": primary["n"],
+        "accuracy": primary["accuracy"],
+    }
+    assert shown["leaderboard"] == json.loads(REFERRAL.path("evals/leaderboard.json").read_text())

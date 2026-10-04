@@ -227,7 +227,9 @@ limits, designed with that feature). What a pack cannot do today is below.
   so it cannot send a process secret to an address of its choosing.
 - A pack reads only its own files. Every path it names must resolve, symbolic links followed,
   inside the pack's directory; a directory pack holding a symbolic link that leads outside it
-  (hidden entries included) is refused at load, the files read by a fixed name (`CHANGELOG.md`,
+  is refused at load (hidden entries and `__pycache__` are not part of a pack, never digested,
+  archived or read, so a `.venv` beside its files is fine; a path the manifest names through one
+  is still confined), the files read by a fixed name (`CHANGELOG.md`,
   `DECISION_CARD.md`, `evals/*.json`) go through the same check, and `mendari card --write`
   does not write through a link. A signed archive holds regular files only (no symbolic or hard
   link, device, FIFO or sparse file), each named `pack/` and then plain path segments (none
@@ -245,7 +247,8 @@ limits, designed with that feature). What a pack cannot do today is below.
   and of the library's text: a library that declares another pack's library name and version
   neither replaces nor shadows it. The declaration must be the library's first statement.
 - A pack's patterns are checked at load. Every rules pattern (of every variant and composite
-  member) and every input-schema `pattern` is compiled with `re` as it will run, is at most
+  member) and every input-schema `pattern` and `patternProperties` key is compiled with `re` as
+  it will run, is at most
   2,000 characters, and a pack holds at most 500, counted before any is compiled; one that
   fails makes the pack invalid, named by file and rule (`mendari validate` prints no
   traceback; a server lists the pack under `/api/health` `invalid`). This does not bound how
@@ -257,11 +260,17 @@ limits, designed with that feature). What a pack cannot do today is below.
   UTF-8) lists that pack in `/api/health` (`invalid`; an error that is not Mendari's by its type
   alone, as its text is the pack's), and every other pack is served; a served pack whose
   providers cannot be built when first used is listed there too, and its decisions answer
-  `422`, never `/api/health` or another pack's. A YAML file of a pack expands to at most
-  1,000,000 nodes, counted on the parsed graph before anything walks it, so a few lines of
-  aliases cannot make loading exponential; a version has at most 64 characters, so comparing
-  versions never fails. Publishing a pack to the registry that does not load, or whose card is
-  not text, is refused with a `422` and its reason, never a server error.
+  `422`, never `/api/health` or another pack's. A YAML file of a pack that uses anchors expands
+  to at most 1,000,000 nodes and 32,000,000 characters of scalar text, counted on the parsed
+  graph before anything walks it, so a few lines of aliases cannot make loading exponential, or
+  make a page that shows the file (the API reference embeds each pack's first test) gigabytes
+  long; a YAML value Python cannot build (a date such as 2024-02-30) is the pack's error too. A
+  version has at most 64 characters, so comparing versions never fails. Publishing a pack to
+  the registry that does not load, or whose card is not text, is refused with a `422` and its
+  reason, never a server error; the registry shows a benchmark's dataset name, count and
+  accuracy only as a short string, an integer and a finite number, and a leaderboard only up
+  to 32 levels and 1 MB (otherwise as none), and serializes what it will show before storing
+  anything, so a pack's attestations cannot make search or its version's page a server error.
 - A pack's input schema is self-contained: every `$ref` points inside it (`#...`) at a schema,
   `$schema` and `$id` appear only at its root (the dialect 2020-12), and it holds no
   `$dynamicAnchor` and no `format: regex` (which jsonschema checks by compiling the caller's

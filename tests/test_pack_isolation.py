@@ -16,8 +16,9 @@ import yaml
 from fastapi.testclient import TestClient
 
 from mendari import load_pack
+from mendari.cli import main
 from mendari.core import registry as registry_module
-from mendari.core.pack import MAX_YAML_NODES
+from mendari.core.pack import MAX_YAML_CHARS, MAX_YAML_NODES, load_yaml
 from mendari.core.registry import version_key
 from mendari.errors import PackValidationError
 from mendari.server.app import create_app
@@ -237,6 +238,13 @@ def test_a_pack_whose_providers_cannot_be_built_never_fails_health(
         "/api/packs/outsider/clinical-trial-prescreener/decide", json=case["input"]
     )
     assert refused.status_code == 422, refused.text
+    # As README says: such a pack stays listed, counted and offered to EHRs, answering 422.
+    pack_id = "outsider/clinical-trial-prescreener"
+    assert client.get(f"/api/packs/{pack_id}").status_code == 422
+    assert pack_id in [item["id"] for item in client.get("/api/packs").json()]
+    assert body["packs"] == 6
+    services = [s["id"] for s in client.get("/cds-services").json()["services"]]
+    assert "outsider.clinical-trial-prescreener" in services
     _shipped_packs_all_decide(client)
 
 
@@ -325,3 +333,93 @@ def test_only_yaml_with_an_anchor_is_walked_for_its_expansion(
     assert walked == []
     assert pack_module.load_yaml(anchored, "anchored.yaml", "x") == {"a": [1, 2], "b": [1, 2]}
     assert len(walked) == 1
+
+
+def long_text_laughs(levels: int, length: int) -> str:
+    """A YAML key whose value is 10**levels references to one scalar of `length` characters."""
+    lines = [f"x_text: &s {'a' * length}", "x_lists:", f"  l1: &l1 [{', '.join(['*s'] * 10)}]"]
+    for level in range(2, levels + 1):
+        lines.append(f"  l{level}: &l{level} [{', '.join([f'*l{level - 1}'] * 10)}]")
+    return "\n" + "\n".join(lines) + "\n"
+
+
+def test_a_long_scalar_aliased_through_lists_is_refused_by_its_expanded_text(
+    tmp_path: Path,
+) -> None:
+    """The node cap counted a scalar as 1 whatever its length: a 1 MB tests file with a
+    1,000,000-character anchor aliased through two levels of ten loaded, and /openapi.json,
+    which embeds every pack's first automated test, answered 100 MB (each level more, ten times
+    that). Scalar text is counted too now, at most `MAX_YAML_CHARS` once aliases are expanded."""
+    path = tmp_path / "cases.yaml"
+    path.write_text(long_text_laughs(3, 100_000))  # 300 KB holding 10**8 characters
+    started = time.process_time()
+    with pytest.raises(PackValidationError, match="expands to more than 32,000,000 characters"):
+        load_yaml(path, "tests/cases.yaml", "x")
+    assert time.process_time() - started < 0.5
+    within = tmp_path / "within.yaml"
+    within.write_text(long_text_laughs(2, 1_000))  # 100,000 characters
+    assert len(load_yaml(within, "within.yaml", "x")["x_lists"]["l2"]) == 10
+    assert MAX_YAML_CHARS == 32_000_000
+
+
+def test_a_tests_file_that_expands_past_the_cap_never_reaches_the_api_reference(
+    tmp_path: Path,
+) -> None:
+    """The API reference (every pack's) and the pack's examples serialized each reference."""
+
+    def edit(pack: Path) -> None:
+        lists = "".join(
+            f"  l{n}: &l{n} [{', '.join([f'*{previous}'] * 10)}]\n"
+            for n, previous in [(1, "s"), (2, "l1"), (3, "l2")]
+        )
+        (pack / "tests" / "cases.yaml").write_text(
+            f"- name: s\n  x_text: &s {'a' * 100_000}\n  input: {{message: {{body: hi}}}}\n"
+            f"- name: lists\n{lists}"
+            "- name: boom\n  input: {message: {body: *l3}}\n  expect: {outcome: AUTO}\n"
+        )
+
+    outside = tmp_path / "outside"
+    pack = _outsider(outside, edit)
+    with pytest.raises(PackValidationError, match=r"tests/cases\.yaml: expands to more than"):
+        load_pack(pack).read_yaml("tests/cases.yaml")
+    client = TestClient(create_app(db_path=tmp_path / "e.db", packs_paths=[outside, PACKS]))
+    reference = client.get("/openapi.json")
+    assert reference.status_code == 200 and len(reference.content) < 5_000_000
+    examples = client.get(f"/api/packs/outsider/{INBOX_DIR.name}/examples")
+    assert examples.status_code == 422, examples.status_code
+
+
+def test_an_unused_variant_cannot_carry_an_expanding_manifest(tmp_path: Path) -> None:
+    """The same in pack.yaml (an unused variant's extra key, dumped by the pack's detail page):
+    the pack is refused at load and every other pack is served."""
+    outside = tmp_path / "outside"
+    pack = _outsider(outside, _append("pack.yaml", long_text_laughs(3, 100_000))).resolve()
+    client = TestClient(create_app(db_path=tmp_path / "m.db", packs_paths=[outside, PACKS]))
+    invalid = client.get("/api/health").json()["invalid"]
+    assert "pack.yaml: expands to more than 32,000,000 characters" in invalid[str(pack)]
+    _shipped_packs_all_decide(client)
+
+
+@pytest.mark.parametrize(
+    ("line", "error"),
+    [
+        ("x_released: 2024-02-30", "ValueError: day is out of range for month"),
+        ("x_count: " + "9" * 5000, "ValueError: Exceeds the limit (4300 digits)"),
+    ],
+    ids=["impossible-date", "over-long-integer"],
+)
+def test_a_yaml_value_python_cannot_build_is_the_packs_problem(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], line: str, error: str
+) -> None:
+    """SafeConstructor raises a plain ValueError for an impossible date or an integer of more
+    than 4,300 digits: `load_pack` raised it and `mendari validate` printed a traceback."""
+    root = tmp_path / "pack"
+    shutil.copytree(INBOX_DIR, root)
+    _append("pack.yaml", f"\n{line}\n")(root)
+    with pytest.raises(PackValidationError) as raised:
+        load_pack(root)
+    (problem,) = raised.value.problems
+    assert problem.startswith(f"pack.yaml: invalid YAML value ({error}")
+    assert main(["validate", str(root)]) == 1
+    err = capsys.readouterr().err
+    assert "pack.yaml: invalid YAML value" in err and "Traceback" not in err

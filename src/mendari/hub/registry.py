@@ -24,6 +24,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import math
 import os
 import re
 import secrets
@@ -37,6 +38,7 @@ from typing import Any, Literal
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
+from pydantic_core import to_json
 
 from mendari import __version__
 from mendari.core.db import Backend, Session, connect
@@ -49,6 +51,12 @@ from mendari.hub import archive
 PublisherType = Literal["community", "verified", "institutional"]
 _NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 _VERSION = re.compile(r"^(?=.{1,64}$)\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
+# A leaderboard the registry shows as the pack carries it, within these bounds: a shipped one
+# nests 5 levels and holds about 10 KB. Deeper than about 255 levels, the response serializer
+# fails, and the version is immutable.
+MAX_LEADERBOARD_DEPTH = 32
+MAX_LEADERBOARD_BYTES = 1_000_000
+MAX_DATASET_NAME = 200
 _LOCK = 0x0E4_4B0B  # the registry's Postgres advisory lock (the audit store has its own)
 
 SCHEMA = """
@@ -217,6 +225,12 @@ class RegistryStore:
                 raise HubError(f"the pack does not load: {error}") from None
             except Exception as error:  # the publisher's content: named, never a 500
                 raise HubError(f"the pack does not load ({type(error).__name__})") from None
+        try:  # as every answer will serialize it, before anything is stored: versions are immutable
+            to_json(metadata)
+        except Exception as error:
+            raise HubError(
+                f"the pack's metadata cannot be served ({type(error).__name__})"
+            ) from None
         with self._db.session(exclusive=True) as db:
             if db.one(
                 "SELECT version FROM hub_versions WHERE namespace = ? AND name = ? AND version = ?",
@@ -378,15 +392,49 @@ def describe(pack: Pack, verified: archive.Verified) -> dict[str, Any]:
         "digest": pack.digest,
         "key_id": verified.key_id,
         "benchmark": {
-            "dataset": dataset.get("name") if isinstance(dataset, dict) else None,
-            "n": primary.get("n"),
-            "accuracy": primary.get("accuracy"),
+            "dataset": _short_text(dataset.get("name")) if isinstance(dataset, dict) else None,
+            "n": _count(primary.get("n")),
+            "accuracy": _number(primary.get("accuracy")),
         }
         if benchmark
         else None,
-        "leaderboard": leaderboard,
+        "leaderboard": leaderboard if _bounded(leaderboard) else None,
         "card_markdown": card,
     }
+
+
+def _short_text(value: Any) -> str | None:
+    return value if isinstance(value, str) and len(value) <= MAX_DATASET_NAME else None
+
+
+def _count(value: Any) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _number(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    try:
+        return value if math.isfinite(value) else None
+    except OverflowError:  # an integer past the float range
+        return None
+
+
+def _bounded(document: dict[str, Any] | None) -> bool:
+    """Whether a JSON document the pack carries nests at most `MAX_LEADERBOARD_DEPTH` levels and
+    serializes to at most `MAX_LEADERBOARD_BYTES`."""
+    if document is None:
+        return False
+    stack: list[tuple[Any, int]] = [(document, 1)]
+    while stack:
+        node, depth = stack.pop()
+        if depth > MAX_LEADERBOARD_DEPTH:
+            return False
+        children = (
+            node.values() if isinstance(node, dict) else node if isinstance(node, list) else ()
+        )
+        stack.extend((child, depth + 1) for child in children)
+    return len(json.dumps(document)) <= MAX_LEADERBOARD_BYTES
 
 
 def _json(path: Path) -> dict[str, Any] | None:

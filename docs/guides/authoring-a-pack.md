@@ -28,8 +28,10 @@ A pack is self-contained. Every file it names stays inside its folder (a symboli
 it is refused), and the input schema refers only to its own parts: a `$ref` starts with `#`,
 `$schema` (2020-12) and `$id` appear only at the top, and `$dynamicAnchor` and `format: regex`
 are not allowed. Checking an input never fetches a URL or reads another file. The version is a
-semantic version of at most 64 characters, and YAML anchors are fine within reason: a file may
-expand to at most 1,000,000 nodes once its aliases are counted where they are used.
+semantic version of at most 64 characters, and YAML anchors are fine within reason: a file that
+uses them may expand to at most 1,000,000 nodes and 32,000,000 characters of text once its
+aliases are counted where they are used. A `.venv` or other hidden folder beside the pack's
+files is not part of the pack, and is ignored.
 
 It already works. Check it:
 
@@ -131,7 +133,8 @@ the pattern that matched.
 
 Patterns are Python regular expressions (`re`), matched with case ignored. `mendari validate`
 compiles every one, so a typo is reported with its file and rule; a pattern may be at most
-2,000 characters, and a pack may hold 500 (input-schema `pattern`s included). Keep them simple:
+2,000 characters, and a pack may hold 500 (input-schema `pattern`s and `patternProperties` keys
+included). Keep them simple:
 `re` has no time limit, and a pattern that can match the same text in many ways, such as
 `(a+)+$`, can take seconds on a short message and hold the worker that runs it.
 

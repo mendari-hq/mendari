@@ -19,20 +19,24 @@ identically.
   the cache path before any write, and the signed manifest must name that id and version (T11).
   The input schema is self-contained (local references that resolve, no nested `$schema` or
   `$id`, no `$dynamicAnchor`, no `format: regex`) and its validator retrieves nothing. A
-  directory pack with a symbolic link out of it (hidden entries included) is refused; fixed-name
+  directory pack with a symbolic link out of it is refused (hidden entries and `__pycache__`, never
+  part of a pack, are skipped: a `.venv` beside it is fine, as on main); fixed-name
   reads go through `Pack.path`; `mendari card --write` does not write through a link.
 - [x] **3. A pack never stops the server (D7)**: any error loading a pack or building its
   terminology lists it under `/api/health` `invalid` (by type when not Mendari's) and the others
   are served; a served pack whose providers cannot be built is listed there and answers `422`,
   never failing `/api/health` (T9); providers stay lazy, built at first use as on main. YAML is
-  bounded on the parsed graph (1,000,000 nodes, aliases expanded, each node visited once; no
-  alias loop) before anything walks it (T2, T7); YAML or JSON too deep, not UTF-8, or a schema
-  the validator cannot read is a `PackValidationError`. A version has at most 64 characters and
+  bounded on the parsed graph of a file that uses anchors (1,000,000 nodes and 32,000,000
+  characters of scalar text, aliases expanded, each node visited once; no alias loop) before
+  anything walks it (T2, T7); YAML or JSON too deep, not UTF-8, a YAML value Python cannot build,
+  or a schema the validator cannot read is a `PackValidationError`. A version has at most 64 characters and
   `version_key` never calls `int()` (T10). A registry publish answers `422`, never `500`, for a
-  pack that does not load or whose card is not text; a malformed benchmark is shown as none
-  (T12).
+  pack that does not load or whose card is not text; a malformed benchmark is shown as none,
+  only typed scalars and a leaderboard of at most 32 levels and 1 MB are kept, and the metadata
+  is serialized before it is stored (T12).
 - [x] **4. Pack patterns compiled at load (residual risk in the threat model)**: every rules
-  pattern (every variant and composite member, case ignored) and input-schema `pattern` is
+  pattern (every variant and composite member, case ignored), input-schema `pattern` and
+  `patternProperties` key is
   compiled with `re` at load, at most 2,000 characters, at most 500 per pack counted before any
   is compiled; a failure is a `PackValidationError` naming pack, file and rule. Patterns run on
   `re` as on main, with no time limit; Mendari's own dosing and CQL patterns are unchanged. The

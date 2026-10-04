@@ -84,11 +84,14 @@ Validation rules (all MUST hold):
 - `thresholds.review ≤ thresholds.auto`, both in [0, 1].
 - Packs at risk level ≥ 2 MUST NOT contain policy rules whose outcome is `AUTO`.
 - `version` is a semantic version of at most 64 characters.
-- A YAML file of the pack (manifest, policy, provider configs, tests) has at most 1,000,000
-  nodes once every alias is expanded (an alias counts each time it is used), and no alias
-  inside its own anchor.
+- A YAML file of the pack (manifest, policy, provider configs, tests) that uses anchors has
+  at most 1,000,000 nodes and 32,000,000 characters of scalar text once every alias is expanded
+  (an alias counts each time it is used), and no alias inside its own anchor. A file without an
+  anchor has no alias, and is not counted.
 - Every referenced file exists inside the pack. A directory pack MUST NOT hold a symbolic link
-  (hidden entries included) that resolves outside the pack's directory.
+  that resolves outside the pack's directory. Hidden entries (a name starting with `.`) and
+  `__pycache__` are not part of the pack (not digested, archived or read), so a `.venv` in the
+  pack's folder is fine; a path the manifest names through one MUST still resolve inside it.
 - The input schema is self-contained: `$ref`, `$dynamicRef` and `$recursiveRef` start with `#`
   and resolve to a schema (an object or a boolean) in the document; `$schema`, if present, is at
   the root only and names `https://json-schema.org/draft/2020-12/schema`; `$id` is at the root
@@ -259,10 +262,10 @@ recorded as a failure of the slot's questions (`<member>:<code>`), which caps `A
 the runtime adds the expected score.
 
 A pack's patterns (every `rules` pattern, of every variant and composite member, and every
-`pattern` in its input schema) are Python `re` regular expressions, run as `re` runs them (rules
-patterns with case ignored). Each MUST compile and be at most 2,000 characters, and a pack MUST
-hold at most 500 of them; the runtime compiles every one at load, so a pack with an invalid one
-is invalid, named by file and rule. `re` has no time limit: a pattern that backtracks (`(a+)+$`)
+`pattern` and `patternProperties` key in its input schema) are Python `re` regular expressions,
+run as `re` runs them (rules patterns with case ignored). Each MUST compile and be at most 2,000
+characters, and a pack MUST hold at most 500 of them; the runtime compiles every one at load, so
+a pack with an invalid one is invalid, named by file and rule. `re` has no time limit: a pattern that backtracks (`(a+)+$`)
 can take seconds or longer on a crafted input: a pack's patterns are code its author wrote, and
 installing a pack means trusting its author.
 
@@ -479,9 +482,10 @@ commits to each decision record, so modification or deletion is detectable.
 produces identical decisions; it simply cannot use the new fields. One restriction applies to
 packs of every version: a `jev` or `llm` variant may not name the environment variables its
 provider reads (§5); a directory pack may not hold a symbolic link out of it, and an input
-schema must be self-contained, a version has at most 64 characters, a YAML file expands to at
-most 1,000,000 nodes (§3), and every pattern compiles, at most 2,000 characters and 500 per pack
-(§5). No published pack did any of these.
+schema must be self-contained, a version has at most 64 characters, a YAML file that uses
+anchors expands to at most 1,000,000 nodes and 32,000,000 characters (§3), and every pattern
+(input-schema `patternProperties` keys included) compiles, at most 2,000 characters and 500 per
+pack (§5). No published pack did any of these.
 
 | Change | Section |
 |---|---|
@@ -501,8 +505,8 @@ most 1,000,000 nodes (§3), and every pattern compiles, at most 2,000 characters
 | The decision output schema adds an optional `value` to each answer | §4.2 |
 | `jev` and `llm` variants may not name the environment variables a provider reads (`*_env`; every spec version) | §5 |
 | A `cql` library's declaration is its first statement (every spec version) | §5 |
-| Every pack pattern compiles with `re`, at most 2,000 characters, at most 500 per pack, checked at load (every spec version) | §5 |
-| A version of at most 64 characters; YAML of at most 1,000,000 nodes, aliases expanded (every spec version) | §3 |
+| Every pack pattern (rules patterns, input-schema `pattern`s and `patternProperties` keys) compiles with `re`, at most 2,000 characters, at most 500 per pack, checked at load (every spec version) | §5 |
+| A version of at most 64 characters; YAML using anchors of at most 1,000,000 nodes and 32,000,000 characters, aliases expanded (every spec version) | §3 |
 | No symbolic link out of a directory pack; a self-contained input schema (local references only, no nested `$schema` or `$id`, no `$dynamicAnchor`, no `format: regex`; every spec version) | §3 |
 
 To migrate a pack:

@@ -25,10 +25,13 @@ MANIFEST = "pack.yaml"
 # otherwise publishing a benchmark would change the identity of the pack it describes.
 _DIGEST_EXCLUDED_DIRS = {"evals"}
 _DIGEST_EXCLUDED_FILES = {"DECISION_CARD.md"}
-# A YAML document's nodes, counting an alias each time it is used: a few lines of anchors and
-# aliases ("a billion laughs") otherwise expand to a graph whose every walk is exponential. The
-# shipped packs' largest file has under 2,000.
+# A YAML document that uses anchors, with every alias counted each time it is used: a few lines
+# of anchors and aliases ("a billion laughs") otherwise expand to a graph whose every walk is
+# exponential, or, over one long scalar, to a document of gigabytes once anything serializes it
+# (the API reference embeds a pack's first test case). The shipped packs' largest file has under
+# 2,000 nodes and 20,000 characters.
 MAX_YAML_NODES = 1_000_000
+MAX_YAML_CHARS = 32_000_000  # characters of scalar text
 
 
 @dataclass(frozen=True)
@@ -191,7 +194,7 @@ def pack_digest(root: Path) -> str:
         if (
             relative.parts[0] in _DIGEST_EXCLUDED_DIRS
             or relative.name in _DIGEST_EXCLUDED_FILES
-            or any(part.startswith(".") or part == "__pycache__" for part in relative.parts)
+            or any(_excluded(part) for part in relative.parts)
         ):
             continue
         digest.update(relative.as_posix().encode())
@@ -263,8 +266,10 @@ def _pattern_problems(input_schema: Any, rules: dict[str, Any]) -> list[str]:
 
 def load_yaml(path: Path, name: str, label: str) -> Any:
     """A YAML file of a pack, parsed safely. One that does not parse, is not UTF-8, nests too
-    deep for the parser, refers to itself or expands past `MAX_YAML_NODES` is the pack's
-    problem (a `PackValidationError` naming `name`), never a raw error or a stall."""
+    deep for the parser, holds a value Python cannot build (a date such as 2024-02-30, an
+    integer of more than 4,300 digits), refers to itself or, using anchors, expands past
+    `MAX_YAML_NODES` or `MAX_YAML_CHARS` is the pack's problem (a `PackValidationError` naming
+    `name`), never a raw error or a stall."""
     try:
         text = path.read_text(encoding="utf-8")
         loader = yaml.SafeLoader(text)
@@ -276,7 +281,12 @@ def load_yaml(path: Path, name: str, label: str) -> Any:
                 problem = _expansion_problem(node)
                 if problem is not None:
                     raise PackValidationError(label, [f"{name}: {problem}"])
-            return loader.construct_document(node)
+            try:
+                return loader.construct_document(node)
+            except (ValueError, OverflowError) as error:  # SafeConstructor's own, unwrapped
+                raise PackValidationError(
+                    label, [f"{name}: invalid YAML value ({type(error).__name__}: {error})"]
+                ) from None
         finally:
             loader.dispose()
     except yaml.YAMLError as error:
@@ -288,10 +298,11 @@ def load_yaml(path: Path, name: str, label: str) -> Any:
 
 
 def _expansion_problem(root: yaml.Node) -> str | None:
-    """Why a composed YAML graph may not be constructed: an alias inside its own anchor, or
-    more than `MAX_YAML_NODES` nodes once every alias is expanded. Each node is visited once
-    (by identity), so this is linear in the file, however much the aliases would expand."""
-    sizes: dict[int, int] = {}
+    """Why a composed YAML graph may not be constructed: an alias inside its own anchor, or more
+    than `MAX_YAML_NODES` nodes or `MAX_YAML_CHARS` characters of scalars once every alias is
+    expanded. Each node is visited once (by identity), so this is linear in the file, however
+    much the aliases would expand."""
+    sizes: dict[int, tuple[int, int]] = {}  # (nodes, characters), each capped just past its limit
     open_nodes: set[int] = set()
     stack: list[tuple[yaml.Node, bool]] = [(root, False)]
     while stack:
@@ -300,7 +311,11 @@ def _expansion_problem(root: yaml.Node) -> str | None:
         children = _children(node)
         if finished:
             open_nodes.discard(key)
-            sizes[key] = min(1 + sum(sizes[id(child)] for child in children), MAX_YAML_NODES + 1)
+            nodes = 1 + sum(sizes[id(child)][0] for child in children)
+            chars = sum(sizes[id(child)][1] for child in children)
+            if isinstance(node, yaml.ScalarNode):
+                chars += len(node.value)
+            sizes[key] = (min(nodes, MAX_YAML_NODES + 1), min(chars, MAX_YAML_CHARS + 1))
             continue
         if key in sizes:
             continue
@@ -309,8 +324,14 @@ def _expansion_problem(root: yaml.Node) -> str | None:
         open_nodes.add(key)
         stack.append((node, True))
         stack.extend((child, False) for child in children if id(child) not in sizes)
-    if sizes[id(root)] > MAX_YAML_NODES:
+    nodes, chars = sizes[id(root)]
+    if nodes > MAX_YAML_NODES:
         return f"expands to more than {MAX_YAML_NODES:,} nodes (aliases counted each time used)"
+    if chars > MAX_YAML_CHARS:
+        return (
+            f"expands to more than {MAX_YAML_CHARS:,} characters of text (aliases counted each "
+            "time used)"
+        )
     return None
 
 
@@ -323,12 +344,15 @@ def _children(node: yaml.Node) -> list[yaml.Node]:
 
 
 def _outside_links(root: Path) -> list[str]:
-    """Every symbolic link in the pack's directory, hidden entries and caches included, that
-    resolves outside `root`: whatever reads a pack's file, through `Pack.path` or not, then stays
-    inside it. Links within the pack are allowed."""
+    """Every symbolic link in the pack that resolves outside `root`: whatever reads a pack's
+    file, through `Pack.path` or not, then stays inside it. Links within the pack are allowed.
+    Hidden entries and caches are not part of a pack (`pack_digest` and the archive skip them,
+    so a `.venv` beside the pack's files is fine); a path the manifest names inside one is still
+    confined by `Pack.path` and `_confined`, which resolve it."""
     found = []
     for directory, subdirectories, files in os.walk(root):  # links to directories not followed
-        for name in [*subdirectories, *files]:
+        subdirectories[:] = [name for name in subdirectories if not _excluded(name)]
+        for name in [*subdirectories, *(name for name in files if not _excluded(name))]:
             entry = Path(directory, name)
             if not entry.is_symlink():
                 continue
@@ -341,6 +365,11 @@ def _outside_links(root: Path) -> list[str]:
             if target is None or not target.is_relative_to(root):
                 found.append(entry.relative_to(root).as_posix())
     return sorted(found)
+
+
+def _excluded(name: str) -> bool:
+    """A hidden entry or a cache, which is not part of the pack."""
+    return name.startswith(".") or name == "__pycache__"
 
 
 def _confined(root: Path, relative: str, label: str) -> Path:

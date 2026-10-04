@@ -1,11 +1,11 @@
 """Regular expressions a pack's author wrote, compiled when the pack loads.
 
-A pack's rules patterns (`rules` providers, case ignored) and the `pattern` keywords of its input
-schema run on Python's `re`, as they always have. A pattern that does not compile, or one too
-large, is the pack's problem: at load each is compiled with `re` as it will run, at most
-`MAX_PATTERN_CHARS` long, and a pack holds at most `MAX_PACK_PATTERNS`, so a bad one is a
-`PackValidationError` naming the pack, the file and the rule, never a traceback in `mendari
-validate` or an error answer from `/api/health`.
+A pack's rules patterns (`rules` providers, case ignored) and the `pattern` keywords and
+`patternProperties` keys of its input schema run on Python's `re`, as they always have. A
+pattern that does not compile, or one too large, is the pack's problem: at load each is compiled
+with `re` as it will run, at most `MAX_PATTERN_CHARS` long, and a pack holds at most
+`MAX_PACK_PATTERNS`, so a bad one is a `PackValidationError` naming the pack, the file and the
+rule, never a traceback in `mendari validate` or an error answer from `/api/health`.
 
 `re` has no time limit, and checking a pattern at load cannot tell how long it will take on an
 input: a pattern like `(a+)+$` backtracks for seconds on a few dozen characters. So a pack's
@@ -73,8 +73,9 @@ def rules_patterns(rules: Any) -> Iterator[tuple[str, str]]:
 
 
 def schema_patterns(schema: Any) -> Iterator[tuple[str, str]]:
-    """(where, pattern) for every string `pattern` in an input schema. The whole document is
-    searched, as a `$ref` can make any object in it a schema; each object once, by identity."""
+    """(where, pattern) for every string `pattern` and every key of a `patternProperties` object
+    in an input schema (jsonschema runs both with `re.search`). The whole document is searched,
+    as a `$ref` can make any object in it a schema; each object once, by identity."""
     stack: list[tuple[str, Any]] = [("", schema)]
     seen: set[int] = set()
     found = []
@@ -88,5 +89,12 @@ def schema_patterns(schema: Any) -> Iterator[tuple[str, str]]:
             here = f"{path}/{key}" if path else str(key)
             if key == "pattern" and isinstance(node, dict) and isinstance(value, str):
                 found.append((here, value))
+            if key == "patternProperties" and isinstance(node, dict) and isinstance(value, dict):
+                found += [(f"{here}/{_shortened(text)}", text) for text in value]
             stack.append((here, value))
     yield from sorted(found)
+
+
+def _shortened(text: str, limit: int = 40) -> str:
+    """A pattern named in a location, cut to `limit` characters."""
+    return text if len(text) <= limit else text[:limit] + "..."

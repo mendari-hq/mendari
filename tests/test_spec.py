@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -10,6 +11,7 @@ from mendari import Pack, load_pack
 from mendari.core.pack import pack_digest
 from mendari.core.registry import resolve_pack
 from mendari.errors import PackNotFoundError, PackValidationError
+from mendari.hub import archive
 from tests.conftest import INBOX_DIR
 
 
@@ -120,15 +122,12 @@ def inbox_copy(tmp_path: Path) -> Path:
     return root
 
 
-@pytest.mark.parametrize(
-    "link", ["CHANGELOG.md", "pack.yaml", "logic/extra", "notes", ".leak", "logic/.x", "a/.b/c"]
-)
+@pytest.mark.parametrize("link", ["CHANGELOG.md", "pack.yaml", "logic/extra", "notes"])
 def test_a_symbolic_link_out_of_the_pack_is_refused(
     inbox_copy: Path, tmp_path: Path, link: str
 ) -> None:
     # A CHANGELOG.md link to /proc/self/environ once put the server's environment in the card
     # that GET /api/packs/{id} returns; a link to a directory would do the same for its files.
-    # Hidden entries are checked too: nothing should read them, and nothing then can.
     outside = tmp_path / "outside"
     outside.mkdir()
     (outside / "secret.txt").write_text(CANARY)
@@ -137,10 +136,46 @@ def test_a_symbolic_link_out_of_the_pack_is_refused(
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
         path.unlink()
-    path.symlink_to(outside if link in ("notes", ".leak") else outside / "secret.txt")
+    path.symlink_to(outside if link == "notes" else outside / "secret.txt")
     with pytest.raises(PackValidationError) as raised:
         load_pack(root)
     assert raised.value.problems == [f"{link}: a symbolic link that leads outside the pack"]
+
+
+def test_a_virtualenv_or_cache_in_the_pack_folder_is_not_part_of_the_pack(
+    inbox_copy: Path, tmp_path: Path
+) -> None:
+    """A pack kept in its own repository with a virtualenv in it (`uv venv .venv`, whose
+    `bin/python` links to the interpreter) validated on main and was refused here. Hidden entries
+    and caches are not part of a pack: never digested, archived or read by a fixed name. A path
+    the manifest names through one is still confined."""
+    root = inbox_copy
+    before = pack_digest(root)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text(CANARY)
+    (root / ".venv" / "bin").mkdir(parents=True)
+    (root / ".venv" / "bin" / "python").symlink_to(sys.executable)
+    (root / ".direnv").symlink_to(outside)
+    (root / "logic" / ".x").symlink_to(outside / "secret.txt")
+    (root / "a" / ".b").mkdir(parents=True)
+    (root / "a" / ".b" / "c").symlink_to(outside / "secret.txt")
+    (root / "__pycache__").mkdir()
+    (root / "__pycache__" / "x.pyc").symlink_to(outside / "secret.txt")
+    pack = load_pack(root)
+    assert pack.digest == before
+    assert [p.relative_to(root).as_posix() for p in archive.pack_files(root)] == [
+        p.relative_to(INBOX_DIR).as_posix() for p in archive.pack_files(INBOX_DIR)
+    ]
+    with pytest.raises(PackValidationError, match="escapes the pack directory"):
+        pack.path(".direnv/secret.txt")
+    manifest = root / "pack.yaml"
+    (outside / "cases.yaml").write_text("[]\n")
+    manifest.write_text(
+        manifest.read_text().replace("tests: tests/cases.yaml", "tests: .direnv/cases.yaml", 1)
+    )
+    with pytest.raises(PackValidationError, match=r"'\.direnv/cases\.yaml' escapes the pack"):
+        load_pack(root)
 
 
 def test_a_link_loop_is_refused(inbox_copy: Path) -> None:

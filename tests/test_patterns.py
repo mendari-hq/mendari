@@ -192,3 +192,46 @@ def test_patterns_in_an_aliased_rules_file_are_found_once_per_node() -> None:
     node: dict[str, Any] = {"pattern": "x"}
     schema = {"a": node, "b": [node, node]}
     assert len(list(patterns.schema_patterns(schema))) == 1
+
+
+def with_pattern_properties(root: Path, keys: list[str]) -> Path:
+    path = root / "schemas" / "input.schema.json"
+    schema = json.loads(path.read_text())
+    schema["properties"]["probe"] = {
+        "type": "object",
+        "patternProperties": {key: {} for key in keys},
+    }
+    path.write_text(json.dumps(schema))
+    return root
+
+
+def test_pattern_properties_keys_are_pack_patterns_counted_and_checked(inbox: Path) -> None:
+    """jsonschema runs every `patternProperties` key with `re.search` on each validation, but
+    only `pattern` values were counted and length-checked: 1,000 keys of 3,000 characters
+    loaded, and thrashing `re`'s cache cost every decision over a second."""
+    shipped = load_pack(inbox)
+    existing = len(list(patterns.schema_patterns(shipped.input_schema))) + sum(
+        len(list(patterns.rules_patterns(data))) for data in shipped.parsed.values()
+    )
+    with pytest.raises(PackValidationError, match="501 patterns; a pack holds at most 500"):
+        load_pack(with_pattern_properties(inbox, [f"^k{i}$" for i in range(501 - existing)]))
+    long = "^z" + "a" * 2000
+    with pytest.raises(PackValidationError) as raised:
+        load_pack(with_pattern_properties(inbox, ["^ok$", long]))
+    assert raised.value.problems == [
+        f"input schema: properties/probe/patternProperties/{long[:40]}...: "
+        "longer than 2000 characters"
+    ]
+    with pytest.raises(PackValidationError) as raised:
+        load_pack(with_pattern_properties(inbox, ["(bad"]))
+    (problem,) = raised.value.problems
+    assert problem.startswith("input schema: properties/probe/patternProperties/(bad: invalid")
+    assert load_pack(with_pattern_properties(inbox, ["^x-[a-z]+$"])).id
+
+
+def test_schema_patterns_lists_pattern_properties_keys_where_they_are() -> None:
+    schema = {"patternProperties": {"^a$": {"pattern": "b"}}, "properties": {"pattern": {}}}
+    assert list(patterns.schema_patterns(schema)) == [
+        ("patternProperties/^a$", "^a$"),
+        ("patternProperties/^a$/pattern", "b"),
+    ]
