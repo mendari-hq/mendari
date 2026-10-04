@@ -4,16 +4,21 @@ job `cql` runs the trial pack's library on HAPI FHIR's Clinical Reasoning module
 
 from __future__ import annotations
 
+import base64
 import json
+import re
+import shutil
+import time
 from datetime import date
 from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
+import yaml
 
 from mendari.cli import main
-from mendari.core.pack import Pack
+from mendari.core.pack import Pack, load_pack
 from mendari.core.registry import resolve_pack
 from mendari.errors import PackValidationError, ProviderError
 from mendari.evals.agreement import agreement, pack_cases
@@ -239,3 +244,126 @@ def test_the_cli_exits_1_when_variants_differ(
     assert "criteria and cql differ" in out and "no_insulin" in out
     use(FakeEngine(trial), monkeypatch)
     assert main([*args, "--dataset", "exclusions"]) == 0
+
+
+class SharedEngine:
+    """A CQL engine shared by packs, which behaves like HAPI's: a PUT by id replaces the stored
+    Library, and `$evaluate` runs the first stored Library with the requested one's declared
+    name and version. A library whose text says EVIL answers 'yes' to everything."""
+
+    def __init__(self, honest: FakeEngine):
+        self.honest = honest
+        self.stored: dict[str, dict[str, Any]] = {}
+        self.ids: list[str] = []
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        resource_id = request.url.path.split("/Library/")[1].split("/")[0]
+        if request.method == "PUT":
+            resource = json.loads(request.content)
+            assert resource["id"] == resource_id
+            self.stored[resource_id] = resource
+            self.ids.append(resource_id)
+            return httpx.Response(200, json=resource)
+        wanted = self.stored[resource_id]
+        ran = next(
+            r
+            for r in self.stored.values()
+            if (r["name"], r["version"]) == (wanted["name"], wanted["version"])
+        )
+        text = base64.b64decode(ran["content"][0]["data"]).decode()
+        declared = cql_module.library_declaration(text)
+        assert declared is not None and declared.group(1) == ran["name"]  # as HAPI checks
+        if "EVIL" not in text:
+            return self.honest(request)
+        names = self.honest.names["expressions"].values()
+        out = [{"name": name, "valueString": "yes"} for name in names]
+        return httpx.Response(200, json={"resourceType": "Parameters", "parameter": out})
+
+
+def _outside_trial(root: Path, header: str) -> Pack:
+    """An outside copy of the trial pack whose library declares `header` and answers 'yes'."""
+    pack = root / "outsider"
+    shutil.copytree(resolve_pack(TRIAL).root, pack)
+    manifest = yaml.safe_load((pack / "pack.yaml").read_text())
+    manifest["id"] = "outsider/evil-trial"
+    (pack / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    library = pack / "logic" / "criteria.cql"
+    text = library.read_text().replace("library GlycemiaTwoCriteria version '0.1.0'", header)
+    library.write_text(text + "\n// EVIL\n")
+    return load_pack(pack)
+
+
+@pytest.mark.parametrize("first", ["shipped", "outsider"])
+@pytest.mark.parametrize("version", ["0.1.0", "6.6.6"])
+def test_a_pack_cannot_replace_or_shadow_another_packs_library_on_the_engine(
+    trial: Pack, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, first: str, version: str
+) -> None:
+    """R3: the Library's id was the name the library declares, so an outside pack declaring
+    the shipped library's name replaced it on the shared engine (a PUT by id), and the shipped
+    pack's later decisions ran the outsider's CQL; with the same version too, the engine (which
+    finds a library by name and version) could run either. Checked on HAPI 8.12 as well."""
+    engine = SharedEngine(FakeEngine(trial))
+    use(engine, monkeypatch)
+    outsider = _outside_trial(tmp_path, f"library GlycemiaTwoCriteria version '{version}'")
+    shipped_cql = build_provider(trial, "structured", "cql")
+    outsider_cql = build_provider(outsider, "structured", "cql")
+    assert isinstance(shipped_cql, cql_module.CqlProvider)
+    order = [shipped_cql, outsider_cql] if first == "shipped" else [outsider_cql, shipped_cql]
+    record = {**pack_cases(trial, [])[0][1], "patient": {"age": 90}}
+    for provider in [*order, *order]:
+        age = provider.answer(record).answers["age_18_75"].label
+        assert age == ("no" if provider is shipped_cql else "yes")
+    assert len(set(engine.ids)) == 2 and len({r["name"] for r in engine.stored.values()}) == 2
+    resource = shipped_cql.library_resource()
+    assert re.fullmatch(r"[A-Za-z0-9.-]{1,64}", resource["id"])
+    assert resource["name"].startswith("GlycemiaTwoCriteria_")
+    assert resource["url"].endswith(f"/Library/{resource['name']}")
+    evidence = shipped_cql.answer(record).answers["age_18_75"].evidence
+    assert evidence == ("CQL GlycemiaTwoCriteria 0.1.0: Age 18 To 75 = no",)  # as declared
+
+
+@pytest.mark.parametrize(
+    ("prefix", "allowed"),
+    [
+        ("", True),
+        ("// a comment\n\n", True),
+        ("/* a\nblock */ \r\n", True),
+        ("/*\nlibrary Decoy version '1'\n*/\n", False),
+        ("/* library Decoy version '1' */\n", True),
+        ("// x\r  library Decoy version '1'\n", True),  # read as a new line, in Python and CQL
+        ("using FHIR version '4.0.1'\n", False),
+        ("/* never closed\n", False),
+    ],
+)
+def test_the_declaration_the_engine_reads_is_the_one_renamed(
+    trial: Pack, tmp_path: Path, prefix: str, allowed: bool
+) -> None:
+    """The name is rewritten where CQL declares it, its first statement. A header-like line
+    in a comment before it (which `library_header`, main's search, finds first) would leave
+    the real declaration's name as written on the engine, so such a library is refused."""
+    root = tmp_path / "pack"
+    shutil.copytree(trial.root, root)
+    library = root / "logic" / "criteria.cql"
+    text = library.read_text()
+    start = text.index("library GlycemiaTwoCriteria")
+    library.write_text(prefix + text[start:])
+    pack = load_pack(root)
+    if not allowed:
+        with pytest.raises(PackValidationError, match="must be the library's first statement"):
+            build_provider(pack, "structured", "cql")
+        return
+    provider = build_provider(pack, "structured", "cql")
+    assert isinstance(provider, cql_module.CqlProvider)
+    uploaded = base64.b64decode(provider.library_resource()["content"][0]["data"]).decode()
+    declared = cql_module.library_declaration(uploaded)
+    assert declared is not None and declared.groups() == (provider.engine_name, provider.version)
+    assert provider.engine_name.startswith(provider.name + "_")
+    read = (prefix + text[start:]).replace("\r\n", "\n").replace("\r", "\n")  # as read_text
+    assert uploaded.replace(provider.engine_name, provider.name, 1) == read
+
+
+def test_finding_the_declaration_is_linear() -> None:
+    for source in ["/*" * 50_000, "//\n" * 50_000 + "x", " " * 100_000 + "library X"]:
+        started = time.perf_counter()
+        assert cql_module.library_declaration(source) is None
+        assert time.perf_counter() - started < 0.05

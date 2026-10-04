@@ -15,10 +15,19 @@ slot answers maps to one of its definitions:
 
 The engine is a FHIR server with Clinical Reasoning (HAPI FHIR with `hapi.fhir.cr.enabled`) at
 `$MENDARI_CQL_URL`, which must be on the FHIR allow-list (`MENDARI_FHIR_ALLOWED_SERVERS`).
-The provider uploads the library once, as a `Library` whose id is the library's name, then calls
-`Library/{name}/$evaluate` for each decision with the patient's record as a FHIR Bundle
-(`standards/record_fhir.py`), `useServerData=false` and the screening date as the
-`Screening Date` parameter. Nothing is read from the server's own data.
+The provider uploads the library once, then calls `Library/{id}/$evaluate` for each decision
+with the patient's record as a FHIR Bundle (`standards/record_fhir.py`), `useServerData=false`
+and the screening date as the `Screening Date` parameter. Nothing is read from the server's own
+data.
+
+The engine is shared by every pack on a deployment, so a pack's library is uploaded under names
+no other pack's library can take (`engine_names`): its resource id, and the name it declares,
+each end in a hash of the pack id and one of the library's text. A FHIR PUT by id replaces what
+is there, and the engine finds a library by its declared name and version, so with the declared
+name used as is, two packs whose libraries share a name and version (an outside pack's, say)
+overwrote or shadowed each other, and one pack's decisions ran the other's CQL. The declaration
+must therefore be the library's first statement (comments aside), where CQL puts it, and the name
+is rewritten there. Evidence and the provider's model id keep the declared name.
 
 An answer is as certain as a `criteria` answer (it is computed, not guessed). A failure (the
 engine unreachable, an evaluation error, a result that isn't a label) is a `ProviderError`, and
@@ -28,6 +37,7 @@ the policy then sends the decision to a person.
 from __future__ import annotations
 
 import base64
+import hashlib
 import os
 import re
 from collections.abc import Mapping
@@ -45,6 +55,35 @@ from mendari.standards.fhir_client import GuardedHttp
 
 URL_ENV = "MENDARI_CQL_URL"
 _HEADER = re.compile(r"^\s*library\s+([A-Za-z][A-Za-z0-9_]*)\s+version\s+'([^']+)'", re.MULTILINE)
+# Reading the first statement: spaces, a `//` comment to the end of its line, a declaration.
+_SPACES = re.compile(r"\s*")
+_LINE_COMMENT = re.compile(r"//[^\r\n]*")
+_DECLARATION = re.compile(r"library\s+([A-Za-z][A-Za-z0-9_]*)\s+version\s+'([^']+)'")
+
+
+def library_declaration(source: str) -> re.Match[str] | None:
+    """The library's first statement (after spaces and `//` or `/* */` comments, as CQL reads
+    it) when it is `library Name version '...'`, else None; linear in `source`."""
+    position = 0
+    while True:
+        position = _SPACES.match(source, position).end()  # type: ignore[union-attr]
+        if source.startswith("//", position):
+            position = _LINE_COMMENT.match(source, position).end()  # type: ignore[union-attr]
+        elif source.startswith("/*", position):
+            end = source.find("*/", position + 2)
+            if end < 0:
+                return None
+            position = end + 2
+        else:
+            return _DECLARATION.match(source, position)
+
+
+def engine_names(pack_id: str, name: str, source: str) -> tuple[str, str]:
+    """The library's resource id (FHIR: at most 64 of `[A-Za-z0-9.-]`) and the name it is
+    declared under on the engine, both this pack's and this text's alone (module docstring)."""
+    owner = hashlib.sha256(pack_id.encode("utf-8")).hexdigest()[:16]
+    content = hashlib.sha256(source.encode("utf-8")).hexdigest()[:32]
+    return f"mendari-{owner}-{content}", f"{name}_{owner}_{content}"
 
 
 class CqlConfig(BaseModel):
@@ -82,10 +121,20 @@ class CqlProvider(Provider):
             problem = f"{library}: needs a `library Name version '...'` declaration"
             raise PackValidationError(self.pack.id, [problem])
         self.name, self.version = header.group(1), header.group(2)
+        declaration = library_declaration(self.source)
+        if declaration is None or declaration.span(1) != header.span(1):
+            problem = (
+                f"{library}: the `library Name version '...'` declaration must be the library's "
+                "first statement (only comments before it)"
+            )
+            raise PackValidationError(self.pack.id, [problem])
         if set(self.settings.expressions) != set(self.questions):
             problem = f"{self.info.slot}: `expressions` must map exactly the slot's questions"
             raise PackValidationError(self.pack.id, [problem])
         self.info = replace(self.info, model=f"cql:{self.name}@{fingerprint(self.pack, library)}")
+        self.resource_id, self.engine_name = engine_names(self.pack.id, self.name, self.source)
+        start, end = declaration.span(1)
+        self.engine_source = self.source[:start] + self.engine_name + self.source[end:]
         self._uploaded_to: str | None = None
 
     def preflight(self) -> None:
@@ -94,10 +143,10 @@ class CqlProvider(Provider):
     def library_resource(self) -> dict[str, Any]:
         return {
             "resourceType": "Library",
-            "id": self.name,
-            "url": f"https://mendari.co/packs/{self.pack.id}/Library/{self.name}",
+            "id": self.resource_id,
+            "url": f"https://mendari.co/packs/{self.pack.id}/Library/{self.engine_name}",
             "version": self.version,
-            "name": self.name,
+            "name": self.engine_name,
             "status": "active",
             "type": {
                 "coding": [
@@ -110,7 +159,7 @@ class CqlProvider(Provider):
             "content": [
                 {
                     "contentType": "text/cql",
-                    "data": base64.b64encode(self.source.encode("utf-8")).decode("ascii"),
+                    "data": base64.b64encode(self.engine_source.encode("utf-8")).decode("ascii"),
                 }
             ],
         }
@@ -140,10 +189,11 @@ class CqlProvider(Provider):
         }
         try:
             with GuardedHttp() as http:
+                library = f"{base}/Library/{self.resource_id}"
                 if self._uploaded_to != base:
-                    http.send_json("PUT", f"{base}/Library/{self.name}", self.library_resource())
+                    http.send_json("PUT", library, self.library_resource())
                     self._uploaded_to = base
-                result = http.send_json("POST", f"{base}/Library/{self.name}/$evaluate", parameters)
+                result = http.send_json("POST", f"{library}/$evaluate", parameters)
         except FhirError as failure:
             raise ProviderError("unavailable", f"the CQL engine: {failure}") from None
         values = _results(result)

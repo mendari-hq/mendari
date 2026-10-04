@@ -240,6 +240,10 @@ limits, designed with that feature). What a pack cannot do today is below.
   answers until the version is a semantic version, the path stays inside the cache and the
   signed manifest names that pack and version, so a compromised registry cannot delete or write
   outside the cache.
+- A pack cannot reach another pack's CQL. The engine at `MENDARI_CQL_URL` is shared, so a pack's
+  library is uploaded under a resource id and a declared name that end in a hash of the pack id
+  and of the library's text: a library that declares another pack's library name and version
+  neither replaces nor shadows it. The declaration must be the library's first statement.
 - A pack's patterns are checked at load. Every rules pattern (of every variant and composite
   member) and every input-schema `pattern` is compiled with `re` as it will run, is at most
   2,000 characters, and a pack holds at most 500, counted before any is compiled; one that

@@ -244,7 +244,9 @@ MAY carry `when: {field, in}` to apply only while an input field has one of thos
 amount a sentence allows, e.g. "1000 mg every 4 hours" = 6000 mg/day, compared with the maximum;
 `yes` / `no` / `unknown`), `cql` (a CQL library in the pack, evaluated on a CQL engine with the
 input as FHIR R4; each answered question maps to a definition whose String result is the label,
-or whose Boolean result is `yes` / `no`, null being `unknown`), `naive_bayes` (local,
+or whose Boolean result is `yes` / `no`, null being `unknown`; the library's declaration,
+`library Name version '...'`, MUST be its first statement, comments aside, and the runtime
+uploads it to the engine under a name and id unique to the pack and the text), `naive_bayes` (local,
 temperature-calibrated text classifier), `jev`, `llm` (a chat
 model through an OpenAI-compatible API, asked for one probability per label and optionally
 calibrated per question), and three
@@ -498,6 +500,7 @@ most 1,000,000 nodes (§3), and every pattern compiles, at most 2,000 characters
 | `cds_hooks.questionnaire` (Da Vinci DTR `$questionnaire-package`) | §9 |
 | The decision output schema adds an optional `value` to each answer | §4.2 |
 | `jev` and `llm` variants may not name the environment variables a provider reads (`*_env`; every spec version) | §5 |
+| A `cql` library's declaration is its first statement (every spec version) | §5 |
 | Every pack pattern compiles with `re`, at most 2,000 characters, at most 500 per pack, checked at load (every spec version) | §5 |
 | A version of at most 64 characters; YAML of at most 1,000,000 nodes, aliases expanded (every spec version) | §3 |
 | No symbolic link out of a directory pack; a self-contained input schema (local references only, no nested `$schema` or `$id`, no `$dynamicAnchor`, no `format: regex`; every spec version) | §3 |

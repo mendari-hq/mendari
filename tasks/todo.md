@@ -37,6 +37,11 @@ identically.
   is compiled; a failure is a `PackValidationError` naming pack, file and rule. Patterns run on
   `re` as on main, with no time limit; Mendari's own dosing and CQL patterns are unchanged. The
   rules files read at load are kept on the `Pack`, so a provider does not read them again.
+- [x] **5. CQL libraries namespaced per pack (T4)**: a pack's library goes up on the shared
+  engine under a resource id and a declared name ending in hashes of the pack id and the text
+  (the name rewritten in its declaration, which must be the first statement), so an outside
+  pack declaring the same name and version neither replaces nor shadows it. Main's `_HEADER`
+  search is unchanged; evidence keeps the declared name.
 
 ## Built: the SMART launch gated, C5 and S5 (2026-10-03)
 From the Phase 4b review's residual risks, after research (three researchers and a critic). The
