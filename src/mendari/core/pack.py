@@ -491,10 +491,28 @@ def parse_json(data: bytes, name: str, label: str) -> Any:
     except (ValueError, RecursionError) as error:  # UnicodeDecodeError is a ValueError
         problem = f"{name}: not a JSON document ({type(error).__name__})"
         raise PackValidationError(label, [problem]) from None
-    what = not_json(value)
+    what = not_json(value) or _beyond_floats(value)
     if what is not None:
         raise PackValidationError(label, [f"{name}: not JSON, it holds {what}"])
     return value
+
+
+_FLOAT_LIMIT = 2**1024  # the smallest integer float() refuses (OverflowError)
+
+
+def _beyond_floats(value: Any) -> str | None:
+    """An integer too large to be a float, which every figure a pack's JSON holds (benchmark,
+    leaderboard, model, calibration) is read as somewhere: refused here once, for every reader."""
+    stack = [value]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, dict):
+            stack.extend(item.values())
+        elif isinstance(item, list):
+            stack.extend(item)
+        elif isinstance(item, int) and not isinstance(item, bool) and abs(item) >= _FLOAT_LIMIT:
+            return "an integer too large to be a number"
+    return None
 
 
 def not_json(value: Any) -> str | None:

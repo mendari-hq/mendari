@@ -112,8 +112,9 @@ Validation rules (all MUST hold):
   each file once, checks its bytes against the digest's hash of that file and uses those bytes,
   so a file edited after the pack was loaded is refused until the pack is loaded again.
 - A JSON file of the pack (the input schema, a model, a calibration) is JSON in UTF-8 with no
-  string holding a lone surrogate, no number that is not finite and no integer of more than
-  4,300 digits; a `naive_bayes` model has the shape `mendari train` writes; a text file a
+  string holding a lone surrogate, no number that is not finite and no integer too large to be
+  a finite number (and so none of more than 4,300 digits); a calibration's `temperatures` is a
+  mapping; a `naive_bayes` model has the shape `mendari train` writes; a text file a
   provider or the card reads (a CQL library, `CHANGELOG.md`) is UTF-8.
 - `evaluation.benchmark` is the one manifest path that MUST be an attestation: in `evals/`
   (it may not exist yet; a `DECISION_CARD.md` elsewhere is refused). A leaderboard

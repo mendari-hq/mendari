@@ -13,7 +13,12 @@ from mendari import AuditStore, CallBudget, Decision, Pack, load_pack
 from mendari.cli import main
 from mendari.errors import MendariError, PackValidationError, ProviderError
 from mendari.providers import ProviderInfo, llm
-from mendari.providers.llm import LlmProvider, fit_calibration, validate_response
+from mendari.providers.llm import (
+    CALIBRATION_FORMAT,
+    LlmProvider,
+    fit_calibration,
+    validate_response,
+)
 from mendari.settings import daily_limits
 from tests.conftest import INBOX_DIR, message
 
@@ -392,6 +397,27 @@ def test_calibration_is_fitted_and_applied_to_the_same_model_only(
         pack, calibration="models/router-llm-calibration.json", model="openai/gpt-oss-120b"
     )
     assert other.temperatures == {}  # fitted on another model: not used
+
+
+@pytest.mark.parametrize("temperatures", [[1], "x", 5])
+def test_a_calibration_whose_temperatures_are_not_a_mapping_is_the_packs_problem(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, temperatures: object
+) -> None:
+    """`temperatures: [1]` made building the provider raise AttributeError ('list' has no
+    `items`), so `mendari validate` printed a traceback."""
+    monkeypatch.setenv("AI_GATEWAY_API_KEY", "k")
+    monkeypatch.delenv("LLM_MODEL", raising=False)
+    monkeypatch.delenv("LLM_BASE_URL", raising=False)
+    pack = pack_with_llm(tmp_path)
+    calibration = {
+        "format": CALIBRATION_FORMAT,
+        "model": "anthropic/claude-sonnet-5",
+        "temperatures": temperatures,
+    }
+    (pack.root / "models/router-llm-calibration.json").write_text(json.dumps(calibration))
+    pack = load_pack(pack.root)
+    with pytest.raises(PackValidationError, match="temperatures are not a mapping"):
+        router(pack, calibration="models/router-llm-calibration.json")
 
 
 def test_a_malformed_answer_never_discards_another_slots_safety_answer(

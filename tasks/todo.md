@@ -92,6 +92,11 @@ identically.
   cannot build carries its line and column. (7) A bad dataset line is named by file and line.
   (8) An archive whose names are one file under case-folding and NFC is refused by `verify`;
   `extract` names a file it cannot write.
+- [x] **10. The focused check's three remaining lows**: pack JSON refuses an integer too large to
+  be a number (a 400-digit accuracy in a benchmark or leaderboard, or a model's temperature,
+  overflowed into a `500` or a traceback); an LLM calibration's `temperatures` must be a mapping;
+  `compare` reports a published benchmark whose figures are malformed as `unknown` with the
+  reason, never a `500` from `POST …/evals`.
 - Verified: the five packs decide every dataset record and `tests/cases.yaml` example (default
   providers and every local variant combination, 9,958 decisions) identically to `origin/main`
   run on its own source, in one long process, in a fresh process per pack and variant set, and

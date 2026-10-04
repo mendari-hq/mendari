@@ -9,15 +9,60 @@ MIN_GROUP = 15  # smallest subgroup worth flagging; smaller ones are too noisy t
 MIN_LABEL_SUPPORT = 10
 
 
+def _number(value: Any, *, optional: bool = False) -> bool:
+    if value is None:
+        return optional
+    return isinstance(value, int | float) and not isinstance(value, bool)
+
+
+def _baseline_problem(baseline: Any, primary: str) -> str | None:
+    """Why a baseline cannot be compared, or None. The baseline is the pack's published
+    benchmark, written by its author: every figure `compare` reads is checked here first, so a
+    malformed one says so instead of failing the evaluation."""
+    question = baseline.get("questions", {}).get(primary) if isinstance(baseline, dict) else None
+    if not isinstance(question, dict) or not _number(question.get("accuracy")):
+        return f"the published benchmark has no accuracy for {primary!r}"
+    labels = question.get("per_label")
+    if not isinstance(labels, dict) or not all(
+        isinstance(m, dict) and _number(m.get("recall"), optional=True) for m in labels.values()
+    ):
+        return f"the published benchmark's per-label figures for {primary!r} are malformed"
+    calibration = question.get("calibration")
+    if not isinstance(calibration, dict) or not _number(calibration.get("ece"), optional=True):
+        return f"the published benchmark's calibration for {primary!r} is malformed"
+    subgroups = baseline.get("subgroups", {})
+    if not isinstance(subgroups, dict) or not all(
+        isinstance(values, dict)
+        and all(
+            isinstance(m, dict)
+            and _number(m.get("n"))
+            and _number(m.get("accuracy"), optional=True)
+            for m in values.values()
+        )
+        for values in subgroups.values()
+    ):
+        return "the published benchmark's subgroup figures are malformed"
+    automation = (baseline.get("decisions") or {}).get("automation")
+    if not isinstance(automation, dict) or not _number(
+        automation.get("false_automation_rate"), optional=True
+    ):
+        return "the published benchmark's automation figures are malformed"
+    return None
+
+
 def compare(local: dict[str, Any], baseline: dict[str, Any], tolerance: float) -> dict[str, Any]:
     primary = local["primary"]
-    local_q, base_q = local["questions"].get(primary), baseline["questions"].get(primary)
+    local_q = local["questions"].get(primary)
+    base_q = baseline.get("questions", {}).get(primary) if isinstance(baseline, dict) else None
     if local_q is None or base_q is None:
         return {
             "status": "unknown",
             "reason": f"both reports need ground truth for {primary!r}",
             "findings": [],
         }
+    problem = _baseline_problem(baseline, primary)
+    if problem is not None:
+        return {"status": "unknown", "reason": problem, "findings": []}
 
     findings: list[dict[str, Any]] = []
     delta = local_q["accuracy"] - base_q["accuracy"]

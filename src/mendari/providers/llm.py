@@ -128,6 +128,9 @@ class LlmProvider(Provider):
         if data.get("model") != self.model:
             return {}
         temperatures = data.get("temperatures", {})
+        if not isinstance(temperatures, dict):
+            problem = f"{self.info.slot}: the calibration file's temperatures are not a mapping"
+            raise PackValidationError(self.pack.id, [problem])
         return {
             q: float(t)
             for q, t in temperatures.items()

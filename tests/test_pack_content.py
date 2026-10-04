@@ -239,6 +239,10 @@ def _raw_model(text: str) -> Callable[[Path], None]:
         (_raw_model("9" * 5000), f"{MODEL}: not a JSON document (ValueError)"),
         (_raw_model("[" * 100_000), f"{MODEL}: not a JSON document (RecursionError)"),
         (_raw_model('"\\ud800"'), f"{MODEL}: not JSON, it holds a string with a lone surrogate"),
+        (
+            _model(lambda m: {**m, "temperature": 10**400}),
+            f"{MODEL}: not JSON, it holds an integer too large to be a number",
+        ),
         (_raw_model("[]"), f"{MODEL}: not a naive_bayes model (expected a mapping)"),
         (_model(lambda m: {**m, "labels": 5}), f"{MODEL}: not a naive_bayes model (labels)"),
         (_model(lambda m: {**m, "tokens": [1]}), f"{MODEL}: not a naive_bayes model (tokens)"),
@@ -264,6 +268,7 @@ def _raw_model(text: str) -> Callable[[Path], None]:
         "long-integer",
         "too-deep",
         "surrogate",
+        "huge-integer",
         "list",
         "labels",
         "tokens-list",
@@ -420,6 +425,22 @@ def _write_eval(name: str, text: str) -> Callable[[Path], None]:
     return edit
 
 
+def _huge_figure(name: str) -> Callable[[Path], None]:
+    """The shipped attestation with one accuracy that is too large to be a float: valid in
+    shape, so only the number check refuses it (it made render's percentage overflow)."""
+
+    def edit(pack: Path) -> None:
+        path = pack / "evals" / name
+        data = json.loads(path.read_text())
+        if name == "benchmark.json":
+            data["questions"][data["primary"]]["accuracy"] = 10**400
+        else:
+            data["rows"][0]["accuracy"] = 10**400
+        path.write_text(json.dumps(data))
+
+    return edit
+
+
 @pytest.mark.parametrize(
     ("edit", "absent"),
     [
@@ -428,7 +449,9 @@ def _write_eval(name: str, text: str) -> Callable[[Path], None]:
         (_write_eval("benchmark.json", "[]"), "benchmark"),
         (_write_eval("benchmark.json", '{"primary": "specialty"}'), "benchmark"),
         (_write_eval("benchmark.json", '{"created_at": "\\ud800"}'), "benchmark"),
+        (_huge_figure("benchmark.json"), "benchmark"),
         (_write_eval("leaderboard.json", "{"), "leaderboard"),
+        (_huge_figure("leaderboard.json"), "leaderboard"),
         (_write_eval("leaderboard.json", '{"rows": [5]}'), "leaderboard"),
         (_write_eval("leaderboard.json", '{"rows": [{"dataset": "x"}]}'), "leaderboard"),
     ],
@@ -438,7 +461,9 @@ def _write_eval(name: str, text: str) -> Callable[[Path], None]:
         "benchmark-list",
         "benchmark-shape",
         "benchmark-surrogate",
+        "benchmark-huge-integer",
         "leaderboard-not-json",
+        "leaderboard-huge-integer",
         "leaderboard-rows",
         "leaderboard-row-shape",
     ],

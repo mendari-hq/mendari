@@ -292,7 +292,7 @@ limits, designed with that feature). What a pack cannot do today is below.
   not parse keeps the parser's message (what it expected, with the line around it). A pack's
   YAML and JSON hold only what a JSON response can carry: a string with a lone surrogate
   (`"\ud800"`, in YAML or JSON), `!!binary`, `!!set`, `!!omap`, `!!pairs`, and in JSON a number
-  that is not finite, are refused when the file is read (the manifest, policy, input schema and
+  that is not finite or an integer too large to be one, are refused when the file is read (the manifest, policy, input schema and
   rules at load; a model, calibration, FHIR mapping or the tests when first read), named by the
   file and, in YAML, the line and column, so no pack can make the list of packs, a pack's
   detail or a decision a `500`. A JSON file that is not JSON, holds an integer of more than
