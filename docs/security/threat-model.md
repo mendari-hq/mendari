@@ -78,6 +78,16 @@ gap. The packet for the external review is [`review-packet.md`](review-packet.md
 
 ## Residual risks and assumptions
 
+- **A pack's patterns run on `re` with no time limit.** Installing a pack means trusting its
+  author, as with any plugin. Rules patterns and input-schema `pattern`s are compiled at load
+  (`core/patterns.py`: valid under `re`, at most 2,000 characters, at most 500 per pack), but a
+  pattern that backtracks (`(a+)+$` takes seconds on 27 characters, doubling with each more) can
+  slow or stall the worker that runs it, holding the interpreter while it does; compiling a
+  large case-ignored class at load also costs CPU (a pack at the caps can add seconds to a
+  start). The shipped packs are the owner's and reviewed. Packs from others will run in an
+  isolated process with memory and time limits, designed with uploads or a public registry;
+  a time budget on a second regex engine was tried and dropped (it could not match `re`'s
+  semantics exactly, and its clock was the process's, not the thread's).
 - **The deployment is the site's.** TLS termination, network placement, backups, the
   database's own access control and the PHI key's custody (a KMS or secret manager) belong to
   the deploying organization (`docs/deploying-with-phi.md`).

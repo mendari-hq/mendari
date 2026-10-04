@@ -93,7 +93,7 @@ DEEP = 5000  # nested deeper than the YAML, JSON and jsonschema readers recurse
         (_with_schema_property({"$ref": "#/required/abc"}), "'#/required/abc' is not in the"),
         (
             _with_schema_property({"type": "string", "pattern": "a{99999999999}"}),
-            "input schema: ",
+            "input schema: properties/zz/pattern: invalid regular expression: the repetition",
         ),
         (_write("schemas/input.schema.json", "{not json"), "not a JSON document (JSONDecodeErr"),
         (
@@ -288,10 +288,9 @@ def test_a_billion_laughs_in_a_rules_file_is_refused_in_milliseconds(tmp_path: P
     root = tmp_path / "pack"
     shutil.copytree(INBOX_DIR, root)
     _append("logic/red_flags.yaml", laughs(8, "{pattern: x}"))(root)
-    pack = load_pack(root)
     started = time.process_time()
     with pytest.raises(PackValidationError, match=r"logic/red_flags\.yaml: expands to more than"):
-        pack.read_yaml("logic/red_flags.yaml")
+        load_pack(root)
     assert time.process_time() - started < 0.5
 
 

@@ -256,6 +256,14 @@ recorded as a failure of the slot's questions (`<member>:<code>`), which caps `A
 `boolean` and `score` questions like `choice` questions, with a distribution over their labels;
 the runtime adds the expected score.
 
+A pack's patterns (every `rules` pattern, of every variant and composite member, and every
+`pattern` in its input schema) are Python `re` regular expressions, run as `re` runs them (rules
+patterns with case ignored). Each MUST compile and be at most 2,000 characters, and a pack MUST
+hold at most 500 of them; the runtime compiles every one at load, so a pack with an invalid one
+is invalid, named by file and rule. `re` has no time limit: a pattern that backtracks (`(a+)+$`)
+can take seconds or longer on a crafted input: a pack's patterns are code its author wrote, and
+installing a pack means trusting its author.
+
 A remote provider's endpoint, model and credentials belong to the deployment, which supplies
 them in fixed environment variables (`jev`: `JEV_API_URL`, `JEV_MODEL`, `JEV_API_KEY`,
 `JEV_CONNECTOR`; `llm`: `LLM_BASE_URL`, `LLM_MODEL`, `AI_GATEWAY_API_KEY`, `LLM_API_KEY`;
@@ -469,8 +477,9 @@ commits to each decision record, so modification or deletion is detectable.
 produces identical decisions; it simply cannot use the new fields. One restriction applies to
 packs of every version: a `jev` or `llm` variant may not name the environment variables its
 provider reads (§5); a directory pack may not hold a symbolic link out of it, and an input
-schema must be self-contained, a version has at most 64 characters, and a YAML file expands to
-at most 1,000,000 nodes (§3). No published pack did any of these.
+schema must be self-contained, a version has at most 64 characters, a YAML file expands to at
+most 1,000,000 nodes (§3), and every pattern compiles, at most 2,000 characters and 500 per pack
+(§5). No published pack did any of these.
 
 | Change | Section |
 |---|---|
@@ -489,6 +498,7 @@ at most 1,000,000 nodes (§3). No published pack did any of these.
 | `cds_hooks.questionnaire` (Da Vinci DTR `$questionnaire-package`) | §9 |
 | The decision output schema adds an optional `value` to each answer | §4.2 |
 | `jev` and `llm` variants may not name the environment variables a provider reads (`*_env`; every spec version) | §5 |
+| Every pack pattern compiles with `re`, at most 2,000 characters, at most 500 per pack, checked at load (every spec version) | §5 |
 | A version of at most 64 characters; YAML of at most 1,000,000 nodes, aliases expanded (every spec version) | §3 |
 | No symbolic link out of a directory pack; a self-contained input schema (local references only, no nested `$schema` or `$id`, no `$dynamicAnchor`, no `format: regex`; every spec version) | §3 |
 

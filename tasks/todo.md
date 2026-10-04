@@ -31,6 +31,12 @@ identically.
   `version_key` never calls `int()` (T10). A registry publish answers `422`, never `500`, for a
   pack that does not load or whose card is not text; a malformed benchmark is shown as none
   (T12).
+- [x] **4. Pack patterns compiled at load (residual risk in the threat model)**: every rules
+  pattern (every variant and composite member, case ignored) and input-schema `pattern` is
+  compiled with `re` at load, at most 2,000 characters, at most 500 per pack counted before any
+  is compiled; a failure is a `PackValidationError` naming pack, file and rule. Patterns run on
+  `re` as on main, with no time limit; Mendari's own dosing and CQL patterns are unchanged. The
+  rules files read at load are kept on the `Pack`, so a provider does not read them again.
 
 ## Built: the SMART launch gated, C5 and S5 (2026-10-03)
 From the Phase 4b review's residual risks, after research (three researchers and a critic). The

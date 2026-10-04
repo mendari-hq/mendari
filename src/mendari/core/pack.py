@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
 from typing import Any
@@ -16,6 +16,7 @@ from jsonschema.exceptions import SchemaError
 from pydantic import ValidationError
 
 from mendari.core import input_schema as schema_rules
+from mendari.core import patterns
 from mendari.core.spec import Outcome, PackManifest, Priority
 from mendari.errors import PackValidationError
 
@@ -36,6 +37,9 @@ class Pack:
     root: Path
     digest: str
     input_schema: dict[str, Any]
+    # Provider configs already read (and checked) at load, by pack-relative path: `read_yaml`
+    # returns them rather than reading the file again.
+    parsed: dict[str, Any] = field(default_factory=dict, compare=False, repr=False)
 
     @property
     def id(self) -> str:
@@ -57,6 +61,8 @@ class Pack:
         return resolved
 
     def read_yaml(self, relative: str) -> Any:
+        if relative in self.parsed:
+            return self.parsed[relative]
         return load_yaml(self.path(relative), relative, self.id)
 
     def read_json(self, relative: str) -> Any:
@@ -153,6 +159,13 @@ def load_pack(path: str | Path, *, missing_models_ok: bool = False) -> Pack:
     problems = schema_rules.problems(input_schema)  # before any jsonschema code reads it
     if problems:
         raise PackValidationError(manifest.id, problems)
+    parsed = {
+        relative: load_yaml(_confined(root, relative, label), relative, manifest.id)
+        for relative in _rules_files(manifest)
+    }
+    problems = _pattern_problems(input_schema, parsed)  # jsonschema compiles them too
+    if problems:
+        raise PackValidationError(manifest.id, problems)
     try:
         Draft202012Validator.check_schema(input_schema)
     except SchemaError as error:
@@ -161,7 +174,13 @@ def load_pack(path: str | Path, *, missing_models_ok: bool = False) -> Pack:
         problem = f"input schema: not a schema the validator can read ({type(error).__name__})"
         raise PackValidationError(manifest.id, [problem]) from None
 
-    return Pack(manifest=manifest, root=root, digest=pack_digest(root), input_schema=input_schema)
+    return Pack(
+        manifest=manifest,
+        root=root,
+        digest=pack_digest(root),
+        input_schema=input_schema,
+        parsed=parsed,
+    )
 
 
 def pack_digest(root: Path) -> str:
@@ -198,6 +217,48 @@ def _referenced_files(m: PackManifest, *, models: bool = True) -> list[str]:
                 keys = ("config", "model_file", "calibration") if models else ("config",)
                 files.extend(config[key] for key in keys if isinstance(config.get(key), str))
     return files
+
+
+def _rules_files(m: PackManifest) -> list[str]:
+    """The config file of every `rules` variant and composite member, once each."""
+    files: set[str] = set()
+    for slot in m.providers.values():
+        for variant in slot.variants.values():
+            config = {"type": variant.type, **(variant.model_extra or {})}
+            members = config.get("members")
+            configs = [config]
+            if isinstance(members, dict):
+                configs += [member for member in members.values() if isinstance(member, dict)]
+            files.update(
+                c["config"]
+                for c in configs
+                if c.get("type") == "rules" and isinstance(c.get("config"), str)
+            )
+    return sorted(files)
+
+
+def _pattern_problems(input_schema: Any, rules: dict[str, Any]) -> list[str]:
+    """Every pack-authored pattern compiled as it will run (`core/patterns.py`), after counting
+    them, so a pack over the cap is refused before any is compiled."""
+    found = [
+        (f"input schema: {where}", text, 0)
+        for where, text in patterns.schema_patterns(input_schema)
+    ]
+    for relative, data in rules.items():
+        found += [
+            (f"{relative}: {where}", text, patterns.RULES_FLAGS)
+            for where, text in patterns.rules_patterns(data)
+        ]
+    if len(found) > patterns.MAX_PACK_PATTERNS:
+        return [
+            f"{len(found)} patterns; a pack holds at most {patterns.MAX_PACK_PATTERNS} patterns"
+        ]
+    problems = []
+    for where, text, flags in found:
+        problem = patterns.problem(text, flags)
+        if problem is not None:
+            problems.append(f"{where}: {problem}")
+    return problems
 
 
 def load_yaml(path: Path, name: str, label: str) -> Any:

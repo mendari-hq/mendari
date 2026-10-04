@@ -127,6 +127,12 @@ Each matching pattern adds its weight to a label's score, so a message saying "c
 scores `yes`. `negatable: true` means "no chest pain" doesn't count, and the audit record names
 the pattern that matched.
 
+Patterns are Python regular expressions (`re`), matched with case ignored. `mendari validate`
+compiles every one, so a typo is reported with its file and rule; a pattern may be at most
+2,000 characters, and a pack may hold 500 (input-schema `pattern`s included). Keep them simple:
+`re` has no time limit, and a pattern that can match the same text in many ways, such as
+`(a+)+$`, can take seconds on a short message and hold the worker that runs it.
+
 Rules are the floor, not the ceiling. The same pack can switch to a language model, to Jev, to a
 CQL library your organization already has, or to computed criteria for dates and lab values.
 Each is a provider **variant** in `pack.yaml`, and you compare them on the same data (step 8).

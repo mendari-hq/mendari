@@ -212,7 +212,10 @@ webhooks.
 ## Pack supply chain
 
 Packs contain behaviour: patterns, models, CQL and policies. Review a pack like code before
-running it.
+running it: installing a pack means trusting its author, as with any plugin. Pack patterns run
+on Python `re` with no time limit, so a pack can slow or stall a worker. Packs from others will
+run isolated once uploads or a public registry exist (an isolated process with memory and time
+limits, designed with that feature). What a pack cannot do today is below.
 
 - Registry packs are **signed archives** (Ed25519, deterministic). `mendari pull` verifies
   them and pins the publisher's key on first use, and versions are immutable.
@@ -237,6 +240,12 @@ running it.
   answers until the version is a semantic version, the path stays inside the cache and the
   signed manifest names that pack and version, so a compromised registry cannot delete or write
   outside the cache.
+- A pack's patterns are checked at load. Every rules pattern (of every variant and composite
+  member) and every input-schema `pattern` is compiled with `re` as it will run, is at most
+  2,000 characters, and a pack holds at most 500, counted before any is compiled; one that
+  fails makes the pack invalid, named by file and rule (`mendari validate` prints no
+  traceback; a server lists the pack under `/api/health` `invalid`). This does not bound how
+  long a pattern takes on an input: see above.
 - A pack cannot stop the server. Any error while a pack is loaded or its terminology built
   (Mendari's own errors, and any other: YAML or JSON nested too deep, a file that is not
   UTF-8) lists that pack in `/api/health` (`invalid`; an error that is not Mendari's by its type
