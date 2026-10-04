@@ -6,6 +6,11 @@
 3. the signature is by a key of the pack's namespace;
 4. the extracted pack loads with the signed digest.
 
+Nothing the registry answers chooses where a pack is written: the namespace, name and version
+must be a pack id and a semantic version before any cache path is built, the path must stay
+inside the cache, and the signed manifest must name that id and version. A compromised registry
+can refuse service, never delete or write outside the cache.
+
 Namespace keys are pinned on first use (per registry). A pack signed by a key that isn't pinned
 is refused, unless the user accepts the new key, the way SSH treats a changed host key.
 
@@ -30,6 +35,7 @@ import httpx
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
 from mendari.core.pack import Pack, load_pack
+from mendari.core.spec import is_pack_id, is_version
 from mendari.errors import HubError
 from mendari.hub import archive
 
@@ -184,11 +190,17 @@ def pull(ref: str, client: RegistryClient, *, accept_new_key: bool = False) -> P
     """Download, verify and cache a pack (`namespace/name[@version]`); a verified copy in the
     cache is used as is."""
     pack_id, _, wanted = ref.partition("@")
-    if pack_id.count("/") != 1:
+    if not is_pack_id(pack_id) or (wanted and not is_version(wanted)):
         raise HubError(f"{ref!r} is not namespace/name[@version]")
     namespace, name = pack_id.split("/")
     meta = client.version(namespace, name, wanted or None)
-    target = packs_cache() / namespace / name / meta["version"]
+    version = meta.get("version")
+    if not is_version(version) or (wanted and version != wanted):
+        raise HubError(f"the registry answered a version that is not one of {pack_id}")
+    cache = packs_cache().resolve()
+    target = cache / namespace / name / version
+    if not target.resolve().is_relative_to(cache / namespace / name):
+        raise HubError(f"the registry answered a version that is not one of {pack_id}")
     if (target / _MARKER).is_file() and (target / _MARKER).read_text().strip() == meta[
         "archive_sha256"
     ]:
@@ -196,10 +208,12 @@ def pull(ref: str, client: RegistryClient, *, accept_new_key: bool = False) -> P
         if pack.digest == meta["digest"]:
             return pack
     keys = _trusted_keys(client, namespace, meta["key_id"], accept_new_key=accept_new_key)
-    data = client.archive(namespace, name, meta["version"])
+    data = client.archive(namespace, name, version)
     if hashlib.sha256(data).hexdigest() != meta["archive_sha256"]:
         raise HubError("the downloaded archive is not the one the registry recorded")
     verified = archive.verify(data, keys)
+    if (verified.manifest.get("id"), verified.manifest.get("version")) != (pack_id, version):
+        raise HubError(f"the archive is not {pack_id}@{version}, which the registry named")
     target.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=target.parent) as scratch:
         staged = Path(scratch) / "pack"

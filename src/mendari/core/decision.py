@@ -13,9 +13,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from jsonschema import Draft202012Validator, ValidationError
+from jsonschema import ValidationError
 
-from mendari.core import tenancy
+from mendari.core import input_schema, tenancy
 from mendari.core.derive import complete_answers, explain
 from mendari.core.pack import Pack, load_pack
 from mendari.core.policy import GovernanceOverride, PolicyResult, apply_policy
@@ -207,9 +207,7 @@ class Decision:
         if budget is not None:
             for provider in self.providers.values():
                 provider.use_budget(budget.acquire)
-        self._validator = Draft202012Validator(
-            pack.input_schema, format_checker=Draft202012Validator.FORMAT_CHECKER
-        )
+        self._validator = input_schema.validator(pack.input_schema)
 
     @classmethod
     def from_hub(cls, ref: str, **kwargs: Any) -> Decision:

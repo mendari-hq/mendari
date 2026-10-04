@@ -24,6 +24,11 @@ This creates a folder with everything a pack needs:
 | `tests/cases.yaml` | Behaviour tests: an input and what must happen |
 | `data/examples.jsonl` | A small labelled dataset, for evaluation |
 
+A pack is self-contained. Every file it names stays inside its folder (a symbolic link out of
+it is refused), and the input schema refers only to its own parts: a `$ref` starts with `#`,
+`$schema` (2020-12) and `$id` appear only at the top, and `$dynamicAnchor` and `format: regex`
+are not allowed. Checking an input never fetches a URL or reads another file.
+
 It already works. Check it:
 
 ```bash

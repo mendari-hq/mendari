@@ -149,7 +149,7 @@ def render_card(pack: Pack) -> str:
     for evidence in m.card.evidence:
         title = f"[{evidence.title}]({evidence.url})" if evidence.url else evidence.title
         out.append(f"- **{title}**" + (f": {evidence.note}" if evidence.note else ""))
-    changelog = pack.root / "CHANGELOG.md"
+    changelog = pack.path("CHANGELOG.md")
     if changelog.is_file():
         history = changelog.read_text(encoding="utf-8").split("\n", 1)[-1].strip()
         out += [

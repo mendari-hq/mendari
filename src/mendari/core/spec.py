@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 from enum import IntEnum, StrEnum
-from typing import Any, Literal
+from typing import Any, Literal, TypeGuard
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -22,6 +22,17 @@ MAX_DERIVE_ROWS = 10
 _PACK_ID = re.compile(r"^[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9-]*$")
 _SEMVER = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$")
 _KEY = re.compile(r"^[a-z][a-z0-9_]*$")
+
+
+def is_pack_id(text: object) -> TypeGuard[str]:
+    """`namespace/name`, lowercase letters, digits and dashes (the manifest's `id`)."""
+    return isinstance(text, str) and bool(_PACK_ID.match(text))
+
+
+def is_version(text: object) -> TypeGuard[str]:
+    """A semantic version (the manifest's `version`)."""
+    return isinstance(text, str) and bool(_SEMVER.match(text))
+
 
 # Variant keys that once named the environment variables a remote provider reads its endpoint,
 # model or key from. Those variables are the deployment's (spec section 5), so a pack that sets
@@ -478,14 +489,14 @@ class PackManifest(_Strict):
     @field_validator("id")
     @classmethod
     def _id(cls, value: str) -> str:
-        if not _PACK_ID.match(value):
+        if not is_pack_id(value):
             raise ValueError("id must look like 'namespace/name' (lowercase, digits, dashes)")
         return value
 
     @field_validator("version")
     @classmethod
     def _version(cls, value: str) -> str:
-        if not _SEMVER.match(value):
+        if not is_version(value):
             raise ValueError("version must be semantic (MAJOR.MINOR.PATCH)")
         return value
 

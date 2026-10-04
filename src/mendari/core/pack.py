@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
@@ -14,6 +15,7 @@ from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
 from pydantic import ValidationError
 
+from mendari.core import input_schema as schema_rules
 from mendari.core.spec import Outcome, PackManifest, Priority
 from mendari.errors import PackValidationError
 
@@ -109,6 +111,11 @@ def load_pack(path: str | Path, *, missing_models_ok: bool = False) -> Pack:
     trained artifacts (`model_file`, `calibration`) do not exist yet."""
     root = Path(path).resolve()
     manifest_path = root / MANIFEST
+    links = _outside_links(root)
+    if links:
+        raise PackValidationError(
+            str(path), [f"{link}: a symbolic link that leads outside the pack" for link in links]
+        )
     if not manifest_path.is_file():
         raise PackValidationError(str(path), [f"{MANIFEST} not found in {root}"])
     with manifest_path.open(encoding="utf-8") as handle:
@@ -148,6 +155,9 @@ def load_pack(path: str | Path, *, missing_models_ok: bool = False) -> Pack:
 
     with _confined(root, manifest.inputs.json_schema, label).open(encoding="utf-8") as handle:
         input_schema = json.load(handle)
+    problems = schema_rules.problems(input_schema)  # before any jsonschema code reads it
+    if problems:
+        raise PackValidationError(manifest.id, problems)
     try:
         Draft202012Validator.check_schema(input_schema)
     except SchemaError as error:
@@ -190,6 +200,27 @@ def _referenced_files(m: PackManifest, *, models: bool = True) -> list[str]:
                 keys = ("config", "model_file", "calibration") if models else ("config",)
                 files.extend(config[key] for key in keys if isinstance(config.get(key), str))
     return files
+
+
+def _outside_links(root: Path) -> list[str]:
+    """Every symbolic link in the pack's directory, hidden entries and caches included, that
+    resolves outside `root`: whatever reads a pack's file, through `Pack.path` or not, then stays
+    inside it. Links within the pack are allowed."""
+    found = []
+    for directory, subdirectories, files in os.walk(root):  # links to directories not followed
+        for name in [*subdirectories, *files]:
+            entry = Path(directory, name)
+            if not entry.is_symlink():
+                continue
+            try:
+                target: Path | None = entry.resolve(strict=True)
+            except FileNotFoundError:  # dangling: where it would lead once the target exists
+                target = entry.resolve()
+            except (OSError, RuntimeError):  # a loop (RuntimeError before Python 3.13)
+                target = None
+            if target is None or not target.is_relative_to(root):
+                found.append(entry.relative_to(root).as_posix())
+    return sorted(found)
 
 
 def _confined(root: Path, relative: str, label: str) -> Path:

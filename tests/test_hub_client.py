@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import socket
@@ -121,6 +122,68 @@ def test_an_archive_that_is_not_the_recorded_one_is_refused(
     with pytest.raises(HubError, match="not the one the registry recorded"):
         pull("site-a/referrals", hub.client())
     assert not (client.packs_cache() / "site-a" / "referrals").exists()
+
+
+class HostileRegistry:
+    """A registry (compromised, or a wrong MENDARI_REGISTRY_URL) that serves a genuinely signed
+    archive of the referral pack under whatever version it is told to name."""
+
+    def __init__(self, tmp_path: Path) -> None:
+        self.pack = load_pack(REFERRAL_DIR)
+        private, self.public = archive.generate_key()
+        key = archive.load_private_key(private)
+        self.data = archive.build(self.pack, key)
+        self.key_id = archive.key_id(key.public_key())
+        self.version = self.pack.version
+
+    def handle(self, request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("/archive"):
+            return httpx.Response(200, content=self.data)
+        if path.startswith("/v1/namespaces/"):
+            keys = [{"key_id": self.key_id, "public_pem": self.public.decode()}]
+            return httpx.Response(200, json={"keys": keys})
+        meta = {
+            "version": self.version,
+            "archive_sha256": hashlib.sha256(self.data).hexdigest(),
+            "key_id": self.key_id,
+            "digest": self.pack.digest,
+        }
+        return httpx.Response(200, json={"latest": meta, **meta})
+
+    def client(self) -> RegistryClient:
+        return RegistryClient(
+            "https://registry.example", transport=httpx.MockTransport(self.handle)
+        )
+
+
+@pytest.mark.parametrize("version", ["{victim}", "../../../victim", "0.1.1/../../../../victim"])
+def test_a_registry_cannot_choose_where_a_pull_writes(tmp_path: Path, version: str) -> None:
+    """T11: the cache path was built from the registry's `version` and replaced with rmtree, so
+    a hostile registry deleted any directory and wrote the pack there, the publisher's key
+    pinned and the signature good. The version must be one, inside the cache, and the signed
+    manifest's."""
+    victim = tmp_path / "victim"
+    victim.mkdir()
+    (victim / "precious.txt").write_text("keep me")
+    registry = HostileRegistry(tmp_path)
+    with registry.client() as honest:
+        assert pull("mendari/referral-router", honest).version == registry.pack.version  # pins
+    registry.version = version.format(victim=victim)
+    with registry.client() as hostile, pytest.raises(HubError, match="not one of"):
+        pull("mendari/referral-router", hostile)
+    assert (victim / "precious.txt").read_text() == "keep me"
+    assert sorted(p.name for p in victim.iterdir()) == ["precious.txt"]
+
+
+def test_a_registry_cannot_serve_one_version_as_another(tmp_path: Path) -> None:
+    registry = HostileRegistry(tmp_path)
+    registry.version = "9.9.9"  # a valid version, but the signed archive is 0.1.1
+    with registry.client() as hostile, pytest.raises(HubError, match="is not mendari/referral"):
+        pull("mendari/referral-router", hostile)
+    assert not (client.packs_cache() / "mendari" / "referral-router" / "9.9.9").exists()
+    with registry.client() as hostile, pytest.raises(HubError, match="not namespace/name"):
+        pull("../x", hostile)
 
 
 def test_a_rotated_key_needs_consent(hub: Hub, tmp_path: Path) -> None:

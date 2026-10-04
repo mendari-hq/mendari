@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 from collections.abc import Callable
 from pathlib import Path
 
@@ -9,6 +10,7 @@ from mendari import Pack, load_pack
 from mendari.core.pack import pack_digest
 from mendari.core.registry import resolve_pack
 from mendari.errors import PackNotFoundError, PackValidationError
+from tests.conftest import INBOX_DIR
 
 
 def test_reference_pack_loads(inbox_pack: Pack) -> None:
@@ -104,3 +106,80 @@ def test_digest_tracks_behaviour_but_not_attestations(pack_copy: Callable[..., P
     policy = root / "policy.yaml"
     policy.write_text(policy.read_text().replace("auto: 0.90", "auto: 0.91"))
     assert pack_digest(root) != before
+
+
+# -- a pack reads only its own files: no symbolic link out of it --------------------------------
+
+CANARY = "AWS_SECRET_ACCESS_KEY=canary-outside-the-pack"
+
+
+@pytest.fixture
+def inbox_copy(tmp_path: Path) -> Path:
+    root = tmp_path / "pack"
+    shutil.copytree(INBOX_DIR, root)
+    return root
+
+
+@pytest.mark.parametrize(
+    "link", ["CHANGELOG.md", "pack.yaml", "logic/extra", "notes", ".leak", "logic/.x", "a/.b/c"]
+)
+def test_a_symbolic_link_out_of_the_pack_is_refused(
+    inbox_copy: Path, tmp_path: Path, link: str
+) -> None:
+    # A CHANGELOG.md link to /proc/self/environ once put the server's environment in the card
+    # that GET /api/packs/{id} returns; a link to a directory would do the same for its files.
+    # Hidden entries are checked too: nothing should read them, and nothing then can.
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text(CANARY)
+    root = inbox_copy
+    path = root / link
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        path.unlink()
+    path.symlink_to(outside if link in ("notes", ".leak") else outside / "secret.txt")
+    with pytest.raises(PackValidationError) as raised:
+        load_pack(root)
+    assert raised.value.problems == [f"{link}: a symbolic link that leads outside the pack"]
+
+
+def test_a_link_loop_is_refused(inbox_copy: Path) -> None:
+    (inbox_copy / "loop").symlink_to(inbox_copy / "loop")
+    with pytest.raises(PackValidationError, match="loop: a symbolic link that leads outside"):
+        load_pack(inbox_copy)
+
+
+def test_a_symbolic_link_inside_the_pack_is_allowed(inbox_copy: Path) -> None:
+    root = inbox_copy
+    (root / "notes").symlink_to(root / "logic")
+    (root / "HISTORY.md").symlink_to("CHANGELOG.md")
+    assert load_pack(root).id == "mendari/patient-inbox-router"
+
+
+def test_the_card_reads_the_changelog_only_inside_the_pack(
+    inbox_copy: Path, tmp_path: Path
+) -> None:
+    from mendari.core.card import render_card
+
+    secret = tmp_path / "secret.txt"
+    secret.write_text(CANARY)
+    root = inbox_copy
+    pack = load_pack(root)
+    (root / "CHANGELOG.md").unlink()
+    (root / "CHANGELOG.md").symlink_to(secret)  # after the load's own check
+    with pytest.raises(PackValidationError, match="escapes the pack directory"):
+        render_card(pack)
+
+
+def test_card_write_never_writes_through_a_symbolic_link(
+    inbox_copy: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from mendari.cli import main
+
+    root = inbox_copy
+    (root / "notes.md").write_text("mine\n")
+    (root / "DECISION_CARD.md").unlink()
+    (root / "DECISION_CARD.md").symlink_to("notes.md")
+    assert main(["card", str(root), "--write"]) != 0
+    assert "symbolic link" in capsys.readouterr().err
+    assert (root / "notes.md").read_text() == "mine\n"

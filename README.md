@@ -524,6 +524,9 @@ mendari eval mendari/referral-router --dataset local.jsonl --share "My site"
 - **`pull`** checks the archive digest the registry recorded, every file hash, the signature and
   the pack digest before caching the pack. Namespace keys are pinned on first use, and a changed
   key needs `--accept-new-key`. `Decision.from_hub` pulls on its own when a pack isn't local.
+  Nothing an archive or a registry says chooses where a file is written: archive names are plain
+  paths inside the pack, an archive is read with size caps checked as it expands, and the cache
+  path is built only from a valid id and version that the signed manifest names.
 - **The registry** (`mendari registry serve`) has namespaces with a publisher type
   (community, verified, institutional) that its admins set after verification. `--share` sends
   a site's metrics, never its cases.

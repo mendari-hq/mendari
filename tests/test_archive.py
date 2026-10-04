@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import base64
 import gzip
+import hashlib
 import io
 import json
 import tarfile
+import tracemalloc
+import zlib
 from pathlib import Path
 
 import pytest
@@ -97,6 +101,61 @@ def test_paths_outside_the_pack_are_refused(key: archive.Ed25519PrivateKey, name
         archive.verify(repack(entries), trusted(key))
 
 
+def signed_with(key: archive.Ed25519PrivateKey, name: str, data: bytes) -> bytes:
+    """The referral pack's archive plus one more entry `name`, listed in the manifest (as
+    `verify` would read it) and signed: only the name check stands in the way."""
+    entries = members(archive.build(REFERRAL, key))
+    manifest = json.loads(entries[0][1])
+    manifest["files"].append(
+        {
+            "path": name.removeprefix("pack/"),
+            "sha256": hashlib.sha256(data).hexdigest(),
+            "size": len(data),
+        }
+    )
+    manifest_bytes = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
+    signature = {
+        "algorithm": "Ed25519",
+        "key_id": archive.key_id(key.public_key()),
+        "signature": base64.b64encode(key.sign(manifest_bytes)).decode(),
+    }
+    return repack(
+        [
+            (archive.MANIFEST, manifest_bytes),
+            (archive.SIGNATURE, json.dumps(signature).encode()),
+            *entries[2:],
+            (name, data),
+        ]
+    )
+
+
+@pytest.mark.parametrize("name", ["pack/{outside}", "pack/a//b", "pack/./x", "pack/x/"])
+def test_names_with_empty_or_dot_segments_are_refused(
+    key: archive.Ed25519PrivateKey, tmp_path: Path, name: str
+) -> None:
+    # `pack//<absolute path>` once passed (a path library reads it as `pack/<path>`) and was
+    # written at the absolute path: a file anywhere on the registry host or a puller's machine.
+    outside = tmp_path / "outside" / "pwned.txt"
+    name = name.format(outside=outside.as_posix())
+    with pytest.raises(HubError, match="not a path inside the pack"):
+        archive.verify(signed_with(key, name, b"x"), trusted(key))
+    assert not outside.exists()
+
+
+@pytest.mark.parametrize("path", ["{outside}", "../escape.txt", "logic/../../escape.txt"])
+def test_extract_writes_nothing_outside_the_destination(
+    key: archive.Ed25519PrivateKey, tmp_path: Path, path: str
+) -> None:
+    outside = tmp_path / "outside" / "pwned.txt"
+    good = archive.verify(archive.build(REFERRAL, key), trusted(key))
+    files = {**good.files, path.format(outside=outside.as_posix()): b"x"}
+    evil = archive.Verified(good.manifest, files, good.key_id, good.sha256)
+    with pytest.raises(HubError, match="not a path inside the pack"):
+        archive.extract(evil, tmp_path / "dest" / "pack")
+    assert not outside.exists() and not (tmp_path / "dest" / "escape.txt").exists()
+    assert not (tmp_path / "dest" / "pack" / "pack.yaml").exists()  # checked before any write
+
+
 def test_links_are_refused(key: archive.Ed25519PrivateKey) -> None:
     entries = [*members(archive.build(REFERRAL, key)), ("pack/link", b"")]
     with pytest.raises(HubError, match="only regular files"):
@@ -111,6 +170,162 @@ def test_size_caps(key: archive.Ed25519PrivateKey, monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(archive, "MAX_ARCHIVE_BYTES", 1000)
     with pytest.raises(HubError, match="archive is larger"):
         archive.verify(data, trusted(key))
+    monkeypatch.setattr(archive, "MAX_ARCHIVE_BYTES", 100 * 1024 * 1024)
+    monkeypatch.setattr(archive, "MAX_FILE_BYTES", 50 * 1024 * 1024)
+    monkeypatch.setattr(archive, "MAX_FILES", 5)
+    with pytest.raises(HubError, match="more than 5 files"):
+        archive.verify(data, trusted(key))
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [tarfile.LNKTYPE, tarfile.SYMTYPE, tarfile.CHRTYPE, tarfile.BLKTYPE, tarfile.FIFOTYPE],
+    ids=["hard-link", "symlink", "character-device", "block-device", "fifo"],
+)
+def test_only_regular_files_are_read(key: archive.Ed25519PrivateKey, kind: bytes) -> None:
+    entries = [*members(archive.build(REFERRAL, key)), ("pack/special", b"")]
+    with pytest.raises(HubError, match="pack/special: only regular files"):
+        archive.verify(repack(entries, kind=kind), trusted(key))
+
+
+def _sparse_archive(count: int, style: str) -> bytes:
+    """`count` sparse members, each declaring 50 MiB of zeros in a few bytes."""
+    raw = io.BytesIO()
+    real = str(50 * 1024 * 1024)
+    tar_format = tarfile.GNU_FORMAT if style == "gnu" else tarfile.PAX_FORMAT
+    with tarfile.open(fileobj=raw, mode="w", format=tar_format) as tar:
+        for i in range(count):
+            info = tarfile.TarInfo(f"pack/f{i}")
+            data = b""
+            if style == "pax-1.0":
+                info.pax_headers = {
+                    "GNU.sparse.major": "1",
+                    "GNU.sparse.minor": "0",
+                    "GNU.sparse.name": f"pack/f{i}",
+                    "GNU.sparse.realsize": real,
+                }
+                data = b"0\n".ljust(512, b"\0")  # a sparse map with no data blocks
+            elif style == "pax-0.1":
+                info.pax_headers = {"GNU.sparse.size": real, "GNU.sparse.map": f"0,0,{real},0"}
+            else:
+                info.type = tarfile.GNUTYPE_SPARSE
+            info.size = len(data)
+            tar.addfile(info, io.BytesIO(data))
+    return gzip.compress(raw.getvalue())
+
+
+@pytest.mark.parametrize("style", ["pax-1.0", "pax-0.1", "gnu"])
+def test_sparse_members_are_refused_before_anything_is_read(style: str) -> None:
+    """R4: tarfile reads a PAX 1.0 sparse member as a regular file of its declared size, so
+    2,000 of them in a 46 KB archive made the reader allocate about 100 GB (before any key or
+    signature was checked)."""
+    tracemalloc.start()
+    try:
+        with pytest.raises(HubError, match="pack/f0: only regular files"):
+            archive.verify(_sparse_archive(20, style), {})
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert peak < 5 * 1024 * 1024
+
+
+def _zeros_archive(count: int, mib: int) -> bytes:
+    """A gzip tar of `count` regular files of `mib` MiB of zeros each, built as a stream."""
+    compressor = zlib.compressobj(9, zlib.DEFLATED, 31)
+    out: list[bytes] = []
+
+    class Sink:
+        def write(self, data: bytes) -> int:
+            out.append(compressor.compress(data))
+            return len(data)
+
+    class Zeros:
+        def __init__(self, size: int):
+            self.left = size
+
+        def read(self, size: int) -> bytes:
+            size = min(size, self.left)
+            self.left -= size
+            return b"\0" * size
+
+    with tarfile.open(fileobj=Sink(), mode="w|", format=tarfile.USTAR_FORMAT) as tar:  # type: ignore[call-overload]
+        for i in range(count):
+            info = tarfile.TarInfo(f"pack/zeros{i}")
+            info.size = mib * 1024 * 1024
+            tar.addfile(info, Zeros(info.size))
+    return b"".join(out) + compressor.flush()
+
+
+def test_a_gzip_bomb_is_refused_while_it_expands() -> None:
+    """R4: the whole gzip was decompressed in memory before its size was checked, so a 1 MB
+    archive took about 2 GB (and a 100 MB one, the most the registry accepts, about 100 GB).
+    It is read as a stream that stops at the cap: here about 500 KB declaring 500 MiB."""
+    data = _zeros_archive(100, 5)
+    assert len(data) < 1024 * 1024
+    tracemalloc.start()
+    try:
+        with pytest.raises(HubError, match="expands beyond the size cap"):
+            archive.verify(data, {})
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert peak < archive.EXPANSION_FLOOR + 16 * 1024 * 1024
+
+
+def test_expansion_is_capped_by_ratio_and_in_all(
+    key: archive.Ed25519PrivateKey, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    data = archive.build(REFERRAL, key)  # expands about 15 times
+    monkeypatch.setattr(archive, "EXPANSION_FLOOR", 1024)
+    assert archive.verify(data, trusted(key)).manifest["id"] == REFERRAL.id
+    monkeypatch.setattr(archive, "MAX_EXPANSION", 5)
+    with pytest.raises(HubError, match="expands beyond the size cap"):
+        archive.verify(data, trusted(key))
+    monkeypatch.setattr(archive, "MAX_EXPANSION", 100)
+    monkeypatch.setattr(archive, "MAX_UNPACKED_BYTES", 1024 * 1024)
+    with pytest.raises(HubError, match="expands beyond the size cap"):
+        archive.verify(data, trusted(key))
+
+
+def test_a_truncated_archive_is_not_gzip(key: archive.Ed25519PrivateKey) -> None:
+    data = archive.build(REFERRAL, key)
+    with pytest.raises(HubError, match="not gzip"):
+        archive.verify(data[: len(data) // 2], trusted(key))
+
+
+def _signed_manifest(key: archive.Ed25519PrivateKey, manifest_bytes: bytes) -> bytes:
+    signature = {
+        "algorithm": "Ed25519",
+        "key_id": archive.key_id(key.public_key()),
+        "signature": base64.b64encode(key.sign(manifest_bytes)).decode(),
+    }
+    entries = members(archive.build(REFERRAL, key))
+    return repack(
+        [
+            (archive.MANIFEST, manifest_bytes),
+            (archive.SIGNATURE, json.dumps(signature).encode()),
+            *entries[2:],
+        ]
+    )
+
+
+@pytest.mark.parametrize(
+    ("manifest", "problem"),
+    [
+        (b"[" * 100_000 + b"]" * 100_000, "not JSON"),
+        (b"[]", "not a JSON object"),
+        (b'{"format": "mendari-pack/1", "files": {"a": 1}}', "does not list its files"),
+        (b'{"format": "mendari-pack/1", "files": [{"path": 1}]}', "does not list its files"),
+    ],
+    ids=["too-deep", "a-list", "files-not-a-list", "path-not-a-string"],
+)
+def test_a_malformed_manifest_is_refused_not_a_server_error(
+    key: archive.Ed25519PrivateKey, manifest: bytes, problem: str
+) -> None:
+    """A manifest nested too deep for the JSON reader, or of the wrong shape, raised a raw
+    RecursionError, AttributeError or TypeError: a 500 from the registry's publish."""
+    with pytest.raises(HubError, match=problem):
+        archive.verify(_signed_manifest(key, manifest), trusted(key))
 
 
 def test_garbage_is_not_an_archive(key: archive.Ed25519PrivateKey) -> None:

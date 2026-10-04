@@ -79,11 +79,10 @@ def _test_input_problems(pack: Pack) -> list[str]:
     """Behaviour-test inputs must match the input schema, unless the test expects a BLOCK;
     otherwise the test decides a BLOCK and fails confusingly (e.g. unquoted YAML flow-mapping
     text split into extra keys)."""
-    from jsonschema import Draft202012Validator
-
+    from mendari.core import input_schema
     from mendari.evals.pack_tests import load_cases
 
-    validator = Draft202012Validator(pack.input_schema)
+    validator = input_schema.validator(pack.input_schema, formats=False)
     problems = []
     for number, case in enumerate(load_cases(pack), start=1):
         if (case.get("expect") or {}).get("outcome") == "BLOCK":
@@ -308,6 +307,8 @@ def cmd_card(args: argparse.Namespace) -> int:
     card = render_card(pack)
     if args.write:
         target = pack.root / "DECISION_CARD.md"
+        if target.is_symlink():  # the write would land wherever the link points
+            raise MendariError(f"{target} is a symbolic link; not writing through it")
         target.write_text(card, encoding="utf-8")
         print(f"wrote {target}")
     else:

@@ -11,6 +11,16 @@ identically.
   and `llm` variants removed; the variable names are fixed constants, and a variant (or a
   composite's member) that sets one makes the pack invalid at load (`core/spec.py`), naming the
   variant and keys, never values; the provider refuses such a config too.
+- [x] **2. Nothing in a pack reaches outside it (E9, D6)**: archive names split as written
+  (`pack/` and plain segments; `pack//<absolute path>` was written at that path); `extract`
+  checks every target is inside the destination; only regular files (no sparse member); the
+  archive read as a stream with caps on members, member size, total size and expansion ratio
+  checked as it expands. `pull` validates the registry's namespace, name and version and confines
+  the cache path before any write, and the signed manifest must name that id and version (T11).
+  The input schema is self-contained (local references that resolve, no nested `$schema` or
+  `$id`, no `$dynamicAnchor`, no `format: regex`) and its validator retrieves nothing. A
+  directory pack with a symbolic link out of it (hidden entries included) is refused; fixed-name
+  reads go through `Pack.path`; `mendari card --write` does not write through a link.
 
 ## Built: the SMART launch gated, C5 and S5 (2026-10-03)
 From the Phase 4b review's residual risks, after research (three researchers and a critic). The

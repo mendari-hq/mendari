@@ -83,7 +83,14 @@ Validation rules (all MUST hold):
   `min_probability`, `min_score` or `max_score`.
 - `thresholds.review ≤ thresholds.auto`, both in [0, 1].
 - Packs at risk level ≥ 2 MUST NOT contain policy rules whose outcome is `AUTO`.
-- Every referenced file exists inside the pack.
+- Every referenced file exists inside the pack. A directory pack MUST NOT hold a symbolic link
+  (hidden entries included) that resolves outside the pack's directory.
+- The input schema is self-contained: `$ref`, `$dynamicRef` and `$recursiveRef` start with `#`
+  and resolve to a schema (an object or a boolean) in the document; `$schema`, if present, is at
+  the root only and names `https://json-schema.org/draft/2020-12/schema`; `$id` is at the root
+  only; it holds no `$dynamicAnchor` and no `format: "regex"`. These keys are looked for in the
+  whole document, since a `$ref` can make any object in it a schema. Inputs are checked with a
+  validator that retrieves nothing, so checking an input never fetches a URL or reads a file.
 
 ## 4. Questions
 
@@ -457,7 +464,8 @@ commits to each decision record, so modification or deletion is detectable.
 0.2 is backwards compatible. A manifest with `spec_version: "0.1"` still loads, validates and
 produces identical decisions; it simply cannot use the new fields. One restriction applies to
 packs of every version: a `jev` or `llm` variant may not name the environment variables its
-provider reads (§5). No published pack named them.
+provider reads (§5); a directory pack may not hold a symbolic link out of it, and an input
+schema must be self-contained (§3). No published pack did any of these.
 
 | Change | Section |
 |---|---|
@@ -476,6 +484,7 @@ provider reads (§5). No published pack named them.
 | `cds_hooks.questionnaire` (Da Vinci DTR `$questionnaire-package`) | §9 |
 | The decision output schema adds an optional `value` to each answer | §4.2 |
 | `jev` and `llm` variants may not name the environment variables a provider reads (`*_env`; every spec version) | §5 |
+| No symbolic link out of a directory pack; a self-contained input schema (local references only, no nested `$schema` or `$id`, no `$dynamicAnchor`, no `format: regex`; every spec version) | §3 |
 
 To migrate a pack:
 

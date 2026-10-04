@@ -350,10 +350,10 @@ def _version_row(row: Mapping[str, Any]) -> dict[str, Any]:
 def describe(pack: Pack, verified: archive.Verified) -> dict[str, Any]:
     """What the registry shows and searches: from the pack itself, never from the uploader."""
     m = pack.manifest
-    benchmark = _json(pack.root / "evals" / "benchmark.json")
-    leaderboard = _json(pack.root / "evals" / "leaderboard.json")
+    benchmark = _json(pack.path("evals/benchmark.json"))
+    leaderboard = _json(pack.path("evals/leaderboard.json"))
     primary = (benchmark or {}).get("questions", {}).get(m.policy.primary, {})
-    card = pack.root / "DECISION_CARD.md"
+    card = pack.path("DECISION_CARD.md")
     return {
         "pack_name": m.name,
         "summary": " ".join(m.summary.split()),

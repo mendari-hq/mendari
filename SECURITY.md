@@ -222,6 +222,26 @@ running it.
   supply them is fixed in code and belongs to the deployment; a pack whose provider config
   names one (`api_key_env`, `base_url_env`, `endpoint_env` and the like) is refused at load,
   so it cannot send a process secret to an address of its choosing.
+- A pack reads only its own files. Every path it names must resolve, symbolic links followed,
+  inside the pack's directory; a directory pack holding a symbolic link that leads outside it
+  (hidden entries included) is refused at load, the files read by a fixed name (`CHANGELOG.md`,
+  `DECISION_CARD.md`, `evals/*.json`) go through the same check, and `mendari card --write`
+  does not write through a link. A signed archive holds regular files only (no symbolic or hard
+  link, device, FIFO or sparse file), each named `pack/` and then plain path segments (none
+  empty, `.`, `..` or hidden, no backslash), and extracting it writes nothing outside the
+  destination. An archive is read as a stream with its caps checked while it expands, before
+  the signature is checked: at most 2,000 files of at most 50 MB each, and the gzip expands to
+  at most 100 times its size (64 MB for any archive) and 400 MB in all, so a small archive
+  cannot make the registry, `mendari pull` or `mendari pack verify` hold more than that in
+  memory. `mendari pull` (and `Decision.from_hub`) builds no cache path from what the registry
+  answers until the version is a semantic version, the path stays inside the cache and the
+  signed manifest names that pack and version, so a compromised registry cannot delete or write
+  outside the cache.
+- A pack's input schema is self-contained: every `$ref` points inside it (`#...`) at a schema,
+  `$schema` and `$id` appear only at its root (the dialect 2020-12), and it holds no
+  `$dynamicAnchor` and no `format: regex` (which jsonschema checks by compiling the caller's
+  string). The validator retrieves nothing, so checking an input never fetches a URL or reads a
+  file.
 
 ## What CI checks on every change
 
