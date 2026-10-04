@@ -237,6 +237,16 @@ running it.
   answers until the version is a semantic version, the path stays inside the cache and the
   signed manifest names that pack and version, so a compromised registry cannot delete or write
   outside the cache.
+- A pack cannot stop the server. Any error while a pack is loaded or its terminology built
+  (Mendari's own errors, and any other: YAML or JSON nested too deep, a file that is not
+  UTF-8) lists that pack in `/api/health` (`invalid`; an error that is not Mendari's by its type
+  alone, as its text is the pack's), and every other pack is served; a served pack whose
+  providers cannot be built when first used is listed there too, and its decisions answer
+  `422`, never `/api/health` or another pack's. A YAML file of a pack expands to at most
+  1,000,000 nodes, counted on the parsed graph before anything walks it, so a few lines of
+  aliases cannot make loading exponential; a version has at most 64 characters, so comparing
+  versions never fails. Publishing a pack to the registry that does not load, or whose card is
+  not text, is refused with a `422` and its reason, never a server error.
 - A pack's input schema is self-contained: every `$ref` points inside it (`#...`) at a schema,
   `$schema` and `$id` appear only at its root (the dialect 2020-12), and it holds no
   `$dynamicAnchor` and no `format: regex` (which jsonschema checks by compiling the caller's

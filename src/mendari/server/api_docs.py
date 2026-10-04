@@ -327,10 +327,13 @@ def _fits(pack: Pack, path: str) -> bool:
 
 def _example_input(pack: Pack) -> tuple[str, dict[str, Any]] | None:
     """The pack's first behaviour test that automates (the friendliest first try), or its
-    first one."""
-    cases = [
-        c for c in load_cases(pack) if isinstance(c, dict) and isinstance(c.get("input"), dict)
-    ]
+    first one; None if it has none, or its tests do not load (that pack's problem, never the
+    API reference's)."""
+    try:
+        loaded = load_cases(pack)
+    except Exception:
+        return None
+    cases = [c for c in loaded if isinstance(c, dict) and isinstance(c.get("input"), dict)]
     automated = [c for c in cases if (c.get("expect") or {}).get("outcome") == "AUTO"]
     if not (automated or cases):
         return None

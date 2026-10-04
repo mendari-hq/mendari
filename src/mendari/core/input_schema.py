@@ -14,8 +14,8 @@ load (`check`) an input schema must be self-contained:
   `re`, which an input can make arbitrarily slow, and no shipped pack uses it.
 
 The whole document is searched, not only keyword positions: a `$ref` can make any object in it
-a schema. The validator (`validator`) also has a registry that retrieves nothing, so a reference
-can never leave the document even if a check were missed.
+a schema; each object once, by identity. The validator (`validator`) also has a registry that
+retrieves nothing, so a reference can never leave the document even if a check were missed.
 """
 
 from __future__ import annotations
@@ -35,8 +35,13 @@ def problems(schema: Any) -> list[str]:
     found: list[str] = []
     references: list[tuple[str, str]] = []
     stack: list[tuple[str, Any]] = [("", schema)]
+    seen: set[int] = set()  # by identity: a shared node is searched once
     while stack:
         path, node = stack.pop()
+        if isinstance(node, dict | list):
+            if id(node) in seen:
+                continue
+            seen.add(id(node))
         if isinstance(node, list):
             stack.extend((f"{path}/{index}", item) for index, item in enumerate(node))
             continue

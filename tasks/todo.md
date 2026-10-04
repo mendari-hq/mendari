@@ -21,6 +21,16 @@ identically.
   `$id`, no `$dynamicAnchor`, no `format: regex`) and its validator retrieves nothing. A
   directory pack with a symbolic link out of it (hidden entries included) is refused; fixed-name
   reads go through `Pack.path`; `mendari card --write` does not write through a link.
+- [x] **3. A pack never stops the server (D7)**: any error loading a pack or building its
+  terminology lists it under `/api/health` `invalid` (by type when not Mendari's) and the others
+  are served; a served pack whose providers cannot be built is listed there and answers `422`,
+  never failing `/api/health` (T9); providers stay lazy, built at first use as on main. YAML is
+  bounded on the parsed graph (1,000,000 nodes, aliases expanded, each node visited once; no
+  alias loop) before anything walks it (T2, T7); YAML or JSON too deep, not UTF-8, or a schema
+  the validator cannot read is a `PackValidationError`. A version has at most 64 characters and
+  `version_key` never calls `int()` (T10). A registry publish answers `422`, never `500`, for a
+  pack that does not load or whose card is not text; a malformed benchmark is shown as none
+  (T12).
 
 ## Built: the SMART launch gated, C5 and S5 (2026-10-03)
 From the Phase 4b review's residual risks, after research (three researchers and a critic). The

@@ -38,7 +38,7 @@ pack directory and MUST NOT resolve outside it.
 ```yaml
 spec_version: "0.2"          # "0.1" is still accepted (§13)
 id: namespace/name            # lowercase, digits, dashes
-version: 1.2.3                # semantic version
+version: 1.2.3                # semantic version, at most 64 characters
 name: Human-readable name
 summary: One or two sentences.
 publisher: {name: ..., type: community | verified | institutional, url: ...}
@@ -83,6 +83,10 @@ Validation rules (all MUST hold):
   `min_probability`, `min_score` or `max_score`.
 - `thresholds.review ≤ thresholds.auto`, both in [0, 1].
 - Packs at risk level ≥ 2 MUST NOT contain policy rules whose outcome is `AUTO`.
+- `version` is a semantic version of at most 64 characters.
+- A YAML file of the pack (manifest, policy, provider configs, tests) has at most 1,000,000
+  nodes once every alias is expanded (an alias counts each time it is used), and no alias
+  inside its own anchor.
 - Every referenced file exists inside the pack. A directory pack MUST NOT hold a symbolic link
   (hidden entries included) that resolves outside the pack's directory.
 - The input schema is self-contained: `$ref`, `$dynamicRef` and `$recursiveRef` start with `#`
@@ -465,7 +469,8 @@ commits to each decision record, so modification or deletion is detectable.
 produces identical decisions; it simply cannot use the new fields. One restriction applies to
 packs of every version: a `jev` or `llm` variant may not name the environment variables its
 provider reads (§5); a directory pack may not hold a symbolic link out of it, and an input
-schema must be self-contained (§3). No published pack did any of these.
+schema must be self-contained, a version has at most 64 characters, and a YAML file expands to
+at most 1,000,000 nodes (§3). No published pack did any of these.
 
 | Change | Section |
 |---|---|
@@ -484,6 +489,7 @@ schema must be self-contained (§3). No published pack did any of these.
 | `cds_hooks.questionnaire` (Da Vinci DTR `$questionnaire-package`) | §9 |
 | The decision output schema adds an optional `value` to each answer | §4.2 |
 | `jev` and `llm` variants may not name the environment variables a provider reads (`*_env`; every spec version) | §5 |
+| A version of at most 64 characters; YAML of at most 1,000,000 nodes, aliases expanded (every spec version) | §3 |
 | No symbolic link out of a directory pack; a self-contained input schema (local references only, no nested `$schema` or `$id`, no `$dynamicAnchor`, no `format: regex`; every spec version) | §3 |
 
 To migrate a pack:

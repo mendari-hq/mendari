@@ -868,6 +868,11 @@ On a preview without sign-in `vercel curl` shows everything; with sign-in on, op
 `/api/health` in a browser signed in to the dashboard. The FHIR sandbox (HAPI) stays in local
 `docker compose`.
 
+One pack never stops the server. Its `invalid` lists the packs that failed to load (by path; an
+error that is not Mendari's by its type alone) and the served packs whose providers could not be
+built (by id; their decisions answer `422`), neither of which is served, and the packs whose
+terminology could not be built, which are served without it. Every other pack decides.
+
 Days and times people see (the dashboard's times and daily volume, daily call counters, "today"
 for criteria and ages, card dates) use `MENDARI_TIMEZONE`, an IANA name defaulting to
 `America/New_York`. Stored timestamps, the audit hash chain, API JSON and FHIR stay UTC.

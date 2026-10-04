@@ -51,6 +51,10 @@ def discover(paths: list[Path] | None = None) -> Discovery:
                 packs.append(load_pack(root))
             except MendariError as error:
                 problems[str(root)] = str(error)
+            # Any other failure is the pack's content too (an outside pack's): it is listed by
+            # its type alone, and the other packs are still found, so a pack never stops a server.
+            except Exception as error:
+                problems[str(root)] = f"the pack could not be loaded ({type(error).__name__})"
     return Discovery(packs=packs, problems=problems)
 
 
@@ -76,5 +80,8 @@ def resolve_pack(
     return max(matches, key=lambda pack: version_key(pack.version))
 
 
-def version_key(version: str) -> tuple[int, ...]:
-    return tuple(int(part) for part in re.findall(r"\d+", version.split("-")[0]))
+def version_key(version: str) -> tuple[tuple[int, str], ...]:
+    """Orders versions by their numbers, as integers would, without converting them: `int()`
+    refuses more than 4,300 digits, and a version string comes from a pack or a registry."""
+    parts = (part.lstrip("0") for part in re.findall(r"\d+", version.split("-")[0]))
+    return tuple((len(part), part) for part in parts)

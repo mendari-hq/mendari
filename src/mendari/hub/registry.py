@@ -48,7 +48,7 @@ from mendari.hub import archive
 
 PublisherType = Literal["community", "verified", "institutional"]
 _NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
-_VERSION = re.compile(r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
+_VERSION = re.compile(r"^(?=.{1,64}$)\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
 _LOCK = 0x0E4_4B0B  # the registry's Postgres advisory lock (the audit store has its own)
 
 SCHEMA = """
@@ -210,9 +210,13 @@ class RegistryStore:
         with tempfile.TemporaryDirectory() as scratch:
             try:
                 pack = archive.extract(verified, Path(scratch) / "pack")
+                metadata = describe(pack, verified)
+            except HubError:
+                raise
             except MendariError as error:
                 raise HubError(f"the pack does not load: {error}") from None
-            metadata = describe(pack, verified)
+            except Exception as error:  # the publisher's content: named, never a 500
+                raise HubError(f"the pack does not load ({type(error).__name__})") from None
         with self._db.session(exclusive=True) as db:
             if db.one(
                 "SELECT version FROM hub_versions WHERE namespace = ? AND name = ? AND version = ?",
@@ -352,8 +356,11 @@ def describe(pack: Pack, verified: archive.Verified) -> dict[str, Any]:
     m = pack.manifest
     benchmark = _json(pack.path("evals/benchmark.json"))
     leaderboard = _json(pack.path("evals/leaderboard.json"))
-    primary = (benchmark or {}).get("questions", {}).get(m.policy.primary, {})
-    card = pack.path("DECISION_CARD.md")
+    questions = (benchmark or {}).get("questions")
+    primary = questions.get(m.policy.primary) if isinstance(questions, dict) else None
+    primary = primary if isinstance(primary, dict) else {}
+    dataset = (benchmark or {}).get("dataset")
+    card = _text(pack.path("DECISION_CARD.md"), "DECISION_CARD.md")
     return {
         "pack_name": m.name,
         "summary": " ".join(m.summary.split()),
@@ -371,22 +378,34 @@ def describe(pack: Pack, verified: archive.Verified) -> dict[str, Any]:
         "digest": pack.digest,
         "key_id": verified.key_id,
         "benchmark": {
-            "dataset": (benchmark or {}).get("dataset", {}).get("name"),
+            "dataset": dataset.get("name") if isinstance(dataset, dict) else None,
             "n": primary.get("n"),
             "accuracy": primary.get("accuracy"),
         }
         if benchmark
         else None,
         "leaderboard": leaderboard,
-        "card_markdown": card.read_text(encoding="utf-8") if card.is_file() else None,
+        "card_markdown": card,
     }
 
 
-def _json(path: Path) -> Any:
+def _json(path: Path) -> dict[str, Any] | None:
+    """A JSON object the pack carries about itself, or None if it is missing, not JSON, nested
+    too deep or not an object."""
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        found = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, RecursionError):
         return None
+    return found if isinstance(found, dict) else None
+
+
+def _text(path: Path, name: str) -> str | None:
+    if not path.is_file():
+        return None
+    try:
+        return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        raise HubError(f"{name} is not UTF-8 text") from None
 
 
 # -- the HTTP API ---------------------------------------------------------------------------------

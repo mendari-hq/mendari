@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from mendari.core.templates import unknown_placeholders
 
 SPEC_VERSION = "0.2"
+MAX_VERSION_CHARS = 64
 MAX_DERIVE_ROWS = 10
 
 _PACK_ID = re.compile(r"^[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9-]*$")
@@ -30,8 +31,8 @@ def is_pack_id(text: object) -> TypeGuard[str]:
 
 
 def is_version(text: object) -> TypeGuard[str]:
-    """A semantic version (the manifest's `version`)."""
-    return isinstance(text, str) and bool(_SEMVER.match(text))
+    """A semantic version (the manifest's `version`) of at most `MAX_VERSION_CHARS`."""
+    return isinstance(text, str) and len(text) <= MAX_VERSION_CHARS and bool(_SEMVER.match(text))
 
 
 # Variant keys that once named the environment variables a remote provider reads its endpoint,
@@ -497,7 +498,10 @@ class PackManifest(_Strict):
     @classmethod
     def _version(cls, value: str) -> str:
         if not is_version(value):
-            raise ValueError("version must be semantic (MAJOR.MINOR.PATCH)")
+            raise ValueError(
+                f"version must be semantic (MAJOR.MINOR.PATCH), at most {MAX_VERSION_CHARS} "
+                "characters"
+            )
         return value
 
     @model_validator(mode="after")

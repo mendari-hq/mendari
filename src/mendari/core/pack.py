@@ -24,6 +24,10 @@ MANIFEST = "pack.yaml"
 # otherwise publishing a benchmark would change the identity of the pack it describes.
 _DIGEST_EXCLUDED_DIRS = {"evals"}
 _DIGEST_EXCLUDED_FILES = {"DECISION_CARD.md"}
+# A YAML document's nodes, counting an alias each time it is used: a few lines of anchors and
+# aliases ("a billion laughs") otherwise expand to a graph whose every walk is exponential. The
+# shipped packs' largest file has under 2,000.
+MAX_YAML_NODES = 1_000_000
 
 
 @dataclass(frozen=True)
@@ -53,11 +57,7 @@ class Pack:
         return resolved
 
     def read_yaml(self, relative: str) -> Any:
-        with self.path(relative).open(encoding="utf-8") as handle:
-            try:
-                return yaml.safe_load(handle)
-            except yaml.YAMLError as error:
-                raise PackValidationError(self.id, [f"{relative}: invalid YAML: {error}"]) from None
+        return load_yaml(self.path(relative), relative, self.id)
 
     def read_json(self, relative: str) -> Any:
         with self.path(relative).open(encoding="utf-8") as handle:
@@ -118,11 +118,7 @@ def load_pack(path: str | Path, *, missing_models_ok: bool = False) -> Pack:
         )
     if not manifest_path.is_file():
         raise PackValidationError(str(path), [f"{MANIFEST} not found in {root}"])
-    with manifest_path.open(encoding="utf-8") as handle:
-        try:
-            raw = yaml.safe_load(handle)
-        except yaml.YAMLError as error:
-            raise PackValidationError(str(path), [f"{MANIFEST}: invalid YAML: {error}"]) from None
+    raw = load_yaml(manifest_path, MANIFEST, str(path))
     if not isinstance(raw, dict):
         raise PackValidationError(str(path), [f"{MANIFEST} must be a mapping"])
     label = str(raw.get("id", path))
@@ -132,13 +128,7 @@ def load_pack(path: str | Path, *, missing_models_ok: bool = False) -> Pack:
         policy_path = _confined(root, raw["policy"], label)
         if not policy_path.is_file():
             raise PackValidationError(label, [f"policy file {raw['policy']!r} not found"])
-        with policy_path.open(encoding="utf-8") as handle:
-            try:
-                raw["policy"] = yaml.safe_load(handle)
-            except yaml.YAMLError as error:
-                raise PackValidationError(
-                    label, [f"{raw['policy']}: invalid YAML: {error}"]
-                ) from None
+        raw["policy"] = load_yaml(policy_path, raw["policy"], label)
 
     try:
         manifest = PackManifest.model_validate(raw)
@@ -153,8 +143,13 @@ def load_pack(path: str | Path, *, missing_models_ok: bool = False) -> Pack:
     if problems:
         raise PackValidationError(manifest.id, problems)
 
-    with _confined(root, manifest.inputs.json_schema, label).open(encoding="utf-8") as handle:
-        input_schema = json.load(handle)
+    schema_path = _confined(root, manifest.inputs.json_schema, label)
+    try:
+        with schema_path.open(encoding="utf-8") as handle:
+            input_schema = json.load(handle)
+    except (ValueError, RecursionError) as error:  # not JSON, not UTF-8, nested too deep
+        problem = f"{manifest.inputs.json_schema}: not a JSON document ({type(error).__name__})"
+        raise PackValidationError(manifest.id, [problem]) from None
     problems = schema_rules.problems(input_schema)  # before any jsonschema code reads it
     if problems:
         raise PackValidationError(manifest.id, problems)
@@ -162,6 +157,9 @@ def load_pack(path: str | Path, *, missing_models_ok: bool = False) -> Pack:
         Draft202012Validator.check_schema(input_schema)
     except SchemaError as error:
         raise PackValidationError(manifest.id, [f"input schema: {error.message}"]) from None
+    except (OverflowError, RecursionError, TypeError, ValueError) as error:
+        problem = f"input schema: not a schema the validator can read ({type(error).__name__})"
+        raise PackValidationError(manifest.id, [problem]) from None
 
     return Pack(manifest=manifest, root=root, digest=pack_digest(root), input_schema=input_schema)
 
@@ -200,6 +198,66 @@ def _referenced_files(m: PackManifest, *, models: bool = True) -> list[str]:
                 keys = ("config", "model_file", "calibration") if models else ("config",)
                 files.extend(config[key] for key in keys if isinstance(config.get(key), str))
     return files
+
+
+def load_yaml(path: Path, name: str, label: str) -> Any:
+    """A YAML file of a pack, parsed safely. One that does not parse, is not UTF-8, nests too
+    deep for the parser, refers to itself or expands past `MAX_YAML_NODES` is the pack's
+    problem (a `PackValidationError` naming `name`), never a raw error or a stall."""
+    try:
+        with path.open(encoding="utf-8") as handle:
+            loader = yaml.SafeLoader(handle)
+            try:
+                node = loader.get_single_node()
+                if node is None:
+                    return None
+                problem = _expansion_problem(node)
+                if problem is not None:
+                    raise PackValidationError(label, [f"{name}: {problem}"])
+                return loader.construct_document(node)
+            finally:
+                loader.dispose()
+    except yaml.YAMLError as error:
+        raise PackValidationError(label, [f"{name}: invalid YAML: {error}"]) from None
+    except (UnicodeDecodeError, RecursionError) as error:
+        raise PackValidationError(
+            label, [f"{name}: invalid YAML ({type(error).__name__})"]
+        ) from None
+
+
+def _expansion_problem(root: yaml.Node) -> str | None:
+    """Why a composed YAML graph may not be constructed: an alias inside its own anchor, or
+    more than `MAX_YAML_NODES` nodes once every alias is expanded. Each node is visited once
+    (by identity), so this is linear in the file, however much the aliases would expand."""
+    sizes: dict[int, int] = {}
+    open_nodes: set[int] = set()
+    stack: list[tuple[yaml.Node, bool]] = [(root, False)]
+    while stack:
+        node, finished = stack.pop()
+        key = id(node)
+        children = _children(node)
+        if finished:
+            open_nodes.discard(key)
+            sizes[key] = min(1 + sum(sizes[id(child)] for child in children), MAX_YAML_NODES + 1)
+            continue
+        if key in sizes:
+            continue
+        if key in open_nodes:
+            return "an alias refers to the anchor it is inside"
+        open_nodes.add(key)
+        stack.append((node, True))
+        stack.extend((child, False) for child in children if id(child) not in sizes)
+    if sizes[id(root)] > MAX_YAML_NODES:
+        return f"expands to more than {MAX_YAML_NODES:,} nodes (aliases counted each time used)"
+    return None
+
+
+def _children(node: yaml.Node) -> list[yaml.Node]:
+    if isinstance(node, yaml.SequenceNode):
+        return list(node.value)
+    if isinstance(node, yaml.MappingNode):
+        return [part for pair in node.value for part in pair]
+    return []
 
 
 def _outside_links(root: Path) -> list[str]:
