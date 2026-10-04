@@ -266,18 +266,19 @@ def load_yaml(path: Path, name: str, label: str) -> Any:
     deep for the parser, refers to itself or expands past `MAX_YAML_NODES` is the pack's
     problem (a `PackValidationError` naming `name`), never a raw error or a stall."""
     try:
-        with path.open(encoding="utf-8") as handle:
-            loader = yaml.SafeLoader(handle)
-            try:
-                node = loader.get_single_node()
-                if node is None:
-                    return None
+        text = path.read_text(encoding="utf-8")
+        loader = yaml.SafeLoader(text)
+        try:
+            node = loader.get_single_node()
+            if node is None:
+                return None
+            if "&" in text:  # with no anchor there is no alias, and the graph is the file's tree
                 problem = _expansion_problem(node)
                 if problem is not None:
                     raise PackValidationError(label, [f"{name}: {problem}"])
-                return loader.construct_document(node)
-            finally:
-                loader.dispose()
+            return loader.construct_document(node)
+        finally:
+            loader.dispose()
     except yaml.YAMLError as error:
         raise PackValidationError(label, [f"{name}: invalid YAML: {error}"]) from None
     except (UnicodeDecodeError, RecursionError) as error:

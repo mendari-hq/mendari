@@ -301,3 +301,27 @@ def test_anchors_within_the_cap_still_load(tmp_path: Path) -> None:
     rules = load_pack(root).read_yaml("logic/red_flags.yaml")
     assert len(rules["x_junk"]["l4"]) == 10 and rules["questions"]
     assert MAX_YAML_NODES == 1_000_000
+
+
+def test_only_yaml_with_an_anchor_is_walked_for_its_expansion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without an anchor there is no alias, so the parsed graph is the file's own tree and
+    walking it adds nothing but time to every load (a few milliseconds per start)."""
+    from mendari.core import pack as pack_module
+
+    walked: list[object] = []
+    real = pack_module._expansion_problem
+
+    def spy(node: Any) -> str | None:
+        walked.append(node)
+        return real(node)
+
+    monkeypatch.setattr(pack_module, "_expansion_problem", spy)
+    plain, anchored = tmp_path / "plain.yaml", tmp_path / "anchored.yaml"
+    plain.write_text("a: [1, 2]\nb: {c: 3}\n")
+    anchored.write_text("a: &x [1, 2]\nb: *x\n")
+    assert pack_module.load_yaml(plain, "plain.yaml", "x") == {"a": [1, 2], "b": {"c": 3}}
+    assert walked == []
+    assert pack_module.load_yaml(anchored, "anchored.yaml", "x") == {"a": [1, 2], "b": [1, 2]}
+    assert len(walked) == 1
