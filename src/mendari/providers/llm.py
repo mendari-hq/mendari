@@ -122,12 +122,7 @@ class LlmProvider(Provider):
         """Temperatures fitted for this model; a file fitted on another model is not used."""
         if self.settings.calibration is None:
             return {}
-        try:
-            data = json.loads(self.pack.path(self.settings.calibration).read_text("utf-8"))
-        except (OSError, ValueError) as error:
-            raise PackValidationError(
-                self.pack.id, [f"{self.info.slot}: calibration file: {error}"]
-            ) from None
+        data = self.pack.read_json(self.settings.calibration)
         if not isinstance(data, dict) or data.get("format") != CALIBRATION_FORMAT:
             raise PackValidationError(self.pack.id, [f"{self.info.slot}: not a calibration file"])
         if data.get("model") != self.model:

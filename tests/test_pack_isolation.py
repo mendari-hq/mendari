@@ -213,7 +213,7 @@ def _cql_extra_key(pack: Path) -> None:
         (_cql_extra_key, "Extra inputs are not permitted"),
         (
             lambda pack: (pack / "logic" / "criteria.cql").write_bytes(b"\xff\xfe library"),
-            "its providers could not be built (UnicodeDecodeError)",
+            "logic/criteria.cql: not UTF-8 text",
         ),
     ],
     ids=["extra-key", "not-utf8"],
@@ -447,12 +447,12 @@ def test_an_unused_variant_cannot_carry_an_expanding_manifest(tmp_path: Path) ->
 @pytest.mark.parametrize(
     ("line", "error"),
     [
-        ("x_released: 2024-02-30", "ValueError"),
-        ("x_count: !!int 0x", "ValueError"),
-        ("x_flag: !!bool maybe", "KeyError"),
-        ("x_when: !!timestamp bad", "AttributeError"),
-        ("x_ratio: !!float ''", "IndexError"),
-        ("x_count: !!int", "IndexError"),
+        ("x_released: 2024-02-30", "ValueError, line {line}, column 13"),
+        ("x_count: !!int 0x", "ValueError, line {line}, column 10"),
+        ("x_flag: !!bool maybe", "KeyError, line {line}, column 9"),
+        ("x_when: !!timestamp bad", "AttributeError, line {line}, column 9"),
+        ("x_ratio: !!float ''", "IndexError, line {line}, column 10"),
+        ("x_count: !!int", "IndexError, line {line}, column 10"),
     ],
     ids=[
         "impossible-date",
@@ -468,11 +468,13 @@ def test_a_yaml_value_python_cannot_build_is_the_packs_problem(
 ) -> None:
     """SafeConstructor raises a plain ValueError for an impossible date, and a KeyError,
     AttributeError or IndexError for an explicitly tagged scalar it cannot read: `load_pack`
-    raised it and `mendari validate` printed a traceback. The problem names the file and the
-    error's type, never the value (the error's text)."""
+    raised it and `mendari validate` printed a traceback. The problem names the file, the
+    error's type and the value's line and column (it had no position), never the value (the
+    error's text)."""
     root = tmp_path / "pack"
     shutil.copytree(INBOX_DIR, root)
     _append("pack.yaml", f"\n{line}\n")(root)
+    error = error.format(line=(root / "pack.yaml").read_text().count("\n"))
     with pytest.raises(PackValidationError) as raised:
         load_pack(root)
     assert raised.value.problems == [f"pack.yaml: invalid YAML value ({error})"]
@@ -572,12 +574,12 @@ def test_a_constructor_error_names_its_type_and_place_never_the_value(tmp_path: 
 @pytest.mark.parametrize(
     ("value", "what"),
     [
-        ('"\\ud800"', "a string with a lone surrogate"),
-        ("!!binary aGVsbG8=", "a value of type bytes"),
-        ("2024-01-01", "a value of type date"),
-        ("2024-01-01T10:00:00Z", "a value of type datetime"),
-        (".nan", "a number that is not finite"),
-        ("!!set {a}", "a value of type set"),
+        ('"\\ud800"', "{file}: a string with a lone surrogate, which is not UTF-8 text ({at})"),
+        ("!!binary aGVsbG8=", "{file}: a !!binary value, which JSON cannot hold ({at})"),
+        ("2024-01-01", "{file} case {case}: not JSON, it holds a value of type date"),
+        ("2024-01-01T10:00:00Z", "{file} case {case}: not JSON, it holds a value of type datetime"),
+        (".nan", "{file} case {case}: not JSON, it holds a number that is not finite"),
+        ("!!set {a}", "{file}: a !!set value, which JSON cannot hold ({at})"),
     ],
     ids=["surrogate", "binary", "date", "datetime", "nan", "set"],
 )
@@ -586,13 +588,14 @@ def test_a_test_input_that_is_not_json_is_a_validation_problem(
 ) -> None:
     """A lone surrogate or `!!binary` in a test input made `GET .../examples` answer 500 (the
     response could not be encoded), and a date was served as text though no input can hold
-    one. Such an input is the pack's validation problem, named by type, never a 500 or a
-    traceback."""
+    one. Such an input is the pack's validation problem, named by type (and, for what the YAML
+    loader refuses in any pack file, by place), never a 500 or a traceback."""
     outside = tmp_path / "outside"
     count = len(yaml.safe_load((INBOX_DIR / "tests" / "cases.yaml").read_text()))
     case = f"\n- name: odd\n  input: {{message: {{body: hello}}, x_odd: {value}}}\n  expect: {{}}\n"
     pack = _outsider(outside, _append("tests/cases.yaml", case))
-    problem = f"tests/cases.yaml case {count + 1}: not JSON, it holds {what}"
+    line = (pack / "tests" / "cases.yaml").read_text().count("\n") - 1
+    problem = what.format(file="tests/cases.yaml", case=count + 1, at=f"line {line}, column 42")
     with pytest.raises(PackValidationError) as raised:
         load_cases(load_pack(pack))
     assert raised.value.problems == [problem]

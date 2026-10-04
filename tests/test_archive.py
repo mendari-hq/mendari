@@ -104,15 +104,20 @@ def test_paths_outside_the_pack_are_refused(key: archive.Ed25519PrivateKey, name
 def signed_with(key: archive.Ed25519PrivateKey, name: str, data: bytes) -> bytes:
     """The referral pack's archive plus one more entry `name`, listed in the manifest (as
     `verify` would read it) and signed: only the name check stands in the way."""
+    return signed_with_all(key, [(name, data)])
+
+
+def signed_with_all(key: archive.Ed25519PrivateKey, extra: list[tuple[str, bytes]]) -> bytes:
     entries = members(archive.build(REFERRAL, key))
     manifest = json.loads(entries[0][1])
-    manifest["files"].append(
+    manifest["files"] += [
         {
             "path": name.removeprefix("pack/"),
             "sha256": hashlib.sha256(data).hexdigest(),
             "size": len(data),
         }
-    )
+        for name, data in extra
+    ]
     manifest_bytes = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
     signature = {
         "algorithm": "Ed25519",
@@ -124,9 +129,52 @@ def signed_with(key: archive.Ed25519PrivateKey, name: str, data: bytes) -> bytes
             (archive.MANIFEST, manifest_bytes),
             (archive.SIGNATURE, json.dumps(signature).encode()),
             *entries[2:],
-            (name, data),
+            *extra,
         ]
     )
+
+
+@pytest.mark.parametrize(
+    "names",
+    [
+        ["pack/PACK.yaml"],
+        ["pack/LOGIC"],
+        ["pack/caf\u00e9.md", "pack/cafe\u0301.md"],
+        ["pack/A", "pack/a/x.yaml"],
+        ["pack/Stra\u00dfe.md", "pack/STRASSE.md"],
+    ],
+    ids=["case", "file-and-directory", "nfc-nfd", "file-then-directory", "casefold"],
+)
+def test_names_that_are_one_file_where_case_is_not_significant_are_refused(
+    key: archive.Ed25519PrivateKey,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    names: list[str],
+) -> None:
+    """`A` and `a/x.yaml` (or `pack.yaml` and `PACK.yaml`, NFC and NFD spellings) are two files
+    on Linux and one on macOS or Windows: `mendari pull` printed a FileExistsError traceback,
+    or the last write won. Refused by `verify`, on every platform."""
+    data = signed_with_all(key, [(name, b"x: 1\n") for name in names])
+    with pytest.raises(HubError, match="where case and Unicode normalization"):
+        archive.verify(data, trusted(key))
+    built, public = tmp_path / "odd.ohpack", tmp_path / "publisher.pub"
+    built.write_bytes(data)
+    public.write_bytes(archive.public_pem(key.public_key()))
+    assert main(["pack", "verify", str(built), "--public-key", str(public)]) == 1
+    err = capsys.readouterr().err
+    assert "where case and Unicode normalization" in err and "Traceback" not in err
+
+
+def test_a_file_extract_cannot_write_is_a_hub_error(
+    key: archive.Ed25519PrivateKey, tmp_path: Path
+) -> None:
+    """An OSError while writing (here a file where a directory goes) is a HubError naming the
+    file, which `mendari pull` and `pack verify` report, never a traceback."""
+    good = archive.verify(archive.build(REFERRAL, key), trusted(key))
+    files = {**good.files, "A": b"x", "A/x.yaml": b"y"}
+    odd = archive.Verified(good.manifest, files, good.key_id, good.sha256)
+    with pytest.raises(HubError, match=r"A/x\.yaml: cannot be written \("):
+        archive.extract(odd, tmp_path / "pack")
 
 
 @pytest.mark.parametrize("name", ["pack/{outside}", "pack/a//b", "pack/./x", "pack/x/"])

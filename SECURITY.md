@@ -234,18 +234,26 @@ limits, designed with that feature). What a pack cannot do today is below.
   hashed, compared by the file on disk (device and inode), not by how the path is spelled. So
   a case variant on a case-insensitive filesystem (`EVALS/rules.yaml`, `__PYCACHE__/x.yaml`,
   `logic/decision_card.md` on macOS or Windows), a link, a file added after the load or a key
-  the load does not list cannot reach a file the digest leaves out. The manifest fields naming
+  the load does not list cannot reach a file the digest leaves out. Its content must still be
+  the bytes hashed: each read takes the file's bytes once and checks them against the SHA-256
+  the load took of that file (`Pack.read_bytes`), and parses those bytes, so a file edited in
+  place after the load, or while it runs, is refused naming the file (its decisions answer
+  `422`), never used under a digest that does not describe it; loading the pack again picks the
+  edit up under its new digest. The manifest fields naming
   such a file (`inputs.schema`, `inputs.fhir`, `policy`, `tests`, `evaluation.datasets`, and a
   provider's `config`, `library`, `model_file` and `calibration`) are checked at load, and a
   refusal names the field and why (through a hidden entry or `__pycache__`, in `evals/` or a
   `DECISION_CARD.md`, or not a file the digest covers). The attestations, left out of the
   digest, are read only through a separate accessor (`Pack.attestation`) by their fixed names
   (`evals/benchmark.json`, `evals/leaderboard.json`, `DECISION_CARD.md`) and
-  `evaluation.benchmark`, the one manifest path that must be in `evals/`; `mendari card --write`
-  does not write through a link. A signed archive holds regular files only (no symbolic or hard
+  `evaluation.benchmark`, the one manifest path that names one, which must be in `evals/` (not
+  a `DECISION_CARD.md`); `mendari card --write` does not write through a link. A signed archive holds regular files only (no symbolic or hard
   link, device, FIFO or sparse file), each named `pack/` and then plain path segments (none
-  empty, `.`, `..` or hidden, no backslash), and extracting it writes nothing outside the
-  destination. An archive is read as a stream with its caps checked while it expands, before
+  empty, `.`, `..` or hidden, no backslash), no two of them one file where case and Unicode
+  normalization are not significant (`A` and `a/x.yaml`, `pack.yaml` and `PACK.yaml`, NFC and
+  NFD spellings), so it extracts to the same files on macOS, Windows and Linux, and extracting
+  it writes nothing outside the destination (a file it cannot write is named, never a
+  traceback). An archive is read as a stream with its caps checked while it expands, before
   the signature is checked: at most 2,000 files of at most 50 MB each, and the gzip expands to
   at most 100 times its size (64 MB for any archive) and 400 MB in all, so a small archive
   cannot make the registry, `mendari pull` or `mendari pack verify` hold more than that in
@@ -280,12 +288,27 @@ limits, designed with that feature). What a pack cannot do today is below.
   removed) at most 4,300 characters and 4 `:` parts, an integer at most 4,300 decimal digits,
   so a base-60 number cannot make loading quadratic. A YAML value Python cannot build (a date
   such as 2024-02-30, a tagged `!!bool maybe`, an unknown tag) is the pack's error too, named by
-  the file, the error's type and its line and column, never the value; a file that does not
-  parse keeps the parser's message (what it expected, with the line around it). A behaviour
-  test that is not JSON (a date, `!!binary`, a set, a lone surrogate, a number that is not
-  finite) is the pack's validation problem, named by case number and the value's type:
-  `mendari validate` reports it and `GET /api/packs/{id}/examples` answers `422`, never a `500`
-  or a traceback. A
+  the file, the error's type and the value's line and column, never the value; a file that does
+  not parse keeps the parser's message (what it expected, with the line around it). A pack's
+  YAML and JSON hold only what a JSON response can carry: a string with a lone surrogate
+  (`"\ud800"`, in YAML or JSON), `!!binary`, `!!set`, `!!omap`, `!!pairs`, and in JSON a number
+  that is not finite, are refused when the file is read (the manifest, policy, input schema and
+  rules at load; a model, calibration, FHIR mapping or the tests when first read), named by the
+  file and, in YAML, the line and column, so no pack can make the list of packs, a pack's
+  detail or a decision a `500`. A JSON file that is not JSON, holds an integer of more than
+  4,300 digits or nests too deep, a naive_bayes model of the wrong shape, a CQL library or
+  `CHANGELOG.md` that is not UTF-8 and a file that cannot be read are named the same way:
+  `mendari validate`, `test` and `card` print no traceback, and the server answers `422`. A
+  behaviour test of the wrong shape (each is a mapping with an `input` mapping, an optional text
+  `name` and an optional `expect` mapping whose `answers` is a mapping) or that is not JSON (a
+  date, a number that is not finite) is the pack's validation problem, named by case number:
+  `mendari validate` and `mendari test` report it and `GET /api/packs/{id}/examples` answers
+  `422`, never a `500` or a traceback; the API reference picks each pack's example under its
+  own guard, so one pack's tests never make it a `500`. A benchmark or leaderboard that is not
+  JSON, holds what a JSON response cannot or is not the report the Decision Card shows is
+  treated as absent, as the registry treats it, and the card says why. A dataset line that is
+  not UTF-8 or not JSON (an integer of more than 4,300 digits, nested too deep), or holds a
+  lone surrogate or NaN, is named by file and line (`GET …/datasets`, `mendari eval`). A
   version has at most 64 characters, so comparing versions never fails. Publishing a pack to
   the registry that does not load, or whose card is not text, is refused with a `422` and its
   reason, never a server error; the registry shows a benchmark's dataset name, count and

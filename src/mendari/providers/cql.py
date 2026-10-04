@@ -115,7 +115,7 @@ class CqlProvider(Provider):
         library = self.settings.library
         if not self.pack.path(library).is_file():
             raise PackValidationError(self.pack.id, [f"{self.info.slot}: no file {library}"])
-        self.source = self.pack.path(library).read_text(encoding="utf-8")
+        self.source = self.pack.read_text(library)
         header = _HEADER.search(self.source)
         if header is None:
             problem = f"{library}: needs a `library Name version '...'` declaration"

@@ -129,7 +129,7 @@ class Provider(ABC):
 
 def fingerprint(pack: Pack, relative: str) -> str:
     """Short content hash of a pack file, recorded as the provider's model version."""
-    return hashlib.sha256(pack.path(relative).read_bytes()).hexdigest()[:12]
+    return hashlib.sha256(pack.read_bytes(relative)).hexdigest()[:12]
 
 
 def softmax(scores: Mapping[str, float], temperature: float = 1.0) -> dict[str, float]:

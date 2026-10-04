@@ -71,9 +71,16 @@ def pack(tmp_path: Path) -> Pack:
     return load_pack(root)
 
 
+def with_config(pack: Pack, config: dict[str, Any]) -> Pack:
+    """The pack with `config` as its criteria, loaded again: a loaded pack never reads a file
+    edited after its digest was computed."""
+    (pack.root / "logic" / "criteria.yaml").write_text(yaml.safe_dump(config))
+    return load_pack(pack.root)
+
+
 def provider(pack: Pack, config: dict[str, Any] | None = None) -> CriteriaProvider:
     if config is not None:
-        (pack.root / "logic" / "criteria.yaml").write_text(yaml.safe_dump(config))
+        pack = with_config(pack, config)
     questions = {
         key: Question.model_validate({"instructions": key, "criteria": YNU})
         for key in (config or CONFIG)["questions"]
@@ -299,7 +306,7 @@ def test_config_validation(pack: Pack, config: dict[str, Any], message: str) -> 
         key: Question.model_validate({"instructions": key, "criteria": YNU})
         for key in CONFIG["questions"]
     }
-    (pack.root / "logic" / "criteria.yaml").write_text(yaml.safe_dump(config))
+    pack = with_config(pack, config)
     info = ProviderInfo(slot="structured", variant="criteria", type="criteria")
     with pytest.raises(PackValidationError, match=message):
         CriteriaProvider(
@@ -339,7 +346,7 @@ def test_choice_labels_and_field_gates(pack: Pack) -> None:
             default: "no"
         """
     )
-    (pack.root / "logic" / "criteria.yaml").write_text(yaml.safe_dump(config))
+    pack = with_config(pack, config)
     labels = {"lumbar_mri": "l", "knee_arthroscopy": "k", "other": "o"}
     questions = {
         "service": Question.model_validate({"instructions": "s", "criteria": labels}),

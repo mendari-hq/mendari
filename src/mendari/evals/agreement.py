@@ -21,7 +21,9 @@ Case = tuple[str, Mapping[str, Any]]
 
 def pack_cases(pack: Pack, datasets: Iterable[str] | None = None) -> list[Case]:
     """The pack's behaviour tests and datasets (all of its evaluation datasets by default)."""
-    cases: list[Case] = [(f"test: {c['name']}", c["input"]) for c in load_cases(pack)]
+    cases: list[Case] = [
+        (f"test: {c.get('name', 'unnamed case')}", c["input"]) for c in load_cases(pack)
+    ]
     for ref in datasets if datasets is not None else pack.manifest.evaluation.datasets:
         dataset = resolve_dataset(pack, ref)
         cases += [(f"{dataset.name}: {r['id']}", r["input"]) for r in dataset.records]

@@ -40,7 +40,12 @@ approval covers: the files named by `inputs.schema`, `inputs.fhir`, `policy`, `t
 None of them may go through a hidden folder or `__pycache__`, or be in `evals/` or a
 `DECISION_CARD.md`, however the path is spelled (on macOS and Windows `EVALS/` is `evals/`).
 `evaluation.benchmark` is the opposite: a published result about the pack, it lives in `evals/`.
-Behaviour tests must be plain JSON values: quote a date (`"2024-01-01"`), and use no `!!binary`.
+Behaviour tests must be plain JSON values: quote a date (`"2024-01-01"`). Each is a mapping with
+an `input` mapping, and may have a `name` and an `expect` mapping (its `answers` a mapping of
+question to label). No YAML file of the pack may use `!!binary`, `!!set`, `!!omap`, `!!pairs` or
+a lone surrogate escape (`"\ud800"`); `mendari validate` names the file, line and column. If you
+edit a file of a pack a server has loaded, restart the server: until then reads of
+the edited file are refused, since it is no longer what the pack's digest describes.
 
 It already works. Check it:
 

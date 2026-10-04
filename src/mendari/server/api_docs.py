@@ -332,21 +332,25 @@ def _fits(pack: Pack, path: str) -> bool:
 def _example_input(pack: Pack) -> tuple[str, dict[str, Any]] | None:
     """The pack's first behaviour test that automates (the friendliest first try), or its
     first one; None if it has none, its tests do not load, or the example is not JSON or is
-    over `MAX_EXAMPLE_BYTES` as JSON (that pack's problem, never the API reference's: the
-    reference holds each example more than once, and a control character is six bytes there)."""
+    over `MAX_EXAMPLE_BYTES` as JSON. Whatever one pack's tests hold is that pack's problem,
+    never the API reference's (which holds each example more than once, and in which a control
+    character is six bytes): anything raised choosing its example leaves the pack out."""
     try:
-        loaded = load_cases(pack)
-    except Exception:
+        return _first_example(pack)
+    except Exception:  # its tests do not load (named by `mendari validate` and …/examples)
         return None
-    cases = [c for c in loaded if isinstance(c, dict) and isinstance(c.get("input"), dict)]
-    automated = [c for c in cases if (c.get("expect") or {}).get("outcome") == "AUTO"]
+
+
+def _first_example(pack: Pack) -> tuple[str, dict[str, Any]] | None:
+    cases = load_cases(pack)  # each a mapping with an `input` mapping (or this raises)
+    automated = [c for c in cases if c.get("expect", {}).get("outcome") == "AUTO"]
     if not (automated or cases):
         return None
     chosen = (automated or cases)[0]
     example = str(chosen.get("name", "example")), chosen["input"]
     try:
         encoded = json.dumps(example, ensure_ascii=False, allow_nan=False).encode()
-    except (TypeError, ValueError, RecursionError):  # a YAML date, a set, NaN, too deep
+    except (TypeError, ValueError, RecursionError):  # a YAML date, NaN, too deep
         return None
     return example if len(encoded) <= MAX_EXAMPLE_BYTES else None
 

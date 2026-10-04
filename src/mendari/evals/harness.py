@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from mendari.core.decision import Decision, DecisionResult
-from mendari.core.pack import Pack
+from mendari.core.pack import Pack, not_json
 from mendari.core.spec import Outcome
 from mendari.errors import MendariError
 from mendari.evals import metrics
@@ -47,23 +47,41 @@ class Dataset:
         return replace(self, records=self.records[:limit], limit=limit)
 
 
-def load_dataset(path: str | Path, name: str | None = None) -> Dataset:
+def load_dataset(
+    path: str | Path, name: str | None = None, *, raw: bytes | None = None, label: str | None = None
+) -> Dataset:
+    """A JSONL dataset: the file at `path`, or `raw` (a pack's dataset, as its digest covers
+    it). A line that is not UTF-8 or not JSON (an integer over Python's 4,300 digits, nested too
+    deep), or holds what a JSON report cannot (a lone surrogate, NaN), is a `MendariError`
+    naming the file (`label`, or `path`) and the line, never the line's text."""
     path = Path(path)
-    raw = path.read_bytes()
+    where = label or str(path)
+    if raw is None:
+        raw = path.read_bytes()
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as error:
+        number = raw.count(b"\n", 0, error.start) + 1
+        raise MendariError(f"{where}:{number}: not UTF-8 text") from None
     records = []
-    for number, line in enumerate(raw.decode("utf-8").splitlines(), start=1):
+    for number, line in enumerate(text.splitlines(), start=1):
         if not line.strip():
             continue
         try:
             record = json.loads(line)
         except json.JSONDecodeError as error:
-            raise MendariError(f"{path}:{number}: invalid JSON ({error.msg})") from None
+            raise MendariError(f"{where}:{number}: invalid JSON ({error.msg})") from None
+        except (ValueError, RecursionError) as error:  # over 4,300 digits, nested too deep
+            raise MendariError(f"{where}:{number}: invalid JSON ({type(error).__name__})") from None
         if not isinstance(record, dict) or not isinstance(record.get("input"), dict):
-            raise MendariError(f"{path}:{number}: each case needs an 'input' object")
+            raise MendariError(f"{where}:{number}: each case needs an 'input' object")
+        what = not_json(record)
+        if what is not None:
+            raise MendariError(f"{where}:{number}: not JSON, it holds {what}")
         record.setdefault("id", f"{path.stem}-{number}")
         records.append(record)
     if not records:
-        raise MendariError(f"{path}: dataset is empty")
+        raise MendariError(f"{where}: dataset is empty")
     return Dataset(
         name=name or path.stem,
         path=path,
@@ -76,7 +94,7 @@ def resolve_dataset(pack: Pack, ref: str) -> Dataset:
     """A dataset named in the pack's `evaluation.datasets`, or a path to a JSONL file."""
     named = pack.manifest.evaluation.datasets.get(ref)
     if named is not None:
-        return load_dataset(pack.path(named), name=ref)
+        return load_dataset(pack.path(named), name=ref, raw=pack.read_bytes(named), label=named)
     if Path(ref).is_file():
         return load_dataset(ref)
     known = ", ".join(pack.manifest.evaluation.datasets) or "none"

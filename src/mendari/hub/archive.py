@@ -29,8 +29,9 @@ import hashlib
 import io
 import json
 import tarfile
+import unicodedata
 import zlib
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -202,6 +203,9 @@ def verify(archive: bytes, trusted: Mapping[str, Ed25519PublicKey]) -> Verified:
     listed = {entry["path"]: entry for entry in entries}
     if set(files) != set(listed):
         raise HubError("the archive's files are not the files its manifest lists")
+    collision = _collision(files)
+    if collision is not None:
+        raise HubError(collision)
     for path, data in files.items():
         entry = listed[path]
         if (
@@ -224,8 +228,11 @@ def extract(verified: Verified, dest: Path) -> Pack:
             raise HubError(f"{path}: not a path inside the pack")
     for path, data in verified.files.items():
         target = targets[path]
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+        except OSError as error:  # a file where a directory goes, a full disk, …
+            raise HubError(f"{path}: cannot be written ({type(error).__name__})") from None
     pack = load_pack(dest)
     expected = (
         verified.manifest.get("id"),
@@ -284,6 +291,33 @@ def _read(archive: bytes) -> dict[str, bytes]:
     except (OSError, EOFError, zlib.error):
         raise HubError("the archive is not gzip") from None
     return members
+
+
+def _collision(paths: Iterable[str]) -> str | None:
+    """Two names that are one file on a case-insensitive or normalizing filesystem (macOS,
+    Windows): equal once case-folded and NFC-normalized, or a file whose folded name is a
+    folded directory of another file (`A` and `a/x.yaml`). Extracted, the last would overwrite
+    the first, or the write would fail; a Linux registry accepts both."""
+    files: dict[str, str] = {}
+    for path in sorted(paths):
+        folded = _folded(path)
+        if folded in files:
+            return f"{files[folded]} and {path} are one file {_FOLDED}"
+        files[folded] = path
+    for path in sorted(paths):
+        parts = _folded(path).split("/")
+        for depth in range(1, len(parts)):
+            directory = "/".join(parts[:depth])
+            if directory in files:
+                return f"{files[directory]} is a file and a directory of {path} {_FOLDED}"
+    return None
+
+
+_FOLDED = "where case and Unicode normalization are not significant (macOS, Windows)"
+
+
+def _folded(path: str) -> str:
+    return unicodedata.normalize("NFC", unicodedata.normalize("NFC", path).casefold())
 
 
 def _sparse(info: tarfile.TarInfo) -> bool:

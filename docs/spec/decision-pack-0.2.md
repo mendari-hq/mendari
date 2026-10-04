@@ -89,7 +89,9 @@ Validation rules (all MUST hold):
   (a control character counts six), once every alias is expanded (an alias counts each time it
   is used), and no alias inside its own anchor. A file without an anchor has no alias, and is
   not counted. Every value in it is one the safe loader can build: a value it cannot (a date
-  such as 2024-02-30, an explicitly tagged `!!bool maybe`) makes the pack invalid. So does a
+  such as 2024-02-30, an explicitly tagged `!!bool maybe`) makes the pack invalid, named by the
+  file, the error's type and the value's line and column. So does a value JSON cannot carry: a
+  string with a lone surrogate (`"\ud800"`), `!!binary`, `!!set`, `!!omap` or `!!pairs`. So does a
   number (an integer or a float, in any base, implicit or tagged) whose text, underscores
   removed, is longer than 4,300 characters or has more than 4 `:` parts (base 60, as in
   `1:30:00`), and an integer of more than 4,300 decimal digits: each is refused before it is
@@ -106,10 +108,18 @@ Validation rules (all MUST hold):
   `DECISION_CARD.md`, and the file it reaches MUST be one the digest hashes, compared as a file
   on disk rather than by spelling: on a case-insensitive filesystem `EVALS/rules.yaml` is
   `evals/rules.yaml`, and is refused. A file read under any other key is held to the same rule
-  when it is read.
+  when it is read. Its content MUST be the content the digest hashed: an implementation reads
+  each file once, checks its bytes against the digest's hash of that file and uses those bytes,
+  so a file edited after the pack was loaded is refused until the pack is loaded again.
+- A JSON file of the pack (the input schema, a model, a calibration) is JSON in UTF-8 with no
+  string holding a lone surrogate, no number that is not finite and no integer of more than
+  4,300 digits; a `naive_bayes` model has the shape `mendari train` writes; a text file a
+  provider or the card reads (a CQL library, `CHANGELOG.md`) is UTF-8.
 - `evaluation.benchmark` is the one manifest path that MUST be an attestation: in `evals/`
-  (it may not exist yet). A leaderboard (`evals/leaderboard.json`) and the card
-  (`DECISION_CARD.md`) are read by those fixed names.
+  (it may not exist yet; a `DECISION_CARD.md` elsewhere is refused). A leaderboard
+  (`evals/leaderboard.json`) and the card (`DECISION_CARD.md`) are read by those fixed names. A
+  benchmark or leaderboard that is not JSON, holds what JSON cannot carry or is not the report
+  the Decision Card shows is treated as absent (the card says why), not as an invalid pack.
 - The input schema is self-contained: `$ref`, `$dynamicRef` and `$recursiveRef` start with `#`
   and resolve to a schema (an object or a boolean) in the document; `$schema`, if present, is at
   the root only and names `https://json-schema.org/draft/2020-12/schema`; `$id` is at the root
@@ -472,20 +482,22 @@ requires a recorded governance override (§7). The reference server exposes this
 
 ## 10. Behaviour tests
 
-`tests/cases.yaml` is a list of `{name, input, expect}`. `expect` may contain `outcome`,
-`outcome_in`, `not_outcome`, `recommendation`, `priority` and `answers.<question>`. Tests
-describe behaviour that every provider variant is expected to preserve, especially the
-safety behaviour. Every case MUST be JSON once loaded: a date, binary (`!!binary`), a set, a
-string with a lone surrogate or a number that is not finite makes the tests invalid, named by
-the case's number and the value's type.
+`tests/cases.yaml` is a list of `{name, input, expect}`: each case is a mapping with an `input`
+mapping, an optional `name` (text) and an optional `expect` mapping. `expect` may contain
+`outcome`, `outcome_in` (a list), `not_outcome`, `recommendation`, `priority` and `answers` (a
+mapping of question to label). Tests describe behaviour that every provider variant is
+expected to preserve, especially the safety behaviour. Every case MUST have that shape and be
+JSON once loaded: a date or a number that is not finite (or, refused by the loader with its
+line and column, binary, a set or a string with a lone surrogate) makes the tests invalid,
+named by the case's number and what is wrong.
 
 ## 11. Identity and versioning
 
 The pack digest is the SHA-256 over every file in the pack (path and content, in sorted order)
 except `evals/` and `DECISION_CARD.md`, which are attestations *about* the pack, and hidden
 entries and `__pycache__`, which are not part of it (§3). Every file the pack decides or tests
-with is one the digest hashes, compared as a file on disk (§3), so the digest covers everything
-the pack decides with; `evaluation.benchmark`, an attestation, is in `evals/`. Every decision and
+with is one the digest hashes, compared as a file on disk, and is used only with the content the
+digest hashed (§3), so the digest covers everything the pack decides with; `evaluation.benchmark`, an attestation, is in `evals/`. Every decision and
 evaluation report records the digest, so an audit record identifies the exact behaviour that
 produced it.
 
@@ -509,7 +521,8 @@ schema must be self-contained, a version has at most 64 characters, a YAML file 
 anchors expands to at most 1,000,000 nodes and 32,000,000 characters as JSON and holds no
 number over 4,300 characters or 4 `:` parts (§3), every file the pack decides or tests with is
 one its digest hashes, however a path spells it, and `evaluation.benchmark` is in `evals/` (§3),
-every behaviour test is JSON (§10), and every pattern (input-schema `patternProperties` keys
+YAML and JSON hold only what JSON can carry (§3), every behaviour test has the shape of §10 and is
+JSON (§10), and every pattern (input-schema `patternProperties` keys
 included) compiles, at most 2,000 characters and 500 per pack (§5). No published pack did any
 of these.
 
@@ -533,7 +546,8 @@ of these.
 | A `cql` library's declaration is its first statement (every spec version) | §5 |
 | Every pack pattern (rules patterns, input-schema `pattern`s and `patternProperties` keys) compiles with `re`, at most 2,000 characters, at most 500 per pack, checked at load (every spec version) | §5 |
 | A version of at most 64 characters; YAML using anchors of at most 1,000,000 nodes and 32,000,000 characters as JSON, aliases expanded; YAML numbers of at most 4,300 characters and 4 `:` parts; every file a pack decides or tests with is one its digest hashes, compared on disk, and `evaluation.benchmark` is in `evals/` (every spec version) | §3 |
-| Every behaviour test is JSON: no date, binary, set, lone surrogate or non-finite number (every spec version) | §10 |
+| Every behaviour test is a mapping with an `input` mapping, an optional text `name` and an optional `expect` mapping, and is JSON: no date, binary, set, lone surrogate or non-finite number (every spec version) | §10 |
+| No lone surrogate, `!!binary`, `!!set`, `!!omap` or `!!pairs` in a pack's YAML, no lone surrogate or non-finite number in its JSON; a file is used only with the content its digest hashed (every spec version) | §3 |
 | No symbolic link out of a directory pack; a self-contained input schema (local references only, no nested `$schema` or `$id`, no `$dynamicAnchor`, no `format: regex`; every spec version) | §3 |
 
 To migrate a pack:

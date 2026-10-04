@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import stat
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 import yaml
 from jsonschema import Draft202012Validator
@@ -42,8 +44,10 @@ MAX_YAML_CHARS = 32_000_000  # characters of scalar text, JSON-escaped
 MAX_YAML_NUMBER_CHARS = 4_300
 MAX_YAML_NUMBER_PARTS = 4
 _INT_LIMIT = 10**MAX_YAML_NUMBER_CHARS
-# The files `pack_digest` hashes, by identity on disk: (st_dev, st_ino).
-FileIds = frozenset[tuple[int, int]]
+# The files `pack_digest` hashed: the identity on disk (st_dev, st_ino) of each, with the SHA-256
+# of the bytes it hashed. A file is read only if it is one of them, and its bytes only if they
+# still have that hash (`Pack.read_bytes`).
+Digested = Mapping[tuple[int, int], str]
 
 
 @dataclass(frozen=True)
@@ -55,9 +59,9 @@ class Pack:
     # Provider configs already read (and checked) at load, by pack-relative path: `read_yaml`
     # returns them rather than reading the file again.
     parsed: dict[str, Any] = field(default_factory=dict, compare=False, repr=False)
-    # The files `pack_digest` hashed at load, by identity on disk; None: computed when first
-    # needed (a `Pack` built by hand).
-    digested: FileIds | None = field(default=None, compare=False, repr=False)
+    # The files `pack_digest` hashed at load, by identity on disk, with their content's hash;
+    # None: computed when first needed (a `Pack` built by hand).
+    digested: Digested | None = field(default=None, compare=False, repr=False)
 
     @property
     def id(self) -> str:
@@ -78,8 +82,21 @@ class Pack:
         reaches a file the digest leaves out. A path that escapes the pack, goes through a hidden
         entry or `__pycache__` or is an attestation is refused naming why; any other file
         outside the digest is refused too. A path with nothing there is returned (a file to
-        write, or one a caller checks for)."""
+        write, or one a caller checks for). Its content is read with `read_bytes` (or
+        `read_text`, `read_yaml`, `read_json`), never through this path."""
         return _pack_file(self.root, relative, self.id, self._digested)
+
+    def read_bytes(self, relative: str) -> bytes:
+        """A file of the pack (`path`), as the bytes its digest covers: a file missing or
+        unreadable, or whose content changed since the digest was computed (edited in place),
+        is a `PackValidationError` naming it, never read. So what a pack decides with is what
+        its digest, and every decision recording it, describes."""
+        return _read(self.root, relative, self.id, self._digested)
+
+    def read_text(self, relative: str) -> str:
+        """`read_bytes` as UTF-8 text, line endings read as `Path.read_text` reads them; a file
+        that is not UTF-8 is a `PackValidationError` naming it."""
+        return _text(self.read_bytes(relative), relative, self.id)
 
     def attestation(self, relative: str) -> Path:
         """A file *about* the pack, which its digest leaves out: in `evals/` (its benchmark and
@@ -87,18 +104,37 @@ class Pack:
         never as what the pack decides with."""
         return _attestation_file(self.root, relative, self.id)
 
+    def attestation_json(self, relative: str) -> tuple[dict[str, Any] | None, str | None]:
+        """A JSON object the pack carries about itself (`attestation`), or None and why: none
+        there (no reason), unreadable, not JSON, holding a value a JSON response cannot carry
+        (`parse_json`) or not an object. Like the registry, Mendari treats an attestation it
+        cannot read as absent, never as an error: it is not part of what the pack decides with."""
+        path = self.attestation(relative)
+        if not path.is_file():
+            return None, None
+        try:
+            value = parse_json(path.read_bytes(), relative, self.id)
+        except OSError as error:
+            return None, f"cannot be read ({type(error).__name__})"
+        except PackValidationError as error:
+            return None, error.problems[0].removeprefix(f"{relative}: ")
+        if not isinstance(value, dict):
+            return None, "not a JSON object"
+        return value, None
+
     @cached_property
-    def _digested(self) -> FileIds:
-        return self.digested if self.digested is not None else _digest(self.root)[1]
+    def _digested(self) -> Digested:
+        return self.digested if self.digested is not None else _digest(self.root, self.id)[1]
 
     def read_yaml(self, relative: str) -> Any:
         if relative in self.parsed:
             return self.parsed[relative]
-        return load_yaml(self.path(relative), relative, self.id)
+        return parse_yaml(self.read_bytes(relative), relative, self.id)
 
     def read_json(self, relative: str) -> Any:
-        with self.path(relative).open(encoding="utf-8") as handle:
-            return json.load(handle)
+        """A JSON file of the pack (`parse_json`): one that is not JSON, or holds a value a JSON
+        response cannot carry, is a `PackValidationError` naming it."""
+        return parse_json(self.read_bytes(relative), relative, self.id)
 
     @cached_property
     def output_schema(self) -> dict[str, Any]:
@@ -152,13 +188,12 @@ def load_pack(path: str | Path, *, missing_models_ok: bool = False) -> Pack:
         raise PackValidationError(
             str(path), [f"{link}: a symbolic link that leads outside the pack" for link in links]
         )
-    # Hashed first: everything below is read through `_pack_file`, which accepts only a file the
-    # digest covers, whatever spelling reaches it.
-    digest, digested = _digest(root)
-    manifest_path = _pack_file(root, MANIFEST, str(path), digested)
-    if not manifest_path.is_file():
+    # Hashed first: everything below is read through `_read`, which accepts only a file the
+    # digest covers, whatever spelling reaches it, and only the bytes the digest hashed.
+    digest, digested = _digest(root, str(path))
+    if not _pack_file(root, MANIFEST, str(path), digested).is_file():
         raise PackValidationError(str(path), [f"{MANIFEST} not found in {root}"])
-    raw = load_yaml(manifest_path, MANIFEST, str(path))
+    raw = parse_yaml(_read(root, MANIFEST, str(path), digested), MANIFEST, str(path))
     if not isinstance(raw, dict):
         raise PackValidationError(str(path), [f"{MANIFEST} must be a mapping"])
     label = str(raw.get("id", path))
@@ -168,7 +203,9 @@ def load_pack(path: str | Path, *, missing_models_ok: bool = False) -> Pack:
         policy_path = _pack_file(root, raw["policy"], label, digested, "policy")
         if not policy_path.is_file():
             raise PackValidationError(label, [f"policy file {raw['policy']!r} not found"])
-        raw["policy"] = load_yaml(policy_path, raw["policy"], label)
+        raw["policy"] = parse_yaml(
+            _read(root, raw["policy"], label, digested), raw["policy"], label
+        )
 
     try:
         manifest = PackManifest.model_validate(raw)
@@ -183,20 +220,15 @@ def load_pack(path: str | Path, *, missing_models_ok: bool = False) -> Pack:
     if problems:
         raise PackValidationError(manifest.id, problems)
     if manifest.evaluation.benchmark is not None:
-        _attestation_file(root, manifest.evaluation.benchmark, label, "evaluation.benchmark")
+        _benchmark_file(root, manifest.evaluation.benchmark, label)
 
-    schema_path = _pack_file(root, manifest.inputs.json_schema, label, digested)
-    try:
-        with schema_path.open(encoding="utf-8") as handle:
-            input_schema = json.load(handle)
-    except (ValueError, RecursionError) as error:  # not JSON, not UTF-8, nested too deep
-        problem = f"{manifest.inputs.json_schema}: not a JSON document ({type(error).__name__})"
-        raise PackValidationError(manifest.id, [problem]) from None
+    schema = manifest.inputs.json_schema
+    input_schema = parse_json(_read(root, schema, label, digested), schema, manifest.id)
     problems = schema_rules.problems(input_schema)  # before any jsonschema code reads it
     if problems:
         raise PackValidationError(manifest.id, problems)
     parsed = {
-        relative: load_yaml(_pack_file(root, relative, label, digested), relative, manifest.id)
+        relative: parse_yaml(_read(root, relative, label, digested), relative, manifest.id)
         for relative in _rules_files(manifest)
     }
     problems = _pattern_problems(input_schema, parsed)  # jsonschema compiles them too
@@ -225,24 +257,29 @@ def pack_digest(root: Path) -> str:
     return _digest(root)[0]
 
 
-def _digest(root: Path) -> tuple[str, FileIds]:
+def _digest(root: Path, label: str = "") -> tuple[str, Digested]:
     """The pack digest, and the identity on disk of every file it hashed (of the file read, so
-    a link inside the pack counts as the file it leads to)."""
+    a link inside the pack counts as the file it leads to) with the SHA-256 of what it read. A
+    file that cannot be read is a `PackValidationError` naming it (labelled `label`)."""
     digest = hashlib.sha256()
-    digested = set()
+    digested = {}
     for file in sorted(p for p in root.rglob("*") if p.is_file()):
         relative = file.relative_to(root)
         if _attestation(relative.parts) or any(_excluded(part) for part in relative.parts):
             continue
-        with file.open("rb") as handle:
-            content = handle.read()
-            status = os.fstat(handle.fileno())
-        digested.add((status.st_dev, status.st_ino))
+        try:
+            with file.open("rb") as handle:
+                content = handle.read()
+                status = os.fstat(handle.fileno())
+        except OSError as error:  # unreadable (its mode), or gone since it was listed
+            problem = f"{relative.as_posix()}: cannot be read ({type(error).__name__})"
+            raise PackValidationError(label or str(root), [problem]) from None
+        digested[(status.st_dev, status.st_ino)] = hashlib.sha256(content).hexdigest()
         digest.update(relative.as_posix().encode())
         digest.update(b"\0")
         digest.update(content)
         digest.update(b"\0")
-    return "sha256:" + digest.hexdigest(), frozenset(digested)
+    return "sha256:" + digest.hexdigest(), digested
 
 
 # Manifest fields naming a file the pack decides or tests with, in a provider variant or a
@@ -322,24 +359,39 @@ def _pattern_problems(input_schema: Any, rules: dict[str, Any]) -> list[str]:
     return problems
 
 
-class _NumberRefused(ValueError):
-    """A YAML number `_PackLoader` will not build, and why."""
-
-    def __init__(self, reason: str, node: yaml.Node):
-        super().__init__(reason)
-        self.reason = reason
-        self.mark = node.start_mark
+class _Refused(ValueError):
+    """A YAML value `_PackLoader` will not build: why, and where (the text after the file's
+    name in the problem). Never the value: it is whatever the pack wrote."""
 
 
 class _PackLoader(yaml.SafeLoader):
-    """The safe loader, with every number (an int or a float, implicit or tagged, in any base)
-    bounded before it is built: see `MAX_YAML_NUMBER_CHARS`."""
+    """The safe loader, building only what a JSON response can carry, with every value it
+    cannot build named by its place:
+
+    - every number (an int or a float, implicit or tagged, in any base) bounded before it is
+      built: see `MAX_YAML_NUMBER_CHARS`;
+    - a string with a lone surrogate (`"\\ud800"`, which no UTF-8 text holds) refused, and the
+      `!!binary`, `!!set`, `!!omap` and `!!pairs` values (bytes, a set, lists of pairs) too;
+    - a value the safe constructor raises on (a date such as 2024-02-30, `!!bool maybe`) named
+      by the error's type and the value's line and column."""
+
+    def construct_object(self, node: yaml.Node, deep: bool = False) -> Any:
+        try:
+            return super().construct_object(node, deep)
+        except (_Refused, RecursionError):
+            raise
+        except yaml.constructor.ConstructorError as error:
+            mark = error.problem_mark or node.start_mark
+            raise _Refused(f"invalid YAML value (ConstructorError, {_at(mark)})") from None
+        except Exception as error:  # SafeConstructor's own, unwrapped: ValueError, KeyError, …
+            kind = type(error).__name__
+            raise _Refused(f"invalid YAML value ({kind}, {_at(node.start_mark)})") from None
 
     def construct_yaml_int(self, node: yaml.ScalarNode) -> int:
         _check_number(node)
         value: int = super().construct_yaml_int(node)
         if abs(value) >= _INT_LIMIT:
-            raise _NumberRefused(f"an integer of more than {MAX_YAML_NUMBER_CHARS:,} digits", node)
+            _refuse(f"an integer of more than {MAX_YAML_NUMBER_CHARS:,} digits", node)
         return value
 
     def construct_yaml_float(self, node: yaml.ScalarNode) -> float:
@@ -347,9 +399,28 @@ class _PackLoader(yaml.SafeLoader):
         value: float = super().construct_yaml_float(node)
         return value
 
+    def construct_yaml_str(self, node: yaml.ScalarNode) -> str:
+        value: str = super().construct_yaml_str(node)
+        try:
+            value.encode("utf-8")
+        except UnicodeEncodeError:
+            _refuse("a string with a lone surrogate, which is not UTF-8 text", node)
+        return value
 
-_PackLoader.add_constructor("tag:yaml.org,2002:int", _PackLoader.construct_yaml_int)
-_PackLoader.add_constructor("tag:yaml.org,2002:float", _PackLoader.construct_yaml_float)
+    def construct_not_json(self, node: yaml.Node) -> Any:
+        _refuse(f"a {node.tag.replace(_YAML_TAG, '!!')} value, which JSON cannot hold", node)
+
+
+_YAML_TAG = "tag:yaml.org,2002:"
+_PackLoader.add_constructor(f"{_YAML_TAG}int", _PackLoader.construct_yaml_int)
+_PackLoader.add_constructor(f"{_YAML_TAG}float", _PackLoader.construct_yaml_float)
+_PackLoader.add_constructor(f"{_YAML_TAG}str", _PackLoader.construct_yaml_str)
+for _tag in ("binary", "set", "omap", "pairs"):
+    _PackLoader.add_constructor(f"{_YAML_TAG}{_tag}", _PackLoader.construct_not_json)
+
+
+def _refuse(reason: str, node: yaml.Node) -> NoReturn:
+    raise _Refused(f"{reason} ({_at(node.start_mark)})")
 
 
 def _check_number(node: yaml.Node) -> None:
@@ -357,47 +428,49 @@ def _check_number(node: yaml.Node) -> None:
         return  # not a scalar: the safe constructor refuses it
     text = node.value.replace("_", "")
     if len(text) > MAX_YAML_NUMBER_CHARS:
-        raise _NumberRefused(f"a number of more than {MAX_YAML_NUMBER_CHARS:,} characters", node)
+        _refuse(f"a number of more than {MAX_YAML_NUMBER_CHARS:,} characters", node)
     if text.count(":") >= MAX_YAML_NUMBER_PARTS:
-        raise _NumberRefused(
-            f"a number of more than {MAX_YAML_NUMBER_PARTS} ':' parts (base 60)", node
-        )
+        _refuse(f"a number of more than {MAX_YAML_NUMBER_PARTS} ':' parts (base 60)", node)
 
 
 def load_yaml(path: Path, name: str, label: str) -> Any:
+    """`parse_yaml` on the file at `path` (for a file outside any pack)."""
+    return parse_yaml(path.read_bytes(), name, label)
+
+
+def parse_yaml(data: bytes, name: str, label: str) -> Any:
     """A YAML file of a pack, parsed safely. One that does not parse, is not UTF-8, nests too
-    deep for the parser, holds a value Python cannot build (a date such as 2024-02-30, an
+    deep for the parser, holds a value JSON cannot (a string with a lone surrogate, `!!binary`,
+    `!!set`, `!!omap`, `!!pairs`) or Python cannot build (a date such as 2024-02-30, an
     explicitly tagged scalar such as `!!bool maybe` or `!!float ''`) or a number over the
     bounds (`MAX_YAML_NUMBER_CHARS`, `MAX_YAML_NUMBER_PARTS`), refers to itself or, using
     anchors, expands past `MAX_YAML_NODES` or `MAX_YAML_CHARS` is the pack's problem (a
-    `PackValidationError` naming `name`), never a raw error or a stall. A value the constructor
-    cannot build is reported by its error's type and its line and column only: the error's text
-    holds the value, which can be anything the pack wrote. A file that does not parse keeps the
-    parser's message (what it expected, where, and the line around it)."""
+    `PackValidationError` naming `name`), never a raw error or a stall. A value that is refused
+    or cannot be built is named by why (or its error's type) and its line and column only: the
+    value can be anything the pack wrote. A file that does not parse keeps the parser's message
+    (what it expected, where, and the line around it)."""
     try:
-        text = path.read_text(encoding="utf-8")
-        loader = _PackLoader(text)
+        loader = _PackLoader(_decoded(data))
         try:
             node = loader.get_single_node()
             if node is None:
                 return None
-            if "&" in text:  # with no anchor there is no alias, and the graph is the file's tree
+            if b"&" in data:  # with no anchor there is no alias, and the graph is the file's tree
                 problem = _expansion_problem(node)
                 if problem is not None:
                     raise PackValidationError(label, [f"{name}: {problem}"])
             try:
                 return loader.construct_document(node)
-            except _NumberRefused as error:
-                problem = f"{name}: {error.reason} ({_at(error.mark)})"
-                raise PackValidationError(label, [problem]) from None
-            except Exception as error:  # ConstructorError, or SafeConstructor's own, unwrapped
+            except _Refused as error:
+                raise PackValidationError(label, [f"{name}: {error}"]) from None
+            except Exception as error:  # a ConstructorError outside any one value (a key), …
                 mark = getattr(error, "problem_mark", None)
                 at = f", {_at(mark)}" if isinstance(mark, yaml.Mark) else ""
                 problem = f"{name}: invalid YAML value ({type(error).__name__}{at})"
                 raise PackValidationError(label, [problem]) from None
         finally:
             loader.dispose()
-    except (PackValidationError, OSError):  # ours, or the file cannot be read: not its content
+    except PackValidationError:
         raise
     except yaml.YAMLError as error:  # the file does not parse: the parser's message
         raise PackValidationError(label, [f"{name}: invalid YAML: {error}"]) from None
@@ -405,6 +478,68 @@ def load_yaml(path: Path, name: str, label: str) -> Any:
         raise PackValidationError(
             label, [f"{name}: invalid YAML ({type(error).__name__})"]
         ) from None
+
+
+def parse_json(data: bytes, name: str, label: str) -> Any:
+    """A JSON file of a pack. One that is not UTF-8 or not JSON, holds an integer over Python's
+    4,300 digits or nests too deep for the parser, or holds a value a JSON response cannot carry
+    (a string with a lone surrogate: `json` reads the escape `"\\ud800"`; NaN or Infinity) is
+    the pack's problem (a `PackValidationError` naming `name` and the error's type or what it
+    holds), never a raw error."""
+    try:
+        value = json.loads(data.decode("utf-8"))
+    except (ValueError, RecursionError) as error:  # UnicodeDecodeError is a ValueError
+        problem = f"{name}: not a JSON document ({type(error).__name__})"
+        raise PackValidationError(label, [problem]) from None
+    what = not_json(value)
+    if what is not None:
+        raise PackValidationError(label, [f"{name}: not JSON, it holds {what}"])
+    return value
+
+
+def not_json(value: Any) -> str | None:
+    """What in `value` a JSON response cannot carry (encoded as UTF-8, numbers finite), named
+    by its type, or None. YAML builds dates (and a JSON file can hold strings with a lone
+    surrogate, `"\\ud800"`, and NaN), none of which an input, an example or a decision can
+    hold. The text is never part of the answer: it is whatever the pack wrote."""
+    try:
+        json.dumps(value, ensure_ascii=False, allow_nan=False).encode("utf-8")
+    except RecursionError:
+        return "values nested too deep"
+    except (TypeError, ValueError):  # UnicodeEncodeError is a ValueError
+        pass
+    else:
+        return None
+    stack = [value]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, dict):
+            stack.extend(item)  # the keys
+            stack.extend(item.values())
+        elif isinstance(item, list | tuple):
+            stack.extend(item)
+        elif isinstance(item, str):
+            try:
+                item.encode("utf-8")
+            except UnicodeEncodeError:
+                return "a string with a lone surrogate"
+        elif isinstance(item, float) and not math.isfinite(item):
+            return "a number that is not finite"
+        elif not (item is None or isinstance(item, bool | int | float)):
+            return f"a value of type {type(item).__name__}"
+    return "a value JSON cannot hold"
+
+
+def _decoded(data: bytes) -> str:
+    """UTF-8 `data` as text, line endings translated as `Path.read_text` translates them."""
+    return data.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _text(data: bytes, name: str, label: str) -> str:
+    try:
+        return _decoded(data)
+    except UnicodeDecodeError:
+        raise PackValidationError(label, [f"{name}: not UTF-8 text"]) from None
 
 
 def _at(mark: yaml.Mark) -> str:
@@ -514,7 +649,7 @@ def _confined(root: Path, relative: str, label: str, field: str | None = None) -
 
 
 def _pack_file(
-    root: Path, relative: str, label: str, digested: FileIds, field: str | None = None
+    root: Path, relative: str, label: str, digested: Digested, field: str | None = None
 ) -> Path:
     """A file the pack decides or tests with (`Pack.path`): `_confined`, not an attestation,
     and, if anything but a directory is there, one of the files `pack_digest` hashed
@@ -540,6 +675,43 @@ def _pack_file(
         "out hidden entries, __pycache__, evals/ and DECISION_CARD.md, however a path spells them)"
     )
     raise PackValidationError(label, [problem])
+
+
+def _read(
+    root: Path, relative: str, label: str, digested: Digested, field: str | None = None
+) -> bytes:
+    """The content of a file the pack decides or tests with (`_pack_file`), read once and
+    checked against the hash `pack_digest` took of the same file: a file edited in place since
+    (the same file on disk, other bytes) is refused, so what is used is what the digest covers.
+    A file missing or unreadable is a `PackValidationError` naming it."""
+    path = _pack_file(root, relative, label, digested, field)
+    where = f"{field}: " if field else ""
+    try:
+        with path.open("rb") as handle:
+            content = handle.read()
+            status = os.fstat(handle.fileno())
+    except FileNotFoundError:
+        raise PackValidationError(label, [f"{where}missing file {relative!r}"]) from None
+    except OSError as error:  # a directory, unreadable (its mode), …
+        problem = f"{where}{relative}: cannot be read ({type(error).__name__})"
+        raise PackValidationError(label, [problem]) from None
+    expected = digested.get((status.st_dev, status.st_ino))
+    if expected is None or hashlib.sha256(content).hexdigest() != expected:
+        problem = (
+            f"{where}{relative}: changed since the pack's digest was computed (edited or replaced "
+            "after the pack was loaded); load the pack again"
+        )
+        raise PackValidationError(label, [problem])
+    return content
+
+
+def _benchmark_file(root: Path, relative: str, label: str) -> Path:
+    """`evaluation.benchmark`: an attestation in `evals/` (not any `DECISION_CARD.md`)."""
+    resolved = _attestation_file(root, relative, label, "evaluation.benchmark")
+    if resolved.relative_to(root).parts[0] not in _DIGEST_EXCLUDED_DIRS:
+        problem = f"evaluation.benchmark: path {relative!r} is not in evals/"
+        raise PackValidationError(label, [problem])
+    return resolved
 
 
 def _attestation_file(root: Path, relative: str, label: str, field: str | None = None) -> Path:

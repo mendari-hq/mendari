@@ -75,6 +75,23 @@ identically.
   `ConstructorError` is named by type, line and column, never its text; a parse error keeps the
   parser's message, as the docs now say. Spec §3, §10, §11, §13, SECURITY.md, threat model E9
   and D7, authoring guide.
+- [x] **9. Malformed pack content is named, never a 500 (D7, T2, E9)**: the review's eight
+  remaining findings. (1) A behaviour test must be a mapping with an `input` mapping, an
+  optional text `name` and an optional `expect` mapping (`answers` a mapping, `outcome_in` a
+  list), named by case number; the API reference picks each pack's example under its own guard
+  (`expect: [1]` made `/openapi.json` a `500` for every pack). (2) The YAML loader refuses a
+  string with a lone surrogate, `!!binary`, `!!set`, `!!omap` and `!!pairs` by file, line and
+  column, and every pack JSON file is walked for lone surrogates and non-finite numbers (a
+  surrogate in a pack's name made `GET /api/packs` a `500`). (3) `Pack.read_json`,
+  `read_text`, the naive_bayes model's shape and the digest's reads name the file (no traceback
+  from `mendari validate` or `test`). (4) Content verified at read: the load keeps each hashed
+  file's SHA-256, and every read (`Pack.read_bytes`) checks and parses the bytes it read, so a
+  file edited in place after the load is refused, not used under the old digest. (5)
+  `evaluation.benchmark` must be in `evals/`; a malformed benchmark or leaderboard is absent
+  (the card says why), a non-UTF-8 `CHANGELOG.md` a `422`. (6) Every value the YAML constructor
+  cannot build carries its line and column. (7) A bad dataset line is named by file and line.
+  (8) An archive whose names are one file under case-folding and NFC is refused by `verify`;
+  `extract` names a file it cannot write.
 - Verified: the five packs decide every dataset record and `tests/cases.yaml` example (default
   providers and every local variant combination, 9,958 decisions) identically to `origin/main`
   run on its own source, in one long process, in a fresh process per pack and variant set, and

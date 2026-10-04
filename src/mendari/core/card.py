@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from mendari.core import clock
@@ -27,19 +26,39 @@ RISK_AUTOMATION = {
 }
 
 
+# What a malformed attestation raises when the card reads it (a missing key, a wrong type).
+_SHAPE_ERRORS = (AttributeError, IndexError, KeyError, TypeError, ValueError)
+
+
 def benchmark(pack: Pack) -> dict[str, Any] | None:
+    """The pack's published benchmark (`evaluation.benchmark`), or None: none named, none
+    there, or not a report this card can show (`read_benchmark` says why)."""
+    return read_benchmark(pack)[0]
+
+
+def read_benchmark(pack: Pack) -> tuple[dict[str, Any] | None, str | None]:
+    """The benchmark, or None and why it is not shown. As the registry does, one that is not
+    JSON, holds what a JSON response cannot (NaN, a lone surrogate) or is not the evaluation
+    report the card shows is treated as absent, never an error."""
     relative = pack.manifest.evaluation.benchmark
-    if relative is None or not pack.attestation(relative).is_file():
-        return None
-    with pack.attestation(relative).open(encoding="utf-8") as handle:
-        report: dict[str, Any] = json.load(handle)
-    return report
+    if relative is None:
+        return None, None
+    report, problem = pack.attestation_json(relative)
+    if report is None:
+        return None, problem
+    try:
+        _last_validation(report)
+        _validation(report)
+    except _SHAPE_ERRORS as error:
+        return None, f"not an evaluation report ({type(error).__name__})"
+    return report, None
 
 
 def render_card(pack: Pack) -> str:
     m = pack.manifest
     level = int(m.risk.level)
-    report = benchmark(pack)
+    report, report_problem = read_benchmark(pack)
+    board, board_problem = leaderboard.read(pack)
     category = f" ({m.risk.category})" if m.risk.category != RISK_NAMES[level] else ""
     out: list[str] = [
         f"# Decision Card: {m.name}",
@@ -56,11 +75,7 @@ def render_card(pack: Pack) -> str:
         f"| Pack digest | `{pack.digest}` |",
     ]
     if report:
-        out.append(
-            f"| Last validation | {clock.local_date(report['created_at'])} on "
-            f"`{report['dataset']['name']}` "
-            f"(n={report['dataset']['n']}, sha256 `{report['dataset']['sha256'][:12]}…`) |"
-        )
+        out.append(_last_validation(report))
     out += [
         "",
         "## Intended use",
@@ -132,7 +147,10 @@ def render_card(pack: Pack) -> str:
         )
     out += ["", "## Validation", ""]
     out += _validation(report) if report else ["No published benchmark."]
-    board = leaderboard.load(pack)
+    unread = [(m.evaluation.benchmark, report_problem), (leaderboard.PATH, board_problem)]
+    for relative, why in unread:
+        if why:
+            out += ["", f"{relative} is not shown: {why}."]
     if board and board.get("rows"):
         out += [
             "",
@@ -149,9 +167,8 @@ def render_card(pack: Pack) -> str:
     for evidence in m.card.evidence:
         title = f"[{evidence.title}]({evidence.url})" if evidence.url else evidence.title
         out.append(f"- **{title}**" + (f": {evidence.note}" if evidence.note else ""))
-    changelog = pack.path("CHANGELOG.md")
-    if changelog.is_file():
-        history = changelog.read_text(encoding="utf-8").split("\n", 1)[-1].strip()
+    if pack.path("CHANGELOG.md").is_file():
+        history = pack.read_text("CHANGELOG.md").split("\n", 1)[-1].strip()
         out += [
             "",
             "## Version history",
@@ -241,6 +258,14 @@ def _schema_rows(schema: dict[str, Any], prefix: str = "") -> list[str]:
         )
         rows.append(f"| `{path}` | {kind} | {'yes' if name in required else 'no'} |")
     return rows
+
+
+def _last_validation(report: dict[str, Any]) -> str:
+    dataset = report["dataset"]
+    return (
+        f"| Last validation | {clock.local_date(report['created_at'])} on `{dataset['name']}` "
+        f"(n={dataset['n']}, sha256 `{dataset['sha256'][:12]}…`) |"
+    )
 
 
 def _validation(report: dict[str, Any]) -> list[str]:
