@@ -9,6 +9,7 @@ outcomes are said once, here, for this page and the developer landing (`server/l
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Mapping
 from typing import Any
 
@@ -69,6 +70,9 @@ FHIR_EXAMPLE: dict[str, Any] = {
     ],
 }
 FHIR_EXAMPLE_PACK = "mendari/patient-inbox-router"
+# A pack's example is in the reference only if its JSON is at most this (the shipped packs' are
+# under 1 KB); a larger one is left out, as is one from tests that do not load.
+MAX_EXAMPLE_BYTES = 64 * 1024
 
 # What Mendari is, in one sentence; the reference's introduction and the /docs landing open with it.
 PRODUCT = (
@@ -327,8 +331,9 @@ def _fits(pack: Pack, path: str) -> bool:
 
 def _example_input(pack: Pack) -> tuple[str, dict[str, Any]] | None:
     """The pack's first behaviour test that automates (the friendliest first try), or its
-    first one; None if it has none, or its tests do not load (that pack's problem, never the
-    API reference's)."""
+    first one; None if it has none, its tests do not load, or the example is not JSON or is
+    over `MAX_EXAMPLE_BYTES` as JSON (that pack's problem, never the API reference's: the
+    reference holds each example more than once, and a control character is six bytes there)."""
     try:
         loaded = load_cases(pack)
     except Exception:
@@ -338,7 +343,12 @@ def _example_input(pack: Pack) -> tuple[str, dict[str, Any]] | None:
     if not (automated or cases):
         return None
     chosen = (automated or cases)[0]
-    return str(chosen.get("name", "example")), chosen["input"]
+    example = str(chosen.get("name", "example")), chosen["input"]
+    try:
+        encoded = json.dumps(example, ensure_ascii=False, allow_nan=False).encode()
+    except (TypeError, ValueError, RecursionError):  # a YAML date, a set, NaN, too deep
+        return None
+    return example if len(encoded) <= MAX_EXAMPLE_BYTES else None
 
 
 def _body_examples(

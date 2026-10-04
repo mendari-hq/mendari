@@ -228,10 +228,14 @@ limits, designed with that feature). What a pack cannot do today is below.
 - A pack reads only its own files. Every path it names must resolve, symbolic links followed,
   inside the pack's directory; a directory pack holding a symbolic link that leads outside it
   is refused at load (hidden entries and `__pycache__` are not part of a pack, never digested,
-  archived or read, so a `.venv` beside its files is fine; a path the manifest names through one
-  is still confined), the files read by a fixed name (`CHANGELOG.md`,
-  `DECISION_CARD.md`, `evals/*.json`) go through the same check, and `mendari card --write`
-  does not write through a link. A signed archive holds regular files only (no symbolic or hard
+  archived or read, so a `.venv` beside its files is fine). A path the pack reads may not go
+  through one either, as written or with links resolved, and a path its manifest names may not
+  be in `evals/` or a `DECISION_CARD.md` (attestations about the pack, also left out of the
+  digest): a manifest naming one (say `config: .logic/rules.yaml`) is refused at load, naming
+  the field, so whatever a pack decides with is inside its digest, the identity a governance
+  approval covers. The files read by a fixed name (`CHANGELOG.md`, `DECISION_CARD.md`,
+  `evals/*.json`) go through the same check, and `mendari card --write` does not write through
+  a link. A signed archive holds regular files only (no symbolic or hard
   link, device, FIFO or sparse file), each named `pack/` and then plain path segments (none
   empty, `.`, `..` or hidden, no backslash), and extracting it writes nothing outside the
   destination. An archive is read as a stream with its caps checked while it expands, before
@@ -261,10 +265,12 @@ limits, designed with that feature). What a pack cannot do today is below.
   alone, as its text is the pack's), and every other pack is served; a served pack whose
   providers cannot be built when first used is listed there too, and its decisions answer
   `422`, never `/api/health` or another pack's. A YAML file of a pack that uses anchors expands
-  to at most 1,000,000 nodes and 32,000,000 characters of scalar text, counted on the parsed
-  graph before anything walks it, so a few lines of aliases cannot make loading exponential, or
-  make a page that shows the file (the API reference embeds each pack's first test) gigabytes
-  long; a YAML value Python cannot build (a date such as 2024-02-30) is the pack's error too. A
+  to at most 1,000,000 nodes and 32,000,000 characters of scalar text as JSON writes it (a
+  control character counts six), counted on the parsed graph before anything walks it, so a few
+  lines of aliases cannot make loading exponential, or make a page that shows the file
+  gigabytes long; the API reference embeds a pack's example only when it is at most 64 KB as
+  JSON. A YAML value Python cannot build (a date such as 2024-02-30, a tagged `!!bool maybe`)
+  is the pack's error too, named by the file and the error's type. A
   version has at most 64 characters, so comparing versions never fails. Publishing a pack to
   the registry that does not load, or whose card is not text, is refused with a `422` and its
   reason, never a server error; the registry shows a benchmark's dataset name, count and

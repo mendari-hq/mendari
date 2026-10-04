@@ -85,13 +85,17 @@ Validation rules (all MUST hold):
 - Packs at risk level ≥ 2 MUST NOT contain policy rules whose outcome is `AUTO`.
 - `version` is a semantic version of at most 64 characters.
 - A YAML file of the pack (manifest, policy, provider configs, tests) that uses anchors has
-  at most 1,000,000 nodes and 32,000,000 characters of scalar text once every alias is expanded
-  (an alias counts each time it is used), and no alias inside its own anchor. A file without an
-  anchor has no alias, and is not counted.
+  at most 1,000,000 nodes and 32,000,000 characters of scalar text, counted as JSON writes them
+  (a control character counts six), once every alias is expanded (an alias counts each time it
+  is used), and no alias inside its own anchor. A file without an anchor has no alias, and is
+  not counted. Every value in it is one the safe loader can build: a value it cannot (a date
+  such as 2024-02-30, an explicitly tagged `!!bool maybe`) makes the pack invalid.
 - Every referenced file exists inside the pack. A directory pack MUST NOT hold a symbolic link
   that resolves outside the pack's directory. Hidden entries (a name starting with `.`) and
   `__pycache__` are not part of the pack (not digested, archived or read), so a `.venv` in the
-  pack's folder is fine; a path the manifest names through one MUST still resolve inside it.
+  pack's folder is fine. A path the manifest names MUST NOT go through one, as written or once
+  links are resolved, nor be in `evals/` or a `DECISION_CARD.md` (§11): everything a pack
+  decides with is inside its digest.
 - The input schema is self-contained: `$ref`, `$dynamicRef` and `$recursiveRef` start with `#`
   and resolve to a schema (an object or a boolean) in the document; `$schema`, if present, is at
   the root only and names `https://json-schema.org/draft/2020-12/schema`; `$id` is at the root
@@ -462,9 +466,11 @@ safety behaviour.
 ## 11. Identity and versioning
 
 The pack digest is the SHA-256 over every file in the pack (path and content, in sorted order)
-except `evals/` and `DECISION_CARD.md`, which are attestations *about* the pack. Every decision
-and evaluation report records the digest, so an audit record identifies the exact behaviour
-that produced it.
+except `evals/` and `DECISION_CARD.md`, which are attestations *about* the pack, and hidden
+entries and `__pycache__`, which are not part of it (§3). A path the manifest names may be in
+none of these, so the digest covers everything the pack decides with. Every decision and
+evaluation report records the digest, so an audit record identifies the exact behaviour that
+produced it.
 
 ## 12. Audit records
 
@@ -483,9 +489,10 @@ produces identical decisions; it simply cannot use the new fields. One restricti
 packs of every version: a `jev` or `llm` variant may not name the environment variables its
 provider reads (§5); a directory pack may not hold a symbolic link out of it, and an input
 schema must be self-contained, a version has at most 64 characters, a YAML file that uses
-anchors expands to at most 1,000,000 nodes and 32,000,000 characters (§3), and every pattern
-(input-schema `patternProperties` keys included) compiles, at most 2,000 characters and 500 per
-pack (§5). No published pack did any of these.
+anchors expands to at most 1,000,000 nodes and 32,000,000 characters as JSON (§3), a path the
+manifest names goes through no hidden entry or `__pycache__` and is not in `evals/` or a
+`DECISION_CARD.md` (§3), and every pattern (input-schema `patternProperties` keys included)
+compiles, at most 2,000 characters and 500 per pack (§5). No published pack did any of these.
 
 | Change | Section |
 |---|---|
@@ -506,7 +513,7 @@ pack (§5). No published pack did any of these.
 | `jev` and `llm` variants may not name the environment variables a provider reads (`*_env`; every spec version) | §5 |
 | A `cql` library's declaration is its first statement (every spec version) | §5 |
 | Every pack pattern (rules patterns, input-schema `pattern`s and `patternProperties` keys) compiles with `re`, at most 2,000 characters, at most 500 per pack, checked at load (every spec version) | §5 |
-| A version of at most 64 characters; YAML using anchors of at most 1,000,000 nodes and 32,000,000 characters, aliases expanded (every spec version) | §3 |
+| A version of at most 64 characters; YAML using anchors of at most 1,000,000 nodes and 32,000,000 characters as JSON, aliases expanded; manifest paths through no hidden entry, `__pycache__`, `evals/` or `DECISION_CARD.md` (every spec version) | §3 |
 | No symbolic link out of a directory pack; a self-contained input schema (local references only, no nested `$schema` or `$id`, no `$dynamicAnchor`, no `format: regex`; every spec version) | §3 |
 
 To migrate a pack:

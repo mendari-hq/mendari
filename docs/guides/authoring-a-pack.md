@@ -29,9 +29,11 @@ it is refused), and the input schema refers only to its own parts: a `$ref` star
 `$schema` (2020-12) and `$id` appear only at the top, and `$dynamicAnchor` and `format: regex`
 are not allowed. Checking an input never fetches a URL or reads another file. The version is a
 semantic version of at most 64 characters, and YAML anchors are fine within reason: a file that
-uses them may expand to at most 1,000,000 nodes and 32,000,000 characters of text once its
-aliases are counted where they are used. A `.venv` or other hidden folder beside the pack's
-files is not part of the pack, and is ignored.
+uses them may expand to at most 1,000,000 nodes and 32,000,000 characters of text (as JSON
+writes it: a control character counts six) once its aliases are counted where they are used. A
+`.venv` or other hidden folder beside the pack's files is not part of the pack, and is ignored;
+so a path in `pack.yaml` may not go through one (nor `__pycache__`), or into `evals/` or a
+`DECISION_CARD.md`, since none of them is in the pack's digest.
 
 It already works. Check it:
 

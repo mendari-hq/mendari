@@ -21,6 +21,7 @@ from mendari.core import registry as registry_module
 from mendari.core.pack import MAX_YAML_CHARS, MAX_YAML_NODES, load_yaml
 from mendari.core.registry import version_key
 from mendari.errors import PackValidationError
+from mendari.server.api_docs import MAX_EXAMPLE_BYTES
 from mendari.server.app import create_app
 from mendari.standards import terminology as terminology_module
 from tests.conftest import INBOX_DIR
@@ -389,6 +390,48 @@ def test_a_tests_file_that_expands_past_the_cap_never_reaches_the_api_reference(
     assert examples.status_code == 422, examples.status_code
 
 
+def test_control_characters_count_at_their_json_length(tmp_path: Path) -> None:
+    """The cap counted characters, but JSON writes a control character as six (`\\u0000`): a
+    2 MB tests file aliasing a string of a million `"\\0"` thirty times loaded (30,000,000
+    characters) and /openapi.json answered 180 MB. Text is weighed as JSON now."""
+    path = tmp_path / "cases.yaml"
+    nul = "\\0" * 200_000  # 400 KB of YAML, 200,000 characters, 1,200,000 as JSON
+    path.write_text(f'- x_text: &s "{nul}"\n- {{message: {{body: [{", ".join(["*s"] * 30)}]}}}}\n')
+    with pytest.raises(PackValidationError, match="expands to more than 32,000,000 characters"):
+        load_yaml(path, "tests/cases.yaml", "x")
+    path.write_text(f'- x_text: &s "{nul}"\n- {{message: {{body: [{", ".join(["*s"] * 25)}]}}}}\n')
+    assert len(load_yaml(path, "tests/cases.yaml", "x")[1]["message"]["body"]) == 25
+
+
+def test_an_example_over_64_kb_as_json_is_left_out_of_the_api_reference(tmp_path: Path) -> None:
+    """The reference holds a pack's example several times over, as JSON: 20,000 `"\\0"` (40 KB
+    of YAML, no anchor) are 120 KB there each time. Such an example is left out, as one from
+    tests that do not load is; the pack's own examples still answer."""
+
+    def edit(pack: Path) -> None:
+        cases = pack / "tests" / "cases.yaml"
+        nul = "\\0" * 20_000
+        first = (
+            f'- name: nul\n  input: {{message: {{body: "{nul}"}}}}\n  expect: {{outcome: AUTO}}\n'
+        )
+        cases.write_text(first + cases.read_text())
+
+    outside = tmp_path / "outside"
+    _outsider(outside, edit)
+    client = TestClient(create_app(db_path=tmp_path / "x.db", packs_paths=[outside, PACKS]))
+    reference = client.get("/openapi.json")
+    assert reference.status_code == 200 and "\\u0000" not in reference.text
+    decide = reference.json()["paths"]["/api/packs/{namespace}/{name}/decide"]["post"]
+    summaries = [
+        e["summary"]
+        for e in decide["requestBody"]["content"]["application/json"]["examples"].values()
+    ]
+    assert len(summaries) >= 5 and not any(s.startswith("outsider/") for s in summaries)
+    examples = client.get(f"/api/packs/outsider/{INBOX_DIR.name}/examples")
+    assert examples.status_code == 200 and examples.json()[0]["name"] == "nul"
+    assert MAX_EXAMPLE_BYTES == 64 * 1024
+
+
 def test_an_unused_variant_cannot_carry_an_expanding_manifest(tmp_path: Path) -> None:
     """The same in pack.yaml (an unused variant's extra key, dumped by the pack's detail page):
     the pack is refused at load and every other pack is served."""
@@ -403,23 +446,37 @@ def test_an_unused_variant_cannot_carry_an_expanding_manifest(tmp_path: Path) ->
 @pytest.mark.parametrize(
     ("line", "error"),
     [
-        ("x_released: 2024-02-30", "ValueError: day is out of range for month"),
-        ("x_count: " + "9" * 5000, "ValueError: Exceeds the limit (4300 digits)"),
+        ("x_released: 2024-02-30", "ValueError"),
+        ("x_count: " + "9" * 5000, "ValueError"),
+        ("x_count: !!int 0x", "ValueError"),
+        ("x_flag: !!bool maybe", "KeyError"),
+        ("x_when: !!timestamp bad", "AttributeError"),
+        ("x_ratio: !!float ''", "IndexError"),
+        ("x_count: !!int", "IndexError"),
     ],
-    ids=["impossible-date", "over-long-integer"],
+    ids=[
+        "impossible-date",
+        "over-long-integer",
+        "int",
+        "bool",
+        "timestamp",
+        "empty-float",
+        "empty-int",
+    ],
 )
 def test_a_yaml_value_python_cannot_build_is_the_packs_problem(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], line: str, error: str
 ) -> None:
     """SafeConstructor raises a plain ValueError for an impossible date or an integer of more
-    than 4,300 digits: `load_pack` raised it and `mendari validate` printed a traceback."""
+    than 4,300 digits, and a KeyError, AttributeError or IndexError for an explicitly tagged
+    scalar it cannot read: `load_pack` raised it and `mendari validate` printed a traceback.
+    The problem names the file and the error's type, never the value (the error's text)."""
     root = tmp_path / "pack"
     shutil.copytree(INBOX_DIR, root)
     _append("pack.yaml", f"\n{line}\n")(root)
     with pytest.raises(PackValidationError) as raised:
         load_pack(root)
-    (problem,) = raised.value.problems
-    assert problem.startswith(f"pack.yaml: invalid YAML value ({error}")
+    assert raised.value.problems == [f"pack.yaml: invalid YAML value ({error})"]
     assert main(["validate", str(root)]) == 1
     err = capsys.readouterr().err
     assert "pack.yaml: invalid YAML value" in err and "Traceback" not in err

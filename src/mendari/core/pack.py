@@ -28,10 +28,11 @@ _DIGEST_EXCLUDED_FILES = {"DECISION_CARD.md"}
 # A YAML document that uses anchors, with every alias counted each time it is used: a few lines
 # of anchors and aliases ("a billion laughs") otherwise expand to a graph whose every walk is
 # exponential, or, over one long scalar, to a document of gigabytes once anything serializes it
-# (the API reference embeds a pack's first test case). The shipped packs' largest file has under
-# 2,000 nodes and 20,000 characters.
+# (as JSON: a pack's examples and detail). A scalar's text is counted at its JSON-escaped length,
+# so a control character (`"\0"` in YAML, `\u0000` in JSON) counts six. The shipped packs'
+# largest file has under 2,000 nodes and 20,000 characters.
 MAX_YAML_NODES = 1_000_000
-MAX_YAML_CHARS = 32_000_000  # characters of scalar text
+MAX_YAML_CHARS = 32_000_000  # characters of scalar text, JSON-escaped
 
 
 @dataclass(frozen=True)
@@ -57,11 +58,9 @@ class Pack:
         return f"{self.id}@{self.version}"
 
     def path(self, relative: str) -> Path:
-        """Resolve a pack-relative path, refusing anything that escapes the pack directory."""
-        resolved = (self.root / relative).resolve()
-        if not resolved.is_relative_to(self.root):
-            raise PackValidationError(self.id, [f"path {relative!r} escapes the pack directory"])
-        return resolved
+        """Resolve a pack-relative path, refusing anything that escapes the pack directory or
+        goes through a hidden entry or `__pycache__` (not part of the pack, nor its digest)."""
+        return _confined(self.root, relative, self.id)
 
     def read_yaml(self, relative: str) -> Any:
         if relative in self.parsed:
@@ -134,7 +133,7 @@ def load_pack(path: str | Path, *, missing_models_ok: bool = False) -> Pack:
 
     # `policy: policy.yaml` keeps governance-relevant settings in their own reviewable file.
     if isinstance(raw.get("policy"), str):
-        policy_path = _confined(root, raw["policy"], label)
+        policy_path = _confined(root, raw["policy"], label, "policy")
         if not policy_path.is_file():
             raise PackValidationError(label, [f"policy file {raw['policy']!r} not found"])
         raw["policy"] = load_yaml(policy_path, raw["policy"], label)
@@ -146,8 +145,8 @@ def load_pack(path: str | Path, *, missing_models_ok: bool = False) -> Pack:
 
     problems = [
         f"missing file {relative!r}"
-        for relative in _referenced_files(manifest, models=not missing_models_ok)
-        if not _confined(root, relative, label).is_file()
+        for where, relative in _referenced_files(manifest, models=not missing_models_ok)
+        if not _confined(root, relative, label, where).is_file()
     ]
     if problems:
         raise PackValidationError(manifest.id, problems)
@@ -191,11 +190,7 @@ def pack_digest(root: Path) -> str:
     digest = hashlib.sha256()
     for file in sorted(p for p in root.rglob("*") if p.is_file()):
         relative = file.relative_to(root)
-        if (
-            relative.parts[0] in _DIGEST_EXCLUDED_DIRS
-            or relative.name in _DIGEST_EXCLUDED_FILES
-            or any(_excluded(part) for part in relative.parts)
-        ):
+        if _attestation(relative.parts) or any(_excluded(part) for part in relative.parts):
             continue
         digest.update(relative.as_posix().encode())
         digest.update(b"\0")
@@ -204,21 +199,30 @@ def pack_digest(root: Path) -> str:
     return "sha256:" + digest.hexdigest()
 
 
-def _referenced_files(m: PackManifest, *, models: bool = True) -> list[str]:
-    files = [m.inputs.json_schema, *m.evaluation.datasets.values()]
+def _referenced_files(m: PackManifest, *, models: bool = True) -> list[tuple[str, str]]:
+    """Every file the manifest names, as (the manifest field naming it, its path)."""
+    files = [("inputs.schema", m.inputs.json_schema)]
+    files += [(f"evaluation.datasets.{name}", path) for name, path in m.evaluation.datasets.items()]
     if m.inputs.fhir:
-        files.append(m.inputs.fhir)
+        files.append(("inputs.fhir", m.inputs.fhir))
     if m.tests:
-        files.append(m.tests)
-    for slot in m.providers.values():
-        for variant in slot.variants.values():
-            configs = [variant.model_extra or {}]
-            members = configs[0].get("members")
+        files.append(("tests", m.tests))
+    keys = ("config", "model_file", "calibration") if models else ("config",)
+    for slot_name, slot in m.providers.items():
+        for variant_name, variant in slot.variants.items():
+            where = f"providers.{slot_name}.variants.{variant_name}"
+            configs = [(where, variant.model_extra or {})]
+            members = configs[0][1].get("members")
             if isinstance(members, dict):
-                configs.extend(member for member in members.values() if isinstance(member, dict))
-            for config in configs:
-                keys = ("config", "model_file", "calibration") if models else ("config",)
-                files.extend(config[key] for key in keys if isinstance(config.get(key), str))
+                configs += [
+                    (f"{where}.members.{name}", member)
+                    for name, member in members.items()
+                    if isinstance(member, dict)
+                ]
+            for at, config in configs:
+                files += [
+                    (f"{at}.{key}", config[key]) for key in keys if isinstance(config.get(key), str)
+                ]
     return files
 
 
@@ -267,9 +271,11 @@ def _pattern_problems(input_schema: Any, rules: dict[str, Any]) -> list[str]:
 def load_yaml(path: Path, name: str, label: str) -> Any:
     """A YAML file of a pack, parsed safely. One that does not parse, is not UTF-8, nests too
     deep for the parser, holds a value Python cannot build (a date such as 2024-02-30, an
-    integer of more than 4,300 digits), refers to itself or, using anchors, expands past
-    `MAX_YAML_NODES` or `MAX_YAML_CHARS` is the pack's problem (a `PackValidationError` naming
-    `name`), never a raw error or a stall."""
+    integer of more than 4,300 digits, an explicitly tagged scalar such as `!!bool maybe` or
+    `!!float ''`), refers to itself or, using anchors, expands past `MAX_YAML_NODES` or
+    `MAX_YAML_CHARS` is the pack's problem (a `PackValidationError` naming `name`), never a raw
+    error or a stall. A value the constructor cannot build is reported by its error's type
+    only: the error's text holds the value, which can be anything the pack wrote."""
     try:
         text = path.read_text(encoding="utf-8")
         loader = yaml.SafeLoader(text)
@@ -283,15 +289,18 @@ def load_yaml(path: Path, name: str, label: str) -> Any:
                     raise PackValidationError(label, [f"{name}: {problem}"])
             try:
                 return loader.construct_document(node)
-            except (ValueError, OverflowError) as error:  # SafeConstructor's own, unwrapped
-                raise PackValidationError(
-                    label, [f"{name}: invalid YAML value ({type(error).__name__}: {error})"]
-                ) from None
+            except yaml.YAMLError:
+                raise
+            except Exception as error:  # SafeConstructor's own, unwrapped (ValueError, KeyError…)
+                problem = f"{name}: invalid YAML value ({type(error).__name__})"
+                raise PackValidationError(label, [problem]) from None
         finally:
             loader.dispose()
+    except (PackValidationError, OSError):  # ours, or the file cannot be read: not its content
+        raise
     except yaml.YAMLError as error:
         raise PackValidationError(label, [f"{name}: invalid YAML: {error}"]) from None
-    except (UnicodeDecodeError, RecursionError) as error:
+    except Exception as error:  # not UTF-8, nested too deep for the parser, …
         raise PackValidationError(
             label, [f"{name}: invalid YAML ({type(error).__name__})"]
         ) from None
@@ -299,9 +308,9 @@ def load_yaml(path: Path, name: str, label: str) -> Any:
 
 def _expansion_problem(root: yaml.Node) -> str | None:
     """Why a composed YAML graph may not be constructed: an alias inside its own anchor, or more
-    than `MAX_YAML_NODES` nodes or `MAX_YAML_CHARS` characters of scalars once every alias is
-    expanded. Each node is visited once (by identity), so this is linear in the file, however
-    much the aliases would expand."""
+    than `MAX_YAML_NODES` nodes or `MAX_YAML_CHARS` characters of scalars (JSON-escaped) once
+    every alias is expanded. Each node is visited once (by identity), so this is linear in the
+    file, however much the aliases would expand."""
     sizes: dict[int, tuple[int, int]] = {}  # (nodes, characters), each capped just past its limit
     open_nodes: set[int] = set()
     stack: list[tuple[yaml.Node, bool]] = [(root, False)]
@@ -314,7 +323,7 @@ def _expansion_problem(root: yaml.Node) -> str | None:
             nodes = 1 + sum(sizes[id(child)][0] for child in children)
             chars = sum(sizes[id(child)][1] for child in children)
             if isinstance(node, yaml.ScalarNode):
-                chars += len(node.value)
+                chars += _json_length(node.value)
             sizes[key] = (min(nodes, MAX_YAML_NODES + 1), min(chars, MAX_YAML_CHARS + 1))
             continue
         if key in sizes:
@@ -329,10 +338,15 @@ def _expansion_problem(root: yaml.Node) -> str | None:
         return f"expands to more than {MAX_YAML_NODES:,} nodes (aliases counted each time used)"
     if chars > MAX_YAML_CHARS:
         return (
-            f"expands to more than {MAX_YAML_CHARS:,} characters of text (aliases counted each "
-            "time used)"
+            f"expands to more than {MAX_YAML_CHARS:,} characters of text (JSON-escaped; aliases "
+            "counted each time used)"
         )
     return None
+
+
+def _json_length(text: str) -> int:
+    """The length of `text` in a JSON response (escaped, without its quotes)."""
+    return len(json.dumps(text, ensure_ascii=False)) - 2
 
 
 def _children(node: yaml.Node) -> list[yaml.Node]:
@@ -347,8 +361,8 @@ def _outside_links(root: Path) -> list[str]:
     """Every symbolic link in the pack that resolves outside `root`: whatever reads a pack's
     file, through `Pack.path` or not, then stays inside it. Links within the pack are allowed.
     Hidden entries and caches are not part of a pack (`pack_digest` and the archive skip them,
-    so a `.venv` beside the pack's files is fine); a path the manifest names inside one is still
-    confined by `Pack.path` and `_confined`, which resolve it."""
+    so a `.venv` beside the pack's files is fine); a path the manifest names through one is
+    refused by `Pack.path` and `_confined`."""
     found = []
     for directory, subdirectories, files in os.walk(root):  # links to directories not followed
         subdirectories[:] = [name for name in subdirectories if not _excluded(name)]
@@ -372,11 +386,40 @@ def _excluded(name: str) -> bool:
     return name.startswith(".") or name == "__pycache__"
 
 
-def _confined(root: Path, relative: str, label: str) -> Path:
+def _confined(root: Path, relative: str, label: str, field: str | None = None) -> Path:
+    """`relative` resolved inside `root`, or a `PackValidationError`: a path that escapes the
+    pack, or that goes through a hidden entry or `__pycache__` as written or once links are
+    resolved. Those are not part of the pack (`pack_digest` and the archive skip them, as an
+    archive name with a hidden segment is refused). A path the manifest names (`field`, the
+    field naming it) may not be an attestation either (`evals/`, `DECISION_CARD.md`, read by
+    their fixed names), so whatever a pack decides with is inside its digest."""
+    where = f"{field}: " if field else ""
     resolved = (root / relative).resolve()
     if not resolved.is_relative_to(root):
-        raise PackValidationError(label, [f"path {relative!r} escapes the pack directory"])
+        raise PackValidationError(label, [f"{where}path {relative!r} escapes the pack directory"])
+    parts = resolved.relative_to(root).parts
+    written = [part for part in Path(relative).parts if part not in (".", "..")]
+    if any(_excluded(part) for part in [*written, *parts]):
+        problem = (
+            f"{where}path {relative!r} goes through a hidden entry or __pycache__, which is not "
+            "part of the pack (nor its digest)"
+        )
+        raise PackValidationError(label, [problem])
+    if field is not None and _attestation(parts):
+        problem = (
+            f"{where}path {relative!r} is in evals/ or a DECISION_CARD.md, attestations about the "
+            "pack that are not part of its digest"
+        )
+        raise PackValidationError(label, [problem])
     return resolved
+
+
+def _attestation(parts: tuple[str, ...]) -> bool:
+    """A path (its parts, relative to the pack) that `pack_digest` leaves out as an attestation
+    about the pack rather than part of it."""
+    return bool(parts) and (
+        parts[0] in _DIGEST_EXCLUDED_DIRS or parts[-1] in _DIGEST_EXCLUDED_FILES
+    )
 
 
 def _format_errors(error: ValidationError) -> list[str]:

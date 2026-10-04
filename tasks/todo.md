@@ -50,6 +50,15 @@ identically.
   patterns on `re` with no time limit can slow or stall a worker; packs from others isolated
   once uploads or a public registry exist), threat model (E8, E9, D6, D7, T4 and a residual-risk
   entry for patterns), spec sections 3, 5 and 13, the authoring guide, README.
+- [x] **7. What a pack decides with is in its digest; YAML errors clean; reference examples
+  bounded**: `Pack.path` and `load_pack` refuse a path through a hidden entry or `__pycache__`
+  (as written or with links resolved), and `load_pack` a manifest path into `evals/` or a
+  `DECISION_CARD.md`, naming the field (`config: .logic/triage_rules.yaml` loaded and decided
+  outside the digest a governance approval is bound to). Any error parsing or building a pack
+  YAML file (a tagged `!!bool maybe` raised `KeyError`) is a `PackValidationError` naming the
+  file and the error's type, never the value. The expansion cap weighs scalar text at its
+  JSON-escaped length, and the API reference includes a pack's example only when it is at most
+  64 KB as JSON (a 2 MB tests file of `"\0"` made `/openapi.json` 180 MB).
 - Verified: the five packs decide every dataset record and `tests/cases.yaml` example (default
   providers and every local variant combination, 9,958 decisions) identically to `origin/main`
   run on its own source, in one long process, in a fresh process per pack and variant set, and
