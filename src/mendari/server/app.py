@@ -603,9 +603,9 @@ def create_app(
             # Deployment provider settings that name a slot or variant a pack does not have.
             "provider_settings_skipped": skipped_settings,
             "jev": {
-                "credentials": key_source(key_env="JEV_API_KEY", connector_env="JEV_CONNECTOR"),
-                "endpoint_configured": bool(os.environ.get("JEV_API_URL", "").strip()),
-                "model": os.environ.get("JEV_MODEL", "").strip() or None,
+                "credentials": key_source(key_env=jev.API_KEY_ENV, connector_env=jev.CONNECTOR_ENV),
+                "endpoint_configured": bool(os.environ.get(jev.ENDPOINT_ENV, "").strip()),
+                "model": os.environ.get(jev.MODEL_ENV, "").strip() or None,
                 "calls_today": store.usage("jev"),
                 "daily_limit": (budget_limits or {}).get("jev"),
             },

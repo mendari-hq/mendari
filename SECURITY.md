@@ -198,6 +198,9 @@ The Jev adapter gets its key from a Vercel Connect connector (exchanged at runti
 deployment's OIDC identity, cached in memory only) or, locally, from `JEV_API_KEY`. Remote
 providers:
 - send only a pack's declared `state_fields`;
+- read their endpoint, model and key from fixed environment variables (`JEV_API_URL`,
+  `JEV_MODEL`, `JEV_API_KEY`, `JEV_CONNECTOR`; `LLM_BASE_URL`, `LLM_MODEL`, `AI_GATEWAY_API_KEY`,
+  `LLM_API_KEY`), which a pack cannot change;
 - require HTTPS (plain HTTP only for localhost);
 - refuse redirects and cap response size.
 
@@ -215,6 +218,10 @@ running it.
   them and pins the publisher's key on first use, and versions are immutable.
 - Every decision and report records the pack's digest. A governance approval to automate at
   risk level 2–3 covers one digest only.
+- A pack cannot choose a provider's endpoint or credentials. Which environment variables
+  supply them is fixed in code and belongs to the deployment; a pack whose provider config
+  names one (`api_key_env`, `base_url_env`, `endpoint_env` and the like) is refused at load,
+  so it cannot send a process secret to an address of its choosing.
 
 ## What CI checks on every change
 

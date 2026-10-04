@@ -15,6 +15,8 @@ Deployment configuration (none of it lives in the pack):
 - `JEV_MODEL`: the model id (required unless the pack variant pins `model`).
 - `JEV_API_KEY` for local use, or `JEV_CONNECTOR` (e.g. `jev/openhealth-hub`) to obtain the key
   from a Vercel Connect connector. Keys never reach logs, errors or audit records.
+
+These variable names are fixed; a pack that tries to name other variables is refused at load.
 """
 
 from __future__ import annotations
@@ -31,7 +33,7 @@ from urllib.parse import urlparse
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from mendari.core.spec import Question
+from mendari.core.spec import Question, deployment_env_problem
 from mendari.errors import PackValidationError, ProviderError
 from mendari.providers.base import Answer, Provider, ProviderOutput, batch_state
 from mendari.providers.batch import batched_answer, unwrap
@@ -50,6 +52,11 @@ PRICE_PER_1K_INPUT_TOKENS_USD = 0.000042
 MAX_REQUEST_CHARS = 80_000
 MAX_RESPONSE_BYTES = 65_536
 MAX_TOKENS = 1_000_000
+# The deployment's settings. Fixed: a pack never chooses which variables are read.
+API_KEY_ENV = "JEV_API_KEY"
+CONNECTOR_ENV = "JEV_CONNECTOR"
+ENDPOINT_ENV = "JEV_API_URL"
+MODEL_ENV = "JEV_MODEL"
 
 
 class JevConfig(BaseModel):
@@ -59,10 +66,6 @@ class JevConfig(BaseModel):
     timeout_ms: int = Field(default=5000, ge=100, le=10_000)
     # Minimum necessary: when set, only these input fields are sent to the provider.
     state_fields: list[str] | None = None
-    api_key_env: str = "JEV_API_KEY"
-    connector_env: str = "JEV_CONNECTOR"
-    endpoint_env: str = "JEV_API_URL"
-    model_env: str = "JEV_MODEL"
     cost_per_1k_input_tokens_usd: float | None = Field(default=PRICE_PER_1K_INPUT_TOKENS_USD, ge=0)
     # Share one call with the decision's other Jev questions (union of state_fields).
     batch: bool = True
@@ -76,6 +79,9 @@ class JevProvider(Provider):
     def __init__(self, *args: Any, client: httpx.Client | None = None, **kwargs: Any):
         super().__init__(*args, **kwargs)
         settings = {k: v for k, v in self.config.items() if k != "type"}
+        problem = deployment_env_problem(self.config)  # also checked at load (core/spec.py)
+        if problem is not None:
+            raise PackValidationError(self.pack.id, [f"{self.info.slot}: {problem}"])
         try:
             self.settings = JevConfig.model_validate(settings)
         except ValidationError as error:
@@ -95,11 +101,9 @@ class JevProvider(Provider):
             raise PackValidationError(self.pack.id, [f"{problem}: {too_many}"])
         self._client = client
         # The deployment's JEV_MODEL wins over a model pinned in the pack.
-        model = os.environ.get(self.settings.model_env, "").strip() or self.settings.model
+        model = os.environ.get(MODEL_ENV, "").strip() or self.settings.model
         if model is not None and not re.match(MODEL_PATTERN, model):
-            raise PackValidationError(
-                self.pack.id, [f"{self.settings.model_env}: invalid model id"]
-            )
+            raise PackValidationError(self.pack.id, [f"{MODEL_ENV}: invalid model id"])
         self.model = model
         self.info = replace(self.info, model=model)
 
@@ -108,11 +112,11 @@ class JevProvider(Provider):
 
     def _configured(self) -> tuple[str, str]:
         """(model, endpoint), or `not_configured` before any call is attempted or counted."""
-        endpoint = os.environ.get(self.settings.endpoint_env, "").strip()
+        endpoint = os.environ.get(ENDPOINT_ENV, "").strip()
         if self.model is None:
-            raise ProviderError("not_configured", f"set {self.settings.model_env}")
+            raise ProviderError("not_configured", f"set {MODEL_ENV}")
         if not endpoint:
-            raise ProviderError("not_configured", f"set {self.settings.endpoint_env}")
+            raise ProviderError("not_configured", f"set {ENDPOINT_ENV}")
         _require_secure(endpoint)
         return self.model, endpoint
 
@@ -121,10 +125,8 @@ class JevProvider(Provider):
             return None
         settings = self.settings
         return (
-            os.environ.get(settings.endpoint_env, "").strip(),
+            os.environ.get(ENDPOINT_ENV, "").strip(),
             self.model,
-            settings.api_key_env,
-            settings.connector_env,
             settings.timeout_ms,
             settings.cost_per_1k_input_tokens_usd,
         )
@@ -143,9 +145,7 @@ class JevProvider(Provider):
         if len(batch) != len(providers):
             raise TypeError("a Jev batch holds only Jev providers")
         model, endpoint = self._configured()
-        token = resolve_key(
-            key_env=self.settings.api_key_env, connector_env=self.settings.connector_env
-        )
+        token = resolve_key(key_env=API_KEY_ENV, connector_env=CONNECTOR_ENV)
         self.charge()  # after the credential: a call that cannot be made uses no budget
 
         questions = {key: q for provider in batch for key, q in provider.questions.items()}
@@ -204,20 +204,18 @@ class JevProvider(Provider):
         )
 
 
-def list_models(
-    *, endpoint_env: str = "JEV_API_URL", timeout_s: float = 10.0
-) -> list[dict[str, Any]]:
+def list_models(*, timeout_s: float = 10.0) -> list[dict[str, Any]]:
     """Models and aliases available to this deployment's Jev account (GET /v1/models).
 
     Useful for pinning a concrete model instead of an alias. Returns names and metadata only.
     """
-    endpoint = os.environ.get(endpoint_env, "").strip()
+    endpoint = os.environ.get(ENDPOINT_ENV, "").strip()
     if not endpoint:
-        raise ProviderError("not_configured", f"set {endpoint_env}")
+        raise ProviderError("not_configured", f"set {ENDPOINT_ENV}")
     _require_secure(endpoint)
     parsed = urlparse(endpoint)
     url = f"{parsed.scheme}://{parsed.netloc}/v1/models"
-    token = resolve_key(key_env="JEV_API_KEY", connector_env="JEV_CONNECTOR")
+    token = resolve_key(key_env=API_KEY_ENV, connector_env=CONNECTOR_ENV)
     try:
         with httpx.Client(timeout=timeout_s, follow_redirects=False) as client:
             response = client.get(url, headers={"authorization": f"Bearer {token}"})

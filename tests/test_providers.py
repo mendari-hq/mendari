@@ -1,18 +1,21 @@
 from __future__ import annotations
 
 import json
+import shutil
+from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
+import yaml
 
-from mendari import Pack
+from mendari import Pack, load_pack
 from mendari.errors import PackValidationError, ProviderError
 from mendari.providers import Provider, ProviderInfo, build_provider
 from mendari.providers.jev import JevProvider, validate_response
 from mendari.providers.naive_bayes import tokenize, train
 from mendari.providers.rules import within_one_edit
-from tests.conftest import message
+from tests.conftest import INBOX_DIR, message
 
 # -- rules -------------------------------------------------------------------------------------
 
@@ -155,12 +158,13 @@ def jev_body(choice: str = "nurse", model: str = MODEL, **overrides: Any) -> dic
     return body
 
 
-def jev_provider(inbox_pack: Pack, handler: Any) -> JevProvider:
+def jev_provider(inbox_pack: Pack, handler: Any, **extra: Any) -> JevProvider:
     slot = inbox_pack.manifest.providers["router"]
     config = {
         "type": "jev",
         **(slot.variants["jev"].model_extra or {}),
         "cost_per_1k_input_tokens_usd": 0.5,
+        **extra,
     }
     info = ProviderInfo(slot="router", variant="jev", type="jev")
     questions = {"destination": inbox_pack.manifest.questions["destination"]}
@@ -215,6 +219,82 @@ def test_jev_rejects_malformed_model_ids(inbox_pack: Pack, jev_env: pytest.Monke
     jev_env.setenv("JEV_MODEL", "bad model id!")
     with pytest.raises(PackValidationError, match="JEV_MODEL"):
         jev_provider(inbox_pack, lambda _: httpx.Response(200))
+
+
+CANARY = "canary-secret-value-not-for-any-pack"
+
+
+@pytest.mark.parametrize("field", ["api_key_env", "connector_env", "endpoint_env", "model_env"])
+def test_a_pack_may_not_choose_the_variables_jev_reads(
+    inbox_pack: Pack, jev_env: pytest.MonkeyPatch, field: str
+) -> None:
+    jev_env.setenv("PACK_SAFETY_CANARY", CANARY)
+    sent: list[httpx.Request] = []
+    with pytest.raises(PackValidationError) as error:
+        jev_provider(inbox_pack, sent.append, **{field: "PACK_SAFETY_CANARY"})
+    text = str(error.value)
+    assert "router: a pack may not choose the environment variables" in text
+    assert text.endswith(f"Remove: {field}")
+    assert CANARY not in text and "PACK_SAFETY_CANARY" not in text
+    assert sent == []
+
+
+def test_a_pack_cannot_send_a_process_secret_to_its_own_jev_endpoint(
+    inbox_pack: Pack, jev_env: pytest.MonkeyPatch
+) -> None:
+    """The reproduction: the pack named a secret and an endpoint, and Jev sent the one to the
+    other as a bearer token. Now the variant is refused and no request is made."""
+    jev_env.setenv("PACK_SAFETY_CANARY", CANARY)
+    jev_env.setenv("PACK_SAFETY_URL", "https://collector.example.org/v1/decide")
+    sent: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.append(request)
+        return httpx.Response(200, json=jev_body())
+
+    with pytest.raises(PackValidationError, match=r"Remove: api_key_env, endpoint_env$"):
+        jev_provider(
+            inbox_pack, handler, api_key_env="PACK_SAFETY_CANARY", endpoint_env="PACK_SAFETY_URL"
+        ).answer(message("hi"))
+    assert sent == []
+
+
+@pytest.mark.parametrize(
+    ("variant", "refused"),
+    [
+        ({"type": "jev", "endpoint_env": "PACK_SAFETY_URL"}, "endpoint_env"),
+        ({"type": "llm", "base_url_env": "X", "model_env": "Y"}, "base_url_env, model_env"),
+        (
+            {
+                "type": "any_of",
+                "members": {
+                    "rules": {"type": "rules", "config": "logic/routing_rules.yaml"},
+                    "jev": {"type": "jev", "api_key_env": "PACK_SAFETY_CANARY"},
+                },
+            },
+            "api_key_env",
+        ),
+    ],
+)
+def test_a_variant_or_member_naming_the_deployment_s_variables_is_refused_at_load(
+    tmp_path: Path, variant: dict[str, Any], refused: str
+) -> None:
+    root = tmp_path / "pack"
+    shutil.copytree(INBOX_DIR, root)
+    manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    manifest["providers"]["router"]["variants"]["outside"] = variant
+    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    with pytest.raises(PackValidationError) as error:
+        load_pack(root)
+    assert error.value.problems == [
+        "providers.router.variants.outside: a pack may not choose the environment variables a "
+        f"provider reads its endpoint, model or key from; these are the deployment's. "
+        f"Remove: {refused}"
+    ]
+    # The same keys on another provider type are that provider's business (rules forbids them).
+    manifest["providers"]["router"]["variants"]["outside"] = {"type": "naive_bayes", "x_env": 1}
+    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    assert load_pack(root).id == "mendari/patient-inbox-router"
 
 
 @pytest.mark.parametrize(

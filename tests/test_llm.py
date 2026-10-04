@@ -10,7 +10,8 @@ import pytest
 import yaml
 
 from mendari import AuditStore, CallBudget, Decision, Pack, load_pack
-from mendari.errors import MendariError, ProviderError
+from mendari.cli import main
+from mendari.errors import MendariError, PackValidationError, ProviderError
 from mendari.providers import ProviderInfo, llm
 from mendari.providers.llm import LlmProvider, fit_calibration, validate_response
 from mendari.settings import daily_limits
@@ -187,6 +188,69 @@ def test_gateway_uses_the_vercel_oidc_token_without_a_key(
     router(inbox_pack).answer(message(REFILL))
     assert gateway[-1].headers["authorization"] == "Bearer oidc-token"
     assert llm.deployment_info()["credentials"] == "vercel-oidc"
+
+
+# -- the deployment owns endpoint, model and credentials -----------------------------------------
+
+CANARY = "canary-secret-value-not-for-any-pack"
+
+
+@pytest.mark.parametrize("field", ["api_key_env", "base_url_env", "local_key_env", "model_env"])
+def test_a_pack_may_not_choose_the_variables_an_llm_reads(
+    tmp_path: Path, gateway: list[httpx.Request], monkeypatch: pytest.MonkeyPatch, field: str
+) -> None:
+    monkeypatch.setenv("PACK_SAFETY_CANARY", CANARY)
+    with pytest.raises(PackValidationError) as error:
+        pack_with_llm(tmp_path, **{field: "PACK_SAFETY_CANARY"})  # refused at load
+    text = str(error.value)
+    assert "providers.router.variants.llm: a pack may not choose the environment variables" in text
+    assert text.endswith(f"Remove: {field}")
+    assert CANARY not in text and "PACK_SAFETY_CANARY" not in text
+    # The provider refuses it too, for a config that never went through a manifest.
+    with pytest.raises(PackValidationError, match=f"router: a pack may not .* Remove: {field}$"):
+        router(load_pack(INBOX_DIR), **{field: "PACK_SAFETY_CANARY"})
+    assert gateway == []
+
+
+def test_a_pack_cannot_send_a_process_secret_to_its_own_endpoint(
+    tmp_path: Path, gateway: list[httpx.Request], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The reproduction: a pack named a secret and a URL, and the provider sent the one to the
+    other as a bearer token. It now fails to load, and nothing is sent anywhere."""
+    monkeypatch.setenv("PACK_SAFETY_CANARY", CANARY)
+    monkeypatch.setenv("PACK_SAFETY_URL", "https://collector.example.org/v1")
+    with pytest.raises(PackValidationError, match="Remove: api_key_env, base_url_env, local_key"):
+        pack_with_llm(
+            tmp_path,
+            model="openai/gpt-oss-120b",
+            api_key_env="PACK_SAFETY_CANARY",
+            local_key_env="PACK_SAFETY_CANARY",
+            base_url_env="PACK_SAFETY_URL",
+        )
+    assert main(["validate", str(tmp_path / "pack")]) == 1
+    assert gateway == []  # no request, so no secret and no URL of the pack's choosing
+
+
+def test_deployment_info_reads_the_fixed_variables(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in ("LLM_MODEL", "LLM_BASE_URL", "LLM_API_KEY", "AI_GATEWAY_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    assert llm.deployment_info() == {
+        "endpoint": "ai-gateway.vercel.sh",
+        "credentials": "vercel-oidc",
+        "default_model": "anthropic/claude-sonnet-5",
+    }
+    monkeypatch.setenv("AI_GATEWAY_API_KEY", "k")
+    monkeypatch.setenv("LLM_MODEL", "openai/gpt-oss-120b")
+    assert llm.deployment_info()["credentials"] == "env:AI_GATEWAY_API_KEY"
+    assert llm.deployment_info()["default_model"] == "openai/gpt-oss-120b"
+    monkeypatch.setenv("LLM_BASE_URL", "http://localhost:11434/v1")
+    assert llm.deployment_info()["credentials"] is None
+    monkeypatch.setenv("LLM_API_KEY", "k")
+    assert llm.deployment_info() == {
+        "endpoint": "localhost:11434",
+        "credentials": "env:LLM_API_KEY",
+        "default_model": "openai/gpt-oss-120b",
+    }
 
 
 @pytest.mark.parametrize(

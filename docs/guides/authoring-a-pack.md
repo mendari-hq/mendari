@@ -200,6 +200,9 @@ mendari eval refill-router --dataset my-site.jsonl
 To compare providers, add a variant to the slot in `pack.yaml` (for example `llm: {type: llm}`
 under `reader.variants`). Then run
 `mendari leaderboard refill-router --run reader=rules --run reader=llm --dataset my-site.jsonl`.
+A remote variant's endpoint and key come from the deployment, never from the pack: a variant
+may pin `model`, but one that names environment variables (`api_key_env`, `endpoint_env` and
+the like) is refused.
 
 ## 9. Publish the card
 

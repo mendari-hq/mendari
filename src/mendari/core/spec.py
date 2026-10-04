@@ -23,6 +23,29 @@ _PACK_ID = re.compile(r"^[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9-]*$")
 _SEMVER = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$")
 _KEY = re.compile(r"^[a-z][a-z0-9_]*$")
 
+# Variant keys that once named the environment variables a remote provider reads its endpoint,
+# model or key from. Those variables are the deployment's (spec section 5), so a pack that sets
+# one is invalid, whatever its spec version: it could send any process secret anywhere.
+DEPLOYMENT_ENV_KEYS: dict[str, frozenset[str]] = {
+    "jev": frozenset({"api_key_env", "connector_env", "endpoint_env", "model_env"}),
+    "llm": frozenset({"api_key_env", "base_url_env", "local_key_env", "model_env"}),
+}
+
+
+def deployment_env_problem(config: Any) -> str | None:
+    """Why a provider config (a variant's, or a composite member's) is refused, if its `type`
+    is `jev` or `llm` and it names any of `DEPLOYMENT_ENV_KEYS`; None otherwise. Never echoes
+    the values."""
+    if not isinstance(config, dict):
+        return None
+    chosen = sorted(set(config) & DEPLOYMENT_ENV_KEYS.get(str(config.get("type")), frozenset()))
+    if not chosen:
+        return None
+    return (
+        "a pack may not choose the environment variables a provider reads its endpoint, model "
+        "or key from; these are the deployment's. Remove: " + ", ".join(chosen)
+    )
+
 
 class Outcome(StrEnum):
     """What the runtime is allowed to do with a decision."""
@@ -264,6 +287,20 @@ class ProviderVariant(BaseModel):
     model_config = ConfigDict(extra="allow", frozen=True)
 
     type: str
+
+    @model_validator(mode="after")
+    def _no_deployment_env(self) -> ProviderVariant:
+        """Checked at load, for the variant and each composite member (one level deep)."""
+        extra = self.model_extra or {}
+        members = extra.get("members")
+        configs = [{"type": self.type, **extra}]
+        if isinstance(members, dict):
+            configs += [member for member in members.values() if isinstance(member, dict)]
+        for config in configs:
+            problem = deployment_env_problem(config)
+            if problem is not None:
+                raise ValueError(problem)
+        return self
 
 
 class ProviderSlot(_Strict):

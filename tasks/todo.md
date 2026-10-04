@@ -2,6 +2,16 @@
 
 Roadmap to the full goal: [`docs/roadmap.md`](../docs/roadmap.md).
 
+## Built: pack content safety (2026-10-04)
+From the launch-readiness review, before any registry, Hub or upload feature lets an outside
+author's pack run on a shared deployment. Branch `claude/pack-safety-core`. No pack, data, model
+or benchmark change; the five shipped packs keep their digests and decide their examples
+identically.
+- [x] **1. A pack may not choose secrets or endpoints (E8)**: the eight `*_env` keys of `jev`
+  and `llm` variants removed; the variable names are fixed constants, and a variant (or a
+  composite's member) that sets one makes the pack invalid at load (`core/spec.py`), naming the
+  variant and keys, never values; the provider refuses such a config too.
+
 ## Built: the SMART launch gated, C5 and S5 (2026-10-03)
 From the Phase 4b review's residual risks, after research (three researchers and a critic). The
 owner chose: the EHR's sign-in identifies the clinician; a launch may view or decide per

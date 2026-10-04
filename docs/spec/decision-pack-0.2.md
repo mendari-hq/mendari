@@ -245,6 +245,15 @@ recorded as a failure of the slot's questions (`<member>:<code>`), which caps `A
 `boolean` and `score` questions like `choice` questions, with a distribution over their labels;
 the runtime adds the expected score.
 
+A remote provider's endpoint, model and credentials belong to the deployment, which supplies
+them in fixed environment variables (`jev`: `JEV_API_URL`, `JEV_MODEL`, `JEV_API_KEY`,
+`JEV_CONNECTOR`; `llm`: `LLM_BASE_URL`, `LLM_MODEL`, `AI_GATEWAY_API_KEY`, `LLM_API_KEY`;
+`cql`: `MENDARI_CQL_URL`). A variant MUST NOT name the variables a provider reads: a `jev` or
+`llm` variant (or composite member) that sets `api_key_env`, `base_url_env`, `connector_env`, `endpoint_env`,
+`local_key_env` or `model_env` is invalid, whatever the pack's `spec_version`. A variant MAY pin
+`model`, and `llm` variants MAY tune their own requests (`timeout_ms`, `max_tokens`,
+`temperature`, `reasoning_effort`).
+
 ## 6. Policy and outcomes
 
 Every decision has exactly one outcome:
@@ -446,7 +455,9 @@ commits to each decision record, so modification or deletion is detectable.
 ## 13. Changes from 0.1 and migration
 
 0.2 is backwards compatible. A manifest with `spec_version: "0.1"` still loads, validates and
-produces identical decisions; it simply cannot use the new fields.
+produces identical decisions; it simply cannot use the new fields. One restriction applies to
+packs of every version: a `jev` or `llm` variant may not name the environment variables its
+provider reads (§5). No published pack named them.
 
 | Change | Section |
 |---|---|
@@ -464,6 +475,7 @@ produces identical decisions; it simply cannot use the new fields.
 | `cds_hooks.coverage_information` (Da Vinci CRD system actions on order hooks) | §9 |
 | `cds_hooks.questionnaire` (Da Vinci DTR `$questionnaire-package`) | §9 |
 | The decision output schema adds an optional `value` to each answer | §4.2 |
+| `jev` and `llm` variants may not name the environment variables a provider reads (`*_env`; every spec version) | §5 |
 
 To migrate a pack:
 

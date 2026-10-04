@@ -774,7 +774,9 @@ authors: it reads instructions literally, it is hurt by instructions that contra
 criteria, adversarial text in the input can move its answers, and English is its strongest
 language.
 
-The endpoint and model are deployment settings, not part of any pack:
+The endpoint and model are deployment settings, not part of any pack. The variable names are
+fixed: a pack that tries to name others (`endpoint_env`, `api_key_env` and the like) is refused
+at load, so no pack can choose which secret is sent, or where.
 
 | Variable | Purpose |
 |---|---|
@@ -812,6 +814,9 @@ Ollama, vLLM or llama.cpp to run an open-source model on your own hardware inste
 | `AI_GATEWAY_API_KEY` | Gateway key for local use (on Vercel, the OIDC token is used) |
 | `LLM_API_KEY` | Key for a non-gateway endpoint, if it needs one |
 | `MENDARI_LLM_DAILY_LIMIT` | Daily call budget (default 500; `none` for no limit) |
+
+As for Jev, these names are fixed, and an `llm` variant that names other variables
+(`base_url_env`, `api_key_env`, `local_key_env`, `model_env`) is refused at load.
 
 ```bash
 vercel env pull .env.local   # a fresh OIDC token for local calls through the gateway
