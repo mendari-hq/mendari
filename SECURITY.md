@@ -250,7 +250,9 @@ limits, designed with that feature). What a pack cannot do today is below.
   fails makes the pack invalid, named by file and rule (`mendari validate` prints no
   traceback; a server lists the pack under `/api/health` `invalid`). This does not bound how
   long a pattern takes on an input: see above.
-- A pack cannot stop the server. Any error while a pack is loaded or its terminology built
+- A pack's content cannot keep the server from starting or from serving the other packs (a
+  slow pattern can still stall a worker while it runs: see above). Any error while a pack is
+  loaded or its terminology built
   (Mendari's own errors, and any other: YAML or JSON nested too deep, a file that is not
   UTF-8) lists that pack in `/api/health` (`invalid`; an error that is not Mendari's by its type
   alone, as its text is the pack's), and every other pack is served; a served pack whose

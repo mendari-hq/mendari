@@ -42,6 +42,18 @@ identically.
   (the name rewritten in its declaration, which must be the first statement), so an outside
   pack declaring the same name and version neither replaces nor shadows it. Main's `_HEADER`
   search is unchanged; evidence keeps the declared name.
+- [x] **6. Docs, exactly true**: SECURITY.md (installing a pack means trusting its author;
+  patterns on `re` with no time limit can slow or stall a worker; packs from others isolated
+  once uploads or a public registry exist), threat model (E8, E9, D6, D7, T4 and a residual-risk
+  entry for patterns), spec sections 3, 5 and 13, the authoring guide, README.
+- Verified: the five packs decide every dataset record and `tests/cases.yaml` example (default
+  providers and every local variant combination, 9,958 decisions) identically to `origin/main`
+  run on its own source, in one long process, in a fresh process per pack and variant set, and
+  in a fresh process per example; process start plus first decision is within 5% of main.
+- Deferred: untrusted packs run in an isolated process with memory and time limits, with the
+  upload or registry feature; the regex-engine approach was tried and dropped: see the review
+  notes (`claude/pack-safety`, its round-2 and round-3 reviews: the engine could not match
+  `re`'s semantics exactly, its clock was the process's, and its tables slowed every start).
 
 ## Built: the SMART launch gated, C5 and S5 (2026-10-03)
 From the Phase 4b review's residual risks, after research (three researchers and a critic). The

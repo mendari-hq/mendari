@@ -27,7 +27,9 @@ This creates a folder with everything a pack needs:
 A pack is self-contained. Every file it names stays inside its folder (a symbolic link out of
 it is refused), and the input schema refers only to its own parts: a `$ref` starts with `#`,
 `$schema` (2020-12) and `$id` appear only at the top, and `$dynamicAnchor` and `format: regex`
-are not allowed. Checking an input never fetches a URL or reads another file.
+are not allowed. Checking an input never fetches a URL or reads another file. The version is a
+semantic version of at most 64 characters, and YAML anchors are fine within reason: a file may
+expand to at most 1,000,000 nodes once its aliases are counted where they are used.
 
 It already works. Check it:
 

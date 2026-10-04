@@ -527,6 +527,11 @@ mendari eval mendari/referral-router --dataset local.jsonl --share "My site"
   Nothing an archive or a registry says chooses where a file is written: archive names are plain
   paths inside the pack, an archive is read with size caps checked as it expands, and the cache
   path is built only from a valid id and version that the signed manifest names.
+- **Trust.** Installing a pack means trusting its author, as with any plugin: its patterns run
+  on Python `re` with no time limit, so a pack can slow or stall a worker. What a pack cannot do
+  (choose secrets or endpoints, reach outside its folder, stop the server, reach another pack's
+  CQL) is in [SECURITY.md](SECURITY.md#pack-supply-chain). Packs from others will run isolated
+  once uploads or a public registry exist.
 - **The registry** (`mendari registry serve`) has namespaces with a publisher type
   (community, verified, institutional) that its admins set after verification. `--share` sends
   a site's metrics, never its cases.
