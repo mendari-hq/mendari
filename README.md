@@ -524,6 +524,14 @@ mendari eval mendari/referral-router --dataset local.jsonl --share "My site"
 - **`pull`** checks the archive digest the registry recorded, every file hash, the signature and
   the pack digest before caching the pack. Namespace keys are pinned on first use, and a changed
   key needs `--accept-new-key`. `Decision.from_hub` pulls on its own when a pack isn't local.
+  Nothing an archive or a registry says chooses where a file is written: archive names are plain
+  paths inside the pack, an archive is read with size caps checked as it expands, and the cache
+  path is built only from a valid id and version that the signed manifest names.
+- **Trust.** Installing a pack means trusting its author, as with any plugin: its patterns run
+  on Python `re` with no time limit, so a pack can slow or stall a worker. What a pack cannot do
+  (choose secrets or endpoints, reach outside its folder, stop the server, reach another pack's
+  CQL) is in [SECURITY.md](SECURITY.md#pack-supply-chain). Packs from others will run isolated
+  once uploads or a public registry exist.
 - **The registry** (`mendari registry serve`) has namespaces with a publisher type
   (community, verified, institutional) that its admins set after verification. `--share` sends
   a site's metrics, never its cases.
@@ -774,7 +782,9 @@ authors: it reads instructions literally, it is hurt by instructions that contra
 criteria, adversarial text in the input can move its answers, and English is its strongest
 language.
 
-The endpoint and model are deployment settings, not part of any pack:
+The endpoint and model are deployment settings, not part of any pack. The variable names are
+fixed: a pack that tries to name others (`endpoint_env`, `api_key_env` and the like) is refused
+at load, so no pack can choose which secret is sent, or where.
 
 | Variable | Purpose |
 |---|---|
@@ -812,6 +822,9 @@ Ollama, vLLM or llama.cpp to run an open-source model on your own hardware inste
 | `AI_GATEWAY_API_KEY` | Gateway key for local use (on Vercel, the OIDC token is used) |
 | `LLM_API_KEY` | Key for a non-gateway endpoint, if it needs one |
 | `MENDARI_LLM_DAILY_LIMIT` | Daily call budget (default 500; `none` for no limit) |
+
+As for Jev, these names are fixed, and an `llm` variant that names other variables
+(`base_url_env`, `api_key_env`, `local_key_env`, `model_env`) is refused at load.
 
 ```bash
 vercel env pull .env.local   # a fresh OIDC token for local calls through the gateway
@@ -859,6 +872,12 @@ key) sees them; anyone else gets `status`, `version` and `sign_in`, enough for a
 On a preview without sign-in `vercel curl` shows everything; with sign-in on, open
 `/api/health` in a browser signed in to the dashboard. The FHIR sandbox (HAPI) stays in local
 `docker compose`.
+
+One pack never stops the server. Its `invalid` lists the packs that failed to load (by path; an
+error that is not Mendari's by its type alone), which are not served; the packs whose providers
+could not be built (by id), which stay listed, counted in `packs` and offered in CDS Hooks
+discovery, but whose decision and detail requests answer `422`; and the packs whose terminology
+could not be built, which are served without it. Every other pack decides.
 
 Days and times people see (the dashboard's times and daily volume, daily call counters, "today"
 for criteria and ages, card dates) use `MENDARI_TIMEZONE`, an IANA name defaulting to

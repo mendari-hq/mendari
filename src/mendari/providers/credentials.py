@@ -9,6 +9,10 @@ A provider key is resolved in this order:
    Keys are cached in memory until shortly before they expire.
 
 Secrets are never logged and never appear in error messages or audit records.
+
+Which environment variables supply a provider's endpoint, model and key is fixed in code and
+belongs to the deployment. A pack's provider config may not name them: a pack that could would
+choose which process secret is sent, and to which URL (`core/spec.py`, `DEPLOYMENT_ENV_KEYS`).
 """
 
 from __future__ import annotations

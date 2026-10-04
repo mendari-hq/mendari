@@ -45,8 +45,12 @@ class NaiveBayesProvider(Provider):
         model = self.pack.read_json(relative)
         (self.question,) = self.questions
         problems = []
-        if model.get("format") != FORMAT:
+        if not isinstance(model, dict):
+            problems.append(f"{relative}: not a naive_bayes model (expected a mapping)")
+        elif model.get("format") != FORMAT:
             problems.append(f"{relative}: expected format {FORMAT}")
+        elif (shape := _shape_problem(model)) is not None:
+            problems.append(f"{relative}: not a naive_bayes model ({shape})")
         elif model["question"] != self.question:
             problems.append(f"{relative}: trained for {model['question']!r}, not {self.question!r}")
         elif set(model["labels"]) != set(self.questions[self.question].criteria):
@@ -71,6 +75,34 @@ class NaiveBayesProvider(Provider):
         return ProviderOutput(
             answers={self.question: self.make_answer(self.question, probabilities)}
         )
+
+
+def _shape_problem(model: dict[str, Any]) -> str | None:
+    """The first field of a model file that is not what `answer` reads, or None."""
+    labels = model.get("labels")
+
+    def numbers(value: Any) -> bool:
+        return (
+            isinstance(value, list)
+            and isinstance(labels, list)
+            and len(value) == len(labels)
+            and all(isinstance(x, int | float) and not isinstance(x, bool) for x in value)
+        )
+
+    temperature = model.get("temperature")
+    tokens = model.get("tokens")
+    checks = {
+        "question": isinstance(model.get("question"), str),
+        "labels": isinstance(labels, list) and all(isinstance(x, str) for x in labels),
+        "text_fields": isinstance(model.get("text_fields"), list)
+        and all(isinstance(x, str) for x in model["text_fields"]),
+        "temperature": isinstance(temperature, int | float)
+        and not isinstance(temperature, bool)
+        and temperature > 0,
+        "log_prior": numbers(model.get("log_prior")),
+        "tokens": isinstance(tokens, dict) and all(numbers(v) for v in tokens.values()),
+    }
+    return next((name for name, ok in checks.items() if not ok), None)
 
 
 def log_posterior(

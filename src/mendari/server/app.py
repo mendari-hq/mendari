@@ -383,14 +383,20 @@ def create_app(
             chosen, skipped = providers_for(pack.id, slots, overrides)
             if skipped:
                 skipped_settings[pack_id] = skipped
-            decision = Decision(
-                pack,
-                providers=chosen,
-                store=store,
-                budget=budget,
-                fhir_validation=validation,
-                governance_source=approved_override,
-            )
+            try:
+                decision = Decision(
+                    pack,
+                    providers=chosen,
+                    store=store,
+                    budget=budget,
+                    fhir_validation=validation,
+                    governance_source=approved_override,
+                )
+            except MendariError:
+                raise
+            except Exception as error:  # the pack's content: named by type, never a 500
+                problem = f"its providers could not be built ({type(error).__name__})"
+                raise PackValidationError(pack_id, [problem]) from None
             environment, release = settings.deployment_place()
             store.record_deployment(
                 environment=environment,
@@ -572,10 +578,23 @@ def create_app(
         principal = auth.principal(request)  # no credential: no lookup
         if principal is None or not principal.may("read"):
             return public
+        # A served pack whose providers cannot be built is listed with the packs that did not
+        # load; it never turns this answer into an error for every other pack.
+        providers: dict[str, dict[str, str]] = {}
+        unbuilt: dict[str, str] = {}
+        for pack_id in sorted(packs):
+            try:
+                decision = decision_for(pack_id)
+            except MendariError as error:
+                unbuilt[pack_id] = str(error)
+                continue
+            providers[pack_id] = {
+                slot: info.variant for slot, info in decision.provider_info.items()
+            }
         return {
             **public,
             "packs": len(packs),
-            "invalid": {**found.problems, **terminology_problems},
+            "invalid": {**found.problems, **terminology_problems, **unbuilt},
             "storage": store.backend,
             # Calendar days and displayed times use this zone; stored timestamps are UTC.
             "timezone": timezone,
@@ -594,18 +613,13 @@ def create_app(
             # How new records' input hashes are made: `hmac-sha256:<key id>` under
             # MENDARI_INPUT_HASH_KEY (required in PHI modes hash and encrypt), else `sha256`.
             "input_hash": phi.hash_kind,
-            "providers": {
-                pack_id: {
-                    slot: info.variant for slot, info in decision_for(pack_id).provider_info.items()
-                }
-                for pack_id in sorted(packs)
-            },
+            "providers": providers,
             # Deployment provider settings that name a slot or variant a pack does not have.
             "provider_settings_skipped": skipped_settings,
             "jev": {
-                "credentials": key_source(key_env="JEV_API_KEY", connector_env="JEV_CONNECTOR"),
-                "endpoint_configured": bool(os.environ.get("JEV_API_URL", "").strip()),
-                "model": os.environ.get("JEV_MODEL", "").strip() or None,
+                "credentials": key_source(key_env=jev.API_KEY_ENV, connector_env=jev.CONNECTOR_ENV),
+                "endpoint_configured": bool(os.environ.get(jev.ENDPOINT_ENV, "").strip()),
+                "model": os.environ.get(jev.MODEL_ENV, "").strip() or None,
                 "calls_today": store.usage("jev"),
                 "daily_limit": (budget_limits or {}).get("jev"),
             },
@@ -692,7 +706,8 @@ def create_app(
         summary="Example inputs",
     )
     def pack_examples(namespace: str, name: str) -> list[dict[str, Any]]:
-        """Synthetic example inputs: the pack's own behaviour tests."""
+        """Synthetic example inputs: the pack's own behaviour tests. Tests that do not load, or
+        hold a value JSON cannot (a date, binary, a lone surrogate), answer `422` naming why."""
         pack = pack_or_404(f"{namespace}/{name}")
         return [
             {

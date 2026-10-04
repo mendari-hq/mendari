@@ -38,7 +38,7 @@ pack directory and MUST NOT resolve outside it.
 ```yaml
 spec_version: "0.2"          # "0.1" is still accepted (§13)
 id: namespace/name            # lowercase, digits, dashes
-version: 1.2.3                # semantic version
+version: 1.2.3                # semantic version, at most 64 characters
 name: Human-readable name
 summary: One or two sentences.
 publisher: {name: ..., type: community | verified | institutional, url: ...}
@@ -83,7 +83,50 @@ Validation rules (all MUST hold):
   `min_probability`, `min_score` or `max_score`.
 - `thresholds.review ≤ thresholds.auto`, both in [0, 1].
 - Packs at risk level ≥ 2 MUST NOT contain policy rules whose outcome is `AUTO`.
-- Every referenced file exists inside the pack.
+- `version` is a semantic version of at most 64 characters.
+- A YAML file of the pack (manifest, policy, provider configs, tests) that uses anchors has
+  at most 1,000,000 nodes and 32,000,000 characters of scalar text, counted as JSON writes them
+  (a control character counts six), once every alias is expanded (an alias counts each time it
+  is used), and no alias inside its own anchor. A file without an anchor has no alias, and is
+  not counted. Every value in it is one the safe loader can build: a value it cannot (a date
+  such as 2024-02-30, an explicitly tagged `!!bool maybe`) makes the pack invalid, named by the
+  file, the error's type and the value's line and column. So does a value JSON cannot carry: a
+  string with a lone surrogate (`"\ud800"`), `!!binary`, `!!set`, `!!omap` or `!!pairs`. So does a
+  number (an integer or a float, in any base, implicit or tagged) whose text, underscores
+  removed, is longer than 4,300 characters or has more than 4 `:` parts (base 60, as in
+  `1:30:00`), and an integer of more than 4,300 decimal digits: each is refused before it is
+  built.
+- Every referenced file exists inside the pack. A directory pack MUST NOT hold a symbolic link
+  that resolves outside the pack's directory. Hidden entries (a name starting with `.`) and
+  `__pycache__` are not part of the pack (not digested, archived or read), so a `.venv` in the
+  pack's folder is fine.
+- Every file a pack decides or tests with MUST be one its digest hashes (§11). The manifest
+  fields naming one are `inputs.schema`, `inputs.fhir`, `policy` (when it names a file),
+  `tests`, `evaluation.datasets.<name>`, and, in a provider variant or a composite member,
+  `config`, `library`, `model_file` and `calibration`. Such a path MUST NOT go through a hidden
+  entry or `__pycache__` (as written or once links are resolved) nor be in `evals/` or a
+  `DECISION_CARD.md`, and the file it reaches MUST be one the digest hashes, compared as a file
+  on disk rather than by spelling: on a case-insensitive filesystem `EVALS/rules.yaml` is
+  `evals/rules.yaml`, and is refused. A file read under any other key is held to the same rule
+  when it is read. Its content MUST be the content the digest hashed: an implementation reads
+  each file once, checks its bytes against the digest's hash of that file and uses those bytes,
+  so a file edited after the pack was loaded is refused until the pack is loaded again.
+- A JSON file of the pack (the input schema, a model, a calibration) is JSON in UTF-8 with no
+  string holding a lone surrogate, no number that is not finite and no integer too large to be
+  a finite number (and so none of more than 4,300 digits); a calibration's `temperatures` is a
+  mapping; a `naive_bayes` model has the shape `mendari train` writes; a text file a
+  provider or the card reads (a CQL library, `CHANGELOG.md`) is UTF-8.
+- `evaluation.benchmark` is the one manifest path that MUST be an attestation: in `evals/`
+  (it may not exist yet; a `DECISION_CARD.md` elsewhere is refused). A leaderboard
+  (`evals/leaderboard.json`) and the card (`DECISION_CARD.md`) are read by those fixed names. A
+  benchmark or leaderboard that is not JSON, holds what JSON cannot carry or is not the report
+  the Decision Card shows is treated as absent (the card says why), not as an invalid pack.
+- The input schema is self-contained: `$ref`, `$dynamicRef` and `$recursiveRef` start with `#`
+  and resolve to a schema (an object or a boolean) in the document; `$schema`, if present, is at
+  the root only and names `https://json-schema.org/draft/2020-12/schema`; `$id` is at the root
+  only; it holds no `$dynamicAnchor` and no `format: "regex"`. These keys are looked for in the
+  whole document, since a `$ref` can make any object in it a schema. Inputs are checked with a
+  validator that retrieves nothing, so checking an input never fetches a URL or reads a file.
 
 ## 4. Questions
 
@@ -233,7 +276,9 @@ MAY carry `when: {field, in}` to apply only while an input field has one of thos
 amount a sentence allows, e.g. "1000 mg every 4 hours" = 6000 mg/day, compared with the maximum;
 `yes` / `no` / `unknown`), `cql` (a CQL library in the pack, evaluated on a CQL engine with the
 input as FHIR R4; each answered question maps to a definition whose String result is the label,
-or whose Boolean result is `yes` / `no`, null being `unknown`), `naive_bayes` (local,
+or whose Boolean result is `yes` / `no`, null being `unknown`; the library's declaration,
+`library Name version '...'`, MUST be its first statement, comments aside, and the runtime
+uploads it to the engine under a name and id unique to the pack and the text), `naive_bayes` (local,
 temperature-calibrated text classifier), `jev`, `llm` (a chat
 model through an OpenAI-compatible API, asked for one probability per label and optionally
 calibrated per question), and three
@@ -244,6 +289,23 @@ confidence on every slot question is ≥ `accept_at` is accepted; the last alway
 recorded as a failure of the slot's questions (`<member>:<code>`), which caps `AUTO` (§6). Providers answer
 `boolean` and `score` questions like `choice` questions, with a distribution over their labels;
 the runtime adds the expected score.
+
+A pack's patterns (every `rules` pattern, of every variant and composite member, and every
+`pattern` and `patternProperties` key in its input schema) are Python `re` regular expressions,
+run as `re` runs them (rules patterns with case ignored). Each MUST compile and be at most 2,000
+characters, and a pack MUST hold at most 500 of them; the runtime compiles every one at load, so
+a pack with an invalid one is invalid, named by file and rule. `re` has no time limit: a pattern that backtracks (`(a+)+$`)
+can take seconds or longer on a crafted input: a pack's patterns are code its author wrote, and
+installing a pack means trusting its author.
+
+A remote provider's endpoint, model and credentials belong to the deployment, which supplies
+them in fixed environment variables (`jev`: `JEV_API_URL`, `JEV_MODEL`, `JEV_API_KEY`,
+`JEV_CONNECTOR`; `llm`: `LLM_BASE_URL`, `LLM_MODEL`, `AI_GATEWAY_API_KEY`, `LLM_API_KEY`;
+`cql`: `MENDARI_CQL_URL`). A variant MUST NOT name the variables a provider reads: a `jev` or
+`llm` variant (or composite member) that sets `api_key_env`, `base_url_env`, `connector_env`, `endpoint_env`,
+`local_key_env` or `model_env` is invalid, whatever the pack's `spec_version`. A variant MAY pin
+`model`, and `llm` variants MAY tune their own requests (`timeout_ms`, `max_tokens`,
+`temperature`, `reasoning_effort`).
 
 ## 6. Policy and outcomes
 
@@ -421,17 +483,24 @@ requires a recorded governance override (§7). The reference server exposes this
 
 ## 10. Behaviour tests
 
-`tests/cases.yaml` is a list of `{name, input, expect}`. `expect` may contain `outcome`,
-`outcome_in`, `not_outcome`, `recommendation`, `priority` and `answers.<question>`. Tests
-describe behaviour that every provider variant is expected to preserve, especially the
-safety behaviour.
+`tests/cases.yaml` is a list of `{name, input, expect}`: each case is a mapping with an `input`
+mapping, an optional `name` (text) and an optional `expect` mapping. `expect` may contain
+`outcome`, `outcome_in` (a list), `not_outcome`, `recommendation`, `priority` and `answers` (a
+mapping of question to label). Tests describe behaviour that every provider variant is
+expected to preserve, especially the safety behaviour. Every case MUST have that shape and be
+JSON once loaded: a date or a number that is not finite (or, refused by the loader with its
+line and column, binary, a set or a string with a lone surrogate) makes the tests invalid,
+named by the case's number and what is wrong.
 
 ## 11. Identity and versioning
 
 The pack digest is the SHA-256 over every file in the pack (path and content, in sorted order)
-except `evals/` and `DECISION_CARD.md`, which are attestations *about* the pack. Every decision
-and evaluation report records the digest, so an audit record identifies the exact behaviour
-that produced it.
+except `evals/` and `DECISION_CARD.md`, which are attestations *about* the pack, and hidden
+entries and `__pycache__`, which are not part of it (§3). Every file the pack decides or tests
+with is one the digest hashes, compared as a file on disk, and is used only with the content the
+digest hashed (§3), so the digest covers everything the pack decides with; `evaluation.benchmark`, an attestation, is in `evals/`. Every decision and
+evaluation report records the digest, so an audit record identifies the exact behaviour that
+produced it.
 
 ## 12. Audit records
 
@@ -446,7 +515,17 @@ commits to each decision record, so modification or deletion is detectable.
 ## 13. Changes from 0.1 and migration
 
 0.2 is backwards compatible. A manifest with `spec_version: "0.1"` still loads, validates and
-produces identical decisions; it simply cannot use the new fields.
+produces identical decisions; it simply cannot use the new fields. One restriction applies to
+packs of every version: a `jev` or `llm` variant may not name the environment variables its
+provider reads (§5); a directory pack may not hold a symbolic link out of it, and an input
+schema must be self-contained, a version has at most 64 characters, a YAML file that uses
+anchors expands to at most 1,000,000 nodes and 32,000,000 characters as JSON and holds no
+number over 4,300 characters or 4 `:` parts (§3), every file the pack decides or tests with is
+one its digest hashes, however a path spells it, and `evaluation.benchmark` is in `evals/` (§3),
+YAML and JSON hold only what JSON can carry (§3), every behaviour test has the shape of §10 and is
+JSON (§10), and every pattern (input-schema `patternProperties` keys
+included) compiles, at most 2,000 characters and 500 per pack (§5). No published pack did any
+of these.
 
 | Change | Section |
 |---|---|
@@ -464,6 +543,13 @@ produces identical decisions; it simply cannot use the new fields.
 | `cds_hooks.coverage_information` (Da Vinci CRD system actions on order hooks) | §9 |
 | `cds_hooks.questionnaire` (Da Vinci DTR `$questionnaire-package`) | §9 |
 | The decision output schema adds an optional `value` to each answer | §4.2 |
+| `jev` and `llm` variants may not name the environment variables a provider reads (`*_env`; every spec version) | §5 |
+| A `cql` library's declaration is its first statement (every spec version) | §5 |
+| Every pack pattern (rules patterns, input-schema `pattern`s and `patternProperties` keys) compiles with `re`, at most 2,000 characters, at most 500 per pack, checked at load (every spec version) | §5 |
+| A version of at most 64 characters; YAML using anchors of at most 1,000,000 nodes and 32,000,000 characters as JSON, aliases expanded; YAML numbers of at most 4,300 characters and 4 `:` parts; every file a pack decides or tests with is one its digest hashes, compared on disk, and `evaluation.benchmark` is in `evals/` (every spec version) | §3 |
+| Every behaviour test is a mapping with an `input` mapping, an optional text `name` and an optional `expect` mapping, and is JSON: no date, binary, set, lone surrogate or non-finite number (every spec version) | §10 |
+| No lone surrogate, `!!binary`, `!!set`, `!!omap` or `!!pairs` in a pack's YAML, no lone surrogate or non-finite number in its JSON; a file is used only with the content its digest hashed (every spec version) | §3 |
+| No symbolic link out of a directory pack; a self-contained input schema (local references only, no nested `$schema` or `$id`, no `$dynamicAnchor`, no `format: regex`; every spec version) | §3 |
 
 To migrate a pack:
 

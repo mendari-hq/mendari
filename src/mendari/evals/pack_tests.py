@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from mendari.core.decision import Decision
-from mendari.core.pack import Pack
+from mendari.core.pack import Pack, not_json
 from mendari.errors import PackValidationError
 
 
@@ -18,13 +18,41 @@ class CaseOutcome:
 
 
 def load_cases(pack: Pack) -> list[dict[str, Any]]:
-    """The pack's behaviour tests; each has a `name`, an `input` and an `expect`."""
+    """The pack's behaviour tests. Each is a mapping with an `input` mapping, an optional `name`
+    (text) and an optional `expect` mapping, whose `answers` (if any) is a mapping and whose
+    `outcome_in` (if any) a list, all JSON; any other case is a `PackValidationError` naming
+    the case by number and what is wrong (never its text)."""
     if pack.manifest.tests is None:
         return []
     cases = pack.read_yaml(pack.manifest.tests) or []
     if not isinstance(cases, list):
         raise PackValidationError(pack.id, [f"{pack.manifest.tests}: expected a list of cases"])
+    problems = [
+        f"{pack.manifest.tests} case {number}: {problem}"
+        for number, case in enumerate(cases, start=1)
+        if (problem := _case_problem(case)) is not None
+    ]
+    if problems:
+        raise PackValidationError(pack.id, problems)
     return cases
+
+
+def _case_problem(case: Any) -> str | None:
+    if not isinstance(case, dict):
+        return "not a mapping (a case has an `input`, and may have a `name` and an `expect`)"
+    if not isinstance(case.get("input"), dict):
+        return "`input` must be a mapping"
+    if not isinstance(case.get("name", ""), str):
+        return "`name` must be text"
+    expect = case.get("expect", {})
+    if not isinstance(expect, dict):
+        return "`expect` must be a mapping"
+    if not isinstance(expect.get("answers", {}), dict):
+        return "`expect.answers` must be a mapping of question to label"
+    if not isinstance(expect.get("outcome_in", []), list):
+        return "`expect.outcome_in` must be a list"
+    what = not_json(case)
+    return None if what is None else f"not JSON, it holds {what}"
 
 
 def run_pack_tests(decision: Decision) -> list[CaseOutcome]:

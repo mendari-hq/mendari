@@ -10,18 +10,53 @@ from __future__ import annotations
 
 import re
 from enum import IntEnum, StrEnum
-from typing import Any, Literal
+from typing import Any, Literal, TypeGuard
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from mendari.core.templates import unknown_placeholders
 
 SPEC_VERSION = "0.2"
+MAX_VERSION_CHARS = 64
 MAX_DERIVE_ROWS = 10
 
 _PACK_ID = re.compile(r"^[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9-]*$")
 _SEMVER = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$")
 _KEY = re.compile(r"^[a-z][a-z0-9_]*$")
+
+
+def is_pack_id(text: object) -> TypeGuard[str]:
+    """`namespace/name`, lowercase letters, digits and dashes (the manifest's `id`)."""
+    return isinstance(text, str) and bool(_PACK_ID.match(text))
+
+
+def is_version(text: object) -> TypeGuard[str]:
+    """A semantic version (the manifest's `version`) of at most `MAX_VERSION_CHARS`."""
+    return isinstance(text, str) and len(text) <= MAX_VERSION_CHARS and bool(_SEMVER.match(text))
+
+
+# Variant keys that once named the environment variables a remote provider reads its endpoint,
+# model or key from. Those variables are the deployment's (spec section 5), so a pack that sets
+# one is invalid, whatever its spec version: it could send any process secret anywhere.
+DEPLOYMENT_ENV_KEYS: dict[str, frozenset[str]] = {
+    "jev": frozenset({"api_key_env", "connector_env", "endpoint_env", "model_env"}),
+    "llm": frozenset({"api_key_env", "base_url_env", "local_key_env", "model_env"}),
+}
+
+
+def deployment_env_problem(config: Any) -> str | None:
+    """Why a provider config (a variant's, or a composite member's) is refused, if its `type`
+    is `jev` or `llm` and it names any of `DEPLOYMENT_ENV_KEYS`; None otherwise. Never echoes
+    the values."""
+    if not isinstance(config, dict):
+        return None
+    chosen = sorted(set(config) & DEPLOYMENT_ENV_KEYS.get(str(config.get("type")), frozenset()))
+    if not chosen:
+        return None
+    return (
+        "a pack may not choose the environment variables a provider reads its endpoint, model "
+        "or key from; these are the deployment's. Remove: " + ", ".join(chosen)
+    )
 
 
 class Outcome(StrEnum):
@@ -265,6 +300,20 @@ class ProviderVariant(BaseModel):
 
     type: str
 
+    @model_validator(mode="after")
+    def _no_deployment_env(self) -> ProviderVariant:
+        """Checked at load, for the variant and each composite member (one level deep)."""
+        extra = self.model_extra or {}
+        members = extra.get("members")
+        configs = [{"type": self.type, **extra}]
+        if isinstance(members, dict):
+            configs += [member for member in members.values() if isinstance(member, dict)]
+        for config in configs:
+            problem = deployment_env_problem(config)
+            if problem is not None:
+                raise ValueError(problem)
+        return self
+
 
 class ProviderSlot(_Strict):
     answers: list[str] = Field(min_length=1)
@@ -441,15 +490,18 @@ class PackManifest(_Strict):
     @field_validator("id")
     @classmethod
     def _id(cls, value: str) -> str:
-        if not _PACK_ID.match(value):
+        if not is_pack_id(value):
             raise ValueError("id must look like 'namespace/name' (lowercase, digits, dashes)")
         return value
 
     @field_validator("version")
     @classmethod
     def _version(cls, value: str) -> str:
-        if not _SEMVER.match(value):
-            raise ValueError("version must be semantic (MAJOR.MINOR.PATCH)")
+        if not is_version(value):
+            raise ValueError(
+                f"version must be semantic (MAJOR.MINOR.PATCH), at most {MAX_VERSION_CHARS} "
+                "characters"
+            )
         return value
 
     @model_validator(mode="after")

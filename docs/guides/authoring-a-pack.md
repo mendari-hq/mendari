@@ -24,6 +24,29 @@ This creates a folder with everything a pack needs:
 | `tests/cases.yaml` | Behaviour tests: an input and what must happen |
 | `data/examples.jsonl` | A small labelled dataset, for evaluation |
 
+A pack is self-contained. Every file it names stays inside its folder (a symbolic link out of
+it is refused), and the input schema refers only to its own parts: a `$ref` starts with `#`,
+`$schema` (2020-12) and `$id` appear only at the top, and `$dynamicAnchor` and `format: regex`
+are not allowed. Checking an input never fetches a URL or reads another file. The version is a
+semantic version of at most 64 characters, and YAML anchors are fine within reason: a file that
+uses them may expand to at most 1,000,000 nodes and 32,000,000 characters of text (as JSON
+writes it: a control character counts six) once its aliases are counted where they are used. A
+number may be at most 4,300 characters long (underscores aside) and have at most 4 `:` parts. A
+`.venv` or other hidden folder beside the pack's files is not part of the pack, and is ignored.
+
+Everything the pack decides or tests with must be inside its digest, the identity a governance
+approval covers: the files named by `inputs.schema`, `inputs.fhir`, `policy`, `tests`,
+`evaluation.datasets` and each provider's `config`, `library`, `model_file` and `calibration`.
+None of them may go through a hidden folder or `__pycache__`, or be in `evals/` or a
+`DECISION_CARD.md`, however the path is spelled (on macOS and Windows `EVALS/` is `evals/`).
+`evaluation.benchmark` is the opposite: a published result about the pack, it lives in `evals/`.
+Behaviour tests must be plain JSON values: quote a date (`"2024-01-01"`). Each is a mapping with
+an `input` mapping, and may have a `name` and an `expect` mapping (its `answers` a mapping of
+question to label). No YAML file of the pack may use `!!binary`, `!!set`, `!!omap`, `!!pairs` or
+a lone surrogate escape (`"\ud800"`); `mendari validate` names the file, line and column. If you
+edit a file of a pack a server has loaded, restart the server: until then reads of
+the edited file are refused, since it is no longer what the pack's digest describes.
+
 It already works. Check it:
 
 ```bash
@@ -122,6 +145,13 @@ Each matching pattern adds its weight to a label's score, so a message saying "c
 scores `yes`. `negatable: true` means "no chest pain" doesn't count, and the audit record names
 the pattern that matched.
 
+Patterns are Python regular expressions (`re`), matched with case ignored. `mendari validate`
+compiles every one, so a typo is reported with its file and rule; a pattern may be at most
+2,000 characters, and a pack may hold 500 (input-schema `pattern`s and `patternProperties` keys
+included). Keep them simple:
+`re` has no time limit, and a pattern that can match the same text in many ways, such as
+`(a+)+$`, can take seconds on a short message and hold the worker that runs it.
+
 Rules are the floor, not the ceiling. The same pack can switch to a language model, to Jev, to a
 CQL library your organization already has, or to computed criteria for dates and lab values.
 Each is a provider **variant** in `pack.yaml`, and you compare them on the same data (step 8).
@@ -200,6 +230,9 @@ mendari eval refill-router --dataset my-site.jsonl
 To compare providers, add a variant to the slot in `pack.yaml` (for example `llm: {type: llm}`
 under `reader.variants`). Then run
 `mendari leaderboard refill-router --run reader=rules --run reader=llm --dataset my-site.jsonl`.
+A remote variant's endpoint and key come from the deployment, never from the pack: a variant
+may pin `model`, but one that names environment variables (`api_key_env`, `endpoint_env` and
+the like) is refused.
 
 ## 9. Publish the card
 

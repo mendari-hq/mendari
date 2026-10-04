@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import copy
 import json
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -102,6 +105,31 @@ def test_comparison_with_itself_is_clean(inbox_pack: Pack) -> None:
     assert baseline is not None
     comparison = compare(baseline, baseline, 0.03)
     assert comparison["status"] == "ok" and comparison["findings"] == []
+
+
+@pytest.mark.parametrize(
+    "spoil",
+    [
+        lambda b: b["questions"][b["primary"]].update(accuracy=None),
+        lambda b: b["questions"][b["primary"]].update(per_label=[1]),
+        lambda b: b["questions"][b["primary"]].update(calibration={"ece": "low"}),
+        lambda b: b.update(subgroups={"language": [1]}),
+        lambda b: b.update(decisions={"automation": {"false_automation_rate": "x"}}),
+    ],
+    ids=["accuracy", "per-label", "calibration", "subgroups", "automation"],
+)
+def test_a_baseline_with_malformed_figures_cannot_be_compared(
+    inbox_pack: Pack, spoil: Callable[[dict[str, Any]], None]
+) -> None:
+    """A published benchmark is the pack author's file: one whose accuracy was null passed the
+    card's checks and made POST .../evals answer 500 (TypeError in compare)."""
+    baseline = benchmark(inbox_pack)
+    assert baseline is not None
+    local = copy.deepcopy(baseline)
+    spoil(baseline)
+    comparison = compare(local, baseline, 0.03)
+    assert comparison["status"] == "unknown"
+    assert "published benchmark" in comparison["reason"] and comparison["findings"] == []
 
 
 def test_pack_behaviour_tests_pass(router: Decision) -> None:

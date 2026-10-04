@@ -2,6 +2,110 @@
 
 Roadmap to the full goal: [`docs/roadmap.md`](../docs/roadmap.md).
 
+## Built: pack content safety (2026-10-04)
+From the launch-readiness review, before any registry, Hub or upload feature lets an outside
+author's pack run on a shared deployment. Branch `claude/pack-safety-core`. No pack, data, model
+or benchmark change; the five shipped packs keep their digests and decide their examples
+identically.
+- [x] **1. A pack may not choose secrets or endpoints (E8)**: the eight `*_env` keys of `jev`
+  and `llm` variants removed; the variable names are fixed constants, and a variant (or a
+  composite's member) that sets one makes the pack invalid at load (`core/spec.py`), naming the
+  variant and keys, never values; the provider refuses such a config too.
+- [x] **2. Nothing in a pack reaches outside it (E9, D6)**: archive names split as written
+  (`pack/` and plain segments; `pack//<absolute path>` was written at that path); `extract`
+  checks every target is inside the destination; only regular files (no sparse member); the
+  archive read as a stream with caps on members, member size, total size and expansion ratio
+  checked as it expands. `pull` validates the registry's namespace, name and version and confines
+  the cache path before any write, and the signed manifest must name that id and version (T11).
+  The input schema is self-contained (local references that resolve, no nested `$schema` or
+  `$id`, no `$dynamicAnchor`, no `format: regex`) and its validator retrieves nothing. A
+  directory pack with a symbolic link out of it is refused (hidden entries and `__pycache__`, never
+  part of a pack, are skipped: a `.venv` beside it is fine, as on main); fixed-name
+  reads go through `Pack.path`; `mendari card --write` does not write through a link.
+- [x] **3. A pack never stops the server (D7)**: any error loading a pack or building its
+  terminology lists it under `/api/health` `invalid` (by type when not Mendari's) and the others
+  are served; a served pack whose providers cannot be built is listed there and answers `422`,
+  never failing `/api/health` (T9); providers stay lazy, built at first use as on main. YAML is
+  bounded on the parsed graph of a file that uses anchors (1,000,000 nodes and 32,000,000
+  characters of scalar text, aliases expanded, each node visited once; no alias loop) before
+  anything walks it (T2, T7); YAML or JSON too deep, not UTF-8, a YAML value Python cannot build,
+  or a schema the validator cannot read is a `PackValidationError`. A version has at most 64 characters and
+  `version_key` never calls `int()` (T10). A registry publish answers `422`, never `500`, for a
+  pack that does not load or whose card is not text; a malformed benchmark is shown as none,
+  only typed scalars and a leaderboard of at most 32 levels and 1 MB are kept, and the metadata
+  is serialized before it is stored (T12).
+- [x] **4. Pack patterns compiled at load (residual risk in the threat model)**: every rules
+  pattern (every variant and composite member, case ignored), input-schema `pattern` and
+  `patternProperties` key is
+  compiled with `re` at load, at most 2,000 characters, at most 500 per pack counted before any
+  is compiled; a failure is a `PackValidationError` naming pack, file and rule. Patterns run on
+  `re` as on main, with no time limit; Mendari's own dosing and CQL patterns are unchanged. The
+  rules files read at load are kept on the `Pack`, so a provider does not read them again.
+- [x] **5. CQL libraries namespaced per pack (T4)**: a pack's library goes up on the shared
+  engine under a resource id and a declared name ending in hashes of the pack id and the text
+  (the name rewritten in its declaration, which must be the first statement), so an outside
+  pack declaring the same name and version neither replaces nor shadows it. Main's `_HEADER`
+  search is unchanged; evidence keeps the declared name.
+- [x] **6. Docs, exactly true**: SECURITY.md (installing a pack means trusting its author;
+  patterns on `re` with no time limit can slow or stall a worker; packs from others isolated
+  once uploads or a public registry exist), threat model (E8, E9, D6, D7, T4 and a residual-risk
+  entry for patterns), spec sections 3, 5 and 13, the authoring guide, README.
+- [x] **7. What a pack decides with is in its digest; YAML errors clean; reference examples
+  bounded**: `Pack.path` and `load_pack` refuse a path through a hidden entry or `__pycache__`
+  (as written or with links resolved), and `load_pack` a manifest path into `evals/` or a
+  `DECISION_CARD.md`, naming the field (`config: .logic/triage_rules.yaml` loaded and decided
+  outside the digest a governance approval is bound to). Any error parsing or building a pack
+  YAML file (a tagged `!!bool maybe` raised `KeyError`) is a `PackValidationError` naming the
+  file and the error's type, never the value. The expansion cap weighs scalar text at its
+  JSON-escaped length, and the API reference includes a pack's example only when it is at most
+  64 KB as JSON (a 2 MB tests file of `"\0"` made `/openapi.json` 180 MB).
+- [x] **8. A pack reads only digested files; YAML numbers bounded (E9, D7)**: the refusals in
+  7 compared spellings, so on a case-insensitive filesystem `EVALS/t.yaml`, `__PYCACHE__/t.yaml`
+  or `logic/decision_card.md` read a file the digest skips, and a `cql` `library:` was not
+  checked at load (it could live in `evals/` anywhere). `load_pack` now hashes first and keeps
+  the hashed files' identities (device, inode); `Pack.path`, and every read at load, accepts an
+  existing file only if it is one of them, whatever spells it. The written-path checks stay for
+  their messages, naming the field (`library` added). Attestations are read through
+  `Pack.attestation` only, and `evaluation.benchmark` must be in `evals/`. Pack YAML loads with
+  a `SafeLoader` subclass that refuses a number of more than 4,300 characters (underscores
+  removed) or 4 `:` parts before building it, and an integer of more than 4,300 digits, in every
+  base (a 480 KB base-60 integer took 23.6 s). A behaviour test that is not JSON (a lone
+  surrogate, `!!binary`, a date, a set, NaN) is a validation problem named by type:
+  `mendari validate` reports it, `GET …/examples` answers `422` (was a `500`). A
+  `ConstructorError` is named by type, line and column, never its text; a parse error keeps the
+  parser's message, as the docs now say. Spec §3, §10, §11, §13, SECURITY.md, threat model E9
+  and D7, authoring guide.
+- [x] **9. Malformed pack content is named, never a 500 (D7, T2, E9)**: the review's eight
+  remaining findings. (1) A behaviour test must be a mapping with an `input` mapping, an
+  optional text `name` and an optional `expect` mapping (`answers` a mapping, `outcome_in` a
+  list), named by case number; the API reference picks each pack's example under its own guard
+  (`expect: [1]` made `/openapi.json` a `500` for every pack). (2) The YAML loader refuses a
+  string with a lone surrogate, `!!binary`, `!!set`, `!!omap` and `!!pairs` by file, line and
+  column, and every pack JSON file is walked for lone surrogates and non-finite numbers (a
+  surrogate in a pack's name made `GET /api/packs` a `500`). (3) `Pack.read_json`,
+  `read_text`, the naive_bayes model's shape and the digest's reads name the file (no traceback
+  from `mendari validate` or `test`). (4) Content verified at read: the load keeps each hashed
+  file's SHA-256, and every read (`Pack.read_bytes`) checks and parses the bytes it read, so a
+  file edited in place after the load is refused, not used under the old digest. (5)
+  `evaluation.benchmark` must be in `evals/`; a malformed benchmark or leaderboard is absent
+  (the card says why), a non-UTF-8 `CHANGELOG.md` a `422`. (6) Every value the YAML constructor
+  cannot build carries its line and column. (7) A bad dataset line is named by file and line.
+  (8) An archive whose names are one file under case-folding and NFC is refused by `verify`;
+  `extract` names a file it cannot write.
+- [x] **10. The focused check's three remaining lows**: pack JSON refuses an integer too large to
+  be a number (a 400-digit accuracy in a benchmark or leaderboard, or a model's temperature,
+  overflowed into a `500` or a traceback); an LLM calibration's `temperatures` must be a mapping;
+  `compare` reports a published benchmark whose figures are malformed as `unknown` with the
+  reason, never a `500` from `POST …/evals`.
+- Verified: the five packs decide every dataset record and `tests/cases.yaml` example (default
+  providers and every local variant combination, 9,958 decisions) identically to `origin/main`
+  run on its own source, in one long process, in a fresh process per pack and variant set, and
+  in a fresh process per example; process start plus first decision is within 5% of main.
+- Deferred: untrusted packs run in an isolated process with memory and time limits, with the
+  upload or registry feature; the regex-engine approach was tried and dropped: see the review
+  notes (`claude/pack-safety`, its round-2 and round-3 reviews: the engine could not match
+  `re`'s semantics exactly, its clock was the process's, and its tables slowed every start).
+
 ## Built: the SMART launch gated, C5 and S5 (2026-10-03)
 From the Phase 4b review's residual risks, after research (three researchers and a critic). The
 owner chose: the EHR's sign-in identifies the clinician; a launch may view or decide per

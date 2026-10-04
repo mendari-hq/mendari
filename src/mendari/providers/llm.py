@@ -19,6 +19,9 @@ Configuration, in order of precedence:
 - endpoint: `LLM_BASE_URL`, then the AI Gateway;
 - credentials: `AI_GATEWAY_API_KEY`, then the deployment's Vercel OIDC token (gateway only);
   local servers use `LLM_API_KEY` when set and no key otherwise.
+
+These variable names are fixed: endpoint and credentials are the deployment's, and a pack that
+tries to name other variables is refused at load.
 """
 
 from __future__ import annotations
@@ -35,7 +38,7 @@ from urllib.parse import urlparse
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from mendari.core.spec import Question
+from mendari.core.spec import Question, deployment_env_problem
 from mendari.errors import PackValidationError, ProviderError
 from mendari.providers.base import Provider, ProviderOutput, batch_state
 from mendari.providers.batch import batched_answer, unwrap
@@ -50,6 +53,11 @@ CALIBRATION_FORMAT = "mendari.llm-calibration/1"
 MAX_QUESTIONS = 16
 MAX_REQUEST_CHARS = 100_000
 SUM_TOLERANCE = 0.1  # verbalised probabilities are renormalised only if they sum to 0.9-1.1
+# The deployment's settings. Fixed: a pack never chooses which variables are read.
+MODEL_ENV = "LLM_MODEL"
+BASE_URL_ENV = "LLM_BASE_URL"
+API_KEY_ENV = "AI_GATEWAY_API_KEY"
+LOCAL_KEY_ENV = "LLM_API_KEY"
 
 SYSTEM_PROMPT = """\
 You are a classifier inside a healthcare decision-support system. A clinician or staff member \
@@ -81,10 +89,6 @@ class LlmConfig(BaseModel):
     # Per-question temperatures fitted by `mendari calibrate` (a file in the pack).
     calibration: str | None = None
     batch: bool = True
-    model_env: str = "LLM_MODEL"
-    base_url_env: str = "LLM_BASE_URL"
-    api_key_env: str = "AI_GATEWAY_API_KEY"
-    local_key_env: str = "LLM_API_KEY"
 
 
 class LlmProvider(Provider):
@@ -95,6 +99,9 @@ class LlmProvider(Provider):
     def __init__(self, *args: Any, client: httpx.Client | None = None, **kwargs: Any):
         super().__init__(*args, **kwargs)
         settings = {k: v for k, v in self.config.items() if k != "type"}
+        problem = deployment_env_problem(self.config)  # also checked at load (core/spec.py)
+        if problem is not None:
+            raise PackValidationError(self.pack.id, [f"{self.info.slot}: {problem}"])
         try:
             self.settings = LlmConfig.model_validate(settings)
         except ValidationError as error:
@@ -104,13 +111,9 @@ class LlmProvider(Provider):
                 self.pack.id, [f"{self.info.slot}: 1-{MAX_QUESTIONS} questions per LLM call"]
             )
         self._client = client
-        model = (
-            self.settings.model
-            or os.environ.get(self.settings.model_env, "").strip()
-            or DEFAULT_MODEL
-        )
+        model = self.settings.model or os.environ.get(MODEL_ENV, "").strip() or DEFAULT_MODEL
         if not re.match(MODEL_PATTERN, model):
-            raise PackValidationError(self.pack.id, [f"{self.settings.model_env}: invalid model"])
+            raise PackValidationError(self.pack.id, [f"{MODEL_ENV}: invalid model"])
         self.model = model
         self.temperatures = self._load_calibration()
         self.info = replace(self.info, model=model)
@@ -119,17 +122,15 @@ class LlmProvider(Provider):
         """Temperatures fitted for this model; a file fitted on another model is not used."""
         if self.settings.calibration is None:
             return {}
-        try:
-            data = json.loads(self.pack.path(self.settings.calibration).read_text("utf-8"))
-        except (OSError, ValueError) as error:
-            raise PackValidationError(
-                self.pack.id, [f"{self.info.slot}: calibration file: {error}"]
-            ) from None
+        data = self.pack.read_json(self.settings.calibration)
         if not isinstance(data, dict) or data.get("format") != CALIBRATION_FORMAT:
             raise PackValidationError(self.pack.id, [f"{self.info.slot}: not a calibration file"])
         if data.get("model") != self.model:
             return {}
         temperatures = data.get("temperatures", {})
+        if not isinstance(temperatures, dict):
+            problem = f"{self.info.slot}: the calibration file's temperatures are not a mapping"
+            raise PackValidationError(self.pack.id, [problem])
         return {
             q: float(t)
             for q, t in temperatures.items()
@@ -138,19 +139,19 @@ class LlmProvider(Provider):
 
     @property
     def base_url(self) -> str:
-        return os.environ.get(self.settings.base_url_env, "").strip().rstrip("/") or GATEWAY_URL
+        return _base_url()
 
     def preflight(self) -> None:
         require_secure(self.base_url, "LLM")
 
     def _token(self) -> str | None:
         if self.base_url == GATEWAY_URL:
-            return os.environ.get(self.settings.api_key_env, "").strip() or vercel_oidc_token()
+            return os.environ.get(API_KEY_ENV, "").strip() or vercel_oidc_token()
         if is_local(self.base_url):
-            return os.environ.get(self.settings.local_key_env, "").strip() or None
-        key = os.environ.get(self.settings.local_key_env, "").strip()
+            return os.environ.get(LOCAL_KEY_ENV, "").strip() or None
+        key = os.environ.get(LOCAL_KEY_ENV, "").strip()
         if not key:
-            raise ProviderError("credential_unavailable", f"set {self.settings.local_key_env}")
+            raise ProviderError("credential_unavailable", f"set {LOCAL_KEY_ENV}")
         return key
 
     def batch_key(self) -> Hashable | None:
@@ -164,8 +165,6 @@ class LlmProvider(Provider):
             s.max_tokens,
             s.temperature,
             s.reasoning_effort,
-            s.api_key_env,
-            s.local_key_env,
         )
 
     def answer(self, inputs: Mapping[str, Any]) -> ProviderOutput:
@@ -368,20 +367,23 @@ def _nonnegative(value: Any) -> bool:
 
 def deployment_info() -> dict[str, Any]:
     """Where LLM calls go and how they authenticate (for health checks). Never a secret."""
-    settings = LlmConfig()
-    base_url = os.environ.get(settings.base_url_env, "").strip().rstrip("/") or GATEWAY_URL
+    base_url = _base_url()
     credentials: str | None
     if base_url == GATEWAY_URL:
-        key = os.environ.get(settings.api_key_env, "").strip()
-        credentials = f"env:{settings.api_key_env}" if key else "vercel-oidc"
+        key = os.environ.get(API_KEY_ENV, "").strip()
+        credentials = f"env:{API_KEY_ENV}" if key else "vercel-oidc"
     else:
-        key = os.environ.get(settings.local_key_env, "").strip()
-        credentials = f"env:{settings.local_key_env}" if key else None
+        key = os.environ.get(LOCAL_KEY_ENV, "").strip()
+        credentials = f"env:{LOCAL_KEY_ENV}" if key else None
     return {
         "endpoint": urlparse(base_url).netloc,
         "credentials": credentials,
-        "default_model": os.environ.get(settings.model_env, "").strip() or DEFAULT_MODEL,
+        "default_model": os.environ.get(MODEL_ENV, "").strip() or DEFAULT_MODEL,
     }
+
+
+def _base_url() -> str:
+    return os.environ.get(BASE_URL_ENV, "").strip().rstrip("/") or GATEWAY_URL
 
 
 def fit_calibration(

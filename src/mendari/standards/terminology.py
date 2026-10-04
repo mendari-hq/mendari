@@ -124,6 +124,9 @@ class Terminology:
             except MendariError as error:
                 problems[pack.id] = f"terminology: {error}"
                 continue
+            except Exception as error:  # the pack's content, not Mendari's: named, not quoted
+                problems[pack.id] = f"terminology: {type(error).__name__}"
+                continue
             kept.append(pack)
         return cls.for_packs(kept), problems
 

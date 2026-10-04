@@ -198,6 +198,9 @@ The Jev adapter gets its key from a Vercel Connect connector (exchanged at runti
 deployment's OIDC identity, cached in memory only) or, locally, from `JEV_API_KEY`. Remote
 providers:
 - send only a pack's declared `state_fields`;
+- read their endpoint, model and key from fixed environment variables (`JEV_API_URL`,
+  `JEV_MODEL`, `JEV_API_KEY`, `JEV_CONNECTOR`; `LLM_BASE_URL`, `LLM_MODEL`, `AI_GATEWAY_API_KEY`,
+  `LLM_API_KEY`), which a pack cannot change;
 - require HTTPS (plain HTTP only for localhost);
 - refuse redirects and cap response size.
 
@@ -209,12 +212,114 @@ webhooks.
 ## Pack supply chain
 
 Packs contain behaviour: patterns, models, CQL and policies. Review a pack like code before
-running it.
+running it: installing a pack means trusting its author, as with any plugin. Pack patterns run
+on Python `re` with no time limit, so a pack can slow or stall a worker. Packs from others will
+run isolated once uploads or a public registry exist (an isolated process with memory and time
+limits, designed with that feature). What a pack cannot do today is below.
 
 - Registry packs are **signed archives** (Ed25519, deterministic). `mendari pull` verifies
   them and pins the publisher's key on first use, and versions are immutable.
 - Every decision and report records the pack's digest. A governance approval to automate at
   risk level 2–3 covers one digest only.
+- A pack cannot choose a provider's endpoint or credentials. Which environment variables
+  supply them is fixed in code and belongs to the deployment; a pack whose provider config
+  names one (`api_key_env`, `base_url_env`, `endpoint_env` and the like) is refused at load,
+  so it cannot send a process secret to an address of its choosing.
+- A pack reads only its own files. Every path it names must resolve, symbolic links followed,
+  inside the pack's directory; a directory pack holding a symbolic link that leads outside it
+  is refused at load (hidden entries and `__pycache__` are not part of a pack, never digested,
+  archived or read, so a `.venv` beside its files is fine). Whatever a pack decides or tests
+  with is inside its digest, the identity a governance approval covers: `load_pack` hashes the
+  pack first, and every file it or a provider then reads (`Pack.path`) must be one of the files
+  hashed, compared by the file on disk (device and inode), not by how the path is spelled. So
+  a case variant on a case-insensitive filesystem (`EVALS/rules.yaml`, `__PYCACHE__/x.yaml`,
+  `logic/decision_card.md` on macOS or Windows), a link, a file added after the load or a key
+  the load does not list cannot reach a file the digest leaves out. Its content must still be
+  the bytes hashed: each read takes the file's bytes once and checks them against the SHA-256
+  the load took of that file (`Pack.read_bytes`), and parses those bytes, so a file edited in
+  place after the load, or while it runs, is refused naming the file (its decisions answer
+  `422`), never used under a digest that does not describe it; loading the pack again picks the
+  edit up under its new digest. The manifest fields naming
+  such a file (`inputs.schema`, `inputs.fhir`, `policy`, `tests`, `evaluation.datasets`, and a
+  provider's `config`, `library`, `model_file` and `calibration`) are checked at load, and a
+  refusal names the field and why (through a hidden entry or `__pycache__`, in `evals/` or a
+  `DECISION_CARD.md`, or not a file the digest covers). The attestations, left out of the
+  digest, are read only through a separate accessor (`Pack.attestation`) by their fixed names
+  (`evals/benchmark.json`, `evals/leaderboard.json`, `DECISION_CARD.md`) and
+  `evaluation.benchmark`, the one manifest path that names one, which must be in `evals/` (not
+  a `DECISION_CARD.md`); `mendari card --write` does not write through a link. A signed archive holds regular files only (no symbolic or hard
+  link, device, FIFO or sparse file), each named `pack/` and then plain path segments (none
+  empty, `.`, `..` or hidden, no backslash), no two of them one file where case and Unicode
+  normalization are not significant (`A` and `a/x.yaml`, `pack.yaml` and `PACK.yaml`, NFC and
+  NFD spellings), so it extracts to the same files on macOS, Windows and Linux, and extracting
+  it writes nothing outside the destination (a file it cannot write is named, never a
+  traceback). An archive is read as a stream with its caps checked while it expands, before
+  the signature is checked: at most 2,000 files of at most 50 MB each, and the gzip expands to
+  at most 100 times its size (64 MB for any archive) and 400 MB in all, so a small archive
+  cannot make the registry, `mendari pull` or `mendari pack verify` hold more than that in
+  memory. `mendari pull` (and `Decision.from_hub`) builds no cache path from what the registry
+  answers until the version is a semantic version, the path stays inside the cache and the
+  signed manifest names that pack and version, so a compromised registry cannot delete or write
+  outside the cache.
+- A pack cannot reach another pack's CQL. The engine at `MENDARI_CQL_URL` is shared, so a pack's
+  library is uploaded under a resource id and a declared name that end in a hash of the pack id
+  and of the library's text: a library that declares another pack's library name and version
+  neither replaces nor shadows it. The declaration must be the library's first statement.
+- A pack's patterns are checked at load. Every rules pattern (of every variant and composite
+  member) and every input-schema `pattern` and `patternProperties` key is compiled with `re` as
+  it will run, is at most
+  2,000 characters, and a pack holds at most 500, counted before any is compiled; one that
+  fails makes the pack invalid, named by file and rule (`mendari validate` prints no
+  traceback; a server lists the pack under `/api/health` `invalid`). This does not bound how
+  long a pattern takes on an input: see above.
+- A pack's content cannot keep the server from starting or from serving the other packs (a
+  slow pattern can still stall a worker while it runs: see above). Any error while a pack is
+  loaded or its terminology built
+  (Mendari's own errors, and any other: YAML or JSON nested too deep, a file that is not
+  UTF-8) lists that pack in `/api/health` (`invalid`; an error that is not Mendari's by its type
+  alone, as its text is the pack's), and every other pack is served; a served pack whose
+  providers cannot be built when first used is listed there too, and its decisions answer
+  `422`, never `/api/health` or another pack's. A YAML file of a pack that uses anchors expands
+  to at most 1,000,000 nodes and 32,000,000 characters of scalar text as JSON writes it (a
+  control character counts six), counted on the parsed graph before anything walks it, so a few
+  lines of aliases cannot make loading exponential, or make a page that shows the file
+  gigabytes long; the API reference embeds a pack's example only when it is at most 64 KB as
+  JSON. A YAML number is bounded before it is built, in every base: its text (underscores
+  removed) at most 4,300 characters and 4 `:` parts, an integer at most 4,300 decimal digits,
+  so a base-60 number cannot make loading quadratic. A YAML value Python cannot build (a date
+  such as 2024-02-30, a tagged `!!bool maybe`, an unknown tag) is the pack's error too, named by
+  the file, the error's type and the value's line and column, never the value; a file that does
+  not parse keeps the parser's message (what it expected, with the line around it). A pack's
+  YAML and JSON hold only what a JSON response can carry: a string with a lone surrogate
+  (`"\ud800"`, in YAML or JSON), `!!binary`, `!!set`, `!!omap`, `!!pairs`, and in JSON a number
+  that is not finite or an integer too large to be one, are refused when the file is read (the manifest, policy, input schema and
+  rules at load; a model, calibration, FHIR mapping or the tests when first read), named by the
+  file and, in YAML, the line and column, so no pack can make the list of packs, a pack's
+  detail or a decision a `500`. A JSON file that is not JSON, holds an integer of more than
+  4,300 digits or nests too deep, a naive_bayes model of the wrong shape, a CQL library or
+  `CHANGELOG.md` that is not UTF-8 and a file that cannot be read are named the same way:
+  `mendari validate`, `test` and `card` print no traceback, and the server answers `422`. A
+  behaviour test of the wrong shape (each is a mapping with an `input` mapping, an optional text
+  `name` and an optional `expect` mapping whose `answers` is a mapping) or that is not JSON (a
+  date, a number that is not finite) is the pack's validation problem, named by case number:
+  `mendari validate` and `mendari test` report it and `GET /api/packs/{id}/examples` answers
+  `422`, never a `500` or a traceback; the API reference picks each pack's example under its
+  own guard, so one pack's tests never make it a `500`. A benchmark or leaderboard that is not
+  JSON, holds what a JSON response cannot or is not the report the Decision Card shows is
+  treated as absent, as the registry treats it, and the card says why. A dataset line that is
+  not UTF-8 or not JSON (an integer of more than 4,300 digits, nested too deep), or holds a
+  lone surrogate or NaN, is named by file and line (`GET …/datasets`, `mendari eval`). A
+  version has at most 64 characters, so comparing versions never fails. Publishing a pack to
+  the registry that does not load, or whose card is not text, is refused with a `422` and its
+  reason, never a server error; the registry shows a benchmark's dataset name, count and
+  accuracy only as a short string, an integer and a finite number, and a leaderboard only up
+  to 32 levels and 1 MB (otherwise as none), and serializes what it will show before storing
+  anything, so a pack's attestations cannot make search or its version's page a server error.
+- A pack's input schema is self-contained: every `$ref` points inside it (`#...`) at a schema,
+  `$schema` and `$id` appear only at its root (the dialect 2020-12), and it holds no
+  `$dynamicAnchor` and no `format: regex` (which jsonschema checks by compiling the caller's
+  string). The validator retrieves nothing, so checking an input never fetches a URL or reads a
+  file.
 
 ## What CI checks on every change
 

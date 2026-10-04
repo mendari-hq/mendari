@@ -10,9 +10,15 @@ mtime 0), so the same pack always gives the same bytes and the same archive dige
   the rendered card included, so they are signed too, though the pack digest leaves them out).
 
 `verify` checks the whole archive before anything is written to disk: only regular files under
-`pack/`, no traversal, size and count caps, every file hash, and the signature by a key the
-caller trusts. `extract` then writes the files and checks that the pack loads with the digest the
-manifest names.
+`pack/` (no link, device, FIFO or sparse file), every name a plain relative path (no empty, `.`,
+`..` or hidden segment, so no absolute path and no traversal), size and count caps, every file
+hash, and the signature by a key the caller trusts. The archive is read as a stream and the caps
+hold while it is read, before the signature is checked: the gzip may expand to at most
+`MAX_EXPANSION` times its size (or `EXPANSION_FLOOR` bytes) and `MAX_UNPACKED_BYTES` in all,
+and a member is read only once its size fits, so a small archive (a gzip of zeros, sparse
+members that declare gigabytes) never makes the reader hold more than the caps in memory.
+`extract` then checks that every file lands inside the destination, writes the files and checks
+that the pack loads with the digest the manifest names.
 """
 
 from __future__ import annotations
@@ -23,9 +29,11 @@ import hashlib
 import io
 import json
 import tarfile
-from collections.abc import Mapping
+import unicodedata
+import zlib
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any
 
 from cryptography.exceptions import InvalidSignature
@@ -41,6 +49,12 @@ SIGNATURE = "mendari-pack.sig"
 MAX_ARCHIVE_BYTES = 100 * 1024 * 1024
 MAX_FILE_BYTES = 50 * 1024 * 1024
 MAX_FILES = 2000
+MAX_UNPACKED_BYTES = MAX_ARCHIVE_BYTES * 4  # the tar stream the gzip expands to, in all
+# The tar may be at most this many times the archive's size, or EXPANSION_FLOOR bytes. Shipped
+# packs expand 10 to 17 times; a gzip of zeros, about 1,000 times.
+MAX_EXPANSION = 100
+EXPANSION_FLOOR = 64 * 1024 * 1024
+_CHUNK = 64 * 1024
 
 
 @dataclass(frozen=True)
@@ -165,8 +179,10 @@ def verify(archive: bytes, trusted: Mapping[str, Ed25519PublicKey]) -> Verified:
     try:
         signature = json.loads(members.pop(SIGNATURE))
         manifest = json.loads(manifest_bytes)
-    except ValueError:
+    except (ValueError, RecursionError):
         raise HubError("the archive's manifest or signature is not JSON") from None
+    if not isinstance(signature, dict) or not isinstance(manifest, dict):
+        raise HubError("the archive's manifest or signature is not a JSON object")
     if manifest.get("format") != FORMAT:
         raise HubError(f"unknown archive format {manifest.get('format')!r}")
     key = trusted.get(str(signature.get("key_id")))
@@ -179,9 +195,17 @@ def verify(archive: bytes, trusted: Mapping[str, Ed25519PublicKey]) -> Verified:
     except (InvalidSignature, ValueError):
         raise HubError("the archive's signature does not match its manifest") from None
     files = {name.removeprefix("pack/"): data for name, data in members.items()}
-    listed = {entry["path"]: entry for entry in manifest.get("files", [])}
+    entries = manifest.get("files", [])
+    if not isinstance(entries, list) or not all(
+        isinstance(entry, dict) and isinstance(entry.get("path"), str) for entry in entries
+    ):
+        raise HubError("the archive's manifest does not list its files")
+    listed = {entry["path"]: entry for entry in entries}
     if set(files) != set(listed):
         raise HubError("the archive's files are not the files its manifest lists")
+    collision = _collision(files)
+    if collision is not None:
+        raise HubError(collision)
     for path, data in files.items():
         entry = listed[path]
         if (
@@ -197,10 +221,18 @@ def extract(verified: Verified, dest: Path) -> Pack:
     """Write a verified archive's pack to `dest` and load it; its digest, id and version must be
     the ones the signed manifest names."""
     dest.mkdir(parents=True, exist_ok=True)
+    root = dest.resolve()
+    targets = {path: (root / path).resolve() for path in verified.files}
+    for path, target in targets.items():
+        if target == root or not target.is_relative_to(root):
+            raise HubError(f"{path}: not a path inside the pack")
     for path, data in verified.files.items():
-        target = dest / path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
+        target = targets[path]
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+        except OSError as error:  # a file where a directory goes, a full disk, …
+            raise HubError(f"{path}: cannot be written ({type(error).__name__})") from None
     pack = load_pack(dest)
     expected = (
         verified.manifest.get("id"),
@@ -212,43 +244,101 @@ def extract(verified: Verified, dest: Path) -> Pack:
     return pack
 
 
+class _Unpacked(io.RawIOBase):
+    """The archive's gzip, decompressed as it is read and never past `limit` bytes."""
+
+    def __init__(self, archive: bytes, limit: int):
+        self._gzip = gzip.GzipFile(fileobj=io.BytesIO(archive), mode="rb")
+        self._limit, self._read = limit, 0
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, buffer: Any) -> int:
+        size = min(len(buffer), _CHUNK, self._limit - self._read + 1)
+        data = self._gzip.read(size)
+        self._read += len(data)
+        if self._read > self._limit:
+            raise HubError("the archive expands beyond the size cap")
+        buffer[: len(data)] = data
+        return len(data)
+
+
 def _read(archive: bytes) -> dict[str, bytes]:
-    try:
-        data = gzip.decompress(archive)
-    except (OSError, EOFError):
-        raise HubError("the archive is not gzip") from None
-    if len(data) > MAX_ARCHIVE_BYTES * 4:
-        raise HubError("the archive expands beyond the size cap")
+    limit = min(MAX_UNPACKED_BYTES, max(EXPANSION_FLOOR, MAX_EXPANSION * len(archive)))
     members: dict[str, bytes] = {}
+    total = 0
     try:
-        with tarfile.open(fileobj=io.BytesIO(data), mode="r:") as tar:
+        # A stream ("r|"): the tar is read once, front to back, as the gzip expands.
+        with tarfile.open(fileobj=_Unpacked(archive, limit), mode="r|") as tar:
             for info in tar:
                 if len(members) >= MAX_FILES:
                     raise HubError(f"the archive has more than {MAX_FILES} files")
-                if not info.isreg():
+                if not info.isreg() or _sparse(info):
                     raise HubError(f"{info.name}: only regular files are allowed")
                 _check_name(info.name)
                 if info.size > MAX_FILE_BYTES:
                     raise HubError(f"{info.name} is larger than {MAX_FILE_BYTES} bytes")
+                total += info.size  # its data is still to come through the stream: refused now
+                if total > limit:
+                    raise HubError("the archive expands beyond the size cap")
                 if info.name in members:
                     raise HubError(f"{info.name} appears twice")
                 handle = tar.extractfile(info)
                 members[info.name] = handle.read() if handle else b""
     except tarfile.TarError:
         raise HubError("the archive is not a valid tar") from None
+    except (OSError, EOFError, zlib.error):
+        raise HubError("the archive is not gzip") from None
     return members
 
 
+def _collision(paths: Iterable[str]) -> str | None:
+    """Two names that are one file on a case-insensitive or normalizing filesystem (macOS,
+    Windows): equal once case-folded and NFC-normalized, or a file whose folded name is a
+    folded directory of another file (`A` and `a/x.yaml`). Extracted, the last would overwrite
+    the first, or the write would fail; a Linux registry accepts both."""
+    files: dict[str, str] = {}
+    for path in sorted(paths):
+        folded = _folded(path)
+        if folded in files:
+            return f"{files[folded]} and {path} are one file {_FOLDED}"
+        files[folded] = path
+    for path in sorted(paths):
+        parts = _folded(path).split("/")
+        for depth in range(1, len(parts)):
+            directory = "/".join(parts[:depth])
+            if directory in files:
+                return f"{files[directory]} is a file and a directory of {path} {_FOLDED}"
+    return None
+
+
+_FOLDED = "where case and Unicode normalization are not significant (macOS, Windows)"
+
+
+def _folded(path: str) -> str:
+    return unicodedata.normalize("NFC", unicodedata.normalize("NFC", path).casefold())
+
+
+def _sparse(info: tarfile.TarInfo) -> bool:
+    """A sparse member declares a size it does not hold (holes read as zeros)."""
+    return (
+        info.issparse()
+        or info.type == tarfile.GNUTYPE_SPARSE
+        or any(key.startswith("GNU.sparse.") for key in info.pax_headers)
+    )
+
+
 def _check_name(name: str) -> None:
-    path = PurePosixPath(name)
+    """`pack/` and then plain path segments. The raw name is split: a path library would read
+    `pack//etc/x` as `pack/etc/x`, which `verify` then turns into `/etc/x`."""
     if name in (MANIFEST, SIGNATURE):
         return
+    parts = name.split("/")
     if (
-        path.is_absolute()
-        or ".." in path.parts
-        or path.parts[:1] != ("pack",)
-        or len(path.parts) < 2
+        parts[0] != "pack"
+        or len(parts) < 2
+        or "\\" in name
+        or any(part == "" or part.startswith(".") for part in parts)
     ):
-        raise HubError(f"{name}: not a path inside the pack")
-    if any(part.startswith(".") for part in path.parts) or "\\" in name:
         raise HubError(f"{name}: not a path inside the pack")

@@ -118,11 +118,24 @@ def critical_text(item: Mapping[str, Any]) -> str:
 
 
 def load(pack: Pack) -> dict[str, Any] | None:
-    path = pack.path(PATH)
-    if not path.is_file():
-        return None
-    board: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
-    return board
+    """The pack's leaderboard, or None: none there, or not one the card can show (`read`)."""
+    return read(pack)[0]
+
+
+def read(pack: Pack) -> tuple[dict[str, Any] | None, str | None]:
+    """The leaderboard, or None and why it is not shown. As the registry does, one that is not
+    JSON, holds what a JSON response cannot or whose rows are not the rows `markdown` shows is
+    treated as absent, never an error."""
+    board, problem = pack.attestation_json(PATH)
+    if board is None:
+        return None, problem
+    try:
+        if not isinstance(board.get("rows", []), list):
+            raise TypeError("rows")
+        markdown(board)
+    except (AttributeError, IndexError, KeyError, TypeError, ValueError) as error:
+        return None, f"not a leaderboard ({type(error).__name__})"
+    return board, None
 
 
 def markdown(board: Mapping[str, Any]) -> list[str]:
