@@ -182,6 +182,29 @@ def test_security_says_what_this_deployment_does(
     assert body["implementation"]["url"] == "https://mendari.example.org/fhir"
 
 
+def test_with_sign_in_on_the_statement_names_no_pack(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """It needs no credential, so with sign-in on it does not say which packs run here (that is
+    for signed-in callers, as /api/packs and /api/health are): two servers with other packs but
+    the same operations give the same statement, apart from when its version went live here."""
+    monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
+    monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
+    every = statement(TestClient(create_app(db_path=tmp_path / "a.db")))
+    monkeypatch.setenv("MENDARI_PACKS", "mendari/patient-inbox-router,mendari/prior-auth-preflight")
+    fewer = statement(TestClient(create_app(db_path=tmp_path / "b.db")))
+    assert {**every, "date": ""} == {**fewer, "date": ""}
+    shown = str(every)
+    assert "mendari/" not in shown and "@0." not in shown
+    decide = next(o for o in every["rest"][0]["operation"] if o["name"] == "decide")
+    for said in (decide["documentation"], every["text"]["div"]):
+        assert "for signed-in callers, the packs GET /api/packs lists whose" in said
+    definition = TestClient(create_app(db_path=tmp_path / "c.db")).get(
+        "/fhir/OperationDefinition/decide"
+    )
+    assert "with sign-in on, it is for signed-in callers" in definition.json()["comment"]
+
+
 def test_the_date_moves_with_the_version_and_never_back(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

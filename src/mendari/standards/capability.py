@@ -188,14 +188,22 @@ def capability_statement(
 ) -> dict[str, Any]:
     """The statement for the mounted `routes` ((method, path) pairs) and the served `packs`.
     `version` is a digest of everything else in it, so any change makes a new one, and `date` is
-    `since(version)`: when that version went live here (`AuditStore.capability_since`)."""
+    `since(version)`: when that version went live here (`AuditStore.capability_since`).
+
+    It needs no credential. With sign-in on it names no pack (which packs run here is for
+    signed-in callers, as in /api/health and /api/packs); the operations it offers are still
+    the ones the served packs use."""
     mounted = set(routes)
     offered = [
         c
         for c in CAPABILITIES
         if (c.method, c.path) in mounted and (c.serves is None or c.serves(packs.values()))
     ]
-    pack_refs = sorted(f"{p.id}@{p.version}" for p in packs.values() if p.manifest.inputs.fhir)
+    pack_refs = (
+        None
+        if sign_in
+        else sorted(f"{p.id}@{p.version}" for p in packs.values() if p.manifest.inputs.fhir)
+    )
     searched = any(c.kind == "search-type" for c in offered)
     rest: dict[str, Any] = {
         "mode": "server",
@@ -214,7 +222,8 @@ def capability_statement(
             by_type.setdefault(capability.resource, []).append(capability)
     if by_type:
         rest["resource"] = [_resource(name, by_type[name]) for name in sorted(by_type)]
-    system = [_operation(c, packs=pack_refs) for c in offered if c.resource is None]
+    served = _packs_sentence(pack_refs, "Packs with FHIR input served here")
+    system = [_operation(c, served) for c in offered if c.resource is None]
     if system:
         rest["operation"] = system
     statement: dict[str, Any] = {
@@ -268,10 +277,9 @@ def _resource(name: str, offered: list[FhirCapability]) -> dict[str, Any]:
     return entry
 
 
-def _operation(capability: FhirCapability, packs: list[str] | None = None) -> dict[str, Any]:
-    documentation = capability.documentation
-    if packs is not None:
-        documentation += f" Packs with FHIR input served here: {', '.join(packs) or 'none'}."
+def _operation(capability: FhirCapability, packs: str = "") -> dict[str, Any]:
+    """`packs`: the sentence on the packs served here, for an operation that takes any."""
+    documentation = " ".join(part for part in (capability.documentation, packs) if part)
     operation: dict[str, Any] = {"name": capability.name, "definition": capability.definition}
     if documentation:
         operation["documentation"] = documentation
@@ -326,7 +334,17 @@ def _implementation(place: tuple[str, str] | None) -> str:
     return f"Mendari ({environment}, {release})"
 
 
-def _narrative(packs: list[str], offered: list[FhirCapability]) -> dict[str, str]:
+def _packs_sentence(packs: list[str] | None, lead: str) -> str:
+    """The packs with FHIR input served here, or (None) where they are not public."""
+    if packs is None:
+        return (
+            f"{lead}: for signed-in callers, the packs GET /api/packs lists whose "
+            "GET /api/packs/{namespace}/{name} has manifest.inputs.fhir."
+        )
+    return f"{lead}: {', '.join(packs) or 'none'}."
+
+
+def _narrative(packs: list[str] | None, offered: list[FhirCapability]) -> dict[str, str]:
     operations = ", ".join(f"${c.name}" for c in offered if c.kind == "operation") or "none"
 
     def kinds(kind: str) -> str:
@@ -335,8 +353,8 @@ def _narrative(packs: list[str], offered: list[FhirCapability]) -> dict[str, str
     text = (
         f"<p>Mendari {html.escape(__version__)}: FHIR R4 (JSON). Operations: "
         f"{html.escape(operations)}. Read: {html.escape(kinds('read'))}. Version read: "
-        f"{html.escape(kinds('vread'))}. Search: {html.escape(kinds('search-type'))}. Packs "
-        f"with FHIR input: {html.escape(', '.join(packs) or 'none')}. Decisions are served as "
+        f"{html.escape(kinds('vread'))}. Search: {html.escape(kinds('search-type'))}. "
+        f"{html.escape(_packs_sentence(packs, 'Packs with FHIR input'))} Decisions are served as "
         "read-only Tasks with their audit trail; no clinical resources are stored or served."
         "</p>"
     )
