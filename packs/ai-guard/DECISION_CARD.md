@@ -1,11 +1,12 @@
 # Decision Card: AI Guard
 
-`mendari/ai-guard` · version **0.1.2** · Apache-2.0 · published by Mendari reference packs (community)
+`mendari/ai-guard` · version **0.1.2** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
 
 > Checks a language model's draft reply to a patient before anyone reads it: blocks drafts that miss an emergency, give a dose above the maximum or give unsafe advice, and holds drafts that diagnose, prescribe or state things the record does not show for a clinician.
 
 | | |
 |---|---|
+| Source | Maintained by Mendari |
 | Risk level | **2**, clinical support |
 | Automation | Human review required by default; AUTO only with a recorded governance override. Only while `screen` is `rules_and_jev` or `rules_and_llm`; otherwise a person reviews. |
 | Pack digest | `sha256:1ee04ecdd46e46539d242ee8f7a56c15f2b4e32f1c0e0b23e2167285a3bcf3ac` |

@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from mendari.core.registry import SearchPath
 from mendari.server.app import create_app, mounted_routes
 from mendari.server.backend_services import DISCOVERY_PATH
 from mendari.standards import capability, search
@@ -245,7 +246,8 @@ def test_a_pack_whose_terminology_cannot_be_built_is_reported_not_fatal(tmp_path
     broken = tmp_path / "pack"
     shutil.copytree(Path(__file__).parents[1] / "packs" / "patient-inbox-router", broken)
     (broken / "fhir" / "mapping.yaml").write_text("fhir_version: R5\n")
-    app = create_app(db_path=tmp_path / "b.db", packs_paths=[broken])
+    # A copy of a maintained pack, standing in for one: `mendari/` is reserved to them.
+    app = create_app(db_path=tmp_path / "b.db", packs_paths=[SearchPath(broken, "maintained")])
     client = TestClient(app)
     invalid = client.get("/api/health").json()["invalid"]
     assert any("terminology" in problem for problem in invalid.values()), invalid

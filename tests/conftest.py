@@ -43,6 +43,13 @@ def _own_hub_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _no_community_packs(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Community packs are off unless a test turns them on (tests/test_community_packs.py), as
+    in a deployment that never set MENDARI_COMMUNITY_PACKS."""
+    monkeypatch.delenv("MENDARI_COMMUNITY_PACKS", raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _no_rate_limits(monkeypatch: pytest.MonkeyPatch) -> None:
     """Tests make many requests as one principal: rate limits are off unless a test turns them
     on (tests/test_limits.py), and no organization has a quota unless a test gives it one."""

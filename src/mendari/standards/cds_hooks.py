@@ -19,6 +19,7 @@ from urllib.parse import quote
 
 from mendari.core import clock
 from mendari.core.decision import Decision, DecisionResult
+from mendari.core.origin import COMMUNITY_LABEL
 from mendari.core.pack import Pack
 from mendari.core.spec import Outcome, Priority
 from mendari.core.templates import fill
@@ -46,17 +47,24 @@ def discovery(packs: Iterable[Pack]) -> dict[str, Any]:
         hooks = pack.manifest.cds_hooks
         if hooks is None:
             continue
+        usage = (
+            f"Risk level {int(pack.manifest.risk.level)} ({pack.manifest.risk.category}). "
+            f"Validate locally first: `mendari eval {pack.id} --dataset <local data>`."
+        )
+        description = hooks.description
+        if pack.community:  # the EHR's integrator reads this before turning the service on
+            description = f"{description} ({COMMUNITY_LABEL})"
+            usage = (
+                f"{COMMUNITY_LABEL}: it recommends, and a person confirms every decision. {usage}"
+            )
         services.append(
             {
                 "hook": hooks.hook,
                 "id": service_id(pack),
                 "title": hooks.title,
-                "description": hooks.description,
+                "description": description,
                 "prefetch": hooks.prefetch,
-                "usageRequirements": (
-                    f"Risk level {int(pack.manifest.risk.level)} ({pack.manifest.risk.category}). "
-                    f"Validate locally first: `mendari eval {pack.id} --dataset <local data>`."
-                ),
+                "usageRequirements": usage,
             }
         )
     return {"services": services}
@@ -163,6 +171,13 @@ def fill_template(template: str, context: Mapping[str, Any]) -> str:
     return query
 
 
+def source_label(pack: Pack) -> str:
+    """Who a card comes from, as the clinician sees it under the card: a community pack says it
+    is not clinically reviewed."""
+    label = f"Mendari · {pack.manifest.name} {pack.version}"
+    return f"{label} · {COMMUNITY_LABEL}" if pack.community else label
+
+
 def card(pack: Pack, result: DecisionResult, task: Mapping[str, Any]) -> dict[str, Any]:
     template = pack.manifest.cds_hooks.card if pack.manifest.cds_hooks else None
     target = result.recommendation or "manual triage"
@@ -199,7 +214,7 @@ def card(pack: Pack, result: DecisionResult, task: Mapping[str, Any]) -> dict[st
         "summary": summary[:140],
         "indicator": indicator,
         "detail": detail,
-        "source": {"label": f"Mendari · {pack.manifest.name} {pack.version}"},
+        "source": {"label": source_label(pack)},
         "suggestions": [
             {
                 "label": label,

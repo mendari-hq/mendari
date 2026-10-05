@@ -1,11 +1,12 @@
 # Decision Card: Referral Router
 
-`mendari/referral-router` · version **0.1.2** · Apache-2.0 · published by Mendari reference packs (community)
+`mendari/referral-router` · version **0.1.2** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
 
 > Reads a specialty referral as it is signed: suggests the specialty, spots referrals that should be seen within two weeks, checks that the referral has what that specialty needs, and sends complete routine referrals straight to the specialty's scheduling queue.
 
 | | |
 |---|---|
+| Source | Maintained by Mendari |
 | Risk level | **1**, clinical information processing (clinical information) |
 | Automation | AUTO permitted by policy thresholds; every decision is audited. Only while `triage_screen` is `rules_and_jev` or `rules_and_llm`; otherwise a person reviews. |
 | Pack digest | `sha256:d997766e1b2ca369ff987e8c5022556b6589f436bfbb0bbca22f199b6e68a31f` |

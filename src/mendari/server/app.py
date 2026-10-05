@@ -12,7 +12,8 @@ import json
 import logging
 import os
 import re
-from collections.abc import Awaitable, Callable, Mapping
+from collections import Counter
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
 from pathlib import Path
@@ -44,10 +45,11 @@ from mendari.core import clock, tenancy
 from mendari.core.audit import SYSTEM_ID, AuditStore
 from mendari.core.card import benchmark, render_card
 from mendari.core.decision import CallBudget, Decision, QuotaReached
+from mendari.core.origin import is_local
 from mendari.core.pack import Pack
 from mendari.core.phi import phi_policy
 from mendari.core.policy import GovernanceOverride
-from mendari.core.registry import discover, version_key
+from mendari.core.registry import SearchPath, discover, version_key
 from mendari.errors import (
     AuthError,
     CdsHooksError,
@@ -255,6 +257,16 @@ class EvalRequest(BaseModel):
     providers: dict[str, str] | None = None
 
 
+def _local_variant(pack: Pack, slot: str, variant: str) -> bool:
+    """Whether `variant` of a pack's provider `slot` decides on this machine (`is_local`); a
+    slot or variant the pack does not have is left for `Decision` to refuse."""
+    spec = pack.manifest.providers.get(slot)
+    config = spec.variants.get(variant) if spec is not None else None
+    if config is None:
+        return True
+    return is_local({"type": config.type, **(config.model_extra or {})})
+
+
 # Evaluations that call a metered, network-bound provider must fit one function invocation.
 REMOTE_EVAL_LIMIT = 200
 REMOTE_EVAL_WORKERS = 8
@@ -310,7 +322,7 @@ def create_app(
     providers: Mapping[str, str] | None = None,
     default_providers: Mapping[str, Mapping[str, str]] | None = None,
     datasets_dir: Path | None = None,
-    packs_paths: list[Path] | None = None,
+    packs_paths: Sequence[Path | SearchPath] | None = None,
     budget_limits: Mapping[str, int | None] | None = None,
     fhir_validation: FhirValidation | None = None,
 ) -> FastAPI:
@@ -360,7 +372,9 @@ def create_app(
     missing = only - {pack.id for pack in found.packs}
     if missing:
         raise MendariError(f"MENDARI_PACKS: packs not installed here: {sorted(missing)}")
-    installed: dict[str, Pack] = {}  # the newest version of every pack found, served or not
+    # The newest version of every pack found, served or not. `discover` refuses any second
+    # claim to an id a community pack takes part in, so a community pack never competes here.
+    installed: dict[str, Pack] = {}
     for pack in found.packs:
         current = installed.get(pack.id)
         if current is None or version_key(pack.version) > version_key(current.version):
@@ -383,9 +397,12 @@ def create_app(
 
     def variants_for(pack: Pack) -> tuple[dict[str, str], list[str]]:
         """The variants the deployment chose for this pack's slots (the rest run the pack's
-        default), and the settings that name the pack but cannot apply."""
+        default), and the settings that name the pack but cannot apply. A community pack takes
+        only settings that name it, never the defaults (it spends only where the owner said)."""
         slots = {slot: set(spec.variants) for slot, spec in pack.manifest.providers.items()}
-        chosen, skipped = providers_for(pack.id, slots, overrides)
+        chosen, skipped = providers_for(pack.id, slots, overrides, community=pack.community)
+        if pack.community:
+            return chosen, skipped
         for slot, variant in fallbacks.get(pack.id, {}).items():
             if slot not in chosen and variant in slots.get(slot, ()):
                 chosen[slot] = variant
@@ -396,7 +413,10 @@ def create_app(
     for pack in packs.values():
         chosen = variants_for(pack)[0]
         named = providers_for(
-            pack.id, {s: set(v.variants) for s, v in pack.manifest.providers.items()}, overrides
+            pack.id,
+            {s: set(v.variants) for s, v in pack.manifest.providers.items()},
+            overrides,
+            community=pack.community,
         )[0]
         filled += [f"{pack.id} {slot}={chosen[slot]}" for slot in sorted(set(chosen) - set(named))]
     if filled:
@@ -594,11 +614,11 @@ def create_app(
     def health(request: Request) -> dict[str, Any]:
         """Public, for load balancers: `status`, `version` and `sign_in`, and nothing else
         without a credential (no database work either). A principal that may `read` (everyone
-        in open mode) also gets the deployment's settings: packs, storage, the FHIR validation
-        mode, PHI mode, the input hash's kind and key id, which provider answers each pack's
-        questions, today's remote calls, the rate limits (where the caller's address is read,
-        and the address seen on this request), the session policy and the organization's daily
-        quotas with what it used today.
+        in open mode) also gets the deployment's settings: packs (and how many come from
+        where), storage, the FHIR validation mode, PHI mode, the input hash's kind and key id,
+        which provider answers each pack's questions, today's remote calls, the rate limits
+        (where the caller's address is read, and the address seen on this request), the session
+        policy and the organization's daily quotas with what it used today.
         """
         public = {"status": "ok", "version": __version__, "sign_in": auth.enabled}
         principal = auth.principal(request)  # no credential: no lookup
@@ -623,6 +643,8 @@ def create_app(
         return {
             **public,
             "packs": len(packs),
+            # How many of them come from where: maintained, community, hub, local.
+            "packs_by_origin": dict(Counter(pack.shown_origin for pack in packs.values())),
             "invalid": {**found.problems, **terminology_problems, **unbuilt},
             "storage": store.backend,
             # Calendar days and displayed times use this zone; stored timestamps are UTC.
@@ -691,8 +713,10 @@ def create_app(
         summary="List packs",
     )
     def list_packs() -> list[dict[str, Any]]:
-        """Every Decision Pack this deployment serves: id, version, risk level and the labels of its
-        main question."""
+        """Every Decision Pack this deployment serves: id, version, risk level, the labels of its
+        main question, and where it comes from (`origin`: `maintained`, `community`, `hub` or
+        `local`, with `origin_label` to show; a community pack is not clinically reviewed and
+        never automates)."""
         return [_summary(pack) for pack in sorted(packs.values(), key=lambda p: p.id)]
 
     @app.get(
@@ -901,10 +925,25 @@ def create_app(
         # A store-less Decision: evaluation traffic must not pollute the operational audit log.
         active = decision_for(pack_id)
         chosen = {slot: info.variant for slot, info in active.provider_info.items()}
+        asked = request.providers or {}
+        if pack.community:
+            # A community pack runs a remote variant only where the deployment named the pack
+            # for it (`community/<name>:slot=variant`), which `chosen` already holds.
+            refused = sorted(
+                f"{slot}={variant}"
+                for slot, variant in asked.items()
+                if variant != chosen.get(slot) and not _local_variant(pack, slot, variant)
+            )
+            if refused:
+                raise MendariError(
+                    f"{pack.id} is a community pack: it runs a remote variant only where the "
+                    f"deployment names it in its settings ({pack.id}:slot=variant), not "
+                    f"{', '.join(refused)}"
+                )
         # Provider calls count against the daily budgets, never an organization's quotas.
         decision = Decision(
             pack,
-            providers={**chosen, **(request.providers or {})},
+            providers={**chosen, **asked},
             budget=None if budget is None else budget.for_evaluation(),
         )
         dataset = dataset_for(pack, request.dataset)
@@ -1619,7 +1658,11 @@ def create_app(
         token_url=None if backend is None else backend.token_url,
         routes=mounted_routes(app),
         permission_for=permission_for,
-        cards=None if auth.enabled else {pack_id: p.manifest.name for pack_id, p in packs.items()},
+        cards=None
+        if auth.enabled
+        else {
+            pack_id: landing.CardLink(p.manifest.name, p.community) for pack_id, p in packs.items()
+        },
     )
     # No style attribute anywhere, so no inline style; its inline scripts (the theme script and
     # the import map) by hash.
@@ -2110,7 +2153,11 @@ def _summary(pack: Pack) -> dict[str, Any]:
         "name": m.name,
         "summary": m.summary,
         "digest": pack.digest,
+        # `publisher.type` is what the manifest says of itself; `origin` is where this
+        # deployment found the pack (`core/origin.py`), and `origin_label` what to show for it.
         "publisher": m.publisher.model_dump(mode="json"),
+        "origin": pack.shown_origin,
+        "origin_label": pack.origin_label,
         "license": m.license,
         "risk": {"level": int(m.risk.level), "category": m.risk.category},
         "primary": m.policy.primary,

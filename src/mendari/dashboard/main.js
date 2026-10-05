@@ -9,6 +9,7 @@ import "./feedback.js";
 import "./card.js";
 import "./try.js";
 import "./patient.js";
+import { defaultPack, packOptions } from "./pack.js";
 import { onHashChange, render, route } from "./router.js";
 import { setupSettings } from "./settings.js";
 import { skeleton } from "./skeleton.js";
@@ -47,10 +48,12 @@ async function boot() {
     $("#view").innerHTML = `<div class="panel empty">No Decision Packs found on the search path.</div>`;
     return;
   }
-  select.innerHTML = state.packs.map((p) => `<option value="${esc(p.id)}">${esc([p.name, p.version].filter(Boolean).join(" "))}</option>`).join("");
+  // Grouped by where each pack comes from when more than one origin is served (pack.js).
+  select.innerHTML = packOptions(state.packs);
   const known = (id) => state.packs.some((p) => p.id === id);
-  const saved = storageGet("oh.pack", state.packs[0].id);
-  await switchPack([packInAddress(), saved].find(known) ?? state.packs[0].id);
+  const first = defaultPack(state.packs);
+  const saved = storageGet("oh.pack", first);
+  await switchPack([packInAddress(), saved].find(known) ?? first);
   select.addEventListener("change", async () => {
     await switchPack(select.value);
     render();

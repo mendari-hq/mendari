@@ -20,6 +20,7 @@ from pydantic import ValidationError
 
 from mendari.core import input_schema as schema_rules
 from mendari.core import patterns
+from mendari.core.origin import ORIGIN_LABELS, Origin, is_community, shown_origin
 from mendari.core.spec import Outcome, PackManifest, Priority
 from mendari.errors import PackValidationError
 
@@ -62,10 +63,28 @@ class Pack:
     # The files `pack_digest` hashed at load, by identity on disk, with their content's hash;
     # None: computed when first needed (a `Pack` built by hand).
     digested: Digested | None = field(default=None, compare=False, repr=False)
+    # Where the pack was found (`core/origin.py`), never what its manifest says.
+    origin: Origin = field(default="local", compare=False)
 
     @property
     def id(self) -> str:
         return self.manifest.id
+
+    @property
+    def community(self) -> bool:
+        """A community pack: it never automates, and decides with local providers unless the
+        deployment opts it in by name (`core/origin.py`)."""
+        return is_community(self.id, self.origin)
+
+    @property
+    def shown_origin(self) -> Origin:
+        """The origin every surface labels the pack with (`core/origin.py` `shown_origin`)."""
+        return shown_origin(self.id, self.origin)
+
+    @property
+    def origin_label(self) -> str:
+        """What every surface says of where the pack comes from (`ORIGIN_LABELS`)."""
+        return ORIGIN_LABELS[self.shown_origin]
 
     @property
     def version(self) -> str:
@@ -179,9 +198,12 @@ class Pack:
         }
 
 
-def load_pack(path: str | Path, *, missing_models_ok: bool = False) -> Pack:
+def load_pack(
+    path: str | Path, *, missing_models_ok: bool = False, origin: Origin = "local"
+) -> Pack:
     """Load and validate a pack. `missing_models_ok` lets `mendari train` load a pack whose
-    trained artifacts (`model_file`, `calibration`) do not exist yet."""
+    trained artifacts (`model_file`, `calibration`) do not exist yet; `origin` is where it was
+    found (`core/registry.py` knows)."""
     root = Path(path).resolve()
     links = _outside_links(root)
     if links:
@@ -249,6 +271,7 @@ def load_pack(path: str | Path, *, missing_models_ok: bool = False) -> Pack:
         input_schema=input_schema,
         parsed=parsed,
         digested=digested,
+        origin=origin,
     )
 
 
@@ -335,9 +358,13 @@ def _rules_files(m: PackManifest) -> list[str]:
     return sorted(files)
 
 
-def _pattern_problems(input_schema: Any, rules: dict[str, Any]) -> list[str]:
-    """Every pack-authored pattern compiled as it will run (`core/patterns.py`), after counting
-    them, so a pack over the cap is refused before any is compiled."""
+def authored_patterns(pack: Pack) -> list[tuple[str, str, int]]:
+    """(where, pattern, flags) for every pattern the pack's author wrote, as it runs: its input
+    schema's and its rules files'."""
+    return _authored_patterns(pack.input_schema, pack.parsed)
+
+
+def _authored_patterns(input_schema: Any, rules: dict[str, Any]) -> list[tuple[str, str, int]]:
     found = [
         (f"input schema: {where}", text, 0)
         for where, text in patterns.schema_patterns(input_schema)
@@ -347,6 +374,13 @@ def _pattern_problems(input_schema: Any, rules: dict[str, Any]) -> list[str]:
             (f"{relative}: {where}", text, patterns.RULES_FLAGS)
             for where, text in patterns.rules_patterns(data)
         ]
+    return found
+
+
+def _pattern_problems(input_schema: Any, rules: dict[str, Any]) -> list[str]:
+    """Every pack-authored pattern compiled as it will run (`core/patterns.py`), after counting
+    them, so a pack over the cap is refused before any is compiled."""
+    found = _authored_patterns(input_schema, rules)
     if len(found) > patterns.MAX_PACK_PATTERNS:
         return [
             f"{len(found)} patterns; a pack holds at most {patterns.MAX_PACK_PATTERNS} patterns"

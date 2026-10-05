@@ -1,6 +1,6 @@
 // Decision Card: the pack as a document, sections linked as routes ("#card/policy").
 
-import { providerWords, rowLabels } from "./pack.js";
+import { communityNotice, isCommunity, originBadge, providerWords, rowLabels } from "./pack.js";
 import { render, views } from "./router.js";
 import { $, api, esc, focusHeading, icon, may, outcomeBadge, priorityBadge, shortTime, signedIn, slotText, state, time, toast, toastError } from "./ui.js";
 
@@ -47,6 +47,7 @@ function automationText(d, governance) {
   const p = d.manifest.policy;
   const code = (v) => `<code>${esc(v)}</code>`;
   const review = `A person reviews from confidence ${p.thresholds.review.toFixed(2)}; below that it abstains.`;
+  if (isCommunity(d)) return `Never: a community pack recommends, and a person confirms every decision. ${review}`;
   if (d.risk.level >= 4) return `Never: at risk level 4 a person reviews every decision. ${review}`;
   if (d.risk.level >= 2 && !governance.active) {
     return `Not without an approval: at risk level ${d.risk.level} a person reviews every decision unless your organization approves automation for this version (see Automation approval, below). ${review}`;
@@ -101,16 +102,18 @@ views.card = async (main, params) => {
   main.innerHTML = `
     <h1>${esc(m.name)}</h1>
     <p class="prose lead">${esc(m.summary)}</p>
+    ${communityNotice(d)}
     <nav class="toc" aria-label="On this page">${CARD_SECTIONS.map(([key, title]) => `<a href="#card/${key}">${esc(title)}</a>`).join("")}</nav>
 
     <section class="card-section" id="card-facts" aria-labelledby="card-facts-title">
       <h2 id="card-facts-title">At a glance</h2>
       <dl class="facts">
+        <dt>Source</dt><dd>${originBadge(d)}</dd>
         <dt>Risk level</dt><dd><span class="badge risk">${m.risk.level}</span> ${esc(m.risk.category)}</dd>
         <dt>Decides</dt><dd><code>${esc(p.primary)}</code>: ${d.labels.map((l) => `<code>${esc(l)}</code>`).join(", ")}</dd>
         <dt>Automates</dt><dd>${automationText(d, governance)}</dd>
         <dt>CDS Hooks</dt><dd>${d.cds_service ? `service <code>${esc(d.cds_service)}</code> on <code>${esc(m.cds_hooks.hook)}</code>` : "none"}</dd>
-        <dt>Publisher</dt><dd>${esc(m.publisher.name)} <span class="muted">(${esc(m.publisher.type)})</span></dd>
+        <dt>Publisher</dt><dd>${esc(m.publisher.name)} <span class="muted">(${esc(m.publisher.type)}, self-declared)</span></dd>
         <dt>Version</dt><dd><span class="mono">${esc(m.id)}</span> v${esc(m.version)} · ${esc(m.license)}</dd>
         <dt>Digest</dt><dd class="digest"><code class="break-anywhere">${esc(d.digest)}</code>
           <button type="button" class="icon-button" data-copy="${esc(d.digest)}" aria-label="Copy the digest">${icon("copy")}</button></dd>
@@ -136,7 +139,7 @@ views.card = async (main, params) => {
       <h2 id="card-policy-title">Policy</h2>
       <p class="prose muted">Rules are checked in order and the first that matches decides; otherwise the confidence thresholds do.
         An automated outcome is then held for a person if its label is never automated, a provider failed, a required provider
-        isn't deployed, or the risk level forbids it.</p>
+        isn't deployed, the risk level forbids it, or the pack is a community pack.</p>
       <ol class="rules">${p.rules.map((r) => `<li>
         <div class="row"><b>${esc(r.name)}</b> ${outcomeBadge(r.outcome)} ${r.priority ? priorityBadge(r.priority) : ""}
           ${r.recommendation ? `<span>→ <code>${esc(r.recommendation)}</code></span>` : ""}</div>
@@ -150,7 +153,7 @@ views.card = async (main, params) => {
 
     <section class="card-section" id="card-approval" aria-labelledby="card-approval-title">
       <h2 id="card-approval-title">Automation approval</h2>
-      ${approvalSection(governance)}
+      ${approvalSection(governance, d)}
     </section>
 
     <section class="card-section" id="card-deployments" aria-labelledby="card-deployments-title">
@@ -188,7 +191,8 @@ views.card = async (main, params) => {
 
 // What the pack's risk level allows, the approval in force, and (for people who may approve)
 // approving or revoking. An approval is for this exact pack: a new version needs a new one.
-function approvalSection(g) {
+function approvalSection(g, d) {
+  if (isCommunity(d)) return `<p class="prose">A community pack is never automated, and no approval can change that: a person confirms every decision.</p>`;
   if (g.risk_level >= 4) return `<p class="prose">Risk level 4: never automated. No approval can change that.</p>`;
   if (!g.approvable) return `<p class="prose">Risk level ${g.risk_level}: automates within its thresholds. No approval is needed.</p>`;
   const active = g.active

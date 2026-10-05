@@ -48,6 +48,7 @@ nav:
   - Home: index.md
   - Guides:
       - Writing a Decision Pack: guides/authoring-a-pack.md
+      - Contributing a community pack: guides/contributing-a-pack.md
       - Using the API: guides/api.md
       - Deploying with real patient data: deploying-with-phi.md
   - Reference:
@@ -64,5 +65,6 @@ nav:
       - "ADR-0004: Machine access, tokens and scopes": decisions/ADR-0004-machine-access-tokens-and-scopes.md
       - "ADR-0005: Hardening before PHI": decisions/ADR-0005-hardening-before-phi.md
       - "ADR-0006: An EHR launch is a principal": decisions/ADR-0006-an-ehr-launch-is-a-principal.md
+      - "ADR-0007: Community packs by pull request": decisions/ADR-0007-community-packs-by-pull-request.md
   - Project:
       - Roadmap: roadmap.md

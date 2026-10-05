@@ -6,8 +6,9 @@ from collections.abc import Mapping
 from typing import Any
 
 from mendari.core import clock
+from mendari.core.origin import COMMUNITY_AUTOMATION
 from mendari.core.pack import Pack
-from mendari.core.spec import Condition, DeriveRow, Question
+from mendari.core.spec import Condition, DeriveRow, Outcome, Question
 from mendari.evals import leaderboard
 from mendari.evals.render import num, pct
 
@@ -61,18 +62,31 @@ def render_card(pack: Pack) -> str:
     report, report_problem = read_benchmark(pack)
     board, board_problem = leaderboard.read(pack)
     category = f" ({m.risk.category})" if m.risk.category != RISK_NAMES[level] else ""
+    # Where the pack comes from, by origin and never by its manifest: a card written for a pack
+    # of one's own (local) or pulled from a registry claims nothing.
+    source = (
+        [f"| Source | {pack.origin_label} |"]
+        if pack.shown_origin in ("maintained", "community")
+        else []
+    )
+    automation = (
+        COMMUNITY_AUTOMATION
+        if pack.community
+        else RISK_AUTOMATION[level] + _required(m.policy.automation_requires)
+    )
     out: list[str] = [
         f"# Decision Card: {m.name}",
         "",
         f"`{m.id}` · version **{m.version}** · {m.license} · "
-        f"published by {m.publisher.name} ({m.publisher.type})",
+        f"published by {m.publisher.name} ({m.publisher.type}, self-declared)",
         "",
         f"> {m.summary}",
         "",
         "| | |",
         "|---|---|",
+        *source,
         f"| Risk level | **{level}**, {RISK_NAMES[level]}{category} |",
-        f"| Automation | {RISK_AUTOMATION[level]}{_required(m.policy.automation_requires)} |",
+        f"| Automation | {automation} |",
         f"| Pack digest | `{pack.digest}` |",
     ]
     if report:
@@ -117,23 +131,35 @@ def render_card(pack: Pack) -> str:
         "",
         "## Decision policy",
         "",
-        f"- AUTO when `{p.primary}` confidence ≥ **{p.thresholds.auto:.2f}**; human review "
-        f"≥ **{p.thresholds.review:.2f}**; abstain below.",
     ]
-    for label, label_policy in p.labels.items():
-        if not label_policy.allow_auto:
-            out.append(f"- `{label}` is never automated.")
-        elif label_policy.auto_threshold is not None:
-            out.append(f"- `{label}` needs ≥ **{label_policy.auto_threshold:.2f}** for AUTO.")
-    for slot, variants in p.automation_requires.items():
-        running = " or ".join(f"`{variant}`" for variant in variants)
-        out.append(f"- AUTO only while `{slot}` is {running}; otherwise a person reviews.")
+    if pack.community:
+        # Never AUTO, whatever the thresholds say (`core/policy.py`): the card says what runs.
+        out.append(
+            f"- Never automated: a person reviews from `{p.primary}` confidence "
+            f"≥ **{p.thresholds.review:.2f}**; abstain below."
+        )
+    else:
+        out.append(
+            f"- AUTO when `{p.primary}` confidence ≥ **{p.thresholds.auto:.2f}**; human review "
+            f"≥ **{p.thresholds.review:.2f}**; abstain below."
+        )
+        for label, label_policy in p.labels.items():
+            if not label_policy.allow_auto:
+                out.append(f"- `{label}` is never automated.")
+            elif label_policy.auto_threshold is not None:
+                out.append(f"- `{label}` needs ≥ **{label_policy.auto_threshold:.2f}** for AUTO.")
+        for slot, variants in p.automation_requires.items():
+            running = " or ".join(f"`{variant}`" for variant in variants)
+            out.append(f"- AUTO only while `{slot}` is {running}; otherwise a person reviews.")
     for rule in p.rules:
         target = f" → `{rule.recommendation}`" if rule.recommendation else ""
         priority = f", priority `{rule.priority.value}`" if rule.priority else ""
+        outcome = rule.outcome
+        if pack.community and outcome in (Outcome.AUTO, Outcome.BLOCK):
+            outcome = Outcome.HUMAN_REVIEW  # what the policy makes of it for a community pack
         out.append(
             f"- Rule **{rule.name}**: {_condition(rule.when)} ⇒ "
-            f"`{rule.outcome.value}`{target}{priority}. {rule.reason}"
+            f"`{outcome.value}`{target}{priority}. {rule.reason}"
         )
     out += [f"- Fallback (ABSTAIN / BLOCK): {p.fallback}", "", "## Providers", ""]
     out += ["| Slot | Answers | Default | Alternatives |", "|---|---|---|---|"]

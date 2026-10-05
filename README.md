@@ -76,7 +76,27 @@ sandbox payer need; `uv sync` includes it. Vercel runs the ASGI app directly and
 1. the folders in `MENDARI_PACKS_PATH`, separated by `:` (`;` on Windows), each searched for
    `pack.yaml` files up to four levels deep;
 2. packs pulled from a registry (`mendari pull`, verified, cached in `~/.cache/mendari/packs`);
-3. the reference packs that come with Mendari (`packs/` in a clone).
+3. the reference packs that come with Mendari (`packs/` in a clone);
+4. with `MENDARI_COMMUNITY_PACKS=on` (default off), the community packs in a clone's
+   `community-packs/`, each at `community-packs/<name>/pack.yaml` with id `community/<name>`.
+   A community pack recommends and never automates, is at most risk level 1, keeps only a hash
+   of its inputs, and decides with local providers unless a provider setting names it
+   (`community/<name>:slot=variant`); its pinned model and `max_tokens` give way to the
+   deployment's. Wherever it shows (`/api/packs`, the dashboard, Try it, the review queue, the
+   SMART patient view, its Decision Card, CDS Hooks discovery and cards, its FHIR CodeSystems,
+   the `/docs` landing) it is labelled "Community · not clinically reviewed"; the reference
+   packs say "Maintained by Mendari". How to contribute
+   one is in the guide
+   [Contributing a community pack](https://github.com/Junebugg1214/mendari/blob/main/docs/guides/contributing-a-pack.md),
+   and what CI checks (`mendari community-check`) in
+   [community-packs/README.md](https://github.com/Junebugg1214/mendari/blob/main/community-packs/README.md).
+
+When several packs on the path have one id, the newest version is served (a pack pulled from a
+registry can be newer than the one that came with Mendari). A community pack is the exception:
+its id is `community/<name>`, never one of the reference packs' (`mendari/`, `openhealth/`),
+and a second pack claiming its id is not served, whatever its version; both are listed under
+`invalid` in `/api/health`. A pack anywhere whose id is in `community/` gets the community
+limits.
 
 A pack directory works anywhere too: `mendari test ./my-pack`. To serve your own packs, point
 the path at them: `MENDARI_PACKS_PATH=./my-packs uv run mendari serve`. On a server,
@@ -515,6 +535,10 @@ CI builds it in strict mode, so a broken link fails. It will be hosted once the 
 public. Until then a running server documents itself: `/docs` is the developer landing (a
 quickstart in three calls, FHIR, authentication), and `/docs/reference` the full API reference.
 The [API guide](https://github.com/Junebugg1214/mendari/blob/main/docs/guides/api.md) covers the same ground in the site.
+To contribute a pack, read
+[Contributing a community pack](https://github.com/Junebugg1214/mendari/blob/main/docs/guides/contributing-a-pack.md);
+why community packs work as they do is
+[ADR-0007](https://github.com/Junebugg1214/mendari/blob/main/docs/decisions/ADR-0007-community-packs-by-pull-request.md).
 
 ## Security
 
@@ -926,7 +950,8 @@ FastAPI function (`[tool.vercel] entrypoint = "mendari.server.vercel:app"`).
    runtime with the deployment's OIDC identity; it is never stored in the project's environment
    variables. `MENDARI_PROVIDERS` changes any slot, for every pack or scoped to one
    (`mendari/ai-guard:screen=rules_and_llm`); a setting a pack cannot use is skipped and listed
-   in `/api/health`.
+   in `/api/health`. An unscoped setting, or a Jev default, never applies to a community pack:
+   only a setting that names it does.
 3. Turn on sign-in for Production ([Sign-in for organizations](#sign-in-for-organizations);
    the project uses Google, set for Production only). Until the launch, also set Vercel
    Authentication to protect **all deployments**: previews run without sign-in, and the default
@@ -949,8 +974,8 @@ mode; then Vercel Authentication lifted.
 the `X-Request-Id` a user quotes; on Vercel it is the `x-vercel-id`). Vercel keeps them for a
 day on Pro (an hour on Hobby); a log drain keeps them longer.
 
-`/api/health` reports the storage backend, active providers, Jev configuration and today's Jev
-usage (never secrets). With sign-in on, only a principal that may read (someone signed in, or a
+`/api/health` reports the storage backend, the packs (and how many are maintained or
+community), active providers, Jev configuration and today's Jev usage (never secrets). With sign-in on, only a principal that may read (someone signed in, or a
 key) sees them; anyone else gets `status`, `version` and `sign_in`, enough for a load balancer.
 On a preview without sign-in `vercel curl` shows everything; with sign-in on, open
 `/api/health` in a browser signed in to the dashboard. The FHIR sandbox (HAPI) stays in local
@@ -985,7 +1010,8 @@ src/mendari/
 ├── server/      FastAPI app (REST, FHIR, CDS Hooks, review, audit, evals)
 ├── dashboard/   developer dashboard: HTML, CSS and ES modules, no dependencies or build step
 └── sandbox/     synthetic data generator, FHIR seed/worker, demo
-packs/           reference Decision Packs
+packs/           reference Decision Packs (maintained by Mendari)
+community-packs/ community Decision Packs, contributed by pull request (MAINTAINERS.yaml)
 datasets/        example "local site" dataset for validation
 docs/            spec, guides, architecture, ADRs (the documentation site)
 notes/           project notes: milestone plans, design and audit reviews, the build log

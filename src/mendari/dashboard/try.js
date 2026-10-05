@@ -3,7 +3,7 @@
 import { chartHtml } from "./charts.js";
 import { feedbackControls } from "./feedback.js";
 import { schemaForm, wireSchemaForm } from "./form.js";
-import { criteriaTable, derivedPrimary, isMessagePack, labelTone, providerWords, questionText } from "./pack.js";
+import { communityNotice, criteriaTable, derivedPrimary, isMessagePack, labelTone, providerWords, questionText } from "./pack.js";
 import { refreshReviewCount, views, wire } from "./router.js";
 import { $, api, emptyState, esc, focusHeading, icon, may, num, packPath, pct, PRIORITY_TEXT, state, storageGet, storageSet, toastError, whileBusy } from "./ui.js";
 
@@ -34,6 +34,7 @@ async function tryRecord(main) {
   main.innerHTML = `
     <h1>Try it</h1>
     <p class="muted">Synthetic records only; decisions here are recorded. Start from one of the pack's tests and change any field.</p>
+    ${communityNotice(state.detail)}
     <div class="panel">
       <div class="row mb-3">
         <label for="example">Example</label>
@@ -114,19 +115,41 @@ async function tryRecord(main) {
   });
 }
 
+// Whether an object schema takes `key`: it declares it, or it is open (no
+// `additionalProperties: false`). A schema not given (none for that object) is open.
+const takes = (schema, key) => !schema || Boolean(schema.properties?.[key]) || schema.additionalProperties !== false;
+
+// The message form's fields the pack's input schema takes: a closed schema refuses anything else
+// (the community scaffold's takes a message body and subject only), so the form shows and sends
+// only these.
+function messageFields() {
+  const root = state.detail.input_schema ?? {};
+  const message = root.properties?.message;
+  const patient = root.properties?.patient;
+  const hasPatient = takes(root, "patient");
+  return {
+    subject: takes(message, "subject"),
+    channel: takes(message, "channel"),
+    language: hasPatient && takes(patient, "preferred_language"),
+    age: hasPatient && takes(patient, "age_band"),
+  };
+}
+
 async function tryMessage(main) {
+  const fields = messageFields();
   main.innerHTML = `
     <h1>Try it</h1>
     <p class="muted">Synthetic messages only; decisions here are recorded.</p>
+    ${communityNotice(state.detail)}
     <div class="panel">
       <div class="choices samples mb-3" role="group" aria-label="Sample messages"><span class="muted">Samples</span>
         ${SAMPLES.map((s, i) => `<button type="button" data-sample="${i}">${esc(s.label)}</button>`).join("")}</div>
-      <label for="subject">Subject</label><input id="subject" class="field-full">
+      ${fields.subject ? `<label for="subject">Subject</label><input id="subject" class="field-full">` : ""}
       <label for="body">Message</label><textarea id="body"></textarea>
       <div class="row mt-3">
-        <label>Channel <select id="channel"><option>portal</option><option>sms</option><option>email</option></select></label>
-        <label>Language <select id="language"><option>en</option><option>es</option></select></label>
-        <label>Age band <select id="age"><option value="">unknown</option><option>0-17</option><option>18-39</option><option>40-64</option><option>65+</option></select></label>
+        ${fields.channel ? `<label>Channel <select id="channel"><option>portal</option><option>sms</option><option>email</option></select></label>` : ""}
+        ${fields.language ? `<label>Language <select id="language"><option>en</option><option>es</option></select></label>` : ""}
+        ${fields.age ? `<label>Age band <select id="age"><option value="">unknown</option><option>0-17</option><option>18-39</option><option>40-64</option><option>65+</option></select></label>` : ""}
         <span class="grow"></span>
         <button class="primary" id="decide">Decide</button>
       </div>
@@ -134,17 +157,25 @@ async function tryMessage(main) {
     <div id="result"></div>`;
   main.querySelectorAll("button[data-sample]").forEach((b) => b.addEventListener("click", () => {
     const s = SAMPLES[Number(b.dataset.sample)];
-    $("#subject").value = s.subject; $("#body").value = s.body;
-    $("#channel").value = s.channel || "portal"; $("#language").value = s.language || "en";
+    $("#body").value = s.body;
+    if (fields.subject) $("#subject").value = s.subject;
+    if (fields.channel) $("#channel").value = s.channel || "portal";
+    if (fields.language) $("#language").value = s.language || "en";
   }));
   $("#decide").addEventListener("click", (e) => {
-    const message = { body: $("#body").value, channel: $("#channel").value };
-    if ($("#subject").value.trim()) message.subject = $("#subject").value.trim();
-    const patient = { preferred_language: $("#language").value };
-    if ($("#age").value) patient.age_band = $("#age").value;
+    const message = { body: $("#body").value };
+    if (fields.channel) message.channel = $("#channel").value;
+    if (fields.subject && $("#subject").value.trim()) message.subject = $("#subject").value.trim();
+    const input = { message };
+    if (fields.language || fields.age) {
+      const patient = {};
+      if (fields.language) patient.preferred_language = $("#language").value;
+      if (fields.age && $("#age").value) patient.age_band = $("#age").value;
+      input.patient = patient;
+    }
     return whileBusy(e.currentTarget, "Deciding…", async () => {
       try {
-        showResult(await api(`${packPath()}/decide`, { method: "POST", body: JSON.stringify({ message, patient }) }));
+        showResult(await api(`${packPath()}/decide`, { method: "POST", body: JSON.stringify(input) }));
       } catch (error) {
         toastError(error.message);
       }

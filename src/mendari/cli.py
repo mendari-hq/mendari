@@ -15,7 +15,7 @@ from mendari.core.audit import AuditStore
 from mendari.core.decision import Decision
 from mendari.core.pack import Pack
 from mendari.core.registry import discover, resolve_pack
-from mendari.errors import MendariError, PackValidationError
+from mendari.errors import MendariError
 from mendari.sandbox import example_datasets_dir
 from mendari.settings import (
     daily_limits,
@@ -38,7 +38,7 @@ def _providers(pack: Pack, settings: dict[str, str]) -> dict[str, str]:
     """The settings that apply to this pack; a setting that names it but cannot apply is an
     error here (it was typed on purpose), where the server only reports it."""
     slots = {slot: set(spec.variants) for slot, spec in pack.manifest.providers.items()}
-    chosen, skipped = providers_for(pack.id, slots, settings)
+    chosen, skipped = providers_for(pack.id, slots, settings, community=pack.community)
     if skipped:
         raise MendariError(f"provider settings that do not apply to {pack.id}: {skipped}")
     return chosen
@@ -64,41 +64,12 @@ def cmd_list(args: argparse.Namespace) -> int:
 
 
 def cmd_validate(args: argparse.Namespace) -> int:
+    from mendari.evals.pack_tests import validate_pack
+
     pack = resolve_pack(args.pack)
-    from mendari.providers import build_provider
-
-    for slot, spec in pack.manifest.providers.items():
-        for variant in spec.variants:
-            build_provider(pack, slot, variant)
-    if pack.manifest.inputs.fhir:
-        from mendari.standards.fhir import FhirAdapter
-
-        FhirAdapter.for_pack(pack)  # parse and check the mapping, not only that it exists
-    problems = _test_input_problems(pack)
-    if problems:
-        raise PackValidationError(pack.id, problems)
+    validate_pack(pack)
     print(f"ok  {pack.ref}  {pack.digest}")
     return 0
-
-
-def _test_input_problems(pack: Pack) -> list[str]:
-    """Behaviour-test inputs must match the input schema, unless the test expects a BLOCK;
-    otherwise the test decides a BLOCK and fails confusingly (e.g. unquoted YAML flow-mapping
-    text split into extra keys)."""
-    from mendari.core import input_schema
-    from mendari.evals.pack_tests import load_cases
-
-    validator = input_schema.validator(pack.input_schema, formats=False)
-    problems = []
-    for number, case in enumerate(load_cases(pack), start=1):
-        if (case.get("expect") or {}).get("outcome") == "BLOCK":
-            continue  # a test of the input contract itself
-        for error in validator.iter_errors(case.get("input")):
-            problems.append(
-                f"{pack.manifest.tests} case {number} ({case.get('name', 'unnamed')}): "
-                f"input {error.message}"
-            )
-    return problems
 
 
 def cmd_test(args: argparse.Namespace) -> int:
@@ -183,37 +154,21 @@ def cmd_eval(args: argparse.Namespace) -> int:
 
 
 def cmd_train(args: argparse.Namespace) -> int:
-    from mendari.evals import resolve_dataset
-    from mendari.providers import naive_bayes
+    from mendari.evals.training import train_naive_bayes
 
     pack = resolve_pack(args.pack, missing_models_ok=True)
-    trained = 0
-    for slot, spec in pack.manifest.providers.items():
-        if args.slot and slot != args.slot:
-            continue
-        for name, variant in spec.variants.items():
-            config = variant.model_extra or {}
-            if variant.type != "naive_bayes":
-                continue
-            (question,) = spec.answers
-            model = naive_bayes.train(
-                resolve_dataset(pack, args.train).records,
-                calibration=resolve_dataset(pack, args.calibration).records,
-                question=question,
-                labels=pack.manifest.labels(question),
-                text_fields=config.get("text_fields", ["message.subject", "message.body"]),
-            )
-            target = pack.path(config["model_file"])
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(json.dumps(model, separators=(",", ":")) + "\n", encoding="utf-8")
-            calibration = model["training"]["calibration"]
-            print(
-                f"{slot}/{name}: {model['training']['examples']} examples, "
-                f"vocabulary {model['training']['vocabulary']}, temperature {model['temperature']} "
-                f"(calibration NLL {calibration['nll_before']} -> {calibration['nll_after']}) "
-                f"-> {target.relative_to(pack.root)}"
-            )
-            trained += 1
+    trained = train_naive_bayes(
+        pack, train=args.train, calibration=args.calibration, slot=args.slot
+    )
+    for item in trained:
+        training = item.model["training"]
+        calibration = training["calibration"]
+        print(
+            f"{item.slot}/{item.variant}: {training['examples']} examples, "
+            f"vocabulary {training['vocabulary']}, temperature {item.model['temperature']} "
+            f"(calibration NLL {calibration['nll_before']} -> {calibration['nll_after']}) "
+            f"-> {item.path.relative_to(pack.root)}"
+        )
     if not trained:
         raise MendariError("no naive_bayes variants to train")
     return 0
@@ -915,42 +870,106 @@ def cmd_notes_erase(args: argparse.Namespace) -> int:
 
 
 TEMPLATE = Path(__file__).resolve().parent / "templates" / "new_pack"
+# Laid over TEMPLATE by `mendari new --community`: the community defaults.
+COMMUNITY_TEMPLATE = Path(__file__).resolve().parent / "templates" / "community_pack"
 # A URL, not a path: `mendari new` runs anywhere, mostly outside a checkout of the repository.
 AUTHORING_GUIDE = (
     "https://github.com/Junebugg1214/mendari/blob/main/docs/guides/authoring-a-pack.md"
 )
+COMMUNITY_GUIDE = (
+    "https://github.com/Junebugg1214/mendari/blob/main/docs/guides/contributing-a-pack.md"
+)
 
 
 def cmd_new(args: argparse.Namespace) -> int:
-    """A new pack from the template: YAML only, and it validates, tests and evaluates as it is."""
+    """A new pack from the template: YAML only, and it validates, tests and evaluates as it is.
+    With `--community`, a community pack (`community-packs/<name>`, id `community/<name>`) that
+    also passes `mendari community-check`, its benchmark and card written."""
+    from mendari.core.origin import COMMUNITY_NAME, COMMUNITY_NAMESPACE
     from mendari.core.spec import _PACK_ID
 
     target = Path(args.dir)
     if target.exists() and any(target.iterdir()):
         raise MendariError(f"{target} exists and is not empty")
-    if not _PACK_ID.match(args.id):
+    pack_id = args.id
+    if args.community:
+        folder = target.resolve().name
+        if not COMMUNITY_NAME.match(folder):
+            raise MendariError(
+                f"a community pack's folder name is lowercase letters, digits and dashes, "
+                f"not {folder!r}"
+            )
+        expected = f"{COMMUNITY_NAMESPACE}/{folder}"
+        if pack_id not in (None, expected):
+            raise MendariError(f"a community pack in {folder}/ has the id {expected}")
+        pack_id = expected
+    if pack_id is None:
+        raise MendariError("--id is required: namespace/name, e.g. my-clinic/refill-router")
+    if not _PACK_ID.match(pack_id):
         raise MendariError("--id must look like 'namespace/name' (lowercase, digits, dashes)")
-    name = args.name or args.id.split("/", 1)[1].replace("-", " ").capitalize()
-    values = {"{{id}}": args.id, "{{name}}": name, "{{publisher}}": args.publisher}
-    for source in sorted(TEMPLATE.rglob("*")):
-        if not source.is_file():
-            continue
-        text = source.read_text(encoding="utf-8")
-        for placeholder, value in values.items():
-            text = text.replace(placeholder, value)
-        destination = target / source.relative_to(TEMPLATE)
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(text, encoding="utf-8")
-    print(f"{args.id} created in {target}. Next:")
-    for step in (
-        f"mendari validate {target}",
-        f"mendari test {target}",
-        f"mendari eval {target} --dataset examples",
-        f"mendari card {target} --write",
-    ):
+    name = args.name or pack_id.split("/", 1)[1].replace("-", " ").capitalize()
+    values = {"{{id}}": pack_id, "{{name}}": name, "{{publisher}}": args.publisher}
+    templates = [TEMPLATE, COMMUNITY_TEMPLATE] if args.community else [TEMPLATE]
+    for template in templates:
+        for source in sorted(template.rglob("*")):
+            if not source.is_file():
+                continue
+            text = source.read_text(encoding="utf-8")
+            for placeholder, value in values.items():
+                text = text.replace(placeholder, value)
+            destination = target / source.relative_to(template)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_text(text, encoding="utf-8")
+    if args.community:
+        _publish_benchmark(target)
+    print(f"{pack_id} created in {target}. Next:")
+    steps = [f"mendari validate {target}", f"mendari test {target}"]
+    if args.community:
+        benchmark = f"{target}/evals/benchmark.json"
+        steps += [
+            f"mendari eval {target} --dataset examples --baseline none --out {benchmark}",
+            f"mendari card {target} --write",
+            f"add {{id: {pack_id}, maintainers: [your-github-name]}} to "
+            "community-packs/MAINTAINERS.yaml",
+            f"mendari community-check {target} --base origin/main",
+        ]
+    else:
+        steps += [
+            f"mendari eval {target} --dataset examples",
+            f"mendari card {target} --write",
+        ]
+    for step in steps:
         print(f"  {step}")
     print(f"The guide: {AUTHORING_GUIDE}")
+    if args.community:
+        print(f"Contributing it: {COMMUNITY_GUIDE}")
     return 0
+
+
+def _publish_benchmark(target: Path) -> None:
+    """Write a new pack's benchmark (`evaluation.benchmark`) and Decision Card, as `mendari
+    eval --baseline none --out` and `mendari card --write` would."""
+    from mendari.core.card import render_card
+    from mendari.core.pack import load_pack
+    from mendari.evals import evaluate, resolve_dataset
+
+    pack = load_pack(target, origin="community")
+    evaluation = pack.manifest.evaluation
+    assert evaluation.benchmark and evaluation.benchmark_dataset
+    report = evaluate(Decision(pack), resolve_dataset(pack, evaluation.benchmark_dataset))
+    destination = target / evaluation.benchmark
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    pack = load_pack(target, origin="community")
+    (target / "DECISION_CARD.md").write_text(render_card(pack), encoding="utf-8")
+
+
+def cmd_community_check(args: argparse.Namespace) -> int:
+    from mendari.community.check import check
+
+    report = check(args.dir, base=args.base)
+    print(report.markdown() if args.markdown else report.text())
+    return 0 if report.passed else 1
 
 
 def cmd_demo(args: argparse.Namespace) -> int:
@@ -1403,10 +1422,29 @@ def build_parser() -> argparse.ArgumentParser:
 
     new = sub.add_parser("new", help="start a new pack from a template (YAML only)")
     new.add_argument("dir", help="an empty or new directory")
-    new.add_argument("--id", required=True, help="namespace/name, e.g. my-clinic/refill-router")
+    new.add_argument("--id", help="namespace/name, e.g. my-clinic/refill-router")
     new.add_argument("--name", help="a display name (default: from the id)")
     new.add_argument("--publisher", default="Your organization", help="who publishes it")
+    new.add_argument(
+        "--community",
+        action="store_true",
+        help="a community pack for community-packs/<name> (id community/<name>), with the "
+        "defaults community-check asks for",
+    )
     new.set_defaults(handler=cmd_new)
+
+    community = sub.add_parser(
+        "community-check",
+        help="the checks CI runs on a community pack (community-packs/<name>), with what to fix",
+    )
+    community.add_argument("dir", help="the pack's folder, community-packs/<name>")
+    community.add_argument(
+        "--base",
+        help="a git commit to compare with (e.g. origin/main): also checks the change's scope, "
+        "the version bump and regressions",
+    )
+    community.add_argument("--markdown", action="store_true", help="print Markdown (CI summary)")
+    community.set_defaults(handler=cmd_community_check)
 
     sub.add_parser("demo", help="offline end-to-end demo on synthetic data").set_defaults(
         handler=cmd_demo

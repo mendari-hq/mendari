@@ -1,0 +1,8 @@
+text_fields: [message]
+questions:
+  topic:
+    default: other
+    default_score: 1.0
+    labels:
+      billing: [{name: bill, pattern: "bill|invoice|payment|insurance", weight: 8}]
+      scheduling: [{name: visit, pattern: "appointment|reschedule|cancel", weight: 8}]

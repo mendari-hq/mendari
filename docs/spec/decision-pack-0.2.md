@@ -41,7 +41,7 @@ id: namespace/name            # lowercase, digits, dashes
 version: 1.2.3                # semantic version, at most 64 characters
 name: Human-readable name
 summary: One or two sentences.
-publisher: {name: ..., type: community | verified | institutional, url: ...}
+publisher: {name: ..., type: community | verified | institutional, url: ...}  # self-declared
 license: SPDX identifier
 risk: {level: 0-4, category: ..., rationale: ...}
 card:

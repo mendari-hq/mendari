@@ -1,11 +1,12 @@
 # Decision Card: Patient Inbox Router
 
-`mendari/patient-inbox-router` · version **0.4.0** · Apache-2.0 · published by Mendari reference packs (community)
+`mendari/patient-inbox-router` · version **0.4.0** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
 
 > Routes patient portal and SMS messages to the front desk, a medical assistant, a nurse, a physician or billing, and escalates possible emergencies to stat nurse triage.
 
 | | |
 |---|---|
+| Source | Maintained by Mendari |
 | Risk level | **0**, administrative |
 | Automation | AUTO permitted by policy thresholds. Only while `safety_screen` is `rules_and_jev` or `rules_and_llm`; otherwise a person reviews. |
 | Pack digest | `sha256:e93267a3f04709af9f3e2897d3162cab48761db060e9655b06c8714fd030df45` |

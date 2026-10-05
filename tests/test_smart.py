@@ -219,8 +219,12 @@ def test_each_launch_names_itself_and_the_window_it_opens(app: TestClient, ehr: 
     one = app.get("/api/smart/session").json()
     assert first.headers["location"].endswith(f"#patient/{one['launch_id']}")
     assert re.fullmatch(r"[0-9a-f]{16}", one["launch_id"])
-    listed = {pack["id"]: pack["name"] for pack in app.get("/api/packs").json()}
-    assert one["packs"] == [{"id": i, "name": n} for i, n in sorted(listed.items())]
+    listed = {pack["id"]: pack for pack in app.get("/api/packs").json()}
+    # With the label the patient view shows (a community pack says so where a person decides).
+    assert one["packs"] == [
+        {"id": i, "name": p["name"], "origin": p["origin"], "origin_label": p["origin_label"]}
+        for i, p in sorted(listed.items())
+    ]
     second = full_launch(app, ehr)
     two = app.get("/api/smart/session").json()
     assert two["launch_id"] != one["launch_id"]
@@ -856,7 +860,13 @@ def test_a_launch_opens_the_dashboard_page_and_nothing_else(
     location = full_launch(app, a).headers["location"]
     session = app.get("/api/smart/session").json()
     assert location == f"{APP}/?pack={REFERRAL}#patient/{session['launch_id']}"
-    assert {"id": REFERRAL, "name": "Referral Router"} in session["packs"]
+    referral = {
+        "id": REFERRAL,
+        "name": "Referral Router",
+        "origin": "maintained",
+        "origin_label": "Maintained by Mendari",
+    }
+    assert referral in session["packs"]
     assert app.get("/", follow_redirects=False).status_code == 200
     for path in ("/api/audit", "/api/packs", "/api/review", "/openapi.json"):
         assert app.get(path).status_code == 401, path

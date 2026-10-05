@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from mendari.core import input_schema
 from mendari.core.decision import Decision
 from mendari.core.pack import Pack, not_json
 from mendari.errors import PackValidationError
@@ -53,6 +54,40 @@ def _case_problem(case: Any) -> str | None:
         return "`expect.outcome_in` must be a list"
     what = not_json(case)
     return None if what is None else f"not JSON, it holds {what}"
+
+
+def validate_pack(pack: Pack) -> None:
+    """`mendari validate`: every provider variant builds, the FHIR mapping (if any) loads, and
+    the behaviour tests' inputs match the input schema; a `PackValidationError` otherwise."""
+    from mendari.providers import build_provider
+
+    for slot, spec in pack.manifest.providers.items():
+        for variant in spec.variants:
+            build_provider(pack, slot, variant)
+    if pack.manifest.inputs.fhir:
+        from mendari.standards.fhir import FhirAdapter
+
+        FhirAdapter.for_pack(pack)  # parse and check the mapping, not only that it exists
+    problems = input_problems(pack)
+    if problems:
+        raise PackValidationError(pack.id, problems)
+
+
+def input_problems(pack: Pack) -> list[str]:
+    """Behaviour-test inputs must match the input schema, unless the test expects a BLOCK;
+    otherwise the test decides a BLOCK and fails confusingly (e.g. unquoted YAML flow-mapping
+    text split into extra keys)."""
+    validator = input_schema.validator(pack.input_schema, formats=False)
+    problems = []
+    for number, case in enumerate(load_cases(pack), start=1):
+        if (case.get("expect") or {}).get("outcome") == "BLOCK":
+            continue  # a test of the input contract itself
+        for error in validator.iter_errors(case.get("input")):
+            problems.append(
+                f"{pack.manifest.tests} case {number} ({case.get('name', 'unnamed')}): "
+                f"input {error.message}"
+            )
+    return problems
 
 
 def run_pack_tests(decision: Decision) -> list[CaseOutcome]:

@@ -1,0 +1,6 @@
+- name: a question about a bill is about billing
+  input: {message: I have a question about my last bill.}
+  expect: {recommendation: billing, answers: {topic: billing}}
+- name: moving a visit is scheduling
+  input: {message: "Can I reschedule my appointment to Friday?"}
+  expect: {recommendation: scheduling, answers: {topic: scheduling}}

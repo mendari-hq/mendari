@@ -204,7 +204,7 @@ def pull(ref: str, client: RegistryClient, *, accept_new_key: bool = False) -> P
     if (target / _MARKER).is_file() and (target / _MARKER).read_text().strip() == meta[
         "archive_sha256"
     ]:
-        pack = load_pack(target)
+        pack = load_pack(target, origin="hub")
         if pack.digest == meta["digest"]:
             return pack
     keys = _trusted_keys(client, namespace, meta["key_id"], accept_new_key=accept_new_key)
@@ -222,7 +222,7 @@ def pull(ref: str, client: RegistryClient, *, accept_new_key: bool = False) -> P
         if target.exists():
             shutil.rmtree(target)
         staged.rename(target)
-    return load_pack(target)
+    return load_pack(target, origin="hub")
 
 
 def _trusted_keys(

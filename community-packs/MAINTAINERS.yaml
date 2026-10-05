@@ -1,0 +1,14 @@
+# Who maintains each community pack, by its id, and the packs removed. A pack's pull request
+# adds its own entry; maintainers are expected to answer safety issues about it within 14 days.
+#
+#   - id: community/<name>
+#     maintainers: [<github-user>, ...]
+#
+# A removed pack stays listed, as a tombstone: its id is never used again, because approvals,
+# CDS service ids and audit records key on it.
+#
+#   - id: community/<name>
+#     maintainers: [<github-user>]
+#     removed: "2026-10-04"
+#     reason: unmaintained
+packs: []
