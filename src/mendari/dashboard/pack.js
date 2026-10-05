@@ -13,7 +13,7 @@ export const originBadge = (pack) => (pack?.origin_label
 
 export const communityNotice = (pack) => (isCommunity(pack)
   ? `<div class="callout community-notice"><b>${esc(pack.origin_label)}.</b> An outside developer contributed this pack,
-      and no clinician has reviewed it for Mendari. It recommends and never automates: a person confirms every decision.</div>`
+      and Mendari has not clinically reviewed it. It recommends and never automates: a person confirms every decision.</div>`
   : "");
 
 // The picker's groups, in this order; one group only, and the picker is a plain list.

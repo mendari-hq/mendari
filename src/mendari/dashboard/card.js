@@ -139,7 +139,7 @@ views.card = async (main, params) => {
       <h2 id="card-policy-title">Policy</h2>
       <p class="prose muted">Rules are checked in order and the first that matches decides; otherwise the confidence thresholds do.
         An automated outcome is then held for a person if its label is never automated, a provider failed, a required provider
-        isn't deployed, the risk level forbids it, or it is a community pack's.</p>
+        isn't deployed, the risk level forbids it, or the pack is a community pack.</p>
       <ol class="rules">${p.rules.map((r) => `<li>
         <div class="row"><b>${esc(r.name)}</b> ${outcomeBadge(r.outcome)} ${r.priority ? priorityBadge(r.priority) : ""}
           ${r.recommendation ? `<span>→ <code>${esc(r.recommendation)}</code></span>` : ""}</div>

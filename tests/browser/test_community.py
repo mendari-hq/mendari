@@ -15,7 +15,7 @@ from playwright.sync_api import Browser, Page, expect
 from mendari.core.registry import SearchPath
 from mendari.server.app import create_app
 from tests.browser.conftest import serving
-from tests.browser.test_dashboard import CONTRAST, show
+from tests.browser.test_dashboard import CONTRAST, PHONE, show
 from tests.conftest import INBOX_DIR, ROOT
 
 pytestmark = pytest.mark.browser
@@ -101,3 +101,13 @@ def test_the_docs_landing_labels_the_community_pack(site: Page) -> None:
     item = site.locator(".docs-cards li", has=site.locator(f'a[href="/?pack={SORTER}#card"]'))
     expect(item.locator(".badge.origin-community")).to_have_text(LABEL)
     expect(site.locator(".docs-cards .badge.origin-community")).to_have_count(1)
+
+
+def test_the_labels_fit_a_phone(site: Page) -> None:
+    site.set_viewport_size(PHONE)
+    _open(site, SORTER, "overview")
+    for view in ("overview", "card", "try"):
+        show(site, view)
+        shown = site.locator("main .badge.origin-community, main .community-notice")
+        expect(shown.first).to_be_visible()
+        assert site.evaluate("document.documentElement.scrollWidth") <= PHONE["width"], view
