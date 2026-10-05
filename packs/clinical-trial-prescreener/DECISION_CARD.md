@@ -243,109 +243,109 @@ Every configuration below ran on the same records. Remote models are named becau
 
 | Configuration | Accuracy | Macro-F1 | ECE | AUTO | False automation | Critical detected | p50 latency | Cost / decision | Errors |
 |---|---|---|---|---|---|---|---|---|---|
-| structured=criteria · notes=jev (jev-1.13.0) | 100.0% | 1.000 | 0.137 | 0.0% | n/a | note_pregnancy=yes 5/5 (0 automated); note_pancreatitis=yes 4/4 (0 automated); note_active_cancer_treatment=yes 3/3 (0 automated); note_recent_cv_event=yes 3/3 (0 automated) | 201 ms | $0.00003 | 0 |
-| structured=criteria · notes=llm (anthropic/claude-haiku-4.5) | 100.0% | 1.000 | 0.081 | 0.0% | n/a | note_pregnancy=yes 5/5 (0 automated); note_pancreatitis=yes 4/4 (0 automated); note_active_cancer_treatment=yes 3/3 (0 automated); note_recent_cv_event=yes 3/3 (0 automated) | 3,957 ms | $0.00376 | 0 |
-| structured=criteria · notes=llm (openai/gpt-oss-120b) | 100.0% | 1.000 | 0.100 | 0.0% | n/a | note_pregnancy=yes 5/5 (0 automated); note_pancreatitis=yes 4/4 (0 automated); note_active_cancer_treatment=yes 3/3 (0 automated); note_recent_cv_event=yes 3/3 (0 automated) | 1,244 ms | $0.00017 | 0 |
-| structured=criteria · notes=rules | 100.0% | 1.000 | 0.169 | 0.0% | n/a | note_pregnancy=yes 5/5 (0 automated); note_pancreatitis=yes 4/4 (0 automated); note_active_cancer_treatment=yes 3/3 (0 automated); note_recent_cv_event=yes 3/3 (0 automated) | 0.30 ms | $0.00000 | 0 |
-| structured=criteria · notes=rules_and_jev (jev-1.13.0) | 100.0% | 1.000 | 0.166 | 0.0% | n/a | note_pregnancy=yes 5/5 (0 automated); note_pancreatitis=yes 4/4 (0 automated); note_active_cancer_treatment=yes 3/3 (0 automated); note_recent_cv_event=yes 3/3 (0 automated) | 219 ms | $0.00003 | 0 |
-| structured=criteria · notes=rules_and_llm (anthropic/claude-haiku-4.5) | 100.0% | 1.000 | 0.162 | 0.0% | n/a | note_pregnancy=yes 5/5 (0 automated); note_pancreatitis=yes 4/4 (0 automated); note_active_cancer_treatment=yes 3/3 (0 automated); note_recent_cv_event=yes 3/3 (0 automated) | 4,477 ms | $0.00384 | 0 |
-| structured=criteria · notes=rules_and_llm (anthropic/claude-sonnet-5) | 100.0% | 1.000 | 0.168 | 0.0% | n/a | note_pregnancy=yes 5/5 (0 automated); note_pancreatitis=yes 4/4 (0 automated); note_active_cancer_treatment=yes 3/3 (0 automated); note_recent_cv_event=yes 3/3 (0 automated) | 2,294 ms | $0.00404 | 0 |
-| structured=criteria · notes=rules_and_llm (openai/gpt-oss-120b) | 100.0% | 1.000 | 0.163 | 0.0% | n/a | note_pregnancy=yes 5/5 (0 automated); note_pancreatitis=yes 4/4 (0 automated); note_active_cancer_treatment=yes 3/3 (0 automated); note_recent_cv_event=yes 3/3 (0 automated) | 1,145 ms | $0.00017 | 0 |
-| structured=criteria · notes=llm (anthropic/claude-sonnet-5) | 96.9% | 0.968 | 0.148 | 0.0% | n/a | note_pregnancy=yes 4/5 (0 automated); note_pancreatitis=yes 4/4 (0 automated); note_active_cancer_treatment=yes 3/3 (0 automated); note_recent_cv_event=yes 3/3 (0 automated) | 2,325 ms | $0.00405 | 0 |
+| structured=criteria · notes=jev (jev-1.13.0) (measured on 0.1.0) | 100.0% | 1.000 | 0.137 | 0.0% | n/a | note_pregnancy=yes 5/5 (0 automated); note_pancreatitis=yes 4/4 (0 automated); note_active_cancer_treatment=yes 3/3 (0 automated); note_recent_cv_event=yes 3/3 (0 automated) | 201 ms | $0.00003 | 0 |
+| structured=criteria · notes=llm (anthropic/claude-haiku-4.5) (measured on 0.1.0) | 100.0% | 1.000 | 0.081 | 0.0% | n/a | note_pregnancy=yes 5/5 (0 automated); note_pancreatitis=yes 4/4 (0 automated); note_active_cancer_treatment=yes 3/3 (0 automated); note_recent_cv_event=yes 3/3 (0 automated) | 3,957 ms | $0.00376 | 0 |
+| structured=criteria · notes=llm (openai/gpt-oss-120b) (measured on 0.1.0) | 100.0% | 1.000 | 0.100 | 0.0% | n/a | note_pregnancy=yes 5/5 (0 automated); note_pancreatitis=yes 4/4 (0 automated); note_active_cancer_treatment=yes 3/3 (0 automated); note_recent_cv_event=yes 3/3 (0 automated) | 1,244 ms | $0.00017 | 0 |
+| structured=criteria · notes=rules (measured on 0.1.0) | 100.0% | 1.000 | 0.169 | 0.0% | n/a | note_pregnancy=yes 5/5 (0 automated); note_pancreatitis=yes 4/4 (0 automated); note_active_cancer_treatment=yes 3/3 (0 automated); note_recent_cv_event=yes 3/3 (0 automated) | 0.30 ms | $0.00000 | 0 |
+| structured=criteria · notes=rules_and_jev (jev-1.13.0) (measured on 0.1.0) | 100.0% | 1.000 | 0.166 | 0.0% | n/a | note_pregnancy=yes 5/5 (0 automated); note_pancreatitis=yes 4/4 (0 automated); note_active_cancer_treatment=yes 3/3 (0 automated); note_recent_cv_event=yes 3/3 (0 automated) | 219 ms | $0.00003 | 0 |
+| structured=criteria · notes=rules_and_llm (anthropic/claude-haiku-4.5) (measured on 0.1.0) | 100.0% | 1.000 | 0.162 | 0.0% | n/a | note_pregnancy=yes 5/5 (0 automated); note_pancreatitis=yes 4/4 (0 automated); note_active_cancer_treatment=yes 3/3 (0 automated); note_recent_cv_event=yes 3/3 (0 automated) | 4,477 ms | $0.00384 | 0 |
+| structured=criteria · notes=rules_and_llm (anthropic/claude-sonnet-5) (measured on 0.1.0) | 100.0% | 1.000 | 0.168 | 0.0% | n/a | note_pregnancy=yes 5/5 (0 automated); note_pancreatitis=yes 4/4 (0 automated); note_active_cancer_treatment=yes 3/3 (0 automated); note_recent_cv_event=yes 3/3 (0 automated) | 2,294 ms | $0.00404 | 0 |
+| structured=criteria · notes=rules_and_llm (openai/gpt-oss-120b) (measured on 0.1.0) | 100.0% | 1.000 | 0.163 | 0.0% | n/a | note_pregnancy=yes 5/5 (0 automated); note_pancreatitis=yes 4/4 (0 automated); note_active_cancer_treatment=yes 3/3 (0 automated); note_recent_cv_event=yes 3/3 (0 automated) | 1,145 ms | $0.00017 | 0 |
+| structured=criteria · notes=llm (anthropic/claude-sonnet-5) (measured on 0.1.0) | 96.9% | 0.968 | 0.148 | 0.0% | n/a | note_pregnancy=yes 4/5 (0 automated); note_pancreatitis=yes 4/4 (0 automated); note_active_cancer_treatment=yes 3/3 (0 automated); note_recent_cv_event=yes 3/3 (0 automated) | 2,325 ms | $0.00405 | 0 |
 
 Other questions (accuracy / ECE):
 
 | Configuration | `note_active_cancer_treatment` | `note_pancreatitis` | `note_pregnancy` | `note_recent_cv_event` |
 |---|---|---|---|---|
-| structured=criteria · notes=jev (jev-1.13.0) | 100.0% / 0.027 | 100.0% / 0.028 | 100.0% / 0.022 | 100.0% / 0.030 |
-| structured=criteria · notes=llm (anthropic/claude-haiku-4.5) | 100.0% / 0.005 | 100.0% / 0.003 | 100.0% / 0.004 | 100.0% / 0.004 |
-| structured=criteria · notes=llm (openai/gpt-oss-120b) | 100.0% / 0.009 | 100.0% / 0.009 | 100.0% / 0.012 | 100.0% / 0.010 |
-| structured=criteria · notes=rules | 100.0% / 0.046 | 100.0% / 0.047 | 100.0% / 0.044 | 100.0% / 0.043 |
-| structured=criteria · notes=rules_and_jev (jev-1.13.0) | 100.0% / 0.046 | 100.0% / 0.044 | 100.0% / 0.042 | 100.0% / 0.043 |
-| structured=criteria · notes=rules_and_llm (anthropic/claude-haiku-4.5) | 100.0% / 0.044 | 100.0% / 0.041 | 100.0% / 0.041 | 100.0% / 0.043 |
-| structured=criteria · notes=rules_and_llm (anthropic/claude-sonnet-5) | 100.0% / 0.046 | 100.0% / 0.046 | 100.0% / 0.044 | 100.0% / 0.043 |
-| structured=criteria · notes=rules_and_llm (openai/gpt-oss-120b) | 100.0% / 0.044 | 100.0% / 0.042 | 100.0% / 0.041 | 100.0% / 0.043 |
-| structured=criteria · notes=llm (anthropic/claude-sonnet-5) | 100.0% / 0.023 | 100.0% / 0.021 | 96.9% / 0.047 | 100.0% / 0.023 |
+| structured=criteria · notes=jev (jev-1.13.0) (measured on 0.1.0) | 100.0% / 0.027 | 100.0% / 0.028 | 100.0% / 0.022 | 100.0% / 0.030 |
+| structured=criteria · notes=llm (anthropic/claude-haiku-4.5) (measured on 0.1.0) | 100.0% / 0.005 | 100.0% / 0.003 | 100.0% / 0.004 | 100.0% / 0.004 |
+| structured=criteria · notes=llm (openai/gpt-oss-120b) (measured on 0.1.0) | 100.0% / 0.009 | 100.0% / 0.009 | 100.0% / 0.012 | 100.0% / 0.010 |
+| structured=criteria · notes=rules (measured on 0.1.0) | 100.0% / 0.046 | 100.0% / 0.047 | 100.0% / 0.044 | 100.0% / 0.043 |
+| structured=criteria · notes=rules_and_jev (jev-1.13.0) (measured on 0.1.0) | 100.0% / 0.046 | 100.0% / 0.044 | 100.0% / 0.042 | 100.0% / 0.043 |
+| structured=criteria · notes=rules_and_llm (anthropic/claude-haiku-4.5) (measured on 0.1.0) | 100.0% / 0.044 | 100.0% / 0.041 | 100.0% / 0.041 | 100.0% / 0.043 |
+| structured=criteria · notes=rules_and_llm (anthropic/claude-sonnet-5) (measured on 0.1.0) | 100.0% / 0.046 | 100.0% / 0.046 | 100.0% / 0.044 | 100.0% / 0.043 |
+| structured=criteria · notes=rules_and_llm (openai/gpt-oss-120b) (measured on 0.1.0) | 100.0% / 0.044 | 100.0% / 0.042 | 100.0% / 0.041 | 100.0% / 0.043 |
+| structured=criteria · notes=llm (anthropic/claude-sonnet-5) (measured on 0.1.0) | 100.0% / 0.023 | 100.0% / 0.021 | 96.9% / 0.047 | 100.0% / 0.023 |
 
 **`exclusions_holdout`** (n=24)
 
 | Configuration | Accuracy | Macro-F1 | ECE | AUTO | False automation | Critical detected | p50 latency | Cost / decision | Errors |
 |---|---|---|---|---|---|---|---|---|---|
-| structured=criteria · notes=jev (jev-1.13.0) | 100.0% | 1.000 | 0.141 | 0.0% | n/a | note_pregnancy=yes 4/4 (0 automated); note_pancreatitis=yes 2/2 (0 automated); note_active_cancer_treatment=yes 3/3 (0 automated); note_recent_cv_event=yes 3/3 (0 automated) | 206 ms | $0.00003 | 0 |
-| structured=criteria · notes=llm (anthropic/claude-haiku-4.5) | 100.0% | 1.000 | 0.074 | 0.0% | n/a | note_pregnancy=yes 4/4 (0 automated); note_pancreatitis=yes 2/2 (0 automated); note_active_cancer_treatment=yes 3/3 (0 automated); note_recent_cv_event=yes 3/3 (0 automated) | 5,141 ms | $0.00399 | 0 |
-| structured=criteria · notes=llm (anthropic/claude-sonnet-5) | 100.0% | 1.000 | 0.121 | 0.0% | n/a | note_pregnancy=yes 4/4 (0 automated); note_pancreatitis=yes 2/2 (0 automated); note_active_cancer_treatment=yes 3/3 (0 automated); note_recent_cv_event=yes 3/3 (0 automated) | 2,304 ms | $0.00403 | 0 |
-| structured=criteria · notes=llm (openai/gpt-oss-120b) | 100.0% | 1.000 | 0.095 | 0.0% | n/a | note_pregnancy=yes 4/4 (0 automated); note_pancreatitis=yes 2/2 (0 automated); note_active_cancer_treatment=yes 3/3 (0 automated); note_recent_cv_event=yes 3/3 (0 automated) | 1,193 ms | $0.00017 | 0 |
-| structured=criteria · notes=rules_and_jev (jev-1.13.0) | 91.7% | 0.916 | 0.185 | 0.0% | n/a | note_pregnancy=yes 4/4 (0 automated); note_pancreatitis=yes 2/2 (0 automated); note_active_cancer_treatment=yes 3/3 (0 automated); note_recent_cv_event=yes 3/3 (0 automated) | 229 ms | $0.00003 | 0 |
-| structured=criteria · notes=rules_and_llm (anthropic/claude-haiku-4.5) | 91.7% | 0.916 | 0.165 | 0.0% | n/a | note_pregnancy=yes 4/4 (0 automated); note_pancreatitis=yes 2/2 (0 automated); note_active_cancer_treatment=yes 3/3 (0 automated); note_recent_cv_event=yes 3/3 (0 automated) | 4,499 ms | $0.00388 | 0 |
-| structured=criteria · notes=rules_and_llm (anthropic/claude-sonnet-5) | 91.7% | 0.916 | 0.177 | 0.0% | n/a | note_pregnancy=yes 4/4 (0 automated); note_pancreatitis=yes 2/2 (0 automated); note_active_cancer_treatment=yes 3/3 (0 automated); note_recent_cv_event=yes 3/3 (0 automated) | 2,312 ms | $0.00403 | 0 |
-| structured=criteria · notes=rules_and_llm (openai/gpt-oss-120b) | 91.7% | 0.916 | 0.169 | 0.0% | n/a | note_pregnancy=yes 4/4 (0 automated); note_pancreatitis=yes 2/2 (0 automated); note_active_cancer_treatment=yes 3/3 (0 automated); note_recent_cv_event=yes 3/3 (0 automated) | 1,127 ms | $0.00017 | 0 |
-| structured=criteria · notes=rules | 79.2% | 0.791 | 0.060 | 0.0% | n/a | note_pregnancy=yes 4/4 (0 automated); note_pancreatitis=yes 1/2 (0 automated); note_active_cancer_treatment=yes 1/3 (0 automated); note_recent_cv_event=yes 2/3 (0 automated) | 0.30 ms | $0.00000 | 0 |
+| structured=criteria · notes=jev (jev-1.13.0) (measured on 0.1.0) | 100.0% | 1.000 | 0.141 | 0.0% | n/a | note_pregnancy=yes 4/4 (0 automated); note_pancreatitis=yes 2/2 (0 automated); note_active_cancer_treatment=yes 3/3 (0 automated); note_recent_cv_event=yes 3/3 (0 automated) | 206 ms | $0.00003 | 0 |
+| structured=criteria · notes=llm (anthropic/claude-haiku-4.5) (measured on 0.1.0) | 100.0% | 1.000 | 0.074 | 0.0% | n/a | note_pregnancy=yes 4/4 (0 automated); note_pancreatitis=yes 2/2 (0 automated); note_active_cancer_treatment=yes 3/3 (0 automated); note_recent_cv_event=yes 3/3 (0 automated) | 5,141 ms | $0.00399 | 0 |
+| structured=criteria · notes=llm (anthropic/claude-sonnet-5) (measured on 0.1.0) | 100.0% | 1.000 | 0.121 | 0.0% | n/a | note_pregnancy=yes 4/4 (0 automated); note_pancreatitis=yes 2/2 (0 automated); note_active_cancer_treatment=yes 3/3 (0 automated); note_recent_cv_event=yes 3/3 (0 automated) | 2,304 ms | $0.00403 | 0 |
+| structured=criteria · notes=llm (openai/gpt-oss-120b) (measured on 0.1.0) | 100.0% | 1.000 | 0.095 | 0.0% | n/a | note_pregnancy=yes 4/4 (0 automated); note_pancreatitis=yes 2/2 (0 automated); note_active_cancer_treatment=yes 3/3 (0 automated); note_recent_cv_event=yes 3/3 (0 automated) | 1,193 ms | $0.00017 | 0 |
+| structured=criteria · notes=rules_and_jev (jev-1.13.0) (measured on 0.1.0) | 91.7% | 0.916 | 0.185 | 0.0% | n/a | note_pregnancy=yes 4/4 (0 automated); note_pancreatitis=yes 2/2 (0 automated); note_active_cancer_treatment=yes 3/3 (0 automated); note_recent_cv_event=yes 3/3 (0 automated) | 229 ms | $0.00003 | 0 |
+| structured=criteria · notes=rules_and_llm (anthropic/claude-haiku-4.5) (measured on 0.1.0) | 91.7% | 0.916 | 0.165 | 0.0% | n/a | note_pregnancy=yes 4/4 (0 automated); note_pancreatitis=yes 2/2 (0 automated); note_active_cancer_treatment=yes 3/3 (0 automated); note_recent_cv_event=yes 3/3 (0 automated) | 4,499 ms | $0.00388 | 0 |
+| structured=criteria · notes=rules_and_llm (anthropic/claude-sonnet-5) (measured on 0.1.0) | 91.7% | 0.916 | 0.177 | 0.0% | n/a | note_pregnancy=yes 4/4 (0 automated); note_pancreatitis=yes 2/2 (0 automated); note_active_cancer_treatment=yes 3/3 (0 automated); note_recent_cv_event=yes 3/3 (0 automated) | 2,312 ms | $0.00403 | 0 |
+| structured=criteria · notes=rules_and_llm (openai/gpt-oss-120b) (measured on 0.1.0) | 91.7% | 0.916 | 0.169 | 0.0% | n/a | note_pregnancy=yes 4/4 (0 automated); note_pancreatitis=yes 2/2 (0 automated); note_active_cancer_treatment=yes 3/3 (0 automated); note_recent_cv_event=yes 3/3 (0 automated) | 1,127 ms | $0.00017 | 0 |
+| structured=criteria · notes=rules (measured on 0.1.0) | 79.2% | 0.791 | 0.060 | 0.0% | n/a | note_pregnancy=yes 4/4 (0 automated); note_pancreatitis=yes 1/2 (0 automated); note_active_cancer_treatment=yes 1/3 (0 automated); note_recent_cv_event=yes 2/3 (0 automated) | 0.30 ms | $0.00000 | 0 |
 
 Other questions (accuracy / ECE):
 
 | Configuration | `note_active_cancer_treatment` | `note_pancreatitis` | `note_pregnancy` | `note_recent_cv_event` |
 |---|---|---|---|---|
-| structured=criteria · notes=jev (jev-1.13.0) | 100.0% / 0.028 | 100.0% / 0.048 | 100.0% / 0.020 | 100.0% / 0.029 |
-| structured=criteria · notes=llm (anthropic/claude-haiku-4.5) | 100.0% / 0.004 | 100.0% / 0.005 | 100.0% / 0.004 | 100.0% / 0.003 |
-| structured=criteria · notes=llm (anthropic/claude-sonnet-5) | 100.0% / 0.023 | 100.0% / 0.022 | 100.0% / 0.022 | 100.0% / 0.027 |
-| structured=criteria · notes=llm (openai/gpt-oss-120b) | 100.0% / 0.013 | 100.0% / 0.011 | 100.0% / 0.014 | 100.0% / 0.013 |
-| structured=criteria · notes=rules_and_jev (jev-1.13.0) | 100.0% / 0.048 | 100.0% / 0.067 | 100.0% / 0.042 | 100.0% / 0.071 |
-| structured=criteria · notes=rules_and_llm (anthropic/claude-haiku-4.5) | 100.0% / 0.042 | 100.0% / 0.048 | 100.0% / 0.041 | 100.0% / 0.069 |
-| structured=criteria · notes=rules_and_llm (anthropic/claude-sonnet-5) | 100.0% / 0.048 | 100.0% / 0.047 | 100.0% / 0.046 | 100.0% / 0.074 |
-| structured=criteria · notes=rules_and_llm (openai/gpt-oss-120b) | 100.0% / 0.046 | 100.0% / 0.046 | 100.0% / 0.042 | 100.0% / 0.070 |
-| structured=criteria · notes=rules | 91.7% / 0.036 | 95.8% / 0.006 | 100.0% / 0.047 | 95.8% / 0.043 |
+| structured=criteria · notes=jev (jev-1.13.0) (measured on 0.1.0) | 100.0% / 0.028 | 100.0% / 0.048 | 100.0% / 0.020 | 100.0% / 0.029 |
+| structured=criteria · notes=llm (anthropic/claude-haiku-4.5) (measured on 0.1.0) | 100.0% / 0.004 | 100.0% / 0.005 | 100.0% / 0.004 | 100.0% / 0.003 |
+| structured=criteria · notes=llm (anthropic/claude-sonnet-5) (measured on 0.1.0) | 100.0% / 0.023 | 100.0% / 0.022 | 100.0% / 0.022 | 100.0% / 0.027 |
+| structured=criteria · notes=llm (openai/gpt-oss-120b) (measured on 0.1.0) | 100.0% / 0.013 | 100.0% / 0.011 | 100.0% / 0.014 | 100.0% / 0.013 |
+| structured=criteria · notes=rules_and_jev (jev-1.13.0) (measured on 0.1.0) | 100.0% / 0.048 | 100.0% / 0.067 | 100.0% / 0.042 | 100.0% / 0.071 |
+| structured=criteria · notes=rules_and_llm (anthropic/claude-haiku-4.5) (measured on 0.1.0) | 100.0% / 0.042 | 100.0% / 0.048 | 100.0% / 0.041 | 100.0% / 0.069 |
+| structured=criteria · notes=rules_and_llm (anthropic/claude-sonnet-5) (measured on 0.1.0) | 100.0% / 0.048 | 100.0% / 0.047 | 100.0% / 0.046 | 100.0% / 0.074 |
+| structured=criteria · notes=rules_and_llm (openai/gpt-oss-120b) (measured on 0.1.0) | 100.0% / 0.046 | 100.0% / 0.046 | 100.0% / 0.042 | 100.0% / 0.070 |
+| structured=criteria · notes=rules (measured on 0.1.0) | 91.7% / 0.036 | 95.8% / 0.006 | 100.0% / 0.047 | 95.8% / 0.043 |
 
 **`test`** (n=100)
 
 | Configuration | Accuracy | Macro-F1 | ECE | AUTO | False automation | Critical detected | p50 latency | Cost / decision | Errors |
 |---|---|---|---|---|---|---|---|---|---|
-| structured=criteria · notes=llm (anthropic/claude-haiku-4.5) | 100.0% | 1.000 | 0.044 | 0.0% | n/a | note_pregnancy=yes 5/5 (0 automated); note_pancreatitis=yes 3/3 (0 automated); note_active_cancer_treatment=yes 7/7 (0 automated); note_recent_cv_event=yes 4/4 (0 automated); egfr_30_or_more=no 12/12 (0 automated); no_recent_cv_event=no 7/7 (0 automated) | 4,254 ms | $0.00375 | 0 |
-| structured=criteria · notes=llm (anthropic/claude-sonnet-5) | 100.0% | 1.000 | 0.065 | 0.0% | n/a | note_pregnancy=yes 5/5 (0 automated); note_pancreatitis=yes 3/3 (0 automated); note_active_cancer_treatment=yes 7/7 (0 automated); note_recent_cv_event=yes 4/4 (0 automated); egfr_30_or_more=no 12/12 (0 automated); no_recent_cv_event=no 7/7 (0 automated) | 2,369 ms | $0.00404 | 0 |
-| structured=criteria · notes=llm (openai/gpt-oss-120b) | 100.0% | 1.000 | 0.054 | 0.0% | n/a | note_pregnancy=yes 5/5 (0 automated); note_pancreatitis=yes 3/3 (0 automated); note_active_cancer_treatment=yes 7/7 (0 automated); note_recent_cv_event=yes 4/4 (0 automated); egfr_30_or_more=no 12/12 (0 automated); no_recent_cv_event=no 7/7 (0 automated) | 1,092 ms | $0.00016 | 0 |
-| structured=criteria · notes=rules | 100.0% | 1.000 | 0.086 | 0.0% | n/a | note_pregnancy=yes 4/5 (0 automated); note_pancreatitis=yes 3/3 (0 automated); note_active_cancer_treatment=yes 7/7 (0 automated); note_recent_cv_event=yes 4/4 (0 automated); egfr_30_or_more=no 12/12 (0 automated); no_recent_cv_event=no 7/7 (0 automated) | 0.31 ms | $0.00000 | 0 |
-| structured=criteria · notes=rules_and_jev (jev-1.13.0) | 100.0% | 1.000 | 0.089 | 0.0% | n/a | note_pregnancy=yes 5/5 (0 automated); note_pancreatitis=yes 3/3 (0 automated); note_active_cancer_treatment=yes 7/7 (0 automated); note_recent_cv_event=yes 4/4 (0 automated); egfr_30_or_more=no 12/12 (0 automated); no_recent_cv_event=no 7/7 (0 automated) | 178 ms | $0.00003 | 0 |
-| structured=criteria · notes=rules_and_llm (anthropic/claude-haiku-4.5) | 100.0% | 1.000 | 0.084 | 0.0% | n/a | note_pregnancy=yes 5/5 (0 automated); note_pancreatitis=yes 3/3 (0 automated); note_active_cancer_treatment=yes 7/7 (0 automated); note_recent_cv_event=yes 4/4 (0 automated); egfr_30_or_more=no 12/12 (0 automated); no_recent_cv_event=no 7/7 (0 automated) | 3,957 ms | $0.00364 | 0 |
-| structured=criteria · notes=rules_and_llm (anthropic/claude-sonnet-5) | 100.0% | 1.000 | 0.086 | 0.0% | n/a | note_pregnancy=yes 5/5 (0 automated); note_pancreatitis=yes 3/3 (0 automated); note_active_cancer_treatment=yes 7/7 (0 automated); note_recent_cv_event=yes 4/4 (0 automated); egfr_30_or_more=no 12/12 (0 automated); no_recent_cv_event=no 7/7 (0 automated) | 2,239 ms | $0.00403 | 0 |
-| structured=criteria · notes=rules_and_llm (openai/gpt-oss-120b) | 100.0% | 1.000 | 0.085 | 0.0% | n/a | note_pregnancy=yes 5/5 (0 automated); note_pancreatitis=yes 3/3 (0 automated); note_active_cancer_treatment=yes 7/7 (0 automated); note_recent_cv_event=yes 4/4 (0 automated); egfr_30_or_more=no 12/12 (0 automated); no_recent_cv_event=no 7/7 (0 automated) | 1,068 ms | $0.00016 | 0 |
+| structured=criteria · notes=llm (anthropic/claude-haiku-4.5) (measured on 0.1.0) | 100.0% | 1.000 | 0.044 | 0.0% | n/a | note_pregnancy=yes 5/5 (0 automated); note_pancreatitis=yes 3/3 (0 automated); note_active_cancer_treatment=yes 7/7 (0 automated); note_recent_cv_event=yes 4/4 (0 automated); egfr_30_or_more=no 12/12 (0 automated); no_recent_cv_event=no 7/7 (0 automated) | 4,254 ms | $0.00375 | 0 |
+| structured=criteria · notes=llm (anthropic/claude-sonnet-5) (measured on 0.1.0) | 100.0% | 1.000 | 0.065 | 0.0% | n/a | note_pregnancy=yes 5/5 (0 automated); note_pancreatitis=yes 3/3 (0 automated); note_active_cancer_treatment=yes 7/7 (0 automated); note_recent_cv_event=yes 4/4 (0 automated); egfr_30_or_more=no 12/12 (0 automated); no_recent_cv_event=no 7/7 (0 automated) | 2,369 ms | $0.00404 | 0 |
+| structured=criteria · notes=llm (openai/gpt-oss-120b) (measured on 0.1.0) | 100.0% | 1.000 | 0.054 | 0.0% | n/a | note_pregnancy=yes 5/5 (0 automated); note_pancreatitis=yes 3/3 (0 automated); note_active_cancer_treatment=yes 7/7 (0 automated); note_recent_cv_event=yes 4/4 (0 automated); egfr_30_or_more=no 12/12 (0 automated); no_recent_cv_event=no 7/7 (0 automated) | 1,092 ms | $0.00016 | 0 |
+| structured=criteria · notes=rules (measured on 0.1.0) | 100.0% | 1.000 | 0.086 | 0.0% | n/a | note_pregnancy=yes 4/5 (0 automated); note_pancreatitis=yes 3/3 (0 automated); note_active_cancer_treatment=yes 7/7 (0 automated); note_recent_cv_event=yes 4/4 (0 automated); egfr_30_or_more=no 12/12 (0 automated); no_recent_cv_event=no 7/7 (0 automated) | 0.31 ms | $0.00000 | 0 |
+| structured=criteria · notes=rules_and_jev (jev-1.13.0) (measured on 0.1.0) | 100.0% | 1.000 | 0.089 | 0.0% | n/a | note_pregnancy=yes 5/5 (0 automated); note_pancreatitis=yes 3/3 (0 automated); note_active_cancer_treatment=yes 7/7 (0 automated); note_recent_cv_event=yes 4/4 (0 automated); egfr_30_or_more=no 12/12 (0 automated); no_recent_cv_event=no 7/7 (0 automated) | 178 ms | $0.00003 | 0 |
+| structured=criteria · notes=rules_and_llm (anthropic/claude-haiku-4.5) (measured on 0.1.0) | 100.0% | 1.000 | 0.084 | 0.0% | n/a | note_pregnancy=yes 5/5 (0 automated); note_pancreatitis=yes 3/3 (0 automated); note_active_cancer_treatment=yes 7/7 (0 automated); note_recent_cv_event=yes 4/4 (0 automated); egfr_30_or_more=no 12/12 (0 automated); no_recent_cv_event=no 7/7 (0 automated) | 3,957 ms | $0.00364 | 0 |
+| structured=criteria · notes=rules_and_llm (anthropic/claude-sonnet-5) (measured on 0.1.0) | 100.0% | 1.000 | 0.086 | 0.0% | n/a | note_pregnancy=yes 5/5 (0 automated); note_pancreatitis=yes 3/3 (0 automated); note_active_cancer_treatment=yes 7/7 (0 automated); note_recent_cv_event=yes 4/4 (0 automated); egfr_30_or_more=no 12/12 (0 automated); no_recent_cv_event=no 7/7 (0 automated) | 2,239 ms | $0.00403 | 0 |
+| structured=criteria · notes=rules_and_llm (openai/gpt-oss-120b) (measured on 0.1.0) | 100.0% | 1.000 | 0.085 | 0.0% | n/a | note_pregnancy=yes 5/5 (0 automated); note_pancreatitis=yes 3/3 (0 automated); note_active_cancer_treatment=yes 7/7 (0 automated); note_recent_cv_event=yes 4/4 (0 automated); egfr_30_or_more=no 12/12 (0 automated); no_recent_cv_event=no 7/7 (0 automated) | 1,068 ms | $0.00016 | 0 |
 
 Other questions (accuracy / ECE):
 
 | Configuration | `note_active_cancer_treatment` | `note_pancreatitis` | `note_pregnancy` | `note_recent_cv_event` |
 |---|---|---|---|---|
-| structured=criteria · notes=llm (anthropic/claude-haiku-4.5) | 100.0% / 0.006 | 100.0% / 0.004 | 100.0% / 0.004 | 100.0% / 0.003 |
-| structured=criteria · notes=llm (anthropic/claude-sonnet-5) | 100.0% / 0.027 | 100.0% / 0.020 | 100.0% / 0.021 | 100.0% / 0.022 |
-| structured=criteria · notes=llm (openai/gpt-oss-120b) | 100.0% / 0.015 | 100.0% / 0.011 | 100.0% / 0.012 | 100.0% / 0.012 |
-| structured=criteria · notes=rules | 100.0% / 0.047 | 99.0% / 0.037 | 99.0% / 0.037 | 100.0% / 0.046 |
-| structured=criteria · notes=rules_and_jev (jev-1.13.0) | 100.0% / 0.055 | 99.0% / 0.037 | 100.0% / 0.046 | 100.0% / 0.047 |
-| structured=criteria · notes=rules_and_llm (anthropic/claude-haiku-4.5) | 100.0% / 0.045 | 99.0% / 0.037 | 100.0% / 0.046 | 100.0% / 0.046 |
-| structured=criteria · notes=rules_and_llm (anthropic/claude-sonnet-5) | 100.0% / 0.047 | 99.0% / 0.037 | 100.0% / 0.046 | 100.0% / 0.046 |
-| structured=criteria · notes=rules_and_llm (openai/gpt-oss-120b) | 100.0% / 0.046 | 99.0% / 0.036 | 100.0% / 0.046 | 100.0% / 0.046 |
+| structured=criteria · notes=llm (anthropic/claude-haiku-4.5) (measured on 0.1.0) | 100.0% / 0.006 | 100.0% / 0.004 | 100.0% / 0.004 | 100.0% / 0.003 |
+| structured=criteria · notes=llm (anthropic/claude-sonnet-5) (measured on 0.1.0) | 100.0% / 0.027 | 100.0% / 0.020 | 100.0% / 0.021 | 100.0% / 0.022 |
+| structured=criteria · notes=llm (openai/gpt-oss-120b) (measured on 0.1.0) | 100.0% / 0.015 | 100.0% / 0.011 | 100.0% / 0.012 | 100.0% / 0.012 |
+| structured=criteria · notes=rules (measured on 0.1.0) | 100.0% / 0.047 | 99.0% / 0.037 | 99.0% / 0.037 | 100.0% / 0.046 |
+| structured=criteria · notes=rules_and_jev (jev-1.13.0) (measured on 0.1.0) | 100.0% / 0.055 | 99.0% / 0.037 | 100.0% / 0.046 | 100.0% / 0.047 |
+| structured=criteria · notes=rules_and_llm (anthropic/claude-haiku-4.5) (measured on 0.1.0) | 100.0% / 0.045 | 99.0% / 0.037 | 100.0% / 0.046 | 100.0% / 0.046 |
+| structured=criteria · notes=rules_and_llm (anthropic/claude-sonnet-5) (measured on 0.1.0) | 100.0% / 0.047 | 99.0% / 0.037 | 100.0% / 0.046 | 100.0% / 0.046 |
+| structured=criteria · notes=rules_and_llm (openai/gpt-oss-120b) (measured on 0.1.0) | 100.0% / 0.046 | 99.0% / 0.036 | 100.0% / 0.046 | 100.0% / 0.046 |
 
 **`trial-local-site-example`** (n=100)
 
 | Configuration | Accuracy | Macro-F1 | ECE | AUTO | False automation | Critical detected | p50 latency | Cost / decision | Errors |
 |---|---|---|---|---|---|---|---|---|---|
-| structured=criteria · notes=llm (anthropic/claude-haiku-4.5) | 89.0% | 0.846 | 0.081 | 0.0% | n/a | note_pregnancy=yes 2/2 (0 automated); note_pancreatitis=yes 3/3 (0 automated); note_active_cancer_treatment=yes 4/4 (0 automated); note_recent_cv_event=yes 2/2 (0 automated); egfr_30_or_more=no 8/8 (0 automated); no_recent_cv_event=no 3/3 (0 automated) | 4,833 ms | $0.00387 | 0 |
-| structured=criteria · notes=llm (anthropic/claude-sonnet-5) | 89.0% | 0.846 | 0.077 | 0.0% | n/a | note_pregnancy=yes 2/2 (0 automated); note_pancreatitis=yes 3/3 (0 automated); note_active_cancer_treatment=yes 4/4 (0 automated); note_recent_cv_event=yes 2/2 (0 automated); egfr_30_or_more=no 8/8 (0 automated); no_recent_cv_event=no 3/3 (0 automated) | 2,283 ms | $0.00402 | 0 |
-| structured=criteria · notes=llm (openai/gpt-oss-120b) | 89.0% | 0.846 | 0.069 | 0.0% | n/a | note_pregnancy=yes 2/2 (0 automated); note_pancreatitis=yes 3/3 (0 automated); note_active_cancer_treatment=yes 4/4 (0 automated); note_recent_cv_event=yes 2/2 (0 automated); egfr_30_or_more=no 8/8 (0 automated); no_recent_cv_event=no 3/3 (0 automated) | 1,042 ms | $0.00016 | 0 |
-| structured=criteria · notes=rules_and_jev (jev-1.13.0) | 87.0% | 0.818 | 0.127 | 0.0% | n/a | note_pregnancy=yes 2/2 (0 automated); note_pancreatitis=yes 3/3 (0 automated); note_active_cancer_treatment=yes 4/4 (0 automated); note_recent_cv_event=yes 2/2 (0 automated); egfr_30_or_more=no 8/8 (0 automated); no_recent_cv_event=no 3/3 (0 automated) | 187 ms | $0.00003 | 0 |
-| structured=criteria · notes=rules_and_llm (anthropic/claude-haiku-4.5) | 87.0% | 0.818 | 0.124 | 0.0% | n/a | note_pregnancy=yes 2/2 (0 automated); note_pancreatitis=yes 3/3 (0 automated); note_active_cancer_treatment=yes 4/4 (0 automated); note_recent_cv_event=yes 2/2 (0 automated); egfr_30_or_more=no 8/8 (0 automated); no_recent_cv_event=no 3/3 (0 automated) | 4,161 ms | $0.00378 | 0 |
-| structured=criteria · notes=rules_and_llm (anthropic/claude-sonnet-5) | 87.0% | 0.818 | 0.122 | 0.0% | n/a | note_pregnancy=yes 2/2 (0 automated); note_pancreatitis=yes 3/3 (0 automated); note_active_cancer_treatment=yes 4/4 (0 automated); note_recent_cv_event=yes 2/2 (0 automated); egfr_30_or_more=no 8/8 (0 automated); no_recent_cv_event=no 3/3 (0 automated) | 2,259 ms | $0.00402 | 0 |
-| structured=criteria · notes=rules_and_llm (openai/gpt-oss-120b) | 87.0% | 0.818 | 0.124 | 0.0% | n/a | note_pregnancy=yes 2/2 (0 automated); note_pancreatitis=yes 3/3 (0 automated); note_active_cancer_treatment=yes 4/4 (0 automated); note_recent_cv_event=yes 2/2 (0 automated); egfr_30_or_more=no 8/8 (0 automated); no_recent_cv_event=no 3/3 (0 automated) | 1,140 ms | $0.00016 | 0 |
-| structured=criteria · notes=rules | 86.0% | 0.808 | 0.115 | 0.0% | n/a | note_pregnancy=yes 1/2 (0 automated); note_pancreatitis=yes 3/3 (0 automated); note_active_cancer_treatment=yes 4/4 (0 automated); note_recent_cv_event=yes 1/2 (0 automated); egfr_30_or_more=no 8/8 (0 automated); no_recent_cv_event=no 3/3 (0 automated) | 0.30 ms | $0.00000 | 0 |
+| structured=criteria · notes=llm (anthropic/claude-haiku-4.5) (measured on 0.1.0) | 89.0% | 0.846 | 0.081 | 0.0% | n/a | note_pregnancy=yes 2/2 (0 automated); note_pancreatitis=yes 3/3 (0 automated); note_active_cancer_treatment=yes 4/4 (0 automated); note_recent_cv_event=yes 2/2 (0 automated); egfr_30_or_more=no 8/8 (0 automated); no_recent_cv_event=no 3/3 (0 automated) | 4,833 ms | $0.00387 | 0 |
+| structured=criteria · notes=llm (anthropic/claude-sonnet-5) (measured on 0.1.0) | 89.0% | 0.846 | 0.077 | 0.0% | n/a | note_pregnancy=yes 2/2 (0 automated); note_pancreatitis=yes 3/3 (0 automated); note_active_cancer_treatment=yes 4/4 (0 automated); note_recent_cv_event=yes 2/2 (0 automated); egfr_30_or_more=no 8/8 (0 automated); no_recent_cv_event=no 3/3 (0 automated) | 2,283 ms | $0.00402 | 0 |
+| structured=criteria · notes=llm (openai/gpt-oss-120b) (measured on 0.1.0) | 89.0% | 0.846 | 0.069 | 0.0% | n/a | note_pregnancy=yes 2/2 (0 automated); note_pancreatitis=yes 3/3 (0 automated); note_active_cancer_treatment=yes 4/4 (0 automated); note_recent_cv_event=yes 2/2 (0 automated); egfr_30_or_more=no 8/8 (0 automated); no_recent_cv_event=no 3/3 (0 automated) | 1,042 ms | $0.00016 | 0 |
+| structured=criteria · notes=rules_and_jev (jev-1.13.0) (measured on 0.1.0) | 87.0% | 0.818 | 0.127 | 0.0% | n/a | note_pregnancy=yes 2/2 (0 automated); note_pancreatitis=yes 3/3 (0 automated); note_active_cancer_treatment=yes 4/4 (0 automated); note_recent_cv_event=yes 2/2 (0 automated); egfr_30_or_more=no 8/8 (0 automated); no_recent_cv_event=no 3/3 (0 automated) | 187 ms | $0.00003 | 0 |
+| structured=criteria · notes=rules_and_llm (anthropic/claude-haiku-4.5) (measured on 0.1.0) | 87.0% | 0.818 | 0.124 | 0.0% | n/a | note_pregnancy=yes 2/2 (0 automated); note_pancreatitis=yes 3/3 (0 automated); note_active_cancer_treatment=yes 4/4 (0 automated); note_recent_cv_event=yes 2/2 (0 automated); egfr_30_or_more=no 8/8 (0 automated); no_recent_cv_event=no 3/3 (0 automated) | 4,161 ms | $0.00378 | 0 |
+| structured=criteria · notes=rules_and_llm (anthropic/claude-sonnet-5) (measured on 0.1.0) | 87.0% | 0.818 | 0.122 | 0.0% | n/a | note_pregnancy=yes 2/2 (0 automated); note_pancreatitis=yes 3/3 (0 automated); note_active_cancer_treatment=yes 4/4 (0 automated); note_recent_cv_event=yes 2/2 (0 automated); egfr_30_or_more=no 8/8 (0 automated); no_recent_cv_event=no 3/3 (0 automated) | 2,259 ms | $0.00402 | 0 |
+| structured=criteria · notes=rules_and_llm (openai/gpt-oss-120b) (measured on 0.1.0) | 87.0% | 0.818 | 0.124 | 0.0% | n/a | note_pregnancy=yes 2/2 (0 automated); note_pancreatitis=yes 3/3 (0 automated); note_active_cancer_treatment=yes 4/4 (0 automated); note_recent_cv_event=yes 2/2 (0 automated); egfr_30_or_more=no 8/8 (0 automated); no_recent_cv_event=no 3/3 (0 automated) | 1,140 ms | $0.00016 | 0 |
+| structured=criteria · notes=rules (measured on 0.1.0) | 86.0% | 0.808 | 0.115 | 0.0% | n/a | note_pregnancy=yes 1/2 (0 automated); note_pancreatitis=yes 3/3 (0 automated); note_active_cancer_treatment=yes 4/4 (0 automated); note_recent_cv_event=yes 1/2 (0 automated); egfr_30_or_more=no 8/8 (0 automated); no_recent_cv_event=no 3/3 (0 automated) | 0.30 ms | $0.00000 | 0 |
 
 Other questions (accuracy / ECE):
 
 | Configuration | `note_active_cancer_treatment` | `note_pancreatitis` | `note_pregnancy` | `note_recent_cv_event` |
 |---|---|---|---|---|
-| structured=criteria · notes=llm (anthropic/claude-haiku-4.5) | 100.0% / 0.005 | 100.0% / 0.005 | 100.0% / 0.005 | 100.0% / 0.005 |
-| structured=criteria · notes=llm (anthropic/claude-sonnet-5) | 100.0% / 0.023 | 100.0% / 0.021 | 100.0% / 0.020 | 100.0% / 0.021 |
-| structured=criteria · notes=llm (openai/gpt-oss-120b) | 100.0% / 0.011 | 100.0% / 0.012 | 100.0% / 0.013 | 100.0% / 0.011 |
-| structured=criteria · notes=rules_and_jev (jev-1.13.0) | 100.0% / 0.056 | 93.0% / 0.023 | 100.0% / 0.047 | 100.0% / 0.048 |
-| structured=criteria · notes=rules_and_llm (anthropic/claude-haiku-4.5) | 100.0% / 0.046 | 93.0% / 0.024 | 100.0% / 0.047 | 100.0% / 0.046 |
-| structured=criteria · notes=rules_and_llm (anthropic/claude-sonnet-5) | 100.0% / 0.047 | 93.0% / 0.023 | 100.0% / 0.047 | 100.0% / 0.048 |
-| structured=criteria · notes=rules_and_llm (openai/gpt-oss-120b) | 100.0% / 0.046 | 93.0% / 0.024 | 100.0% / 0.047 | 100.0% / 0.047 |
-| structured=criteria · notes=rules | 100.0% / 0.047 | 93.0% / 0.023 | 99.0% / 0.037 | 99.0% / 0.037 |
+| structured=criteria · notes=llm (anthropic/claude-haiku-4.5) (measured on 0.1.0) | 100.0% / 0.005 | 100.0% / 0.005 | 100.0% / 0.005 | 100.0% / 0.005 |
+| structured=criteria · notes=llm (anthropic/claude-sonnet-5) (measured on 0.1.0) | 100.0% / 0.023 | 100.0% / 0.021 | 100.0% / 0.020 | 100.0% / 0.021 |
+| structured=criteria · notes=llm (openai/gpt-oss-120b) (measured on 0.1.0) | 100.0% / 0.011 | 100.0% / 0.012 | 100.0% / 0.013 | 100.0% / 0.011 |
+| structured=criteria · notes=rules_and_jev (jev-1.13.0) (measured on 0.1.0) | 100.0% / 0.056 | 93.0% / 0.023 | 100.0% / 0.047 | 100.0% / 0.048 |
+| structured=criteria · notes=rules_and_llm (anthropic/claude-haiku-4.5) (measured on 0.1.0) | 100.0% / 0.046 | 93.0% / 0.024 | 100.0% / 0.047 | 100.0% / 0.046 |
+| structured=criteria · notes=rules_and_llm (anthropic/claude-sonnet-5) (measured on 0.1.0) | 100.0% / 0.047 | 93.0% / 0.023 | 100.0% / 0.047 | 100.0% / 0.048 |
+| structured=criteria · notes=rules_and_llm (openai/gpt-oss-120b) (measured on 0.1.0) | 100.0% / 0.046 | 93.0% / 0.024 | 100.0% / 0.047 | 100.0% / 0.047 |
+| structured=criteria · notes=rules (measured on 0.1.0) | 100.0% / 0.047 | 93.0% / 0.023 | 99.0% / 0.037 | 99.0% / 0.037 |
 
 
 ## Known failure modes

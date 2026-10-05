@@ -564,8 +564,13 @@ def test_the_cost_chart_rings_the_deployed_configuration(page: Page) -> None:
     configs = page.locator("#board table.data").first.locator("tbody .config").all_inner_texts()
     expect(chart.locator(".mark").first).to_be_visible()
     names = " | ".join(chart.locator(".mark").evaluate_all("els => els.map((e) => e.ariaLabel)"))
-    # Every leaderboard row is on the chart (rows at the same point share one named mark).
-    assert all(config.removesuffix(" Deployed") in names for config in configs)
+    # Every leaderboard row is on the chart (rows at the same point share one named mark). A row
+    # measured on an earlier version of the pack says so under its name.
+    assert any(re.search(r"\nmeasured on \d", config) for config in configs)
+    shown = [
+        re.sub(r"\nmeasured on \S+$", "", config).removesuffix(" Deployed") for config in configs
+    ]
+    assert all(name in names for name in shown)
     expect(chart.locator("svg .ring")).to_have_count(1)  # locally the rules screen is deployed
     expect(chart.locator("svg text", has_text="$0").first).to_be_visible()  # rules cost nothing
     expect(chart.locator(".mark").first).to_have_attribute(

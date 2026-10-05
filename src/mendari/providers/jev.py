@@ -34,7 +34,7 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from mendari.core.spec import Question, deployment_env_problem
-from mendari.errors import PackValidationError, ProviderError
+from mendari.errors import MendariError, PackValidationError, ProviderError
 from mendari.providers.base import Answer, Provider, ProviderOutput, batch_state
 from mendari.providers.batch import batched_answer, unwrap
 from mendari.providers.credentials import key_source, resolve_key
@@ -205,12 +205,19 @@ class JevProvider(Provider):
 
 
 def deployment_configured() -> bool:
-    """Whether this deployment has Jev set up: an endpoint, a model and a key or connector."""
-    return bool(
-        os.environ.get(ENDPOINT_ENV, "").strip()
-        and os.environ.get(MODEL_ENV, "").strip()
-        and key_source(key_env=API_KEY_ENV, connector_env=CONNECTOR_ENV)
-    )
+    """Whether this deployment has Jev set up: an endpoint, a model and a key or connector. Set
+    up with a model id or an endpoint Jev could never be called with is an error (at startup)."""
+    endpoint = os.environ.get(ENDPOINT_ENV, "").strip()
+    model = os.environ.get(MODEL_ENV, "").strip()
+    if not (endpoint and model and key_source(key_env=API_KEY_ENV, connector_env=CONNECTOR_ENV)):
+        return False
+    if not re.match(MODEL_PATTERN, model):
+        raise MendariError(f"{MODEL_ENV} is not a Jev model id")
+    try:
+        _require_secure(endpoint)
+    except ProviderError:
+        raise MendariError(f"{ENDPOINT_ENV} must use https (http only for localhost)") from None
+    return True
 
 
 def list_models(*, timeout_s: float = 10.0) -> list[dict[str, Any]]:

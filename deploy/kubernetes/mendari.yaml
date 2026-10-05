@@ -38,9 +38,11 @@ data:
   FORWARDED_ALLOW_IPS: 10.0.0.0/8
   # Rate limits are on with sign-in. Per-organization daily quotas, off unless set:
   # MENDARI_ORG_DAILY_LIMITS: decisions=5000
-  # Jev (with JEV_API_KEY in mendari-secrets):
+  # Jev (with JEV_API_KEY in mendari-secrets): the inbox, referral and prior-auth packs then run
+  # Mendari + Jev, and share the daily Jev budget (default 500 calls):
   # JEV_API_URL: https://...
   # JEV_MODEL: jev-1.13.0
+  # MENDARI_JEV_DAILY_LIMIT: "2000"
 ---
 apiVersion: apps/v1
 kind: Deployment

@@ -450,7 +450,7 @@ By default, nothing. Each of these is off until you configure it:
 
 | What | Setting | Leaves with it |
 |---|---|---|
-| Jev | Jev's settings (`JEV_API_URL`, `JEV_MODEL`, a key or connector): the reference packs then run Mendari + Jev in every slot `MENDARI_PROVIDERS` does not name | The pack's declared `state_fields` only |
+| Jev | Jev's settings (`JEV_API_URL`, `JEV_MODEL` and `JEV_API_KEY`; `JEV_CONNECTOR` works on Vercel only): the inbox, referral and prior-auth packs then run Mendari + Jev in every slot `MENDARI_PROVIDERS` chooses nothing for | The pack's declared `state_fields` only |
 | Other remote models (LLMs through Vercel AI Gateway) | `MENDARI_PROVIDERS` | The pack's declared `state_fields` only |
 | Reading your FHIR server (CDS Hooks fetch, SMART, Bulk) | `MENDARI_FHIR_ALLOWED_SERVERS` | Nothing leaves; Mendari reads from servers you list |
 | Alerts | `MENDARI_ALERT_WEBHOOK` | Pack ids and alert messages; an organization's id when it reaches a daily quota (no case data) |
@@ -458,11 +458,18 @@ By default, nothing. Each of these is off until you configure it:
 
 For PHI, prefer local providers (rules, naive Bayes, criteria, dosing), or a local model server
 (an OpenAI-compatible `base_url` on your network). Use a remote model only under an agreement
-that covers PHI. Setting up Jev sends the inbox messages, referrals and prior-auth and trial
-notes the reference packs read to Jev; to keep a slot on site, name it in `MENDARI_PROVIDERS`
-(e.g. `notes=rules`). Without a model in the screen, the inbox and referral packs automate
-nothing: every case goes to a person, and `/api/health` lists the slots running without one
-(`without_model`).
+that covers PHI. Setting up Jev sends Jev the inbox messages, the referral reasons (and the
+patient's age) and the prior-auth notes those packs read, in every slot `MENDARI_PROVIDERS`
+chooses nothing for (README, "Jev"). To keep a slot on site, set it there: `notes=rules` keeps
+the prior-auth notes local, and that pack then automates nothing. The trial prescreener and AI
+Guard send Jev nothing unless `MENDARI_PROVIDERS` names a Jev reader for them. A deployment that
+already had Jev set up for some slots runs it in these too after the upgrade.
+
+Without a model in the screen (or the notes), the inbox, referral and prior-auth packs automate
+nothing, and AI Guard releases nothing: every case goes to a person. Signed in, `/api/health`
+shows which variant each slot runs (`providers`), whether the Jev defaults are on
+(`jev.defaults`) and the slots configured without a model (`without_model`); that Jev actually
+answers shows in `jev.calls_today` and in the decisions' errors.
 
 ## 6. Monitoring and governance
 
@@ -540,7 +547,9 @@ startup, so a typo never runs with a weaker setting.
 | `MENDARI_MAX_BODY_BYTES` | 4 MiB (64 KiB at least) | The largest request body; a `413` above it | 1 |
 | `MENDARI_RATE_LIMITS` | `on` with sign-in, `off` without | `on`, `log` or `off`, then overrides (`decide=1200/min:200`) | 4 |
 | `MENDARI_ORG_DAILY_LIMITS` | unset: none | Per-organization daily quotas: `decisions=…,jev=…,llm=…` | 4 |
-| `MENDARI_JEV_DAILY_LIMIT`, `MENDARI_LLM_DAILY_LIMIT` | 500 each; `none`: no limit, still counted | The deployment's daily remote calls, evaluations included | 4 |
+| `JEV_API_URL`, `JEV_MODEL`, `JEV_API_KEY` | unset: no Jev | All three set: the inbox, referral and prior-auth packs send their `state_fields` to Jev in every slot `MENDARI_PROVIDERS` chooses nothing for; a model id or an endpoint Jev cannot be called with stops startup | 5 |
+| `MENDARI_PROVIDERS` | unset: each pack's default, or the Jev defaults | The provider variant of each slot it applies to: `slot=variant`, or `<pack>:slot=variant` for one pack | 5 |
+| `MENDARI_JEV_DAILY_LIMIT`, `MENDARI_LLM_DAILY_LIMIT` | 500 each; `none`: no limit, still counted | The deployment's daily remote calls, evaluations included; the three packs' Jev calls share one budget | 4 |
 | `mendari serve --proxy-headers` | on | Read the client address from `X-Forwarded-For` | 1 |
 | `--forwarded-allow-ips`, `FORWARDED_ALLOW_IPS` | `127.0.0.1` (the compose template: its gateway, `172.30.0.1`) | The proxies trusted for `X-Forwarded-For`, as the engine sees them | 1 |
 
@@ -555,6 +564,9 @@ reads of PHI, then operations. Keep the answers with your go-live record.
 - [ ] `MENDARI_PHI_KEY` and `MENDARI_INPUT_HASH_KEY` come from your secret manager, and they
       differ.
 - [ ] Without signing in, `/api/health` shows only `status`, `version` and `sign_in: true`.
+- [ ] Signed in, `/api/health` `providers` names, for every pack, only remote readers your
+      agreements cover (`jev.defaults: true` means Jev's settings are set), and
+      `without_model` lists the slots you meant to keep without a model.
 - [ ] Signed in as an admin, `/api/health` shows:
       `phi_mode: encrypt`; `input_hash: hmac-sha256:<key id>` (keyed, not `sha256`);
       `rate_limits.mode: on`; `rate_limits.client_ip` equal to your browser's own public

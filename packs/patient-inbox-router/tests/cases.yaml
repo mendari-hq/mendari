@@ -43,9 +43,7 @@
 
 - name: routine refill routes to a medical assistant
   input: {message: {subject: "Refill request", body: "Hi, I need a refill on my lisinopril. I have about three pills left. Thanks"}}
-  expect:
-    recommendation: medical_assistant
-    outcome: HUMAN_REVIEW  # rules only: no AUTO (automation_requires)
+  expect: {recommendation: medical_assistant, outcome_in: [AUTO, HUMAN_REVIEW]}
 
 - name: billing question routes to billing
   input: {message: {subject: "Billing question", body: "I got a bill for $120 for my visit on June 9, but I thought my insurance covered it."}}

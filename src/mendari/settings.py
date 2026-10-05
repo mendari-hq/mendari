@@ -108,32 +108,29 @@ def parse_providers(values: Sequence[str] | None) -> dict[str, str]:
     return overrides
 
 
-# With Jev set up, a server runs the reference packs as Mendari + Jev: Jev reads the free text,
-# and every screen keeps the keyword rules beside it. Each pack's Decision Card shows why.
+# With Jev set up, a server runs the reference packs that automate under their own policy (risk
+# levels 0-1) as Mendari + Jev: each policy's `automation_requires` asks for a model in its
+# screen, and Jev reads there beside the keyword rules, so the rules still answer when Jev
+# cannot. The inbox routes with naive Bayes and asks Jev when unsure (`cascade`); the referral
+# specialty is Jev's (on held-out and local-site referrals it is right more often than naive
+# Bayes). At risk level 2 (the trial prescreener, AI Guard) automation rests on an approval of
+# the configuration that runs, so a deployment names those packs' readers itself.
 JEV_DEFAULTS: dict[str, dict[str, str]] = {
-    "mendari/patient-inbox-router": {"safety_screen": "rules_and_jev", "router": "jev"},
+    "mendari/patient-inbox-router": {"safety_screen": "rules_and_jev", "router": "cascade"},
     "mendari/referral-router": {"triage_screen": "rules_and_jev", "specialty_reader": "jev"},
     "mendari/prior-auth-preflight": {"notes": "rules_and_jev"},
-    "mendari/clinical-trial-prescreener": {"notes": "jev"},
 }
 
 
-def server_providers(values: Sequence[str] | None) -> dict[str, str]:
-    """The provider settings a server runs with: `parse_providers`, and while Jev is set up,
-    JEV_DEFAULTS for every slot those settings do not name. Only servers use the defaults: a
-    command that decides or evaluates (a benchmark, a pack's tests) never calls Jev unasked."""
+def default_providers() -> dict[str, dict[str, str]]:
+    """The variants a server runs, by pack, in each slot its provider settings choose nothing for:
+    JEV_DEFAULTS while Jev is set up, else none (each pack's own default). Only servers use them:
+    a command that decides or evaluates (a benchmark, a pack's tests) never calls Jev unasked."""
     from mendari.providers import jev
 
-    settings = parse_providers(values)
     if not jev.deployment_configured():
-        return settings
-    defaults = {
-        f"{pack}:{slot}": variant
-        for pack, slots in JEV_DEFAULTS.items()
-        for slot, variant in slots.items()
-        if slot not in settings and f"{pack}:{slot}" not in settings
-    }
-    return {**defaults, **settings}
+        return {}
+    return {pack: dict(slots) for pack, slots in JEV_DEFAULTS.items()}
 
 
 def daily_limits() -> dict[str, int | None]:

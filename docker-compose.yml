@@ -3,7 +3,7 @@
 #   docker compose up --build
 #
 # Dashboard: http://localhost:8000   FHIR: http://localhost:8080/fhir
-# With Jev (Mendari + Jev in the reference packs):
+# With Jev (Mendari + Jev in the inbox, referral and prior-auth packs):
 #   JEV_API_URL=... JEV_MODEL=... JEV_API_KEY=... docker compose up
 name: mendari
 

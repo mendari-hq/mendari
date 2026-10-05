@@ -116,8 +116,8 @@ questions:
 providers:
   safety_screen:
     answers: [urgency]
-    # Offline floor: with the rules alone nothing is automated (see the policy). A server with
-    # Jev set up runs rules_and_jev unless MENDARI_PROVIDERS names this slot.
+    # Offline floor: with the rules alone nothing is automated (see the policy). A Mendari
+    # server with Jev set up runs rules_and_jev unless its provider settings choose otherwise.
     use: rules
     variants:
       rules:

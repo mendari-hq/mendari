@@ -65,20 +65,41 @@ def _no_jev(monkeypatch: pytest.MonkeyPatch) -> None:
 SCREENED = {"safety_screen": "rules_and_jev"}
 
 
+# What `calm_jev` answers for the inbox's questions: confidently nothing urgent, and a team it is
+# unsure of (below the automation threshold, so a routing it answers is never automated).
+CALM = {
+    "urgency": {"urgent": 0.02, "routine": 0.98},
+    "destination": {
+        "front_desk": 0.1,
+        "medical_assistant": 0.6,
+        "nurse": 0.1,
+        "physician": 0.1,
+        "billing": 0.1,
+    },
+}
+
+
 def calm_jev(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
-    """Set up a fake Jev for this test that answers the inbox's urgency question with a
-    confident `routine` (P(urgent) = 0.02), and return the inbox providers that use it."""
+    """Set up a fake Jev for this test that answers the inbox's questions (`CALM`: a confident
+    `routine` urgency), and return the inbox providers that use it."""
     monkeypatch.setenv("JEV_API_URL", "https://jev.test/v1/decide")
     monkeypatch.setenv("JEV_MODEL", "jev-test-model")
     monkeypatch.setenv("JEV_API_KEY", "test-key")
 
     def handler(request: httpx.Request) -> httpx.Response:
-        if set(json.loads(request.content)["questions"]) != {"urgency"}:
-            return httpx.Response(400)  # only the urgency screen is faked
-        probabilities = {"urgent": 0.02, "routine": 0.98}
-        answer = {"type": "choice", "choice": "routine", "confidence": 0.98}
+        questions = json.loads(request.content)["questions"]
+        if not set(questions) <= set(CALM):
+            return httpx.Response(400)  # only the inbox's questions are faked
+        answers = {}
+        for key in questions:
+            choice = max(CALM[key], key=lambda label: CALM[key][label])
+            answers[key] = {
+                "type": "choice",
+                "choice": choice,
+                "confidence": CALM[key][choice],
+                "probabilities": CALM[key],
+            }
         usage = {"input_tokens": 100, "output_tokens": 10}
-        answers = {"urgency": {**answer, "probabilities": probabilities}}
         return httpx.Response(200, json={"model": "jev-9.9.9", "answers": answers, "usage": usage})
 
     original = JevProvider.__init__

@@ -146,7 +146,7 @@ which routine messages are automated with:
 
 ```python
 Decision.from_hub(
-    "mendari/patient-inbox-router", providers={"safety_screen": "rules_and_jev", "router": "jev"}
+    "mendari/patient-inbox-router", providers={"safety_screen": "rules_and_jev", "router": "cascade"}
 )
 ```
 
@@ -735,8 +735,8 @@ instruction that Jev or an LLM receives. The policy then turns answers into an o
 2. **Thresholds** on the primary question: AUTO ≥ 0.90 (≥ 0.95 for non-clinical
    destinations), review ≥ 0.50, abstain below.
 3. **Caps that only reduce automation:** per-label limits, any provider failure, a provider the
-   policy requires not running (`automation_requires`: the inbox and referral screens and the
-   prior-auth notes must include a model), and the risk level.
+   policy requires not running (`automation_requires`: the inbox, referral and AI Guard screens
+   and the prior-auth notes must include a model), and the risk level.
 
 ### Risk levels are enforced by the runtime
 
@@ -844,22 +844,39 @@ JEV_API_URL=... JEV_MODEL=... JEV_API_KEY=... \
 ```
 
 **With Jev set up, a server runs Mendari + Jev.** When `JEV_API_URL`, `JEV_MODEL` and a key
-(`JEV_API_KEY` or `JEV_CONNECTOR`) are set, `mendari serve` and the Vercel app run the reference
-packs with Jev beside the keyword rules (`settings.JEV_DEFAULTS`):
+(`JEV_API_KEY`, or `JEV_CONNECTOR` on Vercel) are set, `mendari serve` and the Vercel app run the
+reference packs that automate under their own policy with Jev beside the keyword rules
+(`settings.JEV_DEFAULTS`), in every slot their provider settings choose nothing for:
 
 | Pack | Slots |
 |---|---|
-| Patient Inbox Router | `safety_screen=rules_and_jev`, `router=jev` |
+| Patient Inbox Router | `safety_screen=rules_and_jev`, `router=cascade` (naive Bayes, and Jev when it is unsure) |
 | Referral Router | `triage_screen=rules_and_jev`, `specialty_reader=jev` |
 | Prior Auth Preflight | `notes=rules_and_jev` |
-| Clinical Trial Prescreener | `notes=jev` (its Decision Card: a model alone reads the notes best) |
 
-These are the configurations the Decision Cards recommend. AI Guard is not on the list: its
-screen does best with an LLM (`mendari/ai-guard:screen=rules_and_llm`). `MENDARI_PROVIDERS`
-still decides every slot it names, e.g. `notes=rules` keeps both packs' notes on site. Commands
-that decide or evaluate (`decide`, `test`, `eval`, the reference-pack build) never use these
-defaults, so nothing calls Jev unless asked. `/api/health` (`without_model`) and the dashboard
-name every slot a pack runs without a model although it offers one.
+Their policies automate only while a model reads the screen (`automation_requires`), and the
+rules answer beside it, so a possible emergency is still flagged when Jev cannot answer. The
+referral specialty is Jev's because on the held-out and local-site referrals it is right more
+often than naive Bayes. The Clinical Trial Prescreener and AI Guard are not on the list: at risk
+level 2 automation rests on an approval of the configuration that runs, so name their readers
+yourself (`mendari/clinical-trial-prescreener:notes=jev`, `mendari/ai-guard:screen=rules_and_llm`).
+
+- `MENDARI_PROVIDERS` decides every slot it applies to, e.g. `notes=rules` keeps the
+  prior-auth notes on site (and its policy then automates nothing). `mendari serve --provider`
+  replaces `MENDARI_PROVIDERS`, as before; the defaults fill the slots it leaves.
+- When Jev fails or is over its daily budget, nothing is automated: the inbox still routes with
+  naive Bayes; a referral without a specialty goes to the referral office as today. The budget
+  (`MENDARI_JEV_DAILY_LIMIT`, default 500) is shared by the three packs and by the dashboard's
+  evaluations (up to 200 calls a run): size it for their daily volume.
+- Commands that decide or evaluate (`decide`, `test`, `eval`, `leaderboard`, `demo`, the
+  reference-pack build) never use these defaults. A server's own evaluations (the dashboard's,
+  `POST /api/packs/…/evals`) run its deployed providers, Jev included.
+- `/api/health` says whether the defaults are on (`jev.defaults`), which variant every slot
+  runs (`providers`), and which slots are configured without a model although their pack
+  offers one (`without_model`); the dashboard's overview says so too. That Jev answers shows in
+  `jev.calls_today` and in the decisions' errors.
+- Upgrading a deployment that already had Jev set up for some slots: it now also runs Jev in
+  the slots above that its settings leave. Name a slot to keep it as it was.
 
 ## LLMs and local models
 

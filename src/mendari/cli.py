@@ -19,10 +19,10 @@ from mendari.errors import MendariError, PackValidationError
 from mendari.sandbox import example_datasets_dir
 from mendari.settings import (
     daily_limits,
+    default_providers,
     fhir_validation,
     parse_providers,
     providers_for,
-    server_providers,
 )
 
 EXIT_DEGRADED = 2
@@ -342,7 +342,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
     os.environ["FORWARDED_ALLOW_IPS"] = trusted if args.proxy_headers else ""
     app = create_app(
         db_path=args.db,
-        providers=server_providers(args.provider),
+        providers=parse_providers(args.provider),
+        default_providers=default_providers(),
         budget_limits=daily_limits(),
         datasets_dir=Path(args.datasets_dir) if args.datasets_dir else example_datasets_dir(),
     )
@@ -1084,7 +1085,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--db", default="var/mendari.db", help="audit database: SQLite path or postgresql:// URL"
     )
     serve.add_argument("--datasets-dir", help="extra evaluation datasets for the dashboard")
-    serve.add_argument("--provider", action="append", metavar="SLOT=VARIANT")
+    serve.add_argument(
+        "--provider",
+        action="append",
+        metavar="SLOT=VARIANT",
+        help="instead of $MENDARI_PROVIDERS; with Jev set up, the reference packs run Mendari + "
+        "Jev in every slot these choose nothing for",
+    )
     serve.add_argument(
         "--proxy-headers",
         action=argparse.BooleanOptionalAction,

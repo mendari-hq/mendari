@@ -308,11 +308,15 @@ def create_app(
     db_path: str | Path = "var/mendari.db",
     migrate_url: str | None = None,
     providers: Mapping[str, str] | None = None,
+    default_providers: Mapping[str, Mapping[str, str]] | None = None,
     datasets_dir: Path | None = None,
     packs_paths: list[Path] | None = None,
     budget_limits: Mapping[str, int | None] | None = None,
     fhir_validation: FhirValidation | None = None,
 ) -> FastAPI:
+    """`providers` are the deployment's provider settings (`settings.parse_providers`);
+    `default_providers` (pack id -> slot -> variant, `settings.default_providers`) fill each
+    slot those settings choose nothing for, before the pack's own default."""
     timezone = clock.zone().key  # an invalid MENDARI_TIMEZONE fails here, at startup
     validation = fhir_validation or settings.fhir_validation()  # likewise
     fhir_servers = sorted(allowed_servers())  # likewise
@@ -375,12 +379,22 @@ def create_app(
         return pack
 
     skipped_settings: dict[str, list[str]] = {}
+    fallbacks = {pack_id: dict(slots) for pack_id, slots in (default_providers or {}).items()}
+
+    def variants_for(pack: Pack) -> tuple[dict[str, str], list[str]]:
+        """The variants the deployment chose for this pack's slots (the rest run the pack's
+        default), and the settings that name the pack but cannot apply."""
+        slots = {slot: set(spec.variants) for slot, spec in pack.manifest.providers.items()}
+        chosen, skipped = providers_for(pack.id, slots, overrides)
+        for slot, variant in fallbacks.get(pack.id, {}).items():
+            if slot not in chosen and variant in slots.get(slot, ()):
+                chosen[slot] = variant
+        return chosen, skipped
 
     def decision_for(pack_id: str) -> Decision:
         if pack_id not in decisions:
             pack = pack_or_404(pack_id)
-            slots = {slot: set(spec.variants) for slot, spec in pack.manifest.providers.items()}
-            chosen, skipped = providers_for(pack.id, slots, overrides)
+            chosen, skipped = variants_for(pack)
             if skipped:
                 skipped_settings[pack_id] = skipped
             try:
@@ -622,6 +636,8 @@ def create_app(
             # Deployment provider settings that name a slot or variant a pack does not have.
             "provider_settings_skipped": skipped_settings,
             "jev": {
+                # The reference packs run Mendari + Jev where no setting chose (JEV_DEFAULTS).
+                "defaults": bool(fallbacks),
                 "credentials": key_source(key_env=jev.API_KEY_ENV, connector_env=jev.CONNECTOR_ENV),
                 "endpoint_configured": bool(os.environ.get(jev.ENDPOINT_ENV, "").strip()),
                 "model": os.environ.get(jev.MODEL_ENV, "").strip() or None,
@@ -1574,9 +1590,17 @@ def create_app(
             headers={"cache-control": "public, max-age=86400"},
         )
 
+    # The quickstart's decision is automated only where the inbox runs what its policy requires.
+    quickstart = packs.get(landing.QUICKSTART_PACK)
+    running = {} if quickstart is None else variants_for(quickstart)[0]
+    quickstart_automates = quickstart is not None and all(
+        running.get(slot, quickstart.manifest.providers[slot].use) in allowed
+        for slot, allowed in quickstart.manifest.policy.automation_requires.items()
+    )
     landing_page = landing.page(
         versioned_page("docs.html"),
         version=__version__,
+        quickstart_automates=quickstart_automates,
         sign_in=auth.enabled,
         smart_launch=smart_options is not None,
         token_url=None if backend is None else backend.token_url,

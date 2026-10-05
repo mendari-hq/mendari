@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -7,10 +10,11 @@ from fastapi.testclient import TestClient
 
 from mendari.cli import main
 from mendari.core.registry import discover
+from mendari.errors import MendariError
 from mendari.providers import jev, slots_without_model
 from mendari.providers.jev import JevProvider
 from mendari.server.app import create_app
-from mendari.settings import JEV_DEFAULTS, providers_for, server_providers
+from mendari.settings import JEV_DEFAULTS, default_providers, parse_providers, providers_for
 from tests.conftest import INBOX_DIR
 
 FIXTURES = Path(__file__).parent / "fixtures" / "packs"
@@ -76,6 +80,14 @@ def set_up_jev(monkeypatch: pytest.MonkeyPatch, **settings: str) -> None:
         monkeypatch.setenv(name, value)
 
 
+def served(tmp_path: Path, providers: dict[str, str] | None = None) -> dict[str, object]:
+    """/api/health of a server started as `mendari serve` and the Vercel app start one."""
+    app = create_app(
+        db_path=tmp_path / "a.db", providers=providers, default_providers=default_providers()
+    )
+    return dict(TestClient(app).get("/api/health").json())
+
+
 @pytest.mark.parametrize(
     "settings",
     [
@@ -92,51 +104,74 @@ def test_jev_is_set_up_with_an_endpoint_a_model_and_a_key(
     set_up_jev(monkeypatch, **settings)
     complete = bool(settings) and all(value.strip() for value in settings.values())
     assert jev.deployment_configured() is complete
-    assert (server_providers(None) != {}) is complete
+    assert (default_providers() == JEV_DEFAULTS) is complete
+
+
+@pytest.mark.parametrize(
+    ("settings", "problem"),
+    [
+        ({"JEV_MODEL": "jev 1.13"}, "JEV_MODEL is not a Jev model id"),
+        ({"JEV_API_URL": "http://jev.example.org/v1/decide"}, "JEV_API_URL must use https"),
+    ],
+)
+def test_a_jev_setting_that_could_never_work_stops_the_server_at_startup(
+    monkeypatch: pytest.MonkeyPatch, settings: dict[str, str], problem: str
+) -> None:
+    """Rather than a server whose reference packs cannot be built, every decision refused."""
+    set_up_jev(monkeypatch, JEV_API_KEY="test-key", **settings)
+    with pytest.raises(MendariError, match=problem):
+        default_providers()
 
 
 def test_with_jev_set_up_a_server_runs_mendari_and_jev(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     set_up_jev(monkeypatch, JEV_API_KEY="test-key")
-    providers = server_providers(None)
-    assert providers == {
-        f"{pack}:{slot}": variant
-        for pack, slots in JEV_DEFAULTS.items()
-        for slot, variant in slots.items()
-    }
-    health = TestClient(create_app(db_path=tmp_path / "a.db", providers=providers)).get(
-        "/api/health"
-    )
-    served = health.json()["providers"]
+    health = served(tmp_path)
     for pack, slots in JEV_DEFAULTS.items():
-        assert {slot: served[pack][slot] for slot in slots} == slots, pack
-    assert health.json()["provider_settings_skipped"] == {}
-    # Every screen keeps the keyword rules; AI Guard's screen is an LLM's, not Jev's.
-    assert health.json()["without_model"] == {"mendari/ai-guard": ["screen"]}
+        assert {slot: health["providers"][pack][slot] for slot in slots} == slots, pack  # type: ignore[index]
+    assert health["provider_settings_skipped"] == {}
+    assert health["jev"]["defaults"] is True  # type: ignore[index]
+    # At risk level 2, automation rests on an approval of what runs: the deployment names it.
+    assert health["without_model"] == {
+        "mendari/ai-guard": ["screen"],
+        "mendari/clinical-trial-prescreener": ["notes"],
+    }
 
 
-def test_settings_still_decide_every_slot_they_name(
+def test_without_jev_nothing_changes(tmp_path: Path) -> None:
+    health = served(tmp_path)
+    assert health["jev"]["defaults"] is False  # type: ignore[index]
+    assert health["providers"]["mendari/patient-inbox-router"] == {  # type: ignore[index]
+        "safety_screen": "rules",
+        "router": "naive_bayes",
+    }
+
+
+def test_settings_decide_every_slot_they_apply_to(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A setting wins in every pack it applies to; one another pack's variant names (a community
+    pack's, a typo) is skipped and leaves the Jev default in place."""
     set_up_jev(monkeypatch, JEV_API_KEY="test-key")
     monkeypatch.setenv(
         "MENDARI_PROVIDERS",
-        "safety_screen=rules,notes=rules,mendari/referral-router:specialty_reader=naive_bayes",
+        "safety_screen=rules,notes=rules,router=keyword,"
+        "mendari/referral-router:specialty_reader=naive_bayes",
     )
-    app = create_app(db_path=tmp_path / "a.db", providers=server_providers(None))
-    served = TestClient(app).get("/api/health").json()["providers"]
-    assert served["mendari/patient-inbox-router"] == {"safety_screen": "rules", "router": "jev"}
-    referral = served["mendari/referral-router"]
+    health = served(tmp_path, parse_providers(None))
+    providers = health["providers"]
+    inbox = {"safety_screen": "rules", "router": "cascade"}  # `keyword` is no inbox router
+    assert providers["mendari/patient-inbox-router"] == inbox  # type: ignore[index]
+    referral = providers["mendari/referral-router"]  # type: ignore[index]
     assert (referral["specialty_reader"], referral["triage_screen"]) == (
         "naive_bayes",
         "rules_and_jev",
     )
-    assert served["mendari/prior-auth-preflight"]["notes"] == "rules"
-    assert served["mendari/clinical-trial-prescreener"]["notes"] == "rules"
-    flags = ["router=naive_bayes"]  # `serve --provider`: replaces MENDARI_PROVIDERS, as before
-    assert server_providers(flags)["mendari/patient-inbox-router:safety_screen"] == "rules_and_jev"
-    assert "mendari/patient-inbox-router:router" not in server_providers(flags)
+    assert providers["mendari/prior-auth-preflight"]["notes"] == "rules"  # type: ignore[index]
+    assert health["provider_settings_skipped"] == {
+        "mendari/patient-inbox-router": ["router=keyword"]
+    }
 
 
 def test_mendari_serve_runs_the_jev_defaults(
@@ -151,8 +186,30 @@ def test_mendari_serve_runs_the_jev_defaults(
     built: dict[str, object] = {}
     monkeypatch.setattr(app_module, "create_app", lambda **kwargs: built.update(kwargs))
     monkeypatch.setattr(uvicorn, "run", lambda *args, **kwargs: None)
-    assert main(["serve", "--db", str(tmp_path / "a.db")]) == 0
-    assert built["providers"] == server_providers(None) != {}
+    flags = ["--provider", "router=naive_bayes"]
+    assert main(["serve", "--db", str(tmp_path / "a.db"), *flags]) == 0
+    assert built["providers"] == {"router": "naive_bayes"}
+    assert built["default_providers"] == JEV_DEFAULTS
+
+
+def test_the_vercel_app_runs_the_jev_defaults(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The entrypoint as Vercel imports it, in a process of its own (its app is built at import)."""
+    set_up_jev(monkeypatch, JEV_API_KEY="test-key")
+    for name in ("VERCEL", "DATABASE_URL", "MENDARI_PROVIDERS"):
+        monkeypatch.delenv(name, raising=False)
+    script = (
+        "import json; from fastapi.testclient import TestClient; "
+        "from mendari.server.vercel import app; "
+        "print(json.dumps(TestClient(app).get('/api/health').json()['providers']))"
+    )
+    done = subprocess.run(
+        [sys.executable, "-c", script], cwd=tmp_path, capture_output=True, text=True, check=True
+    )
+    providers = json.loads(done.stdout.strip().splitlines()[-1])
+    for pack, slots in JEV_DEFAULTS.items():
+        assert {slot: providers[pack][slot] for slot in slots} == slots, pack
 
 
 def test_commands_never_run_the_jev_defaults(
