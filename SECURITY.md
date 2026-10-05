@@ -340,7 +340,8 @@ manifest says (threat model S13, T5, I12, D8, E10):
   of the first. Its FHIR systems live under its own url
   (`https://mendari.co/packs/community/<name>/`), published by its publisher as experimental and
   labelled, never in a CodeSystem of Mendari's. CI refuses a name, CDS title or publisher that
-  names Mendari or copies a maintained pack's name.
+  names Mendari or copies a maintained pack's name (best effort: look-alike letters outside its
+  tables pass; the label by origin is the protection).
 - **Recommend only.** A community pack never automates: the policy caps AUTO to HUMAN_REVIEW,
   and a policy rule that blocks is refused (a block is final at once, and no person sees it).
 - **No spending without the owner.** Its default providers are local; unscoped provider settings
@@ -349,6 +350,11 @@ manifest says (threat model S13, T5, I12, D8, E10):
   to the deployment's.
 - **At most 10,000 characters of text**, alone or together, what its patterns were timed on: a
   longer input is refused before any pattern runs.
+- **Off in production until its patterns run on RE2.** The static check and timed probe of
+  every pattern lower the chance of a pattern that stalls a worker but cannot rule it out, and
+  some pack settings multiply the work; community packs are switched on only after their
+  patterns move to RE2, which never backtracks, with caps on those settings
+  (`tasks/todo.md`, B11).
 - **At most risk level 1, and only a hash of each input** (`store_input: hash`), refused at load
   otherwise.
 - **Checked before review.** The `pack-check` job (`pull_request`, no secrets, a read-only token,

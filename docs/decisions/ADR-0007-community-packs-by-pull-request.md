@@ -76,7 +76,11 @@ The owner decided (2026-10-04):
   the level cap keeps level 2 and above (and the FDA clinical decision support question) off
   this route until a clinical reviewer group exists.
 - A pattern that backtracks badly can still slip past the static check and the probe; Python's
-  `re` has no time limit. Removal is the remedy: revert the merge, or turn the switch off.
+  `re` has no time limit. Three checks of these checks each found new ways past them, and of
+  the look-alike name check too. So (decided 2026-10-05) community packs stay off until their
+  patterns run on RE2, which never backtracks, and look-alike names become a warning for the
+  owner's review (`tasks/todo.md`, B11). Until then removal is the remedy: revert the merge,
+  or turn the switch off.
 - The owner is the bottleneck. The "Propose a pack" issue screens ideas before they are built,
   and CI catches the mechanical problems.
 - A merged mistake with real patient data or licensed content cannot be fully taken back from a

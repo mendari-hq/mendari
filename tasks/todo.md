@@ -127,8 +127,20 @@ B6/B7 → B8 → B9 → B10).
   `clinical-review:provided`, `risk-level-change`, `patient-safety`, `idea`, `good first pack`);
   the DCO app; `pack-check` and `DCO` required; a `main` ruleset requiring a code owner's
   approval, with the admin on the bypass list.
-- [ ] **B9 (owner, steps below)** `MENDARI_COMMUNITY_PACKS=on` in Vercel Production only; on the owner's own
-  branch preview (never a fork's), check that `community-packs/` reaches the function bundle.
+- [ ] **B11 (build, before B9) Safe by construction.** Decided 2026-10-05 after three checks of
+  the pattern and name checks each found new ways past them (14 open findings after #129: slow
+  patterns that pass the static check and the probe, look-alike names the tables miss, and
+  pack settings that multiply work). A community pack's patterns (rules and its input schema's)
+  run on RE2 (`google-re2`), which never backtracks, so no pattern can stall a worker; a pattern
+  RE2 cannot compile (lookarounds, back references) is refused, and the static check and probe
+  are dropped for community packs. Caps: `text_fields` without repeats, `negation_window` at
+  most a few hundred characters, input schemas whose `$ref`/`allOf` cannot multiply the
+  patterns run; keys counted only where a schema runs patterns on them. Look-alike names become
+  a warning for the owner's review, with a vendored UTS #39 confusables skeleton, and a
+  reserved word counts only as whole words. One focused check, then merge.
+- [ ] **B9 (owner, steps below, after B11)** `MENDARI_COMMUNITY_PACKS=on` in Vercel Production
+  only; on the owner's own branch preview (never a fork's), check that `community-packs/`
+  reaches the function bundle.
 - [ ] **B10 (owner and build, steps below)** Dry run from a second GitHub account, including a bad version
   (a ReDoS pattern, a shadowing id, an edit outside its folder, a faked benchmark) that CI must
   refuse. Then announce.
@@ -230,7 +242,7 @@ session.
    squash merging** on. Check after: a PR from a second account shows "Review required" from a
    code owner and the two required checks; your own PR can still merge with "Merge without
    waiting for requirements" (the bypass).
-4. **B9, turn community packs on in Production.** Vercel → the engine's project → Settings →
+4. **B9, turn community packs on in Production** (only once B11 is merged). Vercel → the engine's project → Settings →
    Environment Variables → Add: `MENDARI_COMMUNITY_PACKS` = `on`, Environment **Production**
    only. Redeploy production. Check after: signed in, `/api/health` shows `packs_by_origin`
    with only `maintained` while `community-packs/` holds no pack, and `invalid` is empty. To
