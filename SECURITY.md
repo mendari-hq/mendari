@@ -333,19 +333,29 @@ manifest says (threat model S13, T5, I12, D8, E10):
 - **Served only where a deployment turns them on** (`MENDARI_COMMUNITY_PACKS=on`, default off,
   one switch for all of them), and never shipped in the Python package or the images.
 - **Labelled by origin, never by manifest.** Every surface says "Community · not clinically
-  reviewed"; `publisher.type` is shown only as self-declared. `mendari/` and `openhealth/` are
-  reserved to the packs Mendari maintains, `community/` to `community-packs/`, and one id is one
-  pack: a second claim is refused and reported, never served in place of the first.
-- **Recommend only.** A community pack never automates: the policy caps AUTO to HUMAN_REVIEW.
+  reviewed" (the review queue and the SMART patient view, where a person confirms, included);
+  `publisher.type` is shown only as self-declared. A community pack's id is
+  `community/<name>`, never one of the namespaces Mendari maintains (`mendari/`,
+  `openhealth/`), and a second claim to its id is refused and reported, never served in place
+  of the first. Its FHIR systems live under its own url
+  (`https://mendari.co/packs/community/<name>/`), published by its publisher as experimental and
+  labelled, never in a CodeSystem of Mendari's. CI refuses a name, CDS title or publisher that
+  names Mendari or copies a maintained pack's name.
+- **Recommend only.** A community pack never automates: the policy caps AUTO to HUMAN_REVIEW,
+  and a policy rule that blocks is refused (a block is final at once, and no person sees it).
 - **No spending without the owner.** Its default providers are local; unscoped provider settings
-  never reach it, only `community/<name>:slot=variant` runs it on a remote variant, and its
-  pinned model and `max_tokens` give way to the deployment's.
+  never reach it, only `community/<name>:slot=variant` runs it on a remote variant (an
+  evaluation request through the API included), and its pinned model and `max_tokens` give way
+  to the deployment's.
+- **Texts of at most 10,000 characters**, what its patterns were timed on: a longer one is
+  refused before any pattern runs.
 - **At most risk level 1, and only a hash of each input** (`store_input: hash`), refused at load
   otherwise.
 - **Checked before review.** The `pack-check` job (`pull_request`, no secrets, a read-only token,
   never `pull_request_target`) runs `mendari community-check`: scope (the pack's own folder
-  only), identity, manifest policy, tests, evaluation floors and regressions against the base
-  branch's benchmark and tolerance, a benchmark, card and model CI builds again and compares,
+  only, no git submodule, a removal by the owner only), identity, manifest policy, tests,
+  evaluation floors and regressions against the base branch's benchmark and tolerance (on the
+  base's benchmark dataset too), a benchmark, card and models CI builds again and compares,
   a static check and a timed probe of every pattern, size limits, and warnings for text that
   looks like a real person's details. Then the owner reads it, including its clinical content
   and where that content comes from.

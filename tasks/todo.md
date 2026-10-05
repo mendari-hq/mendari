@@ -58,8 +58,11 @@ B6/B7 → B8 → B9 → B10).
   are reported and the maintained one kept. `mendari/` and `openhealth/` are reserved to
   `packs/`, and `community/` to `community-packs/`. Tests in `tests/test_community_packs.py`.
   Built: `core/origin.py` (origins and community rules), `Pack.origin`, `SearchPath` in
-  `core/registry.py`; the duplicate rule applies to every origin (before, the newest version
-  won silently); the shipped packs decide identically (7,484 decisions compared with main).
+  `core/registry.py`; the shipped packs decide identically (7,484 decisions compared with main).
+  Review fix: the namespace and duplicate rules apply where a community pack takes part only (a
+  community pack's id is `community/<folder>`), so with the switch off a deployment serves
+  exactly what it did (a pulled `mendari/` pack, a local copy, a path holding `packs/`); a pack
+  under a local path takes the origin of where it sits.
 - [x] **B2 Policy and spend.** A community pack is capped at HUMAN_REVIEW in `core/policy.py`
   (recommend only; ADR-0002: policy only lowers automation). Unscoped provider settings skip
   community packs; only `community/<name>:slot=variant` applies. A community pack's pinned
@@ -100,7 +103,11 @@ B6/B7 → B8 → B9 → B10).
   every community pack. No `pull_request_target`, no secrets.
   Built: `packs.yml` job `pack-check`; `scripts/changed_packs.py` covers `community-packs/`;
   `scripts/community_check.py` (scope, each changed pack, a removed pack's tombstone).
-  "Owner" is `github.actor` equal to `github.repository_owner`.
+  "Owner" is the pull request's author (`pull_request.user.login`, never `github.actor`) equal to
+  `github.repository_owner`, from a branch of this repository. Review fixes: only the owner
+  removes a pack; a git submodule under `community-packs/` fails; an update is gated on the
+  base's benchmark dataset too; composite members' models are retrained; no BLOCK rule, no
+  Mendari name, FHIR systems under the pack's own url.
 - [x] **B6 Scaffold.** `mendari new --community` writes the community defaults, and the pack's
   benchmark and card, so it passes `community-check` as written (once listed in
   `MAINTAINERS.yaml`).

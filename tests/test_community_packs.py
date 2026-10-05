@@ -72,6 +72,14 @@ def _set(**changes: Any) -> Callable[[dict[str, Any]], None]:
     return edit
 
 
+BLOCK_RULE = {
+    "name": "blk",
+    "when": {"question": "topic", "labels": ["billing"]},
+    "outcome": "BLOCK",
+    "reason": "Billing is blocked.",
+}
+
+
 def _community(tmp_path: Path) -> Path:
     """A community-packs/ directory holding the example community pack."""
     base = tmp_path / "community-packs"
@@ -148,6 +156,7 @@ def test_a_directory_has_the_origin_of_where_it_sits(
             _set(providers__reader__use="llm"),
             "default variant 'llm' must be local",
         ),
+        ("visit-sorter", _set(policy__rules=[BLOCK_RULE]), "policy rule 'blk' has outcome BLOCK"),
     ],
     ids=[
         "too-deep",
@@ -158,6 +167,7 @@ def test_a_directory_has_the_origin_of_where_it_sits(
         "risk-level",
         "store-input",
         "remote-default",
+        "block-rule",
     ],
 )
 def test_a_community_pack_that_breaks_a_rule_is_listed_and_not_served(
@@ -200,39 +210,108 @@ def test_a_composite_of_local_providers_is_local_and_one_with_a_remote_member_is
     assert "default variant 'vote' must be local" in found.problems[str(remote.resolve())]
 
 
-@pytest.mark.parametrize("namespace", ["mendari", "openhealth", "community"])
-def test_reserved_namespaces_are_refused_outside_their_origin(
+@pytest.mark.parametrize("namespace", ["mendari", "openhealth", "someone"])
+def test_a_pack_outside_community_packs_is_found_as_before_community_packs(
     tmp_path: Path, namespace: str
 ) -> None:
+    """With community packs off, a deployment serves exactly what it served before: a local
+    copy of a reference pack, under its own id, included. Only a community pack is held to
+    the community namespace (the `reserved-namespace` case above)."""
     root = _copy(tmp_path / "mine", "sorter", _set(id=f"{namespace}/visit-sorter"))
     found = discover([tmp_path / "mine"])
+    assert [(pack.id, pack.origin) for pack in found.packs] == [
+        (f"{namespace}/visit-sorter", "local")
+    ]
+    assert not found.problems and not found.packs[0].community
+    assert root.resolve() == found.packs[0].root
+
+
+def test_a_pack_in_the_community_namespace_elsewhere_gets_the_community_limits(
+    tmp_path: Path,
+) -> None:
+    _copy(tmp_path / "mine", "sorter")
+    (pack,) = discover([tmp_path / "mine"]).packs
+    assert (pack.origin, pack.shown_origin, pack.community) == ("local", "community", True)
+    assert Decision(pack).decide(BILL).outcome is Outcome.HUMAN_REVIEW
+
+
+def test_a_path_holding_packs_finds_them_as_maintained_with_community_packs_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """MENDARI_PACKS_PATH naming a checkout (CONTRIBUTING's `MENDARI_PACKS_PATH=<parent>`):
+    before, every pack under it took the path's origin (local), so the five reference packs
+    were refused for their namespace and then skipped as already seen: none was served."""
+    monkeypatch.setenv("MENDARI_PACKS_PATH", str(ROOT))
+    found = discover()
+    # (A working copy may hold other packs, untracked: only the reference packs are asserted.)
+    assert {pack.id for pack in found.packs if pack.origin == "maintained"} == SHIPPED
+    assert {pack.origin for pack in found.packs if pack.id in SHIPPED} == {"maintained"}
+    assert not [where for where in found.problems if "packs" in Path(where).parts]
+    assert resolve_pack("mendari/referral-router").origin == "maintained"
+
+
+def test_a_path_holding_community_packs_serves_them_only_when_on(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checkout = tmp_path / "checkout"
+    base = _community(checkout)
+    monkeypatch.setattr(registry, "_COMMUNITY_DIR", base)
+    monkeypatch.setenv("MENDARI_PACKS_PATH", str(checkout))
+    found = discover()
+    assert SORTER_ID not in {pack.id for pack in found.packs} and not found.problems
+    monkeypatch.setenv("MENDARI_COMMUNITY_PACKS", "on")
+    found = discover()
+    origins = {pack.id: pack.origin for pack in found.packs}
+    assert origins[SORTER_ID] == "community" and not found.problems
+
+
+def test_a_community_pack_from_a_git_submodule_is_not_served(tmp_path: Path) -> None:
+    base = _community(tmp_path)
+    (base / "visit-sorter" / ".git").write_text("gitdir: ../../.git/modules/visit-sorter\n")
+    found = discover([SearchPath(base, "community")])
     assert found.packs == []
-    assert f"the namespace {namespace}/ is reserved" in found.problems[str(root.resolve())]
+    assert "never a git submodule" in found.problems[str((base / "visit-sorter").resolve())]
 
 
-# -- one id, one pack (B1) ----------------------------------------------------------------------
+# -- one id, one pack where a community pack takes part (B1) ------------------------------------
 
 
-def test_a_taken_id_is_never_replaced_whatever_the_version(tmp_path: Path) -> None:
-    """Before, the newest version of an id won silently, so any directory on the search path
-    could shadow a pack by claiming its id with a higher version."""
-    first = _copy(tmp_path / "one", "sorter", _set(id="someone/sorter", version="0.1.0"))
-    later = _copy(tmp_path / "two", "sorter", _set(id="someone/sorter", version="9.0.0"))
+def test_a_pulled_reference_pack_is_served_as_before(tmp_path: Path) -> None:
+    """README's hub flow: `mendari pull mendari/referral-router`, then
+    `mendari eval mendari/referral-router` uses the newest version, the verified pulled one."""
+    cache = tmp_path / "cache"
+    pulled = PACKS / "referral-router"
+    _copy(cache / "mendari" / "referral-router", "9.9.9", _set(version="9.9.9"), source=pulled)
+    paths = [SearchPath(cache, "hub"), SearchPath(PACKS, "maintained")]
+    found = discover(paths)
+    versions = sorted(p.version for p in found.packs if p.id == "mendari/referral-router")
+    assert versions == [load_pack(pulled).version, "9.9.9"] and not found.problems
+    assert resolve_pack("mendari/referral-router", paths).version == "9.9.9"
+    assert resolve_pack("mendari/referral-router@9.9.9", paths).origin == "hub"
+    client = TestClient(create_app(db_path=tmp_path / "h.db", packs_paths=paths))
+    detail = client.get("/api/packs/mendari/referral-router").json()
+    assert detail["manifest"]["version"] == "9.9.9"
+
+
+def test_ids_no_community_pack_claims_are_found_as_before(tmp_path: Path) -> None:
+    _copy(tmp_path / "one", "sorter", _set(id="someone/sorter", version="0.1.0"))
+    _copy(tmp_path / "two", "sorter", _set(id="someone/sorter", version="9.0.0"))
     found = discover([tmp_path / "one", tmp_path / "two"])
-    assert [(pack.id, pack.version) for pack in found.packs] == [("someone/sorter", "0.1.0")]
+    assert sorted(pack.version for pack in found.packs) == ["0.1.0", "9.0.0"]
+    assert not found.problems
+
+
+def test_a_community_packs_id_is_never_replaced_whatever_the_version(tmp_path: Path) -> None:
+    """A community pack never shares its id: the first claim holds it, and both are reported."""
+    base = _community(tmp_path)
+    later = _copy(tmp_path / "mine", "sorter", _set(version="9.0.0"))
+    found = discover([SearchPath(base, "community"), tmp_path / "mine"])
+    assert [(pack.id, pack.version, pack.origin) for pack in found.packs] == [
+        (SORTER_ID, "0.1.0", "community")
+    ]
     assert "already taken by the pack at" in found.problems[str(later.resolve())]
-    assert "is served from here; also claimed by" in found.problems[str(first.resolve())]
-
-
-def test_a_maintained_pack_keeps_its_id_against_an_earlier_directory(tmp_path: Path) -> None:
-    claim = _copy(tmp_path / "mine", "sorter", _set(id="someone/sorter", version="9.0.0"))
-    kept = _copy(tmp_path / "shipped", "sorter", _set(id="someone/sorter"))
-    found = discover(
-        [SearchPath(tmp_path / "mine", "local"), SearchPath(tmp_path / "shipped", "maintained")]
-    )
-    assert [(pack.origin, pack.version) for pack in found.packs] == [("maintained", "0.1.0")]
-    assert "(maintained)" in found.problems[str(claim.resolve())]
-    assert str(claim.resolve()) in found.problems[str(kept.resolve())]
+    first = (base / "visit-sorter").resolve()
+    assert "is served from here; also claimed by" in found.problems[str(first)]
 
 
 def test_the_registry_cache_still_holds_versions_of_one_pack(tmp_path: Path) -> None:
@@ -245,15 +324,21 @@ def test_the_registry_cache_still_holds_versions_of_one_pack(tmp_path: Path) -> 
     assert resolve_pack("someone/sorter", [SearchPath(cache, "hub")]).version == "0.2.0"
 
 
-def test_the_server_reports_both_claims_and_serves_the_first(tmp_path: Path) -> None:
-    first = _copy(tmp_path / "one", "sorter", _set(id="someone/sorter", version="0.1.0"))
-    later = _copy(tmp_path / "two", "sorter", _set(id="someone/sorter", version="9.0.0"))
+def test_the_server_reports_both_claims_of_a_community_id_and_serves_the_first(
+    tmp_path: Path,
+) -> None:
+    base = _community(tmp_path)
+    later = _copy(tmp_path / "mine", "sorter", _set(version="9.0.0"))
+    first = (base / "visit-sorter").resolve()
     client = TestClient(
-        create_app(db_path=tmp_path / "d.db", packs_paths=[tmp_path / "one", tmp_path / "two"])
+        create_app(
+            db_path=tmp_path / "d.db",
+            packs_paths=[SearchPath(base, "community"), tmp_path / "mine"],
+        )
     )
     health = client.get("/api/health").json()
-    assert set(health["invalid"]) == {str(first.resolve()), str(later.resolve())}
-    detail = client.get("/api/packs/someone/sorter").json()
+    assert set(health["invalid"]) == {str(first), str(later.resolve())}
+    detail = client.get(f"/api/packs/{SORTER_ID}").json()
     assert detail["manifest"]["version"] == "0.1.0"
 
 
@@ -283,6 +368,36 @@ def test_an_invalid_community_pack_is_listed_and_every_other_pack_decides(
 
 
 # -- policy: recommend, never automate (B2) -----------------------------------------------------
+
+
+def test_a_community_pack_never_blocks_on_its_own(tmp_path: Path) -> None:
+    """A rule's BLOCK is final at once: no person would see the case. A community pack loaded
+    by path (its load in community-packs/ refuses such a rule) sends it to a person instead;
+    any other pack still blocks."""
+    outside = load_pack(
+        _copy(tmp_path / "a", "sorter", _set(id="someone/sorter", policy__rules=[BLOCK_RULE]))
+    )
+    assert Decision(outside).decide(BILL).outcome is Outcome.BLOCK
+    pack = load_pack(_copy(tmp_path / "b", "sorter", _set(policy__rules=[BLOCK_RULE])))
+    assert pack.community
+    result = Decision(pack).decide(BILL)
+    assert result.outcome is Outcome.HUMAN_REVIEW and result.recommendation == "billing"
+    assert any("never blocks on its own" in reason for reason in result.reasons)
+    card = render_card(pack)
+    assert "`BLOCK`" not in card.split("## Decision policy")[1].split("## Providers")[0]
+
+
+def test_a_community_pack_reads_texts_no_longer_than_its_patterns_were_timed_on() -> None:
+    """Before any pattern runs (the schema's included): `re` has no time limit."""
+    long = {"message": "x" * 10_001}
+    result = Decision(load_pack(SORTER)).decide(long)
+    assert result.outcome is Outcome.BLOCK
+    assert result.reasons == (
+        "input rejected: message: longer than 10,000 characters, the most a community pack reads",
+    )
+    assert Decision(load_pack(SORTER)).decide({"message": "x" * 2_000}).outcome is not None
+    maintained = Decision(load_pack(INBOX_DIR)).decide({"message": {"body": "x" * 10_001}})
+    assert not any("community pack" in reason for reason in maintained.reasons)
 
 
 def test_a_community_pack_recommends_and_never_automates(tmp_path: Path) -> None:
@@ -378,20 +493,28 @@ def test_a_composite_members_pinned_model_gives_way_too(
 
 COMMUNITY_LABEL = "Community · not clinically reviewed"
 INBOX_ID = "mendari/patient-inbox-router"
+INBOX_PERFORMERS = "https://mendari.co/fhir/CodeSystem/inbox-destination"
 MESSAGE_HOOK = {
     "hook": "mendari-message-received",
     "prefetch": {"communication": COMMUNICATION, "patient": PATIENT},
 }
 
 
+OWN_PERFORMERS = "https://mendari.co/packs/community/inbox-copy/CodeSystem/performer"
+
+
 def _inbox_as_community(base: Path) -> Path:
-    """The inbox router as a community pack would be: same content, community id and rules."""
-    return _copy(
+    """The inbox router as a community pack would be: same content, community id and rules,
+    and its performer CodeSystem under its own url."""
+    root = _copy(
         base,
         "inbox-copy",
         _set(id="community/inbox-copy", risk__level=0, audit__store_input="hash"),
         source=INBOX_DIR,
     )
+    mapping = root / "fhir" / "mapping.yaml"
+    mapping.write_text(mapping.read_text().replace(INBOX_PERFORMERS, OWN_PERFORMERS))
+    return root
 
 
 @pytest.fixture
@@ -439,6 +562,12 @@ def test_the_decision_card_labels_a_community_pack_and_says_it_never_automates()
     assert "| Automation | Never: a community pack recommends, and a person confirms" in card
     assert "AUTO permitted" not in card
     assert "published by Mendari tests (community, self-declared)" in card
+    # The policy section says the same: never "AUTO when confidence >= 0.90".
+    policy = card.split("## Decision policy")[1].split("## Providers")[0]
+    assert "- Never automated: a person reviews from `topic` confidence ≥ **0.40**" in policy
+    assert "AUTO" not in policy
+    maintained = render_card(load_pack(INBOX_DIR, origin="maintained"))
+    assert "- AUTO when `destination` confidence" in maintained
 
 
 @pytest.mark.parametrize("pack_dir", sorted(PACKS.glob("*/pack.yaml")), ids=lambda p: p.parent.name)
@@ -497,3 +626,101 @@ def test_the_contribution_forms_and_guide_hang_together() -> None:
     assert "decisions/ADR-0007-community-packs-by-pull-request.md" in nav
     guide = (ROOT / "docs/guides/contributing-a-pack.md").read_text()
     assert COMMUNITY_LABEL in guide and "`mendari/patient-inbox-router` | Yes" in guide
+
+
+# -- FHIR terminology: its own url, labelled (B3) -----------------------------------------------
+
+
+def test_a_community_pack_cannot_write_into_a_codesystem_of_mendaris(tmp_path: Path) -> None:
+    """Before, a community pack using the inbox router's performer system had its definitions
+    served as Mendari's own, ahead of the router's (`community/` sorts before `mendari/`)."""
+    from mendari.standards.terminology import Terminology
+
+    base = tmp_path / "community-packs"
+    root = _copy(
+        base,
+        "inbox-copy",
+        _set(id="community/inbox-copy", risk__level=0, audit__store_input="hash"),
+        source=INBOX_DIR,
+    )
+    found = discover([SearchPath(base, "community")])
+    assert found.packs == []
+    assert "task.performer_system" in found.problems[str(root.resolve())]
+    assert "https://mendari.co/packs/community/inbox-copy/" in found.problems[str(root.resolve())]
+
+    # Loaded by path, past the registry: the maintained router keeps its CodeSystem as it is.
+    inbox = load_pack(INBOX_DIR, origin="maintained")
+    alone, _ = Terminology.serving([inbox])
+    both, problems = Terminology.serving([load_pack(root, origin="community"), inbox])
+    assert both.by_url(INBOX_PERFORMERS) == alone.by_url(INBOX_PERFORMERS)
+    assert "a community pack's systems are its own" in problems["community/inbox-copy"]
+
+
+def test_a_community_packs_codesystems_say_who_published_them_and_that_they_are_unreviewed(
+    tmp_path: Path,
+) -> None:
+    from mendari.standards import davinci, terminology
+
+    sorter = load_pack(SORTER, origin="community")
+    inbox = load_pack(_inbox_as_community(tmp_path), origin="community")
+    found = {r.get("url"): r for r in terminology.resources([sorter, inbox])}
+    for url in (davinci.question_system(SORTER_ID, "topic"), OWN_PERFORMERS):
+        system = found[url]
+        assert system["publisher"] != "Mendari" and system["experimental"] is True
+        assert COMMUNITY_LABEL in system["title"] and COMMUNITY_LABEL in system["description"]
+    assert found[davinci.question_system(SORTER_ID, "topic")]["publisher"] == "Mendari tests"
+    shipped = {r.get("url"): r for r in terminology.resources([load_pack(INBOX_DIR)])}
+    assert shipped[INBOX_PERFORMERS]["publisher"] == "Mendari"
+    assert shipped[INBOX_PERFORMERS]["experimental"] is False
+
+
+def test_a_community_packs_dtr_questionnaire_is_labelled(tmp_path: Path) -> None:
+    from mendari.standards import davinci
+
+    pack = load_pack(
+        _copy(tmp_path, "pa", _set(id="community/pa"), source=PACKS / "prior-auth-preflight")
+    )
+    form = davinci.questionnaire(pack, {"service": "lumbar_mri", "payer": "acme"})
+    assert form is not None
+    assert COMMUNITY_LABEL in form["title"] and form["experimental"] is True
+    assert form["publisher"] == pack.manifest.publisher.name
+    shipped = davinci.questionnaire(
+        load_pack(PACKS / "prior-auth-preflight"), {"service": "lumbar_mri", "payer": "acme"}
+    )
+    assert shipped is not None and "experimental" not in shipped
+
+
+# -- evaluations through the API spend only what the deployment named (B2) ---------------------
+
+
+def test_the_eval_endpoint_runs_a_community_pack_remotely_only_where_named(
+    tmp_path: Path, labelled: TestClient
+) -> None:
+    """Before, POST /api/packs/<community>/evals with `providers` ran any variant: up to 200
+    paid calls per request, which the deployment never chose for the pack."""
+    url = "/api/packs/community/inbox-copy/evals"
+    remote = labelled.post(url, json={"dataset": "red_flags", "providers": {"router": "llm"}})
+    assert remote.status_code == 400
+    assert "runs a remote variant only where the deployment names it" in remote.json()["detail"]
+    local = labelled.post(url, json={"dataset": "red_flags", "providers": {"router": "rules"}})
+    assert local.status_code == 200, local.text
+    assert local.json()["providers"]["router"]["variant"] == "rules"
+    # A maintained pack's evaluation takes any variant, as before (here, a local one).
+    shipped = labelled.post(
+        f"/api/packs/{INBOX_ID}/evals",
+        json={"dataset": "red_flags", "providers": {"router": "rules"}},
+    )
+    assert shipped.status_code == 200
+
+    # The deployment named the pack for that variant: then the evaluation may run it too.
+    base = tmp_path / "named" / "community-packs"
+    _inbox_as_community(base)
+    app = create_app(
+        db_path=tmp_path / "n.db",
+        packs_paths=[SearchPath(base, "community")],
+        providers={"community/inbox-copy:router": "llm"},
+    )
+    named = TestClient(app).post(
+        url, json={"dataset": "red_flags", "limit": 1, "providers": {"router": "llm"}}
+    )
+    assert named.status_code != 400 or "names it" not in named.text

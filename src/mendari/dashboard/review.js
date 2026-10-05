@@ -1,6 +1,6 @@
 // Review queue: grouped by priority, stat first; resolving moves focus to the next card.
 
-import { criteriaTable, inputView } from "./pack.js";
+import { communityNotice, criteriaTable, inputView, isCommunity, originBadge } from "./pack.js";
 import { refreshReviewCount, views } from "./router.js";
 import { $, announce, api, emptyState, esc, focusHeading, icon, may, outcomeBadge, pct, PRIORITY_TEXT, priorityBadge, reducedMotion, signedIn, state, storageGet, storageSet, time, toast, toastError } from "./ui.js";
 
@@ -15,6 +15,7 @@ views.review = async (main) => {
   main.innerHTML = `
     <h1>Review queue</h1>
     <p class="muted">Decisions waiting for a person, most urgent first.</p>
+    ${communityNotice(state.detail)}
     <div class="row toolbar">
       <label for="reviewer">Reviewer</label>
       ${signedIn()
@@ -170,6 +171,7 @@ function reviewCard(item) {
       <h3 class="card-title" id="card-${esc(item.id)}">${esc(title)}</h3>
       ${item.confidence !== null ? `<span class="muted">confidence ${pct(item.confidence)}</span>` : ""}
       <span class="grow"></span>
+      ${isCommunity(state.detail) ? originBadge(state.detail) : ""}
       ${item.priority === "stat" ? "" : priorityBadge(item.priority)} ${outcomeBadge(item.outcome)}
       <span class="muted"><time datetime="${esc(item.created_at)}">${esc(time(item.created_at))}</time></span>
       <span class="mono muted">${esc(item.id.slice(0, 8))}</span>

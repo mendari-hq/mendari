@@ -70,15 +70,20 @@ jobs:
           done 3< /tmp/packs/changed
           exit $failed
       - name: Community packs - scope and community-check
-        # Runs even when the maintained packs failed, so the summary shows both.
+        # Runs even when the maintained packs failed, so the summary shows both. The owner is
+        # the pull request's author with a branch in this repository, never `github.actor`
+        # (whoever caused this run: the owner updating a fork's branch would be it).
         if: success() || failure()
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
-          ACTOR: ${{ github.actor }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          REPO: ${{ github.repository }}
           OWNER: ${{ github.repository_owner }}
         run: >-
-          uv run python scripts/community_check.py --base "$BASE" --actor "$ACTOR"
-          --owner "$OWNER" --summary "$GITHUB_STEP_SUMMARY"
+          uv run python scripts/community_check.py --base "$BASE" --actor "$AUTHOR"
+          --owner "$OWNER" --head-repo "$HEAD_REPO" --repo "$REPO"
+          --summary "$GITHUB_STEP_SUMMARY"
       - if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:

@@ -286,9 +286,75 @@ def test_a_terminology_collision_is_refused(repo: Path) -> None:
     assert has(report, "identity", "community-visit-sorter-topic")
 
 
-def test_the_repositorys_maintainers_file_is_in_the_format() -> None:
-    path = ROOT / "community-packs" / "MAINTAINERS.yaml"
-    assert maintainers.parse(path.read_bytes()) == {}
+@pytest.mark.parametrize(
+    ("change", "expected"),
+    [
+        (
+            lambda m: m.update(name="patient inbox  router"),
+            "is the name of mendari/patient-inbox-router, a pack Mendari maintains",
+        ),
+        (lambda m: m["publisher"].update(name="Mendari reference packs"), "names mendari"),
+        (lambda m: m.update(name="Open-Health refills"), "names openhealth"),
+    ],
+    ids=["maintained-name", "mendari-publisher", "old-name"],
+)
+def test_a_community_pack_cannot_pass_for_one_mendari_maintains(
+    new_pack: Path, change: Callable[[dict[str, Any]], None], expected: str
+) -> None:
+    edit_manifest(new_pack, change)
+    assert has(run(new_pack, base=None), "identity", expected)
+
+
+def test_a_community_packs_fhir_systems_live_under_its_own_url(repo: Path) -> None:
+    """Before, CI passed a pack whose performer system was the inbox router's: its definitions
+    were then served in Mendari's CodeSystem."""
+    pack = repo / "community-packs" / "inbox-copy"
+    shutil.copytree(ROOT / "packs" / "patient-inbox-router", pack)
+    edit_manifest(pack, lambda m: m.update(id="community/inbox-copy"))
+    report = run(pack, base=None)
+    assert has(report, "identity", "task.performer_system is 'https://mendari.co/fhir/CodeSystem")
+    assert has(report, "identity", "https://mendari.co/packs/community/inbox-copy/")
+
+
+def test_the_repositorys_maintainers_file_matches_its_packs() -> None:
+    """Every pack in community-packs/ has an entry, and every entry but a tombstone has its
+    pack: what a contributor's pull request adds keeps this true, so it never fails CI."""
+    assert_maintainers_match(ROOT / "community-packs")
+
+
+def assert_maintainers_match(base: Path) -> None:
+    entries = maintainers.parse((base / "MAINTAINERS.yaml").read_bytes())
+    folders = {path.parent.name for path in base.glob("*/pack.yaml")}
+    listed = {
+        pack_id.removeprefix("community/") for pack_id, e in entries.items() if not e.tombstone
+    }
+    assert all(pack_id.startswith("community/") for pack_id in entries)
+    assert listed == folders, (sorted(listed), sorted(folders))
+    gone = {pack_id.removeprefix("community/") for pack_id, e in entries.items() if e.tombstone}
+    assert not gone & folders
+
+
+def test_a_contributors_maintainers_entry_keeps_the_repository_check_green(
+    tmp_path: Path, scaffold: Path
+) -> None:
+    """The guide's steps (a pack and its entry) pass; a pack without its entry, or an entry
+    without its pack, does not. A tombstone stays."""
+    base = tmp_path / "community-packs"
+    shutil.copytree(ROOT / "community-packs", base)
+    shutil.copytree(scaffold, base / NAME)
+    entries = maintainers.parse((base / "MAINTAINERS.yaml").read_bytes())
+    rows = [{"id": e.id, "maintainers": list(e.maintainers)} for e in entries.values()]
+    write_maintainers(tmp_path, [*rows, {"id": PACK_ID, "maintainers": ["janedoe"]}])
+    assert_maintainers_match(base)
+    gone = {"id": "community/old", "maintainers": ["x"], "removed": "2026-10-04", "reason": "r"}
+    write_maintainers(tmp_path, [*rows, {"id": PACK_ID, "maintainers": ["janedoe"]}, gone])
+    assert_maintainers_match(base)
+    write_maintainers(tmp_path, rows)
+    with pytest.raises(AssertionError):
+        assert_maintainers_match(base)
+
+
+def test_the_maintainers_format() -> None:
     entries = maintainers.parse(
         b"packs:\n  - {id: community/a, maintainers: [octocat]}\n"
         b'  - {id: community/b, maintainers: [x-y], removed: "2026-10-04", reason: gone}\n'
@@ -305,6 +371,14 @@ def test_the_repositorys_maintainers_file_is_in_the_format() -> None:
 
 
 # -- the manifest --------------------------------------------------------------------------------
+
+
+BLOCK_RULE = {
+    "name": "no-refills",
+    "when": {"question": "request", "labels": ["refill"]},
+    "outcome": "BLOCK",
+    "reason": "Refills are refused.",
+}
 
 
 def _llm_default(m: dict[str, Any]) -> None:
@@ -326,6 +400,7 @@ def _pinned_model(m: dict[str, Any]) -> None:
         (_pinned_model, "providers.reader.variants.llm: remove `model`"),
         (lambda m: m["evaluation"].update(degradation_tolerance=0.1), "at most 0.05"),
         (lambda m: m["risk"].update(level=2), "at most risk level 1"),
+        (lambda m: m["policy"]["rules"].append(BLOCK_RULE), "'no-refills' has outcome BLOCK"),
     ],
     ids=[
         "licence",
@@ -335,6 +410,7 @@ def _pinned_model(m: dict[str, Any]) -> None:
         "pinned-model",
         "tolerance",
         "risk",
+        "block-rule",
     ],
 )
 def test_the_manifest_policy(
@@ -449,6 +525,49 @@ def test_an_update_that_follows_the_rules_passes(new_pack: Path, repo: Path) -> 
     assert report.metrics is not None and "No regression" in report.metrics
 
 
+def test_an_update_cannot_hide_a_regression_by_editing_its_own_benchmark(
+    new_pack: Path, repo: Path
+) -> None:
+    """Before, the update below passed: it drops the `breathing` rule and the two benchmark
+    cases only that rule caught, so on its own dataset every floor holds. On the base's, it
+    finds 4 of 6 critical cases."""
+    git(repo, "branch", "-f", "main")
+    rules = new_pack / "logic" / "rules.yaml"
+    rules.write_text(
+        "".join(line for line in rules.read_text().splitlines(True) if "breathing" not in line)
+    )
+    kept = [r for r in _examples(new_pack) if r["id"] not in ("ex-11", "ex-13")]
+    chest = {"message": {"body": "Crushing chest pain right now."}}
+    kept.append(
+        {"id": "ex-16", "input": chest, "labels": {"request": "other", "urgent_symptoms": "yes"}}
+    )
+    _write_examples(new_pack, kept)
+    edit_manifest(new_pack, lambda m: m.update(version="0.2.0"))
+    changelog = new_pack / "CHANGELOG.md"
+    changelog.write_text(
+        changelog.read_text().replace("## 0.1.0", "## 0.2.0\n\n- Fewer rules.\n\n## 0.1.0")
+    )
+    regenerate(new_pack)
+    report = run(new_pack)
+    assert not report.passed
+    assert has(
+        report,
+        "evaluation",
+        "on the base's benchmark dataset: the critical label urgent_symptoms=yes is found in 67%",
+    )
+    assert has(report, "evaluation", "on the base's benchmark dataset: regression against the base")
+    gone = [f.message for f in report.warnings if f.rule == "evaluation"]
+    assert any("ex-11, ex-13 are gone" in message for message in gone)
+
+
+def test_an_update_keeps_the_bases_critical_labels(new_pack: Path, repo: Path) -> None:
+    git(repo, "branch", "-f", "main")
+    edit_manifest(new_pack, lambda m: m["evaluation"].update(critical=[]))
+    assert has(
+        run(new_pack), "evaluation", "the base declares the critical label urgent_symptoms=yes"
+    )
+
+
 # -- honest numbers ------------------------------------------------------------------------------
 
 
@@ -526,6 +645,30 @@ def _bayes_pack(repo: Path) -> Path:
     return pack
 
 
+def test_a_composites_trained_member_must_be_what_training_gives(repo: Path) -> None:
+    """Before, only top-level naive_bayes variants were trained again: a cascade's members'
+    model could be anything (trained elsewhere, on real messages), and its vocabulary was not
+    scanned."""
+    pack = _bayes_pack(repo)
+    member = {"type": "naive_bayes", "model_file": "models/topic.json", "text_fields": ["message"]}
+    cascade = {"type": "cascade", "accept_at": 0.9, "members": {"a": member, "b": dict(member)}}
+    edit_manifest(
+        pack,
+        lambda m: m["providers"]["reader"].update(use="both", variants={"both": cascade}),
+    )
+    assert main(["train", str(pack)]) == 0
+    report = run(pack, base=None)
+    assert not messages(report, "honest-numbers") and not report.warnings
+    model = pack / "models" / "topic.json"
+    loaded = json.loads(model.read_text())
+    loaded["tokens"]["123-45-6789"] = loaded["tokens"][next(iter(loaded["tokens"]))]
+    model.write_text(json.dumps(loaded, separators=(",", ":")) + "\n")
+    report = run(pack, base=None)
+    assert has(report, "honest-numbers", "models/topic.json is not what `mendari train` gives")
+    (phi,) = [f.message for f in report.warnings if f.rule == "phi"]
+    assert "models/topic.json: vocabulary word" in phi and "123-45" not in phi
+
+
 def test_a_trained_model_must_be_what_training_gives(repo: Path) -> None:
     pack = _bayes_pack(repo)
     assert not messages(run(pack, base=None), "honest-numbers")
@@ -577,7 +720,8 @@ def test_the_probe_times_out_slow_patterns_in_another_process() -> None:
 
 def test_a_backtracking_rule_pattern_fails(new_pack: Path) -> None:
     rules = new_pack / "logic" / "rules.yaml"
-    text = rules.read_text().replace('"refill|renew|', '"(re+)+fill|a*a*a*a*a*z|renew|')
+    # Bounded repeats are not the static check's: the probe times them.
+    text = rules.read_text().replace('"refill|renew|', '"(re+)+fill|a{0,3000}a{0,3000}z|renew|')
     rules.write_text(text)
     patterns = messages(run(new_pack, base=None), "patterns")
     assert len(patterns) == 1 and "inside another one" in patterns[0]
@@ -585,6 +729,76 @@ def test_a_backtracking_rule_pattern_fails(new_pack: Path) -> None:
     rules.write_text(text.replace("(re+)+fill|", ""))
     (slow,) = messages(run(new_pack, base=None), "patterns")
     assert "took more than 1 s on a 10,000-character text" in slow
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        r"\d*\d*x",
+        r"(?:ab|cd|ef|gh|ij|kl|mn|op)\d*\d*\d*\d*x",  # the probe-padding bypass
+        r"a*a*a*a*a*b",
+        r"[a-z]+\s*[a-z]+$",  # only what both can match (or nothing) between them
+        r"(\w+)(\w*)!",  # groups do not hide the sequence
+        r"\d+0\d+x",  # a mandatory piece the first can also match
+    ],
+)
+def test_the_static_check_refuses_quantifiers_one_after_another(pattern: str) -> None:
+    (problem,) = regex_safety.static_problems(pattern, re.IGNORECASE)
+    assert "one after another" in problem
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        r"\d+\.\d+",  # a piece neither matches fixes the split
+        r"[a-z]+ [a-z]+",
+        r"\d+\s*(mg|ml)",
+        r"chest.*pain",
+        r".*foo.*",  # nothing after the second can fail: the first try matches
+        r"\w+@\w+",
+        r"\d*x",  # the guide's rewrites
+        r"[a-z]+\s+[a-z]+$",
+        r"cough\w*(?:[^\w.!?\n]+\w+){0,3}?[^\w.!?\n]+blood",  # a negated class is exact
+    ],
+)
+def test_the_sequence_check_allows_quantifiers_something_separates(pattern: str) -> None:
+    assert regex_safety.static_problems(pattern, re.IGNORECASE) == []
+
+
+def test_the_reference_packs_patterns_pass_the_static_check() -> None:
+    """The guide points at them (the inbox router's red-flag screen) as the example."""
+    from mendari.core.pack import authored_patterns
+    from mendari.core.registry import SearchPath, discover
+
+    packs = discover([SearchPath(ROOT / "packs", "maintained")]).packs
+    found = [
+        (pack.id, where)
+        for pack in packs
+        for where, text, flags in authored_patterns(pack)
+        if regex_safety.static_problems(text, flags)
+    ]
+    assert len(packs) == 5 and found == []
+
+
+def test_padding_a_pattern_with_pieces_does_not_hide_its_slow_part_from_the_probe() -> None:
+    """Before, the probe kept the first 8 pieces and the first 4 leading texts: eight literal
+    alternatives pushed the default '0' out, and a slow branch after the fourth was never
+    reached."""
+    padded = r"(?:ab|cd|ef|gh|ij|kl|mn|op)\d*\d*\d*\d*x"
+    atoms, prefixes = regex_safety.pump_atoms(padded, re.IGNORECASE)
+    assert "0" in atoms and prefixes[:8] == ["ab", "cd", "ef", "gh", "ij", "kl", "mn", "op"]
+    fifth = r"ab\d|cd\d|ef\d|gh\d|ij\d*\d*\d*x"
+    assert "ij" in regex_safety.pump_atoms(fifth, re.IGNORECASE)[1]
+    jobs = [regex_safety.Job(p, p, re.IGNORECASE) for p in (padded, fifth)]
+    assert [job.where for job in regex_safety.probe(jobs)] == [padded, fifth]
+
+
+def test_a_pattern_too_big_to_probe_is_refused(new_pack: Path) -> None:
+    rules = new_pack / "logic" / "rules.yaml"
+    many = "|".join(f"(?:q{i})+" for i in range(100))  # 101 x 103 x 2 inputs
+    rules.write_text(rules.read_text().replace('"refill|renew|', f'"{many}|refill|renew|'))
+    (problem,) = messages(run(new_pack, base=None), "patterns")
+    assert "too many pieces for the probe" in problem
 
 
 # -- hygiene -------------------------------------------------------------------------------------
@@ -761,3 +975,46 @@ def test_a_removed_pack_needs_its_tombstone(
     )
     commit(pull_request)
     assert script.run(pull_request, "main", owner=True) == 0
+    # Only the owner removes a pack: before, anyone's pull request could, with a tombstone.
+    capsys.readouterr()
+    assert script.run(pull_request, "main", owner=False) == 1
+    assert "only the repository's owner removes a community pack" in capsys.readouterr().out
+
+
+def test_the_owner_is_the_pull_requests_author_from_this_repository() -> None:
+    is_owner = _script().is_owner
+    assert is_owner("Junebugg1214", "junebugg1214", "Junebugg1214/mendari", "Junebugg1214/mendari")
+    assert not is_owner("attacker", "Junebugg1214", "attacker/mendari", "Junebugg1214/mendari")
+    # The owner's name on a fork's branch (anyone may push there) is not the owner's change.
+    assert not is_owner("Junebugg1214", "Junebugg1214", "attacker/mendari", "Junebugg1214/mendari")
+    assert not is_owner("", "Junebugg1214", "", "Junebugg1214/mendari")
+
+
+def test_a_pack_added_as_a_git_submodule_fails(
+    pull_request: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Before, a gitlink at community-packs/<name> (one slash) was 'no community pack
+    changes': its files are another repository's, which nothing checks."""
+    git(pull_request, "branch", "-f", "main")
+    head = git(pull_request, "rev-parse", "HEAD").strip()
+    (pull_request / ".gitmodules").write_text(
+        '[submodule "evil"]\n\tpath = community-packs/evil\n\turl = https://example.org/evil\n'
+    )
+    git(pull_request, "add", ".gitmodules")
+    git(pull_request, "update-index", "--add", "--cacheinfo", f"160000,{head},community-packs/evil")
+    git(pull_request, "commit", "-q", "-m", "a submodule")
+    capsys.readouterr()
+    for owner in (False, True):
+        assert _script().run(pull_request, "main", owner=owner) == 1
+        out = capsys.readouterr().out
+        assert "holds a git submodule (community-packs/evil)" in out
+        assert "no community pack changes" not in out
+    assert pr_scope_problems([".gitmodules", "community-packs/evil"], owner=False)
+
+
+def test_a_submodule_inside_a_pack_fails(new_pack: Path, repo: Path) -> None:
+    head = git(repo, "rev-parse", "HEAD").strip()
+    git(
+        repo, "update-index", "--add", "--cacheinfo", f"160000,{head},community-packs/{NAME}/vendor"
+    )
+    assert has(run(new_pack, base=None), "hygiene", f"community-packs/{NAME}/vendor")

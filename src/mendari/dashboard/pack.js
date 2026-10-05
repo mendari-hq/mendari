@@ -24,8 +24,10 @@ const ORIGIN_GROUPS = [
   ["community", "Community · not clinically reviewed"],
 ];
 
+// A community pack's option says so too: a closed picker shows only the chosen option's text, and
+// a community pack may share a word or two of its name with another.
 export function packOptions(packs) {
-  const option = (p) => `<option value="${esc(p.id)}">${esc([p.name, p.version].filter(Boolean).join(" "))}</option>`;
+  const option = (p) => `<option value="${esc(p.id)}">${esc([p.name, p.version, isCommunity(p) ? "(community)" : ""].filter(Boolean).join(" "))}</option>`;
   const groups = ORIGIN_GROUPS.map(([origin, label]) => [label, packs.filter((p) => (p.origin ?? "maintained") === origin)])
     .filter(([, members]) => members.length);
   if (groups.length < 2) return packs.map(option).join("");

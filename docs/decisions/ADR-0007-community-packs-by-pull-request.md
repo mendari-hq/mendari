@@ -30,16 +30,22 @@ The owner decided (2026-10-04):
 - **Location is the label.** Community packs live in `community-packs/<name>/`, one level deep,
   with the id `community/<name>`. Only the owner's merge puts a pack there. The origin of a
   pack (`core/origin.py`: maintained, community, hub, local) comes from where it was found,
-  never from its manifest. `mendari/` and `openhealth/` are reserved to `packs/`, `community/`
-  to `community-packs/`. One id is one pack: a second claim is refused and reported, whatever
-  its version.
+  never from its manifest. A community pack uses the `community/` namespace only, so it never
+  claims `mendari/` or `openhealth/`, nor a reference pack's id; a second claim to a community
+  pack's id is refused and reported, whatever its version. Packs from anywhere else are found
+  as before (the newest version of an id is served); one whose id is in `community/` gets the
+  community limits wherever it was loaded from. A community pack's FHIR systems live under its
+  own url (`https://mendari.co/packs/community/<name>/`), and its name, CDS title and publisher
+  never name Mendari nor copy a maintained pack's name (CI).
 - **Served, labelled, recommend-only.** A deployment serves community packs only with
   `MENDARI_COMMUNITY_PACKS=on` (default off; the one switch turns them all on or off). Every
   surface labels them "Community · not clinically reviewed" (the API, `/api/health` counts,
   the dashboard picker, the overview, Try it, the Decision Card, CDS Hooks discovery and cards,
   the `/docs` landing); the reference packs say "Maintained by Mendari"; `publisher.type` is
   shown only as self-declared. A community pack never automates: the policy caps AUTO to
-  HUMAN_REVIEW (ADR-0002: policy only lowers automation).
+  HUMAN_REVIEW (ADR-0002: policy only lowers automation), and no policy rule of its own
+  blocks (refused at load; a block is final at once, so no person would confirm it). It reads
+  texts of at most 10,000 characters, the length its patterns are timed on.
 - **Local providers only, unless the owner opts a pack in.** A community pack's default
   variants are local (`rules`, `criteria`, `dosing`, `naive_bayes`, or a composite of those);
   unscoped provider settings skip it, and only `community/<name>:slot=variant` runs it on
@@ -60,7 +66,9 @@ The owner decided (2026-10-04):
 
 ## Consequences
 - Nothing existing changes: the five reference packs decide identically, and with
-  `MENDARI_COMMUNITY_PACKS` unset a deployment serves exactly what it served before. The
+  `MENDARI_COMMUNITY_PACKS` unset a deployment serves exactly what it served before (a pack
+  pulled from a registry, a local copy of a reference pack, a path holding `packs/`), except
+  that a pack whose id is in the new `community/` namespace gets the community limits. The
   community packs are not in the wheel or the images.
 - An outside author sees the pack live (where community packs are on) with no power to act on
   a patient, spend the deployment's calls or look reviewed.

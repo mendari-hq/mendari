@@ -8,17 +8,28 @@ after it. How to write a pack in the first place is in
 
 **What a community pack can do.** A deployment serves community packs only when it sets
 `MENDARI_COMMUNITY_PACKS=on` (off by default). There, every surface that shows the pack (the
-API, the dashboard, Try it, its Decision Card, CDS Hooks, the `/docs` page) labels it
+API, the dashboard, Try it, the review queue, the SMART patient view, its Decision Card, CDS
+Hooks, its FHIR CodeSystems, the `/docs` page) labels it
 **"Community · not clinically reviewed"**, and the runtime holds it to these limits, whatever
 its manifest says:
 
 - it **recommends and never automates**: a person confirms every decision
   ([ADR-0002](../decisions/ADR-0002-runtime-enforced-risk-caps.md): policy only lowers
-  automation);
+  automation), so no policy rule of its own has `outcome: BLOCK` (a block is final at once):
+  send such cases to a person with `HUMAN_REVIEW` and a priority;
 - it decides with **local providers** (rules, criteria, dosing, naive Bayes, or a composite of
-  those); a remote model runs only if a deployment names the pack in its settings;
+  those); a remote model runs only if a deployment names the pack in its settings
+  (`community/<name>:slot=variant`), for decisions and evaluations alike;
 - it keeps only a **hash** of each input (`audit.store_input: hash`);
+- it reads texts of at most **10,000 characters** (a longer one is refused before any pattern
+  runs);
+- its FHIR systems (a `task.performer_system` in `fhir/mapping.yaml`) live under its own url,
+  `https://mendari.co/packs/community/<name>/`, e.g.
+  `https://mendari.co/packs/community/<name>/CodeSystem/performer`;
 - it is at most **risk level 1**.
+
+Its name, CDS Hooks title and publisher are yours: they may not name Mendari or copy the name
+of a pack Mendari maintains.
 
 Why these limits, and what was decided, is in
 [ADR-0007](../decisions/ADR-0007-community-packs-by-pull-request.md). The label comes from
@@ -75,7 +86,8 @@ where the pack lives, never from `publisher.type`, which every pack declares for
     clinical content, how the data was made, the providers, and the CHANGELOG entry.
 
 8. **CI runs.** The `pack-check` job runs `community-check` on your pack, and fails if the pull
-    request changes anything outside your pack's folder and its `MAINTAINERS.yaml` entry. Its
+    request changes anything outside your pack's folder and its `MAINTAINERS.yaml` entry (or
+    adds a git submodule: the pack's files are in the repository, where they are read). Its
     summary shows the metrics and the rendered Decision Card. GitHub may ask the owner to
     approve the first run of a first-time contributor. There is no preview deployment for a
     fork: CI is the preview.
@@ -91,7 +103,9 @@ where the pack lives, never from `publisher.type`, which every pack declares for
 
 11. **Updates.** Every later change to what the pack decides with raises its version and adds a
     `CHANGELOG.md` entry; `community-check` refuses one that doesn't. An update must not do
-    worse than the benchmark on `main`, within the tolerance `main` set (at most 0.05).
+    worse than the benchmark on `main`, within the tolerance `main` set (at most 0.05), on its
+    own benchmark dataset and on `main`'s, and keeps `main`'s critical labels. Benchmark cases
+    `main` has that the update removes or relabels are warnings: say why in the pull request.
 
 ## Risk level
 
@@ -119,8 +133,9 @@ community pack for now.
 addresses, record numbers, phone numbers or messages copied from a chart or an inbox. Real data
 merged into a public repository cannot be fully taken back. Write every case yourself, the way
 a teaching case is written, and keep rare-condition and date combinations vague. `community-check`
-warns on text in `data/` and `tests/` that looks like a real person's details; act on every
-warning.
+warns on text in `data/`, `tests/` and a trained model's vocabulary that looks like a real
+person's details; act on every warning. A trained model (a composite's members too) must be
+what `mendari train` gives from the pack's own data, byte for byte.
 
 Two ways to make the data, neither needs Python:
 
@@ -166,7 +181,9 @@ that would have been `AUTO` becomes `HUMAN_REVIEW` anyway, with its recommendati
 Rules match text with regular expressions, and Python's `re` has no time limit: a pattern that
 can match one text in many ways may take seconds on a long message, and stall the server that
 runs it. `community-check` refuses those, in two ways: a static check of each pattern, and a run
-of each pattern on pumped inputs of 10,000 characters, with one second allowed.
+of each pattern on pumped inputs of 10,000 characters built from every piece it holds, with one
+second allowed on each. Neither is a guarantee, so a community pack also refuses any text longer
+than 10,000 characters before a pattern runs.
 
 | Instead of | Write | Why |
 |---|---|---|
@@ -175,6 +192,7 @@ of each pattern on pumped inputs of 10,000 characters, with one second allowed.
 | <code>(.&#124;\s)+</code> | `[\s\S]+`, or better a bounded `[^.!?\n]{0,80}` | Alternatives that can start on the same character |
 | `chest.*pain` | `chest(?:[^\w.!?\n]+\w+){0,5}?[^\w.!?\n]+pain` | Bounded: at most five words between, never across a sentence |
 | `.*` at either end | nothing | A rule matches anywhere in the text already |
+| `\d*\d*x`, `[a-z]+\s*[a-z]+$` | `\d*x`, `[a-z]+\s+[a-z]+$` | Repeated characters one after another that can match the same text split it in many ways; merge them, or require something only one of them matches between them |
 
 More habits that keep patterns fast and honest:
 
@@ -215,7 +233,8 @@ CI checks the mechanics. The owner then reads what it cannot judge, and may ask 
   so.
 - **Promotion.** A community pack may become one Mendari maintains, after clinical review: it
   moves to `packs/` with a new `mendari/` id, as a new major version.
-- **Removal.** The owner removes a pack that is unmaintained, superseded or the subject of a
+- **Removal.** Only the owner removes a pack (CI fails anyone else's removal; to propose one,
+  open an issue). The owner removes a pack that is unmaintained, superseded or the subject of a
   licence complaint with a pull request that deletes its folder and keeps its
   `MAINTAINERS.yaml` entry as a tombstone, so its id is never used again. A pack with a safety
   problem or real patient data is removed at once (the merge reverted and deployed), and a

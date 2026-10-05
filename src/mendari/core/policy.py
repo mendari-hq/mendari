@@ -3,8 +3,9 @@
 Order of evaluation:
 1. Policy rules, first match wins (e.g. "possible emergency -> stat nurse review").
 2. Otherwise, confidence thresholds on the primary question.
-3. Caps that can only make a decision *less* automated: a community pack (never AUTO),
-   per-label limits, provider failures, and the pack's risk level. A deploying organisation may
+3. Caps that can only make a decision *less* automated: a community pack (never AUTO, and a
+   rule's BLOCK goes to a person instead, since a block is final at once), per-label limits,
+   provider failures, and the pack's risk level. A deploying organisation may
    lift the risk cap for levels 2-3 with a named, recorded governance approval; level 4 can
    never run autonomously, nor can a community pack at any level.
 """
@@ -104,6 +105,13 @@ def apply_policy(
                     f"{policy.thresholds.review:.2f}"
                 )
 
+    if community and rule_name is not None and outcome is Outcome.BLOCK:
+        # A block is final at once and no person sees it; a community pack's rule never decides
+        # alone (its load refuses such a rule; this covers a pack loaded by path).
+        reasons.append(
+            "a community pack (not clinically reviewed) never blocks on its own: a person decides"
+        )
+        outcome = Outcome.HUMAN_REVIEW
     if outcome is Outcome.AUTO:
         outcome = _cap(
             manifest, recommendation, failures, governance, variants or {}, reasons, community

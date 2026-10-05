@@ -10,9 +10,16 @@ self-declared):
 - `hub`: packs pulled from a registry, verified, in the local cache.
 - `local`: any other directory (`MENDARI_PACKS_PATH`, a path given on the command line).
 
-A community pack recommends and never automates (`core/policy.py`), decides with local
-providers unless the deployment opts it in to another variant by name
-(`community/<name>:slot=variant`), keeps only a hash of its inputs, and is at most risk level 1.
+A community pack recommends and never automates (`core/policy.py`): no policy rule of its own
+blocks, and a person confirms every decision. It decides with local providers unless the
+deployment opts it in to another variant by name (`community/<name>:slot=variant`), keeps only a
+hash of its inputs, reads texts of at most `MAX_COMMUNITY_TEXT_CHARS`, publishes its FHIR
+terminology under its own url (`community_url`), and is at most risk level 1.
+
+The namespaces are the community route's: a community pack uses `community/` and nothing else,
+so it can never claim the id of a pack Mendari maintains. Packs from anywhere else are found as
+they were before community packs existed; one whose id is in `community/` gets the community
+limits wherever it was loaded from (`is_community`).
 """
 
 from __future__ import annotations
@@ -21,17 +28,21 @@ import re
 from collections.abc import Mapping
 from typing import Any, Literal
 
-from mendari.core.spec import PackManifest, RiskLevel
+from mendari.core.spec import Outcome, PackManifest, RiskLevel
 
 Origin = Literal["maintained", "community", "hub", "local"]
 
 COMMUNITY_NAMESPACE = "community"
-# Namespaces only one origin may use: a pack elsewhere claiming one is refused at load.
+# The namespaces of the packs Mendari maintains, which a community pack never claims.
 RESERVED_NAMESPACES: Mapping[str, Origin] = {
     "mendari": "maintained",
     "openhealth": "maintained",  # the reference packs' id before the rename (`legacy.py`)
-    COMMUNITY_NAMESPACE: "community",
 }
+# Where a community pack's FHIR terminology lives: its own url, never one of Mendari's.
+COMMUNITY_URL = "https://mendari.co/packs/community/"
+# The longest text a community pack's patterns run on: what the pattern probe times them on
+# (`community/regex_safety.py`). A longer one is refused before any pattern runs.
+MAX_COMMUNITY_TEXT_CHARS = 10_000
 COMMUNITY_NAME = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 MAX_COMMUNITY_RISK = RiskLevel.CLINICAL_INFORMATION
 # The provider types that decide on this machine, without a call anywhere, and the composites
@@ -68,13 +79,64 @@ def shown_origin(pack_id: str, origin: Origin) -> Origin:
 
 
 def namespace_problem(pack_id: str, origin: Origin) -> str | None:
-    """Why a pack of this origin may not use its id's namespace, if it may not."""
+    """Why a pack of this origin may not use its id's namespace, if it may not: a community
+    pack never claims a namespace of the packs Mendari maintains. Other origins are found as
+    they always were."""
     namespace = pack_id.partition("/")[0]
-    owner = RESERVED_NAMESPACES.get(namespace)
-    if owner is None or owner == origin:
+    if origin != "community" or namespace not in RESERVED_NAMESPACES:
         return None
-    where = "community-packs/" if owner == "community" else "the packs Mendari maintains"
-    return f"the namespace {namespace}/ is reserved to {where}; this pack is {origin}"
+    return f"the namespace {namespace}/ is reserved to the packs Mendari maintains"
+
+
+def community_url(pack_id: str) -> str:
+    """Where a community pack's FHIR terminology lives: `https://mendari.co/packs/<id>/`."""
+    return f"{COMMUNITY_URL}{pack_id.removeprefix(COMMUNITY_NAMESPACE + '/')}/"
+
+
+def performer_problem(pack_id: str, system: str | None) -> str | None:
+    """Why a community pack may not use `system` (its FHIR mapping's `task.performer_system`),
+    if it may not: it lives under the pack's own url, so it never writes into a CodeSystem of
+    Mendari's or of another pack."""
+    if system is None:
+        return None
+    own = community_url(pack_id)
+    if system.startswith(own) and len(system) > len(own):
+        return None
+    return (
+        f"fhir/mapping.yaml: task.performer_system is {system!r}; a community pack's FHIR "
+        f"systems live under its own url, e.g. {own}CodeSystem/performer"
+    )
+
+
+def rule_problems(manifest: PackManifest) -> list[str]:
+    """Why a community pack's policy rules cannot stand: none of them blocks, since a blocked
+    case is final at once and no person sees it."""
+    return [
+        f"policy rule {rule.name!r} has outcome BLOCK; a community pack recommends and a person "
+        "confirms every decision: use HUMAN_REVIEW (with a priority) instead"
+        for rule in manifest.policy.rules
+        if rule.outcome is Outcome.BLOCK
+    ]
+
+
+def long_text(value: Any, limit: int = MAX_COMMUNITY_TEXT_CHARS) -> str | None:
+    """Where in an input (`message.body`) a text, or a key, is longer than `limit` characters,
+    if one is: a community pack refuses it before any of its patterns runs. Walked without
+    recursion, however deep the input."""
+    stack: list[tuple[str, Any]] = [("", value)]
+    while stack:
+        where, item = stack.pop()
+        if isinstance(item, str):
+            if len(item) > limit:
+                return where or "(root)"
+        elif isinstance(item, Mapping):
+            for key, child in reversed(list(item.items())):
+                if isinstance(key, str) and len(key) > limit:
+                    return where or "(root)"
+                stack.append((f"{where}.{key}" if where else str(key), child))
+        elif isinstance(item, list | tuple):
+            stack += [(f"{where}[{i}]", child) for i, child in reversed(list(enumerate(item)))]
+    return None
 
 
 def community_problems(manifest: PackManifest, folder: str) -> list[str]:
@@ -96,6 +158,7 @@ def community_problems(manifest: PackManifest, folder: str) -> list[str]:
         problems.append(
             "a community pack keeps only a hash of its inputs (audit.store_input: hash)"
         )
+    problems += rule_problems(manifest)
     for slot_name, slot in manifest.providers.items():
         variant = slot.variants[slot.use]
         config = {"type": variant.type, **(variant.model_extra or {})}

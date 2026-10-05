@@ -10,8 +10,9 @@
   ends after 30 minutes idle, 8 hours, or when the EHR's token expires, whichever is first
   (`server/sessions.py`).
 - `GET /api/smart/session` (`{"active": false}` without one), `POST /api/smart/logout`: public.
-  The session names the launch (`launch_id`, not a secret) and the packs it may use (id, name
-  and origin), so a browser that only launched opens the dashboard on the patient view alone.
+  The session names the launch (`launch_id`, not a secret) and the packs it may use (id, name,
+  origin and its label), so a browser that only launched opens the dashboard on the patient
+  view alone.
 - `GET /api/smart/patient`: the launch's patient, for the banner.
 - `GET /api/smart/focus?pack_id=`: the patient's resources the pack decides about (their inbox
   messages, their referrals).
@@ -279,7 +280,8 @@ def add_smart_routes(
         is an answer, not an error): the EHR, patient and encounter, who launched (`fhir_user`),
         the scopes, when the EHR's token expires, the pack launched, the launch's id
         (`launch_id`: the dashboard window it opened carries it, to tell a replaced launch), and
-        the packs it may use (`packs`: id, name and origin)."""
+        the packs it may use (`packs`: id, name, origin and `origin_label`, which the patient view
+        shows, so a community pack is labelled where a clinician decides)."""
         launch = auth.launch(request) if settings is not None else None
         if launch is None:
             return {"active": False}
@@ -287,7 +289,12 @@ def add_smart_routes(
         shown = ("iss", "patient", "encounter", "fhir_user", "scope", "expires_at", "pack")
         context = {key: session.get(key) for key in shown}
         listed = [
-            {"id": pack.id, "name": pack.manifest.name, "origin": pack.shown_origin}
+            {
+                "id": pack.id,
+                "name": pack.manifest.name,
+                "origin": pack.shown_origin,
+                "origin_label": pack.origin_label,
+            }
             for pack in packs.values()
         ]
         return {

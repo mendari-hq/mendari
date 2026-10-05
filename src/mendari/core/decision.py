@@ -17,6 +17,7 @@ from jsonschema import ValidationError
 
 from mendari.core import input_schema, tenancy
 from mendari.core.derive import complete_answers, explain
+from mendari.core.origin import MAX_COMMUNITY_TEXT_CHARS, long_text
 from mendari.core.pack import Pack, load_pack
 from mendari.core.policy import GovernanceOverride, PolicyResult, apply_policy
 from mendari.core.registry import resolve_pack
@@ -277,7 +278,16 @@ class Decision:
                 self.budget.admit_decision()
             except ProviderError as error:
                 over_quota = error  # every provider fails with it, so nothing automates
-        schema_problems = self.validate(inputs)
+        too_long = long_text(inputs) if self.pack.community else None
+        if too_long is not None:
+            # Before the schema's patterns run too: a community pack's patterns are timed on
+            # texts this long, no longer (`core/origin.py`).
+            schema_problems = [
+                f"{too_long}: longer than {MAX_COMMUNITY_TEXT_CHARS:,} characters, the most a "
+                "community pack reads"
+            ]
+        else:
+            schema_problems = self.validate(inputs)
         problems = [*rejected, *schema_problems]
         if problems:
             policy = PolicyResult(

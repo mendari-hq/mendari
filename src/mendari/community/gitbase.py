@@ -86,3 +86,22 @@ class Base:
             for path in listed
             if path.startswith(prefix)
         }
+
+
+GITLINK = "160000"  # the mode git gives a submodule: a commit of another repository
+
+
+def gitlinks(repo: Path, path: str) -> list[str]:
+    """The git submodules (gitlinks) under `path`, staged or committed: another repository's
+    commit, whose files are not in this one and that no check here can read."""
+    found: set[str] = set()
+    for entry in _git(repo, "ls-files", "-s", "-z", "--", path).split(b"\0"):
+        mode, _, rest = entry.partition(b" ")
+        if mode.decode() == GITLINK:
+            found.add(rest.partition(b"\t")[2].decode("utf-8", "surrogateescape"))
+    tree = _git(repo, "ls-tree", "-r", "-z", "HEAD", "--", path)
+    for entry in tree.split(b"\0"):
+        mode, _, rest = entry.partition(b" ")
+        if mode.decode() == GITLINK:
+            found.add(rest.partition(b"\t")[2].decode("utf-8", "surrogateescape"))
+    return sorted(found)

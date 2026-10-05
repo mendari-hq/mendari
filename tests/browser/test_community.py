@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 from playwright.sync_api import Browser, Page, expect
 
+from mendari.cli import main
 from mendari.core.registry import SearchPath
 from mendari.server.app import create_app
 from tests.browser.conftest import serving
@@ -22,17 +23,20 @@ pytestmark = pytest.mark.browser
 
 LABEL = "Community · not clinically reviewed"
 SORTER = "community/visit-sorter"
+SCAFFOLD = "community/refill-router"  # what `mendari new --community` writes
 FIRST_MAINTAINED = "mendari/ai-guard"  # by id; every community/ id sorts before it
 
 
 @pytest.fixture(scope="module")
 def community_site(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
-    """The shipped packs and one community pack, as a deployment with
-    MENDARI_COMMUNITY_PACKS=on serves them."""
+    """The shipped packs and two community packs (the test fixture, and the scaffold as the
+    guide makes it), as a deployment with MENDARI_COMMUNITY_PACKS=on serves them."""
     tmp = Path(tmp_path_factory.mktemp("community"))
     base = tmp / "community-packs"
     fixture = ROOT / "tests" / "fixtures" / "community-packs" / "visit-sorter"
     shutil.copytree(fixture, base / "visit-sorter")
+    scaffold = ["new", str(base / "refill-router"), "--community", "--publisher", "Test Clinic"]
+    assert main(scaffold) == 0
     app = create_app(
         db_path=tmp / "c.db", packs_paths=[INBOX_DIR.parent, SearchPath(base, "community")]
     )
@@ -59,8 +63,10 @@ def test_the_picker_groups_packs_by_origin_and_opens_on_a_maintained_one(site: P
     groups = select.locator("optgroup")
     expect(groups).to_have_count(2)
     assert [groups.nth(i).get_attribute("label") for i in range(2)] == ["Maintained", LABEL]
-    expect(groups.nth(1).locator("option")).to_have_count(1)
-    assert groups.nth(1).locator("option").get_attribute("value") == SORTER
+    options = groups.nth(1).locator("option")
+    expect(options).to_have_count(2)
+    assert [options.nth(i).get_attribute("value") for i in range(2)] == [SCAFFOLD, SORTER]
+    expect(options.nth(1)).to_have_text("Visit Sorter (test fixture) 0.1.0 (community)")
     expect(site.locator(".pack-header .badge.origin")).to_have_text("Maintained by Mendari")
     expect(site.locator(".badge.origin-community")).to_have_count(0)
 
@@ -100,7 +106,7 @@ def test_the_docs_landing_labels_the_community_pack(site: Page) -> None:
     site.goto("/docs")
     item = site.locator(".docs-cards li", has=site.locator(f'a[href="/?pack={SORTER}#card"]'))
     expect(item.locator(".badge.origin-community")).to_have_text(LABEL)
-    expect(site.locator(".docs-cards .badge.origin-community")).to_have_count(1)
+    expect(site.locator(".docs-cards .badge.origin-community")).to_have_count(2)
 
 
 def test_the_labels_fit_a_phone(site: Page) -> None:
@@ -111,3 +117,76 @@ def test_the_labels_fit_a_phone(site: Page) -> None:
         shown = site.locator("main .badge.origin-community, main .community-notice")
         expect(shown.first).to_be_visible()
         assert site.evaluate("document.documentElement.scrollWidth") <= PHONE["width"], view
+
+
+def test_the_review_queue_audit_and_monitoring_label_a_community_pack(site: Page) -> None:
+    """Where a person confirms a recommendation, the queue says the pack is not clinically
+    reviewed: before, only the overview, card and Try it did."""
+    response = site.request.post(f"/api/packs/{SORTER}/decide", data={"message": "My bill?"})
+    assert response.ok, response.text()
+    _open(site, SORTER, "review")
+    expect(site.locator("main .community-notice")).to_contain_text(LABEL)
+    card = site.locator(".review-card").first
+    expect(card.locator(".badge.origin-community")).to_have_text(LABEL)
+    for view in ("audit", "monitoring"):
+        show(site, view)
+        expect(site.locator("main .community-notice")).to_contain_text(LABEL)
+    _open(site, FIRST_MAINTAINED, "review")
+    expect(site.locator("main .community-notice, main .badge.origin-community")).to_have_count(0)
+
+
+def _launched(page: Page) -> None:
+    """An EHR launch, as the server would answer it (the launch itself: tests/browser/
+    test_launch.py): the patient view's requests, answered here."""
+    session = {"active": True, "launch_id": "abc123", "patient": "p1", "packs": []}
+    patient = {"name": "Test Synthetic", "gender": "female", "birthDate": "1980-01-01"}
+    item = {"ref": "Communication/c1", "title": "A message", "text": "A question about my bill."}
+    decision = {"id": "d1", "outcome": "HUMAN_REVIEW", "recommendation": "billing", "reasons": []}
+    page.route("**/api/smart/session", lambda route: route.fulfill(json=session))
+    page.route("**/api/smart/patient", lambda route: route.fulfill(json=patient))
+    page.route("**/api/smart/focus?*", lambda route: route.fulfill(json=[item]))
+    page.route("**/api/smart/decide", lambda route: route.fulfill(json={"decision": decision}))
+
+
+def test_the_patient_view_labels_a_community_pack(site: Page) -> None:
+    """The SMART view, where a clinician decides from the EHR, says so too."""
+    _launched(site)
+    site.add_init_script(f"localStorage.setItem('oh.pack', {json.dumps(SORTER)})")
+    site.goto("/#patient/abc123")
+    expect(site.locator(".patient-banner")).to_be_visible()
+    expect(site.locator("main .community-notice")).to_contain_text(LABEL)
+    site.locator("button[data-decide]").click()
+    expect(site.locator(".decided-line .badge.origin-community")).to_have_text(LABEL)
+
+
+def test_the_patient_view_of_a_maintained_pack_has_no_community_label(site: Page) -> None:
+    _launched(site)
+    site.add_init_script(f"localStorage.setItem('oh.pack', {json.dumps(FIRST_MAINTAINED)})")
+    site.goto("/#patient/abc123")
+    expect(site.locator(".patient-banner")).to_be_visible()
+    site.locator("button[data-decide]").click()
+    expect(site.locator(".decided-line")).to_be_visible()
+    expect(site.locator("main .community-notice, main .badge.origin-community")).to_have_count(0)
+
+
+def test_try_it_decides_on_a_pack_made_with_the_community_scaffold(site: Page) -> None:
+    """The scaffold's schema takes a message body and subject only: before, Try it also sent a
+    channel and a patient, and every decision was blocked ("input rejected")."""
+    _open(site, SCAFFOLD, "try")
+    expect(site.locator("#channel, #language, #age")).to_have_count(0)
+    site.get_by_role("button", name="Chest pain").click()
+    site.locator("#decide").click()
+    expect(site.locator("#result-title")).to_contain_text("Sent to review")
+    expect(site.locator(".result .result-head")).to_contain_text("→")
+    expect(site.locator(".result")).not_to_contain_text("input rejected")
+
+
+def test_try_it_still_sends_the_inbox_routers_channel_and_patient(site: Page) -> None:
+    _open(site, "mendari/patient-inbox-router", "try")
+    for field in ("#subject", "#channel", "#language", "#age"):
+        expect(site.locator(field)).to_have_count(1)
+    with site.expect_request("**/decide") as sent:
+        site.get_by_role("button", name="Bill (es)").click()
+        site.locator("#decide").click()
+    body = json.loads(sent.value.post_data or "{}")
+    assert body["message"]["channel"] == "sms" and body["patient"] == {"preferred_language": "es"}

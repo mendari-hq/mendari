@@ -7,6 +7,7 @@ code owner, and the history is scanned for secrets."""
 from __future__ import annotations
 
 import importlib.util
+import json
 import re
 import tomllib
 from pathlib import Path
@@ -153,13 +154,24 @@ def test_pack_check_runs_on_every_pull_request() -> None:
     maintained = next(step for step in steps if "pack_gate.py" in step.get("run", ""))
     assert 'case "$dir" in packs/*)' in maintained["run"]  # community packs go the other way
     (community,) = [step for step in steps if "community_check.py" in step.get("run", "")]
-    # Who made the change and who owns the repository reach the script through `env` only.
+    # Who made the change and who owns the repository reach the script through `env` only. The
+    # author is the pull request's, never `github.actor` (whoever caused the run: the owner
+    # updating a fork's branch would be it), and the branch must be in this repository.
     assert community["env"] == {
         "BASE": "${{ github.event.pull_request.base.sha }}",
-        "ACTOR": "${{ github.actor }}",
+        "AUTHOR": "${{ github.event.pull_request.user.login }}",
+        "HEAD_REPO": "${{ github.event.pull_request.head.repo.full_name }}",
+        "REPO": "${{ github.repository }}",
         "OWNER": "${{ github.repository_owner }}",
     }
-    assert '--actor "$ACTOR"' in community["run"] and '--owner "$OWNER"' in community["run"]
+    for argument in (
+        '--actor "$AUTHOR"',
+        '--owner "$OWNER"',
+        '--head-repo "$HEAD_REPO"',
+        '--repo "$REPO"',
+    ):
+        assert argument in community["run"]
+    assert "github.actor" not in json.dumps(community)
 
 
 def test_ci_runs_every_community_packs_tests() -> None:

@@ -18,6 +18,7 @@ from datetime import date
 from typing import Any
 
 from mendari.core.decision import DecisionResult
+from mendari.core.origin import COMMUNITY_LABEL
 from mendari.core.pack import Pack
 from mendari.core.spec import CoverageInformation
 from mendari.errors import FhirError
@@ -147,6 +148,12 @@ def questionnaire(pack: Pack, context: Mapping[str, str]) -> dict[str, Any] | No
             }
         )
     shown = ", ".join(f"{k} {v}" for k, v in context.items())
+    title = f"{dtr.title} ({shown})"
+    labelled: dict[str, Any] = {}
+    if pack.community:
+        # An outside developer's criteria: published by them, experimental, and labelled.
+        title = f"{title} ({COMMUNITY_LABEL})"
+        labelled = {"experimental": True, "publisher": pack.manifest.publisher.name}
     return {
         "resourceType": "Questionnaire",
         "id": url.rsplit("/", 1)[-1].replace("_", "-"),
@@ -165,8 +172,9 @@ def questionnaire(pack: Pack, context: Mapping[str, str]) -> dict[str, Any] | No
         "name": "".join(
             part.title() for part in url.rsplit("/", 1)[-1].replace("-", "_").split("_")
         ),
-        "title": f"{dtr.title} ({shown})",
+        "title": title,
         "status": "active",
+        **labelled,
         "subjectType": ["Patient"],
         "item": items,
     }

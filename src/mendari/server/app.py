@@ -45,6 +45,7 @@ from mendari.core import clock, tenancy
 from mendari.core.audit import SYSTEM_ID, AuditStore
 from mendari.core.card import benchmark, render_card
 from mendari.core.decision import CallBudget, Decision, QuotaReached
+from mendari.core.origin import is_local
 from mendari.core.pack import Pack
 from mendari.core.phi import phi_policy
 from mendari.core.policy import GovernanceOverride
@@ -256,6 +257,16 @@ class EvalRequest(BaseModel):
     providers: dict[str, str] | None = None
 
 
+def _local_variant(pack: Pack, slot: str, variant: str) -> bool:
+    """Whether `variant` of a pack's provider `slot` decides on this machine (`is_local`); a
+    slot or variant the pack does not have is left for `Decision` to refuse."""
+    spec = pack.manifest.providers.get(slot)
+    config = spec.variants.get(variant) if spec is not None else None
+    if config is None:
+        return True
+    return is_local({"type": config.type, **(config.model_extra or {})})
+
+
 # Evaluations that call a metered, network-bound provider must fit one function invocation.
 REMOTE_EVAL_LIMIT = 200
 REMOTE_EVAL_WORKERS = 8
@@ -357,8 +368,8 @@ def create_app(
     missing = only - {pack.id for pack in found.packs}
     if missing:
         raise MendariError(f"MENDARI_PACKS: packs not installed here: {sorted(missing)}")
-    # The newest version of every pack found, served or not. One id is one pack (`discover`
-    # refuses a second claim), so only the registry cache's versions of a pack compete here.
+    # The newest version of every pack found, served or not. `discover` refuses any second
+    # claim to an id a community pack takes part in, so a community pack never competes here.
     installed: dict[str, Pack] = {}
     for pack in found.packs:
         current = installed.get(pack.id)
@@ -872,10 +883,25 @@ def create_app(
         # A store-less Decision: evaluation traffic must not pollute the operational audit log.
         active = decision_for(pack_id)
         chosen = {slot: info.variant for slot, info in active.provider_info.items()}
+        asked = request.providers or {}
+        if pack.community:
+            # A community pack runs a remote variant only where the deployment named the pack
+            # for it (`community/<name>:slot=variant`), which `chosen` already holds.
+            refused = sorted(
+                f"{slot}={variant}"
+                for slot, variant in asked.items()
+                if variant != chosen.get(slot) and not _local_variant(pack, slot, variant)
+            )
+            if refused:
+                raise MendariError(
+                    f"{pack.id} is a community pack: it runs a remote variant only where the "
+                    f"deployment names it in its settings ({pack.id}:slot=variant), not "
+                    f"{', '.join(refused)}"
+                )
         # Provider calls count against the daily budgets, never an organization's quotas.
         decision = Decision(
             pack,
-            providers={**chosen, **(request.providers or {})},
+            providers={**chosen, **asked},
             budget=None if budget is None else budget.for_evaluation(),
         )
         dataset = dataset_for(pack, request.dataset)

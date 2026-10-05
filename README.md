@@ -82,18 +82,21 @@ sandbox payer need; `uv sync` includes it. Vercel runs the ASGI app directly and
    A community pack recommends and never automates, is at most risk level 1, keeps only a hash
    of its inputs, and decides with local providers unless a provider setting names it
    (`community/<name>:slot=variant`); its pinned model and `max_tokens` give way to the
-   deployment's. Wherever it shows (`/api/packs`, the dashboard, Try it, its Decision Card,
-   CDS Hooks discovery and cards, the `/docs` landing) it is labelled "Community · not
-   clinically reviewed"; the reference packs say "Maintained by Mendari". How to contribute
+   deployment's. Wherever it shows (`/api/packs`, the dashboard, Try it, the review queue, the
+   SMART patient view, its Decision Card, CDS Hooks discovery and cards, its FHIR CodeSystems,
+   the `/docs` landing) it is labelled "Community · not clinically reviewed"; the reference
+   packs say "Maintained by Mendari". How to contribute
    one is in the guide
    [Contributing a community pack](https://github.com/Junebugg1214/mendari/blob/main/docs/guides/contributing-a-pack.md),
    and what CI checks (`mendari community-check`) in
    [community-packs/README.md](https://github.com/Junebugg1214/mendari/blob/main/community-packs/README.md).
 
-An id is one pack: a second pack with the same id is not served, whatever its version, and both
-are listed under `invalid` in `/api/health` (only the registry cache holds several versions of
-one pack). The `mendari/` and `openhealth/` namespaces belong to the reference packs and
-`community/` to `community-packs/`; a pack elsewhere using one is not served.
+When several packs on the path have one id, the newest version is served (a pack pulled from a
+registry can be newer than the one that came with Mendari). A community pack is the exception:
+its id is `community/<name>`, never one of the reference packs' (`mendari/`, `openhealth/`),
+and a second pack claiming its id is not served, whatever its version; both are listed under
+`invalid` in `/api/health`. A pack anywhere whose id is in `community/` gets the community
+limits.
 
 A pack directory works anywhere too: `mendari test ./my-pack`. To serve your own packs, point
 the path at them: `MENDARI_PACKS_PATH=./my-packs uv run mendari serve`. On a server,

@@ -7,24 +7,29 @@ of the `packs` workflow). Each rule says, in plain words, what to fix:
   that pack's own entry); no `pack.yaml` below the pack's own.
 - **identity**: the folder name and the id `community/<name>` agree; the id is not taken by
   another pack, nor removed (a tombstone in `MAINTAINERS.yaml`); the pack has maintainers; its
-  terminology (FHIR CodeSystem ids and urls) collides with no other pack's.
+  name, CDS Hooks title and publisher neither name Mendari nor copy a maintained pack's name;
+  its FHIR systems live under its own url (`https://mendari.co/packs/community/<name>/`), and
+  its terminology (CodeSystem ids and urls) collides with no other pack's.
 - **manifest**: licence Apache-2.0, `publisher.type: community`, `audit.store_input: hash`,
-  local default providers, no pinned model, `degradation_tolerance` at most 0.05, risk level at
-  most 1.
+  local default providers, no pinned model, no policy rule that blocks, `degradation_tolerance`
+  at most 0.05, risk level at most 1.
 - **correctness**: the pack validates and passes its behaviour tests, with at least one test
   case for each critical label.
 - **evaluation**: a benchmark dataset with at least 5 cases of each critical label (at least
   one is declared); no critical case automated and each critical label found at least 90% of
   the time; an update does not regress against the base's benchmark, within the base's
-  tolerance (never the change's own).
+  tolerance (never the change's own), on its own benchmark dataset and on the base's (so
+  dropping the cases a change now misses does not hide it), and keeps the base's critical
+  labels; cases removed from or relabelled in the base's dataset are warnings.
 - **honest-numbers**: the committed benchmark and Decision Card are what the pack gives when
-  evaluated again (ignoring the report's id, time and latency), and a trained model is what
-  `mendari train` gives, byte for byte.
+  evaluated again (ignoring the report's id, time and latency), and every trained model (a
+  composite's members too) is what `mendari train` gives, byte for byte.
 - **patterns**: no pattern that may backtrack for seconds (`regex_safety`).
-- **hygiene**: at most 2 MB and 200 files, regular text files only (a trained model aside),
-  no files in `evals/` but the benchmark, and a `CHANGELOG.md` entry for the version; a change
-  to what the pack decides with raises the version.
-- **phi**: data and tests that look like a real person's details (warnings).
+- **hygiene**: at most 2 MB and 200 files, regular text files only (a trained model aside), no
+  git submodule, no files in `evals/` but the benchmark, and a `CHANGELOG.md` entry for the
+  version; a change to what the pack decides with raises the version.
+- **phi**: data, tests and a trained model's vocabulary that look like a real person's details
+  (warnings).
 
 The limits are constants here, so a pull request cannot set its own bar: the scope rule keeps
 a community pull request from changing this file.
@@ -35,6 +40,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import posixpath
 import re
 import shutil
 import tempfile
@@ -46,16 +52,20 @@ from pathlib import Path
 from typing import Any
 
 from mendari.community import maintainers, phi_scan, regex_safety
-from mendari.community.gitbase import COMMUNITY_DIR, Base, toplevel
+from mendari.community.gitbase import COMMUNITY_DIR, Base, gitlinks, toplevel
 from mendari.core.origin import (
     COMMUNITY_NAME,
     COMMUNITY_NAMESPACE,
     MAX_COMMUNITY_RISK,
+    RESERVED_NAMESPACES,
     is_local,
+    performer_problem,
+    rule_problems,
 )
 from mendari.core.pack import MANIFEST, Pack, authored_patterns, load_pack, pack_digest, parse_yaml
 from mendari.core.spec import Evaluation
 from mendari.errors import MendariError, PackValidationError
+from mendari.evals.harness import Dataset
 
 MAX_TOLERANCE = 0.05
 MIN_CRITICAL_CASES = 5
@@ -250,26 +260,34 @@ def _open_base(ctx: _Context, ref: str) -> None:
 # -- scope ---------------------------------------------------------------------------------------
 
 
+README = "README.md"  # community-packs/README.md: documentation, no pack's
+
+
+def pack_folders(changed: list[str]) -> list[str]:
+    """The community pack folders (`community-packs/<name>`'s names) that `changed` paths
+    touch. Anything under `community-packs/` is a pack's but its README and MAINTAINERS.yaml,
+    even a path one level deep (a file, or a git submodule, which has no files here)."""
+    prefix = COMMUNITY_DIR + "/"
+    folders = set()
+    for path in changed:
+        if not path.startswith(prefix):
+            continue
+        name = path.removeprefix(prefix).split("/")[0]
+        if "/" in path.removeprefix(prefix) or name not in (README, maintainers.FILE):
+            folders.add(name)
+    return sorted(folders)
+
+
 def pr_scope_problems(changed: list[str], *, owner: bool) -> list[str]:
     """Why a pull request that changes `changed` (repository paths) is out of scope for a
     community pack, or []: it changes a community pack (or `MAINTAINERS.yaml`) and anything
     outside one `community-packs/<name>/` folder (`MAINTAINERS.yaml` aside). The owner may
     change more."""
     prefix = COMMUNITY_DIR + "/"
-    community = [
-        path
-        for path in changed
-        if path.startswith(prefix) and (path.count("/") >= 2 or path == prefix + maintainers.FILE)
-    ]
-    if owner or not community:
+    folders = pack_folders(changed)
+    if owner or not (folders or prefix + maintainers.FILE in changed):
         return []  # the owner's change, or none to a pack (community-packs/README.md is docs)
-    folders = sorted({path.split("/")[1] for path in community if path.count("/") >= 2})
-    outside = [
-        path
-        for path in changed
-        if not path.startswith(prefix)
-        or (path.count("/") == 1 and path != prefix + maintainers.FILE)
-    ]
+    outside = [path for path in changed if not path.startswith(prefix) or path == prefix + README]
     problems = []
     if len(folders) > 1:
         problems.append(
@@ -366,6 +384,8 @@ def _identity(ctx: _Context) -> None:
         )
     _maintainers(ctx, expected)
     _unique(ctx, expected)
+    if ctx.pack is not None:
+        _not_mendari(ctx)
     if ctx.pack is not None and pack_id == expected:
         _terminology(ctx)
 
@@ -471,11 +491,52 @@ def _maintained(directory: str) -> tuple[Pack, ...]:
     return tuple(discover([SearchPath(Path(directory), "maintained")]).packs)
 
 
+def _folded(text: str) -> str:
+    return " ".join(text.casefold().split())
+
+
+def _not_mendari(ctx: _Context) -> None:
+    """A community pack's name, CDS Hooks title and publisher neither name Mendari (or its old
+    name) nor copy a maintained pack's name or title, so it cannot pass for one."""
+    assert ctx.pack is not None
+    m = ctx.pack.manifest
+    taken: dict[str, str] = {}
+    for pack in _maintained(str(_maintained_dir(ctx))):
+        taken.setdefault(_folded(pack.manifest.name), pack.id)
+        if pack.manifest.cds_hooks is not None:
+            taken.setdefault(_folded(pack.manifest.cds_hooks.title), pack.id)
+    shown = [("name", m.name), ("publisher.name", m.publisher.name)]
+    if m.cds_hooks is not None:
+        shown.append(("cds_hooks.title", m.cds_hooks.title))
+    for where, text in shown:
+        letters = re.sub(r"[^a-z0-9]", "", text.casefold())
+        named = next((word for word in RESERVED_NAMESPACES if word in letters), None)
+        if named is not None:
+            ctx.report.error(
+                "identity",
+                f"{where} {text!r} names {named}: a community pack is not Mendari's. Use your "
+                "own name (the label says where a pack comes from)",
+            )
+        elif _folded(text) in taken:
+            ctx.report.error(
+                "identity",
+                f"{where} {text!r} is the name of {taken[_folded(text)]}, a pack Mendari "
+                "maintains: choose another, so no one takes one for the other",
+            )
+
+
 def _terminology(ctx: _Context) -> None:
-    from mendari.core.registry import SearchPath, discover
+    from mendari.core.registry import SearchPath, discover, performer_system
     from mendari.standards import terminology
 
     assert ctx.pack is not None
+    try:
+        problem = performer_problem(ctx.pack.id, performer_system(ctx.pack))
+    except Exception as error:  # the pack's FHIR mapping: named by type
+        problem = f"fhir/mapping.yaml cannot be read ({type(error).__name__})"
+    if problem is not None:
+        ctx.report.error("identity", problem)
+        return
     community = discover([SearchPath(ctx.community_dir, "community")]).packs
     others = [
         *_maintained(str(_maintained_dir(ctx))),
@@ -532,6 +593,8 @@ def _manifest_policy(ctx: _Context) -> None:
             "manifest",
             "a community pack keeps only a hash of its inputs: set `audit: {store_input: hash}`",
         )
+    for problem in rule_problems(m):
+        fail("manifest", problem)
     for slot_name, slot in m.providers.items():
         variant = slot.variants[slot.use]
         if not is_local({"type": variant.type, **(variant.model_extra or {})}):
@@ -666,17 +729,7 @@ def _evaluation(ctx: _Context) -> None:
     except MendariError as error:
         fail("evaluation", f"the pack cannot be evaluated: {error}")
         return
-    for item in report["decisions"]["critical"]:
-        name = f"{item['question']}={item['label']}"
-        if item["auto_missed"]:
-            fail("evaluation", f"{item['auto_missed']} critical case(s) of {name} were automated")
-        rate = item["detection_rate"]
-        if rate is not None and rate < MIN_CRITICAL_DETECTION:
-            fail(
-                "evaluation",
-                f"the critical label {name} is found in {rate:.0%} of its cases; it must be at "
-                f"least {MIN_CRITICAL_DETECTION:.0%}",
-            )
+    _floors(ctx, report)
     base_report, tolerance = _base_benchmark(ctx)
     rows, failures = gate(report, base_report, tolerance)
     for failure in failures:
@@ -685,7 +738,125 @@ def _evaluation(ctx: _Context) -> None:
             f"regression against the base (tolerance {tolerance:.0%}, from the base): {failure}",
         )
     ctx.report.metrics = markdown(pack.id, rows, failures, new=base_report is None)
+    if base_report is not None:
+        _on_the_bases_dataset(ctx, dataset, base_report, tolerance)
     _honest_numbers(ctx, report)
+
+
+def _floors(ctx: _Context, report: Mapping[str, Any], where: str = "") -> None:
+    """No critical case automated, and each critical label found often enough."""
+    fail = ctx.report.error
+    for item in report["decisions"]["critical"]:
+        name = f"{item['question']}={item['label']}"
+        if item["auto_missed"]:
+            fail(
+                "evaluation",
+                f"{where}{item['auto_missed']} critical case(s) of {name} were automated",
+            )
+        rate = item["detection_rate"]
+        if rate is not None and rate < MIN_CRITICAL_DETECTION:
+            fail(
+                "evaluation",
+                f"{where}the critical label {name} is found in {rate:.0%} of its cases; it must "
+                f"be at least {MIN_CRITICAL_DETECTION:.0%}",
+            )
+
+
+def _on_the_bases_dataset(
+    ctx: _Context, dataset: Dataset, base_report: dict[str, Any], tolerance: float
+) -> None:
+    """An update, on the base's own benchmark dataset too: what the base found, the change
+    still finds. A change cannot hide a case it now misses by dropping it from its own dataset,
+    nor a critical label by no longer declaring it."""
+    from mendari.core.decision import Decision
+    from mendari.evals import evaluate
+    from mendari.evals.gate import gate
+
+    assert ctx.pack is not None and ctx.base is not None
+    base_manifest = _parsed(ctx.base.read(f"{ctx.folder}/{MANIFEST}"))
+    evaluation = base_manifest.get("evaluation")
+    evaluation = evaluation if isinstance(evaluation, dict) else {}
+    kept = {(c.question, c.label) for c in ctx.pack.manifest.evaluation.critical}
+    for item in evaluation.get("critical") or []:
+        if isinstance(item, dict) and (item.get("question"), item.get("label")) not in kept:
+            ctx.report.error(
+                "evaluation",
+                f"the base declares the critical label {item.get('question')}="
+                f"{item.get('label')}, and this change no longer does: keep it, or ask the "
+                "repository's owner to remove it",
+            )
+    try:
+        before = _base_dataset(ctx, evaluation)
+    except MendariError as error:
+        ctx.report.error("evaluation", f"the base's benchmark dataset cannot be read: {error}")
+        return
+    if before is None:
+        ctx.report.not_checked.append("regressions on the base's benchmark dataset: it has none")
+        return
+    _changed_cases(ctx, before, dataset)
+    if before.sha256 == dataset.sha256:
+        return  # the same cases: the gate above compared like with like
+    try:
+        report = evaluate(Decision(ctx.pack), before)
+    except MendariError as error:
+        ctx.report.error(
+            "evaluation", f"the pack cannot be evaluated on the base's benchmark dataset: {error}"
+        )
+        return
+    where = "on the base's benchmark dataset: "
+    _floors(ctx, report, where)
+    for failure in gate(report, base_report, tolerance)[1]:
+        ctx.report.error(
+            "evaluation",
+            f"{where}regression against the base (tolerance {tolerance:.0%}, from the base): "
+            f"{failure}",
+        )
+
+
+def _base_dataset(ctx: _Context, evaluation: Mapping[str, Any]) -> Dataset | None:
+    """The base's benchmark dataset, as the base's manifest names it, or None."""
+    from mendari.evals.harness import load_dataset
+
+    assert ctx.base is not None
+    name = evaluation.get("benchmark_dataset")
+    datasets = evaluation.get("datasets")
+    relative = datasets.get(name) if isinstance(datasets, dict) and isinstance(name, str) else None
+    if not isinstance(relative, str):
+        return None
+    normal = posixpath.normpath(relative)
+    if normal.startswith(("../", "/")) or normal == "..":
+        return None
+    data = ctx.base.read(f"{ctx.folder}/{normal}")
+    if data is None:
+        return None
+    return load_dataset(normal, name=name, raw=data, label=f"the base's {normal}")
+
+
+def _changed_cases(ctx: _Context, before: Dataset, after: Dataset) -> None:
+    """Warn of benchmark cases the base has that this change removed or relabelled."""
+
+    def by_id(dataset: Dataset) -> dict[str, Any]:
+        return {
+            str(record["id"]): record.get("labels")
+            for record in dataset.records
+            if isinstance(record, dict) and "id" in record
+        }
+
+    old, new = by_id(before), by_id(after)
+    removed = sorted(case for case in old if case not in new)
+    relabelled = sorted(case for case in old if case in new and new[case] != old[case])
+    if removed:
+        ctx.report.warn(
+            "evaluation",
+            f"the base's benchmark cases {_listed(removed)} are gone from this change's dataset: "
+            "say why in the pull request",
+        )
+    if relabelled:
+        ctx.report.warn(
+            "evaluation",
+            f"the base's benchmark cases {_listed(relabelled)} have other labels in this "
+            "change: say why in the pull request",
+        )
 
 
 def _base_benchmark(ctx: _Context) -> tuple[dict[str, Any] | None, float]:
@@ -764,7 +935,8 @@ def _retrained(ctx: _Context) -> None:
     from mendari.evals.training import train_naive_bayes
 
     assert ctx.pack is not None
-    if not any(variant.type == "naive_bayes" for _, variant in _variants(ctx.pack)):
+    declared = _model_files(ctx)
+    if not declared:
         return
     with _copy(ctx.root) as copy:
         try:
@@ -776,8 +948,10 @@ def _retrained(ctx: _Context) -> None:
                 "the datasets named `train` and `calibration` in `evaluation.datasets`",
             )
             return
+        produced = set()
         for item in trained:
             relative = item.path.relative_to(copy.resolve()).as_posix()
+            produced.add(relative)
             committed = ctx.root / relative
             if not committed.is_file() or committed.read_bytes() != item.path.read_bytes():
                 ctx.report.error(
@@ -785,12 +959,13 @@ def _retrained(ctx: _Context) -> None:
                     f"{relative} is not what `mendari train` gives from the pack's data, byte for "
                     f"byte: retrain it with `mendari train {ctx.shown}`",
                 )
-
-
-def _variants(pack: Pack) -> Iterator[tuple[str, Any]]:
-    for slot_name, slot in pack.manifest.providers.items():
-        for name, variant in slot.variants.items():
-            yield f"{slot_name}.{name}", variant
+    unproduced = sorted(declared - produced)
+    if unproduced:
+        ctx.report.error(
+            "honest-numbers",
+            f"no training run gives {_listed(unproduced)}: a community pack's models are what "
+            f"`mendari train {ctx.shown}` gives from its own data",
+        )
 
 
 @contextmanager
@@ -846,6 +1021,12 @@ def _patterns(ctx: _Context) -> None:
     jobs = []
     for where, text, flags in authored_patterns(ctx.pack):
         problems = regex_safety.static_problems(text, flags)
+        inputs = regex_safety.probe_inputs(text, flags)
+        if inputs > regex_safety.MAX_PROBE_INPUTS:
+            problems.append(
+                f"has too many pieces for the probe to time it on all of them ({inputs:,} "
+                f"inputs, at most {regex_safety.MAX_PROBE_INPUTS:,}): split it into several rules"
+            )
         for problem in problems:
             ctx.report.error("patterns", f"{where}: {problem}")
         if not problems:
@@ -895,6 +1076,18 @@ def _hygiene_files(ctx: _Context) -> None:
             f"{size / 1024 / 1024:.1f} MB; a community pack is at most "
             f"{MAX_PACK_BYTES // 1024 // 1024} MB. Keep the benchmark dataset to what it needs",
         )
+    top = toplevel(ctx.root)
+    if top is not None:
+        try:
+            submodules = gitlinks(top, ctx.root.relative_to(top.resolve()).as_posix())
+        except (MendariError, ValueError):
+            submodules = []
+        if submodules:
+            fail(
+                "hygiene",
+                "a community pack holds its own files, never another repository's (a git "
+                f"submodule): remove {_listed(submodules)}",
+            )
     models = _model_files(ctx)
     binary = sorted(
         relative
@@ -1031,6 +1224,22 @@ def _parsed(data: bytes | None) -> dict[str, Any]:
 
 
 def _phi(ctx: _Context) -> None:
+    for relative in sorted(_model_files(ctx)):
+        # A trained model's vocabulary is words from the data it was trained on, one per line.
+        path = ctx.root / relative
+        try:
+            model = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        tokens = model.get("tokens") if isinstance(model, dict) else None
+        if not isinstance(tokens, dict):
+            continue
+        for hit in phi_scan.scan("\n".join(str(token) for token in tokens)):
+            ctx.report.warn(
+                "phi",
+                f"{relative}: vocabulary word {hit.line} looks like {hit.kind}. A model learns "
+                "from its data, which must be synthetic: train it on the pack's data only",
+            )
     for folder in ("data", "tests"):
         for path in sorted((ctx.root / folder).rglob("*")):
             if not path.is_file() or path.is_symlink() or not _is_text(path):

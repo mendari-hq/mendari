@@ -6,8 +6,14 @@ Search order: `MENDARI_PACKS_PATH` (os.pathsep-separated), then packs pulled fro
 `MENDARI_COMMUNITY_PACKS=on`, the repository's `community-packs/`.
 
 Each directory has an origin (`core/origin.py`): `maintained`, `community`, `hub` or `local`.
-An id is one pack: a second pack claiming it never replaces the first, whatever its version
-(only the verified cache holds several versions of one pack); both are reported.
+A pack found under a `local` directory takes the origin of where it sits, so a path that holds
+`packs/` (a checkout) still finds the maintained packs as maintained, and `community-packs/` as
+community packs, served only when they are on.
+
+A community pack never shares its id: when one claims an id another pack also claims, the first
+claim holds it, whatever the versions, and both are reported. Packs from anywhere else are found
+as they were before community packs existed (several versions of one id may be found, and the
+newest is served).
 """
 
 from __future__ import annotations
@@ -19,7 +25,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import NamedTuple
 
-from mendari.core.origin import Origin, community_problems, namespace_problem
+from mendari.core.origin import (
+    Origin,
+    community_problems,
+    namespace_problem,
+    performer_problem,
+)
 from mendari.core.pack import MANIFEST, Pack, load_pack
 from mendari.errors import MendariError, PackNotFoundError
 from mendari.settings import community_packs_enabled
@@ -91,12 +102,24 @@ def discover(paths: Sequence[Path | SearchPath] | None = None) -> Discovery:
     found: list[tuple[int, Pack]] = []
     problems: dict[str, str] = {}
     seen: set[Path] = set()
-    for order, (base, origin) in enumerate(bases):
+    community_on: bool | None = None
+    for order, (base, base_origin) in enumerate(bases):
         for manifest in sorted(Path(base).glob(f"**/{MANIFEST}")):
             root = manifest.parent.resolve()
             depth = len(manifest.relative_to(base).parts)
             if root in seen or depth > MAX_DEPTH:
                 continue
+            origin = base_origin
+            if base_origin == "local":
+                # A local path holding packs/ or community-packs/: each pack has the origin of
+                # where it sits. A community pack is skipped while they are off (off means off).
+                origin = origin_of(root)
+                if origin == "community":
+                    if community_on is None:
+                        community_on = community_packs_enabled()
+                    if not community_on:
+                        continue
+                    depth = len((root / MANIFEST).relative_to(_COMMUNITY_DIR.resolve()).parts)
             seen.add(root)
             if origin == "community" and depth != 2:
                 problems[str(root)] = (
@@ -104,11 +127,17 @@ def discover(paths: Sequence[Path | SearchPath] | None = None) -> Discovery:
                     f"{MANIFEST}"
                 )
                 continue
+            if origin == "community" and (root / ".git").exists():
+                problems[str(root)] = (
+                    "a community pack is a folder of this repository, never a git submodule"
+                )
+                continue
             try:
                 pack = load_pack(root, origin=origin)
                 refused = [namespace_problem(pack.id, origin)]
                 if origin == "community":
                     refused += community_problems(pack.manifest, root.name)
+                    refused.append(performer_problem(pack.id, performer_system(pack)))
                 if any(refused):
                     raise MendariError(
                         f"{pack.id} is not served:\n"
@@ -124,15 +153,27 @@ def discover(paths: Sequence[Path | SearchPath] | None = None) -> Discovery:
     return Discovery(packs=_one_pack_per_id(found, problems), problems=problems)
 
 
+def performer_system(pack: Pack) -> str | None:
+    """The `task.performer_system` of a pack's FHIR mapping, if it has one."""
+    if pack.manifest.inputs.fhir is None:
+        return None
+    from mendari.standards.fhir import FhirAdapter
+
+    return FhirAdapter.for_pack(pack).mapping.task.performer_system
+
+
 def _one_pack_per_id(found: list[tuple[int, Pack]], problems: dict[str, str]) -> list[Pack]:
-    """The packs whose id no other pack holds first. A maintained pack holds its id first; then
-    the earlier search directory does. Only the verified registry cache keeps several versions
-    of one pack. Every pack refused, and the one kept, is reported in `problems`."""
+    """The packs, without any second claim to an id a community pack takes part in: a
+    maintained pack holds its id first, then the earlier search directory does, whatever the
+    versions. Every pack refused, and the one kept, is reported in `problems`. Ids no community
+    pack claims are left as they were found (the newest version is served)."""
     claims: dict[str, list[tuple[int, Pack]]] = {}
     for order, pack in found:
         claims.setdefault(pack.id, []).append((order, pack))
     refused: set[Path] = set()
     for pack_id, claimants in claims.items():
+        if not any(pack.origin == "community" for _, pack in claimants):
+            continue
         claimants.sort(key=lambda claim: (claim[1].origin != "maintained", claim[0]))
         first_order, first = claimants[0]
         others = [
