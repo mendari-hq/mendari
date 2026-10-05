@@ -1,8 +1,9 @@
 """The source distribution holds only what a source build needs (pyproject.toml,
-[tool.hatch.build.targets.sdist]): the package, the bundled packs and datasets, the tests, the
-README, the licence and the build file. Exit 1, naming each stray entry, if it holds anything
-else (project notes, agent or CI configuration, deploy templates, the websites), or if it lacks a
-file git tracks under the included folders.
+[tool.hatch.build.targets.sdist]): the package, the bundled packs and datasets, the README, the
+licence and the build file. Exit 1, naming each stray entry, if it holds anything else (the
+tests, which read repository files the sdist leaves out and so run from a clone; project notes,
+agent or CI configuration, deploy templates, the websites), or if it lacks a file git tracks
+under the included folders.
 
     uv build --out-dir dist && uv run python scripts/check_sdist.py dist/mendari-*.tar.gz
 """
@@ -19,9 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 # What pyproject.toml includes, as top-level names inside the archive's single root folder.
-INCLUDED = frozenset(
-    {"src", "packs", "datasets", "tests", "README.md", "LICENSE", "pyproject.toml"}
-)
+INCLUDED = frozenset({"src", "packs", "datasets", "README.md", "LICENSE", "pyproject.toml"})
 # Written by the build backend itself.
 GENERATED = frozenset({"PKG-INFO", ".gitignore"})
 

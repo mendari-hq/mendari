@@ -15,14 +15,18 @@ and GitHub's email push protection goes on. Location is the trust label, never t
 - [ ] **A1 (owner)** Accept the gmail address in history; turn on "Block command line pushes
   that expose my email" (owner steps below).
 - [x] **A2** The sdist holds only `src/` (with the vendored docs UI), `packs/`, `datasets/`,
-  `tests/`, README, LICENSE and pyproject (`[tool.hatch.build.targets.sdist]`);
+  README, LICENSE and pyproject (`[tool.hatch.build.targets.sdist]`; the tests read repository
+  files the sdist leaves out, so they run from a clone); the README's links are absolute, so
+  they work on pypi.org;
   `scripts/check_sdist.py` fails on anything else, in CI (`hub-e2e`, which now installs the wheel
   built from the sdist) and in `release.yml`; `tests/test_packaging.py`.
 - [x] **A3** Internal notes (the milestone plans, the dashboard design review and grade, the FHIR
   and docs audit, the overnight log) moved from `docs/` to `notes/`, outside the docs site, the
   sdist, the image and the function bundle; links updated. Production specifics scrubbed from the
   tree (host, curl check, env record id, project, database and connector names, region,
-  registrar, a private artifact URL, the audit's production values). History keeps them.
+  registrar, a private artifact URL, the audit's production values, the deployed provider
+  mix, model pins and daily limits, the access setting's history). History keeps them;
+  `tests/test_public_tree.py` keeps them out of the tree.
 - [x] **A4 (build part)** Security and conduct reports go through GitHub private vulnerability
   reporting (SECURITY.md, CODE_OF_CONDUCT.md, GOVERNANCE.md, the issue chooser). No e-mail
   address is published. Turning the form on is A10.
@@ -787,15 +791,14 @@ leaderboard and deployed choice.
 - [x] PR 3 leaderboard (`evals/leaderboard.json`, 34 rows on 0.1.1): rules; Jev, Claude Sonnet 5,
   Claude Haiku 4.5 and gpt-oss-120b, alone and with the rules. With the rules every model-backed
   screen blocked 21/21 hand-written drafts to block; none released
-- [x] `MENDARI_JEV_DAILY_LIMIT=none` (no limit, still counted), at the user's request
-- [x] Deployed with the user's choice: `mendari/ai-guard:screen=rules_and_jev`. Live: a
+- [x] Jev daily limit set as the user asked (calls still counted)
+- [x] Deployed with the user's choice (see the deployment's `/api/health`). Live: a
   missed emergency, a stroke in words the rules don't list and an unlisted-brand overdose are
   blocked; a safe draft waits for one-step approval
 - [x] 0.1.2: synthetic drafts fit their questions; leaderboard re-measured (LLM screens 0.90-0.98
   verdict accuracy, rules + Jev 0.80-0.88)
-- [x] Switched to the user's new choice: `mendari/ai-guard:screen=rules_and_llm` with
-  `LLM_MODEL=anthropic/claude-sonnet-5` and `MENDARI_LLM_DAILY_LIMIT=none` (production and
-  preview). Sonnet + rules was the only screen that never missed a draft to block in any run
+- [x] Switched to the user's new choice (see the deployment's `/api/health`). Sonnet + rules
+  was the only screen that never missed a draft to block in any run
 
 ## Done: v0.3 Prior Authorization Preflight
 Plan approved 2026-09-29 (3 PRs): runtime → the pack → leaderboard and deployed choice.
@@ -809,8 +812,8 @@ Plan approved 2026-09-29 (3 PRs): runtime → the pack → leaderboard and deplo
   alone and with rules. Every model-backed config caught 6/6 held-out red flags, none
   automated, 100 % next step held out, 0 false automation; rules_and_jev automates 33-47 %
   at $0.00003 and 0.2 s.
-- [x] Deployed with the user's choice: `mendari/prior-auth-preflight:notes=rules_and_jev`
-  (production and preview); redeployed; `/api/health` confirms. Live order-sign: a complete
+- [x] Deployed with the user's choice (see the deployment's `/api/health`); redeployed;
+  `/api/health` confirms. Live order-sign: a complete
   lumbar MRI is submitted automatically, a knee arthroscopy with gaps goes to a person, the
   lab order is ignored, and a red flag the rules miss is caught by Jev (urgent review).
 
@@ -833,9 +836,8 @@ deployed choice.
 - [x] PR 4 leaderboard: offline, Jev (alone, with rules), 3 LLMs (alone, with rules) on
   holdout/tuning/test-100/local-100. Every model-backed config caught every urgent referral,
   none automated. rules_and_jev: 100 % next_step held out, AUTO 27-47 % with 0 false
-  automation, 0.2 s, $0.00004. Jev daily limit raised to 2000 (production) with the user.
-- [x] Deployed with the user's choice: `mendari/referral-router:specialty_reader=jev` and
-  `mendari/referral-router:triage_screen=rules_and_jev` (production and preview); redeployed;
+  automation, 0.2 s, $0.00004. Jev daily limit raised with the user.
+- [x] Deployed with the user's choice (see the deployment's `/api/health`); redeployed;
   `/api/health` confirms; live order-sign gives return_for_info, urgent_review and an AUTO
   schedule on three referrals, and ignores the lab order.
 
@@ -863,8 +865,7 @@ dashboard and deployment → leaderboard and deployed choice.
   the rules lowered eligibility to 92% held out / 87% local. Card 0.1.1 says so.
 - [ ] Jev-alone rows on test and the local site (200 Jev calls; needed the next day's budget;
   now under "Open items" above)
-- [x] Deployed notes reader chosen with the user: `notes=jev`. MENDARI_PROVIDERS (production
-  and preview) = `router=jev,safety_screen=rules_and_jev,mendari/clinical-trial-prescreener:notes=jev`
+- [x] Deployed notes reader chosen with the user (see the deployment's `/api/health`)
 
 ## Done: v0.2 Model-agnostic core
 - [x] Detailed v0.2 plan approved (5 PRs: spec, Jev batching, composition, LLM, leaderboard)
@@ -887,12 +888,11 @@ dashboard and deployment → leaderboard and deployed choice.
   `confidence` is a distribution-shape statistic), published price, 429/529 retry, real limits
 - [x] Leaderboard Jev rows (jev-1.13.0, measured on production): `router=jev,
   safety_screen=rules_and_jev` on all three datasets, `router=cascade` on `test`
-- [x] Deployed mix confirmed: `router=jev,safety_screen=rules_and_jev`; `JEV_MODEL=jev-1.13.0`
-  pinned (Production and Preview)
+- [x] Deployed mix and a pinned Jev model confirmed with the user (see the deployment's
+  `/api/health`)
 - [x] Emergency threshold: spec 0.2 `min_probability`; inbox 0.3.0 escalates at P(urgent) ≥ 0.35
 - [x] `urgency` reworded (instructions and criteria agree; doubt handled by the policy)
-- [x] Leaderboard Jev rows for pack 0.3.0 (production, jev-1.13.0; `MENDARI_JEV_DAILY_LIMIT`
-  raised to 700 in production)
+- [x] Leaderboard Jev rows for pack 0.3.0 (jev-1.13.0; Jev daily limit raised with the user)
 - [x] Preview databases: Neon branch per preview again, deleted on PR close
   (`neon-preview-cleanup` workflow); evaluations keep the request context (OIDC) in threads
 - [x] Exit: 10 configurations published incl. Claude and an open-weight model; one Jev call per
@@ -946,13 +946,13 @@ latency and cost.
 
 ### Deployed (2026-09-28)
 - One Vercel project (a FastAPI function), Neon Postgres, Jev via a Vercel Connect connector
-  (`JEV_MODEL=jev-latest`, which then resolved to `jev-1.13.0`). Vercel Authentication on all
+  (`jev-latest`, which then resolved to `jev-1.13.0`). Platform authentication on all
   deployments.
 - Production smoke tests passed: live Jev routing, stat escalation, review persistence,
   audit chain, Jev eval (100% on local-site sample), CDS discovery, dashboard assets.
 
 ### Deferred (v0.2+)
-- [x] Pin a concrete Jev model: `JEV_MODEL=jev-1.13.0` (v0.2).
+- [x] Pin a concrete Jev model (v0.2).
 - [x] Neon preview branching so previews don't write to the production database (v0.2).
 - [x] LLM provider (v0.2). The CQL provider is roadmap v0.7.
 - [ ] Remote hub (`mendari pull`, signed packs): roadmap v0.5. Server authentication: v0.6.
