@@ -256,7 +256,8 @@ jobs:
 
   hub-e2e:
     # The v0.5 exit: on a clean machine, `pip install mendari && mendari pull
-    # mendari/referral-router` works. The wheel stands in for PyPI until the release.
+    # mendari/referral-router` works. The wheel, built from the sdist, stands in for PyPI until
+    # the release.
     runs-on: ubuntu-latest
     env:
       MENDARI_REGISTRY_ADMIN_TOKEN: ci-only-admin-token
@@ -274,7 +275,12 @@ jobs:
           .venv/bin/mendari registry serve --db /tmp/registry.db --port 8100 &
           for i in $(seq 1 30); do curl -sf http://127.0.0.1:8100/v1/health && break; sleep 1; done
           uv run python scripts/hub_seed.py --registry http://127.0.0.1:8100
-      - run: uv build --wheel --out-dir /tmp/dist
+      - name: Build the sdist, then the wheel from it; the sdist holds only the build inputs
+        # PyPI files can never be replaced: notes, agent and CI configuration, deploy templates
+        # and the websites must not reach a release (scripts/check_sdist.py).
+        run: |
+          uv build --out-dir /tmp/dist
+          uv run python scripts/check_sdist.py /tmp/dist/mendari-*.tar.gz
       - name: A clean virtual environment installs mendari, pulls a pack and tests it
         env:
           HOME: /tmp/clean-home
