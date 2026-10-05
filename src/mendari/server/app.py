@@ -69,7 +69,7 @@ from mendari.evals.harness import Dataset
 from mendari.evals.monitoring import check_webhook, monitor
 from mendari.evals.pack_tests import load_cases
 from mendari.legacy import current_pack_id
-from mendari.providers import jev, llm
+from mendari.providers import jev, llm, slots_without_model
 from mendari.providers.credentials import key_source
 from mendari.server import api_docs, landing, security_log, sessions
 from mendari.server.auth import (
@@ -581,6 +581,7 @@ def create_app(
         # A served pack whose providers cannot be built is listed with the packs that did not
         # load; it never turns this answer into an error for every other pack.
         providers: dict[str, dict[str, str]] = {}
+        without_model: dict[str, list[str]] = {}
         unbuilt: dict[str, str] = {}
         for pack_id in sorted(packs):
             try:
@@ -591,6 +592,8 @@ def create_app(
             providers[pack_id] = {
                 slot: info.variant for slot, info in decision.provider_info.items()
             }
+            if slots := slots_without_model(packs[pack_id], providers[pack_id]):
+                without_model[pack_id] = slots
         return {
             **public,
             "packs": len(packs),
@@ -614,6 +617,8 @@ def create_app(
             # MENDARI_INPUT_HASH_KEY (required in PHI modes hash and encrypt), else `sha256`.
             "input_hash": phi.hash_kind,
             "providers": providers,
+            # Slots running without a model although their pack offers one (the offline floor).
+            "without_model": without_model,
             # Deployment provider settings that name a slot or variant a pack does not have.
             "provider_settings_skipped": skipped_settings,
             "jev": {
@@ -680,6 +685,9 @@ def create_app(
                 slot: {"variant": i.variant, "type": i.type, "model": i.model}
                 for slot, i in decision.provider_info.items()
             },
+            "without_model": slots_without_model(
+                pack, {slot: i.variant for slot, i in decision.provider_info.items()}
+            ),
             "input_schema": pack.input_schema,
             "output_schema": pack.output_schema,
             "benchmark": benchmark(pack),

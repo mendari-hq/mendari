@@ -15,7 +15,10 @@ from mendari.core import tenancy
 from mendari.errors import MendariError
 from mendari.evals.monitoring import _alerts, _psi, check_webhook, monitor
 from mendari.server.app import create_app
-from tests.conftest import message
+from tests.conftest import SCREENED, message
+
+# Every decision here is automated: the urgency screen runs with a fake Jev (`screened`).
+pytestmark = pytest.mark.usefixtures("screened")
 
 ROUTINE = "Can you send a refill for metformin to my pharmacy on Main Street?"  # AUTO
 NOW = datetime.now(UTC)
@@ -24,7 +27,7 @@ NOW = datetime.now(UTC)
 def seed(
     store: AuditStore, pack: Pack, n: int, *, days_ago: int, final: str | None = None
 ) -> list[str]:
-    decide = Decision(pack, store=store)
+    decide = Decision(pack, providers=SCREENED, store=store)
     ids = []
     for i in range(n):
         result = decide(message(ROUTINE))

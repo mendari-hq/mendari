@@ -8,6 +8,8 @@
 #     --from-literal=MENDARI_PHI_KEY='...' \
 #     --from-literal=MENDARI_INPUT_HASH_KEY='...'
 # (the two keys differ: each 32 random bytes, base64)
+# With Jev (only under an agreement that covers PHI), add --from-literal=JEV_API_KEY='...' and
+# set JEV_API_URL and JEV_MODEL below: the reference packs then run Mendari + Jev.
 # Set `image:` (twice below) to a release image, e.g. ghcr.io/junebugg1214/mendari-engine:v0.1.0
 # (the tag is `v` and the package version; v0.1.0 is the first release),
 # or one pack's image (mendari-referral-router). No release is published yet: until then,
@@ -36,6 +38,9 @@ data:
   FORWARDED_ALLOW_IPS: 10.0.0.0/8
   # Rate limits are on with sign-in. Per-organization daily quotas, off unless set:
   # MENDARI_ORG_DAILY_LIMITS: decisions=5000
+  # Jev (with JEV_API_KEY in mendari-secrets):
+  # JEV_API_URL: https://...
+  # JEV_MODEL: jev-1.13.0
 ---
 apiVersion: apps/v1
 kind: Deployment

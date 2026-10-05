@@ -609,7 +609,14 @@ def test_the_threshold_sweep_does_not_claim_automation_that_never_happens(page: 
     expect(sweep).to_contain_text("Automation threshold 0.90")
     expect(sweep).to_contain_text("Nothing was automated in this run")
     expect(sweep).not_to_contain_text("automates at")
-    page.select_option("#pack-select", INBOX)  # automates 94.5 % of its benchmark
+
+    def automating(route: Route) -> None:  # the inbox's benchmark with a model in the screen
+        body = route.fetch().json()
+        body["benchmark"]["decisions"]["outcome_rates"]["AUTO"] = 0.91
+        route.fulfill(json=body)
+
+    page.route(f"**/api/packs/{INBOX}", automating)
+    page.select_option("#pack-select", INBOX)
     expect(page.locator("#evals-body")).to_contain_text("Destination accuracy")
     expect(page.locator('figure.chart[data-chart^="sweep"]')).not_to_contain_text("Nothing was")
 
@@ -843,7 +850,7 @@ def test_the_decision_card_is_a_document_with_linked_sections(page: Page) -> Non
 @pytest.mark.parametrize(
     ("pack_id", "automates"),
     [
-        (INBOX, "At confidence 0.90 or more (some labels need more; see Policy)."),
+        (INBOX, "Not with the deployed providers: automation needs safety_screen"),
         (GUARD, "Not without an approval: at risk level 2 a person reviews every decision"),
         ("mendari/referral-router", "Not with the deployed providers: automation needs"),
     ],
@@ -854,6 +861,28 @@ def test_the_card_says_whether_this_deployment_automates(
     """The thresholds alone would say "automates at 0.90" for packs that never automate here."""
     open_pack(page, pack_id, "card")
     expect(page.locator("dl.facts")).to_contain_text(automates)
+
+
+def test_with_a_model_in_the_screen_the_card_says_the_inbox_automates(page: Page) -> None:
+    def screened(route: Route) -> None:
+        body = route.fetch().json()
+        jev = "rules:rules@661449489daf + jev:jev-1.13.0"
+        body["active_providers"]["safety_screen"] = {"variant": "rules_and_jev", "model": jev}
+        route.fulfill(json=body)
+
+    page.route(f"**/api/packs/{INBOX}", screened)
+    open_pack(page, INBOX, "card")
+    expect(page.locator("dl.facts")).to_contain_text(
+        "At confidence 0.90 or more (some labels need more; see Policy)."
+    )
+
+
+def test_the_overview_names_the_slots_running_without_a_model(page: Page) -> None:
+    open_pack(page, INBOX)
+    note = page.get_by_role("note")
+    expect(note).to_contain_text("Running without a model: Safety screen, Router.")
+    open_pack(page, "mendari/prior-auth-preflight")
+    expect(page.get_by_role("note")).to_contain_text("Running without a model: Notes.")
 
 
 def test_the_digest_copies(page: Page) -> None:

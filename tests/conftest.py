@@ -13,10 +13,12 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, TypeVar
 
+import httpx
 import pytest
 import yaml
 
 from mendari import AuditStore, Decision, Pack, load_pack
+from mendari.providers.jev import JevProvider
 from mendari.server import sessions
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -47,6 +49,52 @@ def _no_rate_limits(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MENDARI_RATE_LIMITS", "off")
     monkeypatch.delenv("MENDARI_ORG_DAILY_LIMITS", raising=False)
     monkeypatch.delenv("FORWARDED_ALLOW_IPS", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _no_jev(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Jev is never set up unless a test sets it up (with a fake): a developer's own Jev
+    settings would turn on the servers' Jev defaults and send test cases to Jev."""
+    for name in ("JEV_API_URL", "JEV_MODEL", "JEV_API_KEY", "JEV_CONNECTOR"):
+        monkeypatch.delenv(name, raising=False)
+
+
+# The inbox's policy automates only while its urgency screen includes a model
+# (automation_requires). Tests that need an automated inbox decision run the screen with Jev,
+# against `calm_jev`, which finds nothing urgent.
+SCREENED = {"safety_screen": "rules_and_jev"}
+
+
+def calm_jev(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+    """Set up a fake Jev for this test that answers the inbox's urgency question with a
+    confident `routine` (P(urgent) = 0.02), and return the inbox providers that use it."""
+    monkeypatch.setenv("JEV_API_URL", "https://jev.test/v1/decide")
+    monkeypatch.setenv("JEV_MODEL", "jev-test-model")
+    monkeypatch.setenv("JEV_API_KEY", "test-key")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if set(json.loads(request.content)["questions"]) != {"urgency"}:
+            return httpx.Response(400)  # only the urgency screen is faked
+        probabilities = {"urgent": 0.02, "routine": 0.98}
+        answer = {"type": "choice", "choice": "routine", "confidence": 0.98}
+        usage = {"input_tokens": 100, "output_tokens": 10}
+        answers = {"urgency": {**answer, "probabilities": probabilities}}
+        return httpx.Response(200, json={"model": "jev-9.9.9", "answers": answers, "usage": usage})
+
+    original = JevProvider.__init__
+
+    def init(self: JevProvider, *args: Any, **kwargs: Any) -> None:
+        kwargs["client"] = httpx.Client(transport=httpx.MockTransport(handler))
+        original(self, *args, **kwargs)
+
+    monkeypatch.setattr(JevProvider, "__init__", init)
+    return dict(SCREENED)
+
+
+@pytest.fixture
+def screened(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+    """The inbox providers whose decisions may be automated, with `calm_jev` in the screen."""
+    return calm_jev(monkeypatch)
 
 
 @pytest.fixture(params=["sqlite", "postgres"])

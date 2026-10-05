@@ -240,6 +240,9 @@ close such a gap; report the number.
 The offline configuration's rows show AUTO 0 %, and on every held-out safety set the deployed
 configuration has `auto_missed == 0` for each critical label.
 
+Closed for the inbox on 2026-10-04 (0.4.0): its keyword screen alone had automated 7 of 20
+held-out emergencies; it now carries the same `automation_requires`.
+
 ## 2026-09-29 - syntax
 
 ### What happened

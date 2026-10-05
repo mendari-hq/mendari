@@ -108,6 +108,34 @@ def parse_providers(values: Sequence[str] | None) -> dict[str, str]:
     return overrides
 
 
+# With Jev set up, a server runs the reference packs as Mendari + Jev: Jev reads the free text,
+# and every screen keeps the keyword rules beside it. Each pack's Decision Card shows why.
+JEV_DEFAULTS: dict[str, dict[str, str]] = {
+    "mendari/patient-inbox-router": {"safety_screen": "rules_and_jev", "router": "jev"},
+    "mendari/referral-router": {"triage_screen": "rules_and_jev", "specialty_reader": "jev"},
+    "mendari/prior-auth-preflight": {"notes": "rules_and_jev"},
+    "mendari/clinical-trial-prescreener": {"notes": "jev"},
+}
+
+
+def server_providers(values: Sequence[str] | None) -> dict[str, str]:
+    """The provider settings a server runs with: `parse_providers`, and while Jev is set up,
+    JEV_DEFAULTS for every slot those settings do not name. Only servers use the defaults: a
+    command that decides or evaluates (a benchmark, a pack's tests) never calls Jev unasked."""
+    from mendari.providers import jev
+
+    settings = parse_providers(values)
+    if not jev.deployment_configured():
+        return settings
+    defaults = {
+        f"{pack}:{slot}": variant
+        for pack, slots in JEV_DEFAULTS.items()
+        for slot, variant in slots.items()
+        if slot not in settings and f"{pack}:{slot}" not in settings
+    }
+    return {**defaults, **settings}
+
+
 def daily_limits() -> dict[str, int | None]:
     """Per-provider-type daily call budgets for the remote, metered providers. `none` lifts a
     provider's limit; its calls are still counted."""

@@ -16,7 +16,7 @@ from mendari.evals.harness import evaluate
 from mendari.server.app import create_app
 from tests.conftest import INBOX_DIR, LOCAL_DATASET, ROOT, message
 
-# AUTO, destination = medical_assistant
+# destination = medical_assistant; AUTO when a model screens urgency (`screened`)
 AUTO_REFILL = "Hi, I need a refill on my metoprolol. I have about a week's worth of pills left."
 FRONT_DESK = {"question": "destination", "label": "front_desk"}
 
@@ -42,9 +42,9 @@ def test_thumbs_are_recorded_and_chained(inbox_pack: Pack, store: AuditStore) ->
 
 
 def test_thumbs_down_on_an_automated_decision_is_confidently_wrong(
-    inbox_pack: Pack, store: AuditStore
+    inbox_pack: Pack, store: AuditStore, screened: dict[str, str]
 ) -> None:
-    result = Decision(inbox_pack, store=store)(message(AUTO_REFILL))
+    result = Decision(inbox_pack, providers=screened, store=store)(message(AUTO_REFILL))
     assert result.outcome.value == "AUTO"
     store.record_feedback(result.id, rating="down")
     assert store.stats()["feedback"]["down_on_auto"] == 1
@@ -77,8 +77,9 @@ def test_export_is_a_dataset_to_label(inbox_pack: Pack, store: AuditStore, tmp_p
     assert load_dataset(path).records[0]["id"] == record["id"]  # loads as a pack dataset
 
 
-def test_feedback_api_and_export(db_target: str) -> None:
-    client = TestClient(create_app(db_path=db_target, datasets_dir=LOCAL_DATASET.parent))
+def test_feedback_api_and_export(db_target: str, screened: dict[str, str]) -> None:
+    app = create_app(db_path=db_target, providers=screened, datasets_dir=LOCAL_DATASET.parent)
+    client = TestClient(app)
     pack = "/api/packs/mendari/patient-inbox-router"
     decision = client.post(f"{pack}/decide", json=message(AUTO_REFILL)).json()
 
@@ -159,9 +160,11 @@ def test_the_right_answer_is_checked_against_the_decision(
     assert store.feedback() == []  # nothing half-written
 
 
-def test_a_changed_rating_counts_once(inbox_pack: Pack, store: AuditStore) -> None:
+def test_a_changed_rating_counts_once(
+    inbox_pack: Pack, store: AuditStore, screened: dict[str, str]
+) -> None:
     """Each person's latest rating counts; the hash chain keeps every rating."""
-    result = Decision(inbox_pack, store=store)(message(AUTO_REFILL))
+    result = Decision(inbox_pack, providers=screened, store=store)(message(AUTO_REFILL))
     first = store.record_feedback(result.id, rating="down", reporter="rn-1", expected=FRONT_DESK)
     changed = store.record_feedback(result.id, rating="up", reporter="rn-1")
     store.record_feedback(result.id, rating="down", reporter="rn-2")  # someone else

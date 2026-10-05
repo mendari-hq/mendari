@@ -37,7 +37,7 @@ from mendari.core.spec import Question, deployment_env_problem
 from mendari.errors import PackValidationError, ProviderError
 from mendari.providers.base import Answer, Provider, ProviderOutput, batch_state
 from mendari.providers.batch import batched_answer, unwrap
-from mendari.providers.credentials import resolve_key
+from mendari.providers.credentials import key_source, resolve_key
 from mendari.providers.http import post_json, require_secure
 
 MODEL_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}$"
@@ -202,6 +202,15 @@ class JevProvider(Provider):
             retries=1,
             max_bytes=MAX_RESPONSE_BYTES,
         )
+
+
+def deployment_configured() -> bool:
+    """Whether this deployment has Jev set up: an endpoint, a model and a key or connector."""
+    return bool(
+        os.environ.get(ENDPOINT_ENV, "").strip()
+        and os.environ.get(MODEL_ENV, "").strip()
+        and key_source(key_env=API_KEY_ENV, connector_env=CONNECTOR_ENV)
+    )
 
 
 def list_models(*, timeout_s: float = 10.0) -> list[dict[str, Any]]:

@@ -450,14 +450,19 @@ By default, nothing. Each of these is off until you configure it:
 
 | What | Setting | Leaves with it |
 |---|---|---|
-| Remote model providers (Jev, LLMs through Vercel AI Gateway) | `MENDARI_PROVIDERS` | The pack's declared `state_fields` only |
+| Jev | Jev's settings (`JEV_API_URL`, `JEV_MODEL`, a key or connector): the reference packs then run Mendari + Jev in every slot `MENDARI_PROVIDERS` does not name | The pack's declared `state_fields` only |
+| Other remote models (LLMs through Vercel AI Gateway) | `MENDARI_PROVIDERS` | The pack's declared `state_fields` only |
 | Reading your FHIR server (CDS Hooks fetch, SMART, Bulk) | `MENDARI_FHIR_ALLOWED_SERVERS` | Nothing leaves; Mendari reads from servers you list |
 | Alerts | `MENDARI_ALERT_WEBHOOK` | Pack ids and alert messages; an organization's id when it reaches a daily quota (no case data) |
 | Shared evaluation reports | `mendari eval --share` (manual) | Metrics only; no cases, ids or small groups |
 
 For PHI, prefer local providers (rules, naive Bayes, criteria, dosing), or a local model server
 (an OpenAI-compatible `base_url` on your network). Use a remote model only under an agreement
-that covers PHI.
+that covers PHI. Setting up Jev sends the inbox messages, referrals and prior-auth and trial
+notes the reference packs read to Jev; to keep a slot on site, name it in `MENDARI_PROVIDERS`
+(e.g. `notes=rules`). Without a model in the screen, the inbox and referral packs automate
+nothing: every case goes to a person, and `/api/health` lists the slots running without one
+(`without_model`).
 
 ## 6. Monitoring and governance
 

@@ -17,7 +17,13 @@ from mendari.core.pack import Pack
 from mendari.core.registry import discover, resolve_pack
 from mendari.errors import MendariError, PackValidationError
 from mendari.sandbox import example_datasets_dir
-from mendari.settings import daily_limits, fhir_validation, parse_providers, providers_for
+from mendari.settings import (
+    daily_limits,
+    fhir_validation,
+    parse_providers,
+    providers_for,
+    server_providers,
+)
 
 EXIT_DEGRADED = 2
 
@@ -336,7 +342,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
     os.environ["FORWARDED_ALLOW_IPS"] = trusted if args.proxy_headers else ""
     app = create_app(
         db_path=args.db,
-        providers=parse_providers(args.provider),
+        providers=server_providers(args.provider),
         budget_limits=daily_limits(),
         datasets_dir=Path(args.datasets_dir) if args.datasets_dir else example_datasets_dir(),
     )

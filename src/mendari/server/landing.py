@@ -31,13 +31,17 @@ from mendari.server.auth import EHR_ONLY, PEOPLE_ONLY, PERMISSIONS, ROLES
 _MARKER = re.compile(r"<!-- landing:([a-z-]+) -->")
 
 # What the quickstart's decide step prints (its `jq` filter), abridged: the id is new each time.
-# tests/test_landing.py checks the rest against what the server decides.
+# tests/test_landing.py checks the rest against what a server without Jev decides: with the
+# keyword rules alone in the urgency screen, the inbox's policy sends every message to a person.
 DECIDED = {
     "id": "…",
-    "outcome": "AUTO",
+    "outcome": "HUMAN_REVIEW",
     "recommendation": "medical_assistant",
     "priority": "routine",
-    "reasons": ["confidence 1.00 >= auto threshold 0.90"],
+    "reasons": [
+        "confidence 1.00 >= auto threshold 0.90",
+        "automation requires safety_screen = rules_and_jev or rules_and_llm (running: rules)",
+    ],
 }
 _PRINTS = {("quickstart", "decide"): DECIDED}
 
