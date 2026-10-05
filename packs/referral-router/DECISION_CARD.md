@@ -1,6 +1,6 @@
 # Decision Card: Referral Router
 
-`mendari/referral-router` · version **0.1.1** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
+`mendari/referral-router` · version **0.1.2** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
 
 > Reads a specialty referral as it is signed: suggests the specialty, spots referrals that should be seen within two weeks, checks that the referral has what that specialty needs, and sends complete routine referrals straight to the specialty's scheduling queue.
 
@@ -8,9 +8,9 @@
 |---|---|
 | Source | Maintained by Mendari |
 | Risk level | **1**, clinical information processing (clinical information) |
-| Automation | AUTO permitted by policy thresholds; every decision is audited. |
-| Pack digest | `sha256:2f47fe709e1a6fe4eca431d79f788f2adec41e5c6faf1722f726548f1694d4e6` |
-| Last validation | 2026-09-30 on `test` (n=600, sha256 `f085362d6bc2…`) |
+| Automation | AUTO permitted by policy thresholds; every decision is audited. Only while `triage_screen` is `rules_and_jev` or `rules_and_llm`; otherwise a person reviews. |
+| Pack digest | `sha256:d997766e1b2ca369ff987e8c5022556b6589f436bfbb0bbca22f199b6e68a31f` |
+| Last validation | 2026-10-05 on `test` (n=600, sha256 `f085362d6bc2…`) |
 
 ## Intended use
 
@@ -153,7 +153,7 @@ Every decision is one of `AUTO`, `HUMAN_REVIEW`, `ABSTAIN` or `BLOCK`, with a pr
 
 | Slot | Answers | Default | Alternatives |
 |---|---|---|---|
-| `specialty_reader` | specialty | `naive_bayes` (naive_bayes) | `jev` (jev), `llm` (llm) |
+| `specialty_reader` | specialty | `naive_bayes` (naive_bayes) | `jev` (jev), `llm` (llm), `cascade` (cascade) |
 | `triage_screen` | urgency, clear_question | `rules` (rules) | `rules_and_jev` (any_of), `jev` (jev), `rules_and_llm` (any_of), `llm` (llm) |
 | `checklist` | recent_visit_note, ecg_on_file, imaging_on_file, recent_labs, marked_urgent | `criteria` (criteria) | none |
 
@@ -174,7 +174,7 @@ Benchmark `test` (n=600) with specialty_reader=`naive_bayes`, triage_screen=`rul
 | Accuracy of AUTO decisions | n/a |
 | False automation rate | n/a |
 | Expected human override rate | 0.5% |
-| Latency p50 / p95 | 1.81 / 1.94 ms |
+| Latency p50 / p95 | 1.91 / 2.45 ms |
 | Cost per decision | $0.00000 |
 | Critical `urgency=urgent` | 113/113 detected, 0 automated |
 | Critical `next_step=urgent_review` | 124/124 detected, 0 automated |
@@ -242,113 +242,113 @@ Every configuration below ran on the same records. Remote models are named becau
 
 | Configuration | Accuracy | Macro-F1 | ECE | AUTO | False automation | Critical detected | p50 latency | Cost / decision | Errors |
 |---|---|---|---|---|---|---|---|---|---|
-| specialty_reader=llm (anthropic/claude-haiku-4.5) · triage_screen=llm (anthropic/claude-haiku-4.5) · checklist=criteria | 71.0% | 0.810 | 0.206 | 0.0% | n/a | urgency=urgent 15/15 (0 automated); next_step=urgent_review 18/18 (0 automated) | 10,560 ms | $0.00623 | 0 |
-| specialty_reader=llm (anthropic/claude-haiku-4.5) · triage_screen=rules_and_llm (anthropic/claude-haiku-4.5) · checklist=criteria | 71.0% | 0.810 | 0.218 | 8.0% | 0.0% | urgency=urgent 15/15 (0 automated); next_step=urgent_review 18/18 (0 automated) | 10,101 ms | $0.00605 | 0 |
-| specialty_reader=llm (anthropic/claude-sonnet-5) · triage_screen=llm (anthropic/claude-sonnet-5) · checklist=criteria | 71.0% | 0.810 | 0.187 | 0.0% | n/a | urgency=urgent 15/15 (0 automated); next_step=urgent_review 18/18 (0 automated) | 2,548 ms | $0.00515 | 0 |
-| specialty_reader=llm (anthropic/claude-sonnet-5) · triage_screen=rules_and_llm (anthropic/claude-sonnet-5) · checklist=criteria | 71.0% | 0.810 | 0.172 | 5.0% | 0.0% | urgency=urgent 15/15 (0 automated); next_step=urgent_review 18/18 (0 automated) | 2,458 ms | $0.00521 | 0 |
-| specialty_reader=llm (openai/gpt-oss-120b) · triage_screen=llm (openai/gpt-oss-120b) · checklist=criteria | 70.0% | 0.803 | 0.175 | 0.0% | n/a | urgency=urgent 15/15 (0 automated); next_step=urgent_review 18/18 (0 automated) | 1,534 ms | $0.00024 | 0 |
-| specialty_reader=llm (openai/gpt-oss-120b) · triage_screen=rules_and_llm (openai/gpt-oss-120b) · checklist=criteria | 70.0% | 0.803 | 0.178 | 1.0% | 0.0% | urgency=urgent 15/15 (0 automated); next_step=urgent_review 18/18 (0 automated) | 1,482 ms | $0.00024 | 0 |
-| specialty_reader=naive_bayes · triage_screen=rules · checklist=criteria | 70.0% | 0.804 | 0.244 | 0.0% | n/a | urgency=urgent 15/15 (0 automated); next_step=urgent_review 18/18 (0 automated) | 2.72 ms | $0.00000 | 0 |
-| specialty_reader=jev (jev-1.13.0) · triage_screen=jev (jev-1.13.0) · checklist=criteria | 68.0% | 0.780 | 0.242 | 0.0% | n/a | urgency=urgent 15/15 (0 automated); next_step=urgent_review 18/18 (0 automated) | 199 ms | $0.00004 | 0 |
-| specialty_reader=jev (jev-1.13.0) · triage_screen=rules_and_jev (jev-1.13.0) · checklist=criteria | 68.0% | 0.780 | 0.258 | 27.0% | 0.0% | urgency=urgent 15/15 (0 automated); next_step=urgent_review 18/18 (0 automated) | 210 ms | $0.00004 | 0 |
+| specialty_reader=llm (anthropic/claude-haiku-4.5) · triage_screen=llm (anthropic/claude-haiku-4.5) · checklist=criteria (measured on 0.1.0) | 71.0% | 0.810 | 0.206 | 0.0% | n/a | urgency=urgent 15/15 (0 automated); next_step=urgent_review 18/18 (0 automated) | 10,560 ms | $0.00623 | 0 |
+| specialty_reader=llm (anthropic/claude-haiku-4.5) · triage_screen=rules_and_llm (anthropic/claude-haiku-4.5) · checklist=criteria (measured on 0.1.1) | 71.0% | 0.810 | 0.218 | 8.0% | 0.0% | urgency=urgent 15/15 (0 automated); next_step=urgent_review 18/18 (0 automated) | 10,101 ms | $0.00605 | 0 |
+| specialty_reader=llm (anthropic/claude-sonnet-5) · triage_screen=llm (anthropic/claude-sonnet-5) · checklist=criteria (measured on 0.1.0) | 71.0% | 0.810 | 0.187 | 0.0% | n/a | urgency=urgent 15/15 (0 automated); next_step=urgent_review 18/18 (0 automated) | 2,548 ms | $0.00515 | 0 |
+| specialty_reader=llm (anthropic/claude-sonnet-5) · triage_screen=rules_and_llm (anthropic/claude-sonnet-5) · checklist=criteria (measured on 0.1.1) | 71.0% | 0.810 | 0.172 | 5.0% | 0.0% | urgency=urgent 15/15 (0 automated); next_step=urgent_review 18/18 (0 automated) | 2,458 ms | $0.00521 | 0 |
+| specialty_reader=llm (openai/gpt-oss-120b) · triage_screen=llm (openai/gpt-oss-120b) · checklist=criteria (measured on 0.1.0) | 70.0% | 0.803 | 0.175 | 0.0% | n/a | urgency=urgent 15/15 (0 automated); next_step=urgent_review 18/18 (0 automated) | 1,534 ms | $0.00024 | 0 |
+| specialty_reader=llm (openai/gpt-oss-120b) · triage_screen=rules_and_llm (openai/gpt-oss-120b) · checklist=criteria (measured on 0.1.1) | 70.0% | 0.803 | 0.178 | 1.0% | 0.0% | urgency=urgent 15/15 (0 automated); next_step=urgent_review 18/18 (0 automated) | 1,482 ms | $0.00024 | 0 |
+| specialty_reader=naive_bayes · triage_screen=rules · checklist=criteria (measured on 0.1.0) | 70.0% | 0.804 | 0.244 | 0.0% | n/a | urgency=urgent 15/15 (0 automated); next_step=urgent_review 18/18 (0 automated) | 2.72 ms | $0.00000 | 0 |
+| specialty_reader=jev (jev-1.13.0) · triage_screen=jev (jev-1.13.0) · checklist=criteria (measured on 0.1.0) | 68.0% | 0.780 | 0.242 | 0.0% | n/a | urgency=urgent 15/15 (0 automated); next_step=urgent_review 18/18 (0 automated) | 199 ms | $0.00004 | 0 |
+| specialty_reader=jev (jev-1.13.0) · triage_screen=rules_and_jev (jev-1.13.0) · checklist=criteria (measured on 0.1.1) | 68.0% | 0.780 | 0.258 | 27.0% | 0.0% | urgency=urgent 15/15 (0 automated); next_step=urgent_review 18/18 (0 automated) | 210 ms | $0.00004 | 0 |
 
 Other questions (accuracy / ECE):
 
 | Configuration | `clear_question` | `specialty` | `urgency` |
 |---|---|---|---|
-| specialty_reader=llm (anthropic/claude-haiku-4.5) · triage_screen=llm (anthropic/claude-haiku-4.5) · checklist=criteria | 100.0% / 0.035 | 98.0% / 0.067 | 100.0% / 0.094 |
-| specialty_reader=llm (anthropic/claude-haiku-4.5) · triage_screen=rules_and_llm (anthropic/claude-haiku-4.5) · checklist=criteria | 100.0% / 0.016 | 97.0% / 0.056 | 100.0% / 0.087 |
-| specialty_reader=llm (anthropic/claude-sonnet-5) · triage_screen=llm (anthropic/claude-sonnet-5) · checklist=criteria | 100.0% / 0.079 | 100.0% / 0.121 | 100.0% / 0.108 |
-| specialty_reader=llm (anthropic/claude-sonnet-5) · triage_screen=rules_and_llm (anthropic/claude-sonnet-5) · checklist=criteria | 100.0% / 0.014 | 100.0% / 0.123 | 100.0% / 0.088 |
-| specialty_reader=llm (openai/gpt-oss-120b) · triage_screen=llm (openai/gpt-oss-120b) · checklist=criteria | 100.0% / 0.053 | 97.0% / 0.111 | 100.0% / 0.105 |
-| specialty_reader=llm (openai/gpt-oss-120b) · triage_screen=rules_and_llm (openai/gpt-oss-120b) · checklist=criteria | 100.0% / 0.016 | 96.0% / 0.131 | 100.0% / 0.087 |
-| specialty_reader=naive_bayes · triage_screen=rules · checklist=criteria | 100.0% / 0.012 | 90.0% / 0.071 | 100.0% / 0.022 |
-| specialty_reader=jev (jev-1.13.0) · triage_screen=jev (jev-1.13.0) · checklist=criteria | 98.0% / 0.071 | 98.0% / 0.009 | 97.0% / 0.023 |
-| specialty_reader=jev (jev-1.13.0) · triage_screen=rules_and_jev (jev-1.13.0) · checklist=criteria | 100.0% / 0.014 | 98.0% / 0.008 | 97.0% / 0.024 |
+| specialty_reader=llm (anthropic/claude-haiku-4.5) · triage_screen=llm (anthropic/claude-haiku-4.5) · checklist=criteria (measured on 0.1.0) | 100.0% / 0.035 | 98.0% / 0.067 | 100.0% / 0.094 |
+| specialty_reader=llm (anthropic/claude-haiku-4.5) · triage_screen=rules_and_llm (anthropic/claude-haiku-4.5) · checklist=criteria (measured on 0.1.1) | 100.0% / 0.016 | 97.0% / 0.056 | 100.0% / 0.087 |
+| specialty_reader=llm (anthropic/claude-sonnet-5) · triage_screen=llm (anthropic/claude-sonnet-5) · checklist=criteria (measured on 0.1.0) | 100.0% / 0.079 | 100.0% / 0.121 | 100.0% / 0.108 |
+| specialty_reader=llm (anthropic/claude-sonnet-5) · triage_screen=rules_and_llm (anthropic/claude-sonnet-5) · checklist=criteria (measured on 0.1.1) | 100.0% / 0.014 | 100.0% / 0.123 | 100.0% / 0.088 |
+| specialty_reader=llm (openai/gpt-oss-120b) · triage_screen=llm (openai/gpt-oss-120b) · checklist=criteria (measured on 0.1.0) | 100.0% / 0.053 | 97.0% / 0.111 | 100.0% / 0.105 |
+| specialty_reader=llm (openai/gpt-oss-120b) · triage_screen=rules_and_llm (openai/gpt-oss-120b) · checklist=criteria (measured on 0.1.1) | 100.0% / 0.016 | 96.0% / 0.131 | 100.0% / 0.087 |
+| specialty_reader=naive_bayes · triage_screen=rules · checklist=criteria (measured on 0.1.0) | 100.0% / 0.012 | 90.0% / 0.071 | 100.0% / 0.022 |
+| specialty_reader=jev (jev-1.13.0) · triage_screen=jev (jev-1.13.0) · checklist=criteria (measured on 0.1.0) | 98.0% / 0.071 | 98.0% / 0.009 | 97.0% / 0.023 |
+| specialty_reader=jev (jev-1.13.0) · triage_screen=rules_and_jev (jev-1.13.0) · checklist=criteria (measured on 0.1.1) | 100.0% / 0.014 | 98.0% / 0.008 | 97.0% / 0.024 |
 
 **`test`** (n=100)
 
 | Configuration | Accuracy | Macro-F1 | ECE | AUTO | False automation | Critical detected | p50 latency | Cost / decision | Errors |
 |---|---|---|---|---|---|---|---|---|---|
-| specialty_reader=jev (jev-1.13.0) · triage_screen=jev (jev-1.13.0) · checklist=criteria | 100.0% | 1.000 | 0.085 | 0.0% | n/a | urgency=urgent 22/22 (0 automated); next_step=urgent_review 22/22 (0 automated) | 200 ms | $0.00004 | 0 |
-| specialty_reader=jev (jev-1.13.0) · triage_screen=rules_and_jev (jev-1.13.0) · checklist=criteria | 100.0% | 1.000 | 0.072 | 39.0% | 0.0% | urgency=urgent 22/22 (0 automated); next_step=urgent_review 22/22 (0 automated) | 195 ms | $0.00004 | 0 |
-| specialty_reader=llm (anthropic/claude-sonnet-5) · triage_screen=llm (anthropic/claude-sonnet-5) · checklist=criteria | 100.0% | 1.000 | 0.192 | 0.0% | n/a | urgency=urgent 22/22 (0 automated); next_step=urgent_review 22/22 (0 automated) | 2,587 ms | $0.00518 | 0 |
-| specialty_reader=llm (anthropic/claude-sonnet-5) · triage_screen=rules_and_llm (anthropic/claude-sonnet-5) · checklist=criteria | 100.0% | 1.000 | 0.161 | 2.0% | 0.0% | urgency=urgent 22/22 (0 automated); next_step=urgent_review 22/22 (0 automated) | 2,515 ms | $0.00518 | 0 |
-| specialty_reader=naive_bayes · triage_screen=rules · checklist=criteria | 100.0% | 1.000 | 0.059 | 0.0% | n/a | urgency=urgent 22/22 (0 automated); next_step=urgent_review 22/22 (0 automated) | 2.70 ms | $0.00000 | 0 |
-| specialty_reader=llm (anthropic/claude-haiku-4.5) · triage_screen=llm (anthropic/claude-haiku-4.5) · checklist=criteria | 99.0% | 0.962 | 0.144 | 0.0% | n/a | urgency=urgent 22/22 (0 automated); next_step=urgent_review 22/22 (0 automated) | 10,343 ms | $0.00606 | 0 |
-| specialty_reader=llm (anthropic/claude-haiku-4.5) · triage_screen=rules_and_llm (anthropic/claude-haiku-4.5) · checklist=criteria | 99.0% | 0.962 | 0.135 | 11.0% | 0.0% | urgency=urgent 22/22 (0 automated); next_step=urgent_review 22/22 (0 automated) | 10,416 ms | $0.00621 | 0 |
-| specialty_reader=llm (openai/gpt-oss-120b) · triage_screen=rules_and_llm (openai/gpt-oss-120b) · checklist=criteria | 99.0% | 0.997 | 0.151 | 4.0% | 0.0% | urgency=urgent 22/22 (0 automated); next_step=urgent_review 22/22 (0 automated) | 1,505 ms | $0.00024 | 2 (derived_input_unavailable 1, invalid_response 1) |
-| specialty_reader=llm (openai/gpt-oss-120b) · triage_screen=llm (openai/gpt-oss-120b) · checklist=criteria | 97.0% | 0.980 | 0.168 | 0.0% | n/a | urgency=urgent 22/22 (0 automated); next_step=urgent_review 21/22 (0 automated) | 1,599 ms | $0.00024 | 2 (derived_input_unavailable 1, invalid_response 1) |
+| specialty_reader=jev (jev-1.13.0) · triage_screen=jev (jev-1.13.0) · checklist=criteria (measured on 0.1.0) | 100.0% | 1.000 | 0.085 | 0.0% | n/a | urgency=urgent 22/22 (0 automated); next_step=urgent_review 22/22 (0 automated) | 200 ms | $0.00004 | 0 |
+| specialty_reader=jev (jev-1.13.0) · triage_screen=rules_and_jev (jev-1.13.0) · checklist=criteria (measured on 0.1.1) | 100.0% | 1.000 | 0.072 | 39.0% | 0.0% | urgency=urgent 22/22 (0 automated); next_step=urgent_review 22/22 (0 automated) | 195 ms | $0.00004 | 0 |
+| specialty_reader=llm (anthropic/claude-sonnet-5) · triage_screen=llm (anthropic/claude-sonnet-5) · checklist=criteria (measured on 0.1.0) | 100.0% | 1.000 | 0.192 | 0.0% | n/a | urgency=urgent 22/22 (0 automated); next_step=urgent_review 22/22 (0 automated) | 2,587 ms | $0.00518 | 0 |
+| specialty_reader=llm (anthropic/claude-sonnet-5) · triage_screen=rules_and_llm (anthropic/claude-sonnet-5) · checklist=criteria (measured on 0.1.1) | 100.0% | 1.000 | 0.161 | 2.0% | 0.0% | urgency=urgent 22/22 (0 automated); next_step=urgent_review 22/22 (0 automated) | 2,515 ms | $0.00518 | 0 |
+| specialty_reader=naive_bayes · triage_screen=rules · checklist=criteria (measured on 0.1.0) | 100.0% | 1.000 | 0.059 | 0.0% | n/a | urgency=urgent 22/22 (0 automated); next_step=urgent_review 22/22 (0 automated) | 2.70 ms | $0.00000 | 0 |
+| specialty_reader=llm (anthropic/claude-haiku-4.5) · triage_screen=llm (anthropic/claude-haiku-4.5) · checklist=criteria (measured on 0.1.0) | 99.0% | 0.962 | 0.144 | 0.0% | n/a | urgency=urgent 22/22 (0 automated); next_step=urgent_review 22/22 (0 automated) | 10,343 ms | $0.00606 | 0 |
+| specialty_reader=llm (anthropic/claude-haiku-4.5) · triage_screen=rules_and_llm (anthropic/claude-haiku-4.5) · checklist=criteria (measured on 0.1.1) | 99.0% | 0.962 | 0.135 | 11.0% | 0.0% | urgency=urgent 22/22 (0 automated); next_step=urgent_review 22/22 (0 automated) | 10,416 ms | $0.00621 | 0 |
+| specialty_reader=llm (openai/gpt-oss-120b) · triage_screen=rules_and_llm (openai/gpt-oss-120b) · checklist=criteria (measured on 0.1.1) | 99.0% | 0.997 | 0.151 | 4.0% | 0.0% | urgency=urgent 22/22 (0 automated); next_step=urgent_review 22/22 (0 automated) | 1,505 ms | $0.00024 | 2 (derived_input_unavailable 1, invalid_response 1) |
+| specialty_reader=llm (openai/gpt-oss-120b) · triage_screen=llm (openai/gpt-oss-120b) · checklist=criteria (measured on 0.1.1) | 97.0% | 0.980 | 0.168 | 0.0% | n/a | urgency=urgent 22/22 (0 automated); next_step=urgent_review 21/22 (0 automated) | 1,599 ms | $0.00024 | 2 (derived_input_unavailable 1, invalid_response 1) |
 
 Other questions (accuracy / ECE):
 
 | Configuration | `clear_question` | `specialty` | `urgency` |
 |---|---|---|---|
-| specialty_reader=jev (jev-1.13.0) · triage_screen=jev (jev-1.13.0) · checklist=criteria | 99.0% / 0.076 | 100.0% / 0.009 | 100.0% / 0.025 |
-| specialty_reader=jev (jev-1.13.0) · triage_screen=rules_and_jev (jev-1.13.0) · checklist=criteria | 100.0% / 0.013 | 100.0% / 0.009 | 100.0% / 0.033 |
-| specialty_reader=llm (anthropic/claude-sonnet-5) · triage_screen=llm (anthropic/claude-sonnet-5) · checklist=criteria | 100.0% / 0.085 | 99.0% / 0.136 | 100.0% / 0.087 |
-| specialty_reader=llm (anthropic/claude-sonnet-5) · triage_screen=rules_and_llm (anthropic/claude-sonnet-5) · checklist=criteria | 100.0% / 0.014 | 99.0% / 0.137 | 100.0% / 0.073 |
-| specialty_reader=naive_bayes · triage_screen=rules · checklist=criteria | 100.0% / 0.012 | 100.0% / 0.002 | 100.0% / 0.024 |
-| specialty_reader=llm (anthropic/claude-haiku-4.5) · triage_screen=llm (anthropic/claude-haiku-4.5) · checklist=criteria | 100.0% / 0.039 | 98.0% / 0.064 | 100.0% / 0.089 |
-| specialty_reader=llm (anthropic/claude-haiku-4.5) · triage_screen=rules_and_llm (anthropic/claude-haiku-4.5) · checklist=criteria | 100.0% / 0.014 | 99.0% / 0.076 | 100.0% / 0.070 |
-| specialty_reader=llm (openai/gpt-oss-120b) · triage_screen=rules_and_llm (openai/gpt-oss-120b) · checklist=criteria | 100.0% / 0.016 | 98.0% / 0.135 | 100.0% / 0.074 |
-| specialty_reader=llm (openai/gpt-oss-120b) · triage_screen=llm (openai/gpt-oss-120b) · checklist=criteria | 99.0% / 0.052 | 97.0% / 0.136 | 100.0% / 0.096 |
+| specialty_reader=jev (jev-1.13.0) · triage_screen=jev (jev-1.13.0) · checklist=criteria (measured on 0.1.0) | 99.0% / 0.076 | 100.0% / 0.009 | 100.0% / 0.025 |
+| specialty_reader=jev (jev-1.13.0) · triage_screen=rules_and_jev (jev-1.13.0) · checklist=criteria (measured on 0.1.1) | 100.0% / 0.013 | 100.0% / 0.009 | 100.0% / 0.033 |
+| specialty_reader=llm (anthropic/claude-sonnet-5) · triage_screen=llm (anthropic/claude-sonnet-5) · checklist=criteria (measured on 0.1.0) | 100.0% / 0.085 | 99.0% / 0.136 | 100.0% / 0.087 |
+| specialty_reader=llm (anthropic/claude-sonnet-5) · triage_screen=rules_and_llm (anthropic/claude-sonnet-5) · checklist=criteria (measured on 0.1.1) | 100.0% / 0.014 | 99.0% / 0.137 | 100.0% / 0.073 |
+| specialty_reader=naive_bayes · triage_screen=rules · checklist=criteria (measured on 0.1.0) | 100.0% / 0.012 | 100.0% / 0.002 | 100.0% / 0.024 |
+| specialty_reader=llm (anthropic/claude-haiku-4.5) · triage_screen=llm (anthropic/claude-haiku-4.5) · checklist=criteria (measured on 0.1.0) | 100.0% / 0.039 | 98.0% / 0.064 | 100.0% / 0.089 |
+| specialty_reader=llm (anthropic/claude-haiku-4.5) · triage_screen=rules_and_llm (anthropic/claude-haiku-4.5) · checklist=criteria (measured on 0.1.1) | 100.0% / 0.014 | 99.0% / 0.076 | 100.0% / 0.070 |
+| specialty_reader=llm (openai/gpt-oss-120b) · triage_screen=rules_and_llm (openai/gpt-oss-120b) · checklist=criteria (measured on 0.1.1) | 100.0% / 0.016 | 98.0% / 0.135 | 100.0% / 0.074 |
+| specialty_reader=llm (openai/gpt-oss-120b) · triage_screen=llm (openai/gpt-oss-120b) · checklist=criteria (measured on 0.1.1) | 99.0% / 0.052 | 97.0% / 0.136 | 100.0% / 0.096 |
 
 **`urgent_referrals`** (n=30)
 
 | Configuration | Accuracy | Macro-F1 | ECE | AUTO | False automation | Critical detected | p50 latency | Cost / decision | Errors |
 |---|---|---|---|---|---|---|---|---|---|
-| specialty_reader=jev (jev-1.13.0) · triage_screen=rules_and_jev (jev-1.13.0) · checklist=criteria | 100.0% | 1.000 | 0.035 | 46.7% | 0.0% | urgency=urgent 16/16 (0 automated); next_step=urgent_review 16/16 (0 automated) | 224 ms | $0.00004 | 0 |
-| specialty_reader=llm (anthropic/claude-haiku-4.5) · triage_screen=llm (anthropic/claude-haiku-4.5) · checklist=criteria | 100.0% | 1.000 | 0.102 | 0.0% | n/a | urgency=urgent 16/16 (0 automated); next_step=urgent_review 16/16 (0 automated) | 9,932 ms | $0.00585 | 0 |
-| specialty_reader=llm (anthropic/claude-haiku-4.5) · triage_screen=rules_and_llm (anthropic/claude-haiku-4.5) · checklist=criteria | 100.0% | 1.000 | 0.072 | 23.3% | 0.0% | urgency=urgent 16/16 (0 automated); next_step=urgent_review 16/16 (0 automated) | 9,068 ms | $0.00581 | 0 |
-| specialty_reader=llm (anthropic/claude-sonnet-5) · triage_screen=llm (anthropic/claude-sonnet-5) · checklist=criteria | 100.0% | 1.000 | 0.127 | 0.0% | n/a | urgency=urgent 16/16 (0 automated); next_step=urgent_review 16/16 (0 automated) | 2,545 ms | $0.00517 | 0 |
-| specialty_reader=llm (anthropic/claude-sonnet-5) · triage_screen=rules_and_llm (anthropic/claude-sonnet-5) · checklist=criteria | 100.0% | 1.000 | 0.087 | 10.0% | 0.0% | urgency=urgent 16/16 (0 automated); next_step=urgent_review 16/16 (0 automated) | 2,460 ms | $0.00518 | 0 |
-| specialty_reader=llm (openai/gpt-oss-120b) · triage_screen=llm (openai/gpt-oss-120b) · checklist=criteria | 100.0% | 1.000 | 0.143 | 0.0% | n/a | urgency=urgent 16/16 (0 automated); next_step=urgent_review 16/16 (0 automated) | 1,490 ms | $0.00024 | 0 |
-| specialty_reader=llm (openai/gpt-oss-120b) · triage_screen=rules_and_llm (openai/gpt-oss-120b) · checklist=criteria | 100.0% | 1.000 | 0.083 | 6.7% | 0.0% | urgency=urgent 16/16 (0 automated); next_step=urgent_review 16/16 (0 automated) | 1,531 ms | $0.00024 | 0 |
-| specialty_reader=naive_bayes · triage_screen=rules · checklist=criteria | 100.0% | 1.000 | 0.058 | 0.0% | n/a | urgency=urgent 16/16 (0 automated); next_step=urgent_review 16/16 (0 automated) | 2.76 ms | $0.00000 | 0 |
-| specialty_reader=jev (jev-1.13.0) · triage_screen=jev (jev-1.13.0) · checklist=criteria | 96.7% | 0.987 | 0.069 | 0.0% | n/a | urgency=urgent 16/16 (0 automated); next_step=urgent_review 16/16 (0 automated) | 181 ms | $0.00004 | 0 |
+| specialty_reader=jev (jev-1.13.0) · triage_screen=rules_and_jev (jev-1.13.0) · checklist=criteria (measured on 0.1.1) | 100.0% | 1.000 | 0.035 | 46.7% | 0.0% | urgency=urgent 16/16 (0 automated); next_step=urgent_review 16/16 (0 automated) | 224 ms | $0.00004 | 0 |
+| specialty_reader=llm (anthropic/claude-haiku-4.5) · triage_screen=llm (anthropic/claude-haiku-4.5) · checklist=criteria (measured on 0.1.0) | 100.0% | 1.000 | 0.102 | 0.0% | n/a | urgency=urgent 16/16 (0 automated); next_step=urgent_review 16/16 (0 automated) | 9,932 ms | $0.00585 | 0 |
+| specialty_reader=llm (anthropic/claude-haiku-4.5) · triage_screen=rules_and_llm (anthropic/claude-haiku-4.5) · checklist=criteria (measured on 0.1.1) | 100.0% | 1.000 | 0.072 | 23.3% | 0.0% | urgency=urgent 16/16 (0 automated); next_step=urgent_review 16/16 (0 automated) | 9,068 ms | $0.00581 | 0 |
+| specialty_reader=llm (anthropic/claude-sonnet-5) · triage_screen=llm (anthropic/claude-sonnet-5) · checklist=criteria (measured on 0.1.0) | 100.0% | 1.000 | 0.127 | 0.0% | n/a | urgency=urgent 16/16 (0 automated); next_step=urgent_review 16/16 (0 automated) | 2,545 ms | $0.00517 | 0 |
+| specialty_reader=llm (anthropic/claude-sonnet-5) · triage_screen=rules_and_llm (anthropic/claude-sonnet-5) · checklist=criteria (measured on 0.1.1) | 100.0% | 1.000 | 0.087 | 10.0% | 0.0% | urgency=urgent 16/16 (0 automated); next_step=urgent_review 16/16 (0 automated) | 2,460 ms | $0.00518 | 0 |
+| specialty_reader=llm (openai/gpt-oss-120b) · triage_screen=llm (openai/gpt-oss-120b) · checklist=criteria (measured on 0.1.0) | 100.0% | 1.000 | 0.143 | 0.0% | n/a | urgency=urgent 16/16 (0 automated); next_step=urgent_review 16/16 (0 automated) | 1,490 ms | $0.00024 | 0 |
+| specialty_reader=llm (openai/gpt-oss-120b) · triage_screen=rules_and_llm (openai/gpt-oss-120b) · checklist=criteria (measured on 0.1.1) | 100.0% | 1.000 | 0.083 | 6.7% | 0.0% | urgency=urgent 16/16 (0 automated); next_step=urgent_review 16/16 (0 automated) | 1,531 ms | $0.00024 | 0 |
+| specialty_reader=naive_bayes · triage_screen=rules · checklist=criteria (measured on 0.1.0) | 100.0% | 1.000 | 0.058 | 0.0% | n/a | urgency=urgent 16/16 (0 automated); next_step=urgent_review 16/16 (0 automated) | 2.76 ms | $0.00000 | 0 |
+| specialty_reader=jev (jev-1.13.0) · triage_screen=jev (jev-1.13.0) · checklist=criteria (measured on 0.1.0) | 96.7% | 0.987 | 0.069 | 0.0% | n/a | urgency=urgent 16/16 (0 automated); next_step=urgent_review 16/16 (0 automated) | 181 ms | $0.00004 | 0 |
 
 Other questions (accuracy / ECE):
 
 | Configuration | `clear_question` | `specialty` | `urgency` |
 |---|---|---|---|
-| specialty_reader=jev (jev-1.13.0) · triage_screen=rules_and_jev (jev-1.13.0) · checklist=criteria | 100.0% / 0.014 | 93.3% / 0.054 | 100.0% / 0.009 |
-| specialty_reader=llm (anthropic/claude-haiku-4.5) · triage_screen=llm (anthropic/claude-haiku-4.5) · checklist=criteria | 100.0% / 0.042 | 93.3% / 0.087 | 100.0% / 0.064 |
-| specialty_reader=llm (anthropic/claude-haiku-4.5) · triage_screen=rules_and_llm (anthropic/claude-haiku-4.5) · checklist=criteria | 100.0% / 0.025 | 93.3% / 0.075 | 100.0% / 0.038 |
-| specialty_reader=llm (anthropic/claude-sonnet-5) · triage_screen=llm (anthropic/claude-sonnet-5) · checklist=criteria | 100.0% / 0.082 | 96.7% / 0.136 | 100.0% / 0.059 |
-| specialty_reader=llm (anthropic/claude-sonnet-5) · triage_screen=rules_and_llm (anthropic/claude-sonnet-5) · checklist=criteria | 100.0% / 0.020 | 96.7% / 0.117 | 100.0% / 0.039 |
-| specialty_reader=llm (openai/gpt-oss-120b) · triage_screen=llm (openai/gpt-oss-120b) · checklist=criteria | 100.0% / 0.056 | 90.0% / 0.125 | 100.0% / 0.099 |
-| specialty_reader=llm (openai/gpt-oss-120b) · triage_screen=rules_and_llm (openai/gpt-oss-120b) · checklist=criteria | 100.0% / 0.018 | 100.0% / 0.110 | 100.0% / 0.046 |
-| specialty_reader=naive_bayes · triage_screen=rules · checklist=criteria | 100.0% / 0.012 | 96.7% / 0.067 | 100.0% / 0.032 |
-| specialty_reader=jev (jev-1.13.0) · triage_screen=jev (jev-1.13.0) · checklist=criteria | 96.7% / 0.073 | 93.3% / 0.053 | 100.0% / 0.001 |
+| specialty_reader=jev (jev-1.13.0) · triage_screen=rules_and_jev (jev-1.13.0) · checklist=criteria (measured on 0.1.1) | 100.0% / 0.014 | 93.3% / 0.054 | 100.0% / 0.009 |
+| specialty_reader=llm (anthropic/claude-haiku-4.5) · triage_screen=llm (anthropic/claude-haiku-4.5) · checklist=criteria (measured on 0.1.0) | 100.0% / 0.042 | 93.3% / 0.087 | 100.0% / 0.064 |
+| specialty_reader=llm (anthropic/claude-haiku-4.5) · triage_screen=rules_and_llm (anthropic/claude-haiku-4.5) · checklist=criteria (measured on 0.1.1) | 100.0% / 0.025 | 93.3% / 0.075 | 100.0% / 0.038 |
+| specialty_reader=llm (anthropic/claude-sonnet-5) · triage_screen=llm (anthropic/claude-sonnet-5) · checklist=criteria (measured on 0.1.0) | 100.0% / 0.082 | 96.7% / 0.136 | 100.0% / 0.059 |
+| specialty_reader=llm (anthropic/claude-sonnet-5) · triage_screen=rules_and_llm (anthropic/claude-sonnet-5) · checklist=criteria (measured on 0.1.1) | 100.0% / 0.020 | 96.7% / 0.117 | 100.0% / 0.039 |
+| specialty_reader=llm (openai/gpt-oss-120b) · triage_screen=llm (openai/gpt-oss-120b) · checklist=criteria (measured on 0.1.0) | 100.0% / 0.056 | 90.0% / 0.125 | 100.0% / 0.099 |
+| specialty_reader=llm (openai/gpt-oss-120b) · triage_screen=rules_and_llm (openai/gpt-oss-120b) · checklist=criteria (measured on 0.1.1) | 100.0% / 0.018 | 100.0% / 0.110 | 100.0% / 0.046 |
+| specialty_reader=naive_bayes · triage_screen=rules · checklist=criteria (measured on 0.1.0) | 100.0% / 0.012 | 96.7% / 0.067 | 100.0% / 0.032 |
+| specialty_reader=jev (jev-1.13.0) · triage_screen=jev (jev-1.13.0) · checklist=criteria (measured on 0.1.0) | 96.7% / 0.073 | 93.3% / 0.053 | 100.0% / 0.001 |
 
 **`urgent_referrals_holdout`** (n=24)
 
 | Configuration | Accuracy | Macro-F1 | ECE | AUTO | False automation | Critical detected | p50 latency | Cost / decision | Errors |
 |---|---|---|---|---|---|---|---|---|---|
-| specialty_reader=jev (jev-1.13.0) · triage_screen=rules_and_jev (jev-1.13.0) · checklist=criteria | 100.0% | 1.000 | 0.060 | 41.7% | 0.0% | urgency=urgent 12/12 (0 automated); next_step=urgent_review 12/12 (0 automated) | 231 ms | $0.00004 | 0 |
-| specialty_reader=llm (anthropic/claude-haiku-4.5) · triage_screen=llm (anthropic/claude-haiku-4.5) · checklist=criteria | 100.0% | 1.000 | 0.123 | 0.0% | n/a | urgency=urgent 12/12 (0 automated); next_step=urgent_review 12/12 (0 automated) | 9,838 ms | $0.00590 | 0 |
-| specialty_reader=llm (anthropic/claude-haiku-4.5) · triage_screen=rules_and_llm (anthropic/claude-haiku-4.5) · checklist=criteria | 100.0% | 1.000 | 0.104 | 25.0% | 0.0% | urgency=urgent 12/12 (0 automated); next_step=urgent_review 12/12 (0 automated) | 11,435 ms | $0.00644 | 0 |
-| specialty_reader=llm (anthropic/claude-sonnet-5) · triage_screen=rules_and_llm (anthropic/claude-sonnet-5) · checklist=criteria | 100.0% | 1.000 | 0.114 | 4.2% | 0.0% | urgency=urgent 12/12 (0 automated); next_step=urgent_review 12/12 (0 automated) | 2,460 ms | $0.00520 | 0 |
-| specialty_reader=llm (openai/gpt-oss-120b) · triage_screen=llm (openai/gpt-oss-120b) · checklist=criteria | 100.0% | 1.000 | 0.150 | 0.0% | n/a | urgency=urgent 12/12 (0 automated); next_step=urgent_review 12/12 (0 automated) | 1,662 ms | $0.00024 | 0 |
-| specialty_reader=llm (openai/gpt-oss-120b) · triage_screen=rules_and_llm (openai/gpt-oss-120b) · checklist=criteria | 100.0% | 1.000 | 0.111 | 8.3% | 0.0% | urgency=urgent 12/12 (0 automated); next_step=urgent_review 12/12 (0 automated) | 1,907 ms | $0.00024 | 0 |
-| specialty_reader=jev (jev-1.13.0) · triage_screen=jev (jev-1.13.0) · checklist=criteria | 95.8% | 0.984 | 0.096 | 0.0% | n/a | urgency=urgent 12/12 (0 automated); next_step=urgent_review 12/12 (0 automated) | 215 ms | $0.00004 | 0 |
-| specialty_reader=llm (anthropic/claude-sonnet-5) · triage_screen=llm (anthropic/claude-sonnet-5) · checklist=criteria | 95.8% | 0.984 | 0.120 | 0.0% | n/a | urgency=urgent 12/12 (0 automated); next_step=urgent_review 12/12 (0 automated) | 2,674 ms | $0.00526 | 0 |
-| specialty_reader=naive_bayes · triage_screen=rules · checklist=criteria | 70.8% | 0.819 | 0.225 | 0.0% | n/a | urgency=urgent 7/12 (0 automated); next_step=urgent_review 7/12 (0 automated) | 2.75 ms | $0.00000 | 0 |
+| specialty_reader=jev (jev-1.13.0) · triage_screen=rules_and_jev (jev-1.13.0) · checklist=criteria (measured on 0.1.1) | 100.0% | 1.000 | 0.060 | 41.7% | 0.0% | urgency=urgent 12/12 (0 automated); next_step=urgent_review 12/12 (0 automated) | 231 ms | $0.00004 | 0 |
+| specialty_reader=llm (anthropic/claude-haiku-4.5) · triage_screen=llm (anthropic/claude-haiku-4.5) · checklist=criteria (measured on 0.1.0) | 100.0% | 1.000 | 0.123 | 0.0% | n/a | urgency=urgent 12/12 (0 automated); next_step=urgent_review 12/12 (0 automated) | 9,838 ms | $0.00590 | 0 |
+| specialty_reader=llm (anthropic/claude-haiku-4.5) · triage_screen=rules_and_llm (anthropic/claude-haiku-4.5) · checklist=criteria (measured on 0.1.1) | 100.0% | 1.000 | 0.104 | 25.0% | 0.0% | urgency=urgent 12/12 (0 automated); next_step=urgent_review 12/12 (0 automated) | 11,435 ms | $0.00644 | 0 |
+| specialty_reader=llm (anthropic/claude-sonnet-5) · triage_screen=rules_and_llm (anthropic/claude-sonnet-5) · checklist=criteria (measured on 0.1.1) | 100.0% | 1.000 | 0.114 | 4.2% | 0.0% | urgency=urgent 12/12 (0 automated); next_step=urgent_review 12/12 (0 automated) | 2,460 ms | $0.00520 | 0 |
+| specialty_reader=llm (openai/gpt-oss-120b) · triage_screen=llm (openai/gpt-oss-120b) · checklist=criteria (measured on 0.1.0) | 100.0% | 1.000 | 0.150 | 0.0% | n/a | urgency=urgent 12/12 (0 automated); next_step=urgent_review 12/12 (0 automated) | 1,662 ms | $0.00024 | 0 |
+| specialty_reader=llm (openai/gpt-oss-120b) · triage_screen=rules_and_llm (openai/gpt-oss-120b) · checklist=criteria (measured on 0.1.1) | 100.0% | 1.000 | 0.111 | 8.3% | 0.0% | urgency=urgent 12/12 (0 automated); next_step=urgent_review 12/12 (0 automated) | 1,907 ms | $0.00024 | 0 |
+| specialty_reader=jev (jev-1.13.0) · triage_screen=jev (jev-1.13.0) · checklist=criteria (measured on 0.1.0) | 95.8% | 0.984 | 0.096 | 0.0% | n/a | urgency=urgent 12/12 (0 automated); next_step=urgent_review 12/12 (0 automated) | 215 ms | $0.00004 | 0 |
+| specialty_reader=llm (anthropic/claude-sonnet-5) · triage_screen=llm (anthropic/claude-sonnet-5) · checklist=criteria (measured on 0.1.0) | 95.8% | 0.984 | 0.120 | 0.0% | n/a | urgency=urgent 12/12 (0 automated); next_step=urgent_review 12/12 (0 automated) | 2,674 ms | $0.00526 | 0 |
+| specialty_reader=naive_bayes · triage_screen=rules · checklist=criteria (measured on 0.1.0) | 70.8% | 0.819 | 0.225 | 0.0% | n/a | urgency=urgent 7/12 (0 automated); next_step=urgent_review 7/12 (0 automated) | 2.75 ms | $0.00000 | 0 |
 
 Other questions (accuracy / ECE):
 
 | Configuration | `clear_question` | `specialty` | `urgency` |
 |---|---|---|---|
-| specialty_reader=jev (jev-1.13.0) · triage_screen=rules_and_jev (jev-1.13.0) · checklist=criteria | 100.0% / 0.035 | 100.0% / 0.010 | 100.0% / 0.010 |
-| specialty_reader=llm (anthropic/claude-haiku-4.5) · triage_screen=llm (anthropic/claude-haiku-4.5) · checklist=criteria | 100.0% / 0.036 | 100.0% / 0.066 | 100.0% / 0.083 |
-| specialty_reader=llm (anthropic/claude-haiku-4.5) · triage_screen=rules_and_llm (anthropic/claude-haiku-4.5) · checklist=criteria | 100.0% / 0.027 | 95.8% / 0.071 | 100.0% / 0.054 |
-| specialty_reader=llm (anthropic/claude-sonnet-5) · triage_screen=rules_and_llm (anthropic/claude-sonnet-5) · checklist=criteria | 100.0% / 0.027 | 100.0% / 0.117 | 100.0% / 0.053 |
-| specialty_reader=llm (openai/gpt-oss-120b) · triage_screen=llm (openai/gpt-oss-120b) · checklist=criteria | 100.0% / 0.070 | 95.8% / 0.145 | 100.0% / 0.097 |
-| specialty_reader=llm (openai/gpt-oss-120b) · triage_screen=rules_and_llm (openai/gpt-oss-120b) · checklist=criteria | 100.0% / 0.015 | 95.8% / 0.135 | 100.0% / 0.072 |
-| specialty_reader=jev (jev-1.13.0) · triage_screen=jev (jev-1.13.0) · checklist=criteria | 95.8% / 0.083 | 100.0% / 0.010 | 100.0% / 0.001 |
-| specialty_reader=llm (anthropic/claude-sonnet-5) · triage_screen=llm (anthropic/claude-sonnet-5) · checklist=criteria | 95.8% / 0.106 | 100.0% / 0.125 | 100.0% / 0.068 |
-| specialty_reader=naive_bayes · triage_screen=rules · checklist=criteria | 91.7% / 0.071 | 87.5% / 0.096 | 79.2% / 0.182 |
+| specialty_reader=jev (jev-1.13.0) · triage_screen=rules_and_jev (jev-1.13.0) · checklist=criteria (measured on 0.1.1) | 100.0% / 0.035 | 100.0% / 0.010 | 100.0% / 0.010 |
+| specialty_reader=llm (anthropic/claude-haiku-4.5) · triage_screen=llm (anthropic/claude-haiku-4.5) · checklist=criteria (measured on 0.1.0) | 100.0% / 0.036 | 100.0% / 0.066 | 100.0% / 0.083 |
+| specialty_reader=llm (anthropic/claude-haiku-4.5) · triage_screen=rules_and_llm (anthropic/claude-haiku-4.5) · checklist=criteria (measured on 0.1.1) | 100.0% / 0.027 | 95.8% / 0.071 | 100.0% / 0.054 |
+| specialty_reader=llm (anthropic/claude-sonnet-5) · triage_screen=rules_and_llm (anthropic/claude-sonnet-5) · checklist=criteria (measured on 0.1.1) | 100.0% / 0.027 | 100.0% / 0.117 | 100.0% / 0.053 |
+| specialty_reader=llm (openai/gpt-oss-120b) · triage_screen=llm (openai/gpt-oss-120b) · checklist=criteria (measured on 0.1.0) | 100.0% / 0.070 | 95.8% / 0.145 | 100.0% / 0.097 |
+| specialty_reader=llm (openai/gpt-oss-120b) · triage_screen=rules_and_llm (openai/gpt-oss-120b) · checklist=criteria (measured on 0.1.1) | 100.0% / 0.015 | 95.8% / 0.135 | 100.0% / 0.072 |
+| specialty_reader=jev (jev-1.13.0) · triage_screen=jev (jev-1.13.0) · checklist=criteria (measured on 0.1.0) | 95.8% / 0.083 | 100.0% / 0.010 | 100.0% / 0.001 |
+| specialty_reader=llm (anthropic/claude-sonnet-5) · triage_screen=llm (anthropic/claude-sonnet-5) · checklist=criteria (measured on 0.1.0) | 95.8% / 0.106 | 100.0% / 0.125 | 100.0% / 0.068 |
+| specialty_reader=naive_bayes · triage_screen=rules · checklist=criteria (measured on 0.1.0) | 91.7% / 0.071 | 87.5% / 0.096 | 79.2% / 0.182 |
 
 
 ## Known failure modes
@@ -371,7 +371,15 @@ Renamed on 2026-09-30, when the project became Mendari: this pack was `openhealt
 Its id, its publisher's name and its `https://mendari.co/...` identifiers changed; its criteria,
 rules, models, data and results did not.
 
-#### 0.1.1
+#### 0.1.2
+
+- `specialty_reader`: a `cascade` variant (naive Bayes when it is at least 95% sure, else Jev),
+  as the Patient Inbox Router's router has. When Jev cannot answer, the referral still gets
+  naive Bayes' specialty and goes to a person, instead of abstaining. A Mendari server with Jev
+  set up runs it. The default (`naive_bayes`), questions, policy, rules, data and model are
+  unchanged.
+
+### 0.1.1
 
 - `rules_and_jev` and `rules_and_llm`: for `clear_question` the more generous reader now wins
   (`escalate: yes`), so a referral goes back to the referrer only if neither the rules nor the

@@ -43,15 +43,26 @@ class CardLink(NamedTuple):
 
 
 # What the quickstart's decide step prints (its `jq` filter), abridged: the id is new each time.
-# tests/test_landing.py checks the rest against what the server decides.
-DECIDED = {
+# The inbox automates only while a model screens for urgency (its policy's automation_requires):
+# AUTOMATED with Jev set up, REVIEWED without a model. In open mode a server shows the answer it
+# gives; with sign-in on it shows both, since its providers are not public (threat model I6).
+# tests/test_landing.py checks both against what such a server decides.
+QUICKSTART_PACK = "mendari/patient-inbox-router"
+AUTOMATED = {
     "id": "…",
     "outcome": "AUTO",
     "recommendation": "medical_assistant",
     "priority": "routine",
     "reasons": ["confidence 1.00 >= auto threshold 0.90"],
 }
-_PRINTS = {("quickstart", "decide"): DECIDED}
+REVIEWED = {
+    **AUTOMATED,
+    "outcome": "HUMAN_REVIEW",
+    "reasons": [
+        "confidence 1.00 >= auto threshold 0.90",
+        "automation requires safety_screen = rules_and_jev or rules_and_llm (running: rules)",
+    ],
+}
 
 # The setup the examples share. The address is filled in by docs.js from the address bar.
 _SETUP = (
@@ -88,6 +99,7 @@ def page(
     template: str,
     *,
     version: str,
+    quickstart_automates: bool | None,
     sign_in: bool,
     smart_launch: bool,
     token_url: str | None,
@@ -95,10 +107,21 @@ def page(
     permission_for: Callable[[str, str], str],
     cards: Mapping[str, CardLink] | None,
 ) -> str:
-    """The landing, from `docs.html` as `versioned_page` returns it. `routes` are the mounted
+    """The landing, from `docs.html` as `versioned_page` returns it. `quickstart_automates`: the
+    inbox runs here with what its policy needs to automate (None: not to be shown, with sign-in
+    on; the page then shows both answers); `routes` are the mounted
     `(method, path)` pairs; `token_url` is set when SMART Backend Services is on; `cards` (pack
     id -> name, and whether it is a community pack) is given in open mode only: with sign-in on,
     which packs run here is not public."""
+    decided: list[tuple[str, Mapping[str, object]]] = (
+        [
+            ("Prints without a model in the screen, abridged", REVIEWED),
+            ("Prints with Jev set up, abridged", AUTOMATED),
+        ]
+        if quickstart_automates is None
+        else [("Prints, abridged", AUTOMATED if quickstart_automates else REVIEWED)]
+    )
+    prints = {("quickstart", "decide"): decided}
     return fill(
         template,
         {
@@ -106,11 +129,11 @@ def page(
             "and is recorded in a hash-chained audit trail.",
             "outcomes": _outcomes(),
             "setup": _code("code-setup", _SETUP, "name the server and your key"),
-            "quickstart": _steps("quickstart"),
-            "fhir": _steps("fhir"),
+            "quickstart": _steps("quickstart", prints),
+            "fhir": _steps("fhir", prints),
             "smart": _smart(smart_launch, sign_in=sign_in),
             "auth": _auth(sign_in, token_url),
-            "auth-steps": _steps("auth"),
+            "auth-steps": _steps("auth", prints),
             "auth-table": _auth_table(routes, permission_for, sign_in=sign_in),
             "reference": " Sign in first: the OpenAPI document needs the <code>read</code> "
             "permission."
@@ -142,7 +165,8 @@ def _outcomes() -> str:
 
 def _code(code_id: str, text: str, label: str, *, kind: str = "Shell", copy: bool = True) -> str:
     """An example (`text`, already HTML) that scrolls on its own, by keyboard too, with a copy
-    button that docs.js shows. The button is named for what it copies."""
+    button that docs.js shows. The button is named for what it copies, and the example, which
+    takes focus, for its kind and step (two answers to one step are told apart by their kind)."""
     button = (
         f'<button type="button" class="docs-copy" data-copy="{code_id}" '
         f'aria-label="Copy: {escape(label)}" hidden>'
@@ -152,27 +176,29 @@ def _code(code_id: str, text: str, label: str, *, kind: str = "Shell", copy: boo
     )
     return (
         f'<div class="docs-code"><div class="docs-code-bar"><span>{kind}</span>{button}</div>'
-        f'<pre tabindex="0"><code id="{code_id}">{text}</code></pre></div>'
+        f'<pre tabindex="0" role="group" aria-label="{escape(kind)}: {escape(label)}">'
+        f'<code id="{code_id}">{text}</code></pre></div>'
     )
 
 
-def _steps(file: str) -> str:
+def _steps(
+    file: str, prints: Mapping[tuple[str, str], list[tuple[str, Mapping[str, object]]]]
+) -> str:
     """One snippet file's steps as numbered items: a heading from the step's title, its commands,
-    and for the quickstart's decision what it prints."""
+    and for the quickstart's decision what it prints (`prints`, by file and step: a label and
+    the answer, once per kind of server shown)."""
     items = []
     for number, step in enumerate(snippets.load(file), 1):
         anchor = f"{file}-{step.name}"
-        prints = _PRINTS.get((file, step.name))
-        shown = (
-            ""
-            if prints is None
-            else _code(
-                f"code-{anchor}-prints",
-                escape(json.dumps(prints, indent=2, ensure_ascii=False)),
+        shown = "".join(
+            _code(
+                f"code-{anchor}-prints" + (f"-{index}" if index else ""),
+                escape(json.dumps(printed, indent=2, ensure_ascii=False)),
                 step.title,
-                kind="Prints, abridged",
+                kind=kind,
                 copy=False,
             )
+            for index, (kind, printed) in enumerate(prints.get((file, step.name), []))
         )
         items.append(
             f'<li class="docs-step"><h3 id="{anchor}"><span class="docs-step-number">{number}'

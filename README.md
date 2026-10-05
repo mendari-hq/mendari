@@ -113,7 +113,9 @@ uv run mendari demo
 
 The demo routes synthetic patient messages, simulates reviewers working the queue, verifies
 the audit chain, and then runs **local validation** of the public pack against a simulated
-deploying site:
+deploying site. It needs no keys, so the keyword rules alone screen for emergencies, and the
+inbox's policy then sends every message to a person; with a model in the screen
+([Jev](#jev)), routine messages are automated:
 
 ```text
 Public benchmark (test, n=600):                 99.3%
@@ -159,10 +161,13 @@ result.reasons          # ('rule possible-emergency: Possible emergency symptoms
 result.answers["urgency"].evidence   # ('urgent:chest-pain',)
 ```
 
-Swap a provider without touching the pack's contract, policy or tests:
+Swap a provider without touching the pack's contract, policy or tests, e.g. to Mendari + Jev,
+which routine messages are automated with:
 
 ```python
-Decision.from_hub("mendari/patient-inbox-router", providers={"router": "jev"})
+Decision.from_hub(
+    "mendari/patient-inbox-router", providers={"safety_screen": "rules_and_jev", "router": "cascade"}
+)
 ```
 
 ### CLI
@@ -753,8 +758,10 @@ instruction that Jev or an LLM receives. The policy then turns answers into an o
    priority `stat`.
 2. **Thresholds** on the primary question: AUTO ≥ 0.90 (≥ 0.95 for non-clinical
    destinations), review ≥ 0.50, abstain below.
-3. **Caps that only reduce automation:** per-label limits, any provider failure, and the risk
-   level.
+3. **Caps that only reduce automation:** per-label limits, any provider failure, a provider the
+   policy requires not running (`automation_requires`: the inbox, referral and AI Guard screens
+   and the prior-auth notes must be the keyword rules plus a model, `rules_and_jev` or
+   `rules_and_llm`), and the risk level.
 
 ### Risk levels are enforced by the runtime
 
@@ -857,9 +864,46 @@ at load, so no pack can choose which secret is sent, or where.
 | `MENDARI_JEV_DAILY_LIMIT` | Daily call budget (default 500; `none` for no limit) |
 
 ```bash
-JEV_API_URL=... JEV_MODEL=... JEV_API_KEY=... \
-  uv run mendari eval mendari/patient-inbox-router --dataset test --provider router=jev
+JEV_API_URL=... JEV_MODEL=... JEV_API_KEY=... uv run mendari eval mendari/patient-inbox-router \
+  --dataset test --provider safety_screen=rules_and_jev --provider router=cascade
 ```
+
+**With Jev set up, a server runs Mendari + Jev.** When `JEV_API_URL`, `JEV_MODEL` and a key
+(`JEV_API_KEY`, or `JEV_CONNECTOR` on Vercel) are set, `mendari serve` and the Vercel app run the
+reference packs that automate under their own policy with Jev beside the keyword rules
+(`settings.JEV_DEFAULTS`), in every slot their provider settings choose nothing for:
+
+| Pack | Slots |
+|---|---|
+| Patient Inbox Router | `safety_screen=rules_and_jev`, `router=cascade` (naive Bayes, and Jev when it is unsure) |
+| Referral Router | `triage_screen=rules_and_jev`, `specialty_reader=cascade` (naive Bayes, and Jev when it is unsure) |
+| Prior Auth Preflight | `notes=rules_and_jev` |
+
+Their policies automate only while the screen is the keyword rules plus a model
+(`automation_requires`), so a possible emergency is still flagged when Jev cannot answer. The
+routers ask Jev only when naive Bayes is unsure, and keep naive Bayes' answer when Jev cannot
+give one. The Clinical Trial Prescreener and AI Guard are not on the list: at risk
+level 2 automation rests on an approval of the configuration that runs, so name their readers
+yourself (`mendari/clinical-trial-prescreener:notes=jev`, `mendari/ai-guard:screen=rules_and_llm`).
+
+- `MENDARI_PROVIDERS` decides every slot it applies to, e.g. `notes=rules` keeps the
+  prior-auth notes on site (and its policy then automates nothing). `mendari serve --provider`
+  replaces `MENDARI_PROVIDERS`, as before; the defaults fill the slots it leaves.
+- When Jev fails or is over its daily budget, nothing is automated, and every case still gets
+  the team or specialty naive Bayes suggests. The budget
+  (`MENDARI_JEV_DAILY_LIMIT`, default 500) is shared by the three packs and by the dashboard's
+  evaluations (up to 200 calls a run): size it for their daily volume.
+- Commands that decide or evaluate (`decide`, `test`, `eval`, `leaderboard`, `demo`, the
+  reference-pack build) never use these defaults. A server's own evaluations (the dashboard's,
+  `POST /api/packs/…/evals`) run its deployed providers, Jev included.
+- `/api/health` says whether the defaults are on (`jev.defaults`), which variant every slot
+  runs (`providers`), and which slots run no model at all although their pack offers one
+  (`without_model`); the dashboard's overview says so too. A screen with a model but without the
+  rules (`safety_screen=jev`) is not listed, but it does not meet `automation_requires` either:
+  each decision's reasons name what is missing. That Jev answers shows in `jev.calls_today` and
+  in the decisions' errors.
+- Upgrading a deployment that already had Jev set up for some slots: it now also runs Jev in
+  the slots above that its settings leave. Name a slot to keep it as it was.
 
 ## LLMs and local models
 
@@ -901,12 +945,13 @@ FastAPI function (`[tool.vercel] entrypoint = "mendari.server.vercel:app"`).
 1. Connect a Postgres database (Neon via the Vercel Marketplace) for Production and Preview.
    It provides `DATABASE_URL`. On Vercel the app refuses to start without it, because functions
    have no persistent disk.
-2. Attach the Jev connector to the project and set `JEV_CONNECTOR`, `JEV_API_URL`, `JEV_MODEL`
-   and `MENDARI_PROVIDERS=router=jev`. The key is fetched at runtime with the deployment's
-   OIDC identity; it is never stored in the project's environment variables. With several
-   packs, scope a setting to one pack (`mendari/clinical-trial-prescreener:notes=jev`); a
-   setting a pack cannot use is skipped and listed in `/api/health`. An unscoped setting never
-   applies to a community pack: only one that names it does.
+2. Attach the Jev connector to the project and set `JEV_CONNECTOR`, `JEV_API_URL` and
+   `JEV_MODEL`: the reference packs then run Mendari + Jev ([Jev](#jev)). The key is fetched at
+   runtime with the deployment's OIDC identity; it is never stored in the project's environment
+   variables. `MENDARI_PROVIDERS` changes any slot, for every pack or scoped to one
+   (`mendari/ai-guard:screen=rules_and_llm`); a setting a pack cannot use is skipped and listed
+   in `/api/health`. An unscoped setting, or a Jev default, never applies to a community pack:
+   only a setting that names it does.
 3. Turn on sign-in for Production ([Sign-in for organizations](#sign-in-for-organizations);
    the project uses Google, set for Production only). Until the launch, also set Vercel
    Authentication to protect **all deployments**: previews run without sign-in, and the default

@@ -40,12 +40,15 @@ def test_an_automated_critical_case_fails() -> None:
 
 
 def test_accuracy_and_false_automation_within_tolerance() -> None:
-    worse = copy.deepcopy(benchmark())
+    # The published benchmark automates nothing (no model in the screen): give it a rate.
+    base = copy.deepcopy(benchmark())
+    base["decisions"]["automation"]["false_automation_rate"] = 0.0
+    worse = copy.deepcopy(base)
     worse["questions"]["destination"]["accuracy"] -= 0.02  # within 3 points
-    assert gate(worse, benchmark(), 0.03)[1] == []
+    assert gate(worse, base, 0.03)[1] == []
     worse["questions"]["destination"]["accuracy"] -= 0.02  # now 4 points
-    worse["decisions"]["automation"]["false_automation_rate"] += 0.05
-    failures = gate(worse, benchmark(), 0.03)[1]
+    worse["decisions"]["automation"]["false_automation_rate"] = 0.05
+    failures = gate(worse, base, 0.03)[1]
     assert len(failures) == 2
 
 

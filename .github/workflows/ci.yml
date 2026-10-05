@@ -297,7 +297,8 @@ jobs:
           python3 -m venv /tmp/clean
           /tmp/clean/bin/pip install --quiet /tmp/dist/*.whl
           /tmp/clean/bin/mendari pull mendari/referral-router
-          test -f /tmp/clean-home/.cache/mendari/packs/mendari/referral-router/0.1.1/pack.yaml
+          version=$(sed -n 's/^version: //p' packs/referral-router/pack.yaml)
+          test -f "/tmp/clean-home/.cache/mendari/packs/mendari/referral-router/$version/pack.yaml"
           /tmp/clean/bin/mendari test mendari/referral-router
           /tmp/clean/bin/mendari search --risk 2
           /tmp/clean/bin/mendari new /tmp/refill-router --id my-clinic/refill-router

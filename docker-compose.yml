@@ -3,7 +3,8 @@
 #   docker compose up --build
 #
 # Dashboard: http://localhost:8000   FHIR: http://localhost:8080/fhir
-# To use Jev:  JEV_API_KEY=... MENDARI_PROVIDERS=router=jev docker compose up
+# With Jev (Mendari + Jev in the inbox, referral and prior-auth packs):
+#   JEV_API_URL=... JEV_MODEL=... JEV_API_KEY=... docker compose up
 name: mendari
 
 services:
@@ -40,6 +41,8 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     environment:
+      JEV_API_URL: ${JEV_API_URL:-}
+      JEV_MODEL: ${JEV_MODEL:-}
       JEV_API_KEY: ${JEV_API_KEY:-}
       MENDARI_PROVIDERS: ${MENDARI_PROVIDERS:-}
       # CDS Hooks and SMART may read from the sandbox's own FHIR server and launcher, and only there.

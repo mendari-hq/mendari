@@ -19,19 +19,22 @@ from mendari.errors import ProviderError, ReviewError
 from mendari.providers.jev import JevProvider
 from mendari.server.app import create_app
 from mendari.standards import audit_fhir
-from tests.conftest import ROOT, message
+from tests.conftest import ROOT, SCREENED, message
 
-ROUTINE = "Can you send a refill for metformin to my pharmacy on Main Street?"  # AUTO
+ROUTINE = "Can you send a refill for metformin to my pharmacy on Main Street?"  # AUTO, screened
 EMERGENCY = "Crushing chest pain and my left arm is numb"  # HUMAN_REVIEW
 PINNED = ROOT / "tests" / "fixtures" / "fhir" / "audit-outcome.json"
 BASE = "https://mendari.example/fhir"
+
+# Routine messages are automated: the urgency screen runs with a fake Jev (`screened`).
+pytestmark = pytest.mark.usefixtures("screened")
 
 
 @pytest.fixture
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.delenv("MENDARI_OIDC_ISSUER", raising=False)
     monkeypatch.delenv("MENDARI_OIDC_CLIENT_ID", raising=False)
-    return TestClient(create_app(db_path=tmp_path / "a.db"))
+    return TestClient(create_app(db_path=tmp_path / "a.db", providers=SCREENED))
 
 
 def decided(client: TestClient, pack: Pack, body: Any) -> str:
@@ -59,7 +62,7 @@ def test_the_source_is_a_system_identifier(
     refused = client.post(f"/api/audit/{decision}/outcome", json=body)
     assert refused.status_code == 422
     assert source not in refused.text or not source
-    result = Decision(inbox_pack, store=store)(message(ROUTINE))
+    result = Decision(inbox_pack, providers=SCREENED, store=store)(message(ROUTINE))
     with pytest.raises(ReviewError, match="system identifier"):
         store.record_outcome(result.id, final_label="nurse", source=source, recorded_by="rn-9")
 
@@ -148,7 +151,7 @@ def test_without_any_labels_nothing_is_recorded(store: AuditStore, inbox_pack: P
 
 
 def test_the_recorder_is_required(store: AuditStore, inbox_pack: Pack) -> None:
-    result = Decision(inbox_pack, store=store)(message(ROUTINE))
+    result = Decision(inbox_pack, providers=SCREENED, store=store)(message(ROUTINE))
     with pytest.raises(ReviewError, match="who records"):
         store.record_outcome(result.id, final_label="nurse", source="ehr", recorded_by=" ")
 
@@ -207,7 +210,7 @@ def test_an_outcomes_rendering_is_pinned() -> None:
 def test_the_recorder_is_the_agent_and_the_source_is_not(
     store: AuditStore, inbox_pack: Pack
 ) -> None:
-    result = Decision(inbox_pack, store=store)(message(ROUTINE))
+    result = Decision(inbox_pack, providers=SCREENED, store=store)(message(ROUTINE))
     store.record_outcome(result.id, final_label="nurse", source="ehr", recorded_by="rn-9")
     resources = list(audit_fhir.resources(store.iter_events()))
     event = next(r for r in resources if r["resourceType"] == "AuditEvent" and r["action"] == "U")

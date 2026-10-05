@@ -1,11 +1,11 @@
 {
   "format": "mendari.eval/1",
-  "id": "e9d8d122-1a46-43f7-bd71-ef032f3024d5",
-  "created_at": "2026-10-01T02:00:47+00:00",
+  "id": "bb8c34fc-4a11-4eda-839a-1d31f7487084",
+  "created_at": "2026-10-05T18:00:29+00:00",
   "pack": {
     "id": "mendari/patient-inbox-router",
-    "version": "0.3.0",
-    "digest": "sha256:5e405f4823a58154fe123bbb1e838dc374f12975dbce3a33ce41655704f3bc78"
+    "version": "0.4.0",
+    "digest": "sha256:e93267a3f04709af9f3e2897d3162cab48761db060e9655b06c8714fd030df45"
   },
   "providers": {
     "safety_screen": {
@@ -223,27 +223,27 @@
   },
   "decisions": {
     "outcome_counts": {
-      "AUTO": 567,
-      "HUMAN_REVIEW": 31,
+      "AUTO": 0,
+      "HUMAN_REVIEW": 598,
       "ABSTAIN": 2,
       "BLOCK": 0
     },
     "outcome_rates": {
-      "AUTO": 0.945,
-      "HUMAN_REVIEW": 0.051666666666666666,
+      "AUTO": 0.0,
+      "HUMAN_REVIEW": 0.9966666666666667,
       "ABSTAIN": 0.0033333333333333335,
       "BLOCK": 0.0
     },
     "abstention_rate": 0.0033333333333333335,
     "automation": {
-      "n": 567,
-      "accuracy": 1.0,
-      "false_automation_rate": 0.0,
+      "n": 0,
+      "accuracy": null,
+      "false_automation_rate": null,
       "false_automation_share": 0.0
     },
     "review": {
-      "n": 31,
-      "expected_override_rate": 0.0967741935483871
+      "n": 598,
+      "expected_override_rate": 0.005016722408026756
     },
     "recommendation_accuracy": 0.9949832775919732,
     "critical": [
@@ -315,10 +315,10 @@
     }
   ],
   "latency_ms": {
-    "mean": 0.14390646712854505,
-    "p50": 0.13954192399978638,
-    "p95": 0.19250018522143364,
-    "max": 0.5425829440355301
+    "mean": 0.17881825799122453,
+    "p50": 0.1527080312371254,
+    "p95": 0.2647917717695236,
+    "max": 8.278708904981613
   },
   "cost": {
     "total_usd": 0.0,
@@ -332,62 +332,62 @@
       "en": {
         "n": 548,
         "accuracy": 1.0,
-        "auto_rate": 0.9562043795620438,
+        "auto_rate": 0.0,
         "abstention_rate": 0.0,
-        "false_automation_rate": 0.0
+        "false_automation_rate": null
       },
       "es": {
         "n": 52,
         "accuracy": 0.9230769230769231,
-        "auto_rate": 0.8269230769230769,
+        "auto_rate": 0.0,
         "abstention_rate": 0.038461538461538464,
-        "false_automation_rate": 0.0
+        "false_automation_rate": null
       }
     },
     "channel": {
       "portal": {
         "n": 482,
         "accuracy": 0.991701244813278,
-        "auto_rate": 0.941908713692946,
+        "auto_rate": 0.0,
         "abstention_rate": 0.004149377593360996,
-        "false_automation_rate": 0.0
+        "false_automation_rate": null
       },
       "sms": {
         "n": 118,
         "accuracy": 1.0,
-        "auto_rate": 0.9576271186440678,
+        "auto_rate": 0.0,
         "abstention_rate": 0.0,
-        "false_automation_rate": 0.0
+        "false_automation_rate": null
       }
     },
     "age_band": {
       "0-17": {
         "n": 22,
         "accuracy": 1.0,
-        "auto_rate": 0.9090909090909091,
+        "auto_rate": 0.0,
         "abstention_rate": 0.0,
-        "false_automation_rate": 0.0
+        "false_automation_rate": null
       },
       "18-39": {
         "n": 175,
         "accuracy": 0.9942857142857143,
-        "auto_rate": 0.9371428571428572,
+        "auto_rate": 0.0,
         "abstention_rate": 0.0,
-        "false_automation_rate": 0.0
+        "false_automation_rate": null
       },
       "40-64": {
         "n": 246,
         "accuracy": 0.991869918699187,
-        "auto_rate": 0.9512195121951219,
+        "auto_rate": 0.0,
         "abstention_rate": 0.0040650406504065045,
-        "false_automation_rate": 0.0
+        "false_automation_rate": null
       },
       "65+": {
         "n": 157,
         "accuracy": 0.9936305732484076,
-        "auto_rate": 0.9490445859872612,
+        "auto_rate": 0.0,
         "abstention_rate": 0.006369426751592357,
-        "false_automation_rate": 0.0
+        "false_automation_rate": null
       }
     },
     "topic": {
@@ -401,9 +401,9 @@
       "bill": {
         "n": 34,
         "accuracy": 1.0,
-        "auto_rate": 1.0,
+        "auto_rate": 0.0,
         "abstention_rate": 0.0,
-        "false_automation_rate": 0.0
+        "false_automation_rate": null
       },
       "bleeding": {
         "n": 2,
@@ -422,9 +422,9 @@
       "cancel": {
         "n": 22,
         "accuracy": 1.0,
-        "auto_rate": 1.0,
+        "auto_rate": 0.0,
         "abstention_rate": 0.0,
-        "false_automation_rate": 0.0
+        "false_automation_rate": null
       },
       "chest_pain": {
         "n": 5,
@@ -436,23 +436,23 @@
       "contact_update": {
         "n": 14,
         "accuracy": 1.0,
-        "auto_rate": 1.0,
+        "auto_rate": 0.0,
         "abstention_rate": 0.0,
-        "false_automation_rate": 0.0
+        "false_automation_rate": null
       },
       "diagnosis": {
         "n": 11,
         "accuracy": 1.0,
-        "auto_rate": 1.0,
+        "auto_rate": 0.0,
         "abstention_rate": 0.0,
-        "false_automation_rate": 0.0
+        "false_automation_rate": null
       },
       "forms": {
         "n": 12,
         "accuracy": 1.0,
-        "auto_rate": 1.0,
+        "auto_rate": 0.0,
         "abstention_rate": 0.0,
-        "false_automation_rate": 0.0
+        "false_automation_rate": null
       },
       "infant_fever": {
         "n": 2,
@@ -464,93 +464,93 @@
       "insurance": {
         "n": 11,
         "accuracy": 1.0,
-        "auto_rate": 1.0,
+        "auto_rate": 0.0,
         "abstention_rate": 0.0,
-        "false_automation_rate": 0.0
+        "false_automation_rate": null
       },
       "logistics": {
         "n": 22,
         "accuracy": 1.0,
-        "auto_rate": 1.0,
+        "auto_rate": 0.0,
         "abstention_rate": 0.0,
-        "false_automation_rate": 0.0
+        "false_automation_rate": null
       },
       "mixed_clinical": {
         "n": 7,
         "accuracy": 1.0,
-        "auto_rate": 1.0,
+        "auto_rate": 0.0,
         "abstention_rate": 0.0,
-        "false_automation_rate": 0.0
+        "false_automation_rate": null
       },
       "order_status": {
         "n": 17,
         "accuracy": 1.0,
-        "auto_rate": 1.0,
+        "auto_rate": 0.0,
         "abstention_rate": 0.0,
-        "false_automation_rate": 0.0
+        "false_automation_rate": null
       },
       "outside_records": {
         "n": 24,
         "accuracy": 1.0,
-        "auto_rate": 1.0,
+        "auto_rate": 0.0,
         "abstention_rate": 0.0,
-        "false_automation_rate": 0.0
+        "false_automation_rate": null
       },
       "payment": {
         "n": 17,
         "accuracy": 1.0,
-        "auto_rate": 1.0,
+        "auto_rate": 0.0,
         "abstention_rate": 0.0,
-        "false_automation_rate": 0.0
+        "false_automation_rate": null
       },
       "portal": {
         "n": 20,
         "accuracy": 1.0,
-        "auto_rate": 1.0,
+        "auto_rate": 0.0,
         "abstention_rate": 0.0,
-        "false_automation_rate": 0.0
+        "false_automation_rate": null
       },
       "referral_status": {
         "n": 20,
         "accuracy": 1.0,
-        "auto_rate": 1.0,
+        "auto_rate": 0.0,
         "abstention_rate": 0.0,
-        "false_automation_rate": 0.0
+        "false_automation_rate": null
       },
       "refill": {
         "n": 88,
         "accuracy": 1.0,
-        "auto_rate": 1.0,
+        "auto_rate": 0.0,
         "abstention_rate": 0.0,
-        "false_automation_rate": 0.0
+        "false_automation_rate": null
       },
       "reschedule": {
         "n": 37,
         "accuracy": 1.0,
-        "auto_rate": 1.0,
+        "auto_rate": 0.0,
         "abstention_rate": 0.0,
-        "false_automation_rate": 0.0
+        "false_automation_rate": null
       },
       "results": {
         "n": 41,
         "accuracy": 1.0,
-        "auto_rate": 1.0,
+        "auto_rate": 0.0,
         "abstention_rate": 0.0,
-        "false_automation_rate": 0.0
+        "false_automation_rate": null
       },
       "schedule": {
         "n": 59,
         "accuracy": 0.9322033898305084,
-        "auto_rate": 0.847457627118644,
+        "auto_rate": 0.0,
         "abstention_rate": 0.03389830508474576,
-        "false_automation_rate": 0.0
+        "false_automation_rate": null
       },
       "side_effects": {
         "n": 23,
         "accuracy": 1.0,
-        "auto_rate": 1.0,
+        "auto_rate": 0.0,
         "abstention_rate": 0.0,
-        "false_automation_rate": 0.0
+        "false_automation_rate": null
       },
       "stroke": {
         "n": 2,
@@ -562,37 +562,37 @@
       "symptoms": {
         "n": 42,
         "accuracy": 1.0,
-        "auto_rate": 1.0,
+        "auto_rate": 0.0,
         "abstention_rate": 0.0,
-        "false_automation_rate": 0.0
+        "false_automation_rate": null
       },
       "treatment_change": {
         "n": 15,
         "accuracy": 1.0,
-        "auto_rate": 1.0,
+        "auto_rate": 0.0,
         "abstention_rate": 0.0,
-        "false_automation_rate": 0.0
+        "false_automation_rate": null
       },
       "vaccines": {
         "n": 11,
         "accuracy": 1.0,
-        "auto_rate": 1.0,
+        "auto_rate": 0.0,
         "abstention_rate": 0.0,
-        "false_automation_rate": 0.0
+        "false_automation_rate": null
       },
       "vague": {
         "n": 19,
         "accuracy": 1.0,
-        "auto_rate": 0.9473684210526315,
+        "auto_rate": 0.0,
         "abstention_rate": 0.0,
-        "false_automation_rate": 0.0
+        "false_automation_rate": null
       },
       "wound_care": {
         "n": 11,
         "accuracy": 1.0,
-        "auto_rate": 1.0,
+        "auto_rate": 0.0,
         "abstention_rate": 0.0,
-        "false_automation_rate": 0.0
+        "false_automation_rate": null
       }
     }
   },

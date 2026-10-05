@@ -4,6 +4,14 @@ Renamed on 2026-09-30, when the project became Mendari: this pack was `openhealt
 Its id, its publisher's name and its `https://mendari.co/...` identifiers changed; its criteria,
 rules, models, data and results did not.
 
+## 0.1.2
+
+- `specialty_reader`: a `cascade` variant (naive Bayes when it is at least 95% sure, else Jev),
+  as the Patient Inbox Router's router has. When Jev cannot answer, the referral still gets
+  naive Bayes' specialty and goes to a person, instead of abstaining. A Mendari server with Jev
+  set up runs it. The default (`naive_bayes`), questions, policy, rules, data and model are
+  unchanged.
+
 ## 0.1.1
 
 - `rules_and_jev` and `rules_and_llm`: for `clear_question` the more generous reader now wins

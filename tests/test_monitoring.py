@@ -15,7 +15,10 @@ from mendari.core import tenancy
 from mendari.errors import MendariError
 from mendari.evals.monitoring import _alerts, _psi, check_webhook, monitor
 from mendari.server.app import create_app
-from tests.conftest import message
+from tests.conftest import SCREENED, message
+
+# Every decision here is automated: the urgency screen runs with a fake Jev (`screened`).
+pytestmark = pytest.mark.usefixtures("screened")
 
 ROUTINE = "Can you send a refill for metformin to my pharmacy on Main Street?"  # AUTO
 NOW = datetime.now(UTC)
@@ -24,7 +27,7 @@ NOW = datetime.now(UTC)
 def seed(
     store: AuditStore, pack: Pack, n: int, *, days_ago: int, final: str | None = None
 ) -> list[str]:
-    decide = Decision(pack, store=store)
+    decide = Decision(pack, providers=SCREENED, store=store)
     ids = []
     for i in range(n):
         result = decide(message(ROUTINE))
@@ -114,8 +117,9 @@ def test_overrides_that_double_raise_an_alert() -> None:
 
 
 def test_the_api_serves_monitoring(tmp_path: Path, inbox_pack: Pack) -> None:
-    client = TestClient(create_app(db_path=tmp_path / "a.db"))
-    client.post(f"/api/packs/{inbox_pack.id}/decide", json=message(ROUTINE))
+    client = TestClient(create_app(db_path=tmp_path / "a.db", providers=SCREENED))
+    decided = client.post(f"/api/packs/{inbox_pack.id}/decide", json=message(ROUTINE)).json()
+    assert decided["outcome"] == "AUTO"
     report = client.get("/api/monitoring", params={"pack_id": inbox_pack.id}).json()
     assert report["last_7_days"]["decisions"] == 1 and report["pack"]["id"] == inbox_pack.id
 

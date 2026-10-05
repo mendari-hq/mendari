@@ -632,7 +632,7 @@ def test_each_organization_has_its_own_quota_and_evaluations_spend_none(
 
 
 def test_over_its_quota_a_decision_falls_back_to_human_review_with_one_alert(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, screened: dict[str, str]
 ) -> None:
     monkeypatch.setenv("MENDARI_ORG_DAILY_LIMITS", "decisions=2")
     monkeypatch.setenv("MENDARI_ALERT_WEBHOOK", "https://alerts.example.org/hook")
@@ -644,7 +644,7 @@ def test_over_its_quota_a_decision_falls_back_to_human_review_with_one_alert(
 
     monkeypatch.setattr(app_module.httpx, "post", post)
     db = str(tmp_path / "quota.db")
-    client = TestClient(create_app(db_path=db))
+    client = TestClient(create_app(db_path=db, providers=screened))
     # Evaluations run on the deployment's budgets, never the organization's quota.
     run = client.post(f"/api/packs/{INBOX}/evals", json={"dataset": "test", "limit": 5})
     assert run.status_code == 200, run.text
@@ -671,7 +671,10 @@ def test_over_its_quota_a_decision_falls_back_to_human_review_with_one_alert(
 
 
 def test_a_quota_alert_that_fails_never_fails_the_decision(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    screened: dict[str, str],
 ) -> None:
     monkeypatch.setenv("MENDARI_ORG_DAILY_LIMITS", "decisions=1")
     monkeypatch.setenv("MENDARI_ALERT_WEBHOOK", "https://alerts.example.org/hook")
@@ -680,7 +683,7 @@ def test_a_quota_alert_that_fails_never_fails_the_decision(
         raise httpx.ConnectError("down")
 
     monkeypatch.setattr(app_module.httpx, "post", down)
-    client = TestClient(create_app(db_path=tmp_path / "down.db"))
+    client = TestClient(create_app(db_path=tmp_path / "down.db", providers=screened))
     with caplog.at_level(logging.WARNING, logger="mendari.limits"):
         assert client.post(DECIDE, json=message(ROUTINE)).json()["outcome"] == "AUTO"
     assert "webhook failed (ConnectError)" in caplog.text

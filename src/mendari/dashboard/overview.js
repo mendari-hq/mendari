@@ -191,7 +191,15 @@ function packHeader(d) {
     <p class="deployed"><span class="muted">Deployed</span> ${deployed.map(([slot, p]) =>
       `<span class="deployed-slot">${esc(slotText(slot))}: <b>${providerWords(p)}</b></span>`).join(`<span class="muted" aria-hidden="true">·</span>`)}</p>
     <p class="mono muted">${esc(d.id)} v${esc(d.version)} · ${deployed.map(([slot, p]) => `${esc(slot)}=${esc(p.variant)}`).join(" · ")}</p>
+    ${withoutModel(d.without_model ?? [])}
   </div>`;
+}
+
+// Slots on the pack's offline floor although it offers a model there (e.g. no Jev set up).
+function withoutModel(slots) {
+  if (!slots.length) return "";
+  return `<div class="callout neutral" role="note"><b>Running without a model:</b> ${slots.map((slot) => esc(slotText(slot))).join(", ")}.
+    This deployment uses the pack's offline readers there; the Decision Card compares them with the model readers.</div>`;
 }
 
 // Decisions per day, by outcome: the last 30 days in the deployment's time zone. Days without

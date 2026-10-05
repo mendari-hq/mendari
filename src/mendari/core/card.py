@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from mendari.core import clock
@@ -68,7 +69,11 @@ def render_card(pack: Pack) -> str:
         if pack.shown_origin in ("maintained", "community")
         else []
     )
-    automation = COMMUNITY_AUTOMATION if pack.community else RISK_AUTOMATION[level]
+    automation = (
+        COMMUNITY_AUTOMATION
+        if pack.community
+        else RISK_AUTOMATION[level] + _required(m.policy.automation_requires)
+    )
     out: list[str] = [
         f"# Decision Card: {m.name}",
         "",
@@ -182,7 +187,7 @@ def render_card(pack: Pack) -> str:
             "they are a deployment choice. Synthetic and hand-written data: compare "
             "configurations with each other, not with performance at a real site.",
             "",
-            *leaderboard.markdown(board),
+            *leaderboard.markdown(board, m.version),
         ]
     out += ["", "## Known failure modes", "", *[f"- {item}" for item in m.card.known_failure_modes]]
     out += ["", "## Evidence and provenance", ""]
@@ -280,6 +285,15 @@ def _schema_rows(schema: dict[str, Any], prefix: str = "") -> list[str]:
         )
         rows.append(f"| `{path}` | {kind} | {'yes' if name in required else 'no'} |")
     return rows
+
+
+def _required(requires: Mapping[str, list[str]]) -> str:
+    """The providers the policy needs before anything is automated (`automation_requires`)."""
+    needs = [
+        f"`{slot}` is " + " or ".join(f"`{variant}`" for variant in allowed)
+        for slot, allowed in requires.items()
+    ]
+    return f" Only while {' and '.join(needs)}; otherwise a person reviews." if needs else ""
 
 
 def _last_validation(report: dict[str, Any]) -> str:

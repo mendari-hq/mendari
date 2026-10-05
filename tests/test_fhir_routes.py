@@ -33,8 +33,10 @@ SECRET = "Synthetic secret: crushing chest pain since noon"
 
 
 @pytest.fixture
-def client(db_target: str) -> Iterator[TestClient]:
-    with TestClient(create_app(db_path=db_target), base_url=SERVER) as test_client:
+def client(db_target: str, screened: dict[str, str]) -> Iterator[TestClient]:
+    """Routine messages are automated: the urgency screen runs with a fake Jev."""
+    app = create_app(db_path=db_target, providers=screened)
+    with TestClient(app, base_url=SERVER) as test_client:
         yield test_client
 
 

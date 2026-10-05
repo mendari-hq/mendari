@@ -67,10 +67,13 @@ function boardTables(board, dataset) {
   const constantMetrics = metrics.filter((m) => same(m.value));
   const criticalKeys = [...new Set(rows.flatMap((r) => r.critical.map((c) => `${c.question}=${c.label}`)))];
 
+  // A row measured on another version of the pack says so: its automation followed that policy.
+  const measuredOn = (r) => (r.pack_version && r.pack_version !== state.detail.version
+    ? `<br><span class="muted">measured on ${esc(r.pack_version)}</span>` : "");
   const configCell = (r) => {
     const parts = varying.map((slot) =>
       `<span>${varying.length > 1 ? `<span class="muted">${esc(slotText(slot))}:</span> ` : ""}${esc(providerName(r.providers[slot]))}</span>`);
-    return `<div class="config" title="${esc(r.config)}">${parts.join("<br>")}${isDeployed(r) ? ` <span class="badge deployed">Deployed</span>` : ""}</div>`;
+    return `<div class="config" title="${esc(r.config)}">${parts.join("<br>")}${isDeployed(r) ? ` <span class="badge deployed">Deployed</span>` : ""}${measuredOn(r)}</div>`;
   };
   const criticalCell = (r, key) => {
     const c = r.critical.find((x) => `${x.question}=${x.label}` === key);

@@ -1,6 +1,6 @@
 # Decision Card: Patient Inbox Router
 
-`mendari/patient-inbox-router` · version **0.3.0** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
+`mendari/patient-inbox-router` · version **0.4.0** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
 
 > Routes patient portal and SMS messages to the front desk, a medical assistant, a nurse, a physician or billing, and escalates possible emergencies to stat nurse triage.
 
@@ -8,15 +8,15 @@
 |---|---|
 | Source | Maintained by Mendari |
 | Risk level | **0**, administrative |
-| Automation | AUTO permitted by policy thresholds. |
-| Pack digest | `sha256:5e405f4823a58154fe123bbb1e838dc374f12975dbce3a33ce41655704f3bc78` |
-| Last validation | 2026-09-30 on `test` (n=600, sha256 `2997856d17a5…`) |
+| Automation | AUTO permitted by policy thresholds. Only while `safety_screen` is `rules_and_jev` or `rules_and_llm`; otherwise a person reviews. |
+| Pack digest | `sha256:e93267a3f04709af9f3e2897d3162cab48761db060e9655b06c8714fd030df45` |
+| Last validation | 2026-10-05 on `test` (n=600, sha256 `2997856d17a5…`) |
 
 ## Intended use
 
 First-pass routing of incoming patient portal or SMS messages in an outpatient primary-care practice, with an explicit escalation path for messages that may describe an emergency.
 
-**Why risk level 0:** The decision is which team reads a message first. The pack never replies to patients or makes a clinical judgement. A misroute delays a message but does not by itself change care, and messages that may describe an emergency are never auto-routed: a deterministic screen always sends them to a nurse for stat human review.
+**Why risk level 0:** The decision is which team reads a message first. The pack never replies to patients or makes a clinical judgement. A misroute delays a message but does not by itself change care. A message the urgency screen flags as a possible emergency is never auto-routed: it goes to a nurse for stat human review. Nothing is automated unless a model screens beside the keyword rules, which miss emergencies phrased in ways they do not list.
 
 ## Intended users
 
@@ -75,6 +75,7 @@ Every decision is one of `AUTO`, `HUMAN_REVIEW`, `ABSTAIN` or `BLOCK`, with a pr
 - AUTO when `destination` confidence ≥ **0.90**; human review ≥ **0.50**; abstain below.
 - `front_desk` needs ≥ **0.95** for AUTO.
 - `billing` needs ≥ **0.95** for AUTO.
+- AUTO only while `safety_screen` is `rules_and_jev` or `rules_and_llm`; otherwise a person reviews.
 - Rule **possible-emergency**: P(`urgency` is `urgent`) ≥ 0.35 ⇒ `HUMAN_REVIEW` → `nurse`, priority `stat`. Possible emergency symptoms. Nurse triage now; do not leave in a routine queue.
 - Fallback (ABSTAIN / BLOCK): Leave in the shared inbox for manual triage by the front desk (the existing workflow).
 
@@ -95,14 +96,14 @@ Benchmark `test` (n=600) with safety_screen=`rules`, router=`naive_bayes`:
 | Macro-F1 | 0.992 |
 | Expected calibration error | 0.005 |
 | Brier score | 0.009 |
-| AUTO rate | 94.5% |
-| HUMAN_REVIEW rate | 5.2% |
+| AUTO rate | 0.0% |
+| HUMAN_REVIEW rate | 99.7% |
 | ABSTAIN rate | 0.3% |
 | BLOCK rate | 0.0% |
-| Accuracy of AUTO decisions | 100.0% |
-| False automation rate | 0.0% |
-| Expected human override rate | 9.7% |
-| Latency p50 / p95 | 0.14 / 0.19 ms |
+| Accuracy of AUTO decisions | n/a |
+| False automation rate | n/a |
+| Expected human override rate | 0.5% |
+| Latency p50 / p95 | 0.15 / 0.26 ms |
 | Cost per decision | $0.00000 |
 | Critical `urgency=urgent` | 23/23 detected, 0 automated |
 
@@ -120,43 +121,43 @@ Subgroups:
 
 | Subgroup | n | Accuracy | AUTO rate | Abstention |
 |---|---|---|---|---|
-| language=en | 548 | 100.0% | 95.6% | 0.0% |
-| language=es | 52 | 92.3% | 82.7% | 3.8% |
-| channel=portal | 482 | 99.2% | 94.2% | 0.4% |
-| channel=sms | 118 | 100.0% | 95.8% | 0.0% |
-| age_band=0-17 | 22 | 100.0% | 90.9% | 0.0% |
-| age_band=18-39 | 175 | 99.4% | 93.7% | 0.0% |
-| age_band=40-64 | 246 | 99.2% | 95.1% | 0.4% |
-| age_band=65+ | 157 | 99.4% | 94.9% | 0.6% |
+| language=en | 548 | 100.0% | 0.0% | 0.0% |
+| language=es | 52 | 92.3% | 0.0% | 3.8% |
+| channel=portal | 482 | 99.2% | 0.0% | 0.4% |
+| channel=sms | 118 | 100.0% | 0.0% | 0.0% |
+| age_band=0-17 | 22 | 100.0% | 0.0% | 0.0% |
+| age_band=18-39 | 175 | 99.4% | 0.0% | 0.0% |
+| age_band=40-64 | 246 | 99.2% | 0.0% | 0.4% |
+| age_band=65+ | 157 | 99.4% | 0.0% | 0.6% |
 | topic=anaphylaxis | 2 | 100.0% | 0.0% | 0.0% |
-| topic=bill | 34 | 100.0% | 100.0% | 0.0% |
+| topic=bill | 34 | 100.0% | 0.0% | 0.0% |
 | topic=bleeding | 2 | 100.0% | 0.0% | 0.0% |
 | topic=breathing | 10 | 100.0% | 0.0% | 0.0% |
-| topic=cancel | 22 | 100.0% | 100.0% | 0.0% |
+| topic=cancel | 22 | 100.0% | 0.0% | 0.0% |
 | topic=chest_pain | 5 | 100.0% | 0.0% | 0.0% |
-| topic=contact_update | 14 | 100.0% | 100.0% | 0.0% |
-| topic=diagnosis | 11 | 100.0% | 100.0% | 0.0% |
-| topic=forms | 12 | 100.0% | 100.0% | 0.0% |
+| topic=contact_update | 14 | 100.0% | 0.0% | 0.0% |
+| topic=diagnosis | 11 | 100.0% | 0.0% | 0.0% |
+| topic=forms | 12 | 100.0% | 0.0% | 0.0% |
 | topic=infant_fever | 2 | 100.0% | 0.0% | 0.0% |
-| topic=insurance | 11 | 100.0% | 100.0% | 0.0% |
-| topic=logistics | 22 | 100.0% | 100.0% | 0.0% |
-| topic=mixed_clinical | 7 | 100.0% | 100.0% | 0.0% |
-| topic=order_status | 17 | 100.0% | 100.0% | 0.0% |
-| topic=outside_records | 24 | 100.0% | 100.0% | 0.0% |
-| topic=payment | 17 | 100.0% | 100.0% | 0.0% |
-| topic=portal | 20 | 100.0% | 100.0% | 0.0% |
-| topic=referral_status | 20 | 100.0% | 100.0% | 0.0% |
-| topic=refill | 88 | 100.0% | 100.0% | 0.0% |
-| topic=reschedule | 37 | 100.0% | 100.0% | 0.0% |
-| topic=results | 41 | 100.0% | 100.0% | 0.0% |
-| topic=schedule | 59 | 93.2% | 84.7% | 3.4% |
-| topic=side_effects | 23 | 100.0% | 100.0% | 0.0% |
+| topic=insurance | 11 | 100.0% | 0.0% | 0.0% |
+| topic=logistics | 22 | 100.0% | 0.0% | 0.0% |
+| topic=mixed_clinical | 7 | 100.0% | 0.0% | 0.0% |
+| topic=order_status | 17 | 100.0% | 0.0% | 0.0% |
+| topic=outside_records | 24 | 100.0% | 0.0% | 0.0% |
+| topic=payment | 17 | 100.0% | 0.0% | 0.0% |
+| topic=portal | 20 | 100.0% | 0.0% | 0.0% |
+| topic=referral_status | 20 | 100.0% | 0.0% | 0.0% |
+| topic=refill | 88 | 100.0% | 0.0% | 0.0% |
+| topic=reschedule | 37 | 100.0% | 0.0% | 0.0% |
+| topic=results | 41 | 100.0% | 0.0% | 0.0% |
+| topic=schedule | 59 | 93.2% | 0.0% | 3.4% |
+| topic=side_effects | 23 | 100.0% | 0.0% | 0.0% |
 | topic=stroke | 2 | 100.0% | 0.0% | 0.0% |
-| topic=symptoms | 42 | 100.0% | 100.0% | 0.0% |
-| topic=treatment_change | 15 | 100.0% | 100.0% | 0.0% |
-| topic=vaccines | 11 | 100.0% | 100.0% | 0.0% |
-| topic=vague | 19 | 100.0% | 94.7% | 0.0% |
-| topic=wound_care | 11 | 100.0% | 100.0% | 0.0% |
+| topic=symptoms | 42 | 100.0% | 0.0% | 0.0% |
+| topic=treatment_change | 15 | 100.0% | 0.0% | 0.0% |
+| topic=vaccines | 11 | 100.0% | 0.0% | 0.0% |
+| topic=vague | 19 | 100.0% | 0.0% | 0.0% |
+| topic=wound_care | 11 | 100.0% | 0.0% | 0.0% |
 
 Calibration (reliability):
 
@@ -191,49 +192,49 @@ Every configuration below ran on the same records. Remote models are named becau
 
 | Configuration | Accuracy | Macro-F1 | ECE | AUTO | False automation | Critical detected | p50 latency | Cost / decision | Errors |
 |---|---|---|---|---|---|---|---|---|---|
-| safety_screen=llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) | 100.0% | 1.000 | 0.069 | 15.8% | n/a | 28/28 (0 automated) | 9,502 ms | $0.00461 | 0 |
-| safety_screen=llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) | 100.0% | 1.000 | 0.075 | 5.3% | n/a | 28/28 (0 automated) | 2,475 ms | $0.00351 | 0 |
-| safety_screen=rules_and_jev (jev-1.13.0) · router=jev (jev-1.13.0) | 100.0% | 1.000 | 0.007 | 18.4% | n/a | 28/28 (0 automated) | 192 ms | $0.00003 | 0 |
-| safety_screen=rules_and_llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) | 100.0% | 1.000 | 0.071 | 15.8% | n/a | 28/28 (0 automated) | 10,039 ms | $0.00477 | 0 |
-| safety_screen=rules_and_llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) | 96.4% | 0.982 | 0.075 | 0.0% | n/a | 28/28 (0 automated) | 2,386 ms | $0.00352 | 1 (invalid_response 1) |
-| safety_screen=rules_and_llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) | 85.7% | 0.923 | 0.104 | 2.6% | n/a | 28/28 (0 automated) | 1,276 ms | $0.00017 | 0 |
-| safety_screen=llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) | 78.6% | 0.880 | 0.184 | 2.6% | n/a | 27/28 (0 automated) | 1,257 ms | $0.00017 | 1 (invalid_response 1) |
-| safety_screen=rules · router=naive_bayes | 75.0% | 0.857 | 0.181 | 13.2% | n/a | 28/28 (0 automated) | 0.08 ms | $0.00000 | 0 |
-| safety_screen=rules · router=rules | 21.4% | 0.353 | 0.300 | 0.0% | n/a | 28/28 (0 automated) | 0.11 ms | $0.00000 | 0 |
+| safety_screen=llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) (measured on 0.3.0) | 100.0% | 1.000 | 0.069 | 15.8% | n/a | 28/28 (0 automated) | 9,502 ms | $0.00461 | 0 |
+| safety_screen=llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) (measured on 0.3.0) | 100.0% | 1.000 | 0.075 | 5.3% | n/a | 28/28 (0 automated) | 2,475 ms | $0.00351 | 0 |
+| safety_screen=rules_and_jev (jev-1.13.0) · router=jev (jev-1.13.0) (measured on 0.3.0) | 100.0% | 1.000 | 0.007 | 18.4% | n/a | 28/28 (0 automated) | 192 ms | $0.00003 | 0 |
+| safety_screen=rules_and_llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) (measured on 0.3.0) | 100.0% | 1.000 | 0.071 | 15.8% | n/a | 28/28 (0 automated) | 10,039 ms | $0.00477 | 0 |
+| safety_screen=rules_and_llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) (measured on 0.3.0) | 96.4% | 0.982 | 0.075 | 0.0% | n/a | 28/28 (0 automated) | 2,386 ms | $0.00352 | 1 (invalid_response 1) |
+| safety_screen=rules_and_llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) (measured on 0.3.0) | 85.7% | 0.923 | 0.104 | 2.6% | n/a | 28/28 (0 automated) | 1,276 ms | $0.00017 | 0 |
+| safety_screen=llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) (measured on 0.3.0) | 78.6% | 0.880 | 0.184 | 2.6% | n/a | 27/28 (0 automated) | 1,257 ms | $0.00017 | 1 (invalid_response 1) |
+| safety_screen=rules · router=naive_bayes | 75.0% | 0.857 | 0.181 | 0.0% | n/a | 28/28 (0 automated) | 0.09 ms | $0.00000 | 0 |
+| safety_screen=rules · router=rules | 21.4% | 0.353 | 0.300 | 0.0% | n/a | 28/28 (0 automated) | 0.13 ms | $0.00000 | 0 |
 
 **`red_flags_holdout`** (n=30)
 
 | Configuration | Accuracy | Macro-F1 | ECE | AUTO | False automation | Critical detected | p50 latency | Cost / decision | Errors |
 |---|---|---|---|---|---|---|---|---|---|
-| safety_screen=rules_and_jev (jev-1.13.0) · router=jev (jev-1.13.0) | 100.0% | 1.000 | 0.007 | 26.7% | n/a | 20/20 (0 automated) | 172 ms | $0.00003 | 0 |
-| safety_screen=rules_and_llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) | 100.0% | 1.000 | 0.046 | 3.3% | n/a | 20/20 (0 automated) | 2,407 ms | $0.00352 | 0 |
-| safety_screen=rules_and_llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) | 100.0% | 1.000 | 0.248 | 6.7% | n/a | 20/20 (0 automated) | 1,266 ms | $0.00017 | 0 |
-| safety_screen=llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) | 95.0% | 0.974 | 0.103 | 20.0% | n/a | 20/20 (0 automated) | 9,112 ms | $0.00460 | 0 |
-| safety_screen=llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) | 95.0% | 0.974 | 0.071 | 3.3% | n/a | 20/20 (0 automated) | 2,356 ms | $0.00354 | 1 (invalid_response 1) |
-| safety_screen=rules · router=naive_bayes | 95.0% | 0.974 | 0.194 | 40.0% | 0.0% | 4/20 (7 automated) | 0.09 ms | $0.00000 | 0 |
-| safety_screen=rules_and_llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) | 95.0% | 0.974 | 0.031 | 26.7% | n/a | 20/20 (0 automated) | 10,327 ms | $0.00452 | 0 |
-| safety_screen=llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) | 90.0% | 0.947 | 0.140 | 6.7% | n/a | 19/20 (0 automated) | 1,185 ms | $0.00016 | 0 |
+| safety_screen=rules_and_jev (jev-1.13.0) · router=jev (jev-1.13.0) (measured on 0.3.0) | 100.0% | 1.000 | 0.007 | 26.7% | n/a | 20/20 (0 automated) | 172 ms | $0.00003 | 0 |
+| safety_screen=rules_and_llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) (measured on 0.3.0) | 100.0% | 1.000 | 0.046 | 3.3% | n/a | 20/20 (0 automated) | 2,407 ms | $0.00352 | 0 |
+| safety_screen=rules_and_llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) (measured on 0.3.0) | 100.0% | 1.000 | 0.248 | 6.7% | n/a | 20/20 (0 automated) | 1,266 ms | $0.00017 | 0 |
+| safety_screen=llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) (measured on 0.3.0) | 95.0% | 0.974 | 0.103 | 20.0% | n/a | 20/20 (0 automated) | 9,112 ms | $0.00460 | 0 |
+| safety_screen=llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) (measured on 0.3.0) | 95.0% | 0.974 | 0.071 | 3.3% | n/a | 20/20 (0 automated) | 2,356 ms | $0.00354 | 1 (invalid_response 1) |
+| safety_screen=rules · router=naive_bayes | 95.0% | 0.974 | 0.194 | 0.0% | n/a | 4/20 (0 automated) | 0.09 ms | $0.00000 | 0 |
+| safety_screen=rules_and_llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) (measured on 0.3.0) | 95.0% | 0.974 | 0.031 | 26.7% | n/a | 20/20 (0 automated) | 10,327 ms | $0.00452 | 0 |
+| safety_screen=llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) (measured on 0.3.0) | 90.0% | 0.947 | 0.140 | 6.7% | n/a | 19/20 (0 automated) | 1,185 ms | $0.00016 | 0 |
 | safety_screen=rules · router=rules | 10.0% | 0.182 | 0.278 | 0.0% | n/a | 4/20 (0 automated) | 0.13 ms | $0.00000 | 0 |
 
 **`test`** (n=100)
 
 | Configuration | Accuracy | Macro-F1 | ECE | AUTO | False automation | Critical detected | p50 latency | Cost / decision | Errors |
 |---|---|---|---|---|---|---|---|---|---|
-| safety_screen=rules · router=cascade (jev-1.13.0) | 100.0% | 1.000 | 0.001 | 98.0% | 0.0% | 2/2 (0 automated) | 0.42 ms | $0.00000 | 0 |
-| safety_screen=rules · router=naive_bayes | 100.0% | 1.000 | 0.001 | 98.0% | 0.0% | 2/2 (0 automated) | 0.14 ms | $0.00000 | 0 |
-| safety_screen=llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) | 99.0% | 0.989 | 0.112 | 47.0% | 0.0% | 2/2 (0 automated) | 2,365 ms | $0.00362 | 0 |
-| safety_screen=rules_and_jev (jev-1.13.0) · router=jev (jev-1.13.0) | 99.0% | 0.984 | 0.018 | 91.0% | 0.0% | 2/2 (0 automated) | 205 ms | $0.00003 | 0 |
-| safety_screen=rules_and_llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) | 99.0% | 0.984 | 0.043 | 84.0% | 0.0% | 2/2 (0 automated) | 6,916 ms | $0.00423 | 0 |
-| safety_screen=rules_and_llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) | 98.0% | 0.974 | 0.116 | 40.0% | 0.0% | 2/2 (0 automated) | 2,402 ms | $0.00361 | 0 |
-| safety_screen=llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) | 97.0% | 0.968 | 0.034 | 85.0% | 1.2% | 2/2 (0 automated) | 6,206 ms | $0.00413 | 0 |
-| safety_screen=llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) | 96.0% | 0.961 | 0.086 | 48.0% | 4.2% | 2/2 (0 automated) | 1,237 ms | $0.00017 | 0 |
-| safety_screen=rules_and_llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) | 95.0% | 0.937 | 0.080 | 47.0% | 4.3% | 2/2 (0 automated) | 1,281 ms | $0.00017 | 0 |
-| safety_screen=rules · router=rules | 89.0% | 0.883 | 0.282 | 11.0% | 0.0% | 2/2 (0 automated) | 0.21 ms | $0.00000 | 0 |
+| safety_screen=rules · router=cascade (jev-1.13.0) (measured on 0.3.0) | 100.0% | 1.000 | 0.001 | 98.0% | 0.0% | 2/2 (0 automated) | 0.42 ms | $0.00000 | 0 |
+| safety_screen=rules · router=naive_bayes | 100.0% | 1.000 | 0.001 | 0.0% | n/a | 2/2 (0 automated) | 0.16 ms | $0.00000 | 0 |
+| safety_screen=llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) (measured on 0.3.0) | 99.0% | 0.989 | 0.112 | 47.0% | 0.0% | 2/2 (0 automated) | 2,365 ms | $0.00362 | 0 |
+| safety_screen=rules_and_jev (jev-1.13.0) · router=jev (jev-1.13.0) (measured on 0.3.0) | 99.0% | 0.984 | 0.018 | 91.0% | 0.0% | 2/2 (0 automated) | 205 ms | $0.00003 | 0 |
+| safety_screen=rules_and_llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) (measured on 0.3.0) | 99.0% | 0.984 | 0.043 | 84.0% | 0.0% | 2/2 (0 automated) | 6,916 ms | $0.00423 | 0 |
+| safety_screen=rules_and_llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) (measured on 0.3.0) | 98.0% | 0.974 | 0.116 | 40.0% | 0.0% | 2/2 (0 automated) | 2,402 ms | $0.00361 | 0 |
+| safety_screen=llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) (measured on 0.3.0) | 97.0% | 0.968 | 0.034 | 85.0% | 1.2% | 2/2 (0 automated) | 6,206 ms | $0.00413 | 0 |
+| safety_screen=llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) (measured on 0.3.0) | 96.0% | 0.961 | 0.086 | 48.0% | 4.2% | 2/2 (0 automated) | 1,237 ms | $0.00017 | 0 |
+| safety_screen=rules_and_llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) (measured on 0.3.0) | 95.0% | 0.937 | 0.080 | 47.0% | 4.3% | 2/2 (0 automated) | 1,281 ms | $0.00017 | 0 |
+| safety_screen=rules · router=rules | 89.0% | 0.883 | 0.282 | 0.0% | n/a | 2/2 (0 automated) | 0.23 ms | $0.00000 | 0 |
 
 
 ## Known failure modes
 
-- The keyword red-flag screen alone misses most emergencies phrased in ways it does not list. On hand-written paraphrases it caught 28/28 of the set its patterns were tuned on but only 4/20 of a held-out set. Jev caught 48/48 across both with no false alarms. Deploy with safety_screen=rules_and_jev; keyword rules are an offline floor, not the safety net. The rules can also over-trigger on symptoms that happened in the past.
+- The keyword red-flag screen alone misses most emergencies phrased in ways it does not list. On hand-written paraphrases it caught 28/28 of the set its patterns were tuned on but only 4/20 of a held-out set, and 7 of the emergencies it missed would have been routed without anyone reading them. Jev caught 48/48 across both with no false alarms. So the policy allows AUTO only while the screen includes a model (`automation_requires` with `safety_screen=rules_and_jev` or `rules_and_llm`); with the rules alone, every message goes to a person. The rules can also over-trigger on symptoms that happened in the past.
 - Negation handling is a fixed-window heuristic. "No chest pain" is handled; complex or long-distance negation is not.
 - Messages that mix administrative and clinical requests are sometimes sent to the administrative team.
 - Requests for outside records that mention the ER, imaging or specialists can be mistaken for clinical questions (demonstrated by the bundled local-site validation example).
@@ -252,7 +253,19 @@ Renamed on 2026-09-30, when the project became Mendari: this pack was `openhealt
 Its id, its publisher's name and its `https://mendari.co/...` identifiers changed; its criteria,
 rules, models, data and results did not.
 
-#### 0.3.0
+#### 0.4.0
+
+- Safety: the policy allows AUTO only while `safety_screen` includes a model
+  (`automation_requires`: `rules_and_jev` or `rules_and_llm`), as the Referral Router's does.
+  On hand-written held-out messages the keyword rules alone caught 4 of 20 emergencies and
+  automated 7 of the ones they missed. With the rules alone (the offline default), every
+  message now goes to a person with its suggested team; nothing else about the decision changes.
+- Questions, rules, data and the naive Bayes model are unchanged. The provider-comparison rows
+  for the rules alone were re-run on 0.4.0. The other rows are from 0.3.0: their accuracy and
+  critical detection still hold, but two kinds would now automate nothing: a model screen
+  without the rules (`safety_screen=llm`) and the `cascade` router behind the rules screen.
+
+### 0.3.0
 
 - Safety: the `possible-emergency` rule now escalates when P(urgent) ≥ 0.35 (spec 0.2
   `min_probability`). Before, `urgent` also had to be the most likely label, so the documented

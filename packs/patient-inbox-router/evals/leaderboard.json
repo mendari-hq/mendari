@@ -2,9 +2,9 @@
   "format": "mendari.leaderboard/1",
   "pack": {
     "id": "mendari/patient-inbox-router",
-    "version": "0.3.0"
+    "version": "0.4.0"
   },
-  "updated_at": "2026-09-29T00:02:37+00:00",
+  "updated_at": "2026-10-05T02:54:58+00:00",
   "rows": [
     {
       "config": "safety_screen=llm (anthropic/claude-haiku-4.5) \u00b7 router=llm (anthropic/claude-haiku-4.5)",
@@ -136,18 +136,18 @@
         "router": {
           "variant": "naive_bayes",
           "type": "naive_bayes",
-          "model": "naive_bayes@6b28c1ac77f0"
+          "model": "naive_bayes@37cb3086c82a"
         }
       },
       "dataset": "red_flags",
       "n": 38,
-      "report_id": "8efd614f-c35c-4799-8962-239ca9ab3e00",
-      "created_at": "2026-09-28T20:34:19+00:00",
-      "pack_version": "0.3.0",
+      "report_id": "9ec3587b-dd97-4593-b72d-713e98d579bb",
+      "created_at": "2026-10-05T02:54:58+00:00",
+      "pack_version": "0.4.0",
       "accuracy": 0.75,
       "macro_f1": 0.8571428571428571,
       "ece": 0.18050789527795594,
-      "auto_rate": 0.13157894736842105,
+      "auto_rate": 0.0,
       "false_automation_rate": null,
       "critical": [
         {
@@ -158,11 +158,18 @@
           "auto_missed": 0
         }
       ],
-      "latency_p50_ms": 0.07658288814127445,
-      "latency_p95_ms": 0.09750016033649445,
+      "latency_p50_ms": 0.08854083716869354,
+      "latency_p95_ms": 0.13062497600913048,
       "cost_per_decision_usd": 0.0,
       "errors": 0,
-      "error_codes": {}
+      "error_codes": {},
+      "questions": {
+        "urgency": {
+          "n": 38,
+          "accuracy": 1.0,
+          "ece": 0.057557663136630584
+        }
+      }
     },
     {
       "config": "safety_screen=rules \u00b7 router=rules",
@@ -180,9 +187,9 @@
       },
       "dataset": "red_flags",
       "n": 38,
-      "report_id": "6e73ed79-787e-48bb-a914-44d81aa148a8",
-      "created_at": "2026-09-28T20:34:19+00:00",
-      "pack_version": "0.3.0",
+      "report_id": "7b2d1c58-9959-4406-9083-7410d5e0457f",
+      "created_at": "2026-10-05T02:54:58+00:00",
+      "pack_version": "0.4.0",
       "accuracy": 0.21428571428571427,
       "macro_f1": 0.35294117647058826,
       "ece": 0.3004344509346058,
@@ -197,11 +204,18 @@
           "auto_missed": 0
         }
       ],
-      "latency_p50_ms": 0.11437502689659595,
-      "latency_p95_ms": 0.14933384954929352,
+      "latency_p50_ms": 0.12808339670300484,
+      "latency_p95_ms": 0.18862495198845863,
       "cost_per_decision_usd": 0.0,
       "errors": 0,
-      "error_codes": {}
+      "error_codes": {},
+      "questions": {
+        "urgency": {
+          "n": 38,
+          "accuracy": 1.0,
+          "ece": 0.057557663136630584
+        }
+      }
     },
     {
       "config": "safety_screen=rules_and_jev (jev-1.13.0) \u00b7 router=jev (jev-1.13.0)",
@@ -491,33 +505,40 @@
         "router": {
           "variant": "naive_bayes",
           "type": "naive_bayes",
-          "model": "naive_bayes@6b28c1ac77f0"
+          "model": "naive_bayes@37cb3086c82a"
         }
       },
       "dataset": "red_flags_holdout",
       "n": 30,
-      "report_id": "ab74d197-657f-4635-a7a8-66da4dc3dfe6",
-      "created_at": "2026-09-28T20:34:19+00:00",
-      "pack_version": "0.3.0",
+      "report_id": "b2ba1f25-d814-45f0-83e4-189d07b2e021",
+      "created_at": "2026-10-05T02:54:58+00:00",
+      "pack_version": "0.4.0",
       "accuracy": 0.95,
       "macro_f1": 0.9743589743589743,
       "ece": 0.1937955733190731,
-      "auto_rate": 0.4,
-      "false_automation_rate": 0.0,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
       "critical": [
         {
           "question": "urgency",
           "label": "urgent",
           "n": 20,
           "detected": 4,
-          "auto_missed": 7
+          "auto_missed": 0
         }
       ],
-      "latency_p50_ms": 0.08695782162249088,
-      "latency_p95_ms": 0.16324990428984165,
+      "latency_p50_ms": 0.09379209950566292,
+      "latency_p95_ms": 0.1332918182015419,
       "cost_per_decision_usd": 0.0,
       "errors": 0,
-      "error_codes": {}
+      "error_codes": {},
+      "questions": {
+        "urgency": {
+          "n": 30,
+          "accuracy": 0.4666666666666667,
+          "ece": 0.4458538162955847
+        }
+      }
     },
     {
       "config": "safety_screen=rules \u00b7 router=rules",
@@ -535,9 +556,9 @@
       },
       "dataset": "red_flags_holdout",
       "n": 30,
-      "report_id": "8cf847f9-a4d1-44a7-b285-a032f415c87b",
-      "created_at": "2026-09-28T20:34:19+00:00",
-      "pack_version": "0.3.0",
+      "report_id": "e799fc64-898b-471e-af37-4f16bff63f1c",
+      "created_at": "2026-10-05T02:54:58+00:00",
+      "pack_version": "0.4.0",
       "accuracy": 0.1,
       "macro_f1": 0.18181818181818182,
       "ece": 0.2781530945493027,
@@ -552,11 +573,18 @@
           "auto_missed": 0
         }
       ],
-      "latency_p50_ms": 0.12949993833899498,
-      "latency_p95_ms": 0.1705000177025795,
+      "latency_p50_ms": 0.131125096231699,
+      "latency_p95_ms": 0.1616249792277813,
       "cost_per_decision_usd": 0.0,
       "errors": 0,
-      "error_codes": {}
+      "error_codes": {},
+      "questions": {
+        "urgency": {
+          "n": 30,
+          "accuracy": 0.4666666666666667,
+          "ece": 0.4458538162955847
+        }
+      }
     },
     {
       "config": "safety_screen=rules_and_jev (jev-1.13.0) \u00b7 router=jev (jev-1.13.0)",
@@ -881,19 +909,19 @@
         "router": {
           "variant": "naive_bayes",
           "type": "naive_bayes",
-          "model": "naive_bayes@6b28c1ac77f0"
+          "model": "naive_bayes@37cb3086c82a"
         }
       },
       "dataset": "test",
       "n": 100,
-      "report_id": "9fed29d0-567b-4eeb-bdfa-fe54c2b63448",
-      "created_at": "2026-09-28T20:34:19+00:00",
-      "pack_version": "0.3.0",
+      "report_id": "0472127e-d60b-46fc-b78f-60bca39d4ccb",
+      "created_at": "2026-10-05T02:54:58+00:00",
+      "pack_version": "0.4.0",
       "accuracy": 1.0,
       "macro_f1": 1.0,
       "ece": 0.0009227975432581914,
-      "auto_rate": 0.98,
-      "false_automation_rate": 0.0,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
       "critical": [
         {
           "question": "urgency",
@@ -903,11 +931,18 @@
           "auto_missed": 0
         }
       ],
-      "latency_p50_ms": 0.14166696928441525,
-      "latency_p95_ms": 0.19025010988116264,
+      "latency_p50_ms": 0.15979213640093803,
+      "latency_p95_ms": 0.24858303368091583,
       "cost_per_decision_usd": 0.0,
       "errors": 0,
-      "error_codes": {}
+      "error_codes": {},
+      "questions": {
+        "urgency": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.12167074276135349
+        }
+      }
     },
     {
       "config": "safety_screen=rules \u00b7 router=rules",
@@ -925,14 +960,14 @@
       },
       "dataset": "test",
       "n": 100,
-      "report_id": "c0666d95-f123-47ac-baf5-fbc7d6860740",
-      "created_at": "2026-09-28T20:34:19+00:00",
-      "pack_version": "0.3.0",
+      "report_id": "a98610ea-16f2-4064-aa1f-a25c6bedb6c8",
+      "created_at": "2026-10-05T02:54:58+00:00",
+      "pack_version": "0.4.0",
       "accuracy": 0.89,
       "macro_f1": 0.8831435309973046,
       "ece": 0.2818902168843674,
-      "auto_rate": 0.11,
-      "false_automation_rate": 0.0,
+      "auto_rate": 0.0,
+      "false_automation_rate": null,
       "critical": [
         {
           "question": "urgency",
@@ -942,11 +977,18 @@
           "auto_missed": 0
         }
       ],
-      "latency_p50_ms": 0.20616711117327213,
-      "latency_p95_ms": 0.27216714806854725,
+      "latency_p50_ms": 0.22700009867548943,
+      "latency_p95_ms": 0.31512510031461716,
       "cost_per_decision_usd": 0.0,
       "errors": 0,
-      "error_codes": {}
+      "error_codes": {},
+      "questions": {
+        "urgency": {
+          "n": 100,
+          "accuracy": 1.0,
+          "ece": 0.12167074276135349
+        }
+      }
     },
     {
       "config": "safety_screen=rules_and_jev (jev-1.13.0) \u00b7 router=jev (jev-1.13.0)",

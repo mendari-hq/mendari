@@ -104,13 +104,21 @@ def idp() -> FakeIdp:
 
 
 @pytest.fixture
-def app(tmp_path: Path, idp: FakeIdp, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
+def app(
+    tmp_path: Path, idp: FakeIdp, monkeypatch: pytest.MonkeyPatch, screened: dict[str, str]
+) -> Iterator[TestClient]:
+    """Routine messages are automated: the urgency screen runs with a fake Jev."""
     monkeypatch.setenv("MENDARI_OIDC_ROLE_MAP", "clinicians=reviewer")
-    with signing_in_with(idp, tmp_path, monkeypatch) as client:
+    with signing_in_with(idp, tmp_path, monkeypatch, providers=screened) as client:
         yield client
 
 
-def signing_in_with(idp: FakeIdp, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
+def signing_in_with(
+    idp: FakeIdp,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    providers: dict[str, str] | None = None,
+) -> TestClient:
     """A server whose sign-in uses `idp` (the role settings come from the test's environment)."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", CLIENT)
@@ -118,7 +126,8 @@ def signing_in_with(idp: FakeIdp, tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(
         auth_module, "GuardedHttp", lambda **kw: GuardedHttp(transport=transport, **kw)
     )
-    return TestClient(create_app(db_path=tmp_path / "a.db"), base_url="https://mendari.test")
+    app = create_app(db_path=tmp_path / "a.db", providers=providers)
+    return TestClient(app, base_url="https://mendari.test")
 
 
 def sign_in(app: TestClient, idp: FakeIdp, **claims: Any) -> Any:

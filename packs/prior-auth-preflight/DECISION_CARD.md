@@ -8,7 +8,7 @@
 |---|---|
 | Source | Maintained by Mendari |
 | Risk level | **1**, clinical information processing (clinical information) |
-| Automation | AUTO permitted by policy thresholds; every decision is audited. |
+| Automation | AUTO permitted by policy thresholds; every decision is audited. Only while `notes` is `rules_and_jev` or `rules_and_llm`; otherwise a person reviews. |
 | Pack digest | `sha256:6fbaacf59e8a1709471e2f11447e0ff401a6c3d9fab5eef760889e88767156a8` |
 | Last validation | 2026-09-30 on `test` (n=600, sha256 `17c6f97cd68c…`) |
 
@@ -237,109 +237,109 @@ Every configuration below ran on the same records. Remote models are named becau
 
 | Configuration | Accuracy | Macro-F1 | ECE | AUTO | False automation | Critical detected | p50 latency | Cost / decision | Errors |
 |---|---|---|---|---|---|---|---|---|---|
-| structured=criteria · notes=jev (jev-1.13.0) | 100.0% | 1.000 | 0.058 | 0.0% | n/a | 7/7 (0 automated) | 250 ms | $0.00003 | 0 |
-| structured=criteria · notes=llm (anthropic/claude-haiku-4.5) | 100.0% | 1.000 | 0.067 | 0.0% | n/a | 7/7 (0 automated) | 5,546 ms | $0.00447 | 0 |
-| structured=criteria · notes=llm (anthropic/claude-sonnet-5) | 100.0% | 1.000 | 0.119 | 0.0% | n/a | 7/7 (0 automated) | 2,638 ms | $0.00468 | 0 |
-| structured=criteria · notes=llm (openai/gpt-oss-120b) | 100.0% | 1.000 | 0.081 | 0.0% | n/a | 7/7 (0 automated) | 2,388 ms | $0.00022 | 0 |
-| structured=criteria · notes=rules | 100.0% | 1.000 | 0.074 | 0.0% | n/a | 7/7 (0 automated) | 3.20 ms | $0.00000 | 0 |
-| structured=criteria · notes=rules_and_jev (jev-1.13.0) | 100.0% | 1.000 | 0.061 | 46.9% | 0.0% | 7/7 (0 automated) | 265 ms | $0.00003 | 0 |
-| structured=criteria · notes=rules_and_llm (anthropic/claude-haiku-4.5) | 100.0% | 1.000 | 0.066 | 46.9% | 0.0% | 7/7 (0 automated) | 6,236 ms | $0.00464 | 0 |
-| structured=criteria · notes=rules_and_llm (anthropic/claude-sonnet-5) | 100.0% | 1.000 | 0.081 | 46.9% | 0.0% | 7/7 (0 automated) | 2,661 ms | $0.00468 | 0 |
-| structured=criteria · notes=rules_and_llm (openai/gpt-oss-120b) | 100.0% | 1.000 | 0.077 | 46.9% | 0.0% | 7/7 (0 automated) | 2,079 ms | $0.00022 | 0 |
+| structured=criteria · notes=jev (jev-1.13.0) (measured on 0.1.0) | 100.0% | 1.000 | 0.058 | 0.0% | n/a | 7/7 (0 automated) | 250 ms | $0.00003 | 0 |
+| structured=criteria · notes=llm (anthropic/claude-haiku-4.5) (measured on 0.1.0) | 100.0% | 1.000 | 0.067 | 0.0% | n/a | 7/7 (0 automated) | 5,546 ms | $0.00447 | 0 |
+| structured=criteria · notes=llm (anthropic/claude-sonnet-5) (measured on 0.1.0) | 100.0% | 1.000 | 0.119 | 0.0% | n/a | 7/7 (0 automated) | 2,638 ms | $0.00468 | 0 |
+| structured=criteria · notes=llm (openai/gpt-oss-120b) (measured on 0.1.0) | 100.0% | 1.000 | 0.081 | 0.0% | n/a | 7/7 (0 automated) | 2,388 ms | $0.00022 | 0 |
+| structured=criteria · notes=rules (measured on 0.1.0) | 100.0% | 1.000 | 0.074 | 0.0% | n/a | 7/7 (0 automated) | 3.20 ms | $0.00000 | 0 |
+| structured=criteria · notes=rules_and_jev (jev-1.13.0) (measured on 0.1.0) | 100.0% | 1.000 | 0.061 | 46.9% | 0.0% | 7/7 (0 automated) | 265 ms | $0.00003 | 0 |
+| structured=criteria · notes=rules_and_llm (anthropic/claude-haiku-4.5) (measured on 0.1.0) | 100.0% | 1.000 | 0.066 | 46.9% | 0.0% | 7/7 (0 automated) | 6,236 ms | $0.00464 | 0 |
+| structured=criteria · notes=rules_and_llm (anthropic/claude-sonnet-5) (measured on 0.1.0) | 100.0% | 1.000 | 0.081 | 46.9% | 0.0% | 7/7 (0 automated) | 2,661 ms | $0.00468 | 0 |
+| structured=criteria · notes=rules_and_llm (openai/gpt-oss-120b) (measured on 0.1.0) | 100.0% | 1.000 | 0.077 | 46.9% | 0.0% | 7/7 (0 automated) | 2,079 ms | $0.00022 | 0 |
 
 Other questions (accuracy / ECE):
 
 | Configuration | `conservative_therapy` | `mechanical_symptoms` | `red_flag` | `sleep_symptoms` |
 |---|---|---|---|---|
-| structured=criteria · notes=jev (jev-1.13.0) | 100.0% / 0.018 | 100.0% / 0.003 | 100.0% / 0.024 | 100.0% / 0.007 |
-| structured=criteria · notes=llm (anthropic/claude-haiku-4.5) | 100.0% / 0.024 | 100.0% / 0.016 | 100.0% / 0.020 | 100.0% / 0.021 |
-| structured=criteria · notes=llm (anthropic/claude-sonnet-5) | 84.4% / 0.133 | 96.9% / 0.113 | 100.0% / 0.078 | 100.0% / 0.107 |
-| structured=criteria · notes=llm (openai/gpt-oss-120b) | 75.0% / 0.192 | 68.8% / 0.282 | 96.9% / 0.007 | 84.4% / 0.080 |
-| structured=criteria · notes=rules | 100.0% / 0.055 | 100.0% / 0.082 | 100.0% / 0.050 | 100.0% / 0.081 |
-| structured=criteria · notes=rules_and_jev (jev-1.13.0) | 100.0% / 0.047 | 100.0% / 0.079 | 100.0% / 0.054 | 100.0% / 0.080 |
-| structured=criteria · notes=rules_and_llm (anthropic/claude-haiku-4.5) | 100.0% / 0.058 | 100.0% / 0.080 | 100.0% / 0.046 | 100.0% / 0.086 |
-| structured=criteria · notes=rules_and_llm (anthropic/claude-sonnet-5) | 100.0% / 0.069 | 100.0% / 0.082 | 100.0% / 0.062 | 100.0% / 0.081 |
-| structured=criteria · notes=rules_and_llm (openai/gpt-oss-120b) | 96.9% / 0.080 | 96.9% / 0.097 | 96.9% / 0.070 | 100.0% / 0.083 |
+| structured=criteria · notes=jev (jev-1.13.0) (measured on 0.1.0) | 100.0% / 0.018 | 100.0% / 0.003 | 100.0% / 0.024 | 100.0% / 0.007 |
+| structured=criteria · notes=llm (anthropic/claude-haiku-4.5) (measured on 0.1.0) | 100.0% / 0.024 | 100.0% / 0.016 | 100.0% / 0.020 | 100.0% / 0.021 |
+| structured=criteria · notes=llm (anthropic/claude-sonnet-5) (measured on 0.1.0) | 84.4% / 0.133 | 96.9% / 0.113 | 100.0% / 0.078 | 100.0% / 0.107 |
+| structured=criteria · notes=llm (openai/gpt-oss-120b) (measured on 0.1.0) | 75.0% / 0.192 | 68.8% / 0.282 | 96.9% / 0.007 | 84.4% / 0.080 |
+| structured=criteria · notes=rules (measured on 0.1.0) | 100.0% / 0.055 | 100.0% / 0.082 | 100.0% / 0.050 | 100.0% / 0.081 |
+| structured=criteria · notes=rules_and_jev (jev-1.13.0) (measured on 0.1.0) | 100.0% / 0.047 | 100.0% / 0.079 | 100.0% / 0.054 | 100.0% / 0.080 |
+| structured=criteria · notes=rules_and_llm (anthropic/claude-haiku-4.5) (measured on 0.1.0) | 100.0% / 0.058 | 100.0% / 0.080 | 100.0% / 0.046 | 100.0% / 0.086 |
+| structured=criteria · notes=rules_and_llm (anthropic/claude-sonnet-5) (measured on 0.1.0) | 100.0% / 0.069 | 100.0% / 0.082 | 100.0% / 0.062 | 100.0% / 0.081 |
+| structured=criteria · notes=rules_and_llm (openai/gpt-oss-120b) (measured on 0.1.0) | 96.9% / 0.080 | 96.9% / 0.097 | 96.9% / 0.070 | 100.0% / 0.083 |
 
 **`documentation_notes_holdout`** (n=24)
 
 | Configuration | Accuracy | Macro-F1 | ECE | AUTO | False automation | Critical detected | p50 latency | Cost / decision | Errors |
 |---|---|---|---|---|---|---|---|---|---|
-| structured=criteria · notes=jev (jev-1.13.0) | 100.0% | 1.000 | 0.048 | 0.0% | n/a | 6/6 (0 automated) | 213 ms | $0.00003 | 0 |
-| structured=criteria · notes=llm (anthropic/claude-haiku-4.5) | 100.0% | 1.000 | 0.060 | 0.0% | n/a | 6/6 (0 automated) | 6,211 ms | $0.00468 | 0 |
-| structured=criteria · notes=llm (anthropic/claude-sonnet-5) | 100.0% | 1.000 | 0.101 | 0.0% | n/a | 6/6 (0 automated) | 2,614 ms | $0.00468 | 0 |
-| structured=criteria · notes=llm (openai/gpt-oss-120b) | 100.0% | 1.000 | 0.082 | 0.0% | n/a | 6/6 (0 automated) | 2,100 ms | $0.00023 | 0 |
-| structured=criteria · notes=rules_and_jev (jev-1.13.0) | 100.0% | 1.000 | 0.063 | 33.3% | 0.0% | 6/6 (0 automated) | 283 ms | $0.00003 | 0 |
-| structured=criteria · notes=rules_and_llm (anthropic/claude-haiku-4.5) | 100.0% | 1.000 | 0.070 | 29.2% | 0.0% | 6/6 (0 automated) | 6,752 ms | $0.00463 | 0 |
-| structured=criteria · notes=rules_and_llm (anthropic/claude-sonnet-5) | 100.0% | 1.000 | 0.091 | 25.0% | 0.0% | 6/6 (0 automated) | 2,665 ms | $0.00468 | 0 |
-| structured=criteria · notes=rules_and_llm (openai/gpt-oss-120b) | 100.0% | 1.000 | 0.093 | 25.0% | 0.0% | 6/6 (0 automated) | 2,270 ms | $0.00023 | 0 |
-| structured=criteria · notes=rules | 75.0% | 0.748 | 0.176 | 0.0% | n/a | 3/6 (0 automated) | 3.22 ms | $0.00000 | 0 |
+| structured=criteria · notes=jev (jev-1.13.0) (measured on 0.1.0) | 100.0% | 1.000 | 0.048 | 0.0% | n/a | 6/6 (0 automated) | 213 ms | $0.00003 | 0 |
+| structured=criteria · notes=llm (anthropic/claude-haiku-4.5) (measured on 0.1.0) | 100.0% | 1.000 | 0.060 | 0.0% | n/a | 6/6 (0 automated) | 6,211 ms | $0.00468 | 0 |
+| structured=criteria · notes=llm (anthropic/claude-sonnet-5) (measured on 0.1.0) | 100.0% | 1.000 | 0.101 | 0.0% | n/a | 6/6 (0 automated) | 2,614 ms | $0.00468 | 0 |
+| structured=criteria · notes=llm (openai/gpt-oss-120b) (measured on 0.1.0) | 100.0% | 1.000 | 0.082 | 0.0% | n/a | 6/6 (0 automated) | 2,100 ms | $0.00023 | 0 |
+| structured=criteria · notes=rules_and_jev (jev-1.13.0) (measured on 0.1.0) | 100.0% | 1.000 | 0.063 | 33.3% | 0.0% | 6/6 (0 automated) | 283 ms | $0.00003 | 0 |
+| structured=criteria · notes=rules_and_llm (anthropic/claude-haiku-4.5) (measured on 0.1.0) | 100.0% | 1.000 | 0.070 | 29.2% | 0.0% | 6/6 (0 automated) | 6,752 ms | $0.00463 | 0 |
+| structured=criteria · notes=rules_and_llm (anthropic/claude-sonnet-5) (measured on 0.1.0) | 100.0% | 1.000 | 0.091 | 25.0% | 0.0% | 6/6 (0 automated) | 2,665 ms | $0.00468 | 0 |
+| structured=criteria · notes=rules_and_llm (openai/gpt-oss-120b) (measured on 0.1.0) | 100.0% | 1.000 | 0.093 | 25.0% | 0.0% | 6/6 (0 automated) | 2,270 ms | $0.00023 | 0 |
+| structured=criteria · notes=rules (measured on 0.1.0) | 75.0% | 0.748 | 0.176 | 0.0% | n/a | 3/6 (0 automated) | 3.22 ms | $0.00000 | 0 |
 
 Other questions (accuracy / ECE):
 
 | Configuration | `conservative_therapy` | `mechanical_symptoms` | `red_flag` | `sleep_symptoms` |
 |---|---|---|---|---|
-| structured=criteria · notes=jev (jev-1.13.0) | 100.0% / 0.022 | 100.0% / 0.004 | 100.0% / 0.022 | 100.0% / 0.002 |
-| structured=criteria · notes=llm (anthropic/claude-haiku-4.5) | 100.0% / 0.023 | 100.0% / 0.030 | 100.0% / 0.025 | 95.8% / 0.048 |
-| structured=criteria · notes=llm (anthropic/claude-sonnet-5) | 95.8% / 0.062 | 95.8% / 0.064 | 100.0% / 0.071 | 100.0% / 0.104 |
-| structured=criteria · notes=llm (openai/gpt-oss-120b) | 70.8% / 0.217 | 83.3% / 0.097 | 100.0% / 0.049 | 87.5% / 0.085 |
-| structured=criteria · notes=rules_and_jev (jev-1.13.0) | 100.0% / 0.052 | 100.0% / 0.079 | 100.0% / 0.052 | 95.8% / 0.041 |
-| structured=criteria · notes=rules_and_llm (anthropic/claude-haiku-4.5) | 100.0% / 0.058 | 100.0% / 0.082 | 100.0% / 0.048 | 95.8% / 0.041 |
-| structured=criteria · notes=rules_and_llm (anthropic/claude-sonnet-5) | 100.0% / 0.073 | 100.0% / 0.087 | 100.0% / 0.063 | 95.8% / 0.043 |
-| structured=criteria · notes=rules_and_llm (openai/gpt-oss-120b) | 87.5% / 0.140 | 100.0% / 0.087 | 95.8% / 0.082 | 100.0% / 0.110 |
-| structured=criteria · notes=rules | 91.7% / 0.018 | 95.8% / 0.043 | 87.5% / 0.071 | 91.7% / 0.004 |
+| structured=criteria · notes=jev (jev-1.13.0) (measured on 0.1.0) | 100.0% / 0.022 | 100.0% / 0.004 | 100.0% / 0.022 | 100.0% / 0.002 |
+| structured=criteria · notes=llm (anthropic/claude-haiku-4.5) (measured on 0.1.0) | 100.0% / 0.023 | 100.0% / 0.030 | 100.0% / 0.025 | 95.8% / 0.048 |
+| structured=criteria · notes=llm (anthropic/claude-sonnet-5) (measured on 0.1.0) | 95.8% / 0.062 | 95.8% / 0.064 | 100.0% / 0.071 | 100.0% / 0.104 |
+| structured=criteria · notes=llm (openai/gpt-oss-120b) (measured on 0.1.0) | 70.8% / 0.217 | 83.3% / 0.097 | 100.0% / 0.049 | 87.5% / 0.085 |
+| structured=criteria · notes=rules_and_jev (jev-1.13.0) (measured on 0.1.0) | 100.0% / 0.052 | 100.0% / 0.079 | 100.0% / 0.052 | 95.8% / 0.041 |
+| structured=criteria · notes=rules_and_llm (anthropic/claude-haiku-4.5) (measured on 0.1.0) | 100.0% / 0.058 | 100.0% / 0.082 | 100.0% / 0.048 | 95.8% / 0.041 |
+| structured=criteria · notes=rules_and_llm (anthropic/claude-sonnet-5) (measured on 0.1.0) | 100.0% / 0.073 | 100.0% / 0.087 | 100.0% / 0.063 | 95.8% / 0.043 |
+| structured=criteria · notes=rules_and_llm (openai/gpt-oss-120b) (measured on 0.1.0) | 87.5% / 0.140 | 100.0% / 0.087 | 95.8% / 0.082 | 100.0% / 0.110 |
+| structured=criteria · notes=rules (measured on 0.1.0) | 91.7% / 0.018 | 95.8% / 0.043 | 87.5% / 0.071 | 91.7% / 0.004 |
 
 **`prior-auth-local-site-example`** (n=100)
 
 | Configuration | Accuracy | Macro-F1 | ECE | AUTO | False automation | Critical detected | p50 latency | Cost / decision | Errors |
 |---|---|---|---|---|---|---|---|---|---|
-| structured=criteria · notes=llm (anthropic/claude-haiku-4.5) | 98.0% | 0.984 | 0.022 | 0.0% | n/a | 5/5 (0 automated) | 6,948 ms | $0.00478 | 0 |
-| structured=criteria · notes=llm (anthropic/claude-sonnet-5) | 98.0% | 0.984 | 0.048 | 0.0% | n/a | 5/5 (0 automated) | 2,626 ms | $0.00470 | 0 |
-| structured=criteria · notes=llm (openai/gpt-oss-120b) | 98.0% | 0.984 | 0.028 | 0.0% | n/a | 5/5 (0 automated) | 2,184 ms | $0.00022 | 0 |
-| structured=criteria · notes=rules_and_jev (jev-1.13.0) | 98.0% | 0.984 | 0.019 | 45.0% | 0.0% | 5/5 (0 automated) | 226 ms | $0.00003 | 0 |
-| structured=criteria · notes=rules_and_llm (anthropic/claude-haiku-4.5) | 98.0% | 0.984 | 0.024 | 44.0% | 0.0% | 5/5 (0 automated) | 7,986 ms | $0.00503 | 0 |
-| structured=criteria · notes=rules_and_llm (anthropic/claude-sonnet-5) | 98.0% | 0.984 | 0.028 | 43.0% | 0.0% | 5/5 (0 automated) | 2,666 ms | $0.00472 | 0 |
-| structured=criteria · notes=rules_and_llm (openai/gpt-oss-120b) | 98.0% | 0.984 | 0.025 | 44.0% | 0.0% | 5/5 (0 automated) | 2,070 ms | $0.00022 | 0 |
-| structured=criteria · notes=rules | 96.0% | 0.968 | 0.005 | 0.0% | n/a | 3/5 (0 automated) | 3.24 ms | $0.00000 | 0 |
+| structured=criteria · notes=llm (anthropic/claude-haiku-4.5) (measured on 0.1.0) | 98.0% | 0.984 | 0.022 | 0.0% | n/a | 5/5 (0 automated) | 6,948 ms | $0.00478 | 0 |
+| structured=criteria · notes=llm (anthropic/claude-sonnet-5) (measured on 0.1.0) | 98.0% | 0.984 | 0.048 | 0.0% | n/a | 5/5 (0 automated) | 2,626 ms | $0.00470 | 0 |
+| structured=criteria · notes=llm (openai/gpt-oss-120b) (measured on 0.1.0) | 98.0% | 0.984 | 0.028 | 0.0% | n/a | 5/5 (0 automated) | 2,184 ms | $0.00022 | 0 |
+| structured=criteria · notes=rules_and_jev (jev-1.13.0) (measured on 0.1.0) | 98.0% | 0.984 | 0.019 | 45.0% | 0.0% | 5/5 (0 automated) | 226 ms | $0.00003 | 0 |
+| structured=criteria · notes=rules_and_llm (anthropic/claude-haiku-4.5) (measured on 0.1.0) | 98.0% | 0.984 | 0.024 | 44.0% | 0.0% | 5/5 (0 automated) | 7,986 ms | $0.00503 | 0 |
+| structured=criteria · notes=rules_and_llm (anthropic/claude-sonnet-5) (measured on 0.1.0) | 98.0% | 0.984 | 0.028 | 43.0% | 0.0% | 5/5 (0 automated) | 2,666 ms | $0.00472 | 0 |
+| structured=criteria · notes=rules_and_llm (openai/gpt-oss-120b) (measured on 0.1.0) | 98.0% | 0.984 | 0.025 | 44.0% | 0.0% | 5/5 (0 automated) | 2,070 ms | $0.00022 | 0 |
+| structured=criteria · notes=rules (measured on 0.1.0) | 96.0% | 0.968 | 0.005 | 0.0% | n/a | 3/5 (0 automated) | 3.24 ms | $0.00000 | 0 |
 
 Other questions (accuracy / ECE):
 
 | Configuration | `conservative_therapy` | `mechanical_symptoms` | `red_flag` | `sleep_symptoms` |
 |---|---|---|---|---|
-| structured=criteria · notes=llm (anthropic/claude-haiku-4.5) | 98.0% / 0.025 | 99.0% / 0.025 | 100.0% / 0.025 | 100.0% / 0.021 |
-| structured=criteria · notes=llm (anthropic/claude-sonnet-5) | 77.0% / 0.183 | 96.0% / 0.072 | 99.0% / 0.075 | 100.0% / 0.080 |
-| structured=criteria · notes=llm (openai/gpt-oss-120b) | 73.0% / 0.259 | 81.0% / 0.149 | 91.0% / 0.048 | 83.0% / 0.117 |
-| structured=criteria · notes=rules_and_jev (jev-1.13.0) | 100.0% / 0.040 | 100.0% / 0.072 | 100.0% / 0.063 | 100.0% / 0.071 |
-| structured=criteria · notes=rules_and_llm (anthropic/claude-haiku-4.5) | 97.0% / 0.052 | 100.0% / 0.076 | 100.0% / 0.065 | 100.0% / 0.078 |
-| structured=criteria · notes=rules_and_llm (anthropic/claude-sonnet-5) | 100.0% / 0.063 | 100.0% / 0.076 | 100.0% / 0.071 | 100.0% / 0.079 |
-| structured=criteria · notes=rules_and_llm (openai/gpt-oss-120b) | 94.0% / 0.024 | 98.0% / 0.059 | 97.0% / 0.028 | 96.0% / 0.069 |
-| structured=criteria · notes=rules | 93.0% / 0.015 | 100.0% / 0.076 | 98.0% / 0.036 | 99.0% / 0.065 |
+| structured=criteria · notes=llm (anthropic/claude-haiku-4.5) (measured on 0.1.0) | 98.0% / 0.025 | 99.0% / 0.025 | 100.0% / 0.025 | 100.0% / 0.021 |
+| structured=criteria · notes=llm (anthropic/claude-sonnet-5) (measured on 0.1.0) | 77.0% / 0.183 | 96.0% / 0.072 | 99.0% / 0.075 | 100.0% / 0.080 |
+| structured=criteria · notes=llm (openai/gpt-oss-120b) (measured on 0.1.0) | 73.0% / 0.259 | 81.0% / 0.149 | 91.0% / 0.048 | 83.0% / 0.117 |
+| structured=criteria · notes=rules_and_jev (jev-1.13.0) (measured on 0.1.0) | 100.0% / 0.040 | 100.0% / 0.072 | 100.0% / 0.063 | 100.0% / 0.071 |
+| structured=criteria · notes=rules_and_llm (anthropic/claude-haiku-4.5) (measured on 0.1.0) | 97.0% / 0.052 | 100.0% / 0.076 | 100.0% / 0.065 | 100.0% / 0.078 |
+| structured=criteria · notes=rules_and_llm (anthropic/claude-sonnet-5) (measured on 0.1.0) | 100.0% / 0.063 | 100.0% / 0.076 | 100.0% / 0.071 | 100.0% / 0.079 |
+| structured=criteria · notes=rules_and_llm (openai/gpt-oss-120b) (measured on 0.1.0) | 94.0% / 0.024 | 98.0% / 0.059 | 97.0% / 0.028 | 96.0% / 0.069 |
+| structured=criteria · notes=rules (measured on 0.1.0) | 93.0% / 0.015 | 100.0% / 0.076 | 98.0% / 0.036 | 99.0% / 0.065 |
 
 **`test`** (n=100)
 
 | Configuration | Accuracy | Macro-F1 | ECE | AUTO | False automation | Critical detected | p50 latency | Cost / decision | Errors |
 |---|---|---|---|---|---|---|---|---|---|
-| structured=criteria · notes=llm (anthropic/claude-haiku-4.5) | 100.0% | 1.000 | 0.046 | 0.0% | n/a | 2/2 (0 automated) | 6,731 ms | $0.00481 | 0 |
-| structured=criteria · notes=llm (anthropic/claude-sonnet-5) | 100.0% | 1.000 | 0.064 | 0.0% | n/a | 2/2 (0 automated) | 2,620 ms | $0.00469 | 0 |
-| structured=criteria · notes=rules | 100.0% | 1.000 | 0.045 | 0.0% | n/a | 2/2 (0 automated) | 3.24 ms | $0.00000 | 0 |
-| structured=criteria · notes=rules_and_jev (jev-1.13.0) | 100.0% | 1.000 | 0.043 | 43.0% | 0.0% | 2/2 (0 automated) | 229 ms | $0.00003 | 0 |
-| structured=criteria · notes=rules_and_llm (anthropic/claude-haiku-4.5) | 100.0% | 1.000 | 0.045 | 43.0% | 0.0% | 2/2 (0 automated) | 7,413 ms | $0.00481 | 0 |
-| structured=criteria · notes=rules_and_llm (anthropic/claude-sonnet-5) | 100.0% | 1.000 | 0.050 | 43.0% | 0.0% | 2/2 (0 automated) | 2,633 ms | $0.00470 | 0 |
-| structured=criteria · notes=rules_and_llm (openai/gpt-oss-120b) | 100.0% | 1.000 | 0.050 | 43.0% | 0.0% | 2/2 (0 automated) | 2,028 ms | $0.00022 | 0 |
-| structured=criteria · notes=llm (openai/gpt-oss-120b) | 99.0% | 0.992 | 0.045 | 0.0% | n/a | 2/2 (0 automated) | 2,034 ms | $0.00022 | 0 |
+| structured=criteria · notes=llm (anthropic/claude-haiku-4.5) (measured on 0.1.0) | 100.0% | 1.000 | 0.046 | 0.0% | n/a | 2/2 (0 automated) | 6,731 ms | $0.00481 | 0 |
+| structured=criteria · notes=llm (anthropic/claude-sonnet-5) (measured on 0.1.0) | 100.0% | 1.000 | 0.064 | 0.0% | n/a | 2/2 (0 automated) | 2,620 ms | $0.00469 | 0 |
+| structured=criteria · notes=rules (measured on 0.1.0) | 100.0% | 1.000 | 0.045 | 0.0% | n/a | 2/2 (0 automated) | 3.24 ms | $0.00000 | 0 |
+| structured=criteria · notes=rules_and_jev (jev-1.13.0) (measured on 0.1.0) | 100.0% | 1.000 | 0.043 | 43.0% | 0.0% | 2/2 (0 automated) | 229 ms | $0.00003 | 0 |
+| structured=criteria · notes=rules_and_llm (anthropic/claude-haiku-4.5) (measured on 0.1.0) | 100.0% | 1.000 | 0.045 | 43.0% | 0.0% | 2/2 (0 automated) | 7,413 ms | $0.00481 | 0 |
+| structured=criteria · notes=rules_and_llm (anthropic/claude-sonnet-5) (measured on 0.1.0) | 100.0% | 1.000 | 0.050 | 43.0% | 0.0% | 2/2 (0 automated) | 2,633 ms | $0.00470 | 0 |
+| structured=criteria · notes=rules_and_llm (openai/gpt-oss-120b) (measured on 0.1.0) | 100.0% | 1.000 | 0.050 | 43.0% | 0.0% | 2/2 (0 automated) | 2,028 ms | $0.00022 | 0 |
+| structured=criteria · notes=llm (openai/gpt-oss-120b) (measured on 0.1.0) | 99.0% | 0.992 | 0.045 | 0.0% | n/a | 2/2 (0 automated) | 2,034 ms | $0.00022 | 0 |
 
 Other questions (accuracy / ECE):
 
 | Configuration | `conservative_therapy` | `mechanical_symptoms` | `red_flag` | `sleep_symptoms` |
 |---|---|---|---|---|
-| structured=criteria · notes=llm (anthropic/claude-haiku-4.5) | 94.0% / 0.025 | 100.0% / 0.030 | 100.0% / 0.032 | 100.0% / 0.036 |
-| structured=criteria · notes=llm (anthropic/claude-sonnet-5) | 72.0% / 0.200 | 98.0% / 0.064 | 99.0% / 0.071 | 100.0% / 0.086 |
-| structured=criteria · notes=rules | 100.0% / 0.054 | 100.0% / 0.082 | 100.0% / 0.056 | 100.0% / 0.071 |
-| structured=criteria · notes=rules_and_jev (jev-1.13.0) | 100.0% / 0.047 | 100.0% / 0.080 | 100.0% / 0.058 | 100.0% / 0.070 |
-| structured=criteria · notes=rules_and_llm (anthropic/claude-haiku-4.5) | 97.0% / 0.074 | 100.0% / 0.086 | 99.0% / 0.068 | 100.0% / 0.070 |
-| structured=criteria · notes=rules_and_llm (anthropic/claude-sonnet-5) | 100.0% / 0.060 | 100.0% / 0.082 | 100.0% / 0.070 | 100.0% / 0.077 |
-| structured=criteria · notes=rules_and_llm (openai/gpt-oss-120b) | 88.0% / 0.076 | 93.0% / 0.029 | 93.0% / 0.007 | 91.0% / 0.013 |
-| structured=criteria · notes=llm (openai/gpt-oss-120b) | 71.0% / 0.238 | 77.0% / 0.170 | 89.0% / 0.059 | 79.0% / 0.138 |
+| structured=criteria · notes=llm (anthropic/claude-haiku-4.5) (measured on 0.1.0) | 94.0% / 0.025 | 100.0% / 0.030 | 100.0% / 0.032 | 100.0% / 0.036 |
+| structured=criteria · notes=llm (anthropic/claude-sonnet-5) (measured on 0.1.0) | 72.0% / 0.200 | 98.0% / 0.064 | 99.0% / 0.071 | 100.0% / 0.086 |
+| structured=criteria · notes=rules (measured on 0.1.0) | 100.0% / 0.054 | 100.0% / 0.082 | 100.0% / 0.056 | 100.0% / 0.071 |
+| structured=criteria · notes=rules_and_jev (jev-1.13.0) (measured on 0.1.0) | 100.0% / 0.047 | 100.0% / 0.080 | 100.0% / 0.058 | 100.0% / 0.070 |
+| structured=criteria · notes=rules_and_llm (anthropic/claude-haiku-4.5) (measured on 0.1.0) | 97.0% / 0.074 | 100.0% / 0.086 | 99.0% / 0.068 | 100.0% / 0.070 |
+| structured=criteria · notes=rules_and_llm (anthropic/claude-sonnet-5) (measured on 0.1.0) | 100.0% / 0.060 | 100.0% / 0.082 | 100.0% / 0.070 | 100.0% / 0.077 |
+| structured=criteria · notes=rules_and_llm (openai/gpt-oss-120b) (measured on 0.1.0) | 88.0% / 0.076 | 93.0% / 0.029 | 93.0% / 0.007 | 91.0% / 0.013 |
+| structured=criteria · notes=llm (openai/gpt-oss-120b) (measured on 0.1.0) | 71.0% / 0.238 | 77.0% / 0.170 | 89.0% / 0.059 | 79.0% / 0.138 |
 
 
 ## Known failure modes
