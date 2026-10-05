@@ -1612,7 +1612,8 @@ def create_app(
     landing_page = landing.page(
         versioned_page("docs.html"),
         version=__version__,
-        quickstart_automates=quickstart_automates,
+        # With sign-in on, what runs here is not public: the page shows both answers.
+        quickstart_automates=None if auth.enabled else quickstart_automates,
         sign_in=auth.enabled,
         smart_launch=smart_options is not None,
         token_url=None if backend is None else backend.token_url,
