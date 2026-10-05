@@ -1,25 +1,23 @@
 # FHIR and API docs audit
 
 Audited 2026-10-01 on branch `claude/openhealth-fhir-audit-8823f7` (base `560d14e`). Mendari
-was called OpenHealth Hub until 2026-09-30. The deployment under review is
-`openhealth-hub-gray.vercel.app`.
+was called OpenHealth Hub until 2026-09-30. The deployment under review is the project's own
+production deployment on Vercel. Its host, configuration values and record ids are left out of
+this copy.
 
 ## How this audit was run
 
-- **Production, signed in.** To an anonymous client, every path on
-  `openhealth-hub-gray.vercel.app`, including `/docs`, `/openapi.json` and `/api/health`, answers
-  `302` to `vercel.com/sso-api` (Vercel Authentication). With the owner signed in to Vercel in
-  the browser, I called every read endpoint, ran Swagger's "Try it out" on `/decide`, and made
-  one successful FHIR call (results below). Production runs release `560d14efa38c`, the same
-  commit this branch starts from, so the local findings apply to production unchanged.
+- **Production, signed in.** To an anonymous client, every path on the production deployment,
+  including `/docs`, `/openapi.json` and `/api/health`, was redirected to Vercel Authentication.
+  With the owner signed in, I called every read endpoint, ran Swagger's "Try it out" on
+  `/decide`, and made one successful FHIR call (results below). Production ran the same commit
+  this branch starts from, so the local findings apply to production unchanged.
   - Production configuration from `/api/health`: Postgres storage, sign-in **off**, SMART
-    launch off, FHIR allow-list empty, FHIR validation `warn`. The packs run on remote models:
-    Jev `jev-1.13.0` for the inbox and referral routers and parts of the others, and
-    `anthropic/claude-sonnet-5` through the AI Gateway for the AI Guard.
-  - **Production writes made by this audit:** two decisions in the production audit trail, both
-    synthetic. `ac3ce9f1-eddb-4fcb-a520-401d1fb590d9` (`BLOCK`, Swagger's default body) and
-    `f965e5a8-9142-4dfd-a79f-dfc9a09e91fb` (`AUTO`, the US Core inbox fixture, one Jev call).
-    The `500` checks fail before a decision is stored.
+    launch off, FHIR allow-list empty, FHIR validation `warn`. Some packs ran on remote models
+    (Jev, and an LLM through the AI Gateway).
+  - **Production writes made by this audit:** two synthetic decisions in the production audit
+    trail (Swagger's default body, and the US Core inbox fixture with one Jev call). The `500`
+    checks fail before a decision is stored.
 - **Locally**, the same app was built by the same `create_app` that
   `src/mendari/server/vercel.py` calls, with SQLite in place of Postgres and local providers in
   place of Jev. This was for endpoints I didn't want to call in production (evaluations, review,
@@ -30,13 +28,9 @@ was called OpenHealth Hub until 2026-09-30. The deployment under review is
   requests and one `$validate` call, which does not store anything. Only synthetic content was
   sent.
 - **No real PHI was used or seen.** The data comes from `mendari.sandbox.synthetic_*` and the
-  repository's fixtures. In production, all 142 stored decisions (2026-09-28 and 09-29, under the
-  pre-rename `openhealth/…` pack ids) and 41 feedback entries were checked: 33 distinct inputs,
-  all pack examples or hand-typed test messages ("Jev credential check: can I pay my bill
-  online?"). A scan for SSNs, phone numbers, emails, MRNs, dates of birth, addresses, person
-  names and identifiers found only medication and lab names, a payer id `acme`, and one
-  `birthDate` of `1975-01-01` in a synthetic CDS Hooks example. Reviewers are `sandbox-nurse`
-  and `verification-rn`.
+  repository's fixtures. Every decision and feedback entry stored in production was checked: all
+  were pack examples or hand-typed test messages, and a scan for SSNs, phone numbers, emails,
+  MRNs, dates of birth, addresses, person names and identifiers found only synthetic values.
 
 ## Verdict
 
@@ -205,7 +199,7 @@ are now built from the schema alone.
 
 | # | Item | After Phase 2 | Now | What changed |
 |---|---|---|---|---|
-| 2 | Resources | Conformance reads only | **Read-only decisions and audit trail** | A **Task per decision** (read, vread; [ADR-0003](decisions/ADR-0003-a-served-task-is-a-decision.md)): `requested` while it waits for a Mendari reviewer, `completed`, `failed` for refused input; no input text, no patient or subject references. **AuditEvent** and **Provenance** read, with absolute references to the Task (Provenance: the version it made). Still no clinical resources, no writes. |
+| 2 | Resources | Conformance reads only | **Read-only decisions and audit trail** | A **Task per decision** (read, vread; [ADR-0003](../docs/decisions/ADR-0003-a-served-task-is-a-decision.md)): `requested` while it waits for a Mendari reviewer, `completed`, `failed` for refused input; no input text, no patient or subject references. **AuditEvent** and **Provenance** read, with absolute references to the Task (Provenance: the version it made). Still no clinical resources, no writes. |
 | 4 | Search | Missing | **Implemented** for what is served | Task (`_id`, `identifier`, `status`, `business-status`, `priority`, `authored-on`, `_lastUpdated`, `_tag`), AuditEvent (`_id`, `date`, `entity`, `subtype`, `_lastUpdated`), Provenance (`_id`, `recorded`, `target`, `_lastUpdated`), CodeSystem (`_id`, `url`, `version`). GET and POST `_search`; UTC dates with prefixes; `_count`, `_total`, `_summary=count`; stateless keyset paging with `next` links; absolute fullUrls. Unknown parameters are ignored with a warning entry; unsupported standard ones (`patient`, `subject`, `focus`, …) and modifiers are a `400` (a deliberate deviation from R4's SHOULD-ignore, so a client never gets every patient's decisions while it believes it filtered by one). No chaining, `_include`, `_sort` or history Bundles. |
 | 5 | Bundles | Partial | Partial | `searchset` Bundles that pass the HL7 validator. Still no `transaction`/`batch` (nothing stored to change). |
 | 6 | Versioning | Partial | **Implemented** for what is served | Task versions follow the audit chain (`meta.versionId` 1, 2, 3; vread); ETag `W/"n"`; no conditional read, declared as such. The work-item Task `$decide` returns still has no `versionId` (the EHR's server assigns it). |
@@ -220,7 +214,7 @@ rendered the reviewer as Provenance `verifier`; it is `author`.
 
 | # | Item | After Phase 3 | Now | What changed |
 |---|---|---|---|---|
-| 8 | Security | Implemented for this deployment | **Implemented**: sign-in, scoped machine access, SMART Backend Services (off by default) | API keys are `viewer` or `service`, expire (90 days, 365 at most; older keys 30 days after deploy) and take SMART scopes (`system/<Type>.rs`) or Mendari's URI scopes (decide, outcome). A deployment can turn on **SMART Backend Services**: `POST /auth/token` takes an RS384/ES384 client assertion (checked before any write; jti once per client) and returns a five-minute opaque token whose authorization is read on every request; `/fhir/.well-known/smart-configuration` and the CapabilityStatement say so only when it is on ([ADR-0004](decisions/ADR-0004-machine-access-tokens-and-scopes.md)). Managing keys and clients is people-only and chained. A bearer credential decides alone, never with a cookie fallback; never in a URL. |
+| 8 | Security | Implemented for this deployment | **Implemented**: sign-in, scoped machine access, SMART Backend Services (off by default) | API keys are `viewer` or `service`, expire (90 days, 365 at most; older keys 30 days after deploy) and take SMART scopes (`system/<Type>.rs`) or Mendari's URI scopes (decide, outcome). A deployment can turn on **SMART Backend Services**: `POST /auth/token` takes an RS384/ES384 client assertion (checked before any write; jti once per client) and returns a five-minute opaque token whose authorization is read on every request; `/fhir/.well-known/smart-configuration` and the CapabilityStatement say so only when it is on ([ADR-0004](../docs/decisions/ADR-0004-machine-access-tokens-and-scopes.md)). Managing keys and clients is people-only and chained. A bearer credential decides alone, never with a cookie fallback; never in a URL. |
 
 Also fixed, found by the Phase 4 research: the public logout deleted session-table rows of any
 kind by a key the caller chose (a pending sign-in, or replay protection); rows are now keyed per
@@ -235,7 +229,7 @@ pinning; then the external security review.
 
 | # | Item | After Phase 4 | Now | What changed |
 |---|---|---|---|---|
-| 8 | Security | Implemented: sign-in, scoped machine access, SMART Backend Services | **Hardened for real patient data on a site's own servers**, pending the external review | The chain commits to notes instead of copying them; the input hash is keyed; rate limits, quotas and a security log; 30-minute idle sessions under `__Host-` cookies, tied to the browser at sign-in; cross-site requests refused; the API reference vendored, every action and image pinned ([ADR-0005](decisions/ADR-0005-hardening-before-phi.md)). |
+| 8 | Security | Implemented: sign-in, scoped machine access, SMART Backend Services | **Hardened for real patient data on a site's own servers**, pending the external review | The chain commits to notes instead of copying them; the input hash is keyed; rate limits, quotas and a security log; 30-minute idle sessions under `__Host-` cookies, tied to the browser at sign-in; cross-site requests refused; the API reference vendored, every action and image pinned ([ADR-0005](../docs/decisions/ADR-0005-hardening-before-phi.md)). |
 
 What changed, in three lanes and then integrated:
 - **What is kept for good.** Review and rating notes and a payer's text left the chain for a
@@ -273,7 +267,7 @@ Nobody is signed out by this release, the schema changes are additive (an index,
 `rate_limits`, `org_usage` and `notes`, the column `decision_inputs.details`), and the chain is
 never rewritten. Still open:
 - **The external security review**, with the packet in
-  [`security/review-packet.md`](security/review-packet.md); then the owner's launch order:
+  [`security/review-packet.md`](../docs/security/review-packet.md); then the owner's launch order:
   ceilings and quotas set, the firewall rule enforced after 7 days in log mode, then Vercel
   Authentication lifted.
 - **The SMART launch** is gated for use with sign-in (ADR-0006, built and reviewed 2026-10-03:
@@ -398,7 +392,7 @@ Keep the generated OpenAPI as the source of truth, and put a real front door in 
 | Area | Then | Now |
 |---|---|---|
 | **Overview** | Missing | **`/docs` is a developer landing**, public also with sign-in on: what Mendari is in two sentences, the four outcomes as the dashboard's chips, an inline SVG diagram with the same flow as a list, links to `/fhir/metadata`, the reference, the dashboard and the Decision Cards. Light and dark from the dashboard's tokens, contrast-tested; a skip link, landmarks, one `h1`, keyboard-scrollable examples. |
-| **Getting started** | Missing | **A quickstart in three calls** (list the packs, decide, read the audit record), FHIR in and out (`$decide`, search, the trail as FHIR, CDS Hooks, SMART) and authentication, each example with a copy button. The examples are the scripts CI runs against a local server in open mode and with a `service` key (Phase 5, stage L), so they work as written; the mkdocs site's [API guide](guides/api.md) includes the same files. |
+| **Getting started** | Missing | **A quickstart in three calls** (list the packs, decide, read the audit record), FHIR in and out (`$decide`, search, the trail as FHIR, CDS Hooks, SMART) and authentication, each example with a copy button. The examples are the scripts CI runs against a local server in open mode and with a `service` key (Phase 5, stage L), so they work as written; the mkdocs site's [API guide](../docs/guides/api.md) includes the same files. |
 | **Authentication** | No auth explanation | The landing says how this deployment's mode works (open, sign-in, keys and scopes, Backend Services when on) and what Phase 4b added (sessions that end, rate limits answered with a `429` and `Retry-After`, requests from other sites limited to reading pages), without this deployment's own session lengths or rates, which stay behind sign-in; it lists **every route with what it needs**, built from the route rules, so it cannot drift. |
 | **Try it out** | First result a failure; Swagger from a CDN with no CSP | `/docs/reference` is Swagger UI vendored at a pinned version under a strict CSP (Phase 4b, stage C), its examples synthetic and deciding as tested. It and `/openapi.json` stay behind sign-in; the reference's introduction sends newcomers to `/docs`. |
 | **Visual quality** | Default Swagger UI, light only | The landing is Mendari's own design system in both themes; the reference follows the dashboard's theme choice. |
@@ -549,7 +543,7 @@ with the owner's choices: the token endpoint plus scoped keys, older keys expiri
 deploy, and URI scopes. Signed JWT access tokens, JWKS URLs and external authorization servers
 are deferred (ADR-0004); hardening before PHI is Phase 4b.
 
-**Status (2026-10-02): Phase 4b built** ([ADR-0005](decisions/ADR-0005-hardening-before-phi.md);
+**Status (2026-10-02): Phase 4b built** ([ADR-0005](../docs/decisions/ADR-0005-hardening-before-phi.md);
 "Status after Phase 4b" above): notes out of the chain, a keyed input hash, rate limits and
 quotas, a security log, idle sessions and `__Host-` cookies, Origin checks, a vendored API
 reference and a pinned supply chain. The external security review comes next.

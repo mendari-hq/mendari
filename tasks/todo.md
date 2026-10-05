@@ -149,7 +149,7 @@ registered EHR; no iframe and no refresh until the pilot EHR is known
   organizations
 
 ## Built: hardening before PHI, Phase 4b (2026-10-02)
-From the [audit](../docs/fhir-and-docs-audit.md) Phase 4b line, after research (four researchers
+From the [audit](../notes/fhir-and-docs-audit.md) Phase 4b line, after research (four researchers
 and a critic). The owner chose finite spending ceilings plus per-organization quotas at launch,
 verified emails for people in the chain, and the pilot site's own servers for the first PHI
 ([ADR-0005](../docs/decisions/ADR-0005-hardening-before-phi.md)). Built in three lanes
@@ -245,7 +245,7 @@ From the audit's "Redesign plan". Branch `claude/phase-5`, after Phase 4b's stag
 - Deferred: a public demo deployment (a launch decision), theming the mkdocs site
 
 ## Built: authentication and authorization, Phase 4 (2026-10-02)
-From the [audit](../docs/fhir-and-docs-audit.md) Phase 4, after research (three researchers and a
+From the [audit](../notes/fhir-and-docs-audit.md) Phase 4, after research (three researchers and a
 security-minded critic). The owner chose the token endpoint plus scoped keys, a 30-day expiry for
 existing keys, and URI scopes ([ADR-0004](../docs/decisions/ADR-0004-machine-access-tokens-and-scopes.md)).
 Branch `claude/fhir-phase-4`. About 6.5–7 days.
@@ -281,7 +281,7 @@ Branch `claude/fhir-phase-4`. About 6.5–7 days.
   last-used tracking, a new key format, the dashboard Keys view
 
 ## Built: FHIR search, Phase 3 (2026-10-02)
-From the [audit](../docs/fhir-and-docs-audit.md) Phase 3, after research (three researchers and a
+From the [audit](../notes/fhir-and-docs-audit.md) Phase 3, after research (three researchers and a
 critic). The owner chose a Task per decision ([ADR-0003](../docs/decisions/ADR-0003-a-served-task-is-a-decision.md)).
 Branch `claude/fhir-phase-3`. About 4–5 days.
 - [x] **Task per decision** (`standards/task_fhir.py`): derived on read from the decision row
@@ -317,7 +317,7 @@ Branch `claude/fhir-phase-3`. About 4–5 days.
   moving `$decide`'s work item to `groupIdentifier`
 
 ## Built: FHIR core conformance, Phase 2 (2026-10-01/02)
-From the [audit](../docs/fhir-and-docs-audit.md) Phase 2, revised after research (three
+From the [audit](../notes/fhir-and-docs-audit.md) Phase 2, revised after research (three
 researchers and a critic; evidence from the HL7 validator and the official R4 definitions).
 Branch `claude/fhir-phase-2`. About 6–7 days.
 - [x] **Reasons never quote input** (a privacy bug found by the critic): a pack-schema
@@ -359,7 +359,7 @@ Branch `claude/fhir-phase-2`. About 6–7 days.
   `Communication.medium` code system
 
 ## In progress: FHIR and API docs, Phase 1, and sign-in in production (2026-10-01)
-From the [FHIR and API docs audit](../docs/fhir-and-docs-audit.md); approved by the owner.
+From the [FHIR and API docs audit](../notes/fhir-and-docs-audit.md); approved by the owner.
 Sign-in: Google, the owner as the only admin.
 - [x] No input crashes a FHIR route: a test that mistypes every element of the US Core fixtures
   finds the crash sites; a core element of the wrong JSON type (`resourceType`, `id`, `meta`,
@@ -383,14 +383,14 @@ Sign-in: Google, the owner as the only admin.
 - [x] Repository renamed to `Junebugg1214/mendari` (still private)
 - [x] Package, import and CLI `mendari`; settings `MENDARI_*` (the `OPENHEALTH_*` names still
   work); pack ids `mendari/…`; identifiers `https://mendari.co/…`; images `mendari-engine`
-- [x] Kept: the Vercel project and URLs (`openhealth-hub`), the Jev connector
-  (`jev/openhealth-hub`) and the Neon database name; dated records (the overnight log and the
-  milestone plans) carry a rename note instead of being rewritten
+- [x] Kept: the names of the hosting resources (Vercel project, Jev connector, database);
+  dated records (the overnight log and the milestone plans) carry a rename note instead of being
+  rewritten
 - [x] A "coming soon" page for mendari.co: `web/`, its own Vercel project `mendari-web`;
   mendari.ai and the www names redirect to it
-- [ ] DNS at Porkbun pointed at Vercel (the owner's)
+- [ ] DNS for mendari.co pointed at Vercel (the owner's)
 
-## Done (built; the launch is the owner's): v1.0 Public open-source launch ([plan](../docs/plans/v1.0-public-launch.md))
+## Done (built; the launch is the owner's): v1.0 Public open-source launch ([plan](../notes/plans/v1.0-public-launch.md))
 Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 - [x] Plan
 - [x] Security review: threat model, security headers, dependency audit and ZAP scan in CI,
@@ -403,7 +403,7 @@ Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 - [ ] Going public: public repo, PyPI release, live Hub and docs site (the owner's decision;
   logged)
 
-## Done: v0.7 Later standards ([plan](../docs/plans/v0.7-later-standards.md))
+## Done: v0.7 Later standards ([plan](../notes/plans/v0.7-later-standards.md))
 Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 - [x] Plan
 - [x] CQL provider (Library/$evaluate on HAPI FHIR with Clinical Reasoning); the trial pack's
@@ -414,7 +414,7 @@ Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 - [x] Da Vinci DTR: questionnaire package for the PA pack's gaps (validated against DTR 2.2.0)
 - [x] Da Vinci PAS: request Bundle and submission to a mock payer (validated against PAS 2.2.1)
 
-## Done: v0.6 Readiness for health organizations ([plan](../docs/plans/v0.6-org-readiness.md))
+## Done: v0.6 Readiness for health organizations ([plan](../notes/plans/v0.6-org-readiness.md))
 Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 - [x] Plan
 - [x] OIDC login, roles and API keys; tenancy
@@ -424,7 +424,7 @@ Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 - [x] Container image per pack; on-prem templates
 - [x] Pilot check in CI (a real OpenID Connect provider, navikt/mock-oauth2-server; job `pilot-check`)
 
-## Done: design grade phases ([`docs/design-grade.md`](../docs/design-grade.md))
+## Done: design grade phases ([`notes/design-grade.md`](../notes/design-grade.md))
 Graded C+ against Apple, Airbnb and best-in-class data viz on 2026-09-29; the user approved every
 phase (A, B, C) to be done and merged when CI passes.
 - [x] Phase A quick wins: layout shift at 768 px 0.50 -> 0 (the pack picker's width is fixed from
@@ -462,17 +462,17 @@ phase (A, B, C) to be done and merged when CI passes.
 - [x] Re-grade with the same measurements (110 captures, same script): **B+** (was C+), as
   projected. No layout shift at any width, no control under 24 px on any capture, 56 px phone
   bar; an A needs identity work, clinician testing, production-scale data and a real
-  screen-reader and cross-browser pass (`docs/design-grade.md`, "Re-grade")
+  screen-reader and cross-browser pass (`notes/design-grade.md`, "Re-grade")
 - [x] Check the production deploy after the last merge: `ad9d3d3` live, `/`, `/api/health` and
-  the modules 200 through `vercel curl` (Postgres, 5 packs), unauthenticated requests 302 to login
-- [x] Small gaps from the re-grade (`docs/design-grade.md`, "What an A still needs"), one PR each;
-  log in `docs/overnight-log.md`:
+  the modules answer 200 signed in (Postgres, 5 packs), unauthenticated requests 302 to login
+- [x] Small gaps from the re-grade (`notes/design-grade.md`, "What an A still needs"), one PR each;
+  log in `notes/overnight-log.md`:
   - [x] Plain words in criteria tables and Try-it answer headings
   - [x] Links that carry the pack (`?pack=` in the address)
   - [x] A transition from skeleton to content (the view fades in where its skeleton was)
   - [x] Fewer whole-subtree re-renders: sorting moves rows instead of redrawing the table
 
-## Done: v0.5 The Hub ([plan](../docs/plans/v0.5-the-hub.md))
+## Done: v0.5 The Hub ([plan](../notes/plans/v0.5-the-hub.md))
 - [x] Plan
 - [x] Shared database layer (`core/db.py`)
 - [x] Signed pack archives and publisher keys
@@ -483,7 +483,7 @@ phase (A, B, C) to be done and merged when CI passes.
 - [x] End to end: five packs published, clean-venv install and pull (CI job `hub-e2e`)
 - [ ] Going public: a public registry, the site and the PyPI release (the user's decision; logged)
 
-## Done: v0.4 Healthcare standards ([plan](../docs/plans/v0.4-healthcare-standards.md))
+## Done: v0.4 Healthcare standards ([plan](../notes/plans/v0.4-healthcare-standards.md))
 Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 - [x] Plan
 - [x] US Core validation of FHIR inputs (warn by default, enforce on request; HL7 validator in CI)
@@ -511,7 +511,7 @@ Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
   server); a `urn:uuid` input reference becomes `Type/id`. The `/api/…/fhir/decide` Task is
   unchanged: it is a standalone resource the client stores, where `Type/id` resolves
 
-## Done: Dashboard redesign ([`docs/ui-ux-review.md`](../docs/ui-ux-review.md))
+## Done: Dashboard redesign ([`notes/ui-ux-review.md`](../notes/ui-ux-review.md))
 Plan approved 2026-09-29 (8 PRs, about 10 working days); the user's decisions are in the plan's
 section 8 (both audiences, safety-first leaderboard, Playwright, admin-only evaluations with v0.6
 roles, feedback that captures the right answer, Eastern time everywhere people look).
@@ -606,7 +606,7 @@ roles, feedback that captures the right answer, Eastern time everywhere people l
   ignored); errors announced as alerts and shown 8 s, a failed view with "Try again"; report
   panels at h2 (was h1 -> h3); header rows on the card's question tables; `aria-current` on the
   active section; no focus rectangle on headings the app focuses. 8 new browser tests (62 in all).
-  QA report with the screenshots: https://claude.ai/artifact/GmDM3pEDMEEnYkb9GBcL4P (private).
+  The QA report with the screenshots was shared with the owner privately.
 - [x] Favicon (#54): `/favicon.ico` (16/32/48 px, from `favicon.svg` via `scripts/make-favicon.py`)
   ended the only 404 left in production after the redesign
   VoiceOver itself is for a person at the Mac (the report has a two-minute script)
@@ -766,8 +766,8 @@ latency and cost.
 ## Notes
 - Jev adapter: typed `choice` questions, ≤8 per call, 2–255 labels, probabilities must sum
   to 1, chosen label must be the argmax. Endpoint, model and key are deployment settings.
-- Mendari is fully separate from other projects: its own repo, Vercel project, connector
-  (`jev/openhealth-hub`), database and test containers. Nothing is shared.
+- Mendari is fully separate from other projects: its own repo, Vercel project, Jev connector,
+  database and test containers. Nothing is shared.
 - Core abstraction: a pack declares *questions* (labels + criteria). Providers answer questions
   with probability distributions. Policy turns answers into an outcome (ADR-0001).
 - Risk caps live in the runtime; level 2–3 AUTO needs a deployer's GovernanceOverride (ADR-0002).
@@ -784,9 +784,9 @@ latency and cost.
   (4 stat escalations, 10 in the review queue), exactly once.
 
 ### Deployed (2026-09-28)
-- Vercel project `openhealth-hub` (FastAPI function, Fluid compute, iad1), Neon Postgres
-  `openhealth-hub-db`, Jev via connector `jev/openhealth-hub` (`JEV_MODEL=jev-latest`, which
-  currently resolves to `jev-1.13.0`). Vercel Authentication on all deployments.
+- One Vercel project (a FastAPI function), Neon Postgres, Jev via a Vercel Connect connector
+  (`JEV_MODEL=jev-latest`, which then resolved to `jev-1.13.0`). Vercel Authentication on all
+  deployments.
 - Production smoke tests passed: live Jev routing, stat escalation, review persistence,
   audit chain, Jev eval (100% on local-site sample), CDS discovery, dashboard assets.
 

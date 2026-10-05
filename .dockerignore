@@ -9,4 +9,5 @@ var
 tests
 tasks
 docs
+notes
 *.db

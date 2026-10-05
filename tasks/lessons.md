@@ -80,8 +80,8 @@ Mendari's test database is `mendari_test` on 127.0.0.1:56432.
 ### What happened
 Before deploying I told the user that Vercel Authentication protected all deployments. The
 project setting was `all_except_custom_domains`, which exempts the production domain, so after
-the first production deploy `openhealth-hub-gray.vercel.app` served the unauthenticated app
-publicly for a few minutes. Audit and Jev usage showed no traffic from outside.
+the first production deploy the production domain served the unauthenticated app publicly for a
+few minutes. Audit and Jev usage showed no traffic from outside.
 
 ### Root cause
 I read the setting's name as "everything" without checking what counts as a "custom domain",
@@ -93,7 +93,7 @@ production and preview URL without credentials and expect a redirect to login. T
 must use `ssoProtection.deploymentType = "all"` while the app has no authentication of its own.
 
 ### Verification
-`curl -s -o /dev/null -w "%{http_code}" https://openhealth-hub-gray.vercel.app/api/health`
+An unauthenticated request for `/api/health` on the production domain and on each preview
 returns 302 (login), never 200.
 
 ## 2026-09-28 - architecture
@@ -327,7 +327,7 @@ checked.
 ## 2026-09-29 - process
 
 ### What happened
-Lifting the Jev daily limit, I patched Vercel env entry `hXL1behAMcHlzzTS` to `none` from
+Lifting the Jev daily limit, I patched a Vercel env entry, by an id I recalled, to `none` from
 memory. That entry was production's `MENDARI_PROVIDERS`, not the Jev limit. The running
 deployment was unaffected (env applies at deploy time), but the next production deploy would
 have failed at startup. The user restored it with me after the permission check stopped my

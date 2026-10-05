@@ -3,7 +3,7 @@
 A provider key is resolved in this order:
 
 1. An explicit environment variable, e.g. `JEV_API_KEY` (local development, tests).
-2. A Vercel Connect connector named by another variable, e.g. `JEV_CONNECTOR=jev/openhealth-hub`.
+2. A Vercel Connect connector named by another variable, e.g. `JEV_CONNECTOR=jev/my-project`.
    The deployment's Vercel OIDC token is exchanged for the provider key at Vercel's documented
    endpoint `POST https://api.vercel.com/v1/connect/token/{connector}` with subject `app`.
    Keys are cached in memory until shortly before they expire.

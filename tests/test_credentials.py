@@ -28,7 +28,7 @@ class FakeConnect:
 
 def connector(fake: FakeConnect, clock: list[float]) -> ConnectorToken:
     return ConnectorToken(
-        "jev/openhealth-hub",
+        "jev/my-project",
         client=httpx.Client(transport=httpx.MockTransport(fake)),
         oidc=lambda: OIDC,
         clock=lambda: clock[0],
@@ -40,7 +40,7 @@ def test_exchanges_the_deployment_identity_for_the_provider_key() -> None:
     assert connector(fake, [0.0]).get() == SECRET
     (request,) = fake.requests
     assert request.method == "POST"
-    assert str(request.url) == "https://api.vercel.com/v1/connect/token/jev%2Fopenhealth-hub"
+    assert str(request.url) == "https://api.vercel.com/v1/connect/token/jev%2Fmy-project"
     assert request.headers["authorization"] == f"Bearer {OIDC}"
     assert json.loads(request.content) == {"subject": {"type": "app"}}
 
@@ -74,7 +74,7 @@ def test_missing_oidc_token_is_a_credential_error() -> None:
     def no_oidc() -> str:
         raise ProviderError("credential_unavailable", "no Vercel OIDC token")
 
-    token = ConnectorToken("jev/openhealth-hub", oidc=no_oidc)
+    token = ConnectorToken("jev/my-project", oidc=no_oidc)
     with pytest.raises(ProviderError, match="credential_unavailable"):
         token.get()
 
@@ -83,13 +83,13 @@ def test_explicit_key_wins_and_sources_never_expose_values(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("JEV_API_KEY", SECRET)
-    monkeypatch.setenv("JEV_CONNECTOR", "jev/openhealth-hub")
+    monkeypatch.setenv("JEV_CONNECTOR", "jev/my-project")
     assert resolve_key(key_env="JEV_API_KEY", connector_env="JEV_CONNECTOR") == SECRET
     assert key_source(key_env="JEV_API_KEY", connector_env="JEV_CONNECTOR") == "env:JEV_API_KEY"
     monkeypatch.delenv("JEV_API_KEY")
     assert (
         key_source(key_env="JEV_API_KEY", connector_env="JEV_CONNECTOR")
-        == "vercel-connect:jev/openhealth-hub"
+        == "vercel-connect:jev/my-project"
     )
     monkeypatch.delenv("JEV_CONNECTOR")
     assert key_source(key_env="JEV_API_KEY", connector_env="JEV_CONNECTOR") is None

@@ -38,11 +38,9 @@ Each bullet is one control; the threat model names the row and the tests behind 
 
 - **Open by default.** Without an identity provider the server has no sign-in of its own.
   Locally it binds to `127.0.0.1`, and the docker sandbox publishes ports on localhost only. The
-  project's production deployment has sign-in on (Google, owner-only) and, until the launch,
-  also stays behind Vercel Authentication set to **all deployments** (`ssoProtection: all`). The
-  default, "all except custom domains", leaves the production domain public. External machine
-  callers, such as an EHR calling CDS Hooks, would need Protection Bypass for Automation there,
-  which is not set up.
+  project's own deployment has sign-in on and, until the launch, also stays behind Vercel
+  Authentication set to **all deployments**. If you deploy on Vercel yourself, note that the
+  default, "all except custom domains", leaves the production domain public.
 - **Sign-in and API keys.** Set `MENDARI_OIDC_ISSUER` and `MENDARI_OIDC_CLIENT_ID`, and every
   route needs a role (deny by default). Machines (an EHR calling CDS Hooks, a worker) use API
   keys, sent as `Authorization: Bearer ohk_…` and nowhere else: an `Authorization` header decides

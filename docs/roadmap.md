@@ -15,30 +15,30 @@ first** (the Hub only matters once it has five strong packs), **LLMs through Ver
 
 **Progress (2026-09-30):**
 - v0.1 ✅, v0.2 ✅, v0.3 ✅;
-- the dashboard redesign ([plan](ui-ux-review.md), 8 PRs) ✅, then the design grade phases A–C
+- the dashboard redesign ([plan][plan-dashboard], 8 PRs) ✅, then the design grade phases A–C
   (C+ → B+);
-- **v0.4 Healthcare standards ✅** ([plan](plans/v0.4-healthcare-standards.md), #66–#74): both
+- **v0.4 Healthcare standards ✅** ([plan][plan-v0.4], #66–#74): both
   exits run in CI on every change (`sandbox-e2e`).
 
-- **v0.5 The Hub ✅** ([plan](plans/v0.5-the-hub.md), #75–#82), built and verified: signed
+- **v0.5 The Hub ✅** ([plan][plan-v0.5], #75–#82), built and verified: signed
   archives, the registry, push and pull, shared reports and the website. A clean-venv install
   and pull runs in CI (`hub-e2e`). Going public (a public registry, the site, PyPI) waits for
   your decision.
 
-- **v0.6 Readiness for health organizations ✅** ([plan](plans/v0.6-org-readiness.md),
+- **v0.6 Readiness for health organizations ✅** ([plan][plan-v0.6],
   #83–#89): sign-in with the organization's identity provider, roles, API keys and tenancy;
   governance approvals and the deployment registry; monitoring with alerts; PHI mode; per-pack
   images and on-prem templates. The pilot runs in CI against a real OpenID Connect provider
   (`pilot-check`). Nothing is switched on in production, which stays behind Vercel
   Authentication.
 
-- **v0.7 Later standards ✅** ([plan](plans/v0.7-later-standards.md), #90–#95):
+- **v0.7 Later standards ✅** ([plan][plan-v0.7], #90–#95):
   - a CQL provider, with the trial criteria in CQL agreeing with `criteria` on every case;
   - OMOP CDM inputs with population reports;
   - Da Vinci CRD, DTR and PAS around the PA pack, each validated by the HL7 validator against
     its guide in CI.
 
-- **v1.0 Public open-source launch, built** ([plan](plans/v1.0-public-launch.md), #96–#101):
+- **v1.0 Public open-source launch, built** ([plan][plan-v1.0], #96–#101):
   - a security review (threat model; dependency audit and an OWASP ZAP scan in CI; headers);
   - the clinician's authoring guide and `mendari new`;
   - the docs site;
@@ -225,3 +225,11 @@ v0.2, planned in detail and approved before code is written.
 Each milestone's exit criteria are testable (commands, datasets, metrics). The roadmap counts
 as achieved when every goal-area row in the scorecard above is ✅ and the v1.0 exit criteria
 pass on a clean machine.
+
+<!-- The plans are project notes, kept in the repository outside the docs site. -->
+[plan-dashboard]: https://github.com/Junebugg1214/mendari/blob/main/notes/ui-ux-review.md
+[plan-v0.4]: https://github.com/Junebugg1214/mendari/blob/main/notes/plans/v0.4-healthcare-standards.md
+[plan-v0.5]: https://github.com/Junebugg1214/mendari/blob/main/notes/plans/v0.5-the-hub.md
+[plan-v0.6]: https://github.com/Junebugg1214/mendari/blob/main/notes/plans/v0.6-org-readiness.md
+[plan-v0.7]: https://github.com/Junebugg1214/mendari/blob/main/notes/plans/v0.7-later-standards.md
+[plan-v1.0]: https://github.com/Junebugg1214/mendari/blob/main/notes/plans/v1.0-public-launch.md

@@ -790,7 +790,7 @@ at load, so no pack can choose which secret is sent, or where.
 |---|---|
 | `JEV_API_URL` | Endpoint to call (required) |
 | `JEV_MODEL` | Model id (required; recorded in every answer's provenance) |
-| `JEV_CONNECTOR` | Vercel Connect connector that supplies the key, e.g. `jev/openhealth-hub` |
+| `JEV_CONNECTOR` | Vercel Connect connector that supplies the key, e.g. `jev/my-project` |
 | `JEV_API_KEY` | Key for local use instead of a connector |
 | `MENDARI_JEV_DAILY_LIMIT` | Daily call budget (default 500; `none` for no limit) |
 
@@ -904,7 +904,8 @@ src/mendari/
 └── sandbox/     synthetic data generator, FHIR seed/worker, demo
 packs/           reference Decision Packs
 datasets/        example "local site" dataset for validation
-docs/            spec, architecture, ADRs
+docs/            spec, guides, architecture, ADRs (the documentation site)
+notes/           project notes: milestone plans, design and audit reviews, the build log
 ```
 
 ## Development
