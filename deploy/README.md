@@ -17,7 +17,8 @@ Images are published to GitHub Container Registry when a release is tagged (`v*`
 build your own until then: `docker build --build-arg PACK=mendari/referral-router .`.
 
 The image installs exactly the dependencies in `uv.lock`, on a base image pinned by digest.
-**Deploy by digest, not by tag**: `ghcr.io/junebugg1214/mendari-engine:v0.6.0@sha256:<digest>`
-(`docker buildx imagetools inspect <image>:<tag>` shows it), in `MENDARI_IMAGE` for docker
+**Deploy by digest, not by tag**: `ghcr.io/junebugg1214/mendari-engine:v0.1.0@sha256:<digest>`
+(a release's tag is `v` and the package version, so the first is `v0.1.0`; `docker buildx
+imagetools inspect <image>:<tag>` shows the digest), in `MENDARI_IMAGE` for docker
 compose and in both `image:` fields for Kubernetes. A tag can be pushed again; a digest always
 names the same image you tested.

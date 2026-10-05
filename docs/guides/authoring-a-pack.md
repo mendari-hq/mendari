@@ -5,8 +5,11 @@ check it: the questions you would ask, what each answer means, when a person mus
 evidence that it works. You write it in YAML, a plain-text format, with no programming. This guide
 builds a small pack that routes patient portal messages, one step at a time, in about 30 minutes.
 
-You need Mendari installed (`pip install mendari`, or `uv sync` in a checkout) and a text
-editor. Every command is run in a terminal.
+You need Mendari installed and a text editor. Until the first release is on PyPI, install it
+from a clone of the repository (`git clone https://github.com/Junebugg1214/mendari.git`, then
+`uv sync` in it and put `uv run` before each command below, or `pip install .` in it); after
+that, `pip install mendari`. Every command is run in a terminal. Your pack can live in any
+folder: commands take its path, and `MENDARI_PACKS_PATH` lets `mendari serve` find it.
 
 ## 1. Start from the template
 

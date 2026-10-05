@@ -48,9 +48,43 @@ Clinical/EHR data (FHIR R4, CDS Hooks, REST)
 | Synthetic healthcare dataset | [`src/mendari/sandbox/synthetic_inbox.py`](src/mendari/sandbox/synthetic_inbox.py), [`synthetic_trial.py`](src/mendari/sandbox/synthetic_trial.py), [`synthetic_referral.py`](src/mendari/sandbox/synthetic_referral.py), [`synthetic_prior_auth.py`](src/mendari/sandbox/synthetic_prior_auth.py), [`synthetic_guard.py`](src/mendari/sandbox/synthetic_guard.py) |
 | Dashboard | `mendari serve` → http://127.0.0.1:8000: every pack on the search path. Overview, a review queue by priority, the audit trail with each record in a drawer, evaluations (provider leaderboard, benchmark report with charts, runs on your datasets), feedback with the right answer, the Decision Card, and Try it (a form for every pack, generated from its input schema for record packs, starting from the pack's behaviour tests, with the JSON one click away). Light and dark themes; times in the deployment's time zone (US Eastern by default). |
 
+## Install
+
+Mendari is not on PyPI yet: `pip install mendari` will work from the first release, 0.1.0.
+Until then, install it from a clone of this repository. You need Python 3.11+, and for
+development [uv](https://docs.astral.sh/uv/):
+
+```bash
+git clone https://github.com/Junebugg1214/mendari.git
+cd mendari
+uv sync                          # the package, the server, and the test and lint tools
+```
+
+Without uv, in the clone, into any Python 3.11+ virtual environment:
+
+```bash
+pip install .                    # the library and the `mendari` command
+pip install '.[server]'          # with the `server` extra: `mendari serve` and `registry serve`
+```
+
+The `server` extra adds uvicorn, which `mendari serve`, `mendari registry serve` and the
+sandbox payer need; `uv sync` includes it. Vercel runs the ASGI app directly and needs no extra.
+
+**Where packs come from.** Every command that takes a pack (`list`, `test`, `serve`,
+`Decision.from_hub`, ...) looks in this order:
+
+1. the folders in `MENDARI_PACKS_PATH`, separated by `:` (`;` on Windows), each searched for
+   `pack.yaml` files up to four levels deep;
+2. packs pulled from a registry (`mendari pull`, verified, cached in `~/.cache/mendari/packs`);
+3. the reference packs that come with Mendari (`packs/` in a clone).
+
+A pack directory works anywhere too: `mendari test ./my-pack`. To serve your own packs, point
+the path at them: `MENDARI_PACKS_PATH=./my-packs uv run mendari serve`. On a server,
+`MENDARI_PACKS` (comma-separated ids) narrows what is served to the packs it names.
+
 ## Quickstart
 
-Requires Python 3.11+ and [uv](https://docs.astral.sh/uv/).
+In the clone, with uv ([Install](#install)):
 
 ```bash
 uv sync
@@ -508,13 +542,17 @@ below). Every security setting, with its default, is in
 Packs travel as **signed archives**. A registry keeps them with **immutable versions**, and anyone
 can pull and verify them:
 
+Anyone with Mendari installed ([Install](#install); `pip install mendari` once 0.1.0 is on
+PyPI) can pull from a registry they name with `mendari login --registry URL` or
+`MENDARI_REGISTRY_URL`. There is no public registry yet; the docker sandbox runs one.
+
 ```bash
 mendari keys generate --out keys/                           # a publisher key pair (Ed25519)
 mendari login --registry https://hub.example.org --token <publisher token>
 mendari keys register --namespace my-site --public-key keys/publisher.pub
 mendari push packs/my-pack --key keys/publisher.key          # build, sign, publish
 
-pip install mendari && mendari pull mendari/referral-router            # anyone
+mendari pull mendari/referral-router                         # anyone, from that registry
 mendari search referral --standard "CDS Hooks"
 mendari eval mendari/referral-router --dataset local.jsonl --share "My site"
 ```
