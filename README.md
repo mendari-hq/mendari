@@ -736,7 +736,8 @@ instruction that Jev or an LLM receives. The policy then turns answers into an o
    destinations), review ≥ 0.50, abstain below.
 3. **Caps that only reduce automation:** per-label limits, any provider failure, a provider the
    policy requires not running (`automation_requires`: the inbox, referral and AI Guard screens
-   and the prior-auth notes must include a model), and the risk level.
+   and the prior-auth notes must be the keyword rules plus a model, `rules_and_jev` or
+   `rules_and_llm`), and the risk level.
 
 ### Risk levels are enforced by the runtime
 
@@ -839,8 +840,8 @@ at load, so no pack can choose which secret is sent, or where.
 | `MENDARI_JEV_DAILY_LIMIT` | Daily call budget (default 500; `none` for no limit) |
 
 ```bash
-JEV_API_URL=... JEV_MODEL=... JEV_API_KEY=... \
-  uv run mendari eval mendari/patient-inbox-router --dataset test --provider router=jev
+JEV_API_URL=... JEV_MODEL=... JEV_API_KEY=... uv run mendari eval mendari/patient-inbox-router \
+  --dataset test --provider safety_screen=rules_and_jev --provider router=cascade
 ```
 
 **With Jev set up, a server runs Mendari + Jev.** When `JEV_API_URL`, `JEV_MODEL` and a key
@@ -851,30 +852,32 @@ reference packs that automate under their own policy with Jev beside the keyword
 | Pack | Slots |
 |---|---|
 | Patient Inbox Router | `safety_screen=rules_and_jev`, `router=cascade` (naive Bayes, and Jev when it is unsure) |
-| Referral Router | `triage_screen=rules_and_jev`, `specialty_reader=jev` |
+| Referral Router | `triage_screen=rules_and_jev`, `specialty_reader=cascade` (naive Bayes, and Jev when it is unsure) |
 | Prior Auth Preflight | `notes=rules_and_jev` |
 
-Their policies automate only while a model reads the screen (`automation_requires`), and the
-rules answer beside it, so a possible emergency is still flagged when Jev cannot answer. The
-referral specialty is Jev's because on the held-out and local-site referrals it is right more
-often than naive Bayes. The Clinical Trial Prescreener and AI Guard are not on the list: at risk
+Their policies automate only while the screen is the keyword rules plus a model
+(`automation_requires`), so a possible emergency is still flagged when Jev cannot answer. The
+routers ask Jev only when naive Bayes is unsure, and keep naive Bayes' answer when Jev cannot
+give one. The Clinical Trial Prescreener and AI Guard are not on the list: at risk
 level 2 automation rests on an approval of the configuration that runs, so name their readers
 yourself (`mendari/clinical-trial-prescreener:notes=jev`, `mendari/ai-guard:screen=rules_and_llm`).
 
 - `MENDARI_PROVIDERS` decides every slot it applies to, e.g. `notes=rules` keeps the
   prior-auth notes on site (and its policy then automates nothing). `mendari serve --provider`
   replaces `MENDARI_PROVIDERS`, as before; the defaults fill the slots it leaves.
-- When Jev fails or is over its daily budget, nothing is automated: the inbox still routes with
-  naive Bayes; a referral without a specialty goes to the referral office as today. The budget
+- When Jev fails or is over its daily budget, nothing is automated, and every case still gets
+  the team or specialty naive Bayes suggests. The budget
   (`MENDARI_JEV_DAILY_LIMIT`, default 500) is shared by the three packs and by the dashboard's
   evaluations (up to 200 calls a run): size it for their daily volume.
 - Commands that decide or evaluate (`decide`, `test`, `eval`, `leaderboard`, `demo`, the
   reference-pack build) never use these defaults. A server's own evaluations (the dashboard's,
   `POST /api/packs/…/evals`) run its deployed providers, Jev included.
 - `/api/health` says whether the defaults are on (`jev.defaults`), which variant every slot
-  runs (`providers`), and which slots are configured without a model although their pack
-  offers one (`without_model`); the dashboard's overview says so too. That Jev answers shows in
-  `jev.calls_today` and in the decisions' errors.
+  runs (`providers`), and which slots run no model at all although their pack offers one
+  (`without_model`); the dashboard's overview says so too. A screen with a model but without the
+  rules (`safety_screen=jev`) is not listed, but it does not meet `automation_requires` either:
+  each decision's reasons name what is missing. That Jev answers shows in `jev.calls_today` and
+  in the decisions' errors.
 - Upgrading a deployment that already had Jev set up for some slots: it now also runs Jev in
   the slots above that its settings leave. Name a slot to keep it as it was.
 

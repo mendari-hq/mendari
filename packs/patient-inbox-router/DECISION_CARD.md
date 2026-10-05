@@ -8,14 +8,14 @@
 |---|---|
 | Risk level | **0**, administrative |
 | Automation | AUTO permitted by policy thresholds. Only while `safety_screen` is `rules_and_jev` or `rules_and_llm`; otherwise a person reviews. |
-| Pack digest | `sha256:ddf2076eedd1f4c7aabbc4624149ef3c9ac9a9ea756f03cb8fd30008dfd0b157` |
+| Pack digest | `sha256:e93267a3f04709af9f3e2897d3162cab48761db060e9655b06c8714fd030df45` |
 | Last validation | 2026-10-05 on `test` (n=600, sha256 `2997856d17a5…`) |
 
 ## Intended use
 
 First-pass routing of incoming patient portal or SMS messages in an outpatient primary-care practice, with an explicit escalation path for messages that may describe an emergency.
 
-**Why risk level 0:** The decision is which team reads a message first. The pack never replies to patients or makes a clinical judgement. A misroute delays a message but does not by itself change care, and messages that may describe an emergency are never auto-routed: a deterministic screen always sends them to a nurse for stat human review.
+**Why risk level 0:** The decision is which team reads a message first. The pack never replies to patients or makes a clinical judgement. A misroute delays a message but does not by itself change care. A message the urgency screen flags as a possible emergency is never auto-routed: it goes to a nurse for stat human review. Nothing is automated unless a model screens beside the keyword rules, which miss emergencies phrased in ways they do not list.
 
 ## Intended users
 
@@ -102,7 +102,7 @@ Benchmark `test` (n=600) with safety_screen=`rules`, router=`naive_bayes`:
 | Accuracy of AUTO decisions | n/a |
 | False automation rate | n/a |
 | Expected human override rate | 0.5% |
-| Latency p50 / p95 | 0.15 / 0.23 ms |
+| Latency p50 / p95 | 0.15 / 0.26 ms |
 | Cost per decision | $0.00000 |
 | Critical `urgency=urgent` | 23/23 detected, 0 automated |
 

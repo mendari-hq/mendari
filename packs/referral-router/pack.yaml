@@ -1,6 +1,6 @@
 spec_version: "0.2"
 id: mendari/referral-router
-version: 0.1.1
+version: 0.1.2
 name: Referral Router
 summary: >-
   Reads a specialty referral as it is signed: suggests the specialty, spots referrals that
@@ -194,6 +194,20 @@ providers:
         type: llm
         reasoning_effort: low
         state_fields: [referral.reason, patient.age]
+      cascade:
+        # Naive Bayes answers when it is at least 95% sure; otherwise Jev is asked. If Jev cannot
+        # answer, naive Bayes' answer is used and nothing is automated.
+        type: cascade
+        accept_at: 0.95
+        members:
+          naive_bayes:
+            type: naive_bayes
+            model_file: models/specialty-nb.json
+            text_fields: [referral.reason]
+          jev:
+            type: jev
+            timeout_ms: 5000
+            state_fields: [referral.reason, patient.age]
   triage_screen:
     answers: [urgency, clear_question]
     # Offline default; deployments should add a model (see known_failure_modes).

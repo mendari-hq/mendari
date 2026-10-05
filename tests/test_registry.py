@@ -78,7 +78,7 @@ def test_a_signed_pack_is_published_once_and_read_back(registry: Registry) -> No
     body = published.json()
     assert (body["id"], body["version"], body["digest"]) == (
         "mendari/referral-router",
-        "0.1.1",
+        REFERRAL.version,
         REFERRAL.digest,
     )
     assert body["risk"] == {"level": 1, "category": "clinical information"}
@@ -87,13 +87,13 @@ def test_a_signed_pack_is_published_once_and_read_back(registry: Registry) -> No
     again = registry.publish()
     assert again.status_code == 409 and "immutable" in again.text
     pack = registry.client.get("/v1/packs/mendari/referral-router").json()
-    assert pack["versions"] == ["0.1.1"] and pack["latest"]["digest"] == REFERRAL.digest
+    assert pack["versions"] == [REFERRAL.version] and pack["latest"]["digest"] == REFERRAL.digest
 
 
 def test_the_archive_downloads_byte_for_byte(registry: Registry) -> None:
     data = archive.build(REFERRAL, registry.key)
     registry.publish()
-    response = registry.client.get("/v1/packs/mendari/referral-router/0.1.1/archive")
+    response = registry.client.get(f"/v1/packs/mendari/referral-router/{REFERRAL.version}/archive")
     assert response.content == data
     assert response.headers["x-archive-sha256"] == hashlib.sha256(data).hexdigest()
 
@@ -179,7 +179,7 @@ def test_sites_share_metrics_and_compare_with_the_benchmark(
     registry.publish()
     report = json.loads((REFERRAL.root / "evals" / "benchmark.json").read_text())
     publisher = {"authorization": f"Bearer {registry.token}"}
-    path = "/v1/packs/mendari/referral-router/0.1.1/reports"
+    path = f"/v1/packs/mendari/referral-router/{REFERRAL.version}/reports"
     assert registry.client.post(path, json={"site": "site-a", "report": report}).status_code == 401
     shared = registry.client.post(
         path, json={"site": "Site A", "report": report}, headers=publisher
@@ -195,7 +195,7 @@ def test_sites_share_metrics_and_compare_with_the_benchmark(
     )
     compared = registry.client.get("/v1/packs/mendari/referral-router/reports").json()
     assert [s["site"] for s in compared["sites"]] == ["Site A"]
-    assert compared["benchmark"]["0.1.1"]["accuracy"] is not None
+    assert compared["benchmark"][REFERRAL.version]["accuracy"] is not None
     with RegistryStore(db_target) as store, store._db.session(exclusive=False) as db:
         stored = db.one("SELECT report FROM hub_reports")
     assert stored is not None and "misclassified" not in stored["report"]  # only the shareable part
@@ -258,7 +258,11 @@ def test_an_over_long_version_is_refused_and_search_keeps_working(
     huge = "1" + "0" * 4400 + ".0.0"
     root = tmp_path / "pack"
     shutil.copytree(REFERRAL.root, root)
-    manifest = (root / "pack.yaml").read_text().replace("version: 0.1.1", f"version: '{huge}'", 1)
+    manifest = (
+        (root / "pack.yaml")
+        .read_text()
+        .replace(f"version: {REFERRAL.version}", f"version: '{huge}'", 1)
+    )
     (root / "pack.yaml").write_text(manifest)
     signed = Pack(
         manifest=REFERRAL.manifest.model_copy(update={"version": huge}),

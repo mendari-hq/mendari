@@ -391,6 +391,18 @@ def create_app(
                 chosen[slot] = variant
         return chosen, skipped
 
+    # Say once, at startup, which slots the Jev defaults turn on: ids and variant names only.
+    filled = []
+    for pack in packs.values():
+        chosen = variants_for(pack)[0]
+        named = providers_for(
+            pack.id, {s: set(v.variants) for s, v in pack.manifest.providers.items()}, overrides
+        )[0]
+        filled += [f"{pack.id} {slot}={chosen[slot]}" for slot in sorted(set(chosen) - set(named))]
+    if filled:
+        level = logging.INFO if phi.mode == "off" else logging.WARNING
+        providers_logger.log(level, "Jev is set up; its defaults run %s", ", ".join(sorted(filled)))
+
     def decision_for(pack_id: str) -> Decision:
         if pack_id not in decisions:
             pack = pack_or_404(pack_id)
@@ -1650,6 +1662,7 @@ def error_response(path: str, status: int, error: MendariError) -> JSONResponse:
 
 
 quota_logger = logging.getLogger("mendari.limits")
+providers_logger = logging.getLogger("mendari.providers")
 
 
 def log_event(request: Request, name: str, **fields: Any) -> None:

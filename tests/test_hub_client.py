@@ -28,6 +28,7 @@ from mendari.sandbox import example_datasets_dir
 
 ADMIN = "admin-token-for-tests"
 REFERRAL_DIR = resolve_pack("mendari/referral-router").root
+SHIPPED = load_pack(REFERRAL_DIR).version  # the referral pack as it ships
 
 
 def free_port() -> int:
@@ -80,13 +81,13 @@ def hub(tmp_path: Path) -> Iterator[Hub]:
     thread.join(timeout=5)
 
 
-def copy_pack(tmp_path: Path, pack_id: str, version: str = "0.1.1") -> Pack:
+def copy_pack(tmp_path: Path, pack_id: str, version: str = SHIPPED) -> Pack:
     """The referral pack under another id (and version): a pack no search path has."""
     target = tmp_path / "packs" / pack_id.replace("/", "-") / version
     shutil.copytree(REFERRAL_DIR, target)
     manifest = (target / "pack.yaml").read_text()
     manifest = manifest.replace("id: mendari/referral-router", f"id: {pack_id}", 1)
-    manifest = manifest.replace("version: 0.1.1", f"version: {version}", 1)
+    manifest = manifest.replace(f"version: {SHIPPED}", f"version: {version}", 1)
     (target / "pack.yaml").write_text(manifest)
     return load_pack(target)
 
@@ -98,7 +99,7 @@ def test_push_then_pull_verifies_and_caches(hub: Hub, tmp_path: Path) -> None:
     assert published["digest"] == pack.digest
     pulled = pull("site-a/referrals", hub.client())
     assert (pulled.id, pulled.version, pulled.digest) == (pack.id, pack.version, pack.digest)
-    assert pulled.root == client.packs_cache() / "site-a" / "referrals" / "0.1.1"
+    assert pulled.root == client.packs_cache() / "site-a" / "referrals" / SHIPPED
     assert resolve_pack("site-a/referrals").digest == pack.digest  # the cache is on the search path
 
 
@@ -109,7 +110,7 @@ def test_a_cached_pack_is_not_downloaded_again(
     hub.client(token).push(copy_pack(tmp_path, "site-a/referrals"), key)
     pull("site-a/referrals", hub.client())
     monkeypatch.setattr(RegistryClient, "archive", lambda *a: pytest.fail("downloaded again"))
-    assert pull("site-a/referrals@0.1.1", hub.client()).version == "0.1.1"
+    assert pull(f"site-a/referrals@{SHIPPED}", hub.client()).version == SHIPPED
 
 
 def test_an_archive_that_is_not_the_recorded_one_is_refused(
@@ -178,7 +179,7 @@ def test_a_registry_cannot_choose_where_a_pull_writes(tmp_path: Path, version: s
 
 def test_a_registry_cannot_serve_one_version_as_another(tmp_path: Path) -> None:
     registry = HostileRegistry(tmp_path)
-    registry.version = "9.9.9"  # a valid version, but the signed archive is 0.1.1
+    registry.version = "9.9.9"  # a valid version, but not the signed archive's
     with registry.client() as hostile, pytest.raises(HubError, match="is not mendari/referral"):
         pull("mendari/referral-router", hostile)
     assert not (client.packs_cache() / "mendari" / "referral-router" / "9.9.9").exists()
@@ -228,7 +229,7 @@ def test_the_cli_logs_in_pushes_searches_and_pulls(
     pack = copy_pack(tmp_path, "site-a/referrals")
     assert main(["push", str(pack.root), "--key", str(key_file)]) == 0
     assert main(["search", "specialty"]) == 0
-    assert "site-a/referrals@0.1.1" in capsys.readouterr().out
+    assert f"site-a/referrals@{SHIPPED}" in capsys.readouterr().out
     assert main(["pull", "site-a/referrals"]) == 0
     assert "verified and cached" in capsys.readouterr().out
     assert main(["search", "--json", "--risk", "4"]) == 0

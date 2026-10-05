@@ -16,8 +16,9 @@ risk:
   rationale: >-
     The decision is which team reads a message first. The pack never replies to patients or
     makes a clinical judgement. A misroute delays a message but does not by itself change
-    care, and messages that may describe an emergency are never auto-routed: a deterministic
-    screen always sends them to a nurse for stat human review.
+    care. A message the urgency screen flags as a possible emergency is never auto-routed: it
+    goes to a nurse for stat human review. Nothing is automated unless a model screens beside
+    the keyword rules, which miss emergencies phrased in ways they do not list.
 
 card:
   intended_use: >-

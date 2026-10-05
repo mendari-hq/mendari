@@ -111,13 +111,13 @@ def parse_providers(values: Sequence[str] | None) -> dict[str, str]:
 # With Jev set up, a server runs the reference packs that automate under their own policy (risk
 # levels 0-1) as Mendari + Jev: each policy's `automation_requires` asks for a model in its
 # screen, and Jev reads there beside the keyword rules, so the rules still answer when Jev
-# cannot. The inbox routes with naive Bayes and asks Jev when unsure (`cascade`); the referral
-# specialty is Jev's (on held-out and local-site referrals it is right more often than naive
-# Bayes). At risk level 2 (the trial prescreener, AI Guard) automation rests on an approval of
-# the configuration that runs, so a deployment names those packs' readers itself.
+# cannot. The inbox's router and the referral's specialty reader are naive Bayes, asking Jev when
+# unsure (`cascade`): when Jev cannot answer, they still suggest a team or a specialty. At risk
+# level 2 (the trial prescreener, AI Guard) automation rests on an approval of the
+# configuration that runs, so a deployment names those packs' readers itself.
 JEV_DEFAULTS: dict[str, dict[str, str]] = {
     "mendari/patient-inbox-router": {"safety_screen": "rules_and_jev", "router": "cascade"},
-    "mendari/referral-router": {"triage_screen": "rules_and_jev", "specialty_reader": "jev"},
+    "mendari/referral-router": {"triage_screen": "rules_and_jev", "specialty_reader": "cascade"},
     "mendari/prior-auth-preflight": {"notes": "rules_and_jev"},
 }
 

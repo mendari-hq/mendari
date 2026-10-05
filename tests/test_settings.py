@@ -1,16 +1,21 @@
 from __future__ import annotations
 
 import json
+import logging
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from mendari import Decision
 from mendari.cli import main
 from mendari.core.registry import discover
 from mendari.errors import MendariError
+from mendari.evals.pack_tests import load_cases
 from mendari.providers import jev, slots_without_model
 from mendari.providers.jev import JevProvider
 from mendari.server.app import create_app
@@ -124,10 +129,15 @@ def test_a_jev_setting_that_could_never_work_stops_the_server_at_startup(
 
 
 def test_with_jev_set_up_a_server_runs_mendari_and_jev(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     set_up_jev(monkeypatch, JEV_API_KEY="test-key")
-    health = served(tmp_path)
+    with caplog.at_level(logging.INFO, logger="mendari.providers"):
+        health = served(tmp_path)
+    # Said once at startup: which slots the defaults turn on, by id and variant only.
+    (started,) = [r for r in caplog.records if r.name == "mendari.providers"]
+    assert "mendari/referral-router specialty_reader=cascade" in started.getMessage()
+    assert "mendari/clinical-trial-prescreener" not in started.getMessage()
     for pack, slots in JEV_DEFAULTS.items():
         assert {slot: health["providers"][pack][slot] for slot in slots} == slots, pack  # type: ignore[index]
     assert health["provider_settings_skipped"] == {}
@@ -149,7 +159,10 @@ def test_each_jev_default_is_what_its_pack_needs_to_automate_with_the_rules_besi
     packs = {pack.id: pack for pack in discover().packs}
     assert JEV_DEFAULTS == {
         "mendari/patient-inbox-router": {"safety_screen": "rules_and_jev", "router": "cascade"},
-        "mendari/referral-router": {"triage_screen": "rules_and_jev", "specialty_reader": "jev"},
+        "mendari/referral-router": {
+            "triage_screen": "rules_and_jev",
+            "specialty_reader": "cascade",
+        },
         "mendari/prior-auth-preflight": {"notes": "rules_and_jev"},
     }
     for pack_id, slots in JEV_DEFAULTS.items():
@@ -162,6 +175,31 @@ def test_each_jev_default_is_what_its_pack_needs_to_automate_with_the_rules_besi
                 assert variant in manifest.policy.automation_requires[slot], (pack_id, slot)
                 members = (spec.model_extra or {})["members"].values()
                 assert {"rules", "jev"} <= {member["type"] for member in members}, (pack_id, slot)
+
+
+def test_when_jev_cannot_answer_the_defaults_still_suggest_and_automate_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A Jev outage or an exhausted budget: every case of each pack's behaviour tests gets the
+    suggestion the offline readers give, and none is automated."""
+    set_up_jev(monkeypatch, JEV_API_KEY="test-key")
+    down = httpx.MockTransport(lambda request: httpx.Response(503))
+    original = JevProvider.__init__
+
+    def unreachable(self: JevProvider, *args: Any, **kwargs: Any) -> None:
+        original(self, *args, **{**kwargs, "client": httpx.Client(transport=down)})
+
+    monkeypatch.setattr(JevProvider, "__init__", unreachable)
+    packs = {pack.id: pack for pack in discover().packs}
+    for pack_id, slots in JEV_DEFAULTS.items():
+        pack = packs[pack_id]
+        defaults, offline = Decision(pack, providers=slots), Decision(pack)
+        for case in load_cases(pack):
+            jev_down, floor = defaults(case["input"]), offline(case["input"])
+            assert jev_down.outcome.value != "AUTO", (pack_id, case.get("name"))
+            if floor.recommendation is not None:
+                assert jev_down.recommendation is not None, (pack_id, case.get("name"))
+                assert jev_down.priority == floor.priority, (pack_id, case.get("name"))
 
 
 def test_without_jev_nothing_changes(tmp_path: Path) -> None:

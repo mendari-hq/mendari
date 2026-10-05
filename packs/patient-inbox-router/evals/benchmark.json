@@ -1,11 +1,11 @@
 {
   "format": "mendari.eval/1",
-  "id": "b4641ca8-2a64-4f6e-a493-ef9642b4f251",
-  "created_at": "2026-10-05T12:43:17+00:00",
+  "id": "bb8c34fc-4a11-4eda-839a-1d31f7487084",
+  "created_at": "2026-10-05T18:00:29+00:00",
   "pack": {
     "id": "mendari/patient-inbox-router",
     "version": "0.4.0",
-    "digest": "sha256:ddf2076eedd1f4c7aabbc4624149ef3c9ac9a9ea756f03cb8fd30008dfd0b157"
+    "digest": "sha256:e93267a3f04709af9f3e2897d3162cab48761db060e9655b06c8714fd030df45"
   },
   "providers": {
     "safety_screen": {
@@ -315,10 +315,10 @@
     }
   ],
   "latency_ms": {
-    "mean": 0.1760820190732678,
-    "p50": 0.15404121950268745,
-    "p95": 0.23320922628045082,
-    "max": 9.093166328966618
+    "mean": 0.17881825799122453,
+    "p50": 0.1527080312371254,
+    "p95": 0.2647917717695236,
+    "max": 8.278708904981613
   },
   "cost": {
     "total_usd": 0.0,
