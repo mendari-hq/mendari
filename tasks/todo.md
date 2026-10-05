@@ -2,6 +2,167 @@
 
 Roadmap to the full goal: [`docs/roadmap.md`](../docs/roadmap.md).
 
+## Plan: community packs through pull requests (2026-10-04)
+Make the repository public so outside developers can contribute packs by pull request. Plan from
+three research reports on `b00e2809` (public repo, contribution flow, shipping and the bar).
+**Owner decisions (2026-10-04):** community packs live in `community-packs/<name>/` with ids
+`community/<name>`; they are served live but **recommend only** (never AUTO, local providers
+only); risk level **≤ 1**; contributions are signed off under the **DCO** (`git commit -s`, the
+DCO app); the owner's gmail address on five old commits on `main` (and PR refs #1–7) is accepted,
+and GitHub's email push protection goes on. Location is the trust label, never the manifest.
+
+**Part A: before the repository goes public.** Build items on branch `claude/public-prep`.
+- [ ] **A1 (owner)** Accept the gmail address in history; turn on "Block command line pushes
+  that expose my email" (owner steps below).
+- [x] **A2** The sdist holds only `src/` (with the vendored docs UI), `packs/`, `datasets/`,
+  `tests/`, README, LICENSE and pyproject (`[tool.hatch.build.targets.sdist]`);
+  `scripts/check_sdist.py` fails on anything else, in CI (`hub-e2e`, which now installs the wheel
+  built from the sdist) and in `release.yml`; `tests/test_packaging.py`.
+- [x] **A3** Internal notes (the milestone plans, the dashboard design review and grade, the FHIR
+  and docs audit, the overnight log) moved from `docs/` to `notes/`, outside the docs site, the
+  sdist, the image and the function bundle; links updated. Production specifics scrubbed from the
+  tree (host, curl check, env record id, project, database and connector names, region,
+  registrar, a private artifact URL, the audit's production values). History keeps them.
+- [x] **A4 (build part)** Security and conduct reports go through GitHub private vulnerability
+  reporting (SECURITY.md, CODE_OF_CONDUCT.md, GOVERNANCE.md, the issue chooser). No e-mail
+  address is published. Turning the form on is A10.
+- [x] **A5** `packs.yml` takes pack directories NUL-separated (`scripts/changed_packs.py`, `git
+  diff -z`), nested packs included, and passes them by argv only; `.github/CODEOWNERS`;
+  `images.yml` read-only by default, `packages: write` and a `ghcr` environment on its job; a
+  `secrets` job in `ci.yml` (gitleaks v8.30.1 pinned by digest, full history, one allowance for
+  `deploy/onprem/.env.example`); `tests/test_workflow_safety.py` holds the fork-PR rules.
+- [x] **A6** README "Install" (from a clone until 0.1.0 is on PyPI; the `server` extra;
+  `MENDARI_PACKS_PATH` and `MENDARI_PACKS`); no `pip install mendari && mendari pull` promise;
+  `mendari new` prints the guide's URL; example image tags `v0.1.0` (the package version).
+- [ ] **A7 (owner)** Repository homepage and description.
+- [ ] **A8 (owner, Vercel)** Fork protection kept, Preview env cleanup, bypass secret, Neon
+  preview branches.
+- [ ] **A9 (owner)** Make the repository public.
+- [ ] **A10 (owner)** Private vulnerability reporting, secret scanning with push protection,
+  Dependabot, CodeQL, fork-PR approval for first-time contributors.
+- [ ] **A11 (owner, then build)** Protected `pypi` and `ghcr` environments, a `v*` tag ruleset,
+  the PyPI trusted publisher; then 0.1.0 and the docs on GitHub Pages (a deploy workflow is a
+  later PR), and the README's install line switches to `pip install mendari`.
+
+**Part B: the contribution flow** (a later PR; B1–B5 before B9; order B1 → B2 → B4 → B5 → B3 →
+B6/B7 → B8 → B9 → B10).
+- [ ] **B1 Origin-aware loading.** `search_paths()` returns (path, origin): `maintained`,
+  `community`, `hub`, `local`. `community-packs/` is searched only with
+  `MENDARI_COMMUNITY_PACKS=on` (default off: the wheel and self-hosters are unaffected). A
+  community pack sits exactly at `community-packs/<name>/pack.yaml` with id `community/<name>`;
+  anything else is `invalid`. A taken id never replaces another pack, whatever its version: both
+  are reported and the maintained one kept. `mendari/` and `openhealth/` are reserved to
+  `packs/`. Tests in `tests/test_community_packs.py`.
+- [ ] **B2 Policy and spend.** A community pack is capped at HUMAN_REVIEW in `core/policy.py`
+  (recommend only; ADR-0002: policy only lowers automation). Unscoped provider settings skip
+  community packs; only `community/<name>:slot=variant` applies. A community pack's pinned
+  `model` and `max_tokens` give way to the deployment's.
+- [ ] **B3 Labels everywhere.** "Community · not clinically reviewed" by origin on `/api/packs`,
+  `/api/packs/{id}`, `/api/health` (packs by origin), the dashboard picker and card header, Try
+  it, the Decision Card, CDS Hooks discovery and each card's `source.label`. The dashboard's
+  default pack is the first maintained one. `publisher.type` shown as self-declared. Tokens only;
+  contrast tests extended.
+- [ ] **B4 `mendari community-check`** (and `scripts/community_check.py`, shared by the CLI and
+  CI): scope, identity, manifest policy (`license: Apache-2.0`, `publisher.type: community`,
+  `store_input: hash`, local providers, no pinned model, `degradation_tolerance` ≤ 0.05, risk
+  level ≤ 1), correctness, evaluation floors (critical detection ≥ 0.9, no critical case
+  automated, ≥ 5 benchmark cases per critical label), the benchmark and card regenerated and
+  compared, a retrained model byte-identical, the regex probe, size caps (2 MB, 200 files),
+  version and CHANGELOG against the digest, PHI heuristics as warnings. A unit test per rule.
+- [ ] **B5 CI.** One always-running, required `pack-check` job (exits 0 with "no pack changes"),
+  pack directories from `git diff -z`, covering `packs/` (the existing gate) and
+  `community-packs/`; a PR that touches a community pack and anything outside one
+  `community-packs/<name>/` fails unless the owner wrote it. `ci.yml` runs `mendari test` on
+  every community pack. No `pull_request_target`, no secrets.
+- [ ] **B6 Scaffold.** `mendari new --community` writes the community defaults.
+- [ ] **B7 Docs and templates.** `docs/guides/contributing-a-pack.md` (the flow, synthetic data
+  without Python, `ABSTAIN` carries no recommendation, a risk-level table with the inbox router
+  as the level-0 precedent, a pattern guide); `.github/PULL_REQUEST_TEMPLATE/pack.md`; a
+  "Propose a pack" issue form; CONTRIBUTING on the DCO and content provenance;
+  `community-packs/README.md` and `MAINTAINERS.yaml` (removed ids stay as tombstones).
+- [ ] **B8 (owner)** Labels (`pack`, `pack:new`, `pack:update`, `needs-clinical-review`,
+  `clinical-review:provided`, `risk-level-change`, `patient-safety`, `idea`, `good first pack`);
+  the DCO app; `pack-check` and `DCO` required; a `main` ruleset requiring a code owner's
+  approval, with the admin on the bypass list.
+- [ ] **B9 (owner)** `MENDARI_COMMUNITY_PACKS=on` in Vercel Production only; on the owner's own
+  branch preview (never a fork's), check that `community-packs/` reaches the function bundle.
+- [ ] **B10 (owner and build)** Dry run from a second GitHub account, including a bad version
+  (a ReDoS pattern, a shadowing id, an edit outside its folder, a faked benchmark) that CI must
+  refuse. Then announce.
+
+### Going public: owner steps
+In this order; each step says where to click and what to check after. Nothing here is done by a
+build session. A1–A8 come before A9 (making the repository public); A10 and A11 right after it.
+
+1. **Merge the public-prep PR** (`claude/public-prep`) once CI is green. Check after: on `main`,
+   `docs/` has no plans, reviews or logs (they are in `notes/`), and the `secrets` job ran green.
+   Optionally make `secrets` a required check: Settings → Branches → the `main` rule → Require
+   status checks → add `secrets`.
+2. **A1, email push protection.** github.com → your avatar → Settings → Emails: keep "Keep my
+   email addresses private" on and tick **"Block command line pushes that expose my email"**.
+   Check after: `git config user.email` in your clones is the `…@users.noreply.github.com`
+   address; a push of a commit authored with the gmail address is refused (GH007). The address
+   on the five old commits stays (decided 2026-10-04).
+3. **A7, homepage and description.** The repository page → the gear next to **About**: Website
+   `https://mendari.co`; reword the description (for example "Open, auditable Decision Packs
+   for healthcare decisions"); add topics if you like. Check after: the About box shows
+   mendari.co, not a vercel.app host.
+4. **A8, Vercel** (the engine's project):
+   - Settings → Git: **Git Fork Protection** stays on. Rule from now on: never click
+     "Authorize" on a deployment for a fork's pull request; pack PRs get CI, not previews.
+   - Settings → Environment Variables: for `JEV_CONNECTOR`, `JEV_API_URL`, `JEV_MODEL`,
+     `LLM_MODEL`, `MENDARI_JEV_DAILY_LIMIT` and `MENDARI_LLM_DAILY_LIMIT`, edit each and untick
+     **Preview** (Production only). Check after: a new preview of your own branch reports no
+     Jev or LLM configuration in `/api/health` (signed in) and still deploys.
+   - Settings → Deployment Protection → **Protection Bypass for Automation**: if the secret was
+     ever pasted anywhere (a chat, a script, a PR), regenerate it; delete it if nothing uses it.
+   - Storage → the Neon database → its settings: preview deployments get their own database
+     branch. Check after: the Neon console's Branches list shows `preview/<your branch>` for a
+     fresh preview, and the `neon-preview-cleanup` workflow deletes it when the PR closes.
+5. **A9, make it public.** Settings → General → Danger Zone → **Change repository visibility**
+   → Make public. Check after: in a private browser window, the repository, its Actions runs
+   and its PRs open without signing in; `.github/ISSUE_TEMPLATE` shows its two private links.
+6. **A10, right after the flip.** Settings → **Code security** (named "Code security and
+   analysis" or "Advanced Security" on some accounts):
+   - **Private vulnerability reporting**: Enable. Check after: the Security tab shows **Report
+     a vulnerability** (from a second account or signed out), and the links in SECURITY.md,
+     CODE_OF_CONDUCT.md and the issue chooser open the form.
+   - **Dependency graph** on; **Dependabot alerts** and **Dependabot security updates**: Enable.
+     Check after: Security → Dependabot lists the alerts (or none).
+   - **Secret scanning**: Enable, and **Push protection**: Enable. Check after: Security →
+     Secret scanning shows no open alert (gitleaks found none beyond the allowed example file).
+   - **Code scanning → CodeQL analysis → Set up → Default**. Check after: the first CodeQL run
+     in Actions finishes, and Security → Code scanning lists its results.
+   - Settings → **Actions → General**: "Approval for running fork pull request workflows from
+     contributors" → **Require approval for first-time contributors**; "Workflow permissions" →
+     **Read repository contents and packages permissions**, and "Allow GitHub Actions to create
+     and approve pull requests" unticked. Check after: a PR from a second account waits on
+     **Approve and run** the first time.
+7. **A11, before any tag.**
+   - Settings → **Environments** → New environment `pypi`: Required reviewers: you; Deployment
+     branches and tags → Selected branches and tags → add a **tag** rule `v*`. Then the same for
+     `ghcr` (`images.yml` uses it). Check after: both list one reviewer and the `v*` tag rule.
+     (On GitHub Free, protection rules work only once the repository is public.)
+   - Settings → **Rules → Rulesets** → New ruleset → **New tag ruleset**: name "release tags",
+     Enforcement Active, Bypass list: Repository admin; Target tags: include `v*`; rules:
+     **Restrict creations**, **Restrict updates**, **Restrict deletions**. Check after: the
+     ruleset shows Active with those three rules.
+   - pypi.org → Your account → **Publishing** → Add a new pending publisher (GitHub): PyPI
+     project name `mendari`, owner `Junebugg1214`, repository `mendari`, workflow
+     `release.yml`, environment `pypi`. Check after: it is listed as a pending publisher, and
+     the name `mendari` is still free on PyPI.
+8. **Release 0.1.0.** On an up-to-date `main`: `git tag v0.1.0 && git push origin v0.1.0` (the
+   tag must equal the package version; `release.yml` checks). In the run, approve the `pypi`
+   deployment and the six `ghcr` deployments. Check after: pypi.org/project/mendari shows 0.1.0
+   with a wheel and an sdist; in a fresh venv, `pip install mendari` then `mendari test
+   mendari/patient-inbox-router` passes; the release job's "The sdist holds only what a source
+   build needs" step passed; GitHub → your profile → Packages lists the six `mendari-*`
+   images (make each public in its package settings if it is private).
+9. **Docs on GitHub Pages** (a build PR adds the deploy workflow first). Settings → **Pages** →
+   Source: **GitHub Actions**. Check after: the site opens at the Pages URL, then a build PR
+   points the README and `mendari new` at it and switches the install line to `pip install
+   mendari`.
+
 ## Built: pack content safety (2026-10-04)
 From the launch-readiness review, before any registry, Hub or upload feature lets an outside
 author's pack run on a shared deployment. Branch `claude/pack-safety-core`. No pack, data, model
