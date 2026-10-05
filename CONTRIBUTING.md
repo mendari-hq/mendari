@@ -33,9 +33,16 @@ for review when:
 - all data is synthetic or openly licensed and de-identified: **never real patient data**;
 - a clinician other than the author has reviewed the criteria (say who in the PR).
 
+A pack contributed for others to use goes in `community-packs/<name>/` with the id
+`community/<name>`: start it with `uv run mendari new community-packs/<name> --community` and
+follow [community-packs/README.md](community-packs/README.md). Before you open the PR,
+`uv run mendari community-check community-packs/<name> --base origin/main` runs the checks CI
+runs and says what to fix.
+
 ### What CI does with a pack PR
 
-The `packs` workflow takes every pack your PR changes and:
+The `pack-check` job of the `packs` workflow runs on every PR (with no pack changed, it says so
+and passes). For every maintained pack (`packs/`) your PR changes, it:
 - validates it, runs its behaviour tests, and evaluates it on its benchmark dataset;
 - renders its Decision Card (an artifact of the run);
 - compares its metrics with the benchmark on `main`, in the job summary.
@@ -44,6 +51,11 @@ It fails if a critical label is found less often, if a critical case is automate
 primary accuracy or the false-automation rate gets worse by more than the pack's tolerance.
 A pack that gets worse on purpose (say, a safer policy that automates less) explains why in the
 PR and updates its benchmark.
+
+For a community pack (`community-packs/`) it runs `mendari community-check` instead, and puts
+the metrics and the rendered Decision Card in the job summary. A PR that changes a community
+pack and anything outside its folder (its entry in `community-packs/MAINTAINERS.yaml` aside)
+fails.
 
 ## Code changes
 

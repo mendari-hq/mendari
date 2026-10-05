@@ -141,6 +141,34 @@ def test_a_pack_directory_is_data_never_code() -> None:
         assert unsafe not in packs, unsafe
 
 
+def test_pack_check_runs_on_every_pull_request() -> None:
+    # A required check must report on every pull request: a path filter would leave it pending.
+    workflow = _workflow(ROOT / ".github" / "workflows" / "packs.yml")
+    assert _triggers(workflow) == {"pull_request": None}
+    assert list(workflow["jobs"]) == ["pack-check"]
+    steps = workflow["jobs"]["pack-check"]["steps"]
+    assert steps[0]["with"]["fetch-depth"] == 0  # the base commit, for the diff and benchmarks
+    find = next(step for step in steps if step.get("name") == "Find the changed packs")
+    assert "no pack changes" in find["run"]
+    maintained = next(step for step in steps if "pack_gate.py" in step.get("run", ""))
+    assert 'case "$dir" in packs/*)' in maintained["run"]  # community packs go the other way
+    (community,) = [step for step in steps if "community_check.py" in step.get("run", "")]
+    # Who made the change and who owns the repository reach the script through `env` only.
+    assert community["env"] == {
+        "BASE": "${{ github.event.pull_request.base.sha }}",
+        "ACTOR": "${{ github.actor }}",
+        "OWNER": "${{ github.repository_owner }}",
+    }
+    assert '--actor "$ACTOR"' in community["run"] and '--owner "$OWNER"' in community["run"]
+
+
+def test_ci_runs_every_community_packs_tests() -> None:
+    ci = _workflow(ROOT / ".github" / "workflows" / "ci.yml")
+    scripts = [step.get("run", "") for step in ci["jobs"]["test"]["steps"]]
+    (loop,) = [run for run in scripts if "community-packs/*/pack.yaml" in run]
+    assert 'uv run mendari test "$(dirname "$manifest")"' in loop and "exit $failed" in loop
+
+
 def test_changed_files_map_to_their_pack(tmp_path: Path) -> None:
     for pack in ("packs/inbox", "packs/my pack; $(touch x)", "packs/group/nested", "packs/a/b/c"):
         (tmp_path / pack).mkdir(parents=True)
@@ -154,8 +182,14 @@ def test_changed_files_map_to_their_pack(tmp_path: Path) -> None:
         "packs/removed/pack.yaml",  # gone from the tree: reported as its top folder
         "packs/README.md",  # directly in packs/: no pack
         "src/mendari/cli.py",
+        "community-packs/visit-sorter/logic/rules.yaml",
+        "community-packs/visit-sorter/nested/pack.yaml",  # one folder is one community pack
+        "community-packs/gone; $(touch x)/pack.yaml",
+        "community-packs/MAINTAINERS.yaml",  # directly in community-packs/: no pack
     ]
     assert _changed_packs().pack_dirs(changed, tmp_path) == [
+        "community-packs/gone; $(touch x)",
+        "community-packs/visit-sorter",
         "packs/a/b/c",
         "packs/group/nested",
         "packs/inbox",

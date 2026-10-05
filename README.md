@@ -82,7 +82,8 @@ sandbox payer need; `uv sync` includes it. Vercel runs the ASGI app directly and
    A community pack recommends and never automates, is at most risk level 1, keeps only a hash
    of its inputs, and decides with local providers unless a provider setting names it
    (`community/<name>:slot=variant`); its pinned model and `max_tokens` give way to the
-   deployment's.
+   deployment's. How to contribute one, and what CI checks (`mendari community-check`), is in
+   [community-packs/README.md](https://github.com/Junebugg1214/mendari/blob/main/community-packs/README.md).
 
 An id is one pack: a second pack with the same id is not served, whatever its version, and both
 are listed under `invalid` in `/api/health` (only the registry cache holds several versions of

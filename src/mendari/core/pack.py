@@ -348,9 +348,13 @@ def _rules_files(m: PackManifest) -> list[str]:
     return sorted(files)
 
 
-def _pattern_problems(input_schema: Any, rules: dict[str, Any]) -> list[str]:
-    """Every pack-authored pattern compiled as it will run (`core/patterns.py`), after counting
-    them, so a pack over the cap is refused before any is compiled."""
+def authored_patterns(pack: Pack) -> list[tuple[str, str, int]]:
+    """(where, pattern, flags) for every pattern the pack's author wrote, as it runs: its input
+    schema's and its rules files'."""
+    return _authored_patterns(pack.input_schema, pack.parsed)
+
+
+def _authored_patterns(input_schema: Any, rules: dict[str, Any]) -> list[tuple[str, str, int]]:
     found = [
         (f"input schema: {where}", text, 0)
         for where, text in patterns.schema_patterns(input_schema)
@@ -360,6 +364,13 @@ def _pattern_problems(input_schema: Any, rules: dict[str, Any]) -> list[str]:
             (f"{relative}: {where}", text, patterns.RULES_FLAGS)
             for where, text in patterns.rules_patterns(data)
         ]
+    return found
+
+
+def _pattern_problems(input_schema: Any, rules: dict[str, Any]) -> list[str]:
+    """Every pack-authored pattern compiled as it will run (`core/patterns.py`), after counting
+    them, so a pack over the cap is refused before any is compiled."""
+    found = _authored_patterns(input_schema, rules)
     if len(found) > patterns.MAX_PACK_PATTERNS:
         return [
             f"{len(found)} patterns; a pack holds at most {patterns.MAX_PACK_PATTERNS} patterns"

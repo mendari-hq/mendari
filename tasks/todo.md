@@ -71,24 +71,36 @@ B6/B7 → B8 → B9 → B10).
   it, the Decision Card, CDS Hooks discovery and each card's `source.label`. The dashboard's
   default pack is the first maintained one. `publisher.type` shown as self-declared. Tokens only;
   contrast tests extended.
-- [ ] **B4 `mendari community-check`** (and `scripts/community_check.py`, shared by the CLI and
+- [x] **B4 `mendari community-check`** (and `scripts/community_check.py`, shared by the CLI and
   CI): scope, identity, manifest policy (`license: Apache-2.0`, `publisher.type: community`,
   `store_input: hash`, local providers, no pinned model, `degradation_tolerance` ≤ 0.05, risk
   level ≤ 1), correctness, evaluation floors (critical detection ≥ 0.9, no critical case
   automated, ≥ 5 benchmark cases per critical label), the benchmark and card regenerated and
   compared, a retrained model byte-identical, the regex probe, size caps (2 MB, 200 files),
   version and CHANGELOG against the digest, PHI heuristics as warnings. A unit test per rule.
-- [ ] **B5 CI.** One always-running, required `pack-check` job (exits 0 with "no pack changes"),
+  Built: `src/mendari/community/` (`check.py` the rules, `regex_safety.py` the static check and
+  the subprocess probe, `phi_scan.py`, `maintainers.py`, `gitbase.py`), tests in
+  `tests/test_community_check.py`. Also refused: symbolic links, files in `evals/` other than
+  the benchmark (a leaderboard's numbers cannot be regenerated), a pack with no critical label,
+  a pack without a `MAINTAINERS.yaml` entry. With a remote default provider the tests and the
+  evaluation do not run (they would call the service).
+- [x] **B5 CI.** One always-running, required `pack-check` job (exits 0 with "no pack changes"),
   pack directories from `git diff -z`, covering `packs/` (the existing gate) and
   `community-packs/`; a PR that touches a community pack and anything outside one
   `community-packs/<name>/` fails unless the owner wrote it. `ci.yml` runs `mendari test` on
   every community pack. No `pull_request_target`, no secrets.
-- [ ] **B6 Scaffold.** `mendari new --community` writes the community defaults.
+  Built: `packs.yml` job `pack-check`; `scripts/changed_packs.py` covers `community-packs/`;
+  `scripts/community_check.py` (scope, each changed pack, a removed pack's tombstone).
+  "Owner" is `github.actor` equal to `github.repository_owner`.
+- [x] **B6 Scaffold.** `mendari new --community` writes the community defaults, and the pack's
+  benchmark and card, so it passes `community-check` as written (once listed in
+  `MAINTAINERS.yaml`).
 - [ ] **B7 Docs and templates.** `docs/guides/contributing-a-pack.md` (the flow, synthetic data
   without Python, `ABSTAIN` carries no recommendation, a risk-level table with the inbox router
   as the level-0 precedent, a pattern guide); `.github/PULL_REQUEST_TEMPLATE/pack.md`; a
   "Propose a pack" issue form; CONTRIBUTING on the DCO and content provenance;
-  `community-packs/README.md` and `MAINTAINERS.yaml` (removed ids stay as tombstones).
+  `community-packs/README.md` and `MAINTAINERS.yaml` (removed ids stay as tombstones; both
+  written with B4).
 - [ ] **B8 (owner)** Labels (`pack`, `pack:new`, `pack:update`, `needs-clinical-review`,
   `clinical-review:provided`, `risk-level-change`, `patient-safety`, `idea`, `good first pack`);
   the DCO app; `pack-check` and `DCO` required; a `main` ruleset requiring a code owner's
