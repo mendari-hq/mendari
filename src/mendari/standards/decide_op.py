@@ -234,8 +234,8 @@ def operation_definition() -> dict[str, Any]:
         "code": "decide",
         "comment": "Every call records a decision in Mendari's audit trail, so it is POST only. "
         "This is not PlanDefinition/$apply: Decision Packs are not PlanDefinitions, and their "
-        "logic is not expressed in FHIR. The packs a deployment serves are listed in its "
-        "CapabilityStatement.",
+        "logic is not expressed in FHIR. Which packs a deployment serves with FHIR input is in "
+        "its CapabilityStatement in open mode; with sign-in on, it is for signed-in callers.",
         "system": True,
         "type": False,
         "instance": False,
