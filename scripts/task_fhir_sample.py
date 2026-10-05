@@ -49,6 +49,7 @@ def main(out: Path) -> None:
             reviewed.id, final_label="nurse", source="staff-reroute", recorded_by="rn-9"
         )
         automated = decide({"message": {"body": "Can you send a refill for metformin?"}})
+        assert automated.outcome.value == "AUTO", automated.reasons  # task-auto.json is AUTO
         abstained = decide({"message": {"body": "hello?"}})
         store.resolve_review(abstained.id, final_label="front_desk", reviewer="fd-1")
         refused = decide({"message": {}})

@@ -21,8 +21,10 @@ AUTO_REFILL = "Hi, I need a refill on my metoprolol. I have about a week's worth
 FRONT_DESK = {"question": "destination", "label": "front_desk"}
 
 
-def test_thumbs_are_recorded_and_chained(inbox_pack: Pack, store: AuditStore) -> None:
-    decision = Decision(inbox_pack, store=store)
+def test_thumbs_are_recorded_and_chained(
+    inbox_pack: Pack, store: AuditStore, screened: dict[str, str]
+) -> None:
+    decision = Decision(inbox_pack, providers=screened, store=store)
     good = decision(message(AUTO_REFILL))
     bad = decision(message("Can someone call me back?"))
     store.record_feedback(good.id, rating="up", reporter="rn-1")

@@ -30,8 +30,9 @@ SCREENED = {"safety_screen": "rules_and_jev"}
 
 
 def _routine(request: httpx.Request) -> httpx.Response:
-    if set(json.loads(request.content)["questions"]) != {"urgency"}:
-        return httpx.Response(400)  # only the inbox's urgency screen is answered
+    questions = set(json.loads(request.content)["questions"])
+    if questions != {"urgency"}:  # loudly: a sample built on a refused call would be wrong
+        raise AssertionError(f"sample_jev answers the inbox's urgency only, not {questions}")
     probabilities = {"urgent": 0.02, "routine": 0.98}
     answer = {"type": "choice", "choice": "routine", "confidence": 0.98}
     usage = {"input_tokens": 100, "output_tokens": 10}

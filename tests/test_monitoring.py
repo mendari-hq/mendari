@@ -117,8 +117,9 @@ def test_overrides_that_double_raise_an_alert() -> None:
 
 
 def test_the_api_serves_monitoring(tmp_path: Path, inbox_pack: Pack) -> None:
-    client = TestClient(create_app(db_path=tmp_path / "a.db"))
-    client.post(f"/api/packs/{inbox_pack.id}/decide", json=message(ROUTINE))
+    client = TestClient(create_app(db_path=tmp_path / "a.db", providers=SCREENED))
+    decided = client.post(f"/api/packs/{inbox_pack.id}/decide", json=message(ROUTINE)).json()
+    assert decided["outcome"] == "AUTO"
     report = client.get("/api/monitoring", params={"pack_id": inbox_pack.id}).json()
     assert report["last_7_days"]["decisions"] == 1 and report["pack"]["id"] == inbox_pack.id
 

@@ -53,9 +53,10 @@ def _no_rate_limits(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture(autouse=True)
 def _no_jev(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Jev is never set up unless a test sets it up (with a fake): a developer's own Jev
-    settings would turn on the servers' Jev defaults and send test cases to Jev."""
-    for name in ("JEV_API_URL", "JEV_MODEL", "JEV_API_KEY", "JEV_CONNECTOR"):
+    """Jev is never set up, and no provider is chosen, unless a test does it (with a fake): a
+    developer's own Jev settings would turn on the servers' Jev defaults and send test cases to
+    Jev, and their MENDARI_PROVIDERS would change what every pack runs."""
+    for name in ("JEV_API_URL", "JEV_MODEL", "JEV_API_KEY", "JEV_CONNECTOR", "MENDARI_PROVIDERS"):
         monkeypatch.delenv(name, raising=False)
 
 

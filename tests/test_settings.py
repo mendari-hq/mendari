@@ -132,11 +132,36 @@ def test_with_jev_set_up_a_server_runs_mendari_and_jev(
         assert {slot: health["providers"][pack][slot] for slot in slots} == slots, pack  # type: ignore[index]
     assert health["provider_settings_skipped"] == {}
     assert health["jev"]["defaults"] is True  # type: ignore[index]
+    app = create_app(db_path=tmp_path / "b.db", default_providers=default_providers())
+    inbox = TestClient(app).get("/api/packs/mendari/patient-inbox-router").json()
+    assert inbox["without_model"] == []  # what runs, not the pack's defaults
     # At risk level 2, automation rests on an approval of what runs: the deployment names it.
     assert health["without_model"] == {
         "mendari/ai-guard": ["screen"],
         "mendari/clinical-trial-prescreener": ["notes"],
     }
+
+
+def test_each_jev_default_is_what_its_pack_needs_to_automate_with_the_rules_beside_jev() -> None:
+    """Every default is a variant of its pack; in a slot the policy names in automation_requires,
+    one it allows; and a screen keeps a `rules` member beside Jev, so a possible emergency is
+    still flagged when Jev cannot answer."""
+    packs = {pack.id: pack for pack in discover().packs}
+    assert JEV_DEFAULTS == {
+        "mendari/patient-inbox-router": {"safety_screen": "rules_and_jev", "router": "cascade"},
+        "mendari/referral-router": {"triage_screen": "rules_and_jev", "specialty_reader": "jev"},
+        "mendari/prior-auth-preflight": {"notes": "rules_and_jev"},
+    }
+    for pack_id, slots in JEV_DEFAULTS.items():
+        manifest = packs[pack_id].manifest
+        assert manifest.risk.level <= 1, pack_id  # risk 2 automates on an approval: not here
+        assert set(manifest.policy.automation_requires) <= set(slots), pack_id
+        for slot, variant in slots.items():
+            spec = manifest.providers[slot].variants[variant]
+            if slot in manifest.policy.automation_requires:
+                assert variant in manifest.policy.automation_requires[slot], (pack_id, slot)
+                members = (spec.model_extra or {})["members"].values()
+                assert {"rules", "jev"} <= {member["type"] for member in members}, (pack_id, slot)
 
 
 def test_without_jev_nothing_changes(tmp_path: Path) -> None:

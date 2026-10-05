@@ -126,9 +126,13 @@ def test_composite_is_marked_remote(inbox_pack: Pack) -> None:
     assert not build_provider(inbox_pack, "safety_screen", "rules").remote
 
 
-def test_rules_floor_keeps_its_red_flag_coverage(router: Decision) -> None:
+def test_rules_floor_keeps_its_red_flag_coverage(
+    inbox_pack: Pack, screened: dict[str, str]
+) -> None:
     """Regression guard for the offline floor on the tuning set (the held-out set is reported
-    in the Decision Card, not asserted: keyword rules are known not to generalise)."""
+    in the Decision Card, not asserted: keyword rules are known not to generalise). Beside a
+    model that finds nothing urgent, the rules alone keep every red flag from being automated."""
+    router = Decision(inbox_pack, providers=screened)
     report = evaluate(router, resolve_dataset(router.pack, "red_flags"))
     urgent = report["questions"]["urgency"]["per_label"]["urgent"]
     assert urgent["recall"] == 1.0 and urgent["precision"] == 1.0
