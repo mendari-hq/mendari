@@ -121,10 +121,11 @@ def rule_problems(manifest: PackManifest) -> list[str]:
 
 def long_text(value: Any, limit: int = MAX_COMMUNITY_TEXT_CHARS) -> str | None:
     """Where in an input (`message.body`) a text, or a key, is longer than `limit` characters,
-    or "the input's texts together" when its texts, each with one separator, are: a rule's
-    patterns run on its text fields joined (`providers/base.py` `text_from`), so the whole is
-    held to the length the patterns were timed on. A community pack refuses such an input
-    before any of its patterns runs. Walked without recursion, however deep the input."""
+    or "the input's texts together" when its texts and keys, each with one separator, are: a
+    rule's patterns run on its text fields joined (`providers/base.py` `text_from`), and the
+    schema's patterns on every key (`patternProperties`, `propertyNames`), so the whole is held
+    to the length the patterns were timed on. A community pack refuses such an input before
+    any of its patterns runs. Walked without recursion, however deep the input."""
     stack: list[tuple[str, Any]] = [("", value)]
     total = -1  # the first text has no separator before it
     while stack:
@@ -137,8 +138,12 @@ def long_text(value: Any, limit: int = MAX_COMMUNITY_TEXT_CHARS) -> str | None:
                 return "the input's texts together"
         elif isinstance(item, Mapping):
             for key, child in reversed(list(item.items())):
-                if isinstance(key, str) and len(key) > limit:
-                    return where or "(root)"
+                if isinstance(key, str):
+                    if len(key) > limit:
+                        return where or "(root)"
+                    total += len(key) + 1
+                    if total > limit:
+                        return "the input's texts together"
                 stack.append((f"{where}.{key}" if where else str(key), child))
         elif isinstance(item, list | tuple):
             stack += [(f"{where}[{i}]", child) for i, child in reversed(list(enumerate(item)))]

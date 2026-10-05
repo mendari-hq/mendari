@@ -21,15 +21,18 @@ its manifest says:
   those); a remote model runs only if a deployment names the pack in its settings
   (`community/<name>:slot=variant`), for decisions and evaluations alike;
 - it keeps only a **hash** of each input (`audit.store_input: hash`);
-- it reads at most **10,000 characters** of text in all (each text and all of them together; a
-  longer input is refused before any pattern runs);
+- it reads at most **10,000 characters** of text in all (its texts and keys, each and all
+  together; a longer input is refused before any pattern runs, and typo correction never makes
+  a text longer than that);
 - its FHIR systems (a `task.performer_system` in `fhir/mapping.yaml`) live under its own url,
   `https://mendari.co/packs/community/<name>/`, e.g.
   `https://mendari.co/packs/community/<name>/CodeSystem/performer`;
 - it is at most **risk level 1**.
 
 Its name, CDS Hooks title and publisher are yours: they may not name Mendari or copy the name
-of a pack Mendari maintains.
+of a pack Mendari maintains, however they are spelled (look-alike letters, `l` for `I`, a
+letter from another alphabet inside a word), and no word may mix Latin letters with Cyrillic
+or other look-alike ones. Greek letters in clinical words (`β-blocker`, `µg`) are fine.
 
 Why these limits, and what was decided, is in
 [ADR-0007](../decisions/ADR-0007-community-packs-by-pull-request.md). The label comes from
@@ -181,10 +184,11 @@ that would have been `AUTO` becomes `HUMAN_REVIEW` anyway, with its recommendati
 Rules match text with regular expressions, and Python's `re` has no time limit: a pattern that
 can match one text in many ways may take seconds on a long message, and stall the server that
 runs it. `community-check` refuses those, in two ways: a static check of each pattern, and a run
-of each pattern on pumped inputs of 10,000 characters built from every piece it holds (each led
-up to by a sample of what comes before it in the pattern), with one second allowed on each.
-Neither is a guarantee, so a community pack also refuses an input whose texts are longer than
-10,000 characters, alone or together, before a pattern runs.
+of each pattern, entered at each of its pieces, on pumped inputs of 10,000 characters built from
+every piece it holds, with one second allowed on each. Back references (`\1`) and conditional
+groups are refused: the run cannot time what they match. Neither check is a guarantee, so a
+community pack also refuses an input whose texts are longer than 10,000 characters, alone or
+together, before a pattern runs.
 
 | Instead of | Write | Why |
 |---|---|---|
@@ -193,7 +197,8 @@ Neither is a guarantee, so a community pack also refuses an input whose texts ar
 | <code>(.&#124;\s)+</code> | `[\s\S]+`, or better a bounded `[^.!?\n]{0,80}` | Alternatives that can start on the same character |
 | `chest.*pain` | `chest(?:[^\w.!?\n]+\w+){0,5}?[^\w.!?\n]+pain` | Bounded: at most five words between, never across a sentence |
 | `.*` at either end | nothing | A rule matches anywhere in the text already |
-| `\d*\d*x`, `[a-z]+\s*[a-z]+$`, `(?:\d\d)*(?:\d\d)*x` | `\d*x`, `[a-z]+\s+[a-z]+$`, `(?:\d\d)*x` | Repeated pieces one after another that can match the same text split it in many ways (repeated groups count when they can start with the same character); merge them, or require something only one of them matches between them |
+| `\d*\d*x`, `[a-z]+\s*[a-z]+$`, `(?:\d\d)*\d*x` | `\d*x`, `[a-z]+\s+[a-z]+$`, `(?:\d\d)*x` | Repeated pieces one after another that can match the same text split it in many ways; merge them, or require something only one of them matches between them |
+| `([a-z])\1`, `(a)?(?(1)b\|c)` | the text itself, e.g. `(?:aa\|bb)` | Back references and conditional groups: the check cannot time them |
 
 More habits that keep patterns fast and honest:
 

@@ -6,32 +6,35 @@ worker that runs it. Two checks, neither a guarantee:
 - **Static** (`static_problems`), on the parse tree `re` itself runs: an unbounded quantifier
   inside another (`(a+)+`, `(\\w+\\s?)*`); alternatives under `*` or `+` that can start on
   the same character (`(a|a)*`, `(.|\\s)+`), so one text matches in many ways; and unbounded
-  quantifiers one after another that can match the same characters, with nothing between them
-  that only one of them could match and something after them that can fail (`\\d*\\d*x`,
-  `a+\\s*a+$`, `(?:\\d\\d)*(?:\\d\\d)*x`), so the text splits between them in many ways;
-  repeated groups longer than a character are compared by what they can start with.
-  Possessive quantifiers and atomic groups never backtrack and are allowed.
-- **Probe** (`probe`): each pattern runs in a separate process on pumped inputs of 10,000
-  characters built from its own pieces: every character class and repeated literal it holds,
-  and a few defaults (`'a'`, `' '`, `'0'`), each after every literal text and after a sample
-  of everything before each piece, classes included (`'q0z'` for `q[0-9]z(?:00)*`), so a slow
-  part is reached however the pattern starts (`'ab' + '1' * 9_998 + '!'`). One that takes
-  more than a second on any of them is too slow, and the process is killed. A pattern with so
-  many pieces that the inputs would be more than `MAX_PROBE_INPUTS` is refused, rather than
-  timed on some of them.
+  quantifiers one after another that can match the same text, with nothing between them that
+  only one of them could match and something after them that can fail (`\\d*\\d*x`,
+  `a+\\s*a+$`, `(?:\\d\\d)*\\d*x`), so the text splits between them in many ways. Possessive
+  quantifiers and atomic groups never backtrack and are allowed. Back references and
+  conditional groups are refused: the probe cannot time what they match.
+- **Probe** (`probe`): each pattern runs in a separate process, entered at each of its pieces
+  that is not a literal text (`entry_points`: a sample of what comes before, kept as literal
+  text with its word boundaries, then that piece and everything that can follow it), so a
+  slow part is reached directly whatever comes before it. Each entry runs on pumped inputs of
+  10,000 characters built from the pattern's own pieces (`pump_atoms`: every character class,
+  repeated literal and repeated group it holds, and a few defaults, `'a'`, `' '` and `'0'`),
+  ending as they are or with a `'!'` that makes them fail. One that takes more than a second
+  on any of them is too slow, and the process is killed. A pattern with so many pieces that
+  the inputs would be more than `MAX_PROBE_INPUTS` is refused, rather than timed on some of
+  them.
 """
 
 from __future__ import annotations
 
 import json
+import math
 import queue
 import subprocess
 import sys
 import threading
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from functools import cache
-from typing import Any
+from typing import Any, NamedTuple
 
 from mendari.core.origin import MAX_COMMUNITY_TEXT_CHARS
 from mendari.core.patterns import problem as compile_problem
@@ -242,7 +245,7 @@ def static_problems(pattern: str, flags: int = 0) -> list[str]:
     except (re.error, OverflowError, RecursionError, ValueError):
         return []  # not a pattern at all: `core/patterns.py` refuses it at load
     ignore_case = bool((flags | tree.state.flags) & re.IGNORECASE)
-    found: list[str] = []
+    found: list[str] = [_REFERENCES] if _references(list(tree)) else []
     _walk(
         list(tree),
         _Chars(),
@@ -252,6 +255,43 @@ def static_problems(pattern: str, flags: int = 0) -> list[str]:
         flags=flags | tree.state.flags,
     )
     return sorted(set(found))
+
+
+_REFERENCES = (
+    "a back reference (`\\1`, `(?P=name)`) or a conditional group (`(?(1)...)`): a community "
+    "pack's patterns cannot use them, since the probe cannot time what they match; match the "
+    "text itself instead"
+)
+
+
+def _children(item: Any) -> list[Sequence[Any]]:
+    """The sequences inside one piece."""
+    op, av = item
+    name = _name(op)
+    if name == "SUBPATTERN":
+        return [av[3]]
+    if name == "BRANCH":
+        return list(av[1])
+    if name in _REPEATS or name == "POSSESSIVE_REPEAT":
+        return [av[2]]
+    if name == "ATOMIC_GROUP":
+        return [av]
+    if name in ("ASSERT", "ASSERT_NOT"):
+        return [av[1]]
+    if name == "GROUPREF_EXISTS":
+        return [av[1]] + ([av[2]] if av[2] is not None else [])
+    return []
+
+
+def _references(items: Sequence[Any]) -> bool:
+    """Whether a back reference or a conditional group is anywhere in `items`."""
+    stack = [items]
+    while stack:
+        for item in stack.pop():
+            if _name(item[0]) in ("GROUPREF", "GROUPREF_EXISTS"):
+                return True
+            stack += _children(item)
+    return False
 
 
 _SEQUENTIAL = (
@@ -281,27 +321,76 @@ def _unbounded(item: Any) -> bool:
 _SINGLE = {"LITERAL", "NOT_LITERAL", "ANY", "IN"}  # pieces that match one character
 
 
-def _one_character(items: Sequence[Any], flags: int) -> frozenset[str] | None:
-    """The sample characters a one-character piece matches, as `re` runs it (a negated class
-    included), or None for anything else."""
+def _single(items: Sequence[Any]) -> Any | None:
+    """The one piece of `items` when it matches one character, or None."""
     if len(items) != 1 or _name(items[0][0]) not in _SINGLE:
         return None
-    return _matched(repr(items[0]), items[0], flags)
+    return items[0]
 
 
-_MATCHED: dict[tuple[str, int], frozenset[str]] = {}
+def _own_characters(item: Any) -> str:
+    """The characters a one-character piece names (its literals, the ends and middle of its
+    ranges) in both cases, beyond the sample characters: a class outside them (Cyrillic letters) is
+    still tried on characters of its own."""
+    op, av = item
+    name = _name(op)
+    codes: list[int] = []
+    if name in ("LITERAL", "NOT_LITERAL"):
+        codes = [av]
+    elif name == "IN":
+        for member_op, member in av:
+            member_name = _name(member_op)
+            if member_name == "LITERAL":
+                codes.append(member)
+            elif member_name == "RANGE":
+                codes += [member[0], (member[0] + member[1]) // 2, member[1]]
+    found: set[str] = set()
+    for c in map(chr, codes):
+        found.update(v for v in (c, c.lower(), c.upper()) if len(v) == 1 and ord(v) >= 0x250)
+    return "".join(sorted(found))
 
 
-def _matched(key: str, item: Any, flags: int) -> frozenset[str]:
-    found = _MATCHED.get((key, flags))
+_MATCHED: dict[tuple[str, int, str], frozenset[str]] = {}
+
+
+def _matched(item: Any, flags: int, extra: str = "") -> frozenset[str]:
+    """The characters tried (the sample characters and `extra`) that the one-character piece
+    `item` matches, as `re` runs it (a negated class included)."""
+    key = (repr(item), flags, extra)
+    found = _MATCHED.get(key)
     if found is None:
         state = _parser.State()
         state.flags = flags
         compiled = _compiler.compile(_parser.SubPattern(state, [item]), flags)
-        found = frozenset(c for c in _SAMPLE_CHARS if compiled.fullmatch(c))
+        found = frozenset(c for c in [*_SAMPLE_CHARS, *extra] if compiled.fullmatch(c))
         if len(_MATCHED) < 10_000:
-            _MATCHED[(key, flags)] = found
+            _MATCHED[key] = found
     return found
+
+
+def _meet(first: Any, second: Any, flags: int) -> bool:
+    """Whether two one-character pieces match a character in common, tried on the sample
+    characters and on each one's own."""
+    extra = _own_characters(first) + _own_characters(second)
+    return bool(_matched(first, flags, extra) & _matched(second, flags, extra))
+
+
+_MAX_PERIOD = 1_000
+
+
+def _repeats_meet(
+    first: Sequence[Any], second: Sequence[Any], flags: int, ignore_case: bool
+) -> bool:
+    """Whether the bodies of two repetitions can match a text in common. Bodies of one-character
+    pieces (`\\d`, `[a-z]\\.`) are compared piece by piece over a common period, exactly
+    (`(?:\\d\\d)*` meets `\\d*`; `(?:[a-z]\\.)+` does not meet `[a-z]+`); any other body by
+    the characters it can start with, which over-approximates."""
+    a, b = _flat(first), _flat(second)
+    if a and b and all(_single([piece]) for piece in [*a, *b]):
+        period = math.lcm(len(a), len(b))
+        if period <= _MAX_PERIOD:
+            return all(_meet(a[i % len(a)], b[i % len(b)], flags) for i in range(period))
+    return _sequence_first(first, ignore_case)[0].overlaps(_sequence_first(second, ignore_case)[0])
 
 
 def _can_fail(items: Sequence[Any], follow: _Chars, ignore_case: bool) -> bool:
@@ -314,36 +403,31 @@ def _can_fail(items: Sequence[Any], follow: _Chars, ignore_case: bool) -> bool:
 
 
 def _sequential(items: Sequence[Any], follow: _Chars, ignore_case: bool, flags: int) -> bool:
-    """Two unbounded repetitions in one sequence that can match the same characters
-    (`\\d*\\d*`, `(?:\\d\\d)*(?:\\d\\d)*`), with only what the first can also match (or nothing)
-    between them, and something after that can fail: a failing text is split between them in
-    every way, polynomially many. Anything between that the first cannot match fixes the split.
-    Repetitions of one character are compared by the characters they match; longer ones by the
-    characters they can start with, which over-approximates (`(?:ab)*(?:ac)*` is refused too)."""
+    """Two unbounded repetitions in one sequence that can match the same text (`\\d*\\d*`,
+    `(?:\\d\\d)*(?:\\d\\d)*`, `_repeats_meet`), with only what the first can also match (or
+    nothing) between them, and something after that can fail: a failing text is split between
+    them in every way, polynomially many. Anything between that the first cannot match fixes
+    the split."""
     flat = _flat(items)
     for index, item in enumerate(flat):
         if not _unbounded(item):
             continue
         body = item[1][2]
-        first = _one_character(body, flags)
-        if first is not None and not first:
+        first = _single(_flat(body))
+        if first is not None and not _matched(first, flags, _own_characters(first)):
             continue  # matches none of the characters tried
-        start, _ = _sequence_first(body, ignore_case)
         for later_index in range(index + 1, len(flat)):
             later = flat[later_index]
-            if _unbounded(later):
-                again = _one_character(later[1][2], flags)
-                if first is not None and again is not None:
-                    meets = bool(first & again)
-                else:
-                    meets = start.overlaps(_sequence_first(later[1][2], ignore_case)[0])
-                if meets and _can_fail(flat[later_index + 1 :], follow, ignore_case):
-                    return True
+            if (
+                _unbounded(later)
+                and _repeats_meet(body, later[1][2], flags, ignore_case)
+                and _can_fail(flat[later_index + 1 :], follow, ignore_case)
+            ):
+                return True
             _, nullable = _item_first(later, ignore_case)
             if nullable:
                 continue
-            single = _one_character([later], flags)
-            if first is None or single is None or not first & single:
+            if first is None or _single([later]) is None or not _meet(first, later, flags):
                 break  # something the first cannot match (or not one character): fixed
     return False
 
@@ -429,129 +513,335 @@ def _walk(
 
 
 _SAMPLE_PREFERRED = "a0 "
+_SAMPLE_BUDGET = 100  # characters: the longest sample of a repeated group pumped as one piece
 
 
 def _sample_one(item: Any, flags: int) -> str:
     """One character the one-character piece `item` matches (a letter, digit or space when it
     can), or "" when none of the characters tried does."""
-    matched = _matched(repr(item), item, flags)
+    matched = _matched(item, flags, _own_characters(item))
     preferred = [c for c in _SAMPLE_PREFERRED if c in matched]
     return preferred[0] if preferred else min(matched, default="")
 
 
-def _sample(items: Iterable[Any], flags: int) -> str:
+def _sample(items: Iterable[Any], flags: int, budget: int = _SAMPLE_BUDGET) -> str:
     """A short text the sequence `items` matches, as far as one can be built without running
-    it: the fewest repetitions each, the first alternative, nothing for an assertion or a back
-    reference. What leads up to a repeated part in a probe input."""
+    it (the fewest repetitions each, the first alternative, nothing for an assertion), at most
+    `budget` characters: one repetition of a group the probe pumps (`0a` for `(?:0[a-z])*`)."""
     text = ""
     for item in items:
+        if len(text) >= budget:
+            break
         op, av = item
         name = _name(op)
         if name in _SINGLE:
             text += _sample_one(item, flags)
         elif name == "SUBPATTERN":
-            text += _sample(av[3], flags)
+            text += _sample(av[3], flags, budget - len(text))
         elif name == "ATOMIC_GROUP":
-            text += _sample(av, flags)
+            text += _sample(av, flags, budget - len(text))
         elif name == "BRANCH":
-            text += _sample(av[1][0], flags)
+            text += _sample(av[1][0], flags, budget - len(text))
         elif name in _REPEATS or name == "POSSESSIVE_REPEAT":
-            text += _sample(av[2], flags) * min(av[0], INPUT_CHARS)
-        if len(text) > INPUT_CHARS:
-            return text[:INPUT_CHARS]
-    return text
+            part = _sample(av[2], flags, budget - len(text))
+            if part:
+                text += part * min(av[0], (budget - len(text)) // len(part) + 1)
+    return text[:budget]
 
 
-def pump_atoms(pattern: str, flags: int = 0) -> tuple[list[str], list[str]]:
-    """(atoms, prefixes): the pieces an input is pumped with (a character of every class the
-    pattern uses, every literal text inside a repetition, and `DEFAULT_ATOMS`), and what may
-    lead up to them: every literal text, and a sample of everything before each piece that is
-    not a literal (`q0z` for `q[0-9]z(?:00)*`), so a pumped part is reached however the
-    pattern starts. None is ever left out, so padding a pattern with pieces cannot push the
-    slow one out of the probe."""
+def pump_atoms(pattern: str, flags: int = 0) -> list[str]:
+    """The pieces an input is pumped with: a character of every class the pattern uses, every
+    literal text and one repetition of every group inside a repetition, and `DEFAULT_ATOMS`.
+    None is ever left out, so padding a pattern with pieces cannot push the slow one out of the
+    probe."""
     import re
 
     atoms: list[str] = []
-    prefixes: list[str] = []
     try:
         tree = _parser.parse(pattern, flags)
     except (re.error, OverflowError, RecursionError, ValueError):
-        return list(DEFAULT_ATOMS), []
+        return list(DEFAULT_ATOMS)
     flags |= tree.state.flags
 
-    def add(target: list[str], text: str) -> None:
-        if text and text not in target:
-            target.append(text)
+    def add(text: str) -> None:
+        if text and text not in atoms:
+            atoms.append(text)
 
-    def visit(items: Sequence[Any], repeated: bool, lead: str) -> None:
+    def visit(items: Sequence[Any], repeated: bool) -> None:
         run = ""
-
-        def flush() -> None:
-            add(prefixes, run)
-            if repeated:
-                add(atoms, run)
-
-        done = lead  # a sample of everything before the current piece
-        for item in items:
-            op, av = item
+        for op, av in items:
             name = _name(op)
-            before = done
-            done = (done + _sample([item], flags))[:INPUT_CHARS]
             if name == "LITERAL":
                 run += chr(av)
                 continue
-            flush()
+            if repeated:
+                add(run)
             run = ""
-            add(prefixes, before)
             if name == "IN":
                 for member_op, member in av:
                     member_name = _name(member_op)
                     if member_name == "LITERAL":
-                        add(atoms, chr(member))
+                        add(chr(member))
                     elif member_name == "RANGE":
-                        add(atoms, chr(member[0]))
+                        add(chr(member[0]))
                     elif member_name == "CATEGORY":
-                        add(atoms, _CATEGORY_SAMPLES.get(_name(member), "a"))
+                        add(_CATEGORY_SAMPLES.get(_name(member), "a"))
             elif name in ("ANY", "NOT_LITERAL"):
-                add(atoms, "a")
-            elif name == "SUBPATTERN":
-                visit(av[3], repeated, before)
-            elif name == "ATOMIC_GROUP":
-                visit(av, repeated, before)
+                add("a")
+            elif (name in _REPEATS or name == "POSSESSIVE_REPEAT") and av[1] > 1:
+                add(_sample(av[2], flags))  # a body mixing pieces, `0[a-z]`, as a whole
+            for child in _children((op, av)):
+                visit(child, repeated or (name in _REPEATS | {"POSSESSIVE_REPEAT"} and av[1] > 1))
+        if repeated:
+            add(run)
+
+    visit(list(tree), False)
+    for default in DEFAULT_ATOMS:
+        add(default)
+    return atoms
+
+
+# What a group's flags can be written as, scoped: (?i:...), (?-i:...).
+_SCOPED_FLAGS = (
+    ("a", "SRE_FLAG_ASCII"),
+    ("i", "SRE_FLAG_IGNORECASE"),
+    ("m", "SRE_FLAG_MULTILINE"),
+    ("s", "SRE_FLAG_DOTALL"),
+    ("u", "SRE_FLAG_UNICODE"),
+)
+_AT = {
+    "AT_BEGINNING": "^",
+    "AT_BEGINNING_STRING": r"\A",
+    "AT_BOUNDARY": r"\b",
+    "AT_NON_BOUNDARY": r"\B",
+    "AT_END": "$",
+    "AT_END_STRING": r"\Z",
+}
+_VERBOSE = _constants.SRE_FLAG_VERBOSE
+
+
+def _char(code: int) -> str:
+    """One character, written so that `re` reads it as itself, in a class or out of one."""
+    c = chr(code)
+    if c.isascii() and c.isalnum():
+        return c
+    if 0x20 <= code < 0x7F:
+        return "\\" + c
+    if code < 0x100:
+        return f"\\x{code:02x}"
+    return f"\\u{code:04x}" if code < 0x10000 else f"\\U{code:08x}"
+
+
+def _flag_letters(mask: int) -> str:
+    return "".join(letter for letter, bit in _SCOPED_FLAGS if mask & getattr(_constants, bit))
+
+
+def _unparse(items: Iterable[Any]) -> str:
+    """A pattern `re` parses to `items` again (groups made non-capturing), for a process that
+    compiles it without the `VERBOSE` flag. Back references and conditional groups have no
+    place here: a community pack's patterns cannot use them (`static_problems`)."""
+    out: list[str] = []
+    for op, av in items:
+        name = _name(op)
+        if name == "LITERAL":
+            out.append(_char(av))
+        elif name == "NOT_LITERAL":
+            out.append(f"[^{_char(av)}]")
+        elif name == "ANY":
+            out.append(".")
+        elif name == "IN":
+            out.append(_unparse_class(av))
+        elif name == "AT":
+            out.append(_AT[_name(av)])
+        elif name == "BRANCH":
+            out.append("(?:" + "|".join(_unparse(alternative) for alternative in av[1]) + ")")
+        elif name == "SUBPATTERN":
+            _, added, removed, body = av
+            scope = _flag_letters(added) + ("-" + _flag_letters(removed) if removed else "")
+            out.append(f"(?{scope.rstrip('-')}:{_unparse(body)})")
+        elif name in _REPEATS or name == "POSSESSIVE_REPEAT":
+            low, high, body = av
+            count = f"{{{low},}}" if high == MAXREPEAT else f"{{{low},{high}}}"
+            mode = {"MIN_REPEAT": "?", "POSSESSIVE_REPEAT": "+"}.get(name, "")
+            out.append(f"(?:{_unparse(body)}){count}{mode}")
+        elif name == "ATOMIC_GROUP":
+            out.append(f"(?>{_unparse(av)})")
+        elif name in ("ASSERT", "ASSERT_NOT"):
+            direction, body = av
+            kind = ("<" if direction < 0 else "") + ("=" if name == "ASSERT" else "!")
+            out.append(f"(?{kind}{_unparse(body)})")
+        else:
+            raise ValueError(f"cannot write {name} back as a pattern")
+    return "".join(out)
+
+
+_CLASS_CATEGORY = {
+    "CATEGORY_DIGIT": r"\d",
+    "CATEGORY_NOT_DIGIT": r"\D",
+    "CATEGORY_SPACE": r"\s",
+    "CATEGORY_NOT_SPACE": r"\S",
+    "CATEGORY_WORD": r"\w",
+    "CATEGORY_NOT_WORD": r"\W",
+}
+
+
+def _unparse_class(members: Iterable[Any]) -> str:
+    out = ""
+    for op, av in members:
+        name = _name(op)
+        if name == "NEGATE":
+            out += "^"
+        elif name == "LITERAL":
+            out += _char(av)
+        elif name == "RANGE":
+            out += f"{_char(av[0])}-{_char(av[1])}"
+        elif name == "CATEGORY":
+            out += _CLASS_CATEGORY[_name(av)]
+        else:
+            raise ValueError(f"cannot write {name} back in a class")
+    return f"[{out}]"
+
+
+Close = Callable[[list[Any]], list[Any]]
+
+
+class Entry(NamedTuple):
+    """One way into a pattern: `lead` (a sample of what comes before), then the piece the
+    pattern is entered at and everything that can follow it."""
+
+    pattern: str
+    flags: int
+    lead: str
+
+
+def entry_points(pattern: str, flags: int = 0) -> list[Entry]:
+    """The pattern, and the pattern entered at each piece that is not a literal text: a
+    sample of what comes before it, as literal text, then that piece and everything that can
+    follow it (the rest of its group, further repetitions, what comes after), in the flags that
+    hold there. The probe times each on its lead and pumped text, so a slow part is reached
+    directly, whatever comes before it (a class, a lookaround, another alternative), and only
+    where it could start. A pattern with a back reference or a conditional group is entered
+    only at its start (`static_problems` refuses it)."""
+    import re
+
+    entries = [Entry(pattern, flags, "")]
+    try:
+        tree = _parser.parse(pattern, flags)
+    except (re.error, OverflowError, RecursionError, ValueError):
+        return entries
+    if _references(list(tree)):
+        return entries
+    state = tree.state
+    sample_flags = flags | state.flags
+    entry_flags = sample_flags & ~_VERBOSE
+
+    def group(op: Any, added: int, removed: int, items: list[Any]) -> Any:
+        return (op, (None, added, removed, _parser.SubPattern(state, items)))
+
+    def add(lead: Lead, items: list[Any]) -> None:
+        entry = Entry(_unparse([*lead.items, *items]), entry_flags, lead.text)
+        if entry not in entries:
+            entries.append(entry)
+
+    def visit(items: Sequence[Any], close: Close, scope: Close, lead: Lead) -> None:
+        items = list(items)
+        for index, (op, av) in enumerate(items):
+            name = _name(op)
+            rest = items[index + 1 :]
+            if name != "LITERAL":
+                add(lead, close(items[index:]))
+
+            def then(seq: list[Any], rest: list[Any] = rest) -> list[Any]:
+                return close([*seq, *rest])
+
+            if name == "SUBPATTERN":
+                _, added, removed, body = av
+                if added or removed:
+
+                    def inside(
+                        seq: list[Any],
+                        op: Any = op,
+                        a: int = added,
+                        r: int = removed,
+                        rest: list[Any] = rest,
+                    ) -> list[Any]:
+                        return close([group(op, a, r, seq), *rest])
+
+                    def scoped(
+                        seq: list[Any], op: Any = op, a: int = added, r: int = removed
+                    ) -> list[Any]:
+                        return scope([group(op, a, r, seq)])
+
+                    visit(body, inside, scoped, lead)
+                else:
+                    visit(body, then, scope, lead)
             elif name == "BRANCH":
                 for alternative in av[1]:
-                    visit(alternative, repeated, before)
+                    visit(alternative, then, scope, lead)
             elif name in _REPEATS or name == "POSSESSIVE_REPEAT":
-                visit(av[2], repeated or av[1] > 1, before)
-            elif name in ("ASSERT", "ASSERT_NOT"):
-                visit(av[1], repeated, before)
-        flush()
+                low, high, body = av
+                more = high if high == MAXREPEAT else high - 1
+                again = [(op, (max(low - 1, 0), more, body))] if more else []
 
-    visit(list(tree), False, "")
-    for default in DEFAULT_ATOMS:
-        add(atoms, default)
-    return atoms, prefixes
+                def repeated(
+                    seq: list[Any], again: list[Any] = again, rest: list[Any] = rest
+                ) -> list[Any]:
+                    return close([*seq, *again, *rest])
+
+                visit(body, repeated, scope, lead)
+            elif name == "ATOMIC_GROUP":
+
+                def atomic(seq: list[Any], op: Any = op, rest: list[Any] = rest) -> list[Any]:
+                    return close([(op, _parser.SubPattern(state, seq)), *rest])
+
+                visit(av, atomic, scope, lead)
+            elif name in ("ASSERT", "ASSERT_NOT") and av[0] > 0:
+                visit(av[1], scope, scope, lead)  # a lookahead's own body, then nothing
+            # (a lookbehind has a fixed width: nothing in it repeats)
+            lead = lead.then((op, av), sample_flags)
+
+    visit(list(tree), list, list, Lead("", ()))
+    return entries
+
+
+class Lead(NamedTuple):
+    """What an entry point is led up to by: `text`, a sample of the pieces before it, and
+    `items`, the same as a pattern: the sample as literal text, with the word boundaries,
+    anchors and negative lookarounds kept, since they fix where a slow part can start (a
+    positive lookaround is dropped: the sample may not satisfy it, and it only narrows)."""
+
+    text: str
+    items: tuple[Any, ...]
+
+    def then(self, item: Any, flags: int) -> Lead:
+        name = _name(item[0])
+        if name in ("AT", "ASSERT_NOT"):
+            return Lead(self.text, (*self.items, item))
+        if name == "ASSERT" or len(self.text) >= INPUT_CHARS:
+            return self
+        sample = _sample([item], flags, INPUT_CHARS - len(self.text))
+        literal = tuple((_constants.LITERAL, ord(c)) for c in sample)
+        return Lead(self.text + sample, (*self.items, *literal))
 
 
 def probe_inputs(pattern: str, flags: int = 0) -> int:
     """How many inputs the probe runs `pattern` on."""
-    atoms, prefixes = pump_atoms(pattern, flags)
-    return (1 + len(prefixes)) * len(atoms) * len(TAILS)
+    return len(entry_points(pattern, flags)) * len(pump_atoms(pattern, flags)) * len(TAILS)
 
 
-# Runs in a separate process: each pattern on its pumped inputs, saying `tick` after each input
-# and `done` after each pattern.
+# Runs in a separate process: each pattern, entered at each of its pieces, on its lead and pumped
+# inputs, saying `tick` after each input and `done` after each pattern.
 _PROBE = r"""
 import json, re, sys
 size, tails, jobs = json.loads(sys.stdin.read())
 print("ready", flush=True)
-for pattern, flags, atoms, prefixes in jobs:
-    compiled = re.compile(pattern, flags)
-    for prefix in [""] + prefixes:
+for entries, atoms in jobs:
+    for pattern, flags, lead in entries:
+        compiled = re.compile(pattern, flags)
         for atom in atoms:
-            body = (atom * (size // len(atom) + 1))[: max(size - len(prefix), 0)]
+            body = (atom * (size // len(atom) + 1))[: max(size - len(lead), 0)]
             for tail in tails:
-                compiled.search(prefix + body[: len(body) - len(tail)] + tail)
+                compiled.search(lead + body[: len(body) - len(tail)] + tail)
                 print("tick", flush=True)
     print("done", flush=True)
 """
@@ -590,7 +880,10 @@ def _run(jobs: Sequence[Job], limit_s: float) -> int:
     payload = [
         INPUT_CHARS,
         list(TAILS),
-        [[job.pattern, int(job.flags), *pump_atoms(job.pattern, job.flags)] for job in jobs],
+        [
+            [entry_points(job.pattern, job.flags), pump_atoms(job.pattern, job.flags)]
+            for job in jobs
+        ],
     ]
     process = subprocess.Popen(
         [sys.executable, "-I", "-c", _PROBE],

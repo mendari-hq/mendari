@@ -18,6 +18,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from mendari.core.origin import MAX_COMMUNITY_TEXT_CHARS
 from mendari.errors import PackValidationError
 from mendari.providers.base import Provider, ProviderOutput, fingerprint, softmax, text_from
 
@@ -140,6 +141,9 @@ class RulesProvider(Provider):
         if not self._keywords:
             return text, []
         corrections: list[str] = []
+        # A community pack's patterns were timed on texts of at most this length
+        # (`core/origin.py`): a correction that would make the text longer is not made.
+        room = [MAX_COMMUNITY_TEXT_CHARS - len(text)] if self.pack.community else None
 
         def fix(match: re.Match[str]) -> str:
             word = match.group(0)
@@ -149,6 +153,10 @@ class RulesProvider(Provider):
                 return word
             for keyword in candidates:
                 if within_one_edit(lower, keyword):
+                    if room is not None:
+                        if len(keyword) - len(word) > room[0]:
+                            return word
+                        room[0] -= len(keyword) - len(word)
                     corrections.append(f"typo:{lower}->{keyword}")
                     return keyword
             return word

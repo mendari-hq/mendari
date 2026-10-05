@@ -9,7 +9,7 @@ from __future__ import annotations
 import shutil
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 import yaml
@@ -25,6 +25,7 @@ from mendari.core.spec import Outcome
 from mendari.errors import MendariError
 from mendari.providers import build_provider
 from mendari.providers.base import Answer, ProviderInfo
+from mendari.providers.rules import RulesProvider
 from mendari.server.app import create_app
 from mendari.settings import providers_for
 from mendari.standards import cds_hooks
@@ -410,9 +411,41 @@ def test_a_community_pack_holds_its_texts_together_to_that_length() -> None:
         "input rejected: the input's texts together: longer than 10,000 characters, the most a "
         "community pack reads",
     )
-    assert long_text({"message": "x" * 5_000, "subject": "y" * 4_999}) is None
-    assert long_text({"a": ["x"] * 2_500, "b": "y" * 5_000}) is None  # a separator each
-    assert long_text({"a": ["x"] * 2_501, "b": "y" * 5_000}) == "the input's texts together"
+    assert long_text(["x" * 5_000, "y" * 4_999]) is None
+    assert long_text([["x"] * 2_500, "y" * 5_000]) is None  # a separator each
+    assert long_text([["x"] * 2_501, "y" * 5_000]) == "the input's texts together"
+
+
+def test_a_community_pack_counts_keys_with_its_texts() -> None:
+    """The schema's patterns run on every key (`patternProperties`, `propertyNames`): before,
+    keys were held to the length one by one, so one input ran them on many long keys."""
+    keys = {"k" * 9_000 + str(i): 1 for i in range(50)}
+    result = Decision(load_pack(SORTER)).decide({"message": "hello", "extra": keys})
+    assert result.reasons == (
+        "input rejected: the input's texts together: longer than 10,000 characters, the most a "
+        "community pack reads",
+    )
+    assert long_text({"k" * 4_999: "v" * 5_000}) is None  # with a separator between
+    assert long_text({"k" * 4_999: "v" * 5_001}) == "the input's texts together"
+
+
+def test_a_community_packs_typo_corrections_never_lengthen_its_text_past_the_length(
+    tmp_path: Path,
+) -> None:
+    """A correction can add a character ("invoce" is "invoice"): before, a 10,000-character
+    text grew past the length the pack's patterns were timed on. Other packs correct all."""
+    community = _copy(tmp_path / "a", "sorter")
+    outside = _copy(tmp_path / "b", "sorter", _set(id="someone/sorter"))
+    for root in (community, outside):
+        rules = root / "logic" / "rules.yaml"
+        rules.write_text(rules.read_text() + "typo_tolerance: {min_length: 4}\n")
+    text = "invoce " * 1_428  # 9,996 characters
+    readers = [build_provider(load_pack(root), "reader") for root in (community, outside)]
+    assert all(isinstance(reader, RulesProvider) for reader in readers)
+    capped, fixes = cast(RulesProvider, readers[0])._normalize(text)
+    assert len(capped) <= 10_000 and fixes and "invoce" in capped
+    full, all_fixes = cast(RulesProvider, readers[1])._normalize(text)
+    assert len(full) == 9_996 + 1_428 and len(all_fixes) == 1_428
 
 
 def test_a_community_pack_recommends_and_never_automates(tmp_path: Path) -> None:

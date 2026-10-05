@@ -306,6 +306,17 @@ def test_a_terminology_collision_is_refused(repo: Path) -> None:
         (lambda m: m["publisher"].update(name="Mendar\u0131 packs"), "names mendari"),
         (lambda m: m["publisher"].update(name="\uff2d\uff45ndari"), "names mendari"),
         (lambda m: m.update(name="Open-Health refills"), "names openhealth"),
+        (lambda m: m.update(name="Al Guard"), "is the name of mendari/ai-guard"),
+        (lambda m: m.update(name="Patient lnbox Router"), "is the name of mendari/patient-inbox"),
+        (lambda m: m["publisher"].update(name="Mendar1 packs"), "names mendari"),
+        (lambda m: m.update(name="0penHealth refills"), "names openhealth"),
+        (lambda m: m["publisher"].update(name="MendariCare"), "names mendari"),
+        (
+            lambda m: m["publisher"].update(name="\ua4df\ua4f0\ua4e0\ua4d3\ua4ee\ua4e3\ua4f2"),
+            "names mendari",
+        ),
+        (lambda m: m.update(name="\ua4eeI Guard"), "mixes Latin letters with Lisu ones"),
+        (lambda m: m["publisher"].update(name="\U0001f17c\U0001f174ndari"), "names mendari"),
     ],
     ids=[
         "maintained-name",
@@ -316,6 +327,14 @@ def test_a_terminology_collision_is_refused(repo: Path) -> None:
         "dotless-i",
         "fullwidth",
         "old-name",
+        "l-for-i",
+        "l-for-i-inside",
+        "digit-for-letter",
+        "zero-for-o",
+        "joined-word",
+        "lisu",
+        "lisu-mixed",
+        "negative-squared",
     ],
 )
 def test_a_community_pack_cannot_pass_for_one_mendari_maintains(
@@ -325,11 +344,28 @@ def test_a_community_pack_cannot_pass_for_one_mendari_maintains(
     assert has(run(new_pack, base=None), "identity", expected)
 
 
-def test_a_community_packs_own_name_may_carry_accents(new_pack: Path) -> None:
-    """Folding names to compare them refuses look-alikes, not names in other languages."""
-    edit_manifest(new_pack, lambda m: m.update(name="Clínica: tri des visites"))
-    report = run(new_pack, base=None)
-    assert not has(report, "identity", "name 'Cl")
+@pytest.mark.parametrize(
+    "name",
+    [
+        "Clínica: tri des visites",
+        "Ærø triage",
+        "Straße Klinik",
+        "β-blocker titration",  # clinical words mix Greek letters with Latin ones
+        "βhCG follow-up",
+        "Vancomycin dosing (µg/mL)",
+        "\u03bcg dosing",
+        "Women Dari-language intake",  # `mendari` inside words, not where one starts
+        "Recommend aripiprazole switch",
+        "Clinical lab alerts",
+    ],
+)
+def test_a_community_packs_own_name_may_be_in_any_language(new_pack: Path, name: str) -> None:
+    """Folding names to compare them refuses look-alikes, not names in other languages or
+    words that hold a reserved word by accident."""
+    edit_manifest(new_pack, lambda m: m.update(name=name))
+    assert not any(
+        repr(name) in message for message in messages(run(new_pack, base=None), "identity")
+    )
 
 
 def test_a_community_packs_fhir_systems_live_under_its_own_url(repo: Path) -> None:
@@ -361,25 +397,40 @@ def assert_maintainers_match(base: Path) -> None:
     assert not gone & folders
 
 
+def _unused(base: Path, stem: str) -> str:
+    """A pack name neither a folder in `base` nor an id in its MAINTAINERS.yaml uses, so the
+    test holds whatever the repository's file later lists."""
+    rows = yaml.safe_load((base / "MAINTAINERS.yaml").read_text())["packs"] or []
+    taken = {path.name for path in base.iterdir()} | {
+        str(row.get("id", "")).removeprefix("community/") for row in rows
+    }
+    return next(f"{stem}-{i}" for i in range(len(taken) + 1) if f"{stem}-{i}" not in taken)
+
+
 @pytest.mark.parametrize("removed_before", [False, True], ids=["as-committed", "after-a-removal"])
 def test_a_contributors_maintainers_entry_keeps_the_repository_check_green(
     tmp_path: Path, scaffold: Path, removed_before: bool
 ) -> None:
     """The guide's steps (a pack and its entry) pass; a pack without its entry, or an entry
     without its pack, does not. A tombstone stays, including one already in the file (the
-    owner removed a pack before this contribution): it stays a tombstone."""
+    owner removed a pack before this contribution): it stays a tombstone. The names used are
+    ones the repository's file does not, so a real pack or removal never turns this red."""
     base = tmp_path / "community-packs"
     shutil.copytree(ROOT / "community-packs", base)
-    shutil.copytree(scaffold, base / NAME)
     if removed_before:
         earlier = yaml.safe_load((base / "MAINTAINERS.yaml").read_text())["packs"] or []
-        removal = {"id": "community/gone", "maintainers": ["y"], "removed": "2026-10-05"}
-        write_maintainers(tmp_path, [*earlier, {**removal, "reason": "unmaintained"}])
+        removal = {"id": f"community/{_unused(base, 'gone')}", "maintainers": ["y"]}
+        write_maintainers(
+            tmp_path, [*earlier, {**removal, "removed": "2026-10-05", "reason": "unmaintained"}]
+        )
+    name = _unused(base, "contributed")
+    shutil.copytree(scaffold, base / name)
+    entry = {"id": f"community/{name}", "maintainers": ["janedoe"]}
     rows = yaml.safe_load((base / "MAINTAINERS.yaml").read_text())["packs"] or []
-    write_maintainers(tmp_path, [*rows, {"id": PACK_ID, "maintainers": ["janedoe"]}])
+    write_maintainers(tmp_path, [*rows, entry])
     assert_maintainers_match(base)
-    gone = {"id": "community/old", "maintainers": ["x"], "removed": "2026-10-04", "reason": "r"}
-    write_maintainers(tmp_path, [*rows, {"id": PACK_ID, "maintainers": ["janedoe"]}, gone])
+    old = {"id": f"community/{_unused(base, 'old')}", "maintainers": ["x"]}
+    write_maintainers(tmp_path, [*rows, entry, {**old, "removed": "2026-10-04", "reason": "r"}])
     assert_maintainers_match(base)
     write_maintainers(tmp_path, rows)
     with pytest.raises(AssertionError):
@@ -769,7 +820,10 @@ def test_a_backtracking_rule_pattern_fails(new_pack: Path) -> None:
         r"\d*\d*x",
         r"(?:ab|cd|ef|gh|ij|kl|mn|op)\d*\d*\d*\d*x",  # the probe-padding bypass
         r"(?:\d\d)*(?:\d\d)*x",  # repeated groups, not single characters
+        r"(?:\d\d)*\d*x",
         r"q[0-9]z(?:00)*(?:00)*(?:00)*x",
+        "[\u0430-\u044f]*[\u0430-\u044f]*x",  # a class outside the Latin characters tried
+        "\\w*[\u0430-\u044f]*x",
         r"a*a*a*a*a*b",
         r"[a-z]+\s*[a-z]+$",  # only what both can match (or nothing) between them
         r"(\w+)(\w*)!",  # groups do not hide the sequence
@@ -793,6 +847,12 @@ def test_the_static_check_refuses_quantifiers_one_after_another(pattern: str) ->
         r"\d*x",  # the guide's rewrites
         r"[a-z]+\s+[a-z]+$",
         r"cough\w*(?:[^\w.!?\n]+\w+){0,3}?[^\w.!?\n]+blood",  # a negated class is exact
+        r"\b(?:[a-z]\.)+[a-z]+\b",  # a repetition of `[a-z]+` never makes the `.`
+        r"\b(?:no|not)\s(?:[a-z]\.)*[a-z]+\b",
+        r"(?:dr\. )*[a-z]+,",
+        r"(?:re-)*[a-z]+ed\b",
+        r"(?:ab)*(?:ac)*x",  # compared position by position
+        "[\u0430-\u044f]*[\u03b1-\u03c9]*x",  # Cyrillic, then Greek: nothing in common
     ],
 )
 def test_the_sequence_check_allows_quantifiers_something_separates(pattern: str) -> None:
@@ -814,33 +874,110 @@ def test_the_reference_packs_patterns_pass_the_static_check() -> None:
     assert len(packs) == 5 and found == []
 
 
+def test_the_reference_packs_patterns_pass_the_probe() -> None:
+    """Entering a pattern at each piece keeps what fixes where it can start (the literal text
+    and word boundaries before it): the maintained patterns, the guide's examples, pass."""
+    from mendari.core.pack import authored_patterns
+    from mendari.core.registry import SearchPath, discover
+
+    packs = discover([SearchPath(ROOT / "packs", "maintained")]).packs
+    jobs = [
+        regex_safety.Job(f"{pack.id} {where}", text, flags)
+        for pack in packs
+        for where, text, flags in authored_patterns(pack)
+    ]
+    assert all(regex_safety.probe_inputs(j.pattern, j.flags) <= 2_000 for j in jobs)
+    assert regex_safety.probe(jobs) == []
+
+
 def test_padding_a_pattern_with_pieces_does_not_hide_its_slow_part_from_the_probe() -> None:
     """Before, the probe kept the first 8 pieces and the first 4 leading texts: eight literal
     alternatives pushed the default '0' out, and a slow branch after the fourth was never
     reached."""
     padded = r"(?:ab|cd|ef|gh|ij|kl|mn|op)\d*\d*\d*\d*x"
-    atoms, prefixes = regex_safety.pump_atoms(padded, re.IGNORECASE)
-    assert "0" in atoms and prefixes[:8] == ["ab", "cd", "ef", "gh", "ij", "kl", "mn", "op"]
+    assert "0" in regex_safety.pump_atoms(padded, re.IGNORECASE)
     fifth = r"ab\d|cd\d|ef\d|gh\d|ij\d*\d*\d*x"
-    assert "ij" in regex_safety.pump_atoms(fifth, re.IGNORECASE)[1]
+    leads = {entry.lead.lower() for entry in regex_safety.entry_points(fifth, re.IGNORECASE)}
+    assert "ij" in leads  # the fifth alternative is entered after its own literal text
     jobs = [regex_safety.Job(p, p, re.IGNORECASE) for p in (padded, fifth)]
     assert [job.where for job in regex_safety.probe(jobs)] == [padded, fifth]
 
 
-def test_the_probe_reaches_a_slow_part_behind_a_character_class() -> None:
-    """Before, inputs led up to a pumped part with literal texts only: `q[0-9]z` was never
-    matched, so the slow part after it was never reached (this one takes minutes on its text;
-    the static check leaves bounded repeats to the probe)."""
-    behind = r"q[0-9]z0{0,3000}0{0,3000}0{0,3000}x"
-    assert regex_safety.static_problems(behind, re.IGNORECASE) == []
-    assert "q0z" in regex_safety.pump_atoms(behind)[1]
-    jobs = [regex_safety.Job(behind, behind, 0), regex_safety.Job("fast", r"q[0-9]z0+x", 0)]
-    assert [job.where for job in regex_safety.probe(jobs)] == [behind]
+SLOW = r"(?:01){0,3000}(?:01){0,3000}(?:01){0,3000}x"  # cubic; bounded, so left to the probe
+
+
+@pytest.mark.parametrize(
+    ("pattern", "flags"),
+    [
+        (r"q[0-9]z" + SLOW, 0),  # a class: a literal lead-up never matched it
+        (r"(?<=k)" + SLOW, 0),  # a lookbehind no sample satisfies
+        (r"(?:(?<=k)a|(?<=j)" + SLOW + ")", 0),  # a later alternative
+        (r"(?-i:K)(?i:" + SLOW + ")", re.IGNORECASE),  # scoped flags
+        ("[\u0430-\u044f]" + SLOW, 0),  # a class outside the Latin characters tried
+        (r"(?:0[a-z]){0,3000}(?:0[a-z]){0,3000}(?:0[a-z]){0,3000}x", 0),  # a mixed body
+        (r"\d{5000}" + SLOW, 0),  # a long minimum before
+    ],
+    ids=["class", "lookbehind", "alternative", "scoped", "cyrillic", "mixed", "minimum"],
+)
+def test_the_probe_reaches_a_slow_part_whatever_comes_before_it(pattern: str, flags: int) -> None:
+    """Before, inputs were led up to a slow part with a sample of what comes before it, which
+    a lookbehind, a later alternative or a scoped flag could refuse: such a pattern passed and
+    took seconds on a short text. Now each piece is an entry of its own."""
+    assert regex_safety.static_problems(pattern, flags) == []
+    jobs = [regex_safety.Job("slow", pattern, flags), regex_safety.Job("fast", r"k0+x", 0)]
+    assert [job.where for job in regex_safety.probe(jobs)] == ["slow"]
+
+
+def test_back_references_and_conditional_groups_are_refused() -> None:
+    """The probe cannot time what they match; no maintained pattern uses them."""
+    for pattern in (r"([a-z])\1*x", r"(?P<a>\d)(?P=a)", r"(a)?(?(1)b|c)"):
+        (problem,) = regex_safety.static_problems(pattern, 0)
+        assert "a back reference" in problem
+
+
+def test_entry_points_are_written_as_re_reads_them() -> None:
+    """Each entry is compiled again in the probe's process: the maintained patterns, written
+    back, parse to what they were (groups apart), and deep nesting costs no time."""
+    import time
+
+    from mendari.core.pack import authored_patterns
+    from mendari.core.registry import SearchPath, discover
+
+    def shape(items: Any) -> list[Any]:
+        out: list[Any] = []
+        for op, av in items:
+            name = str(op)
+            if name == "SUBPATTERN" and not (av[1] or av[2]):
+                out += shape(av[3])  # a group without flags: its content
+            elif name == "SUBPATTERN":
+                out.append((name, av[1], av[2], shape(av[3])))
+            elif name == "BRANCH":
+                out.append((name, [shape(a) for a in av[1]]))
+            elif name in ("MAX_REPEAT", "MIN_REPEAT", "POSSESSIVE_REPEAT"):
+                out.append((name, av[0], av[1], shape(av[2])))
+            elif name in ("ASSERT", "ASSERT_NOT"):
+                out.append((name, av[0], shape(av[1])))
+            elif name == "IN":
+                out.append((name, [(str(a), str(b)) for a, b in av]))
+            else:
+                out.append((name, str(av)))
+        return out
+
+    parse = __import__("re._parser", fromlist=["parse"]).parse
+    packs = discover([SearchPath(ROOT / "packs", "maintained")]).packs
+    for pack in packs:
+        for _, text, flags in authored_patterns(pack):
+            tree = parse(text, flags)
+            again = parse(regex_safety._unparse(list(tree)), (flags | tree.state.flags) & ~re.X)
+            assert shape(tree) == shape(again), text
+    started = time.monotonic()
+    regex_safety.probe_inputs("(?:" * 80 + "a{9999}" + "){9999}" * 80)
+    assert time.monotonic() - started < 2
 
 
 def test_a_pattern_too_big_to_probe_is_refused(new_pack: Path) -> None:
     rules = new_pack / "logic" / "rules.yaml"
-    many = "|".join(f"(?:q{i})+" for i in range(100))  # 101 x 103 x 2 inputs
+    many = "|".join(f"(?:q{i})+" for i in range(100))  # 102 entries x 103 pieces x 2 endings
     rules.write_text(rules.read_text().replace('"refill|renew|', f'"{many}|refill|renew|'))
     (problem,) = messages(run(new_pack, base=None), "patterns")
     assert "too many pieces for the probe" in problem
