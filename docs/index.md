@@ -30,6 +30,9 @@ hash-chained audit record.
 
 ## In one minute
 
+In a clone of the [repository](https://github.com/Junebugg1214/mendari) (Mendari is not on PyPI
+until its first release), with [uv](https://docs.astral.sh/uv/):
+
 ```bash
 uv sync
 uv run mendari demo                                      # route, review, audit, validate locally

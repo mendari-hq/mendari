@@ -1,0 +1,17 @@
+# gitleaks configuration (ci.yml, job `secrets`): the default rules, plus each reviewed false
+# positive, allowed as narrowly as it can be. Add an entry only for a finding that is not a
+# secret, with the reason; a real secret is revoked and rotated first, never allowed here.
+title = "Mendari"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = """deploy/onprem/.env.example leaves MENDARI_PHI_KEY= empty for the operator to fill. \
+The generic-api-key rule matched across the newline and took the next line for the key \
+(commits 3e67c62c and 3678ffde, line 17)."""
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^deploy/onprem/\.env\.example$''']
+regexTarget = "match"
+regexes = ['''^MENDARI_PHI_KEY=\r?\n''']

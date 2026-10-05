@@ -4,12 +4,15 @@ Mendari routes clinical work, so security reports get priority.
 
 ## Reporting a vulnerability
 
-Please report privately, not in a public issue:
+Please report privately, never in a public issue, pull request or discussion. The one channel
+is GitHub's **private vulnerability reporting** on this repository: the **Security** tab, then
+**Report a vulnerability** ([direct link](https://github.com/Junebugg1214/mendari/security/advisories/new)). Only you and the maintainers see the report,
+and we can discuss it, fix it in a private fork and publish an advisory from there. The project
+has no security e-mail address.
 
-- use GitHub's **private vulnerability reporting** on this repository (Security → Report a
-  vulnerability), or write to the maintainers privately;
-- include what you found, how to reproduce it, the affected version and what it exposes;
-- don't test against deployments you don't own, and never use real patient data.
+- Include what you found, how to reproduce it, the affected version or commit and what it
+  exposes.
+- Don't test against deployments you don't own, and never use real patient data.
 
 We acknowledge a report within 3 working days and aim to fix critical issues within 14 days. We
 credit reporters who want it, once a fix is released.
@@ -38,11 +41,9 @@ Each bullet is one control; the threat model names the row and the tests behind 
 
 - **Open by default.** Without an identity provider the server has no sign-in of its own.
   Locally it binds to `127.0.0.1`, and the docker sandbox publishes ports on localhost only. The
-  project's production deployment has sign-in on (Google, owner-only) and, until the launch,
-  also stays behind Vercel Authentication set to **all deployments** (`ssoProtection: all`). The
-  default, "all except custom domains", leaves the production domain public. External machine
-  callers, such as an EHR calling CDS Hooks, would need Protection Bypass for Automation there,
-  which is not set up.
+  project's own deployment has sign-in on and, until the launch, also stays behind Vercel
+  Authentication set to **all deployments**. If you deploy on Vercel yourself, note that the
+  default, "all except custom domains", leaves the production domain public.
 - **Sign-in and API keys.** Set `MENDARI_OIDC_ISSUER` and `MENDARI_OIDC_CLIENT_ID`, and every
   route needs a role (deny by default). Machines (an EHR calling CDS Hooks, a worker) use API
   keys, sent as `Authorization: Bearer ohk_…` and nowhere else: an `Authorization` header decides

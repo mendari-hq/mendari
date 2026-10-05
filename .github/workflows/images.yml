@@ -6,13 +6,19 @@ on:
   push:
     tags: ["v*"]
 
+# Read-only by default; only the publishing job may write packages, and only once the `ghcr`
+# environment lets it (the owner as required reviewer, `v*` tags only: tasks/todo.md, "Going
+# public: owner steps"). Each matrix leg is a deployment the reviewer approves in the run.
 permissions:
   contents: read
-  packages: write
 
 jobs:
   image:
     runs-on: ubuntu-latest
+    environment: ghcr
+    permissions:
+      contents: read
+      packages: write
     strategy:
       fail-fast: false
       matrix:

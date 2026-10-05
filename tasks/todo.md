@@ -2,6 +2,171 @@
 
 Roadmap to the full goal: [`docs/roadmap.md`](../docs/roadmap.md).
 
+## Plan: community packs through pull requests (2026-10-04)
+Make the repository public so outside developers can contribute packs by pull request. Plan from
+three research reports on `b00e2809` (public repo, contribution flow, shipping and the bar).
+**Owner decisions (2026-10-04):** community packs live in `community-packs/<name>/` with ids
+`community/<name>`; they are served live but **recommend only** (never AUTO, local providers
+only); risk level **≤ 1**; contributions are signed off under the **DCO** (`git commit -s`, the
+DCO app); the owner's gmail address on five old commits on `main` (and PR refs #1–7) is accepted,
+and GitHub's email push protection goes on. Location is the trust label, never the manifest.
+
+**Part A: before the repository goes public.** Build items on branch `claude/public-prep`.
+- [ ] **A1 (owner)** Accept the gmail address in history; turn on "Block command line pushes
+  that expose my email" (owner steps below).
+- [x] **A2** The sdist holds only `src/` (with the vendored docs UI), `packs/`, `datasets/`,
+  README, LICENSE and pyproject (`[tool.hatch.build.targets.sdist]`; the tests read repository
+  files the sdist leaves out, so they run from a clone); the README's links are absolute, so
+  they work on pypi.org;
+  `scripts/check_sdist.py` fails on anything else, in CI (`hub-e2e`, which now installs the wheel
+  built from the sdist) and in `release.yml`; `tests/test_packaging.py`.
+- [x] **A3** Internal notes (the milestone plans, the dashboard design review and grade, the FHIR
+  and docs audit, the overnight log) moved from `docs/` to `notes/`, outside the docs site, the
+  sdist, the image and the function bundle; links updated. Production specifics scrubbed from the
+  tree (host, curl check, env record id, project, database and connector names, region,
+  registrar, a private artifact URL, the audit's production values, the deployed provider
+  mix, model pins and daily limits, the access setting's history). History keeps them;
+  `tests/test_public_tree.py` keeps them out of the tree.
+- [x] **A4 (build part)** Security and conduct reports go through GitHub private vulnerability
+  reporting (SECURITY.md, CODE_OF_CONDUCT.md, GOVERNANCE.md, the issue chooser). No e-mail
+  address is published. Turning the form on is A10.
+- [x] **A5** `packs.yml` takes pack directories NUL-separated (`scripts/changed_packs.py`, `git
+  diff -z`), nested packs included, and passes them by argv only; `.github/CODEOWNERS`;
+  `images.yml` read-only by default, `packages: write` and a `ghcr` environment on its job; a
+  `secrets` job in `ci.yml` (gitleaks v8.30.1 pinned by digest, full history, one allowance for
+  `deploy/onprem/.env.example`); `tests/test_workflow_safety.py` holds the fork-PR rules.
+- [x] **A6** README "Install" (from a clone until 0.1.0 is on PyPI; the `server` extra;
+  `MENDARI_PACKS_PATH` and `MENDARI_PACKS`); no `pip install mendari && mendari pull` promise;
+  `mendari new` prints the guide's URL; example image tags `v0.1.0` (the package version).
+- [ ] **A7 (owner)** Repository homepage and description.
+- [ ] **A8 (owner, Vercel)** Fork protection kept, Preview env cleanup, bypass secret, Neon
+  preview branches.
+- [ ] **A9 (owner)** Make the repository public.
+- [ ] **A10 (owner)** Private vulnerability reporting, secret scanning with push protection,
+  Dependabot, CodeQL, fork-PR approval for first-time contributors.
+- [ ] **A11 (owner, then build)** Protected `pypi` and `ghcr` environments, a `v*` tag ruleset,
+  the PyPI trusted publisher; then 0.1.0 and the docs on GitHub Pages (a deploy workflow is a
+  later PR), and the README's install line switches to `pip install mendari`.
+
+**Part B: the contribution flow** (a later PR; B1–B5 before B9; order B1 → B2 → B4 → B5 → B3 →
+B6/B7 → B8 → B9 → B10).
+- [ ] **B1 Origin-aware loading.** `search_paths()` returns (path, origin): `maintained`,
+  `community`, `hub`, `local`. `community-packs/` is searched only with
+  `MENDARI_COMMUNITY_PACKS=on` (default off: the wheel and self-hosters are unaffected). A
+  community pack sits exactly at `community-packs/<name>/pack.yaml` with id `community/<name>`;
+  anything else is `invalid`. A taken id never replaces another pack, whatever its version: both
+  are reported and the maintained one kept. `mendari/` and `openhealth/` are reserved to
+  `packs/`. Tests in `tests/test_community_packs.py`.
+- [ ] **B2 Policy and spend.** A community pack is capped at HUMAN_REVIEW in `core/policy.py`
+  (recommend only; ADR-0002: policy only lowers automation). Unscoped provider settings skip
+  community packs; only `community/<name>:slot=variant` applies. A community pack's pinned
+  `model` and `max_tokens` give way to the deployment's.
+- [ ] **B3 Labels everywhere.** "Community · not clinically reviewed" by origin on `/api/packs`,
+  `/api/packs/{id}`, `/api/health` (packs by origin), the dashboard picker and card header, Try
+  it, the Decision Card, CDS Hooks discovery and each card's `source.label`. The dashboard's
+  default pack is the first maintained one. `publisher.type` shown as self-declared. Tokens only;
+  contrast tests extended.
+- [ ] **B4 `mendari community-check`** (and `scripts/community_check.py`, shared by the CLI and
+  CI): scope, identity, manifest policy (`license: Apache-2.0`, `publisher.type: community`,
+  `store_input: hash`, local providers, no pinned model, `degradation_tolerance` ≤ 0.05, risk
+  level ≤ 1), correctness, evaluation floors (critical detection ≥ 0.9, no critical case
+  automated, ≥ 5 benchmark cases per critical label), the benchmark and card regenerated and
+  compared, a retrained model byte-identical, the regex probe, size caps (2 MB, 200 files),
+  version and CHANGELOG against the digest, PHI heuristics as warnings. A unit test per rule.
+- [ ] **B5 CI.** One always-running, required `pack-check` job (exits 0 with "no pack changes"),
+  pack directories from `git diff -z`, covering `packs/` (the existing gate) and
+  `community-packs/`; a PR that touches a community pack and anything outside one
+  `community-packs/<name>/` fails unless the owner wrote it. `ci.yml` runs `mendari test` on
+  every community pack. No `pull_request_target`, no secrets.
+- [ ] **B6 Scaffold.** `mendari new --community` writes the community defaults.
+- [ ] **B7 Docs and templates.** `docs/guides/contributing-a-pack.md` (the flow, synthetic data
+  without Python, `ABSTAIN` carries no recommendation, a risk-level table with the inbox router
+  as the level-0 precedent, a pattern guide); `.github/PULL_REQUEST_TEMPLATE/pack.md`; a
+  "Propose a pack" issue form; CONTRIBUTING on the DCO and content provenance;
+  `community-packs/README.md` and `MAINTAINERS.yaml` (removed ids stay as tombstones).
+- [ ] **B8 (owner)** Labels (`pack`, `pack:new`, `pack:update`, `needs-clinical-review`,
+  `clinical-review:provided`, `risk-level-change`, `patient-safety`, `idea`, `good first pack`);
+  the DCO app; `pack-check` and `DCO` required; a `main` ruleset requiring a code owner's
+  approval, with the admin on the bypass list.
+- [ ] **B9 (owner)** `MENDARI_COMMUNITY_PACKS=on` in Vercel Production only; on the owner's own
+  branch preview (never a fork's), check that `community-packs/` reaches the function bundle.
+- [ ] **B10 (owner and build)** Dry run from a second GitHub account, including a bad version
+  (a ReDoS pattern, a shadowing id, an edit outside its folder, a faked benchmark) that CI must
+  refuse. Then announce.
+
+### Going public: owner steps
+In this order; each step says where to click and what to check after. Nothing here is done by a
+build session. A1–A8 come before A9 (making the repository public); A10 and A11 right after it.
+
+1. **Merge the public-prep PR** (`claude/public-prep`) once CI is green. Check after: on `main`,
+   `docs/` has no plans, reviews or logs (they are in `notes/`), and the `secrets` job ran green.
+   Optionally make `secrets` a required check: Settings → Branches → the `main` rule → Require
+   status checks → add `secrets`.
+2. **A1, email push protection.** github.com → your avatar → Settings → Emails: keep "Keep my
+   email addresses private" on and tick **"Block command line pushes that expose my email"**.
+   Check after: `git config user.email` in your clones is the `…@users.noreply.github.com`
+   address; a push of a commit authored with the gmail address is refused (GH007). The address
+   on the five old commits stays (decided 2026-10-04).
+3. **A7, homepage and description.** The repository page → the gear next to **About**: Website
+   `https://mendari.co`; reword the description (for example "Open, auditable Decision Packs
+   for healthcare decisions"); add topics if you like. Check after: the About box shows
+   mendari.co, not a vercel.app host.
+4. **A8, Vercel** (the engine's project):
+   - Settings → Git: **Git Fork Protection** stays on. Rule from now on: never click
+     "Authorize" on a deployment for a fork's pull request; pack PRs get CI, not previews.
+   - Settings → Environment Variables: for `JEV_CONNECTOR`, `JEV_API_URL`, `JEV_MODEL`,
+     `LLM_MODEL`, `MENDARI_JEV_DAILY_LIMIT` and `MENDARI_LLM_DAILY_LIMIT`, edit each and untick
+     **Preview** (Production only). Check after: a new preview of your own branch reports no
+     Jev or LLM configuration in `/api/health` (signed in) and still deploys.
+   - Settings → Deployment Protection → **Protection Bypass for Automation**: if the secret was
+     ever pasted anywhere (a chat, a script, a PR), regenerate it; delete it if nothing uses it.
+   - Storage → the Neon database → its settings: preview deployments get their own database
+     branch. Check after: the Neon console's Branches list shows `preview/<your branch>` for a
+     fresh preview, and the `neon-preview-cleanup` workflow deletes it when the PR closes.
+5. **A9, make it public.** Settings → General → Danger Zone → **Change repository visibility**
+   → Make public. Check after: in a private browser window, the repository, its Actions runs
+   and its PRs open without signing in; `.github/ISSUE_TEMPLATE` shows its two private links.
+6. **A10, right after the flip.** Settings → **Code security** (named "Code security and
+   analysis" or "Advanced Security" on some accounts):
+   - **Private vulnerability reporting**: Enable. Check after: the Security tab shows **Report
+     a vulnerability** (from a second account or signed out), and the links in SECURITY.md,
+     CODE_OF_CONDUCT.md and the issue chooser open the form.
+   - **Dependency graph** on; **Dependabot alerts** and **Dependabot security updates**: Enable.
+     Check after: Security → Dependabot lists the alerts (or none).
+   - **Secret scanning**: Enable, and **Push protection**: Enable. Check after: Security →
+     Secret scanning shows no open alert (gitleaks found none beyond the allowed example file).
+   - **Code scanning → CodeQL analysis → Set up → Default**. Check after: the first CodeQL run
+     in Actions finishes, and Security → Code scanning lists its results.
+   - Settings → **Actions → General**: "Approval for running fork pull request workflows from
+     contributors" → **Require approval for first-time contributors**; "Workflow permissions" →
+     **Read repository contents and packages permissions**, and "Allow GitHub Actions to create
+     and approve pull requests" unticked. Check after: a PR from a second account waits on
+     **Approve and run** the first time.
+7. **A11, before any tag.**
+   - Settings → **Environments** → New environment `pypi`: Required reviewers: you; Deployment
+     branches and tags → Selected branches and tags → add a **tag** rule `v*`. Then the same for
+     `ghcr` (`images.yml` uses it). Check after: both list one reviewer and the `v*` tag rule.
+     (On GitHub Free, protection rules work only once the repository is public.)
+   - Settings → **Rules → Rulesets** → New ruleset → **New tag ruleset**: name "release tags",
+     Enforcement Active, Bypass list: Repository admin; Target tags: include `v*`; rules:
+     **Restrict creations**, **Restrict updates**, **Restrict deletions**. Check after: the
+     ruleset shows Active with those three rules.
+   - pypi.org → Your account → **Publishing** → Add a new pending publisher (GitHub): PyPI
+     project name `mendari`, owner `Junebugg1214`, repository `mendari`, workflow
+     `release.yml`, environment `pypi`. Check after: it is listed as a pending publisher, and
+     the name `mendari` is still free on PyPI.
+8. **Release 0.1.0.** On an up-to-date `main`: `git tag v0.1.0 && git push origin v0.1.0` (the
+   tag must equal the package version; `release.yml` checks). In the run, approve the `pypi`
+   deployment and the six `ghcr` deployments. Check after: pypi.org/project/mendari shows 0.1.0
+   with a wheel and an sdist; in a fresh venv, `pip install mendari` then `mendari test
+   mendari/patient-inbox-router` passes; the release job's "The sdist holds only what a source
+   build needs" step passed; GitHub → your profile → Packages lists the six `mendari-*`
+   images (make each public in its package settings if it is private).
+9. **Docs on GitHub Pages** (a build PR adds the deploy workflow first). Settings → **Pages** →
+   Source: **GitHub Actions**. Check after: the site opens at the Pages URL, then a build PR
+   points the README and `mendari new` at it and switches the install line to `pip install
+   mendari`.
+
 ## Built: pack content safety (2026-10-04)
 From the launch-readiness review, before any registry, Hub or upload feature lets an outside
 author's pack run on a shared deployment. Branch `claude/pack-safety-core`. No pack, data, model
@@ -149,7 +314,7 @@ registered EHR; no iframe and no refresh until the pilot EHR is known
   organizations
 
 ## Built: hardening before PHI, Phase 4b (2026-10-02)
-From the [audit](../docs/fhir-and-docs-audit.md) Phase 4b line, after research (four researchers
+From the [audit](../notes/fhir-and-docs-audit.md) Phase 4b line, after research (four researchers
 and a critic). The owner chose finite spending ceilings plus per-organization quotas at launch,
 verified emails for people in the chain, and the pilot site's own servers for the first PHI
 ([ADR-0005](../docs/decisions/ADR-0005-hardening-before-phi.md)). Built in three lanes
@@ -245,7 +410,7 @@ From the audit's "Redesign plan". Branch `claude/phase-5`, after Phase 4b's stag
 - Deferred: a public demo deployment (a launch decision), theming the mkdocs site
 
 ## Built: authentication and authorization, Phase 4 (2026-10-02)
-From the [audit](../docs/fhir-and-docs-audit.md) Phase 4, after research (three researchers and a
+From the [audit](../notes/fhir-and-docs-audit.md) Phase 4, after research (three researchers and a
 security-minded critic). The owner chose the token endpoint plus scoped keys, a 30-day expiry for
 existing keys, and URI scopes ([ADR-0004](../docs/decisions/ADR-0004-machine-access-tokens-and-scopes.md)).
 Branch `claude/fhir-phase-4`. About 6.5–7 days.
@@ -281,7 +446,7 @@ Branch `claude/fhir-phase-4`. About 6.5–7 days.
   last-used tracking, a new key format, the dashboard Keys view
 
 ## Built: FHIR search, Phase 3 (2026-10-02)
-From the [audit](../docs/fhir-and-docs-audit.md) Phase 3, after research (three researchers and a
+From the [audit](../notes/fhir-and-docs-audit.md) Phase 3, after research (three researchers and a
 critic). The owner chose a Task per decision ([ADR-0003](../docs/decisions/ADR-0003-a-served-task-is-a-decision.md)).
 Branch `claude/fhir-phase-3`. About 4–5 days.
 - [x] **Task per decision** (`standards/task_fhir.py`): derived on read from the decision row
@@ -317,7 +482,7 @@ Branch `claude/fhir-phase-3`. About 4–5 days.
   moving `$decide`'s work item to `groupIdentifier`
 
 ## Built: FHIR core conformance, Phase 2 (2026-10-01/02)
-From the [audit](../docs/fhir-and-docs-audit.md) Phase 2, revised after research (three
+From the [audit](../notes/fhir-and-docs-audit.md) Phase 2, revised after research (three
 researchers and a critic; evidence from the HL7 validator and the official R4 definitions).
 Branch `claude/fhir-phase-2`. About 6–7 days.
 - [x] **Reasons never quote input** (a privacy bug found by the critic): a pack-schema
@@ -359,7 +524,7 @@ Branch `claude/fhir-phase-2`. About 6–7 days.
   `Communication.medium` code system
 
 ## In progress: FHIR and API docs, Phase 1, and sign-in in production (2026-10-01)
-From the [FHIR and API docs audit](../docs/fhir-and-docs-audit.md); approved by the owner.
+From the [FHIR and API docs audit](../notes/fhir-and-docs-audit.md); approved by the owner.
 Sign-in: Google, the owner as the only admin.
 - [x] No input crashes a FHIR route: a test that mistypes every element of the US Core fixtures
   finds the crash sites; a core element of the wrong JSON type (`resourceType`, `id`, `meta`,
@@ -383,14 +548,14 @@ Sign-in: Google, the owner as the only admin.
 - [x] Repository renamed to `Junebugg1214/mendari` (still private)
 - [x] Package, import and CLI `mendari`; settings `MENDARI_*` (the `OPENHEALTH_*` names still
   work); pack ids `mendari/…`; identifiers `https://mendari.co/…`; images `mendari-engine`
-- [x] Kept: the Vercel project and URLs (`openhealth-hub`), the Jev connector
-  (`jev/openhealth-hub`) and the Neon database name; dated records (the overnight log and the
-  milestone plans) carry a rename note instead of being rewritten
+- [x] Kept: the names of the hosting resources (Vercel project, Jev connector, database);
+  dated records (the overnight log and the milestone plans) carry a rename note instead of being
+  rewritten
 - [x] A "coming soon" page for mendari.co: `web/`, its own Vercel project `mendari-web`;
   mendari.ai and the www names redirect to it
-- [ ] DNS at Porkbun pointed at Vercel (the owner's)
+- [ ] DNS for mendari.co pointed at Vercel (the owner's)
 
-## Done (built; the launch is the owner's): v1.0 Public open-source launch ([plan](../docs/plans/v1.0-public-launch.md))
+## Done (built; the launch is the owner's): v1.0 Public open-source launch ([plan](../notes/plans/v1.0-public-launch.md))
 Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 - [x] Plan
 - [x] Security review: threat model, security headers, dependency audit and ZAP scan in CI,
@@ -403,7 +568,7 @@ Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 - [ ] Going public: public repo, PyPI release, live Hub and docs site (the owner's decision;
   logged)
 
-## Done: v0.7 Later standards ([plan](../docs/plans/v0.7-later-standards.md))
+## Done: v0.7 Later standards ([plan](../notes/plans/v0.7-later-standards.md))
 Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 - [x] Plan
 - [x] CQL provider (Library/$evaluate on HAPI FHIR with Clinical Reasoning); the trial pack's
@@ -414,7 +579,7 @@ Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 - [x] Da Vinci DTR: questionnaire package for the PA pack's gaps (validated against DTR 2.2.0)
 - [x] Da Vinci PAS: request Bundle and submission to a mock payer (validated against PAS 2.2.1)
 
-## Done: v0.6 Readiness for health organizations ([plan](../docs/plans/v0.6-org-readiness.md))
+## Done: v0.6 Readiness for health organizations ([plan](../notes/plans/v0.6-org-readiness.md))
 Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 - [x] Plan
 - [x] OIDC login, roles and API keys; tenancy
@@ -424,7 +589,7 @@ Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 - [x] Container image per pack; on-prem templates
 - [x] Pilot check in CI (a real OpenID Connect provider, navikt/mock-oauth2-server; job `pilot-check`)
 
-## Done: design grade phases ([`docs/design-grade.md`](../docs/design-grade.md))
+## Done: design grade phases ([`notes/design-grade.md`](../notes/design-grade.md))
 Graded C+ against Apple, Airbnb and best-in-class data viz on 2026-09-29; the user approved every
 phase (A, B, C) to be done and merged when CI passes.
 - [x] Phase A quick wins: layout shift at 768 px 0.50 -> 0 (the pack picker's width is fixed from
@@ -462,17 +627,17 @@ phase (A, B, C) to be done and merged when CI passes.
 - [x] Re-grade with the same measurements (110 captures, same script): **B+** (was C+), as
   projected. No layout shift at any width, no control under 24 px on any capture, 56 px phone
   bar; an A needs identity work, clinician testing, production-scale data and a real
-  screen-reader and cross-browser pass (`docs/design-grade.md`, "Re-grade")
+  screen-reader and cross-browser pass (`notes/design-grade.md`, "Re-grade")
 - [x] Check the production deploy after the last merge: `ad9d3d3` live, `/`, `/api/health` and
-  the modules 200 through `vercel curl` (Postgres, 5 packs), unauthenticated requests 302 to login
-- [x] Small gaps from the re-grade (`docs/design-grade.md`, "What an A still needs"), one PR each;
-  log in `docs/overnight-log.md`:
+  the modules answer 200 signed in (Postgres, 5 packs), unauthenticated requests 302 to login
+- [x] Small gaps from the re-grade (`notes/design-grade.md`, "What an A still needs"), one PR each;
+  log in `notes/overnight-log.md`:
   - [x] Plain words in criteria tables and Try-it answer headings
   - [x] Links that carry the pack (`?pack=` in the address)
   - [x] A transition from skeleton to content (the view fades in where its skeleton was)
   - [x] Fewer whole-subtree re-renders: sorting moves rows instead of redrawing the table
 
-## Done: v0.5 The Hub ([plan](../docs/plans/v0.5-the-hub.md))
+## Done: v0.5 The Hub ([plan](../notes/plans/v0.5-the-hub.md))
 - [x] Plan
 - [x] Shared database layer (`core/db.py`)
 - [x] Signed pack archives and publisher keys
@@ -483,7 +648,7 @@ phase (A, B, C) to be done and merged when CI passes.
 - [x] End to end: five packs published, clean-venv install and pull (CI job `hub-e2e`)
 - [ ] Going public: a public registry, the site and the PyPI release (the user's decision; logged)
 
-## Done: v0.4 Healthcare standards ([plan](../docs/plans/v0.4-healthcare-standards.md))
+## Done: v0.4 Healthcare standards ([plan](../notes/plans/v0.4-healthcare-standards.md))
 Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
 - [x] Plan
 - [x] US Core validation of FHIR inputs (warn by default, enforce on request; HL7 validator in CI)
@@ -511,7 +676,7 @@ Approved in advance with v0.5 to v1.0 (overnight run, 2026-09-29).
   server); a `urn:uuid` input reference becomes `Type/id`. The `/api/…/fhir/decide` Task is
   unchanged: it is a standalone resource the client stores, where `Type/id` resolves
 
-## Done: Dashboard redesign ([`docs/ui-ux-review.md`](../docs/ui-ux-review.md))
+## Done: Dashboard redesign ([`notes/ui-ux-review.md`](../notes/ui-ux-review.md))
 Plan approved 2026-09-29 (8 PRs, about 10 working days); the user's decisions are in the plan's
 section 8 (both audiences, safety-first leaderboard, Playwright, admin-only evaluations with v0.6
 roles, feedback that captures the right answer, Eastern time everywhere people look).
@@ -606,7 +771,7 @@ roles, feedback that captures the right answer, Eastern time everywhere people l
   ignored); errors announced as alerts and shown 8 s, a failed view with "Try again"; report
   panels at h2 (was h1 -> h3); header rows on the card's question tables; `aria-current` on the
   active section; no focus rectangle on headings the app focuses. 8 new browser tests (62 in all).
-  QA report with the screenshots: https://claude.ai/artifact/GmDM3pEDMEEnYkb9GBcL4P (private).
+  The QA report with the screenshots was shared with the owner privately.
 - [x] Favicon (#54): `/favicon.ico` (16/32/48 px, from `favicon.svg` via `scripts/make-favicon.py`)
   ended the only 404 left in production after the redesign
   VoiceOver itself is for a person at the Mac (the report has a two-minute script)
@@ -626,15 +791,14 @@ leaderboard and deployed choice.
 - [x] PR 3 leaderboard (`evals/leaderboard.json`, 34 rows on 0.1.1): rules; Jev, Claude Sonnet 5,
   Claude Haiku 4.5 and gpt-oss-120b, alone and with the rules. With the rules every model-backed
   screen blocked 21/21 hand-written drafts to block; none released
-- [x] `MENDARI_JEV_DAILY_LIMIT=none` (no limit, still counted), at the user's request
-- [x] Deployed with the user's choice: `mendari/ai-guard:screen=rules_and_jev`. Live: a
+- [x] Jev daily limit set as the user asked (calls still counted)
+- [x] Deployed with the user's choice (see the deployment's `/api/health`). Live: a
   missed emergency, a stroke in words the rules don't list and an unlisted-brand overdose are
   blocked; a safe draft waits for one-step approval
 - [x] 0.1.2: synthetic drafts fit their questions; leaderboard re-measured (LLM screens 0.90-0.98
   verdict accuracy, rules + Jev 0.80-0.88)
-- [x] Switched to the user's new choice: `mendari/ai-guard:screen=rules_and_llm` with
-  `LLM_MODEL=anthropic/claude-sonnet-5` and `MENDARI_LLM_DAILY_LIMIT=none` (production and
-  preview). Sonnet + rules was the only screen that never missed a draft to block in any run
+- [x] Switched to the user's new choice (see the deployment's `/api/health`). Sonnet + rules
+  was the only screen that never missed a draft to block in any run
 
 ## Done: v0.3 Prior Authorization Preflight
 Plan approved 2026-09-29 (3 PRs): runtime → the pack → leaderboard and deployed choice.
@@ -648,8 +812,8 @@ Plan approved 2026-09-29 (3 PRs): runtime → the pack → leaderboard and deplo
   alone and with rules. Every model-backed config caught 6/6 held-out red flags, none
   automated, 100 % next step held out, 0 false automation; rules_and_jev automates 33-47 %
   at $0.00003 and 0.2 s.
-- [x] Deployed with the user's choice: `mendari/prior-auth-preflight:notes=rules_and_jev`
-  (production and preview); redeployed; `/api/health` confirms. Live order-sign: a complete
+- [x] Deployed with the user's choice (see the deployment's `/api/health`); redeployed;
+  `/api/health` confirms. Live order-sign: a complete
   lumbar MRI is submitted automatically, a knee arthroscopy with gaps goes to a person, the
   lab order is ignored, and a red flag the rules miss is caught by Jev (urgent review).
 
@@ -672,9 +836,8 @@ deployed choice.
 - [x] PR 4 leaderboard: offline, Jev (alone, with rules), 3 LLMs (alone, with rules) on
   holdout/tuning/test-100/local-100. Every model-backed config caught every urgent referral,
   none automated. rules_and_jev: 100 % next_step held out, AUTO 27-47 % with 0 false
-  automation, 0.2 s, $0.00004. Jev daily limit raised to 2000 (production) with the user.
-- [x] Deployed with the user's choice: `mendari/referral-router:specialty_reader=jev` and
-  `mendari/referral-router:triage_screen=rules_and_jev` (production and preview); redeployed;
+  automation, 0.2 s, $0.00004. Jev daily limit raised with the user.
+- [x] Deployed with the user's choice (see the deployment's `/api/health`); redeployed;
   `/api/health` confirms; live order-sign gives return_for_info, urgent_review and an AUTO
   schedule on three referrals, and ignores the lab order.
 
@@ -702,8 +865,7 @@ dashboard and deployment → leaderboard and deployed choice.
   the rules lowered eligibility to 92% held out / 87% local. Card 0.1.1 says so.
 - [ ] Jev-alone rows on test and the local site (200 Jev calls; needed the next day's budget;
   now under "Open items" above)
-- [x] Deployed notes reader chosen with the user: `notes=jev`. MENDARI_PROVIDERS (production
-  and preview) = `router=jev,safety_screen=rules_and_jev,mendari/clinical-trial-prescreener:notes=jev`
+- [x] Deployed notes reader chosen with the user (see the deployment's `/api/health`)
 
 ## Done: v0.2 Model-agnostic core
 - [x] Detailed v0.2 plan approved (5 PRs: spec, Jev batching, composition, LLM, leaderboard)
@@ -726,12 +888,11 @@ dashboard and deployment → leaderboard and deployed choice.
   `confidence` is a distribution-shape statistic), published price, 429/529 retry, real limits
 - [x] Leaderboard Jev rows (jev-1.13.0, measured on production): `router=jev,
   safety_screen=rules_and_jev` on all three datasets, `router=cascade` on `test`
-- [x] Deployed mix confirmed: `router=jev,safety_screen=rules_and_jev`; `JEV_MODEL=jev-1.13.0`
-  pinned (Production and Preview)
+- [x] Deployed mix and a pinned Jev model confirmed with the user (see the deployment's
+  `/api/health`)
 - [x] Emergency threshold: spec 0.2 `min_probability`; inbox 0.3.0 escalates at P(urgent) ≥ 0.35
 - [x] `urgency` reworded (instructions and criteria agree; doubt handled by the policy)
-- [x] Leaderboard Jev rows for pack 0.3.0 (production, jev-1.13.0; `MENDARI_JEV_DAILY_LIMIT`
-  raised to 700 in production)
+- [x] Leaderboard Jev rows for pack 0.3.0 (jev-1.13.0; Jev daily limit raised with the user)
 - [x] Preview databases: Neon branch per preview again, deleted on PR close
   (`neon-preview-cleanup` workflow); evaluations keep the request context (OIDC) in threads
 - [x] Exit: 10 configurations published incl. Claude and an open-weight model; one Jev call per
@@ -766,8 +927,8 @@ latency and cost.
 ## Notes
 - Jev adapter: typed `choice` questions, ≤8 per call, 2–255 labels, probabilities must sum
   to 1, chosen label must be the argmax. Endpoint, model and key are deployment settings.
-- Mendari is fully separate from other projects: its own repo, Vercel project, connector
-  (`jev/openhealth-hub`), database and test containers. Nothing is shared.
+- Mendari is fully separate from other projects: its own repo, Vercel project, Jev connector,
+  database and test containers. Nothing is shared.
 - Core abstraction: a pack declares *questions* (labels + criteria). Providers answer questions
   with probability distributions. Policy turns answers into an outcome (ADR-0001).
 - Risk caps live in the runtime; level 2–3 AUTO needs a deployer's GovernanceOverride (ADR-0002).
@@ -784,14 +945,14 @@ latency and cost.
   (4 stat escalations, 10 in the review queue), exactly once.
 
 ### Deployed (2026-09-28)
-- Vercel project `openhealth-hub` (FastAPI function, Fluid compute, iad1), Neon Postgres
-  `openhealth-hub-db`, Jev via connector `jev/openhealth-hub` (`JEV_MODEL=jev-latest`, which
-  currently resolves to `jev-1.13.0`). Vercel Authentication on all deployments.
+- One Vercel project (a FastAPI function), Neon Postgres, Jev via a Vercel Connect connector
+  (`jev-latest`, which then resolved to `jev-1.13.0`). Platform authentication on all
+  deployments.
 - Production smoke tests passed: live Jev routing, stat escalation, review persistence,
   audit chain, Jev eval (100% on local-site sample), CDS discovery, dashboard assets.
 
 ### Deferred (v0.2+)
-- [x] Pin a concrete Jev model: `JEV_MODEL=jev-1.13.0` (v0.2).
+- [x] Pin a concrete Jev model (v0.2).
 - [x] Neon preview branching so previews don't write to the production database (v0.2).
 - [x] LLM provider (v0.2). The CQL provider is roadmap v0.7.
 - [ ] Remote hub (`mendari pull`, signed packs): roadmap v0.5. Server authentication: v0.6.

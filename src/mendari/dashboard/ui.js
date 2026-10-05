@@ -55,7 +55,7 @@ export function money(v) {
 
 export const OUTCOMES = ["AUTO", "HUMAN_REVIEW", "ABSTAIN", "BLOCK"];
 
-// Plain words first; the exact code stays one hover away (docs/ui-ux-review.md, decision 1).
+// Plain words first; the exact code stays one hover away (notes/ui-ux-review.md, decision 1).
 const OUTCOME_TEXT = { AUTO: "Automated", HUMAN_REVIEW: "Human review", ABSTAIN: "Abstained", BLOCK: "Blocked" };
 
 export const PRIORITY_TEXT = { stat: "Stat", asap: "ASAP", urgent: "Urgent", routine: "Routine" };
@@ -203,7 +203,7 @@ export async function whileBusy(button, busyText, task) {
 }
 
 // Which pack, how risky, and what is deployed, in words; the exact identifiers stay one line below
-// (decision 1 in docs/ui-ux-review.md: plain words first, codes one step away).
+// (decision 1 in notes/ui-ux-review.md: plain words first, codes one step away).
 export const slotText = (slot) => `${slot[0].toUpperCase()}${slot.slice(1).replaceAll("_", " ")}`;
 
 // A stat: a label, a value, and what the value is out of. `html` values are trusted markup.

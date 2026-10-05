@@ -8,18 +8,22 @@ from pathlib import Path
 import pytest
 import yaml
 
-from mendari.cli import main
+from mendari.cli import AUTHORING_GUIDE, main
 from mendari.core.decision import Decision
 from mendari.core.registry import resolve_pack
 from mendari.evals import evaluate, resolve_dataset
 from mendari.evals.pack_tests import run_pack_tests
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_a_new_pack_works_as_written(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     target = tmp_path / "refill-router"
     args = ["new", str(target), "--id", "my-clinic/refill-router", "--publisher", "My Clinic"]
     assert main(args) == 0
-    assert "mendari test" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "mendari test" in out
+    assert f"The guide: {AUTHORING_GUIDE}" in out  # a URL: it works from any directory
     pack = resolve_pack(str(target))
     assert pack.id == "my-clinic/refill-router" and pack.manifest.name == "Refill router"
     assert pack.manifest.publisher.name == "My Clinic"
@@ -41,7 +45,13 @@ def test_the_template_is_yaml_only_and_says_where_the_guide_is() -> None:
         (TEMPLATE / "pack.yaml").read_text().replace("{{", "").replace("}}", "")
     )
     assert manifest["spec_version"] == "0.2"
-    assert "docs/guides/authoring-a-pack.md" in (TEMPLATE / "pack.yaml").read_text()
+    assert AUTHORING_GUIDE in (TEMPLATE / "pack.yaml").read_text()
+
+
+def test_the_guide_url_names_the_guide_in_this_repository() -> None:
+    prefix = "https://github.com/Junebugg1214/mendari/blob/main/"
+    assert AUTHORING_GUIDE.startswith(prefix)
+    assert (ROOT / AUTHORING_GUIDE.removeprefix(prefix)).is_file()
 
 
 def test_new_never_overwrites_and_checks_the_id(tmp_path: Path) -> None:

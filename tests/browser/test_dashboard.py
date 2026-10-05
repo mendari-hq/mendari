@@ -1095,7 +1095,7 @@ def test_the_input_view_is_remembered(page: Page) -> None:
     expect(page.locator("#record-form")).to_be_hidden()
 
 
-# -- design grade, Phase A (docs/design-grade.md) --------------------------------------------------
+# -- design grade, Phase A (notes/design-grade.md) -------------------------------------------------
 
 LAYOUT_SHIFT = """window.__cls = 0; new PerformanceObserver((list) => {
   for (const e of list.getEntries()) if (!e.hadRecentInput) window.__cls += e.value;

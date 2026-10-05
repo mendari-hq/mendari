@@ -5,7 +5,7 @@
 > `OPENHEALTH_*` settings are `MENDARI_*` (the old names still work), and pack ids start with
 > `mendari/`.
 
-_Started 2026-09-29, late evening ET. Scope: every item in `docs/design-grade.md`, then (at your
+_Started 2026-09-29, late evening ET. Scope: every item in `notes/design-grade.md`, then (at your
 request during the night) the whole project roadmap, v0.4 to v1.0, all approved in advance.
 Rules: one focused PR per item, merged only on green CI after a self-review, squash merge. The
 final state and self-grade are at the end._
@@ -13,7 +13,7 @@ final state and self-grade are at the end._
 ## Starting point
 
 Phases A, B (B1–B3) and C and the re-grade were already merged by an earlier session
-(#57–#61, CI green on `main`, re-graded C+ → B+). What remained in `docs/design-grade.md`:
+(#57–#61, CI green on `main`, re-graded C+ → B+). What remained in `notes/design-grade.md`:
 the production-deploy check and the four "small remaining gaps" under "What an A still needs".
 
 ## Pull requests
@@ -21,54 +21,54 @@ the production-deploy check and the four "small remaining gaps" under "What an A
 | # | Title | Closes | CI |
 |---|---|---|---|
 | — | Production deploy check (no PR) | todo: "Check the production deploy" | — |
-| [#62](https://github.com/Junebugg1214/openhealth-hub/pull/62) | Plain words in criteria tables and Try-it answer headings | Small gap: "plain words in the Try-it criteria table"; category 4 | Red once (a test line over 100 columns, edited after lint ran), then green; preview checked; merged |
-| [#63](https://github.com/Junebugg1214/openhealth-hub/pull/63) | Links carry the pack (?pack= in the address) | Small gap: "links that carry the pack"; category 5 | Green first time; preview checked (including `/?pack=`); merged |
-| [#64](https://github.com/Junebugg1214/openhealth-hub/pull/64) | A view fades in where its skeleton was | Small gap: "a view transition from skeleton to content"; category 9 | Green first time; preview checked; merged |
-| [#65](https://github.com/Junebugg1214/openhealth-hub/pull/65) | Sorting moves the rows instead of redrawing the table | Small gap: "fewer whole-subtree re-renders"; category 10 | Green first time; preview checked; merged |
-| [#66](https://github.com/Junebugg1214/openhealth-hub/pull/66) | v0.4 plan | v0.4 planning step | Green; merged (the API answered 502 on merge, the merge had gone through; the branch was deleted by hand) |
-| [#67](https://github.com/Junebugg1214/openhealth-hub/pull/67) | US Core 6.1.0 validation of FHIR inputs (warn by default, enforce on request) | v0.4 item 1 | Green first time, including the new `fhir-conformance` job; preview checked with a real FHIR decision on Vercel (profile data loads, issues returned); merged |
-| [#68](https://github.com/Junebugg1214/openhealth-hub/pull/68) | Audit export as FHIR AuditEvent and Provenance | v0.4 item 2 | Green first time; preview streamed NDJSON from Postgres; merged |
-| [#69](https://github.com/Junebugg1214/openhealth-hub/pull/69) | Sandbox: referral cases in FHIR as US Core resources (and a seeding fix) | v0.4 item 3 | Green first time; preview checked; merged |
-| [#70](https://github.com/Junebugg1214/openhealth-hub/pull/70) | CDS Hooks fetch missing prefetch from allow-listed FHIR servers | v0.4 item 4 | Green first time; preview checked; merged |
-| [#71](https://github.com/Junebugg1214/openhealth-hub/pull/71) | SMART on FHIR EHR launch: backend (PKCE, OIDC, server-side sessions, patient context) | v0.4 item 5, part 1 of 3 | Green; one follow-up commit before merge (`/api/smart/session` answers `{"active": false}` instead of 401, found while building the view); preview checked (SMART off: inactive, launch 404); merged |
-| [#72](https://github.com/Junebugg1214/openhealth-hub/pull/72) | Dashboard: This patient, after a SMART launch from the EHR | v0.4 item 5, part 2 of 3 | Red once (a real dashboard race exposed by the new boot request, plus a racy skeleton test); fixed at the root with a regression test, then green; preview checked; merged |
-| [#73](https://github.com/Junebugg1214/openhealth-hub/pull/73) | Sandbox: SMART launcher and a scripted EHR launch (CI job sandbox-e2e) | v0.4 item 5, part 3 of 3 (and the SMART half of item 7) | Green, including the new `sandbox-e2e` job (the SMART exit, proven in CI); rebased after #72 (log and todo only), green again; merged |
-| [#74](https://github.com/Junebugg1214/openhealth-hub/pull/74) | Bulk FHIR $export into local-validation datasets | v0.4 item 6 (and the Bulk half of item 7) | Green first time, including `sandbox-e2e` with `bulk-check` (the Bulk exit, proven in CI); merged. **v0.4 done.** |
-| [#75](https://github.com/Junebugg1214/openhealth-hub/pull/75) | v0.4 done; v0.5 plan (the Hub) | v0.4 closeout, v0.5 planning step | Green; merged |
-| [#76](https://github.com/Junebugg1214/openhealth-hub/pull/76) | Share the database layer: core/db.py | v0.5 groundwork (the registry reuses it) | Green first time; merged |
-| [#77](https://github.com/Junebugg1214/openhealth-hub/pull/77) | Signed pack archives (.ohpack) and publisher keys | v0.5 item 1 | Opened with a stale diff (my mistake, see decisions), fixed by force-pushing the feature branch; green; merged |
-| [#78](https://github.com/Junebugg1214/openhealth-hub/pull/78) | Registry service: namespaces, publisher keys, immutable signed versions, search | v0.5 item 2 | Green first time; merged |
-| [#79](https://github.com/Junebugg1214/openhealth-hub/pull/79) | Hub client: login, push, pull (verified, pinned keys, cached), search; Decision.from_hub from the registry | v0.5 item 3 | Red once on Python 3.11: a flaky teardown in a test merged with #78, whose unclosed Postgres pool was collected on another thread. Fixed at the root (registry stores close; the app closes its store at shutdown), then green; merged |
-| [#80](https://github.com/Junebugg1214/openhealth-hub/pull/80) | Shareable local-validation reports (metrics only) and site comparison | v0.5 item 4 | Green first time; merged |
-| [#81](https://github.com/Junebugg1214/openhealth-hub/pull/81) | Hub website (Next.js): search, pack pages, publishers; CI job hub-site | v0.5 item 5 | Red once (`npm ci` on Node 22 / npm 10 found optional Linux packages missing from the lockfile), fixed by regenerating it and running CI on Node 24; green; merged |
-| [#82](https://github.com/Junebugg1214/openhealth-hub/pull/82) | v0.5 end to end: a clean machine installs, pulls and tests; registry in the sandbox; docs | v0.5 item 6 (the exit) | Green first time (the new `hub-e2e` job included); preview checked; merged. v0.5 done |
-| [#83](https://github.com/Junebugg1214/openhealth-hub/pull/83) | v0.6 plan: readiness for health organizations | v0.6 plan | Green first time; preview checked; merged |
-| [#84](https://github.com/Junebugg1214/openhealth-hub/pull/84) | Sign-in for organizations: OIDC, roles, API keys, tenancy | v0.6 item 1 | Green first time; preview checked (open mode, `/api/auth/me` answers `open`); merged |
-| [#85](https://github.com/Junebugg1214/openhealth-hub/pull/85) | Governance approvals in the Decision Card, and the deployment registry | v0.6 item 2 | Red once: the browser job's 24 px check failed on an inline link in the card's facts (on Linux the sentence didn't wrap, so the link was 20 px tall). Replaced the link with words; lesson added; then green |
-| [#86](https://github.com/Junebugg1214/openhealth-hub/pull/86) | Monitoring: observed accuracy, overrides, drift and alerts over time | v0.6 item 3 | Green first time; preview checked (`/api/monitoring` answers with real preview traffic); merged |
-| [#87](https://github.com/Junebugg1214/openhealth-hub/pull/87) | PHI mode: hash-only or encrypted inputs, reads logged, retention; deployment guide | v0.6 item 4 | Green first time; preview checked (`phi_mode: off`, so production is unchanged); merged. Opened once ahead of a failed local gate (see lessons); fixed before CI finished |
-| [#88](https://github.com/Junebugg1214/openhealth-hub/pull/88) | Per-pack container images (GHCR on release tags) and on-prem templates | v0.6 item 5 | Green first time (the `docker` job built the per-pack image and saw it serve only its pack); preview checked; merged |
-| [#89](https://github.com/Junebugg1214/openhealth-hub/pull/89) | v0.6 pilot check in CI: a real OIDC provider, keys, PHI, review, governance, monitoring | v0.6 item 6 (the exit) | Green first time (the new `pilot-check` job passed against mock-oauth2-server); preview checked; merged. v0.6 done |
-| [#90](https://github.com/Junebugg1214/openhealth-hub/pull/90) | v0.7 plan: CQL, OMOP, Da Vinci CRD/DTR/PAS | v0.7 plan | Green first time; preview checked; merged |
-| [#91](https://github.com/Junebugg1214/openhealth-hub/pull/91) | CQL provider; the trial pack's criteria in CQL, agreeing with `criteria` in CI | v0.7 item 1 | Green first time (the new `cql` job: 578 + 172 cases agree, 22/22 pack tests with CQL); preview checked; merged |
-| [#92](https://github.com/Junebugg1214/openhealth-hub/pull/92) | OMOP CDM as pack inputs, population evaluation, round trip in CI | v0.7 item 2 | Green first time (`omop-check` identical in the reference-pack job); preview checked; merged |
-| [#93](https://github.com/Junebugg1214/openhealth-hub/pull/93) | Da Vinci CRD: coverage information on the PA pack's order-sign response | v0.7 item 3 | Green first time (the validator passed the three CRD orders against CRD 2.2.1 in CI); preview checked; merged |
-| [#94](https://github.com/Junebugg1214/openhealth-hub/pull/94) | Da Vinci DTR: questionnaire package for the PA pack, pre-answered from the decision | v0.7 item 4 | Green first time (all five CRD/DTR samples valid in CI); preview checked; merged |
-| [#95](https://github.com/Junebugg1214/openhealth-hub/pull/95) | Da Vinci PAS: request Bundle, sandbox payer, submission chained on the decision | v0.7 item 5 (closes v0.7) | Green first time (PAS request and response valid in CI with CRD and DTR); preview checked; merged. v0.7 done |
-| [#96](https://github.com/Junebugg1214/openhealth-hub/pull/96) | v1.0 plan: public open-source launch | v1.0 plan | Green first time; preview checked; merged |
-| [#97](https://github.com/Junebugg1214/openhealth-hub/pull/97) | Security review: threat model, headers, dependency audit and ZAP scan in CI | v1.0 item 1 | Green first time (the new `security` job: pip-audit and npm audit clean, ZAP 114 passes, no medium or high); preview checked (headers live, every module 200); merged |
-| [#98](https://github.com/Junebugg1214/openhealth-hub/pull/98) | `openhealth new` and a clinician's pack-authoring guide | v1.0 item 2 | Green first time (`hub-e2e` ran `openhealth new` and its tests from the wheel); preview checked; merged |
-| [#99](https://github.com/Junebugg1214/openhealth-hub/pull/99) | The documentation site (MkDocs Material, strict build in CI) | v1.0 item 3 | Red once for a reason outside the PR (the uv cache-lock timeout, fixed in #100); after the rebase green, the new `docs` job included; preview checked; merged |
-| [#100](https://github.com/Junebugg1214/openhealth-hub/pull/100) | ci: background servers run from the venv, not `uv run` (uv 0.12 holds the cache lock) | CI root cause found on #99 | Green first time (no cache-lock timeouts in hub-e2e, hub-site, security, pilot-check); preview checked; merged |
-| [#101](https://github.com/Junebugg1214/openhealth-hub/pull/101) | The contribution flow: pack-PR workflow with the eval gate, community files | v1.0 item 4 | Green first time; preview checked; merged |
-| [#102](https://github.com/Junebugg1214/openhealth-hub/pull/102) | Release workflow (PyPI trusted publishing on tags) and the README quickstart timed in CI | v1.0 item 5 | Green first time (the new `quickstart` job ran the README's quickstart cold in 5 s); preview checked; merged. v1.0 built |
-| [#103](https://github.com/Junebugg1214/openhealth-hub/pull/103) | Overnight log: final state and self-grade | the log's final state | pending |
+| [#62](https://github.com/Junebugg1214/mendari/pull/62) | Plain words in criteria tables and Try-it answer headings | Small gap: "plain words in the Try-it criteria table"; category 4 | Red once (a test line over 100 columns, edited after lint ran), then green; preview checked; merged |
+| [#63](https://github.com/Junebugg1214/mendari/pull/63) | Links carry the pack (?pack= in the address) | Small gap: "links that carry the pack"; category 5 | Green first time; preview checked (including `/?pack=`); merged |
+| [#64](https://github.com/Junebugg1214/mendari/pull/64) | A view fades in where its skeleton was | Small gap: "a view transition from skeleton to content"; category 9 | Green first time; preview checked; merged |
+| [#65](https://github.com/Junebugg1214/mendari/pull/65) | Sorting moves the rows instead of redrawing the table | Small gap: "fewer whole-subtree re-renders"; category 10 | Green first time; preview checked; merged |
+| [#66](https://github.com/Junebugg1214/mendari/pull/66) | v0.4 plan | v0.4 planning step | Green; merged (the API answered 502 on merge, the merge had gone through; the branch was deleted by hand) |
+| [#67](https://github.com/Junebugg1214/mendari/pull/67) | US Core 6.1.0 validation of FHIR inputs (warn by default, enforce on request) | v0.4 item 1 | Green first time, including the new `fhir-conformance` job; preview checked with a real FHIR decision on Vercel (profile data loads, issues returned); merged |
+| [#68](https://github.com/Junebugg1214/mendari/pull/68) | Audit export as FHIR AuditEvent and Provenance | v0.4 item 2 | Green first time; preview streamed NDJSON from Postgres; merged |
+| [#69](https://github.com/Junebugg1214/mendari/pull/69) | Sandbox: referral cases in FHIR as US Core resources (and a seeding fix) | v0.4 item 3 | Green first time; preview checked; merged |
+| [#70](https://github.com/Junebugg1214/mendari/pull/70) | CDS Hooks fetch missing prefetch from allow-listed FHIR servers | v0.4 item 4 | Green first time; preview checked; merged |
+| [#71](https://github.com/Junebugg1214/mendari/pull/71) | SMART on FHIR EHR launch: backend (PKCE, OIDC, server-side sessions, patient context) | v0.4 item 5, part 1 of 3 | Green; one follow-up commit before merge (`/api/smart/session` answers `{"active": false}` instead of 401, found while building the view); preview checked (SMART off: inactive, launch 404); merged |
+| [#72](https://github.com/Junebugg1214/mendari/pull/72) | Dashboard: This patient, after a SMART launch from the EHR | v0.4 item 5, part 2 of 3 | Red once (a real dashboard race exposed by the new boot request, plus a racy skeleton test); fixed at the root with a regression test, then green; preview checked; merged |
+| [#73](https://github.com/Junebugg1214/mendari/pull/73) | Sandbox: SMART launcher and a scripted EHR launch (CI job sandbox-e2e) | v0.4 item 5, part 3 of 3 (and the SMART half of item 7) | Green, including the new `sandbox-e2e` job (the SMART exit, proven in CI); rebased after #72 (log and todo only), green again; merged |
+| [#74](https://github.com/Junebugg1214/mendari/pull/74) | Bulk FHIR $export into local-validation datasets | v0.4 item 6 (and the Bulk half of item 7) | Green first time, including `sandbox-e2e` with `bulk-check` (the Bulk exit, proven in CI); merged. **v0.4 done.** |
+| [#75](https://github.com/Junebugg1214/mendari/pull/75) | v0.4 done; v0.5 plan (the Hub) | v0.4 closeout, v0.5 planning step | Green; merged |
+| [#76](https://github.com/Junebugg1214/mendari/pull/76) | Share the database layer: core/db.py | v0.5 groundwork (the registry reuses it) | Green first time; merged |
+| [#77](https://github.com/Junebugg1214/mendari/pull/77) | Signed pack archives (.ohpack) and publisher keys | v0.5 item 1 | Opened with a stale diff (my mistake, see decisions), fixed by force-pushing the feature branch; green; merged |
+| [#78](https://github.com/Junebugg1214/mendari/pull/78) | Registry service: namespaces, publisher keys, immutable signed versions, search | v0.5 item 2 | Green first time; merged |
+| [#79](https://github.com/Junebugg1214/mendari/pull/79) | Hub client: login, push, pull (verified, pinned keys, cached), search; Decision.from_hub from the registry | v0.5 item 3 | Red once on Python 3.11: a flaky teardown in a test merged with #78, whose unclosed Postgres pool was collected on another thread. Fixed at the root (registry stores close; the app closes its store at shutdown), then green; merged |
+| [#80](https://github.com/Junebugg1214/mendari/pull/80) | Shareable local-validation reports (metrics only) and site comparison | v0.5 item 4 | Green first time; merged |
+| [#81](https://github.com/Junebugg1214/mendari/pull/81) | Hub website (Next.js): search, pack pages, publishers; CI job hub-site | v0.5 item 5 | Red once (`npm ci` on Node 22 / npm 10 found optional Linux packages missing from the lockfile), fixed by regenerating it and running CI on Node 24; green; merged |
+| [#82](https://github.com/Junebugg1214/mendari/pull/82) | v0.5 end to end: a clean machine installs, pulls and tests; registry in the sandbox; docs | v0.5 item 6 (the exit) | Green first time (the new `hub-e2e` job included); preview checked; merged. v0.5 done |
+| [#83](https://github.com/Junebugg1214/mendari/pull/83) | v0.6 plan: readiness for health organizations | v0.6 plan | Green first time; preview checked; merged |
+| [#84](https://github.com/Junebugg1214/mendari/pull/84) | Sign-in for organizations: OIDC, roles, API keys, tenancy | v0.6 item 1 | Green first time; preview checked (open mode, `/api/auth/me` answers `open`); merged |
+| [#85](https://github.com/Junebugg1214/mendari/pull/85) | Governance approvals in the Decision Card, and the deployment registry | v0.6 item 2 | Red once: the browser job's 24 px check failed on an inline link in the card's facts (on Linux the sentence didn't wrap, so the link was 20 px tall). Replaced the link with words; lesson added; then green |
+| [#86](https://github.com/Junebugg1214/mendari/pull/86) | Monitoring: observed accuracy, overrides, drift and alerts over time | v0.6 item 3 | Green first time; preview checked (`/api/monitoring` answers with real preview traffic); merged |
+| [#87](https://github.com/Junebugg1214/mendari/pull/87) | PHI mode: hash-only or encrypted inputs, reads logged, retention; deployment guide | v0.6 item 4 | Green first time; preview checked (`phi_mode: off`, so production is unchanged); merged. Opened once ahead of a failed local gate (see lessons); fixed before CI finished |
+| [#88](https://github.com/Junebugg1214/mendari/pull/88) | Per-pack container images (GHCR on release tags) and on-prem templates | v0.6 item 5 | Green first time (the `docker` job built the per-pack image and saw it serve only its pack); preview checked; merged |
+| [#89](https://github.com/Junebugg1214/mendari/pull/89) | v0.6 pilot check in CI: a real OIDC provider, keys, PHI, review, governance, monitoring | v0.6 item 6 (the exit) | Green first time (the new `pilot-check` job passed against mock-oauth2-server); preview checked; merged. v0.6 done |
+| [#90](https://github.com/Junebugg1214/mendari/pull/90) | v0.7 plan: CQL, OMOP, Da Vinci CRD/DTR/PAS | v0.7 plan | Green first time; preview checked; merged |
+| [#91](https://github.com/Junebugg1214/mendari/pull/91) | CQL provider; the trial pack's criteria in CQL, agreeing with `criteria` in CI | v0.7 item 1 | Green first time (the new `cql` job: 578 + 172 cases agree, 22/22 pack tests with CQL); preview checked; merged |
+| [#92](https://github.com/Junebugg1214/mendari/pull/92) | OMOP CDM as pack inputs, population evaluation, round trip in CI | v0.7 item 2 | Green first time (`omop-check` identical in the reference-pack job); preview checked; merged |
+| [#93](https://github.com/Junebugg1214/mendari/pull/93) | Da Vinci CRD: coverage information on the PA pack's order-sign response | v0.7 item 3 | Green first time (the validator passed the three CRD orders against CRD 2.2.1 in CI); preview checked; merged |
+| [#94](https://github.com/Junebugg1214/mendari/pull/94) | Da Vinci DTR: questionnaire package for the PA pack, pre-answered from the decision | v0.7 item 4 | Green first time (all five CRD/DTR samples valid in CI); preview checked; merged |
+| [#95](https://github.com/Junebugg1214/mendari/pull/95) | Da Vinci PAS: request Bundle, sandbox payer, submission chained on the decision | v0.7 item 5 (closes v0.7) | Green first time (PAS request and response valid in CI with CRD and DTR); preview checked; merged. v0.7 done |
+| [#96](https://github.com/Junebugg1214/mendari/pull/96) | v1.0 plan: public open-source launch | v1.0 plan | Green first time; preview checked; merged |
+| [#97](https://github.com/Junebugg1214/mendari/pull/97) | Security review: threat model, headers, dependency audit and ZAP scan in CI | v1.0 item 1 | Green first time (the new `security` job: pip-audit and npm audit clean, ZAP 114 passes, no medium or high); preview checked (headers live, every module 200); merged |
+| [#98](https://github.com/Junebugg1214/mendari/pull/98) | `openhealth new` and a clinician's pack-authoring guide | v1.0 item 2 | Green first time (`hub-e2e` ran `openhealth new` and its tests from the wheel); preview checked; merged |
+| [#99](https://github.com/Junebugg1214/mendari/pull/99) | The documentation site (MkDocs Material, strict build in CI) | v1.0 item 3 | Red once for a reason outside the PR (the uv cache-lock timeout, fixed in #100); after the rebase green, the new `docs` job included; preview checked; merged |
+| [#100](https://github.com/Junebugg1214/mendari/pull/100) | ci: background servers run from the venv, not `uv run` (uv 0.12 holds the cache lock) | CI root cause found on #99 | Green first time (no cache-lock timeouts in hub-e2e, hub-site, security, pilot-check); preview checked; merged |
+| [#101](https://github.com/Junebugg1214/mendari/pull/101) | The contribution flow: pack-PR workflow with the eval gate, community files | v1.0 item 4 | Green first time; preview checked; merged |
+| [#102](https://github.com/Junebugg1214/mendari/pull/102) | Release workflow (PyPI trusted publishing on tags) and the README quickstart timed in CI | v1.0 item 5 | Green first time (the new `quickstart` job ran the README's quickstart cold in 5 s); preview checked; merged. v1.0 built |
+| [#103](https://github.com/Junebugg1214/mendari/pull/103) | Overnight log: final state and self-grade | the log's final state | pending |
 
 ## Decisions made on your behalf
 
 - **Your later messages widened the run** (2026-09-29, before you went to bed): the whole project
   roadmap, v0.4 to v1.0, is approved, and so is new infrastructure where I recommend it. Every
-  milestone still starts with its plan committed to `docs/plans/`, as the roadmap requires.
+  milestone still starts with its plan committed to `notes/plans/`, as the roadmap requires.
 
 - **Production check without a PR.** `vercel curl` (authenticated CLI) returned 200 for `/`,
   `/api/health` and `/static/main.js` on the production alias; health reports Postgres, 5 packs,
@@ -98,7 +98,7 @@ the production-deploy check and the four "small remaining gaps" under "What an A
 - **v0.4 order:** validation and audit export first (no new outbound calls), then the referral
   sandbox that SMART and Bulk need, then the features that call out (CDS fetch, SMART, Bulk)
   behind one allow-list client, then the end-to-end CI job. Details in
-  `docs/plans/v0.4-healthcare-standards.md`.
+  `notes/plans/v0.4-healthcare-standards.md`.
 - **US Core checks are generated, not hand-written.** `scripts/us_core_subset.py` reads the
   official `hl7.fhir.us.core#6.1.0` and `hl7.fhir.r4.core#4.0.1` packages (pinned by sha256)
   and writes the required elements, enumerable required bindings, required category slices and
@@ -220,7 +220,7 @@ the production-deploy check and the four "small remaining gaps" under "What an A
 - **The engine's reason lines stay as they are** ("not_eligible: hba1c_in_range is no"). They
   come from the runtime, and changing them is business logic, out of scope.
 
-- **v0.6 shape** (details in `docs/plans/v0.6-org-readiness.md`):
+- **v0.6 shape** (details in `notes/plans/v0.6-org-readiness.md`):
   - every control is off until configured, so production is unchanged;
   - a `service` role for API keys (decide and record outcomes, never resolve a review);
   - tenancy in a context variable that the store applies to every read and write;
@@ -238,7 +238,7 @@ the production-deploy check and the four "small remaining gaps" under "What an A
     interoperability, not only our own fake. Its scriptable sign-in form lets one script sign
     in as each role.
 
-- **v0.7 shape** (details in `docs/plans/v0.7-later-standards.md`):
+- **v0.7 shape** (details in `notes/plans/v0.7-later-standards.md`):
   - CQL runs on HAPI FHIR's Clinical Reasoning module (`Library/$evaluate`), the maintained
     successor of cqf-ruler, rather than a new CQL engine in Python. I checked it by hand
     against HAPI 8.12 before the plan;
@@ -275,7 +275,7 @@ the production-deploy check and the four "small remaining gaps" under "What an A
   - the sandbox payer certifies every well-formed request (A1). It exists to exercise the
     protocol, and decides nothing clinically.
 
-- **v1.0 shape** (details in `docs/plans/v1.0-public-launch.md`):
+- **v1.0 shape** (details in `notes/plans/v1.0-public-launch.md`):
   - OWASP ZAP (pinned image) for the API penetration test, run in CI against the engine with
     sign-in on. Medium and high risks fail;
   - MkDocs Material for the docs site;

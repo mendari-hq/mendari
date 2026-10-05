@@ -1,0 +1,164 @@
+"""The workflows are safe to run on pull requests from forks, once the repository is public: no
+trigger runs a fork's code with secrets or a write token, every token is read-only unless a job
+publishes from a protected environment on a release tag, no expression is pasted into a shell
+script, and a pack directory a pull request names is data, never code. Also: every file has a
+code owner, and the history is scanned for secrets."""
+
+from __future__ import annotations
+
+import importlib.util
+import re
+import tomllib
+from pathlib import Path
+from types import ModuleType
+from typing import Any
+
+import pytest
+import yaml
+
+ROOT = Path(__file__).resolve().parents[1]
+WORKFLOWS = sorted((ROOT / ".github" / "workflows").glob("*.yml"))
+
+# Triggers that run in the base repository's context (its secrets, a write token) with code or
+# text a fork controls. None is used, and a new one needs a deliberate change here.
+UNSAFE_TRIGGERS = {"pull_request_target", "workflow_run", "issue_comment", "pull_request_review"}
+ALLOWED_TRIGGERS = {"push", "pull_request", "workflow_dispatch"}
+# The only write permissions: each on a job that publishes from a protected environment, in a
+# workflow that runs only on a release tag.
+ALLOWED_WRITES = {
+    ("release.yml", "publish"): ({"id-token"}, "pypi"),
+    ("images.yml", "image"): ({"packages"}, "ghcr"),
+}
+SECRET = re.compile(r"\$\{\{[^}]*\bsecrets\.(\w+)")
+SAME_REPOSITORY = "github.event.pull_request.head.repo.full_name == github.repository"
+
+
+def _workflow(path: Path) -> dict[Any, Any]:
+    loaded = yaml.safe_load(path.read_text())
+    assert isinstance(loaded, dict), path
+    return loaded
+
+
+def _triggers(workflow: dict[Any, Any]) -> dict[str, Any]:
+    on = workflow.get("on", workflow.get(True))  # YAML 1.1 reads a bare `on` as true
+    if isinstance(on, str):
+        return {on: None}
+    if isinstance(on, list):
+        return dict.fromkeys(on)
+    assert isinstance(on, dict)
+    return on
+
+
+def _writes(permissions: Any) -> set[str]:
+    if permissions in (None, {}):
+        return set()
+    assert isinstance(permissions, dict), f"permissions must be listed, not {permissions!r}"
+    return {scope for scope, level in permissions.items() if level == "write"}
+
+
+@pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.name)
+def test_no_trigger_runs_fork_code_in_the_base_context(path: Path) -> None:
+    triggers = set(_triggers(_workflow(path)))
+    assert not triggers & UNSAFE_TRIGGERS, f"{path.name}: {triggers & UNSAFE_TRIGGERS}"
+    assert triggers <= ALLOWED_TRIGGERS, f"{path.name}: review {triggers - ALLOWED_TRIGGERS}"
+
+
+@pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.name)
+def test_tokens_are_read_only_unless_a_protected_release_job_publishes(path: Path) -> None:
+    workflow = _workflow(path)
+    assert "permissions" in workflow, f"{path.name}: say what the token may do"
+    assert _writes(workflow["permissions"]) == set(), f"{path.name}: write at workflow level"
+    for name, job in workflow["jobs"].items():
+        writes = _writes(job.get("permissions"))
+        if not writes:
+            continue
+        allowed, environment = ALLOWED_WRITES.get((path.name, name), (set(), None))
+        assert writes <= allowed, f"{path.name}:{name} writes {writes - allowed}"
+        assert job.get("environment") == environment, f"{path.name}:{name} needs its environment"
+        triggers = _triggers(workflow)
+        assert set(triggers) == {"push"} and set(triggers["push"]) == {"tags"}, path.name
+
+
+@pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.name)
+def test_no_expression_is_pasted_into_a_shell_script(path: Path) -> None:
+    # `${{ … }}` is substituted before the shell parses the script, so a branch name or a title
+    # would run as code. Values reach scripts through `env:` instead.
+    for job in _workflow(path)["jobs"].values():
+        for step in job.get("steps", []):
+            assert "${{" not in step.get("run", ""), f"{path.name}: {step.get('name', step)}"
+
+
+@pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.name)
+def test_secrets_never_reach_a_fork_pull_request(path: Path) -> None:
+    workflow = _workflow(path)
+    if "pull_request" not in _triggers(workflow):
+        return
+    for name, job in workflow["jobs"].items():
+        used = set(SECRET.findall(yaml.safe_dump(job, width=10_000))) - {"GITHUB_TOKEN"}
+        if used:
+            assert SAME_REPOSITORY in str(job.get("if", "")), f"{path.name}:{name}"
+
+
+def test_every_file_has_a_code_owner() -> None:
+    lines = (ROOT / ".github" / "CODEOWNERS").read_text().splitlines()
+    rules = [line.split() for line in lines if line.strip() and not line.startswith("#")]
+    assert rules[0] == ["*", "@Junebugg1214"]
+
+
+def test_the_history_is_scanned_for_secrets() -> None:
+    ci = _workflow(ROOT / ".github" / "workflows" / "ci.yml")
+    steps = ci["jobs"]["secrets"]["steps"]
+    assert steps[0]["with"]["fetch-depth"] == 0  # every commit, not only the last
+    (scan,) = [step["run"] for step in steps if "run" in step]
+    assert "ghcr.io/gitleaks/gitleaks:" in scan and "--config /repo/.gitleaks.toml" in scan
+    assert "--exit-code 1" in scan
+    config = tomllib.loads((ROOT / ".gitleaks.toml").read_text())
+    assert config["extend"] == {"useDefault": True}
+    # Each allowance is narrow: one file, one rule, the match itself.
+    for allowance in config["allowlists"]:
+        assert allowance["condition"] == "AND" and allowance["description"]
+        assert allowance["paths"] and allowance["regexes"] and allowance["targetRules"]
+    assert [a["paths"] for a in config["allowlists"]] == [[r"^deploy/onprem/\.env\.example$"]]
+
+
+# -- the pack workflow ----------------------------------------------------------------------------
+
+
+def _changed_packs() -> ModuleType:
+    path = ROOT / "scripts" / "changed_packs.py"
+    spec = importlib.util.spec_from_file_location("changed_packs", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_a_pack_directory_is_data_never_code() -> None:
+    packs = (ROOT / ".github" / "workflows" / "packs.yml").read_text()
+    assert "scripts/changed_packs.py" in packs
+    assert "read -r -d ''" in packs  # NUL-separated names, read whole
+    for unsafe in ("resolve_pack('$", '"$dir")', "cut -d/", "$(git diff", "for name in $("):
+        assert unsafe not in packs, unsafe
+
+
+def test_changed_files_map_to_their_pack(tmp_path: Path) -> None:
+    for pack in ("packs/inbox", "packs/my pack; $(touch x)", "packs/group/nested", "packs/a/b/c"):
+        (tmp_path / pack).mkdir(parents=True)
+        (tmp_path / pack / "pack.yaml").write_text("id: x/y\n")
+    changed = [
+        "packs/inbox/rules/red_flags.yaml",
+        "packs/inbox/pack.yaml",
+        "packs/my pack; $(touch x)/tests/cases.yaml",
+        "packs/group/nested/data/test.jsonl",
+        "packs/a/b/c/d/e/deep.yaml",  # deeper than a pack.yaml can be: belongs to packs/a/b/c
+        "packs/removed/pack.yaml",  # gone from the tree: reported as its top folder
+        "packs/README.md",  # directly in packs/: no pack
+        "src/mendari/cli.py",
+    ]
+    assert _changed_packs().pack_dirs(changed, tmp_path) == [
+        "packs/a/b/c",
+        "packs/group/nested",
+        "packs/inbox",
+        "packs/my pack; $(touch x)",
+        "packs/removed",
+    ]

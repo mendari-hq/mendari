@@ -3,3 +3,6 @@ contact_links:
   - name: Report a security vulnerability
     url: https://github.com/Junebugg1214/mendari/security/advisories/new
     about: Privately, never in a public issue (see SECURITY.md).
+  - name: Report a code of conduct concern
+    url: https://github.com/Junebugg1214/mendari/security/advisories/new
+    about: The same private form, titled "Conduct report" (see CODE_OF_CONDUCT.md, Enforcement).

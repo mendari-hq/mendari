@@ -71,7 +71,7 @@ function feedbackCard(item) {
 
 // One tap records a rating, and it can be changed: the other button switches it (each person's
 // latest rating counts; the audit trail keeps every one). "Wrong" then asks, optionally, what the
-// answer should have been: with it, the case is a ready-made test (docs/ui-ux-review.md, decision 5).
+// answer should have been: with it, the case is a ready-made test (notes/ui-ux-review.md, decision 5).
 // Signed in, ratings are recorded as the audit trail names the person; in open mode, the name given.
 const reporter = () => (signedIn() ? state.me.actor : storageGet("oh.reviewer", "") || null);
 

@@ -908,6 +908,10 @@ def cmd_notes_erase(args: argparse.Namespace) -> int:
 
 
 TEMPLATE = Path(__file__).resolve().parent / "templates" / "new_pack"
+# A URL, not a path: `mendari new` runs anywhere, mostly outside a checkout of the repository.
+AUTHORING_GUIDE = (
+    "https://github.com/Junebugg1214/mendari/blob/main/docs/guides/authoring-a-pack.md"
+)
 
 
 def cmd_new(args: argparse.Namespace) -> int:
@@ -938,7 +942,7 @@ def cmd_new(args: argparse.Namespace) -> int:
         f"mendari card {target} --write",
     ):
         print(f"  {step}")
-    print("The guide: docs/guides/authoring-a-pack.md")
+    print(f"The guide: {AUTHORING_GUIDE}")
     return 0
 
 

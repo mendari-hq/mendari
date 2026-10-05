@@ -17,9 +17,12 @@ never in a public issue. Most contributions will be one of these:
 
 ## Contribute a new pack
 
-Start with `mendari new <dir> --id <namespace>/<name>` and the
-[pack-authoring guide](docs/guides/authoring-a-pack.md), which needs no programming. A pack is
-ready for review when:
+Fork the repository, clone your fork and run `uv sync` in it (Mendari is not on PyPI yet; see
+[Install](README.md#install)). Start with `uv run mendari new <dir> --id <namespace>/<name>` and
+the [pack-authoring guide](docs/guides/authoring-a-pack.md), which needs no programming. Commands
+take the pack's folder (`uv run mendari test <dir>`); to try it in the dashboard, put its parent
+folder on the search path: `MENDARI_PACKS_PATH=<parent> uv run mendari serve`. A pack is ready
+for review when:
 
 - `mendari validate <dir>` and `mendari test <dir>` pass;
 - the Decision Card states intended use, users, population, out-of-scope uses and known

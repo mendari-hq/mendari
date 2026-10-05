@@ -42,8 +42,8 @@ docker compose up --build                 # HAPI FHIR + engine + worker sandbox
 - Keep `pack.yaml` criteria human-readable: they are both documentation and Jev instructions.
 - **Dashboard styles use tokens only** (`src/mendari/dashboard/style.css`, section 1): no hex
   colours, raw spacing or z-index values in components; `tests/test_dashboard_contrast.py` checks
-  that, and every colour pair for WCAG AA in both themes. Design plan: `docs/ui-ux-review.md`;
-  grade and roadmap: `docs/design-grade.md`.
+  that, and every colour pair for WCAG AA in both themes. Design plan: `notes/ui-ux-review.md`;
+  grade and roadmap: `notes/design-grade.md`.
 - **Dashboard scripts are ES modules** with no build step: `main.js` boots, each view registers
   itself in `views` (`router.js`), shared helpers live in `ui.js`; `docs.js` runs the `/docs`
   landing (`docs.html`, filled by `server/landing.py`). The server stamps every module a page's
@@ -52,4 +52,6 @@ docker compose up --build                 # HAPI FHIR + engine + worker sandbox
 ## Layout
 
 See README "Project layout". Spec: `docs/spec/decision-pack-0.2.md` (0.1 still loads). Decisions:
-`docs/decisions/`. Lessons: `tasks/lessons.md`. Plan and status: `tasks/todo.md`.
+`docs/decisions/`. Lessons: `tasks/lessons.md`. Plan and status: `tasks/todo.md`. Plans, reviews
+and the build log: `notes/` (outside the docs site and the sdist; `docs/` is only what readers
+of the site need).

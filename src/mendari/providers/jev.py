@@ -13,7 +13,7 @@ share endpoint, model and credentials are merged, and the state sent is the unio
 Deployment configuration (none of it lives in the pack):
 - `JEV_API_URL`: the endpoint to call (required; https, or http for localhost only).
 - `JEV_MODEL`: the model id (required unless the pack variant pins `model`).
-- `JEV_API_KEY` for local use, or `JEV_CONNECTOR` (e.g. `jev/openhealth-hub`) to obtain the key
+- `JEV_API_KEY` for local use, or `JEV_CONNECTOR` (e.g. `jev/my-project`) to obtain the key
   from a Vercel Connect connector. Keys never reach logs, errors or audit records.
 
 These variable names are fixed; a pack that tries to name other variables is refused at load.
