@@ -3,9 +3,10 @@
 Order of evaluation:
 1. Policy rules, first match wins (e.g. "possible emergency -> stat nurse review").
 2. Otherwise, confidence thresholds on the primary question.
-3. Caps that can only make a decision *less* automated: per-label limits, provider failures,
-   and the pack's risk level. A deploying organisation may lift the risk cap for levels 2-3
-   with a named, recorded governance approval; level 4 can never run autonomously.
+3. Caps that can only make a decision *less* automated: a community pack (never AUTO),
+   per-label limits, provider failures, and the pack's risk level. A deploying organisation may
+   lift the risk cap for levels 2-3 with a named, recorded governance approval; level 4 can
+   never run autonomously, nor can a community pack at any level.
 """
 
 from __future__ import annotations
@@ -52,9 +53,12 @@ def apply_policy(
     failures: Mapping[str, str],
     governance: GovernanceOverride | None = None,
     variants: Mapping[str, str] | None = None,
+    *,
+    community: bool = False,
 ) -> PolicyResult:
     """`variants` is the running variant of each provider slot, for `automation_requires`;
-    without it, a pack that sets `automation_requires` never automates."""
+    without it, a pack that sets `automation_requires` never automates. A `community` pack
+    (`core/origin.py`) recommends and never automates, whatever its rules or confidence."""
     policy = manifest.policy
     primary = answers.get(policy.primary)
     reasons: list[str] = []
@@ -101,7 +105,9 @@ def apply_policy(
                 )
 
     if outcome is Outcome.AUTO:
-        outcome = _cap(manifest, recommendation, failures, governance, variants or {}, reasons)
+        outcome = _cap(
+            manifest, recommendation, failures, governance, variants or {}, reasons, community
+        )
     if outcome is Outcome.ABSTAIN:
         recommendation = None
     return PolicyResult(outcome, recommendation, priority, tuple(reasons), rule_name)
@@ -133,7 +139,11 @@ def _cap(
     governance: GovernanceOverride | None,
     variants: Mapping[str, str],
     reasons: list[str],
+    community: bool,
 ) -> Outcome:
+    if community:
+        reasons.append("a community pack (not clinically reviewed) recommends and never automates")
+        return Outcome.HUMAN_REVIEW
     label_policy = manifest.policy.labels.get(recommendation or "")
     if label_policy is not None and not label_policy.allow_auto:
         reasons.append(f"policy never automates {recommendation!r}")

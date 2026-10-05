@@ -76,7 +76,18 @@ sandbox payer need; `uv sync` includes it. Vercel runs the ASGI app directly and
 1. the folders in `MENDARI_PACKS_PATH`, separated by `:` (`;` on Windows), each searched for
    `pack.yaml` files up to four levels deep;
 2. packs pulled from a registry (`mendari pull`, verified, cached in `~/.cache/mendari/packs`);
-3. the reference packs that come with Mendari (`packs/` in a clone).
+3. the reference packs that come with Mendari (`packs/` in a clone);
+4. with `MENDARI_COMMUNITY_PACKS=on` (default off), the community packs in a clone's
+   `community-packs/`, each at `community-packs/<name>/pack.yaml` with id `community/<name>`.
+   A community pack recommends and never automates, is at most risk level 1, keeps only a hash
+   of its inputs, and decides with local providers unless a provider setting names it
+   (`community/<name>:slot=variant`); its pinned model and `max_tokens` give way to the
+   deployment's.
+
+An id is one pack: a second pack with the same id is not served, whatever its version, and both
+are listed under `invalid` in `/api/health` (only the registry cache holds several versions of
+one pack). The `mendari/` and `openhealth/` namespaces belong to the reference packs and
+`community/` to `community-packs/`; a pack elsewhere using one is not served.
 
 A pack directory works anywhere too: `mendari test ./my-pack`. To serve your own packs, point
 the path at them: `MENDARI_PACKS_PATH=./my-packs uv run mendari serve`. On a server,
@@ -881,7 +892,8 @@ FastAPI function (`[tool.vercel] entrypoint = "mendari.server.vercel:app"`).
    and `MENDARI_PROVIDERS=router=jev`. The key is fetched at runtime with the deployment's
    OIDC identity; it is never stored in the project's environment variables. With several
    packs, scope a setting to one pack (`mendari/clinical-trial-prescreener:notes=jev`); a
-   setting a pack cannot use is skipped and listed in `/api/health`.
+   setting a pack cannot use is skipped and listed in `/api/health`. An unscoped setting never
+   applies to a community pack: only one that names it does.
 3. Turn on sign-in for Production ([Sign-in for organizations](#sign-in-for-organizations);
    the project uses Google, set for Production only). Until the launch, also set Vercel
    Authentication to protect **all deployments**: previews run without sign-in, and the default

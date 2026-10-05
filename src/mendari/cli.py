@@ -32,7 +32,7 @@ def _providers(pack: Pack, settings: dict[str, str]) -> dict[str, str]:
     """The settings that apply to this pack; a setting that names it but cannot apply is an
     error here (it was typed on purpose), where the server only reports it."""
     slots = {slot: set(spec.variants) for slot, spec in pack.manifest.providers.items()}
-    chosen, skipped = providers_for(pack.id, slots, settings)
+    chosen, skipped = providers_for(pack.id, slots, settings, community=pack.community)
     if skipped:
         raise MendariError(f"provider settings that do not apply to {pack.id}: {skipped}")
     return chosen

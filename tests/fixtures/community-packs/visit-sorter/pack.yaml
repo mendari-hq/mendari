@@ -1,0 +1,44 @@
+# Test fixture: a community pack as an outside developer would contribute it
+# (community-packs/<name>/, id community/<name>), for tests/test_community_packs.py. It sits
+# under tests/fixtures, never under community-packs/, so nothing serves it. Not a real pack.
+spec_version: "0.2"
+id: community/visit-sorter
+version: 0.1.0
+name: Visit Sorter (test fixture)
+summary: Toy front-desk sorter used to test community packs. Not a real pack.
+publisher: {name: Mendari tests, type: community}
+license: Apache-2.0
+risk:
+  level: 0
+  category: administrative
+  rationale: Sorts front-desk messages by topic; no clinical content.
+card:
+  intended_use: Test fixture only.
+  intended_users: [Mendari developers]
+  patient_population: Synthetic.
+inputs:
+  schema: schemas/input.schema.json
+questions:
+  topic:
+    instructions: What is the message about?
+    criteria:
+      billing: A bill, a payment or insurance.
+      scheduling: Booking, moving or cancelling a visit.
+      other: Anything else.
+providers:
+  reader:
+    answers: [topic]
+    use: rules
+    variants:
+      rules: {type: rules, config: logic/rules.yaml}
+      # Never the default: a community pack decides with local providers unless the owner opts
+      # it in with `community/visit-sorter:reader=llm`. Its pinned model and max_tokens are
+      # ignored; the deployment's are used.
+      llm: {type: llm, model: example/pinned-model, max_tokens: 30000}
+policy:
+  primary: topic
+  thresholds: {auto: 0.9, review: 0.4}
+  fallback: Front-desk queue.
+audit:
+  store_input: hash
+tests: tests/cases.yaml

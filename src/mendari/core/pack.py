@@ -20,6 +20,7 @@ from pydantic import ValidationError
 
 from mendari.core import input_schema as schema_rules
 from mendari.core import patterns
+from mendari.core.origin import Origin, is_community
 from mendari.core.spec import Outcome, PackManifest, Priority
 from mendari.errors import PackValidationError
 
@@ -62,10 +63,18 @@ class Pack:
     # The files `pack_digest` hashed at load, by identity on disk, with their content's hash;
     # None: computed when first needed (a `Pack` built by hand).
     digested: Digested | None = field(default=None, compare=False, repr=False)
+    # Where the pack was found (`core/origin.py`), never what its manifest says.
+    origin: Origin = field(default="local", compare=False)
 
     @property
     def id(self) -> str:
         return self.manifest.id
+
+    @property
+    def community(self) -> bool:
+        """A community pack: it never automates, and decides with local providers unless the
+        deployment opts it in by name (`core/origin.py`)."""
+        return is_community(self.id, self.origin)
 
     @property
     def version(self) -> str:
@@ -179,9 +188,12 @@ class Pack:
         }
 
 
-def load_pack(path: str | Path, *, missing_models_ok: bool = False) -> Pack:
+def load_pack(
+    path: str | Path, *, missing_models_ok: bool = False, origin: Origin = "local"
+) -> Pack:
     """Load and validate a pack. `missing_models_ok` lets `mendari train` load a pack whose
-    trained artifacts (`model_file`, `calibration`) do not exist yet."""
+    trained artifacts (`model_file`, `calibration`) do not exist yet; `origin` is where it was
+    found (`core/registry.py` knows)."""
     root = Path(path).resolve()
     links = _outside_links(root)
     if links:
@@ -249,6 +261,7 @@ def load_pack(path: str | Path, *, missing_models_ok: bool = False) -> Pack:
         input_schema=input_schema,
         parsed=parsed,
         digested=digested,
+        origin=origin,
     )
 
 

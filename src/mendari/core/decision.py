@@ -306,7 +306,9 @@ class Decision:
                         cost = None if output.cost_usd is None else cost + output.cost_usd
             complete_answers(manifest, answers, failures)
             variants = {slot: info.variant for slot, info in self.provider_info.items()}
-            policy = apply_policy(manifest, answers, failures, governance, variants)
+            policy = apply_policy(
+                manifest, answers, failures, governance, variants, community=self.pack.community
+            )
             primary = manifest.questions[manifest.policy.primary]
             if primary.derive is not None:
                 policy = replace(policy, reasons=(*policy.reasons, *explain(primary, answers)))

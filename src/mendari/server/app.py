@@ -12,7 +12,7 @@ import json
 import logging
 import os
 import re
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
 from pathlib import Path
@@ -47,7 +47,7 @@ from mendari.core.decision import CallBudget, Decision, QuotaReached
 from mendari.core.pack import Pack
 from mendari.core.phi import phi_policy
 from mendari.core.policy import GovernanceOverride
-from mendari.core.registry import discover, version_key
+from mendari.core.registry import SearchPath, discover, version_key
 from mendari.errors import (
     AuthError,
     CdsHooksError,
@@ -309,7 +309,7 @@ def create_app(
     migrate_url: str | None = None,
     providers: Mapping[str, str] | None = None,
     datasets_dir: Path | None = None,
-    packs_paths: list[Path] | None = None,
+    packs_paths: Sequence[Path | SearchPath] | None = None,
     budget_limits: Mapping[str, int | None] | None = None,
     fhir_validation: FhirValidation | None = None,
 ) -> FastAPI:
@@ -356,7 +356,9 @@ def create_app(
     missing = only - {pack.id for pack in found.packs}
     if missing:
         raise MendariError(f"MENDARI_PACKS: packs not installed here: {sorted(missing)}")
-    installed: dict[str, Pack] = {}  # the newest version of every pack found, served or not
+    # The newest version of every pack found, served or not. One id is one pack (`discover`
+    # refuses a second claim), so only the registry cache's versions of a pack compete here.
+    installed: dict[str, Pack] = {}
     for pack in found.packs:
         current = installed.get(pack.id)
         if current is None or version_key(pack.version) > version_key(current.version):
@@ -380,7 +382,7 @@ def create_app(
         if pack_id not in decisions:
             pack = pack_or_404(pack_id)
             slots = {slot: set(spec.variants) for slot, spec in pack.manifest.providers.items()}
-            chosen, skipped = providers_for(pack.id, slots, overrides)
+            chosen, skipped = providers_for(pack.id, slots, overrides, community=pack.community)
             if skipped:
                 skipped_settings[pack_id] = skipped
             try:

@@ -50,17 +50,22 @@ and GitHub's email push protection goes on. Location is the trust label, never t
 
 **Part B: the contribution flow** (a later PR; B1–B5 before B9; order B1 → B2 → B4 → B5 → B3 →
 B6/B7 → B8 → B9 → B10).
-- [ ] **B1 Origin-aware loading.** `search_paths()` returns (path, origin): `maintained`,
+- [x] **B1 Origin-aware loading.** `search_paths()` returns (path, origin): `maintained`,
   `community`, `hub`, `local`. `community-packs/` is searched only with
   `MENDARI_COMMUNITY_PACKS=on` (default off: the wheel and self-hosters are unaffected). A
   community pack sits exactly at `community-packs/<name>/pack.yaml` with id `community/<name>`;
   anything else is `invalid`. A taken id never replaces another pack, whatever its version: both
   are reported and the maintained one kept. `mendari/` and `openhealth/` are reserved to
-  `packs/`. Tests in `tests/test_community_packs.py`.
-- [ ] **B2 Policy and spend.** A community pack is capped at HUMAN_REVIEW in `core/policy.py`
+  `packs/`, and `community/` to `community-packs/`. Tests in `tests/test_community_packs.py`.
+  Built: `core/origin.py` (origins and community rules), `Pack.origin`, `SearchPath` in
+  `core/registry.py`; the duplicate rule applies to every origin (before, the newest version
+  won silently); the shipped packs decide identically (7,484 decisions compared with main).
+- [x] **B2 Policy and spend.** A community pack is capped at HUMAN_REVIEW in `core/policy.py`
   (recommend only; ADR-0002: policy only lowers automation). Unscoped provider settings skip
   community packs; only `community/<name>:slot=variant` applies. A community pack's pinned
-  `model` and `max_tokens` give way to the deployment's.
+  `model` and `max_tokens` give way to the deployment's. Refused at load: risk level above 1,
+  `store_input` other than `hash`, a default variant that is not local (`rules`, `criteria`,
+  `dosing`, `naive_bayes`, or a composite of those).
 - [ ] **B3 Labels everywhere.** "Community · not clinically reviewed" by origin on `/api/packs`,
   `/api/packs/{id}`, `/api/health` (packs by origin), the dashboard picker and card header, Try
   it, the Decision Card, CDS Hooks discovery and each card's `source.label`. The dashboard's

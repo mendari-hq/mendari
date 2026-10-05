@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from mendari.core.origin import deployment_config
 from mendari.core.pack import Pack
 from mendari.errors import PackValidationError
 from mendari.providers.any_of import AnyOfProvider
@@ -57,6 +58,8 @@ def build_provider(pack: Pack, slot_name: str, variant_name: str | None = None) 
     if provider_type is None:
         raise PackValidationError(pack.id, [f"unknown provider type {variant.type!r}"])
     config = {"type": variant.type, **(variant.model_extra or {})}
+    if pack.community:  # the deployment chooses a community pack's model and answer length
+        config = deployment_config(config)
     model = config.get("model") if isinstance(config.get("model"), str) else None
     info = ProviderInfo(slot=slot_name, variant=variant_name, type=variant.type, model=model)
     questions = {key: pack.manifest.questions[key] for key in slot.answers}
