@@ -392,6 +392,21 @@ jobs:
       - if: failure()
         run: tail -50 /tmp/zap/engine.log
 
+  secrets:
+    # No secret anywhere in the history: gitleaks (pinned image) over every commit this run can
+    # see, a pull request's own commits included. Reviewed false positives are allowed, narrowly
+    # and with the reason, in .gitleaks.toml. A finding is revoked and rotated, then removed.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: gitleaks over the full history
+        run: >-
+          docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+          git /repo --config /repo/.gitleaks.toml --redact --no-banner --exit-code 1
+
   docs:
     # v1.0: the documentation site (mkdocs.yml, every page in docs/) builds with no broken
     # link, anchor or page left out of the navigation.

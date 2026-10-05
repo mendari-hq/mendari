@@ -25,27 +25,34 @@ jobs:
           python-version: "3.12"
       - run: uv sync --locked
       - name: Validate, test, evaluate and card each changed pack; gate on the base benchmark
+        # A pack directory is named by the pull request, so it is data, never code: it comes
+        # NUL-separated from scripts/changed_packs.py (git diff -z), stays one quoted shell word,
+        # and reaches Python only through argv. The list is read on fd 3, so no command in the
+        # loop can consume it from stdin.
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
         run: |
           mkdir -p /tmp/packs
           failed=0
-          for name in $(git diff --name-only "$BASE"...HEAD -- packs/ | cut -d/ -f2 | sort -u); do
-            dir="packs/$name"
-            if [ ! -f "$dir/pack.yaml" ]; then echo "$dir was removed" >> "$GITHUB_STEP_SUMMARY"; continue; fi
+          field='import sys; from mendari.core.registry import resolve_pack; print(getattr(resolve_pack(sys.argv[1]).manifest.evaluation, sys.argv[2]) or "")'
+          uv run python scripts/changed_packs.py "$BASE" > /tmp/packs/changed
+          while IFS= read -r -d '' dir <&3; do
+            name="${dir#packs/}"
+            name="${name//\//__}"
+            if [ ! -f "$dir/pack.yaml" ]; then printf '%s was removed\n' "$dir" >> "$GITHUB_STEP_SUMMARY"; continue; fi
             uv run mendari validate "$dir"
             uv run mendari test "$dir"
             uv run mendari card "$dir" > "/tmp/packs/$name-DECISION_CARD.md"
-            dataset=$(uv run python -c "from mendari.core.registry import resolve_pack; print(resolve_pack('$dir').manifest.evaluation.benchmark_dataset or '')")
-            if [ -z "$dataset" ]; then echo "### $name: no benchmark dataset to evaluate" >> "$GITHUB_STEP_SUMMARY"; continue; fi
+            dataset=$(uv run python -c "$field" "$dir" benchmark_dataset)
+            if [ -z "$dataset" ]; then printf '### %s: no benchmark dataset to evaluate\n' "$dir" >> "$GITHUB_STEP_SUMMARY"; continue; fi
             uv run mendari eval "$dir" --dataset "$dataset" --baseline none --out "/tmp/packs/$name.json"
             main_args=()
-            benchmark=$(uv run python -c "from mendari.core.registry import resolve_pack; print(resolve_pack('$dir').manifest.evaluation.benchmark or '')")
+            benchmark=$(uv run python -c "$field" "$dir" benchmark)
             if [ -n "$benchmark" ] && git show "$BASE:$dir/$benchmark" > "/tmp/packs/$name-main.json" 2>/dev/null; then
               main_args=(--main "/tmp/packs/$name-main.json")
             fi
             uv run python scripts/pack_gate.py "$dir" --report "/tmp/packs/$name.json" "${main_args[@]}" >> "$GITHUB_STEP_SUMMARY" || failed=1
-          done
+          done 3< /tmp/packs/changed
           exit $failed
       - if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
