@@ -1,6 +1,6 @@
 spec_version: "0.2"
 id: mendari/patient-inbox-router
-version: 0.3.0
+version: 0.4.0
 name: Patient Inbox Router
 summary: >-
   Routes patient portal and SMS messages to the front desk, a medical assistant, a nurse, a
@@ -16,8 +16,9 @@ risk:
   rationale: >-
     The decision is which team reads a message first. The pack never replies to patients or
     makes a clinical judgement. A misroute delays a message but does not by itself change
-    care, and messages that may describe an emergency are never auto-routed: a deterministic
-    screen always sends them to a nurse for stat human review.
+    care. A message the urgency screen flags as a possible emergency is never auto-routed: it
+    goes to a nurse for stat human review. Nothing is automated unless a model screens beside
+    the keyword rules, which miss emergencies phrased in ways they do not list.
 
 card:
   intended_use: >-
@@ -39,9 +40,11 @@ card:
   known_failure_modes:
     - The keyword red-flag screen alone misses most emergencies phrased in ways it does not list.
       On hand-written paraphrases it caught 28/28 of the set its patterns were tuned on but only
-      4/20 of a held-out set. Jev caught 48/48 across both with no false alarms. Deploy with
-      safety_screen=rules_and_jev; keyword rules are an offline floor, not the safety net. The
-      rules can also over-trigger on symptoms that happened in the past.
+      4/20 of a held-out set, and 7 of the emergencies it missed would have been routed without
+      anyone reading them. Jev caught 48/48 across both with no false alarms. So the policy allows
+      AUTO only while the screen includes a model (`automation_requires` with
+      `safety_screen=rules_and_jev` or `rules_and_llm`); with the rules alone, every message goes
+      to a person. The rules can also over-trigger on symptoms that happened in the past.
     - Negation handling is a fixed-window heuristic. "No chest pain" is handled; complex or
       long-distance negation is not.
     - Messages that mix administrative and clinical requests are sometimes sent to the
@@ -114,7 +117,8 @@ questions:
 providers:
   safety_screen:
     answers: [urgency]
-    # Offline default; deployments should use rules_and_jev (see known_failure_modes).
+    # Offline floor: with the rules alone nothing is automated (see the policy). A Mendari
+    # server with Jev set up runs rules_and_jev unless its provider settings choose otherwise.
     use: rules
     variants:
       rules:

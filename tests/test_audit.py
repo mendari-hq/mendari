@@ -16,7 +16,7 @@ Decide = Callable[[str], DecisionResult]
 
 REVIEW = "hello?"  # abstains: no recommendation
 EMERGENCY = "Crushing chest pain and my left arm is numb"  # stat HUMAN_REVIEW -> nurse
-ROUTINE = "Can you send a refill for metformin to my pharmacy on Main Street?"  # AUTO
+ROUTINE = "Can you send a refill for metformin to my pharmacy on Main Street?"  # AUTO (`decide`)
 
 
 def tamper(store: AuditStore, sql: str, params: tuple[Any, ...] = ()) -> None:
@@ -26,8 +26,8 @@ def tamper(store: AuditStore, sql: str, params: tuple[Any, ...] = ()) -> None:
 
 
 @pytest.fixture
-def decide(inbox_pack: Pack, store: AuditStore) -> Decide:
-    decision = Decision(inbox_pack, store=store)
+def decide(inbox_pack: Pack, store: AuditStore, screened: dict[str, str]) -> Decide:
+    decision = Decision(inbox_pack, providers=screened, store=store)
     return lambda body: decision(message(body))
 
 

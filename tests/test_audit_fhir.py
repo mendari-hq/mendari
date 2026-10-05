@@ -19,17 +19,20 @@ from mendari.core.phi import PhiPolicy
 from mendari.server.app import create_app
 from mendari.standards import audit_fhir
 from mendari.standards.fhir import DECISION_ID_SYSTEM, PACK_ID_SYSTEM
-from tests.conftest import ROOT, message
+from tests.conftest import ROOT, SCREENED, message
 
 EMERGENCY = "Crushing chest pain and my left arm is numb"  # stat HUMAN_REVIEW -> nurse
-ROUTINE = "Can you send a refill for metformin to my pharmacy on Main Street?"  # AUTO
+ROUTINE = "Can you send a refill for metformin to my pharmacy on Main Street?"  # AUTO (`trail`)
 SECRET = "SECRET-NOTE-TEXT"
+
+# The automated decisions here run the urgency screen with a fake Jev (`screened`).
+pytestmark = pytest.mark.usefixtures("screened")
 
 
 def trail(store: AuditStore, pack: Pack) -> tuple[DecisionResult, DecisionResult, DecisionResult]:
     """Three decisions: one confirmed in review, one overridden, one automated with a downstream
     outcome and a thumbs-down that carries a note."""
-    decide = Decision(pack, store=store)
+    decide = Decision(pack, providers=SCREENED, store=store)
     confirmed, overridden, automated = (
         decide(message(EMERGENCY)),
         decide(message(EMERGENCY)),

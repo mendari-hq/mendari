@@ -9,6 +9,9 @@ from mendari.core.spec import PackManifest, Risk
 from mendari.providers import Answer, ProviderInfo
 
 INFO = ProviderInfo(slot="test", variant="test", type="test")
+# The variants running: the inbox's policy automates only while its urgency screen includes a
+# model (automation_requires).
+SCREENED = {"safety_screen": "rules_and_jev", "router": "naive_bayes"}
 
 
 def answer(question: str, label: str, confidence: float) -> Answer:
@@ -42,7 +45,7 @@ def routine(label: str, confidence: float) -> dict[str, Answer]:
     ],
 )
 def test_thresholds(inbox_pack: Pack, label: str, confidence: float, outcome: Outcome) -> None:
-    result = apply_policy(inbox_pack.manifest, routine(label, confidence), {})
+    result = apply_policy(inbox_pack.manifest, routine(label, confidence), {}, None, SCREENED)
     assert result.outcome is outcome
     assert result.recommendation == (None if outcome is Outcome.ABSTAIN else label)
 
@@ -87,9 +90,10 @@ def test_risk_levels_2_and_3_require_review_unless_governance_allows(
     inbox_pack: Pack, level: RiskLevel
 ) -> None:
     manifest = at_level(inbox_pack.manifest, level)
-    assert apply_policy(manifest, routine("nurse", 0.99), {}).outcome is Outcome.HUMAN_REVIEW
+    unapproved = apply_policy(manifest, routine("nurse", 0.99), {}, None, SCREENED)
+    assert unapproved.outcome is Outcome.HUMAN_REVIEW
     governance = GovernanceOverride(approved_by="CMIO", reference="AI-committee-2026-09")
-    result = apply_policy(manifest, routine("nurse", 0.99), {}, governance)
+    result = apply_policy(manifest, routine("nurse", 0.99), {}, governance, SCREENED)
     assert result.outcome is Outcome.AUTO
     assert any("governance override" in reason for reason in result.reasons)
 
@@ -97,7 +101,7 @@ def test_risk_levels_2_and_3_require_review_unless_governance_allows(
 def test_risk_level_4_is_never_autonomous(inbox_pack: Pack) -> None:
     manifest = at_level(inbox_pack.manifest, RiskLevel.TIME_CRITICAL)
     governance = GovernanceOverride(approved_by="CMIO", reference="AI-committee-2026-09")
-    result = apply_policy(manifest, routine("nurse", 0.99), {}, governance)
+    result = apply_policy(manifest, routine("nurse", 0.99), {}, governance, SCREENED)
     assert result.outcome is Outcome.HUMAN_REVIEW
 
 

@@ -31,15 +31,25 @@ from mendari.server.auth import EHR_ONLY, PEOPLE_ONLY, PERMISSIONS, ROLES
 _MARKER = re.compile(r"<!-- landing:([a-z-]+) -->")
 
 # What the quickstart's decide step prints (its `jq` filter), abridged: the id is new each time.
-# tests/test_landing.py checks the rest against what the server decides.
-DECIDED = {
+# The inbox automates only while a model screens for urgency (its policy's automation_requires),
+# so a server shows the answer it gives: AUTOMATED with Jev set up, REVIEWED without a model.
+# tests/test_landing.py checks both against what such a server decides.
+QUICKSTART_PACK = "mendari/patient-inbox-router"
+AUTOMATED = {
     "id": "…",
     "outcome": "AUTO",
     "recommendation": "medical_assistant",
     "priority": "routine",
     "reasons": ["confidence 1.00 >= auto threshold 0.90"],
 }
-_PRINTS = {("quickstart", "decide"): DECIDED}
+REVIEWED = {
+    **AUTOMATED,
+    "outcome": "HUMAN_REVIEW",
+    "reasons": [
+        "confidence 1.00 >= auto threshold 0.90",
+        "automation requires safety_screen = rules_and_jev or rules_and_llm (running: rules)",
+    ],
+}
 
 # The setup the examples share. The address is filled in by docs.js from the address bar.
 _SETUP = (
@@ -76,6 +86,7 @@ def page(
     template: str,
     *,
     version: str,
+    quickstart_automates: bool,
     sign_in: bool,
     smart_launch: bool,
     token_url: str | None,
@@ -83,9 +94,11 @@ def page(
     permission_for: Callable[[str, str], str],
     cards: Mapping[str, str] | None,
 ) -> str:
-    """The landing, from `docs.html` as `versioned_page` returns it. `routes` are the mounted
+    """The landing, from `docs.html` as `versioned_page` returns it. `quickstart_automates`: the
+    inbox runs here with what its policy needs to automate; `routes` are the mounted
     `(method, path)` pairs; `token_url` is set when SMART Backend Services is on; `cards` (pack
     id -> name) is given in open mode only: with sign-in on, which packs run here is not public."""
+    prints = {("quickstart", "decide"): AUTOMATED if quickstart_automates else REVIEWED}
     return fill(
         template,
         {
@@ -93,11 +106,11 @@ def page(
             "and is recorded in a hash-chained audit trail.",
             "outcomes": _outcomes(),
             "setup": _code("code-setup", _SETUP, "name the server and your key"),
-            "quickstart": _steps("quickstart"),
-            "fhir": _steps("fhir"),
+            "quickstart": _steps("quickstart", prints),
+            "fhir": _steps("fhir", prints),
             "smart": _smart(smart_launch, sign_in=sign_in),
             "auth": _auth(sign_in, token_url),
-            "auth-steps": _steps("auth"),
+            "auth-steps": _steps("auth", prints),
             "auth-table": _auth_table(routes, permission_for, sign_in=sign_in),
             "reference": " Sign in first: the OpenAPI document needs the <code>read</code> "
             "permission."
@@ -143,19 +156,19 @@ def _code(code_id: str, text: str, label: str, *, kind: str = "Shell", copy: boo
     )
 
 
-def _steps(file: str) -> str:
+def _steps(file: str, prints: Mapping[tuple[str, str], Mapping[str, object]]) -> str:
     """One snippet file's steps as numbered items: a heading from the step's title, its commands,
-    and for the quickstart's decision what it prints."""
+    and for the quickstart's decision what it prints (`prints`, by file and step)."""
     items = []
     for number, step in enumerate(snippets.load(file), 1):
         anchor = f"{file}-{step.name}"
-        prints = _PRINTS.get((file, step.name))
+        printed = prints.get((file, step.name))
         shown = (
             ""
-            if prints is None
+            if printed is None
             else _code(
                 f"code-{anchor}-prints",
-                escape(json.dumps(prints, indent=2, ensure_ascii=False)),
+                escape(json.dumps(printed, indent=2, ensure_ascii=False)),
                 step.title,
                 kind="Prints, abridged",
                 copy=False,

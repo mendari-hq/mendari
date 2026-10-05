@@ -108,6 +108,31 @@ def parse_providers(values: Sequence[str] | None) -> dict[str, str]:
     return overrides
 
 
+# With Jev set up, a server runs the reference packs that automate under their own policy (risk
+# levels 0-1) as Mendari + Jev: each policy's `automation_requires` asks for a model in its
+# screen, and Jev reads there beside the keyword rules, so the rules still answer when Jev
+# cannot. The inbox's router and the referral's specialty reader are naive Bayes, asking Jev when
+# unsure (`cascade`): when Jev cannot answer, they still suggest a team or a specialty. At risk
+# level 2 (the trial prescreener, AI Guard) automation rests on an approval of the
+# configuration that runs, so a deployment names those packs' readers itself.
+JEV_DEFAULTS: dict[str, dict[str, str]] = {
+    "mendari/patient-inbox-router": {"safety_screen": "rules_and_jev", "router": "cascade"},
+    "mendari/referral-router": {"triage_screen": "rules_and_jev", "specialty_reader": "cascade"},
+    "mendari/prior-auth-preflight": {"notes": "rules_and_jev"},
+}
+
+
+def default_providers() -> dict[str, dict[str, str]]:
+    """The variants a server runs, by pack, in each slot its provider settings choose nothing for:
+    JEV_DEFAULTS while Jev is set up, else none (each pack's own default). Only servers use them:
+    a command that decides or evaluates (a benchmark, a pack's tests) never calls Jev unasked."""
+    from mendari.providers import jev
+
+    if not jev.deployment_configured():
+        return {}
+    return {pack: dict(slots) for pack, slots in JEV_DEFAULTS.items()}
+
+
 def daily_limits() -> dict[str, int | None]:
     """Per-provider-type daily call budgets for the remote, metered providers. `none` lifts a
     provider's limit; its calls are still counted."""

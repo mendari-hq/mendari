@@ -69,7 +69,7 @@ from mendari.evals.harness import Dataset
 from mendari.evals.monitoring import check_webhook, monitor
 from mendari.evals.pack_tests import load_cases
 from mendari.legacy import current_pack_id
-from mendari.providers import jev, llm
+from mendari.providers import jev, llm, slots_without_model
 from mendari.providers.credentials import key_source
 from mendari.server import api_docs, landing, security_log, sessions
 from mendari.server.auth import (
@@ -308,11 +308,15 @@ def create_app(
     db_path: str | Path = "var/mendari.db",
     migrate_url: str | None = None,
     providers: Mapping[str, str] | None = None,
+    default_providers: Mapping[str, Mapping[str, str]] | None = None,
     datasets_dir: Path | None = None,
     packs_paths: list[Path] | None = None,
     budget_limits: Mapping[str, int | None] | None = None,
     fhir_validation: FhirValidation | None = None,
 ) -> FastAPI:
+    """`providers` are the deployment's provider settings (`settings.parse_providers`);
+    `default_providers` (pack id -> slot -> variant, `settings.default_providers`) fill each
+    slot those settings choose nothing for, before the pack's own default."""
     timezone = clock.zone().key  # an invalid MENDARI_TIMEZONE fails here, at startup
     validation = fhir_validation or settings.fhir_validation()  # likewise
     fhir_servers = sorted(allowed_servers())  # likewise
@@ -375,12 +379,34 @@ def create_app(
         return pack
 
     skipped_settings: dict[str, list[str]] = {}
+    fallbacks = {pack_id: dict(slots) for pack_id, slots in (default_providers or {}).items()}
+
+    def variants_for(pack: Pack) -> tuple[dict[str, str], list[str]]:
+        """The variants the deployment chose for this pack's slots (the rest run the pack's
+        default), and the settings that name the pack but cannot apply."""
+        slots = {slot: set(spec.variants) for slot, spec in pack.manifest.providers.items()}
+        chosen, skipped = providers_for(pack.id, slots, overrides)
+        for slot, variant in fallbacks.get(pack.id, {}).items():
+            if slot not in chosen and variant in slots.get(slot, ()):
+                chosen[slot] = variant
+        return chosen, skipped
+
+    # Say once, at startup, which slots the Jev defaults turn on: ids and variant names only.
+    filled = []
+    for pack in packs.values():
+        chosen = variants_for(pack)[0]
+        named = providers_for(
+            pack.id, {s: set(v.variants) for s, v in pack.manifest.providers.items()}, overrides
+        )[0]
+        filled += [f"{pack.id} {slot}={chosen[slot]}" for slot in sorted(set(chosen) - set(named))]
+    if filled:
+        level = logging.INFO if phi.mode == "off" else logging.WARNING
+        providers_logger.log(level, "Jev is set up; its defaults run %s", ", ".join(sorted(filled)))
 
     def decision_for(pack_id: str) -> Decision:
         if pack_id not in decisions:
             pack = pack_or_404(pack_id)
-            slots = {slot: set(spec.variants) for slot, spec in pack.manifest.providers.items()}
-            chosen, skipped = providers_for(pack.id, slots, overrides)
+            chosen, skipped = variants_for(pack)
             if skipped:
                 skipped_settings[pack_id] = skipped
             try:
@@ -581,6 +607,7 @@ def create_app(
         # A served pack whose providers cannot be built is listed with the packs that did not
         # load; it never turns this answer into an error for every other pack.
         providers: dict[str, dict[str, str]] = {}
+        without_model: dict[str, list[str]] = {}
         unbuilt: dict[str, str] = {}
         for pack_id in sorted(packs):
             try:
@@ -591,6 +618,8 @@ def create_app(
             providers[pack_id] = {
                 slot: info.variant for slot, info in decision.provider_info.items()
             }
+            if slots := slots_without_model(packs[pack_id], providers[pack_id]):
+                without_model[pack_id] = slots
         return {
             **public,
             "packs": len(packs),
@@ -614,9 +643,13 @@ def create_app(
             # MENDARI_INPUT_HASH_KEY (required in PHI modes hash and encrypt), else `sha256`.
             "input_hash": phi.hash_kind,
             "providers": providers,
+            # Slots running without a model although their pack offers one (the offline floor).
+            "without_model": without_model,
             # Deployment provider settings that name a slot or variant a pack does not have.
             "provider_settings_skipped": skipped_settings,
             "jev": {
+                # The reference packs run Mendari + Jev where no setting chose (JEV_DEFAULTS).
+                "defaults": bool(fallbacks),
                 "credentials": key_source(key_env=jev.API_KEY_ENV, connector_env=jev.CONNECTOR_ENV),
                 "endpoint_configured": bool(os.environ.get(jev.ENDPOINT_ENV, "").strip()),
                 "model": os.environ.get(jev.MODEL_ENV, "").strip() or None,
@@ -680,6 +713,9 @@ def create_app(
                 slot: {"variant": i.variant, "type": i.type, "model": i.model}
                 for slot, i in decision.provider_info.items()
             },
+            "without_model": slots_without_model(
+                pack, {slot: i.variant for slot, i in decision.provider_info.items()}
+            ),
             "input_schema": pack.input_schema,
             "output_schema": pack.output_schema,
             "benchmark": benchmark(pack),
@@ -1566,9 +1602,17 @@ def create_app(
             headers={"cache-control": "public, max-age=86400"},
         )
 
+    # The quickstart's decision is automated only where the inbox runs what its policy requires.
+    quickstart = packs.get(landing.QUICKSTART_PACK)
+    running = {} if quickstart is None else variants_for(quickstart)[0]
+    quickstart_automates = quickstart is not None and all(
+        running.get(slot, quickstart.manifest.providers[slot].use) in allowed
+        for slot, allowed in quickstart.manifest.policy.automation_requires.items()
+    )
     landing_page = landing.page(
         versioned_page("docs.html"),
         version=__version__,
+        quickstart_automates=quickstart_automates,
         sign_in=auth.enabled,
         smart_launch=smart_options is not None,
         token_url=None if backend is None else backend.token_url,
@@ -1618,6 +1662,7 @@ def error_response(path: str, status: int, error: MendariError) -> JSONResponse:
 
 
 quota_logger = logging.getLogger("mendari.limits")
+providers_logger = logging.getLogger("mendari.providers")
 
 
 def log_event(request: Request, name: str, **fields: Any) -> None:

@@ -18,6 +18,12 @@ labels:
   billing:
     auto_threshold: 0.95
 
+# AUTO only while the urgency screen includes a model. On hand-written held-out messages the
+# keyword rules alone caught 4 of 20 emergencies and automated 7 of the ones they missed. With
+# the rules alone, every message goes to a person.
+automation_requires:
+  safety_screen: [rules_and_jev, rules_and_llm]
+
 rules:
   - name: possible-emergency
     when:

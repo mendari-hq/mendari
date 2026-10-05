@@ -29,6 +29,7 @@ def test_packs_and_card(client: TestClient) -> None:
     ]
     detail = client.get(PACK).json()
     assert detail["active_providers"]["router"]["variant"] == "naive_bayes"
+    assert detail["without_model"] == ["safety_screen", "router"]  # no model set up here
     assert "local-site-example" in detail["datasets"]
     assert detail["benchmark"]["dataset"]["name"] == "test"
     assert client.get("/api/packs/mendari/missing").status_code == 404
@@ -172,6 +173,14 @@ def test_health_reports_deployment_state(client: TestClient) -> None:
     assert health["providers"]["mendari/patient-inbox-router"] == {
         "safety_screen": "rules",
         "router": "naive_bayes",
+    }
+    # No model set up: every pack runs its offline readers where it offers a model.
+    assert health["without_model"] == {
+        "mendari/ai-guard": ["screen"],
+        "mendari/clinical-trial-prescreener": ["notes"],
+        "mendari/patient-inbox-router": ["safety_screen", "router"],
+        "mendari/prior-auth-preflight": ["notes"],
+        "mendari/referral-router": ["specialty_reader", "triage_screen"],
     }
     assert set(health["jev"]) >= {"credentials", "endpoint_configured", "calls_today"}
     assert set(health["llm"]) >= {"endpoint", "credentials", "default_model", "calls_today"}

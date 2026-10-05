@@ -6,7 +6,9 @@ Configuration comes from the environment:
   than none. `DATABASE_URL_UNPOOLED` (direct) is used for schema setup when present.
 - `MENDARI_PROVIDERS`: provider variants, e.g. `router=jev`, or scoped to one pack,
   e.g. `mendari/clinical-trial-prescreener:notes=jev`. A setting that names a slot or
-  variant a pack does not have is skipped and reported in `/api/health`.
+  variant a pack does not have is skipped and reported in `/api/health`. With Jev set up, the
+  reference packs run Mendari + Jev in every slot these settings choose nothing for
+  (`settings.JEV_DEFAULTS`).
 - `MENDARI_JEV_DAILY_LIMIT`, `MENDARI_LLM_DAILY_LIMIT`: daily call budgets (`none`: no
   limit). `MENDARI_ORG_DAILY_LIMITS`: per-organization daily quotas
   (`decisions=5000,jev=2000,llm=200`; unset: none).
@@ -37,7 +39,7 @@ import os
 from mendari.errors import MendariError
 from mendari.sandbox import example_datasets_dir
 from mendari.server.app import create_app
-from mendari.settings import daily_limits, parse_providers
+from mendari.settings import daily_limits, default_providers, parse_providers
 
 
 def database_target() -> str:
@@ -56,6 +58,7 @@ app = create_app(
     db_path=database_target(),
     migrate_url=os.environ.get("DATABASE_URL_UNPOOLED", "").strip() or None,
     providers=parse_providers(None),
+    default_providers=default_providers(),
     datasets_dir=example_datasets_dir(),
     budget_limits=daily_limits(),
 )

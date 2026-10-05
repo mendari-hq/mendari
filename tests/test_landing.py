@@ -15,6 +15,8 @@ from fastapi.testclient import TestClient
 from mendari.server import api_docs, landing, scopes, snippets
 from mendari.server.app import DASHBOARD_DIR, create_app, mounted_routes
 from mendari.server.auth import permission_for
+from mendari.settings import default_providers
+from tests.conftest import calm_jev
 from tests.test_backend_services import PUBLIC_URL
 from tests.test_backend_services import on as backend_services_on
 
@@ -172,18 +174,27 @@ def test_the_smart_launch_is_described_as_it_is(
     assert "It opens the dashboard on that patient's work alone." in signed
 
 
-def test_the_quickstart_prints_what_the_server_decides(client: TestClient) -> None:
-    """The abridged answer shown under the decide step is the server's answer to that step."""
+@pytest.mark.parametrize("jev", [False, True], ids=["without a model", "with jev set up"])
+def test_the_quickstart_prints_what_the_server_decides(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, jev: bool
+) -> None:
+    """The abridged answer shown under the decide step is the server's answer to that step: a
+    person reviews it without a model in the inbox's screen, and it is automated with Jev."""
+    if jev:
+        calm_jev(monkeypatch)
+    app = create_app(db_path=tmp_path / "a.db", default_providers=default_providers())
+    client = TestClient(app)
+    printed = landing.AUTOMATED if jev else landing.REVIEWED
     (step,) = [s for s in snippets.load("quickstart") if s.name == "decide"]
     body = re.search(r"-d '(.*?)'", step.text, re.S)
     assert body
     ((method, path),) = step.calls()
     assert method == "POST"
     decided = client.post(path, json=json.loads(body[1])).json()
-    shown = {key: value for key, value in landing.DECIDED.items() if key != "id"}
+    shown = {key: value for key, value in printed.items() if key != "id"}
     assert {key: decided[key] for key in shown} == shown
     page = client.get("/docs").text
-    assert html.escape(json.dumps(landing.DECIDED, indent=2, ensure_ascii=False)) in page
+    assert html.escape(json.dumps(printed, indent=2, ensure_ascii=False)) in page
 
 
 def test_the_landing_loads_only_its_own_modules(client: TestClient) -> None:

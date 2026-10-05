@@ -2,8 +2,8 @@
 trail as served under `/fhir`, for the HL7 validator (CI job `fhir-conformance`), which checks
 them against Mendari's terminology (`--ig`).
 
-A throwaway store gets synthetic decisions from the inbox pack, each decided with its local
-providers:
+A throwaway store gets synthetic decisions from the inbox pack, its urgency screen run with an
+in-process Jev (`sample_jev`), so a routine message is automated:
 
 - `task-reviewed-v1.json` … `-v3.json`: a HUMAN_REVIEW decision, overridden in review (version
   2), rated (no version), then given a downstream outcome (version 3);
@@ -27,6 +27,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from sample_jev import calm_jev
+
 from mendari import AuditStore, Decision
 from mendari.standards import audit_fhir, fhir_search, task_fhir
 from mendari.standards import search as fhir_searching
@@ -37,9 +39,9 @@ BASE = "https://mendari.example/fhir"  # a reserved name: the samples point nowh
 
 def main(out: Path) -> None:
     out.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory() as scratch:
+    with tempfile.TemporaryDirectory() as scratch, calm_jev() as providers:
         store = AuditStore(Path(scratch) / "audit.db")
-        decide = Decision.from_hub("mendari/patient-inbox-router", store=store)
+        decide = Decision.from_hub("mendari/patient-inbox-router", providers=providers, store=store)
         reviewed = decide({"message": {"body": "Crushing chest pain and my left arm is numb"}})
         store.resolve_review(reviewed.id, final_label="physician", reviewer="rn-1")
         store.record_feedback(reviewed.id, rating="up")
@@ -47,6 +49,7 @@ def main(out: Path) -> None:
             reviewed.id, final_label="nurse", source="staff-reroute", recorded_by="rn-9"
         )
         automated = decide({"message": {"body": "Can you send a refill for metformin?"}})
+        assert automated.outcome.value == "AUTO", automated.reasons  # task-auto.json is AUTO
         abstained = decide({"message": {"body": "hello?"}})
         store.resolve_review(abstained.id, final_label="front_desk", reviewer="fd-1")
         refused = decide({"message": {}})

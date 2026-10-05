@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { expect, test, type Page } from "@playwright/test";
 
 const PACKS = [
@@ -7,6 +9,14 @@ const PACKS = [
   "Prior Authorization Preflight",
   "Referral Router",
 ];
+
+// The referral pack's version as it ships: the registry the tests run against publishes it.
+// `npm test` runs in hub/.
+function shippedVersion(pack: string): string {
+  const version = /^version: (.+)$/m.exec(readFileSync(`../packs/${pack}/pack.yaml`, "utf8"))?.[1];
+  if (!version) throw new Error(`no version in packs/${pack}/pack.yaml`);
+  return version;
+}
 
 function watchConsole(page: Page): string[] {
   const errors: string[] = [];
@@ -44,7 +54,7 @@ test("a pack page has the facts, the pull command, the leaderboard and the card"
   await expect(page).toHaveURL(/\/packs\/mendari\/referral-router$/);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Referral Router");
   await expect(page.locator(".pull")).toHaveText("pip install mendari && mendari pull mendari/referral-router");
-  await expect(page.locator(".fact").first()).toContainText("0.1.1");
+  await expect(page.locator(".fact").first()).toContainText(shippedVersion("referral-router"));
   await expect(page.locator(".badge.verified")).toHaveText("verified publisher");
   await expect(page.locator("details").first()).toHaveAttribute("open", "");
   await expect(page.locator("details").first().locator("tbody tr").first()).toBeVisible();

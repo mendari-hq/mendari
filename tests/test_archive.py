@@ -393,8 +393,9 @@ def test_the_cli_generates_keys_builds_and_verifies(
         main(["pack", "build", "mendari/referral-router", "--key", key, "--out", str(tmp_path)])
         == 0
     )
-    built = tmp_path / "mendari-referral-router-0.1.1.ohpack"
+    built = tmp_path / f"mendari-referral-router-{REFERRAL.version}.ohpack"
     assert (
         main(["pack", "verify", str(built), "--public-key", str(tmp_path / "publisher.pub")]) == 0
     )
-    assert f"OK mendari/referral-router@0.1.1 {REFERRAL.digest}" in capsys.readouterr().out
+    shown = f"OK mendari/referral-router@{REFERRAL.version} {REFERRAL.digest}"
+    assert shown in capsys.readouterr().out

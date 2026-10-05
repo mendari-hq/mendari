@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, datetime
 from typing import Any
 
@@ -138,9 +138,17 @@ def read(pack: Pack) -> tuple[dict[str, Any] | None, str | None]:
     return board, None
 
 
-def markdown(board: Mapping[str, Any]) -> list[str]:
-    """One table per dataset, best primary accuracy first."""
+def markdown(board: Mapping[str, Any], version: str | None = None) -> list[str]:
+    """One table per dataset, best primary accuracy first. A row measured on a pack version
+    other than `version` (the pack's own) says which: its AUTO and false automation follow that
+    version's policy."""
     out: list[str] = []
+
+    def config(item: Mapping[str, Any]) -> str:
+        measured = item.get("pack_version")
+        stale = version is not None and measured is not None and measured != version
+        return f"{item['config']} (measured on {measured})" if stale else str(item["config"])
+
     for dataset, rows in by_dataset(board).items():
         n = max(item["n"] for item in rows)
         out += [
@@ -153,20 +161,24 @@ def markdown(board: Mapping[str, Any]) -> list[str]:
         ranked = sorted(rows, key=lambda item: -(item["accuracy"] or 0.0))
         for item in ranked:
             out.append(
-                f"| {item['config']} | {pct(item['accuracy'])} | {num(item['macro_f1'])} "
+                f"| {config(item)} | {pct(item['accuracy'])} | {num(item['macro_f1'])} "
                 f"| {num(item['ece'])} | {pct(item['auto_rate'])} "
                 f"| {pct(item['false_automation_rate'])} | {critical_text(item) or 'n/a'} "
                 f"| {_ms(item['latency_p50_ms'])} | ${item['cost_per_decision_usd']:.5f} "
                 f"| {_errors(item)} |"
             )
         out.append("")
-        out += _question_table(ranked)
+        out += _question_table(ranked, config)
     return out
 
 
-def _question_table(rows: list[dict[str, Any]]) -> list[str]:
+def _question_table(
+    rows: list[dict[str, Any]], config: Callable[[Mapping[str, Any]], str]
+) -> list[str]:
     """Accuracy and ECE of the other questions, for those whose results differ between the
-    configurations (the ones the providers being compared actually answer)."""
+    configurations (the ones the providers being compared actually answer). Rows measured
+    before reports carried them have none, and are left out."""
+    rows = [item for item in rows if "questions" in item]
     keys = sorted({key for item in rows for key in item.get("questions", {})})
     varying = [
         key
@@ -187,7 +199,7 @@ def _question_table(rows: list[dict[str, Any]]) -> list[str]:
         "| Configuration | " + " | ".join(f"`{key}`" for key in varying) + " |",
         "|---|" + "---|" * len(varying),
         *(
-            f"| {item['config']} | " + " | ".join(cell(item, k) for k in varying) + " |"
+            f"| {config(item)} | " + " | ".join(cell(item, k) for k in varying) + " |"
             for item in rows
         ),
         "",

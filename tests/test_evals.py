@@ -69,13 +69,16 @@ def test_dataset_loading_errors(tmp_path: Path) -> None:
         load_dataset(bad)
 
 
-def test_benchmark_report_shape(router: Decision) -> None:
-    dataset = resolve_dataset(router.pack, "calibration")
-    report = evaluate(router, dataset)
+def test_benchmark_report_shape(inbox_pack: Pack, screened: dict[str, str]) -> None:
+    """With the deployed screen (a fake Jev that finds nothing urgent), most cases are automated:
+    an emergency the screen misses must still never be."""
+    dataset = resolve_dataset(inbox_pack, "calibration")
+    report = evaluate(Decision(inbox_pack, providers=screened), dataset)
     assert report["dataset"]["n"] == len(dataset.records) == 300
     assert set(report["questions"]) == {"destination", "urgency"}
     decisions = report["decisions"]
     assert sum(decisions["outcome_counts"].values()) == 300
+    assert decisions["outcome_counts"]["AUTO"] > 250
     assert decisions["critical"][0]["auto_missed"] == 0
     assert set(report["subgroups"]) == {"language", "channel", "age_band", "topic"}
     json.dumps(report, allow_nan=False)  # reports must be strict JSON
@@ -87,16 +90,17 @@ def test_reports_never_contain_case_text(router: Decision) -> None:
     assert dataset.records[0]["input"]["message"]["body"] not in serialized
 
 
-def test_local_validation_localises_degradation(inbox_pack: Pack) -> None:
+def test_local_validation_localises_degradation(inbox_pack: Pack, screened: dict[str, str]) -> None:
     baseline = benchmark(inbox_pack)
     assert baseline is not None
-    local = evaluate(Decision(inbox_pack), load_dataset(LOCAL_DATASET))
+    local = evaluate(Decision(inbox_pack, providers=screened), load_dataset(LOCAL_DATASET))
     comparison = compare(local, baseline, inbox_pack.manifest.evaluation.degradation_tolerance)
     assert comparison["status"] == "degraded"
     assert comparison["delta"] < -0.03
     subjects = {finding["subject"] for finding in comparison["findings"]}
     assert "language=es" in subjects
-    # Emergencies stay protected even where routing degrades.
+    # Emergencies stay protected even where routing degrades and the model misses them.
+    assert local["decisions"]["outcome_counts"]["AUTO"] > 300
     assert local["decisions"]["critical"][0]["auto_missed"] == 0
 
 
@@ -149,7 +153,8 @@ def test_decision_card_renders(inbox_pack: Pack) -> None:
     assert inbox_pack.digest in card
 
 
-def test_parallel_evaluation_matches_sequential(router: Decision) -> None:
+def test_parallel_evaluation_matches_sequential(inbox_pack: Pack, screened: dict[str, str]) -> None:
+    router = Decision(inbox_pack, providers=screened)  # remote: evaluated in parallel
     dataset = resolve_dataset(router.pack, "calibration").head(60)
     sequential = evaluate(router, dataset)
     parallel = evaluate(router, dataset, workers=4)

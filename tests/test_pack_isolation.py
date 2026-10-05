@@ -265,9 +265,10 @@ def test_an_over_long_version_is_refused_at_load_and_never_stops_startup(tmp_pat
     (`int()` refuses more than 4,300 digits) raised outside every isolation, so the server never
     started."""
     huge = "1" + "0" * 5000 + ".0.0"
+    shipped = f"version: {load_pack(INBOX_DIR).version}"
     outside = tmp_path / "outside"
     pack = _outsider(
-        outside, lambda pack: _replace(pack / "pack.yaml", "version: 0.3.0", f"version: '{huge}'")
+        outside, lambda pack: _replace(pack / "pack.yaml", shipped, f"version: '{huge}'")
     ).resolve()
     with pytest.raises(PackValidationError, match="at most 64 characters"):
         load_pack(pack)

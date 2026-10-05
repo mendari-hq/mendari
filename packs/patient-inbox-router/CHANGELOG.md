@@ -4,6 +4,18 @@ Renamed on 2026-09-30, when the project became Mendari: this pack was `openhealt
 Its id, its publisher's name and its `https://mendari.co/...` identifiers changed; its criteria,
 rules, models, data and results did not.
 
+## 0.4.0
+
+- Safety: the policy allows AUTO only while `safety_screen` includes a model
+  (`automation_requires`: `rules_and_jev` or `rules_and_llm`), as the Referral Router's does.
+  On hand-written held-out messages the keyword rules alone caught 4 of 20 emergencies and
+  automated 7 of the ones they missed. With the rules alone (the offline default), every
+  message now goes to a person with its suggested team; nothing else about the decision changes.
+- Questions, rules, data and the naive Bayes model are unchanged. The provider-comparison rows
+  for the rules alone were re-run on 0.4.0. The other rows are from 0.3.0: their accuracy and
+  critical detection still hold, but two kinds would now automate nothing: a model screen
+  without the rules (`safety_screen=llm`) and the `cascade` router behind the rules screen.
+
 ## 0.3.0
 
 - Safety: the `possible-emergency` rule now escalates when P(urgent) ≥ 0.35 (spec 0.2

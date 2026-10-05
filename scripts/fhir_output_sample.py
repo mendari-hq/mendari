@@ -95,7 +95,8 @@ def served(out: Path) -> None:
 def served_reads_and_searches(client: TestClient) -> dict[str, Any]:
     """What the `/fhir` read and search routes answer, by sample name, for synthetic decisions
     made through the API: one reviewed (overridden), rated and given an outcome (Task versions
-    1-3), one automated and one abstention still waiting for review."""
+    1-3), a routine message (automated only while a model screens its urgency; the local server
+    here has none, so it waits for review) and an abstention still waiting for review."""
     inbox = PACKS["inbox"]
 
     def decided(body: str) -> str:

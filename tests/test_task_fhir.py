@@ -14,14 +14,18 @@ from mendari import AuditStore, Decision, DecisionResult, Outcome, Pack, load_pa
 from mendari.core.phi import PhiPolicy
 from mendari.standards import audit_fhir, davinci, task_fhir
 from mendari.standards.fhir import PACK_ID_SYSTEM
-from tests.conftest import ROOT, message
+from tests.conftest import ROOT, SCREENED, message
 
 EMERGENCY = "Crushing chest pain and my left arm is numb"  # stat HUMAN_REVIEW -> nurse
-ROUTINE = "Can you send a refill for metformin to my pharmacy on Main Street?"  # AUTO
+ROUTINE = "Can you send a refill for metformin to my pharmacy on Main Street?"  # AUTO (`decide`)
 UNSURE = "hello?"  # ABSTAIN
 SECRET = "SECRET-NOTE-TEXT"
 BASE = "https://mendari.example/fhir"
 PINNED = ROOT / "tests" / "fixtures" / "fhir" / "task-versions.json"
+
+# Decisions from a store run the urgency screen with a fake Jev (`screened`), so routine ones
+# are automated.
+pytestmark = pytest.mark.usefixtures("screened")
 
 # A fixed synthetic chain: a HUMAN_REVIEW decision that a reviewer overrode, then rated (no
 # version), then corrected downstream. `seq` is global, so this decision's events are sparse.
@@ -201,7 +205,8 @@ def test_every_shipped_block_rule_targets_the_primary_question() -> None:
 
 
 def decide(store: AuditStore, pack: Pack, body: str | None) -> DecisionResult:
-    return Decision(pack, store=store)(message(body) if body is not None else {"message": {}})
+    body_or_empty = message(body) if body is not None else {"message": {}}
+    return Decision(pack, providers=SCREENED, store=store)(body_or_empty)
 
 
 def current(store: AuditStore, decision_id: str) -> dict[str, Any]:
