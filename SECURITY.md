@@ -347,8 +347,8 @@ manifest says (threat model S13, T5, I12, D8, E10):
   never reach it, only `community/<name>:slot=variant` runs it on a remote variant (an
   evaluation request through the API included), and its pinned model and `max_tokens` give way
   to the deployment's.
-- **Texts of at most 10,000 characters**, what its patterns were timed on: a longer one is
-  refused before any pattern runs.
+- **At most 10,000 characters of text**, alone or together, what its patterns were timed on: a
+  longer input is refused before any pattern runs.
 - **At most risk level 1, and only a hash of each input** (`store_input: hash`), refused at load
   otherwise.
 - **Checked before review.** The `pack-check` job (`pull_request`, no secrets, a read-only token,

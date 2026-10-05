@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 from mendari import Decision, load_pack
 from mendari.core import registry
 from mendari.core.card import render_card
+from mendari.core.origin import long_text
 from mendari.core.policy import apply_policy
 from mendari.core.registry import SearchPath, discover, origin_of, resolve_pack, search_paths
 from mendari.core.spec import Outcome
@@ -398,6 +399,20 @@ def test_a_community_pack_reads_texts_no_longer_than_its_patterns_were_timed_on(
     assert Decision(load_pack(SORTER)).decide({"message": "x" * 2_000}).outcome is not None
     maintained = Decision(load_pack(INBOX_DIR)).decide({"message": {"body": "x" * 10_001}})
     assert not any("community pack" in reason for reason in maintained.reasons)
+
+
+def test_a_community_pack_holds_its_texts_together_to_that_length() -> None:
+    """A rule matches its text fields joined, so two texts within the length each are refused
+    when, joined, they are longer; texts that join to exactly the length are read."""
+    halves = {"message": "x" * 5_000, "subject": "y" * 5_000}
+    result = Decision(load_pack(SORTER)).decide(halves)
+    assert result.reasons == (
+        "input rejected: the input's texts together: longer than 10,000 characters, the most a "
+        "community pack reads",
+    )
+    assert long_text({"message": "x" * 5_000, "subject": "y" * 4_999}) is None
+    assert long_text({"a": ["x"] * 2_500, "b": "y" * 5_000}) is None  # a separator each
+    assert long_text({"a": ["x"] * 2_501, "b": "y" * 5_000}) == "the input's texts together"
 
 
 def test_a_community_pack_recommends_and_never_automates(tmp_path: Path) -> None:

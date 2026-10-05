@@ -293,16 +293,43 @@ def test_a_terminology_collision_is_refused(repo: Path) -> None:
             lambda m: m.update(name="patient inbox  router"),
             "is the name of mendari/patient-inbox-router, a pack Mendari maintains",
         ),
+        (
+            lambda m: m.update(name="Patient-Inbox Router."),
+            "is the name of mendari/patient-inbox-router, a pack Mendari maintains",
+        ),
         (lambda m: m["publisher"].update(name="Mendari reference packs"), "names mendari"),
+        (lambda m: m["publisher"].update(name="M\u0435ndari reference packs"), "names mendari"),
+        (
+            lambda m: m["publisher"].update(name="M\u0435ndari reference packs"),
+            "mixes Latin letters with Cyrillic ones",
+        ),
+        (lambda m: m["publisher"].update(name="Mendar\u0131 packs"), "names mendari"),
+        (lambda m: m["publisher"].update(name="\uff2d\uff45ndari"), "names mendari"),
         (lambda m: m.update(name="Open-Health refills"), "names openhealth"),
     ],
-    ids=["maintained-name", "mendari-publisher", "old-name"],
+    ids=[
+        "maintained-name",
+        "maintained-name-punctuated",
+        "mendari-publisher",
+        "cyrillic-e",
+        "mixed-alphabets",
+        "dotless-i",
+        "fullwidth",
+        "old-name",
+    ],
 )
 def test_a_community_pack_cannot_pass_for_one_mendari_maintains(
     new_pack: Path, change: Callable[[dict[str, Any]], None], expected: str
 ) -> None:
     edit_manifest(new_pack, change)
     assert has(run(new_pack, base=None), "identity", expected)
+
+
+def test_a_community_packs_own_name_may_carry_accents(new_pack: Path) -> None:
+    """Folding names to compare them refuses look-alikes, not names in other languages."""
+    edit_manifest(new_pack, lambda m: m.update(name="Clínica: tri des visites"))
+    report = run(new_pack, base=None)
+    assert not has(report, "identity", "name 'Cl")
 
 
 def test_a_community_packs_fhir_systems_live_under_its_own_url(repo: Path) -> None:
@@ -334,16 +361,21 @@ def assert_maintainers_match(base: Path) -> None:
     assert not gone & folders
 
 
+@pytest.mark.parametrize("removed_before", [False, True], ids=["as-committed", "after-a-removal"])
 def test_a_contributors_maintainers_entry_keeps_the_repository_check_green(
-    tmp_path: Path, scaffold: Path
+    tmp_path: Path, scaffold: Path, removed_before: bool
 ) -> None:
     """The guide's steps (a pack and its entry) pass; a pack without its entry, or an entry
-    without its pack, does not. A tombstone stays."""
+    without its pack, does not. A tombstone stays, including one already in the file (the
+    owner removed a pack before this contribution): it stays a tombstone."""
     base = tmp_path / "community-packs"
     shutil.copytree(ROOT / "community-packs", base)
     shutil.copytree(scaffold, base / NAME)
-    entries = maintainers.parse((base / "MAINTAINERS.yaml").read_bytes())
-    rows = [{"id": e.id, "maintainers": list(e.maintainers)} for e in entries.values()]
+    if removed_before:
+        earlier = yaml.safe_load((base / "MAINTAINERS.yaml").read_text())["packs"] or []
+        removal = {"id": "community/gone", "maintainers": ["y"], "removed": "2026-10-05"}
+        write_maintainers(tmp_path, [*earlier, {**removal, "reason": "unmaintained"}])
+    rows = yaml.safe_load((base / "MAINTAINERS.yaml").read_text())["packs"] or []
     write_maintainers(tmp_path, [*rows, {"id": PACK_ID, "maintainers": ["janedoe"]}])
     assert_maintainers_match(base)
     gone = {"id": "community/old", "maintainers": ["x"], "removed": "2026-10-04", "reason": "r"}
@@ -736,6 +768,8 @@ def test_a_backtracking_rule_pattern_fails(new_pack: Path) -> None:
     [
         r"\d*\d*x",
         r"(?:ab|cd|ef|gh|ij|kl|mn|op)\d*\d*\d*\d*x",  # the probe-padding bypass
+        r"(?:\d\d)*(?:\d\d)*x",  # repeated groups, not single characters
+        r"q[0-9]z(?:00)*(?:00)*(?:00)*x",
         r"a*a*a*a*a*b",
         r"[a-z]+\s*[a-z]+$",  # only what both can match (or nothing) between them
         r"(\w+)(\w*)!",  # groups do not hide the sequence
@@ -791,6 +825,17 @@ def test_padding_a_pattern_with_pieces_does_not_hide_its_slow_part_from_the_prob
     assert "ij" in regex_safety.pump_atoms(fifth, re.IGNORECASE)[1]
     jobs = [regex_safety.Job(p, p, re.IGNORECASE) for p in (padded, fifth)]
     assert [job.where for job in regex_safety.probe(jobs)] == [padded, fifth]
+
+
+def test_the_probe_reaches_a_slow_part_behind_a_character_class() -> None:
+    """Before, inputs led up to a pumped part with literal texts only: `q[0-9]z` was never
+    matched, so the slow part after it was never reached (this one takes minutes on its text;
+    the static check leaves bounded repeats to the probe)."""
+    behind = r"q[0-9]z0{0,3000}0{0,3000}0{0,3000}x"
+    assert regex_safety.static_problems(behind, re.IGNORECASE) == []
+    assert "q0z" in regex_safety.pump_atoms(behind)[1]
+    jobs = [regex_safety.Job(behind, behind, 0), regex_safety.Job("fast", r"q[0-9]z0+x", 0)]
+    assert [job.where for job in regex_safety.probe(jobs)] == [behind]
 
 
 def test_a_pattern_too_big_to_probe_is_refused(new_pack: Path) -> None:

@@ -44,6 +44,7 @@ import posixpath
 import re
 import shutil
 import tempfile
+import unicodedata
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -491,8 +492,32 @@ def _maintained(directory: str) -> tuple[Pack, ...]:
     return tuple(discover([SearchPath(Path(directory), "maintained")]).packs)
 
 
+# Letters that look like a Latin one (from Unicode's confusables): Cyrillic, Greek and Latin
+# small capitals and the like. A name spelled with them still reads as the Latin word.
+_LOOKALIKES = str.maketrans(
+    {
+        **dict(zip("авеіјкмнорстухѕԁԛԝӏһүɡ", "abeijkmhopctyxsdqwlhyg", strict=True)),
+        **dict(zip("αβεηικνορτυχω", "abenikvoptuxw", strict=True)),
+        **dict(zip("ıȷɑɩʀɴᴍᴅᴇʟɪᴀᴏʙᴄꜰʜᴊᴋᴘꜱᴛᴜᴠᴡʏᴢ", "ijairnmdeliaobcfhjkpstuvwyz", strict=True)),
+    }
+)
+# Alphabets whose letters pass for Latin ones: a name mixing them with Latin hides a word.
+_LOOKALIKE_ALPHABETS = frozenset({"CYRILLIC", "GREEK", "ARMENIAN", "CHEROKEE", "COPTIC"})
+
+
 def _folded(text: str) -> str:
-    return " ".join(text.casefold().split())
+    """A name as it reads: compatibility forms and case folded, look-alike letters made Latin,
+    accents dropped, then letters and digits only, so `Patient-Inbox Router.` is
+    `patientinboxrouter`, and Mendari spelled with a Cyrillic e is `mendari`."""
+    text = unicodedata.normalize("NFKC", text).casefold().translate(_LOOKALIKES)
+    text = unicodedata.normalize("NFKD", text)
+    return re.sub(r"[^a-z0-9]", "", "".join(c for c in text if not unicodedata.combining(c)))
+
+
+def _alphabets(text: str) -> set[str]:
+    """The alphabets of a text's letters (LATIN, CYRILLIC, ...), by their Unicode names."""
+    normal = unicodedata.normalize("NFKC", text)
+    return {unicodedata.name(c, "?").split()[0] for c in normal if c.isalpha()}
 
 
 def _not_mendari(ctx: _Context) -> None:
@@ -509,18 +534,25 @@ def _not_mendari(ctx: _Context) -> None:
     if m.cds_hooks is not None:
         shown.append(("cds_hooks.title", m.cds_hooks.title))
     for where, text in shown:
-        letters = re.sub(r"[^a-z0-9]", "", text.casefold())
+        letters = _folded(text)
         named = next((word for word in RESERVED_NAMESPACES if word in letters), None)
+        mixed = sorted(_alphabets(text) & _LOOKALIKE_ALPHABETS)
+        if mixed and "LATIN" in _alphabets(text):
+            ctx.report.error(
+                "identity",
+                f"{where} {text!r} mixes Latin letters with {', '.join(mixed).title()} ones, "
+                "which can pass for Latin: write it in one alphabet",
+            )
         if named is not None:
             ctx.report.error(
                 "identity",
                 f"{where} {text!r} names {named}: a community pack is not Mendari's. Use your "
                 "own name (the label says where a pack comes from)",
             )
-        elif _folded(text) in taken:
+        elif letters in taken:
             ctx.report.error(
                 "identity",
-                f"{where} {text!r} is the name of {taken[_folded(text)]}, a pack Mendari "
+                f"{where} {text!r} is the name of {taken[letters]}, a pack Mendari "
                 "maintains: choose another, so no one takes one for the other",
             )
 

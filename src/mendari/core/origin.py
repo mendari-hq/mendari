@@ -13,7 +13,7 @@ self-declared):
 A community pack recommends and never automates (`core/policy.py`): no policy rule of its own
 blocks, and a person confirms every decision. It decides with local providers unless the
 deployment opts it in to another variant by name (`community/<name>:slot=variant`), keeps only a
-hash of its inputs, reads texts of at most `MAX_COMMUNITY_TEXT_CHARS`, publishes its FHIR
+hash of its inputs, reads at most `MAX_COMMUNITY_TEXT_CHARS` of text, publishes its FHIR
 terminology under its own url (`community_url`), and is at most risk level 1.
 
 The namespaces are the community route's: a community pack uses `community/` and nothing else,
@@ -121,14 +121,20 @@ def rule_problems(manifest: PackManifest) -> list[str]:
 
 def long_text(value: Any, limit: int = MAX_COMMUNITY_TEXT_CHARS) -> str | None:
     """Where in an input (`message.body`) a text, or a key, is longer than `limit` characters,
-    if one is: a community pack refuses it before any of its patterns runs. Walked without
-    recursion, however deep the input."""
+    or "the input's texts together" when its texts, each with one separator, are: a rule's
+    patterns run on its text fields joined (`providers/base.py` `text_from`), so the whole is
+    held to the length the patterns were timed on. A community pack refuses such an input
+    before any of its patterns runs. Walked without recursion, however deep the input."""
     stack: list[tuple[str, Any]] = [("", value)]
+    total = -1  # the first text has no separator before it
     while stack:
         where, item = stack.pop()
         if isinstance(item, str):
             if len(item) > limit:
                 return where or "(root)"
+            total += len(item) + 1
+            if total > limit:
+                return "the input's texts together"
         elif isinstance(item, Mapping):
             for key, child in reversed(list(item.items())):
                 if isinstance(key, str) and len(key) > limit:

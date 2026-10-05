@@ -45,7 +45,7 @@ The owner decided (2026-10-04):
   shown only as self-declared. A community pack never automates: the policy caps AUTO to
   HUMAN_REVIEW (ADR-0002: policy only lowers automation), and no policy rule of its own
   blocks (refused at load; a block is final at once, so no person would confirm it). It reads
-  texts of at most 10,000 characters, the length its patterns are timed on.
+  at most 10,000 characters of text in all, the length its patterns are timed on.
 - **Local providers only, unless the owner opts a pack in.** A community pack's default
   variants are local (`rules`, `criteria`, `dosing`, `naive_bayes`, or a composite of those);
   unscoped provider settings skip it, and only `community/<name>:slot=variant` runs it on

@@ -21,8 +21,8 @@ its manifest says:
   those); a remote model runs only if a deployment names the pack in its settings
   (`community/<name>:slot=variant`), for decisions and evaluations alike;
 - it keeps only a **hash** of each input (`audit.store_input: hash`);
-- it reads texts of at most **10,000 characters** (a longer one is refused before any pattern
-  runs);
+- it reads at most **10,000 characters** of text in all (each text and all of them together; a
+  longer input is refused before any pattern runs);
 - its FHIR systems (a `task.performer_system` in `fhir/mapping.yaml`) live under its own url,
   `https://mendari.co/packs/community/<name>/`, e.g.
   `https://mendari.co/packs/community/<name>/CodeSystem/performer`;
@@ -181,9 +181,10 @@ that would have been `AUTO` becomes `HUMAN_REVIEW` anyway, with its recommendati
 Rules match text with regular expressions, and Python's `re` has no time limit: a pattern that
 can match one text in many ways may take seconds on a long message, and stall the server that
 runs it. `community-check` refuses those, in two ways: a static check of each pattern, and a run
-of each pattern on pumped inputs of 10,000 characters built from every piece it holds, with one
-second allowed on each. Neither is a guarantee, so a community pack also refuses any text longer
-than 10,000 characters before a pattern runs.
+of each pattern on pumped inputs of 10,000 characters built from every piece it holds (each led
+up to by a sample of what comes before it in the pattern), with one second allowed on each.
+Neither is a guarantee, so a community pack also refuses an input whose texts are longer than
+10,000 characters, alone or together, before a pattern runs.
 
 | Instead of | Write | Why |
 |---|---|---|
@@ -192,7 +193,7 @@ than 10,000 characters before a pattern runs.
 | <code>(.&#124;\s)+</code> | `[\s\S]+`, or better a bounded `[^.!?\n]{0,80}` | Alternatives that can start on the same character |
 | `chest.*pain` | `chest(?:[^\w.!?\n]+\w+){0,5}?[^\w.!?\n]+pain` | Bounded: at most five words between, never across a sentence |
 | `.*` at either end | nothing | A rule matches anywhere in the text already |
-| `\d*\d*x`, `[a-z]+\s*[a-z]+$` | `\d*x`, `[a-z]+\s+[a-z]+$` | Repeated characters one after another that can match the same text split it in many ways; merge them, or require something only one of them matches between them |
+| `\d*\d*x`, `[a-z]+\s*[a-z]+$`, `(?:\d\d)*(?:\d\d)*x` | `\d*x`, `[a-z]+\s+[a-z]+$`, `(?:\d\d)*x` | Repeated pieces one after another that can match the same text split it in many ways (repeated groups count when they can start with the same character); merge them, or require something only one of them matches between them |
 
 More habits that keep patterns fast and honest:
 

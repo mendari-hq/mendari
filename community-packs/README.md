@@ -7,8 +7,8 @@ clinically reviewed, and they never ship in the Python package or the images.
 **How they are served.** Only where a deployment sets `MENDARI_COMMUNITY_PACKS=on` (default off).
 There, a community pack recommends and never automates: a person confirms every decision (so no
 policy rule of its own blocks). It decides with local providers unless the deployment opts it
-in to another variant by name, keeps only a hash of its inputs, reads texts of at most 10,000
-characters, keeps its FHIR systems under its own url, and is at most risk level 1.
+in to another variant by name, keeps only a hash of its inputs, reads at most 10,000
+characters of text, keeps its FHIR systems under its own url, and is at most risk level 1.
 
 **Contributing one.**
 

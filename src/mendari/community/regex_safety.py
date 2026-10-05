@@ -8,14 +8,17 @@ worker that runs it. Two checks, neither a guarantee:
   the same character (`(a|a)*`, `(.|\\s)+`), so one text matches in many ways; and unbounded
   quantifiers one after another that can match the same characters, with nothing between them
   that only one of them could match and something after them that can fail (`\\d*\\d*x`,
-  `a+\\s*a+$`), so the text splits between them in many ways. Possessive quantifiers and atomic
-  groups never backtrack and are allowed.
+  `a+\\s*a+$`, `(?:\\d\\d)*(?:\\d\\d)*x`), so the text splits between them in many ways;
+  repeated groups longer than a character are compared by what they can start with.
+  Possessive quantifiers and atomic groups never backtrack and are allowed.
 - **Probe** (`probe`): each pattern runs in a separate process on pumped inputs of 10,000
   characters built from its own pieces: every character class and repeated literal it holds,
-  and a few defaults (`'a'`, `' '`, `'0'`), each after every literal text that may lead up to
-  them (`'ab' + '1' * 9_998 + '!'`). One that takes more than a second on any of them is too
-  slow, and the process is killed. A pattern with so many pieces that the inputs would be more
-  than `MAX_PROBE_INPUTS` is refused, rather than timed on some of them.
+  and a few defaults (`'a'`, `' '`, `'0'`), each after every literal text and after a sample
+  of everything before each piece, classes included (`'q0z'` for `q[0-9]z(?:00)*`), so a slow
+  part is reached however the pattern starts (`'ab' + '1' * 9_998 + '!'`). One that takes
+  more than a second on any of them is too slow, and the process is killed. A pattern with so
+  many pieces that the inputs would be more than `MAX_PROBE_INPUTS` is refused, rather than
+  timed on some of them.
 """
 
 from __future__ import annotations
@@ -252,9 +255,9 @@ def static_problems(pattern: str, flags: int = 0) -> list[str]:
 
 
 _SEQUENTIAL = (
-    "repeated characters one after another can match the same characters (`\\d*\\d*`, "
-    "`\\w+\\s*\\w+`), so a text splits between them in many ways: merge them into one, or "
-    "put something only one of them matches between them"
+    "repeated pieces one after another can match the same characters (`\\d*\\d*`, "
+    "`\\w+\\s*\\w+`, `(?:ab)*(?:ac)*`), so a text splits between them in many ways: merge them "
+    "into one, or put something only one of them matches between them"
 )
 
 
@@ -311,30 +314,36 @@ def _can_fail(items: Sequence[Any], follow: _Chars, ignore_case: bool) -> bool:
 
 
 def _sequential(items: Sequence[Any], follow: _Chars, ignore_case: bool, flags: int) -> bool:
-    """Two unbounded repetitions of one character in one sequence that can match the same
-    characters (`\\d*\\d*`), with only what the first can also match (or nothing) between them,
-    and something after that can fail: a failing text is split between them in every way,
-    polynomially many. Anything between that the first cannot match fixes the split."""
+    """Two unbounded repetitions in one sequence that can match the same characters
+    (`\\d*\\d*`, `(?:\\d\\d)*(?:\\d\\d)*`), with only what the first can also match (or nothing)
+    between them, and something after that can fail: a failing text is split between them in
+    every way, polynomially many. Anything between that the first cannot match fixes the split.
+    Repetitions of one character are compared by the characters they match; longer ones by the
+    characters they can start with, which over-approximates (`(?:ab)*(?:ac)*` is refused too)."""
     flat = _flat(items)
     for index, item in enumerate(flat):
-        first = _one_character(item[1][2], flags) if _unbounded(item) else None
-        if not first:
+        if not _unbounded(item):
             continue
+        body = item[1][2]
+        first = _one_character(body, flags)
+        if first is not None and not first:
+            continue  # matches none of the characters tried
+        start, _ = _sequence_first(body, ignore_case)
         for later_index in range(index + 1, len(flat)):
             later = flat[later_index]
             if _unbounded(later):
                 again = _one_character(later[1][2], flags)
-                if (
-                    again is not None
-                    and first & again
-                    and _can_fail(flat[later_index + 1 :], follow, ignore_case)
-                ):
+                if first is not None and again is not None:
+                    meets = bool(first & again)
+                else:
+                    meets = start.overlaps(_sequence_first(later[1][2], ignore_case)[0])
+                if meets and _can_fail(flat[later_index + 1 :], follow, ignore_case):
                     return True
             _, nullable = _item_first(later, ignore_case)
             if nullable:
                 continue
             single = _one_character([later], flags)
-            if single is None or not first & single:
+            if first is None or single is None or not first & single:
                 break  # something the first cannot match (or not one character): fixed
     return False
 
@@ -419,11 +428,47 @@ def _walk(
 # -- the probe -----------------------------------------------------------------------------------
 
 
+_SAMPLE_PREFERRED = "a0 "
+
+
+def _sample_one(item: Any, flags: int) -> str:
+    """One character the one-character piece `item` matches (a letter, digit or space when it
+    can), or "" when none of the characters tried does."""
+    matched = _matched(repr(item), item, flags)
+    preferred = [c for c in _SAMPLE_PREFERRED if c in matched]
+    return preferred[0] if preferred else min(matched, default="")
+
+
+def _sample(items: Iterable[Any], flags: int) -> str:
+    """A short text the sequence `items` matches, as far as one can be built without running
+    it: the fewest repetitions each, the first alternative, nothing for an assertion or a back
+    reference. What leads up to a repeated part in a probe input."""
+    text = ""
+    for item in items:
+        op, av = item
+        name = _name(op)
+        if name in _SINGLE:
+            text += _sample_one(item, flags)
+        elif name == "SUBPATTERN":
+            text += _sample(av[3], flags)
+        elif name == "ATOMIC_GROUP":
+            text += _sample(av, flags)
+        elif name == "BRANCH":
+            text += _sample(av[1][0], flags)
+        elif name in _REPEATS or name == "POSSESSIVE_REPEAT":
+            text += _sample(av[2], flags) * min(av[0], INPUT_CHARS)
+        if len(text) > INPUT_CHARS:
+            return text[:INPUT_CHARS]
+    return text
+
+
 def pump_atoms(pattern: str, flags: int = 0) -> tuple[list[str], list[str]]:
     """(atoms, prefixes): the pieces an input is pumped with (a character of every class the
-    pattern uses, every literal text inside a repetition, and `DEFAULT_ATOMS`), and every
-    literal text that may lead up to them. None is ever left out, so padding a pattern with
-    pieces cannot push the slow one out of the probe."""
+    pattern uses, every literal text inside a repetition, and `DEFAULT_ATOMS`), and what may
+    lead up to them: every literal text, and a sample of everything before each piece that is
+    not a literal (`q0z` for `q[0-9]z(?:00)*`), so a pumped part is reached however the
+    pattern starts. None is ever left out, so padding a pattern with pieces cannot push the
+    slow one out of the probe."""
     import re
 
     atoms: list[str] = []
@@ -432,12 +477,13 @@ def pump_atoms(pattern: str, flags: int = 0) -> tuple[list[str], list[str]]:
         tree = _parser.parse(pattern, flags)
     except (re.error, OverflowError, RecursionError, ValueError):
         return list(DEFAULT_ATOMS), []
+    flags |= tree.state.flags
 
     def add(target: list[str], text: str) -> None:
         if text and text not in target:
             target.append(text)
 
-    def visit(items: Iterable[Any], repeated: bool) -> None:
+    def visit(items: Sequence[Any], repeated: bool, lead: str) -> None:
         run = ""
 
         def flush() -> None:
@@ -445,13 +491,18 @@ def pump_atoms(pattern: str, flags: int = 0) -> tuple[list[str], list[str]]:
             if repeated:
                 add(atoms, run)
 
-        for op, av in items:
+        done = lead  # a sample of everything before the current piece
+        for item in items:
+            op, av = item
             name = _name(op)
+            before = done
+            done = (done + _sample([item], flags))[:INPUT_CHARS]
             if name == "LITERAL":
                 run += chr(av)
                 continue
             flush()
             run = ""
+            add(prefixes, before)
             if name == "IN":
                 for member_op, member in av:
                     member_name = _name(member_op)
@@ -464,19 +515,19 @@ def pump_atoms(pattern: str, flags: int = 0) -> tuple[list[str], list[str]]:
             elif name in ("ANY", "NOT_LITERAL"):
                 add(atoms, "a")
             elif name == "SUBPATTERN":
-                visit(av[3], repeated)
+                visit(av[3], repeated, before)
             elif name == "ATOMIC_GROUP":
-                visit(av, repeated)
+                visit(av, repeated, before)
             elif name == "BRANCH":
                 for alternative in av[1]:
-                    visit(alternative, repeated)
+                    visit(alternative, repeated, before)
             elif name in _REPEATS or name == "POSSESSIVE_REPEAT":
-                visit(av[2], repeated or av[1] > 1)
+                visit(av[2], repeated or av[1] > 1, before)
             elif name in ("ASSERT", "ASSERT_NOT"):
-                visit(av[1], repeated)
+                visit(av[1], repeated, before)
         flush()
 
-    visit(list(tree), False)
+    visit(list(tree), False, "")
     for default in DEFAULT_ATOMS:
         add(atoms, default)
     return atoms, prefixes
