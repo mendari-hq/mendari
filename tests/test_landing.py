@@ -91,13 +91,35 @@ def test_with_sign_in_on_the_landing_is_public_and_tells_nothing_of_the_deployme
     count, nothing from the store. Only the mode shows, which /api/auth/me says anyway."""
     _sign_in_on(monkeypatch)
     every = TestClient(create_app(db_path=tmp_path / "a.db")).get("/docs", follow_redirects=False)
+    # Nor whether Jev is set up: the quickstart shows both of the inbox's answers.
+    calm_jev(monkeypatch)
+    app = create_app(db_path=tmp_path / "c.db", default_providers=default_providers())
+    with_jev = TestClient(app).get("/docs", follow_redirects=False)
     monkeypatch.setenv("MENDARI_PACKS", "mendari/ai-guard")
     one = TestClient(create_app(db_path=tmp_path / "b.db")).get("/docs", follow_redirects=False)
-    assert every.status_code == one.status_code == 200
-    assert every.text == one.text
+    assert every.status_code == one.status_code == with_jev.status_code == 200
+    assert every.text == one.text == with_jev.text
+    for printed in (landing.REVIEWED, landing.AUTOMATED):
+        assert html.escape(json.dumps(printed, indent=2, ensure_ascii=False)) in every.text
     assert "Sign-in is on here" in every.text and 'href="/auth/login"' in every.text
     assert "/?pack=" not in every.text and 'href="/#card"' in every.text
     assert "Backend Services (signed client assertions" in every.text  # off here
+
+
+@pytest.mark.parametrize("sign_in", [False, True], ids=["open mode", "sign-in on"])
+def test_every_example_that_takes_focus_is_named(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sign_in: bool
+) -> None:
+    """A screen reader tabbing to an example hears what it is: its kind and its step, so the two
+    answers shown for one step with sign-in on are told apart."""
+    if sign_in:
+        _sign_in_on(monkeypatch)
+    text = TestClient(create_app(db_path=tmp_path / "a.db")).get("/docs").text
+    focusable = re.findall(r"<pre tabindex=\"0\"([^>]*)>", text)
+    names = [re.search(r'role="group" aria-label="([^"]+)"', attrs) for attrs in focusable]
+    assert focusable and all(names), focusable
+    prints = [n[1] for n in names if n and n[1].startswith("Prints")]
+    assert len(prints) == (2 if sign_in else 1) and len(set(prints)) == len(prints)
 
 
 def test_the_landing_describes_phase_4b_without_this_deployments_settings(
