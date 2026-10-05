@@ -66,11 +66,20 @@ B6/B7 → B8 → B9 → B10).
   `model` and `max_tokens` give way to the deployment's. Refused at load: risk level above 1,
   `store_input` other than `hash`, a default variant that is not local (`rules`, `criteria`,
   `dosing`, `naive_bayes`, or a composite of those).
-- [ ] **B3 Labels everywhere.** "Community · not clinically reviewed" by origin on `/api/packs`,
+- [x] **B3 Labels everywhere.** "Community · not clinically reviewed" by origin on `/api/packs`,
   `/api/packs/{id}`, `/api/health` (packs by origin), the dashboard picker and card header, Try
   it, the Decision Card, CDS Hooks discovery and each card's `source.label`. The dashboard's
   default pack is the first maintained one. `publisher.type` shown as self-declared. Tokens only;
   contrast tests extended.
+  Built: `ORIGIN_LABELS` and `Pack.shown_origin`/`origin_label` (`core/origin.py`, a
+  `community/` id is community wherever it was loaded); `origin` and `origin_label` on the pack
+  endpoints and the SMART session's packs, `packs_by_origin` in `/api/health`; the Decision
+  Card's Source row (maintained and community only) and "Automation: Never" for a community
+  pack (the five shipped cards regenerated: two lines each, digests unchanged); CDS Hooks
+  discovery and `source.label` for community services only; the `/docs` landing labels them
+  (open mode, as before); the picker groups by origin when more than one is served; the overview
+  header, the card, Try it and the approval section. Tests in `tests/test_community_packs.py`
+  and `tests/browser/test_community.py` (both themes).
 - [x] **B4 `mendari community-check`** (and `scripts/community_check.py`, shared by the CLI and
   CI): scope, identity, manifest policy (`license: Apache-2.0`, `publisher.type: community`,
   `store_input: hash`, local providers, no pinned model, `degradation_tolerance` ≤ 0.05, risk
@@ -95,19 +104,25 @@ B6/B7 → B8 → B9 → B10).
 - [x] **B6 Scaffold.** `mendari new --community` writes the community defaults, and the pack's
   benchmark and card, so it passes `community-check` as written (once listed in
   `MAINTAINERS.yaml`).
-- [ ] **B7 Docs and templates.** `docs/guides/contributing-a-pack.md` (the flow, synthetic data
+- [x] **B7 Docs and templates.** `docs/guides/contributing-a-pack.md` (the flow, synthetic data
   without Python, `ABSTAIN` carries no recommendation, a risk-level table with the inbox router
   as the level-0 precedent, a pattern guide); `.github/PULL_REQUEST_TEMPLATE/pack.md`; a
   "Propose a pack" issue form; CONTRIBUTING on the DCO and content provenance;
   `community-packs/README.md` and `MAINTAINERS.yaml` (removed ids stay as tombstones; both
   written with B4).
-- [ ] **B8 (owner)** Labels (`pack`, `pack:new`, `pack:update`, `needs-clinical-review`,
+  Built: the guide (with the risk-level table; the authoring guide and both `mendari new`
+  templates now call message routing level 0, as the inbox router is); `scripts/synthetic_cases.py`
+  (templates to JSON Lines, `tests/test_synthetic_cases.py`); the pack PR template and the
+  "Propose a pack" form; CONTRIBUTING (DCO, content provenance); ADR-0007; threat model S13,
+  T5, I12, D8, E10 and boundary 7; SECURITY.md "Community packs"; mkdocs nav, README and the
+  docs home. `mendari new --community` also prints the guide's URL.
+- [ ] **B8 (owner, steps below)** Labels (`pack`, `pack:new`, `pack:update`, `needs-clinical-review`,
   `clinical-review:provided`, `risk-level-change`, `patient-safety`, `idea`, `good first pack`);
   the DCO app; `pack-check` and `DCO` required; a `main` ruleset requiring a code owner's
   approval, with the admin on the bypass list.
-- [ ] **B9 (owner)** `MENDARI_COMMUNITY_PACKS=on` in Vercel Production only; on the owner's own
+- [ ] **B9 (owner, steps below)** `MENDARI_COMMUNITY_PACKS=on` in Vercel Production only; on the owner's own
   branch preview (never a fork's), check that `community-packs/` reaches the function bundle.
-- [ ] **B10 (owner and build)** Dry run from a second GitHub account, including a bad version
+- [ ] **B10 (owner and build, steps below)** Dry run from a second GitHub account, including a bad version
   (a ReDoS pattern, a shadowing id, an edit outside its folder, a faked benchmark) that CI must
   refuse. Then announce.
 
@@ -183,6 +198,66 @@ build session. A1–A8 come before A9 (making the repository public); A10 and A1
    Source: **GitHub Actions**. Check after: the site opens at the Pages URL, then a build PR
    points the README and `mendari new` at it and switches the install line to `pip install
    mendari`.
+
+### Community packs: owner steps (B8–B10)
+After the community-packs PR (`claude/community-packs`) is merged and the repository is public
+(A9). Each step says where to click and what to check after. Nothing here is done by a build
+session.
+
+1. **B8, labels.** Issues → Labels → New label, for each of: `pack` (pack content and
+   proposals), `pack:new`, `pack:update`, `needs-clinical-review` (no clinician named in the
+   PR), `clinical-review:provided`, `risk-level-change`, `patient-safety` (blocks every other
+   change to the pack until answered), `idea`, `good first pack`. Check after: open "New issue"
+   → "Propose a pack" from a second account; the issue gets `pack` and `idea`.
+2. **B8, the DCO app.** github.com/apps/dco → Install → Only select repositories → `mendari`.
+   Check after: a PR with an unsigned commit shows a failing **DCO** check whose details say how
+   to sign off; one signed with `git commit -s` passes.
+3. **B8, required checks and code-owner review.** Settings → Rules → Rulesets → New ruleset →
+   **New branch ruleset**: name "main", Enforcement **Active**, Bypass list → Add bypass →
+   **Repository admin** (Always allow), Target branches → **Include default branch**. Rules:
+   **Require a pull request before merging** (Required approvals 1, **Require review from Code
+   Owners** ticked), **Require status checks to pass** → add `pack-check` and `DCO` (they appear
+   once each has run on a PR; add `secrets` too if you like), **Block force pushes**. If the
+   classic branch rule on `main` (Settings → Branches) already requires checks, keep it or move
+   its checks here, so the two don't disagree. Settings → General → Pull Requests: **Allow
+   squash merging** on. Check after: a PR from a second account shows "Review required" from a
+   code owner and the two required checks; your own PR can still merge with "Merge without
+   waiting for requirements" (the bypass).
+4. **B9, turn community packs on in Production.** Vercel → the engine's project → Settings →
+   Environment Variables → Add: `MENDARI_COMMUNITY_PACKS` = `on`, Environment **Production**
+   only. Redeploy production. Check after: signed in, `/api/health` shows `packs_by_origin`
+   with only `maintained` while `community-packs/` holds no pack, and `invalid` is empty. To
+   turn every community pack off later, set it to `off` (or delete it) and redeploy; never use
+   `MENDARI_PACKS` for that (naming a missing pack stops startup).
+5. **B9, check that `community-packs/` reaches the function bundle** (not verified yet; on your
+   own branch, never a fork's). In a clone: `git switch -c bundle-check origin/main`,
+   `uv run mendari new community-packs/bundle-check --community --publisher "Bundle check"`,
+   add `{id: community/bundle-check, maintainers: [Junebugg1214]}` to
+   `community-packs/MAINTAINERS.yaml`, commit and push (no PR needed). Vercel → Settings →
+   Environment Variables → Add: `MENDARI_COMMUNITY_PACKS` = `on`, Environment **Preview**,
+   Git branch **bundle-check** (the branch-specific option). Redeploy that branch's preview,
+   then `vercel curl /api/health --deployment <preview url>`. Check after: `packs_by_origin`
+   has `"community": 1`, `invalid` is empty, and `vercel curl
+   /api/packs/community/bundle-check --deployment <preview url>` shows `"origin": "community"`.
+   Then delete the branch-specific variable and the `bundle-check` branch. If the pack is
+   missing, either `community-packs/` did not reach the bundle (`vercel.json`) or the function
+   imports Mendari from somewhere other than the repository's `src/`, so `core/registry.py`
+   looks for `community-packs/` beside the wrong folder (it is found next to `src/`, unlike the
+   reference packs, which the wheel also carries). Tell a build session, and leave
+   Production's switch off until it is fixed.
+6. **B10, the dry run** (owner and build). From a second GitHub account: fork, follow
+   `docs/guides/contributing-a-pack.md` for a small pack (`community/dry-run`), open the PR with
+   `?template=pack.md`, approve its first workflow run, and check that `pack-check` and `DCO`
+   pass and the job summary shows the metrics and the card. Then push, one at a time, and
+   check that each fails with the rule named (revert each before the next): a pattern
+   `(a+)+$` in `logic/rules.yaml` (patterns); the id `mendari/patient-inbox-router` (identity);
+   an edit to the repository's `README.md` (scope); a hand-edited number in
+   `evals/benchmark.json` (honest numbers); a commit without `-s` (DCO). Merge the good
+   version, then check production: `/api/health` has `"community": 1` and an empty `invalid`,
+   the dashboard picker lists it under "Community · not clinically reviewed", and one Try it
+   decision ends in human review with a recommendation. Remove it with a removal PR (delete the
+   folder, keep its `MAINTAINERS.yaml` entry with `removed:` and `reason: dry run`), unless you
+   want to keep it. Then announce.
 
 ## Built: pack content safety (2026-10-04)
 From the launch-readiness review, before any registry, Hub or upload feature lets an outside

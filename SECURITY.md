@@ -322,6 +322,41 @@ limits, designed with that feature). What a pack cannot do today is below.
   string). The validator retrieves nothing, so checking an input never fetches a URL or reads a
   file.
 
+## Community packs
+
+Outside developers contribute packs by pull request, into `community-packs/<name>/` with the id
+`community/<name>` ([ADR-0007](docs/decisions/ADR-0007-community-packs-by-pull-request.md); the
+contributor's guide is [`docs/guides/contributing-a-pack.md`](docs/guides/contributing-a-pack.md)).
+They are not clinically reviewed, so the runtime limits what they can do, whatever their
+manifest says (threat model S13, T5, I12, D8, E10):
+
+- **Served only where a deployment turns them on** (`MENDARI_COMMUNITY_PACKS=on`, default off,
+  one switch for all of them), and never shipped in the Python package or the images.
+- **Labelled by origin, never by manifest.** Every surface says "Community · not clinically
+  reviewed"; `publisher.type` is shown only as self-declared. `mendari/` and `openhealth/` are
+  reserved to the packs Mendari maintains, `community/` to `community-packs/`, and one id is one
+  pack: a second claim is refused and reported, never served in place of the first.
+- **Recommend only.** A community pack never automates: the policy caps AUTO to HUMAN_REVIEW.
+- **No spending without the owner.** Its default providers are local; unscoped provider settings
+  never reach it, only `community/<name>:slot=variant` runs it on a remote variant, and its
+  pinned model and `max_tokens` give way to the deployment's.
+- **At most risk level 1, and only a hash of each input** (`store_input: hash`), refused at load
+  otherwise.
+- **Checked before review.** The `pack-check` job (`pull_request`, no secrets, a read-only token,
+  never `pull_request_target`) runs `mendari community-check`: scope (the pack's own folder
+  only), identity, manifest policy, tests, evaluation floors and regressions against the base
+  branch's benchmark and tolerance, a benchmark, card and model CI builds again and compares,
+  a static check and a timed probe of every pattern, size limits, and warnings for text that
+  looks like a real person's details. Then the owner reads it, including its clinical content
+  and where that content comes from.
+- **Removal.** Revert the merge and deploy for a safety problem or real patient data (and
+  follow GitHub's sensitive-data removal; a public history cannot be fully cleaned), or set
+  `MENDARI_COMMUNITY_PACKS=off` to remove them all. `MENDARI_PACKS` is no kill switch: naming a
+  pack that is not installed stops the server from starting.
+
+Report a vulnerability in a community pack (a pattern that stalls, content that leaks or harms)
+privately, as above; report a wrong clinical answer with the "Pack content" issue form.
+
 ## What CI checks on every change
 
 The threat model ([`docs/security/threat-model.md`](docs/security/threat-model.md)) lists each

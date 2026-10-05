@@ -24,7 +24,9 @@
   `MENDARI_PACKS_PATH`, the registry cache, the bundled packs and, with
   `MENDARI_COMMUNITY_PACKS=on`, `community-packs/`. Each pack carries the origin of where it
   was found (`core/origin.py`: maintained, community, hub or local); an id is one pack, and a
-  second claim is reported, never served.
+  second claim is reported, never served. The origin, never the manifest's `publisher.type`
+  (self-declared), sets the label every surface shows: "Maintained by Mendari" or "Community ·
+  not clinically reviewed" ([ADR-0007](decisions/ADR-0007-community-packs-by-pull-request.md)).
 - **Runtime** (`core/decision.py`): binds a pack to concrete provider variants. It validates
   input, collects answers, applies policy and optionally records the result.
 - **Derived questions** (`core/derive.py`): computes decision-table questions from their

@@ -82,7 +82,12 @@ sandbox payer need; `uv sync` includes it. Vercel runs the ASGI app directly and
    A community pack recommends and never automates, is at most risk level 1, keeps only a hash
    of its inputs, and decides with local providers unless a provider setting names it
    (`community/<name>:slot=variant`); its pinned model and `max_tokens` give way to the
-   deployment's. How to contribute one, and what CI checks (`mendari community-check`), is in
+   deployment's. Wherever it shows (`/api/packs`, the dashboard, Try it, its Decision Card,
+   CDS Hooks discovery and cards, the `/docs` landing) it is labelled "Community · not
+   clinically reviewed"; the reference packs say "Maintained by Mendari". How to contribute
+   one is in the guide
+   [Contributing a community pack](https://github.com/Junebugg1214/mendari/blob/main/docs/guides/contributing-a-pack.md),
+   and what CI checks (`mendari community-check`) in
    [community-packs/README.md](https://github.com/Junebugg1214/mendari/blob/main/community-packs/README.md).
 
 An id is one pack: a second pack with the same id is not served, whatever its version, and both
@@ -522,6 +527,10 @@ CI builds it in strict mode, so a broken link fails. It will be hosted once the 
 public. Until then a running server documents itself: `/docs` is the developer landing (a
 quickstart in three calls, FHIR, authentication), and `/docs/reference` the full API reference.
 The [API guide](https://github.com/Junebugg1214/mendari/blob/main/docs/guides/api.md) covers the same ground in the site.
+To contribute a pack, read
+[Contributing a community pack](https://github.com/Junebugg1214/mendari/blob/main/docs/guides/contributing-a-pack.md);
+why community packs work as they do is
+[ADR-0007](https://github.com/Junebugg1214/mendari/blob/main/docs/decisions/ADR-0007-community-packs-by-pull-request.md).
 
 ## Security
 
@@ -917,8 +926,8 @@ mode; then Vercel Authentication lifted.
 the `X-Request-Id` a user quotes; on Vercel it is the `x-vercel-id`). Vercel keeps them for a
 day on Pro (an hour on Hobby); a log drain keeps them longer.
 
-`/api/health` reports the storage backend, active providers, Jev configuration and today's Jev
-usage (never secrets). With sign-in on, only a principal that may read (someone signed in, or a
+`/api/health` reports the storage backend, the packs (and how many are maintained or
+community), active providers, Jev configuration and today's Jev usage (never secrets). With sign-in on, only a principal that may read (someone signed in, or a
 key) sees them; anyone else gets `status`, `version` and `sign_in`, enough for a load balancer.
 On a preview without sign-in `vercel curl` shows everything; with sign-in on, open
 `/api/health` in a browser signed in to the dashboard. The FHIR sandbox (HAPI) stays in local
@@ -953,7 +962,8 @@ src/mendari/
 ├── server/      FastAPI app (REST, FHIR, CDS Hooks, review, audit, evals)
 ├── dashboard/   developer dashboard: HTML, CSS and ES modules, no dependencies or build step
 └── sandbox/     synthetic data generator, FHIR seed/worker, demo
-packs/           reference Decision Packs
+packs/           reference Decision Packs (maintained by Mendari)
+community-packs/ community Decision Packs, contributed by pull request (MAINTAINERS.yaml)
 datasets/        example "local site" dataset for validation
 docs/            spec, guides, architecture, ADRs (the documentation site)
 notes/           project notes: milestone plans, design and audit reviews, the build log

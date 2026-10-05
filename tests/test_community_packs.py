@@ -479,3 +479,21 @@ def test_the_docs_landing_labels_community_packs_in_open_mode(labelled: TestClie
     assert COMMUNITY_LABEL in item
     inbox = f'<a href="/?pack={INBOX_ID}#card">'
     assert COMMUNITY_LABEL not in text[text.index(inbox) : text.index("</li>", text.index(inbox))]
+
+
+# -- the contribution flow's documents (B7) -----------------------------------------------------
+
+
+def test_the_contribution_forms_and_guide_hang_together() -> None:
+    """The issue form parses and is labelled with labels the owner creates (B8), the pack PR
+    template asks for the sign-off, and the guide and ADR-0007 are in the docs site."""
+    form = yaml.safe_load((ROOT / ".github/ISSUE_TEMPLATE/propose-pack.yml").read_text())
+    assert form["name"] == "Propose a pack" and form["labels"] == ["pack", "idea"]
+    assert {item["id"] for item in form["body"] if "id" in item} >= {"name", "risk", "data"}
+    template = (ROOT / ".github/PULL_REQUEST_TEMPLATE/pack.md").read_text()
+    assert "git commit -s" in template and "community-check" in template
+    nav = (ROOT / "mkdocs.yml").read_text()
+    assert "guides/contributing-a-pack.md" in nav
+    assert "decisions/ADR-0007-community-packs-by-pull-request.md" in nav
+    guide = (ROOT / "docs/guides/contributing-a-pack.md").read_text()
+    assert COMMUNITY_LABEL in guide and "`mendari/patient-inbox-router` | Yes" in guide

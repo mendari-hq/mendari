@@ -34,10 +34,12 @@ for review when:
 - a clinician other than the author has reviewed the criteria (say who in the PR).
 
 A pack contributed for others to use goes in `community-packs/<name>/` with the id
-`community/<name>`: start it with `uv run mendari new community-packs/<name> --community` and
-follow [community-packs/README.md](community-packs/README.md). Before you open the PR,
-`uv run mendari community-check community-packs/<name> --base origin/main` runs the checks CI
-runs and says what to fix.
+`community/<name>`. [Contributing a community pack](docs/guides/contributing-a-pack.md) is the
+whole path: propose it with a "Propose a pack" issue, start it with
+`uv run mendari new community-packs/<name> --community`, check it with
+`uv run mendari community-check community-packs/<name> --base origin/main` (the checks CI runs,
+each saying what to fix), and open the PR with the pack template (`?template=pack.md`).
+[community-packs/README.md](community-packs/README.md) lists what CI checks.
 
 ### What CI does with a pack PR
 
@@ -99,7 +101,36 @@ hand:
 - **Python dependencies:** `uv lock --upgrade-package <name>`, never a bare `uv lock --upgrade`
   in a feature PR. The `Dockerfile` installs `uv.lock` exactly.
 
+## Sign off: the Developer Certificate of Origin
+
+Every commit is signed off: `git commit -s` adds a line
+`Signed-off-by: Your Name <you@example.org>` (the name and address of your git configuration;
+GitHub's `…@users.noreply.github.com` address works). By signing off you certify the
+[Developer Certificate of Origin 1.1](https://developercertificate.org/): in short, that you
+wrote the contribution or have the right to submit it under the project's licence, and that
+it is public and kept with your sign-off. A pull request with a commit that is not signed off
+is not merged. To sign off commits you already made: `git rebase --signoff origin/main`, then
+push with `--force-with-lease`.
+
+## Content provenance
+
+Packs carry clinical content, so where it comes from matters as much as the code:
+
+- **No real patient data**, anywhere: not in data, tests, issues or pull requests, not even
+  de-identified. Write synthetic cases yourself
+  ([how](docs/guides/contributing-a-pack.md#synthetic-data-without-python)).
+- **No proprietary criteria or copyrighted instruments.** Do not copy text from InterQual, MCG,
+  payer medical policies, licensed questionnaires or scoring instruments. Write criteria in
+  your own words from public sources (guidelines, published papers, regulations), and cite
+  them in `card.evidence`.
+- **Code systems with licence terms** (CPT, licensed by the AMA; SNOMED CT, which needs an
+  affiliate licence outside its member countries) appear only as their licences allow; say
+  which you use in the PR.
+- **Say what you used.** The pack template asks for the sources of the criteria and of
+  `card.evidence`, and who reviewed the clinical content.
+
 ## Licence
 
 Contributions are accepted under the project's licence, Apache-2.0: whatever you contribute, you
-license on the same terms. There is no separate agreement to sign.
+license on the same terms. There is no separate agreement to sign: the sign-off above is the
+record that you may.

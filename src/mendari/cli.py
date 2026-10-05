@@ -869,6 +869,9 @@ COMMUNITY_TEMPLATE = Path(__file__).resolve().parent / "templates" / "community_
 AUTHORING_GUIDE = (
     "https://github.com/Junebugg1214/mendari/blob/main/docs/guides/authoring-a-pack.md"
 )
+COMMUNITY_GUIDE = (
+    "https://github.com/Junebugg1214/mendari/blob/main/docs/guides/contributing-a-pack.md"
+)
 
 
 def cmd_new(args: argparse.Namespace) -> int:
@@ -931,6 +934,8 @@ def cmd_new(args: argparse.Namespace) -> int:
     for step in steps:
         print(f"  {step}")
     print(f"The guide: {AUTHORING_GUIDE}")
+    if args.community:
+        print(f"Contributing it: {COMMUNITY_GUIDE}")
     return 0
 
 

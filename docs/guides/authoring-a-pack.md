@@ -83,23 +83,26 @@ and future users read it before they trust the pack.
 
 ```yaml
 risk:
-  level: 1
-  category: clinical information
+  level: 0
+  category: administrative
   rationale: >-
-    The pack only routes messages inside the clinic. A wrong route costs staff a minute; a
-    message with urgent symptoms always goes to a nurse.
+    The decision is which queue reads a message first. The pack never replies to patients or
+    makes a clinical judgement, and a message that may describe same-day symptoms always goes to
+    a nurse for review.
 ```
 
-| Level | For | What Mendari does |
-|---|---|---|
-| 0 | Administrative work | May automate |
-| 1 | Clinical information (routing, extracting) | May automate; every decision is audited |
-| 2 | Clinical support (eligibility, suggestions) | A person reviews every decision, unless your organization records an approval |
-| 3 | Patient-specific prediction | As level 2 |
-| 4 | Time-critical, diagnostic or treatment decisions | A person always decides |
+| Level | For | Precedent | What Mendari does |
+|---|---|---|---|
+| 0 | Administrative work: which team or queue sees something first, with no clinical judgement in the outcome and anything possibly urgent sent to a person | `mendari/patient-inbox-router` | May automate |
+| 1 | Clinical information: reading clinical facts to extract them, check them or decide where they go | `mendari/referral-router`, `mendari/prior-auth-preflight` | May automate; every decision is audited |
+| 2 | Clinical support: eligibility, suggestions, patient-facing clinical content | `mendari/clinical-trial-prescreener`, `mendari/ai-guard` | A person reviews every decision, unless your organization records an approval |
+| 3 | Patient-specific prediction | | As level 2 |
+| 4 | Time-critical, diagnostic or treatment decisions | | A person always decides |
 
-The runtime enforces this, whatever the rest of the pack says. When in doubt, choose the higher
-level.
+This pack only chooses which queue reads a message, and sends anything that may be urgent to a
+nurse, so it is level 0 like the inbox router. A pack that read the message to decide something
+clinical (whether a refill is due, what a symptom means) would be level 1 or higher. The runtime
+enforces the level, whatever the rest of the pack says. When in doubt, choose the higher level.
 
 ## 4. Write the questions in words
 
@@ -249,8 +252,11 @@ into one page. Share it with your AI or clinical decision support committee. At 
 
 ## 10. Share it
 
-- **With colleagues:** open a pull request with the folder in `packs/`. CI validates, tests and
-  evaluates it, and shows its card ([`CONTRIBUTING.md`](https://github.com/Junebugg1214/mendari/blob/main/CONTRIBUTING.md)).
+- **With everyone, as a community pack:** open a pull request with the folder in
+  `community-packs/<name>/`. [Contributing a community pack](contributing-a-pack.md) is the
+  path, from the proposal to the merge; CI checks the pack and shows its card.
+- **In your own deployment:** keep the folder anywhere and put its parent on
+  `MENDARI_PACKS_PATH`. The packs in `packs/` are the ones Mendari maintains.
 - **On a registry:** `mendari push refill-router --key my-key.pem` signs the pack and
   publishes it, and others `mendari pull my-clinic/refill-router` and verify it.
 
