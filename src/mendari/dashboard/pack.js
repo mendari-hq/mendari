@@ -2,6 +2,41 @@
 
 import { esc, pct, slotText, state } from "./ui.js";
 
+// Where a pack comes from (`origin`, from /api/packs): set by where the deployment found it, never
+// by its manifest. A community pack is not clinically reviewed and never automates
+// (core/origin.py); every view that shows a pack says so.
+export const isCommunity = (pack) => pack?.origin === "community";
+
+export const originBadge = (pack) => (pack?.origin_label
+  ? `<span class="badge origin${isCommunity(pack) ? " origin-community" : ""}">${esc(pack.origin_label)}</span>`
+  : "");
+
+export const communityNotice = (pack) => (isCommunity(pack)
+  ? `<div class="callout community-notice"><b>${esc(pack.origin_label)}.</b> An outside developer contributed this pack,
+      and no clinician has reviewed it for Mendari. It recommends and never automates: a person confirms every decision.</div>`
+  : "");
+
+// The picker's groups, in this order; one group only, and the picker is a plain list.
+const ORIGIN_GROUPS = [
+  ["maintained", "Maintained"],
+  ["hub", "From a registry"],
+  ["local", "Local packs"],
+  ["community", "Community · not clinically reviewed"],
+];
+
+export function packOptions(packs) {
+  const option = (p) => `<option value="${esc(p.id)}">${esc([p.name, p.version].filter(Boolean).join(" "))}</option>`;
+  const groups = ORIGIN_GROUPS.map(([origin, label]) => [label, packs.filter((p) => (p.origin ?? "maintained") === origin)])
+    .filter(([, members]) => members.length);
+  if (groups.length < 2) return packs.map(option).join("");
+  return groups.map(([label, members]) => `<optgroup label="${esc(label)}">${members.map(option).join("")}</optgroup>`).join("");
+}
+
+// The pack a first visit opens on: the first maintained one, never a community pack while any
+// other is served (packs are listed by id, so `community/…` would often come first).
+export const defaultPack = (packs) =>
+  (packs.find((p) => p.origin === "maintained") ?? packs.find((p) => !isCommunity(p)) ?? packs[0]).id;
+
 // Packs whose input is a patient message (the inbox) keep a message-shaped UI.
 export const isMessagePack = () => Boolean(state.detail.input_schema?.properties?.message);
 

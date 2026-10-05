@@ -41,12 +41,30 @@ COMPOSITE_PROVIDER_TYPES = frozenset({"any_of", "cascade", "vote"})
 # Variant keys a community pack may set but the deployment decides: which model a remote
 # provider calls, and how much it may answer.
 DEPLOYMENT_CHOSEN_KEYS = ("model", "max_tokens")
+# What every surface says about where a pack comes from (the API, the dashboard, the Decision
+# Card, CDS Hooks, the docs landing). Set by origin, never by the manifest; neither label claims
+# clinical review, which no pack has had through Mendari.
+COMMUNITY_LABEL = "Community · not clinically reviewed"
+ORIGIN_LABELS: Mapping[Origin, str] = {
+    "maintained": "Maintained by Mendari",
+    "community": COMMUNITY_LABEL,
+    "hub": "From a registry",
+    "local": "Local pack",
+}
+# What a community pack does with a decision, wherever it says so.
+COMMUNITY_AUTOMATION = "Never: a community pack recommends, and a person confirms every decision."
 
 
 def is_community(pack_id: str, origin: Origin) -> bool:
     """A community pack: found in `community-packs/`, or named in the `community/` namespace
     wherever it was loaded from (a path on the command line), so its limits always apply."""
     return origin == "community" or pack_id.partition("/")[0] == COMMUNITY_NAMESPACE
+
+
+def shown_origin(pack_id: str, origin: Origin) -> Origin:
+    """The origin a pack is labelled with: community wherever its limits apply (`is_community`),
+    else where it was found."""
+    return "community" if is_community(pack_id, origin) else origin
 
 
 def namespace_problem(pack_id: str, origin: Origin) -> str | None:

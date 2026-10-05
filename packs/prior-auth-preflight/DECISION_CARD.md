@@ -1,11 +1,12 @@
 # Decision Card: Prior Authorization Preflight
 
-`mendari/prior-auth-preflight` · version **0.1.2** · Apache-2.0 · published by Mendari reference packs (community)
+`mendari/prior-auth-preflight` · version **0.1.2** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
 
 > Checks an order against the patient's payer before it is sent for prior authorization: does this payer require authorization for this service, and does the record have what the payer asks for? Complete requests are queued for submission; the gaps in the others are listed.
 
 | | |
 |---|---|
+| Source | Maintained by Mendari |
 | Risk level | **1**, clinical information processing (clinical information) |
 | Automation | AUTO permitted by policy thresholds; every decision is audited. |
 | Pack digest | `sha256:6fbaacf59e8a1709471e2f11447e0ff401a6c3d9fab5eef760889e88767156a8` |

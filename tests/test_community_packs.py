@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 
 from mendari import Decision, load_pack
 from mendari.core import registry
+from mendari.core.card import render_card
 from mendari.core.policy import apply_policy
 from mendari.core.registry import SearchPath, discover, origin_of, resolve_pack, search_paths
 from mendari.core.spec import Outcome
@@ -25,7 +26,9 @@ from mendari.providers import build_provider
 from mendari.providers.base import Answer, ProviderInfo
 from mendari.server.app import create_app
 from mendari.settings import providers_for
+from mendari.standards import cds_hooks
 from tests.conftest import INBOX_DIR, ROOT
+from tests.test_fhir import COMMUNICATION, PATIENT
 
 PACKS = INBOX_DIR.parent
 SORTER = ROOT / "tests" / "fixtures" / "community-packs" / "visit-sorter"
@@ -369,3 +372,110 @@ def test_a_composite_members_pinned_model_gives_way_too(
     provider = build_provider(load_pack(root), "reader", "mixed")
     assert provider.info.model is not None
     assert provider.info.model.endswith("llm:example/deployment-model")
+
+
+# -- labels on every surface (B3) ---------------------------------------------------------------
+
+COMMUNITY_LABEL = "Community · not clinically reviewed"
+INBOX_ID = "mendari/patient-inbox-router"
+MESSAGE_HOOK = {
+    "hook": "mendari-message-received",
+    "prefetch": {"communication": COMMUNICATION, "patient": PATIENT},
+}
+
+
+def _inbox_as_community(base: Path) -> Path:
+    """The inbox router as a community pack would be: same content, community id and rules."""
+    return _copy(
+        base,
+        "inbox-copy",
+        _set(id="community/inbox-copy", risk__level=0, audit__store_input="hash"),
+        source=INBOX_DIR,
+    )
+
+
+@pytest.fixture
+def labelled(tmp_path: Path) -> TestClient:
+    """The shipped packs and two community packs (one a CDS service) on one server."""
+    base = _community(tmp_path)
+    _inbox_as_community(base)
+    app = create_app(db_path=tmp_path / "l.db", packs_paths=[PACKS, SearchPath(base, "community")])
+    return TestClient(app)
+
+
+def test_the_api_names_every_packs_origin_by_where_it_was_found(labelled: TestClient) -> None:
+    listed = {pack["id"]: pack for pack in labelled.get("/api/packs").json()}
+    assert {listed[pack_id]["origin"] for pack_id in SHIPPED} == {"maintained"}
+    assert {listed[pack_id]["origin_label"] for pack_id in SHIPPED} == {"Maintained by Mendari"}
+    for pack_id in (SORTER_ID, "community/inbox-copy"):
+        assert listed[pack_id]["origin"] == "community"
+        assert listed[pack_id]["origin_label"] == COMMUNITY_LABEL
+    detail = labelled.get(f"/api/packs/{SORTER_ID}").json()
+    assert detail["origin"] == "community" and detail["origin_label"] == COMMUNITY_LABEL
+    assert f"| Source | {COMMUNITY_LABEL} |" in detail["card_markdown"]
+
+
+def test_health_counts_the_packs_by_origin(labelled: TestClient) -> None:
+    health = labelled.get("/api/health").json()
+    assert health["invalid"] == {}
+    assert health["packs"] == len(SHIPPED) + 2
+    assert health["packs_by_origin"] == {"maintained": len(SHIPPED), "community": 2}
+
+
+def test_a_pack_in_the_community_namespace_is_labelled_community_wherever_it_was_loaded() -> None:
+    pack = load_pack(SORTER)
+    assert pack.origin == "local"
+    assert (pack.shown_origin, pack.origin_label) == ("community", COMMUNITY_LABEL)
+    maintained = load_pack(INBOX_DIR, origin="maintained")
+    assert (maintained.shown_origin, maintained.origin_label) == (
+        "maintained",
+        "Maintained by Mendari",
+    )
+
+
+def test_the_decision_card_labels_a_community_pack_and_says_it_never_automates() -> None:
+    card = render_card(load_pack(SORTER, origin="community"))
+    assert f"| Source | {COMMUNITY_LABEL} |" in card
+    assert "| Automation | Never: a community pack recommends, and a person confirms" in card
+    assert "AUTO permitted" not in card
+    assert "published by Mendari tests (community, self-declared)" in card
+
+
+@pytest.mark.parametrize("pack_dir", sorted(PACKS.glob("*/pack.yaml")), ids=lambda p: p.parent.name)
+def test_every_shipped_card_is_what_it_renders_and_says_maintained(pack_dir: Path) -> None:
+    pack = resolve_pack(str(pack_dir.parent))
+    card = render_card(pack)
+    assert "| Source | Maintained by Mendari |" in card
+    assert "self-declared)" in card
+    assert (pack_dir.parent / "DECISION_CARD.md").read_text(encoding="utf-8") == card
+
+
+def test_cds_discovery_and_cards_say_a_community_pack_is_not_clinically_reviewed(
+    tmp_path: Path, labelled: TestClient
+) -> None:
+    services = {s["id"]: s for s in labelled.get("/cds-services").json()["services"]}
+    community = services["community.inbox-copy"]
+    assert COMMUNITY_LABEL in community["description"]
+    assert community["usageRequirements"].startswith(
+        f"{COMMUNITY_LABEL}: it recommends, and a person confirms every decision. "
+    )
+    maintained = services["mendari.patient-inbox-router"]
+    assert COMMUNITY_LABEL not in maintained["description"] + maintained["usageRequirements"]
+
+    pack = load_pack(_inbox_as_community(tmp_path), origin="community")
+    card = cds_hooks.invoke(Decision(pack), MESSAGE_HOOK)["cards"][0]
+    assert card["source"]["label"] == (
+        f"Mendari · {pack.manifest.name} {pack.version} · {COMMUNITY_LABEL}"
+    )
+    shipped = cds_hooks.invoke(Decision(load_pack(INBOX_DIR)), MESSAGE_HOOK)["cards"][0]
+    assert COMMUNITY_LABEL not in shipped["source"]["label"]
+
+
+def test_the_docs_landing_labels_community_packs_in_open_mode(labelled: TestClient) -> None:
+    text = labelled.get("/docs").text
+    link = f'<a href="/?pack={SORTER_ID}#card">'
+    assert link in text
+    item = text[text.index(link) : text.index("</li>", text.index(link))]
+    assert COMMUNITY_LABEL in item
+    inbox = f'<a href="/?pack={INBOX_ID}#card">'
+    assert COMMUNITY_LABEL not in text[text.index(inbox) : text.index("</li>", text.index(inbox))]

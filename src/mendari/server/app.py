@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import re
+from collections import Counter
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
@@ -570,11 +571,11 @@ def create_app(
     def health(request: Request) -> dict[str, Any]:
         """Public, for load balancers: `status`, `version` and `sign_in`, and nothing else
         without a credential (no database work either). A principal that may `read` (everyone
-        in open mode) also gets the deployment's settings: packs, storage, the FHIR validation
-        mode, PHI mode, the input hash's kind and key id, which provider answers each pack's
-        questions, today's remote calls, the rate limits (where the caller's address is read,
-        and the address seen on this request), the session policy and the organization's daily
-        quotas with what it used today.
+        in open mode) also gets the deployment's settings: packs (and how many come from
+        where), storage, the FHIR validation mode, PHI mode, the input hash's kind and key id,
+        which provider answers each pack's questions, today's remote calls, the rate limits
+        (where the caller's address is read, and the address seen on this request), the session
+        policy and the organization's daily quotas with what it used today.
         """
         public = {"status": "ok", "version": __version__, "sign_in": auth.enabled}
         principal = auth.principal(request)  # no credential: no lookup
@@ -596,6 +597,8 @@ def create_app(
         return {
             **public,
             "packs": len(packs),
+            # How many of them come from where: maintained, community, hub, local.
+            "packs_by_origin": dict(Counter(pack.shown_origin for pack in packs.values())),
             "invalid": {**found.problems, **terminology_problems, **unbuilt},
             "storage": store.backend,
             # Calendar days and displayed times use this zone; stored timestamps are UTC.
@@ -660,8 +663,10 @@ def create_app(
         summary="List packs",
     )
     def list_packs() -> list[dict[str, Any]]:
-        """Every Decision Pack this deployment serves: id, version, risk level and the labels of its
-        main question."""
+        """Every Decision Pack this deployment serves: id, version, risk level, the labels of its
+        main question, and where it comes from (`origin`: `maintained`, `community`, `hub` or
+        `local`, with `origin_label` to show; a community pack is not clinically reviewed and
+        never automates)."""
         return [_summary(pack) for pack in sorted(packs.values(), key=lambda p: p.id)]
 
     @app.get(
@@ -1576,7 +1581,11 @@ def create_app(
         token_url=None if backend is None else backend.token_url,
         routes=mounted_routes(app),
         permission_for=permission_for,
-        cards=None if auth.enabled else {pack_id: p.manifest.name for pack_id, p in packs.items()},
+        cards=None
+        if auth.enabled
+        else {
+            pack_id: landing.CardLink(p.manifest.name, p.community) for pack_id, p in packs.items()
+        },
     )
     # No style attribute anywhere, so no inline style; its inline scripts (the theme script and
     # the import map) by hash.
@@ -2066,7 +2075,11 @@ def _summary(pack: Pack) -> dict[str, Any]:
         "name": m.name,
         "summary": m.summary,
         "digest": pack.digest,
+        # `publisher.type` is what the manifest says of itself; `origin` is where this
+        # deployment found the pack (`core/origin.py`), and `origin_label` what to show for it.
         "publisher": m.publisher.model_dump(mode="json"),
+        "origin": pack.shown_origin,
+        "origin_label": pack.origin_label,
         "license": m.license,
         "risk": {"level": int(m.risk.level), "category": m.risk.category},
         "primary": m.policy.primary,

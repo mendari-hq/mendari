@@ -1,7 +1,7 @@
 // Overview: what is deployed, the numbers people act on, outcome mix and decisions per day.
 
 import { chartHtml, sparkline } from "./charts.js";
-import { providerWords } from "./pack.js";
+import { originBadge, providerWords } from "./pack.js";
 import { views, wire } from "./router.js";
 import { $, api, emptyState, esc, icon, may, money, num, OUTCOMES, outcomeText, pct, slotText, stat, state, storageGet, storageSet, zoneName } from "./ui.js";
 
@@ -187,7 +187,7 @@ function wireStack(root) {
 function packHeader(d) {
   const deployed = Object.entries(d.active_providers);
   return `<div class="pack-header">
-    <p class="pack-risk"><span class="badge risk">Risk level ${d.risk.level}</span> <span class="muted">${esc(d.risk.category)}</span></p>
+    <p class="pack-risk">${originBadge(d)} <span class="badge risk">Risk level ${d.risk.level}</span> <span class="muted">${esc(d.risk.category)}</span></p>
     <p class="deployed"><span class="muted">Deployed</span> ${deployed.map(([slot, p]) =>
       `<span class="deployed-slot">${esc(slotText(slot))}: <b>${providerWords(p)}</b></span>`).join(`<span class="muted" aria-hidden="true">·</span>`)}</p>
     <p class="mono muted">${esc(d.id)} v${esc(d.version)} · ${deployed.map(([slot, p]) => `${esc(slot)}=${esc(p.variant)}`).join(" · ")}</p>

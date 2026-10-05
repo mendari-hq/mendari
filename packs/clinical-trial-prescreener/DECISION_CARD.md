@@ -1,11 +1,12 @@
 # Decision Card: Clinical Trial Prescreener
 
-`mendari/clinical-trial-prescreener` · version **0.1.2** · Apache-2.0 · published by Mendari reference packs (community)
+`mendari/clinical-trial-prescreener` · version **0.1.2** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
 
 > Checks a patient's record against the eligibility criteria of a synthetic type 2 diabetes study (GLYCEMIA-2): structured criteria are computed from coded data, and exclusions are looked for in the clinic notes. Every result goes to a research coordinator for review.
 
 | | |
 |---|---|
+| Source | Maintained by Mendari |
 | Risk level | **2**, clinical support |
 | Automation | Human review required by default; AUTO only with a recorded governance override. |
 | Pack digest | `sha256:62a1cf8095029014a054389e10336329d7c5bd29771c4f4a21d2091a747cefab` |

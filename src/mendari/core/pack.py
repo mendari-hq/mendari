@@ -20,7 +20,7 @@ from pydantic import ValidationError
 
 from mendari.core import input_schema as schema_rules
 from mendari.core import patterns
-from mendari.core.origin import Origin, is_community
+from mendari.core.origin import ORIGIN_LABELS, Origin, is_community, shown_origin
 from mendari.core.spec import Outcome, PackManifest, Priority
 from mendari.errors import PackValidationError
 
@@ -75,6 +75,16 @@ class Pack:
         """A community pack: it never automates, and decides with local providers unless the
         deployment opts it in by name (`core/origin.py`)."""
         return is_community(self.id, self.origin)
+
+    @property
+    def shown_origin(self) -> Origin:
+        """The origin every surface labels the pack with (`core/origin.py` `shown_origin`)."""
+        return shown_origin(self.id, self.origin)
+
+    @property
+    def origin_label(self) -> str:
+        """What every surface says of where the pack comes from (`ORIGIN_LABELS`)."""
+        return ORIGIN_LABELS[self.shown_origin]
 
     @property
     def version(self) -> str:

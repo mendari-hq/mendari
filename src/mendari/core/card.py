@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from mendari.core import clock
+from mendari.core.origin import COMMUNITY_AUTOMATION
 from mendari.core.pack import Pack
 from mendari.core.spec import Condition, DeriveRow, Question
 from mendari.evals import leaderboard
@@ -60,18 +61,27 @@ def render_card(pack: Pack) -> str:
     report, report_problem = read_benchmark(pack)
     board, board_problem = leaderboard.read(pack)
     category = f" ({m.risk.category})" if m.risk.category != RISK_NAMES[level] else ""
+    # Where the pack comes from, by origin and never by its manifest: a card written for a pack
+    # of one's own (local) or pulled from a registry claims nothing.
+    source = (
+        [f"| Source | {pack.origin_label} |"]
+        if pack.shown_origin in ("maintained", "community")
+        else []
+    )
+    automation = COMMUNITY_AUTOMATION if pack.community else RISK_AUTOMATION[level]
     out: list[str] = [
         f"# Decision Card: {m.name}",
         "",
         f"`{m.id}` · version **{m.version}** · {m.license} · "
-        f"published by {m.publisher.name} ({m.publisher.type})",
+        f"published by {m.publisher.name} ({m.publisher.type}, self-declared)",
         "",
         f"> {m.summary}",
         "",
         "| | |",
         "|---|---|",
+        *source,
         f"| Risk level | **{level}**, {RISK_NAMES[level]}{category} |",
-        f"| Automation | {RISK_AUTOMATION[level]} |",
+        f"| Automation | {automation} |",
         f"| Pack digest | `{pack.digest}` |",
     ]
     if report:
