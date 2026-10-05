@@ -41,8 +41,11 @@ the existing maintainers agree.
 ## Conduct and security
 
 - The [code of conduct](CODE_OF_CONDUCT.md) applies everywhere in the project. Report concerns
-  to the maintainers privately.
-- Security reports follow [SECURITY.md](SECURITY.md), never a public issue.
+  to the maintainers privately, through the repository's private reporting form (the
+  **Security** tab, **Report a vulnerability**), titled "Conduct report"; see the code of
+  conduct's "Enforcement".
+- Security reports follow [SECURITY.md](SECURITY.md): the same private form, never a public
+  issue.
 
 ## Changing this document
 

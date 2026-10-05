@@ -4,12 +4,15 @@ Mendari routes clinical work, so security reports get priority.
 
 ## Reporting a vulnerability
 
-Please report privately, not in a public issue:
+Please report privately, never in a public issue, pull request or discussion. The one channel
+is GitHub's **private vulnerability reporting** on this repository: the **Security** tab, then
+**Report a vulnerability** ([direct link](https://github.com/Junebugg1214/mendari/security/advisories/new)). Only you and the maintainers see the report,
+and we can discuss it, fix it in a private fork and publish an advisory from there. The project
+has no security e-mail address.
 
-- use GitHub's **private vulnerability reporting** on this repository (Security → Report a
-  vulnerability), or write to the maintainers privately;
-- include what you found, how to reproduce it, the affected version and what it exposes;
-- don't test against deployments you don't own, and never use real patient data.
+- Include what you found, how to reproduce it, the affected version or commit and what it
+  exposes.
+- Don't test against deployments you don't own, and never use real patient data.
 
 We acknowledge a report within 3 working days and aim to fix critical issues within 14 days. We
 credit reporters who want it, once a fix is released.
