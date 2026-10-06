@@ -19,7 +19,7 @@ import yaml
 
 from mendari.cli import main
 from mendari.community import maintainers, phi_scan
-from mendari.community.check import Report, check, has_entry, pr_scope_problems
+from mendari.community.check import Report, check, has_entry, name_findings, pr_scope_problems
 from mendari.errors import MendariError
 from tests.conftest import ROOT
 
@@ -285,62 +285,106 @@ def test_a_terminology_collision_is_refused(repo: Path) -> None:
     assert has(report, "identity", "community-visit-sorter-topic")
 
 
+MAINTAINED = [
+    ("AI Guard", "mendari/ai-guard"),
+    ("Patient Inbox Router", "mendari/patient-inbox-router"),
+    ("Referral Router", "mendari/referral-router"),
+]
+
+
 @pytest.mark.parametrize(
-    ("change", "expected"),
+    ("text", "expected"),
     [
-        (
-            lambda m: m.update(name="patient inbox  router"),
-            "is the name of mendari/patient-inbox-router, a pack Mendari maintains",
-        ),
-        (
-            lambda m: m.update(name="Patient-Inbox Router."),
-            "is the name of mendari/patient-inbox-router, a pack Mendari maintains",
-        ),
-        (lambda m: m["publisher"].update(name="Mendari reference packs"), "names mendari"),
-        (lambda m: m["publisher"].update(name="M\u0435ndari reference packs"), "names mendari"),
-        (
-            lambda m: m["publisher"].update(name="M\u0435ndari reference packs"),
-            "mixes Latin letters with Cyrillic ones",
-        ),
-        (lambda m: m["publisher"].update(name="Mendar\u0131 packs"), "names mendari"),
-        (lambda m: m["publisher"].update(name="\uff2d\uff45ndari"), "names mendari"),
-        (lambda m: m.update(name="Open-Health refills"), "names openhealth"),
-        (lambda m: m.update(name="Al Guard"), "is the name of mendari/ai-guard"),
-        (lambda m: m.update(name="Patient lnbox Router"), "is the name of mendari/patient-inbox"),
-        (lambda m: m["publisher"].update(name="Mendar1 packs"), "names mendari"),
-        (lambda m: m.update(name="0penHealth refills"), "names openhealth"),
-        (lambda m: m["publisher"].update(name="MendariCare"), "names mendari"),
-        (
-            lambda m: m["publisher"].update(name="\ua4df\ua4f0\ua4e0\ua4d3\ua4ee\ua4e3\ua4f2"),
-            "names mendari",
-        ),
-        (lambda m: m.update(name="\ua4eeI Guard"), "mixes Latin letters with Lisu ones"),
-        (lambda m: m["publisher"].update(name="\U0001f17c\U0001f174ndari"), "names mendari"),
+        ("patient inbox  router", "is the name of mendari/patient-inbox-router"),
+        ("Patient-Inbox Router.", "is the name of mendari/patient-inbox-router"),
+        ("Mendari reference packs", "names mendari"),
+        ("\uff2d\uff45ndari", "names mendari"),  # fullwidth: NFKC makes it ASCII
+        ("Open-Health refills", "names openhealth"),
+        ("Open Health Alliance", "names openhealth"),
+        ("OpenHealthHub", "names openhealth"),
+        ("MendariCare", "names mendari"),
+        ("MENDARI care", "names mendari"),
+        ("Men dari care", "names mendari"),  # two words that join to it
+        ("\u24c2\u24d4\u24dd\u24d3\u24d0\u24e1\u24d8", "names mendari"),  # circled
+        ("\u249c\u24a4 \u24a2\u24b0\u249c\u24ad\u249f", "is the name of mendari/ai-guard"),
+        ("\U0001f13c\U0001f134\U0001f13d\U0001f133\U0001f130\U0001f141\U0001f138", "names mendari"),
     ],
     ids=[
         "maintained-name",
         "maintained-name-punctuated",
-        "mendari-publisher",
-        "cyrillic-e",
-        "mixed-alphabets",
-        "dotless-i",
+        "mendari",
         "fullwidth",
         "old-name",
+        "old-name-spaced",
+        "camel-case",
+        "joined-word",
+        "capitals",
+        "split-word",
+        "circled",
+        "parenthesized",
+        "squared",
+    ],
+)
+def test_a_copy_or_mendaris_name_as_whole_words_is_an_error(text: str, expected: str) -> None:
+    """Compared on ASCII letters and digits after NFKC and case folding: what reads as the
+    name itself, not as a look-alike of it."""
+    errors, warnings = name_findings("name", text, MAINTAINED)
+    assert len(errors) == 1 and expected in errors[0], errors
+    assert not any("looks like" in warning for warning in warnings)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("M\u0435ndari reference packs", "looks like it names Mendari"),  # Cyrillic e
+        ("Mendar\u0131 packs", "looks like it names Mendari"),  # dotless i
+        ("Al Guard", "looks like 'AI Guard', the name of mendari/ai-guard"),
+        ("Patient lnbox Router", "looks like 'Patient Inbox Router'"),
+        ("Mendar1 packs", "looks like it names Mendari"),
+        ("0penHealth refills", "looks like it names OpenHealth"),
+        ("\ua4df\ua4f0\ua4e0\ua4d3\ua4ee\ua4e3\ua4f2", "looks like it names Mendari"),  # Lisu
+        ("\ua4eeI Guard", "looks like 'AI Guard'"),
+        ("\U0001f17c\U0001f174ndari", "looks like it names Mendari"),  # negative squared
+        ("A\u01c0 Guard", "looks like 'AI Guard'"),  # the Latin letter dental click
+        ("MENDAR\u01c0 reference packs", "looks like it names Mendari"),
+        ("\u039c\u0395\u039d\u13a0\u0391\u13d2\u0399 packs", "looks like it names Mendari"),
+        ("AI \ua4d6\ua4f4\u0391\u13d2\u13a0", "looks like 'AI Guard'"),  # Lisu, Greek, Cherokee
+    ],
+    ids=[
+        "cyrillic-e",
+        "dotless-i",
         "l-for-i",
         "l-for-i-inside",
         "digit-for-letter",
         "zero-for-o",
-        "joined-word",
         "lisu",
         "lisu-mixed",
         "negative-squared",
+        "dental-click",
+        "dental-click-mendari",
+        "greek-cherokee",
+        "lisu-greek-cherokee",
     ],
 )
-def test_a_community_pack_cannot_pass_for_one_mendari_maintains(
-    new_pack: Path, change: Callable[[dict[str, Any]], None], expected: str
-) -> None:
-    edit_manifest(new_pack, change)
-    assert has(run(new_pack, base=None), "identity", expected)
+def test_a_look_alike_is_a_warning_that_says_what_it_looks_like(text: str, expected: str) -> None:
+    errors, warnings = name_findings("publisher.name", text, MAINTAINED)
+    assert errors == []
+    assert any(expected in warning for warning in warnings), warnings
+    assert all(warning.startswith(f"publisher.name {text!r} ") for warning in warnings)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("M\u0435ndari reference packs", "mixes Cyrillic and Latin letters in 'M\u0435ndari'"),
+        ("\ua4eeI Guard", "mixes Latin and Lisu letters"),
+        ("\u039c\u0395\u039d\u13a0\u0391\u13d2\u0399", "mixes Cherokee and Greek letters"),
+        ("Mendar\u0627 packs", "mixes Arabic and Latin letters"),
+    ],
+)
+def test_mixed_alphabets_in_a_word_are_a_warning(text: str, expected: str) -> None:
+    errors, warnings = name_findings("name", text, MAINTAINED)
+    assert errors == [] and any(expected in warning for warning in warnings), warnings
 
 
 @pytest.mark.parametrize(
@@ -352,19 +396,38 @@ def test_a_community_pack_cannot_pass_for_one_mendari_maintains(
         "β-blocker titration",  # clinical words mix Greek letters with Latin ones
         "βhCG follow-up",
         "Vancomycin dosing (µg/mL)",
-        "\u03bcg dosing",
-        "Women Dari-language intake",  # `mendari` inside words, not where one starts
+        "μg dosing",
+        "CT\u30b9\u30ad\u30e3\u30f3\u4e88\u7d04",  # Latin, katakana and kanji in one word
+        "Women Dari-language intake",  # `mendari` inside words, not whole ones
         "Recommend aripiprazole switch",
+        "Open healthcare intake",
+        "Mend a rift",
+        "Men Darling Clinic",
+        "Mend Arlington Clinic",
         "Clinical lab alerts",
+        "Referral Router team",  # holds a maintained name, but is not a copy of it
     ],
 )
-def test_a_community_packs_own_name_may_be_in_any_language(new_pack: Path, name: str) -> None:
-    """Folding names to compare them refuses look-alikes, not names in other languages or
-    words that hold a reserved word by accident."""
-    edit_manifest(new_pack, lambda m: m.update(name=name))
-    assert not any(
-        repr(name) in message for message in messages(run(new_pack, base=None), "identity")
+def test_names_in_any_language_and_reserved_words_inside_others_pass(name: str) -> None:
+    """A reserved word counts only as whole words, and folding names to compare them flags
+    look-alikes, not names in other languages."""
+    assert name_findings("name", name, MAINTAINED) == ([], [])
+
+
+def test_the_check_fails_on_a_copy_and_warns_on_a_look_alike(new_pack: Path) -> None:
+    edit_manifest(new_pack, lambda m: m.update(name="Patient-Inbox Router."))
+    assert has(run(new_pack, base=None), "identity", "is the name of mendari/patient-inbox-router")
+    edit_manifest(new_pack, lambda m: m.update(name="Al Guard"))
+    edit_manifest(new_pack, lambda m: m["publisher"].update(name="Mendar1 packs"))
+    regenerate(new_pack)
+    report = run(new_pack, base=None)
+    assert report.passed, report.text()
+    shown = [f.message for f in report.warnings if f.rule == "identity"]
+    assert len(shown) == 2, shown
+    assert shown[0].startswith(
+        "name 'Al Guard' looks like 'AI Guard', the name of mendari/ai-guard"
     )
+    assert shown[1].startswith("publisher.name 'Mendar1 packs' looks like it names Mendari")
 
 
 def test_a_community_packs_fhir_systems_live_under_its_own_url(repo: Path) -> None:

@@ -7,9 +7,11 @@ of the `packs` workflow). Each rule says, in plain words, what to fix:
   that pack's own entry); no `pack.yaml` below the pack's own.
 - **identity**: the folder name and the id `community/<name>` agree; the id is not taken by
   another pack, nor removed (a tombstone in `MAINTAINERS.yaml`); the pack has maintainers; its
-  name, CDS Hooks title and publisher neither name Mendari nor copy a maintained pack's name;
-  its FHIR systems live under its own url (`https://mendari.co/packs/community/<name>/`), and
-  its terminology (CodeSystem ids and urls) collides with no other pack's.
+  name, CDS Hooks title and publisher neither copy a maintained pack's name or title nor use
+  the word Mendari (or OpenHealth) as whole words (a look-alike of either, or a word mixing
+  alphabets, is a warning for the owner's review: `name_findings`); its FHIR systems live
+  under its own url (`https://mendari.co/packs/community/<name>/`), and its terminology
+  (CodeSystem ids and urls) collides with no other pack's.
 - **manifest**: licence Apache-2.0, `publisher.type: community`, `audit.store_input: hash`,
   local default providers, no pinned model, no policy rule that blocks, `degradation_tolerance`
   at most 0.05, risk level at most 1.
@@ -49,7 +51,7 @@ import re
 import shutil
 import tempfile
 import unicodedata
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from functools import cache
@@ -508,17 +510,16 @@ def _maintained(directory: str) -> tuple[Pack, ...]:
 
 def _lookalikes() -> dict[int, str]:
     """Letters that look like a Latin one, in either case (from Unicode's confusables):
-    Cyrillic, Greek, Lisu, Latin small capitals and the like, and enclosed letters that
-    compatibility folding leaves alone. A name spelled with them still reads as the Latin word."""
+    Cyrillic, Greek, Lisu, Cherokee, Latin small capitals and the like, and enclosed letters
+    that compatibility folding leaves alone. Not complete, and need not be: a look-alike is a
+    warning for the owner's review, and the label by origin is the protection."""
     pairs = [
         (
-            "\u0410\u0412\u0415\u0405\u0406\u0408\u041a\u041c\u041d\u041e\u0420\u0421\u0422"
-            "\u0423\u0425\u04ae\u04ba\u04c0",
+            "\u0410\u0412\u0415\u0405\u0406\u0408\u041a\u041c\u041d\u041e\u0420\u0421\u0422\u0423\u0425\u04ae\u04ba\u04c0",
             "ABESIJKMHOPCTYXYHI",
         ),
         (
-            "\u0430\u0435\u0456\u0458\u043e\u0440\u0441\u0443\u0445\u0455\u0501\u051b\u051d"
-            "\u04cf\u04bb\u04af\u0432\u043a\u043c\u043d\u0442",
+            "\u0430\u0435\u0456\u0458\u043e\u0440\u0441\u0443\u0445\u0455\u0501\u051b\u051d\u04cf\u04bb\u04af\u0432\u043a\u043c\u043d\u0442",
             "aeijopcyxsdqwlhybkmht",
         ),
         (
@@ -526,19 +527,20 @@ def _lookalikes() -> dict[int, str]:
             "ABEZHIKMNOPTYX",
         ),
         (
-            "\u03b1\u03b2\u03b5\u03b9\u03ba\u03bd\u03bf\u03c1\u03c4\u03c5\u03c7\u03c9\u03b7",
+            "\u03b1β\u03b5\u03b9\u03ba\u03bd\u03bf\u03c1\u03c4\u03c5\u03c7\u03c9\u03b7",
             "abeikvoptuxwn",
         ),
         (
-            "\u0131\u0237\u0251\u0261\u0269\u0280\u0274\u1d0d\u1d05\u1d07\u029f\u026a\u1d00"
-            "\u1d0f\u0299\u1d04\ua730\u029c\u1d0a\u1d0b\u1d18\ua731\u1d1b\u1d1c\u1d20\u1d21"
-            "\u028f\u1d22",
-            "ijagirnmdeliaobcfhjkpstuvwyz",
+            "\u0131\u0237\u0251\u0261\u0269\u0280\u0274\u1d0d\u1d05\u1d07\u029f\u026a\u1d00\u1d0f\u0299\u1d04\ua730\u029c\u1d0a\u1d0b\u1d18\ua731\u1d1b\u1d1c\u1d20\u1d21\u028f\u1d22\u01c0\ua7fe\u0256",
+            "ijagirnmdeliaobcfhjkpstuvwyzlId",
         ),
         (
-            "\ua4ee\ua4d0\ua4da\ua4d3\ua4f0\ua4dd\ua4d6\ua4e7\ua4f2\ua4d9\ua4d7\ua4e1\ua4df"
-            "\ua4e0\ua4f3\ua4d1\ua4e3\ua4e2\ua4d4\ua4f4\ua4e6\ua4ea\ua4eb\ua4ec\ua4dc",
+            "\ua4ee\ua4d0\ua4da\ua4d3\ua4f0\ua4dd\ua4d6\ua4e7\ua4f2\ua4d9\ua4d7\ua4e1\ua4df\ua4e0\ua4f3\ua4d1\ua4e3\ua4e2\ua4d4\ua4f4\ua4e6\ua4ea\ua4eb\ua4ec\ua4dc",
             "ABCDEFGHIJKLMNOPRSTUVWXYZ",
+        ),
+        (  # Cherokee capitals (case folding turns its small letters into them)
+            "\u13aa\u13f4\u13df\u13a0\u13ac\u13c0\u13bb\u13c2\u13a5\u13ab\u13e6\u13de\u13b7\u13e2\u13a1\u13d2\u13da\u13a2\u13d9\u13b3\u13d4\u13bd\u13c3\u13cf",
+            "ABCDEGHhiJKLMPRRSTVWWYZb",
         ),
     ]
     table = {ord(c): latin for chars, latin in pairs for c, latin in zip(chars, latin, strict=True)}
@@ -551,19 +553,44 @@ _LOOKALIKES = _lookalikes()
 # Then what reads alike within Latin letters and digits: l and 1 for I, 0 for O, rn for m.
 _SKELETON = str.maketrans({"l": "i", "1": "i", "0": "o"})
 _SKELETON_PAIRS = (("rn", "m"), ("vv", "w"))
-# Alphabets whose letters pass for Latin ones: a word mixing them with Latin hides another
-# word. Greek is left out: clinical words mix it with Latin (`βhCG`, `μg`), and its look-alike
-# letters are folded above.
-_LOOKALIKE_ALPHABETS = frozenset(
-    {"ARMENIAN", "CANADIAN", "CHEROKEE", "COPTIC", "CYRILLIC", "LISU", "TIFINAGH"}
+# How a reserved word (`RESERVED_NAMESPACES`) is shown in a message.
+_SHOWN_RESERVED = {"mendari": "Mendari", "openhealth": "OpenHealth"}
+# Scripts a word may mix with Latin (and each other) without a warning: clinical words mix
+# Greek letters with Latin ones (`βhCG`, `μg`), and Japanese, Chinese and Korean words mix their
+# scripts with Latin letters (`CTスキャン`). `MODIFIER` letters are Latin superscripts.
+_MIXED_FREELY = frozenset(
+    {"CJK", "HIRAGANA", "KATAKANA", "KATAKANA-HIRAGANA", "HANGUL", "MODIFIER"}
 )
 
 
+def _split(text: str) -> list[str]:
+    """A name's words: runs of letters and digits, split again where one changes case or kind
+    inside (`MendariCare`, `OpenHealthHub`, `AIGuard`, `Mendari2`)."""
+    words = []
+    for run in re.findall(r"[^\W_]+", text):
+        start = 0
+        for i in range(1, len(run)):
+            before, here, after = run[i - 1], run[i], run[i + 1 : i + 2]
+            if (
+                before.isdigit() != here.isdigit()
+                or (before.islower() and here.isupper())
+                or (before.isupper() and here.isupper() and after.islower())
+            ):
+                words.append(run[start:i])
+                start = i
+        words.append(run[start:])
+    return words
+
+
+def _ascii(word: str) -> str:
+    """A word as written, compared: its ASCII letters and digits, case folded."""
+    return re.sub(r"[^a-z0-9]", "", word.casefold())
+
+
 def _folded(text: str) -> str:
-    """A word or name as it reads: look-alike letters made Latin, compatibility forms and case
-    folded, accents dropped, then letters and digits only, and what reads alike (l, 1 and I;
-    0 and O; rn and m) made one, so `Patient-Inbox Router.` is `patientinboxrouter` and
-    Mendari spelled with a Cyrillic e, or as `Mendar1`, is `mendari`."""
+    """A word as it reads: look-alike letters made Latin, compatibility forms and case folded,
+    accents dropped, then letters and digits only, and what reads alike (l, 1 and I; 0 and O;
+    rn and m) made one, so Mendari spelled with a Cyrillic e, or as `Mendar1`, is `mendari`."""
     text = unicodedata.normalize("NFKC", text.translate(_LOOKALIKES))
     text = unicodedata.normalize("NFKD", text.casefold().translate(_LOOKALIKES))
     text = re.sub(r"[^a-z0-9]", "", "".join(c for c in text if not unicodedata.combining(c)))
@@ -573,80 +600,126 @@ def _folded(text: str) -> str:
     return text
 
 
-def _words(text: str) -> list[str]:
-    """A name's words, as written (separated by anything that is not a letter or digit)."""
-    return [word for word in re.split(r"\W+", unicodedata.normalize("NFC", text)) if word]
+def _as_written(text: str) -> list[str]:
+    """A name's words compared as written (`_ascii`), after compatibility folding (NFKC), so
+    full-width, circled, parenthesized and squared letters are the letters they enclose."""
+    return [_ascii(word) for word in _split(unicodedata.normalize("NFKC", text))]
 
 
-def _read_words(text: str) -> list[str]:
+def _as_read(text: str) -> list[str]:
     """A name's words as they read (`_folded`), look-alikes made letters first, so enclosed
-    letters (which are symbols) are not taken for separators."""
-    return [word for word in map(_folded, _words(text.translate(_LOOKALIKES))) if word]
+    letters NFKC leaves alone (which are symbols) are not taken for separators."""
+    return [
+        _folded(word) for word in _split(unicodedata.normalize("NFKC", text.translate(_LOOKALIKES)))
+    ]
 
 
-def _reads(text: str) -> str:
-    """A name as it reads, word by word."""
-    return "".join(_read_words(text))
+def _joins(words: list[str], target: str) -> bool:
+    """Whether consecutive `words` join to exactly `target`: it starts and ends where words do
+    (`Mendari`, `Men dari`, `MendariCare`, not `Mend a rift` or `Women Dari`)."""
+    for first in range(len(words)):
+        joined = ""
+        for word in words[first:]:
+            joined += word
+            if not word or not target.startswith(joined):
+                break
+            if joined == target:
+                return True
+    return False
 
 
-def _names(text: str, word: str) -> bool:
-    """Whether `text` reads as naming `word` where one of its words starts (`Mendari`,
-    `Men dari`, `MendariCare`), not in the middle of one (`Women Dari-language intake`)."""
-    folded = _read_words(text)
-    joined, starts, at = "".join(folded), set(), 0
-    for part in folded:
-        starts.add(at)
-        at += len(part)
-    target = _folded(word)
-    return any(joined.startswith(target, start) for start in starts)
+def _mixed(text: str) -> list[tuple[str, list[str]]]:
+    """(word, scripts) for each word of `text` whose letters come from more than one script,
+    but for Latin with Greek and the mixes `_MIXED_FREELY` allows."""
+    found = []
+    for word in re.findall(r"[^\W_]+", unicodedata.normalize("NFKC", text)):
+        scripts = {unicodedata.name(c, "?").split()[0] for c in word if c.isalpha()}
+        scripts -= _MIXED_FREELY
+        if len(scripts) > 1 and scripts != {"LATIN", "GREEK"}:
+            found.append((word, sorted(script.title() for script in scripts)))
+    return found
 
 
-def _mixed(text: str) -> list[str]:
-    """The alphabets mixed with Latin letters inside one word of `text`, if any."""
-    found: set[str] = set()
-    for word in _words(text):
-        alphabets = {unicodedata.name(c, "?").split()[0] for c in word if c.isalpha()}
-        if "LATIN" in alphabets:
-            found |= alphabets & _LOOKALIKE_ALPHABETS
-    return sorted(found)
+def _how(text: str) -> str:
+    """Which characters of `text` were read as other ones, for a look-alike warning."""
+    odd = sorted({c for c in text if not c.isascii() and unicodedata.category(c)[0] in "LNS"})
+    if not odd:
+        return "with l, 1 and I read alike, as are 0 and O, and rn and m"
+    shown = ", ".join(f"{c} (U+{ord(c):04X} {unicodedata.name(c, '?')})" for c in odd[:SHOWN])
+    more = f" and {len(odd) - SHOWN} more" if len(odd) > SHOWN else ""
+    return f"with {shown}{more} read as the Latin letters they look like"
+
+
+def name_findings(
+    where: str, text: str, maintained: Iterable[tuple[str, str]]
+) -> tuple[list[str], list[str]]:
+    """(errors, warnings) for a community pack's name, CDS Hooks title or publisher, `where`
+    its field, against the `maintained` packs' names and titles, each with its pack's id.
+
+    Errors: an exact copy of a maintained name, or Mendari's name (or its old one) as whole
+    words, both compared as written (ASCII letters and digits after NFKC and case folding).
+    Warnings, for the owner's review: a look-alike of either (letters of other alphabets, l, 1
+    and I, 0 and O, enclosed letters), and a word mixing alphabets. Not a guarantee: the label
+    by origin says where a pack comes from, and the owner reviews every pack."""
+    errors: list[str] = []
+    warnings: list[str] = []
+    written, read = _as_written(text), _as_read(text)
+    copies = {"".join(_as_written(name)): (name, pack_id) for name, pack_id in maintained}
+    looks = {"".join(_as_read(name)): (name, pack_id) for name, pack_id in maintained}
+    named = next((word for word in RESERVED_NAMESPACES if _joins(written, word)), None)
+    if named is not None:
+        errors.append(
+            f"{where} {text!r} names {named}: a community pack is not Mendari's. Use your own "
+            "name (the label says where a pack comes from)"
+        )
+    else:
+        lookalike = next((w for w in RESERVED_NAMESPACES if _joins(read, _folded(w))), None)
+        if lookalike is not None:
+            shown = _SHOWN_RESERVED.get(lookalike, lookalike)
+            warnings.append(
+                f"{where} {text!r} looks like it names {shown}, "
+                f"{_how(text)}: for the owner's review (a community pack is not Mendari's: use "
+                "your own name)"
+            )
+    copy = copies.get("".join(written))
+    if copy is not None:
+        errors.append(
+            f"{where} {text!r} is the name of {copy[1]}, a pack Mendari maintains: choose "
+            "another, so no one takes one for the other"
+        )
+    elif (alike := looks.get("".join(read))) is not None and "".join(read):
+        warnings.append(
+            f"{where} {text!r} looks like {alike[0]!r}, the name of {alike[1]}, a pack Mendari "
+            f"maintains, {_how(text)}: for the owner's review (choose another name, so no one "
+            "takes one for the other)"
+        )
+    for word, scripts in _mixed(text):
+        warnings.append(
+            f"{where} {text!r} mixes {' and '.join(scripts)} letters in {word!r}, which can "
+            "make it look like another word: for the owner's review (write each word in one "
+            "alphabet)"
+        )
+    return errors, warnings
 
 
 def _not_mendari(ctx: _Context) -> None:
-    """A community pack's name, CDS Hooks title and publisher neither name Mendari (or its old
-    name) nor copy a maintained pack's name or title, so it cannot pass for one. Names are
-    compared as they read (`_folded`). Not a guarantee: the owner's review is the gate."""
+    """A community pack's name, CDS Hooks title and publisher (`name_findings`)."""
     assert ctx.pack is not None
     m = ctx.pack.manifest
-    taken: dict[str, str] = {}
+    maintained = []
     for pack in _maintained(str(_maintained_dir(ctx))):
-        taken.setdefault(_reads(pack.manifest.name), pack.id)
+        maintained.append((pack.manifest.name, pack.id))
         if pack.manifest.cds_hooks is not None:
-            taken.setdefault(_reads(pack.manifest.cds_hooks.title), pack.id)
+            maintained.append((pack.manifest.cds_hooks.title, pack.id))
     shown = [("name", m.name), ("publisher.name", m.publisher.name)]
     if m.cds_hooks is not None:
         shown.append(("cds_hooks.title", m.cds_hooks.title))
     for where, text in shown:
-        letters = _reads(text)
-        named = next((word for word in RESERVED_NAMESPACES if _names(text, word)), None)
-        mixed = _mixed(text)
-        if mixed:
-            ctx.report.error(
-                "identity",
-                f"{where} {text!r} mixes Latin letters with {', '.join(mixed).title()} ones "
-                "in one word, which can pass for Latin: write each word in one alphabet",
-            )
-        if named is not None:
-            ctx.report.error(
-                "identity",
-                f"{where} {text!r} names {named}: a community pack is not Mendari's. Use your "
-                "own name (the label says where a pack comes from)",
-            )
-        elif letters and letters in taken:
-            ctx.report.error(
-                "identity",
-                f"{where} {text!r} is the name of {taken[letters]}, a pack Mendari "
-                "maintains: choose another, so no one takes one for the other",
-            )
+        errors, warnings = name_findings(where, text, maintained)
+        for message in errors:
+            ctx.report.error("identity", message)
+        for message in warnings:
+            ctx.report.warn("identity", message)
 
 
 def _terminology(ctx: _Context) -> None:
