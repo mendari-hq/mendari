@@ -36,7 +36,7 @@ import re
 from collections.abc import Iterable, Sequence
 from typing import Any
 
-# The parser `re.compile` uses; private, so imported by name (as `community/regex_safety.py`).
+# The parser `re.compile` uses; private, so imported by name.
 _parser: Any = __import__("re._parser", fromlist=["parse"])
 _c: Any = __import__("re._constants", fromlist=["MAXREPEAT"])
 

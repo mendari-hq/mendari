@@ -255,9 +255,12 @@ def load_pack(
     }
     community = is_community(manifest.id, origin)
     # Compiled as they run, before jsonschema compiles the schema's too.
-    problems = _pattern_problems(input_schema, parsed, community=community)
+    refused = _pattern_problems(input_schema, parsed, community=community)
+    problems = list(refused)
     if community:
         problems += schema_rules.community_problems(input_schema)
+    if refused:
+        raise PatternsRefused(manifest.id, problems, refused)
     if problems:
         raise PackValidationError(manifest.id, problems)
     try:
@@ -428,6 +431,16 @@ def _pattern_problems(
         if problem is not None:
             problems.append(f"{where}: {problem}")
     return problems
+
+
+class PatternsRefused(PackValidationError):
+    """A pack refused at load with its own patterns among the reasons: `patterns` are those of
+    `problems` that `_pattern_problems` found (too many, too long, or not compiling as they run),
+    so `community-check` can name them under its own rule."""
+
+    def __init__(self, pack: str, problems: list[str], patterns: list[str]):
+        super().__init__(pack, problems)
+        self.patterns = patterns
 
 
 class _Refused(ValueError):

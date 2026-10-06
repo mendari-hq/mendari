@@ -25,7 +25,10 @@ of the `packs` workflow). Each rule says, in plain words, what to fix:
 - **honest-numbers**: the committed benchmark and Decision Card are what the pack gives when
   evaluated again (ignoring the report's id, time and latency), and every trained model (a
   composite's members too) is what `mendari train` gives, byte for byte.
-- **patterns**: no pattern that may backtrack for seconds (`regex_safety`).
+- **patterns**: every pattern the pack wrote (its rules' and its input schema's) compiles as it
+  runs, on RE2 (`core/patterns.py`), within the load's caps on a pattern's length and a pack's
+  count: the pack does not load otherwise, and the pattern is named under this rule. RE2 never
+  backtracks, so no pattern can stall a worker; there is nothing else to time.
 - **hygiene**: at most 2 MB and 200 files, regular text files only (a trained model aside), no
   git submodule, no files in `evals/` but the benchmark, and a `CHANGELOG.md` entry for the
   version; a change to what the pack decides with raises the version.
@@ -53,7 +56,7 @@ from functools import cache
 from pathlib import Path
 from typing import Any
 
-from mendari.community import maintainers, phi_scan, regex_safety
+from mendari.community import maintainers, phi_scan
 from mendari.community.gitbase import COMMUNITY_DIR, Base, gitlinks, toplevel
 from mendari.core.origin import (
     COMMUNITY_NAME,
@@ -64,7 +67,14 @@ from mendari.core.origin import (
     performer_problem,
     rule_problems,
 )
-from mendari.core.pack import MANIFEST, Pack, authored_patterns, load_pack, pack_digest, parse_yaml
+from mendari.core.pack import (
+    MANIFEST,
+    Pack,
+    PatternsRefused,
+    load_pack,
+    pack_digest,
+    parse_yaml,
+)
 from mendari.core.spec import Evaluation
 from mendari.errors import MendariError, PackValidationError
 from mendari.evals.harness import Dataset
@@ -212,7 +222,6 @@ def check(
         return report
     _manifest_policy(ctx)
     _changelog(ctx)
-    _patterns(ctx)
     if not _local_defaults(ctx.pack):
         # Deciding would call a service, at whoever runs this check's expense.
         report.not_checked.append(
@@ -362,8 +371,12 @@ def _load(ctx: _Context) -> None:
     try:
         ctx.pack = load_pack(ctx.root, origin="community")
     except PackValidationError as error:
+        refused = set(error.patterns) if isinstance(error, PatternsRefused) else set()
         for problem in error.problems:
-            ctx.report.error("correctness", f"the pack does not load: {problem}")
+            if problem in refused:  # the patterns rule: it holds once the pack loads
+                ctx.report.error("patterns", problem)
+            else:
+                ctx.report.error("correctness", f"the pack does not load: {problem}")
     except MendariError as error:
         ctx.report.error("correctness", f"the pack does not load: {error}")
     except Exception as error:  # the pack's content: named by type, as the registry does
@@ -1122,38 +1135,6 @@ def _differences(new: Any, old: Any, path: str = "") -> list[str]:
     ):
         return [] if math.isclose(new, old, rel_tol=1e-9, abs_tol=1e-12) else [here]
     return [] if new == old else [here]
-
-
-# -- patterns ------------------------------------------------------------------------------------
-
-
-def _patterns(ctx: _Context) -> None:
-    assert ctx.pack is not None
-    jobs = []
-    for where, text, flags in authored_patterns(ctx.pack):
-        problems = regex_safety.static_problems(text, flags)
-        inputs = regex_safety.probe_inputs(text, flags)
-        if inputs > regex_safety.MAX_PROBE_INPUTS:
-            problems.append(
-                f"has too many pieces for the probe to time it on all of them ({inputs:,} "
-                f"inputs, at most {regex_safety.MAX_PROBE_INPUTS:,}): split it into several rules"
-            )
-        for problem in problems:
-            ctx.report.error("patterns", f"{where}: {problem}")
-        if not problems:
-            jobs.append(regex_safety.Job(where, text, flags))
-    try:
-        slow = regex_safety.probe(jobs)
-    except MendariError as error:
-        ctx.report.error("patterns", f"the patterns could not be timed: {error}")
-        return
-    for job in slow:
-        ctx.report.error(
-            "patterns",
-            f"{job.where}: took more than {regex_safety.TIME_LIMIT_S:g} s on a "
-            f"{regex_safety.INPUT_CHARS:,}-character text built from its own pieces; it "
-            "backtracks too much. Simplify it (fewer optional or repeated parts)",
-        )
 
 
 # -- hygiene -------------------------------------------------------------------------------------

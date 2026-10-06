@@ -40,8 +40,9 @@ RESERVED_NAMESPACES: Mapping[str, Origin] = {
 }
 # Where a community pack's FHIR terminology lives: its own url, never one of Mendari's.
 COMMUNITY_URL = "https://mendari.co/packs/community/"
-# The longest text a community pack's patterns run on: what the pattern probe times them on
-# (`community/regex_safety.py`). A longer one is refused before any pattern runs.
+# The longest text a community pack's patterns run on (on RE2, their time grows with it: the caps
+# in `core/caps.py` are measured on texts this long). A longer one is refused before any pattern
+# runs.
 MAX_COMMUNITY_TEXT_CHARS = 10_000
 COMMUNITY_NAME = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 MAX_COMMUNITY_RISK = RiskLevel.CLINICAL_INFORMATION
