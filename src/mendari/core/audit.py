@@ -1341,7 +1341,7 @@ class AuditStore:
             ):
                 return False
             payload = {"version": version, "actor": actor, "org": tenancy.current()}
-            self._append(db, chain_id, NOTICE_EVENT, payload)
+            self._append(db, chain_id, "notice.acknowledged", payload)
         return True
 
     def notice_acknowledged(self, chain_id: str) -> bool:
