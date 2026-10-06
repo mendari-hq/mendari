@@ -24,19 +24,59 @@ One engine choice, `compile` (and `search`), runs every one of them:
 Mendari's own patterns (dosing, CQL headers, the rules provider's scope, word and negation
 patterns) are not pack content and stay on `re`. RE2 and the rewriting are imported only when a
 community pack's pattern is compiled, so a deployment without one never loads them.
+
+A community pack's patterns share one time budget per decision (`time_budget`, set by
+`Decision.decide`). RE2's time is linear and the caps bound how many patterns run and how large
+they are (`core/caps.py`), but a crafted pack within every cap can still take seconds on
+adversarial text. Each search, each match a search yields, and each step of the rules
+provider's own loops over a text (`check_time`) checks the budget, and raises `OutOfTime` once
+it is spent: a decision then stops running that pack's patterns, so it takes at most the
+budget plus one search already under way (about a second at worst, measured on 10,000
+characters of emoji against the largest pattern RE2 compiles).
 """
 
 from __future__ import annotations
 
 import functools
 import re
+import time
 import warnings
 from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any, Protocol
+
+from mendari.errors import MendariError
 
 MAX_PATTERN_CHARS = 2_000
 MAX_PACK_PATTERNS = 500
 RULES_FLAGS = re.IGNORECASE  # as `providers/rules.py` compiles them
+COMMUNITY_TIME_BUDGET_S = 1.0  # a community pack's patterns, together, in one decision
+_DEADLINE: ContextVar[float | None] = ContextVar("community_pattern_deadline", default=None)
+
+
+class OutOfTime(MendariError):
+    """A community pack's patterns used their time budget for this decision."""
+
+
+@contextmanager
+def time_budget(seconds: float = COMMUNITY_TIME_BUDGET_S) -> Iterator[None]:
+    """The time a community pack's patterns may take, together, inside this block (one
+    decision). Thread-local through a context variable, so concurrent decisions keep their own."""
+    token = _DEADLINE.set(time.monotonic() + seconds)
+    try:
+        yield
+    finally:
+        _DEADLINE.reset(token)
+
+
+def check_time() -> None:
+    """Raise `OutOfTime` when the current decision's budget is spent (no budget, no limit)."""
+    deadline = _DEADLINE.get()
+    if deadline is not None and time.monotonic() > deadline:
+        raise OutOfTime(f"its patterns took more than {COMMUNITY_TIME_BUDGET_S:g} s")
+
+
 # RE2's memory for one pattern (its default): its compiled program and the cache of the
 # automaton that runs it. Bounds both, and so the compiled size a pattern may reach: a larger
 # one does not compile. `re`'s Unicode `\w` is a large class once compiled (about 1,300
@@ -67,12 +107,15 @@ class _Re2Pattern:
         self._regexp = regexp
 
     def search(self, text: str, /) -> Match | None:
+        check_time()
         match: Match | None = self._regexp.search(_encodable(text))
         return match
 
     def finditer(self, text: str, /) -> Iterator[Match]:
-        matches: Iterator[Match] = self._regexp.finditer(_encodable(text))
-        return matches
+        check_time()
+        for match in self._regexp.finditer(_encodable(text)):
+            yield match
+            check_time()
 
 
 def _encodable(text: str) -> str:

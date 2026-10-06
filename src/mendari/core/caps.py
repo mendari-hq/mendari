@@ -20,15 +20,18 @@ refused at load, in words saying what to write instead, when
   classes and `.`s it holds, each as often as a count repeats it), come to more than
   `MAX_PACK_PATTERN_SIZE` (`pack_size`). RE2 runs a pattern's copies side by side, so its time
   on a character grows with the size: 500 patterns of `.{0,999}a.{0,999}b` (2,001 each), within
-  every other cap, took 148 s on 10,000 characters. Measured on 10,000 characters, the worst
-  shapes (`\\w{1,200}`, `\\D{1,999}`, `.{0,999}` on Chinese text or emoji, where RE2's automaton
-  runs out of memory and steps through the copies one by one) take at most about 0.12 µs per
-  unit of size and character: about 3.5 s for a pack at the cap, and milliseconds for the
-  shipped packs (about 1,200 to 2,600 each).
+  every other cap, took 148 s on 10,000 characters. The shipped packs' patterns (about 1,200 to
+  2,600 each) take milliseconds.
 
-Not capped (residual risks, threat model D8): typo tolerance's keyword list (each word of the
-text is compared with every keyword sharing its first letter) and the negation check's work on
-each negated match (`rules._negated`).
+The caps do not make a hard bound alone: on 10,000 characters of emoji or Chinese text, where
+RE2's automaton runs out of memory and steps through a pattern's copies one by one, one search
+can take about a second (`\\D{1,999}`), and a crafted pack within every cap took 5.5 s, or
+17.5 s with negated patterns rescanned at each match. Typo tolerance's keyword list and the
+negation check's work on each negated match add more. So a community pack's patterns also share
+one time budget per decision (`patterns.time_budget`, `COMMUNITY_TIME_BUDGET_S`): checked
+before each search, at each match and at each word typo correction looks at, it stops the pack's
+rules (the decision abstains, for a person) or its schema check (the input is refused). One
+decision runs a community pack's patterns for at most the budget plus one search under way.
 
 Every other pack is not capped: its patterns run on `re`, and installing it means trusting its
 author (SECURITY.md).

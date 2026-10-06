@@ -39,6 +39,10 @@ its manifest says:
   50, `a{5,}` is 5, `\w+` and `x*` are 1, `(?:ab|cd){1,10}` is 40), so RE2's time on each
   character grows with it. The packs Mendari maintains come to about 1,200 to 2,600, and
   `community-check` prints your pack's;
+- its patterns, together, take at most **one second** in a decision: past that its rules fail
+  and the decision abstains, for a person (the error `time_budget`), or its schema check stops
+  and the input is refused. Ordinary patterns take milliseconds; if your tests run out of time,
+  shorten the long counts (`.{0,999}`) and classes repeated many times;
 - its input schema does not set `unevaluatedProperties` together with `patternProperties`
   anywhere (jsonschema would run those patterns on `re`): use `additionalProperties`;
 - its FHIR systems (a `task.performer_system` in `fhir/mapping.yaml`) live under its own url,

@@ -8,6 +8,7 @@ import re
 import time
 import uuid
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from contextlib import nullcontext
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -19,7 +20,7 @@ from mendari.core import input_schema, tenancy
 from mendari.core.derive import complete_answers, explain
 from mendari.core.origin import MAX_COMMUNITY_TEXT_CHARS, long_text
 from mendari.core.pack import Pack, load_pack
-from mendari.core.patterns import search
+from mendari.core.patterns import OutOfTime, search, time_budget
 from mendari.core.policy import GovernanceOverride, PolicyResult, apply_policy
 from mendari.core.registry import resolve_pack
 from mendari.core.spec import Outcome, Priority
@@ -256,9 +257,15 @@ class Decision:
         """Why the input fails the pack's input schema, at most ten reasons. Each names where
         and which rule of the schema, never the value: jsonschema's own messages quote the
         input, and reasons are stored in the audit trail and copied into the FHIR Task."""
-        errors = sorted(self._validator.iter_errors(inputs), key=lambda e: list(map(str, e.path)))
         community = self.pack.community
-        return [f"{_where(error.path)}: {_schema_rule(error, community)}" for error in errors[:10]]
+        try:
+            found = list(self._validator.iter_errors(inputs))
+            errors = sorted(found, key=lambda e: list(map(str, e.path)))
+            return [
+                f"{_where(error.path)}: {_schema_rule(error, community)}" for error in errors[:10]
+            ]
+        except OutOfTime as error:  # a community pack's schema patterns used the budget
+            return [f"(root): checking it against the schema's patterns stopped: {error}"]
 
     def decide(
         self,
@@ -287,50 +294,54 @@ class Decision:
                 self.budget.admit_decision()
             except ProviderError as error:
                 over_quota = error  # every provider fails with it, so nothing automates
-        too_long = long_text(inputs, count_keys=self._count_keys) if self.pack.community else None
-        if too_long is not None:
-            # Before the schema's patterns run too: a community pack's patterns run on texts
-            # this long, no longer (`core/origin.py`; the caps on their work are measured on it).
-            schema_problems = [
-                f"{too_long}: longer than {MAX_COMMUNITY_TEXT_CHARS:,} characters, the most a "
-                "community pack reads"
-            ]
-        else:
-            schema_problems = self.validate(inputs)
-        problems = [*rejected, *schema_problems]
-        if problems:
-            policy = PolicyResult(
-                outcome=Outcome.BLOCK,
-                recommendation=None,
-                priority=manifest.policy.default_priority,
-                reasons=tuple(f"input rejected: {problem}" for problem in problems),
-            )
-        else:
-            with batching(self.providers.values()):
-                for slot, provider in self.providers.items():
-                    try:
-                        if over_quota is not None:
-                            raise over_quota
-                        provider.preflight()
-                        output = provider.answer(inputs)
-                    except ProviderError as error:
-                        failed = dict.fromkeys(manifest.providers[slot].answers, error.code)
-                        failures.update(failed)
-                        continue
-                    answers.update(output.answers)
-                    failures.update(output.failures)
-                    tokens_in += output.input_tokens
-                    tokens_out += output.output_tokens
-                    if cost is not None:
-                        cost = None if output.cost_usd is None else cost + output.cost_usd
-            complete_answers(manifest, answers, failures)
-            variants = {slot: info.variant for slot, info in self.provider_info.items()}
-            policy = apply_policy(
-                manifest, answers, failures, governance, variants, community=self.pack.community
-            )
-            primary = manifest.questions[manifest.policy.primary]
-            if primary.derive is not None:
-                policy = replace(policy, reasons=(*policy.reasons, *explain(primary, answers)))
+        # A community pack's patterns share one time budget in this decision (`core/patterns.py`):
+        # its rules then fail (the decision abstains, for a person) or its schema check stops.
+        with time_budget() if self.pack.community else nullcontext():
+            community = self.pack.community
+            too_long = long_text(inputs, count_keys=self._count_keys) if community else None
+            if too_long is not None:
+                # Before the schema's patterns run too: a community pack's patterns run on
+                # texts this long, no longer (`core/origin.py`; its caps are measured on it).
+                schema_problems = [
+                    f"{too_long}: longer than {MAX_COMMUNITY_TEXT_CHARS:,} characters, the most a "
+                    "community pack reads"
+                ]
+            else:
+                schema_problems = self.validate(inputs)
+            problems = [*rejected, *schema_problems]
+            if problems:
+                policy = PolicyResult(
+                    outcome=Outcome.BLOCK,
+                    recommendation=None,
+                    priority=manifest.policy.default_priority,
+                    reasons=tuple(f"input rejected: {problem}" for problem in problems),
+                )
+            else:
+                with batching(self.providers.values()):
+                    for slot, provider in self.providers.items():
+                        try:
+                            if over_quota is not None:
+                                raise over_quota
+                            provider.preflight()
+                            output = provider.answer(inputs)
+                        except ProviderError as error:
+                            failed = dict.fromkeys(manifest.providers[slot].answers, error.code)
+                            failures.update(failed)
+                            continue
+                        answers.update(output.answers)
+                        failures.update(output.failures)
+                        tokens_in += output.input_tokens
+                        tokens_out += output.output_tokens
+                        if cost is not None:
+                            cost = None if output.cost_usd is None else cost + output.cost_usd
+                complete_answers(manifest, answers, failures)
+                variants = {slot: info.variant for slot, info in self.provider_info.items()}
+                policy = apply_policy(
+                    manifest, answers, failures, governance, variants, community=self.pack.community
+                )
+                primary = manifest.questions[manifest.policy.primary]
+                if primary.derive is not None:
+                    policy = replace(policy, reasons=(*policy.reasons, *explain(primary, answers)))
 
         # Keyed under the deployment's input hash key when it has one (`core/phi.py`).
         hashed = input_hash(inputs) if self.store is None else self.store.phi.input_hash(inputs)

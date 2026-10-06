@@ -19,9 +19,9 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from mendari.core.origin import MAX_COMMUNITY_TEXT_CHARS
-from mendari.core.patterns import RULES_FLAGS, Matcher
+from mendari.core.patterns import RULES_FLAGS, Matcher, OutOfTime, check_time
 from mendari.core.patterns import compile as compile_pattern
-from mendari.errors import PackValidationError
+from mendari.errors import PackValidationError, ProviderError
 from mendari.providers.base import Provider, ProviderOutput, fingerprint, softmax, text_from
 
 _SCOPE_BREAK = re.compile(r"[.!?;\n]|\b(?:but|however|pero)\b", re.IGNORECASE)
@@ -128,6 +128,12 @@ class RulesProvider(Provider):
         return {letter: tuple(group) for letter, group in index.items()}
 
     def answer(self, inputs: Mapping[str, Any]) -> ProviderOutput:
+        try:
+            return self._answer(inputs)
+        except OutOfTime as error:  # a community pack's patterns used this decision's budget
+            raise ProviderError("time_budget", str(error)) from None
+
+    def _answer(self, inputs: Mapping[str, Any]) -> ProviderOutput:
         texts: dict[tuple[str, ...], tuple[str, list[str]]] = {}
         answers = {}
         for question, compiled in self._compiled.items():
@@ -158,8 +164,11 @@ class RulesProvider(Provider):
         # the caps on their work are measured on it): a correction that would make the text
         # longer is not made.
         room = [MAX_COMMUNITY_TEXT_CHARS - len(text)] if self.pack.community else None
+        timed = self.pack.community  # each word is compared with many keywords
 
         def fix(match: re.Match[str]) -> str:
+            if timed:
+                check_time()
             word = match.group(0)
             lower = word.lower()
             candidates = self._keywords.get(lower[0], ())

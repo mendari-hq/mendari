@@ -362,12 +362,12 @@ manifest says (threat model S13, T5, I12, D8, E10):
   characters and at most 50 `negation_cues`, at most 50 schema patterns run on one value or key
   and no schema reference cycle where patterns run, at most 500 runs by the rules on an
   input and the schema on one value together, and those runs' patterns at most 3,000 in size
-  together (the characters, classes and `.`s each holds, as often as its counts repeat them),
-  about 3.5 s at worst on 10,000 characters.
-  Not capped: typo tolerance's keyword list and the negation check's work on each negated
-  match; within the caps these take seconds a decision only for a pack with hundreds of
-  negatable patterns or tens of thousands of keywords (threat model D8), which the owner sees
-  in review. Turning community packs on for the hosted
+  together (the characters, classes and `.`s each holds, as often as its counts repeat them).
+  And its patterns share a time budget of one second per decision: past it its rules fail (the
+  decision abstains, for a person) or its schema check stops (the input is refused), so one
+  decision runs them for at most the budget plus one search under way (about a second on
+  10,000 characters at worst; the shipped packs' patterns take milliseconds). Turning
+  community packs on for the hosted
   platform is the owner's step (`tasks/todo.md`, B9).
 - **At most risk level 1, and only a hash of each input** (`store_input: hash`), refused at load
   otherwise.

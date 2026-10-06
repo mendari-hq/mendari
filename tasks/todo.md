@@ -156,7 +156,7 @@ B6/B7 → B8 → B9 → B10).
     window of 40, 9 s at 200; memoising `_negated` per text, or answering it from cue and break
     positions found once, would fix it); typo tolerance compares each word with every keyword
     sharing its first letter (40,000 keywords in 500 patterns: 25 s); and the compiled size
-    (capped in the review fixes below).
+    (capped in the review fixes below). All three are bounded by the time budget (below).
   - [x] Stage 3, the check, names and docs: `community-check`'s `patterns` rule is that every
     authored pattern compiles on RE2 within the load's caps (2,000 characters, 500 a pack): the
     loader raises `PatternsRefused` naming them, and the check reports them under `patterns`;
@@ -171,13 +171,12 @@ B6/B7 → B8 → B9 → B10).
     review's name misses (U+01C0 and other Latin look-alikes, Cherokee, Lisu/Greek/Cherokee
     mixes, Arabic or Hebrew inside a Latin word) now warn; the tables stay incomplete on
     purpose, and no UTS #39 table was vendored (a warning for review needs none). Docs: the guide's patterns section for RE2, ADR-0007's consequences, threat model
-    D8 and S13, SECURITY.md, `community-packs/README.md`. Residual, not capped (D8): typo
-    tolerance's keyword list and the negation check's work per negated match; seconds a
-    decision only for a pack with hundreds of negatable patterns or tens of thousands of
-    keywords, which review sees. The owner weighs them at B9.
+    D8 and S13, SECURITY.md, `community-packs/README.md`. Typo tolerance's keyword list and the
+    negation check's work per negated match were left uncapped here; the time budget (below)
+    bounds them.
   - [x] Review fixes (the focused check's 10 findings): the size of the patterns one input runs
-    is capped at 3,000 (`re2_syntax.size`, `caps.pack_size`; about 3.5 s at worst on 10,000
-    characters, 148 s before for 500 patterns of size 2,001), and `community-check` prints it;
+    is capped at 3,000 (`re2_syntax.size`, `caps.pack_size`; 148 s before for 500 patterns of
+    size 2,001), and `community-check` prints it;
     case is ignored exactly as `re` does (classes written out from `re` itself, RE2 folds
     nothing: Turkish `İ`/`ı`, `\W` and Greek `ι`); word boundaries next to letters outside
     ASCII documented as they behave, with a `community-check` warning; RE2, the rewriting and
@@ -185,6 +184,14 @@ B6/B7 → B8 → B9 → B10).
     negative lookbehinds; the schema cap names `patternProperties` with `additionalProperties`;
     `unevaluatedProperties` with `patternProperties` documented; "names Mendari" capitalised;
     stale "timed" wording gone.
+  - [x] The time budget (the focused check of the fixes found the stated 3.5 s worst case wrong:
+    a crafted pack within every cap took 5.5 s, 17.5 s with negated patterns). A community
+    pack's patterns share one second per decision (`patterns.time_budget`, set by
+    `Decision.decide`): checked before each RE2 search, at each match and at each word typo
+    correction looks at; past it the rules fail with `time_budget` (the decision abstains, for a
+    person) or the schema check stops (the input is refused). One decision runs a community
+    pack's patterns for at most the budget plus one search under way (about a second at worst).
+    `tests/test_community_budget.py`; docs say so (caps.py, ADR-0007, SECURITY.md, D8, guide).
 - [ ] **B9 (owner, steps below)** `MENDARI_COMMUNITY_PACKS=on` in Vercel Production
   only; on the owner's own branch preview (never a fork's), check that `community-packs/`
   reaches the function bundle.
