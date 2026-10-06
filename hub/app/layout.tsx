@@ -24,6 +24,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <span className="tag">synthetic data only</span>
           </div>
         </header>
+        {/* The notice (src/mendari/notices.py NOTICE; tests/test_notice.py holds them equal). */}
+        <p className="preview-notice" role="note">Research preview. Not a medical device. Not for emergencies: patients should call 911.</p>
         <main id="content">{children}</main>
       </body>
     </html>

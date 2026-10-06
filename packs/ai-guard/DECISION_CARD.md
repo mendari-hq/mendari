@@ -2,6 +2,8 @@
 
 **Synthetic example. Not clinically reviewed. Not for patient care.**
 
+*Research preview. Not a medical device. Not for emergencies: patients should call 911.*
+
 `mendari/ai-guard` · version **0.1.3** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
 
 > Checks a language model's draft reply to a patient before anyone reads it: blocks drafts that miss an emergency, give a dose above the maximum or give unsafe advice, and holds drafts that diagnose, prescribe or state things the record does not show for a clinician.

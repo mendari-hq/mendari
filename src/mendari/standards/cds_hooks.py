@@ -17,6 +17,7 @@ from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 from urllib.parse import quote
 
+from mendari import notices
 from mendari.core import clock
 from mendari.core.decision import Decision, DecisionResult
 from mendari.core.origin import COMMUNITY_LABEL
@@ -48,7 +49,7 @@ def discovery(packs: Iterable[Pack]) -> dict[str, Any]:
         if hooks is None:
             continue
         usage = (
-            f"{pack.status_label} "
+            f"{pack.status_label} {notices.NOTICE} "
             f"Risk level {int(pack.manifest.risk.level)} ({pack.manifest.risk.category}). "
             f"Validate locally first: `mendari eval {pack.id} --dataset <local data>`."
         )
@@ -206,7 +207,7 @@ def card(pack: Pack, result: DecisionResult, task: Mapping[str, Any]) -> dict[st
     label = template.suggestion if template is not None else f"Create routing task for {target}"
     confidence = "n/a" if result.confidence is None else f"{result.confidence:.0%}"
     detail = "\n".join(
-        [f"*{pack.status_label}*", ""]
+        [f"*{pack.status_label}* *{notices.NOTICE}*", ""]
         + [f"**Outcome:** {result.outcome.value} · **confidence:** {confidence}", ""]
         + [f"- {reason}" for reason in result.reasons]
         + ([f"\nFallback: {result.fallback}"] if result.fallback else [])

@@ -13,6 +13,7 @@ import json
 from collections.abc import Callable, Mapping
 from typing import Any
 
+from mendari import notices
 from mendari.core.pack import Pack
 from mendari.evals.pack_tests import load_cases
 from mendari.server import scopes
@@ -131,7 +132,7 @@ and out, and authentication, on one page.
 {PRODUCT} Every decision ends as {", ".join(outcomes[:-1])} or {outcomes[-1]}, and is recorded
 in a hash-chained audit trail.
 
-All data here is synthetic. This is a research preview, not a medical device.
+{notices.NOTICE} All data here is synthetic.
 
 ### A first request
 

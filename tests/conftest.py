@@ -59,6 +59,13 @@ def _no_rate_limits(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _no_notice_acknowledgement(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tests decide as signed-in people without first acknowledging the notice: the
+    acknowledgement is off unless a test turns it on (tests/test_notice.py), as rate limits are."""
+    monkeypatch.setenv("MENDARI_NOTICE_ACKNOWLEDGEMENT", "off")
+
+
+@pytest.fixture(autouse=True)
 def _no_jev(monkeypatch: pytest.MonkeyPatch) -> None:
     """Jev is never set up, and no provider is chosen, unless a test does it (with a fake): a
     developer's own Jev settings would turn on the servers' Jev defaults and send test cases to

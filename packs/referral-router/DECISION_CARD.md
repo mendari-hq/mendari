@@ -2,6 +2,8 @@
 
 **Synthetic example. Not clinically reviewed. Not for patient care.**
 
+*Research preview. Not a medical device. Not for emergencies: patients should call 911.*
+
 `mendari/referral-router` · version **0.1.3** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
 
 > Reads a specialty referral as it is signed: suggests the specialty, spots referrals that should be seen within two weeks, checks that the referral has what that specialty needs, and sends complete routine referrals straight to the specialty's scheduling queue.

@@ -2,6 +2,8 @@
 
 **Synthetic example. Not clinically reviewed. Not for patient care.**
 
+*Research preview. Not a medical device. Not for emergencies: patients should call 911.*
+
 `mendari/clinical-trial-prescreener` · version **0.1.3** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
 
 > Checks a patient's record against the eligibility criteria of a synthetic type 2 diabetes study (GLYCEMIA-2): structured criteria are computed from coded data, and exclusions are looked for in the clinic notes. Every result goes to a research coordinator for review.

@@ -2,6 +2,8 @@
 
 **Synthetic example. Not clinically reviewed. Not for patient care.**
 
+*Research preview. Not a medical device. Not for emergencies: patients should call 911.*
+
 `mendari/prior-auth-preflight` · version **0.1.3** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
 
 > Checks an order against the patient's payer before it is sent for prior authorization: does this payer require authorization for this service, and does the record have what the payer asks for? Complete requests are queued for submission; the gaps in the others are listed.

@@ -90,6 +90,11 @@ class HubError(MendariError):
         super().__init__(message)
 
 
+class NoticeNotAcknowledged(MendariError):
+    """A signed-in person has not acknowledged the current notice (`mendari.notices`): answered
+    with 403 until they do (`POST /api/notice/acknowledge`, which Try it asks for)."""
+
+
 class AuthError(MendariError):
     """Signing in or an API key failed a check, or the principal may not do this. `status` is the
     HTTP status (401 not signed in, 403 not allowed, 400 a bad login); `challenge` the

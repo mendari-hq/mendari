@@ -132,6 +132,7 @@ summary { cursor: pointer; padding: var(--space-2) 0; min-height: 32px; }
 .markdown table { font-size: var(--text-xs); }
 
 .empty { text-align: center; padding: var(--space-7) var(--space-4); color: var(--color-muted); }
+.preview-notice { margin: 0; padding: var(--space-2) var(--space-4); background: var(--color-warning-soft); color: var(--color-warning-text); text-align: center; font-weight: 600; }
 .notice { background: var(--color-warning-soft); color: var(--color-warning-text); border-radius: var(--radius); padding: var(--space-3) var(--space-4); }
 
 @media (max-width: 760px) {

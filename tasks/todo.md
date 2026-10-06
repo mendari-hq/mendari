@@ -63,7 +63,21 @@ behaviour.
   instead of codes is LP-05; note there that a pack's own names are its author's claim (a
   community pack could name `block` "Safe"), so the code stays one click away.
 - [ ] **LP-05** One versioned notice on every surface, a recorded acknowledgement before Try it,
-  a plain-language result view.
+  a plain-language result view. Split in two.
+  - [x] **LP-05a** `mendari/notices.py`: "Research preview. Not a medical device. Not for
+    emergencies: patients should call 911.", version 1. Stamped by the server into every page
+    (`<!-- mendari:notice -->`: the dashboard shell, launch view included, and `/docs`), the
+    OpenAPI description, every Decision Card (second line), CDS Hooks discovery and every
+    card, every decide answer (`notice`; not the stored record), and the Hub layout (a test
+    holds the words equal). A signed-in person acknowledges before deciding: `GET /api/notice`,
+    `POST /api/notice/acknowledge` (chained once per version as `notice.acknowledged`, with the
+    actor); decide routes answer `403 NoticeNotAcknowledged` until then; Try it asks first. Keys,
+    clients, EHR launches and open mode are never asked. `MENDARI_NOTICE_ACKNOWLEDGEMENT`
+    (`required`, or `off`; off in the test suite as rate limits are). Deferred: a deployment
+    data policy (`synthetic`/`phi`) for the badge and the acknowledgement's wording at a PHI
+    pilot.
+  - [ ] **LP-05b** Plain-language result view (display names, engine detail in the drawer, the
+    code one click away since a pack's names are its author's claim) and axe-core checks.
 - [ ] **LP-06** Automation hold (the kill switch, brought forward from A13).
 - [ ] **LP-08** Hosted data protection (ask the owner before merging the start-up guard: it
   stops a deployment running PHI mode `off` with sign-in on; production keys are the owner's).

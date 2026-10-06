@@ -16,6 +16,7 @@ from collections import Counter
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
+from html import escape
 from pathlib import Path
 from typing import Annotated, Any, Literal
 from urllib.parse import parse_qsl, urlsplit
@@ -40,7 +41,7 @@ from starlette.datastructures import Headers
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from mendari import __version__, guard, settings
+from mendari import __version__, guard, notices, settings
 from mendari.core import clock, tenancy
 from mendari.core.audit import SYSTEM_ID, AuditStore
 from mendari.core.card import benchmark, render_card
@@ -58,6 +59,7 @@ from mendari.errors import (
     FhirStructureError,
     MendariError,
     NoteError,
+    NoticeNotAcknowledged,
     PackNotFoundError,
     PackValidationError,
     ProviderError,
@@ -300,6 +302,10 @@ def shown_to_reader(item: Mapping[str, Any]) -> bool:
     return any(event.get("note_status") == "open" for event in item.get("events") or ())
 
 
+# What every decide answer carries (mendari.notices).
+NOTICE = {"notice": notices.notice()}
+
+
 def principal_of(request: Request) -> Principal:
     """Who the guard let through (`open mode` when sign-in is off)."""
     principal: Principal = getattr(request.state, "principal", None) or OPEN
@@ -348,6 +354,8 @@ def create_app(
     if org_limits and webhook:
         check_webhook(webhook)  # likewise: a quota's alert must be able to leave
     store = AuditStore(db_path, migrate_url=migrate_url, phi=phi)
+    acknowledgement = notices.mode()  # read once; a bad value fails at startup
+    acknowledged: set[str] = set()  # chain ids found acknowledged: an acknowledgement stays
     auth = Auth(
         sign_in,
         store,
@@ -779,6 +787,37 @@ def create_app(
             if isinstance(case, dict) and isinstance(case.get("input"), dict)
         ]
 
+    @app.get("/api/notice", tags=["Packs"], summary="The notice, and whether you acknowledged it")
+    def notice(request: Request) -> dict[str, Any]:
+        """What Mendari is (`text`), shown on every page and in every decide answer, and what a
+        signed-in person acknowledges before deciding (`acknowledgement`). `required`: whether
+        this caller must acknowledge `version` first; `acknowledged`: whether they have."""
+        principal = principal_of(request)
+        asked = acknowledgement == "required" and principal.kind == "user"
+        return {
+            **notices.notice(),
+            "acknowledgement": notices.ACKNOWLEDGEMENT,
+            "required": asked,
+            "acknowledged": asked and store.notice_acknowledged(notices.chain_id(principal.id)),
+        }
+
+    @app.post(
+        "/api/notice/acknowledge",
+        tags=["Packs"],
+        summary="Acknowledge the notice",
+    )
+    def acknowledge_notice(request: Request) -> dict[str, Any]:
+        """Records, in the audit trail and once per notice version, that the signed-in person
+        acknowledged `acknowledgement` (`GET /api/notice`). Without sign-in there is no one to
+        record, and nothing is asked."""
+        principal = principal_of(request)
+        if principal.kind != "user":
+            return {**notices.notice(), "acknowledged": False, "required": False}
+        key = notices.chain_id(principal.id)
+        store.acknowledge_notice(key, version=notices.VERSION, actor=principal.actor)
+        acknowledged.add(key)
+        return {**notices.notice(), "acknowledged": True, "required": acknowledgement == "required"}
+
     @app.post(
         "/api/packs/{namespace}/{name}/decide",
         tags=["Decisions"],
@@ -795,7 +834,7 @@ def create_app(
         The answer is complete, with each answer's `evidence`; the audit record keeps it only as
         the PHI mode allows (`GET /api/audit/{id}`). `input_hash` is `hmac-sha256:<key id>:<hex>`
         where the deployment has an input hash key (always with PHI), else `sha256:<hex>`."""
-        return decision_for(f"{namespace}/{name}").decide(payload).to_dict()
+        return {**decision_for(f"{namespace}/{name}").decide(payload).to_dict(), **NOTICE}
 
     @app.post(
         "/api/packs/{namespace}/{name}/guard",
@@ -805,7 +844,7 @@ def create_app(
     def guard_draft(namespace: str, name: str, payload: JsonBody) -> dict[str, Any]:
         """Check an LLM's draft reply: `released` (send `reply`), `held_for_review` or
         `blocked` (send nothing; follow `fallback`). Audited like any decision."""
-        return guard.check(decision_for(f"{namespace}/{name}"), payload).to_dict()
+        return {**guard.check(decision_for(f"{namespace}/{name}"), payload).to_dict(), **NOTICE}
 
     @app.post(
         "/api/packs/{namespace}/{name}/fhir/decide",
@@ -825,7 +864,7 @@ def create_app(
         `enforce` blocks. An error on this route is an `OperationOutcome`. For FHIR out as well,
         use `POST /fhir/$decide`."""
         result, task = decision_for(f"{namespace}/{name}").decide_fhir(payload)
-        return {"decision": result.to_dict(), "task": task}
+        return {"decision": result.to_dict(), "task": task, **NOTICE}
 
     # -- monitoring ------------------------------------------------------------------------------
 
@@ -1528,10 +1567,31 @@ def create_app(
         response: Response = await call_next(request)
         return response
 
+    def notice_refusal(request: Request) -> Response | None:
+        """A signed-in person decides only once they have acknowledged the current notice
+        (`mendari.notices`; Try it asks first). Keys, clients, EHR launches and open mode are
+        never asked."""
+        principal = principal_of(request)
+        if acknowledgement == "off" or principal.kind != "user":
+            return None
+        if permission_for(request.method, request.url.path) != "decide":
+            return None
+        if request.url.path == "/api/notice/acknowledge":  # what the refusal asks for
+            return None
+        key = notices.chain_id(principal.id)
+        if key in acknowledged or store.notice_acknowledged(key):
+            acknowledged.add(key)
+            return None
+        error = NoticeNotAcknowledged(
+            "acknowledge the notice before deciding (POST /api/notice/acknowledge): "
+            + notices.ACKNOWLEDGEMENT
+        )
+        return error_response(request.url.path, 403, error)
+
     def admit(request: Request) -> Response | None:
         """The sign-in check, then the rate limit (server/limits.py), both before the route:
         a refused request reads no body, calls no provider and writes nothing to the chain."""
-        refused = auth.check(request)
+        refused = auth.check(request) or notice_refusal(request)
         if refused is not None or not limiter.on:
             return refused
         permission = permission_for(request.method, request.url.path)
@@ -2059,6 +2119,7 @@ def content_security_policy(page: str, *, inline_styles: bool = True) -> str:
 
 
 _IMPORT_MAP = '<script type="importmap"></script>'
+_NOTICE_MARKER = "<!-- mendari:notice -->"  # where a page shows the notice (mendari.notices)
 _ASSET = re.compile(r'\b(src|href)="(/static/[^"?#]+\.(?:js|css))"')
 _VERSIONED_FILE = re.compile(r"^[^/]+/\d+\.\d+\.\d+/[^/]+$")  # <package>/<version>/<file>
 _ENTRY_MODULE = re.compile(r'<script type="module" src="/static/([^"/?#]+\.js)"')
@@ -2076,6 +2137,9 @@ def versioned_page(name: str) -> str:
     modulepreload link per module fetches that graph in parallel (the dashboard's whole graph
     from main.js; the /docs landing only docs.js, theme.js and ui.js)."""
     page = (DASHBOARD_DIR / name).read_text(encoding="utf-8")
+    page = page.replace(
+        _NOTICE_MARKER, f'<p class="preview-notice" role="note">{escape(notices.NOTICE)}</p>'
+    )
     if _IMPORT_MAP in page:
         stamped = {
             f"/static/{module}": f"/static/{module}?v={_digest(DASHBOARD_DIR / module)}"
