@@ -33,8 +33,9 @@ class ReviewError(MendariError):
 
 
 class NoteError(MendariError):
-    """A note cannot be kept here (PHI mode `hash` keeps no free text), or cannot be erased (an
-    unknown or already erased note). A `422`: the request is well formed, but not here."""
+    """A note cannot be kept here (PHI mode `hash` keeps no free text), or a note or a decision's
+    kept input cannot be erased (unknown, already erased, or inside a record kept under PHI mode
+    `off`). A `422`: the request is well formed, but not here."""
 
 
 class FhirError(MendariError):

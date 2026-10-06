@@ -66,6 +66,14 @@ LEGACY_TEXT = {
 # Why a person erases a note (chained, so a code): it should not have been written, or was wrong.
 # Retention erases with its own reason, "retention".
 ERASE_REASONS = ("request", "error")
+# Retention deletes this many rows per transaction (and chains their events with them), so a
+# backlog never holds the chain lock long and each batch done stays done.
+PURGE_BATCH = 500
+# The chain id a purge's summary is chained under (`retention.purged`): no decision's.
+RETENTION_CHAIN = "retention"
+# The `settings` row a database is marked with once a store opens it under PHI mode `hash` or
+# `encrypt` (the first such mode): from then on no store under `off` keeps input text in it.
+PROTECTED = "phi_protected"
 # Rows per insert when chaining several events at once (`_append_many`): a page is at most 500.
 _APPEND_BATCH = 500
 
@@ -240,7 +248,11 @@ CREATE TABLE IF NOT EXISTS notes (
     erased_at   TEXT,
     erased_by   TEXT
 );
-CREATE INDEX IF NOT EXISTS notes_decision ON notes (decision_id)
+CREATE INDEX IF NOT EXISTS notes_decision ON notes (decision_id);
+CREATE TABLE IF NOT EXISTS settings (
+    name  TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+)
 """
 
 # Columns added after their table's first release. New databases get them from _TABLES; older
@@ -354,6 +366,36 @@ class AuditStore:
         self.path = str(target) if self._db.kind == "sqlite" else None
         # environment -> (the CapabilityStatement version served, since when): capability_since
         self._capability_since: dict[str, tuple[str, str]] = {}
+        self.protected = self._protected()
+
+    def _protected(self) -> str | None:
+        """The PHI mode that first protected this database (`hash` or `encrypt`), marking it now
+        if this store's mode is one; None while only mode `off` has opened it."""
+        with self._db.session(exclusive=False) as db:
+            if self.phi.mode != "off":
+                db.all(
+                    "INSERT INTO settings (name, value) VALUES (?, ?) "
+                    "ON CONFLICT (name) DO NOTHING",
+                    (PROTECTED, self.phi.mode),
+                )
+            row = db.one("SELECT value FROM settings WHERE name = ?", (PROTECTED,))
+        return None if row is None else str(row["value"])
+
+    def refuse_plaintext(self) -> None:
+        """Mode `off` keeps no input text (an input in its record, a note) in a database a
+        protected mode kept: the server refuses to start so, and a decision or a write here
+        refuses before it begins. Until the mark is set, each check reads it again (another
+        process may set it)."""
+        if self.phi.mode != "off":
+            return
+        if self.protected is None:
+            self.protected = self._protected()
+        if self.protected:
+            raise MendariError(
+                f"This database is protected (first kept under PHI mode {self.protected}): run "
+                "with the deployment's PHI mode, hash or encrypt, and its keys. A protected "
+                "database never takes plaintext again."
+            )
 
     @property
     def backend(self) -> str:
@@ -386,6 +428,8 @@ class AuditStore:
         record = result.to_record()
         keep = store_input == "full" and self.phi.mode != "hash"
         in_record = keep and self.phi.mode == "off"
+        if in_record:
+            self.refuse_plaintext()
         record["input"] = dict(inputs) if in_record else None
         evidence = {} if in_record else _take_evidence(record)
         status = "pending" if result.outcome.value in _REVIEWABLE else "not_required"
@@ -808,6 +852,7 @@ class AuditStore:
         """Keep a note in the session that chains its event; its `note_ref`, or None."""
         if text is None:
             return None
+        self.refuse_plaintext()  # under `off` a note is kept as it is
         note_id = note_id or str(uuid.uuid4())
         salt = secrets.token_bytes(32)
         body = {"salt": base64.b64encode(salt).decode(), "text": text}
@@ -868,23 +913,31 @@ class AuditStore:
         return {**payload, "decision_id": row["decision_id"], "erased_at": erased_at}
 
     def purge_notes(self, older_than_days: int) -> int:
-        """Retention, with inputs (`mendari phi purge`): erase notes older than N days."""
+        """Retention, with inputs (`purge`): erase notes older than N days, in batches of
+        `PURGE_BATCH`, each chained with its `note.erased` events."""
         cutoff = (datetime.now(UTC) - timedelta(days=older_than_days)).isoformat()
-        with self._db.session(exclusive=True) as db:
-            doomed = db.all(
-                "SELECT id, decision_id FROM notes WHERE created_at < ? AND sealed IS NOT NULL "
-                "ORDER BY created_at, id",
-                (cutoff,),
-            )
-            db.all(
-                "UPDATE notes SET sealed = NULL, erased_at = ?, erased_by = 'retention' "
-                "WHERE created_at < ? AND sealed IS NOT NULL",
-                (_now(), cutoff),
-            )
-            retention = {"reason": "retention", "retention_days": older_than_days}
-            erased = [(row["decision_id"], {"note_id": row["id"], **retention}) for row in doomed]
-            self._append_many(db, "note.erased", erased)
-        return len(doomed)
+        retention = {"reason": "retention", "retention_days": older_than_days}
+        total = 0
+        while True:
+            with self._db.session(exclusive=True) as db:
+                doomed = db.all(
+                    "SELECT id, decision_id FROM notes WHERE created_at < ? AND sealed IS NOT NULL "
+                    "ORDER BY created_at, id LIMIT ?",
+                    (cutoff, PURGE_BATCH),
+                )
+                if not doomed:
+                    return total
+                marks = ", ".join("?" for _ in doomed)
+                db.all(
+                    "UPDATE notes SET sealed = NULL, erased_at = ?, erased_by = 'retention' "
+                    f"WHERE id IN ({marks})",
+                    (_now(), *(row["id"] for row in doomed)),
+                )
+                erased = [
+                    (row["decision_id"], {"note_id": row["id"], **retention}) for row in doomed
+                ]
+                self._append_many(db, "note.erased", erased)
+            total += len(doomed)
 
     # -- reads ----------------------------------------------------------------------------
 
@@ -951,7 +1004,8 @@ class AuditStore:
         an event chained with its note in the payload, before notes left the chain, shows it only
         to a `reader` and otherwise has it blanked. A decision whose input or notes a `reader`
         opened gets one `input.read` (naming the notes), all chained with one append and added
-        to the item's `events`."""
+        to the item's `events`; each item of such a decision gets `input_read: true`. Outside
+        mode `off`, what a record holds itself (`_held_input`) is shown as a kept input is."""
         ids = list(dict.fromkeys(str(item[id_key]) for item in items))
         if not ids:
             return items
@@ -996,9 +1050,17 @@ class AuditStore:
             views[row["id"]] = view = self._note_view(row, reader)
             if gated and view[0] == "open":
                 reads.setdefault(row["decision_id"], []).append(row["id"])
+        # A record that holds input values itself (its input, kept under mode `off`, or its
+        # answers' evidence, on any record written before 2026-10-02): outside `off`, only a
+        # reader sees them (and the read is chained), as with a sealed input.
+        legacy = {
+            str(item[id_key])
+            for item in items
+            if gated and str(item[id_key]) not in opened and _held_input(item)
+        }
         if gated and reader:
             for item in items:
-                if _legacy_text(item, own_notes):
+                if _legacy_text(item, own_notes) or str(item[id_key]) in legacy:
                     reads.setdefault(str(item[id_key]), [])
         chained: list[dict[str, Any]] = []
         if reads:
@@ -1010,10 +1072,18 @@ class AuditStore:
                 chained = self._append_many(db, "input.read", entries)
         for item in items:
             decision_id = str(item[id_key])
-            if decision_id in sealed:
-                item["record"]["input"] = opened.get(decision_id)
-                item["input_restricted"] = decision_id not in opened
+            if decision_id in reads:  # shown to a reader, and chained (`input.read`)
+                item["input_read"] = True
+            if decision_id in opened:
+                item["record"]["input"] = opened[decision_id]
+                item["input_restricted"] = False
                 _give_evidence(item["record"], details.get(decision_id, {}).get("evidence", {}))
+            elif decision_id in sealed or decision_id in legacy:
+                # A sealed input not opened stays sealed; what the record holds itself is shown
+                # to a reader (the read chained above) and to no one else.
+                item["input_restricted"] = decision_id in sealed or not reader
+                if decision_id in legacy and not reader:
+                    _withhold(item["record"])
             for event in item.get("events") or ():
                 _show_note(event, views, reader)
             if own_notes:
@@ -1026,20 +1096,128 @@ class AuditStore:
                 ]
         return items
 
-    def purge_inputs(self, older_than_days: int) -> int:
-        """Retention: delete kept (encrypted) inputs older than N days; the chain is untouched.
-        Notes have their own purge (`purge_notes`), which `mendari phi purge` runs too."""
-        cutoff = (datetime.now(UTC) - timedelta(days=older_than_days)).isoformat()
+    def withhold_inputs(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Lists show no input. Outside mode `off`, a record that holds input values itself (its
+        input, or its answers' evidence) has them withheld: a reader opens one decision
+        (`get`), and that read is chained."""
+        if self.phi.mode == "off":
+            return items
+        for item in items:
+            if _held_input(item):
+                _withhold(item["record"])
+                item["input_restricted"] = True
+        return items
+
+    def erase_input(self, decision_id: str, *, erased_by: str, reason: str) -> dict[str, Any]:
+        """Erase what one decision keeps apart from the chain, on request (`mendari phi erase`):
+        its sealed input and evidence are deleted (`input.erased`) and its notes erased (one
+        `note.erased` each), all chained with who and why. Its record and the chain are
+        untouched, so `audit verify` still passes. What the chain itself holds (an input kept
+        under PHI mode `off`, evidence on a record written before 2026-10-02, a note chained
+        before notes left the chain) nothing erases without breaking it: `still_in_chain` says
+        so, and retiring that database removes it (docs/deploying-with-phi.md). Backups, the
+        database's history and earlier exports still hold what was erased."""
+        if reason not in ERASE_REASONS:
+            raise NoteError(f"the reason is one of {ERASE_REASONS}")
+        if not erased_by.strip() or len(erased_by) > 200 or not erased_by.isprintable():
+            raise NoteError("who erases is a name or identifier of at most 200 characters")
         with self._db.session(exclusive=True) as db:
-            doomed = db.all(
-                "SELECT decision_id FROM decision_inputs WHERE created_at < ? "
-                "ORDER BY created_at, decision_id",
-                (cutoff,),
+            item = _decision(db, decision_id)
+            if item is None:
+                raise NoteError(f"no decision {decision_id}")
+            events = _events_of(db, [decision_id])[decision_id]
+            in_chain = _held_input(item) or _legacy_text({"events": events}, own_notes=False)
+            kept = db.one(
+                "SELECT decision_id FROM decision_inputs WHERE decision_id = ?", (decision_id,)
             )
-            db.all("DELETE FROM decision_inputs WHERE created_at < ?", (cutoff,))
-            purged = {"retention_days": older_than_days}
-            self._append_many(db, "input.purged", [(row["decision_id"], purged) for row in doomed])
-        return len(doomed)
+            notes = [
+                row["id"]
+                for row in db.all(
+                    "SELECT id FROM notes WHERE decision_id = ? AND sealed IS NOT NULL "
+                    "ORDER BY created_at, id",
+                    (decision_id,),
+                )
+            ]
+            if kept is None and not notes:
+                if in_chain:
+                    raise NoteError(
+                        f"decision {decision_id} keeps nothing apart from the chain: its chained "
+                        "record or events hold its input, evidence or note text, which only "
+                        "retiring the database removes (docs/deploying-with-phi.md)"
+                    )
+                raise NoteError(f"decision {decision_id} keeps no input or note to erase")
+            erased_at = _now()
+            db.all("DELETE FROM decision_inputs WHERE decision_id = ?", (decision_id,))
+            db.all(
+                "UPDATE notes SET sealed = NULL, erased_at = ?, erased_by = ? "
+                "WHERE decision_id = ? AND sealed IS NOT NULL",
+                (erased_at, erased_by, decision_id),
+            )
+            who = {"reason": reason, "erased_by": erased_by}
+            self._append_many(
+                db, "note.erased", [(decision_id, {"note_id": note, **who}) for note in notes]
+            )
+            if kept is not None:
+                self._append(db, decision_id, "input.erased", who)
+        return {
+            "decision_id": decision_id,
+            "input": kept is not None,
+            "notes": notes,
+            **who,
+            "erased_at": erased_at,
+            "still_in_chain": in_chain,
+        }
+
+    def purge(
+        self, older_than_days: int, *, source: Literal["schedule", "command"]
+    ) -> dict[str, Any]:
+        """Retention (`mendari phi purge`, the scheduled purge): delete kept inputs and erase
+        notes older than N days (0: all of them), each deletion chained, then chain a summary
+        (`retention.purged`, under `RETENTION_CHAIN`), which `last_purge` reads back."""
+        inputs, notes = self.purge_inputs(older_than_days), self.purge_notes(older_than_days)
+        summary = {
+            "retention_days": older_than_days,
+            "inputs": inputs,
+            "notes": notes,
+            "source": source,
+        }
+        with self._db.session(exclusive=True) as db:
+            self._append(db, RETENTION_CHAIN, "retention.purged", summary)
+        return summary
+
+    def last_purge(self) -> dict[str, Any] | None:
+        """The last purge's summary (`purge`), with when it ran; None if none ever did."""
+        with self._db.session(exclusive=False) as db:
+            row = db.one(
+                "SELECT created_at, payload FROM audit_events WHERE decision_id = ? "
+                "ORDER BY seq DESC LIMIT 1",
+                (RETENTION_CHAIN,),
+            )
+        return None if row is None else {"at": row["created_at"], **json.loads(row["payload"])}
+
+    def purge_inputs(self, older_than_days: int) -> int:
+        """Retention: delete kept (encrypted) inputs older than N days (0: all of them), in
+        batches of `PURGE_BATCH`, each chained with its `input.purged` events; the chain is
+        untouched. Notes have their own purge (`purge_notes`); `purge` runs both."""
+        cutoff = (datetime.now(UTC) - timedelta(days=older_than_days)).isoformat()
+        purged = {"retention_days": older_than_days}
+        total = 0
+        while True:
+            with self._db.session(exclusive=True) as db:
+                doomed = [
+                    row["decision_id"]
+                    for row in db.all(
+                        "SELECT decision_id FROM decision_inputs WHERE created_at < ? "
+                        "ORDER BY created_at, decision_id LIMIT ?",
+                        (cutoff, PURGE_BATCH),
+                    )
+                ]
+                if not doomed:
+                    return total
+                marks = ", ".join("?" for _ in doomed)
+                db.all(f"DELETE FROM decision_inputs WHERE decision_id IN ({marks})", doomed)
+                self._append_many(db, "input.purged", [(d, purged) for d in doomed])
+            total += len(doomed)
 
     def query(
         self,
@@ -2292,6 +2470,54 @@ def _give_evidence(record: dict[str, Any], evidence: Mapping[str, list[str]]) ->
     for question, given in evidence.items():
         if question in record["answers"]:
             record["answers"][question]["evidence"] = given
+
+
+def _held_input(item: Mapping[str, Any]) -> bool:
+    """Whether an item's record holds input values itself: its input (kept under PHI mode
+    `off`), or, in every mode before 2026-10-02, its answers' evidence or a resource's logical
+    id (which can be a medical record number) in its input issues and reasons."""
+    record = item.get("record")
+    if not isinstance(record, dict):
+        return False
+    answers = record.get("answers") or {}
+    return (
+        record.get("input") is not None
+        or any(isinstance(answer, dict) and answer.get("evidence") for answer in answers.values())
+        or bool(_resource_ids(record))
+    )
+
+
+def _resource_ids(record: Mapping[str, Any]) -> dict[str, str]:
+    """The resources an older record names by logical id in its input issues ("Patient/p1"),
+    each with what it is shown as instead ("Patient"). Records since 2026-10-02 name one by type
+    and position ("Patient (entry 2)"), never with a "/"."""
+    return {
+        str(issue["resource"]): str(issue["resource"]).partition("/")[0]
+        for issue in record.get("input_issues") or ()
+        if isinstance(issue, dict) and "/" in str(issue.get("resource", ""))
+    }
+
+
+def _withhold(record: dict[str, Any]) -> None:
+    """A record without its input, its answers' evidence, which can quote it, and the logical
+    ids an older record names resources by (as `DecisionResult.to_record` names them now)."""
+    record["input"] = None
+    for answer in (record.get("answers") or {}).values():
+        if isinstance(answer, dict) and answer.get("evidence"):
+            answer["evidence"] = []
+    ids = _resource_ids(record)
+    if not ids:
+        return
+    record["input_issues"] = [
+        {**issue, "resource": ids.get(str(issue.get("resource")), issue.get("resource"))}
+        if isinstance(issue, dict)
+        else issue
+        for issue in record["input_issues"]
+    ]
+    reasons = [str(reason) for reason in record.get("reasons") or ()]
+    for label, kept in ids.items():  # a label is followed by a space and a FHIRPath
+        reasons = [reason.replace(f": {label} ", f": {kept} ") for reason in reasons]
+    record["reasons"] = reasons
 
 
 def _legacy_text(item: Mapping[str, Any], own_notes: bool) -> bool:

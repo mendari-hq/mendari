@@ -123,6 +123,7 @@ def run_pass(
     if key:  # sign-in on; the identity provider is never called, since nobody signs in
         os.environ["MENDARI_OIDC_ISSUER"] = "https://idp.example.org"
         os.environ["MENDARI_OIDC_CLIENT_ID"] = "mendari"
+        os.environ["MENDARI_PHI_MODE"] = "off"  # sign-in needs a chosen mode; synthetic cases
     db = work / f"{name.split()[0]}.db"
     secret = ""
     if key:

@@ -718,7 +718,11 @@ hash becomes an HMAC (`hmac-sha256:<key id>:<hex>`) that guessing cannot match, 
 refuses to start without it. In both, the chained record keeps no evidence values (sealed with
 the input under `encrypt`) and names a resource in an input issue by type and position
 (`Patient (entry 2)`), not by its id; the caller's own answer is unchanged.
-`mendari phi purge` applies `MENDARI_RETENTION_DAYS` without breaking the chain. Notes (review
+Off Vercel, with sign-in or the EHR launch on, the engine refuses to start until a mode is
+chosen; on Vercel the mode is `encrypt` unless set to `hash`, and `off` is refused. A database
+once kept under `hash` or `encrypt` never takes plaintext again. `mendari phi purge` applies `MENDARI_RETENTION_DAYS` (default 30) without breaking the
+chain; on Vercel a daily cron runs it once `CRON_SECRET` is set, and `mendari phi erase` erases
+one decision's kept input on request. Notes (review
 and rating notes, a payer's answer to a prior authorization) follow inputs: they are kept apart
 from the chain, which holds only a salted commitment to each, sealed under `encrypt` and refused
 under `hash`. Retention erases them too, `mendari notes erase` erases one at once, and
@@ -948,24 +952,31 @@ vercel env run -- uv run mendari calibrate <pack> --slot router --variant llm --
 ## Deploying to Vercel
 
 The whole engine (API, FHIR endpoints, CDS Hooks, review queue, audit, dashboard) deploys as one
-FastAPI function (`[tool.vercel] entrypoint = "mendari.server.vercel:app"`).
+FastAPI function: Vercel loads the root `app.py`, which serves `mendari.server.vercel:app`.
 
 1. Connect a Postgres database (Neon via the Vercel Marketplace) for Production and Preview.
    It provides `DATABASE_URL`. On Vercel the app refuses to start without it, because functions
    have no persistent disk.
-2. Attach the Jev connector to the project and set `JEV_CONNECTOR`, `JEV_API_URL` and
+2. Set `MENDARI_PHI_KEY` and `MENDARI_INPUT_HASH_KEY` for Production and Preview: two different
+   keys, each 32 random bytes in base64
+   (`python -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())"`), kept in
+   your secret manager too. On Vercel the PHI mode is `encrypt` unless you set
+   `MENDARI_PHI_MODE=hash`, and the app refuses to start without its keys or with `off`. Set
+   `CRON_SECRET` (16 random characters or more) for Production: the daily retention purge in
+   `vercel.json` runs only with it ([`docs/deploying-with-phi.md`](https://github.com/Junebugg1214/mendari/blob/main/docs/deploying-with-phi.md), section 3).
+3. Attach the Jev connector to the project and set `JEV_CONNECTOR`, `JEV_API_URL` and
    `JEV_MODEL`: the reference packs then run Mendari + Jev ([Jev](#jev)). The key is fetched at
    runtime with the deployment's OIDC identity; it is never stored in the project's environment
    variables. `MENDARI_PROVIDERS` changes any slot, for every pack or scoped to one
    (`mendari/ai-guard:screen=rules_and_llm`); a setting a pack cannot use is skipped and listed
    in `/api/health`. An unscoped setting, or a Jev default, never applies to a community pack:
    only a setting that names it does.
-3. Turn on sign-in for Production ([Sign-in for organizations](#sign-in-for-organizations);
+4. Turn on sign-in for Production ([Sign-in for organizations](#sign-in-for-organizations);
    the project uses Google, set for Production only). Until the launch, also set Vercel
    Authentication to protect **all deployments**: previews run without sign-in, and the default
    setting leaves the production domain public. After each deploy, check that an
    unauthenticated request to production gets redirected to login.
-4. Push a branch to get a preview deployment, check it with
+5. Push a branch to get a preview deployment, check it with
    `vercel curl /api/health --deployment <url>`, then merge to `main` for production.
 
 **Limits and spending.** With sign-in on, the app's rate limits are on

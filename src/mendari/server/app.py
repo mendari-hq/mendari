@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import json
 import logging
 import os
@@ -49,7 +50,7 @@ from mendari.core.card import benchmark, render_card
 from mendari.core.decision import CallBudget, Decision, QuotaReached
 from mendari.core.origin import is_local
 from mendari.core.pack import Pack
-from mendari.core.phi import phi_policy
+from mendari.core.phi import phi_policy, require_protection
 from mendari.core.policy import GovernanceOverride
 from mendari.core.registry import SearchPath, discover, version_key
 from mendari.errors import (
@@ -296,15 +297,19 @@ def acting_as(request: Request, claimed: str | None, field: str = "reviewer") ->
 
 
 def shown_to_reader(item: Mapping[str, Any]) -> bool:
-    """Whether `reveal_inputs` opened an item's kept input or one of its notes (its own, or an
-    event's) for a reader, which it chains as an `input.read`."""
-    if item.get("input_restricted") is False or item.get("note_status") == "open":
-        return True
-    return any(event.get("note_status") == "open" for event in item.get("events") or ())
+    """Whether `reveal_inputs` showed a reader an item's stored input, what its record holds
+    itself, or one of its notes, which it chains as an `input.read` (`input_read`)."""
+    return item.get("input_read") is True
 
 
 # How long a decision's look-up of automation holds is reused on one instance.
 HOLD_SECONDS = 5.0
+# The scheduled purge's bearer secret (CRON_SECRET, as Vercel Cron sends it): its least length.
+MIN_CRON_SECRET = 16
+
+
+class EraseRequest(BaseModel):
+    reason: Literal["request", "error"]
 
 
 class HoldRequest(BaseModel):
@@ -358,15 +363,30 @@ def create_app(
     sign_in = auth_settings()  # an invalid sign-in setting fails here, at startup
     backend = backend_settings(sign_in)  # likewise: on, it needs sign-in and a public URL
     phi = phi_policy()  # a bad PHI setting (or a missing key) fails here, at startup
+    shared = sign_in is not None or smart_options is not None  # other people's cases come in
+    require_protection(phi, shared=shared)  # and plaintext where it must not be
+    retention_days = settings.retention_days()  # likewise
+    cron_secret = os.environ.get("CRON_SECRET", "")  # the scheduled purge's credential
+    if cron_secret and (len(cron_secret) < MIN_CRON_SECRET or cron_secret != cron_secret.strip()):
+        raise MendariError(
+            f"CRON_SECRET must be at least {MIN_CRON_SECRET} random characters, with no spaces "
+            "around them (Vercel Cron sends it as it is stored)"
+        )
     body_limit = settings.max_body_bytes()  # likewise
     rate_limits = limit_settings(sign_in=sign_in is not None)  # likewise
     org_limits = settings.org_daily_limits()  # likewise
     session_lifetime = sessions.lifetime()  # likewise
     security_log.configure()
+    if shared and phi.mode == "off":
+        phi_logger.warning(
+            "sign-in or the EHR launch is on and PHI mode is off: inputs are kept in plaintext, "
+            "so use synthetic data only (docs/deploying-with-phi.md)"
+        )
     webhook = os.environ.get("MENDARI_ALERT_WEBHOOK", "").strip()
     if org_limits and webhook:
         check_webhook(webhook)  # likewise: a quota's alert must be able to leave
     store = AuditStore(db_path, migrate_url=migrate_url, phi=phi)
+    store.refuse_plaintext()  # a database once protected never runs under `off` again
     acknowledgement = notices.mode()  # read once; a bad value fails at startup
     acknowledged: set[str] = set()  # chain ids found acknowledged: an acknowledgement stays
     auth = Auth(
@@ -541,7 +561,9 @@ def create_app(
         `input.read` for each (`AuditStore.reveal_inputs`)."""
         if phi.mode == "off" or input_reader(request) is None:
             return
-        shown = [str(item[id_key]) for item in items if shown_to_reader(item)]
+        # One per decision, as the chain has one `input.read` (a feedback list has an item per
+        # rating).
+        shown = list(dict.fromkeys(str(item[id_key]) for item in items if shown_to_reader(item)))
         if shown:
             log_event(request, "phi.inputs.read", ids=shown, count=len(shown))
 
@@ -707,6 +729,11 @@ def create_app(
                 if principal.kind == "open" or ehr.org == principal.org
             ],
             "phi_mode": phi.mode,
+            # Kept inputs and notes are deleted after this many days (MENDARI_RETENTION_DAYS),
+            # by `mendari phi purge` or, with CRON_SECRET set, the scheduled purge.
+            "retention_days": retention_days,
+            "retention_scheduled": bool(cron_secret),
+            "last_purge": store.last_purge(),  # when, how many, and by what; None: never
             # How new records' input hashes are made: `hmac-sha256:<key id>` under
             # MENDARI_INPUT_HASH_KEY (required in PHI modes hash and encrypt), else `sha256`.
             "input_hash": phi.hash_kind,
@@ -1157,14 +1184,16 @@ def create_app(
         limit: int = 50,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
-        """The audit trail, newest first, with filters and `limit`/`offset` paging."""
-        return store.query(
+        """The audit trail, newest first, with filters and `limit`/`offset` paging. Outside PHI
+        mode `off`, no input: a reader opens one decision (`/api/audit/{id}`), chained."""
+        listed = store.query(
             pack_id=pack_id,
             outcome=outcome,
             review_status=review_status,
             limit=min(limit, 500),
             offset=max(offset, 0),
         )
+        return store.withhold_inputs(listed)
 
     @app.get(
         "/api/audit/verify",
@@ -1230,6 +1259,43 @@ def create_app(
             raise HTTPException(404, f"unknown decision {decision_id}")
         bundle = audit_fhir.decision_bundle(record)
         return JSONResponse(bundle, media_type="application/fhir+json")
+
+    @app.post(
+        "/api/audit/{decision_id}/erase",
+        tags=["Audit"],
+        summary="Erase a decision's kept input",
+    )
+    def erase_input(request: Request, decision_id: str, body: EraseRequest) -> dict[str, Any]:
+        """On request (`reason`: `request`, or `error` for one recorded by mistake), delete what
+        a decision keeps apart from the chain: its encrypted input and evidence, and its notes.
+        The record and the chain stay, so `/api/audit/verify` still passes; each erasure is
+        chained (`input.erased`, `note.erased`). Backups, the database's history and earlier
+        exports still hold it. A decision recorded under PHI mode `off` holds its input in its
+        chained record, and an older record its evidence: nothing erases those without breaking
+        the chain, so `still_in_chain` says they remain (and a `422` when nothing else is
+        kept)."""
+        if store.item(decision_id) is None:
+            raise HTTPException(404, f"unknown decision {decision_id}")
+        principal = principal_of(request)
+        erased = store.erase_input(decision_id, erased_by=principal.actor, reason=body.reason)
+        log_event(request, "input.erased", ids=[decision_id], reason=body.reason)
+        return erased
+
+    @app.get("/api/internal/retention", include_in_schema=False)
+    def scheduled_retention(request: Request) -> dict[str, Any]:
+        """The scheduled purge (Vercel Cron, `vercel.json`): deletes kept inputs and erases
+        notes older than MENDARI_RETENTION_DAYS in batches, as `mendari phi purge` does, and
+        chains a summary (`retention.purged`). Only with `Authorization: Bearer $CRON_SECRET`;
+        without CRON_SECRET set it is not found."""
+        if not cron_secret:
+            raise HTTPException(404, "Not Found")
+        given = request.headers.get("authorization", "")
+        if not hmac.compare_digest(given.encode(), f"Bearer {cron_secret}".encode()):
+            security_log.event("retention.refused", outcome="refused", reason="secret")
+            raise HTTPException(401, "this route is for the scheduled purge")
+        summary = store.purge(retention_days, source="schedule")
+        security_log.event("retention.purged", count=summary["inputs"] + summary["notes"])
+        return summary
 
     @app.post(
         "/api/audit/{decision_id}/outcome",
@@ -1300,7 +1366,7 @@ def create_app(
             store, pack_id=pack.id, rating=rating, reader=input_reader(request)
         )
         log_event(request, "export.feedback", ids=[pack.id], count=len(records))
-        if phi.mode == "encrypt" and input_reader(request) is not None and records:
+        if phi.mode != "off" and input_reader(request) is not None and records:
             shown = [str(record["id"]).removeprefix("feedback-") for record in records]
             log_event(request, "phi.inputs.read", ids=shown, count=len(shown))
         body = "".join(json.dumps(record, ensure_ascii=False) + "\n" for record in records)
@@ -1887,6 +1953,7 @@ def error_response(path: str, status: int, error: MendariError) -> JSONResponse:
 
 
 quota_logger = logging.getLogger("mendari.limits")
+phi_logger = logging.getLogger("mendari.phi")
 providers_logger = logging.getLogger("mendari.providers")
 
 

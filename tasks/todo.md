@@ -114,8 +114,27 @@ behaviour.
   holds (`list` and `lift` need only Mendari's tables), shows a URL without its password in any
   form, and refuses a digest that database never served; README and the PAS docstring say a
   held decision needs a review.
-- [ ] **LP-08** Hosted data protection (ask the owner before merging the start-up guard: it
-  stops a deployment running PHI mode `off` with sign-in on; production keys are the owner's).
+- [ ] **LP-08** Hosted data protection, built (PR open; **merge waits for the owner**: once
+  deployed, Production and Preview start only with `MENDARI_PHI_KEY` and
+  `MENDARI_INPUT_HASH_KEY` set, and the daily purge runs only with `CRON_SECRET`; production keys
+  are the owner's). The hosted site runs `encrypt` unless told `hash` and refuses `off` (the
+  root `app.py` marks it hosted even when Vercel hides its system variables); elsewhere sign-in
+  or the EHR launch needs a chosen mode (`off` written out: a synthetic sandbox, with a
+  warning); and a database once opened under `hash` or `encrypt` is marked and never takes
+  plaintext again (a server under `off` refuses to start on it, a decision or note refuses
+  before any provider runs). What a record holds itself (an input kept under `off`; evidence and
+  resources' logical ids on records from before 2026-10-02) is shown only to reviewers and
+  admins, each read chained and logged (`input_read`); the audit list never carries it. One
+  decision's kept input, evidence and notes are erased on request (`mendari phi erase`, admin
+  `POST /api/audit/{id}/erase`; `still_in_chain` says what only retiring the database removes).
+  Retention: `MENDARI_RETENTION_DAYS` (30, 1 to 36500), batches of 500, a chained summary
+  (`retention.purged`) and `last_purge` in health; `mendari phi purge --days 0 --yes`; a Vercel
+  Cron route with `CRON_SECRET`. A test asks every read route as every principal over old and
+  new records (negative controls fail it). Reviews: the adversarial review (2 medium, 5 low),
+  a focused check (5 low), a check of the spec additions (1 medium: a command run off Vercel
+  fell back to `off` on the hosted database, fixed by the protected mark; 3 low) and a check of
+  that fix (3 low), all fixed. Owner question still open: refuse an explicit `off` with sign-in
+  on outside Vercel too (the compose sign-in sandbox relies on it)?
 - [ ] **LP-09** Key rotation.
 
 **Pre-public:** LP-13 (NOTICE, DCO check, release guards, SPDX), LP-14 (a redistributable

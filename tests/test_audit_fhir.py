@@ -241,6 +241,7 @@ NOT_ON_A_DECISION = {
     "notice.acknowledged",
     "automation.held",
     "automation.lifted",
+    "retention.purged",  # a purge's summary (`RETENTION_CHAIN`); each deletion is on its decision
 }
 
 

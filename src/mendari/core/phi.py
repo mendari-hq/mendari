@@ -135,15 +135,50 @@ def _key(name: str) -> bytes:
     return key if len(key) == 32 else b""
 
 
+def require_protection(policy: PhiPolicy, *, shared: bool) -> None:
+    """Refuse, at startup, a deployment that would keep inputs in plaintext where it must not.
+    The hosted site (`VERCEL` set: Production and Preview; its entrypoint, the root `app.py`,
+    sets it too) runs `encrypt` (its default, `phi_policy`) or `hash`, never `off`. Elsewhere a
+    `shared` deployment, with sign-in or the EHR
+    launch on, takes other people's cases (a launch fetches the patient's record), so its mode
+    is chosen, never defaulted: `off` written out is for a local sandbox on synthetic data only
+    (the server logs a warning)."""
+    hosted = bool(os.environ.get("VERCEL"))
+    if hosted and policy.mode == "off":
+        raise MendariError(
+            "The hosted deployment keeps no input in plaintext: set MENDARI_PHI_MODE=encrypt "
+            "(with MENDARI_PHI_KEY and MENDARI_INPUT_HASH_KEY) or hash (with "
+            "MENDARI_INPUT_HASH_KEY) for Production and Preview, then redeploy."
+        )
+    if shared and not hosted and not os.environ.get("MENDARI_PHI_MODE", "").strip():
+        raise MendariError(
+            "Sign-in or the EHR launch is on, so choose how inputs are kept: "
+            "MENDARI_PHI_MODE=encrypt (with "
+            "MENDARI_PHI_KEY and MENDARI_INPUT_HASH_KEY), hash (with MENDARI_INPUT_HASH_KEY), or "
+            "off for a local sandbox on synthetic data only (docs/deploying-with-phi.md)."
+        )
+
+
 def phi_policy() -> PhiPolicy:
     """The deployment's PHI policy, checked at startup: `hash` and `encrypt` need the input hash
-    key, `encrypt` the PHI key too, and the two keys differ."""
-    mode = os.environ.get("MENDARI_PHI_MODE", "").strip().lower() or "off"
+    key, `encrypt` the PHI key too, and the two keys differ. The mode defaults to `off`, and to
+    `encrypt` on the hosted site (`VERCEL`), where a missing key names both keys."""
+    chosen = os.environ.get("MENDARI_PHI_MODE", "").strip().lower()
+    hosted_default = not chosen and bool(os.environ.get("VERCEL"))
+    mode = chosen or ("encrypt" if hosted_default else "off")
     if mode not in ("off", "hash", "encrypt"):
         raise MendariError("MENDARI_PHI_MODE must be off, hash or encrypt")
     hash_key = _key("MENDARI_INPUT_HASH_KEY")
     if os.environ.get("MENDARI_INPUT_HASH_KEY", "").strip() and not hash_key:
         raise MendariError(f"MENDARI_INPUT_HASH_KEY must be 32 random bytes, base64 ({_GENERATE})")
+    key = _key("MENDARI_PHI_KEY") if mode == "encrypt" else b""
+    if hosted_default and not (key and hash_key):
+        raise MendariError(
+            "The hosted deployment runs PHI mode encrypt unless told hash: set MENDARI_PHI_KEY "
+            "and MENDARI_INPUT_HASH_KEY, two different keys of 32 random bytes, base64 "
+            f"({_GENERATE}), for Production and Preview (or MENDARI_PHI_MODE=hash with "
+            "MENDARI_INPUT_HASH_KEY), then redeploy."
+        )
     if mode != "off" and not hash_key:
         raise MendariError(
             f"MENDARI_PHI_MODE={mode} needs MENDARI_INPUT_HASH_KEY: 32 random bytes, base64 "
@@ -151,7 +186,6 @@ def phi_policy() -> PhiPolicy:
         )
     if mode != "encrypt":
         return PhiPolicy(mode=mode, hash_key=hash_key)  # type: ignore[arg-type]
-    key = _key("MENDARI_PHI_KEY")
     if not key:
         raise MendariError(
             f"MENDARI_PHI_MODE=encrypt needs MENDARI_PHI_KEY: 32 random bytes, base64 ({_GENERATE})"

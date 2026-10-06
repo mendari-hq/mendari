@@ -63,6 +63,9 @@ NAVIGABLE = {
     "/fhir/metadata",
     "/fhir/OperationDefinition/{resource_id}",
     "/fhir/.well-known/smart-configuration",
+    # The scheduled purge: public to the guard, its own bearer secret to the route, which a
+    # request another site starts cannot carry (it is answered 401, or 404 without the secret).
+    "/api/internal/retention",
 }
 
 # (name, headers): how a request can arrive, besides its credential.

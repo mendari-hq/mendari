@@ -681,3 +681,24 @@ order or a named test that does not exist.
 ### Verification
 `MENDARI_TEST_DATABASE_URL` names the lane's own database in each lane's gate; `uv run pytest
 tests/test_threat_model.py` passes after every merge.
+
+## 2026-10-06 - architecture
+
+### What happened
+LP-08 made the hosted site's PHI mode default to `encrypt` by reading `VERCEL`. A check found
+that a command run against the hosted database from anywhere else (a laptop, a scheduler) still
+defaulted to `off` and could chain a plaintext input into it for good.
+
+### Root cause
+A protection was keyed to where the code runs, while the thing protected (the data) lives in the
+database, which other processes reach too.
+
+### Rule
+Put a data protection where the data is. A setting that only the server sees protects nothing
+from the other writers of the same database: mark the database itself (`settings`,
+`phi_protected`) and have every writer check the mark before it starts.
+
+### Verification
+For each new protection, list every process that can write the store (server, CLI, scripts,
+other deployments) and test the protection from one that does not share the server's settings.
+

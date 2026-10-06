@@ -35,10 +35,13 @@ ID = re.compile(r"^[A-Za-z0-9\-.]{1,64}$")
 NAME = re.compile(r"^[A-Z][A-Za-z0-9_]{0,254}$")
 # The fixed resources' content for each Mendari version: a url|version must never name two
 # contents. Changing one of them means a new Mendari version (or, before its release, a new pin).
+# 0.1.0 is not released yet (no tag, not on PyPI): until it is, its fixed resources may still
+# change, and the pin moves with them (`input.erased`, LP-08). From the first tag, a change needs a
+# new version.
 PINNED = {
     "0.1.0": {
         "CodeSystem/decision-outcome": "39fd51215c2eb221",
-        "CodeSystem/audit-event": "d7ed88ca35343047",
+        "CodeSystem/audit-event": "69760b971e953d00",
         "CodeSystem/sandbox": "8a63d292423bdf66",
         "CodeSystem/message-channel": "0c3b329c01cfcc58",
         "NamingSystem/decision-id": "a3ac1c38e9476b4f",

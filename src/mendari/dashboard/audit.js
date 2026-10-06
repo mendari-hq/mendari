@@ -16,6 +16,7 @@ const EVENT_TEXT = {
   "feedback.recorded": "Feedback recorded",
   "input.read": "Input or notes read (PHI mode)",
   "input.purged": "Input deleted (retention)",
+  "input.erased": "Input erased",
   "pas.submitted": "Sent for prior authorization",
   "note.erased": "Note erased",
 };

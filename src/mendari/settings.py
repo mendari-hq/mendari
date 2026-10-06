@@ -15,6 +15,8 @@ DEFAULT_LLM_DAILY_LIMIT = 500
 DEFAULT_TIMEZONE = "America/New_York"
 DEFAULT_MAX_BODY_BYTES = 4 * 1024 * 1024
 MIN_MAX_BODY_BYTES = 64 * 1024
+DEFAULT_RETENTION_DAYS = 30
+MAX_RETENTION_DAYS = 36500  # a century: anything longer is a typo, and overflows a date
 FhirValidation = Literal["off", "warn", "enforce"]
 
 
@@ -78,6 +80,21 @@ def max_body_bytes() -> int:
     if not raw.isdigit() or int(raw) < MIN_MAX_BODY_BYTES:
         raise MendariError(
             f"MENDARI_MAX_BODY_BYTES must be a number of bytes, {MIN_MAX_BODY_BYTES} or more"
+        )
+    return int(raw)
+
+
+def retention_days() -> int:
+    """How long kept inputs and notes are kept ($MENDARI_RETENTION_DAYS; default 30): what the
+    scheduled purge (`/api/internal/retention`) and `mendari phi purge` delete after. At least
+    1: deleting everything is asked for on the command line (`--days 0 --yes`), never by a
+    setting a typo could make 0."""
+    raw = os.environ.get("MENDARI_RETENTION_DAYS", "").strip()
+    if not raw:
+        return DEFAULT_RETENTION_DAYS
+    if not raw.isdigit() or not 1 <= int(raw) <= MAX_RETENTION_DAYS:
+        raise MendariError(
+            f"MENDARI_RETENTION_DAYS must be a whole number of days, 1 to {MAX_RETENTION_DAYS}"
         )
     return int(raw)
 

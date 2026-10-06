@@ -143,6 +143,8 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         ("GET", r"^/(docs|redoc)$", "public"),
         ("GET", r"^/docs/reference$", "page"),  # a signed-out browser is sent to sign in
         ("GET", r"^/openapi\.json$", "read"),
+        # The scheduled purge (Vercel Cron): its own bearer secret, CRON_SECRET, checked there.
+        ("GET", r"^/api/internal/retention$", "public"),
         ("GET", r"^/api/notice$", "read"),
         ("GET", r"^/api/holds$", "read"),
         ("POST", r"^/api/holds$", "approve"),
@@ -170,6 +172,7 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         ("POST", r"^/api/review/[^/]+$", "review"),
         ("POST", r"^/api/audit/[^/]+/feedback$", "review"),
         ("POST", r"^/api/audit/[^/]+/outcome$", "outcome"),
+        ("POST", r"^/api/audit/[^/]+/erase$", "admin"),  # a kept input, on request
         ("GET", r"^/api/packs/[^/]+/[^/]+/feedback/export$", "admin"),  # case inputs, in bulk
         ("*", r"^/api/auth/(keys|clients)", "keys"),
         # The whole chain, read or exported: administrators only.

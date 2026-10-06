@@ -14,7 +14,7 @@ from typing import Any
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 from mendari.core import tenancy
-from mendari.core.audit import AuditStore
+from mendari.core.audit import SYSTEM_ID, AuditStore
 from mendari.core.decision import Decision
 from mendari.core.pack import Pack
 from mendari.core.registry import discover, resolve_pack
@@ -92,7 +92,8 @@ def cmd_test(args: argparse.Namespace) -> int:
 def cmd_decide(args: argparse.Namespace) -> int:
     from mendari.core.phi import phi_policy
 
-    # Recorded under the deployment's PHI mode, as the server records it (checked first).
+    # Recorded under the PHI mode set here (checked first). A database a protected mode kept
+    # refuses an input in plaintext, so a run without the deployment's settings cannot add one.
     store = AuditStore(args.db, phi=phi_policy()) if args.db else None
     held = None
     if store is not None:  # recorded in a deployment's trail: its holds apply here too
@@ -1007,16 +1008,40 @@ def cmd_monitor(args: argparse.Namespace) -> int:
 
 def cmd_phi_purge(args: argparse.Namespace) -> int:
     from mendari.core.phi import phi_policy
+    from mendari.settings import MAX_RETENTION_DAYS, retention_days
 
-    days = args.days or int(os.environ.get("MENDARI_RETENTION_DAYS", "0") or 0)
-    if days < 1:
-        raise MendariError("give --days or set MENDARI_RETENTION_DAYS")
-    store = AuditStore(args.db, phi=phi_policy())
-    purged, erased = store.purge_inputs(days), store.purge_notes(days)
+    days = args.days if args.days is not None else retention_days()
+    if not 0 <= days <= MAX_RETENTION_DAYS:
+        raise MendariError(f"--days is a number of days, 0 to {MAX_RETENTION_DAYS}")
+    if days == 0 and not args.yes:
+        raise MendariError("--days 0 deletes every kept input and erases every note: add --yes")
+    summary = AuditStore(args.db, phi=phi_policy()).purge(days, source="command")
     print(
-        f"{purged} stored input(s) deleted and {erased} note(s) erased, older than {days} days "
-        "(decisions and chain kept)"
+        f"{summary['inputs']} stored input(s) deleted and {summary['notes']} note(s) erased, "
+        f"older than {days} days (decisions and chain kept)"
     )
+    return 0
+
+
+def cmd_phi_erase(args: argparse.Namespace) -> int:
+    from mendari.core.phi import phi_policy
+
+    if not SYSTEM_ID.fullmatch(args.by):
+        raise MendariError("--by is an identifier, such as an email address")
+    erased = AuditStore(args.db, phi=phi_policy()).erase_input(
+        args.decision, erased_by=args.by, reason=args.reason
+    )
+    kept = ["its input"] if erased["input"] else []
+    kept += [f"{len(erased['notes'])} note(s)"] if erased["notes"] else []
+    print(
+        f"decision {args.decision}: {' and '.join(kept)} erased; backups, the database's "
+        "history and earlier exports still hold them"
+    )
+    if erased["still_in_chain"]:
+        print(
+            "its chained record or events still hold input, evidence or note text: only "
+            "retiring the database removes them (docs/deploying-with-phi.md)"
+        )
     return 0
 
 
@@ -1593,8 +1618,23 @@ def build_parser() -> argparse.ArgumentParser:
         "purge", help="retention: delete kept inputs and erase notes older than N days"
     )
     purge.add_argument("--db", default="var/mendari.db", help="SQLite path or postgresql:// URL")
-    purge.add_argument("--days", type=int, help="default: $MENDARI_RETENTION_DAYS")
+    purge.add_argument(
+        "--days", type=int, help="default: $MENDARI_RETENTION_DAYS, else 30; 0: everything"
+    )
+    purge.add_argument("--yes", action="store_true", help="confirm --days 0")
     purge.set_defaults(handler=cmd_phi_purge)
+    phi_erase = phi_cmd.add_parser(
+        "erase", help="erase one decision's kept input, evidence and notes, on request"
+    )
+    phi_erase.add_argument(
+        "--db", default="var/mendari.db", help="SQLite path or postgresql:// URL"
+    )
+    phi_erase.add_argument("--decision", required=True, help="the decision's id")
+    phi_erase.add_argument("--reason", required=True, choices=["request", "error"])
+    phi_erase.add_argument(
+        "--by", required=True, help="who erases: an identifier, such as an email"
+    )
+    phi_erase.set_defaults(handler=cmd_phi_erase)
 
     notes_cmd = sub.add_parser("notes", help="review, feedback and payer notes").add_subparsers(
         dest="notes_command", required=True
