@@ -86,7 +86,8 @@ def stopped_for_a_person(result: Any) -> bool:
 
 
 def test_a_community_packs_schema_patterns_stop_at_the_budget(tmp_path: Path) -> None:
-    """Before, a schema that ran out refused the (valid) input: BLOCK, final, never reviewed."""
+    """The input fails the first patterns (no `0` in it): those errors refuse it, and the rest
+    are not searched once the budget is spent."""
 
     def slow_schema(schema: dict[str, Any]) -> None:
         long_message(schema)
@@ -94,7 +95,9 @@ def test_a_community_packs_schema_patterns_stop_at_the_budget(tmp_path: Path) ->
 
     pack = load_pack(sorter(tmp_path, schema=slow_schema))
     result, took = timed(pack, {"message": EMOJI})
-    assert took < BOUND_S and stopped_for_a_person(result)
+    assert took < BOUND_S and result.outcome is Outcome.BLOCK
+    assert 0 < len(result.reasons) < len(SLOW)
+    assert all("does not match the pattern" in reason for reason in result.reasons)
 
 
 def test_a_schema_that_fans_out_without_patterns_stops_at_the_budget(tmp_path: Path) -> None:
@@ -193,3 +196,128 @@ def test_the_budget_is_spent_once_and_restored() -> None:
         with pytest.raises(patterns.OutOfTime):
             patterns.check_time()
     patterns.check_time()
+
+
+def fan_out(depth: int) -> dict[str, Any]:
+    """`$defs/t{i}` is allOf two `$ref`s to `t{i+1}`: the leaf applies 2**depth times."""
+    defs = {
+        f"t{i}": {"allOf": [{"$ref": f"#/$defs/t{i + 1}"}, {"$ref": f"#/$defs/t{i + 1}"}]}
+        for i in range(depth)
+    }
+    return defs | {f"t{depth}": {"minLength": 1}}
+
+
+@pytest.mark.parametrize("keyword", ["unevaluatedProperties", "unevaluatedItems"])
+def test_keywords_jsonschema_walks_on_its_own_are_refused(tmp_path: Path, keyword: str) -> None:
+    """jsonschema walks the schema for them outside any keyword: 43 s for a 53-byte input."""
+
+    def walked(schema: dict[str, Any]) -> None:
+        schema["properties"]["extra"] = {keyword: False, "$ref": "#/$defs/t0"}
+        schema["$defs"] = fan_out(20)
+
+    with pytest.raises(PackValidationError) as error:
+        load_pack(sorter(tmp_path, schema=walked))
+    assert any(f"may not use {keyword}" in problem for problem in error.value.problems)
+
+
+def test_a_property_named_like_a_refused_keyword_is_allowed(tmp_path: Path) -> None:
+    def named(schema: dict[str, Any]) -> None:
+        schema["properties"]["uniqueItems"] = {"type": "string", "enum": [{"uniqueItems": 1}]}
+
+    assert load_pack(sorter(tmp_path, schema=named)).community
+
+
+def test_a_community_packs_input_holds_a_bounded_number_of_values(tmp_path: Path) -> None:
+    """Its schema applies to every value: a subschema with no keyword on 2 million items took
+    15.7 s before (the budget never checked)."""
+
+    def many(schema: dict[str, Any]) -> None:
+        schema["properties"]["xs"] = {"type": "array", "items": {"x-note": 1}}
+
+    pack = load_pack(sorter(tmp_path, schema=many))
+    result, took = timed(pack, {"message": "my bill", "xs": [1] * 2_000_000})
+    assert took < BOUND_S and result.outcome is Outcome.BLOCK  # refused before any keyword
+    assert result.reasons == (
+        "input rejected: (root): more than 10,000 values, the most a community pack reads",
+    )
+    assert timed(pack, {"message": "my bill", "xs": [1] * 9_000})[0].outcome is not Outcome.BLOCK
+
+
+def test_a_community_packs_input_is_nested_at_most_32_deep(tmp_path: Path) -> None:
+    """Before, 200 levels crashed the check (RecursionError, a 500)."""
+
+    def nested(schema: dict[str, Any]) -> None:
+        schema["properties"]["tree"] = {"$ref": "#/$defs/node"}
+        node = {"type": "object", "properties": {"n": {"$ref": "#/$defs/node"}}}
+        schema["$defs"] = {"node": node}
+
+    deep: dict[str, Any] = {}
+    for _ in range(200):
+        deep = {"n": deep}
+    result = Decision(load_pack(sorter(tmp_path, schema=nested))).decide(
+        {"message": "my bill", "tree": deep}
+    )
+    assert result.reasons == (
+        "input rejected: (root): nested more than 32 deep, the most a community pack reads",
+    )
+
+
+def test_a_ref_to_the_root_keeps_the_community_validator(tmp_path: Path) -> None:
+    """jsonschema picks a validator by the schema's `$schema`: before, `$ref: "#"` brought back
+    its own one, with patterns on `re` and no budget."""
+
+    def to_root(schema: dict[str, Any]) -> None:
+        schema["properties"]["child"] = {"$ref": "#"}
+
+    decision = Decision(load_pack(sorter(tmp_path, schema=to_root)))
+    validator = decision._validator
+    assert isinstance(validator.schema, dict) and "$schema" not in validator.schema
+    assert type(validator.evolve(schema=validator.schema)) is type(validator)
+
+
+def test_a_number_past_checking_is_refused_not_a_crash(tmp_path: Path) -> None:
+    """For every pack: `multipleOf: 0.01` on a 4,000-digit integer raised OverflowError."""
+
+    def money(schema: dict[str, Any]) -> None:
+        schema["properties"]["amount"] = {"type": "number", "multipleOf": 0.01}
+
+    for pack_id in ("community/visit-sorter", "someone/sorter"):
+        root = sorter(tmp_path / pack_id.split("/")[0], schema=money, pack_id=pack_id)
+        result = Decision(load_pack(root)).decide({"message": "my bill", "amount": 10**4000})
+        assert result.outcome is Outcome.BLOCK
+        refused = "input rejected: (root): the schema cannot check it (OverflowError)"
+        assert result.reasons == (refused,)
+
+
+def test_errors_found_before_the_budget_runs_out_still_refuse_the_input(tmp_path: Path) -> None:
+    def checked_first(schema: dict[str, Any]) -> None:
+        schema["properties"] = {
+            "a": {"type": "integer"},
+            **schema["properties"],
+            "note": {"type": "string", "$ref": "#/$defs/t0"},
+        }
+        schema["$defs"] = fan_out(24)
+
+    pack = load_pack(sorter(tmp_path, schema=checked_first))
+    result, took = timed(pack, {"a": "one", "message": "my bill", "note": "x"})
+    assert took < BOUND_S and result.outcome is Outcome.BLOCK
+    assert result.reasons == ("input rejected: a: must be of type integer",)
+
+
+def test_mendari_validate_checks_test_inputs_within_the_budget(tmp_path: Path) -> None:
+    from mendari.evals.pack_tests import input_problems
+
+    def noted(schema: dict[str, Any]) -> None:
+        schema["properties"]["note"] = {"type": "string", "$ref": "#/$defs/t0"}
+        schema["$defs"] = fan_out(24)
+
+    root = sorter(tmp_path, schema=noted)
+    cases = root / "tests" / "cases.yaml"
+    cases.write_text(
+        cases.read_text() + '- name: noted\n  input: {message: "my bill", note: x}\n'
+        "  expect: {recommendation: billing}\n"
+    )
+    started = time.monotonic()
+    found = input_problems(load_pack(root))
+    assert time.monotonic() - started < BOUND_S
+    assert any("checking its input against the schema stopped" in problem for problem in found)

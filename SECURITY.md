@@ -351,8 +351,8 @@ manifest says (threat model S13, T5, I12, D8, E10):
   evaluation request through the API included), and its pinned model and `max_tokens` give way
   to the deployment's.
 - **At most 10,000 characters of text**, alone or together (keys too, where its input schema
-  runs patterns on them: `patternProperties`, `propertyNames`): a longer input is refused before
-  any pattern runs.
+  runs patterns on them: `patternProperties`, `propertyNames`), and at most 10,000 values
+  nested at most 32 deep: a larger input is refused before any pattern or schema check runs.
 - **Patterns on RE2.** Its patterns (rules and input schema) run on RE2 (`google-re2`), which
   never backtracks, so no pattern can backtrack for seconds: their time grows with the text's
   length times the pattern's size, held to RE2's 8 MiB a pattern. A pattern RE2
@@ -367,7 +367,9 @@ manifest says (threat model S13, T5, I12, D8, E10):
   past it its rules or its schema check stop and the decision abstains, for a person, so one
   decision runs them for at most the budget plus one step under way (about 3.5 s of CPU on
   10,000 characters at worst; the shipped packs' patterns take milliseconds). Its schema may
-  not use `uniqueItems`, which compares every pair of items at once. Turning
+  not use `uniqueItems`, which compares every pair of items at once, nor
+  `unevaluatedProperties` or `unevaluatedItems`, which jsonschema works out by walking the
+  schema on its own, outside the budget. Turning
   community packs on for the hosted
   platform is the owner's step (`tasks/todo.md`, B9).
 - **At most risk level 1, and only a hash of each input** (`store_input: hash`), refused at load

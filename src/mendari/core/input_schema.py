@@ -20,14 +20,19 @@ retrieves nothing, so a reference can never leave the document even if a check w
 A community pack's schema patterns run on RE2, like its rules (`core/patterns.py`): its
 validator's `pattern`, `patternProperties` and `additionalProperties` (and so `propertyNames`,
 which checks keys with the same keywords) search with RE2, and every other pack's validator is
-jsonschema's own, unchanged. jsonschema's `unevaluatedProperties` searches `patternProperties`
-with `re` wherever it looks, so a community pack's schema may not hold both
-(`community_problems`).
+jsonschema's own, unchanged. Its validator also checks the decision's time budget each time it
+applies a schema (`patterns.check_time`), so a schema whose keywords apply many times over
+(`$ref`s that fan out, a subschema on many items) stops at the budget; it is built without the
+root's `$schema` (which may only name 2020-12), so jsonschema never swaps it for its own on a
+`$ref` back to the root. A community pack's schema may not use `unevaluatedProperties` or
+`unevaluatedItems` (jsonschema walks the schema for them on its own, outside the budget, and
+searches `patternProperties` with `re` there) nor `uniqueItems` (one application compares
+every pair of items) (`community_problems`).
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Iterator, Mapping
 from typing import Any
 
 from jsonschema import Draft202012Validator, ValidationError, validators
@@ -94,43 +99,48 @@ def problems(schema: Any) -> list[str]:
     return sorted(found)
 
 
+# Keywords a community pack's schema may not use, and why (`community_problems`).
+_REFUSED = {
+    "unevaluatedProperties": "jsonschema walks the schema for it on its own, outside the time "
+    "budget, and searches patternProperties with re there: use additionalProperties",
+    "unevaluatedItems": "jsonschema walks the schema for it on its own, outside the time budget: "
+    "use items",
+    "uniqueItems": "it compares every pair of items at once: accept repeated items, or check "
+    "them in a rule",
+}
+# Where a schema holds data or names rather than schemas: their keys are not keywords.
+_DATA = frozenset({"enum", "const", "examples", "default", "title", "description", "$comment"})
+_NAMED = frozenset({"properties", "patternProperties", "$defs", "definitions", "dependentSchemas"})
+
+
 def community_problems(schema: Any) -> list[str]:
     """Why a community pack's input schema cannot run as a community pack's must; [] if it can:
-    `unevaluatedProperties` with `patternProperties` anywhere in the document (jsonschema would
-    run those patterns on `re`, module docstring), or `uniqueItems` (one application compares
-    every pair of items, past any time budget)."""
-    found: dict[str, list[str]] = {
-        "unevaluatedProperties": [],
-        "patternProperties": [],
-        "uniqueItems": [],
-    }
+    a keyword of `_REFUSED` where a schema is (module docstring); `uniqueItems: false`, the
+    default, is allowed. Walked without recursion; a property named like a keyword is no
+    keyword."""
+    found: list[str] = []
     stack: list[tuple[str, Any]] = [("", schema)]
-    seen: set[int] = set()
     while stack:
         path, node = stack.pop()
-        if not isinstance(node, dict | list) or id(node) in seen:
+        if isinstance(node, list):
+            stack += [(f"{path}/{i}", item) for i, item in enumerate(node)]
             continue
-        seen.add(id(node))
-        items = node.items() if isinstance(node, dict) else enumerate(node)
-        for key, value in items:
+        if not isinstance(node, dict):
+            continue
+        for key, value in node.items():
             here = f"{path}/{key}" if path else str(key)
-            unique_off = key == "uniqueItems" and value is False  # the default: allowed
-            if isinstance(node, dict) and key in found and not unique_off:
-                found[str(key)].append(here)
-            stack.append((here, value))
-    unique = [
-        f"input schema: {here}: a community pack's schema may not use uniqueItems (it compares "
-        "every pair of items at once): accept repeated items, or check them in a rule"
-        for here in sorted(found["uniqueItems"])
-    ]
-    if not (found["unevaluatedProperties"] and found["patternProperties"]):
-        return unique
-    return unique + [
-        f"input schema: {here}: a community pack's schema may not use unevaluatedProperties "
-        "with patternProperties (jsonschema would run those patterns on re, not RE2): use "
-        "additionalProperties"
-        for here in sorted(found["unevaluatedProperties"])
-    ]
+            if key in _REFUSED and not (key == "uniqueItems" and value is False):
+                found.append(
+                    f"input schema: {here}: a community pack's schema may not use {key} "
+                    f"({_REFUSED[key]})"
+                )
+            if key in _DATA:
+                continue
+            if key in _NAMED and isinstance(value, dict):
+                stack += [(f"{here}/{name}", sub) for name, sub in value.items()]
+            else:
+                stack.append((here, value))
+    return sorted(found)
 
 
 def validator(
@@ -141,6 +151,8 @@ def validator(
     patterns on RE2 (module docstring)."""
     cls = _Re2Validator if community else Draft202012Validator
     checker = cls.FORMAT_CHECKER if formats else None
+    if community and isinstance(schema, dict):  # never swapped for jsonschema's own (above)
+        schema = {key: value for key, value in schema.items() if key != "$schema"}
     return cls(schema, registry=Registry(), format_checker=checker)
 
 
@@ -199,29 +211,22 @@ def _additional_properties(
             )
 
 
-def _timed(keyword: Callable[..., Iterator[ValidationError] | None]) -> Callable[..., Any]:
-    """`keyword`, checking the decision's time budget (`patterns.check_time`) before it runs and
-    after each error it yields: a schema that applies its keywords many times over (`$ref`s
-    that fan out, an `enum` on many items) stops at the budget like the pack's patterns."""
-
-    def run(*args: Any) -> Iterator[ValidationError]:
-        patterns.check_time()
-        for error in keyword(*args) or ():
-            yield error
-            patterns.check_time()
-
-    return run
+def _applicable(schema: Any) -> Any:
+    """The keywords jsonschema applies for `schema`, once the decision's time budget is checked:
+    it asks each time it applies a schema, to an instance or a part of one."""
+    patterns.check_time()
+    return schema.items()
 
 
-_Re2Validator = validators.extend(
-    Draft202012Validator,
-    {
-        keyword: _timed(function)
-        for keyword, function in {
-            **Draft202012Validator.VALIDATORS,
-            "pattern": _pattern,
-            "patternProperties": _pattern_properties,
-            "additionalProperties": _additional_properties,
-        }.items()
+_Re2Validator = validators.create(
+    meta_schema=Draft202012Validator.META_SCHEMA,
+    validators={
+        **Draft202012Validator.VALIDATORS,
+        "pattern": _pattern,
+        "patternProperties": _pattern_properties,
+        "additionalProperties": _additional_properties,
     },
+    type_checker=Draft202012Validator.TYPE_CHECKER,
+    format_checker=Draft202012Validator.FORMAT_CHECKER,
+    applicable_validators=_applicable,
 )

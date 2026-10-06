@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any
 
 from mendari.core import input_schema
 from mendari.core.decision import Decision
 from mendari.core.pack import Pack, not_json
-from mendari.core.patterns import COMMUNITY_TIME_BUDGET_S
+from mendari.core.patterns import COMMUNITY_TIME_BUDGET_S, OutOfTime, time_budget
 from mendari.errors import PackValidationError
 
 
@@ -83,11 +84,13 @@ def input_problems(pack: Pack) -> list[str]:
     for number, case in enumerate(load_cases(pack), start=1):
         if (case.get("expect") or {}).get("outcome") == "BLOCK":
             continue  # a test of the input contract itself
-        for error in validator.iter_errors(case.get("input")):
-            problems.append(
-                f"{pack.manifest.tests} case {number} ({case.get('name', 'unnamed')}): "
-                f"input {error.message}"
-            )
+        where = f"{pack.manifest.tests} case {number} ({case.get('name', 'unnamed')})"
+        try:  # a community pack's schema runs within the time budget a decision gives it
+            with time_budget() if pack.community else nullcontext():
+                for error in validator.iter_errors(case.get("input")):
+                    problems.append(f"{where}: input {error.message}")
+        except OutOfTime as error:
+            problems.append(f"{where}: checking its input against the schema stopped: {error}")
     return problems
 
 

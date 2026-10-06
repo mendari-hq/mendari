@@ -18,7 +18,7 @@ from jsonschema import ValidationError
 
 from mendari.core import input_schema, tenancy
 from mendari.core.derive import complete_answers, explain
-from mendari.core.origin import MAX_COMMUNITY_TEXT_CHARS, long_text
+from mendari.core.origin import MAX_COMMUNITY_TEXT_CHARS, long_text, shape_problem
 from mendari.core.pack import Pack, load_pack
 from mendari.core.patterns import OutOfTime, search, time_budget
 from mendari.core.policy import GovernanceOverride, PolicyResult, apply_policy
@@ -257,7 +257,17 @@ class Decision:
         """Why the input fails the pack's input schema, at most ten reasons. Each names where
         and which rule of the schema, never the value: jsonschema's own messages quote the
         input, and reasons are stored in the audit trail and copied into the FHIR Task."""
-        errors = sorted(self._validator.iter_errors(inputs), key=lambda e: list(map(str, e.path)))
+        found: list[Any] = []
+        try:
+            for error in self._validator.iter_errors(inputs):
+                found.append(error)
+        except OutOfTime:
+            if not found:  # nothing wrong found yet: the pack's schema, not the input (decide)
+                raise
+        except (RecursionError, OverflowError) as error:  # nesting or a number past checking
+            if not found:
+                return [f"(root): the schema cannot check it ({type(error).__name__})"]
+        errors = sorted(found, key=lambda e: list(map(str, e.path)))
         community = self.pack.community
         return [f"{_where(error.path)}: {_schema_rule(error, community)}" for error in errors[:10]]
 
@@ -293,8 +303,15 @@ class Decision:
         # past it its schema check or its rules stop, and the decision abstains, for a person.
         with time_budget() if self.pack.community else nullcontext():
             community = self.pack.community
-            too_long = long_text(inputs, count_keys=self._count_keys) if community else None
-            if too_long is not None:
+            shape = shape_problem(inputs) if community else None
+            too_long = (
+                long_text(inputs, count_keys=self._count_keys)
+                if community and shape is None
+                else None
+            )
+            if shape is not None:
+                schema_problems = [f"(root): {shape}"]  # before the schema runs on every value
+            elif too_long is not None:
                 # Before the schema's patterns run too: a community pack's patterns run on
                 # texts this long, no longer (`core/origin.py`; its caps are measured on it).
                 schema_problems = [

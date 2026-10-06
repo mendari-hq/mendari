@@ -24,7 +24,7 @@ its manifest says:
 - it reads at most **10,000 characters** of text in all (its texts, each and all together, and
   its keys too where its input schema runs patterns on them, with `patternProperties` or
   `propertyNames`; a longer input is refused before any pattern runs, and typo correction never
-  makes a text longer than that);
+  makes a text longer than that), and at most **10,000 values**, nested at most **32** deep;
 - its settings do not multiply its patterns' work: each field is named once in a
   `text_fields` (a provider's or a question's), `negation_window` is at most **200** characters
   with at most **50** `negation_cues`, its input schema runs at most **50** patterns on any one
@@ -44,8 +44,9 @@ its manifest says:
   person (the error `time_budget`; `mendari test` says so). Ordinary packs take milliseconds;
   if your tests run out of time, shorten the long counts (`.{0,999}`) and classes repeated many
   times;
-- its input schema does not set `unevaluatedProperties` together with `patternProperties`
-  anywhere (jsonschema would run those patterns on `re`): use `additionalProperties`; nor
+- its input schema does not use `unevaluatedProperties` or `unevaluatedItems` (jsonschema
+  walks the schema for them on its own, outside the time budget, and searches
+  `patternProperties` with `re` there): use `additionalProperties` and `items`; nor
   `uniqueItems` (it compares every pair of items at once): accept repeated items, or check
   them in a rule;
 - its FHIR systems (a `task.performer_system` in `fhir/mapping.yaml`) live under its own url,

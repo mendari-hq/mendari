@@ -189,9 +189,8 @@ B6/B7 → B8 → B9 → B10).
     pack's patterns share one second per decision (`patterns.time_budget`, set by
     `Decision.decide`): checked before each RE2 search, at each match and at each word typo
     correction looks at; past it the rules fail with `time_budget` (the decision abstains, for a
-    person) or the schema check stops (the input is refused). One decision runs a community
-    pack's patterns for at most the budget plus one search under way (about a second at worst).
-    `tests/test_community_budget.py`; docs say so (caps.py, ADR-0007, SECURITY.md, D8, guide).
+    person) or the schema check stops. Superseded by the next two items (CPU time, every schema
+    keyword, abstain, about 3.5 s of CPU at worst). `tests/test_community_budget.py`.
   - [x] The budget's focused check (8 findings): the budget is the decision thread's CPU time
     (`time.thread_time`), so a model's latency or a busy server no longer spends it; every
     keyword of a community pack's schema checks it (a `$ref` fan-out with no pattern took 53 s,
@@ -200,6 +199,17 @@ B6/B7 → B8 → B9 → B10).
     test` and `community-check` print provider errors and say when a case ran out of time; the
     bound is stated as measured (one search about 2.5 s, so about 3.5 s of CPU at worst); the
     guide no longer says nothing times patterns.
+  - [x] The fixes' focused check (12 findings): the budget is checked at every schema jsonschema
+    applies (a subschema with no keyword on many items, 15.7 s, never checked before), not per
+    keyword (fewer frames: 200-deep input crashed); `unevaluatedProperties` and
+    `unevaluatedItems` refused (jsonschema walks the schema for them outside any keyword: 43 s);
+    the community validator keeps its class on a `$ref` back to the root (jsonschema picked its
+    own by `$schema`, patterns on `re`); an input holds at most 10,000 values nested at most 32
+    deep; a schema that cannot check an input (OverflowError, RecursionError) refuses it, for
+    every pack, instead of a 500; errors found before the budget runs out still refuse the
+    input; `mendari validate` checks test inputs within the budget; the refusals look only at
+    schema positions (a property named `uniqueItems` is fine); messages say "patterns and schema
+    checks"; the spec states the budget.
 - [ ] **B9 (owner, steps below)** `MENDARI_COMMUNITY_PACKS=on` in Vercel Production
   only; on the owner's own branch preview (never a fork's), check that `community-packs/`
   reaches the function bundle.

@@ -301,8 +301,11 @@ are written the same way but run on RE2, which never backtracks, rewritten to me
 mean in `re` (what still differs is listed in `core/re2_syntax.py`); a community pack holding
 a pattern RE2 cannot run (a lookahead or lookbehind, a back reference, a conditional or atomic
 group, a possessive quantifier, or one too large once compiled) is invalid, and so is an input
-schema that sets `unevaluatedProperties` together with `patternProperties` anywhere (jsonschema
-would run those patterns on `re`; `additionalProperties` runs them on RE2), or that uses `uniqueItems`. So is one whose
+schema that uses `unevaluatedProperties` or `unevaluatedItems` (jsonschema walks the schema for
+them on its own, and searches `patternProperties` with `re` there; `additionalProperties` and
+`items` do the same work on RE2) or `uniqueItems`. At run time a community pack's patterns and
+schema checks share a time budget of one second of CPU per decision: past it the decision
+abstains with the error `time_budget`, for a person. So is one whose
 settings multiply its patterns' work: a field named twice in a `text_fields` (a provider's or a
 question's), a `negation_window` over 200 characters or more than 50 `negation_cues`, an input
 schema that can run more than 50 patterns on one value or key (through `$ref`, `allOf` and the

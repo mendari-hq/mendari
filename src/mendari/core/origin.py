@@ -44,6 +44,10 @@ COMMUNITY_URL = "https://mendari.co/packs/community/"
 # in `core/caps.py` are measured on texts this long). A longer one is refused before any pattern
 # runs.
 MAX_COMMUNITY_TEXT_CHARS = 10_000
+# The most values (texts, numbers, objects, lists...) and the deepest nesting a community pack
+# reads in one input: its schema applies its keywords to each value, at every depth.
+MAX_COMMUNITY_VALUES = 10_000
+MAX_COMMUNITY_DEPTH = 32
 COMMUNITY_NAME = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 MAX_COMMUNITY_RISK = RiskLevel.CLINICAL_INFORMATION
 # The provider types that decide on this machine, without a call anywhere, and the composites
@@ -118,6 +122,27 @@ def rule_problems(manifest: PackManifest) -> list[str]:
         for rule in manifest.policy.rules
         if rule.outcome is Outcome.BLOCK
     ]
+
+
+def shape_problem(value: Any) -> str | None:
+    """Why an input is too large in shape for a community pack, or None: more than
+    `MAX_COMMUNITY_VALUES` values, or nested deeper than `MAX_COMMUNITY_DEPTH` (its schema is
+    applied to every value, and jsonschema recurses into every level). Walked without
+    recursion, stopping at the first one past either limit."""
+    stack: list[tuple[Any, int]] = [(value, 1)]
+    count = 0
+    while stack:
+        item, depth = stack.pop()
+        count += 1
+        if count > MAX_COMMUNITY_VALUES:
+            return f"more than {MAX_COMMUNITY_VALUES:,} values, the most a community pack reads"
+        if depth > MAX_COMMUNITY_DEPTH:
+            return f"nested more than {MAX_COMMUNITY_DEPTH} deep, the most a community pack reads"
+        if isinstance(item, Mapping):
+            stack += [(child, depth + 1) for child in item.values()]
+        elif isinstance(item, list | tuple):
+            stack += [(child, depth + 1) for child in item]
+    return None
 
 
 def long_text(

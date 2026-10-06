@@ -79,7 +79,9 @@ def check_time() -> None:
     """Raise `OutOfTime` when the current decision's budget is spent (no budget, no limit)."""
     deadline = _DEADLINE.get()
     if deadline is not None and time.thread_time() > deadline:
-        raise OutOfTime(f"its patterns took more than {COMMUNITY_TIME_BUDGET_S:g} s")
+        raise OutOfTime(
+            f"its patterns and schema checks took more than {COMMUNITY_TIME_BUDGET_S:g} s"
+        )
 
 
 # RE2's memory for one pattern (its default): its compiled program and the cache of the
