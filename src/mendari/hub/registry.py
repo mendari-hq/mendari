@@ -39,7 +39,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field, ValidationError
-from pydantic_core import to_json
+from pydantic_core import from_json, to_json
 
 from mendari import __version__
 from mendari.core.db import Backend, Session, connect
@@ -297,9 +297,19 @@ class RegistryStore:
     ) -> dict[str, Any]:
         """A site's evaluation of a published version (`mendari.site-report/1`, already
         validated: nothing in it but names and numbers)."""
-        self.version(namespace, name, version)
+        found = self.version(namespace, name, version)
         if (report.pack.id, report.pack.version) != (f"{namespace}/{name}", version):
             raise HubError("the report is about another pack or version")
+        names = found.get("names")
+        if not isinstance(names, dict):
+            raise HubError(
+                f"{namespace}/{name}@{version} was published before site reports were checked "
+                "against their pack; publish a new version to receive them",
+                409,
+            )
+        problem = _unknown_names(report, names, found.get("primary"))
+        if problem:
+            raise HubError(f"the report names {problem} the pack does not have")
         shared = report.model_dump(mode="json")
         report_id = secrets.token_hex(8)
         with self._db.session(exclusive=True) as db:
@@ -378,6 +388,32 @@ def _version_row(row: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _unknown_names(report: SiteReport, names: Mapping[str, Any], primary: Any) -> str | None:
+    """What in a site's report the published pack does not name (a kind of name, never the
+    name itself: it would be echoed to whoever sent it), or None."""
+    questions: Mapping[str, list[str]] = names.get("questions") or {}
+    slots: Mapping[str, Mapping[str, str]] = names.get("slots") or {}
+    if report.primary != primary:
+        return "a primary question"
+    for key, metrics in report.questions.items():
+        labels = questions.get(key)
+        if labels is None:
+            return "a question"
+        if not set(metrics.per_label) <= set(labels):
+            return "a label"
+        if not set(metrics.confusion) <= set(labels):
+            return "a label"
+        if any(not set(row) <= {*labels, "none"} for row in metrics.confusion.values()):
+            return "a label"
+    for item in report.decisions.critical:
+        if item.label not in questions.get(item.question, ()):
+            return "a critical label"
+    for slot, provider in report.providers.items():
+        if slots.get(slot, {}).get(provider.variant) != provider.type:
+            return "a provider slot or variant"
+    return None
+
+
 def describe(pack: Pack, verified: archive.Verified) -> dict[str, Any]:
     """What the registry shows and searches: from the pack itself, never from the uploader."""
     m = pack.manifest
@@ -396,6 +432,15 @@ def describe(pack: Pack, verified: archive.Verified) -> dict[str, Any]:
         "risk": {"level": int(m.risk.level), "category": m.risk.category},
         "questions": sorted(m.questions),
         "primary": m.policy.primary,
+        # The only names a site's report may use (`add_report`): questions and their labels,
+        # and provider slots with their variants and types.
+        "names": {
+            "questions": {key: m.labels(key) for key in m.questions},
+            "slots": {
+                slot: {variant: v.type for variant, v in provider.variants.items()}
+                for slot, provider in m.providers.items()
+            },
+        },
         "standards": sorted(
             [
                 *(["FHIR R4"] if m.inputs.fhir else []),
@@ -647,8 +692,15 @@ def create_registry_app(
             body += chunk
             if len(body) > MAX_REPORT_BYTES:
                 raise HTTPException(413, "the report is too large")
+        # Parsed first, then checked: JSON-mode validation of a long list costs far more memory
+        # than its bytes (a 1.8 MB body near 900 MB).
         try:
-            shared = ReportRequest.model_validate_json(bytes(body))
+            parsed = from_json(bytes(body), allow_inf_nan=False)
+        except ValueError:
+            problem = {"type": "json_invalid", "loc": ("body",), "msg": "the body is not JSON"}
+            raise RequestValidationError([problem]) from None
+        try:
+            shared = ReportRequest.model_validate(parsed)
         except ValidationError as error:
             raise RequestValidationError(error.errors()) from None
         return store.add_report(namespace, name, version, shared.site, submitter, shared.report)

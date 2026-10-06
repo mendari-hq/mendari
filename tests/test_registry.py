@@ -235,6 +235,25 @@ def test_a_site_report_is_checked_before_anything_is_stored(
         )
         assert answer.status_code == 422, answer.text
         assert "Jane" not in answer.text and "input" not in answer.json()["detail"][0]
+    # Names the pack does not have, though shaped like names: refused, and never echoed.
+    renamed = json.loads(json.dumps(report))
+    renamed["questions"]["next_step"]["per_label"]["Jane_Doe_MRN00123"] = renamed["questions"][
+        "next_step"
+    ]["per_label"].pop("schedule")
+    errors = {**report, "errors": {"Jane_Doe.chest-pain": 1}}
+    extra = {**report, "Jane_Doe chest pain": 1}
+    for body in (renamed, extra):
+        answer = registry.client.post(
+            path, json={"site": "Site A", "report": body}, headers=publisher
+        )
+        assert answer.status_code == 422, answer.text
+        assert "Jane" not in answer.text
+    stored_code = registry.client.post(
+        path, json={"site": "Site A", "report": errors}, headers=publisher
+    )
+    assert stored_code.status_code == 201  # error codes are Mendari's, checked by shape only
+    with RegistryStore(db_target) as store, store._db.session(exclusive=True) as db:
+        db.all("DELETE FROM hub_reports")
     # Not JSON a parser should accept (NaN), and a body over the cap: refused, never a 500.
     nan = b'{"site": "Site A", "report": {"dataset": {"n": NaN}}}'
     assert registry.client.post(path, content=nan, headers=publisher).status_code == 422

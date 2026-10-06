@@ -40,7 +40,11 @@ behaviour.
   or a date would pass any pattern; they return when packs declare each subgroup's values);
   numbers rounded and calibration bins under 10 refused on both sides. The review's fixes: the
   registry checks the token before reading at most 2 MB, never echoes what it refuses (NaN in a
-  body was a 500), and leaves out stored rows that do not validate. `mendari eval --share-out
+  body was a 500), and leaves out stored rows that do not validate. The focused check's three
+  lows: the body is parsed, then validated (JSON-mode validation of a long list used ~900 MB for
+  1.8 MB); error locations show only field names and positions; question, label, slot and
+  variant names must be the published pack's (`describe` records them at publish; a version
+  published before is refused with 409). `mendari eval --share-out
   FILE` writes the payload to read first. The registry lists reports as `verified: false` and
   the Hub no longer shows them: any publisher token can still submit under any site name.
   Left for LP-22 (with site signatures): counts in, rates out (the registry computing every

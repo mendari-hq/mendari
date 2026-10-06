@@ -188,13 +188,18 @@ def test_a_report_that_cannot_be_shared_names_fields_never_values() -> None:
     report["providers"]["triage_screen"]["model"] = FREE_TEXT
     with pytest.raises(MendariError) as error:
         shareable(report)
-    assert "providers.triage_screen.model" in str(error.value)
+    assert "providers.<key>.model" in str(error.value)
     assert "Jane" not in str(error.value)
     keyed = copy.deepcopy(BENCHMARK)
     keyed["questions"][FREE_TEXT] = keyed["questions"]["next_step"]
     with pytest.raises(MendariError) as error:
         shareable(keyed)
     assert "questions.<key>" in str(error.value) and "Jane" not in str(error.value)
+    coded = copy.deepcopy(BENCHMARK)
+    coded["errors"] = {FREE_TEXT: "not a count"}
+    with pytest.raises(MendariError) as error:
+        shareable(coded)
+    assert "errors.<key>" in str(error.value) and "Jane" not in str(error.value)
 
 
 def test_the_summary_names_the_numbers_a_comparison_shows() -> None:

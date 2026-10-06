@@ -236,17 +236,37 @@ def site_report(report: Mapping[str, Any], *, min_group: int = MIN_GROUP) -> Sit
     )
 
 
+def _field_names() -> frozenset[str]:
+    models: list[type[BaseModel]] = [SiteReport]
+    names: set[str] = {"report", "site", "body", "query", "path"}
+    while models:
+        model = models.pop()
+        for name, field in model.model_fields.items():
+            names.add(name)
+            for kind in _models_in(field.annotation):
+                if kind.__name__ not in {m.__name__ for m in models}:
+                    models.append(kind)
+    return frozenset(names)
+
+
+def _models_in(annotation: Any) -> list[type[BaseModel]]:
+    found: list[type[BaseModel]] = []
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        found.append(annotation)
+    for argument in getattr(annotation, "__args__", ()) or ():
+        found += _models_in(argument)
+    return found
+
+
 def where(loc: tuple[Any, ...] | list[Any]) -> str:
-    """A validation error's location without the data in it: a mapping key is data (a label a
-    site's dataset holds), so it reads `<key>`."""
-    parts = list(loc)
-    shown = []
-    for index, part in enumerate(parts):
-        if part == "[key]":
-            continue
-        shown.append(
-            "<key>" if index + 1 < len(parts) and parts[index + 1] == "[key]" else str(part)
-        )
+    """A validation error's location without the data in it: list positions and the share
+    models' field names are shown, anything else (a mapping key, an unknown field) is `<key>`."""
+    known = _FIELD_NAMES
+    shown = [
+        str(part) if isinstance(part, int) or part in known else "<key>"
+        for part in loc
+        if part != "[key]"
+    ]
     return ".".join(shown)
 
 
@@ -277,3 +297,6 @@ def summary(report: Mapping[str, Any]) -> dict[str, Any]:
         "false_automation_rate": (decisions.get("automation") or {}).get("false_automation_rate"),
         "ece": (question.get("calibration") or {}).get("ece"),
     }
+
+
+_FIELD_NAMES = _field_names()
