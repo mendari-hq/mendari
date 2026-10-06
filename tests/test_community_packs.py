@@ -389,8 +389,9 @@ def test_a_community_pack_never_blocks_on_its_own(tmp_path: Path) -> None:
     assert "`BLOCK`" not in card.split("## Decision policy")[1].split("## Providers")[0]
 
 
-def test_a_community_pack_reads_texts_no_longer_than_its_patterns_were_timed_on() -> None:
-    """Before any pattern runs (the schema's included): `re` has no time limit."""
+def test_a_community_pack_reads_texts_no_longer_than_10000_characters() -> None:
+    """Before any pattern runs (the schema's included): RE2's time grows with the text's length,
+    and the caps on the patterns' work are measured on 10,000 characters."""
     long = {"message": "x" * 10_001}
     result = Decision(load_pack(SORTER)).decide(long)
     assert result.outcome is Outcome.BLOCK
@@ -418,22 +419,19 @@ def test_a_community_pack_holds_its_texts_together_to_that_length() -> None:
 
 def test_a_community_pack_counts_keys_with_its_texts() -> None:
     """The schema's patterns run on every key (`patternProperties`, `propertyNames`): before,
-    keys were held to the length one by one, so one input ran them on many long keys."""
-    keys = {"k" * 9_000 + str(i): 1 for i in range(50)}
-    result = Decision(load_pack(SORTER)).decide({"message": "hello", "extra": keys})
-    assert result.reasons == (
-        "input rejected: the input's texts together: longer than 10,000 characters, the most a "
-        "community pack reads",
-    )
+    keys were held to the length one by one, so one input ran them on many long keys. Keys
+    count only where the schema runs patterns on them (tests/test_community_caps.py)."""
     assert long_text({"k" * 4_999: "v" * 5_000}) is None  # with a separator between
     assert long_text({"k" * 4_999: "v" * 5_001}) == "the input's texts together"
+    assert long_text({"k" * 4_999: "v" * 5_001}, count_keys=False) is None
 
 
 def test_a_community_packs_typo_corrections_never_lengthen_its_text_past_the_length(
     tmp_path: Path,
 ) -> None:
     """A correction can add a character ("invoce" is "invoice"): before, a 10,000-character
-    text grew past the length the pack's patterns were timed on. Other packs correct all."""
+    text grew past the length the caps on the pack's patterns' work are measured on. Other
+    packs correct all."""
     community = _copy(tmp_path / "a", "sorter")
     outside = _copy(tmp_path / "b", "sorter", _set(id="someone/sorter"))
     for root in (community, outside):

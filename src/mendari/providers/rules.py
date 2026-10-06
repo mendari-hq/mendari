@@ -19,7 +19,9 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from mendari.core.origin import MAX_COMMUNITY_TEXT_CHARS
-from mendari.errors import PackValidationError
+from mendari.core.patterns import RULES_FLAGS, Matcher, OutOfTime, check_time
+from mendari.core.patterns import compile as compile_pattern
+from mendari.errors import PackValidationError, ProviderError
 from mendari.providers.base import Provider, ProviderOutput, fingerprint, softmax, text_from
 
 _SCOPE_BREAK = re.compile(r"[.!?;\n]|\b(?:but|however|pero)\b", re.IGNORECASE)
@@ -74,7 +76,13 @@ class RulesProvider(Provider):
             raise PackValidationError(self.pack.id, [f"{relative}: {error}"]) from None
         self.info = replace(self.info, model=f"rules@{fingerprint(self.pack, relative)}")
 
-        problems = []
+        # A community pack's caps (`core/caps.py`; `load_pack` checks them too, as written),
+        # imported only for one.
+        problems: list[str] = []
+        if self.pack.community:
+            from mendari.core.caps import rules_problems
+
+            problems = rules_problems(relative, self.rules.model_dump())
         for question in self.questions:
             spec = self.rules.questions.get(question)
             if spec is None:
@@ -87,16 +95,21 @@ class RulesProvider(Provider):
         if problems:
             raise PackValidationError(self.pack.id, problems)
 
-        flags = re.IGNORECASE
+        # The pack's own patterns, on its engine (`core/patterns.py`); the negation pattern
+        # below is Mendari's, built from escaped cues, and stays on `re`.
+        community = self.pack.community
         self._compiled = {
             question: {
-                label: [(p, re.compile(p.pattern, flags)) for p in patterns]
+                label: [
+                    (p, compile_pattern(p.pattern, RULES_FLAGS, community=community))
+                    for p in patterns
+                ]
                 for label, patterns in self.rules.questions[question].labels.items()
             }
             for question in self.questions
         }
         cues = "|".join(re.escape(cue) for cue in self.rules.negation_cues)
-        self._negation = re.compile(rf"\b(?:{cues})\b", flags) if cues else None
+        self._negation = re.compile(rf"\b(?:{cues})\b", re.IGNORECASE) if cues else None
         tolerance = self.rules.typo_tolerance
         self._typo_min = tolerance.min_length if tolerance else 0
         self._keywords = self._keyword_index(self._typo_min) if tolerance else {}
@@ -115,6 +128,12 @@ class RulesProvider(Provider):
         return {letter: tuple(group) for letter, group in index.items()}
 
     def answer(self, inputs: Mapping[str, Any]) -> ProviderOutput:
+        try:
+            return self._answer(inputs)
+        except OutOfTime as error:  # a community pack's patterns used this decision's budget
+            raise ProviderError("time_budget", str(error)) from None
+
+    def _answer(self, inputs: Mapping[str, Any]) -> ProviderOutput:
         texts: dict[tuple[str, ...], tuple[str, list[str]]] = {}
         answers = {}
         for question, compiled in self._compiled.items():
@@ -141,11 +160,15 @@ class RulesProvider(Provider):
         if not self._keywords:
             return text, []
         corrections: list[str] = []
-        # A community pack's patterns were timed on texts of at most this length
-        # (`core/origin.py`): a correction that would make the text longer is not made.
+        # A community pack's patterns run on texts of at most this length (`core/origin.py`;
+        # the caps on their work are measured on it): a correction that would make the text
+        # longer is not made.
         room = [MAX_COMMUNITY_TEXT_CHARS - len(text)] if self.pack.community else None
+        timed = self.pack.community  # each word is compared with many keywords
 
         def fix(match: re.Match[str]) -> str:
+            if timed:
+                check_time()
             word = match.group(0)
             lower = word.lower()
             candidates = self._keywords.get(lower[0], ())
@@ -163,7 +186,7 @@ class RulesProvider(Provider):
 
         return _WORD.sub(fix, text), corrections
 
-    def _matches(self, regex: re.Pattern[str], text: str, negatable: bool) -> bool:
+    def _matches(self, regex: Matcher, text: str, negatable: bool) -> bool:
         for match in regex.finditer(text):
             if not (negatable and self._negated(text, match.start())):
                 return True

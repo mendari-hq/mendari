@@ -8,6 +8,7 @@ import re
 import time
 import uuid
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from contextlib import nullcontext
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -17,8 +18,9 @@ from jsonschema import ValidationError
 
 from mendari.core import input_schema, tenancy
 from mendari.core.derive import complete_answers, explain
-from mendari.core.origin import MAX_COMMUNITY_TEXT_CHARS, long_text
+from mendari.core.origin import MAX_COMMUNITY_TEXT_CHARS, long_text, shape_problem
 from mendari.core.pack import Pack, load_pack
+from mendari.core.patterns import OutOfTime, budget_active, check_time, search, time_budget
 from mendari.core.policy import GovernanceOverride, PolicyResult, apply_policy
 from mendari.core.registry import resolve_pack
 from mendari.core.spec import Outcome, Priority
@@ -35,6 +37,8 @@ from mendari.settings import FhirValidation
 
 if TYPE_CHECKING:
     from mendari.core.audit import AuditStore
+
+MAX_SCHEMA_ERRORS = 100  # errors one check collects; ten become reasons
 
 
 @dataclass(frozen=True)
@@ -208,7 +212,14 @@ class Decision:
         if budget is not None:
             for provider in self.providers.values():
                 provider.use_budget(budget.acquire)
-        self._validator = input_schema.validator(pack.input_schema)
+        self._validator = input_schema.validator(pack.input_schema, community=pack.community)
+        # A community pack's input keys count toward its text only where its schema runs
+        # patterns on them; otherwise each is held to the length alone (`origin.long_text`).
+        self._count_keys = False
+        if pack.community:  # its caps, imported only for one
+            from mendari.core.caps import patterns_on_keys
+
+            self._count_keys = patterns_on_keys(pack.input_schema)
 
     @classmethod
     def from_hub(cls, ref: str, **kwargs: Any) -> Decision:
@@ -247,9 +258,57 @@ class Decision:
     def validate(self, inputs: Any) -> list[str]:
         """Why the input fails the pack's input schema, at most ten reasons. Each names where
         and which rule of the schema, never the value: jsonschema's own messages quote the
-        input, and reasons are stored in the audit trail and copied into the FHIR Task."""
-        errors = sorted(self._validator.iter_errors(inputs), key=lambda e: list(map(str, e.path)))
-        return [f"{_where(error.path)}: {_schema_rule(error)}" for error in errors[:10]]
+        input, and reasons are stored in the audit trail and copied into the FHIR Task.
+
+        A community pack's check holds to its input limits (`origin.shape_problem`) and to a
+        time budget: the decision's, or one of its own when called alone (`mendari omop`). It
+        checks the budget after each error and stops at `MAX_SCHEMA_ERRORS`. Inside a decision,
+        a budget spent before any error is found raises `OutOfTime` (the decision abstains);
+        alone, it is a reason."""
+        community = self.pack.community
+        if community and (shape := shape_problem(inputs)) is not None:
+            return [f"(root): {shape}"]
+        if community and (too_long := long_text(inputs, count_keys=self._count_keys)):
+            return [
+                f"{too_long}: longer than {MAX_COMMUNITY_TEXT_CHARS:,} characters, the most a "
+                "community pack reads"
+            ]
+        alone = community and not budget_active()
+        with time_budget() if alone else nullcontext():
+            found: list[Any] = []
+            try:
+                for error in self._validator.iter_errors(inputs):
+                    found.append(error)
+                    if community:
+                        check_time()
+                        if len(found) >= MAX_SCHEMA_ERRORS:
+                            break
+            except OutOfTime as stopped:
+                if not found:
+                    if alone:
+                        return [f"(root): checking it against the schema stopped: {stopped}"]
+                    raise  # the pack's schema, not the input: `decide` abstains
+            except (RecursionError, OverflowError):
+                if not found:
+                    return [
+                        "(root): the schema cannot check it: it is nested too deep or holds a "
+                        "number too large, or the schema refers to itself without end"
+                    ]
+            errors = sorted(found, key=lambda e: list(map(str, e.path)))
+            if not community:  # as it always was
+                return [f"{_where(error.path)}: {_schema_rule(error)}" for error in errors[:10]]
+            reasons: list[str] = []
+            for error in errors:
+                try:
+                    rule = _schema_rule(error, community)
+                except OutOfTime:  # wording it would search the schema's patterns again
+                    rule = "does not meet the schema"
+                reason = f"{_where(error.path)}: {rule}"
+                if reason not in reasons:  # one `required` yields an error per missing name
+                    reasons.append(reason)
+                if len(reasons) == 10:
+                    break
+            return reasons
 
     def decide(
         self,
@@ -273,55 +332,75 @@ class Decision:
         if governance is None and self.governance_source is not None:
             governance = self.governance_source(self.pack)
         over_quota: ProviderError | None = None
+        stopped: ProviderError | None = None  # a community pack's schema check used the budget
         if self.budget is not None:
             try:
                 self.budget.admit_decision()
             except ProviderError as error:
                 over_quota = error  # every provider fails with it, so nothing automates
-        too_long = long_text(inputs) if self.pack.community else None
-        if too_long is not None:
-            # Before the schema's patterns run too: a community pack's patterns are timed on
-            # texts this long, no longer (`core/origin.py`).
-            schema_problems = [
-                f"{too_long}: longer than {MAX_COMMUNITY_TEXT_CHARS:,} characters, the most a "
-                "community pack reads"
-            ]
-        else:
-            schema_problems = self.validate(inputs)
-        problems = [*rejected, *schema_problems]
-        if problems:
-            policy = PolicyResult(
-                outcome=Outcome.BLOCK,
-                recommendation=None,
-                priority=manifest.policy.default_priority,
-                reasons=tuple(f"input rejected: {problem}" for problem in problems),
+        # A community pack's patterns share one time budget in this decision (`core/patterns.py`):
+        # past it its schema check or its rules stop, and the decision abstains, for a person.
+        with time_budget() if self.pack.community else nullcontext():
+            community = self.pack.community
+            shape = shape_problem(inputs) if community else None
+            too_long = (
+                long_text(inputs, count_keys=self._count_keys)
+                if community and shape is None
+                else None
             )
-        else:
-            with batching(self.providers.values()):
-                for slot, provider in self.providers.items():
-                    try:
-                        if over_quota is not None:
-                            raise over_quota
-                        provider.preflight()
-                        output = provider.answer(inputs)
-                    except ProviderError as error:
-                        failed = dict.fromkeys(manifest.providers[slot].answers, error.code)
-                        failures.update(failed)
-                        continue
-                    answers.update(output.answers)
-                    failures.update(output.failures)
-                    tokens_in += output.input_tokens
-                    tokens_out += output.output_tokens
-                    if cost is not None:
-                        cost = None if output.cost_usd is None else cost + output.cost_usd
-            complete_answers(manifest, answers, failures)
-            variants = {slot: info.variant for slot, info in self.provider_info.items()}
-            policy = apply_policy(
-                manifest, answers, failures, governance, variants, community=self.pack.community
-            )
-            primary = manifest.questions[manifest.policy.primary]
-            if primary.derive is not None:
-                policy = replace(policy, reasons=(*policy.reasons, *explain(primary, answers)))
+            if shape is not None:
+                schema_problems = [f"(root): {shape}"]  # before the schema runs on every value
+            elif too_long is not None:
+                # Before the schema's patterns run too: a community pack's patterns run on
+                # texts this long, no longer (`core/origin.py`; its caps are measured on it).
+                schema_problems = [
+                    f"{too_long}: longer than {MAX_COMMUNITY_TEXT_CHARS:,} characters, the most a "
+                    "community pack reads"
+                ]
+            else:
+                try:
+                    schema_problems = self.validate(inputs)
+                except OutOfTime as error:
+                    # The pack's schema used the budget: not the input's fault, so no refusal.
+                    # Every slot fails as a provider that cannot answer does, for a person.
+                    schema_problems = []
+                    stopped = ProviderError("time_budget", f"its schema check stopped: {error}")
+            problems = [*rejected, *schema_problems]
+            if problems:
+                policy = PolicyResult(
+                    outcome=Outcome.BLOCK,
+                    recommendation=None,
+                    priority=manifest.policy.default_priority,
+                    reasons=tuple(f"input rejected: {problem}" for problem in problems),
+                )
+            else:
+                with batching(self.providers.values()):
+                    for slot, provider in self.providers.items():
+                        try:
+                            if over_quota is not None:
+                                raise over_quota
+                            if stopped is not None:
+                                raise stopped
+                            provider.preflight()
+                            output = provider.answer(inputs)
+                        except ProviderError as error:
+                            failed = dict.fromkeys(manifest.providers[slot].answers, error.code)
+                            failures.update(failed)
+                            continue
+                        answers.update(output.answers)
+                        failures.update(output.failures)
+                        tokens_in += output.input_tokens
+                        tokens_out += output.output_tokens
+                        if cost is not None:
+                            cost = None if output.cost_usd is None else cost + output.cost_usd
+                complete_answers(manifest, answers, failures)
+                variants = {slot: info.variant for slot, info in self.provider_info.items()}
+                policy = apply_policy(
+                    manifest, answers, failures, governance, variants, community=self.pack.community
+                )
+                primary = manifest.questions[manifest.policy.primary]
+                if primary.derive is not None:
+                    policy = replace(policy, reasons=(*policy.reasons, *explain(primary, answers)))
 
         # Keyed under the deployment's input hash key when it has one (`core/phi.py`).
         hashed = input_hash(inputs) if self.store is None else self.store.phi.input_hash(inputs)
@@ -413,15 +492,24 @@ def _where(path: Iterable[Any]) -> str:
     return "/".join(parts) or "(root)"
 
 
-def _schema_rule(error: ValidationError) -> str:
+def _short(name: str, limit: int = 40) -> str:
+    """A field name as a reason shows it: at most `limit` characters."""
+    return name if len(name) <= limit else name[: limit - 1] + "…"
+
+
+def _schema_rule(error: ValidationError, community: bool = False) -> str:
     """What the schema requires, in words built from the schema alone (`validator_value` is the
-    pack's own schema), never from the instance."""
+    pack's own schema), never from the instance. A community pack's patterns run on RE2
+    (`core/patterns.py`)."""
     keyword, expected = error.validator, error.validator_value
     present = error.instance if isinstance(error.instance, Mapping) else {}
     if keyword == "required":
         names = expected if isinstance(expected, list) else []
         missing = [str(name) for name in names if name not in present]
-        return f"{', '.join(missing) or 'a field'} is required"
+        if not community:  # as it always was
+            return f"{', '.join(missing) or 'a field'} is required"
+        more = f" and {len(missing) - 5} more" if len(missing) > 5 else ""
+        return f"{', '.join(map(_short, missing[:5])) or 'a field'}{more} is required"
     if keyword == "type":
         kinds = expected if isinstance(expected, list) else [expected]
         return f"must be of type {' or '.join(map(str, kinds))}"
@@ -450,7 +538,8 @@ def _schema_rule(error: ValidationError) -> str:
         extra = [
             str(key)
             for key in present
-            if key not in allowed and not any(re.search(p, str(key)) for p in patterns)
+            if key not in allowed
+            and not any(search(p, str(key), community=community) for p in patterns)
         ]
         named = [key for key in extra if _KEY.match(key)]
         unnamed = len(extra) - len(named)

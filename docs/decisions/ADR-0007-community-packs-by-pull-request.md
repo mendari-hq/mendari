@@ -45,19 +45,21 @@ The owner decided (2026-10-04):
   shown only as self-declared. A community pack never automates: the policy caps AUTO to
   HUMAN_REVIEW (ADR-0002: policy only lowers automation), and no policy rule of its own
   blocks (refused at load; a block is final at once, so no person would confirm it). It reads
-  at most 10,000 characters of text in all, the length its patterns are timed on.
+  at most 10,000 characters of text in all, the length the caps on its patterns' work are
+  measured on (RE2's time grows with it).
 - **Local providers only, unless the owner opts a pack in.** A community pack's default
   variants are local (`rules`, `criteria`, `dosing`, `naive_bayes`, or a composite of those);
   unscoped provider settings skip it, and only `community/<name>:slot=variant` runs it on
   something else. Its pinned `model` and `max_tokens` give way to the deployment's.
 - **Risk level at most 1**, and `audit.store_input: hash`, refused at load otherwise.
 - **The bar is the base branch's.** `mendari community-check` (the `pack-check` job, which runs
-  on every pull request so it can be a required check) enforces scope, identity, manifest policy, tests, evaluation floors (critical detection at
-  least 0.9, no critical case automated), no regression within a tolerance read from the base
-  branch (at most 0.05), a benchmark, card and model CI regenerates and compares, a pattern
-  check against slow regular expressions, size limits, version and CHANGELOG against the
-  digest, and PHI warnings. Its limits are constants in the checker, which a community pull
-  request may not change.
+  on every pull request so it can be a required check) enforces scope, identity, manifest
+  policy, tests, evaluation floors (critical detection at least 0.9, no critical case
+  automated), no regression within a tolerance read from the base branch (at most 0.05), a
+  benchmark, card and model CI regenerates and compares, a pattern check (every pattern
+  compiles on RE2, the engine community packs' patterns run on), size limits, version and
+  CHANGELOG against the digest, and PHI warnings. Its limits are constants in the checker,
+  which a community pull request may not change.
 - **DCO.** Every commit is signed off (`git commit -s`); there is no CLA.
 - **Governance.** The owner is the only merger, with a code owner's approval required. Each pack
   names its maintainers in `community-packs/MAINTAINERS.yaml`; a removed pack stays there as a
@@ -75,12 +77,24 @@ The owner decided (2026-10-04):
 - The risk level is still self-declared: the reviewer is the backstop for under-declaring, and
   the level cap keeps level 2 and above (and the FDA clinical decision support question) off
   this route until a clinical reviewer group exists.
-- A pattern that backtracks badly can still slip past the static check and the probe; Python's
-  `re` has no time limit. Three checks of these checks each found new ways past them, and of
-  the look-alike name check too. So (decided 2026-10-05) community packs stay off until their
-  patterns run on RE2, which never backtracks, and look-alike names become a warning for the
-  owner's review (`tasks/todo.md`, B11). Until then removal is the remedy: revert the merge,
-  or turn the switch off.
+- A community pack's patterns cannot backtrack, by construction. A static check and a timed
+  probe of each pattern came first; three checks of them each found new slow patterns that
+  passed, and Python's `re` has no time limit. So (decided 2026-10-05, built as B11) a
+  community pack's patterns run on RE2, which never backtracks: a pattern's time grows with
+  the text's length (at most 10,000 characters) times its size. A pattern RE2 cannot run is
+  refused at load and in CI, the settings that multiply the work are capped at load
+  (`core/caps.py`), including the size of the patterns one input runs (at most 3,000
+  together), and the static check and the probe are gone. The caps alone left a crafted pack
+  seconds of work on adversarial text (5.5 s, 17.5 s with negated patterns), so a community
+  pack's patterns and schema checks also share a time budget of one second of CPU per decision:
+  past it its rules or its schema check stop and the decision abstains, for a person, so a
+  decision runs them for at most the budget plus one step under way (about 3.5 s of CPU at
+  worst; waiting for a model or for other requests costs nothing). A pack that runs out of time
+  on ordinary text is removed: revert the merge, or turn the switch off.
+- Names are checked the same way: CI fails a name, CDS Hooks title or publisher that copies a
+  maintained pack's name or title, or uses the word Mendari (or OpenHealth) as whole words.
+  A look-alike, which no table catches completely (the same three checks found ways past
+  those too), is a warning for the owner's review. The label by origin is the protection.
 - The owner is the bottleneck. The "Propose a pack" issue screens ideas before they are built,
   and CI catches the mechanical problems.
 - A merged mistake with real patient data or licensed content cannot be fully taken back from a

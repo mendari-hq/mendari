@@ -16,15 +16,32 @@ load (`check`) an input schema must be self-contained:
 The whole document is searched, not only keyword positions: a `$ref` can make any object in it
 a schema; each object once, by identity. The validator (`validator`) also has a registry that
 retrieves nothing, so a reference can never leave the document even if a check were missed.
+
+A community pack's schema patterns run on RE2, like its rules (`core/patterns.py`): its
+validator's `pattern`, `patternProperties` and `additionalProperties` (and so `propertyNames`,
+which checks keys with the same keywords) search with RE2, and every other pack's validator is
+jsonschema's own, unchanged. Its validator also checks the decision's time budget each time it
+applies a schema (`patterns.check_time`), so a schema whose keywords apply many times over
+(`$ref`s that fan out, a subschema on many items) stops at the budget; it is built without the
+root's `$schema` (which may only name 2020-12), so jsonschema never swaps it for its own. And a
+community pack's schema uses only keywords whose work stays within the budget, `$ref` only to
+its own `$defs` (`community_problems`): jsonschema works some others out on its own, outside any
+check (`unevaluatedProperties`, `unevaluatedItems`, `contains`), or compares every pair of items
+at once (`uniqueItems`).
 """
 
 from __future__ import annotations
 
+import re
+from collections.abc import Iterator, Mapping
 from typing import Any
 
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, ValidationError, _utils, validators
+from jsonschema.protocols import Validator
 from referencing import Registry
 from referencing.jsonschema import DRAFT202012
+
+from mendari.core import patterns
 
 DIALECT = "https://json-schema.org/draft/2020-12/schema"
 _REFERENCES = ("$ref", "$dynamicRef", "$recursiveRef")
@@ -63,6 +80,8 @@ def problems(schema: Any) -> list[str]:
                 found.append(f"input schema: {here}: only the root may name a dialect, {DIALECT}")
             elif key == "$id" and path:
                 found.append(f"input schema: {here}: only the root may set $id")
+            elif key == "$id" and not isinstance(value, str):
+                found.append(f"input schema: {here}: $id is a text")
             elif key == "format" and value == "regex":
                 found.append(
                     f"input schema: {here}: format 'regex' is not allowed in a pack input schema"
@@ -83,8 +102,267 @@ def problems(schema: Any) -> list[str]:
     return sorted(found)
 
 
-def validator(schema: dict[str, Any], *, formats: bool = True) -> Draft202012Validator:
+# A community pack's input schema uses only keywords whose work Mendari bounds
+# (`community_problems`): each applies to a value through `descend`, so the time budget is
+# checked at every schema applied (`_applicable`), or does a bounded amount of work at once.
+# Their values: a schema, a map of names to schemas, a list of schemas, or data.
+_SCHEMA = frozenset({"additionalProperties", "items", "propertyNames", "not", "if", "then", "else"})
+_SCHEMA_MAPS = frozenset({"properties", "patternProperties", "$defs"})
+_SCHEMA_LISTS = frozenset({"allOf", "anyOf", "oneOf", "prefixItems"})
+_DATA = frozenset(
+    {
+        "$schema",
+        "$id",
+        "$ref",
+        "$comment",
+        "type",
+        "required",
+        "enum",
+        "const",
+        "format",
+        "pattern",
+        "minLength",
+        "maxLength",
+        "minimum",
+        "maximum",
+        "exclusiveMinimum",
+        "exclusiveMaximum",
+        "multipleOf",
+        "minItems",
+        "maxItems",
+        "minProperties",
+        "maxProperties",
+        "title",
+        "description",
+        "default",
+        "examples",
+        "deprecated",
+        "readOnly",
+        "writeOnly",
+    }
+)
+MAX_REQUIRED = 100  # names one `required` lists: one error each, at once
+MAX_ENUM = 500  # values one `enum` lists, each compared with the value at once
+MAX_SCHEMA_TEXT = 200  # characters of a `required` name or an `enum` or `const` text
+_DEFS_REF = "#/$defs/"
+# A `$defs` name a `$ref` can name exactly: a JSON pointer splits on `/`, escapes with `~` and
+# is read as a URL (`%2F` is `/`), so any of those would let `#/$defs/<name>` lead elsewhere.
+_DEF_NAME = re.compile(r"[A-Za-z0-9_.-]+")
+# What to write instead of a keyword a community pack's schema may not use.
+_INSTEAD = {
+    "unevaluatedProperties": "use additionalProperties",
+    "unevaluatedItems": "use items",
+    "uniqueItems": "accept repeated items, or check them in a rule",
+    "contains": "check it in a rule",
+    "minContains": "check it in a rule",
+    "maxContains": "check it in a rule",
+    "dependentRequired": "use if/then",
+    "dependentSchemas": "use if/then",
+    "dependencies": "use if/then",
+    "$anchor": "use $defs and '#/$defs/<name>'",
+    "$dynamicRef": "use $ref to one of the root's $defs",
+    "$recursiveRef": "use $ref to one of the root's $defs",
+    "definitions": "use $defs",
+    "additionalItems": "use items",
+    "example": "use examples",
+    "nullable": 'use a type list with "null" in it',
+}
+# Why: jsonschema works these out on its own, outside the time budget, or compares at once.
+_UNBOUNDED = frozenset(
+    {
+        "unevaluatedProperties",
+        "unevaluatedItems",
+        "uniqueItems",
+        "contains",
+        "minContains",
+        "maxContains",
+        "dependentRequired",
+        "dependentSchemas",
+        "dependencies",
+    }
+)
+
+
+def community_problems(schema: Any) -> list[str]:
+    """Why a community pack's input schema cannot run as a community pack's must; [] if it can.
+    It uses only the keywords above (and `x-...` annotations): jsonschema's others either walk
+    the schema on their own, outside the time budget (`unevaluatedProperties`,
+    `unevaluatedItems`, `contains`), compare every pair of items at once (`uniqueItems`), or
+    reach further than this check can follow (`$dynamicRef`, `dependentSchemas`, ...). A `$ref`
+    names a schema of `$defs` (`#/$defs/<name>`), so it never makes data or the root a schema;
+    `required` lists at most `MAX_REQUIRED` names and `enum` at most `MAX_ENUM` values, none of
+    them an object or a list; `const` is not one either; those texts are at most
+    `MAX_SCHEMA_TEXT` characters, and a `$defs` name is letters, digits, `_`, `.` and `-`, so
+    `#/$defs/<name>` names exactly one. Walked without recursion, over schema positions only."""
+    found: list[str] = []
+    defs = schema.get("$defs") if isinstance(schema, dict) else None
+    names = set(defs) if isinstance(defs, dict) else set()
+    found += [
+        f"input schema: $defs/{name}: a $defs name is letters, digits, '_', '.' or '-' (a $ref "
+        "to it then names it exactly)"
+        for name in sorted(names, key=str)
+        if not _DEF_NAME.fullmatch(str(name))
+    ]
+    stack: list[tuple[str, Any]] = [("", schema)]
+    while stack:
+        path, node = stack.pop()
+        if not isinstance(node, dict):
+            continue  # a boolean schema
+        for key, value in node.items():
+            here = f"{path}/{key}" if path else str(key)
+            problem = _keyword_problem(key, value, path, names)
+            if problem:
+                found.append(f"input schema: {here}: {problem}")
+            elif key in _SCHEMA:
+                stack.append((here, value))
+            elif key in _SCHEMA_MAPS and isinstance(value, dict):
+                stack += [(f"{here}/{name}", sub) for name, sub in value.items()]
+            elif key in _SCHEMA_LISTS and isinstance(value, list):
+                stack += [(f"{here}/{i}", sub) for i, sub in enumerate(value)]
+    return sorted(found)
+
+
+def _keyword_problem(key: str, value: Any, path: str, defs: set[str]) -> str | None:
+    """Why a community pack's schema may not hold `key: value` at `path`, or None."""
+    if key.startswith("x-"):
+        return None  # an annotation of the pack's own
+    if key not in _DATA | _SCHEMA | _SCHEMA_MAPS | _SCHEMA_LISTS:
+        instead = _INSTEAD.get(key, "an annotation of your own is x-<name>")
+        why = (
+            "a keyword whose work Mendari cannot keep within a decision's time budget"
+            if key in _UNBOUNDED
+            else "not one of the keywords the guide lists"
+        )
+        return f"a community pack's schema may not use {key}, {why}: {instead}"
+    if key == "$defs" and path:
+        return "only the root may hold $defs"
+    if key == "$ref" and not (
+        isinstance(value, str) and value.startswith(_DEFS_REF) and value[len(_DEFS_REF) :] in defs
+    ):
+        return f"a $ref names one of the root's $defs ('{_DEFS_REF}<name>'), not {value!r}"
+    if key == "required" and isinstance(value, list):
+        if len(value) > MAX_REQUIRED:
+            return f"lists {len(value):,} names, at most {MAX_REQUIRED}: split it with allOf"
+        if any(len(str(name)) > MAX_SCHEMA_TEXT for name in value):
+            return f"names a field longer than {MAX_SCHEMA_TEXT} characters"
+    if key == "enum" and isinstance(value, list):
+        if len(value) > MAX_ENUM:
+            return f"lists {len(value):,} values, at most {MAX_ENUM}: split it with anyOf"
+        if any(isinstance(item, dict | list) for item in value):
+            return "lists an object or a list: its values are texts, numbers, true, false or null"
+        if any(isinstance(item, str) and len(item) > MAX_SCHEMA_TEXT for item in value):
+            return f"lists a text longer than {MAX_SCHEMA_TEXT} characters"
+    if key == "const":
+        if isinstance(value, dict | list):
+            return "is an object or a list: a const is a text, a number, true, false or null"
+        if isinstance(value, str) and len(value) > MAX_SCHEMA_TEXT:
+            return f"is a text longer than {MAX_SCHEMA_TEXT} characters"
+    return None
+
+
+def validator(
+    schema: dict[str, Any], *, formats: bool = True, community: bool = False
+) -> Validator:
     """A Draft 2020-12 validator for a pack's input schema (one `problems` passed) whose
-    registry retrieves nothing; `formats` checks `format` too."""
-    checker = Draft202012Validator.FORMAT_CHECKER if formats else None
-    return Draft202012Validator(schema, registry=Registry(), format_checker=checker)
+    registry retrieves nothing; `formats` checks `format` too. A community pack's runs its
+    patterns on RE2 (module docstring)."""
+    cls = _Re2Validator if community else Draft202012Validator
+    checker = cls.FORMAT_CHECKER if formats else None
+    if community and isinstance(schema, dict):  # never swapped for jsonschema's own (above)
+        schema = {key: value for key, value in schema.items() if key != "$schema"}
+    return cls(schema, registry=Registry(), format_checker=checker)
+
+
+# -- a community pack's keywords: jsonschema's own, searching with RE2 ---------------------------
+
+
+def _search(pattern: str, text: str) -> bool:
+    return patterns.search(pattern, text, community=True)
+
+
+def _pattern(
+    validator: Any, pattern: str, instance: Any, schema: Mapping[str, Any]
+) -> Iterator[ValidationError]:
+    if validator.is_type(instance, "string") and not _search(pattern, instance):
+        yield ValidationError(f"{instance!r} does not match {pattern!r}")
+
+
+def _pattern_properties(
+    validator: Any, properties: Mapping[str, Any], instance: Any, schema: Mapping[str, Any]
+) -> Iterator[ValidationError]:
+    if not validator.is_type(instance, "object"):
+        return
+    for pattern, subschema in properties.items():
+        for key, value in instance.items():
+            if _search(pattern, key):
+                yield from validator.descend(value, subschema, path=key, schema_path=pattern)
+
+
+def _additional_properties(
+    validator: Any, additional: Any, instance: Any, schema: Mapping[str, Any]
+) -> Iterator[ValidationError]:
+    if not validator.is_type(instance, "object"):
+        return
+    named = schema.get("properties", {})
+    keyed = list(schema.get("patternProperties", {}))
+    extras = {
+        key
+        for key in instance
+        if key not in named and not any(_search(pattern, key) for pattern in keyed)
+    }
+    if validator.is_type(additional, "object"):
+        for extra in extras:
+            yield from validator.descend(instance[extra], additional, path=extra)
+    elif not additional and extras:
+        if keyed:
+            verb = "does" if len(extras) == 1 else "do"
+            joined = ", ".join(repr(each) for each in sorted(extras))
+            listed = ", ".join(repr(each) for each in sorted(keyed))
+            yield ValidationError(f"{joined} {verb} not match any of the regexes: {listed}")
+        else:
+            unexpected = sorted(extras, key=str)
+            verb = "was" if len(unexpected) == 1 else "were"
+            listed = ", ".join(repr(extra) for extra in unexpected)
+            yield ValidationError(
+                f"Additional properties are not allowed ({listed} {verb} unexpected)"
+            )
+
+
+def _enum(
+    validator: Any, enums: Any, instance: Any, schema: Mapping[str, Any]
+) -> Iterator[ValidationError]:
+    """jsonschema's `enum`, with a short message: its own writes out the instance and every
+    allowed value for each failing value, which inside `anyOf` on many items held hundreds of
+    megabytes (reasons are worded from the keyword alone, `decision._schema_rule`)."""
+    if all(not _utils.equal(each, instance) for each in enums):
+        yield ValidationError("is not one of the values the schema allows")
+
+
+def _const(
+    validator: Any, const: Any, instance: Any, schema: Mapping[str, Any]
+) -> Iterator[ValidationError]:
+    if not _utils.equal(instance, const):
+        yield ValidationError("is not the value the schema requires")
+
+
+def _applicable(schema: Any) -> Any:
+    """The keywords jsonschema applies for `schema`, once the decision's time budget is checked:
+    it asks each time it applies a schema, to an instance or a part of one."""
+    patterns.check_time()
+    return schema.items()
+
+
+_Re2Validator = validators.create(
+    meta_schema=Draft202012Validator.META_SCHEMA,
+    validators={
+        **Draft202012Validator.VALIDATORS,
+        "pattern": _pattern,
+        "patternProperties": _pattern_properties,
+        "additionalProperties": _additional_properties,
+        "enum": _enum,
+        "const": _const,
+    },
+    type_checker=Draft202012Validator.TYPE_CHECKER,
+    format_checker=Draft202012Validator.FORMAT_CHECKER,
+    applicable_validators=_applicable,
+)

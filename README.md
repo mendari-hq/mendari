@@ -595,7 +595,8 @@ mendari eval mendari/referral-router --dataset local.jsonl --share "My site"
   paths inside the pack, an archive is read with size caps checked as it expands, and the cache
   path is built only from a valid id and version that the signed manifest names.
 - **Trust.** Installing a pack means trusting its author, as with any plugin: its patterns run
-  on Python `re` with no time limit, so a pack can slow or stall a worker. What a pack cannot do
+  on Python `re` with no time limit, so a pack can slow or stall a worker (a community pack's
+  run on RE2, which never backtracks). What a pack cannot do
   (choose secrets or endpoints, reach outside its folder, stop the server, reach another pack's
   CQL) is in [SECURITY.md](https://github.com/Junebugg1214/mendari/blob/main/SECURITY.md#pack-supply-chain). Packs from others will run isolated
   once uploads or a public registry exist.

@@ -156,7 +156,9 @@ compiles every one, so a typo is reported with its file and rule; a pattern may 
 2,000 characters, and a pack may hold 500 (input-schema `pattern`s and `patternProperties` keys
 included). Keep them simple:
 `re` has no time limit, and a pattern that can match the same text in many ways, such as
-`(a+)+$`, can take seconds on a short message and hold the worker that runs it.
+`(a+)+$`, can take seconds on a short message and hold the worker that runs it. (A community
+pack's patterns run on RE2, which never backtracks: see
+[Contributing a community pack](contributing-a-pack.md#patterns-run-on-re2).)
 
 Rules are the floor, not the ceiling. The same pack can switch to a language model, to Jev, to a
 CQL library your organization already has, or to computed criteria for dates and lab values.

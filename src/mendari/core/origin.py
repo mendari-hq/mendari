@@ -40,9 +40,14 @@ RESERVED_NAMESPACES: Mapping[str, Origin] = {
 }
 # Where a community pack's FHIR terminology lives: its own url, never one of Mendari's.
 COMMUNITY_URL = "https://mendari.co/packs/community/"
-# The longest text a community pack's patterns run on: what the pattern probe times them on
-# (`community/regex_safety.py`). A longer one is refused before any pattern runs.
+# The longest text a community pack's patterns run on (on RE2, their time grows with it: the caps
+# in `core/caps.py` are measured on texts this long). A longer one is refused before any pattern
+# runs.
 MAX_COMMUNITY_TEXT_CHARS = 10_000
+# The most values (texts, numbers, objects, lists...) and the deepest nesting a community pack
+# reads in one input: its schema applies its keywords to each value, at every depth.
+MAX_COMMUNITY_VALUES = 10_000
+MAX_COMMUNITY_DEPTH = 32
 COMMUNITY_NAME = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 MAX_COMMUNITY_RISK = RiskLevel.CLINICAL_INFORMATION
 # The provider types that decide on this machine, without a call anywhere, and the composites
@@ -119,13 +124,38 @@ def rule_problems(manifest: PackManifest) -> list[str]:
     ]
 
 
-def long_text(value: Any, limit: int = MAX_COMMUNITY_TEXT_CHARS) -> str | None:
+def shape_problem(value: Any) -> str | None:
+    """Why an input is too large in shape for a community pack, or None: more than
+    `MAX_COMMUNITY_VALUES` values, or nested deeper than `MAX_COMMUNITY_DEPTH` (its schema is
+    applied to every value, and jsonschema recurses into every level). Walked without
+    recursion, stopping at the first one past either limit."""
+    stack: list[tuple[Any, int]] = [(value, 1)]
+    count = 0
+    while stack:
+        item, depth = stack.pop()
+        count += 1
+        if count > MAX_COMMUNITY_VALUES:
+            return f"more than {MAX_COMMUNITY_VALUES:,} values, the most a community pack reads"
+        if depth > MAX_COMMUNITY_DEPTH:
+            return f"nested more than {MAX_COMMUNITY_DEPTH} deep, the most a community pack reads"
+        if isinstance(item, Mapping):
+            stack += [(child, depth + 1) for child in item.values()]
+        elif isinstance(item, list | tuple):
+            stack += [(child, depth + 1) for child in item]
+    return None
+
+
+def long_text(
+    value: Any, limit: int = MAX_COMMUNITY_TEXT_CHARS, *, count_keys: bool = True
+) -> str | None:
     """Where in an input (`message.body`) a text, or a key, is longer than `limit` characters,
-    or "the input's texts together" when its texts and keys, each with one separator, are: a
-    rule's patterns run on its text fields joined (`providers/base.py` `text_from`), and the
-    schema's patterns on every key (`patternProperties`, `propertyNames`), so the whole is held
-    to the length the patterns were timed on. A community pack refuses such an input before
-    any of its patterns runs. Walked without recursion, however deep the input."""
+    or "the input's texts together" when its texts (and keys, with `count_keys`), each with one
+    separator, are: a rule's patterns run on its text fields joined (`providers/base.py`
+    `text_from`), and the schema's on every key when it has `patternProperties` or
+    `propertyNames` (`caps.patterns_on_keys`, which says `count_keys`), so the whole is held to
+    the length the patterns' work is bounded for (`core/caps.py`). A community pack refuses such
+    an input before any of its patterns runs. Walked without recursion, however deep the
+    input."""
     stack: list[tuple[str, Any]] = [("", value)]
     total = -1  # the first text has no separator before it
     while stack:
@@ -141,9 +171,10 @@ def long_text(value: Any, limit: int = MAX_COMMUNITY_TEXT_CHARS) -> str | None:
                 if isinstance(key, str):
                     if len(key) > limit:
                         return where or "(root)"
-                    total += len(key) + 1
-                    if total > limit:
-                        return "the input's texts together"
+                    if count_keys:  # else held to the length alone: no pattern runs on it
+                        total += len(key) + 1
+                        if total > limit:
+                            return "the input's texts together"
                 stack.append((f"{where}.{key}" if where else str(key), child))
         elif isinstance(item, list | tuple):
             stack += [(f"{where}[{i}]", child) for i, child in reversed(list(enumerate(item)))]

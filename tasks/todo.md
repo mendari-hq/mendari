@@ -88,10 +88,11 @@ B6/B7 → B8 → B9 → B10).
   `store_input: hash`, local providers, no pinned model, `degradation_tolerance` ≤ 0.05, risk
   level ≤ 1), correctness, evaluation floors (critical detection ≥ 0.9, no critical case
   automated, ≥ 5 benchmark cases per critical label), the benchmark and card regenerated and
-  compared, a retrained model byte-identical, the regex probe, size caps (2 MB, 200 files),
+  compared, a retrained model byte-identical, the regex probe (replaced in B11 by an RE2 compile
+  check), size caps (2 MB, 200 files),
   version and CHANGELOG against the digest, PHI heuristics as warnings. A unit test per rule.
   Built: `src/mendari/community/` (`check.py` the rules, `regex_safety.py` the static check and
-  the subprocess probe, `phi_scan.py`, `maintainers.py`, `gitbase.py`), tests in
+  the subprocess probe (removed in B11), `phi_scan.py`, `maintainers.py`, `gitbase.py`), tests in
   `tests/test_community_check.py`. Also refused: symbolic links, files in `evals/` other than
   the benchmark (a leaderboard's numbers cannot be regenerated), a pack with no critical label,
   a pack without a `MAINTAINERS.yaml` entry. With a remote default provider the tests and the
@@ -127,7 +128,7 @@ B6/B7 → B8 → B9 → B10).
   `clinical-review:provided`, `risk-level-change`, `patient-safety`, `idea`, `good first pack`);
   the DCO app; `pack-check` and `DCO` required; a `main` ruleset requiring a code owner's
   approval, with the admin on the bypass list.
-- [ ] **B11 (build, before B9) Safe by construction.** Decided 2026-10-05 after three checks of
+- [x] **B11 (build, before B9) Safe by construction.** Decided 2026-10-05 after three checks of
   the pattern and name checks each found new ways past them (14 open findings after #129: slow
   patterns that pass the static check and the probe, look-alike names the tables miss, and
   pack settings that multiply work). A community pack's patterns (rules and its input schema's)
@@ -138,11 +139,105 @@ B6/B7 → B8 → B9 → B10).
   patterns run; keys counted only where a schema runs patterns on them. Look-alike names become
   a warning for the owner's review, with a vendored UTS #39 confusables skeleton, and a
   reserved word counts only as whole words. One focused check, then merge.
-- [ ] **B9 (owner, steps below, after B11)** `MENDARI_COMMUNITY_PACKS=on` in Vercel Production
+  - [x] Stage 1, the engine (`claude/community-re2`): a community pack's rules and input-schema
+    patterns run on RE2 (`core/patterns.py`, rewritten to mean what `re` means by
+    `core/re2_syntax.py`; the differences left are in the guide); what RE2 cannot run is refused
+    at load; every other pack stays on `re`, decisions identical. Open: RE2's time is the text's
+    length times the compiled size (about 0.6 s for 9,000 counted copies on 10,000 characters),
+    so a cap on a pack's total compiled size belongs with the caps (built: the review fixes).
+  - [x] Stage 2, the caps (`core/caps.py`), refused at load and so by `community-check`: each
+    field once in a `text_fields` (rules and dosing), `negation_window` at most 200 characters
+    and at most 50 `negation_cues`, at most 50 schema patterns run on one value or key (counted
+    through `$ref` and every applicator, memoised; a reference cycle reaching a pattern is
+    refused), and at most 500 patterns run by the rules on an input (per question and composite
+    member) and the schema on one value together. Keys count toward the 10,000 characters only
+    where the schema runs patterns on them. Open, measured within the caps: the negation check
+    costs each negated match its window (500 negatable patterns on "no a no a ...": 4 s at a
+    window of 40, 9 s at 200; memoising `_negated` per text, or answering it from cue and break
+    positions found once, would fix it); typo tolerance compares each word with every keyword
+    sharing its first letter (40,000 keywords in 500 patterns: 25 s); and the compiled size
+    (capped in the review fixes below). All three are bounded by the time budget (below).
+  - [x] Stage 3, the check, names and docs: `community-check`'s `patterns` rule is that every
+    authored pattern compiles on RE2 within the load's caps (2,000 characters, 500 a pack): the
+    loader raises `PatternsRefused` naming them, and the check reports them under `patterns`;
+    `community/regex_safety.py` (the static check and the probe) and its tests are deleted.
+    Names (`check.name_findings`): an exact copy of a maintained pack's name or CDS Hooks title,
+    or Mendari/OpenHealth as whole words (ASCII letters and digits after NFKC and case folding,
+    CamelCase split, consecutive words joining, a match starting and ending at word
+    boundaries), is an error; look-alikes (other alphabets, `l`/`1`/`I`, `0`/`O`, negative
+    enclosed letters) and words mixing alphabets (but Latin with Greek, or with Japanese,
+    Chinese or Korean scripts) are warnings saying what the name looks like. Circled,
+    parenthesized and squared letters fold to ASCII under NFKC, so they are errors. The last
+    review's name misses (U+01C0 and other Latin look-alikes, Cherokee, Lisu/Greek/Cherokee
+    mixes, Arabic or Hebrew inside a Latin word) now warn; the tables stay incomplete on
+    purpose, and no UTS #39 table was vendored (a warning for review needs none). Docs: the guide's patterns section for RE2, ADR-0007's consequences, threat model
+    D8 and S13, SECURITY.md, `community-packs/README.md`. Typo tolerance's keyword list and the
+    negation check's work per negated match were left uncapped here; the time budget (below)
+    bounds them.
+  - [x] Review fixes (the focused check's 10 findings): the size of the patterns one input runs
+    is capped at 3,000 (`re2_syntax.size`, `caps.pack_size`; 148 s before for 500 patterns of
+    size 2,001), and `community-check` prints it;
+    case is ignored exactly as `re` does (classes written out from `re` itself, RE2 folds
+    nothing: Turkish `İ`/`ı`, `\W` and Greek `ι`); word boundaries next to letters outside
+    ASCII documented as they behave, with a `community-check` warning; RE2, the rewriting and
+    the caps imported only for a community pack; refusal advice for back references and
+    negative lookbehinds; the schema cap names `patternProperties` with `additionalProperties`;
+    `unevaluatedProperties` with `patternProperties` documented; "names Mendari" capitalised;
+    stale "timed" wording gone.
+  - [x] The time budget (the focused check of the fixes found the stated 3.5 s worst case wrong:
+    a crafted pack within every cap took 5.5 s, 17.5 s with negated patterns). A community
+    pack's patterns share one second per decision (`patterns.time_budget`, set by
+    `Decision.decide`): checked before each RE2 search, at each match and at each word typo
+    correction looks at; past it the rules fail with `time_budget` (the decision abstains, for a
+    person) or the schema check stops. Superseded by the next two items (CPU time, every schema
+    keyword, abstain, about 3.5 s of CPU at worst). `tests/test_community_budget.py`.
+  - [x] The budget's focused check (8 findings): the budget is the decision thread's CPU time
+    (`time.thread_time`), so a model's latency or a busy server no longer spends it; every
+    keyword of a community pack's schema checks it (a `$ref` fan-out with no pattern took 53 s,
+    an `enum` on many items 8 s); a schema that runs out abstains, for a person, instead of
+    refusing a valid input; `uniqueItems` is refused in a community pack's schema; `mendari
+    test` and `community-check` print provider errors and say when a case ran out of time; the
+    bound is stated as measured (one search about 2.5 s, so about 3.5 s of CPU at worst); the
+    guide no longer says nothing times patterns.
+  - [x] The fixes' focused check (12 findings): the budget is checked at every schema jsonschema
+    applies (a subschema with no keyword on many items, 15.7 s, never checked before), not per
+    keyword (fewer frames: 200-deep input crashed); `unevaluatedProperties` and
+    `unevaluatedItems` refused (jsonschema walks the schema for them outside any keyword: 43 s);
+    the community validator keeps its class on a `$ref` back to the root (jsonschema picked its
+    own by `$schema`, patterns on `re`); an input holds at most 10,000 values nested at most 32
+    deep; a schema that cannot check an input (OverflowError, RecursionError) refuses it, for
+    every pack, instead of a 500; errors found before the budget runs out still refuse the
+    input; `mendari validate` checks test inputs within the budget; the refusals look only at
+    schema positions (a property named `uniqueItems` is fine); messages say "patterns and schema
+    checks"; the spec states the budget.
+  - [x] That check's focused check (12 findings: a `$ref` into `default` or `const` brought refused
+    keywords back, `contains` and a long `required` list did work no check saw): a community
+    pack's input schema now uses only keywords whose work Mendari bounds (an allowlist; the
+    guide lists them), `$ref` only to the root's `$defs`, `required` at most 100 names, `enum` at
+    most 500 flat values, `const` flat; a schema check checks the budget after each error and
+    stops at 100 errors; `Decision.validate` called alone (`mendari omop`) brings its own
+    budget and input limits; a reason whose wording would search patterns again falls back to
+    plain words; `mendari validate` reports inputs nested too deep or holding numbers too large
+    instead of a traceback; the refusal for those says so in plain words.
+  - [x] The allowlist's focused check (12 findings): a `$defs` name holding `/` or `%2F` let a
+    `$ref` reach a definition's data (refused keywords back); `$defs` names are now letters,
+    digits, `_`, `.` and `-`. The 100-error stop, de-duplicated and shortened reasons apply to
+    community packs only (every other pack's reasons are as before); `required` names and
+    `enum`/`const` texts are at most 200 characters; `Decision.validate` called alone applies
+    the text cap too; refusals say what to write instead; the guide and spec say an input the
+    schema had already found wrong is refused.
+  - [x] Its focused check found no high or medium problem (no route left to `re`, every other
+    pack's reasons as on main for 70 malformed inputs). Its 3 low findings: a community pack's
+    `enum` and `const` errors carry a short message (jsonschema's own copied every allowed value
+    for each failing value: about 225 MB in one decision inside `anyOf`); a root `$id` that is
+    not text is refused, for every pack, instead of failing the load; a refused keyword says
+    why and what to write instead (`example`: `examples`, `nullable`: a type list with
+    `"null"`, an annotation of one's own: `x-<name>`).
+- [ ] **B9 (owner, steps below)** `MENDARI_COMMUNITY_PACKS=on` in Vercel Production
   only; on the owner's own branch preview (never a fork's), check that `community-packs/`
   reaches the function bundle.
 - [ ] **B10 (owner and build, steps below)** Dry run from a second GitHub account, including a bad version
-  (a ReDoS pattern, a shadowing id, an edit outside its folder, a faked benchmark) that CI must
+  (a pattern RE2 cannot run, a shadowing id, an edit outside its folder, a faked benchmark) that CI must
   refuse. Then announce.
 
 ### Going public: owner steps
@@ -242,7 +337,8 @@ session.
    squash merging** on. Check after: a PR from a second account shows "Review required" from a
    code owner and the two required checks; your own PR can still merge with "Merge without
    waiting for requirements" (the bypass).
-4. **B9, turn community packs on in Production** (only once B11 is merged). Vercel → the engine's project → Settings →
+4. **B9, turn community packs on in Production** (once B11, `claude/community-re2`, is merged;
+   the residual risks in threat model D8 are yours to weigh). Vercel → the engine's project → Settings →
    Environment Variables → Add: `MENDARI_COMMUNITY_PACKS` = `on`, Environment **Production**
    only. Redeploy production. Check after: signed in, `/api/health` shows `packs_by_origin`
    with only `maintained` while `community-packs/` holds no pack, and `invalid` is empty. To
@@ -269,7 +365,7 @@ session.
    `?template=pack.md`, approve its first workflow run, and check that `pack-check` and `DCO`
    pass and the job summary shows the metrics and the card. Then push, one at a time, and
    check that each fails with the rule named (revert each before the next): a pattern
-   `(a+)+$` in `logic/rules.yaml` (patterns); the id `mendari/patient-inbox-router` (identity);
+   `(?<!no )refill` in `logic/rules.yaml` (patterns: RE2 has no lookbehind); the id `mendari/patient-inbox-router` (identity);
    an edit to the repository's `README.md` (scope); a hand-edited number in
    `evals/benchmark.json` (honest numbers); a commit without `-s` (DCO). Merge the good
    version, then check production: `/api/health` has `"community": 1` and an empty `invalid`,

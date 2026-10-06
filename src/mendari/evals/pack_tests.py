@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any
 
 from mendari.core import input_schema
 from mendari.core.decision import Decision
+from mendari.core.origin import shape_problem
 from mendari.core.pack import Pack, not_json
+from mendari.core.patterns import COMMUNITY_TIME_BUDGET_S, OutOfTime, time_budget
 from mendari.errors import PackValidationError
 
 
@@ -77,15 +80,26 @@ def input_problems(pack: Pack) -> list[str]:
     """Behaviour-test inputs must match the input schema, unless the test expects a BLOCK;
     otherwise the test decides a BLOCK and fails confusingly (e.g. unquoted YAML flow-mapping
     text split into extra keys)."""
-    validator = input_schema.validator(pack.input_schema, formats=False)
+    validator = input_schema.validator(pack.input_schema, formats=False, community=pack.community)
     problems = []
     for number, case in enumerate(load_cases(pack), start=1):
         if (case.get("expect") or {}).get("outcome") == "BLOCK":
             continue  # a test of the input contract itself
-        for error in validator.iter_errors(case.get("input")):
+        where = f"{pack.manifest.tests} case {number} ({case.get('name', 'unnamed')})"
+        shape = shape_problem(case.get("input")) if pack.community else None
+        if shape is not None:
+            problems.append(f"{where}: its input is too large: {shape}")
+            continue
+        try:  # a community pack's schema runs within the time budget a decision gives it
+            with time_budget() if pack.community else nullcontext():
+                for error in validator.iter_errors(case.get("input")):
+                    problems.append(f"{where}: input {error.message}")
+        except OutOfTime as error:
+            problems.append(f"{where}: checking its input against the schema stopped: {error}")
+        except (RecursionError, OverflowError):
             problems.append(
-                f"{pack.manifest.tests} case {number} ({case.get('name', 'unnamed')}): "
-                f"input {error.message}"
+                f"{where}: the schema cannot check its input: it is nested too deep, or holds a "
+                "number too large"
             )
     return problems
 
@@ -120,4 +134,12 @@ def _run(decision: Decision, case: dict[str, Any]) -> CaseOutcome:
         answer = result.answers.get(question)
         label = answer.label if answer else None
         check(f"answers.{question}", label, label == wanted, wanted)
+    if failures and result.errors:  # why a provider gave no answer, e.g. `time_budget`
+        failures.append(f"provider errors: {dict(sorted(result.errors.items()))}")
+        if "time_budget" in result.errors.values():
+            failures.append(
+                f"its patterns or schema checks ran out of the {COMMUNITY_TIME_BUDGET_S:g} s time "
+                "budget a community pack has in each decision: shorten long counts and classes "
+                "repeated many times"
+            )
     return CaseOutcome(case.get("name", "unnamed case"), not failures, tuple(failures))

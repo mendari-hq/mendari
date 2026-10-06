@@ -253,7 +253,14 @@ def load_pack(
         relative: parse_yaml(_read(root, relative, label, digested), relative, manifest.id)
         for relative in _rules_files(manifest)
     }
-    problems = _pattern_problems(input_schema, parsed)  # jsonschema compiles them too
+    community = is_community(manifest.id, origin)
+    # Compiled as they run, before jsonschema compiles the schema's too.
+    refused = _pattern_problems(input_schema, parsed, community=community)
+    problems = list(refused)
+    if community:
+        problems += schema_rules.community_problems(input_schema)
+    if refused:
+        raise PatternsRefused(manifest.id, problems, refused)
     if problems:
         raise PackValidationError(manifest.id, problems)
     try:
@@ -263,6 +270,10 @@ def load_pack(
     except (OverflowError, RecursionError, TypeError, ValueError) as error:
         problem = f"input schema: not a schema the validator can read ({type(error).__name__})"
         raise PackValidationError(manifest.id, [problem]) from None
+    if community:
+        problems = _community_caps(root, manifest, input_schema, parsed, label, digested)
+        if problems:
+            raise PackValidationError(manifest.id, problems)
 
     return Pack(
         manifest=manifest,
@@ -273,6 +284,32 @@ def load_pack(
         digested=digested,
         origin=origin,
     )
+
+
+def _community_caps(
+    root: Path,
+    manifest: PackManifest,
+    input_schema: Any,
+    parsed: dict[str, Any],
+    label: str,
+    digested: Digested,
+) -> list[str]:
+    """What multiplies a community pack's pattern work past its caps (`core/caps.py`): its rules
+    and dosing configs, its input schema, and the patterns they run together. The caps are
+    imported only for a community pack."""
+    from mendari.core import caps
+
+    problems = [
+        problem
+        for relative, data in parsed.items()
+        for problem in caps.rules_problems(relative, data)
+    ]
+    for relative in _provider_files(manifest, "dosing"):
+        table = parse_yaml(_read(root, relative, label, digested), relative, manifest.id)
+        problems += caps.dosing_problems(relative, table)
+    runs = caps.rules_runs(manifest, parsed)
+    size = caps.rules_runs(manifest, parsed, caps.rules_size)
+    return problems + caps.schema_problems(input_schema, runs, size)
 
 
 def pack_digest(root: Path) -> str:
@@ -342,6 +379,11 @@ def _referenced_files(m: PackManifest, *, models: bool = True) -> list[tuple[str
 
 def _rules_files(m: PackManifest) -> list[str]:
     """The config file of every `rules` variant and composite member, once each."""
+    return _provider_files(m, "rules")
+
+
+def _provider_files(m: PackManifest, kind: str) -> list[str]:
+    """The config file of every variant and composite member of type `kind`, once each."""
     files: set[str] = set()
     for slot in m.providers.values():
         for variant in slot.variants.values():
@@ -353,7 +395,7 @@ def _rules_files(m: PackManifest) -> list[str]:
             files.update(
                 c["config"]
                 for c in configs
-                if c.get("type") == "rules" and isinstance(c.get("config"), str)
+                if c.get("type") == kind and isinstance(c.get("config"), str)
             )
     return sorted(files)
 
@@ -377,9 +419,12 @@ def _authored_patterns(input_schema: Any, rules: dict[str, Any]) -> list[tuple[s
     return found
 
 
-def _pattern_problems(input_schema: Any, rules: dict[str, Any]) -> list[str]:
-    """Every pack-authored pattern compiled as it will run (`core/patterns.py`), after counting
-    them, so a pack over the cap is refused before any is compiled."""
+def _pattern_problems(
+    input_schema: Any, rules: dict[str, Any], *, community: bool = False
+) -> list[str]:
+    """Every pack-authored pattern compiled as it will run (`core/patterns.py`: a community
+    pack's on RE2), after counting them, so a pack over the cap is refused before any is
+    compiled."""
     found = _authored_patterns(input_schema, rules)
     if len(found) > patterns.MAX_PACK_PATTERNS:
         return [
@@ -387,10 +432,20 @@ def _pattern_problems(input_schema: Any, rules: dict[str, Any]) -> list[str]:
         ]
     problems = []
     for where, text, flags in found:
-        problem = patterns.problem(text, flags)
+        problem = patterns.problem(text, flags, community=community)
         if problem is not None:
             problems.append(f"{where}: {problem}")
     return problems
+
+
+class PatternsRefused(PackValidationError):
+    """A pack refused at load with its own patterns among the reasons: `patterns` are those of
+    `problems` that `_pattern_problems` found (too many, too long, or not compiling as they run),
+    so `community-check` can name them under its own rule."""
+
+    def __init__(self, pack: str, problems: list[str], patterns: list[str]):
+        super().__init__(pack, problems)
+        self.patterns = patterns
 
 
 class _Refused(ValueError):
