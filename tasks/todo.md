@@ -20,9 +20,17 @@ behaviour.
   `deploy/onprem/.env.example` false positive; trufflehog 0. The private report is in the
   owner's folder (locations only); nothing to rotate. Left: a scheduled CI scan of every ref and
   a positive control.
-- [ ] **LP-01 Inbox gate** merged in #130 (gate, rationale, three tests). Left: the invariant
-  for every pack (no offline configuration automates a critical case on any declared dataset),
-  as a test and a `reference-pack` CI step, and a load rule for critical slots.
+- [x] **LP-01 Inbox gate** merged in #130 (gate, rationale, three tests). The invariant for
+  every maintained pack: `tests/test_safety_invariant.py` runs every configuration that needs no
+  service on every declared dataset. By default no true critical case is automated (1,366
+  checked); under a governance approval (risk 2-3) an automated one carries the correct primary
+  recommendation (the trial prescreener automates 104 of 159, all a correct `not_eligible`).
+  **Owner decision (2026-10-06):** the spec's "must never be automated" narrowed to exactly
+  that (spec §8, `CriticalLabel`); no pack changed. Not built, on purpose: a separate
+  `reference-pack` CI step (the test job already runs the test on every PR, and that job proves
+  the rebuilt data and models byte-identical to what it tests), and a load rule for critical
+  slots (it would misfire on exact providers such as `dosing` and `criteria`; the measured
+  invariant is the guard).
 - [ ] **LP-07** Shared evaluation reports carry counts only (`mendari eval --share` sends case
   ids today).
 - [ ] **LP-04** Review status (the synthetic-example label) and display names: spec 0.3.
