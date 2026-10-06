@@ -296,7 +296,11 @@ run as `re` runs them (rules patterns with case ignored). Each MUST compile and 
 characters, and a pack MUST hold at most 500 of them; the runtime compiles every one at load, so
 a pack with an invalid one is invalid, named by file and rule. `re` has no time limit: a pattern that backtracks (`(a+)+$`)
 can take seconds or longer on a crafted input: a pack's patterns are code its author wrote, and
-installing a pack means trusting its author.
+installing a pack means trusting its author. A community pack's patterns (id `community/...`)
+are written the same way but run on RE2, which never backtracks, rewritten to mean what they
+mean in `re` (what still differs is listed in `core/re2_syntax.py`); a community pack holding
+a pattern RE2 cannot run (a lookahead or lookbehind, a back reference, a conditional or atomic
+group, a possessive quantifier, or one too large once compiled) is invalid.
 
 A remote provider's endpoint, model and credentials belong to the deployment, which supplies
 them in fixed environment variables (`jev`: `JEV_API_URL`, `JEV_MODEL`, `JEV_API_KEY`,

@@ -214,7 +214,8 @@ webhooks.
 
 Packs contain behaviour: patterns, models, CQL and policies. Review a pack like code before
 running it: installing a pack means trusting its author, as with any plugin. Pack patterns run
-on Python `re` with no time limit, so a pack can slow or stall a worker. Packs from others will
+on Python `re` with no time limit, so a pack can slow or stall a worker (a community pack's run
+on RE2, which never backtracks: below). Packs from others will
 run isolated once uploads or a public registry exist (an isolated process with memory and time
 limits, designed with that feature). What a pack cannot do today is below.
 
@@ -267,8 +268,8 @@ limits, designed with that feature). What a pack cannot do today is below.
   and of the library's text: a library that declares another pack's library name and version
   neither replaces nor shadows it. The declaration must be the library's first statement.
 - A pack's patterns are checked at load. Every rules pattern (of every variant and composite
-  member) and every input-schema `pattern` and `patternProperties` key is compiled with `re` as
-  it will run, is at most
+  member) and every input-schema `pattern` and `patternProperties` key is compiled as it will
+  run (with `re`; a community pack's also for RE2, which must be able to run it), is at most
   2,000 characters, and a pack holds at most 500, counted before any is compiled; one that
   fails makes the pack invalid, named by file and rule (`mendari validate` prints no
   traceback; a server lists the pack under `/api/health` `invalid`). This does not bound how
@@ -350,11 +351,12 @@ manifest says (threat model S13, T5, I12, D8, E10):
   to the deployment's.
 - **At most 10,000 characters of text**, alone or together, what its patterns were timed on: a
   longer input is refused before any pattern runs.
-- **Off in production until its patterns run on RE2.** The static check and timed probe of
-  every pattern lower the chance of a pattern that stalls a worker but cannot rule it out, and
-  some pack settings multiply the work; community packs are switched on only after their
-  patterns move to RE2, which never backtracks, with caps on those settings
-  (`tasks/todo.md`, B11).
+- **Patterns on RE2; off in production until B11 is done.** Its patterns (rules and input
+  schema) run on RE2 (`google-re2`), which never backtracks: their time grows with the text's
+  length times the pattern's compiled size, held to RE2's 8 MiB a pattern. A pattern RE2
+  cannot run (a lookaround, a back reference, a conditional or atomic group, a possessive
+  quantifier) makes the pack invalid at load. Some pack settings still multiply the work, so
+  community packs are switched on only once those are capped too (`tasks/todo.md`, B11).
 - **At most risk level 1, and only a hash of each input** (`store_input: hash`), refused at load
   otherwise.
 - **Checked before review.** The `pack-check` job (`pull_request`, no secrets, a read-only token,

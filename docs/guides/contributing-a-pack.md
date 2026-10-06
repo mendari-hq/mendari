@@ -181,14 +181,33 @@ that would have been `AUTO` becomes `HUMAN_REVIEW` anyway, with its recommendati
 
 ## Patterns that stay fast
 
-Rules match text with regular expressions, and Python's `re` has no time limit: a pattern that
-can match one text in many ways may take seconds on a long message, and stall the server that
-runs it. `community-check` refuses those, in two ways: a static check of each pattern, and a run
-of each pattern, entered at each of its pieces, on pumped inputs of 10,000 characters built from
-every piece it holds, with one second allowed on each. Back references (`\1`) and conditional
-groups are refused: the run cannot time what they match. Neither check is a guarantee, so a
-community pack also refuses an input whose texts are longer than 10,000 characters, alone or
-together, before a pattern runs.
+Write patterns in Python's `re` syntax, as every pack does. A community pack's patterns (its
+rules and its input schema's `pattern`, `patternProperties` and `propertyNames`) then run on
+[RE2](https://github.com/google/re2/wiki/Syntax), which never backtracks: its time grows with
+the text's length times the pattern's size, so no pattern can stall the server the way
+`(a+)+$` stalls `re` on a long message. Mendari rewrites each pattern for RE2 to mean what it
+means in `re`. RE2 cannot run a few things; `mendari validate` refuses a pattern that uses
+one, and says what to write instead:
+
+| Instead of | Write | Why |
+|---|---|---|
+| `pain(?= now)`, `(?<=chest )pain` | `pain now`, `chest pain` | Lookahead and lookbehind: match the text itself |
+| `(?<!no )pain` | `pain`, with `negatable: true` and `no` in `negation_cues` | Negative lookarounds: the negation cues say what must not come before |
+| `([a-z])\1`, `(a)?(?(1)b\|c)` | the text itself, e.g. `(?:aa\|bb)` | Back references and conditional groups |
+| `(?>...)`, `a++` | `(?:...)`, `a+` | Atomic groups and possessive quantifiers: RE2 never backtracks, so they are not needed |
+| `(?:\w{1,20}\s?){1,60}` | `(?:\w{1,20}\s?){1,20}` | Counts nested inside each other may multiply to at most 1,000 |
+| `\w{0,1000}` | `\w*`, or a smaller count | Too large once compiled: `\w` is every letter and digit in Unicode, a large class |
+
+What still differs from `re`: next to a word boundary, RE2 sees only ASCII letters, digits
+and `_` as word characters *in the text just outside a match* (`\bpie` also matches in
+"épie"; boundaries next to letters the pattern itself names, like `\bmarché\b`, work as in
+`re`); with case ignored, `re` also matches `i` and `I` to the dotless `ı`, and RE2 does not.
+`\w`, `\d`, `\s`, `$`, `\Z` and counts above 1,000 mean what they mean in `re`.
+
+`community-check` also still runs its earlier checks of every pattern before review: a static
+check, and a run of each pattern on pumped inputs of 10,000 characters with one second allowed
+on each. A community pack also refuses an input whose texts are longer than 10,000 characters,
+alone or together, before a pattern runs. Patterns that pass those checks:
 
 | Instead of | Write | Why |
 |---|---|---|
@@ -198,7 +217,6 @@ together, before a pattern runs.
 | `chest.*pain` | `chest(?:[^\w.!?\n]+\w+){0,5}?[^\w.!?\n]+pain` | Bounded: at most five words between, never across a sentence |
 | `.*` at either end | nothing | A rule matches anywhere in the text already |
 | `\d*\d*x`, `[a-z]+\s*[a-z]+$`, `(?:\d\d)*\d*x` | `\d*x`, `[a-z]+\s+[a-z]+$`, `(?:\d\d)*x` | Repeated pieces one after another that can match the same text split it in many ways; merge them, or require something only one of them matches between them |
-| `([a-z])\1`, `(a)?(?(1)b\|c)` | the text itself, e.g. `(?:aa\|bb)` | Back references and conditional groups: the check cannot time them |
 
 More habits that keep patterns fast and honest:
 
@@ -206,7 +224,6 @@ More habits that keep patterns fast and honest:
 - Match whole phrases a person writes ("can't breathe"), not single letters or fragments.
 - Name every pattern: the audit record says which one matched.
 - Mark a pattern `negatable: true` when "no chest pain" must not count, and test it.
-- Possessive quantifiers (`a++`) and atomic groups (`(?>...)`) never backtrack and are allowed.
 
 ## What the reviewer reads
 

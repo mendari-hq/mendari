@@ -138,6 +138,12 @@ B6/B7 → B8 → B9 → B10).
   patterns run; keys counted only where a schema runs patterns on them. Look-alike names become
   a warning for the owner's review, with a vendored UTS #39 confusables skeleton, and a
   reserved word counts only as whole words. One focused check, then merge.
+  - [x] Stage 1, the engine (`claude/community-re2`): a community pack's rules and input-schema
+    patterns run on RE2 (`core/patterns.py`, rewritten to mean what `re` means by
+    `core/re2_syntax.py`; the differences left are in the guide); what RE2 cannot run is refused
+    at load; every other pack stays on `re`, decisions identical. Open: RE2's time is the text's
+    length times the compiled size (about 0.6 s for 9,000 counted copies on 10,000 characters),
+    so a cap on a pack's total compiled size belongs with the caps.
 - [ ] **B9 (owner, steps below, after B11)** `MENDARI_COMMUNITY_PACKS=on` in Vercel Production
   only; on the owner's own branch preview (never a fork's), check that `community-packs/`
   reaches the function bundle.
