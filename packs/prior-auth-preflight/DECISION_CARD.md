@@ -1,6 +1,8 @@
 # Decision Card: Prior Authorization Preflight
 
-`mendari/prior-auth-preflight` · version **0.1.2** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
+**Synthetic example. Not clinically reviewed. Not for patient care.**
+
+`mendari/prior-auth-preflight` · version **0.1.3** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
 
 > Checks an order against the patient's payer before it is sent for prior authorization: does this payer require authorization for this service, and does the record have what the payer asks for? Complete requests are queued for submission; the gaps in the others are listed.
 
@@ -9,8 +11,8 @@
 | Source | Maintained by Mendari |
 | Risk level | **1**, clinical information processing (clinical information) |
 | Automation | AUTO permitted by policy thresholds; every decision is audited. Only while `notes` is `rules_and_jev` or `rules_and_llm`; otherwise a person reviews. |
-| Pack digest | `sha256:6fbaacf59e8a1709471e2f11447e0ff401a6c3d9fab5eef760889e88767156a8` |
-| Last validation | 2026-09-30 on `test` (n=600, sha256 `17c6f97cd68c…`) |
+| Pack digest | `sha256:1736737143053a3f7a1302cb00e844f28aa014ad5842db785ab0ef78f7f47bf4` |
+| Last validation | 2026-10-06 on `test` (n=600, sha256 `17c6f97cd68c…`) |
 
 ## Intended use
 
@@ -177,7 +179,7 @@ Benchmark `test` (n=600) with structured=`criteria`, notes=`rules`:
 | Accuracy of AUTO decisions | n/a |
 | False automation rate | n/a |
 | Expected human override rate | 0.0% |
-| Latency p50 / p95 | 3.33 / 3.50 ms |
+| Latency p50 / p95 | 3.49 / 3.67 ms |
 | Cost per decision | $0.00000 |
 | Critical `red_flag=yes` | 25/25 detected, 0 automated |
 
@@ -361,7 +363,17 @@ Renamed on 2026-09-30, when the project became Mendari: this pack was `openhealt
 Its id, its publisher's name and its `https://mendari.co/...` identifiers changed; its criteria,
 rules, models, data and results did not.
 
-#### 0.1.2
+#### 0.1.3
+
+- Every surface now says what the pack is: "Synthetic example. Not clinically reviewed. Not for
+  patient care." It is derived from the new `card.provenance: synthetic`, never written by the
+  pack (the Decision Card's first line, the dashboard, Try it, the review queue, CDS Hooks cards
+  and discovery, the registry and the Hub).
+- Each question has a `display` name, so people read words instead of keys, and two labels have names (`lumbar_mri`, `submit_ready`).
+- Criteria, rules, providers, policy, models and data are unchanged; every decision is identical.
+  The digest changes because the manifest does.
+
+### 0.1.2
 
 - Da Vinci DTR (`cds_hooks.questionnaire`): `Questionnaire/$questionnaire-package` serves a
   questionnaire of the documentation the payer asks for, for the order's service and payer (the

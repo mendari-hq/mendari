@@ -2,7 +2,7 @@
 
 import { closeDrawer, showDrawer } from "./drawer.js";
 import { feedbackControls, myRating } from "./feedback.js";
-import { communityNotice, criteriaTable, derivedPrimary, inputView } from "./pack.js";
+import { communityNotice, criteriaTable, derivedPrimary, inputView, statusNotice } from "./pack.js";
 import { route, views, wire } from "./router.js";
 import { tableHtml } from "./table.js";
 import { $, api, esc, icon, may, num, outcomeBadge, OUTCOMES, outcomeText, pct, priorityBadge, shortTime, state, storageGet, storageSet, time, toastError, zoneShort } from "./ui.js";
@@ -33,6 +33,7 @@ views.audit = async (main, params) => {
     <h1>Audit trail</h1>
     <p class="muted">Every decision and what happened next, in a tamper-evident chain.</p>
     ${communityNotice(state.detail)}
+    ${statusNotice(state.detail)}
     <div class="row toolbar">
       <label for="outcome-filter">Outcome</label>
       <select id="outcome-filter"><option value="">All</option>${OUTCOMES.map((o) => `<option value="${o}" ${o === outcome ? "selected" : ""}>${esc(outcomeText(o))}</option>`).join("")}</select>

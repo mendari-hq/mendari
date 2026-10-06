@@ -79,6 +79,12 @@ card:
 `known_failure_modes` matters most. List every way you know the pack can be wrong. Reviewers
 and future users read it before they trust the pack.
 
+Say what the pack was built from with `provenance` (`synthetic`, `de_identified` or
+`site_records`). Mendari derives the line every surface shows from it: a pack built on synthetic
+data reads "Synthetic example. Not clinically reviewed. Not for patient care." Give each question
+a `display` name, and a label a name in `names` when its key does not read well as words
+(`lumbar_mri`: "Lumbar MRI"), so people read words instead of keys.
+
 ## 3. Choose the risk level honestly
 
 ```yaml

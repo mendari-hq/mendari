@@ -429,6 +429,9 @@ def describe(pack: Pack, verified: archive.Verified) -> dict[str, Any]:
         "summary": " ".join(m.summary.split()),
         "license": m.license,
         "claimed_publisher": {"name": m.publisher.name, "type": m.publisher.type},
+        # Derived from the manifest's `card.provenance` (`core/status.py`): a pack only ever
+        # lowers what it claims here.
+        "status_label": pack.status_label,
         "risk": {"level": int(m.risk.level), "category": m.risk.category},
         "questions": sorted(m.questions),
         "primary": m.policy.primary,

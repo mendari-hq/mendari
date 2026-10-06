@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 from enum import IntEnum, StrEnum
-from typing import Any, Literal, TypeGuard
+from typing import Annotated, Any, Literal, TypeGuard
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -23,6 +23,12 @@ MAX_DERIVE_ROWS = 10
 _PACK_ID = re.compile(r"^[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9-]*$")
 _SEMVER = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$")
 _KEY = re.compile(r"^[a-z][a-z0-9_]*$")
+
+
+def readable(key: str) -> str:
+    """A key as words: `medical_assistant` reads "Medical assistant"."""
+    words = key.replace("_", " ").strip()
+    return words[:1].upper() + words[1:]
 
 
 def is_pack_id(text: object) -> TypeGuard[str]:
@@ -107,6 +113,10 @@ class Evidence(_Strict):
     note: str | None = None
 
 
+# What a pack's criteria, examples and datasets were built from (`card.provenance`).
+Provenance = Literal["synthetic", "de_identified", "site_records"]
+
+
 class Card(_Strict):
     """Human-facing Decision Card content that cannot be derived from the rest of the pack."""
 
@@ -116,6 +126,9 @@ class Card(_Strict):
     out_of_scope: list[str] = []
     known_failure_modes: list[str] = []
     evidence: list[Evidence] = []
+    # Every surface derives the pack's status line from this (`core/status.py`); a pack never
+    # writes that line itself. None: not stated.
+    provenance: Provenance | None = None
 
 
 class Inputs(_Strict):
@@ -235,6 +248,10 @@ class Question(_Strict):
     criteria: dict[str, str]
     levels: dict[str, ScoreLevel] | None = None
     derive: Derive | None = None
+    # What a person reads instead of the key and the labels (`core/status.py` `title`,
+    # `Question.name_of`): optional, and a readable form of the key when absent.
+    display: str | None = Field(default=None, min_length=1, max_length=80)
+    names: dict[str, Annotated[str, Field(min_length=1, max_length=80)]] = {}
 
     @model_validator(mode="before")
     @classmethod
@@ -268,6 +285,17 @@ class Question(_Strict):
             if not description.strip():
                 raise ValueError(f"label {label!r} needs a non-empty criterion")
         return criteria
+
+    @model_validator(mode="after")
+    def _named_labels(self) -> Question:
+        unknown = sorted(set(self.names) - set(self.criteria))
+        if unknown:
+            raise ValueError(f"`names` names labels the question does not have: {unknown}")
+        return self
+
+    def name_of(self, label: str) -> str:
+        """What a person reads for one of this question's labels."""
+        return self.names.get(label) or readable(label)
 
     @model_validator(mode="after")
     def _levels(self) -> Question:
@@ -539,6 +567,11 @@ def cross_reference_problems(m: PackManifest) -> list[str]:
         ]
         if m.guard is not None:
             newer.append("guard")
+        newer += [
+            f"question {k} display or names" for k, q in m.questions.items() if q.display or q.names
+        ]
+        if m.card.provenance is not None:
+            newer.append("card.provenance")
         if newer:
             problems.append(f"{newer} use spec 0.2 features; set spec_version: '0.2'")
 

@@ -418,6 +418,10 @@ def test_spec_01_manifests_still_load() -> None:
     raw["policy"] = yaml.safe_load((INBOX_DIR / "policy.yaml").read_text())
     rule = raw["policy"]["rules"][0]["when"]
     rule["min_confidence"] = rule.pop("min_probability")  # the 0.1 shape of the rule
+    raw["card"].pop("provenance")  # 0.2 fields
+    for question in raw["questions"].values():
+        question.pop("display", None)
+        question.pop("names", None)
     manifest = PackManifest.model_validate(raw)
     assert manifest.spec_version == "0.1" and manifest.derived == {}
 

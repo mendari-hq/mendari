@@ -1,6 +1,6 @@
 spec_version: "0.2"
 id: mendari/patient-inbox-router
-version: 0.4.0
+version: 0.4.1
 name: Patient Inbox Router
 summary: >-
   Routes patient portal and SMS messages to the front desk, a medical assistant, a nurse, a
@@ -21,6 +21,8 @@ risk:
     the keyword rules, which miss emergencies phrased in ways they do not list.
 
 card:
+  # What every surface's status line is derived from (core/status.py).
+  provenance: synthetic
   intended_use: >-
     First-pass routing of incoming patient portal or SMS messages in an outpatient primary-care
     practice, with an explicit escalation path for messages that may describe an emergency.
@@ -74,6 +76,7 @@ inputs:
 
 questions:
   destination:
+    display: "Team"
     instructions: >-
       Which team should handle this patient message first? Route to the least specialised team
       that can fully handle it. If a message mixes administrative and clinical requests, choose
@@ -95,6 +98,7 @@ questions:
         Bills, statements, copays, charges, refunds, payment plans, insurance claims, coverage
         and cost estimates.
   urgency:
+    display: "Possible emergency"
     # One judgment, stated literally; how much doubt is enough to escalate is the policy's
     # min_probability, not part of the question.
     instructions: >-

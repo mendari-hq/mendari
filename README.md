@@ -48,6 +48,10 @@ Clinical/EHR data (FHIR R4, CDS Hooks, REST)
 | Synthetic healthcare dataset | [`src/mendari/sandbox/synthetic_inbox.py`](https://github.com/Junebugg1214/mendari/blob/main/src/mendari/sandbox/synthetic_inbox.py), [`synthetic_trial.py`](https://github.com/Junebugg1214/mendari/blob/main/src/mendari/sandbox/synthetic_trial.py), [`synthetic_referral.py`](https://github.com/Junebugg1214/mendari/blob/main/src/mendari/sandbox/synthetic_referral.py), [`synthetic_prior_auth.py`](https://github.com/Junebugg1214/mendari/blob/main/src/mendari/sandbox/synthetic_prior_auth.py), [`synthetic_guard.py`](https://github.com/Junebugg1214/mendari/blob/main/src/mendari/sandbox/synthetic_guard.py) |
 | Dashboard | `mendari serve` → http://127.0.0.1:8000: every pack on the search path. Overview, a review queue by priority, the audit trail with each record in a drawer, evaluations (provider leaderboard, benchmark report with charts, runs on your datasets), feedback with the right answer, the Decision Card, and Try it (a form for every pack, generated from its input schema for record packs, starting from the pack's behaviour tests, with the JSON one click away). Light and dark themes; times in the deployment's time zone (US Eastern by default). |
 
+The five reference packs are examples built on synthetic data, and each says so on every surface
+(its Decision Card, the dashboard, CDS Hooks cards, the registry):
+**Synthetic example. Not clinically reviewed. Not for patient care.**
+
 ## Install
 
 Mendari is not on PyPI yet: `pip install mendari` will work from the first release, 0.1.0.

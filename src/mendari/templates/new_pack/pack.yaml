@@ -27,6 +27,9 @@ risk:
     a nurse for review.
 
 card:
+  # What the pack's criteria, examples and data were built from: synthetic, de_identified or
+  # site_records. Every surface derives the pack's status line from it.
+  provenance: synthetic
   intended_use: >-
     Route portal messages to the refill queue, the scheduling queue or the front desk, and
     send messages describing same-day symptoms to a nurse.

@@ -1,6 +1,8 @@
 # Decision Card: Clinical Trial Prescreener
 
-`mendari/clinical-trial-prescreener` · version **0.1.2** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
+**Synthetic example. Not clinically reviewed. Not for patient care.**
+
+`mendari/clinical-trial-prescreener` · version **0.1.3** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
 
 > Checks a patient's record against the eligibility criteria of a synthetic type 2 diabetes study (GLYCEMIA-2): structured criteria are computed from coded data, and exclusions are looked for in the clinic notes. Every result goes to a research coordinator for review.
 
@@ -9,8 +11,8 @@
 | Source | Maintained by Mendari |
 | Risk level | **2**, clinical support |
 | Automation | Human review required by default; AUTO only with a recorded governance override. |
-| Pack digest | `sha256:62a1cf8095029014a054389e10336329d7c5bd29771c4f4a21d2091a747cefab` |
-| Last validation | 2026-09-30 on `test` (n=300, sha256 `12d2fb4b741a…`) |
+| Pack digest | `sha256:e1ee962b097c0bdf6dcaaf85d2fb22376d8fa8b75e4146f6d91a62519d39f1b4` |
+| Last validation | 2026-10-06 on `test` (n=300, sha256 `12d2fb4b741a…`) |
 
 ## Intended use
 
@@ -184,7 +186,7 @@ Benchmark `test` (n=300) with structured=`criteria`, notes=`rules`:
 | Accuracy of AUTO decisions | n/a |
 | False automation rate | n/a |
 | Expected human override rate | 0.7% |
-| Latency p50 / p95 | 0.39 / 0.47 ms |
+| Latency p50 / p95 | 0.40 / 0.49 ms |
 | Cost per decision | $0.00000 |
 | Critical `note_pregnancy=yes` | 12/13 detected, 0 automated |
 | Critical `note_pancreatitis=yes` | 6/6 detected, 0 automated |
@@ -370,7 +372,17 @@ Renamed on 2026-09-30, when the project became Mendari: this pack was `openhealt
 Its id, its publisher's name and its `https://mendari.co/...` identifiers changed; its criteria,
 rules, models, data and results did not.
 
-#### 0.1.2
+#### 0.1.3
+
+- Every surface now says what the pack is: "Synthetic example. Not clinically reviewed. Not for
+  patient care." It is derived from the new `card.provenance: synthetic`, never written by the
+  pack (the Decision Card's first line, the dashboard, Try it, the review queue, CDS Hooks cards
+  and discovery, the registry and the Hub).
+- Each question has a `display` name, so people read words instead of keys.
+- Criteria, rules, providers, policy, models and data are unchanged; every decision is identical.
+  The digest changes because the manifest does.
+
+### 0.1.2
 
 - A `cql` variant of the `structured` slot: the seven criteria written in CQL
   (`logic/criteria.cql`), evaluated on a CQL engine (`$MENDARI_CQL_URL`, e.g. HAPI FHIR with

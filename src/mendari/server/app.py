@@ -2158,6 +2158,8 @@ def _summary(pack: Pack) -> dict[str, Any]:
         "publisher": m.publisher.model_dump(mode="json"),
         "origin": pack.shown_origin,
         "origin_label": pack.origin_label,
+        # Derived from `card.provenance` (`core/status.py`), never written by the pack.
+        "status_label": pack.status_label,
         "license": m.license,
         "risk": {"level": int(m.risk.level), "category": m.risk.category},
         "primary": m.policy.primary,

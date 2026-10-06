@@ -1,6 +1,6 @@
 // Decision Card: the pack as a document, sections linked as routes ("#card/policy").
 
-import { communityNotice, isCommunity, originBadge, providerWords, rowLabels } from "./pack.js";
+import { communityNotice, isCommunity, originBadge, providerWords, rowLabels, statusNotice } from "./pack.js";
 import { render, views } from "./router.js";
 import { $, api, esc, focusHeading, icon, may, outcomeBadge, priorityBadge, shortTime, signedIn, slotText, state, time, toast, toastError } from "./ui.js";
 
@@ -103,6 +103,7 @@ views.card = async (main, params) => {
     <h1>${esc(m.name)}</h1>
     <p class="prose lead">${esc(m.summary)}</p>
     ${communityNotice(d)}
+    ${statusNotice(d)}
     <nav class="toc" aria-label="On this page">${CARD_SECTIONS.map(([key, title]) => `<a href="#card/${key}">${esc(title)}</a>`).join("")}</nav>
 
     <section class="card-section" id="card-facts" aria-labelledby="card-facts-title">

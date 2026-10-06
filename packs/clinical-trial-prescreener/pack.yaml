@@ -1,6 +1,6 @@
 spec_version: "0.2"
 id: mendari/clinical-trial-prescreener
-version: 0.1.2
+version: 0.1.3
 name: Clinical Trial Prescreener
 summary: >-
   Checks a patient's record against the eligibility criteria of a synthetic type 2 diabetes
@@ -22,6 +22,8 @@ risk:
     cardiovascular event is always flagged for review.
 
 card:
+  # What every surface's status line is derived from (core/status.py).
+  provenance: synthetic
   intended_use: >-
     Prescreening patients for a clinical study when their chart is opened or in a batch run:
     shows which eligibility criteria are met, not met or undetermined, so a research
@@ -90,18 +92,21 @@ inputs:
 questions:
   # -- structured criteria (computed in code; "yes" = the criterion is met) -------------------
   age_18_75:
+    display: "Age 18 to 75"
     instructions: Is the patient aged 18 to 75 on the screening date?
     criteria:
       "yes": Aged 18 to 75 inclusive.
       "no": Younger than 18 or older than 75.
       unknown: Age is not recorded.
   t2d_diagnosis:
+    display: "Type 2 diabetes diagnosis"
     instructions: Does the record contain a coded diagnosis of type 2 diabetes?
     criteria:
       "yes": Type 2 diabetes is coded (ICD-10 E11 or SNOMED CT 44054006).
       "no": Type 1 diabetes is coded and type 2 diabetes is not.
       unknown: No diabetes diagnosis is coded.
   hba1c_in_range:
+    display: "HbA1c between 7.0 and 10.5 %"
     instructions: >-
       Was the most recent HbA1c in the 90 days before screening between 7.0 % and 10.5 %?
     criteria:
@@ -109,12 +114,14 @@ questions:
       "no": The latest HbA1c in the window is below 7.0 % or above 10.5 %.
       unknown: No HbA1c in the last 90 days, or one with an unrecognised code or unit.
   stable_metformin:
+    display: "Metformin for at least 90 days"
     instructions: Has the patient been taking metformin for at least 90 days before screening?
     criteria:
       "yes": Metformin is active and was started at least 90 days before screening.
       "no": Metformin is not listed, was stopped, or was started less than 90 days ago.
       unknown: Metformin is active but has no start date.
   egfr_30_or_more:
+    display: "eGFR 30 or more"
     instructions: >-
       Was the most recent eGFR in the 365 days before screening at least 30 mL/min/1.73m2?
     criteria:
@@ -122,12 +129,14 @@ questions:
       "no": The latest eGFR in the window is below 30.
       unknown: No eGFR in the last 365 days, or one in an unrecognised unit.
   no_insulin:
+    display: "No insulin in the last 90 days"
     instructions: Has the patient been off insulin for the 90 days before screening?
     criteria:
       "yes": No insulin is listed, or it ended more than 90 days before screening.
       "no": Insulin is active, or ended in the last 90 days.
       unknown: Cannot tell from the medication list.
   no_recent_cv_event:
+    display: "No heart attack or stroke in 180 days"
     instructions: >-
       Is the record free of a coded heart attack or stroke with onset in the 180 days before
       screening?
@@ -139,6 +148,7 @@ questions:
   # -- exclusions documented in the notes ("yes" = the exclusion is documented) --------------
   # Each asks one literal question; the criteria spell out the look-alikes that do not count.
   note_pregnancy:
+    display: "Notes: pregnant or breastfeeding"
     type: boolean
     instructions: Do the notes say that the patient is pregnant or breastfeeding now?
     criteria:
@@ -149,6 +159,7 @@ questions:
         Anything else: no mention, a negative pregnancy test, a past pregnancy, plans to become
         pregnant, menopause, or someone else's pregnancy, such as a partner's.
   note_pancreatitis:
+    display: "Notes: pancreatitis ever"
     type: boolean
     instructions: Do the notes say that the patient has ever had pancreatitis?
     criteria:
@@ -156,6 +167,7 @@ questions:
       "no": >-
         No mention, pancreatitis denied or ruled out, or pancreatitis in a family member.
   note_active_cancer_treatment:
+    display: "Notes: cancer treatment now"
     type: boolean
     instructions: Do the notes say that the patient is receiving treatment for cancer now?
     criteria:
@@ -166,6 +178,7 @@ questions:
         No mention, cancer in remission, treatment finished, surveillance only, a cancer that
         needed no further treatment, or cancer in a family member.
   note_recent_cv_event:
+    display: "Notes: heart attack or stroke in 6 months"
     type: boolean
     instructions: >-
       Do the notes say that the patient had a heart attack, stroke or acute coronary syndrome
@@ -180,6 +193,7 @@ questions:
 
   # -- the prescreen result --------------------------------------------------------------------
   eligibility:
+    display: "Prescreen result"
     instructions: What is the prescreen result for the GLYCEMIA-2 study?
     criteria:
       candidate: >-

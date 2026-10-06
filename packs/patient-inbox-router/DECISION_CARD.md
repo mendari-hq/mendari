@@ -1,6 +1,8 @@
 # Decision Card: Patient Inbox Router
 
-`mendari/patient-inbox-router` · version **0.4.0** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
+**Synthetic example. Not clinically reviewed. Not for patient care.**
+
+`mendari/patient-inbox-router` · version **0.4.1** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
 
 > Routes patient portal and SMS messages to the front desk, a medical assistant, a nurse, a physician or billing, and escalates possible emergencies to stat nurse triage.
 
@@ -9,8 +11,8 @@
 | Source | Maintained by Mendari |
 | Risk level | **0**, administrative |
 | Automation | AUTO permitted by policy thresholds. Only while `safety_screen` is `rules_and_jev` or `rules_and_llm`; otherwise a person reviews. |
-| Pack digest | `sha256:e93267a3f04709af9f3e2897d3162cab48761db060e9655b06c8714fd030df45` |
-| Last validation | 2026-10-05 on `test` (n=600, sha256 `2997856d17a5…`) |
+| Pack digest | `sha256:261d9a85d9c866e1cb714296fb8324bc921bf3de0e73768beeafb77be9f0eeae` |
+| Last validation | 2026-10-06 on `test` (n=600, sha256 `2997856d17a5…`) |
 
 ## Intended use
 
@@ -103,7 +105,7 @@ Benchmark `test` (n=600) with safety_screen=`rules`, router=`naive_bayes`:
 | Accuracy of AUTO decisions | n/a |
 | False automation rate | n/a |
 | Expected human override rate | 0.5% |
-| Latency p50 / p95 | 0.15 / 0.26 ms |
+| Latency p50 / p95 | 0.15 / 0.20 ms |
 | Cost per decision | $0.00000 |
 | Critical `urgency=urgent` | 23/23 detected, 0 automated |
 
@@ -199,8 +201,8 @@ Every configuration below ran on the same records. Remote models are named becau
 | safety_screen=rules_and_llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) (measured on 0.3.0) | 96.4% | 0.982 | 0.075 | 0.0% | n/a | 28/28 (0 automated) | 2,386 ms | $0.00352 | 1 (invalid_response 1) |
 | safety_screen=rules_and_llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) (measured on 0.3.0) | 85.7% | 0.923 | 0.104 | 2.6% | n/a | 28/28 (0 automated) | 1,276 ms | $0.00017 | 0 |
 | safety_screen=llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) (measured on 0.3.0) | 78.6% | 0.880 | 0.184 | 2.6% | n/a | 27/28 (0 automated) | 1,257 ms | $0.00017 | 1 (invalid_response 1) |
-| safety_screen=rules · router=naive_bayes | 75.0% | 0.857 | 0.181 | 0.0% | n/a | 28/28 (0 automated) | 0.09 ms | $0.00000 | 0 |
-| safety_screen=rules · router=rules | 21.4% | 0.353 | 0.300 | 0.0% | n/a | 28/28 (0 automated) | 0.13 ms | $0.00000 | 0 |
+| safety_screen=rules · router=naive_bayes (measured on 0.4.0) | 75.0% | 0.857 | 0.181 | 0.0% | n/a | 28/28 (0 automated) | 0.09 ms | $0.00000 | 0 |
+| safety_screen=rules · router=rules (measured on 0.4.0) | 21.4% | 0.353 | 0.300 | 0.0% | n/a | 28/28 (0 automated) | 0.13 ms | $0.00000 | 0 |
 
 **`red_flags_holdout`** (n=30)
 
@@ -211,17 +213,17 @@ Every configuration below ran on the same records. Remote models are named becau
 | safety_screen=rules_and_llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) (measured on 0.3.0) | 100.0% | 1.000 | 0.248 | 6.7% | n/a | 20/20 (0 automated) | 1,266 ms | $0.00017 | 0 |
 | safety_screen=llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) (measured on 0.3.0) | 95.0% | 0.974 | 0.103 | 20.0% | n/a | 20/20 (0 automated) | 9,112 ms | $0.00460 | 0 |
 | safety_screen=llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) (measured on 0.3.0) | 95.0% | 0.974 | 0.071 | 3.3% | n/a | 20/20 (0 automated) | 2,356 ms | $0.00354 | 1 (invalid_response 1) |
-| safety_screen=rules · router=naive_bayes | 95.0% | 0.974 | 0.194 | 0.0% | n/a | 4/20 (0 automated) | 0.09 ms | $0.00000 | 0 |
+| safety_screen=rules · router=naive_bayes (measured on 0.4.0) | 95.0% | 0.974 | 0.194 | 0.0% | n/a | 4/20 (0 automated) | 0.09 ms | $0.00000 | 0 |
 | safety_screen=rules_and_llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) (measured on 0.3.0) | 95.0% | 0.974 | 0.031 | 26.7% | n/a | 20/20 (0 automated) | 10,327 ms | $0.00452 | 0 |
 | safety_screen=llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) (measured on 0.3.0) | 90.0% | 0.947 | 0.140 | 6.7% | n/a | 19/20 (0 automated) | 1,185 ms | $0.00016 | 0 |
-| safety_screen=rules · router=rules | 10.0% | 0.182 | 0.278 | 0.0% | n/a | 4/20 (0 automated) | 0.13 ms | $0.00000 | 0 |
+| safety_screen=rules · router=rules (measured on 0.4.0) | 10.0% | 0.182 | 0.278 | 0.0% | n/a | 4/20 (0 automated) | 0.13 ms | $0.00000 | 0 |
 
 **`test`** (n=100)
 
 | Configuration | Accuracy | Macro-F1 | ECE | AUTO | False automation | Critical detected | p50 latency | Cost / decision | Errors |
 |---|---|---|---|---|---|---|---|---|---|
 | safety_screen=rules · router=cascade (jev-1.13.0) (measured on 0.3.0) | 100.0% | 1.000 | 0.001 | 98.0% | 0.0% | 2/2 (0 automated) | 0.42 ms | $0.00000 | 0 |
-| safety_screen=rules · router=naive_bayes | 100.0% | 1.000 | 0.001 | 0.0% | n/a | 2/2 (0 automated) | 0.16 ms | $0.00000 | 0 |
+| safety_screen=rules · router=naive_bayes (measured on 0.4.0) | 100.0% | 1.000 | 0.001 | 0.0% | n/a | 2/2 (0 automated) | 0.16 ms | $0.00000 | 0 |
 | safety_screen=llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) (measured on 0.3.0) | 99.0% | 0.989 | 0.112 | 47.0% | 0.0% | 2/2 (0 automated) | 2,365 ms | $0.00362 | 0 |
 | safety_screen=rules_and_jev (jev-1.13.0) · router=jev (jev-1.13.0) (measured on 0.3.0) | 99.0% | 0.984 | 0.018 | 91.0% | 0.0% | 2/2 (0 automated) | 205 ms | $0.00003 | 0 |
 | safety_screen=rules_and_llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) (measured on 0.3.0) | 99.0% | 0.984 | 0.043 | 84.0% | 0.0% | 2/2 (0 automated) | 6,916 ms | $0.00423 | 0 |
@@ -229,7 +231,7 @@ Every configuration below ran on the same records. Remote models are named becau
 | safety_screen=llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) (measured on 0.3.0) | 97.0% | 0.968 | 0.034 | 85.0% | 1.2% | 2/2 (0 automated) | 6,206 ms | $0.00413 | 0 |
 | safety_screen=llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) (measured on 0.3.0) | 96.0% | 0.961 | 0.086 | 48.0% | 4.2% | 2/2 (0 automated) | 1,237 ms | $0.00017 | 0 |
 | safety_screen=rules_and_llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) (measured on 0.3.0) | 95.0% | 0.937 | 0.080 | 47.0% | 4.3% | 2/2 (0 automated) | 1,281 ms | $0.00017 | 0 |
-| safety_screen=rules · router=rules | 89.0% | 0.883 | 0.282 | 0.0% | n/a | 2/2 (0 automated) | 0.23 ms | $0.00000 | 0 |
+| safety_screen=rules · router=rules (measured on 0.4.0) | 89.0% | 0.883 | 0.282 | 0.0% | n/a | 2/2 (0 automated) | 0.23 ms | $0.00000 | 0 |
 
 
 ## Known failure modes
@@ -253,7 +255,17 @@ Renamed on 2026-09-30, when the project became Mendari: this pack was `openhealt
 Its id, its publisher's name and its `https://mendari.co/...` identifiers changed; its criteria,
 rules, models, data and results did not.
 
-#### 0.4.0
+#### 0.4.1
+
+- Every surface now says what the pack is: "Synthetic example. Not clinically reviewed. Not for
+  patient care." It is derived from the new `card.provenance: synthetic`, never written by the
+  pack (the Decision Card's first line, the dashboard, Try it, the review queue, CDS Hooks cards
+  and discovery, the registry and the Hub).
+- Each question has a `display` name, so people read words instead of keys.
+- Criteria, rules, providers, policy, models and data are unchanged; every decision is identical.
+  The digest changes because the manifest does.
+
+### 0.4.0
 
 - Safety: the policy allows AUTO only while `safety_screen` includes a model
   (`automation_requires`: `rules_and_jev` or `rules_and_llm`), as the Referral Router's does.

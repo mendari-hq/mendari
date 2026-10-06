@@ -27,6 +27,7 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
       <p className="muted"><Link href="/">Decision Packs</Link> / <Link href={`/publishers/${namespace}`}>{namespace}</Link></p>
       <h1>{latest.pack_name}</h1>
       <p className="lead">{latest.summary}</p>
+      <p className="notice"><strong>{latest.status_label ?? "Not clinically reviewed."}</strong></p>
       <div className="row">
         {latest.publisher_type ? <span className={`badge ${latest.publisher_type}`}>{latest.publisher_type} publisher</span> : null}
         <span className={`badge risk-${latest.risk.level}`}>Risk {latest.risk.level}: {RISK_WORDS[latest.risk.level]}</span>

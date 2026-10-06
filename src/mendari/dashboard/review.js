@@ -1,6 +1,6 @@
 // Review queue: grouped by priority, stat first; resolving moves focus to the next card.
 
-import { communityNotice, criteriaTable, inputView, isCommunity, originBadge } from "./pack.js";
+import { communityNotice, criteriaTable, inputView, isCommunity, originBadge, statusNotice } from "./pack.js";
 import { refreshReviewCount, views } from "./router.js";
 import { $, announce, api, emptyState, esc, focusHeading, icon, may, outcomeBadge, pct, PRIORITY_TEXT, priorityBadge, reducedMotion, signedIn, state, storageGet, storageSet, time, toast, toastError } from "./ui.js";
 
@@ -16,6 +16,7 @@ views.review = async (main) => {
     <h1>Review queue</h1>
     <p class="muted">Decisions waiting for a person, most urgent first.</p>
     ${communityNotice(state.detail)}
+    ${statusNotice(state.detail)}
     <div class="row toolbar">
       <label for="reviewer">Reviewer</label>
       ${signedIn()
