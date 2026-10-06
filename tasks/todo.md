@@ -92,7 +92,7 @@ B6/B7 → B8 → B9 → B10).
   check), size caps (2 MB, 200 files),
   version and CHANGELOG against the digest, PHI heuristics as warnings. A unit test per rule.
   Built: `src/mendari/community/` (`check.py` the rules, `regex_safety.py` the static check and
-  the subprocess probe, `phi_scan.py`, `maintainers.py`, `gitbase.py`), tests in
+  the subprocess probe (removed in B11), `phi_scan.py`, `maintainers.py`, `gitbase.py`), tests in
   `tests/test_community_check.py`. Also refused: symbolic links, files in `evals/` other than
   the benchmark (a leaderboard's numbers cannot be regenerated), a pack with no critical label,
   a pack without a `MAINTAINERS.yaml` entry. With a remote default provider the tests and the
@@ -144,7 +144,7 @@ B6/B7 → B8 → B9 → B10).
     `core/re2_syntax.py`; the differences left are in the guide); what RE2 cannot run is refused
     at load; every other pack stays on `re`, decisions identical. Open: RE2's time is the text's
     length times the compiled size (about 0.6 s for 9,000 counted copies on 10,000 characters),
-    so a cap on a pack's total compiled size belongs with the caps.
+    so a cap on a pack's total compiled size belongs with the caps (built: the review fixes).
   - [x] Stage 2, the caps (`core/caps.py`), refused at load and so by `community-check`: each
     field once in a `text_fields` (rules and dosing), `negation_window` at most 200 characters
     and at most 50 `negation_cues`, at most 50 schema patterns run on one value or key (counted
@@ -155,7 +155,8 @@ B6/B7 → B8 → B9 → B10).
     costs each negated match its window (500 negatable patterns on "no a no a ...": 4 s at a
     window of 40, 9 s at 200; memoising `_negated` per text, or answering it from cue and break
     positions found once, would fix it); typo tolerance compares each word with every keyword
-    sharing its first letter (40,000 keywords in 500 patterns: 25 s); and the compiled size.
+    sharing its first letter (40,000 keywords in 500 patterns: 25 s); and the compiled size
+    (capped in the review fixes below).
   - [x] Stage 3, the check, names and docs: `community-check`'s `patterns` rule is that every
     authored pattern compiles on RE2 within the load's caps (2,000 characters, 500 a pack): the
     loader raises `PatternsRefused` naming them, and the check reports them under `patterns`;
@@ -171,10 +172,19 @@ B6/B7 → B8 → B9 → B10).
     mixes, Arabic or Hebrew inside a Latin word) now warn; the tables stay incomplete on
     purpose, and no UTS #39 table was vendored (a warning for review needs none). Docs: the guide's patterns section for RE2, ADR-0007's consequences, threat model
     D8 and S13, SECURITY.md, `community-packs/README.md`. Residual, not capped (D8): typo
-    tolerance's keyword list, the negation check's work per negated match, and the compiled
-    size of a pack's patterns together; seconds a decision only for a pack with hundreds of
-    negatable patterns or tens of thousands of keywords, which review sees. The owner weighs
-    them at B9.
+    tolerance's keyword list and the negation check's work per negated match; seconds a
+    decision only for a pack with hundreds of negatable patterns or tens of thousands of
+    keywords, which review sees. The owner weighs them at B9.
+  - [x] Review fixes (the focused check's 10 findings): the size of the patterns one input runs
+    is capped at 3,000 (`re2_syntax.size`, `caps.pack_size`; about 3.5 s at worst on 10,000
+    characters, 148 s before for 500 patterns of size 2,001), and `community-check` prints it;
+    case is ignored exactly as `re` does (classes written out from `re` itself, RE2 folds
+    nothing: Turkish `İ`/`ı`, `\W` and Greek `ι`); word boundaries next to letters outside
+    ASCII documented as they behave, with a `community-check` warning; RE2, the rewriting and
+    the caps imported only for a community pack; refusal advice for back references and
+    negative lookbehinds; the schema cap names `patternProperties` with `additionalProperties`;
+    `unevaluatedProperties` with `patternProperties` documented; "names Mendari" capitalised;
+    stale "timed" wording gone.
 - [ ] **B9 (owner, steps below)** `MENDARI_COMMUNITY_PACKS=on` in Vercel Production
   only; on the owner's own branch preview (never a fork's), check that `community-packs/`
   reaches the function bundle.

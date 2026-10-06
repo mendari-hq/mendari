@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import subprocess
+import sys
 import time
 from collections.abc import Sequence
 from pathlib import Path
@@ -21,7 +23,7 @@ from jsonschema import Draft202012Validator
 from mendari import Decision, load_pack
 from mendari.core import input_schema, patterns
 from mendari.core.pack import authored_patterns
-from mendari.core.re2_syntax import translate
+from mendari.core.re2_syntax import boundary_problem, translate
 from mendari.core.registry import SearchPath, discover
 from mendari.errors import PackValidationError
 from mendari.providers.rules import RulesProvider
@@ -36,7 +38,7 @@ SCHEMA = "schemas/input.schema.json"
 SLOW = [
     (r"(a+)+$", "a" * 9_999 + "!"),
     (r"(\w+\s?)*$", "word " * 1_999 + "!"),
-    (r"(?:01){0,3000}(?:01){0,3000}(?:01){0,3000}x", "01" * 5_000),
+    (r"(?:01){0,450}(?:01){0,450}(?:01){0,450}x", "01" * 5_000),  # size 2,701: under the cap
     (r"\bno\b.{0,300}\bno\b.{0,300}\bno\b.{0,300}\bfever\b", "no " * 3_333),
     (r"x.{0,1000}x.{0,1000}y", "x" * 10_000),
     (r"\d.{0,300}[a-z].{0,300}\d.{0,300}!", "0a" * 5_000),
@@ -60,7 +62,8 @@ IDS = [
     "question",
 ]
 # Each takes milliseconds, but `counts`: RE2's time is the text's length times the pattern's
-# compiled size, and 9,000 counted copies take about 0.5 s on 10,000 characters.
+# size (`re2_syntax.size`, capped by `core/caps.py`), and 2,700 counted copies take a tenth of a
+# second on 10,000 characters.
 LIMIT_S = 1.0
 
 
@@ -227,6 +230,42 @@ def test_a_community_schema_may_not_hold_unevaluated_and_pattern_properties(
     root = community_pack(tmp_path / "local", schema={}, pack_id="local/sorter")
     (root / SCHEMA).write_text(json.dumps(document))
     load_pack(root)  # any other pack: as before
+    # Written down where a contributor reads the limits.
+    for doc in ("docs/guides/contributing-a-pack.md", "docs/spec/decision-pack-0.2.md"):
+        text = " ".join((ROOT / doc).read_text().split())
+        assert "`unevaluatedProperties` together with `patternProperties`" in text, doc
+
+
+@pytest.mark.parametrize(
+    ("pattern", "says", "never"),
+    [
+        (r"([a-z])\1", "e.g. (?:aa|bb) for ([ab])\\1", "write the group's pattern again"),
+        (
+            r"(?<!no )refill",
+            "mark the rule negatable: true and list the word in negation_cues",
+            "a class such as [^x]",
+        ),
+        (r"refill(?! now)", "say what must come there instead", "a class such as [^x]"),
+    ],
+)
+def test_a_refused_pattern_says_what_to_write_instead(pattern: str, says: str, never: str) -> None:
+    """The last check: "write the group's pattern again" turned `([a-z])\\1` into `[a-z][a-z]`,
+    which matches "ab", and a negative lookbehind's advice never named negation_cues."""
+    problem = patterns.problem(pattern, patterns.RULES_FLAGS, community=True)
+    assert problem is not None and says in problem and never not in problem
+    assert problem.endswith('(see "Patterns run on RE2" in docs/guides/contributing-a-pack.md)')
+
+
+def test_a_deployment_without_community_packs_never_imports_re2() -> None:
+    """RE2, the rewriting and the caps are imported only for a community pack: the Vercel
+    function (and every deployment, community packs being off by default) loads none of them."""
+    code = (
+        "import sys, mendari.server.vercel, mendari.cli; "
+        "print(sorted(m for m in ('re2', 'mendari.core.re2_syntax', 'mendari.core.caps') "
+        "if m in sys.modules))"
+    )
+    ran = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+    assert ran.stdout.strip() == "[]"
 
 
 def test_a_community_packs_validator_checks_keys_and_texts_on_re2(tmp_path: Path) -> None:
@@ -308,6 +347,20 @@ SAME = [
     (r"[\]\-^]+", 0, "x-]^"),
     (r"(?:a|ab)(?:c|bcd)", 0, "abcd"),
     (r"x*?y", 0, "xxy"),
+    # Case, as `re` ignores it (the last check's findings): RE2 folds no case of its own.
+    (r"i", re.I, "\u0131"),  # the dotless i
+    (r"(?a)k", re.I, "\u212a"),  # the Kelvin sign, with (?a): ASCII only, as in `re`
+    (r"ilaç", re.I, "İLAÇ KULLANIYORUM"),
+    (r"[iı]laç", re.I, "İLAÇ"),  # noqa: RUF001
+    (r"ağrı", re.I, "BAŞ AĞRISI"),  # noqa: RUF001
+    (r"ishal", re.I, "İSHAL VAR"),
+    (r"\bkriz\b", re.I, "KRİZ"),
+    (r"(?:^|\W)πόνο(?:\W|$)", re.I, "οι πόνοι στο στήθος"),  # noqa: RUF001
+    (r"πόνο\W", re.I, "πόνοι"),
+    (r"[^\W\d_]+", re.I, "1ι"),  # noqa: RUF001
+    (r"\w", re.I, "\u0345"),
+    (r"[^a]", re.I, "A"),
+    (r"(?i)[^\Wk]", 0, "\u212a1"),
 ]
 
 
@@ -318,13 +371,16 @@ def test_re2_matches_where_re_does(pattern: str, flags: int, text: str) -> None:
     assert (found and found.start()) == (expected and expected.start()), translate(pattern, flags)
 
 
-# (pattern, flags, text, re's answer): what still differs, written down in core/re2_syntax.py
-# and the guide.
+# (pattern, flags, text, RE2's answer): what still differs, written down in core/re2_syntax.py
+# and the guide: a letter or digit outside ASCII just outside the match, whatever the pattern
+# names next to the boundary.
 DIFFERENT = [
-    (r"\bpie", 0, "épie", True),  # a letter outside ASCII just outside the match
+    (r"\bpie", 0, "épie", True),
     (r"\bma\b", 0, "mañana", True),
-    (r"i", re.I, "\u0131", False),  # the dotless i
-    (r"(?a)k", re.I, "\u212a", True),  # the Kelvin sign, with (?a)
+    (r"\bрак\b", re.I, "практика", True),  # cancer, inside "practice"  # noqa: RUF001
+    (r"\bболь\b", re.I, "больница", True),  # noqa: RUF001
+    (r"\bπόνο\b", re.I, "πόνος", True),  # noqa: RUF001
+    (r"\bmarché\b", re.I, "marchéñ", True),
 ]
 
 
@@ -334,11 +390,64 @@ def test_the_differences_left_are_the_ones_written_down(
 ) -> None:
     assert bool(re.search(pattern, text, flags)) is not on_re2
     assert bool(patterns.compile(pattern, flags, community=True).search(text)) is on_re2
-    written = (ROOT / "src" / "mendari" / "core" / "re2_syntax.py").read_text()
-    assert '`\\bpie` also matches in "épie", and `\\bma\\b` inside "mañana"' in written
-    assert "the dotless i, U+0131" in written and "the Kelvin sign" in written
+    written = " ".join((ROOT / "src" / "mendari" / "core" / "re2_syntax.py").read_text().split())
+    assert '`\\bpie` also matches in "épie", `\\bma\\b` inside "mañana"' in written
+    assert '`\\bрак\\b` inside "практика"' in written  # noqa: RUF001
     guide = " ".join((ROOT / "docs" / "guides" / "contributing-a-pack.md").read_text().split())
-    assert '`\\bpie` also matches in "épie"' in guide and "the dotless `\u0131`" in guide
+    assert '`\\bpie` also matches in "épie"' in guide
+    assert '`\\bрак\\b` (cancer) also matches inside "практика"' in guide  # noqa: RUF001
+    assert "work as in `re`" not in guide  # the claim the last check disproved
+    # community-check warns on each next to a letter the pattern names outside ASCII
+    assert boundary_problem(pattern, flags) is not pattern.isascii()
+
+
+def test_community_check_warns_on_a_boundary_next_to_a_letter_outside_ascii(
+    tmp_path: Path,
+) -> None:
+    from mendari.community.check import check
+
+    root = community_pack(tmp_path, rules=[r"\bрак\b", r"\bpain\b", r"(?:^|\W)боль(?:\W|$)"])  # noqa: RUF001
+    warned = [f.message for f in check(root).warnings if f.rule == "patterns"]
+    assert len(warned) == 1 and warned[0].startswith(
+        f"{RULES}: questions.topic.labels.billing[0] (p0): a word boundary"
+    )
+    assert '\\bрак\\b also matches inside "практика"' in warned[0]  # noqa: RUF001
+
+
+def test_ignoring_case_matches_what_re_matches_for_every_class() -> None:
+    """Every class `re` has, and letters case relates, with case ignored, on every character
+    case relates and a sample of the rest: RE2 matches exactly the characters `re` matches."""
+    every = "".join(chr(c) for c in range(0x3000) if not 0xD800 <= c <= 0xDFFF)
+    every += "\u212a\u017f\u1fbe\u1e9e\U00010400\U00010428\U0001e900"
+    for pattern in [
+        r"\w",
+        r"\W",
+        r"\d",
+        r"\D",
+        r"\s",
+        r"\S",
+        r"[^\W\d_]",
+        r"[\w-]",
+        r"[^\s\d]",
+        r"[a-z]",
+        r"[^a-z]",
+        r"[K]",
+        r"[^ı]",  # noqa: RUF001
+        r"i",
+        r"I",
+        r"ı",  # noqa: RUF001
+        r"İ",
+        r"ß",
+        r"σ",  # noqa: RUF001
+        r"ς",
+        r"\u0345",
+        r"µ",
+        r".",
+    ]:
+        for flags in (re.I, re.I | re.A):
+            expected = {m.start() for m in re.finditer(pattern, every, flags)}
+            found = patterns.compile(pattern, flags, community=True)
+            assert {m.start() for m in found.finditer(every)} == expected, (pattern, flags)
 
 
 def maintained_cases() -> list[tuple[str, str, int, list[str]]]:

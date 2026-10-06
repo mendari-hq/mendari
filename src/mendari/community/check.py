@@ -30,7 +30,10 @@ of the `packs` workflow). Each rule says, in plain words, what to fix:
 - **patterns**: every pattern the pack wrote (its rules' and its input schema's) compiles as it
   runs, on RE2 (`core/patterns.py`), within the load's caps on a pattern's length and a pack's
   count: the pack does not load otherwise, and the pattern is named under this rule. RE2 never
-  backtracks, so no pattern can stall a worker; there is nothing else to time.
+  backtracks, so no pattern can stall a worker; there is nothing else to time. The report
+  shows the size the pack's patterns come to on one input against its cap (`caps.pack_size`),
+  and warns on a word boundary next to a letter or digit outside ASCII, which RE2 decides
+  differently (`re2_syntax.boundary_problem`).
 - **hygiene**: at most 2 MB and 200 files, regular text files only (a trained model aside), no
   git submodule, no files in `evals/` but the benchmark, and a `CHANGELOG.md` entry for the
   version; a change to what the pack decides with raises the version.
@@ -60,6 +63,7 @@ from typing import Any
 
 from mendari.community import maintainers, phi_scan
 from mendari.community.gitbase import COMMUNITY_DIR, Base, gitlinks, toplevel
+from mendari.core import caps, re2_syntax
 from mendari.core.origin import (
     COMMUNITY_NAME,
     COMMUNITY_NAMESPACE,
@@ -73,6 +77,7 @@ from mendari.core.pack import (
     MANIFEST,
     Pack,
     PatternsRefused,
+    authored_patterns,
     load_pack,
     pack_digest,
     parse_yaml,
@@ -109,6 +114,7 @@ class Report:
     findings: list[Finding] = field(default_factory=list)
     not_checked: list[str] = field(default_factory=list)
     metrics: str | None = None  # the metrics table (Markdown), from the eval gate
+    pattern_size: int | None = None  # its patterns' size on one input (`caps.pack_size`)
     card: str | None = None  # the Decision Card the pack renders
 
     @property
@@ -135,6 +141,11 @@ class Report:
         lines += [f"  error    [{f.rule}] {f.message}" for f in self.errors]
         lines += [f"  warning  [{f.rule}] {f.message}" for f in self.warnings]
         lines += [f"  not checked: {item}" for item in self.not_checked]
+        if self.pattern_size is not None:
+            lines.append(
+                f"  pattern size: {self.pattern_size:,} on one input, of at most "
+                f"{caps.MAX_PACK_PATTERN_SIZE:,}"
+            )
         if self.passed:
             extra = f"; look at the {len(self.warnings)} warning(s)" if self.warnings else ""
             lines.append(f"passed: ready for review{extra}")
@@ -383,6 +394,28 @@ def _load(ctx: _Context) -> None:
         ctx.report.error("correctness", f"the pack does not load: {error}")
     except Exception as error:  # the pack's content: named by type, as the registry does
         ctx.report.error("correctness", f"the pack does not load ({type(error).__name__})")
+    if ctx.pack is not None:
+        _pattern_notes(ctx, ctx.pack)
+
+
+_CANCER = "\u0440\u0430\u043a"  # Russian: in the guide's example of a boundary RE2 decides
+_PRACTICE = "\u043f\u0440\u0430\u043a\u0442\u0438\u043a\u0430"  # differently
+
+
+def _pattern_notes(ctx: _Context, pack: Pack) -> None:
+    """The size the loaded pack's patterns come to, and a warning for each pattern with a word
+    boundary RE2 decides differently from `re` (`re2_syntax.boundary_problem`)."""
+    ctx.report.pattern_size = caps.pack_size(pack.manifest, pack.parsed, pack.input_schema)
+    for where, text, flags in authored_patterns(pack):
+        if re2_syntax.boundary_problem(text, flags):
+            ctx.report.warn(
+                "patterns",
+                f"{where}: a word boundary (\\b or \\B) next to a letter or digit outside "
+                "ASCII, or a class that may match one: RE2 counts only ASCII letters, digits and "
+                f"_ as word characters just outside a match, so \\b{_CANCER}\\b also matches "
+                f'inside "{_PRACTICE}". Write (?:^|\\W){_CANCER}(?:\\W|$) instead (see "Patterns '
+                'run on RE2" in docs/guides/contributing-a-pack.md)',
+            )
 
 
 def _identity(ctx: _Context) -> None:
@@ -669,8 +702,8 @@ def name_findings(
     named = next((word for word in RESERVED_NAMESPACES if _joins(written, word)), None)
     if named is not None:
         errors.append(
-            f"{where} {text!r} names {named}: a community pack is not Mendari's. Use your own "
-            "name (the label says where a pack comes from)"
+            f"{where} {text!r} names {_SHOWN_RESERVED.get(named, named)}: a community pack is "
+            "not Mendari's. Use your own name (the label says where a pack comes from)"
         )
     else:
         lookalike = next((w for w in RESERVED_NAMESPACES if _joins(read, _folded(w))), None)

@@ -28,10 +28,19 @@ its manifest says:
 - its settings do not multiply its patterns' work: each field is named once in a
   `text_fields` (a provider's or a question's), `negation_window` is at most **200** characters
   with at most **50** `negation_cues`, its input schema runs at most **50** patterns on any one
-  value or key (two `$ref`s to the same schema run its patterns twice) and never refers back to
-  itself where patterns run, and its rules (on an input) and its schema (on one value) run at
-  most **500** patterns together (a rules pattern counts once for each question it answers and
-  each composite member holding it);
+  value or key (two `$ref`s to the same schema run its patterns twice, and each
+  `patternProperties` pattern counts three times where `additionalProperties` is also set, which
+  searches them again and for its error message) and never refers back to itself where patterns
+  run, and its rules (on an input) and its schema (on one value) run at most **500** patterns
+  together (a rules pattern counts once for each question it answers and each composite member
+  holding it);
+- those same pattern runs come to a **size** of at most **3,000** together: a pattern's size is
+  the characters, classes and `.`s it holds, each as often as a count repeats it (`a{1,50}` is
+  50, `a{5,}` is 5, `\w+` and `x*` are 1, `(?:ab|cd){1,10}` is 40), so RE2's time on each
+  character grows with it. The packs Mendari maintains come to about 1,200 to 2,600, and
+  `community-check` prints your pack's;
+- its input schema does not set `unevaluatedProperties` together with `patternProperties`
+  anywhere (jsonschema would run those patterns on `re`): use `additionalProperties`;
 - its FHIR systems (a `task.performer_system` in `fhir/mapping.yaml`) live under its own url,
   `https://mendari.co/packs/community/<name>/`, e.g.
   `https://mendari.co/packs/community/<name>/CodeSystem/performer`;
@@ -223,17 +232,18 @@ once compiled. `mendari validate` refuses a pattern that breaks one of these, an
 
 **What still differs from `re`.** `\w`, `\d`, `\s` (and `\W`, `\D`, `\S`) are `re`'s Unicode
 classes, `$` is `re`'s (the end, or before a newline that ends the text), `\Z` is the end only,
-`a{,3}` is `a{0,3}`, and counts above 1,000 are split into counts RE2 runs. Three things differ:
+`a{,3}` is `a{0,3}`, and counts above 1,000 are split into counts RE2 runs. Case is ignored
+exactly as `re` ignores it: `ilaç` matches "İLAÇ", `ağrı` matches "AĞRI", and `\W` never
+matches a Greek `ι`. Two things differ:
 
-- **Word boundaries.** Next to a word boundary, RE2 sees only ASCII letters, digits and `_` as
-  word characters *in the text just outside a match*: `\bpie` also matches in
-  "épie", and `\bma\b` inside "mañana" (`re` matches neither). Boundaries next to letters the
-  pattern itself names, like `\bmarché\b`, work as in `re`. Where a letter outside ASCII may
-  come just before or after, write `(?:^|\W)pie(?:\W|$)` instead of `\bpie\b`: `\W` is
-  `re`'s, so it does not match "é" (the match then starts one character earlier).
-- **Case.** With case ignored, `re` also matches `i` and `I` to the dotless `ı` (U+0131), and
-  RE2 does not: write `[iı]` where a Turkish dotless i may appear. With `(?a)`, `re` folds ASCII
-  letters only, while RE2 also folds the Kelvin sign and the long s to `k` and `s`.
+- **Word boundaries.** RE2 sees only ASCII letters, digits and `_` as word characters *in the
+  text just outside a match*, so a letter or digit outside ASCII there does not continue the
+  word: `\bpie` also matches in "épie" and `\bma\b` inside "mañana". In a script other than
+  Latin, whose letters are all outside ASCII, that is the usual case: `\bрак\b` (cancer) also
+  matches inside "практика" (practice), and `\bболь\b` (pain) inside "больница" (hospital).
+  `community-check` warns on a boundary next to a letter or digit outside ASCII (or a class
+  that may match one, such as `\w`). Write `(?:^|\W)рак(?:\W|$)` instead of `\bрак\b`: `\W` is `re`'s, so it matches no
+  letter in any script (the match then starts one character earlier).
 - **Lone surrogates.** A text holding one (a JSON string can) has it read as U+FFFD before a
   pattern runs.
 

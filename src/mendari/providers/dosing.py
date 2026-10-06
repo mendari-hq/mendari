@@ -32,7 +32,6 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from mendari.core.caps import dosing_problems
 from mendari.errors import PackValidationError
 from mendari.providers.base import Provider, ProviderOutput, fingerprint, text_from
 
@@ -134,6 +133,8 @@ class DosingProvider(Provider):
         except ValidationError as error:
             raise PackValidationError(self.pack.id, [f"{relative}: {error}"]) from None
         if self.pack.community:  # its caps (`core/caps.py`; `load_pack` checks them too)
+            from mendari.core.caps import dosing_problems
+
             problems = dosing_problems(relative, self.table.model_dump())
             if problems:
                 raise PackValidationError(self.pack.id, problems)

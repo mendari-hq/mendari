@@ -45,7 +45,8 @@ The owner decided (2026-10-04):
   shown only as self-declared. A community pack never automates: the policy caps AUTO to
   HUMAN_REVIEW (ADR-0002: policy only lowers automation), and no policy rule of its own
   blocks (refused at load; a block is final at once, so no person would confirm it). It reads
-  at most 10,000 characters of text in all, the length its patterns are timed on.
+  at most 10,000 characters of text in all, the length the caps on its patterns' work are
+  measured on (RE2's time grows with it).
 - **Local providers only, unless the owner opts a pack in.** A community pack's default
   variants are local (`rules`, `criteria`, `dosing`, `naive_bayes`, or a composite of those);
   unscoped provider settings skip it, and only `community/<name>:slot=variant` runs it on
@@ -80,13 +81,14 @@ The owner decided (2026-10-04):
   probe of each pattern came first; three checks of them each found new slow patterns that
   passed, and Python's `re` has no time limit. So (decided 2026-10-05, built as B11) a
   community pack's patterns run on RE2, which never backtracks: a pattern's time grows with
-  the text's length (at most 10,000 characters) times its compiled size. A pattern RE2 cannot
-  run is refused at load and in CI, the settings that multiply the work are capped at load
-  (`core/caps.py`), and the static check and the probe are gone. What is not capped (typo
-  tolerance's keyword list, the negation check's work on each negated match, the compiled size
-  of a pack's patterns together) takes seconds only for a pack with hundreds of negatable
-  patterns or tens of thousands of keywords (threat model D8); the remedy for one that stalls
-  is removal: revert the merge, or turn the switch off.
+  the text's length (at most 10,000 characters) times its size. A pattern RE2 cannot run is
+  refused at load and in CI, the settings that multiply the work are capped at load
+  (`core/caps.py`), including the size of the patterns one input runs (at most 3,000 together:
+  about 3.5 s at worst on 10,000 characters), and the static check and the probe are gone.
+  What is not capped (typo tolerance's keyword list, the negation check's work on each negated
+  match) takes seconds only for a pack with hundreds of negatable patterns or tens of
+  thousands of keywords (threat model D8); the remedy for one that stalls is removal: revert
+  the merge, or turn the switch off.
 - Names are checked the same way: CI fails a name, CDS Hooks title or publisher that copies a
   maintained pack's name or title, or uses the word Mendari (or OpenHealth) as whole words.
   A look-alike, which no table catches completely (the same three checks found ways past

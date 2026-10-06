@@ -15,12 +15,20 @@ refused at load, in words saying what to write instead, when
   (two `$ref`s to a schema holding two `$ref`s... double it at each step), and a reference cycle
   that reaches a pattern runs it more times the deeper the input;
 - its rules (each pattern once for each question it answers and each composite member holding
-  it, `rules_runs`) and its schema's runs on one value come to more than `MAX_PACK_PATTERNS`.
+  it, `rules_runs`) and its schema's runs on one value come to more than `MAX_PACK_PATTERNS`;
+- the same runs, each weighed by its pattern's size (`re2_syntax.size`: the characters,
+  classes and `.`s it holds, each as often as a count repeats it), come to more than
+  `MAX_PACK_PATTERN_SIZE` (`pack_size`). RE2 runs a pattern's copies side by side, so its time
+  on a character grows with the size: 500 patterns of `.{0,999}a.{0,999}b` (2,001 each), within
+  every other cap, took 148 s on 10,000 characters. Measured on 10,000 characters, the worst
+  shapes (`\\w{1,200}`, `\\D{1,999}`, `.{0,999}` on Chinese text or emoji, where RE2's automaton
+  runs out of memory and steps through the copies one by one) take at most about 0.12 µs per
+  unit of size and character: about 3.5 s for a pack at the cap, and milliseconds for the
+  shipped packs (about 1,200 to 2,600 each).
 
 Not capped (residual risks, threat model D8): typo tolerance's keyword list (each word of the
-text is compared with every keyword sharing its first letter), the compiled size of a pack's
-patterns together (RE2's time grows with it), and the negation check's work on each negated
-match (`rules._negated`).
+text is compared with every keyword sharing its first letter) and the negation check's work on
+each negated match (`rules._negated`).
 
 Every other pack is not capped: its patterns run on `re`, and installing it means trusting its
 author (SECURITY.md).
@@ -29,7 +37,7 @@ author (SECURITY.md).
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -37,13 +45,30 @@ from pydantic import TypeAdapter, ValidationError
 from referencing import Registry
 from referencing.jsonschema import DRAFT202012
 
-from mendari.core.patterns import MAX_PACK_PATTERNS
+from mendari.core import re2_syntax
+from mendari.core.patterns import MAX_PACK_PATTERNS, RULES_FLAGS
 from mendari.core.spec import PackManifest
 
 MAX_NEGATION_WINDOW = 200  # characters; the shipped packs use 30 to 40
 MAX_NEGATION_CUES = 50  # the shipped packs have 7 to 23
 MAX_SCHEMA_RUNS = 50  # patterns run on one value or key of an input
+MAX_PACK_PATTERN_SIZE = 3_000  # the shipped packs' come to about 1,200 to 2,600
 _INT = TypeAdapter(int)  # as the providers read a number (`"200"` is 200)
+Weight = Callable[[str], int]  # what one run of a pattern counts
+
+
+def _once(pattern: str) -> int:
+    return 1
+
+
+def rules_size(pattern: str) -> int:
+    """A rules pattern's size (`re2_syntax.size`), at least 1: every run reads the text."""
+    return max(re2_syntax.size(pattern, RULES_FLAGS), 1)
+
+
+def schema_size(pattern: str) -> int:
+    """An input schema pattern's size, at least 1."""
+    return max(re2_syntax.size(pattern), 1)
 
 
 # -- provider configs ----------------------------------------------------------------------------
@@ -103,11 +128,12 @@ def _number(value: Any) -> int | None:
     return number
 
 
-def rules_runs(manifest: PackManifest, configs: Mapping[str, Any]) -> int:
+def rules_runs(manifest: PackManifest, configs: Mapping[str, Any], weight: Weight = _once) -> int:
     """How many rules patterns one decision runs, at most: for each provider slot, the variant
     that runs the most (the deployment may choose any), each rules config (the variant's, or a
     composite member's) counting the patterns of every question the slot answers, as often as
-    they are listed (a YAML alias listed twice runs twice). `configs`: the rules files as read."""
+    they are listed (a YAML alias listed twice runs twice). `configs`: the rules files as read.
+    With `weight` (`rules_size`), each run counts what `weight` gives its pattern."""
     total = 0
     for slot in manifest.providers.values():
         most = 0
@@ -118,7 +144,7 @@ def rules_runs(manifest: PackManifest, configs: Mapping[str, Any]) -> int:
             if isinstance(members, Mapping):
                 found += [member for member in members.values() if isinstance(member, Mapping)]
             runs = sum(
-                _question_patterns(configs.get(c["config"]), question)
+                _question_patterns(configs.get(c["config"]), question, weight)
                 for c in found
                 if c.get("type") == "rules" and isinstance(c.get("config"), str)
                 for question in slot.answers
@@ -128,18 +154,26 @@ def rules_runs(manifest: PackManifest, configs: Mapping[str, Any]) -> int:
     return total
 
 
-def _question_patterns(rules: Any, question: str) -> int:
+def _question_patterns(rules: Any, question: str, weight: Weight) -> int:
     questions = rules.get("questions") if isinstance(rules, Mapping) else None
     spec = questions.get(question) if isinstance(questions, Mapping) else None
     labels = spec.get("labels") if isinstance(spec, Mapping) else None
     if not isinstance(labels, Mapping):
         return 0
     return sum(
-        isinstance(item, Mapping) and isinstance(item.get("pattern"), str)
+        weight(item["pattern"])
         for items in labels.values()
         if isinstance(items, list)
         for item in items
+        if isinstance(item, Mapping) and isinstance(item.get("pattern"), str)
     )
+
+
+def pack_size(manifest: PackManifest, configs: Mapping[str, Any], schema: Any) -> int:
+    """The size of the patterns one decision runs on each character, at most: the rules' runs
+    and the input schema's on one value, each weighed by its pattern's size. Its patterns must
+    have compiled (`load_pack` checks them first)."""
+    return rules_runs(manifest, configs, rules_size) + schema_runs(schema, schema_size)
 
 
 # -- the input schema ----------------------------------------------------------------------------
@@ -153,9 +187,10 @@ class SchemaCycle(Exception):
         self.where = where
 
 
-def schema_problems(schema: Any, rules_runs: int) -> list[str]:
+def schema_problems(schema: Any, rules_runs: int, rules_size: int = 0) -> list[str]:
     """Why a community pack's input schema multiplies its patterns' work (module docstring), with
-    `rules_runs` (`rules_runs`) counted toward the pack's total."""
+    `rules_runs` (`rules_runs`) and their size (`rules_runs` with `rules_size`) counted toward
+    the pack's totals."""
     try:
         runs = schema_runs(schema)
     except SchemaCycle as cycle:
@@ -166,10 +201,17 @@ def schema_problems(schema: Any, rules_runs: int) -> list[str]:
         ]
     if runs > MAX_SCHEMA_RUNS:
         shown = f"{runs:,}" if runs < 10**9 else "more than 1,000,000,000"
+        tripled = (
+            "each patternProperties pattern counts three times where additionalProperties is "
+            "also set (on each key, then again as additionalProperties searches them and for "
+            "its error message), and "
+            if _searched_keys(schema)
+            else ""
+        )
         return [
             f"input schema: its patterns can run {shown} times on one value; a community pack's "
-            f"schema runs at most {MAX_SCHEMA_RUNS} on any value or key (a $ref, allOf, anyOf or "
-            "oneOf that reaches the same pattern more than once multiplies it)"
+            f"schema runs at most {MAX_SCHEMA_RUNS} on any value or key ({tripled}a $ref, allOf, "
+            "anyOf or oneOf that reaches the same pattern more than once multiplies it)"
         ]
     if rules_runs + runs > MAX_PACK_PATTERNS:
         return [
@@ -178,7 +220,30 @@ def schema_problems(schema: Any, rules_runs: int) -> list[str]:
             f"to {runs} on one value: {rules_runs + runs} together; a community pack runs at most "
             f"{MAX_PACK_PATTERNS}"
         ]
+    size = schema_runs(schema, schema_size)
+    if rules_size + size > MAX_PACK_PATTERN_SIZE:
+        return [
+            f"its patterns' size comes to {rules_size + size:,} on each input: the rules' "
+            f"{rules_size:,} (each pattern's once for each question it answers and each "
+            f"composite member holding it) and the input schema's {size:,} on one value or key; a "
+            f"community pack's comes to at most {MAX_PACK_PATTERN_SIZE:,}, as RE2's time on each "
+            "character grows with it. A pattern's size is the characters, classes and .s it "
+            "holds, each as often as a count repeats it (.{0,999} is 999, \\w+ is 1): use "
+            "smaller counts, or fewer patterns"
+        ]
     return []
+
+
+def _searched_keys(schema: Any) -> bool:
+    """Whether a schema object anywhere sets both `patternProperties` and
+    `additionalProperties`, which counts each of those patterns three times."""
+    return any(
+        isinstance(node, Mapping)
+        and isinstance(node.get("patternProperties"), Mapping)
+        and bool(node["patternProperties"])
+        and "additionalProperties" in node
+        for node in _nodes(schema)
+    )
 
 
 def patterns_on_keys(schema: Any) -> bool:
@@ -236,8 +301,9 @@ class _Node:
         ]
 
 
-def schema_runs(schema: Any) -> int:
-    """The most patterns an input schema can run on one value or key of an input: at each
+def schema_runs(schema: Any, weight: Weight = _once) -> int:
+    """The most patterns an input schema can run on one value or key of an input (with `weight`,
+    `schema_size`: the most size, each run counting what `weight` gives its pattern): at each
     place, the patterns of every schema that applies there (`pattern` once; each
     `patternProperties` pattern on each key, again for `additionalProperties`, which searches
     them, and for its error message; a `propertyNames` schema's on each key), through `$ref` and
@@ -247,7 +313,7 @@ def schema_runs(schema: Any) -> int:
     meets them all (`allOf`, `patternProperties`), their sum. A reference cycle from which a
     pattern can be reached raises `SchemaCycle`: its count would grow with the input's depth.
     The schema has passed `input_schema.problems`: every `$ref` resolves in the document."""
-    nodes = _graph(schema)
+    nodes = _graph(schema, weight)
     if not nodes:
         return 0
     here = [0] * len(nodes)  # on the value (and each key) where the schema applies
@@ -283,9 +349,10 @@ def schema_runs(schema: Any) -> int:
     return max(here[0], below[0])
 
 
-def _graph(schema: Any) -> list[_Node]:
-    """The schema objects reachable from the root through applicators, the root first; a
-    boolean schema (or anything that is not an object) counts nothing and is left out."""
+def _graph(schema: Any, weight: Weight = _once) -> list[_Node]:
+    """The schema objects reachable from the root through applicators, the root first, each
+    with its own patterns' runs (weighed by `weight`); a boolean schema (or anything that is
+    not an object) counts nothing and is left out."""
     if not isinstance(schema, dict):
         return []
     resolver = Registry().resolver_with_root(DRAFT202012.create_resource(schema))
@@ -317,9 +384,11 @@ def _graph(schema: Any) -> list[_Node]:
         node, where = pending.pop()
         record = nodes[index[id(node)]]
         properties = node.get("patternProperties")
-        keyed = len(properties) if isinstance(properties, dict) else 0
+        keyed = sum(map(weight, properties)) if isinstance(properties, dict) else 0
         searched = keyed if "additionalProperties" in node else 0
-        record.runs = isinstance(node.get("pattern"), str) + keyed + 2 * searched
+        pattern = node.get("pattern")
+        own = weight(pattern) if isinstance(pattern, str) else 0
+        record.runs = own + keyed + 2 * searched
         for keyword in _REFERENCES:
             reference = node.get(keyword)
             if isinstance(reference, str):

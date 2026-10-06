@@ -297,17 +297,17 @@ MAINTAINED = [
     [
         ("patient inbox  router", "is the name of mendari/patient-inbox-router"),
         ("Patient-Inbox Router.", "is the name of mendari/patient-inbox-router"),
-        ("Mendari reference packs", "names mendari"),
-        ("\uff2d\uff45ndari", "names mendari"),  # fullwidth: NFKC makes it ASCII
-        ("Open-Health refills", "names openhealth"),
-        ("Open Health Alliance", "names openhealth"),
-        ("OpenHealthHub", "names openhealth"),
-        ("MendariCare", "names mendari"),
-        ("MENDARI care", "names mendari"),
-        ("Men dari care", "names mendari"),  # two words that join to it
-        ("\u24c2\u24d4\u24dd\u24d3\u24d0\u24e1\u24d8", "names mendari"),  # circled
+        ("Mendari reference packs", "names Mendari"),
+        ("\uff2d\uff45ndari", "names Mendari"),  # fullwidth: NFKC makes it ASCII
+        ("Open-Health refills", "names OpenHealth"),
+        ("Open Health Alliance", "names OpenHealth"),
+        ("OpenHealthHub", "names OpenHealth"),
+        ("MendariCare", "names Mendari"),
+        ("MENDARI care", "names Mendari"),
+        ("Men dari care", "names Mendari"),  # two words that join to it
+        ("\u24c2\u24d4\u24dd\u24d3\u24d0\u24e1\u24d8", "names Mendari"),  # circled
         ("\u249c\u24a4 \u24a2\u24b0\u249c\u24ad\u249f", "is the name of mendari/ai-guard"),
-        ("\U0001f13c\U0001f134\U0001f13d\U0001f133\U0001f130\U0001f141\U0001f138", "names mendari"),
+        ("\U0001f13c\U0001f134\U0001f13d\U0001f133\U0001f130\U0001f141\U0001f138", "names Mendari"),
     ],
     ids=[
         "maintained-name",

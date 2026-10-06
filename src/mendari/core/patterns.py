@@ -22,7 +22,8 @@ One engine choice, `compile` (and `search`), runs every one of them:
   trusting its author, as with any plugin (SECURITY.md).
 
 Mendari's own patterns (dosing, CQL headers, the rules provider's scope, word and negation
-patterns) are not pack content and stay on `re`.
+patterns) are not pack content and stay on `re`. RE2 and the rewriting are imported only when a
+community pack's pattern is compiled, so a deployment without one never loads them.
 """
 
 from __future__ import annotations
@@ -32,10 +33,6 @@ import re
 import warnings
 from collections.abc import Iterator
 from typing import Any, Protocol
-
-import re2
-
-from mendari.core.re2_syntax import Unsupported, translate
 
 MAX_PATTERN_CHARS = 2_000
 MAX_PACK_PATTERNS = 500
@@ -89,6 +86,8 @@ def _encodable(text: str) -> str:
 
 
 def _options() -> Any:
+    import re2
+
     options = re2.Options()
     options.max_mem = RE2_MAX_MEMORY
     options.never_capture = True  # only where a match starts is read
@@ -99,6 +98,10 @@ def _options() -> Any:
 @functools.lru_cache(maxsize=4_096)
 def _re2(text: str, flags: int) -> _Re2Pattern:
     """`text` compiled for RE2, once: raises `re.error`, `Unsupported` or `re2.error`."""
+    import re2
+
+    from mendari.core.re2_syntax import translate
+
     return _Re2Pattern(re2.compile(translate(text, flags), _options()))
 
 
@@ -130,6 +133,10 @@ def problem(text: str, flags: int = 0, *, community: bool = False) -> str | None
             return f"invalid regular expression: {error}"
         if not community:
             return None
+        import re2
+
+        from mendari.core.re2_syntax import Unsupported
+
         try:
             _re2(text, flags)
         except Unsupported as error:

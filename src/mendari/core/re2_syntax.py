@@ -8,31 +8,38 @@ where RE2 would read the same characters differently:
 
 - `\w`, `\d` and `\s` (and `\W`, `\D`, `\S`) are `re`'s Unicode classes, listed from this
   Python's own tables (RE2's are ASCII only); with `(?a)` they are ASCII, as in `re`.
-- `\b` and `\B` next to a character the pattern names are `re`'s Unicode word boundaries
-  (RE2's are ASCII only): `\bmarché\b` matches "marché", and `\bé+\b` matches "ééé". On
-  the text's side of a match RE2 counts only ASCII letters, digits and `_` as word characters,
-  so a letter or digit outside ASCII just outside the match does not continue the word:
-  `\bpie` also matches in "épie", and `\bma\b` inside "mañana" (`re` matches neither). A
-  boundary next to something that may match nothing (`\b\w*`) is RE2's ASCII one.
+- With case ignored, every character, class and `.` is written out as the characters `re`
+  itself matches there (found by asking `re`, for every character case can relate to another),
+  and RE2 folds no case: `ı`, `İ`, `I` and `i` match each other as in `re`, and `\W` never
+  matches `ι` (RE2 would fold the class's U+0345 into it). With `(?a)`, as `re`, ASCII only.
+- `\b` and `\B` next to a character the pattern names are written with RE2's own `\b` and
+  `\B`, which see only ASCII letters, digits and `_` as word characters *in the text*: right
+  wherever the character just outside the match is in ASCII. A letter or digit outside ASCII
+  just outside the match does not continue the word: `\bpie` also matches in "épie", `\bma\b`
+  inside "mañana", and next to letters outside ASCII the pattern names, `\bрак\b` inside
+  "практика" (`re` matches none of them). `boundary_problem` says when a pattern has such a
+  boundary; `community-check` warns on it. A boundary next to something that may match nothing
+  (`\b\w*`) is RE2's ASCII one.
 - `$` is `re`'s: the end of the text, or before a newline that ends it; `\Z` is the end only;
   `a{,3}` is `a{0,3}` (RE2 reads it as text).
 - A count above 1,000 (RE2's largest) is split into counts of at most 1,000 one after another,
   which match the same texts. Counts nested inside each other may multiply to at most 1,000:
   RE2 refuses `(?:a{1,50}){1,50}`.
-- Case is ignored the same way in both engines but for two letters: with case ignored, `re`
-  also matches `i` and `I` to the dotless i, U+0131 (RE2 does not), and with `(?a)` it folds ASCII
-  letters only, where RE2 also folds the Kelvin sign and the long s to `k` and `s`.
 - A lone surrogate (U+D800 to U+DFFF) is matched by nothing: a text holding one has it
   replaced with U+FFFD before a pattern runs (`core/patterns.py`).
 
 What RE2 cannot run is refused with what to write instead (`Unsupported`): lookahead and
 lookbehind, back references, conditional groups, atomic groups and possessive quantifiers.
-"""
+
+`size` is how much of RE2's work a pattern can make on each character of a text
+(`core/caps.py` caps a community pack's total).
+"""  # noqa: RUF002 (the letters the differences are about)
 
 from __future__ import annotations
 
 import functools
 import re
+import warnings
 from collections.abc import Iterable, Sequence
 from typing import Any
 
@@ -55,9 +62,72 @@ def translate(pattern: str, flags: int = 0) -> str:
     """The RE2 pattern for a `re` pattern compiled with `flags` (module docstring). Raises
     `re.error` for a pattern `re` refuses, and `Unsupported` for one RE2 cannot run."""
     tree = _parser.parse(pattern, flags)
-    flags = tree.state.flags
-    body = _Writer().sequence(list(tree), flags)
-    return f"(?i:{body})" if flags & _c.SRE_FLAG_IGNORECASE else body
+    return _Writer().sequence(list(tree), tree.state.flags)
+
+
+def size(pattern: str, flags: int = 0) -> int:
+    """How much of RE2's work `pattern` can make on each character of a text, at most: the
+    characters, classes and `.`s it holds, each as often as the counts around it repeat it
+    (`a{1,50}` is 50, `a{5,}` is 5, `\\w+` and `x*` are 1), alternatives added together.
+    RE2 runs a pattern's copies of these side by side, so its time on a text grows with this
+    number times the text's length (measured in `core/caps.py`). Raises `re.error` for a
+    pattern `re` refuses."""
+    return _size(list(_parsed(pattern, flags)))
+
+
+def _size(items: Sequence[Item]) -> int:
+    total = 0
+    for op, av in items:
+        name = str(op)
+        if name in _SINGLE:
+            total += 1
+        elif name == "SUBPATTERN":
+            total += _size(list(av[3]))
+        elif name == "BRANCH":
+            total += sum(_size(list(a)) for a in av[1])
+        elif name in _REPEATS:
+            low, high, body = av
+            copies = low if high == _c.MAXREPEAT else high
+            total += max(copies, 1) * _size(list(body))
+    return total  # what RE2 cannot run counts nothing: such a pattern is refused anyway
+
+
+def boundary_problem(pattern: str, flags: int = 0) -> bool:
+    """Whether `pattern` has a `\\b` or `\\B` next to something that may match a letter or digit
+    outside ASCII (module docstring): RE2 then decides it as if a letter or digit outside ASCII
+    just outside the match did not continue the word, so `\\bрак\\b` matches inside "практика".
+    Raises `re.error` for a pattern `re` refuses."""  # noqa: RUF002
+    tree = _parsed(pattern, flags)
+    return _boundary_near_wide(list(tree), tree.state.flags)
+
+
+def _parsed(pattern: str, flags: int) -> Any:
+    """`re`'s parse of `pattern`, its warnings (a FutureWarning on `[[`) left to `re.compile`."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return _parser.parse(pattern, flags)
+
+
+def _boundary_near_wide(items: Sequence[Item], flags: int) -> bool:
+    for index, (op, av) in enumerate(items):
+        name = str(op)
+        if _boundary(op, av) and not flags & _c.SRE_FLAG_ASCII:
+            before = items[index - 1] if index else None
+            after = items[index + 1] if index + 1 < len(items) else None
+            if (before is not None and _movable(before) and _wide(before, "end", flags)) or (
+                after is not None and _movable(after) and _wide(after, "start", flags)
+            ):
+                return True
+        elif name == "SUBPATTERN":
+            _, added, removed, inner = av
+            if _boundary_near_wide(list(inner), (flags | added) & ~removed):
+                return True
+        elif name == "BRANCH":
+            if any(_boundary_near_wide(list(a), flags) for a in av[1]):
+                return True
+        elif name in _REPEATS and _boundary_near_wide(list(av[2]), flags):
+            return True
+    return False
 
 
 # -- character sets ------------------------------------------------------------------------------
@@ -132,6 +202,75 @@ def _non_ascii_word() -> Ranges:
     return _intersection(_table(r"\w"), _complement(_ASCII_WORD))
 
 
+@functools.cache
+def _cased() -> tuple[str, Ranges]:
+    """Every character case can relate to another in `re` (a lower, upper, title or folded
+    form differs, those forms themselves, and `re`'s own extra cases such as the dotless i and
+    U+0345), as a string and as ranges: elsewhere ignoring case changes nothing."""
+    extra: Any = __import__("re._casefix", fromlist=["_EXTRA_CASES"])
+    found: set[int] = set()
+    for code in range(_TOP + 1):
+        if _SURROGATES[0] <= code <= _SURROGATES[1]:
+            continue
+        char = chr(code)
+        forms = (char.lower(), char.upper(), char.title(), char.casefold())
+        if any(form != char for form in forms):
+            found.add(code)
+            found.update(ord(form) for form in forms if len(form) == 1)
+    for code, others in extra._EXTRA_CASES.items():
+        found.add(code)
+        found.update(others)
+    codes = sorted(found)
+    return "".join(map(chr, codes)), _merged((code, code) for code in codes)
+
+
+@functools.lru_cache(maxsize=4_096)
+def _matched_cased(source: str, flags: int) -> Ranges:
+    """The characters of `_cased` that the one-character `re` pattern `source` matches."""
+    text, _ = _cased()
+    return _merged(
+        (ord(m.group()), ord(m.group())) for m in re.compile(source, flags).finditer(text)
+    )
+
+
+_CATEGORY_SOURCE = {
+    "CATEGORY_DIGIT": r"\d",
+    "CATEGORY_NOT_DIGIT": r"\D",
+    "CATEGORY_SPACE": r"\s",
+    "CATEGORY_NOT_SPACE": r"\S",
+    "CATEGORY_WORD": r"\w",
+    "CATEGORY_NOT_WORD": r"\W",
+}
+
+
+def _source(item: Item) -> str:
+    """A one-character `re` pattern that parses to `item` (a LITERAL, NOT_LITERAL or IN)."""
+    op, av = item
+    name = str(op)
+    if name == "LITERAL":
+        return _escaped(av)
+    if name == "NOT_LITERAL":
+        return f"[^{_escaped(av)}]"
+    parts = []
+    for kind, value in av:
+        kind = str(kind)
+        if kind == "NEGATE":
+            parts.append("^")
+        elif kind == "LITERAL":
+            parts.append(_escaped(value))
+        elif kind == "RANGE":
+            parts.append(f"{_escaped(value[0])}-{_escaped(value[1])}")
+        elif str(value) in _CATEGORY_SOURCE:
+            parts.append(_CATEGORY_SOURCE[str(value)])
+        else:
+            raise Unsupported(f"uses {kind} {value} in a class, which RE2 does not have")
+    return f"[{''.join(parts)}]"
+
+
+def _escaped(code: int) -> str:
+    return f"\\U{code:08x}"
+
+
 def _char(code: int) -> str:
     char = chr(code)
     return char if char.isascii() and (char.isalnum() or char == "_") else f"\\x{{{code:x}}}"
@@ -157,13 +296,17 @@ _REFUSED = {
 }
 _INSTEAD = {
     "ASSERT": "match the text itself instead",
-    "ASSERT_NOT": "match what may come there instead (a class such as [^x]), or write a second "
-    "rule",
-    "GROUPREF": "write the group's pattern again instead",
+    "ASSERT_NOT": "say what must come there instead, or write a second rule for what must not",
+    "GROUPREF": "spell out each repeated text instead, e.g. (?:aa|bb) for ([ab])\\1",
     "GROUPREF_EXISTS": "write the alternatives with | instead",
     "ATOMIC_GROUP": "write (?:...) instead: RE2 never backtracks, so it is not needed",
     "POSSESSIVE_REPEAT": "drop the last +: RE2 never backtracks, so it is not needed",
 }
+_NOT_AFTER = (
+    'for "not after a word" (no pain), mark the rule negatable: true and list the word in '
+    "negation_cues; otherwise write a second rule for what must not come before"
+)
+_GUIDE = 'see "Patterns run on RE2" in docs/guides/contributing-a-pack.md'
 _SINGLE = ("LITERAL", "NOT_LITERAL", "ANY", "IN")
 _REPEATS = ("MAX_REPEAT", "MIN_REPEAT")
 
@@ -215,9 +358,12 @@ class _Writer:
         op, av = item
         name = str(op)
         if name in _REFUSED:
+            instead = _INSTEAD[name]
+            if name == "ASSERT_NOT" and av[0] < 0:  # a negative lookbehind
+                instead = _NOT_AFTER
             raise Unsupported(
                 f"uses {_REFUSED[name]}, which RE2 (the engine a community pack's patterns "
-                f"run on) does not have: {_INSTEAD[name]}"
+                f"run on) does not have: {instead} ({_GUIDE})"
             )
         if name in _SINGLE:
             return self._single(item, flags, lead, trail)
@@ -226,13 +372,7 @@ class _Writer:
         if name == "SUBPATTERN":
             _, added, removed, inner = av
             inside = (flags | added) & ~removed
-            text = self.sequence(list(inner), inside, lead, trail)
-            case = _c.SRE_FLAG_IGNORECASE
-            if inside & case and not flags & case:
-                return f"(?i:{text})"
-            if flags & case and not inside & case:
-                return f"(?-i:{text})"
-            return f"(?:{text})"
+            return f"(?:{self.sequence(list(inner), inside, lead, trail)})"
         if name == "BRANCH":
             return "(?:" + "|".join(self.sequence(list(a), flags, lead, trail) for a in av[1]) + ")"
         if name in _REPEATS:
@@ -240,13 +380,13 @@ class _Writer:
         raise Unsupported(f"uses {name}, which RE2 does not have")
 
     def _single(self, item: Item, flags: int, lead: str, trail: str) -> str:
-        negated, chars = _chars(item, flags)
+        negated, chars = _exact(item, flags)
         if not lead and not trail:
-            if str(item[0]) == "LITERAL":
-                return _char(item[1]) if chars else _class(())
+            if not negated and len(chars) == 1 and chars[0][0] == chars[0][1]:
+                return _char(chars[0][0])
             return _class(chars, negated)
         wide = _non_ascii_word()
-        if negated:  # what RE2 negates after folding case: the part's complement
+        if negated:  # each part's complement: what RE2 negates
             parts = [
                 (_merged(chars + wide), True, False),
                 (_merged(chars + _complement(wide)), True, True),
@@ -313,9 +453,36 @@ def _bounded(text: str, lead: str, trail: str, flip: bool) -> str:
     return _plain(before) + text + _plain(after)
 
 
+def _exact(item: Item, flags: int) -> tuple[bool, Ranges]:
+    """(negated, characters) of a single-character item as `re` matches it, case and all: it
+    matches every character in the ranges, or with `negated`, every one outside them. With
+    case ignored, the characters case relates (`_cased`) are the ones `re` matches, asked of
+    `re` itself; RE2 then folds no case (module docstring)."""
+    if str(item[0]) == "ANY" or not flags & _c.SRE_FLAG_IGNORECASE:
+        return _chars(item, flags)
+    return _folded(_source(item), flags & (re.IGNORECASE | re.ASCII))
+
+
+@functools.lru_cache(maxsize=4_096)
+def _folded(source: str, flags: int) -> tuple[bool, Ranges]:
+    """`_exact` for the one-character `re` pattern `source`, with case ignored."""
+    negated, chars = _chars(next(iter(_parser.parse(source, flags))), flags)
+    _, cased = _cased()
+    kept = _intersection(chars, _uncased())  # case changes nothing for these
+    matched = _matched_cased(source, flags)
+    if negated:  # the characters not matched: as written, and the cased ones `re` refuses
+        return True, _merged(kept + _intersection(cased, _complement(matched)))
+    return False, _merged(kept + matched)
+
+
+@functools.cache
+def _uncased() -> Ranges:
+    return _complement(_cased()[1])
+
+
 def _chars(item: Item, flags: int) -> tuple[bool, Ranges]:
-    """(negated, characters) of a single-character item: it matches every character in the
-    ranges, or with `negated`, every one outside them."""
+    """(negated, characters) of a single-character item, case aside: it matches every
+    character in the ranges, or with `negated`, every one outside them."""
     op, av = item
     name = str(op)
     if name == "LITERAL":
@@ -346,7 +513,7 @@ def _wide(item: Item, edge: str, flags: int) -> bool:
     op, av = item
     name = str(op)
     if name in _SINGLE:
-        negated, chars = _chars(item, flags)
+        negated, chars = _exact(item, flags)
         wide = _non_ascii_word()
         if negated:
             return _intersection(wide, _complement(chars)) != ()

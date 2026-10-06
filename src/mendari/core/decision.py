@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from jsonschema import ValidationError
 
-from mendari.core import caps, input_schema, tenancy
+from mendari.core import input_schema, tenancy
 from mendari.core.derive import complete_answers, explain
 from mendari.core.origin import MAX_COMMUNITY_TEXT_CHARS, long_text
 from mendari.core.pack import Pack, load_pack
@@ -212,7 +212,11 @@ class Decision:
         self._validator = input_schema.validator(pack.input_schema, community=pack.community)
         # A community pack's input keys count toward its text only where its schema runs
         # patterns on them; otherwise each is held to the length alone (`origin.long_text`).
-        self._count_keys = pack.community and caps.patterns_on_keys(pack.input_schema)
+        self._count_keys = False
+        if pack.community:  # its caps, imported only for one
+            from mendari.core.caps import patterns_on_keys
+
+            self._count_keys = patterns_on_keys(pack.input_schema)
 
     @classmethod
     def from_hub(cls, ref: str, **kwargs: Any) -> Decision:
@@ -285,8 +289,8 @@ class Decision:
                 over_quota = error  # every provider fails with it, so nothing automates
         too_long = long_text(inputs, count_keys=self._count_keys) if self.pack.community else None
         if too_long is not None:
-            # Before the schema's patterns run too: a community pack's patterns are timed on
-            # texts this long, no longer (`core/origin.py`).
+            # Before the schema's patterns run too: a community pack's patterns run on texts
+            # this long, no longer (`core/origin.py`; the caps on their work are measured on it).
             schema_problems = [
                 f"{too_long}: longer than {MAX_COMMUNITY_TEXT_CHARS:,} characters, the most a "
                 "community pack reads"

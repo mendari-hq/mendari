@@ -18,7 +18,6 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from mendari.core.caps import rules_problems
 from mendari.core.origin import MAX_COMMUNITY_TEXT_CHARS
 from mendari.core.patterns import RULES_FLAGS, Matcher
 from mendari.core.patterns import compile as compile_pattern
@@ -77,8 +76,13 @@ class RulesProvider(Provider):
             raise PackValidationError(self.pack.id, [f"{relative}: {error}"]) from None
         self.info = replace(self.info, model=f"rules@{fingerprint(self.pack, relative)}")
 
-        # A community pack's caps (`core/caps.py`; `load_pack` checks them too, as written).
-        problems = rules_problems(relative, self.rules.model_dump()) if self.pack.community else []
+        # A community pack's caps (`core/caps.py`; `load_pack` checks them too, as written),
+        # imported only for one.
+        problems: list[str] = []
+        if self.pack.community:
+            from mendari.core.caps import rules_problems
+
+            problems = rules_problems(relative, self.rules.model_dump())
         for question in self.questions:
             spec = self.rules.questions.get(question)
             if spec is None:
@@ -150,8 +154,9 @@ class RulesProvider(Provider):
         if not self._keywords:
             return text, []
         corrections: list[str] = []
-        # A community pack's patterns were timed on texts of at most this length
-        # (`core/origin.py`): a correction that would make the text longer is not made.
+        # A community pack's patterns run on texts of at most this length (`core/origin.py`;
+        # the caps on their work are measured on it): a correction that would make the text
+        # longer is not made.
         room = [MAX_COMMUNITY_TEXT_CHARS - len(text)] if self.pack.community else None
 
         def fix(match: re.Match[str]) -> str:

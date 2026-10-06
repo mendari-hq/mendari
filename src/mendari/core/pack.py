@@ -18,8 +18,8 @@ from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
 from pydantic import ValidationError
 
-from mendari.core import caps, patterns
 from mendari.core import input_schema as schema_rules
+from mendari.core import patterns
 from mendari.core.origin import ORIGIN_LABELS, Origin, is_community, shown_origin
 from mendari.core.spec import Outcome, PackManifest, Priority
 from mendari.errors import PackValidationError
@@ -295,7 +295,10 @@ def _community_caps(
     digested: Digested,
 ) -> list[str]:
     """What multiplies a community pack's pattern work past its caps (`core/caps.py`): its rules
-    and dosing configs, its input schema, and the patterns they run together."""
+    and dosing configs, its input schema, and the patterns they run together. The caps are
+    imported only for a community pack."""
+    from mendari.core import caps
+
     problems = [
         problem
         for relative, data in parsed.items()
@@ -304,7 +307,9 @@ def _community_caps(
     for relative in _provider_files(manifest, "dosing"):
         table = parse_yaml(_read(root, relative, label, digested), relative, manifest.id)
         problems += caps.dosing_problems(relative, table)
-    return problems + caps.schema_problems(input_schema, caps.rules_runs(manifest, parsed))
+    runs = caps.rules_runs(manifest, parsed)
+    size = caps.rules_runs(manifest, parsed, caps.rules_size)
+    return problems + caps.schema_problems(input_schema, runs, size)
 
 
 def pack_digest(root: Path) -> str:

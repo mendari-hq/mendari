@@ -192,6 +192,8 @@ def test_the_maintained_packs_load_as_before_and_would_pass_the_caps() -> None:
         for relative, data in pack.parsed.items():
             assert caps.rules_problems(relative, data) == [], relative
         assert caps.schema_runs(pack.input_schema) <= caps.MAX_SCHEMA_RUNS, root.name
+        size = caps.pack_size(pack.manifest, pack.parsed, pack.input_schema)
+        assert 1_000 < size <= caps.MAX_PACK_PATTERN_SIZE, root.name
     red_flags = load_pack(INBOX_DIR).parsed["logic/red_flags.yaml"]
     assert red_flags["negation_window"] == 40
 
@@ -211,6 +213,33 @@ def test_the_doubling_schema_from_the_finding_is_refused(tmp_path: Path) -> None
         "runs at most 50 on any value or key (a $ref, allOf, anyOf or oneOf that reaches the same "
         "pattern more than once multiplies it)"
     ]
+
+
+def test_the_cap_message_names_patternproperties_with_additionalproperties(
+    tmp_path: Path,
+) -> None:
+    """20 key patterns where additionalProperties is set run 60 times on a key; the message
+    said only $ref, allOf, anyOf or oneOf, which the schema does not use."""
+
+    def schema(s: dict[str, Any]) -> None:
+        s["properties"]["codes"] = {
+            "type": "object",
+            "patternProperties": {f"^x_{i}$": {} for i in range(20)},
+            "additionalProperties": False,
+        }
+
+    (problem,) = refused(sorter(tmp_path, schema=schema))
+    assert problem == (
+        "input schema: its patterns can run 60 times on one value; a community pack's schema "
+        "runs at most 50 on any value or key (each patternProperties pattern counts three times "
+        "where additionalProperties is also set (on each key, then again as additionalProperties "
+        "searches them and for its error message), and a $ref, allOf, anyOf or oneOf that "
+        "reaches the same pattern more than once multiplies it)"
+    )
+    guide = " ".join((ROOT / "docs" / "guides" / "contributing-a-pack.md").read_text().split())
+    spec = " ".join((ROOT / "docs" / "spec" / "decision-pack-0.2.md").read_text().split())
+    for text in (guide, spec):
+        assert "each `patternProperties` pattern counts three times where" in text
 
 
 def test_a_deep_doubling_schema_is_counted_without_walking_every_path() -> None:
@@ -364,6 +393,77 @@ def test_a_composite_counts_each_rules_member(tmp_path: Path) -> None:
     assert caps.rules_runs(pack.manifest, pack.parsed) == 3 * 2  # the fixture's two patterns
 
 
+# -- (e) the size of the patterns run on one input ------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("pattern", "size"),
+    [
+        ("bill|invoice", 11),
+        (r"\bpain\b", 4),
+        (r"\w+", 1),
+        (r"x*", 1),
+        (r"a{5,}", 5),
+        (r"a{1,50}", 50),
+        (r"(?:ab|cd){1,10}", 40),
+        (r".{0,999}a.{0,999}b0", 2_001),
+        (r"(?:.{1,40}){1,25}x", 1_001),
+        ("^$", 1),  # every run reads the text: at least 1
+    ],
+)
+def test_a_patterns_size_is_its_characters_repeated_as_its_counts_say(
+    pattern: str, size: int
+) -> None:
+    assert caps.rules_size(pattern) == size
+
+
+def test_patterns_whose_sizes_come_to_more_than_3000_are_refused(tmp_path: Path) -> None:
+    """The finding: 500 patterns `.{0,999}a.{0,999}b<i>`, within every other cap, took 148 s on
+    10,000 characters (0.3 s each). Two already come to more than the cap."""
+    gaps = [
+        {"name": f"g{i}", "pattern": f".{{0,999}}a.{{0,999}}b{i}", "weight": 1} for i in range(2)
+    ]
+    root = sorter(tmp_path, rules=lambda r: r["questions"]["topic"]["labels"].update(billing=gaps))
+    assert refused(root) == [
+        "its patterns' size comes to 4,029 on each input: the rules' 4,029 (each pattern's once "
+        "for each question it answers and each composite member holding it) and the input "
+        "schema's 0 on one value or key; a community pack's comes to at most 3,000, as RE2's "
+        "time on each character grows with it. A pattern's size is the characters, classes and "
+        ".s it holds, each as often as a count repeats it (.{0,999} is 999, \\w+ is 1): use "
+        "smaller counts, or fewer patterns"
+    ]
+    one = sorter(
+        tmp_path / "one", rules=lambda r: r["questions"]["topic"]["labels"].update(billing=gaps[:1])
+    )
+    pack = load_pack(one, origin="community")
+    assert (
+        caps.pack_size(pack.manifest, pack.parsed, pack.input_schema) == 2_001 + 27
+    )  # and the fixture's scheduling pattern
+    root = sorter(
+        tmp_path / "local",
+        rules=lambda r: r["questions"]["topic"]["labels"].update(billing=gaps),
+        pack_id="someone/sorter",
+    )
+    assert not load_pack(root).community  # any other pack: not capped
+
+
+def test_the_schema_patterns_size_counts_on_one_value(tmp_path: Path) -> None:
+    def schema(s: dict[str, Any]) -> None:
+        s["properties"]["message"]["not"] = {"pattern": "a{1,999}"}
+        s["properties"]["codes"] = {
+            "type": "object",
+            "patternProperties": {"^x{1,999}$": {}},  # 999, three times on each key
+            "additionalProperties": False,
+        }
+
+    (problem,) = refused(sorter(tmp_path, schema=schema))
+    assert problem.startswith(
+        "its patterns' size comes to 3,051 on each input: the rules' 54 (each pattern's once "
+        "for each question it answers and each composite member holding it) and the input "
+        "schema's 2,997 on one value or key;"
+    )
+
+
 # -- community-check says so --------------------------------------------------------------------
 
 
@@ -376,6 +476,14 @@ def test_community_check_reports_a_cap(tmp_path: Path) -> None:
         f.rule == "correctness" and "text_fields names 'message' 2 times" in f.message
         for f in report.errors
     ), report.text()
+
+
+def test_community_check_reports_the_patterns_size(tmp_path: Path) -> None:
+    from mendari.community.check import check
+
+    report = check(sorter(tmp_path))
+    assert report.pattern_size == 54  # the fixture's two patterns, 27 each
+    assert "  pattern size: 54 on one input, of at most 3,000" in report.text().splitlines()
 
 
 # -- (d) keys count with the texts only where patterns run on them -------------------------------
