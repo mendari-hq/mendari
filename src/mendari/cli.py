@@ -136,6 +136,13 @@ def cmd_eval(args: argparse.Namespace) -> int:
         Path(args.out).write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     if args.db:
         AuditStore(args.db).save_report(report)
+    if args.share_out:
+        from mendari.evals.share import shareable
+
+        Path(args.share_out).parent.mkdir(parents=True, exist_ok=True)
+        payload = json.dumps(shareable(report), indent=2) + "\n"
+        Path(args.share_out).write_text(payload, encoding="utf-8")
+        print(f"wrote the report --share sends to {args.share_out} (metrics only)", file=sys.stderr)
     if args.share:
         with _registry_client(args) as registry:
             shared = registry.share_report(report, args.share)
@@ -1040,6 +1047,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--share", metavar="SITE", help="share the metrics (never cases) with the registry as SITE"
     )
     evaluate.add_argument("--registry", help="registry URL for --share (default: logged into)")
+    evaluate.add_argument(
+        "--share-out",
+        metavar="FILE",
+        help="write the report --share sends to FILE, to read first (sends nothing)",
+    )
 
     train = pack_command("train", cmd_train, "train the pack's naive_bayes variants")
     train.add_argument("--slot", help="only this provider slot")

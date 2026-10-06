@@ -425,6 +425,16 @@ rates, critical detection and automated misses, p50/p95 latency, cost per decisi
 count. Rows for one dataset MUST come from the same records. Like reports, a leaderboard MUST
 NOT contain case inputs.
 
+A **shared report** (`format: mendari.site-report/1`) is what a site sends a registry about
+its own evaluation. It is a closed schema of names and rounded numbers: the pack (id, version,
+digest), the providers and policy, per-question metrics, outcome counts and rates, each critical
+label's counts, the threshold sweep, latency, cost, error counts and the dataset's size. It MUST
+NOT contain a case id, case text, the dataset's name or hash, who approved a governance override
+(only whether one applied), or subgroup cells (their values come from a site's data).
+Calibration bins with fewer than 10 cases are dropped. Its question, label, slot and variant
+names are the published pack's own, and a registry MUST refuse a report that names any other;
+model names and error codes are short ASCII names. A registry MUST NOT echo what it refuses.
+
 ## 9. FHIR and CDS Hooks
 
 `fhir/mapping.yaml` declares the `focus` resource type, the required and optional resource

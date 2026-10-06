@@ -48,21 +48,6 @@ export type PackVersion = PackSummary & {
 
 export type PackDetail = { id: string; versions: string[]; latest: PackVersion };
 
-export type SiteReport = {
-  id: string;
-  version: string;
-  site: string;
-  created_at: string;
-  n: number | null;
-  accuracy: number | null;
-  macro_f1: number | null;
-  automation_rate: number | null;
-  false_automation_rate: number | null;
-  ece: number | null;
-};
-
-export type Reports = { id: string; benchmark: Record<string, Benchmark>; sites: SiteReport[] };
-
 export type Namespace = {
   name: string;
   display_name: string;
@@ -102,9 +87,6 @@ export const packVersion = (namespace: string, name: string, version: string) =>
   get<PackVersion>(
     `/v1/packs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/${encodeURIComponent(version)}`,
   );
-
-export const reports = (namespace: string, name: string) =>
-  get<Reports>(`/v1/packs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/reports`);
 
 export const namespace = (name: string) => get<Namespace>(`/v1/namespaces/${encodeURIComponent(name)}`);
 
