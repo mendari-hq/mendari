@@ -219,6 +219,13 @@ B6/B7 → B8 → B9 → B10).
     budget and input limits; a reason whose wording would search patterns again falls back to
     plain words; `mendari validate` reports inputs nested too deep or holding numbers too large
     instead of a traceback; the refusal for those says so in plain words.
+  - [x] The allowlist's focused check (12 findings): a `$defs` name holding `/` or `%2F` let a
+    `$ref` reach a definition's data (refused keywords back); `$defs` names are now letters,
+    digits, `_`, `.` and `-`. The 100-error stop, de-duplicated and shortened reasons apply to
+    community packs only (every other pack's reasons are as before); `required` names and
+    `enum`/`const` texts are at most 200 characters; `Decision.validate` called alone applies
+    the text cap too; refusals say what to write instead; the guide and spec say an input the
+    schema had already found wrong is refused.
 - [ ] **B9 (owner, steps below)** `MENDARI_COMMUNITY_PACKS=on` in Vercel Production
   only; on the owner's own branch preview (never a fork's), check that `community-packs/`
   reaches the function bundle.

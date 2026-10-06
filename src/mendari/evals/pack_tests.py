@@ -88,7 +88,7 @@ def input_problems(pack: Pack) -> list[str]:
         where = f"{pack.manifest.tests} case {number} ({case.get('name', 'unnamed')})"
         shape = shape_problem(case.get("input")) if pack.community else None
         if shape is not None:
-            problems.append(f"{where}: its input has {shape}")
+            problems.append(f"{where}: its input is too large: {shape}")
             continue
         try:  # a community pack's schema runs within the time budget a decision gives it
             with time_budget() if pack.community else nullcontext():

@@ -268,6 +268,11 @@ class Decision:
         community = self.pack.community
         if community and (shape := shape_problem(inputs)) is not None:
             return [f"(root): {shape}"]
+        if community and (too_long := long_text(inputs, count_keys=self._count_keys)):
+            return [
+                f"{too_long}: longer than {MAX_COMMUNITY_TEXT_CHARS:,} characters, the most a "
+                "community pack reads"
+            ]
         alone = community and not budget_active()
         with time_budget() if alone else nullcontext():
             found: list[Any] = []
@@ -276,8 +281,8 @@ class Decision:
                     found.append(error)
                     if community:
                         check_time()
-                    if len(found) >= MAX_SCHEMA_ERRORS:
-                        break
+                        if len(found) >= MAX_SCHEMA_ERRORS:
+                            break
             except OutOfTime as stopped:
                 if not found:
                     if alone:
@@ -286,17 +291,23 @@ class Decision:
             except (RecursionError, OverflowError):
                 if not found:
                     return [
-                        "(root): the schema cannot check it: it is nested too deep, or holds a "
-                        "number too large"
+                        "(root): the schema cannot check it: it is nested too deep or holds a "
+                        "number too large, or the schema refers to itself without end"
                     ]
             errors = sorted(found, key=lambda e: list(map(str, e.path)))
-            reasons = []
-            for error in errors[:10]:
+            if not community:  # as it always was
+                return [f"{_where(error.path)}: {_schema_rule(error)}" for error in errors[:10]]
+            reasons: list[str] = []
+            for error in errors:
                 try:
                     rule = _schema_rule(error, community)
                 except OutOfTime:  # wording it would search the schema's patterns again
                     rule = "does not meet the schema"
-                reasons.append(f"{_where(error.path)}: {rule}")
+                reason = f"{_where(error.path)}: {rule}"
+                if reason not in reasons:  # one `required` yields an error per missing name
+                    reasons.append(reason)
+                if len(reasons) == 10:
+                    break
             return reasons
 
     def decide(
@@ -481,6 +492,11 @@ def _where(path: Iterable[Any]) -> str:
     return "/".join(parts) or "(root)"
 
 
+def _short(name: str, limit: int = 40) -> str:
+    """A field name as a reason shows it: at most `limit` characters."""
+    return name if len(name) <= limit else name[: limit - 1] + "…"
+
+
 def _schema_rule(error: ValidationError, community: bool = False) -> str:
     """What the schema requires, in words built from the schema alone (`validator_value` is the
     pack's own schema), never from the instance. A community pack's patterns run on RE2
@@ -490,7 +506,10 @@ def _schema_rule(error: ValidationError, community: bool = False) -> str:
     if keyword == "required":
         names = expected if isinstance(expected, list) else []
         missing = [str(name) for name in names if name not in present]
-        return f"{', '.join(missing) or 'a field'} is required"
+        if not community:  # as it always was
+            return f"{', '.join(missing) or 'a field'} is required"
+        more = f" and {len(missing) - 5} more" if len(missing) > 5 else ""
+        return f"{', '.join(map(_short, missing[:5])) or 'a field'}{more} is required"
     if keyword == "type":
         kinds = expected if isinstance(expected, list) else [expected]
         return f"must be of type {' or '.join(map(str, kinds))}"

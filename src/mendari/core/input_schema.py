@@ -32,6 +32,7 @@ at once (`uniqueItems`).
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator, Mapping
 from typing import Any
 
@@ -140,7 +141,23 @@ _DATA = frozenset(
 )
 MAX_REQUIRED = 100  # names one `required` lists: one error each, at once
 MAX_ENUM = 500  # values one `enum` lists, each compared with the value at once
+MAX_SCHEMA_TEXT = 200  # characters of a `required` name or an `enum` or `const` text
 _DEFS_REF = "#/$defs/"
+# A `$defs` name a `$ref` can name exactly: a JSON pointer splits on `/`, escapes with `~` and
+# is read as a URL (`%2F` is `/`), so any of those would let `#/$defs/<name>` lead elsewhere.
+_DEF_NAME = re.compile(r"[A-Za-z0-9_.-]+")
+# What to write instead of a keyword a community pack's schema may not use.
+_INSTEAD = {
+    "unevaluatedProperties": "use additionalProperties",
+    "unevaluatedItems": "use items",
+    "uniqueItems": "accept repeated items, or check them in a rule",
+    "contains": "check it in a rule",
+    "definitions": "use $defs",
+    "dependentRequired": "use if/then",
+    "dependentSchemas": "use if/then",
+    "$anchor": "use $defs and '#/$defs/<name>'",
+    "$dynamicRef": "use $ref to one of the root's $defs",
+}
 
 
 def community_problems(schema: Any) -> list[str]:
@@ -156,6 +173,12 @@ def community_problems(schema: Any) -> list[str]:
     found: list[str] = []
     defs = schema.get("$defs") if isinstance(schema, dict) else None
     names = set(defs) if isinstance(defs, dict) else set()
+    found += [
+        f"input schema: $defs/{name}: a $defs name is letters, digits, '_', '.' or '-' (a $ref "
+        "to it then names it exactly)"
+        for name in sorted(names, key=str)
+        if not _DEF_NAME.fullmatch(str(name))
+    ]
     stack: list[tuple[str, Any]] = [("", schema)]
     while stack:
         path, node = stack.pop()
@@ -180,11 +203,10 @@ def _keyword_problem(key: str, value: Any, path: str, defs: set[str]) -> str | N
     if key.startswith("x-"):
         return None  # an annotation of the pack's own
     if key not in _DATA | _SCHEMA | _SCHEMA_MAPS | _SCHEMA_LISTS:
+        instead = _INSTEAD.get(key, "the guide lists the keywords a community pack's schema uses")
         return (
-            f"a community pack's schema may not use {key}: it uses the keywords Mendari can "
-            "keep within a decision's time budget (the guide lists them; unevaluatedProperties "
-            "is additionalProperties, unevaluatedItems is items, and uniqueItems and contains "
-            "are checks for a rule)"
+            f"a community pack's schema may not use {key}, a keyword whose work Mendari cannot "
+            f"keep within a decision's time budget: {instead}"
         )
     if key == "$defs" and path:
         return "only the root may hold $defs"
@@ -192,15 +214,23 @@ def _keyword_problem(key: str, value: Any, path: str, defs: set[str]) -> str | N
         isinstance(value, str) and value.startswith(_DEFS_REF) and value[len(_DEFS_REF) :] in defs
     ):
         return f"a $ref names one of the root's $defs ('{_DEFS_REF}<name>'), not {value!r}"
-    if key == "required" and isinstance(value, list) and len(value) > MAX_REQUIRED:
-        return f"lists {len(value):,} names, at most {MAX_REQUIRED}"
+    if key == "required" and isinstance(value, list):
+        if len(value) > MAX_REQUIRED:
+            return f"lists {len(value):,} names, at most {MAX_REQUIRED}: split it with allOf"
+        if any(len(str(name)) > MAX_SCHEMA_TEXT for name in value):
+            return f"names a field longer than {MAX_SCHEMA_TEXT} characters"
     if key == "enum" and isinstance(value, list):
         if len(value) > MAX_ENUM:
-            return f"lists {len(value):,} values, at most {MAX_ENUM}"
+            return f"lists {len(value):,} values, at most {MAX_ENUM}: split it with anyOf"
         if any(isinstance(item, dict | list) for item in value):
             return "lists an object or a list: its values are texts, numbers, true, false or null"
-    if key == "const" and isinstance(value, dict | list):
-        return "is an object or a list: a const is a text, a number, true, false or null"
+        if any(isinstance(item, str) and len(item) > MAX_SCHEMA_TEXT for item in value):
+            return f"lists a text longer than {MAX_SCHEMA_TEXT} characters"
+    if key == "const":
+        if isinstance(value, dict | list):
+            return "is an object or a list: a const is a text, a number, true, false or null"
+        if isinstance(value, str) and len(value) > MAX_SCHEMA_TEXT:
+            return f"is a text longer than {MAX_SCHEMA_TEXT} characters"
     return None
 
 

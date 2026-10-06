@@ -339,8 +339,8 @@ def test_a_number_past_checking_is_refused_not_a_crash(tmp_path: Path) -> None:
         result = Decision(load_pack(root)).decide({"message": "my bill", "amount": 10**4000})
         assert result.outcome is Outcome.BLOCK
         refused = (
-            "input rejected: (root): the schema cannot check it: it is nested too deep, or "
-            "holds a number too large"
+            "input rejected: (root): the schema cannot check it: it is nested too deep or holds "
+            "a number too large, or the schema refers to itself without end"
         )
         assert result.reasons == (refused,)
 
@@ -377,3 +377,78 @@ def test_mendari_validate_checks_test_inputs_within_the_budget(tmp_path: Path) -
     found = input_problems(load_pack(root))
     assert time.monotonic() - started < BOUND_S
     assert any("checking its input against the schema stopped" in problem for problem in found)
+
+
+@pytest.mark.parametrize("name", ["h/default", "h%2Fdefault", "h~1default", "a b"])
+def test_a_defs_name_is_one_a_ref_names_exactly(tmp_path: Path, name: str) -> None:
+    """A JSON pointer splits on `/` and reads `%2F` as one: a def named `h/default` let
+    `#/$defs/h/default` reach the `default` of `h`, data no check walked (uniqueItems 44 s,
+    patterns on `re`)."""
+
+    def hidden(schema: dict[str, Any]) -> None:
+        unique = {"type": "array", "uniqueItems": True}
+        schema["$defs"] = {"h": {"type": "array", "default": unique}, name: {}}
+        schema["properties"]["codes"] = {"$ref": f"#/$defs/{name}"}
+
+    with pytest.raises(PackValidationError) as error:
+        load_pack(sorter(tmp_path, schema=hidden))
+    assert any(
+        f"$defs/{name}: a $defs name is letters" in p or "is not in the schema" in p
+        for p in error.value.problems
+    )
+
+
+def test_the_error_limit_and_short_reasons_are_a_community_packs_only(tmp_path: Path) -> None:
+    """Every other pack lists what it always listed."""
+
+    def many(schema: dict[str, Any]) -> None:
+        schema["properties"]["meta"] = {"type": "object", "required": [f"n{i}" for i in range(9)]}
+
+    outside = load_pack(sorter(tmp_path / "a", schema=many, pack_id="someone/sorter"))
+    reasons = Decision(outside).decide({"message": "my bill", "meta": {}}).reasons
+    assert reasons[0] == f"input rejected: meta: {', '.join(f'n{i}' for i in range(9))} is required"
+    assert len(reasons) == 9  # one per missing name, as before
+    community = load_pack(sorter(tmp_path / "b", schema=many))
+    reasons = Decision(community).decide({"message": "my bill", "meta": {}}).reasons
+    assert reasons == ("input rejected: meta: n0, n1, n2, n3, n4 and 4 more is required",)
+
+
+@pytest.mark.parametrize(
+    ("keyword", "value"),
+    [
+        ("required", ["x" * 201]),
+        ("enum", ["x" * 201]),
+        ("const", "x" * 201),
+    ],
+)
+def test_a_schemas_texts_are_short(tmp_path: Path, keyword: str, value: Any) -> None:
+    """Long `required` names made 19 MB of reasons per request; long `enum` texts are copied
+    into every error jsonschema makes."""
+
+    def long(schema: dict[str, Any]) -> None:
+        schema["properties"]["meta"] = {"type": "object", keyword: value}
+
+    with pytest.raises(PackValidationError) as error:
+        load_pack(sorter(tmp_path, schema=long))
+    assert any("longer than 200 characters" in p for p in error.value.problems)
+
+
+def test_validate_called_alone_holds_a_community_packs_text_to_its_length(
+    tmp_path: Path,
+) -> None:
+    """`mendari omop` validates records without deciding them: the length cap applies too."""
+    pack = load_pack(sorter(tmp_path, schema=long_message))
+    assert Decision(pack).validate({"message": "x" * 10_001}) == [
+        "message: longer than 10,000 characters, the most a community pack reads"
+    ]
+
+
+def test_refused_keywords_say_what_to_write_instead(tmp_path: Path) -> None:
+    def used(schema: dict[str, Any]) -> None:
+        schema["properties"]["meta"] = {"type": "object", "dependentRequired": {"a": ["b"]}}
+        schema["definitions"] = {}
+
+    with pytest.raises(PackValidationError) as error:
+        load_pack(sorter(tmp_path, schema=used))
+    found = " ".join(error.value.problems)
+    assert "dependentRequired" in found and "use if/then" in found and "use $defs" in found

@@ -368,9 +368,10 @@ manifest says (threat model S13, T5, I12, D8, E10):
   the schema had already found wrong is refused), so one decision runs them for at most the
   budget plus one step under way (about 3.5 s of CPU on 10,000 characters at worst; the
   shipped packs' patterns take milliseconds). Its schema uses only keywords whose work stays
-  within the budget (the guide lists them; `$ref` only to its own `$defs`, short `required`
-  and `enum` lists); `unevaluatedProperties`, `unevaluatedItems`, `contains`, `uniqueItems` and
-  the others jsonschema works out on its own are refused. Turning
+  within the budget (the guide lists them; `$ref` only to its own `$defs`, whose names a `$ref`
+  names exactly; short `required` and `enum` lists of short texts); `unevaluatedProperties`,
+  `unevaluatedItems`, `contains`, `uniqueItems` and the others jsonschema works out on its own
+  are refused. Turning
   community packs on for the hosted
   platform is the owner's step (`tasks/todo.md`, B9).
 - **At most risk level 1, and only a hash of each input** (`store_input: hash`), refused at load

@@ -41,7 +41,8 @@ its manifest says:
   `community-check` prints your pack's;
 - its patterns and its schema's checks, together, take at most **one second** of CPU in a
   decision: past that its rules or its schema check stop and the decision abstains, for a
-  person (the error `time_budget`; `mendari test` says so). Ordinary packs take milliseconds;
+  person (the error `time_budget`; `mendari test` says so), or, when the schema had already
+  found the input wrong, the input is refused. Ordinary packs take milliseconds;
   if your tests run out of time, shorten the long counts (`.{0,999}`) and classes repeated many
   times;
 - its input schema uses only the keywords Mendari keeps within the time budget: `type`,
@@ -50,9 +51,11 @@ its manifest says:
   `minProperties`/`maxProperties`, `enum` (at most 500 values) and `const` (texts, numbers,
   `true`, `false` or `null`), `minLength`/`maxLength`, `pattern`, `format`, the number limits
   (`minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf`), `allOf`,
-  `anyOf`, `oneOf`, `not`, `if`/`then`/`else`, `$defs` at the root and `$ref` to one of them
-  (`#/$defs/<name>`), the annotations (`title`, `description`, `default`, `examples`,
-  `$comment`, `deprecated`, `readOnly`, `writeOnly`, `x-...`), and `$schema`/`$id` at the root.
+  `anyOf`, `oneOf`, `not`, `if`/`then`/`else`, `$defs` at the root (names of letters, digits,
+  `_`, `.` and `-`) and `$ref` to one of them (`#/$defs/<name>`), the annotations (`title`,
+  `description`, `default`, `examples`, `$comment`, `deprecated`, `readOnly`, `writeOnly`,
+  `x-...`), and `$schema`/`$id` at the root. A `required` name and an `enum` or `const` text
+  are at most 200 characters.
   Others are refused: jsonschema works some out on its own, outside the budget
   (`unevaluatedProperties`: use `additionalProperties`; `unevaluatedItems`: use `items`;
   `contains`), or compares every pair of items at once (`uniqueItems`); check those in a rule;

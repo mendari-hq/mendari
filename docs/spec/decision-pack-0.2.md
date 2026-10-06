@@ -304,11 +304,12 @@ group, a possessive quantifier, or one too large once compiled) is invalid, and 
 schema that uses a keyword outside those whose work Mendari bounds (the contributor's guide
 lists them: `unevaluatedProperties` or `unevaluatedItems`, which jsonschema works out on its own
 and with `re`, `contains`, `uniqueItems` and the like are refused; `$ref` names one of the
-root's `$defs`; `required` lists at most 100 names and `enum` at most 500 values). So is one
-whose settings multiply its patterns' work: a field named twice in a `text_fields` (a provider's
-or a question's), a `negation_window` over 200 characters or more than 50 `negation_cues`, an
-input schema that can run more than 50 patterns on one value or key (through `$ref`, `allOf` and
-the other applicators; each `patternProperties` pattern counts three times where
+root's `$defs`, whose names are letters, digits, `_`, `.` and `-`; `required` lists at most 100
+names and `enum` at most 500 values, texts of at most 200 characters). So is one whose settings
+multiply its patterns' work: a field named twice in a `text_fields` (a provider's or a
+question's), a `negation_window` over 200 characters or more than 50 `negation_cues`, an input
+schema that can run more than 50 patterns on one value or key (through `$ref`, `allOf` and the
+other applicators; each `patternProperties` pattern counts three times where
 `additionalProperties` is also set, which searches them again and for its error message) or that
 refers back to itself where patterns run, more than 500 patterns run by its rules on an input
 (each once for each question it answers and each composite member holding it) and its schema on
@@ -317,7 +318,7 @@ size being the characters, classes and `.`s it holds, each as often as a count r
 (`a{1,50}` is 50, `\w+` is 1, alternatives added together): RE2's time on each character grows
 with it. At run time a community pack's patterns and schema checks share a time budget of one
 second of CPU per decision: past it the decision abstains with the error `time_budget`, for a
-person.
+person (an input the schema had already found wrong is refused).
 
 A remote provider's endpoint, model and credentials belong to the deployment, which supplies
 them in fixed environment variables (`jev`: `JEV_API_URL`, `JEV_MODEL`, `JEV_API_KEY`,
