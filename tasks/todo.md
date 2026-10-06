@@ -226,6 +226,13 @@ B6/B7 → B8 → B9 → B10).
     `enum`/`const` texts are at most 200 characters; `Decision.validate` called alone applies
     the text cap too; refusals say what to write instead; the guide and spec say an input the
     schema had already found wrong is refused.
+  - [x] Its focused check found no high or medium problem (no route left to `re`, every other
+    pack's reasons as on main for 70 malformed inputs). Its 3 low findings: a community pack's
+    `enum` and `const` errors carry a short message (jsonschema's own copied every allowed value
+    for each failing value: about 225 MB in one decision inside `anyOf`); a root `$id` that is
+    not text is refused, for every pack, instead of failing the load; a refused keyword says
+    why and what to write instead (`example`: `examples`, `nullable`: a type list with
+    `"null"`, an annotation of one's own: `x-<name>`).
 - [ ] **B9 (owner, steps below)** `MENDARI_COMMUNITY_PACKS=on` in Vercel Production
   only; on the owner's own branch preview (never a fork's), check that `community-packs/`
   reaches the function bundle.

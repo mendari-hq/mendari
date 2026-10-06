@@ -36,7 +36,7 @@ import re
 from collections.abc import Iterator, Mapping
 from typing import Any
 
-from jsonschema import Draft202012Validator, ValidationError, validators
+from jsonschema import Draft202012Validator, ValidationError, _utils, validators
 from jsonschema.protocols import Validator
 from referencing import Registry
 from referencing.jsonschema import DRAFT202012
@@ -80,6 +80,8 @@ def problems(schema: Any) -> list[str]:
                 found.append(f"input schema: {here}: only the root may name a dialect, {DIALECT}")
             elif key == "$id" and path:
                 found.append(f"input schema: {here}: only the root may set $id")
+            elif key == "$id" and not isinstance(value, str):
+                found.append(f"input schema: {here}: $id is a text")
             elif key == "format" and value == "regex":
                 found.append(
                     f"input schema: {here}: format 'regex' is not allowed in a pack input schema"
@@ -152,12 +154,33 @@ _INSTEAD = {
     "unevaluatedItems": "use items",
     "uniqueItems": "accept repeated items, or check them in a rule",
     "contains": "check it in a rule",
-    "definitions": "use $defs",
+    "minContains": "check it in a rule",
+    "maxContains": "check it in a rule",
     "dependentRequired": "use if/then",
     "dependentSchemas": "use if/then",
+    "dependencies": "use if/then",
     "$anchor": "use $defs and '#/$defs/<name>'",
     "$dynamicRef": "use $ref to one of the root's $defs",
+    "$recursiveRef": "use $ref to one of the root's $defs",
+    "definitions": "use $defs",
+    "additionalItems": "use items",
+    "example": "use examples",
+    "nullable": 'use a type list with "null" in it',
 }
+# Why: jsonschema works these out on its own, outside the time budget, or compares at once.
+_UNBOUNDED = frozenset(
+    {
+        "unevaluatedProperties",
+        "unevaluatedItems",
+        "uniqueItems",
+        "contains",
+        "minContains",
+        "maxContains",
+        "dependentRequired",
+        "dependentSchemas",
+        "dependencies",
+    }
+)
 
 
 def community_problems(schema: Any) -> list[str]:
@@ -168,8 +191,9 @@ def community_problems(schema: Any) -> list[str]:
     reach further than this check can follow (`$dynamicRef`, `dependentSchemas`, ...). A `$ref`
     names a schema of `$defs` (`#/$defs/<name>`), so it never makes data or the root a schema;
     `required` lists at most `MAX_REQUIRED` names and `enum` at most `MAX_ENUM` values, none of
-    them an object or a list; `const` is not one either. Walked without recursion, over schema
-    positions only."""
+    them an object or a list; `const` is not one either; those texts are at most
+    `MAX_SCHEMA_TEXT` characters, and a `$defs` name is letters, digits, `_`, `.` and `-`, so
+    `#/$defs/<name>` names exactly one. Walked without recursion, over schema positions only."""
     found: list[str] = []
     defs = schema.get("$defs") if isinstance(schema, dict) else None
     names = set(defs) if isinstance(defs, dict) else set()
@@ -203,11 +227,13 @@ def _keyword_problem(key: str, value: Any, path: str, defs: set[str]) -> str | N
     if key.startswith("x-"):
         return None  # an annotation of the pack's own
     if key not in _DATA | _SCHEMA | _SCHEMA_MAPS | _SCHEMA_LISTS:
-        instead = _INSTEAD.get(key, "the guide lists the keywords a community pack's schema uses")
-        return (
-            f"a community pack's schema may not use {key}, a keyword whose work Mendari cannot "
-            f"keep within a decision's time budget: {instead}"
+        instead = _INSTEAD.get(key, "an annotation of your own is x-<name>")
+        why = (
+            "a keyword whose work Mendari cannot keep within a decision's time budget"
+            if key in _UNBOUNDED
+            else "not one of the keywords the guide lists"
         )
+        return f"a community pack's schema may not use {key}, {why}: {instead}"
     if key == "$defs" and path:
         return "only the root may hold $defs"
     if key == "$ref" and not (
@@ -302,6 +328,23 @@ def _additional_properties(
             )
 
 
+def _enum(
+    validator: Any, enums: Any, instance: Any, schema: Mapping[str, Any]
+) -> Iterator[ValidationError]:
+    """jsonschema's `enum`, with a short message: its own writes out the instance and every
+    allowed value for each failing value, which inside `anyOf` on many items held hundreds of
+    megabytes (reasons are worded from the keyword alone, `decision._schema_rule`)."""
+    if all(not _utils.equal(each, instance) for each in enums):
+        yield ValidationError("is not one of the values the schema allows")
+
+
+def _const(
+    validator: Any, const: Any, instance: Any, schema: Mapping[str, Any]
+) -> Iterator[ValidationError]:
+    if not _utils.equal(instance, const):
+        yield ValidationError("is not the value the schema requires")
+
+
 def _applicable(schema: Any) -> Any:
     """The keywords jsonschema applies for `schema`, once the decision's time budget is checked:
     it asks each time it applies a schema, to an instance or a part of one."""
@@ -316,6 +359,8 @@ _Re2Validator = validators.create(
         "pattern": _pattern,
         "patternProperties": _pattern_properties,
         "additionalProperties": _additional_properties,
+        "enum": _enum,
+        "const": _const,
     },
     type_checker=Draft202012Validator.TYPE_CHECKER,
     format_checker=Draft202012Validator.FORMAT_CHECKER,

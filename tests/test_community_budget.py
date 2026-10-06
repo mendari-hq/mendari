@@ -452,3 +452,47 @@ def test_refused_keywords_say_what_to_write_instead(tmp_path: Path) -> None:
         load_pack(sorter(tmp_path, schema=used))
     found = " ".join(error.value.problems)
     assert "dependentRequired" in found and "use if/then" in found and "use $defs" in found
+
+
+def test_enum_and_const_errors_do_not_copy_the_schema_or_the_input() -> None:
+    """jsonschema's own messages write out every allowed value for each failing value: inside
+    `anyOf` on many items, one decision held about 225 MB. Same verdicts, short messages."""
+    from mendari.core import input_schema
+
+    listed = [f"{i:03d}" + "y" * 197 for i in range(500)]
+    schema = {"type": "object", "properties": {"a": {"enum": listed}, "b": {"const": 1}}}
+    validator = input_schema.validator(schema, community=True)
+    errors = list(validator.iter_errors({"a": "z" * 9_000, "b": True}))
+    assert sorted(e.message for e in errors) == [
+        "is not one of the values the schema allows",
+        "is not the value the schema requires",
+    ]
+    assert not list(validator.iter_errors({"a": listed[7], "b": 1.0}))  # 1.0 is 1, True is not
+
+
+@pytest.mark.parametrize("pack_id", ["community/visit-sorter", "someone/sorter"])
+def test_a_root_id_that_is_not_text_is_refused(tmp_path: Path, pack_id: str) -> None:
+    """Before, it failed the load with an AttributeError (on every pack)."""
+    with pytest.raises(PackValidationError) as error:
+        load_pack(sorter(tmp_path, schema=lambda s: s.update({"$id": 5}), pack_id=pack_id))
+    assert "input schema: $id: $id is a text" in error.value.problems
+
+
+@pytest.mark.parametrize(
+    ("keyword", "words"),
+    [
+        ("example", "not one of the keywords the guide lists: use examples"),
+        ("nullable", 'not one of the keywords the guide lists: use a type list with "null"'),
+        ("vendorThing", "not one of the keywords the guide lists: an annotation of your own"),
+        ("contains", "cannot keep within a decision's time budget: check it in a rule"),
+    ],
+)
+def test_a_refused_keyword_says_why_and_what_instead(
+    tmp_path: Path, keyword: str, words: str
+) -> None:
+    def used(schema: dict[str, Any]) -> None:
+        schema["properties"]["meta"] = {"type": "object", keyword: {"enum": [1]}}
+
+    with pytest.raises(PackValidationError) as error:
+        load_pack(sorter(tmp_path, schema=used))
+    assert any(words in problem for problem in error.value.problems), error.value.problems
