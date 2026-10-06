@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import Markdown from "react-markdown";
-import { pack, percent, reports, RISK_WORDS, type LeaderboardRow } from "@/lib/registry";
+import { pack, percent, RISK_WORDS, type LeaderboardRow } from "@/lib/registry";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +18,7 @@ export async function generateMetadata({ params }: { params: Promise<Params> }):
 
 export default async function PackPage({ params }: { params: Promise<Params> }) {
   const { namespace, name } = await params;
-  const [detail, shared] = await Promise.all([pack(namespace, name), reports(namespace, name)]);
+  const detail = await pack(namespace, name);
   if (!detail) notFound();
   const latest = detail.latest;
   const rows: LeaderboardRow[] = Array.isArray(latest.leaderboard?.rows) ? latest.leaderboard.rows : [];
@@ -47,27 +47,12 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
       </p>
       {rows.length ? <Leaderboard rows={rows} /> : null}
       <h2>Site reports</h2>
-      {shared && shared.sites.length ? (
-        <div className="table-wrap">
-          <table>
-            <caption className="muted">How the pack did on sites&apos; own data (metrics only; no cases leave a site).</caption>
-            <thead>
-              <tr><th>Site</th><th>Version</th><th className="num">Cases</th><th className="num">Accuracy</th><th className="num">Automated</th><th className="num">Calibration (ECE)</th></tr>
-            </thead>
-            <tbody>
-              {shared.sites.map((site) => (
-                <tr key={site.id}>
-                  <td>{site.site}</td><td className="mono">{site.version}</td><td className="num">{site.n ?? "n/a"}</td>
-                  <td className="num">{percent(site.accuracy)}</td><td className="num">{percent(site.automation_rate)}</td>
-                  <td className="num">{site.ece == null ? "n/a" : site.ece.toFixed(3)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <p className="muted">No site has shared an evaluation yet: <code>mendari eval {detail.id} --dataset … --share &quot;Your site&quot;</code>.</p>
-      )}
+      <p className="muted">
+        A site can share how this pack did on its own data (metrics only; no case leaves the site):{" "}
+        <code>mendari eval {detail.id} --dataset … --share &quot;Your site&quot;</code>. Shared reports are not
+        shown yet: until sites sign what they share, anyone with a publisher token could submit one under
+        any site name.
+      </p>
       <h2>Versions</h2>
       <p>{detail.versions.map((version) => <span key={version} className="chip mono">{version}</span>)}</p>
       {latest.card_markdown ? (

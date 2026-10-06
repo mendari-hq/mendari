@@ -21,6 +21,7 @@ from mendari.core.decision import Decision
 from mendari.core.pack import Pack, load_pack
 from mendari.core.registry import resolve_pack
 from mendari.errors import HubError, PackNotFoundError
+from mendari.evals.share import SiteReport
 from mendari.hub import archive, client
 from mendari.hub.client import RegistryClient, pull
 from mendari.hub.registry import create_registry_app
@@ -246,6 +247,25 @@ def test_without_a_registry_the_client_says_how_to_set_one(
 def test_an_unreachable_registry_is_reported(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["login", "--registry", f"http://127.0.0.1:{free_port()}"]) == 1
     assert "could not reach the registry" in capsys.readouterr().err
+
+
+def test_eval_share_out_writes_what_would_be_sent_and_sends_nothing(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--share-out` lets a site read the payload first: no registry, no login, no case id."""
+    out = tmp_path / "share.json"
+    args = ["eval", "mendari/patient-inbox-router", "--dataset", "red_flags_holdout"]
+    assert main([*args, "--baseline", "none", "--share-out", str(out)]) == 0
+    assert f"wrote what --share sends to {out}" in capsys.readouterr().err
+    payload = json.loads(out.read_text())
+    assert SiteReport.model_validate(payload).dataset.n == 30
+    pack = resolve_pack("mendari/patient-inbox-router")
+    ids = [
+        json.loads(line)["id"]
+        for line in pack.read_bytes("data/red_flags_holdout.jsonl").decode().splitlines()
+        if line.strip()
+    ]
+    assert ids and not any(case in out.read_text() for case in ids)
 
 
 def test_eval_share_sends_the_metrics(

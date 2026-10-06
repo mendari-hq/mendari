@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 
 from mendari.core.pack import Pack, load_pack, pack_digest
 from mendari.core.registry import resolve_pack
+from mendari.evals.share import shareable
 from mendari.hub import archive
 from mendari.hub import registry as registry_module
 from mendari.hub.registry import RegistryStore, create_registry_app
@@ -177,7 +178,7 @@ def test_sites_share_metrics_and_compare_with_the_benchmark(
     registry: Registry, db_target: str
 ) -> None:
     registry.publish()
-    report = json.loads((REFERRAL.root / "evals" / "benchmark.json").read_text())
+    report = shareable(json.loads((REFERRAL.root / "evals" / "benchmark.json").read_text()))
     publisher = {"authorization": f"Bearer {registry.token}"}
     path = f"/v1/packs/mendari/referral-router/{REFERRAL.version}/reports"
     assert registry.client.post(path, json={"site": "site-a", "report": report}).status_code == 401
@@ -194,11 +195,46 @@ def test_sites_share_metrics_and_compare_with_the_benchmark(
         == 422
     )
     compared = registry.client.get("/v1/packs/mendari/referral-router/reports").json()
-    assert [s["site"] for s in compared["sites"]] == ["Site A"]
+    assert [(s["site"], s["verified"]) for s in compared["sites"]] == [("Site A", False)]
     assert compared["benchmark"][REFERRAL.version]["accuracy"] is not None
     with RegistryStore(db_target) as store, store._db.session(exclusive=False) as db:
         stored = db.one("SELECT report FROM hub_reports")
-    assert stored is not None and "misclassified" not in stored["report"]  # only the shareable part
+    assert stored is not None and json.loads(stored["report"]) == report
+
+
+def test_a_site_report_is_checked_before_anything_is_stored(
+    registry: Registry, db_target: str
+) -> None:
+    """Anything but `mendari.site-report/1` is refused: a whole evaluation report (case ids,
+    the dataset's name), free text, a small cell, a malformed field. Nothing is stored."""
+    registry.publish()
+    benchmark = json.loads((REFERRAL.root / "evals" / "benchmark.json").read_text())
+    report = shareable(benchmark)
+    publisher = {"authorization": f"Bearer {registry.token}"}
+    path = f"/v1/packs/mendari/referral-router/{REFERRAL.version}/reports"
+    free_text = {**report, "providers": {**report["providers"]}}
+    free_text["providers"]["triage_screen"] = {
+        **report["providers"]["triage_screen"],
+        "model": "Jane Doe called about chest pain",
+    }
+    small = {
+        **report,
+        "subgroups": {"age_band": {"90+": {**report["subgroups"]["sex"]["male"], "n": 2}}},
+    }
+    refused = [
+        benchmark,
+        free_text,
+        small,
+        {**report, "primary": ["next_step"]},
+        {**report, "note": "x"},
+    ]
+    for body in refused:
+        answer = registry.client.post(
+            path, json={"site": "Site A", "report": body}, headers=publisher
+        )
+        assert answer.status_code == 422, answer.text
+    with RegistryStore(db_target) as store, store._db.session(exclusive=False) as db:
+        assert db.all("SELECT id FROM hub_reports") == []
 
 
 # -- a publisher's content is refused with a reason, never a server error ------------------------

@@ -45,7 +45,7 @@ from mendari.core.db import Backend, Session, connect
 from mendari.core.pack import Pack
 from mendari.core.registry import version_key
 from mendari.errors import HubError, MendariError
-from mendari.evals.share import shareable, summary
+from mendari.evals.share import SiteReport, summary
 from mendari.hub import archive
 
 PublisherType = Literal["community", "verified", "institutional"]
@@ -292,14 +292,14 @@ class RegistryStore:
         version: str,
         site: str,
         submitted_by: str,
-        report: Mapping[str, Any],
+        report: SiteReport,
     ) -> dict[str, Any]:
-        """A site's evaluation of a published version, reduced to what is shareable."""
+        """A site's evaluation of a published version (`mendari.site-report/1`, already
+        validated: nothing in it but names and numbers)."""
         self.version(namespace, name, version)
-        pack = report.get("pack") or {}
-        if (pack.get("id"), pack.get("version")) != (f"{namespace}/{name}", version):
+        if (report.pack.id, report.pack.version) != (f"{namespace}/{name}", version):
             raise HubError("the report is about another pack or version")
-        shared = shareable(report)
+        shared = report.model_dump(mode="json")
         report_id = secrets.token_hex(8)
         with self._db.session(exclusive=True) as db:
             db.all(
@@ -326,7 +326,12 @@ class RegistryStore:
                 (namespace, name),
             )
         shown = ("id", "version", "site", "submitted_by", "created_at")
-        return [{**{k: r[k] for k in shown}, **summary(json.loads(r["report"]))} for r in rows]
+        # Unverified: any publisher token may submit under any site name until sites sign what
+        # they share (the site evaluation network). The Hub does not show them.
+        return [
+            {**{k: r[k] for k in shown}, "verified": False, **summary(json.loads(r["report"]))}
+            for r in rows
+        ]
 
     def latest(self) -> list[dict[str, Any]]:
         """The newest version of every pack, with its namespace's publisher type."""
@@ -467,7 +472,7 @@ class NamespaceRequest(BaseModel):
 
 class ReportRequest(BaseModel):
     site: str = Field(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9][A-Za-z0-9 ._-]*$")
-    report: dict[str, Any]
+    report: SiteReport
 
 
 class PublisherTypeRequest(BaseModel):
@@ -607,13 +612,14 @@ def create_registry_app(
         request: Request, namespace: str, name: str, version: str, body: ReportRequest
     ) -> dict[str, Any]:
         """A site shares its local evaluation (metrics only; the registry keeps just the
-        shareable part). Any publisher token may submit; the site name is the site's choice."""
+        shareable part). Any publisher token may submit; the site name is the site's choice, so
+        reports are listed as unverified."""
         token = bearer(request)
         submitter = "admin" if admin and token and hmac.compare_digest(token, admin) else None
         submitter = submitter or (store.token_namespace(token) if token else None)
         if submitter is None:
             raise HTTPException(401, "a registry token is required to share a report")
-        if len(json.dumps(body.report)) > 2_000_000:
+        if len(body.report.model_dump_json()) > 2_000_000:
             raise HTTPException(413, "the report is too large")
         return store.add_report(namespace, name, version, body.site, submitter, body.report)
 

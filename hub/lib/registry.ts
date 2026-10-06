@@ -53,6 +53,8 @@ export type SiteReport = {
   version: string;
   site: string;
   created_at: string;
+  // Unsigned: any publisher token may submit under any site name. The website does not show them.
+  verified: boolean;
   n: number | null;
   accuracy: number | null;
   macro_f1: number | null;

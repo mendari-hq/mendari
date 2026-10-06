@@ -602,9 +602,10 @@ mendari eval mendari/referral-router --dataset local.jsonl --share "My site"
   once uploads or a public registry exist.
 - **The registry** (`mendari registry serve`) has namespaces with a publisher type
   (community, verified, institutional) that its admins set after verification. `--share` sends
-  a site's metrics, never its cases.
-- **The website** (`hub/`, Next.js) searches packs and shows their cards, leaderboards and site
-  reports.
+  a site's metrics, never its cases or their ids, in a closed format the registry checks
+  (`mendari.site-report/1`); the registry lists them as unverified until sites sign them.
+- **The website** (`hub/`, Next.js) searches packs and shows their cards and leaderboards. It
+  does not show site reports until sites sign what they share.
 
 The docker sandbox runs a registry on port 8100 (`scripts/hub_seed.py` publishes the five packs).
 
@@ -783,8 +784,9 @@ affected audit record then carries it.
 `mendari eval` reports accuracy, per-label precision/recall/F1, calibration (ECE, Brier,
 reliability bins), outcome rates, abstention, false automation rate, expected human override
 rate, critical-label safety (for example "urgent cases automated: 0"), latency, cost, subgroup
-performance and a threshold sweep. Reports contain case ids but never case text, so a site can
-share an evaluation of its local data without sharing the data.
+performance and a threshold sweep. Reports contain case ids but never case text. What a site
+shares (`--share`) holds neither: a closed format, `mendari.site-report/1`, of names and counts
+only (`--share-out FILE` writes it to read first).
 
 `mendari leaderboard` compares provider configurations on the same records and publishes
 the result in `evals/leaderboard.json` and the Decision Card. Configurations whose credentials
