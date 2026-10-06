@@ -302,8 +302,10 @@ def shown_to_reader(item: Mapping[str, Any]) -> bool:
     return any(event.get("note_status") == "open" for event in item.get("events") or ())
 
 
-# What every decide answer carries (mendari.notices).
+# What every JSON decide answer carries (mendari.notices), and the header a refusal for want of
+# an acknowledgement carries instead of a sign-in challenge.
 NOTICE = {"notice": notices.notice()}
+NOTICE_HEADER = "Mendari-Notice-Required"
 
 
 def principal_of(request: Request) -> Principal:
@@ -692,6 +694,8 @@ def create_app(
                 "daily_limit": (budget_limits or {}).get("llm"),
             },
             "rate_limits": limiter.describe(request),
+            # The notice people acknowledge before taking data in (mendari.notices).
+            "notice": {"version": notices.VERSION, "acknowledgement": acknowledgement},
             # Browser sessions: ended after this long without a request, and at most after.
             "sessions": {
                 "idle_minutes": session_lifetime.idle // 60,
@@ -793,7 +797,11 @@ def create_app(
         signed-in person acknowledges before deciding (`acknowledgement`). `required`: whether
         this caller must acknowledge `version` first; `acknowledged`: whether they have."""
         principal = principal_of(request)
-        asked = acknowledgement == "required" and principal.kind == "user"
+        asked = (
+            acknowledgement == "required"
+            and principal.kind == "user"
+            and any(principal.may(permission) for permission in notices.GATED)
+        )
         return {
             **notices.notice(),
             "acknowledgement": notices.ACKNOWLEDGEMENT,
@@ -814,7 +822,10 @@ def create_app(
         if principal.kind != "user":
             return {**notices.notice(), "acknowledged": False, "required": False}
         key = notices.chain_id(principal.id)
-        store.acknowledge_notice(key, version=notices.VERSION, actor=principal.actor)
+        if key not in acknowledged and store.acknowledge_notice(
+            key, version=notices.VERSION, actor=principal.actor
+        ):
+            log_event(request, "notice.acknowledged", reason=f"version {notices.VERSION}")
         acknowledged.add(key)
         return {**notices.notice(), "acknowledged": True, "required": acknowledgement == "required"}
 
@@ -1574,7 +1585,8 @@ def create_app(
         principal = principal_of(request)
         if acknowledgement == "off" or principal.kind != "user":
             return None
-        if permission_for(request.method, request.url.path) != "decide":
+        route = (request.method, request.url.path)
+        if permission_for(*route) not in notices.GATED and route not in notices.MINTING:
             return None
         if request.url.path == "/api/notice/acknowledge":  # what the refusal asks for
             return None
@@ -1582,11 +1594,14 @@ def create_app(
         if key in acknowledged or store.notice_acknowledged(key):
             acknowledged.add(key)
             return None
+        log_event(request, "notice.refused", outcome="refused", reason=f"version {notices.VERSION}")
         error = NoticeNotAcknowledged(
-            "acknowledge the notice before deciding (POST /api/notice/acknowledge): "
+            "acknowledge the notice first (POST /api/notice/acknowledge): "
             + notices.ACKNOWLEDGEMENT
         )
-        return error_response(request.url.path, 403, error)
+        refused = error_response(request.url.path, 403, error)
+        refused.headers[NOTICE_HEADER] = notices.VERSION  # not a sign-in challenge
+        return refused
 
     def admit(request: Request) -> Response | None:
         """The sign-in check, then the rate limit (server/limits.py), both before the route:
@@ -1637,8 +1652,8 @@ def create_app(
         if path.startswith("/api/"):  # data, often an organization's: never stored anywhere
             response.headers["Cache-Control"] = "no-store"
         api = path.startswith(("/api/", "/fhir/")) or path == "/fhir"
-        if api and response.status_code in (401, 403):  # RFC 7235 and 6750: say how to sign in
-            response.headers.setdefault("WWW-Authenticate", challenge())
+        if api and response.status_code in (401, 403) and NOTICE_HEADER not in response.headers:
+            response.headers.setdefault("WWW-Authenticate", challenge())  # RFC 7235 and 6750
         response.headers.setdefault("Content-Security-Policy", csp)
         response.headers.setdefault("Cross-Origin-Embedder-Policy", "require-corp")
         if not is_local_host(request.url.hostname):  # browsers ignore it over plain http

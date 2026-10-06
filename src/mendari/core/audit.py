@@ -1334,6 +1334,8 @@ class AuditStore:
     def acknowledge_notice(self, chain_id: str, *, version: str, actor: str) -> bool:
         """A person's acknowledgement of a notice version (`mendari.notices`), chained once under
         `chain_id` (`notice:<version>:<principal id>`). False: already acknowledged."""
+        if self.notice_acknowledged(chain_id):  # no chain lock for an answer already given
+            return False
         with self._db.session(exclusive=True) as db:
             if db.one(
                 "SELECT seq FROM audit_events WHERE decision_id = ? AND event = ?",

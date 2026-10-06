@@ -16,6 +16,7 @@ from mendari.core.audit import AuditStore
 from mendari.core.card import render_card
 from mendari.core.registry import discover
 from mendari.server.app import create_app
+from mendari.server.smart_routes import error_page
 from mendari.standards import cds_hooks
 from tests.conftest import ROOT, message, signed_in
 from tests.test_fhir import COMMUNICATION, PATIENT
@@ -32,8 +33,10 @@ def open_client(tmp_path: Path) -> TestClient:
 
 def test_every_page_and_the_openapi_description_carry_the_notice(open_client: TestClient) -> None:
     stamped = f'<p class="preview-notice" role="note">{notices.NOTICE}</p>'
-    for page in ("/", "/docs"):
+    for page in ("/", "/docs", "/docs/reference"):
         assert stamped in open_client.get(page).text, page
+    # The page a failed EHR launch or sign-in lands on.
+    assert notices.NOTICE in bytes(error_page("the launch failed", 400).body).decode()
     assert notices.NOTICE in open_client.get("/openapi.json").json()["info"]["description"]
 
 
@@ -91,7 +94,15 @@ def test_a_signed_in_person_acknowledges_before_deciding(
     assert asked["text"] == notices.NOTICE and asked["acknowledgement"] == notices.ACKNOWLEDGEMENT
     refused = client.post(f"/api/packs/{INBOX}/decide", json=message(REFILL), headers=reviewer)
     assert refused.status_code == 403 and refused.json()["error"] == "NoticeNotAcknowledged"
-    for path in (f"/api/packs/{INBOX}/fhir/decide", f"/api/packs/{INBOX}/guard"):
+    assert refused.headers["Mendari-Notice-Required"] == notices.VERSION
+    assert "WWW-Authenticate" not in refused.headers  # not a sign-in challenge
+    # Every route that takes data in from a person: deciding, reviewing, feedback.
+    for path in (
+        f"/api/packs/{INBOX}/fhir/decide",
+        f"/api/packs/{INBOX}/guard",
+        "/api/review/any",
+        "/api/audit/any/feedback",
+    ):
         assert client.post(path, json={}, headers=reviewer).status_code == 403, path
 
     for _ in range(2):  # chained once, however often it is sent
@@ -127,6 +138,27 @@ def test_a_new_notice_version_asks_again(
     assert client.get("/api/notice", headers=reviewer).json()["acknowledged"] is False
     refused = client.post(f"/api/packs/{INBOX}/decide", json=message(REFILL), headers=reviewer)
     assert refused.status_code == 403
+
+
+def test_an_admin_cannot_mint_a_way_around_it(signed_in_app: tuple[TestClient, AuditStore]) -> None:
+    client, store = signed_in_app
+    admin = signed_in(store, role="admin")
+    minted = client.post("/api/auth/keys", json={"name": "k", "role": "service"}, headers=admin)
+    assert minted.status_code == 403 and minted.json()["error"] == "NoticeNotAcknowledged"
+    client.post("/api/notice/acknowledge", headers=admin)
+    assert client.post(
+        "/api/auth/keys", json={"name": "k", "role": "service"}, headers=admin
+    ).status_code in (200, 201)
+
+
+def test_people_who_take_no_data_in_are_not_asked(
+    signed_in_app: tuple[TestClient, AuditStore],
+) -> None:
+    client, store = signed_in_app
+    viewer = signed_in(store, role="viewer")
+    assert client.get("/api/notice", headers=viewer).json()["required"] is False
+    health = client.get("/api/health", headers=viewer).json()
+    assert health["notice"] == {"version": notices.VERSION, "acknowledgement": "required"}
 
 
 def test_keys_are_never_asked(signed_in_app: tuple[TestClient, AuditStore]) -> None:

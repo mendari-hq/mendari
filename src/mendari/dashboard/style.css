@@ -706,12 +706,13 @@ input[readonly] { background: var(--color-surface-sunken); border-style: dashed;
 .callout.neutral { background: var(--color-surface-sunken); border-color: var(--color-border-strong); }
 .callout.warning { background: var(--color-warning-soft); border-color: var(--color-warning); }
 .callout.community-notice { background: var(--origin-community-soft); border-color: var(--origin-community); }
-/* After a 401 for someone who was signed in: under the bar, until they sign in again. */
 /* The notice every page carries (mendari.notices), stamped by the server under the top bar. */
 .preview-notice {
   margin: 0; padding: var(--space-2) var(--space-5); background: var(--color-warning-soft); color: var(--color-text);
   border-bottom: 1px solid var(--color-warning); font-weight: var(--weight-medium);
 }
+.drawer-notice { margin: 0 0 var(--space-3); border-radius: var(--radius-sm); } /* the drawer's copy */
+/* After a 401 for someone who was signed in: under the bar, until they sign in again. */
 .session-ended {
   padding: var(--space-3) var(--space-5); background: var(--color-warning-soft); color: var(--color-text);
   border-bottom: 1px solid var(--color-warning);

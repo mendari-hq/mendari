@@ -58,6 +58,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
 
+from mendari import notices
 from mendari.core.audit import AuditStore
 from mendari.core.decision import Decision
 from mendari.core.pack import Pack
@@ -371,7 +372,7 @@ def add_smart_routes(
         decision = decision_for(body.pack_id)
         with ehr(request, session) as fhir:
             result, task = decide_for(decision, fhir, session["patient"], body.focus)
-        return {"decision": result.to_dict(), "task": task}
+        return {"decision": result.to_dict(), "task": task, "notice": notices.notice()}
 
 
 @contextmanager
@@ -405,6 +406,7 @@ def error_page(message: str, status: int) -> HTMLResponse:
         "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'>"
         "<title>Mendari: launch failed</title>"
         "<body style='font:16px system-ui;max-width:36rem;margin:3rem auto;padding:0 1rem'>"
+        f"<p role='note'><strong>{html.escape(notices.NOTICE)}</strong></p>"
         f"<h1>The launch did not complete</h1><p>{html.escape(message)}</p>{reference}"
         "<p><a href='/'>Open the dashboard</a></p>"
     )

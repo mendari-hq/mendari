@@ -24,26 +24,6 @@ views.try = async (main) => {
     })}`;
     return;
   }
-  // A signed-in person acknowledges the notice first (mendari.notices); the server refuses
-  // their decisions until they have, so nothing here is usable before.
-  const notice = await api("/api/notice");
-  if (notice.required && !notice.acknowledged) {
-    main.innerHTML = `<h1>Try it</h1>
-      <section class="callout warning acknowledge" aria-labelledby="acknowledge-title">
-        <h2 id="acknowledge-title">Before you try a pack</h2>
-        <p>${esc(notice.acknowledgement)}</p>
-        <button type="button" class="primary" id="acknowledge">I understand: synthetic data only</button>
-      </section>`;
-    $("#acknowledge").addEventListener("click", async (event) => {
-      try {
-        await whileBusy(event.currentTarget, "Saving…", () => api("/api/notice/acknowledge", { method: "POST" }));
-        await views.try(main);
-      } catch (error) {
-        toastError(error.message);
-      }
-    });
-    return;
-  }
   return isMessagePack() ? tryMessage(main) : tryRecord(main);
 };
 

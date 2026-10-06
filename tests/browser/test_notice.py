@@ -29,7 +29,7 @@ def test_every_view_shows_the_notice(page: Page, size: ViewportSize) -> None:
     expect(page.locator(".preview-notice")).to_have_text(notices.NOTICE)
 
 
-def test_try_it_asks_for_the_acknowledgement_before_the_form(page: Page) -> None:
+def test_a_signed_in_person_acknowledges_when_the_dashboard_opens(page: Page) -> None:
     signed_in_as(page, "reviewer")
     state = {"acknowledged": False, "posts": 0}
 
@@ -46,10 +46,20 @@ def test_try_it_asks_for_the_acknowledgement_before_the_form(page: Page) -> None
         route.fulfill(body=json.dumps(body), content_type="application/json")
 
     page.route("**/api/notice**", notice)
-    open_pack(page, INBOX, "try")
-    asked = page.get_by_role("region", name="Before you try a pack")
+    page.add_init_script(f"localStorage.setItem('oh.pack', {json.dumps(INBOX)})")
+    page.goto("/#try")  # the dashboard waits for the answer before it shows a view
+    asked = page.get_by_role("dialog", name="Before you start")
     expect(asked).to_contain_text(notices.ACKNOWLEDGEMENT)
-    expect(page.get_by_role("button", name="Decide")).to_have_count(0)
-    page.get_by_role("button", name="I understand: synthetic data only").click()
+    page.keyboard.press("Escape")
+    expect(asked).to_be_visible()  # Escape does not skip it
+    asked.get_by_role("button", name="I understand: synthetic data only").click()
+    expect(asked).to_have_count(0)
     expect(page.get_by_role("button", name="Decide")).to_be_visible()
     assert state["posts"] == 1
+
+
+def test_an_open_drawer_says_it_too(page: Page) -> None:
+    open_pack(page, INBOX, "audit")
+    page.locator("table tbody tr").first.click()
+    drawer = page.get_by_role("dialog")
+    expect(drawer.locator(".drawer-notice")).to_have_text(notices.NOTICE)

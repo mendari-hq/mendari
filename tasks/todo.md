@@ -68,11 +68,17 @@ behaviour.
     emergencies: patients should call 911.", version 1. Stamped by the server into every page
     (`<!-- mendari:notice -->`: the dashboard shell, launch view included, and `/docs`), the
     OpenAPI description, every Decision Card (second line), CDS Hooks discovery and every
-    card, every decide answer (`notice`; not the stored record), and the Hub layout (a test
-    holds the words equal). A signed-in person acknowledges before deciding: `GET /api/notice`,
-    `POST /api/notice/acknowledge` (chained once per version as `notice.acknowledged`, with the
-    actor); decide routes answer `403 NoticeNotAcknowledged` until then; Try it asks first. Keys,
-    clients, EHR launches and open mode are never asked. `MENDARI_NOTICE_ACKNOWLEDGEMENT`
+    card, every JSON decide answer (`notice`, the SMART launch's too; not the stored record and
+    not a FHIR `$decide` resource), `/docs/reference`, the launch and sign-in error pages, the
+    drawer (which covers the page), and the Hub layout (a test holds the words equal). A
+    signed-in person who may decide or review acknowledges once per version when the dashboard
+    opens (a modal Escape does not skip): `GET /api/notice`, `POST /api/notice/acknowledge`
+    (chained once as `notice.acknowledged` with the actor; security log lines for both and for
+    refusals). Until then deciding, reviewing, feedback and minting a key or client answer `403
+    NoticeNotAcknowledged` (header `Mendari-Notice-Required`, no sign-in challenge). Keys,
+    clients, EHR launches and open mode are never asked; an acknowledgement is a person's,
+    across organizations; `/api/health` shows the mode. The review found no high or medium
+    finding; its 11 lows are fixed. `MENDARI_NOTICE_ACKNOWLEDGEMENT`
     (`required`, or `off`; off in the test suite as rate limits are). Deferred: a deployment
     data policy (`synthetic`/`phi`) for the badge and the acknowledgement's wording at a PHI
     pilot.
