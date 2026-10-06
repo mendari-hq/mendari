@@ -12,5 +12,6 @@ read the [documentation](../docs/index.md) and the [README](../README.md).
 | [`design-grade.md`](design-grade.md) | The dashboard's design grade, its phases and re-grade |
 | [`fhir-and-docs-audit.md`](fhir-and-docs-audit.md) | The FHIR and API documentation audit (2026-10-01) and its phases |
 | [`overnight-log.md`](overnight-log.md) | The log of the v0.4–v1.0 build, PR by PR |
+| [`vision-audit.md`](vision-audit.md) | The audit of the repository against the launch plan (2026-10-05): gaps, corrections to the plan, the Definition of shipped and the build prompts LP-01 to LP-23; full evidence in [`vision-audit-evidence.md`](vision-audit-evidence.md) |
 
 Plan and status: [`tasks/todo.md`](../tasks/todo.md). Lessons: [`tasks/lessons.md`](../tasks/lessons.md).

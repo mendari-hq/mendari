@@ -2,6 +2,46 @@
 
 Roadmap to the full goal: [`docs/roadmap.md`](../docs/roadmap.md).
 
+## Plan: the vision (2026-10-06), the governing plan
+The target is the launch plan ("Mendari Launch Plan: Build Prompts and Owner Checklist", 3 Oct
+2026) as corrected by the vision audit of `e55ed48c`: [`notes/vision-audit.md`](../notes/vision-audit.md)
+(summary, gap table, corrections to the plan, the **Definition of shipped** and the build prompts
+LP-01 to LP-23 in Phase 4; full evidence in `notes/vision-audit-evidence.md`). Launch-plan steps
+are numbered LP-; the A and B numbers in the community-packs plan below are that plan's own.
+**Owner decisions (2026-10-06):** safety first, then public (the stage-2 safety items, then the
+pre-public files so the repository can go public; hidden sets and grading after; design partners
+optional). Each step is one PR; Claude merges it when CI is green and the review found nothing
+medium or worse, and asks first for anything touching production, secrets or a pack's clinical
+behaviour.
+
+**Stage 2 safety** (in this order)
+- [ ] **LP-02 Secret scan.** Run 2026-10-06 over a mirror clone (145 refs: 6 branches, 139
+  pull-request refs, no tags; 389 commits): gitleaks 2 findings, both the reviewed
+  `deploy/onprem/.env.example` false positive; trufflehog 0. The private report is in the
+  owner's folder (locations only); nothing to rotate. Left: a scheduled CI scan of every ref and
+  a positive control.
+- [ ] **LP-01 Inbox gate** merged in #130 (gate, rationale, three tests). Left: the invariant
+  for every pack (no offline configuration automates a critical case on any declared dataset),
+  as a test and a `reference-pack` CI step, and a load rule for critical slots.
+- [ ] **LP-07** Shared evaluation reports carry counts only (`mendari eval --share` sends case
+  ids today).
+- [ ] **LP-04** Review status (the synthetic-example label) and display names: spec 0.3.
+- [ ] **LP-05** One versioned notice on every surface, a recorded acknowledgement before Try it,
+  a plain-language result view.
+- [ ] **LP-06** Automation hold (the kill switch, brought forward from A13).
+- [ ] **LP-08** Hosted data protection (ask the owner before merging the start-up guard: it
+  stops a deployment running PHI mode `off` with sign-in on; production keys are the owner's).
+- [ ] **LP-09** Key rotation.
+
+**Pre-public:** LP-13 (NOTICE, DCO check, release guards, SPDX), LP-14 (a redistributable
+prior-auth pack, licence inventory), LP-15 (the docs' promises, the local loop), LP-03 (launch
+gates as a checked file).
+
+**Trust layer:** LP-10 statistics and ledger, LP-11 hidden sets and blind labelling, LP-17
+scoreboard and grading, LP-16 for registry-pulled packs (community packs already run on RE2
+with a CPU budget, #133), LP-18 and LP-19 registry, LP-12 accounts, LP-20 pack store, LP-21
+operations, LP-22 site network, LP-23 EHR pilot.
+
 ## Plan: community packs through pull requests (2026-10-04)
 Make the repository public so outside developers can contribute packs by pull request. Plan from
 three research reports on `b00e2809` (public repo, contribution flow, shipping and the bar).
