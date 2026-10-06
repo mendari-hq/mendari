@@ -9,6 +9,7 @@ the decision abstains, for a person to decide.
 
 from __future__ import annotations
 
+import json
 import time
 from pathlib import Path
 from typing import Any
@@ -20,7 +21,7 @@ from mendari.core import patterns
 from mendari.core.spec import Outcome
 from mendari.errors import PackValidationError
 from mendari.evals.pack_tests import _run
-from tests.test_community_caps import sorter
+from tests.test_community_caps import SORTER, sorter
 
 EMOJI = "\U0001f600" * 10_000
 # Each takes about half a second on EMOJI and the nine stay within every cap (2,700 of 3,000).
@@ -116,36 +117,90 @@ def test_a_schema_that_fans_out_without_patterns_stops_at_the_budget(tmp_path: P
     assert took < BOUND_S and stopped_for_a_person(result)
 
 
-def test_an_enum_on_many_items_stops_at_the_budget(tmp_path: Path) -> None:
-    """Each item is compared with every listed value: 8 s for a 30 KB body before."""
+def test_an_enum_is_short_and_stops_at_the_budget_on_many_items(tmp_path: Path) -> None:
+    """Each item is compared with every listed value: 8 s for a 30 KB body before. An enum lists
+    at most 500 values now, and the values an input holds are capped."""
 
-    def codes(schema: dict[str, Any]) -> None:
-        listed = list(range(5_000))
-        schema["properties"]["codes"] = {"type": "array", "items": {"enum": listed}}
+    def codes(listed: list[int]) -> Any:
+        def edit(schema: dict[str, Any]) -> None:
+            schema["properties"]["codes"] = {"type": "array", "items": {"enum": listed}}
 
-    pack = load_pack(sorter(tmp_path, schema=codes))
-    result, took = timed(pack, {"message": "my bill", "codes": [4_999] * 5_000})
-    assert took < BOUND_S and stopped_for_a_person(result)
-
-
-def test_unique_items_is_refused_in_a_community_packs_schema(tmp_path: Path) -> None:
-    """One application compares every pair of items, past any budget."""
-
-    def unique(schema: dict[str, Any]) -> None:
-        schema["properties"]["codes"] = {"type": "array", "uniqueItems": True}
+        return edit
 
     with pytest.raises(PackValidationError) as error:
-        load_pack(sorter(tmp_path, schema=unique))
-    assert any("uniqueItems" in problem for problem in error.value.problems)
-    allowed = sorter(
-        tmp_path / "b",
-        schema=lambda s: s["properties"].update(codes={"type": "array", "uniqueItems": False}),
+        load_pack(sorter(tmp_path / "long", schema=codes(list(range(501)))))
+    assert any("lists 501 values, at most 500" in problem for problem in error.value.problems)
+    pack = load_pack(sorter(tmp_path / "short", schema=codes(list(range(500)))))
+    result, took = timed(pack, {"message": "my bill", "codes": [499] * 9_990})
+    assert took < BOUND_S and result.outcome is not Outcome.BLOCK
+
+
+@pytest.mark.parametrize(
+    ("keyword", "value"),
+    [
+        ("uniqueItems", True),
+        ("uniqueItems", False),
+        ("contains", {"enum": [1]}),
+        ("dependentRequired", {"a": ["b"]}),
+        ("$dynamicRef", "#/$defs/x"),
+        ("definitions", {}),
+    ],
+)
+def test_a_community_packs_schema_uses_only_the_keywords_mendari_bounds(
+    tmp_path: Path, keyword: str, value: Any
+) -> None:
+    """`contains` applied its subschema to every item outside the budget (48 s), `uniqueItems`
+    compares every pair at once (40 s): only keywords whose work is bounded are allowed."""
+
+    def used(schema: dict[str, Any]) -> None:
+        schema["$defs"] = {"x": {"type": "integer"}}
+        schema["properties"]["codes"] = {"type": "array", keyword: value}
+
+    with pytest.raises(PackValidationError) as error:
+        load_pack(sorter(tmp_path, schema=used))
+    assert any(
+        f"properties/codes/{keyword}: a community pack's schema may not use {keyword}" in problem
+        for problem in error.value.problems
     )
-    assert load_pack(allowed).community
-    unevaluated = {"patternProperties": {"^x": {}}, "unevaluatedProperties": False}
-    both = sorter(tmp_path / "c", schema=lambda s: s["properties"].update(extra=unevaluated))
-    with pytest.raises(PackValidationError):  # `false` still counts for other keywords
-        load_pack(both)
+
+
+@pytest.mark.parametrize(
+    "reference",
+    ["#", "#/$defs/h/default", "#/properties/message", "#/$defs/missing"],
+)
+def test_a_community_packs_ref_names_one_of_its_defs(tmp_path: Path, reference: str) -> None:
+    """A `$ref` into data (`default`, `const`) made it a schema, out of this check's sight, and
+    one to the root brought back jsonschema's own validator."""
+
+    def referred(schema: dict[str, Any]) -> None:
+        schema["$defs"] = {"h": {"type": "object", "default": {"uniqueItems": True}}}
+        schema["properties"]["meta"] = {"$ref": reference}
+
+    with pytest.raises(PackValidationError) as error:
+        load_pack(sorter(tmp_path, schema=referred))
+    expected = "is not in the schema" if reference.endswith("missing") else "a $ref names one"
+    assert any(expected in problem for problem in error.value.problems)
+
+
+@pytest.mark.parametrize(
+    ("keyword", "value", "problem"),
+    [
+        ("required", [f"n{i}" for i in range(101)], "lists 101 names, at most 100"),
+        ("enum", [{"a": 1}], "lists an object or a list"),
+        ("const", {"a": 1}, "is an object or a list"),
+    ],
+)
+def test_lists_and_values_a_schema_compares_at_once_are_short_and_flat(
+    tmp_path: Path, keyword: str, value: Any, problem: str
+) -> None:
+    """One `required` application yielded an error per missing name (27 s, 7.9 MB of reasons)."""
+
+    def listed(schema: dict[str, Any]) -> None:
+        schema["properties"]["meta"] = {"type": "object", keyword: value}
+
+    with pytest.raises(PackValidationError) as error:
+        load_pack(sorter(tmp_path, schema=listed))
+    assert any(problem in found for found in error.value.problems)
 
 
 def test_the_budget_counts_the_decisions_own_cpu_time_not_waiting() -> None:
@@ -220,9 +275,9 @@ def test_keywords_jsonschema_walks_on_its_own_are_refused(tmp_path: Path, keywor
     assert any(f"may not use {keyword}" in problem for problem in error.value.problems)
 
 
-def test_a_property_named_like_a_refused_keyword_is_allowed(tmp_path: Path) -> None:
+def test_a_property_named_like_a_keyword_is_allowed(tmp_path: Path) -> None:
     def named(schema: dict[str, Any]) -> None:
-        schema["properties"]["uniqueItems"] = {"type": "string", "enum": [{"uniqueItems": 1}]}
+        schema["properties"]["uniqueItems"] = {"type": "string", "x-note": "a name, not a keyword"}
 
     assert load_pack(sorter(tmp_path, schema=named)).community
 
@@ -262,15 +317,13 @@ def test_a_community_packs_input_is_nested_at_most_32_deep(tmp_path: Path) -> No
     )
 
 
-def test_a_ref_to_the_root_keeps_the_community_validator(tmp_path: Path) -> None:
-    """jsonschema picks a validator by the schema's `$schema`: before, `$ref: "#"` brought back
-    its own one, with patterns on `re` and no budget."""
+def test_the_community_validator_keeps_its_class_on_the_root(tmp_path: Path) -> None:
+    """jsonschema picks a validator by the schema's `$schema`: evolving to the root (a `$ref`
+    to it, now refused at load) brought back its own one, with patterns on `re`."""
+    from mendari.core import input_schema
 
-    def to_root(schema: dict[str, Any]) -> None:
-        schema["properties"]["child"] = {"$ref": "#"}
-
-    decision = Decision(load_pack(sorter(tmp_path, schema=to_root)))
-    validator = decision._validator
+    schema = json.loads((SORTER / "schemas" / "input.schema.json").read_text())
+    validator = input_schema.validator(schema, community=True)
     assert isinstance(validator.schema, dict) and "$schema" not in validator.schema
     assert type(validator.evolve(schema=validator.schema)) is type(validator)
 
@@ -285,7 +338,10 @@ def test_a_number_past_checking_is_refused_not_a_crash(tmp_path: Path) -> None:
         root = sorter(tmp_path / pack_id.split("/")[0], schema=money, pack_id=pack_id)
         result = Decision(load_pack(root)).decide({"message": "my bill", "amount": 10**4000})
         assert result.outcome is Outcome.BLOCK
-        refused = "input rejected: (root): the schema cannot check it (OverflowError)"
+        refused = (
+            "input rejected: (root): the schema cannot check it: it is nested too deep, or "
+            "holds a number too large"
+        )
         assert result.reasons == (refused,)
 
 

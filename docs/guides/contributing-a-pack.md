@@ -44,11 +44,18 @@ its manifest says:
   person (the error `time_budget`; `mendari test` says so). Ordinary packs take milliseconds;
   if your tests run out of time, shorten the long counts (`.{0,999}`) and classes repeated many
   times;
-- its input schema does not use `unevaluatedProperties` or `unevaluatedItems` (jsonschema
-  walks the schema for them on its own, outside the time budget, and searches
-  `patternProperties` with `re` there): use `additionalProperties` and `items`; nor
-  `uniqueItems` (it compares every pair of items at once): accept repeated items, or check
-  them in a rule;
+- its input schema uses only the keywords Mendari keeps within the time budget: `type`,
+  `properties`, `required` (at most 100 names), `additionalProperties`, `patternProperties`,
+  `propertyNames`, `items`, `prefixItems`, `minItems`/`maxItems`,
+  `minProperties`/`maxProperties`, `enum` (at most 500 values) and `const` (texts, numbers,
+  `true`, `false` or `null`), `minLength`/`maxLength`, `pattern`, `format`, the number limits
+  (`minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf`), `allOf`,
+  `anyOf`, `oneOf`, `not`, `if`/`then`/`else`, `$defs` at the root and `$ref` to one of them
+  (`#/$defs/<name>`), the annotations (`title`, `description`, `default`, `examples`,
+  `$comment`, `deprecated`, `readOnly`, `writeOnly`, `x-...`), and `$schema`/`$id` at the root.
+  Others are refused: jsonschema works some out on its own, outside the budget
+  (`unevaluatedProperties`: use `additionalProperties`; `unevaluatedItems`: use `items`;
+  `contains`), or compares every pair of items at once (`uniqueItems`); check those in a rule;
 - its FHIR systems (a `task.performer_system` in `fhir/mapping.yaml`) live under its own url,
   `https://mendari.co/packs/community/<name>/`, e.g.
   `https://mendari.co/packs/community/<name>/CodeSystem/performer`;

@@ -8,6 +8,7 @@ from typing import Any
 
 from mendari.core import input_schema
 from mendari.core.decision import Decision
+from mendari.core.origin import shape_problem
 from mendari.core.pack import Pack, not_json
 from mendari.core.patterns import COMMUNITY_TIME_BUDGET_S, OutOfTime, time_budget
 from mendari.errors import PackValidationError
@@ -85,12 +86,21 @@ def input_problems(pack: Pack) -> list[str]:
         if (case.get("expect") or {}).get("outcome") == "BLOCK":
             continue  # a test of the input contract itself
         where = f"{pack.manifest.tests} case {number} ({case.get('name', 'unnamed')})"
+        shape = shape_problem(case.get("input")) if pack.community else None
+        if shape is not None:
+            problems.append(f"{where}: its input has {shape}")
+            continue
         try:  # a community pack's schema runs within the time budget a decision gives it
             with time_budget() if pack.community else nullcontext():
                 for error in validator.iter_errors(case.get("input")):
                     problems.append(f"{where}: input {error.message}")
         except OutOfTime as error:
             problems.append(f"{where}: checking its input against the schema stopped: {error}")
+        except (RecursionError, OverflowError):
+            problems.append(
+                f"{where}: the schema cannot check its input: it is nested too deep, or holds a "
+                "number too large"
+            )
     return problems
 
 

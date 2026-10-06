@@ -31,9 +31,10 @@ A community pack's patterns, and its input schema's checks, share one time budge
 input decides the same way on a busy server. RE2's time is linear and the caps bound how many
 patterns run and how large they are (`core/caps.py`), but a crafted pack within every cap can
 still take seconds on adversarial text. Each search, each match a search yields, each step of
-the rules provider's own loops over a text and each keyword the schema applies (`check_time`)
-checks the budget, and raises `OutOfTime` once it is spent: the pack's rules, or its schema
-check, stop there and the decision abstains, for a person. A decision runs a community pack's
+the rules provider's own loops over a text, each schema applied and each error a schema check
+finds (`check_time`) checks the budget, and raises `OutOfTime` once it is spent: the pack's
+rules, or its schema check, stop there and the decision abstains, for a person (an input the
+schema had already found wrong is refused). A decision runs a community pack's
 patterns and schema for at most the budget plus one step already under way: one search can
 take about 2.5 s on 10,000 characters of emoji against the largest pattern RE2 compiles, so
 about 3.5 s of CPU at worst.
@@ -73,6 +74,11 @@ def time_budget(seconds: float = COMMUNITY_TIME_BUDGET_S) -> Iterator[None]:
         yield
     finally:
         _DEADLINE.reset(token)
+
+
+def budget_active() -> bool:
+    """Whether a time budget holds here (inside a community pack's decision)."""
+    return _DEADLINE.get() is not None
 
 
 def check_time() -> None:

@@ -210,6 +210,15 @@ B6/B7 → B8 → B9 → B10).
     input; `mendari validate` checks test inputs within the budget; the refusals look only at
     schema positions (a property named `uniqueItems` is fine); messages say "patterns and schema
     checks"; the spec states the budget.
+  - [x] That check's focused check (12 findings: a `$ref` into `default` or `const` brought refused
+    keywords back, `contains` and a long `required` list did work no check saw): a community
+    pack's input schema now uses only keywords whose work Mendari bounds (an allowlist; the
+    guide lists them), `$ref` only to the root's `$defs`, `required` at most 100 names, `enum` at
+    most 500 flat values, `const` flat; a schema check checks the budget after each error and
+    stops at 100 errors; `Decision.validate` called alone (`mendari omop`) brings its own
+    budget and input limits; a reason whose wording would search patterns again falls back to
+    plain words; `mendari validate` reports inputs nested too deep or holding numbers too large
+    instead of a traceback; the refusal for those says so in plain words.
 - [ ] **B9 (owner, steps below)** `MENDARI_COMMUNITY_PACKS=on` in Vercel Production
   only; on the owner's own branch preview (never a fork's), check that `community-packs/`
   reaches the function bundle.

@@ -23,11 +23,11 @@ which checks keys with the same keywords) search with RE2, and every other pack'
 jsonschema's own, unchanged. Its validator also checks the decision's time budget each time it
 applies a schema (`patterns.check_time`), so a schema whose keywords apply many times over
 (`$ref`s that fan out, a subschema on many items) stops at the budget; it is built without the
-root's `$schema` (which may only name 2020-12), so jsonschema never swaps it for its own on a
-`$ref` back to the root. A community pack's schema may not use `unevaluatedProperties` or
-`unevaluatedItems` (jsonschema walks the schema for them on its own, outside the budget, and
-searches `patternProperties` with `re` there) nor `uniqueItems` (one application compares
-every pair of items) (`community_problems`).
+root's `$schema` (which may only name 2020-12), so jsonschema never swaps it for its own. And a
+community pack's schema uses only keywords whose work stays within the budget, `$ref` only to
+its own `$defs` (`community_problems`): jsonschema works some others out on its own, outside any
+check (`unevaluatedProperties`, `unevaluatedItems`, `contains`), or compares every pair of items
+at once (`uniqueItems`).
 """
 
 from __future__ import annotations
@@ -99,48 +99,109 @@ def problems(schema: Any) -> list[str]:
     return sorted(found)
 
 
-# Keywords a community pack's schema may not use, and why (`community_problems`).
-_REFUSED = {
-    "unevaluatedProperties": "jsonschema walks the schema for it on its own, outside the time "
-    "budget, and searches patternProperties with re there: use additionalProperties",
-    "unevaluatedItems": "jsonschema walks the schema for it on its own, outside the time budget: "
-    "use items",
-    "uniqueItems": "it compares every pair of items at once: accept repeated items, or check "
-    "them in a rule",
-}
-# Where a schema holds data or names rather than schemas: their keys are not keywords.
-_DATA = frozenset({"enum", "const", "examples", "default", "title", "description", "$comment"})
-_NAMED = frozenset({"properties", "patternProperties", "$defs", "definitions", "dependentSchemas"})
+# A community pack's input schema uses only keywords whose work Mendari bounds
+# (`community_problems`): each applies to a value through `descend`, so the time budget is
+# checked at every schema applied (`_applicable`), or does a bounded amount of work at once.
+# Their values: a schema, a map of names to schemas, a list of schemas, or data.
+_SCHEMA = frozenset({"additionalProperties", "items", "propertyNames", "not", "if", "then", "else"})
+_SCHEMA_MAPS = frozenset({"properties", "patternProperties", "$defs"})
+_SCHEMA_LISTS = frozenset({"allOf", "anyOf", "oneOf", "prefixItems"})
+_DATA = frozenset(
+    {
+        "$schema",
+        "$id",
+        "$ref",
+        "$comment",
+        "type",
+        "required",
+        "enum",
+        "const",
+        "format",
+        "pattern",
+        "minLength",
+        "maxLength",
+        "minimum",
+        "maximum",
+        "exclusiveMinimum",
+        "exclusiveMaximum",
+        "multipleOf",
+        "minItems",
+        "maxItems",
+        "minProperties",
+        "maxProperties",
+        "title",
+        "description",
+        "default",
+        "examples",
+        "deprecated",
+        "readOnly",
+        "writeOnly",
+    }
+)
+MAX_REQUIRED = 100  # names one `required` lists: one error each, at once
+MAX_ENUM = 500  # values one `enum` lists, each compared with the value at once
+_DEFS_REF = "#/$defs/"
 
 
 def community_problems(schema: Any) -> list[str]:
-    """Why a community pack's input schema cannot run as a community pack's must; [] if it can:
-    a keyword of `_REFUSED` where a schema is (module docstring); `uniqueItems: false`, the
-    default, is allowed. Walked without recursion; a property named like a keyword is no
-    keyword."""
+    """Why a community pack's input schema cannot run as a community pack's must; [] if it can.
+    It uses only the keywords above (and `x-...` annotations): jsonschema's others either walk
+    the schema on their own, outside the time budget (`unevaluatedProperties`,
+    `unevaluatedItems`, `contains`), compare every pair of items at once (`uniqueItems`), or
+    reach further than this check can follow (`$dynamicRef`, `dependentSchemas`, ...). A `$ref`
+    names a schema of `$defs` (`#/$defs/<name>`), so it never makes data or the root a schema;
+    `required` lists at most `MAX_REQUIRED` names and `enum` at most `MAX_ENUM` values, none of
+    them an object or a list; `const` is not one either. Walked without recursion, over schema
+    positions only."""
     found: list[str] = []
+    defs = schema.get("$defs") if isinstance(schema, dict) else None
+    names = set(defs) if isinstance(defs, dict) else set()
     stack: list[tuple[str, Any]] = [("", schema)]
     while stack:
         path, node = stack.pop()
-        if isinstance(node, list):
-            stack += [(f"{path}/{i}", item) for i, item in enumerate(node)]
-            continue
         if not isinstance(node, dict):
-            continue
+            continue  # a boolean schema
         for key, value in node.items():
             here = f"{path}/{key}" if path else str(key)
-            if key in _REFUSED and not (key == "uniqueItems" and value is False):
-                found.append(
-                    f"input schema: {here}: a community pack's schema may not use {key} "
-                    f"({_REFUSED[key]})"
-                )
-            if key in _DATA:
-                continue
-            if key in _NAMED and isinstance(value, dict):
-                stack += [(f"{here}/{name}", sub) for name, sub in value.items()]
-            else:
+            problem = _keyword_problem(key, value, path, names)
+            if problem:
+                found.append(f"input schema: {here}: {problem}")
+            elif key in _SCHEMA:
                 stack.append((here, value))
+            elif key in _SCHEMA_MAPS and isinstance(value, dict):
+                stack += [(f"{here}/{name}", sub) for name, sub in value.items()]
+            elif key in _SCHEMA_LISTS and isinstance(value, list):
+                stack += [(f"{here}/{i}", sub) for i, sub in enumerate(value)]
     return sorted(found)
+
+
+def _keyword_problem(key: str, value: Any, path: str, defs: set[str]) -> str | None:
+    """Why a community pack's schema may not hold `key: value` at `path`, or None."""
+    if key.startswith("x-"):
+        return None  # an annotation of the pack's own
+    if key not in _DATA | _SCHEMA | _SCHEMA_MAPS | _SCHEMA_LISTS:
+        return (
+            f"a community pack's schema may not use {key}: it uses the keywords Mendari can "
+            "keep within a decision's time budget (the guide lists them; unevaluatedProperties "
+            "is additionalProperties, unevaluatedItems is items, and uniqueItems and contains "
+            "are checks for a rule)"
+        )
+    if key == "$defs" and path:
+        return "only the root may hold $defs"
+    if key == "$ref" and not (
+        isinstance(value, str) and value.startswith(_DEFS_REF) and value[len(_DEFS_REF) :] in defs
+    ):
+        return f"a $ref names one of the root's $defs ('{_DEFS_REF}<name>'), not {value!r}"
+    if key == "required" and isinstance(value, list) and len(value) > MAX_REQUIRED:
+        return f"lists {len(value):,} names, at most {MAX_REQUIRED}"
+    if key == "enum" and isinstance(value, list):
+        if len(value) > MAX_ENUM:
+            return f"lists {len(value):,} values, at most {MAX_ENUM}"
+        if any(isinstance(item, dict | list) for item in value):
+            return "lists an object or a list: its values are texts, numbers, true, false or null"
+    if key == "const" and isinstance(value, dict | list):
+        return "is an object or a list: a const is a text, a number, true, false or null"
+    return None
 
 
 def validator(

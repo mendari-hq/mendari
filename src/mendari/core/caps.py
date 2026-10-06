@@ -31,8 +31,9 @@ each negated match and a schema whose keywords fan out (`$ref`s that double, an 
 items) add more. So a community pack's patterns and schema checks also share one time budget
 per decision, in the CPU time of the decision's thread (`patterns.time_budget`,
 `COMMUNITY_TIME_BUDGET_S`): checked before each search, at each match, at each word typo
-correction looks at and at each schema keyword applied, it stops the pack's rules or its
-schema check, and the decision abstains, for a person. One decision runs a community pack's
+correction looks at, at each schema applied and after each error a schema check finds, it
+stops the pack's rules or its schema check, and the decision abstains, for a person (an input
+the schema had already found wrong is refused). One decision runs a community pack's
 patterns and schema for at most the budget plus one step under way (about 3.5 s of CPU at
 worst).
 

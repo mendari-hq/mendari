@@ -233,7 +233,7 @@ def test_a_community_schema_may_not_hold_unevaluated_and_pattern_properties(
     # Written down where a contributor reads the limits.
     for doc in ("docs/guides/contributing-a-pack.md", "docs/spec/decision-pack-0.2.md"):
         text = " ".join((ROOT / doc).read_text().split())
-        assert "`unevaluatedProperties` or `unevaluatedItems`" in text, doc
+        assert "`unevaluatedProperties`" in text and "`unevaluatedItems`" in text, doc
 
 
 @pytest.mark.parametrize(

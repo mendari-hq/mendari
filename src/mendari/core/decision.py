@@ -20,7 +20,7 @@ from mendari.core import input_schema, tenancy
 from mendari.core.derive import complete_answers, explain
 from mendari.core.origin import MAX_COMMUNITY_TEXT_CHARS, long_text, shape_problem
 from mendari.core.pack import Pack, load_pack
-from mendari.core.patterns import OutOfTime, search, time_budget
+from mendari.core.patterns import OutOfTime, budget_active, check_time, search, time_budget
 from mendari.core.policy import GovernanceOverride, PolicyResult, apply_policy
 from mendari.core.registry import resolve_pack
 from mendari.core.spec import Outcome, Priority
@@ -37,6 +37,8 @@ from mendari.settings import FhirValidation
 
 if TYPE_CHECKING:
     from mendari.core.audit import AuditStore
+
+MAX_SCHEMA_ERRORS = 100  # errors one check collects; ten become reasons
 
 
 @dataclass(frozen=True)
@@ -256,20 +258,46 @@ class Decision:
     def validate(self, inputs: Any) -> list[str]:
         """Why the input fails the pack's input schema, at most ten reasons. Each names where
         and which rule of the schema, never the value: jsonschema's own messages quote the
-        input, and reasons are stored in the audit trail and copied into the FHIR Task."""
-        found: list[Any] = []
-        try:
-            for error in self._validator.iter_errors(inputs):
-                found.append(error)
-        except OutOfTime:
-            if not found:  # nothing wrong found yet: the pack's schema, not the input (decide)
-                raise
-        except (RecursionError, OverflowError) as error:  # nesting or a number past checking
-            if not found:
-                return [f"(root): the schema cannot check it ({type(error).__name__})"]
-        errors = sorted(found, key=lambda e: list(map(str, e.path)))
+        input, and reasons are stored in the audit trail and copied into the FHIR Task.
+
+        A community pack's check holds to its input limits (`origin.shape_problem`) and to a
+        time budget: the decision's, or one of its own when called alone (`mendari omop`). It
+        checks the budget after each error and stops at `MAX_SCHEMA_ERRORS`. Inside a decision,
+        a budget spent before any error is found raises `OutOfTime` (the decision abstains);
+        alone, it is a reason."""
         community = self.pack.community
-        return [f"{_where(error.path)}: {_schema_rule(error, community)}" for error in errors[:10]]
+        if community and (shape := shape_problem(inputs)) is not None:
+            return [f"(root): {shape}"]
+        alone = community and not budget_active()
+        with time_budget() if alone else nullcontext():
+            found: list[Any] = []
+            try:
+                for error in self._validator.iter_errors(inputs):
+                    found.append(error)
+                    if community:
+                        check_time()
+                    if len(found) >= MAX_SCHEMA_ERRORS:
+                        break
+            except OutOfTime as stopped:
+                if not found:
+                    if alone:
+                        return [f"(root): checking it against the schema stopped: {stopped}"]
+                    raise  # the pack's schema, not the input: `decide` abstains
+            except (RecursionError, OverflowError):
+                if not found:
+                    return [
+                        "(root): the schema cannot check it: it is nested too deep, or holds a "
+                        "number too large"
+                    ]
+            errors = sorted(found, key=lambda e: list(map(str, e.path)))
+            reasons = []
+            for error in errors[:10]:
+                try:
+                    rule = _schema_rule(error, community)
+                except OutOfTime:  # wording it would search the schema's patterns again
+                    rule = "does not meet the schema"
+                reasons.append(f"{_where(error.path)}: {rule}")
+            return reasons
 
     def decide(
         self,

@@ -298,25 +298,26 @@ a pack with an invalid one is invalid, named by file and rule. `re` has no time 
 can take seconds or longer on a crafted input: a pack's patterns are code its author wrote, and
 installing a pack means trusting its author. A community pack's patterns (id `community/...`)
 are written the same way but run on RE2, which never backtracks, rewritten to mean what they
-mean in `re` (what still differs is listed in `core/re2_syntax.py`); a community pack holding
-a pattern RE2 cannot run (a lookahead or lookbehind, a back reference, a conditional or atomic
+mean in `re` (what still differs is listed in `core/re2_syntax.py`); a community pack holding a
+pattern RE2 cannot run (a lookahead or lookbehind, a back reference, a conditional or atomic
 group, a possessive quantifier, or one too large once compiled) is invalid, and so is an input
-schema that uses `unevaluatedProperties` or `unevaluatedItems` (jsonschema walks the schema for
-them on its own, and searches `patternProperties` with `re` there; `additionalProperties` and
-`items` do the same work on RE2) or `uniqueItems`. At run time a community pack's patterns and
-schema checks share a time budget of one second of CPU per decision: past it the decision
-abstains with the error `time_budget`, for a person. So is one whose
-settings multiply its patterns' work: a field named twice in a `text_fields` (a provider's or a
-question's), a `negation_window` over 200 characters or more than 50 `negation_cues`, an input
-schema that can run more than 50 patterns on one value or key (through `$ref`, `allOf` and the
-other applicators; each `patternProperties` pattern counts three times where
-`additionalProperties` is also set, which searches them again and for its error message) or
-that refers back to itself where patterns run, more than 500 patterns run by its rules on an
-input (each once for each question it answers and each composite member holding it) and its
-schema on one value together, or those same runs coming to a size of more than 3,000 together,
-a pattern's size being the characters, classes and `.`s it holds, each as often as a count
-repeats it (`a{1,50}` is 50, `\w+` is 1, alternatives added together): RE2's time on each
-character grows with it.
+schema that uses a keyword outside those whose work Mendari bounds (the contributor's guide
+lists them: `unevaluatedProperties` or `unevaluatedItems`, which jsonschema works out on its own
+and with `re`, `contains`, `uniqueItems` and the like are refused; `$ref` names one of the
+root's `$defs`; `required` lists at most 100 names and `enum` at most 500 values). So is one
+whose settings multiply its patterns' work: a field named twice in a `text_fields` (a provider's
+or a question's), a `negation_window` over 200 characters or more than 50 `negation_cues`, an
+input schema that can run more than 50 patterns on one value or key (through `$ref`, `allOf` and
+the other applicators; each `patternProperties` pattern counts three times where
+`additionalProperties` is also set, which searches them again and for its error message) or that
+refers back to itself where patterns run, more than 500 patterns run by its rules on an input
+(each once for each question it answers and each composite member holding it) and its schema on
+one value together, or those same runs coming to a size of more than 3,000 together, a pattern's
+size being the characters, classes and `.`s it holds, each as often as a count repeats it
+(`a{1,50}` is 50, `\w+` is 1, alternatives added together): RE2's time on each character grows
+with it. At run time a community pack's patterns and schema checks share a time budget of one
+second of CPU per decision: past it the decision abstains with the error `time_budget`, for a
+person.
 
 A remote provider's endpoint, model and credentials belong to the deployment, which supplies
 them in fixed environment variables (`jev`: `JEV_API_URL`, `JEV_MODEL`, `JEV_API_KEY`,
