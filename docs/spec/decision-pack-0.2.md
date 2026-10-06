@@ -395,6 +395,15 @@ Dataset format: JSON Lines. Each line has an `input` (the pack input), optional 
 (`{question: label}`), optional `attributes` (subgroup metadata such as `language` or
 `site`), and an optional `id`.
 
+**Critical labels** (`evaluation.critical`) name the (question, label) pairs whose true cases
+matter most. In the pack's default deployment (no governance approval) a true critical case
+MUST NOT be automated: a person sees every one. Under a governance approval (risk levels 2–3),
+an automated true critical case MUST carry the correct primary recommendation: the trial
+prescreener may automate `not_eligible` on an exclusion it found, never `candidate`. Mendari's
+tests hold every maintained pack to both, in every configuration that runs without calling a
+service, on every dataset the pack declares. Reports, local validation and the pack gate still
+count every automated true critical case.
+
 An evaluation report (`format: mendari.eval/1`) MUST include the pack id, version and
 digest; the provider variant and model of each slot; the dataset name, SHA-256 and size; per
 question accuracy (derived questions included), macro-F1, per-label precision/recall/F1, confusion matrix, ECE with

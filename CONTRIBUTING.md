@@ -28,8 +28,8 @@ for review when:
 - the Decision Card states intended use, users, population, out-of-scope uses and known
   failure modes honestly;
 - the risk level matches the intended use (see `docs/spec/decision-pack-0.2.md` §7);
-- a benchmark report is published, and critical labels (things that must never be automated)
-  are declared under `evaluation.critical`;
+- a benchmark report is published, and critical labels (cases a person must see: never
+  automated by default; see the spec, §8) are declared under `evaluation.critical`;
 - all data is synthetic or openly licensed and de-identified: **never real patient data**;
 - a clinician other than the author has reviewed the criteria (say who in the PR).
 

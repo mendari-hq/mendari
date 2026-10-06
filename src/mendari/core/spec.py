@@ -389,7 +389,9 @@ class Policy(_Strict):
 
 
 class CriticalLabel(_Strict):
-    """A (question, label) whose true cases must never be automated. Tracked in every eval."""
+    """A (question, label) whose true cases a person must see: never automated in the pack's
+    default deployment, and under a governance approval only with the correct primary
+    recommendation (spec section 8). Tracked in every eval."""
 
     question: str
     label: str
