@@ -78,7 +78,10 @@ behaviour.
     NoticeNotAcknowledged` (header `Mendari-Notice-Required`, no sign-in challenge). Keys,
     clients, EHR launches and open mode are never asked; an acknowledgement is a person's,
     across organizations; `/api/health` shows the mode. The review found no high or medium
-    finding; its 11 lows are fixed. `MENDARI_NOTICE_ACKNOWLEDGEMENT`
+    finding; its 11 lows are fixed, and the focused check's 4 lows (the dialog says its own
+    errors and offers Sign out; a refusal mid-session asks again and retries once; docs on the
+    header). Checked locally (Actions blocked by billing): 2,742 passed with Postgres, 159
+    browser tests passed. `MENDARI_NOTICE_ACKNOWLEDGEMENT`
     (`required`, or `off`; off in the test suite as rate limits are). Deferred: a deployment
     data policy (`synthetic`/`phi`) for the badge and the acknowledgement's wording at a PHI
     pilot.
