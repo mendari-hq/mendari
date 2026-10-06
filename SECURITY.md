@@ -349,14 +349,22 @@ manifest says (threat model S13, T5, I12, D8, E10):
   never reach it, only `community/<name>:slot=variant` runs it on a remote variant (an
   evaluation request through the API included), and its pinned model and `max_tokens` give way
   to the deployment's.
-- **At most 10,000 characters of text**, alone or together, what its patterns were timed on: a
-  longer input is refused before any pattern runs.
+- **At most 10,000 characters of text**, alone or together (keys too, where its input schema
+  runs patterns on them: `patternProperties`, `propertyNames`): a longer input is refused before
+  any pattern runs.
 - **Patterns on RE2; off in production until B11 is done.** Its patterns (rules and input
   schema) run on RE2 (`google-re2`), which never backtracks: their time grows with the text's
   length times the pattern's compiled size, held to RE2's 8 MiB a pattern. A pattern RE2
   cannot run (a lookaround, a back reference, a conditional or atomic group, a possessive
-  quantifier) makes the pack invalid at load. Some pack settings still multiply the work, so
-  community packs are switched on only once those are capped too (`tasks/todo.md`, B11).
+  quantifier) makes the pack invalid at load. The settings that multiply that work are capped
+  at load (`core/caps.py`): each text field read once, a `negation_window` of at most 200
+  characters and at most 50 `negation_cues`, at most 50 schema patterns run on one value or key
+  and no schema reference cycle where patterns run, and at most 500 runs by the rules on an
+  input and the schema on one value together.
+  Still open: typo tolerance's keyword list, the compiled size of a pack's patterns together,
+  and the negation check's work on each negated match (500 negatable patterns take seconds
+  within the caps), so community packs are switched on only once B11 is done
+  (`tasks/todo.md`).
 - **At most risk level 1, and only a hash of each input** (`store_input: hash`), refused at load
   otherwise.
 - **Checked before review.** The `pack-check` job (`pull_request`, no secrets, a read-only token,

@@ -144,6 +144,17 @@ B6/B7 → B8 → B9 → B10).
     at load; every other pack stays on `re`, decisions identical. Open: RE2's time is the text's
     length times the compiled size (about 0.6 s for 9,000 counted copies on 10,000 characters),
     so a cap on a pack's total compiled size belongs with the caps.
+  - [x] Stage 2, the caps (`core/caps.py`), refused at load and so by `community-check`: each
+    field once in a `text_fields` (rules and dosing), `negation_window` at most 200 characters
+    and at most 50 `negation_cues`, at most 50 schema patterns run on one value or key (counted
+    through `$ref` and every applicator, memoised; a reference cycle reaching a pattern is
+    refused), and at most 500 patterns run by the rules on an input (per question and composite
+    member) and the schema on one value together. Keys count toward the 10,000 characters only
+    where the schema runs patterns on them. Open, measured within the caps: the negation check
+    costs each negated match its window (500 negatable patterns on "no a no a ...": 4 s at a
+    window of 40, 9 s at 200; memoising `_negated` per text, or answering it from cue and break
+    positions found once, would fix it); typo tolerance compares each word with every keyword
+    sharing its first letter (40,000 keywords in 500 patterns: 25 s); and the compiled size.
 - [ ] **B9 (owner, steps below, after B11)** `MENDARI_COMMUNITY_PACKS=on` in Vercel Production
   only; on the owner's own branch preview (never a fork's), check that `community-packs/`
   reaches the function bundle.

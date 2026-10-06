@@ -300,7 +300,13 @@ installing a pack means trusting its author. A community pack's patterns (id `co
 are written the same way but run on RE2, which never backtracks, rewritten to mean what they
 mean in `re` (what still differs is listed in `core/re2_syntax.py`); a community pack holding
 a pattern RE2 cannot run (a lookahead or lookbehind, a back reference, a conditional or atomic
-group, a possessive quantifier, or one too large once compiled) is invalid.
+group, a possessive quantifier, or one too large once compiled) is invalid. So is one whose
+settings multiply its patterns' work: a field named twice in a `text_fields` (a provider's or a
+question's), a `negation_window` over 200 characters or more than 50 `negation_cues`, an input
+schema that can run more than 50 patterns on one value or key (through `$ref`, `allOf` and the
+other applicators) or that refers back to itself where patterns run, or more than 500 patterns
+run by its rules on an input (each once for each question it answers and each composite member
+holding it) and its schema on one value together.
 
 A remote provider's endpoint, model and credentials belong to the deployment, which supplies
 them in fixed environment variables (`jev`: `JEV_API_URL`, `JEV_MODEL`, `JEV_API_KEY`,
