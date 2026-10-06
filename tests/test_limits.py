@@ -561,6 +561,7 @@ EXPECTED_CLASSES = {
     ("GET", "/smart/launch"): "signin",
     ("POST", "/auth/token"): "token",
     ("POST", "/api/smart/decide"): "decide",
+    ("POST", "/api/notice/acknowledge"): "decide",  # what deciding asks first; chained once
     ("POST", "/api/packs/{namespace}/{name}/decide"): "decide",
     ("POST", "/api/packs/{namespace}/{name}/fhir/decide"): "decide",
     ("POST", "/api/packs/{namespace}/{name}/pas"): "decide",
