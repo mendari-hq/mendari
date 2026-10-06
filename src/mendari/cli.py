@@ -11,6 +11,7 @@ from collections.abc import Sequence
 from datetime import date
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 from mendari.core import tenancy
 from mendari.core.audit import AuditStore
@@ -342,24 +343,89 @@ def cmd_audit_verify(args: argparse.Namespace) -> int:
     return 0 if status["ok"] else 1
 
 
-def _hold_store(target: str | None) -> tuple[AuditStore, str] | None:
+def _shown(target: str) -> str:
+    """A database target as it is printed: a URL without its password, anywhere in it."""
+    if "://" not in target:
+        return target
+    parts = urlsplit(target)
+    netloc = parts.hostname or ""
+    if parts.port:
+        netloc = f"{netloc}:{parts.port}"
+    if parts.username:
+        netloc = f"{parts.username}@{netloc}"
+    query = "&".join(
+        f"{key}=***" if key.lower() in ("password", "pass", "passwd") else f"{key}={value}"
+        for key, value in parse_qsl(parts.query, keep_blank_values=True)
+    )
+    return urlunsplit((parts.scheme, netloc, parts.path, query, ""))
+
+
+_MENDARI_TABLES = ("decisions", "deployments", "automation_holds")
+
+
+def _probe(target: str) -> tuple[bool, bool]:
+    """(the database has Mendari's tables, it holds anything: a decision, a deployment or a
+    hold), read without writing: nothing is created or migrated in a database that is not
+    Mendari's."""
+    if target.startswith(("postgres://", "postgresql://")):
+        import psycopg
+
+        with psycopg.connect(target) as connection:
+            found = connection.execute(
+                "SELECT count(*) FROM unnest(%s::text[]) AS t WHERE to_regclass(t) IS NOT NULL",
+                (list(_MENDARI_TABLES),),
+            ).fetchone()
+            if not found or found[0] != len(_MENDARI_TABLES):
+                return False, False
+            rows = sum(
+                (connection.execute(f"SELECT count(*) FROM {table}").fetchone() or (0,))[0]
+                for table in _MENDARI_TABLES
+            )
+        return True, rows > 0
+    import sqlite3
+
+    lite = sqlite3.connect(f"file:{Path(target).resolve()}?mode=ro", uri=True)
+    try:
+        names = {
+            row[0] for row in lite.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        }
+        if not set(_MENDARI_TABLES) <= names:
+            return False, False
+        rows = 0
+        for table in _MENDARI_TABLES:
+            counted = lite.execute(f"SELECT count(*) FROM {table}").fetchone()
+            rows += counted[0] if counted else 0
+        return True, rows > 0
+    finally:
+        lite.close()
+
+
+def _hold_store(target: str | None, *, serving: bool) -> tuple[AuditStore, str] | None:
     """The deployment's database for the break-glass, refused when it cannot be the one a server
     runs on: not given, a SQLite file that does not exist (it would be created, and hold
-    nothing), or a database that has never served a decision. Returns it and its name as shown
-    (a URL's password hidden)."""
+    nothing), a database without Mendari's tables (nothing is created in it), and, to set a hold
+    (`serving`), one that holds no decision, deployment or hold. Returns it and its name as
+    shown (no password)."""
     target = target or os.environ.get("DATABASE_URL", "").strip() or None
     if target is None:
         print("error: give --db (the server's database) or set DATABASE_URL", file=sys.stderr)
         return None
+    shown = _shown(target)
     if not target.startswith(("postgres://", "postgresql://")) and not Path(target).is_file():
-        print(f"error: no database at {target}: give the server's --db", file=sys.stderr)
+        print(f"error: no database at {shown}: give the server's --db", file=sys.stderr)
         return None
-    shown = re.sub(r"(://[^:/@]+):[^@]*@", r"\1:***@", target)
-    store = AuditStore(target)
-    if not store.deployments(limit=1):
-        print(f"error: {shown} has never served a decision: is it the server's?", file=sys.stderr)
+    try:
+        mendari, used = _probe(target)
+    except Exception as error:
+        print(f"error: cannot read {shown} ({type(error).__name__})", file=sys.stderr)
         return None
-    return store, shown
+    if not mendari:
+        print(f"error: {shown} is not a Mendari database", file=sys.stderr)
+        return None
+    if serving and not used:
+        print(f"error: {shown} has never been used: is it the server's?", file=sys.stderr)
+        return None
+    return AuditStore(target), shown
 
 
 def _command_line_actor() -> str:
@@ -375,13 +441,18 @@ def cmd_automation_hold(args: argparse.Namespace) -> int:
     if args.digest is not None and not re.fullmatch(r"sha256:[0-9a-f]{64}", args.digest):
         print("error: --digest is a pack digest (sha256:<64 hex>)", file=sys.stderr)
         return 1
-    found = _hold_store(args.db)
+    found = _hold_store(args.db, serving=True)
     if found is None:
         return 1
     store, shown = found
-    if args.pack is not None and not store.deployments(args.pack, limit=1):
-        print(f"error: {shown} has never served {args.pack}", file=sys.stderr)
-        return 1
+    if args.pack is not None:
+        served = {d["pack_digest"] for d in store.deployments(args.pack, limit=1000)}
+        if not served:
+            print(f"error: {shown} has never served {args.pack}", file=sys.stderr)
+            return 1
+        if args.digest is not None and args.digest not in served:
+            print(f"error: {shown} has never served {args.pack} at {args.digest}", file=sys.stderr)
+            return 1
     org = None if args.all_orgs else args.org
     try:
         hold = store.hold_automation(
@@ -400,7 +471,7 @@ def cmd_automation_hold(args: argparse.Namespace) -> int:
 
 
 def cmd_automation_lift(args: argparse.Namespace) -> int:
-    found = _hold_store(args.db)
+    found = _hold_store(args.db, serving=False)
     if found is None:
         return 1
     store, shown = found
@@ -412,7 +483,7 @@ def cmd_automation_lift(args: argparse.Namespace) -> int:
 
 
 def cmd_automation_list(args: argparse.Namespace) -> int:
-    found = _hold_store(args.db)
+    found = _hold_store(args.db, serving=False)
     if found is None:
         return 1
     _print_json(found[0].holds(everyone=True))

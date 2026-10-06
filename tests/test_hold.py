@@ -190,22 +190,67 @@ def test_the_break_glass_refuses_a_database_that_is_not_the_servers(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    import sqlite3
+
     monkeypatch.delenv("DATABASE_URL", raising=False)
     missing = str(tmp_path / "nowhere.db")
     args = ["automation", "hold", "--all-orgs", "--reason", "incident"]
     assert main(args) == 1  # no --db, no DATABASE_URL
     assert main([*args, "--db", missing]) == 1
     assert not Path(missing).exists()  # nothing created
+    other = tmp_path / "other.db"  # another application's database: left as it was
+    with sqlite3.connect(other) as connection:
+        connection.execute("CREATE TABLE things (id INTEGER)")
+    assert main([*args, "--db", str(other)]) == 1
+    assert "is not a Mendari database" in capsys.readouterr().err
+    with sqlite3.connect(other) as connection:
+        tables = {r[0] for r in connection.execute("SELECT name FROM sqlite_master")}
+    assert tables == {"things"}
+    text = tmp_path / "notes.txt"
+    text.write_text("not a database")
+    assert main([*args, "--db", str(text)]) == 1
+    assert "cannot read" in capsys.readouterr().err
     empty = tmp_path / "empty.db"
     AuditStore(empty).close()
-    assert main([*args, "--db", str(empty)]) == 1  # never served a decision
-    assert "never served a decision" in capsys.readouterr().err
+    assert main([*args, "--db", str(empty)]) == 1  # Mendari's, but never used
+    assert "never been used" in capsys.readouterr().err
+    assert main(["automation", "list", "--db", str(empty)]) == 0  # reading it is fine
+
     db = str(tmp_path / "server.db")
     TestClient(create_app(db_path=db, providers=screened)).post(DECIDE, json=message(REFILL))
     assert main([*args, "--pack", "mendari/referal-router", "--db", db]) == 1  # a typo
     assert main([*args, "--pack", INBOX, "--digest", "nonsense", "--db", db]) == 1
+    unserved = "sha256:" + "0" * 64
+    assert main([*args, "--pack", INBOX, "--digest", unserved, "--db", db]) == 1
+    assert "never served" in capsys.readouterr().err
     assert main([*args, "--db", db]) == 0
     assert f"held in {db}" in capsys.readouterr().err
+
+
+def test_a_database_url_is_shown_without_its_password() -> None:
+    from mendari.cli import _shown
+
+    for url, shown in [
+        ("postgresql://u:s3cret@host:5432/db", "postgresql://u@host:5432/db"),
+        ("postgresql://:onlypw@host/db", "postgresql://host/db"),
+        (
+            "postgresql://u@host/db?password=s3cret&sslmode=require",
+            "postgresql://u@host/db?password=***&sslmode=require",
+        ),
+        (
+            "postgresql://u:p%40ss@ep-x.neon.tech/db?sslmode=require",
+            "postgresql://u@ep-x.neon.tech/db?sslmode=require",
+        ),
+        ("var/mendari.db", "var/mendari.db"),
+    ]:
+        assert _shown(url) == shown, url
+
+
+def test_a_database_used_only_by_the_command_line_can_be_held(tmp_path: Path) -> None:
+    """`mendari decide --db` records decisions without a deployment row: still the server's."""
+    db = str(tmp_path / "cli.db")
+    assert main(["decide", INBOX, "--text", REFILL, "--db", db]) == 0
+    assert main(["automation", "hold", "--all-orgs", "--reason", "r", "--db", db]) == 0
 
 
 def test_mendari_decide_with_a_database_honours_its_holds(

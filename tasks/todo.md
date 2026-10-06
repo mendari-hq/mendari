@@ -108,6 +108,12 @@ behaviour.
   does not serve; the command-line actor is sanitized; the docs no longer show a key setting a
   hold. And an older gap: PAS submitted any `submit_ready` decision, held or unreviewed, to the
   payer; it now sends only one that was automated or a reviewer resolved as `submit_ready`.
+  The focused check's 6 lows: PAS reads the label the review chained (an outcome reported
+  later cannot stand in); the break-glass reads a database before it opens one (nothing is
+  created in another application's), accepts any database holding decisions, deployments or
+  holds (`list` and `lift` need only Mendari's tables), shows a URL without its password in any
+  form, and refuses a digest that database never served; README and the PAS docstring say a
+  held decision needs a review.
 - [ ] **LP-08** Hosted data protection (ask the owner before merging the start-up guard: it
   stops a deployment running PHI mode `off` with sign-in on; production keys are the owner's).
 - [ ] **LP-09** Key rotation.

@@ -485,6 +485,9 @@ def submit_prior_authorization(
         "place_of_service": "22",
         "submit": True,
     }
+    # The decision went to a person (no model in the notes screen): one confirms it first.
+    review = {"final_label": "submit_ready", "reviewer": "pa-nurse"}
+    assert client.post(f"/api/review/{decision_id}", json=review).status_code == 200
     answered = client.post(f"/api/packs/{PA}/pas", json=body).json()
     assert answered["submitted"]["authorization"] == "AUTH-4821937"  # the caller gets it
     return decision_id

@@ -50,8 +50,9 @@ mendari automation lift <id> --db "$DATABASE_URL"
 ## What a hold means for prior authorization
 
 A held decision is a person's to confirm: the Da Vinci PAS route (`POST /api/packs/{id}/pas`
-with `submit`) sends a request to the payer only for a decision that was automated, or that a
-reviewer resolved as `submit_ready`.
+with `submit`) sends a request to the payer only for a `submit_ready` recommendation that was
+automated, or that a reviewer resolved as `submit_ready` (the label the review chained; an
+outcome reported later does not count).
 
 ## Over an organization's daily quota
 

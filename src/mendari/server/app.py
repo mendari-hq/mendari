@@ -1372,7 +1372,8 @@ def create_app(
         namespace: str, name: str, body: PriorAuthorizationRequest, http: Request
     ) -> dict[str, Any]:
         """Da Vinci PAS: the request Bundle for a complete request (`submit_ready`), and with
-        `submit`, the payer's answer, which is chained on the decision (`pas.submitted`): its
+        `submit` (a decision that was automated, or that a reviewer resolved as `submit_ready`),
+        the payer's answer, which is chained on the decision (`pas.submitted`): its
         outcome and review actions; the authorization number and disposition are kept as a
         note (PHI mode `hash` keeps neither)."""
         pack = pack_or_404(f"{namespace}/{name}")
@@ -1392,8 +1393,12 @@ def create_app(
         )
         submitted = None
         if body.submit:
-            confirmed = record["review_status"] == "resolved" and record["final_label"] == (
-                "submit_ready"
+            # The reviewer's own label, as the chain recorded it: an outcome reported later can
+            # change `final_label`, never what the reviewer resolved.
+            confirmed = any(
+                event["event"] == "review.resolved"
+                and event["payload"].get("final_label") == "submit_ready"
+                for event in record.get("events") or ()
             )
             if record["outcome"] != "AUTO" and not confirmed:
                 raise PasError(
