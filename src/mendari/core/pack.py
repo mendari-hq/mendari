@@ -18,8 +18,8 @@ from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
 from pydantic import ValidationError
 
+from mendari.core import caps, patterns
 from mendari.core import input_schema as schema_rules
-from mendari.core import patterns
 from mendari.core.origin import ORIGIN_LABELS, Origin, is_community, shown_origin
 from mendari.core.spec import Outcome, PackManifest, Priority
 from mendari.errors import PackValidationError
@@ -267,6 +267,10 @@ def load_pack(
     except (OverflowError, RecursionError, TypeError, ValueError) as error:
         problem = f"input schema: not a schema the validator can read ({type(error).__name__})"
         raise PackValidationError(manifest.id, [problem]) from None
+    if community:
+        problems = _community_caps(root, manifest, input_schema, parsed, label, digested)
+        if problems:
+            raise PackValidationError(manifest.id, problems)
 
     return Pack(
         manifest=manifest,
@@ -277,6 +281,27 @@ def load_pack(
         digested=digested,
         origin=origin,
     )
+
+
+def _community_caps(
+    root: Path,
+    manifest: PackManifest,
+    input_schema: Any,
+    parsed: dict[str, Any],
+    label: str,
+    digested: Digested,
+) -> list[str]:
+    """What multiplies a community pack's pattern work past its caps (`core/caps.py`): its rules
+    and dosing configs, its input schema, and the patterns they run together."""
+    problems = [
+        problem
+        for relative, data in parsed.items()
+        for problem in caps.rules_problems(relative, data)
+    ]
+    for relative in _provider_files(manifest, "dosing"):
+        table = parse_yaml(_read(root, relative, label, digested), relative, manifest.id)
+        problems += caps.dosing_problems(relative, table)
+    return problems + caps.schema_problems(input_schema, caps.rules_runs(manifest, parsed))
 
 
 def pack_digest(root: Path) -> str:
@@ -346,6 +371,11 @@ def _referenced_files(m: PackManifest, *, models: bool = True) -> list[tuple[str
 
 def _rules_files(m: PackManifest) -> list[str]:
     """The config file of every `rules` variant and composite member, once each."""
+    return _provider_files(m, "rules")
+
+
+def _provider_files(m: PackManifest, kind: str) -> list[str]:
+    """The config file of every variant and composite member of type `kind`, once each."""
     files: set[str] = set()
     for slot in m.providers.values():
         for variant in slot.variants.values():
@@ -357,7 +387,7 @@ def _rules_files(m: PackManifest) -> list[str]:
             files.update(
                 c["config"]
                 for c in configs
-                if c.get("type") == "rules" and isinstance(c.get("config"), str)
+                if c.get("type") == kind and isinstance(c.get("config"), str)
             )
     return sorted(files)
 

@@ -13,8 +13,9 @@ of the `packs` workflow). Each rule says, in plain words, what to fix:
 - **manifest**: licence Apache-2.0, `publisher.type: community`, `audit.store_input: hash`,
   local default providers, no pinned model, no policy rule that blocks, `degradation_tolerance`
   at most 0.05, risk level at most 1.
-- **correctness**: the pack validates and passes its behaviour tests, with at least one test
-  case for each critical label.
+- **correctness**: the pack validates (within the caps on what multiplies its patterns' work,
+  `core/caps.py`) and passes its behaviour tests, with at least one test case for each critical
+  label.
 - **evaluation**: a benchmark dataset with at least 5 cases of each critical label (at least
   one is declared); no critical case automated and each critical label found at least 90% of
   the time; an update does not regress against the base's benchmark, within the base's

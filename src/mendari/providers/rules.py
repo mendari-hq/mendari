@@ -18,6 +18,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from mendari.core.caps import rules_problems
 from mendari.core.origin import MAX_COMMUNITY_TEXT_CHARS
 from mendari.core.patterns import RULES_FLAGS, Matcher
 from mendari.core.patterns import compile as compile_pattern
@@ -76,7 +77,8 @@ class RulesProvider(Provider):
             raise PackValidationError(self.pack.id, [f"{relative}: {error}"]) from None
         self.info = replace(self.info, model=f"rules@{fingerprint(self.pack, relative)}")
 
-        problems = []
+        # A community pack's caps (`core/caps.py`; `load_pack` checks them too, as written).
+        problems = rules_problems(relative, self.rules.model_dump()) if self.pack.community else []
         for question in self.questions:
             spec = self.rules.questions.get(question)
             if spec is None:

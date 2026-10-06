@@ -418,15 +418,11 @@ def test_a_community_pack_holds_its_texts_together_to_that_length() -> None:
 
 def test_a_community_pack_counts_keys_with_its_texts() -> None:
     """The schema's patterns run on every key (`patternProperties`, `propertyNames`): before,
-    keys were held to the length one by one, so one input ran them on many long keys."""
-    keys = {"k" * 9_000 + str(i): 1 for i in range(50)}
-    result = Decision(load_pack(SORTER)).decide({"message": "hello", "extra": keys})
-    assert result.reasons == (
-        "input rejected: the input's texts together: longer than 10,000 characters, the most a "
-        "community pack reads",
-    )
+    keys were held to the length one by one, so one input ran them on many long keys. Keys
+    count only where the schema runs patterns on them (tests/test_community_caps.py)."""
     assert long_text({"k" * 4_999: "v" * 5_000}) is None  # with a separator between
     assert long_text({"k" * 4_999: "v" * 5_001}) == "the input's texts together"
+    assert long_text({"k" * 4_999: "v" * 5_001}, count_keys=False) is None
 
 
 def test_a_community_packs_typo_corrections_never_lengthen_its_text_past_the_length(
