@@ -302,7 +302,7 @@ mean in `re` (what still differs is listed in `core/re2_syntax.py`); a community
 a pattern RE2 cannot run (a lookahead or lookbehind, a back reference, a conditional or atomic
 group, a possessive quantifier, or one too large once compiled) is invalid, and so is an input
 schema that sets `unevaluatedProperties` together with `patternProperties` anywhere (jsonschema
-would run those patterns on `re`; `additionalProperties` runs them on RE2). So is one whose
+would run those patterns on `re`; `additionalProperties` runs them on RE2), or that uses `uniqueItems`. So is one whose
 settings multiply its patterns' work: a field named twice in a `text_fields` (a provider's or a
 question's), a `negation_window` over 200 characters or more than 50 `negation_cues`, an input
 schema that can run more than 50 patterns on one value or key (through `$ref`, `allOf` and the

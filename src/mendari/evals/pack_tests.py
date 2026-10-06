@@ -8,6 +8,7 @@ from typing import Any
 from mendari.core import input_schema
 from mendari.core.decision import Decision
 from mendari.core.pack import Pack, not_json
+from mendari.core.patterns import COMMUNITY_TIME_BUDGET_S
 from mendari.errors import PackValidationError
 
 
@@ -120,4 +121,12 @@ def _run(decision: Decision, case: dict[str, Any]) -> CaseOutcome:
         answer = result.answers.get(question)
         label = answer.label if answer else None
         check(f"answers.{question}", label, label == wanted, wanted)
+    if failures and result.errors:  # why a provider gave no answer, e.g. `time_budget`
+        failures.append(f"provider errors: {dict(sorted(result.errors.items()))}")
+        if "time_budget" in result.errors.values():
+            failures.append(
+                f"its patterns or schema checks ran out of the {COMMUNITY_TIME_BUDGET_S:g} s time "
+                "budget a community pack has in each decision: shorten long counts and classes "
+                "repeated many times"
+            )
     return CaseOutcome(case.get("name", "unnamed case"), not failures, tuple(failures))

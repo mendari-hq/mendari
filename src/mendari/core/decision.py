@@ -257,15 +257,9 @@ class Decision:
         """Why the input fails the pack's input schema, at most ten reasons. Each names where
         and which rule of the schema, never the value: jsonschema's own messages quote the
         input, and reasons are stored in the audit trail and copied into the FHIR Task."""
+        errors = sorted(self._validator.iter_errors(inputs), key=lambda e: list(map(str, e.path)))
         community = self.pack.community
-        try:
-            found = list(self._validator.iter_errors(inputs))
-            errors = sorted(found, key=lambda e: list(map(str, e.path)))
-            return [
-                f"{_where(error.path)}: {_schema_rule(error, community)}" for error in errors[:10]
-            ]
-        except OutOfTime as error:  # a community pack's schema patterns used the budget
-            return [f"(root): checking it against the schema's patterns stopped: {error}"]
+        return [f"{_where(error.path)}: {_schema_rule(error, community)}" for error in errors[:10]]
 
     def decide(
         self,
@@ -289,13 +283,14 @@ class Decision:
         if governance is None and self.governance_source is not None:
             governance = self.governance_source(self.pack)
         over_quota: ProviderError | None = None
+        stopped: ProviderError | None = None  # a community pack's schema check used the budget
         if self.budget is not None:
             try:
                 self.budget.admit_decision()
             except ProviderError as error:
                 over_quota = error  # every provider fails with it, so nothing automates
         # A community pack's patterns share one time budget in this decision (`core/patterns.py`):
-        # its rules then fail (the decision abstains, for a person) or its schema check stops.
+        # past it its schema check or its rules stop, and the decision abstains, for a person.
         with time_budget() if self.pack.community else nullcontext():
             community = self.pack.community
             too_long = long_text(inputs, count_keys=self._count_keys) if community else None
@@ -307,7 +302,13 @@ class Decision:
                     "community pack reads"
                 ]
             else:
-                schema_problems = self.validate(inputs)
+                try:
+                    schema_problems = self.validate(inputs)
+                except OutOfTime as error:
+                    # The pack's schema used the budget: not the input's fault, so no refusal.
+                    # Every slot fails as a provider that cannot answer does, for a person.
+                    schema_problems = []
+                    stopped = ProviderError("time_budget", f"its schema check stopped: {error}")
             problems = [*rejected, *schema_problems]
             if problems:
                 policy = PolicyResult(
@@ -322,6 +323,8 @@ class Decision:
                         try:
                             if over_quota is not None:
                                 raise over_quota
+                            if stopped is not None:
+                                raise stopped
                             provider.preflight()
                             output = provider.answer(inputs)
                         except ProviderError as error:

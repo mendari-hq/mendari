@@ -2,9 +2,9 @@
 
 RE2 is linear and the caps bound how many patterns run and how large they are, but a pack within
 every cap could still take 5 s on 10,000 characters of emoji, or 17 s with negated patterns
-(the focused check of B11). The budget makes the bound hard: once spent, the pack's rules fail
-(`time_budget`) and the decision abstains, for a person to decide, or its schema check stops
-and the input is refused.
+(the focused check of B11), and its schema minutes. The budget, in the decision thread's CPU time,
+makes the bound hard: once spent, the pack's rules or its schema check stop (`time_budget`) and
+the decision abstains, for a person to decide.
 """
 
 from __future__ import annotations
@@ -18,12 +18,16 @@ import pytest
 from mendari import Decision, load_pack
 from mendari.core import patterns
 from mendari.core.spec import Outcome
+from mendari.errors import PackValidationError
+from mendari.evals.pack_tests import _run
 from tests.test_community_caps import sorter
 
 EMOJI = "\U0001f600" * 10_000
 # Each takes about half a second on EMOJI and the nine stay within every cap (2,700 of 3,000).
 SLOW = [rf"\W{{1,299}}{i}" for i in range(9)]
-BOUND_S = 3.0  # the budget (1 s), one search under way (about 1 s at worst), and headroom
+# The budget (1 s of CPU), one step under way (about 2.5 s at worst) and headroom for a busy
+# runner: before the budget these took 5.5 s, 17.5 s and minutes.
+BOUND_S = 6.0
 
 
 def long_message(schema: dict[str, Any]) -> None:
@@ -72,19 +76,92 @@ def test_negated_patterns_stop_at_the_budget_too(tmp_path: Path) -> None:
     assert set(result.errors.values()) == {"time_budget"}
 
 
+def stopped_for_a_person(result: Any) -> bool:
+    """The schema check ran out: not the input's fault, so no refusal; a person decides."""
+    return (
+        result.outcome is Outcome.ABSTAIN
+        and set(result.errors.values()) == {"time_budget"}
+        and not any(reason.startswith("input rejected") for reason in result.reasons)
+    )
+
+
 def test_a_community_packs_schema_patterns_stop_at_the_budget(tmp_path: Path) -> None:
+    """Before, a schema that ran out refused the (valid) input: BLOCK, final, never reviewed."""
+
     def slow_schema(schema: dict[str, Any]) -> None:
         long_message(schema)
         schema["properties"]["message"]["allOf"] = [{"pattern": p} for p in SLOW]
 
     pack = load_pack(sorter(tmp_path, schema=slow_schema))
     result, took = timed(pack, {"message": EMOJI})
-    assert took < BOUND_S
-    assert result.outcome is Outcome.BLOCK
-    assert result.reasons == (
-        "input rejected: (root): checking it against the schema's patterns stopped: its "
-        "patterns took more than 1 s",
+    assert took < BOUND_S and stopped_for_a_person(result)
+
+
+def test_a_schema_that_fans_out_without_patterns_stops_at_the_budget(tmp_path: Path) -> None:
+    """`$ref`s that double at each level, with no pattern: 53 s for one tiny input before."""
+
+    def fan_out(schema: dict[str, Any]) -> None:
+        schema["properties"]["note"] = {"type": "string", "$ref": "#/$defs/t0"}
+        schema["$defs"] = {
+            f"t{i}": {"allOf": [{"$ref": f"#/$defs/t{i + 1}"}, {"$ref": f"#/$defs/t{i + 1}"}]}
+            for i in range(24)
+        } | {"t24": {"minLength": 1}}
+
+    pack = load_pack(sorter(tmp_path, schema=fan_out))
+    assert timed(pack, {"message": "my bill"})[1] < 1  # without the field, nothing fans out
+    result, took = timed(pack, {"message": "my bill", "note": "x"})
+    assert took < BOUND_S and stopped_for_a_person(result)
+
+
+def test_an_enum_on_many_items_stops_at_the_budget(tmp_path: Path) -> None:
+    """Each item is compared with every listed value: 8 s for a 30 KB body before."""
+
+    def codes(schema: dict[str, Any]) -> None:
+        listed = list(range(5_000))
+        schema["properties"]["codes"] = {"type": "array", "items": {"enum": listed}}
+
+    pack = load_pack(sorter(tmp_path, schema=codes))
+    result, took = timed(pack, {"message": "my bill", "codes": [4_999] * 5_000})
+    assert took < BOUND_S and stopped_for_a_person(result)
+
+
+def test_unique_items_is_refused_in_a_community_packs_schema(tmp_path: Path) -> None:
+    """One application compares every pair of items, past any budget."""
+
+    def unique(schema: dict[str, Any]) -> None:
+        schema["properties"]["codes"] = {"type": "array", "uniqueItems": True}
+
+    with pytest.raises(PackValidationError) as error:
+        load_pack(sorter(tmp_path, schema=unique))
+    assert any("uniqueItems" in problem for problem in error.value.problems)
+    allowed = sorter(
+        tmp_path / "b",
+        schema=lambda s: s["properties"].update(codes={"type": "array", "uniqueItems": False}),
     )
+    assert load_pack(allowed).community
+    unevaluated = {"patternProperties": {"^x": {}}, "unevaluatedProperties": False}
+    both = sorter(tmp_path / "c", schema=lambda s: s["properties"].update(extra=unevaluated))
+    with pytest.raises(PackValidationError):  # `false` still counts for other keywords
+        load_pack(both)
+
+
+def test_the_budget_counts_the_decisions_own_cpu_time_not_waiting() -> None:
+    """Waiting (a model's answer, another request) costs nothing: before, a slow model call
+    ahead of the rules made them fail on ordinary text, and load changed outcomes."""
+    with patterns.time_budget(0.2):
+        time.sleep(0.5)
+        patterns.check_time()
+        with pytest.raises(patterns.OutOfTime):
+            while True:
+                patterns.check_time()
+
+
+def test_a_pack_test_that_runs_out_of_time_says_so(tmp_path: Path) -> None:
+    pack = load_pack(sorter(tmp_path, rules=slow_rules(), schema=long_message))
+    case = {"name": "slow", "input": {"message": EMOJI}, "expect": {"recommendation": "billing"}}
+    failures = _run(Decision(pack), case).failures
+    assert any("time_budget" in failure for failure in failures)
+    assert any("ran out of the 1 s time budget" in failure for failure in failures)
 
 
 def test_the_budget_belongs_to_one_decision(tmp_path: Path) -> None:
@@ -108,7 +185,7 @@ def test_a_pack_that_is_not_a_community_pack_has_no_budget(tmp_path: Path) -> No
 
 def test_the_budget_is_spent_once_and_restored() -> None:
     with patterns.time_budget(0):
-        time.sleep(0.001)
+        sum(range(100_000))  # a little CPU
         with pytest.raises(patterns.OutOfTime):
             patterns.check_time()
         with patterns.time_budget(60):

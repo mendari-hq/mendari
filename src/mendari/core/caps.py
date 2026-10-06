@@ -25,13 +25,16 @@ refused at load, in words saying what to write instead, when
 
 The caps do not make a hard bound alone: on 10,000 characters of emoji or Chinese text, where
 RE2's automaton runs out of memory and steps through a pattern's copies one by one, one search
-can take about a second (`\\D{1,999}`), and a crafted pack within every cap took 5.5 s, or
-17.5 s with negated patterns rescanned at each match. Typo tolerance's keyword list and the
-negation check's work on each negated match add more. So a community pack's patterns also share
-one time budget per decision (`patterns.time_budget`, `COMMUNITY_TIME_BUDGET_S`): checked
-before each search, at each match and at each word typo correction looks at, it stops the pack's
-rules (the decision abstains, for a person) or its schema check (the input is refused). One
-decision runs a community pack's patterns for at most the budget plus one search under way.
+can take about 2.5 s, and a crafted pack within every cap took 5.5 s, or 17.5 s with negated
+patterns rescanned at each match; typo tolerance's keyword list, the negation check's work on
+each negated match and a schema whose keywords fan out (`$ref`s that double, an `enum` on many
+items) add more. So a community pack's patterns and schema checks also share one time budget
+per decision, in the CPU time of the decision's thread (`patterns.time_budget`,
+`COMMUNITY_TIME_BUDGET_S`): checked before each search, at each match, at each word typo
+correction looks at and at each schema keyword applied, it stops the pack's rules or its
+schema check, and the decision abstains, for a person. One decision runs a community pack's
+patterns and schema for at most the budget plus one step under way (about 3.5 s of CPU at
+worst).
 
 Every other pack is not capped: its patterns run on `re`, and installing it means trusting its
 author (SECURITY.md).

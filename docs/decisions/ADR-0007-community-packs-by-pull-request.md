@@ -86,11 +86,11 @@ The owner decided (2026-10-04):
   (`core/caps.py`), including the size of the patterns one input runs (at most 3,000
   together), and the static check and the probe are gone. The caps alone left a crafted pack
   seconds of work on adversarial text (5.5 s, 17.5 s with negated patterns), so a community
-  pack's patterns also share a time budget of one second per decision: past it its rules fail
-  (the decision abstains, for a person) or its schema check stops (the input is refused), and
-  a decision runs its patterns for at most the budget plus one search under way (about a
-  second). A pack that runs out of time on ordinary text is removed: revert the merge, or turn
-  the switch off.
+  pack's patterns and schema checks also share a time budget of one second of CPU per decision:
+  past it its rules or its schema check stop and the decision abstains, for a person, so a
+  decision runs them for at most the budget plus one step under way (about 3.5 s of CPU at
+  worst; waiting for a model or for other requests costs nothing). A pack that runs out of time
+  on ordinary text is removed: revert the merge, or turn the switch off.
 - Names are checked the same way: CI fails a name, CDS Hooks title or publisher that copies a
   maintained pack's name or title, or uses the word Mendari (or OpenHealth) as whole words.
   A look-alike, which no table catches completely (the same three checks found ways past

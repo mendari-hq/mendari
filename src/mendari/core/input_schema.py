@@ -27,7 +27,7 @@ with `re` wherever it looks, so a community pack's schema may not hold both
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from typing import Any
 
 from jsonschema import Draft202012Validator, ValidationError, validators
@@ -95,10 +95,15 @@ def problems(schema: Any) -> list[str]:
 
 
 def community_problems(schema: Any) -> list[str]:
-    """Why a community pack's input schema cannot run its patterns on RE2 only; [] if it can:
-    `unevaluatedProperties` with `patternProperties` anywhere in the document (module
-    docstring)."""
-    found: dict[str, list[str]] = {"unevaluatedProperties": [], "patternProperties": []}
+    """Why a community pack's input schema cannot run as a community pack's must; [] if it can:
+    `unevaluatedProperties` with `patternProperties` anywhere in the document (jsonschema would
+    run those patterns on `re`, module docstring), or `uniqueItems` (one application compares
+    every pair of items, past any time budget)."""
+    found: dict[str, list[str]] = {
+        "unevaluatedProperties": [],
+        "patternProperties": [],
+        "uniqueItems": [],
+    }
     stack: list[tuple[str, Any]] = [("", schema)]
     seen: set[int] = set()
     while stack:
@@ -109,12 +114,18 @@ def community_problems(schema: Any) -> list[str]:
         items = node.items() if isinstance(node, dict) else enumerate(node)
         for key, value in items:
             here = f"{path}/{key}" if path else str(key)
-            if isinstance(node, dict) and key in found:
+            unique_off = key == "uniqueItems" and value is False  # the default: allowed
+            if isinstance(node, dict) and key in found and not unique_off:
                 found[str(key)].append(here)
             stack.append((here, value))
+    unique = [
+        f"input schema: {here}: a community pack's schema may not use uniqueItems (it compares "
+        "every pair of items at once): accept repeated items, or check them in a rule"
+        for here in sorted(found["uniqueItems"])
+    ]
     if not (found["unevaluatedProperties"] and found["patternProperties"]):
-        return []
-    return [
+        return unique
+    return unique + [
         f"input schema: {here}: a community pack's schema may not use unevaluatedProperties "
         "with patternProperties (jsonschema would run those patterns on re, not RE2): use "
         "additionalProperties"
@@ -188,11 +199,29 @@ def _additional_properties(
             )
 
 
+def _timed(keyword: Callable[..., Iterator[ValidationError] | None]) -> Callable[..., Any]:
+    """`keyword`, checking the decision's time budget (`patterns.check_time`) before it runs and
+    after each error it yields: a schema that applies its keywords many times over (`$ref`s
+    that fan out, an `enum` on many items) stops at the budget like the pack's patterns."""
+
+    def run(*args: Any) -> Iterator[ValidationError]:
+        patterns.check_time()
+        for error in keyword(*args) or ():
+            yield error
+            patterns.check_time()
+
+    return run
+
+
 _Re2Validator = validators.extend(
     Draft202012Validator,
     {
-        "pattern": _pattern,
-        "patternProperties": _pattern_properties,
-        "additionalProperties": _additional_properties,
+        keyword: _timed(function)
+        for keyword, function in {
+            **Draft202012Validator.VALIDATORS,
+            "pattern": _pattern,
+            "patternProperties": _pattern_properties,
+            "additionalProperties": _additional_properties,
+        }.items()
     },
 )

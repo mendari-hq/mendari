@@ -363,10 +363,11 @@ manifest says (threat model S13, T5, I12, D8, E10):
   and no schema reference cycle where patterns run, at most 500 runs by the rules on an
   input and the schema on one value together, and those runs' patterns at most 3,000 in size
   together (the characters, classes and `.`s each holds, as often as its counts repeat them).
-  And its patterns share a time budget of one second per decision: past it its rules fail (the
-  decision abstains, for a person) or its schema check stops (the input is refused), so one
-  decision runs them for at most the budget plus one search under way (about a second on
-  10,000 characters at worst; the shipped packs' patterns take milliseconds). Turning
+  And its patterns and schema checks share a time budget of one second of CPU per decision:
+  past it its rules or its schema check stop and the decision abstains, for a person, so one
+  decision runs them for at most the budget plus one step under way (about 3.5 s of CPU on
+  10,000 characters at worst; the shipped packs' patterns take milliseconds). Its schema may
+  not use `uniqueItems`, which compares every pair of items at once. Turning
   community packs on for the hosted
   platform is the owner's step (`tasks/todo.md`, B9).
 - **At most risk level 1, and only a hash of each input** (`store_input: hash`), refused at load
@@ -376,7 +377,7 @@ manifest says (threat model S13, T5, I12, D8, E10):
   only, no git submodule, a removal by the owner only), identity, manifest policy, tests,
   evaluation floors and regressions against the base branch's benchmark and tolerance (on the
   base's benchmark dataset too), a benchmark, card and models CI builds again and compares,
-  every pattern compiled on RE2 (none is timed: RE2 never backtracks), size limits, and warnings for text that
+  every pattern compiled on RE2 (none is timed in CI: RE2 never backtracks, and at run time the time budget bounds a decision), size limits, and warnings for text that
   looks like a real person's details. Then the owner reads it, including its clinical content
   and where that content comes from.
 - **Removal.** Revert the merge and deploy for a safety problem or real patient data (and

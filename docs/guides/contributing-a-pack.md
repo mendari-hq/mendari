@@ -39,12 +39,15 @@ its manifest says:
   50, `a{5,}` is 5, `\w+` and `x*` are 1, `(?:ab|cd){1,10}` is 40), so RE2's time on each
   character grows with it. The packs Mendari maintains come to about 1,200 to 2,600, and
   `community-check` prints your pack's;
-- its patterns, together, take at most **one second** in a decision: past that its rules fail
-  and the decision abstains, for a person (the error `time_budget`), or its schema check stops
-  and the input is refused. Ordinary patterns take milliseconds; if your tests run out of time,
-  shorten the long counts (`.{0,999}`) and classes repeated many times;
+- its patterns and its schema's checks, together, take at most **one second** of CPU in a
+  decision: past that its rules or its schema check stop and the decision abstains, for a
+  person (the error `time_budget`; `mendari test` says so). Ordinary packs take milliseconds;
+  if your tests run out of time, shorten the long counts (`.{0,999}`) and classes repeated many
+  times;
 - its input schema does not set `unevaluatedProperties` together with `patternProperties`
-  anywhere (jsonschema would run those patterns on `re`): use `additionalProperties`;
+  anywhere (jsonschema would run those patterns on `re`): use `additionalProperties`; nor
+  `uniqueItems` (it compares every pair of items at once): accept repeated items, or check
+  them in a rule;
 - its FHIR systems (a `task.performer_system` in `fhir/mapping.yaml`) live under its own url,
   `https://mendari.co/packs/community/<name>/`, e.g.
   `https://mendari.co/packs/community/<name>/CodeSystem/performer`;
@@ -211,9 +214,10 @@ Write patterns in Python's `re` syntax, as every pack does. A community pack's p
 rules and its input schema's `pattern`, `patternProperties` and `propertyNames`) then run on
 [RE2](https://github.com/google/re2/wiki/Syntax), which never backtracks: its time grows with
 the text's length times the pattern's compiled size, never exponentially, so no pattern can
-stall the server the way `(a+)+$` stalls `re` on a long message. There is no slow pattern to
-avoid, and nothing times your patterns. Mendari rewrites each pattern for RE2 to mean what it
-means in `re`.
+stall the server the way `(a+)+$` stalls `re` on a long message. Nothing times your patterns
+before they are merged; at run time they share the one-second budget above, which only very
+long counts on long text in other scripts come near. Mendari rewrites each pattern for RE2 to
+mean what it means in `re`.
 
 **Not available on RE2:** lookahead and lookbehind (`(?=...)`, `(?!...)`, `(?<=...)`,
 `(?<!...)`), back references (`\1`, `(?P=name)`), conditional groups (`(?(1)...|...)`), atomic

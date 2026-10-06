@@ -192,6 +192,14 @@ B6/B7 → B8 → B9 → B10).
     person) or the schema check stops (the input is refused). One decision runs a community
     pack's patterns for at most the budget plus one search under way (about a second at worst).
     `tests/test_community_budget.py`; docs say so (caps.py, ADR-0007, SECURITY.md, D8, guide).
+  - [x] The budget's focused check (8 findings): the budget is the decision thread's CPU time
+    (`time.thread_time`), so a model's latency or a busy server no longer spends it; every
+    keyword of a community pack's schema checks it (a `$ref` fan-out with no pattern took 53 s,
+    an `enum` on many items 8 s); a schema that runs out abstains, for a person, instead of
+    refusing a valid input; `uniqueItems` is refused in a community pack's schema; `mendari
+    test` and `community-check` print provider errors and say when a case ran out of time; the
+    bound is stated as measured (one search about 2.5 s, so about 3.5 s of CPU at worst); the
+    guide no longer says nothing times patterns.
 - [ ] **B9 (owner, steps below)** `MENDARI_COMMUNITY_PACKS=on` in Vercel Production
   only; on the owner's own branch preview (never a fork's), check that `community-packs/`
   reaches the function bundle.

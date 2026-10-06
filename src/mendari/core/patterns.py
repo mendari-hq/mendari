@@ -25,14 +25,18 @@ Mendari's own patterns (dosing, CQL headers, the rules provider's scope, word an
 patterns) are not pack content and stay on `re`. RE2 and the rewriting are imported only when a
 community pack's pattern is compiled, so a deployment without one never loads them.
 
-A community pack's patterns share one time budget per decision (`time_budget`, set by
-`Decision.decide`). RE2's time is linear and the caps bound how many patterns run and how large
-they are (`core/caps.py`), but a crafted pack within every cap can still take seconds on
-adversarial text. Each search, each match a search yields, and each step of the rules
-provider's own loops over a text (`check_time`) checks the budget, and raises `OutOfTime` once
-it is spent: a decision then stops running that pack's patterns, so it takes at most the
-budget plus one search already under way (about a second at worst, measured on 10,000
-characters of emoji against the largest pattern RE2 compiles).
+A community pack's patterns, and its input schema's checks, share one time budget per decision
+(`time_budget`, set by `Decision.decide`), counted in the CPU time of the decision's own thread
+(`time.thread_time`): waiting for a model or for another request costs it nothing, so the same
+input decides the same way on a busy server. RE2's time is linear and the caps bound how many
+patterns run and how large they are (`core/caps.py`), but a crafted pack within every cap can
+still take seconds on adversarial text. Each search, each match a search yields, each step of
+the rules provider's own loops over a text and each keyword the schema applies (`check_time`)
+checks the budget, and raises `OutOfTime` once it is spent: the pack's rules, or its schema
+check, stop there and the decision abstains, for a person. A decision runs a community pack's
+patterns and schema for at most the budget plus one step already under way: one search can
+take about 2.5 s on 10,000 characters of emoji against the largest pattern RE2 compiles, so
+about 3.5 s of CPU at worst.
 """
 
 from __future__ import annotations
@@ -61,9 +65,10 @@ class OutOfTime(MendariError):
 
 @contextmanager
 def time_budget(seconds: float = COMMUNITY_TIME_BUDGET_S) -> Iterator[None]:
-    """The time a community pack's patterns may take, together, inside this block (one
-    decision). Thread-local through a context variable, so concurrent decisions keep their own."""
-    token = _DEADLINE.set(time.monotonic() + seconds)
+    """The CPU time (this thread's) a community pack's patterns and schema checks may take,
+    together, inside this block (one decision). Held in a context variable, so concurrent
+    decisions keep their own."""
+    token = _DEADLINE.set(time.thread_time() + seconds)
     try:
         yield
     finally:
@@ -73,7 +78,7 @@ def time_budget(seconds: float = COMMUNITY_TIME_BUDGET_S) -> Iterator[None]:
 def check_time() -> None:
     """Raise `OutOfTime` when the current decision's budget is spent (no budget, no limit)."""
     deadline = _DEADLINE.get()
-    if deadline is not None and time.monotonic() > deadline:
+    if deadline is not None and time.thread_time() > deadline:
         raise OutOfTime(f"its patterns took more than {COMMUNITY_TIME_BUDGET_S:g} s")
 
 
