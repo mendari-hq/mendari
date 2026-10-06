@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import re
+import time
 from collections import Counter
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
@@ -302,6 +303,16 @@ def shown_to_reader(item: Mapping[str, Any]) -> bool:
     return any(event.get("note_status") == "open" for event in item.get("events") or ())
 
 
+# How long a decision's look-up of automation holds is reused on one instance.
+HOLD_SECONDS = 5.0
+
+
+class HoldRequest(BaseModel):
+    pack_id: str | None = Field(default=None, max_length=200)
+    pack_digest: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
+    reason: str = Field(min_length=1, max_length=200)
+
+
 # What every JSON decide answer carries (mendari.notices), and the header a refusal for want of
 # an acknowledgement carries instead of a sign-in challenge.
 NOTICE = {"notice": notices.notice()}
@@ -447,6 +458,7 @@ def create_app(
                     budget=budget,
                     fhir_validation=validation,
                     governance_source=approved_override,
+                    hold_source=held,
                 )
             except MendariError:
                 raise
@@ -474,6 +486,23 @@ def create_app(
         if pack is None or question not in pack.manifest.questions:
             return None
         return pack.manifest.labels(question)
+
+    # Automation holds (`AuditStore.hold_automation`), read per decision and kept a few seconds:
+    # a hold set on another instance takes effect within HOLD_SECONDS, one set here at once.
+    hold_cache: dict[tuple[str, str, str], tuple[float, str | None]] = {}
+
+    def held(pack: Pack) -> str | None:
+        """Why automation is held for this pack in the caller's organization now, or None."""
+        org = tenancy.current() or tenancy.DEFAULT_ORG
+        key = (org, pack.id, pack.digest)
+        now = time.monotonic()
+        cached = hold_cache.get(key)
+        if cached is not None and now - cached[0] < HOLD_SECONDS:
+            return cached[1]
+        hold = store.hold_for(pack.id, pack.digest, org)
+        reason = None if hold is None else f"hold {hold['id']}"
+        hold_cache[key] = (now, reason)
+        return reason
 
     def approved_override(pack: Pack) -> GovernanceOverride | None:
         """The organization's approval in force for exactly this pack, as the runtime override."""
@@ -694,6 +723,8 @@ def create_app(
                 "daily_limit": (budget_limits or {}).get("llm"),
             },
             "rate_limits": limiter.describe(request),
+            # Automation holds in force for the caller's organization (and the deployment's).
+            "holds": len(store.holds(principal.org)),
             # The notice people acknowledge before taking data in (mendari.notices).
             "notice": {"version": notices.VERSION, "acknowledgement": acknowledgement},
             # Browser sessions: ended after this long without a request, and at most after.
@@ -959,6 +990,56 @@ def create_app(
         if not store.revoke_approval(approval_id, revoked_by=principal_of(request).actor):
             raise HTTPException(404, "no such approval")
         log_event(request, "governance.revoked", ids=[approval_id])
+        return Response(status_code=204)
+
+    @app.get("/api/holds", tags=["Governance"], summary="Automation holds in force")
+    def list_holds(request: Request) -> list[dict[str, Any]]:
+        """The automation holds in force for your organization: its own and the deployment's
+        (set from the command line). While one covers a decision, AUTO becomes HUMAN_REVIEW."""
+        return store.holds(principal_of(request).org)
+
+    @app.post(
+        "/api/holds",
+        status_code=201,
+        tags=["Governance"],
+        summary="Hold automation",
+    )
+    def hold_automation(request: Request, body: HoldRequest) -> dict[str, Any]:
+        """Stop automation for your organization: every pack, one pack (`pack_id`), or one
+        version of it (`pack_digest`). Decisions still run and are recorded; any that would be
+        `AUTO` goes to a person instead, with the same recommendation and priority. Chained as
+        `automation.held`; it lasts until lifted (`DELETE /api/holds/{id}`)."""
+        if body.pack_id is not None:
+            pack_or_404(body.pack_id)
+        principal = principal_of(request)
+        try:
+            hold = store.hold_automation(
+                org=principal.org,
+                pack_id=body.pack_id,
+                pack_digest=body.pack_digest,
+                reason=body.reason,
+                set_by=principal.actor,
+            )
+        except ReviewError as error:
+            raise HTTPException(422, str(error)) from None
+        hold_cache.clear()
+        log_event(request, "automation.held", ids=[hold["id"]])
+        return hold
+
+    @app.delete(
+        "/api/holds/{hold_id}",
+        status_code=204,
+        tags=["Governance"],
+        summary="Lift an automation hold",
+    )
+    def lift_hold(request: Request, hold_id: str) -> Response:
+        """Lift your organization's hold. A deployment's hold (set from the command line, for
+        every organization) is lifted there too: `mendari automation lift`."""
+        principal = principal_of(request)
+        if not store.lift_hold(hold_id, lifted_by=principal.actor, org=principal.org):
+            raise HTTPException(404, "no such hold in force for your organization")
+        hold_cache.clear()
+        log_event(request, "automation.lifted", ids=[hold_id])
         return Response(status_code=204)
 
     # -- evaluation --------------------------------------------------------------------------

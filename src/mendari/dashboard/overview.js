@@ -1,22 +1,23 @@
 // Overview: what is deployed, the numbers people act on, outcome mix and decisions per day.
 
 import { chartHtml, sparkline } from "./charts.js";
-import { originBadge, providerWords, statusNotice } from "./pack.js";
+import { holdNotice, originBadge, providerWords, statusNotice } from "./pack.js";
 import { views, wire } from "./router.js";
 import { $, api, emptyState, esc, icon, may, money, num, OUTCOMES, outcomeText, pct, slotText, stat, state, storageGet, storageSet, zoneName } from "./ui.js";
 
 views.overview = async (main) => {
-  const [stats, chain] = await Promise.all([
+  const [stats, chain, holds] = await Promise.all([
     api(`/api/stats?pack_id=${encodeURIComponent(state.packId)}`),
     // Verifying the chain reads every event: administrators only (the server says the same).
     may("admin") ? api("/api/audit/verify") : null,
+    api("/api/holds").catch(() => []),
   ]);
   const d = state.detail;
   const total = stats.decisions;
   const period = PERIODS.some(([key]) => key === storageGet("oh.period")) ? storageGet("oh.period") : "30";
   main.innerHTML = `
     <h1>${esc(d.name)}</h1>
-    ${packHeader(d)}
+    ${packHeader(d, holds)}
     ${total ? `
       <div class="period-row">
         <span class="muted" id="period-name">Period</span>
@@ -184,10 +185,11 @@ function wireStack(root) {
   fit();
 }
 
-function packHeader(d) {
+function packHeader(d, holds) {
   const deployed = Object.entries(d.active_providers);
   return `<div class="pack-header">
     ${statusNotice(d)}
+    ${holdNotice(holds, d)}
     <p class="pack-risk">${originBadge(d)} <span class="badge risk">Risk level ${d.risk.level}</span> <span class="muted">${esc(d.risk.category)}</span></p>
     <p class="deployed"><span class="muted">Deployed</span> ${deployed.map(([slot, p]) =>
       `<span class="deployed-slot">${esc(slotText(slot))}: <b>${providerWords(p)}</b></span>`).join(`<span class="muted" aria-hidden="true">·</span>`)}</p>

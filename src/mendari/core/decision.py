@@ -9,6 +9,7 @@ import time
 import uuid
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextlib import nullcontext
+from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -129,6 +130,12 @@ class DecisionResult:
 QuotaReached = Callable[[str, str, int], None]
 
 
+# A decision over its organization's daily quota (`CallBudget.admit_decision`): its remote
+# calls fail with it, so local providers still answer (an emergency rule still raises its
+# priority) and composites keep their local members; the policy then holds the decision.
+_OVER_QUOTA: ContextVar[ProviderError | None] = ContextVar("over_quota", default=None)
+
+
 class CallBudget:
     """Daily call limits per provider type (e.g. {"jev": 500}; None counts calls without a
     limit), counted in the audit store, and per-organization daily quotas (`org_limits`:
@@ -154,6 +161,9 @@ class CallBudget:
         self.on_quota_reached = on_quota_reached
 
     def acquire(self, provider_type: str) -> None:
+        refused = _OVER_QUOTA.get()
+        if refused is not None:
+            raise refused
         if provider_type in self.org_limits:
             self._charge_org(provider_type)
         if provider_type in self.limits:
@@ -189,6 +199,7 @@ class Decision:
         providers: Mapping[str, str] | None = None,
         governance: GovernanceOverride | None = None,
         governance_source: Callable[[Pack], GovernanceOverride | None] | None = None,
+        hold_source: Callable[[Pack], str | None] | None = None,
         store: AuditStore | None = None,
         budget: CallBudget | None = None,
         fhir_validation: FhirValidation = "warn",
@@ -202,6 +213,8 @@ class Decision:
         self.pack = pack
         self.governance = governance
         self.governance_source = governance_source
+        # Why automation is held for this pack now (an operator's automation hold), or None.
+        self.hold_source = hold_source
         self.store = store
         self.budget = budget
         self.fhir_validation = fhir_validation
@@ -374,29 +387,42 @@ class Decision:
                     reasons=tuple(f"input rejected: {problem}" for problem in problems),
                 )
             else:
-                with batching(self.providers.values()):
-                    for slot, provider in self.providers.items():
-                        try:
-                            if over_quota is not None:
-                                raise over_quota
-                            if stopped is not None:
-                                raise stopped
-                            provider.preflight()
-                            output = provider.answer(inputs)
-                        except ProviderError as error:
-                            failed = dict.fromkeys(manifest.providers[slot].answers, error.code)
-                            failures.update(failed)
-                            continue
-                        answers.update(output.answers)
-                        failures.update(output.failures)
-                        tokens_in += output.input_tokens
-                        tokens_out += output.output_tokens
-                        if cost is not None:
-                            cost = None if output.cost_usd is None else cost + output.cost_usd
+                over = _OVER_QUOTA.set(over_quota)  # remote calls fail with it; local ones run
+                try:
+                    with batching(self.providers.values()):
+                        for slot, provider in self.providers.items():
+                            try:
+                                if stopped is not None:
+                                    raise stopped
+                                provider.preflight()
+                                output = provider.answer(inputs)
+                            except ProviderError as error:
+                                failed = dict.fromkeys(manifest.providers[slot].answers, error.code)
+                                failures.update(failed)
+                                continue
+                            answers.update(output.answers)
+                            failures.update(output.failures)
+                            tokens_in += output.input_tokens
+                            tokens_out += output.output_tokens
+                            if cost is not None:
+                                cost = None if output.cost_usd is None else cost + output.cost_usd
+                finally:
+                    _OVER_QUOTA.reset(over)
                 complete_answers(manifest, answers, failures)
                 variants = {slot: info.variant for slot, info in self.provider_info.items()}
+                hold = self.hold_source(self.pack) if self.hold_source is not None else None
+                if over_quota is not None:
+                    hold = "; ".join(
+                        filter(None, ["this organization's daily decisions quota is used up", hold])
+                    )
                 policy = apply_policy(
-                    manifest, answers, failures, governance, variants, community=self.pack.community
+                    manifest,
+                    answers,
+                    failures,
+                    governance,
+                    variants,
+                    community=self.pack.community,
+                    hold=hold,
                 )
                 primary = manifest.questions[manifest.policy.primary]
                 if primary.derive is not None:

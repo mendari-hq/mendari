@@ -1,6 +1,6 @@
 // Decision Card: the pack as a document, sections linked as routes ("#card/policy").
 
-import { communityNotice, isCommunity, originBadge, providerWords, rowLabels, statusNotice } from "./pack.js";
+import { communityNotice, holdsFor, isCommunity, originBadge, providerWords, rowLabels, statusNotice } from "./pack.js";
 import { render, views } from "./router.js";
 import { $, api, esc, focusHeading, icon, may, outcomeBadge, priorityBadge, shortTime, signedIn, slotText, state, time, toast, toastError } from "./ui.js";
 
@@ -97,7 +97,9 @@ views.card = async (main, params) => {
   const m = d.manifest;
   const p = m.policy;
   const query = `pack_id=${encodeURIComponent(state.packId)}`;
-  const [governance, deployments] = await Promise.all([api(`/api/governance?${query}`), api(`/api/deployments?${query}`)]);
+  const [governance, deployments, holds] = await Promise.all([
+    api(`/api/governance?${query}`), api(`/api/deployments?${query}`), api("/api/holds"),
+  ]);
   const list = (items) => `<ul>${items.map((u) => `<li>${esc(u)}</li>`).join("")}</ul>`;
   main.innerHTML = `
     <h1>${esc(m.name)}</h1>
@@ -155,6 +157,7 @@ views.card = async (main, params) => {
     <section class="card-section" id="card-approval" aria-labelledby="card-approval-title">
       <h2 id="card-approval-title">Automation approval</h2>
       ${approvalSection(governance, d)}
+      ${holdSection(holds, d)}
     </section>
 
     <section class="card-section" id="card-deployments" aria-labelledby="card-deployments-title">
@@ -179,6 +182,7 @@ views.card = async (main, params) => {
       <details><summary>Output schema (JSON)</summary><pre class="json">${esc(JSON.stringify(d.output_schema, null, 2))}</pre></details>
     </section>`;
   wireApproval(main);
+  wireHolds(main);
   main.querySelector("[data-copy]").addEventListener("click", async (event) => {
     try {
       await navigator.clipboard.writeText(event.currentTarget.dataset.copy);
@@ -239,6 +243,47 @@ function wireApproval(main) {
       toastError(error.message);
     }
   });
+}
+
+// Automation holds (AuditStore.hold_automation): stopping automation for this pack at once,
+// without a redeploy, and lifting it. A hold set from the command line covers every
+// organization and is lifted there.
+function holdSection(holds, d) {
+  const covering = holdsFor(holds, d);
+  const listed = covering.map((h) => `<div class="callout danger"><b>Automation on hold</b>
+      (${h.pack_id ? "this pack" : "every pack"}${h.org ? "" : ", every organization"}): ${esc(h.reason)}.
+      Set by ${esc(h.set_by)}, ${esc(time(h.set_at))}.
+      ${may("approve") && h.org ? `<button type="button" data-lift="${esc(h.id)}">Lift</button>` : ""}</div>`).join("");
+  const form = may("approve") ? `<form class="approve-form" id="hold-form">
+      <label for="hold-reason">Reason</label>
+      <input id="hold-reason" required maxlength="200" placeholder="e.g. investigating a missed emergency">
+      <button type="submit">Hold automation for this pack</button>
+    </form>` : "";
+  return listed + form;
+}
+
+function wireHolds(main) {
+  main.querySelector("#hold-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    try {
+      await api("/api/holds", { method: "POST", body: JSON.stringify({ pack_id: state.packId, reason: $("#hold-reason").value }) });
+      toast("Automation held: a person reviews every decision");
+      render();
+    } catch (error) {
+      toastError(error.message);
+    }
+  });
+  for (const button of main.querySelectorAll("[data-lift]")) {
+    button.addEventListener("click", async (event) => {
+      try {
+        await api(`/api/holds/${encodeURIComponent(event.currentTarget.dataset.lift)}`, { method: "DELETE" });
+        toast("Hold lifted");
+        render();
+      } catch (error) {
+        toastError(error.message);
+      }
+    });
+  }
 }
 
 views.card.update = (params) => focusHeading(cardSection(params[0]) ?? $("main h1"));

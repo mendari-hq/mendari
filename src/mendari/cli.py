@@ -333,6 +333,38 @@ def cmd_audit_verify(args: argparse.Namespace) -> int:
     return 0 if status["ok"] else 1
 
 
+def cmd_automation_hold(args: argparse.Namespace) -> int:
+    """The break-glass: written straight to the database, so it works with the server down.
+    Running servers see it within a few seconds."""
+    from mendari.errors import ReviewError
+
+    org = None if args.all_orgs else args.org
+    actor = f"command line ({os.environ.get('USER') or 'unknown user'})"
+    try:
+        hold = AuditStore(args.db).hold_automation(
+            org=org, pack_id=args.pack, pack_digest=args.digest, reason=args.reason, set_by=actor
+        )
+    except ReviewError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    _print_json(hold)
+    return 0
+
+
+def cmd_automation_lift(args: argparse.Namespace) -> int:
+    actor = f"command line ({os.environ.get('USER') or 'unknown user'})"
+    if not AuditStore(args.db).lift_hold(args.hold_id, lifted_by=actor, org=None):
+        print(f"error: no hold {args.hold_id} in force", file=sys.stderr)
+        return 1
+    print(f"lifted {args.hold_id}", file=sys.stderr)
+    return 0
+
+
+def cmd_automation_list(args: argparse.Namespace) -> int:
+    _print_json(AuditStore(args.db).holds(everyone=True))
+    return 0
+
+
 def cmd_audit_export(args: argparse.Namespace) -> int:
     from mendari.standards import audit_fhir
 
@@ -1160,6 +1192,32 @@ def build_parser() -> argparse.ArgumentParser:
     audit_export.add_argument("--until", help="events before this time (ISO 8601, UTC)")
     audit_export.add_argument("--out", help="write to this file (default: standard output)")
     audit_export.set_defaults(handler=cmd_audit_export)
+
+    automation = sub.add_parser(
+        "automation", help="hold or lift automation (works with the server down)"
+    ).add_subparsers(dest="automation_command", required=True)
+    hold = automation.add_parser(
+        "hold", help="stop automation: every decision it covers goes to a person"
+    )
+    scope = hold.add_mutually_exclusive_group(required=True)
+    scope.add_argument(
+        "--all-orgs", action="store_true", help="every organization (the deployment)"
+    )
+    scope.add_argument("--org", help="one organization")
+    hold.add_argument("--pack", help="one pack (namespace/name); default: every pack")
+    hold.add_argument("--digest", help="one version of --pack (sha256:...)")
+    hold.add_argument(
+        "--reason", required=True, help="why, in a few words (at most 200 characters)"
+    )
+    hold.add_argument("--db", default="var/mendari.db", help="SQLite path or postgresql:// URL")
+    hold.set_defaults(handler=cmd_automation_hold)
+    lift = automation.add_parser("lift", help="lift a hold (any organization's)")
+    lift.add_argument("hold_id")
+    lift.add_argument("--db", default="var/mendari.db", help="SQLite path or postgresql:// URL")
+    lift.set_defaults(handler=cmd_automation_lift)
+    listed = automation.add_parser("list", help="every hold in force")
+    listed.add_argument("--db", default="var/mendari.db", help="SQLite path or postgresql:// URL")
+    listed.set_defaults(handler=cmd_automation_list)
 
     feedback = sub.add_parser("feedback", help="thumbs up / down feedback").add_subparsers(
         dest="feedback_command", required=True

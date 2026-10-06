@@ -398,6 +398,11 @@ does not know which variants are running MUST NOT automate such a pack.
 | 3 | Patient-specific prediction | As level 2 |
 | 4 | Time-critical / diagnostic / treatment | AUTO always capped; no override |
 
+An **automation hold** is the deployment's, never the pack's: while one covers a decision (an
+organization, a pack, a digest, or the whole deployment), an outcome that would be `AUTO` becomes
+`HUMAN_REVIEW` with the same recommendation and priority, and nothing else changes. A decision
+over its organization's daily quota is held the same way.
+
 A governance override is supplied by the *deploying* organization at runtime, never by the
 pack. It names an approver and a reference, and it is recorded in every affected decision.
 

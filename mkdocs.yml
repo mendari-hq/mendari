@@ -51,6 +51,7 @@ nav:
       - Contributing a community pack: guides/contributing-a-pack.md
       - Using the API: guides/api.md
       - Deploying with real patient data: deploying-with-phi.md
+      - Holding automation: operations/automation-hold.md
   - Reference:
       - Decision Pack spec 0.2: spec/decision-pack-0.2.md
       - Decision Pack spec 0.1: spec/decision-pack-0.1.md

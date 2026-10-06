@@ -87,7 +87,19 @@ behaviour.
     pilot.
   - [ ] **LP-05b** Plain-language result view (display names, engine detail in the drawer, the
     code one click away since a pack's names are its author's claim) and axe-core checks.
-- [ ] **LP-06** Automation hold (the kill switch, brought forward from A13).
+- [x] **LP-06** Automation hold (the kill switch, brought forward from A13). A hold is a row
+  (`automation_holds`): an organization (or every one), a pack (or every pack), a digest (or
+  every version); set and lifted with a reason, chained (`automation.held`, `.lifted`). Each
+  decision looks up the holds covering it (`Decision.hold_source`, reused at most 5 s on an
+  instance) and policy turns `AUTO` into `HUMAN_REVIEW` with the same recommendation and
+  priority (`apply_policy(hold=...)`, `_cap`), nothing else. `GET/POST /api/holds`, `DELETE
+  /api/holds/{id}` (`approve`; an organization's own), the Decision Card's controls and the
+  overview's banner, `/api/health` `holds`, and a break-glass that writes the database with the
+  server down: `mendari automation hold|lift|list` (`--all-orgs` only there). Over an
+  organization's daily decisions quota, local providers now still answer (remote calls fail
+  with the quota, through a context variable on the call budget) and the quota holds the
+  decision: an emergency still reaches a nurse at `stat` (before, every provider failed).
+  `docs/operations/automation-hold.md`.
 - [ ] **LP-08** Hosted data protection (ask the owner before merging the start-up guard: it
   stops a deployment running PHI mode `off` with sign-in on; production keys are the owner's).
 - [ ] **LP-09** Key rotation.
