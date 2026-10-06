@@ -37,10 +37,15 @@ its manifest says:
   `https://mendari.co/packs/community/<name>/CodeSystem/performer`;
 - it is at most **risk level 1**.
 
-Its name, CDS Hooks title and publisher are yours: they may not name Mendari or copy the name
-of a pack Mendari maintains, however they are spelled (look-alike letters, `l` for `I`, a
-letter from another alphabet inside a word), and no word may mix Latin letters with Cyrillic
-or other look-alike ones. Greek letters in clinical words (`β-blocker`, `µg`) are fine.
+Its name, CDS Hooks title and publisher are yours: they may not copy the name or CDS Hooks
+title of a pack Mendari maintains, nor use the word Mendari (or its old name, OpenHealth) as
+whole words: `MendariCare`, `Men dari` and `Open Health` count, while `Open healthcare intake`
+and `Mend a rift` do not. Both are compared on ASCII letters and digits, ignoring case,
+punctuation and compatibility forms (full-width or circled letters), and `community-check` fails
+on them. A name that only looks like one of those (letters from another alphabet, accents, `l`
+for `I`, `0` for `O`) or a word that mixes alphabets is a warning saying what it looks like, for the owner to
+review: say in the pull request why your name is spelled that way. Greek letters in clinical
+words (`β-blocker`, `µg`) are fine.
 
 Why these limits, and what was decided, is in
 [ADR-0007](../decisions/ADR-0007-community-packs-by-pull-request.md). The label comes from
@@ -187,48 +192,61 @@ rule `outcome: ABSTAIN` with a `recommendation` loses it, and a test must not ex
 you want a person to see a suggestion, use `HUMAN_REVIEW`; for a community pack every outcome
 that would have been `AUTO` becomes `HUMAN_REVIEW` anyway, with its recommendation.
 
-## Patterns that stay fast
+## Patterns run on RE2
 
 Write patterns in Python's `re` syntax, as every pack does. A community pack's patterns (its
 rules and its input schema's `pattern`, `patternProperties` and `propertyNames`) then run on
 [RE2](https://github.com/google/re2/wiki/Syntax), which never backtracks: its time grows with
-the text's length times the pattern's size, so no pattern can stall the server the way
-`(a+)+$` stalls `re` on a long message. Mendari rewrites each pattern for RE2 to mean what it
-means in `re`. RE2 cannot run a few things; `mendari validate` refuses a pattern that uses
-one, and says what to write instead:
+the text's length times the pattern's compiled size, never exponentially, so no pattern can
+stall the server the way `(a+)+$` stalls `re` on a long message. There is no slow pattern to
+avoid, and nothing times your patterns. Mendari rewrites each pattern for RE2 to mean what it
+means in `re`.
+
+**Not available on RE2:** lookahead and lookbehind (`(?=...)`, `(?!...)`, `(?<=...)`,
+`(?<!...)`), back references (`\1`, `(?P=name)`), conditional groups (`(?(1)...|...)`), atomic
+groups (`(?>...)`) and possessive quantifiers (`*+`, `++`, `?+`, `{m,n}+`). Counts nested inside
+each other may multiply to at most 1,000, and a pattern must fit in RE2's memory for one pattern
+once compiled. `mendari validate` refuses a pattern that breaks one of these, and
+`community-check` names it under its `patterns` rule; each says what to write instead:
 
 | Instead of | Write | Why |
 |---|---|---|
-| `pain(?= now)`, `(?<=chest )pain` | `pain now`, `chest pain` | Lookahead and lookbehind: match the text itself |
-| `(?<!no )pain` | `pain`, with `negatable: true` and `no` in `negation_cues` | Negative lookarounds: the negation cues say what must not come before |
-| `([a-z])\1`, `(a)?(?(1)b\|c)` | the text itself, e.g. `(?:aa\|bb)` | Back references and conditional groups |
+| `pain(?= now)`, `(?<=chest )pain` | `pain now`, `chest pain` | Lookahead and lookbehind: match the text itself (a rule reads only whether, and where, it matches) |
+| `(?<!no )pain` | `pain`, with `negatable: true` and `no` in `negation_cues` | Negative lookbehind: the negation cues say what must not come before |
+| `\d+(?!\s*%)` | `\d+\s*(?:mg\|mcg\|ml)` | Negative lookahead: say what must come, not what must not |
+| `^(?!.*\burgent\b).*refill` | `refill`, and a second rule `\burgent\b` with more weight on the label it means | "Matches one thing but not another" is two rules |
+| `([a-z])\1`, `(?P<d>\d)(?P=d)` | the text itself, e.g. `(?:aa\|bb\|cc)` | Back references |
+| `(a)?(?(1)b\|c)` | `ab\|c` | Conditional groups: write the alternatives with `\|` |
 | `(?>...)`, `a++` | `(?:...)`, `a+` | Atomic groups and possessive quantifiers: RE2 never backtracks, so they are not needed |
 | `(?:\w{1,20}\s?){1,60}` | `(?:\w{1,20}\s?){1,20}` | Counts nested inside each other may multiply to at most 1,000 |
 | `\w{0,1000}` | `\w*`, or a smaller count | Too large once compiled: `\w` is every letter and digit in Unicode, a large class |
 
-What still differs from `re`: next to a word boundary, RE2 sees only ASCII letters, digits
-and `_` as word characters *in the text just outside a match* (`\bpie` also matches in
-"épie"; boundaries next to letters the pattern itself names, like `\bmarché\b`, work as in
-`re`); with case ignored, `re` also matches `i` and `I` to the dotless `ı`, and RE2 does not.
-`\w`, `\d`, `\s`, `$`, `\Z` and counts above 1,000 mean what they mean in `re`.
+**What still differs from `re`.** `\w`, `\d`, `\s` (and `\W`, `\D`, `\S`) are `re`'s Unicode
+classes, `$` is `re`'s (the end, or before a newline that ends the text), `\Z` is the end only,
+`a{,3}` is `a{0,3}`, and counts above 1,000 are split into counts RE2 runs. Three things differ:
 
-`community-check` also still runs its earlier checks of every pattern before review: a static
-check, and a run of each pattern on pumped inputs of 10,000 characters with one second allowed
-on each. A community pack also refuses an input whose texts are longer than 10,000 characters,
-alone or together, before a pattern runs. Patterns that pass those checks:
+- **Word boundaries.** Next to a word boundary, RE2 sees only ASCII letters, digits and `_` as
+  word characters *in the text just outside a match*: `\bpie` also matches in
+  "épie", and `\bma\b` inside "mañana" (`re` matches neither). Boundaries next to letters the
+  pattern itself names, like `\bmarché\b`, work as in `re`. Where a letter outside ASCII may
+  come just before or after, write `(?:^|\W)pie(?:\W|$)` instead of `\bpie\b`: `\W` is
+  `re`'s, so it does not match "é" (the match then starts one character earlier).
+- **Case.** With case ignored, `re` also matches `i` and `I` to the dotless `ı` (U+0131), and
+  RE2 does not: write `[iı]` where a Turkish dotless i may appear. With `(?a)`, `re` folds ASCII
+  letters only, while RE2 also folds the Kelvin sign and the long s to `k` and `s`.
+- **Lone surrogates.** A text holding one (a JSON string can) has it read as U+FFFD before a
+  pattern runs.
 
-| Instead of | Write | Why |
-|---|---|---|
-| `(\w+\s?)*` | `(?:\w+\s){0,5}\w+` | An unbounded quantifier inside another can split the same words in many ways; bound the outer one |
-| `(a+)+`, `(\d+)*` | `a+`, `\d*` | The same, at its simplest: write the repetition once |
-| <code>(.&#124;\s)+</code> | `[\s\S]+`, or better a bounded `[^.!?\n]{0,80}` | Alternatives that can start on the same character |
-| `chest.*pain` | `chest(?:[^\w.!?\n]+\w+){0,5}?[^\w.!?\n]+pain` | Bounded: at most five words between, never across a sentence |
-| `.*` at either end | nothing | A rule matches anywhere in the text already |
-| `\d*\d*x`, `[a-z]+\s*[a-z]+$`, `(?:\d\d)*\d*x` | `\d*x`, `[a-z]+\s+[a-z]+$`, `(?:\d\d)*x` | Repeated pieces one after another that can match the same text split it in many ways; merge them, or require something only one of them matches between them |
+A community pack also refuses an input whose texts are longer than 10,000 characters, alone or
+together, before a pattern runs, and the settings that multiply its patterns' work are capped
+(the limits at the top of this guide).
 
-More habits that keep patterns fast and honest:
+Habits that keep patterns precise and honest:
 
-- Bound every gap: `{0,5}` words, not `*`. The inbox router's red-flag screen is the example.
+- Bound every gap: `{0,5}` words, not `*`, e.g.
+  `chest(?:[^\w.!?\n]+\w+){0,5}?[^\w.!?\n]+pain` for at most five words between, never across
+  a sentence. The inbox router's red-flag screen is the example.
+- Leave `.*` off either end: a rule matches anywhere in the text already.
 - Match whole phrases a person writes ("can't breathe"), not single letters or fragments.
 - Name every pattern: the audit record says which one matched.
 - Mark a pattern `negatable: true` when "no chest pain" must not count, and test it.

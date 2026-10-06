@@ -8,7 +8,8 @@ clinically reviewed, and they never ship in the Python package or the images.
 There, a community pack recommends and never automates: a person confirms every decision (so no
 policy rule of its own blocks). It decides with local providers unless the deployment opts it
 in to another variant by name, keeps only a hash of its inputs, reads at most 10,000
-characters of text, keeps its FHIR systems under its own url, and is at most risk level 1.
+characters of text, runs its patterns on RE2 (which never backtracks), keeps its FHIR systems
+under its own url, and is at most risk level 1.
 
 **Contributing one.**
 
@@ -32,8 +33,9 @@ pull request changes:
 - scope: only the pack's own folder, plus its entry in `MAINTAINERS.yaml`; no git submodule;
 - identity: the id `community/<name>` matches the folder, is not taken by another pack nor
   removed, and the pack is listed with its maintainers; its name, CDS Hooks title and
-  publisher neither name Mendari nor copy a maintained pack's name; its FHIR systems live
-  under `https://mendari.co/packs/community/<name>/`;
+  publisher neither copy a maintained pack's name or CDS Hooks title nor use the word Mendari
+  (or OpenHealth) as whole words (a look-alike of either is a warning for the reviewer); its
+  FHIR systems live under `https://mendari.co/packs/community/<name>/`;
 - the manifest: `license: Apache-2.0`, `publisher.type: community`,
   `audit.store_input: hash`, local default providers, no pinned model, no policy rule that
   blocks, `degradation_tolerance` at most 0.05, risk level at most 1;
@@ -44,7 +46,8 @@ pull request changes:
   keeps the base branch's critical labels;
 - honest numbers: the committed benchmark, Decision Card and any trained model are what the
   pack gives when CI builds them again;
-- patterns: no pattern that may backtrack for seconds on long text;
+- patterns: every pattern compiles on RE2, the engine community packs' patterns run on, which
+  never backtracks (no lookarounds or back references; the guide lists what to write instead);
 - hygiene: at most 2 MB and 200 files, text files only (a trained model aside), and a version
   bump with a `CHANGELOG.md` entry whenever what the pack decides with changes;
 - personal data: text in `data/`, `tests/` and a trained model's vocabulary that looks like a

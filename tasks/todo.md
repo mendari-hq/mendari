@@ -88,7 +88,8 @@ B6/B7 → B8 → B9 → B10).
   `store_input: hash`, local providers, no pinned model, `degradation_tolerance` ≤ 0.05, risk
   level ≤ 1), correctness, evaluation floors (critical detection ≥ 0.9, no critical case
   automated, ≥ 5 benchmark cases per critical label), the benchmark and card regenerated and
-  compared, a retrained model byte-identical, the regex probe, size caps (2 MB, 200 files),
+  compared, a retrained model byte-identical, the regex probe (replaced in B11 by an RE2 compile
+  check), size caps (2 MB, 200 files),
   version and CHANGELOG against the digest, PHI heuristics as warnings. A unit test per rule.
   Built: `src/mendari/community/` (`check.py` the rules, `regex_safety.py` the static check and
   the subprocess probe, `phi_scan.py`, `maintainers.py`, `gitbase.py`), tests in
@@ -127,7 +128,7 @@ B6/B7 → B8 → B9 → B10).
   `clinical-review:provided`, `risk-level-change`, `patient-safety`, `idea`, `good first pack`);
   the DCO app; `pack-check` and `DCO` required; a `main` ruleset requiring a code owner's
   approval, with the admin on the bypass list.
-- [ ] **B11 (build, before B9) Safe by construction.** Decided 2026-10-05 after three checks of
+- [x] **B11 (build, before B9) Safe by construction.** Decided 2026-10-05 after three checks of
   the pattern and name checks each found new ways past them (14 open findings after #129: slow
   patterns that pass the static check and the probe, look-alike names the tables miss, and
   pack settings that multiply work). A community pack's patterns (rules and its input schema's)
@@ -155,11 +156,30 @@ B6/B7 → B8 → B9 → B10).
     window of 40, 9 s at 200; memoising `_negated` per text, or answering it from cue and break
     positions found once, would fix it); typo tolerance compares each word with every keyword
     sharing its first letter (40,000 keywords in 500 patterns: 25 s); and the compiled size.
-- [ ] **B9 (owner, steps below, after B11)** `MENDARI_COMMUNITY_PACKS=on` in Vercel Production
+  - [x] Stage 3, the check, names and docs: `community-check`'s `patterns` rule is that every
+    authored pattern compiles on RE2 within the load's caps (2,000 characters, 500 a pack): the
+    loader raises `PatternsRefused` naming them, and the check reports them under `patterns`;
+    `community/regex_safety.py` (the static check and the probe) and its tests are deleted.
+    Names (`check.name_findings`): an exact copy of a maintained pack's name or CDS Hooks title,
+    or Mendari/OpenHealth as whole words (ASCII letters and digits after NFKC and case folding,
+    CamelCase split, consecutive words joining, a match starting and ending at word
+    boundaries), is an error; look-alikes (other alphabets, `l`/`1`/`I`, `0`/`O`, negative
+    enclosed letters) and words mixing alphabets (but Latin with Greek, or with Japanese,
+    Chinese or Korean scripts) are warnings saying what the name looks like. Circled,
+    parenthesized and squared letters fold to ASCII under NFKC, so they are errors. The last
+    review's name misses (U+01C0 and other Latin look-alikes, Cherokee, Lisu/Greek/Cherokee
+    mixes, Arabic or Hebrew inside a Latin word) now warn; the tables stay incomplete on
+    purpose, and no UTS #39 table was vendored (a warning for review needs none). Docs: the guide's patterns section for RE2, ADR-0007's consequences, threat model
+    D8 and S13, SECURITY.md, `community-packs/README.md`. Residual, not capped (D8): typo
+    tolerance's keyword list, the negation check's work per negated match, and the compiled
+    size of a pack's patterns together; seconds a decision only for a pack with hundreds of
+    negatable patterns or tens of thousands of keywords, which review sees. The owner weighs
+    them at B9.
+- [ ] **B9 (owner, steps below)** `MENDARI_COMMUNITY_PACKS=on` in Vercel Production
   only; on the owner's own branch preview (never a fork's), check that `community-packs/`
   reaches the function bundle.
 - [ ] **B10 (owner and build, steps below)** Dry run from a second GitHub account, including a bad version
-  (a ReDoS pattern, a shadowing id, an edit outside its folder, a faked benchmark) that CI must
+  (a pattern RE2 cannot run, a shadowing id, an edit outside its folder, a faked benchmark) that CI must
   refuse. Then announce.
 
 ### Going public: owner steps
@@ -259,7 +279,8 @@ session.
    squash merging** on. Check after: a PR from a second account shows "Review required" from a
    code owner and the two required checks; your own PR can still merge with "Merge without
    waiting for requirements" (the bypass).
-4. **B9, turn community packs on in Production** (only once B11 is merged). Vercel → the engine's project → Settings →
+4. **B9, turn community packs on in Production** (once B11, `claude/community-re2`, is merged;
+   the residual risks in threat model D8 are yours to weigh). Vercel → the engine's project → Settings →
    Environment Variables → Add: `MENDARI_COMMUNITY_PACKS` = `on`, Environment **Production**
    only. Redeploy production. Check after: signed in, `/api/health` shows `packs_by_origin`
    with only `maintained` while `community-packs/` holds no pack, and `invalid` is empty. To
@@ -286,7 +307,7 @@ session.
    `?template=pack.md`, approve its first workflow run, and check that `pack-check` and `DCO`
    pass and the job summary shows the metrics and the card. Then push, one at a time, and
    check that each fails with the rule named (revert each before the next): a pattern
-   `(a+)+$` in `logic/rules.yaml` (patterns); the id `mendari/patient-inbox-router` (identity);
+   `(?<!no )refill` in `logic/rules.yaml` (patterns: RE2 has no lookbehind); the id `mendari/patient-inbox-router` (identity);
    an edit to the repository's `README.md` (scope); a hand-edited number in
    `evals/benchmark.json` (honest numbers); a commit without `-s` (DCO). Merge the good
    version, then check production: `/api/health` has `"community": 1` and an empty `invalid`,

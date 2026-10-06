@@ -341,8 +341,9 @@ manifest says (threat model S13, T5, I12, D8, E10):
   of the first. Its FHIR systems live under its own url
   (`https://mendari.co/packs/community/<name>/`), published by its publisher as experimental and
   labelled, never in a CodeSystem of Mendari's. CI refuses a name, CDS title or publisher that
-  names Mendari or copies a maintained pack's name (best effort: look-alike letters outside its
-  tables pass; the label by origin is the protection).
+  copies a maintained pack's name or CDS title, or uses the word Mendari (or OpenHealth) as
+  whole words; a look-alike of either, or a word mixing alphabets, is a warning for the owner's
+  review (the look-alike tables are not complete; the label by origin is the protection).
 - **Recommend only.** A community pack never automates: the policy caps AUTO to HUMAN_REVIEW,
   and a policy rule that blocks is refused (a block is final at once, and no person sees it).
 - **No spending without the owner.** Its default providers are local; unscoped provider settings
@@ -352,8 +353,8 @@ manifest says (threat model S13, T5, I12, D8, E10):
 - **At most 10,000 characters of text**, alone or together (keys too, where its input schema
   runs patterns on them: `patternProperties`, `propertyNames`): a longer input is refused before
   any pattern runs.
-- **Patterns on RE2; off in production until B11 is done.** Its patterns (rules and input
-  schema) run on RE2 (`google-re2`), which never backtracks: their time grows with the text's
+- **Patterns on RE2.** Its patterns (rules and input schema) run on RE2 (`google-re2`), which
+  never backtracks, so no pattern can backtrack for seconds: their time grows with the text's
   length times the pattern's compiled size, held to RE2's 8 MiB a pattern. A pattern RE2
   cannot run (a lookaround, a back reference, a conditional or atomic group, a possessive
   quantifier) makes the pack invalid at load. The settings that multiply that work are capped
@@ -361,10 +362,11 @@ manifest says (threat model S13, T5, I12, D8, E10):
   characters and at most 50 `negation_cues`, at most 50 schema patterns run on one value or key
   and no schema reference cycle where patterns run, and at most 500 runs by the rules on an
   input and the schema on one value together.
-  Still open: typo tolerance's keyword list, the compiled size of a pack's patterns together,
-  and the negation check's work on each negated match (500 negatable patterns take seconds
-  within the caps), so community packs are switched on only once B11 is done
-  (`tasks/todo.md`).
+  Not capped: typo tolerance's keyword list, the compiled size of a pack's patterns together,
+  and the negation check's work on each negated match; within the caps these take seconds a
+  decision only for a pack with hundreds of negatable patterns or tens of thousands of keywords
+  (threat model D8), which the owner sees in review. Turning community packs on for the hosted
+  platform is the owner's step (`tasks/todo.md`, B9).
 - **At most risk level 1, and only a hash of each input** (`store_input: hash`), refused at load
   otherwise.
 - **Checked before review.** The `pack-check` job (`pull_request`, no secrets, a read-only token,
@@ -372,7 +374,7 @@ manifest says (threat model S13, T5, I12, D8, E10):
   only, no git submodule, a removal by the owner only), identity, manifest policy, tests,
   evaluation floors and regressions against the base branch's benchmark and tolerance (on the
   base's benchmark dataset too), a benchmark, card and models CI builds again and compares,
-  a static check and a timed probe of every pattern, size limits, and warnings for text that
+  every pattern compiled on RE2 (none is timed: RE2 never backtracks), size limits, and warnings for text that
   looks like a real person's details. Then the owner reads it, including its clinical content
   and where that content comes from.
 - **Removal.** Revert the merge and deploy for a safety problem or real patient data (and

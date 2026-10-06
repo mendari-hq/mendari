@@ -337,8 +337,8 @@ def test_the_differences_left_are_the_ones_written_down(
     written = (ROOT / "src" / "mendari" / "core" / "re2_syntax.py").read_text()
     assert '`\\bpie` also matches in "épie", and `\\bma\\b` inside "mañana"' in written
     assert "the dotless i, U+0131" in written and "the Kelvin sign" in written
-    guide = (ROOT / "docs" / "guides" / "contributing-a-pack.md").read_text()
-    assert '`\\bpie` also matches in\n"épie"' in guide and "the dotless `\u0131`" in guide
+    guide = " ".join((ROOT / "docs" / "guides" / "contributing-a-pack.md").read_text().split())
+    assert '`\\bpie` also matches in "épie"' in guide and "the dotless `\u0131`" in guide
 
 
 def maintained_cases() -> list[tuple[str, str, int, list[str]]]:

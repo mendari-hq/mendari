@@ -17,9 +17,10 @@ refused at load, in words saying what to write instead, when
 - its rules (each pattern once for each question it answers and each composite member holding
   it, `rules_runs`) and its schema's runs on one value come to more than `MAX_PACK_PATTERNS`.
 
-Not capped yet (B11): typo tolerance's keyword list (each word of the text is compared with
-every keyword sharing its first letter), the compiled size of a pack's patterns together (RE2's
-time grows with it), and the negation check's work on each negated match (`rules._negated`).
+Not capped (residual risks, threat model D8): typo tolerance's keyword list (each word of the
+text is compared with every keyword sharing its first letter), the compiled size of a pack's
+patterns together (RE2's time grows with it), and the negation check's work on each negated
+match (`rules._negated`).
 
 Every other pack is not capped: its patterns run on `re`, and installing it means trusting its
 author (SECURITY.md).
