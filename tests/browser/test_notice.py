@@ -63,3 +63,24 @@ def test_an_open_drawer_says_it_too(page: Page) -> None:
     page.locator("table tbody tr").first.click()
     drawer = page.get_by_role("dialog")
     expect(drawer.locator(".drawer-notice")).to_have_text(notices.NOTICE)
+
+
+def test_the_dialog_says_its_own_errors_and_lets_one_sign_out(page: Page) -> None:
+    signed_in_as(page, "reviewer")
+
+    def notice(route: Route) -> None:
+        if route.request.method == "POST":
+            route.fulfill(status=403, body=json.dumps({"detail": "Refused here."}))
+            return
+        body = {**notices.notice(), "acknowledgement": notices.ACKNOWLEDGEMENT, "required": True}
+        route.fulfill(
+            body=json.dumps({**body, "acknowledged": False}), content_type="application/json"
+        )
+
+    page.route("**/api/notice**", notice)
+    page.add_init_script(f"localStorage.setItem('oh.pack', {json.dumps(INBOX)})")
+    page.goto("/#overview")
+    asked = page.get_by_role("dialog", name="Before you start")
+    asked.get_by_role("button", name="I understand: synthetic data only").click()
+    expect(asked.get_by_role("alert")).to_contain_text("Refused here.")
+    expect(asked.get_by_role("button", name="Sign out")).to_be_visible()

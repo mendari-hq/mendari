@@ -793,9 +793,10 @@ def create_app(
 
     @app.get("/api/notice", tags=["Packs"], summary="The notice, and whether you acknowledged it")
     def notice(request: Request) -> dict[str, Any]:
-        """What Mendari is (`text`), shown on every page and in every decide answer, and what a
-        signed-in person acknowledges before deciding (`acknowledgement`). `required`: whether
-        this caller must acknowledge `version` first; `acknowledged`: whether they have."""
+        """What Mendari is (`text`), shown on its pages and in every JSON decide answer, and what
+        a signed-in person who may decide or review acknowledges before taking data in
+        (`acknowledgement`). `required`: whether this caller must acknowledge `version` first;
+        `acknowledged`: whether they have."""
         principal = principal_of(request)
         asked = (
             acknowledgement == "required"
@@ -1579,9 +1580,9 @@ def create_app(
         return response
 
     def notice_refusal(request: Request) -> Response | None:
-        """A signed-in person decides only once they have acknowledged the current notice
-        (`mendari.notices`; Try it asks first). Keys, clients, EHR launches and open mode are
-        never asked."""
+        """A signed-in person who may decide or review takes data in only once they have
+        acknowledged the current notice (`mendari.notices`; the dashboard asks when it opens).
+        Keys, clients, EHR launches and open mode are never asked."""
         principal = principal_of(request)
         if acknowledgement == "off" or principal.kind != "user":
             return None

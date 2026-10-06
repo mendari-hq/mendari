@@ -712,6 +712,7 @@ input[readonly] { background: var(--color-surface-sunken); border-style: dashed;
   border-bottom: 1px solid var(--color-warning); font-weight: var(--weight-medium);
 }
 .drawer-notice { margin: 0 0 var(--space-3); border-radius: var(--radius-sm); } /* the drawer's copy */
+.acknowledge .error { color: var(--color-danger); font-weight: var(--weight-medium); }
 /* After a 401 for someone who was signed in: under the bar, until they sign in again. */
 .session-ended {
   padding: var(--space-3) var(--space-5); background: var(--color-warning-soft); color: var(--color-text);
