@@ -490,6 +490,11 @@ def create_app(
     # Automation holds (`AuditStore.hold_automation`), read per decision and kept a few seconds:
     # a hold set on another instance takes effect within HOLD_SECONDS, one set here at once.
     hold_cache: dict[tuple[str, str, str], tuple[float, str | None]] = {}
+    hold_generation = [0]  # bumped by every hold set or lifted here: older look-ups are not kept
+
+    def forget_holds() -> None:
+        hold_generation[0] += 1
+        hold_cache.clear()
 
     def held(pack: Pack) -> str | None:
         """Why automation is held for this pack in the caller's organization now, or None."""
@@ -499,9 +504,11 @@ def create_app(
         cached = hold_cache.get(key)
         if cached is not None and now - cached[0] < HOLD_SECONDS:
             return cached[1]
+        generation = hold_generation[0]
         hold = store.hold_for(pack.id, pack.digest, org)
         reason = None if hold is None else f"hold {hold['id']}"
-        hold_cache[key] = (now, reason)
+        if generation == hold_generation[0]:  # no hold set or lifted here while it was read
+            hold_cache[key] = (now, reason)
         return reason
 
     def approved_override(pack: Pack) -> GovernanceOverride | None:
@@ -1010,7 +1017,11 @@ def create_app(
         `AUTO` goes to a person instead, with the same recommendation and priority. Chained as
         `automation.held`; it lasts until lifted (`DELETE /api/holds/{id}`)."""
         if body.pack_id is not None:
-            pack_or_404(body.pack_id)
+            served = pack_or_404(body.pack_id)
+            if body.pack_digest is not None and body.pack_digest != served.digest:
+                raise HTTPException(422, "pack_digest is not the digest this deployment serves")
+        elif body.pack_digest is not None:
+            raise HTTPException(422, "a hold on a digest names its pack")
         principal = principal_of(request)
         try:
             hold = store.hold_automation(
@@ -1022,7 +1033,7 @@ def create_app(
             )
         except ReviewError as error:
             raise HTTPException(422, str(error)) from None
-        hold_cache.clear()
+        forget_holds()
         log_event(request, "automation.held", ids=[hold["id"]])
         return hold
 
@@ -1038,7 +1049,7 @@ def create_app(
         principal = principal_of(request)
         if not store.lift_hold(hold_id, lifted_by=principal.actor, org=principal.org):
             raise HTTPException(404, "no such hold in force for your organization")
-        hold_cache.clear()
+        forget_holds()
         log_event(request, "automation.lifted", ids=[hold_id])
         return Response(status_code=204)
 
@@ -1381,6 +1392,14 @@ def create_app(
         )
         submitted = None
         if body.submit:
+            confirmed = record["review_status"] == "resolved" and record["final_label"] == (
+                "submit_ready"
+            )
+            if record["outcome"] != "AUTO" and not confirmed:
+                raise PasError(
+                    "this decision went to a person: it is sent to the payer once a reviewer "
+                    "confirms it as submit_ready (POST /api/review/{id})"
+                )
             payer = settings.pas_payer_url()
             with GuardedHttp() as client:
                 submitted = pas.submit(bundle, payer, client)

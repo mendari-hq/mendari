@@ -160,3 +160,63 @@ def test_fhir_and_cds_hooks_decisions_are_held_too(
     )
     assert cards.status_code == 200, cards.text
     assert "AUTO" not in cards.json()["cards"][0]["detail"].splitlines()[2]
+
+
+def test_a_held_decision_keeps_the_other_reasons_it_went_to_a_person(inbox_pack: Pack) -> None:
+    from tests.test_policy import routine
+
+    answers = routine("medical_assistant", 0.99)
+    rules_only = {"safety_screen": "rules", "router": "naive_bayes"}
+    held = apply_policy(inbox_pack.manifest, answers, {}, None, rules_only, hold="hold x")
+    assert held.outcome is Outcome.HUMAN_REVIEW
+    assert any(reason.startswith("automation requires safety_screen") for reason in held.reasons)
+    assert "automation is on hold: hold x" in held.reasons
+
+
+def test_the_api_refuses_a_digest_it_does_not_serve(tmp_path: Path) -> None:
+    client = TestClient(create_app(db_path=tmp_path / "d.db"))
+    wrong = {"pack_id": INBOX, "pack_digest": "sha256:" + "0" * 64, "reason": "typo"}
+    assert client.post("/api/holds", json=wrong).status_code == 422
+    alone = {"pack_digest": "sha256:" + "0" * 64, "reason": "no pack"}
+    assert client.post("/api/holds", json=alone).status_code == 422
+    served = client.get(f"/api/packs/{INBOX}").json()["digest"]
+    right = {"pack_id": INBOX, "pack_digest": served, "reason": "this version"}
+    assert client.post("/api/holds", json=right).status_code == 201
+
+
+def test_the_break_glass_refuses_a_database_that_is_not_the_servers(
+    tmp_path: Path,
+    screened: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    missing = str(tmp_path / "nowhere.db")
+    args = ["automation", "hold", "--all-orgs", "--reason", "incident"]
+    assert main(args) == 1  # no --db, no DATABASE_URL
+    assert main([*args, "--db", missing]) == 1
+    assert not Path(missing).exists()  # nothing created
+    empty = tmp_path / "empty.db"
+    AuditStore(empty).close()
+    assert main([*args, "--db", str(empty)]) == 1  # never served a decision
+    assert "never served a decision" in capsys.readouterr().err
+    db = str(tmp_path / "server.db")
+    TestClient(create_app(db_path=db, providers=screened)).post(DECIDE, json=message(REFILL))
+    assert main([*args, "--pack", "mendari/referal-router", "--db", db]) == 1  # a typo
+    assert main([*args, "--pack", INBOX, "--digest", "nonsense", "--db", db]) == 1
+    assert main([*args, "--db", db]) == 0
+    assert f"held in {db}" in capsys.readouterr().err
+
+
+def test_mendari_decide_with_a_database_honours_its_holds(
+    tmp_path: Path, screened: dict[str, str]
+) -> None:
+    db = str(tmp_path / "server.db")
+    TestClient(create_app(db_path=db, providers=screened)).post(DECIDE, json=message(REFILL))
+    with AuditStore(db) as store:
+        store.hold_automation(org=None, pack_id=None, pack_digest=None, reason="r", set_by="t")
+    chosen = [f"--provider={slot}={variant}" for slot, variant in screened.items()]
+    assert main(["decide", INBOX, "--text", REFILL, "--db", db, *chosen]) == 0
+    with AuditStore(db) as store, store._db.session(exclusive=False) as session:
+        rows = session.all("SELECT outcome FROM decisions ORDER BY created_at")
+    assert [r["outcome"] for r in rows] == ["AUTO", "HUMAN_REVIEW"]

@@ -5,12 +5,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from collections.abc import Sequence
 from datetime import date
 from pathlib import Path
 from typing import Any
 
+from mendari.core import tenancy
 from mendari.core.audit import AuditStore
 from mendari.core.decision import Decision
 from mendari.core.pack import Pack
@@ -91,7 +93,14 @@ def cmd_decide(args: argparse.Namespace) -> int:
 
     # Recorded under the deployment's PHI mode, as the server records it (checked first).
     store = AuditStore(args.db, phi=phi_policy()) if args.db else None
-    decision = _decision(args, store=store)
+    held = None
+    if store is not None:  # recorded in a deployment's trail: its holds apply here too
+
+        def held(pack: Pack) -> str | None:
+            hold = store.hold_for(pack.id, pack.digest, tenancy.DEFAULT_ORG)
+            return None if hold is None else f"hold {hold['id']}"
+
+    decision = _decision(args, store=store, hold_source=held)
     if args.text is not None:
         payload: Any = {"message": {"body": args.text}}
     else:
@@ -333,35 +342,80 @@ def cmd_audit_verify(args: argparse.Namespace) -> int:
     return 0 if status["ok"] else 1
 
 
+def _hold_store(target: str | None) -> tuple[AuditStore, str] | None:
+    """The deployment's database for the break-glass, refused when it cannot be the one a server
+    runs on: not given, a SQLite file that does not exist (it would be created, and hold
+    nothing), or a database that has never served a decision. Returns it and its name as shown
+    (a URL's password hidden)."""
+    target = target or os.environ.get("DATABASE_URL", "").strip() or None
+    if target is None:
+        print("error: give --db (the server's database) or set DATABASE_URL", file=sys.stderr)
+        return None
+    if not target.startswith(("postgres://", "postgresql://")) and not Path(target).is_file():
+        print(f"error: no database at {target}: give the server's --db", file=sys.stderr)
+        return None
+    shown = re.sub(r"(://[^:/@]+):[^@]*@", r"\1:***@", target)
+    store = AuditStore(target)
+    if not store.deployments(limit=1):
+        print(f"error: {shown} has never served a decision: is it the server's?", file=sys.stderr)
+        return None
+    return store, shown
+
+
+def _command_line_actor() -> str:
+    user = re.sub(r"[^A-Za-z0-9._-]", "", os.environ.get("USER", ""))[:64] or "unknown user"
+    return f"command line ({user})"
+
+
 def cmd_automation_hold(args: argparse.Namespace) -> int:
     """The break-glass: written straight to the database, so it works with the server down.
     Running servers see it within a few seconds."""
     from mendari.errors import ReviewError
 
+    if args.digest is not None and not re.fullmatch(r"sha256:[0-9a-f]{64}", args.digest):
+        print("error: --digest is a pack digest (sha256:<64 hex>)", file=sys.stderr)
+        return 1
+    found = _hold_store(args.db)
+    if found is None:
+        return 1
+    store, shown = found
+    if args.pack is not None and not store.deployments(args.pack, limit=1):
+        print(f"error: {shown} has never served {args.pack}", file=sys.stderr)
+        return 1
     org = None if args.all_orgs else args.org
-    actor = f"command line ({os.environ.get('USER') or 'unknown user'})"
     try:
-        hold = AuditStore(args.db).hold_automation(
-            org=org, pack_id=args.pack, pack_digest=args.digest, reason=args.reason, set_by=actor
+        hold = store.hold_automation(
+            org=org,
+            pack_id=args.pack,
+            pack_digest=args.digest,
+            reason=args.reason,
+            set_by=_command_line_actor(),
         )
     except ReviewError as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
     _print_json(hold)
+    print(f"held in {shown}", file=sys.stderr)
     return 0
 
 
 def cmd_automation_lift(args: argparse.Namespace) -> int:
-    actor = f"command line ({os.environ.get('USER') or 'unknown user'})"
-    if not AuditStore(args.db).lift_hold(args.hold_id, lifted_by=actor, org=None):
-        print(f"error: no hold {args.hold_id} in force", file=sys.stderr)
+    found = _hold_store(args.db)
+    if found is None:
         return 1
-    print(f"lifted {args.hold_id}", file=sys.stderr)
+    store, shown = found
+    if not store.lift_hold(args.hold_id, lifted_by=_command_line_actor(), org=None):
+        print(f"error: no hold {args.hold_id} in force in {shown}", file=sys.stderr)
+        return 1
+    print(f"lifted {args.hold_id} in {shown}", file=sys.stderr)
     return 0
 
 
 def cmd_automation_list(args: argparse.Namespace) -> int:
-    _print_json(AuditStore(args.db).holds(everyone=True))
+    found = _hold_store(args.db)
+    if found is None:
+        return 1
+    _print_json(found[0].holds(everyone=True))
     return 0
 
 
@@ -1209,14 +1263,14 @@ def build_parser() -> argparse.ArgumentParser:
     hold.add_argument(
         "--reason", required=True, help="why, in a few words (at most 200 characters)"
     )
-    hold.add_argument("--db", default="var/mendari.db", help="SQLite path or postgresql:// URL")
+    hold.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
     hold.set_defaults(handler=cmd_automation_hold)
     lift = automation.add_parser("lift", help="lift a hold (any organization's)")
     lift.add_argument("hold_id")
-    lift.add_argument("--db", default="var/mendari.db", help="SQLite path or postgresql:// URL")
+    lift.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
     lift.set_defaults(handler=cmd_automation_lift)
     listed = automation.add_parser("list", help="every hold in force")
-    listed.add_argument("--db", default="var/mendari.db", help="SQLite path or postgresql:// URL")
+    listed.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
     listed.set_defaults(handler=cmd_automation_list)
 
     feedback = sub.add_parser("feedback", help="thumbs up / down feedback").add_subparsers(

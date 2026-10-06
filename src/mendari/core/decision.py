@@ -9,7 +9,6 @@ import time
 import uuid
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextlib import nullcontext
-from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -33,6 +32,7 @@ from mendari.errors import (
     ProviderError,
 )
 from mendari.providers import Answer, Provider, ProviderInfo, build_provider
+from mendari.providers.base import OVER_QUOTA
 from mendari.providers.batch import batching
 from mendari.settings import FhirValidation
 
@@ -130,21 +130,16 @@ class DecisionResult:
 QuotaReached = Callable[[str, str, int], None]
 
 
-# A decision over its organization's daily quota (`CallBudget.admit_decision`): its remote
-# calls fail with it, so local providers still answer (an emergency rule still raises its
-# priority) and composites keep their local members; the policy then holds the decision.
-_OVER_QUOTA: ContextVar[ProviderError | None] = ContextVar("over_quota", default=None)
-
-
 class CallBudget:
     """Daily call limits per provider type (e.g. {"jev": 500}; None counts calls without a
     limit), counted in the audit store, and per-organization daily quotas (`org_limits`:
     `decisions`, and the remote calls they make by provider type, e.g. {"decisions": 5000}).
 
-    A provider over budget fails like any other provider (`budget_exhausted`), and a decision
-    over its organization's quota fails every provider (`quota_exhausted`), so the policy falls
-    back to human review instead of automating. `on_quota_reached` hears of each quota once a
-    day per organization: when the call that reaches it is counted.
+    A provider over budget fails like any other provider (`budget_exhausted`). A decision over
+    its organization's quota fails its remote calls (`quota_exhausted`, `providers/base.py`
+    `OVER_QUOTA`): local providers still answer, and the policy holds the decision for a
+    person. `on_quota_reached` hears of each quota once a day per organization: when the call
+    that reaches it is counted.
     """
 
     def __init__(
@@ -161,7 +156,7 @@ class CallBudget:
         self.on_quota_reached = on_quota_reached
 
     def acquire(self, provider_type: str) -> None:
-        refused = _OVER_QUOTA.get()
+        refused = OVER_QUOTA.get()
         if refused is not None:
             raise refused
         if provider_type in self.org_limits:
@@ -387,7 +382,7 @@ class Decision:
                     reasons=tuple(f"input rejected: {problem}" for problem in problems),
                 )
             else:
-                over = _OVER_QUOTA.set(over_quota)  # remote calls fail with it; local ones run
+                over = OVER_QUOTA.set(over_quota)  # remote calls fail with it; local ones run
                 try:
                     with batching(self.providers.values()):
                         for slot, provider in self.providers.items():
@@ -407,7 +402,7 @@ class Decision:
                             if cost is not None:
                                 cost = None if output.cost_usd is None else cost + output.cost_usd
                 finally:
-                    _OVER_QUOTA.reset(over)
+                    OVER_QUOTA.reset(over)
                 complete_answers(manifest, answers, failures)
                 variants = {slot: info.variant for slot, info in self.provider_info.items()}
                 hold = self.hold_source(self.pack) if self.hold_source is not None else None

@@ -166,6 +166,11 @@ def test_the_api_builds_submits_and_chains_the_answer(
     path = f"/api/packs/{PA}/pas"
     built = client.post(path, json=body).json()
     assert built["submitted"] is None and not submitted
+    # The decision went to a person (no model in the notes screen): it is sent once one confirms.
+    refused = client.post(path, json=body | {"submit": True})
+    assert refused.status_code == 422 and "reviewer confirms" in refused.text and not submitted
+    review = {"final_label": "submit_ready", "reviewer": "pa-nurse"}
+    assert client.post(f"/api/review/{decision_id}", json=review).status_code == 200
     answer = client.post(path, json=body | {"submit": True}).json()
     assert answer["submitted"]["outcome"] == "complete" and len(submitted) == 1
 

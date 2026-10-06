@@ -153,9 +153,23 @@ def _cap(
     community: bool,
     hold: str | None = None,
 ) -> Outcome:
+    """AUTO, or HUMAN_REVIEW with why. A hold keeps the reason the other caps would give too."""
+    outcome = _caps(manifest, recommendation, failures, governance, variants, reasons, community)
     if hold is not None:
         reasons.append(f"automation is on hold: {hold}")
         return Outcome.HUMAN_REVIEW
+    return outcome
+
+
+def _caps(
+    manifest: PackManifest,
+    recommendation: str | None,
+    failures: Mapping[str, str],
+    governance: GovernanceOverride | None,
+    variants: Mapping[str, str],
+    reasons: list[str],
+    community: bool,
+) -> Outcome:
     if community:
         reasons.append("a community pack (not clinically reviewed) recommends and never automates")
         return Outcome.HUMAN_REVIEW

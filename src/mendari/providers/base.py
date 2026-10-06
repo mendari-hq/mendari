@@ -6,6 +6,7 @@ import hashlib
 import math
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Hashable, Iterator, Mapping
+from contextvars import ContextVar
 from dataclasses import asdict, dataclass, field
 from typing import Any, ClassVar
 
@@ -57,6 +58,19 @@ class ProviderOutput:
     # Questions answered despite a partial failure (e.g. one member of a composite screen was
     # down). The policy treats them like failures: no AUTO when a check ran incomplete.
     failures: dict[str, str] = field(default_factory=dict)
+
+
+# A decision over its organization's daily quota (`CallBudget.admit_decision`): its remote
+# calls fail with it before anything is fetched or called, so local providers still answer and
+# composites keep their local members; the policy then holds the decision.
+OVER_QUOTA: ContextVar[ProviderError | None] = ContextVar("over_quota", default=None)
+
+
+def refuse_if_over_quota() -> None:
+    """Raise the decision's quota error (remote providers call this first)."""
+    refused = OVER_QUOTA.get()
+    if refused is not None:
+        raise refused
 
 
 class Provider(ABC):

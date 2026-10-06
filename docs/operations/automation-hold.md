@@ -25,22 +25,20 @@ lifting each append a chained event (`automation.held`, `automation.lifted`) wit
 
 ## From the dashboard or the API
 
-People who may approve automation (`governance` and `admin` roles) see the holds in force on the
-pack's Decision Card, can hold the pack with a reason, and can lift their organization's holds.
-The overview says when a hold covers the pack.
-
-```bash
-curl -X POST "$MENDARI/api/holds" -H "authorization: Bearer $KEY" \
-  -H "content-type: application/json" \
-  -d '{"pack_id": "mendari/patient-inbox-router", "reason": "a missed emergency, checking"}'
-curl "$MENDARI/api/holds" -H "authorization: Bearer $KEY"
-curl -X DELETE "$MENDARI/api/holds/<id>" -H "authorization: Bearer $KEY"
-```
+Everyone who can read the pack sees the holds in force on its Decision Card, and the overview
+says when one covers the pack. People who may approve automation (signed in with the
+`governance` or `admin` role) can hold the pack there with a reason and lift their
+organization's holds. API keys and clients cannot hold or lift (their roles never approve); they
+can read `GET /api/holds`. The routes are `POST /api/holds` (`pack_id`, optional `pack_digest`
+of the version this deployment serves, `reason`) and `DELETE /api/holds/{id}`.
 
 ## From the command line (break-glass)
 
 The command line writes to the database directly, so it works with the server down or
-unreachable. A hold it sets for every organization can only be lifted there.
+unreachable. A hold it sets for every organization can only be lifted there. It takes the
+server's database from `--db` or `$DATABASE_URL`, says which one it wrote to, and refuses one
+that does not exist or has never served a decision (a typo would otherwise hold nothing), a pack
+that database never served, and a malformed digest. `mendari decide --db` honours its holds.
 
 ```bash
 mendari automation hold --all-orgs --reason "incident 7" --db "$DATABASE_URL"
@@ -48,6 +46,12 @@ mendari automation hold --org clinic-a --pack mendari/referral-router --reason "
 mendari automation list --db "$DATABASE_URL"
 mendari automation lift <id> --db "$DATABASE_URL"
 ```
+
+## What a hold means for prior authorization
+
+A held decision is a person's to confirm: the Da Vinci PAS route (`POST /api/packs/{id}/pas`
+with `submit`) sends a request to the payer only for a decision that was automated, or that a
+reviewer resolved as `submit_ready`.
 
 ## Over an organization's daily quota
 

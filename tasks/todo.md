@@ -99,7 +99,15 @@ behaviour.
   organization's daily decisions quota, local providers now still answer (remote calls fail
   with the quota, through a context variable on the call budget) and the quota holds the
   decision: an emergency still reaches a nurse at `stat` (before, every provider failed).
-  `docs/operations/automation-hold.md`.
+  `docs/operations/automation-hold.md`. The review (1 medium, 7 lows) fixed: the break-glass
+  takes `--db` or `$DATABASE_URL`, says where it wrote, and refuses a missing database, one that
+  never served a decision, an unknown pack and a malformed digest (it used to create a fresh
+  database and report success); a hold set here is not undone by a look-up already reading (a
+  generation counter); `mendari decide --db` honours holds; over quota, Jev and LLM refuse before
+  fetching a credential; a held decision keeps its other reasons; the API refuses a digest it
+  does not serve; the command-line actor is sanitized; the docs no longer show a key setting a
+  hold. And an older gap: PAS submitted any `submit_ready` decision, held or unreviewed, to the
+  payer; it now sends only one that was automated or a reviewer resolved as `submit_ready`.
 - [ ] **LP-08** Hosted data protection (ask the owner before merging the start-up guard: it
   stops a deployment running PHI mode `off` with sign-in on; production keys are the owner's).
 - [ ] **LP-09** Key rotation.
