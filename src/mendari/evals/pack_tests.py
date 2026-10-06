@@ -77,7 +77,7 @@ def input_problems(pack: Pack) -> list[str]:
     """Behaviour-test inputs must match the input schema, unless the test expects a BLOCK;
     otherwise the test decides a BLOCK and fails confusingly (e.g. unquoted YAML flow-mapping
     text split into extra keys)."""
-    validator = input_schema.validator(pack.input_schema, formats=False)
+    validator = input_schema.validator(pack.input_schema, formats=False, community=pack.community)
     problems = []
     for number, case in enumerate(load_cases(pack), start=1):
         if (case.get("expect") or {}).get("outcome") == "BLOCK":

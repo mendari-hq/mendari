@@ -16,15 +16,26 @@ load (`check`) an input schema must be self-contained:
 The whole document is searched, not only keyword positions: a `$ref` can make any object in it
 a schema; each object once, by identity. The validator (`validator`) also has a registry that
 retrieves nothing, so a reference can never leave the document even if a check were missed.
+
+A community pack's schema patterns run on RE2, like its rules (`core/patterns.py`): its
+validator's `pattern`, `patternProperties` and `additionalProperties` (and so `propertyNames`,
+which checks keys with the same keywords) search with RE2, and every other pack's validator is
+jsonschema's own, unchanged. jsonschema's `unevaluatedProperties` searches `patternProperties`
+with `re` wherever it looks, so a community pack's schema may not hold both
+(`community_problems`).
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterator, Mapping
 from typing import Any
 
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, ValidationError, validators
+from jsonschema.protocols import Validator
 from referencing import Registry
 from referencing.jsonschema import DRAFT202012
+
+from mendari.core import patterns
 
 DIALECT = "https://json-schema.org/draft/2020-12/schema"
 _REFERENCES = ("$ref", "$dynamicRef", "$recursiveRef")
@@ -83,8 +94,105 @@ def problems(schema: Any) -> list[str]:
     return sorted(found)
 
 
-def validator(schema: dict[str, Any], *, formats: bool = True) -> Draft202012Validator:
+def community_problems(schema: Any) -> list[str]:
+    """Why a community pack's input schema cannot run its patterns on RE2 only; [] if it can:
+    `unevaluatedProperties` with `patternProperties` anywhere in the document (module
+    docstring)."""
+    found: dict[str, list[str]] = {"unevaluatedProperties": [], "patternProperties": []}
+    stack: list[tuple[str, Any]] = [("", schema)]
+    seen: set[int] = set()
+    while stack:
+        path, node = stack.pop()
+        if not isinstance(node, dict | list) or id(node) in seen:
+            continue
+        seen.add(id(node))
+        items = node.items() if isinstance(node, dict) else enumerate(node)
+        for key, value in items:
+            here = f"{path}/{key}" if path else str(key)
+            if isinstance(node, dict) and key in found:
+                found[str(key)].append(here)
+            stack.append((here, value))
+    if not (found["unevaluatedProperties"] and found["patternProperties"]):
+        return []
+    return [
+        f"input schema: {here}: a community pack's schema may not use unevaluatedProperties "
+        "with patternProperties (jsonschema would run those patterns on re, not RE2): use "
+        "additionalProperties"
+        for here in sorted(found["unevaluatedProperties"])
+    ]
+
+
+def validator(
+    schema: dict[str, Any], *, formats: bool = True, community: bool = False
+) -> Validator:
     """A Draft 2020-12 validator for a pack's input schema (one `problems` passed) whose
-    registry retrieves nothing; `formats` checks `format` too."""
-    checker = Draft202012Validator.FORMAT_CHECKER if formats else None
-    return Draft202012Validator(schema, registry=Registry(), format_checker=checker)
+    registry retrieves nothing; `formats` checks `format` too. A community pack's runs its
+    patterns on RE2 (module docstring)."""
+    cls = _Re2Validator if community else Draft202012Validator
+    checker = cls.FORMAT_CHECKER if formats else None
+    return cls(schema, registry=Registry(), format_checker=checker)
+
+
+# -- a community pack's keywords: jsonschema's own, searching with RE2 ---------------------------
+
+
+def _search(pattern: str, text: str) -> bool:
+    return patterns.search(pattern, text, community=True)
+
+
+def _pattern(
+    validator: Any, pattern: str, instance: Any, schema: Mapping[str, Any]
+) -> Iterator[ValidationError]:
+    if validator.is_type(instance, "string") and not _search(pattern, instance):
+        yield ValidationError(f"{instance!r} does not match {pattern!r}")
+
+
+def _pattern_properties(
+    validator: Any, properties: Mapping[str, Any], instance: Any, schema: Mapping[str, Any]
+) -> Iterator[ValidationError]:
+    if not validator.is_type(instance, "object"):
+        return
+    for pattern, subschema in properties.items():
+        for key, value in instance.items():
+            if _search(pattern, key):
+                yield from validator.descend(value, subschema, path=key, schema_path=pattern)
+
+
+def _additional_properties(
+    validator: Any, additional: Any, instance: Any, schema: Mapping[str, Any]
+) -> Iterator[ValidationError]:
+    if not validator.is_type(instance, "object"):
+        return
+    named = schema.get("properties", {})
+    keyed = list(schema.get("patternProperties", {}))
+    extras = {
+        key
+        for key in instance
+        if key not in named and not any(_search(pattern, key) for pattern in keyed)
+    }
+    if validator.is_type(additional, "object"):
+        for extra in extras:
+            yield from validator.descend(instance[extra], additional, path=extra)
+    elif not additional and extras:
+        if keyed:
+            verb = "does" if len(extras) == 1 else "do"
+            joined = ", ".join(repr(each) for each in sorted(extras))
+            listed = ", ".join(repr(each) for each in sorted(keyed))
+            yield ValidationError(f"{joined} {verb} not match any of the regexes: {listed}")
+        else:
+            unexpected = sorted(extras, key=str)
+            verb = "was" if len(unexpected) == 1 else "were"
+            listed = ", ".join(repr(extra) for extra in unexpected)
+            yield ValidationError(
+                f"Additional properties are not allowed ({listed} {verb} unexpected)"
+            )
+
+
+_Re2Validator = validators.extend(
+    Draft202012Validator,
+    {
+        "pattern": _pattern,
+        "patternProperties": _pattern_properties,
+        "additionalProperties": _additional_properties,
+    },
+)

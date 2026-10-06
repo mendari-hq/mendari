@@ -19,6 +19,7 @@ from mendari.core import input_schema, tenancy
 from mendari.core.derive import complete_answers, explain
 from mendari.core.origin import MAX_COMMUNITY_TEXT_CHARS, long_text
 from mendari.core.pack import Pack, load_pack
+from mendari.core.patterns import search
 from mendari.core.policy import GovernanceOverride, PolicyResult, apply_policy
 from mendari.core.registry import resolve_pack
 from mendari.core.spec import Outcome, Priority
@@ -208,7 +209,7 @@ class Decision:
         if budget is not None:
             for provider in self.providers.values():
                 provider.use_budget(budget.acquire)
-        self._validator = input_schema.validator(pack.input_schema)
+        self._validator = input_schema.validator(pack.input_schema, community=pack.community)
 
     @classmethod
     def from_hub(cls, ref: str, **kwargs: Any) -> Decision:
@@ -249,7 +250,8 @@ class Decision:
         and which rule of the schema, never the value: jsonschema's own messages quote the
         input, and reasons are stored in the audit trail and copied into the FHIR Task."""
         errors = sorted(self._validator.iter_errors(inputs), key=lambda e: list(map(str, e.path)))
-        return [f"{_where(error.path)}: {_schema_rule(error)}" for error in errors[:10]]
+        community = self.pack.community
+        return [f"{_where(error.path)}: {_schema_rule(error, community)}" for error in errors[:10]]
 
     def decide(
         self,
@@ -413,9 +415,10 @@ def _where(path: Iterable[Any]) -> str:
     return "/".join(parts) or "(root)"
 
 
-def _schema_rule(error: ValidationError) -> str:
+def _schema_rule(error: ValidationError, community: bool = False) -> str:
     """What the schema requires, in words built from the schema alone (`validator_value` is the
-    pack's own schema), never from the instance."""
+    pack's own schema), never from the instance. A community pack's patterns run on RE2
+    (`core/patterns.py`)."""
     keyword, expected = error.validator, error.validator_value
     present = error.instance if isinstance(error.instance, Mapping) else {}
     if keyword == "required":
@@ -450,7 +453,8 @@ def _schema_rule(error: ValidationError) -> str:
         extra = [
             str(key)
             for key in present
-            if key not in allowed and not any(re.search(p, str(key)) for p in patterns)
+            if key not in allowed
+            and not any(search(p, str(key), community=community) for p in patterns)
         ]
         named = [key for key in extra if _KEY.match(key)]
         unnamed = len(extra) - len(named)

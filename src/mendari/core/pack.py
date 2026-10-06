@@ -253,7 +253,11 @@ def load_pack(
         relative: parse_yaml(_read(root, relative, label, digested), relative, manifest.id)
         for relative in _rules_files(manifest)
     }
-    problems = _pattern_problems(input_schema, parsed)  # jsonschema compiles them too
+    community = is_community(manifest.id, origin)
+    # Compiled as they run, before jsonschema compiles the schema's too.
+    problems = _pattern_problems(input_schema, parsed, community=community)
+    if community:
+        problems += schema_rules.community_problems(input_schema)
     if problems:
         raise PackValidationError(manifest.id, problems)
     try:
@@ -377,9 +381,12 @@ def _authored_patterns(input_schema: Any, rules: dict[str, Any]) -> list[tuple[s
     return found
 
 
-def _pattern_problems(input_schema: Any, rules: dict[str, Any]) -> list[str]:
-    """Every pack-authored pattern compiled as it will run (`core/patterns.py`), after counting
-    them, so a pack over the cap is refused before any is compiled."""
+def _pattern_problems(
+    input_schema: Any, rules: dict[str, Any], *, community: bool = False
+) -> list[str]:
+    """Every pack-authored pattern compiled as it will run (`core/patterns.py`: a community
+    pack's on RE2), after counting them, so a pack over the cap is refused before any is
+    compiled."""
     found = _authored_patterns(input_schema, rules)
     if len(found) > patterns.MAX_PACK_PATTERNS:
         return [
@@ -387,7 +394,7 @@ def _pattern_problems(input_schema: Any, rules: dict[str, Any]) -> list[str]:
         ]
     problems = []
     for where, text, flags in found:
-        problem = patterns.problem(text, flags)
+        problem = patterns.problem(text, flags, community=community)
         if problem is not None:
             problems.append(f"{where}: {problem}")
     return problems

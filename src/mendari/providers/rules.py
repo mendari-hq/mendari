@@ -19,6 +19,8 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from mendari.core.origin import MAX_COMMUNITY_TEXT_CHARS
+from mendari.core.patterns import RULES_FLAGS, Matcher
+from mendari.core.patterns import compile as compile_pattern
 from mendari.errors import PackValidationError
 from mendari.providers.base import Provider, ProviderOutput, fingerprint, softmax, text_from
 
@@ -87,16 +89,21 @@ class RulesProvider(Provider):
         if problems:
             raise PackValidationError(self.pack.id, problems)
 
-        flags = re.IGNORECASE
+        # The pack's own patterns, on its engine (`core/patterns.py`); the negation pattern
+        # below is Mendari's, built from escaped cues, and stays on `re`.
+        community = self.pack.community
         self._compiled = {
             question: {
-                label: [(p, re.compile(p.pattern, flags)) for p in patterns]
+                label: [
+                    (p, compile_pattern(p.pattern, RULES_FLAGS, community=community))
+                    for p in patterns
+                ]
                 for label, patterns in self.rules.questions[question].labels.items()
             }
             for question in self.questions
         }
         cues = "|".join(re.escape(cue) for cue in self.rules.negation_cues)
-        self._negation = re.compile(rf"\b(?:{cues})\b", flags) if cues else None
+        self._negation = re.compile(rf"\b(?:{cues})\b", re.IGNORECASE) if cues else None
         tolerance = self.rules.typo_tolerance
         self._typo_min = tolerance.min_length if tolerance else 0
         self._keywords = self._keyword_index(self._typo_min) if tolerance else {}
@@ -163,7 +170,7 @@ class RulesProvider(Provider):
 
         return _WORD.sub(fix, text), corrections
 
-    def _matches(self, regex: re.Pattern[str], text: str, negatable: bool) -> bool:
+    def _matches(self, regex: Matcher, text: str, negatable: bool) -> bool:
         for match in regex.finditer(text):
             if not (negatable and self._negated(text, match.start())):
                 return True
