@@ -217,14 +217,15 @@ def test_a_site_report_is_checked_before_anything_is_stored(
         **report["providers"]["triage_screen"],
         "model": "Jane Doe called about chest pain",
     }
-    small = {
-        **report,
-        "subgroups": {"age_band": {"90+": {**report["subgroups"]["sex"]["male"], "n": 2}}},
-    }
+    small = json.loads(json.dumps(report))
+    small["questions"]["next_step"]["calibration"]["bins"].append(
+        {"low": 0.0, "high": 0.1, "n": 3, "confidence": 0.05, "accuracy": 0.0}
+    )
     refused = [
         benchmark,
         free_text,
         small,
+        {**report, "subgroups": {}},
         {**report, "primary": ["next_step"]},
         {**report, "note": "x"},
     ]
@@ -233,8 +234,42 @@ def test_a_site_report_is_checked_before_anything_is_stored(
             path, json={"site": "Site A", "report": body}, headers=publisher
         )
         assert answer.status_code == 422, answer.text
+        assert "Jane" not in answer.text and "input" not in answer.json()["detail"][0]
+    # Not JSON a parser should accept (NaN), and a body over the cap: refused, never a 500.
+    nan = b'{"site": "Site A", "report": {"dataset": {"n": NaN}}}'
+    assert registry.client.post(path, content=nan, headers=publisher).status_code == 422
+    huge = b'{"site": "Site A", "report": {"x": "' + b"a" * 2_100_000 + b'"}}'
+    assert registry.client.post(path, content=huge, headers=publisher).status_code == 413
+    # The token is checked before the body is read.
+    assert registry.client.post(path, content=huge).status_code == 401
     with RegistryStore(db_target) as store, store._db.session(exclusive=False) as db:
         assert db.all("SELECT id FROM hub_reports") == []
+
+
+def test_reports_stored_before_they_were_checked_are_not_served(
+    registry: Registry, db_target: str
+) -> None:
+    """Rows from before `mendari.site-report/1` may hold case ids or be malformed: the listing
+    leaves them out instead of serving them or failing."""
+    registry.publish()
+    report = shareable(json.loads((REFERRAL.root / "evals" / "benchmark.json").read_text()))
+    publisher = {"authorization": f"Bearer {registry.token}"}
+    path = f"/v1/packs/mendari/referral-router/{REFERRAL.version}/reports"
+    added = registry.client.post(path, json={"site": "Site A", "report": report}, headers=publisher)
+    assert added.status_code == 201
+    old = {**report, "decisions": {**report["decisions"], "critical": [{"missed_ids": ["c-123"]}]}}
+    with RegistryStore(db_target) as store, store._db.session(exclusive=True) as db:
+        for number, stored in enumerate((old, {"decisions": "x"}, {"primary": ["x"]})):
+            row = (f"old-{number}", "mendari", "referral-router", REFERRAL.version, "Old")
+            db.all(
+                "INSERT INTO hub_reports (id, namespace, name, version, site, submitted_by, "
+                "created_at, report) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (*row, "admin", "2026-01-01T00:00:00Z", json.dumps(stored)),
+            )
+    listed = registry.client.get("/v1/packs/mendari/referral-router/reports")
+    assert listed.status_code == 200
+    assert [s["site"] for s in listed.json()["sites"]] == ["Site A"]
+    assert "c-123" not in listed.text
 
 
 # -- a publisher's content is refused with a reason, never a server error ------------------------

@@ -1,8 +1,8 @@
 """Shareable evaluation reports (evals/share.py): metrics leave the site, cases never do.
 
 A shared report is `mendari.site-report/1`, a closed schema the client builds and the registry
-checks: names and numbers only, small cells dropped, no case id, no dataset identity, no
-approver."""
+checks: names and rounded numbers only, small bins dropped, no subgroup, no case id, no dataset
+identity, no approver."""
 
 from __future__ import annotations
 
@@ -78,35 +78,44 @@ def test_an_override_is_shared_as_a_fact_not_a_name() -> None:
     assert "Person" not in json.dumps(shared) and "IRB-2026" not in json.dumps(shared)
 
 
-def test_small_groups_and_bins_are_left_out() -> None:
+def test_subgroups_never_leave_and_small_bins_are_left_out() -> None:
+    """A subgroup's values come from a site's data: a clinic, a clinician, a patient seen often
+    enough, a date. None of them leave, whatever the cell's size."""
     report = {
         **BENCHMARK,
-        "subgroups": {"age": {"90+": _cell(2, 0.5), "40-64": _cell(50, 0.9)}},
+        "subgroups": {
+            "patient": {"Jane Doe MRN 00123 DOB 1985.03.14": _cell(12, 0.9)},
+            "admit_date": {"2026-03-14": _cell(12, 0.9)},
+            "age": {"90+": _cell(2, 0.5), "40-64": _cell(50, 0.9)},
+        },
     }
     shared = shareable(report)
-    assert shared["subgroups"] == {"age": {"40-64": _cell(50, 0.9)}}
+    assert "subgroups" not in shared
+    assert "Jane" not in json.dumps(shared) and "2026-03-14" not in json.dumps(shared)
     bins = shared["questions"]["next_step"]["calibration"]["bins"]
     assert bins and all(b["n"] >= MIN_GROUP for b in bins)
-    assert (
-        shared["questions"]["next_step"]["calibration"]["ece"]
-        == BENCHMARK["questions"]["next_step"]["calibration"]["ece"]
+    assert shared["questions"]["next_step"]["calibration"]["ece"] == round(
+        BENCHMARK["questions"]["next_step"]["calibration"]["ece"], 4
     )
 
 
-def test_a_subgroup_value_that_is_not_a_short_name_is_left_out() -> None:
-    report = {
-        **BENCHMARK,
-        "subgroups": {"clinic": {FREE_TEXT: _cell(40, 0.9), "65+": _cell(40, 0.8)}},
-    }
-    assert shareable(report)["subgroups"] == {"clinic": {"65+": _cell(40, 0.8)}}
+def test_numbers_are_rounded_on_both_sides() -> None:
+    report = copy.deepcopy(BENCHMARK)
+    report["questions"]["next_step"]["brier"] = 0.1234567890123456
+    report["latency_ms"]["max"] = 123456789.12345678
+    shared = shareable(report)
+    assert shared["questions"]["next_step"]["brier"] == 0.123
+    assert shared["latency_ms"]["max"] == 123456789.123
+    exact = copy.deepcopy(shared)
+    exact["decisions"]["recommendation_accuracy"] = 0.987654321
+    received = SiteReport.model_validate(exact).model_dump(mode="json")
+    assert received["decisions"]["recommendation_accuracy"] == 0.9877
 
 
-def test_the_receiver_refuses_small_cells() -> None:
+def test_the_receiver_refuses_subgroups_and_small_bins() -> None:
     shared = shareable(BENCHMARK)
-    small = copy.deepcopy(shared)
-    small["subgroups"] = {"age": {"90+": _cell(2, 0.5)}}
     with pytest.raises(ValidationError):
-        SiteReport.model_validate(small)
+        SiteReport.model_validate({**shared, "subgroups": {"age": {"40-64": _cell(50, 0.9)}}})
     small = copy.deepcopy(shared)
     small["questions"]["next_step"]["calibration"]["bins"].append(
         {"low": 0.0, "high": 0.1, "n": 3, "confidence": 0.05, "accuracy": 0.0}
@@ -181,6 +190,11 @@ def test_a_report_that_cannot_be_shared_names_fields_never_values() -> None:
         shareable(report)
     assert "providers.triage_screen.model" in str(error.value)
     assert "Jane" not in str(error.value)
+    keyed = copy.deepcopy(BENCHMARK)
+    keyed["questions"][FREE_TEXT] = keyed["questions"]["next_step"]
+    with pytest.raises(MendariError) as error:
+        shareable(keyed)
+    assert "questions.<key>" in str(error.value) and "Jane" not in str(error.value)
 
 
 def test_the_summary_names_the_numbers_a_comparison_shows() -> None:

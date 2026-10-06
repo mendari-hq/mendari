@@ -426,12 +426,14 @@ count. Rows for one dataset MUST come from the same records. Like reports, a lea
 NOT contain case inputs.
 
 A **shared report** (`format: mendari.site-report/1`) is what a site sends a registry about
-its own evaluation. It is a closed schema of names and numbers: the pack (id, version, digest),
-the providers and policy, per-question metrics, outcome counts and rates, each critical label's
-counts, the threshold sweep, latency, cost, error counts, the dataset's size and subgroup cells.
-It MUST NOT contain a case id, case text, the dataset's name or hash, or who approved a
-governance override (only whether one applied). Subgroup cells and calibration bins with fewer
-than 10 cases are dropped. Every string is a short name; a registry MUST refuse anything else.
+its own evaluation. It is a closed schema of names and rounded numbers: the pack (id, version,
+digest), the providers and policy, per-question metrics, outcome counts and rates, each critical
+label's counts, the threshold sweep, latency, cost, error counts and the dataset's size. It MUST
+NOT contain a case id, case text, the dataset's name or hash, who approved a governance override
+(only whether one applied), or subgroup cells (their values come from a site's data).
+Calibration bins with fewer than 10 cases are dropped. Every string is a short ASCII name the
+pack or Mendari defines; a registry MUST refuse anything else, and MUST NOT echo what it
+refuses.
 
 ## 9. FHIR and CDS Hooks
 

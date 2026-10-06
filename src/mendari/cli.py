@@ -142,7 +142,7 @@ def cmd_eval(args: argparse.Namespace) -> int:
         Path(args.share_out).parent.mkdir(parents=True, exist_ok=True)
         payload = json.dumps(shareable(report), indent=2) + "\n"
         Path(args.share_out).write_text(payload, encoding="utf-8")
-        print(f"wrote what --share sends to {args.share_out} (metrics only)", file=sys.stderr)
+        print(f"wrote the report --share sends to {args.share_out} (metrics only)", file=sys.stderr)
     if args.share:
         with _registry_client(args) as registry:
             shared = registry.share_report(report, args.share)
@@ -1050,7 +1050,7 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate.add_argument(
         "--share-out",
         metavar="FILE",
-        help="write exactly what --share sends to FILE, to read before sharing (sends nothing)",
+        help="write the report --share sends to FILE, to read first (sends nothing)",
     )
 
     train = pack_command("train", cmd_train, "train the pack's naive_bayes variants")

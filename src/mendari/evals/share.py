@@ -3,22 +3,21 @@
 A shared report (`format: mendari.site-report/1`) is a closed schema, the same on both sides:
 the client builds it with `site_report` and the registry refuses anything else. It holds the
 pack, the providers and policy, the metrics per question, the outcome counts and rates, the
-critical counts, the threshold sweep, latency, cost, error counts, the dataset's size and the
-subgroup cells. It never holds a case id, case text, the dataset's name or hash, or who approved
-a governance override (only that one applied). Every string is a name (a question, label, slot,
-variant, provider type, model, error code or subgroup value) of bounded length and alphabet, and
-every number is bounded, so free text has nowhere to go. Subgroup cells and calibration bins
-with fewer than `MIN_GROUP` cases are dropped, and so is a subgroup value that is not a short
-name.
+critical counts, the threshold sweep, latency, cost, error counts and the dataset's size. It
+never holds a case id, case text, the dataset's name or hash, who approved a governance
+override (only that one applied), or subgroup cells: a subgroup's values come from a site's
+data (a clinic, a clinician, a date), and nothing can tell a category from a name until a pack
+declares each subgroup's values. Every string is a name the pack or Mendari defines (a
+question, label, slot, variant, provider type, model or error code), short and ASCII; every
+number is bounded and rounded. Calibration bins with fewer than `MIN_GROUP` cases are dropped.
 """
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, ValidationError
 
 from mendari.errors import MendariError
 
@@ -26,15 +25,17 @@ MIN_GROUP = 10
 SITE_REPORT_FORMAT = "mendari.site-report/1"
 
 _NAME = r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
-# Subgroup values come from a site's data (e.g. "es", "65+", "18-39"): short words only.
-_VALUE = r"^\w[\w .+-]{0,39}$"
-_VALUE_RE = re.compile(_VALUE)
 
 Name = Annotated[str, Field(pattern=_NAME)]
-Value = Annotated[str, Field(pattern=_VALUE)]
 Count = Annotated[int, Field(ge=0, le=10**9)]
-Rate = Annotated[float, Field(ge=0.0, le=1.0, allow_inf_nan=False)]
-Positive = Annotated[float, Field(ge=0.0, le=1e9, allow_inf_nan=False)]
+# Rounded on both sides: the digits past these say nothing about a pack and could say something
+# about a single case.
+Rate = Annotated[
+    float, Field(ge=0.0, le=1.0, allow_inf_nan=False), AfterValidator(lambda v: round(v, 4))
+]
+Positive = Annotated[
+    float, Field(ge=0.0, le=1e9, allow_inf_nan=False), AfterValidator(lambda v: round(v, 3))
+]
 
 
 class _Closed(BaseModel):
@@ -155,14 +156,6 @@ class Cost(_Closed):
     output_tokens: Count
 
 
-class SubgroupCell(_Closed):
-    n: Annotated[int, Field(ge=MIN_GROUP, le=10**9)]
-    accuracy: Rate | None
-    auto_rate: Rate | None
-    abstention_rate: Rate | None
-    false_automation_rate: Rate | None
-
-
 class SiteReport(_Closed):
     """Everything a site may share about one evaluation, and nothing else."""
 
@@ -178,10 +171,6 @@ class SiteReport(_Closed):
     latency_ms: Latency
     cost: Cost
     errors: Annotated[dict[Name, Count], Field(max_length=64)]
-    subgroups: Annotated[
-        dict[Name, Annotated[dict[Value, SubgroupCell], Field(max_length=64)]],
-        Field(max_length=32),
-    ]
 
 
 _CRITICAL_KEPT = ("question", "label", "n", "detected", "detection_rate", "auto_missed")
@@ -204,10 +193,10 @@ def _list(value: Any, where: str) -> list[Any]:
 
 
 def site_report(report: Mapping[str, Any], *, min_group: int = MIN_GROUP) -> SiteReport:
-    """The shareable part of an evaluation report, validated: small cells dropped, case ids,
-    the dataset's identity and the override's approver left out. Raises `ValidationError` if
-    anything that remains is not a bounded name or number, `MendariError` if the report is not
-    shaped like one."""
+    """The shareable part of an evaluation report, validated: small bins dropped; case ids,
+    subgroups, the dataset's identity and the override's approver left out. Raises
+    `ValidationError` if anything that remains is not a bounded name or number, `MendariError`
+    if the report is not shaped like one."""
     min_group = max(min_group, MIN_GROUP)
     questions = {}
     for name, question in _object(report.get("questions"), "questions").items():
@@ -224,16 +213,6 @@ def site_report(report: Mapping[str, Any], *, min_group: int = MIN_GROUP) -> Sit
         {key: _object(item, "decisions.critical").get(key) for key in _CRITICAL_KEPT}
         for item in _list(decisions.get("critical"), "decisions.critical")
     ]
-    subgroups: dict[str, dict[str, Any]] = {}
-    for attribute, cells in _object(report.get("subgroups"), "subgroups").items():
-        kept = {
-            value: cell
-            for value, cell in _object(cells, f"subgroups.{attribute}").items()
-            if (_object(cell, f"subgroups.{attribute}").get("n") or 0) >= min_group
-            and _VALUE_RE.fullmatch(str(value))
-        }
-        if kept:
-            subgroups[attribute] = kept
     policy = _object(report.get("policy"), "policy")
     return SiteReport.model_validate(
         {
@@ -253,9 +232,22 @@ def site_report(report: Mapping[str, Any], *, min_group: int = MIN_GROUP) -> Sit
             "latency_ms": report.get("latency_ms"),
             "cost": report.get("cost"),
             "errors": report.get("errors") or {},
-            "subgroups": subgroups,
         }
     )
+
+
+def where(loc: tuple[Any, ...] | list[Any]) -> str:
+    """A validation error's location without the data in it: a mapping key is data (a label a
+    site's dataset holds), so it reads `<key>`."""
+    parts = list(loc)
+    shown = []
+    for index, part in enumerate(parts):
+        if part == "[key]":
+            continue
+        shown.append(
+            "<key>" if index + 1 < len(parts) and parts[index + 1] == "[key]" else str(part)
+        )
+    return ".".join(shown)
 
 
 def shareable(report: Mapping[str, Any], *, min_group: int = MIN_GROUP) -> dict[str, Any]:
@@ -264,7 +256,7 @@ def shareable(report: Mapping[str, Any], *, min_group: int = MIN_GROUP) -> dict[
     try:
         return site_report(report, min_group=min_group).model_dump(mode="json")
     except ValidationError as error:
-        fields = sorted({".".join(str(part) for part in e["loc"]) for e in error.errors()})
+        fields = sorted({where(e["loc"]) for e in error.errors()})
         shown = ", ".join(fields[:5]) + (f" and {len(fields) - 5} more" if len(fields) > 5 else "")
         raise MendariError(
             f"this report cannot be shared: {shown} must be a short name or a number in range"

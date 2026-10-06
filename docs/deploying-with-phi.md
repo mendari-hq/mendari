@@ -454,7 +454,7 @@ By default, nothing. Each of these is off until you configure it:
 | Other remote models (LLMs through Vercel AI Gateway) | `MENDARI_PROVIDERS` | The pack's declared `state_fields` only |
 | Reading your FHIR server (CDS Hooks fetch, SMART, Bulk) | `MENDARI_FHIR_ALLOWED_SERVERS` | Nothing leaves; Mendari reads from servers you list |
 | Alerts | `MENDARI_ALERT_WEBHOOK` | Pack ids and alert messages; an organization's id when it reaches a daily quota (no case data) |
-| Shared evaluation reports | `mendari eval --share` (manual) | Metrics only (`mendari.site-report/1`, checked by the registry): no cases, ids, dataset name, approver or small groups; `--share-out FILE` writes it to read first |
+| Shared evaluation reports | `mendari eval --share` (manual) | Metrics only (`mendari.site-report/1`, checked by the registry): no cases, ids, dataset name, approver or subgroups; `--share-out FILE` writes it to read first |
 
 For PHI, prefer local providers (rules, naive Bayes, criteria, dosing), or a local model server
 (an OpenAI-compatible `base_url` on your network). Use a remote model only under an agreement

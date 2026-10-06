@@ -36,8 +36,9 @@ from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from pydantic_core import to_json
 
 from mendari import __version__
@@ -45,7 +46,7 @@ from mendari.core.db import Backend, Session, connect
 from mendari.core.pack import Pack
 from mendari.core.registry import version_key
 from mendari.errors import HubError, MendariError
-from mendari.evals.share import SiteReport, summary
+from mendari.evals.share import SiteReport, summary, where
 from mendari.hub import archive
 
 PublisherType = Literal["community", "verified", "institutional"]
@@ -326,12 +327,19 @@ class RegistryStore:
                 (namespace, name),
             )
         shown = ("id", "version", "site", "submitted_by", "created_at")
-        # Unverified: any publisher token may submit under any site name until sites sign what
-        # they share (the site evaluation network). The Hub does not show them.
-        return [
-            {**{k: r[k] for k in shown}, "verified": False, **summary(json.loads(r["report"]))}
-            for r in rows
-        ]
+        listed = []
+        for r in rows:
+            # A row stored before reports were checked (mendari.site-report/1) may hold case ids
+            # or be malformed: it is not served.
+            try:
+                report = SiteReport.model_validate_json(r["report"])
+            except ValidationError:
+                continue
+            # Unverified: any publisher token may submit under any site name until sites sign
+            # what they share (the site evaluation network). The Hub does not show them.
+            shared = report.model_dump(mode="json")
+            listed.append({**{k: r[k] for k in shown}, "verified": False, **summary(shared)})
+        return listed
 
     def latest(self) -> list[dict[str, Any]]:
         """The newest version of every pack, with its namespace's publisher type."""
@@ -470,6 +478,9 @@ class NamespaceRequest(BaseModel):
     display_name: str = Field(default="", max_length=200)
 
 
+MAX_REPORT_BYTES = 2_000_000
+
+
 class ReportRequest(BaseModel):
     site: str = Field(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9][A-Za-z0-9 ._-]*$")
     report: SiteReport
@@ -503,6 +514,17 @@ def create_registry_app(
     @app.exception_handler(HubError)
     async def _hub_error(_: Request, error: HubError) -> JSONResponse:
         return JSONResponse({"error": "HubError", "detail": str(error)}, error.status)
+
+    @app.exception_handler(RequestValidationError)
+    async def _invalid_request(_: Request, error: RequestValidationError) -> JSONResponse:
+        """FastAPI's 422 without the `input` and `ctx` it would echo (a report can carry what
+        a site meant to keep, and NaN in it made the echo a 500), and with mapping keys, which
+        are data, left out of the location."""
+        problems = [
+            {"type": e.get("type"), "loc": where(e.get("loc", ())), "msg": e.get("msg")}
+            for e in error.errors()
+        ]
+        return JSONResponse({"detail": problems[:20]}, 422)
 
     def bearer(request: Request) -> str:
         header = request.headers.get("authorization", "")
@@ -608,20 +630,28 @@ def create_registry_app(
         )
 
     @app.post("/v1/packs/{namespace}/{name}/{version}/reports", status_code=201)
-    def add_report(
-        request: Request, namespace: str, name: str, version: str, body: ReportRequest
+    async def add_report(
+        request: Request, namespace: str, name: str, version: str
     ) -> dict[str, Any]:
-        """A site shares its local evaluation (metrics only; the registry keeps just the
-        shareable part). Any publisher token may submit; the site name is the site's choice, so
-        reports are listed as unverified."""
+        """A site shares its local evaluation (`mendari.site-report/1`, checked before anything
+        is stored). Any publisher token may submit; the site name is the site's choice, so
+        reports are listed as unverified. The token is checked before the body is read, and the
+        body is read only up to `MAX_REPORT_BYTES`."""
         token = bearer(request)
         submitter = "admin" if admin and token and hmac.compare_digest(token, admin) else None
         submitter = submitter or (store.token_namespace(token) if token else None)
         if submitter is None:
             raise HTTPException(401, "a registry token is required to share a report")
-        if len(body.report.model_dump_json()) > 2_000_000:
-            raise HTTPException(413, "the report is too large")
-        return store.add_report(namespace, name, version, body.site, submitter, body.report)
+        body = bytearray()
+        async for chunk in request.stream():
+            body += chunk
+            if len(body) > MAX_REPORT_BYTES:
+                raise HTTPException(413, "the report is too large")
+        try:
+            shared = ReportRequest.model_validate_json(bytes(body))
+        except ValidationError as error:
+            raise RequestValidationError(error.errors()) from None
+        return store.add_report(namespace, name, version, shared.site, submitter, shared.report)
 
     @app.get("/v1/search")
     def search(

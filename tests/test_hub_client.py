@@ -256,7 +256,7 @@ def test_eval_share_out_writes_what_would_be_sent_and_sends_nothing(
     out = tmp_path / "share.json"
     args = ["eval", "mendari/patient-inbox-router", "--dataset", "red_flags_holdout"]
     assert main([*args, "--baseline", "none", "--share-out", str(out)]) == 0
-    assert f"wrote what --share sends to {out}" in capsys.readouterr().err
+    assert f"wrote the report --share sends to {out}" in capsys.readouterr().err
     payload = json.loads(out.read_text())
     assert SiteReport.model_validate(payload).dataset.n == 30
     pack = resolve_pack("mendari/patient-inbox-router")

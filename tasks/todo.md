@@ -36,7 +36,11 @@ behaviour.
   a short name, every number bounded) built by the client and checked by the registry before
   anything is stored. Dropped: `missed_ids` (sent before for every missed critical case), the
   dataset's name and hash, the override's approver and reference (now `governance_override:
-  true`), case ids; cells and bins under 10 refused on both sides. `mendari eval --share-out
+  true`), case ids, and subgroups (their values come from a site's data, so a clinician's name
+  or a date would pass any pattern; they return when packs declare each subgroup's values);
+  numbers rounded and calibration bins under 10 refused on both sides. The review's fixes: the
+  registry checks the token before reading at most 2 MB, never echoes what it refuses (NaN in a
+  body was a 500), and leaves out stored rows that do not validate. `mendari eval --share-out
   FILE` writes the payload to read first. The registry lists reports as `verified: false` and
   the Hub no longer shows them: any publisher token can still submit under any site name.
   Left for LP-22 (with site signatures): counts in, rates out (the registry computing every

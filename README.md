@@ -785,8 +785,8 @@ affected audit record then carries it.
 reliability bins), outcome rates, abstention, false automation rate, expected human override
 rate, critical-label safety (for example "urgent cases automated: 0"), latency, cost, subgroup
 performance and a threshold sweep. Reports contain case ids but never case text. What a site
-shares (`--share`) holds neither: a closed format, `mendari.site-report/1`, of names and counts
-only (`--share-out FILE` writes it to read first).
+shares (`--share`) holds neither, nor subgroups: a closed format, `mendari.site-report/1`, of
+names and rounded numbers only (`--share-out FILE` writes it to read first).
 
 `mendari leaderboard` compares provider configurations on the same records and publishes
 the result in `evals/leaderboard.json` and the Decision Card. Configurations whose credentials
