@@ -36,7 +36,7 @@ Configuration comes from the environment:
   refused.
 - `CRON_SECRET` (16 characters or more): turns on the daily retention purge (`vercel.json`
   crons, `/api/internal/retention`); `MENDARI_RETENTION_DAYS` (default 30).
-- `LLM_MODEL`: default model for `llm` variants (AI Gateway id, e.g. anthropic/claude-sonnet-5).
+- `LLM_MODEL`: default model for `llm` variants (an AI Gateway id, `<vendor>/<model>`).
 - `JEV_API_URL`, `JEV_MODEL`, `JEV_CONNECTOR`: see `mendari.providers.jev`.
 """
 

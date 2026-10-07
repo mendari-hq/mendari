@@ -113,7 +113,7 @@ function boardTables(board, dataset) {
   }) + costChart(rows, varying, dataset) + otherQuestions(rows, varying);
 }
 
-// A configuration in plain words ("Rules + Jev Claude Sonnet 5"), for the slots that differ.
+// A configuration in plain words ("Rules + Jev 1.13.0"), for the slots that differ.
 const configName = (row, varying) => varying.map((slot) =>
   `${varying.length > 1 ? `${slotText(slot)}: ` : ""}${providerName(row.providers[slot])}`).join(", ") || row.config;
 

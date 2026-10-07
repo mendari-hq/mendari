@@ -86,6 +86,7 @@ addopts = "-q -m 'not browser and not slow'"
 markers = [
     "browser: dashboard tests in a real browser (uv run pytest -m browser)",
     "slow: corpora outside the repository, when cached in var/ (uv run pytest -m slow)",
+    "core: the edit loop, about 20 s: pack loading, decisions, policy (uv run pytest -m core)",
 ]
 filterwarnings = [
     "error",

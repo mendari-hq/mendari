@@ -11,6 +11,7 @@ import pytest
 from playwright.sync_api import Page, Route, ViewportSize, expect
 
 from mendari import notices
+from tests.browser.test_accessibility import violations
 from tests.browser.test_dashboard import INBOX, PHONE, VIEWS, open_pack, signed_in_as
 
 pytestmark = pytest.mark.browser
@@ -57,6 +58,26 @@ def test_a_signed_in_person_acknowledges_when_the_dashboard_opens(page: Page) ->
     expect(asked).to_have_count(0)
     expect(page.get_by_role("button", name="Decide")).to_be_visible()
     assert state["posts"] == 1
+
+
+@pytest.mark.parametrize("axe_page", ["light", "dark"], indirect=True)
+def test_the_acknowledgement_passes_axe(axe_page: Page) -> None:
+    """The dialog asking for it is a screen of its own: WCAG 2.2 AA in both themes."""
+    signed_in_as(axe_page, "reviewer")
+    body = {
+        **notices.notice(),
+        "acknowledgement": notices.ACKNOWLEDGEMENT,
+        "required": True,
+        "acknowledged": False,
+    }
+    axe_page.route(
+        "**/api/notice**",
+        lambda route: route.fulfill(body=json.dumps(body), content_type="application/json"),
+    )
+    axe_page.add_init_script(f"localStorage.setItem('oh.pack', {json.dumps(INBOX)})")
+    axe_page.goto("/#try")
+    expect(axe_page.get_by_role("dialog", name="Before you start")).to_be_visible()
+    assert violations(axe_page) == []
 
 
 def test_an_open_drawer_says_it_too(page: Page) -> None:

@@ -258,7 +258,7 @@ export const variantText = (variant) => variant.split("_and_").map((part) => VAR
 
 const REMOTE_VARIANTS = new Set(["jev", "llm"]);
 
-// A provider in words, with the model where one runs: "Rules + Claude Sonnet 5", "Jev 1.13.0",
+// A provider in words, with the model where one runs: "Rules + model-2", "Jev 1.13.0",
 // "Naive Bayes". A remote part is named by its model, so nothing is said twice; models of other
 // variants (a cascade, a vote) follow in brackets.
 export function providerName(p) {
@@ -270,17 +270,17 @@ export function providerName(p) {
   return used < models.length ? `${words} (${models.slice(used).join(", ")})` : words;
 }
 
-// The remote models behind a provider ("rules:rules@1a2b + llm:anthropic/claude-sonnet-5" ->
-// ["anthropic/claude-sonnet-5"]); local fingerprints ("rules@1a2b") are not a deployment choice.
+// The remote models behind a provider ("rules:rules@1a2b + llm:vendor/model-2" ->
+// ["vendor/model-2"]); local fingerprints ("rules@1a2b") are not a deployment choice.
 export const remoteModels = (model) => (model ?? "").split(" + ")
   .map((part) => (part.includes(":") ? part.slice(part.indexOf(":") + 1) : part))
   .filter((m) => m && !m.includes("@"));
 
+// A model as its id says it, without the gateway's vendor prefix ("vendor/model-2" -> "model-2"),
+// whoever makes it; Jev's own versions read as the variant does ("jev-1.13.0" -> "Jev 1.13.0").
 function modelText(id) {
   const name = id.split("/").pop();
-  const claude = name.match(/^claude-([a-z]+)-(\d+(?:\.\d+)*)$/);
-  if (claude) return `Claude ${claude[1][0].toUpperCase()}${claude[1].slice(1)} ${claude[2]}`;
-  const jev = name.match(/^jev-(.+)$/);
+  const jev = name.match(/^jev-(\d[\w.-]*)$/);
   return jev ? `Jev ${jev[1]}` : name;
 }
 
