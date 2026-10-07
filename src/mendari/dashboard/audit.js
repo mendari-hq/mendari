@@ -2,7 +2,7 @@
 
 import { closeDrawer, showDrawer } from "./drawer.js";
 import { feedbackControls, myRating } from "./feedback.js";
-import { communityNotice, criteriaTable, derivedPrimary, inputView, statusNotice } from "./pack.js";
+import { answerChart, communityNotice, criteriaTable, derivedPrimary, inputView, labelName, statusNotice } from "./pack.js";
 import { route, views, wire } from "./router.js";
 import { tableHtml } from "./table.js";
 import { $, api, esc, icon, may, num, outcomeBadge, OUTCOMES, outcomeText, pct, priorityBadge, shortTime, state, storageGet, storageSet, time, toastError, zoneShort } from "./ui.js";
@@ -90,7 +90,8 @@ function auditTable(rows) {
     columns: [
       {
         key: "time", label: `Time (${esc(zoneShort())})`, sort: (r) => r.created_at, firstDir: "descending",
-        cell: (r) => `<button type="button" class="linklike open-record" data-id="${esc(r.id)}" aria-label="Open decision ${esc(r.id.slice(0, 8))}, ${esc(time(r.created_at))}"><time datetime="${esc(r.created_at)}" title="${esc(time(r.created_at))}">${esc(shortTime(r.created_at))}</time></button>`,
+        // The name starts with what the button shows (WCAG 2.5.3, label in name), then says more.
+        cell: (r) => `<button type="button" class="linklike open-record" data-id="${esc(r.id)}"><time datetime="${esc(r.created_at)}" title="${esc(time(r.created_at))}">${esc(shortTime(r.created_at))}</time><span class="sr-only">: open decision ${esc(r.id.slice(0, 8))}, ${esc(time(r.created_at))}</span></button>`,
       },
       { key: "outcome", label: "Outcome", sort: (r) => OUTCOMES.indexOf(r.outcome), cell: (r) => outcomeBadge(r.outcome) },
       { key: "recommendation", label: "Recommendation", sort: (r) => r.recommendation ?? "", cell: (r) => esc(r.recommendation ?? "–") },
@@ -115,9 +116,9 @@ async function openRecord(id) {
     return;
   }
   const r = found.record;
-  showDrawer({
+  const shown = showDrawer({
     // What happened, in words ("Human review · nurse"); the id is in the body.
-    title: `${outcomeText(r.outcome)}${r.recommendation && r.recommendation !== r.outcome.toLowerCase() ? ` · ${r.recommendation}` : ""}`,
+    title: `${outcomeText(r.outcome)}${r.recommendation && r.recommendation !== r.outcome.toLowerCase() ? ` · ${labelName(r.primary ?? state.detail.primary, r.recommendation)}` : ""}`,
     opener,
     // Closing the drawer (button, Escape, backdrop) goes back to the list's URL.
     onClose: () => {
@@ -125,17 +126,21 @@ async function openRecord(id) {
     },
     body: `
       <div class="row">${outcomeBadge(r.outcome)} ${priorityBadge(r.priority)}
-        <span>→ <b>${esc(r.recommendation ?? "no recommendation")}</b></span>
+        <span>→ <b>${r.recommendation ? `${esc(labelName(r.primary ?? state.detail.primary, r.recommendation))}</b> <span class="mono muted">${esc(r.recommendation)}</span>` : "no recommendation</b>"}</span>
         ${r.confidence !== null && r.confidence !== undefined ? `<span class="muted">confidence ${pct(r.confidence)}</span>` : ""}</div>
       <p class="muted mt-2"><time datetime="${esc(r.created_at)}">${esc(time(r.created_at))}</time> · <span class="mono break-anywhere">${esc(id)}</span></p>
       ${inputView(r.input, { restricted: found.input_restricted })}
       ${r.fallback ? `<p class="mt-3"><b>Fallback:</b> ${esc(r.fallback)}</p>` : ""}
       ${r.reasons?.length ? `<ul class="reasons">${r.reasons.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
       ${derivedPrimary() ? `<h3>Criteria</h3>${criteriaTable(r.answers)}` : ""}
+      <h3>Engine detail</h3>
+      <p class="muted">Each answer's probabilities and provider, as the engine gave them${r.latency_ms !== undefined ? `; ${num(r.latency_ms, 2)} ms` : ""}.</p>
+      ${Object.entries(r.answers ?? {}).map(([q, a]) => answerChart(id, q, a, r.answers)).join("")}
       ${may("review") ? `<h3>Was this right?</h3>${feedbackControls(r, myRating(found.events))}` : ""}
       <h3>Events</h3>${timeline(found.events)}
       <details><summary>Full record (JSON)</summary><pre class="json">${esc(JSON.stringify(r, null, 2))}</pre></details>`,
   });
+  wire(shown.querySelector(".drawer-body"));  // this drawer's charts, not one still closing
 }
 
 // An event's note, when it has one: its text for those who may read it, else what became of it.

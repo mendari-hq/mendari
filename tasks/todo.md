@@ -62,7 +62,7 @@ behaviour.
   9,958 decisions identical to main's in every offline configuration). Rendering display names
   instead of codes is LP-05; note there that a pack's own names are its author's claim (a
   community pack could name `block` "Safe"), so the code stays one click away.
-- [ ] **LP-05** One versioned notice on every surface, a recorded acknowledgement before Try it,
+- [x] **LP-05** One versioned notice on every surface, a recorded acknowledgement before Try it,
   a plain-language result view. Split in two.
   - [x] **LP-05a** `mendari/notices.py`: "Research preview. Not a medical device. Not for
     emergencies: patients should call 911.", version 1. Stamped by the server into every page
@@ -85,8 +85,20 @@ behaviour.
     (`required`, or `off`; off in the test suite as rate limits are). Deferred: a deployment
     data policy (`synthetic`/`phi`) for the badge and the acknowledgement's wording at a PHI
     pilot.
-  - [ ] **LP-05b** Plain-language result view (display names, engine detail in the drawer, the
-    code one click away since a pack's names are its author's claim) and axe-core checks.
+  - [x] **LP-05b** Plain-language result view and axe-core checks (PR open). Try it's result shows
+    the pack's names (`display`, `names`; else the key as words, as the server spells it), the
+    reasons a person reads (a rule's own sentence, a hold's reason, the engine's reasons said
+    plainly) and each answer by name; the codes sit beside the names, hidden until "Show codes" (a
+    pack's names are its author's claim). Probabilities, providers, thresholds, timings and the
+    reasons as the engine gave them moved to the decision record's drawer ("Engine detail", its
+    charts now drawn there). The review queue's cards and buttons use the names too (the codes stay
+    what is sent). axe-core 4.14.0 (MPL-2.0) vendored for tests only, pinned and checked like
+    Swagger UI (`scripts/vendor_docs_ui.py` now handles both; Dependabot watches it): every view of
+    every reference pack, an open drawer, the result, `/docs` and `/docs/reference` (Swagger UI's
+    own markup left out), in both themes, WCAG 2.0 to 2.2 A and AA, after entrance animations
+    finish. It found one real issue, fixed: the audit list's record buttons were named without the
+    time they show (WCAG 2.5.3). Deferred still: the deployment data policy (`synthetic`/`phi`) for
+    the badge, at a PHI pilot.
 - [x] **LP-06** Automation hold (the kill switch, brought forward from A13). A hold is a row
   (`automation_holds`): an organization (or every one), a pack (or every pack), a digest (or
   every version); set and lifted with a reason, chained (`automation.held`, `.lifted`). Each

@@ -12,11 +12,12 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 import pytest
 import uvicorn
+from playwright.sync_api import Browser, Page
 
 from mendari.sandbox import example_datasets_dir
 from mendari.server.app import create_app
@@ -93,3 +94,15 @@ def base_url(live_server: str) -> str:
 @pytest.fixture(scope="session")
 def pack_ids(live_server: str) -> list[str]:
     return [pack["id"] for pack in httpx.get(f"{live_server}/api/packs").json()]
+
+
+@pytest.fixture
+def axe_page(browser: Browser, base_url: str, request: pytest.FixtureRequest) -> Page:
+    """A page in a context that lets a test inject axe (tests/browser/test_accessibility.py; the
+    CSP stays on for everything else the page loads), in the colour scheme asked for."""
+    scheme: Literal["light", "dark"] = (
+        "dark" if getattr(request, "param", "light") == "dark" else "light"
+    )
+    context = browser.new_context(base_url=base_url, bypass_csp=True, color_scheme=scheme)
+    request.addfinalizer(context.close)
+    return context.new_page()
