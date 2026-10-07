@@ -9,8 +9,11 @@ import { esc, evidenceMark, figureHtml, money, num, share, shown, slotText, stat
 // A report's run: its id, time and latency (mendari.eval/2), or a mendari.eval/1 report's own.
 export const runOf = (r) => r.run ?? r;
 
+// What a report says of its primary question when none of its cases is labelled for it.
+const UNLABELLED = { macro_f1: null, brier: null, calibration: { ece: null, bins: [] }, per_label: {}, confusion: {} };
+
 export function reportView(r) {
-  const q = r.questions[r.primary];
+  const q = r.questions[r.primary] ?? UNLABELLED;
   const d = r.decisions;
   // Every share of cases is a figure the server worked out (mendari.figures/1): k of n with its
   // exact interval, as the card shows it. A stored report it could not be read from shows n/a.
@@ -38,13 +41,14 @@ export function reportView(r) {
       ${stat({ label: `${slotText(r.primary)} accuracy`, value: figureHtml(f.accuracy), html: true, foot: `macro-F1 ${num(q.macro_f1)}` })}
       ${critical}
       ${stat({
-        label: "False automation", value: figureHtml(f.false_automation), html: true, tone: f.false_automation?.k ? "danger" : "",
+        label: "False automation", value: figureHtml(f.false_automation), html: true,
+        tone: (f.false_automation ? f.false_automation.k : d.automation.false_automation_rate) ? "danger" : "",
         foot: "automated with a wrong answer, of the labelled cases",
       })}
     </div>
     <div class="stats-secondary">
       ${small("Calibration (ECE)", num(q.calibration.ece), `Brier ${num(q.brier)}`)}
-      ${small("Automated", figureHtml(f.outcomes?.AUTO), f.automated_correct?.n ? `correct ${esc(shown(f.automated_correct))}` : "nothing automated")}
+      ${small("Automated", figureHtml(f.outcomes?.AUTO), automatedFoot(f, d))}
       ${small("Abstention", figureHtml(f.outcomes?.ABSTAIN))}
       ${small("Expected override", figureHtml(f.expected_override), "of the reviewed cases")}
       ${small("Latency p50 / p95", `${num(run.latency_ms?.p50, 2)} / ${num(run.latency_ms?.p95, 2)} ms`)}
@@ -70,15 +74,24 @@ export function reportView(r) {
       ${subgroupsView(r.subgroups, f.subgroups ?? {}, id)}</div>`;
 }
 
+// Of what was automated, how much was right: "nothing automated" only when nothing was.
+function automatedFoot(f, d) {
+  const correct = f.automated_correct;
+  if (correct === null || correct === undefined) return "correct n/a";
+  if (correct.n) return `correct ${esc(shown(correct))}`;
+  return (f.outcomes?.AUTO?.k ?? d.outcome_counts.AUTO ?? 0) ? "correct: none of them labelled" : "nothing automated";
+}
+
 const SMALL_N = 20;
 
 function subgroupsView(subgroups, figures, id) {
   return Object.entries(subgroups).map(([attr, values]) => {
     const rows = Object.entries(values).map(([value, m]) => ({ value, ...m, figures: figures[attr]?.[value] ?? {} }))
-      .sort((a, b) => (share(a.figures.accuracy) ?? 1) - (share(b.figures.accuracy) ?? 1));
+      .sort((a, b) => (share(a.figures.accuracy) ?? a.accuracy ?? 1) - (share(b.figures.accuracy) ?? b.accuracy ?? 1));
     const worst = rows[0];
+    const lowest = worst?.figures.accuracy ? ` · lowest ${esc(shown(worst.figures.accuracy))} (${esc(worst.value)})` : "";
     return `<details class="group"><summary><b>${esc(attr)}</b>
-      <span class="muted">${rows.length} groups · lowest ${esc(shown(worst.figures.accuracy))} (${esc(worst.value)})</span></summary>
+      <span class="muted">${rows.length} groups${lowest}</span></summary>
       ${tableHtml({
         id: `sub-${id}-${attr}`, caption: "", rows,
         columns: [

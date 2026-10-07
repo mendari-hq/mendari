@@ -31,6 +31,7 @@ function boardGroups(board) {
 
 export function leaderboardView(board) {
   const { groups, current } = boardGroups(board);
+  if (!current) return `<div class="panel"><h2>Provider comparison</h2><p class="muted">No configurations compared yet.</p></div>`;
   const min = board.ranking.min_positives;
   return `<div class="panel">
     <h2>Provider comparison</h2>

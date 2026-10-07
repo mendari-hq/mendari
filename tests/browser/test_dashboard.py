@@ -470,6 +470,49 @@ def test_the_dashboard_prints_a_figure_as_the_card_does(page: Page) -> None:
     assert wrong == []
 
 
+def monitoring_week(start: str, end: str, agreed: int, labelled: int, overridden: int) -> Any:
+    """A week of /api/monitoring, its figures as the server works them out."""
+    return {
+        "from": start,
+        "to": end,
+        "decisions": 30,
+        "automated_rate": 24 / 30,
+        "reviewed": 6,
+        "override_rate": overridden / 6,
+        "labelled": labelled,
+        "observed_accuracy": agreed / labelled if labelled else None,
+        "cost_per_decision": None,
+        "figures": {
+            "automated": figures.of(24, 30),
+            "overrides": figures.of(overridden, 6),
+            "accuracy": figures.of(agreed, labelled),
+        },
+    }
+
+
+MONITORING = {
+    "pack": {"id": INBOX},
+    "days": 30,
+    "benchmark": {
+        "accuracy": 0.97,
+        "n": 600,
+        "tolerance": 0.03,
+        "figures": {"accuracy": figures.counted(0.97, 600)},
+    },
+    "last_7_days": {
+        **monitoring_week("2026-09-23", "2026-09-30", 23, 25, 2),
+        "drift_psi": 0.1,
+        "automated_rated_wrong": 0,
+    },
+    "weeks": [
+        monitoring_week("2026-09-09", "2026-09-16", 24, 25, 1),
+        monitoring_week("2026-09-16", "2026-09-23", 0, 0, 1),
+        monitoring_week("2026-09-23", "2026-09-30", 23, 25, 2),
+    ],
+    "alerts": [],
+}
+
+
 # Text a person reads in the view (and its labels and tooltips), with each figure's interval and
 # what is a setting rather than a share of cases taken out: no percentage may remain.
 BARE_PERCENT = r"""() => {
@@ -505,16 +548,52 @@ def test_no_share_of_cases_is_a_bare_percentage(page: Page, pack_id: str, view: 
     serve_history(page, [{"date": eastern_days_ago(0), "AUTO": 12, "HUMAN_REVIEW": 7, "reviewed": 3,
                           "overridden": 1, "labelled": 4, "agreed": 3}])  # fmt: skip
     serve_board(page, GUARD, counted_board(GUARD))  # with its accuracy figures and cost chart
+    page.route("**/api/monitoring?*", lambda route: route.fulfill(json=MONITORING))
     open_pack(page, pack_id, view.split("/")[0])
     if "/" in view:
         page.goto(f"/#{view}")
         expect(page.locator("#evals-body")).to_contain_text("Per label")
     expect(page.locator("#view")).not_to_have_attribute("aria-busy", "true")
+    expect(page.locator("main")).not_to_contain_text("Could not load this view")
+    expect(page.locator("main .interval").first).to_be_attached()  # figures were shown
     for summary in page.locator("main details > summary").all():
         summary.click()  # subgroups, confusion matrix, chart data and per-check tables too
     assert page.evaluate(BARE_PERCENT) == []
     page.evaluate("document.querySelector('main').insertAdjacentHTML('beforeend', '<p>42.0%</p>')")
     assert page.evaluate(BARE_PERCENT) == ["42.0%"]  # the scan does find one
+
+
+def test_a_leaderboard_with_no_rows_leaves_the_other_evaluation_views(page: Page) -> None:
+    pack = resolve_pack(GUARD)
+    serve_board(page, GUARD, figures.board({"rows": []}, pack.digest, pack.version))
+    open_pack(page, GUARD, "evals")
+    expect(page.locator("main")).not_to_contain_text("Could not load this view")
+    expect(page.get_by_role("link", name="Provider comparison")).to_have_count(0)
+    expect(page.locator("#evals-body")).to_contain_text("Per label")  # the report comes first
+
+
+def test_a_report_with_nothing_labelled_for_its_question_still_shows(page: Page) -> None:
+    """A run on cases none of which is labelled for the primary question has no figures for it:
+    the report says n/a, never fails, and says what it can of what was automated."""
+    pack = resolve_pack(INBOX)
+    report = json.loads(pack.attestation("evals/benchmark.json").read_text())
+    del report["questions"][report["primary"]]
+    report["decisions"]["outcome_counts"].update(AUTO=50, HUMAN_REVIEW=548)
+
+    def handle(route: Route) -> None:
+        body = route.fetch().json()
+        body["benchmark"] = {**report, "figures": figures.guarded(lambda: figures.report(report))}
+        route.fulfill(json=body)
+
+    page.route(re.compile(rf".*/api/packs/{re.escape(INBOX)}$"), handle)
+    open_pack(page, INBOX, "evals")
+    page.goto("/#evals/report")
+    body = page.locator("#evals-body")
+    expect(body).to_contain_text("Per label")
+    expect(page.locator(".stats-primary .stat").first).to_contain_text("n/a")
+    automated = page.locator(".stats-secondary .stat", has_text="Automated")
+    expect(automated).to_contain_text(shown(figures.of(50, 600)))
+    expect(automated).to_contain_text("correct: none of them labelled")  # never "nothing automated"
 
 
 def test_the_leaderboard_remembers_the_dataset(page: Page) -> None:
@@ -2126,31 +2205,9 @@ def test_monitoring_shows_the_last_week_against_the_benchmark(page: Page) -> Non
 
 
 def test_monitoring_draws_the_weekly_trend(page: Page) -> None:
-    def week(start: str, end: str, agreed: int, labelled: int, overridden: int) -> Any:
-        return {
-            "from": start,
-            "to": end,
-            "decisions": 30,
-            "automated_rate": 24 / 30,
-            "reviewed": 6,
-            "override_rate": overridden / 6,
-            "labelled": labelled,
-            "observed_accuracy": agreed / labelled if labelled else None,
-            "cost_per_decision": None,
-            "figures": {  # as the server works them out (monitoring._summary)
-                "automated": figures.of(24, 30),
-                "overrides": figures.of(overridden, 6),
-                "accuracy": figures.of(agreed, labelled),
-            },
-        }
-
     def with_weeks(route: Route) -> None:
         report = route.fetch().json()
-        report["weeks"] = [
-            week("2026-09-09", "2026-09-16", 24, 25, 1),
-            week("2026-09-16", "2026-09-23", 0, 0, 1),
-            week("2026-09-23", "2026-09-30", 23, 25, 2),
-        ]
+        report["weeks"] = MONITORING["weeks"]
         route.fulfill(json=report)
 
     page.route("**/api/monitoring?*", with_weeks)

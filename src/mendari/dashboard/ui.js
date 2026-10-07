@@ -66,7 +66,7 @@ export const share = (p) => (p && p.n ? p.k / p.n : null);
 
 // Beside a critical label's figure with fewer positives than ranking and comparing need.
 export const evidenceMark = (insufficient, min) => (insufficient
-  ? ` <span class="evidence" title="Fewer than ${esc(min)} positives: too few to rank or compare on">insufficient evidence</span>`
+  ? ` <span class="evidence-mark" title="Fewer than ${esc(min)} positives: too few to rank or compare on">insufficient evidence</span>`
   : "");
 
 export const num = (v, d = 3) => (v === null || v === undefined ? "n/a" : Number(v).toFixed(d));
