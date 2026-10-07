@@ -1,8 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Figures as served (`mendari.figures/1`, LP-10): every share of cases the dashboard and the Hub
 show, worked out here once, as the card and the command line work them out, so a browser only
-formats them (`render.shown`, ported in `dashboard/ui.js` and `hub/lib/figures.ts` and checked
-against tests/fixtures/shown.json).
+formats them: a port of `render.shown`, checked against tests/fixtures/shown.json.
 
 A figure is `{k, n, low, high}`: k of n with its exact 95% interval (Clopper-Pearson, from k and
 n, unrounded; `low` and `high` are null when n is 0, "no cases"). A figure is null when what it
@@ -13,13 +12,14 @@ never stored: they are recomputed from what is stored on every read.
 
 from __future__ import annotations
 
-import math
+from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from datetime import date, timedelta
 from typing import Any
 
-from mendari.evals import ranking, stats
+from mendari.evals import ranking, result, stats
 from mendari.evals.result import (
+    MAX_N,
     MIN_POSITIVES,
     false_automation,
     normalize,
@@ -28,9 +28,7 @@ from mendari.evals.result import (
 )
 
 FORMAT = "mendari.figures/1"
-MAX_N = 10**9  # the size of anything a figure is of; a larger one is not a dataset
 OUTCOMES = ("AUTO", "HUMAN_REVIEW", "ABSTAIN", "BLOCK")
-_SLACK = 1e-6  # how far rate x n may be from a whole k, from a rate's float rounding
 
 Figure = dict[str, Any]
 _MALFORMED = (AttributeError, IndexError, KeyError, TypeError, ValueError, ArithmeticError)
@@ -59,19 +57,11 @@ def maybe(k: Any, n: Any) -> Figure | None:
 
 
 def counted(rate: Any, n: Any) -> Figure | None:
-    """k of n for a rate stated over n cases, as `result.counted` does, or null when that is not
-    known: n missing or not a whole count, the rate missing over some cases, or rate x n not a
-    whole number of cases (a rate that is not a share of those n)."""
-    if not _count(n):
-        return None
-    if rate is None:
-        return of(0, 0) if n == 0 else None
-    if isinstance(rate, bool) or not isinstance(rate, int | float) or not math.isfinite(rate):
-        return None
-    k = round(rate * n)
-    if not 0.0 <= rate <= 1.0 or abs(rate * n - k) > _SLACK:
-        return None
-    return of(k, n)
+    """k of n for a rate stated over n cases, by the card's own rule (`result.counted`): null
+    when that is not known (n missing or not a whole count, or the rate not a share of those n
+    cases), so the card and the served figures never disagree."""
+    p = result.counted(rate, n)
+    return None if p is None else of(p.k, p.n)
 
 
 def _stored(p: Any) -> Figure | None:
@@ -207,11 +197,11 @@ def board(data: Mapping[str, Any], digest: str | None, version: str | None) -> d
     for row in rows:
         _check(row)
     groups = ranking.grouped(rows, digest)
-    sizes = [(name, n) for (name, _, n), _ in groups]
+    sizes = Counter((name, n) for (name, _, n), _ in groups)
     served_groups, served_rows = [], []
     for index, (group, members) in enumerate(groups):
         name, sha, n = group
-        twin = sizes.count((name, n)) > 1
+        twin = sizes[(name, n)] > 1
         about = ranking.about(group, limited=any(m.get("limit") for m in members), twin=twin)
         served_groups.append(
             {
@@ -296,23 +286,43 @@ def _check(row: Any) -> None:
 # -- a registry version -------------------------------------------------------------------------
 
 
+MAX_BOARD_FIGURES = 5000  # what a registry works out for one uploaded leaderboard, at most
+
+
 def registry(version: Mapping[str, Any], *, with_leaderboard: bool = True) -> dict[str, Any]:
     """A published version's figures, worked out on read from what the registry stored (so a
     version published before needs no migration): its benchmark accuracy and (unless left out,
     as a search does) its leaderboard ranked against its own digest. Never raises: what is not
-    a figure is null."""
+    a figure is null, and so is a leaderboard with more than MAX_BOARD_FIGURES figures (the
+    shipped ones have a few hundred), so one upload cannot make every read slow."""
     benchmark = version.get("benchmark")
     accuracy = None
     if isinstance(benchmark, Mapping):
-        accuracy = counted(benchmark.get("accuracy"), benchmark.get("n"))
+        accuracy = guarded(lambda: counted(benchmark.get("accuracy"), benchmark.get("n")))
     leaderboard = None
     stored = version.get("leaderboard") if with_leaderboard else None
-    if isinstance(stored, Mapping):
-        try:
-            leaderboard = board(stored, version.get("digest"), version.get("version"))
-        except _MALFORMED:
-            leaderboard = None
+    if isinstance(stored, Mapping) and _figure_count(stored) <= MAX_BOARD_FIGURES:
+        leaderboard = guarded(lambda: board(stored, version.get("digest"), version.get("version")))
     return {"format": FORMAT, "benchmark": accuracy, "leaderboard": leaderboard}
+
+
+def _figure_count(stored: Mapping[str, Any]) -> int:
+    """How many figures a board would be worked out into (each row's own three, its critical
+    labels and its other questions), counted without working any out; past the cap, any."""
+    rows = stored.get("rows")
+    if not isinstance(rows, list):
+        return 0
+    total = 0
+    for row in rows:
+        if isinstance(row, Mapping):
+            total += 3 + _length(row.get("critical")) + _length(row.get("questions"))
+        if total > MAX_BOARD_FIGURES:
+            break
+    return total
+
+
+def _length(value: Any) -> int:
+    return len(value) if isinstance(value, list | Mapping) else 0
 
 
 # -- the overview's periods ---------------------------------------------------------------------

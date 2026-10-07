@@ -93,14 +93,42 @@ def test_figures_never_format_a_stored_bound() -> None:
 
 @pytest.mark.parametrize("name", PACKS)
 def test_report_figures_are_the_ones_the_card_shows(name: str) -> None:
+    """Each served figure is the one on the card's own row for it: the same k of n over the
+    same denominator, never merely text that appears somewhere on the card."""
     pack = resolve_pack(f"mendari/{name}")
     report = benchmark(pack)
     assert report is not None
-    card = render_card(pack)
+    lines = render_card(pack).splitlines()
     worked = figures.report(report)
-    for figure in card_figures(worked):
-        assert shown(figure) in card, shown(figure)
-    assert worked["accuracy"] is not None and worked["false_automation"] is not None
+    assert all(figure is not None for figure in card_figures(worked))  # all counts are stored
+
+    def row(*cells: str) -> None:
+        line = "| " + " | ".join(cells) + " |"
+        assert line in lines, line
+
+    primary = report["primary"]
+    row(f"`{primary}` accuracy", shown(worked["accuracy"]))
+    for outcome in report["decisions"]["outcome_counts"]:
+        row(outcome, shown(worked["outcomes"][outcome]))
+    row("AUTO decisions correct", shown(worked["automated_correct"]))
+    row("False automation (of labelled cases)", shown(worked["false_automation"]))
+    row("Expected human override (of reviewed)", shown(worked["expected_override"]))
+    for c in worked["critical"]:
+        line = f"| Critical `{c['question']}={c['label']}` | {shown(c['detected'])} detected, "
+        assert any(x.startswith(line) for x in lines), line
+    for label, f in worked["per_label"].items():
+        f1 = report["questions"][primary]["per_label"][label]["f1"]
+        row(f"`{label}`", shown(f["precision"]), shown(f["recall"]), f"{f1:.3f}")
+    for attribute, values in worked["subgroups"].items():
+        for value, f in values.items():
+            members = report["subgroups"][attribute][value]["n"]
+            figures_shown = (shown(f["accuracy"]), shown(f["automation"]), shown(f["abstention"]))
+            row(f"{attribute}={value}", str(members), *figures_shown)
+    bins = report["questions"][primary]["calibration"]["bins"]
+    for b, f in zip(bins, worked["calibration"], strict=True):
+        row(f"{b['low']:.1f} to {b['high']:.1f}", f"{b['confidence']:.3f}", shown(f))
+    for t, f in zip(report["threshold_sweep"], worked["sweep"], strict=True):
+        row(f"{t['threshold']:.2f}", shown(f["automated"]), shown(f["correct"]))
 
 
 def test_a_v1_report_has_every_figure_it_can_prove() -> None:
@@ -136,6 +164,40 @@ def test_an_eval2_report_from_before_its_counts_were_stored_derives_them() -> No
         for values in figures.report(earlier)["subgroups"].values()
         for group in values.values()
     )
+
+
+def test_a_rate_beyond_any_share_is_never_multiplied() -> None:
+    """A report can be someone else's file: 1e308 x 600 is infinite, and rounding it raised,
+    which made every registry read of a pack, and search, a server error."""
+    from mendari.evals.result import counted as result_counted
+
+    for rate in (1e308, -1e308, 1.0000001):
+        assert figures.counted(rate, 600) is None and result_counted(rate, 2) is None
+    version = {"benchmark": {"n": 600, "accuracy": 1e308}, "leaderboard": {"rows": [
+        {"config": "a", "dataset": "t", "n": 5, "critical": [], "auto_rate": 1e308,
+         "questions": {"other": {"n": 5, "accuracy": 1e308, "ece": 0.1}}}]}}  # fmt: skip
+    served = figures.registry(version)
+    assert served["benchmark"] is None
+    (row,) = served["leaderboard"]["rows"]
+    assert row["figures"]["automation"] is None and row["figures"]["questions"] == {"other": None}
+
+
+def test_a_v1_report_with_nothing_scored_has_no_cases_in_its_sweep() -> None:
+    nothing = copy.deepcopy(V1)
+    nothing["questions"][nothing["primary"]]["calibration"]["bins"] = []
+    for row in nothing["threshold_sweep"]:  # as a v1 sweep over no scored cases was written
+        row.update(coverage=None, accuracy=None, errors=0)
+    first = figures.report(nothing)["sweep"][0]
+    assert (shown(first["automated"]), shown(first["correct"])) == ("no cases", "no cases")
+
+
+def test_a_registry_leaderboard_too_large_to_work_out_on_every_read_is_none() -> None:
+    rows = [{"config": "a", "dataset": "d", "n": i + 1, "critical": []} for i in range(16500)]
+    started = time.monotonic()
+    served = figures.registry({"leaderboard": {"rows": rows}, "digest": None, "version": "1"})
+    assert served["leaderboard"] is None and time.monotonic() - started < 0.2
+    small = figures.board({"rows": rows[:2000]}, None, "1")  # the groups are counted once
+    assert len(small["groups"]) == 2000
 
 
 def test_comparison_figures_say_what_they_are_of() -> None:
@@ -291,14 +353,30 @@ def test_periods_are_the_days_the_overview_shows() -> None:
 
 
 def test_the_shown_fixture_is_what_render_shows() -> None:
-    """tests/fixtures/shown.json, which the dashboard's and the Hub's ports are checked
-    against, is current (scripts/shown_fixture.py writes it)."""
+    """tests/fixtures/shown.json, which the ports of `render.shown` are checked against, holds
+    the cases scripts/shown_fixture.py generates and what render prints for them on this
+    platform; its bounds are within 1e-12 of this platform's (their last bits are the maths
+    library's), and print the same."""
+    module = _fixture_script()
+    assert module.problems(Path(module.FIXTURE).read_text()) == []
+
+
+def test_the_fixture_check_finds_a_wrong_text_or_bound() -> None:
+    module = _fixture_script()
+    data = json.loads(Path(module.FIXTURE).read_text())
+    data["shown"][100][4] = "1 of 2 [0.0-100.0%]"
+    data["shown"][200][2] = data["shown"][200][2] * 1.001 if data["shown"][200][2] else 0.5
+    data["percent"][5][1] = "99.9"
+    found = module.problems(json.dumps(data))
+    assert len(found) == 3, found
+
+
+def _fixture_script() -> Any:
     import importlib.util
 
-    spec = importlib.util.spec_from_file_location(
-        "shown_fixture", ROOT / "scripts" / "shown_fixture.py"
-    )
+    path = ROOT / "scripts" / "shown_fixture.py"
+    spec = importlib.util.spec_from_file_location("shown_fixture", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    assert Path(module.FIXTURE).read_text() == module.fixture()
+    return module

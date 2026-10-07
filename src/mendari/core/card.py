@@ -39,7 +39,7 @@ RISK_AUTOMATION = {
 
 
 # What a malformed attestation raises when the card reads it (a missing key, a wrong type).
-_SHAPE_ERRORS = (AttributeError, IndexError, KeyError, TypeError, ValueError)
+_SHAPE_ERRORS = (AttributeError, IndexError, KeyError, TypeError, ValueError, ArithmeticError)
 
 
 def benchmark(pack: Pack) -> dict[str, Any] | None:

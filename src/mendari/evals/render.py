@@ -32,10 +32,14 @@ def shown(p: stats.Proportion | Mapping[str, Any] | None) -> str:
 
 
 def bounds(k: int, n: int) -> str:
-    """The interval's bounds as percentages, "98.3-99.8". A bound strictly inside (0, 100)
-    never reads as either: the lower one is above 0 when k is, and below 100 always; the upper
-    one is below 100 when k is below n, and above 0 always."""
-    low, high = stats.interval(k, n)
+    """The interval's bounds as percentages, "98.3-99.8"."""
+    return interval_text(k, n, *stats.interval(k, n))
+
+
+def interval_text(k: int, n: int, low: float, high: float) -> str:
+    """k of n's bounds `low` and `high` as percentages. A bound strictly inside (0, 100) never
+    reads as either: the lower one is above 0 when k is, and below 100 always; the upper one is
+    below 100 when k is below n, and above 0 always."""
     under = f"<{10.0**-BOUND_DIGITS:.{BOUND_DIGITS}f}"
     over = f">{100 - 10.0**-BOUND_DIGITS:.{BOUND_DIGITS}f}"
     low_text, high_text = percent(low), percent(high)

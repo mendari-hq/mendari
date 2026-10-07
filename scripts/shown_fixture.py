@@ -14,20 +14,23 @@ the same text for the same k of n.
   cases up to n = 10^9, and seeded pairs.
 
 Floats are written as Python's repr, which JSON readers in Python and JavaScript read back to
-the same double.
+the same double. The interval's last bits depend on the platform's maths library, so the check
+(`--check`, and tests/test_figures.py) compares what is printed, and the stored bounds only to
+within 1e-12 of this platform's: never the file byte for byte.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import random
 import sys
 from decimal import Decimal
 from pathlib import Path
 
 from mendari.evals import figures
-from mendari.evals.render import percent, shown
+from mendari.evals.render import interval_text, percent, shown
 
 ROOT = Path(__file__).resolve().parent.parent
 FIXTURE = ROOT / "tests" / "fixtures" / "shown.json"
@@ -90,18 +93,47 @@ def fixture() -> str:
     return json.dumps(data, indent=0, allow_nan=False) + "\n"
 
 
+def problems(text: str) -> list[str]:
+    """How the fixture `text` differs from what this platform's render prints: its cases, its
+    printed text, and its bounds beyond 1e-12."""
+    data = json.loads(text)
+    found = []
+    values = [v for v, _ in _percent_cases()]  # sorted, each once
+    if [v for v, _ in data["percent"]] != values:
+        found.append("the percent cases are not the generated ones")
+    found += [f"percent({v!r}) is not {t!r}" for v, t in data["percent"] if percent(v) != t]
+    if [(k, n) for k, n, *_ in data["shown"]] != _pairs():
+        found.append("the shown cases are not the generated ones")
+    for k, n, low, high, words in data["shown"]:
+        figure = figures.of(k, n)
+        if shown(figure) != words:
+            found.append(f"{k} of {n} is not shown as {words!r}")
+        elif n and not all(
+            math.isclose(stored, fresh, rel_tol=1e-12, abs_tol=1e-300)
+            for stored, fresh in ((low, figure["low"]), (high, figure["high"]))
+        ):
+            found.append(f"{k} of {n}: its stored bounds are not this platform's")
+        elif n and f"{k} of {n} [{interval_text(k, n, low, high)}%]" != words:
+            found.append(f"{k} of {n}: its stored bounds print differently")
+    if data.get("none") != shown(None):
+        found.append("none is not n/a")
+    return found
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--check", action="store_true", help="exit 1 when it is not current")
     args = parser.parse_args(argv)
-    text = fixture()
     if args.check:
-        if not FIXTURE.is_file() or FIXTURE.read_text() != text:
-            print(f"{FIXTURE.relative_to(ROOT)} is not current: run scripts/shown_fixture.py")
+        found = problems(FIXTURE.read_text()) if FIXTURE.is_file() else ["it is missing"]
+        for problem in found[:20]:
+            print(f"{FIXTURE.relative_to(ROOT)}: {problem}")
+        if found:
+            print("run scripts/shown_fixture.py to rewrite it")
             return 1
         print(f"ok  {FIXTURE.relative_to(ROOT)} is current")
         return 0
-    FIXTURE.write_text(text)
+    FIXTURE.write_text(fixture())
     print(f"wrote {FIXTURE.relative_to(ROOT)}")
     return 0
 

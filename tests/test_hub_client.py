@@ -259,6 +259,7 @@ def test_search_lists_every_entry_whatever_its_figures(
         entry("negative", 0.9, -1),
         entry("huge", 0.5, 10**400),  # beyond any dataset (and any float)
         entry("not-whole", 0.999, 7),  # not a share of 7 cases
+        entry("overflow", 1e308, 600),  # finite, but its k is not: it was multiplied first
         entry("fine", 0.9, 10),
     ]
 
@@ -270,7 +271,7 @@ def test_search_lists_every_entry_whatever_its_figures(
     assert main(["search"]) == 0
     out = capsys.readouterr().out
     assert "site-a/over@1.0.0  risk 1  community  benchmark n/a" in out
-    for name in ("negative", "huge", "not-whole"):
+    for name in ("negative", "huge", "not-whole", "overflow"):
         assert f"site-a/{name}@1.0.0  risk 1  community  benchmark n/a" in out
     assert "site-a/fine@1.0.0  risk 1  community  benchmark 9 of 10 [55.5-99.7%]" in out
 

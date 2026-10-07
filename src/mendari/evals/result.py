@@ -17,6 +17,7 @@ latency are lifted into its `run` block (it has no ledger, so no intervals).
 from __future__ import annotations
 
 import hashlib
+import math
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -30,6 +31,8 @@ SEED = 0
 # A critical label's evidence floor: fewer positives than this, and its figure says "insufficient
 # evidence" and ranks nothing (LP-10).
 MIN_POSITIVES = 100
+MAX_N = 10**9  # the size of anything a figure is of; a larger one is not a dataset
+_SLACK = 1e-6  # how far rate x n may be from a whole k, from a rate's float rounding
 OUTCOMES = ["AUTO", "HUMAN_REVIEW", "ABSTAIN", "BLOCK"]
 # Keys of a report that are not its result: what differs between two runs on the same cases.
 # Not the result: the run, a comparison with a benchmark, the hash, and the figures a server
@@ -248,12 +251,24 @@ def _subgroups(
     return groups
 
 
-def counted(rate: float | None, n: int | None) -> stats.Proportion | None:
+def counted(rate: Any, n: Any) -> stats.Proportion | None:
     """k of n, with its interval, for a rate a report states over n cases (k = rate x n: exact
-    for any n a report holds). None when the report does not say."""
-    if n is None or (rate is None and n):
+    for any n a report holds). None when that is not known: n missing or not a whole count (up
+    to MAX_N), the rate missing over some cases, or not a share of those n cases (outside
+    [0, 1], or rate x n not a whole number). A report can be someone else's file (a pack's
+    benchmark, a registry upload): what it says is checked before it is multiplied."""
+    if isinstance(n, bool) or not isinstance(n, int) or not 0 <= n <= MAX_N:
         return None
-    return stats.proportion(round((rate or 0.0) * n), n)
+    if rate is None:
+        return stats.proportion(0, 0) if n == 0 else None
+    if isinstance(rate, bool) or not isinstance(rate, int | float) or not math.isfinite(rate):
+        return None
+    if not 0.0 <= rate <= 1.0:
+        return None
+    k = round(rate * n)
+    if abs(rate * n - k) > _SLACK:
+        return None
+    return stats.proportion(k, n)
 
 
 def false_automation(report: Mapping[str, Any]) -> stats.Proportion | None:
@@ -280,7 +295,10 @@ def sweep(report: Mapping[str, Any]) -> list[dict[str, Any]]:
     for row in report.get("threshold_sweep", []):
         if "chosen" not in row:
             coverage = row.get("coverage")
-            chosen = None if scored is None or coverage is None else round(coverage * scored)
+            if scored == 0:  # nothing scored: nothing at or above any threshold
+                chosen: int | None = 0
+            else:
+                chosen = None if scored is None or coverage is None else round(coverage * scored)
             row = {**row, "scored": scored, "chosen": chosen}
         rows.append(dict(row))
     return rows

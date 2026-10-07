@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, datetime
 from typing import Any
@@ -158,7 +159,7 @@ def read(pack: Pack) -> tuple[dict[str, Any] | None, str | None]:
             raise TypeError("rows")
         markdown(board, pack.digest, pack.version)
         figures.board(board, pack.digest, pack.version)  # what the server serves of it
-    except (AttributeError, IndexError, KeyError, TypeError, ValueError) as error:
+    except (AttributeError, IndexError, KeyError, TypeError, ValueError, ArithmeticError) as error:
         return None, f"not a leaderboard ({type(error).__name__})"
     return board, None
 
@@ -177,7 +178,7 @@ def markdown(
         digest = recorded.get("digest")
         version = version if version is not None else recorded.get("version")
     groups = ranking.grouped(board.get("rows", []), digest)
-    sizes = [(name, n) for (name, _, n), _ in groups]
+    sizes = Counter((name, n) for (name, _, n), _ in groups)
 
     def config(item: Mapping[str, Any]) -> str:
         if item["standing"] == ranking.EARLIER:
@@ -198,7 +199,7 @@ def markdown(
         about = ranking.about(
             group,
             limited=any(item.get("limit") for item in rows),
-            twin=sizes.count((name, n)) > 1,
+            twin=sizes[(name, n)] > 1,
         )
         out += [
             f"**`{name}`** ({'; '.join(about)}; {INTERVALS})",

@@ -10,7 +10,8 @@ words MUST, SHOULD and MAY are used as in that spec.
 
 A report has two parts.
 
-- **The result:** every key except `run`, `comparison` and `result_sha256`. It MUST be computed
+- **The result:** every key except `run`, `comparison`, `result_sha256` and `figures` (what a
+  server serves beside a report, never stored). It MUST be computed
   only from the run's ledger and the seeds it names, so two runs on the same cases with the same
   pack, providers and seeds give byte-identical results (canonical JSON: sorted keys, no spaces),
   and anyone holding the ledger can recompute it.
@@ -94,8 +95,8 @@ command that measures it.
 A server works out the figures of what it serves, in Python (`mendari.evals.figures`), so a
 browser only formats them. A figure is `{k, n, low, high}`: k of n with its unrounded exact
 interval (`low` and `high` null when n is 0). A figure is null when what it is of is not known,
-or when its counts are not a whole k of a whole n (a rate that is not a share of its n cases,
-a count above 10^9). Figures are never stored: they are recomputed from the stored report,
+or when its counts are not a whole k of a whole n (a rate outside [0, 1] or not a share of its n
+cases, a count above 10^9). The card and the command line follow the same rule. Figures are never stored: they are recomputed from the stored report,
 leaderboard or registry version on every read, so one published before needs no migration.
 
 | Where | Key | Holds |
@@ -104,8 +105,14 @@ leaderboard or registry version on every read, so one published before needs no 
 | `GET /api/packs/{pack}` | `leaderboard` | the leaderboard as served: `ranking`, `groups` (one per set of records, with `about` and `label`) and each row's `rank`, `standing`, `standing_text`, `group` and `figures` |
 | `POST /api/packs/{pack}/evals`, `GET /api/evals` | `figures` | each report's figures (null when a stored report's cannot be read) |
 | `GET /api/stats` | `periods` | the last 7 and 30 days and all time (local days), each with the window before it: automated, overridden and agreed shares and each outcome |
-| `GET /api/monitoring` | `figures` | each week's and the last 7 days' automated, override and accuracy shares, and the benchmark's accuracy |
-| `GET /v1/packs/{pack}`, `/v1/packs/{pack}/{version}` | `figures` | the version's benchmark accuracy and leaderboard (null when it is malformed); search carries the benchmark's only |
+| `GET /api/monitoring` | `weeks[].figures`, `last_7_days.figures`, `benchmark.figures` | each week's and the last 7 days' automated, override and accuracy shares, and the benchmark's accuracy |
+| `GET /v1/packs/{pack}` | `latest.figures` | the latest version's benchmark accuracy and leaderboard |
+| `GET /v1/packs/{pack}/{version}` | `figures` | that version's benchmark accuracy and leaderboard |
+| `GET /v1/search` | each item's `figures` | the benchmark accuracy only |
+
+A registry's leaderboard figures are null when the board is malformed, or would hold more than
+5,000 figures (`MAX_BOARD_FIGURES`; a shipped one holds a few hundred), so one upload cannot make
+every read of it slow.
 
 A report's figures are each over what the card shows it over: accuracy over the labelled
 cases, each outcome and automation over all cases, false automation over the labelled cases,
@@ -116,10 +123,11 @@ before its counts were stored has each figure it can prove: the sweep's counts f
 calibration bins, a subgroup's accuracy only when every case is labelled. `figures` is a run
 key: a served report's `result_sha256` is still its result's hash.
 
-The dashboard (`dashboard/ui.js`) and the Hub (`hub/lib/figures.ts`) print a figure as
-`render.shown` does, checked against `tests/fixtures/shown.json` (written by
-`scripts/shown_fixture.py`), which holds the exact rounding ties where JavaScript's `toFixed`
-and Python's formatting disagree.
+A browser that prints a figure ports `render.shown` and is checked against
+`tests/fixtures/shown.json` (written and checked by `scripts/shown_fixture.py`): the text Python
+prints for 2,401 figures and 601 bounds, including the exact rounding ties where JavaScript's
+`toFixed` and Python's formatting disagree. Its bounds' last bits are the platform's maths
+library's, so it is checked by what it prints, never byte for byte.
 
 ## Leaderboards: `mendari.leaderboard/2` and `mendari.rank/1`
 

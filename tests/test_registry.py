@@ -455,6 +455,26 @@ def test_a_malformed_leaderboard_serves_no_figures_and_never_a_server_error(
         assert body.get("latest", body)["figures"]["leaderboard"] is None
 
 
+def test_a_benchmark_rate_beyond_any_share_keeps_every_read_working(
+    registry: Registry, tmp_path: Path
+) -> None:
+    """An accuracy of 1e308 was stored (it is finite), and working out its figure overflowed:
+    search and the pack's pages answered 500 for everyone, for good (a version is immutable)."""
+    root = tmp_path / "pack"
+    shutil.copytree(REFERRAL.root, root)
+    path = root / "evals" / "benchmark.json"
+    benchmark = json.loads(path.read_text())
+    benchmark["questions"][REFERRAL.manifest.policy.primary]["accuracy"] = 1e308
+    path.write_text(json.dumps(benchmark))
+    assert registry.publish(load_pack(root)).status_code == 201
+    (found,) = registry.client.get("/v1/search").json()
+    assert found["figures"]["benchmark"] is None
+    for route in (f"/v1/packs/{REFERRAL.id}", f"/v1/packs/{REFERRAL.id}/{REFERRAL.version}"):
+        answer = registry.client.get(route)
+        assert answer.status_code == 200, answer.text
+        assert answer.json().get("latest", answer.json())["figures"]["benchmark"] is None
+
+
 def test_a_shipped_benchmark_and_leaderboard_are_shown_as_they_are(registry: Registry) -> None:
     shown = registry.publish().json()
     benchmark = json.loads(REFERRAL.attestation("evals/benchmark.json").read_text())
