@@ -67,7 +67,7 @@ def test_clopper_pearson_refuses_what_is_not_a_proportion() -> None:
         with pytest.raises(ValueError):
             stats.clopper_pearson(*bad)
     with pytest.raises(TypeError):
-        stats.clopper_pearson(True, 5)  # type: ignore[arg-type]
+        stats.clopper_pearson(True, 5)  # a bool is not a count
     with pytest.raises(ValueError):
         stats.clopper_pearson(1, 5, level=1.0)
 

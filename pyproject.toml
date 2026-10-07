@@ -113,3 +113,10 @@ mypy_path = "src"
 ignore_missing_imports = true
 warn_unused_ignores = true
 check_untyped_defs = true
+
+# The statistics tests' references (development only): their stubs use syntax newer than the
+# Python mypy checks for (3.11), so mypy reads them as untyped.
+[[tool.mypy.overrides]]
+module = ["numpy", "numpy.*", "scipy", "scipy.*", "statsmodels", "statsmodels.*"]
+follow_imports = "skip"
+follow_imports_for_stubs = true
