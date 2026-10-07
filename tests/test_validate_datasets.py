@@ -44,12 +44,12 @@ VALID = {"message": {"body": SECRET}}
             "case r1: input",
         ),
         (
-            json.dumps({"id": "r2", "input": VALID, "labels": {"urgency": "urgentish"}}),
-            "case r2: labels.urgency is 'urgentish', not one of its labels",
+            json.dumps({"id": "r2", "input": VALID, "labels": {"urgency": SECRET}}),
+            "case r2: labels.urgency is not one of its labels (urgent, routine)",
         ),
         (
-            json.dumps({"id": "r3", "input": VALID, "labels": {"mood": "calm"}}),
-            "case r3: labels name 'mood', not a question of the pack",
+            json.dumps({"id": "r3", "input": VALID, "labels": {SECRET: "calm"}}),
+            "case r3: labels name a question the pack does not have",
         ),
         (
             json.dumps({"id": "r4", "input": VALID, "labels": ["urgent"]}),
@@ -92,12 +92,11 @@ def test_eval_refuses_labels_the_pack_does_not_have(
     """An undeclared label crashed the report (KeyError) and a list of labels raised
     AttributeError: now one line, before any decision is made."""
     site = tmp_path / "site.jsonl"
-    site.write_text(json.dumps({"id": "s1", "input": VALID, "labels": {"urgency": "soon"}}) + "\n")
+    site.write_text(json.dumps({"id": "s1", "input": VALID, "labels": {"urgency": SECRET}}) + "\n")
     assert main(["eval", "mendari/patient-inbox-router", "--dataset", str(site)]) == 1
     (line,) = capsys.readouterr().err.splitlines()
-    assert line == (
-        "error: site case s1: labels.urgency is 'soon', not one of its labels (urgent, routine)"
-    )
+    # The label's value is the site's own text: never repeated, only what the pack defines.
+    assert line == "error: site case s1: labels.urgency is not one of its labels (urgent, routine)"
 
 
 def test_a_pack_with_no_behaviour_tests_fails_its_test_run(

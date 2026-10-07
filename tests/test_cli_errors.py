@@ -45,9 +45,11 @@ def places(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
         "not_db": str(not_a_database),
         "file": str(a_file),
         "out": str(tmp_path / "out.jsonl"),
+        "pack_dir": str(tmp_path / "generated-pack"),
     }
 
 
+RESOURCES = ("patient", "coverage", "insurer", "requester", "order")
 # command -> (argv after the command, extra environment). Paths are `places` keys in braces.
 BROKEN: dict[str, tuple[list[str], dict[str, str]]] = {
     "list": ([], {"MENDARI_COMMUNITY_PACKS": "maybe"}),
@@ -57,7 +59,7 @@ BROKEN: dict[str, tuple[list[str], dict[str, str]]] = {
     "eval": (["mendari/ai-guard", "--dataset", "{missing}"], {}),
     "train": (["no/such-pack"], {}),
     "calibrate": (["mendari/patient-inbox-router", "--slot", "routr", "--variant", "x"], {}),
-    "agreement": (["mendari/patient-inbox-router", "--slot", "routr", "--variants", "a,b"], {}),
+    "agreement": (["mendari/patient-inbox-router", "--slot", "routr", "--variants", "a", "b"], {}),
     "leaderboard": (["mendari/ai-guard", "--report", "{missing}"], {}),
     "card": (["no/such-pack"], {}),
     "schema": (["no/such-pack"], {}),
@@ -68,7 +70,10 @@ BROKEN: dict[str, tuple[list[str], dict[str, str]]] = {
     "automation lift": (["h-1", "--db", "{not_db}"], {}),
     "automation list": (["--db", "{not_db}"], {}),
     "feedback export": (["mendari/ai-guard", "--out", "{out}", "--db", "{missing_db}"], {}),
-    "sandbox generate": (["--kind", "inbox", "--local-out", "{file}/x.jsonl"], {}),
+    "sandbox generate": (
+        ["--kind", "inbox", "--pack-dir", "{pack_dir}", "--local-out", "{file}/x.jsonl"],
+        {},
+    ),
     "sandbox seed": (["--fhir", DEAD, "--wait", "1"], {}),
     "sandbox worker": (["--fhir", DEAD, "--engine", DEAD, "--once"], {}),
     "sandbox smart-launch": (["--engine", DEAD, "--launcher", DEAD, "--fhir", DEAD], {}),
@@ -78,11 +83,9 @@ BROKEN: dict[str, tuple[list[str], dict[str, str]]] = {
     "sandbox omop-check": (["--dataset", "{missing}"], {}),
     "sandbox bulk-check": (["--fhir", DEAD], {}),
     "pas build": (
-        ["--decision", "d-1", "--db", "{missing_db}", "--out", "{out}"]
-        + [
-            f"--{name}"
-            for kind in ("patient", "coverage", "insurer", "requester", "order")
-            for name in (kind, "{missing}")
+        [
+            *("--decision", "d-1", "--db", "{missing_db}", "--out", "{out}"),
+            *(part for kind in RESOURCES for part in (f"--{kind}", "{missing}")),
         ],
         {},
     ),
@@ -126,6 +129,8 @@ BROKEN: dict[str, tuple[list[str], dict[str, str]]] = {
 }
 
 
+# Commands whose broken input is refused by the command line itself, before the command runs.
+USAGE = {"sandbox payer"}
 # Commands whose answer to a broken input is their check report, one problem a line on stdout,
 # and exit 1, as for any failed check: the report is the result, not an error.
 REPORTS = {"community-check", "smart check"}
@@ -159,7 +164,12 @@ def test_a_broken_input_is_one_line_and_exit_1(
         return
     assert lines and all(line.startswith(("error: ", "warning: ")) for line in lines), err
     assert any(line.startswith("error: ") for line in lines), err
-    assert "Traceback" not in err
+    # Each broken input reaches its command (not a usage error, unless it is one on purpose)
+    # and is named, never "unexpected".
+    assert not any("unexpected" in line for line in lines), err
+    if command not in USAGE:
+        assert "--help)" not in err, err
+    assert not Path(places["missing_db"]).exists()  # a missing database is never created
 
 
 @pytest.mark.parametrize("command", sorted(BROKEN))
@@ -231,3 +241,92 @@ def test_an_unexpected_error_says_only_its_type(
     assert main(["list"]) == 1
     err = capsys.readouterr().err
     assert err == "error: unexpected ValueError; run again with --debug for the traceback\n"
+
+
+@pytest.mark.parametrize("value", ["0", "off", "false", "no", ""])
+def test_mendari_debug_off_keeps_one_line(
+    value: str, places: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MENDARI_DEBUG", value)
+    assert main(["decide", "mendari/ai-guard", "--input", places["missing"]]) == 1
+
+
+def test_mendari_debug_takes_on_or_off_only(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("MENDARI_DEBUG", "maybe")
+    assert main(["list"]) == 1
+    assert capsys.readouterr().err == "error: MENDARI_DEBUG must be on or off (1 or 0)\n"
+
+
+@pytest.mark.parametrize(
+    "given",
+    [
+        "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIA==\n-----END PRIVATE KEY-----",
+        '{"message": {"body": "Jane Example, born 1950"}}',
+    ],
+    ids=["a-key", "a-case"],
+)
+def test_a_files_content_given_as_its_path_is_never_printed(
+    given: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    flag = "--key" if "PRIVATE" in given else "--input"
+    argv = ["push", "mendari/ai-guard", "--key", given] if flag == "--key" else None
+    argv = argv or ["decide", "mendari/ai-guard", "--input", given]
+    assert main(argv) == 1
+    err = capsys.readouterr().err
+    (line,) = err.splitlines()
+    assert "MC4CAQ" not in err and "Jane" not in err
+    assert "looks like a file's content, not its path" in line
+
+
+def test_a_json_file_that_cannot_be_read_is_named_by_its_flag(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    bad = tmp_path / "bad.json"
+    bad.write_text('{"message": ')
+    assert main(["decide", "mendari/ai-guard", "--input", str(bad)]) == 1
+    (line,) = capsys.readouterr().err.splitlines()
+    assert line == f"error: --input {bad}: not valid JSON (line 1, column 13: Expecting value)"
+    report = tmp_path / "report.json"
+    report.write_text("[]")
+    assert main(["leaderboard", "mendari/ai-guard", "--report", str(report)]) == 1
+    assert f"--report {report}: expected a JSON object" in capsys.readouterr().err
+
+
+def test_a_closed_pipe_is_not_an_error(tmp_path: Path) -> None:
+    """`mendari list | head -1`: the reader closing the pipe is no error line, no traceback."""
+    import subprocess
+    import sys
+
+    shell = f"{sys.executable} -c 'from mendari.cli import main; main([\"list\"])' | head -c 1"
+    ran = subprocess.run(["sh", "-c", shell], capture_output=True, text=True)
+    assert "Traceback" not in ran.stderr and "BrokenPipeError" not in ran.stderr
+    assert "error:" not in ran.stderr
+
+
+def test_a_server_that_cannot_listen_is_one_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import uvicorn
+
+    def cannot_bind(*_: Any, **__: Any) -> None:
+        raise SystemExit(3)  # what uvicorn does when the port is in use
+
+    monkeypatch.setattr(uvicorn, "run", cannot_bind)
+    assert main(["serve", "--db", str(tmp_path / "a.db"), "--port", "8765"]) == 1
+    (line,) = capsys.readouterr().err.splitlines()
+    assert line.startswith("error: could not listen on 127.0.0.1:8765")
+
+
+def test_serve_refuses_a_typed_provider_setting_no_pack_takes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import uvicorn
+
+    monkeypatch.setattr(uvicorn, "run", lambda *_, **__: None)
+    db = str(tmp_path / "a.db")
+    for setting in ("router=naive_bayse", "routr=llm"):  # a variant typo, a slot typo
+        assert main(["serve", "--db", db, "--provider", setting]) == 1
+        assert f"--provider settings no served pack takes: {setting}" in capsys.readouterr().err
+    assert main(["serve", "--db", db, "--provider", "router=naive_bayes"]) == 0

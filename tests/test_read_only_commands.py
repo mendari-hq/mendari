@@ -131,3 +131,50 @@ def test_an_empty_postgres_schema_is_refused_and_left_empty(db_target: str) -> N
             "SELECT count(*) FROM information_schema.tables WHERE table_schema = current_schema()"
         ).fetchone()
     assert tables == (0,)
+
+
+def test_a_wal_database_no_server_has_open_gains_no_files(tmp_path: Path, inbox_pack: Pack) -> None:
+    """A server leaves its SQLite database in WAL mode, the -wal and -shm files gone once it
+    closes: reading it then creates no sidecar file a server might later be unable to write."""
+    folder = tmp_path / "var"
+    folder.mkdir()
+    db = folder / "mendari.db"
+    with AuditStore(db) as store:  # WAL, as a server leaves it
+        Decision(inbox_pack, store=store)({"message": {"body": "Refill please."}})
+    assert sorted(p.name for p in folder.iterdir()) == ["mendari.db"]
+    for command in sorted(COMMANDS):
+        assert run(command, str(db), tmp_path) in (0, 1)
+        assert sorted(p.name for p in folder.iterdir()) == ["mendari.db"], command
+    folder.chmod(0o555)  # a folder the command line cannot write
+    try:
+        assert main(["audit", "verify", "--db", str(db)]) == 0
+    finally:
+        folder.chmod(0o755)
+
+
+def test_an_older_database_is_exported_purged_and_erased_as_it_is(
+    tmp_path: Path, inbox_pack: Pack
+) -> None:
+    """Every release has had the chain and the records: a database from before a release that
+    added tables (the automation hold, LP-06) is still Mendari's."""
+    db = used_database(tmp_path / "mendari.db", inbox_pack)
+    with sqlite3.connect(db) as connection:
+        connection.execute("DROP TABLE automation_holds")
+        connection.execute("ALTER TABLE decision_inputs DROP COLUMN details")
+    out = tmp_path / "export.ndjson"
+    assert main(["audit", "export", "--db", str(db), "--out", str(out)]) == 0
+    assert out.read_text().count("\n") > 0
+    assert main(["phi", "purge", "--db", str(db)]) == 0  # its server migrates it, as before
+
+
+@pytest.mark.parametrize(
+    "target",
+    ["postgresql+psycopg://mendari:S3cretPW@localhost/db", "POSTGRESQL://mendari:S3cretPW@x/db"],
+)
+def test_a_url_of_another_scheme_is_refused_without_its_password(
+    target: str, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    for command in ("audit verify", "monitor"):
+        assert run(command, target, tmp_path) == 1
+        err = capsys.readouterr().err
+        assert "S3cretPW" not in err and "neither a SQLite path nor a postgres" in err

@@ -278,6 +278,17 @@ behaviour.
     `notes erase` refuse a missing database too; the automation and rotation commands raise like
     every other. Spec §10 (every spec version, as LP-04 and LP-14 did before a release), the
     authoring guide, the README, the threat model rows T1 and D7, the CHANGELOG.
+    Review: one adversarial review (three lenses), each finding checked by a skeptic: 16 low,
+    all fixed (a file's content given as its path printed whole, now never; Ctrl-C let a
+    parallel eval run its whole queue, now cancelled; `MENDARI_DEBUG=off` meant on; a broken
+    input in the test rewrote the repository's pack data; two inputs were usage errors that
+    never reached their command; a pool's log line beside the error; uvicorn's exit 3; JSON
+    files and an answered HTTP status not named; a closed pipe; dataset labels echoed (a site's
+    can hold case text); `serve --provider` with a mistyped variant started anyway; a wrong
+    community-pack hint; sidecar files left beside a WAL database (read as a file now when no
+    server has it open); a `postgresql+psycopg://` URL printed with its password (refused);
+    purge and erase refusing a database from before LP-06; `audit export` refusing an older
+    database it can read), 3 refuted.
     **Owner decisions, open (defaults used):** `monitor` keeps exit 1 for alerts, so a
     scheduler cannot tell alerts from a database it cannot read (the line says which; the
     deploy templates' `|| true` swallows both): give alerts their own code? `MENDARI_PROVIDERS`

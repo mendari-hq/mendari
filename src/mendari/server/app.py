@@ -453,6 +453,19 @@ def create_app(
         providers_logger.warning(
             "provider settings that apply to no served pack: %s", ", ".join(unused_settings)
         )
+    # ...and those no served pack takes at all (above, or a variant no pack with the slot has):
+    # what `mendari serve --provider` refuses when typed.
+    taken: set[str] = set()
+    for pack in packs.values():
+        pack_slots = {slot: set(spec.variants) for slot, spec in pack.manifest.providers.items()}
+        chosen = providers_for(pack.id, pack_slots, overrides, community=pack.community)[0]
+        for key, variant in overrides.items():
+            slot = key.rpartition(":")[2]
+            if chosen.get(slot) == variant and applies_to(
+                key, pack.id, pack_slots, community=pack.community
+            ):
+                taken.add(key)
+    not_taken = sorted(f"{key}={variant}" for key, variant in overrides.items() if key not in taken)
 
     def variants_for(pack: Pack) -> tuple[dict[str, str], list[str]]:
         """The variants the deployment chose for this pack's slots (the rest run the pack's
@@ -607,7 +620,7 @@ def create_app(
         redoc_url=None,
         swagger_ui_oauth2_redirect_url=None,
     )
-    app.state.provider_settings_unused = unused_settings  # `mendari serve --provider`
+    app.state.provider_settings_not_taken = not_taken  # `mendari serve --provider`
 
     def limit_class(method: str, path: str) -> str | None:
         return limiter.classify(method, path, permission_for(method, path))

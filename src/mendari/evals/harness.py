@@ -106,14 +106,16 @@ def record_problems(manifest: PackManifest, dataset: Dataset) -> list[str]:
             problems.append(f"{where}: `attributes` must be a mapping")
         else:
             for question, label in labels.items():
+                # Only what the pack defines is named: a site's label can hold case text.
                 if question not in manifest.questions:
                     problems.append(
-                        f"{where}: labels name {question!r}, not a question of the pack"
+                        f"{where}: labels name a question the pack does not have (its "
+                        f"questions: {', '.join(manifest.questions)})"
                     )
                     break
                 if label not in manifest.labels(question):
                     problems.append(
-                        f"{where}: labels.{question} is {label!r}, not one of its labels "
+                        f"{where}: labels.{question} is not one of its labels "
                         f"({', '.join(manifest.labels(question))})"
                     )
                     break

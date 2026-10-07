@@ -103,7 +103,12 @@ class SqliteBackend(Backend):
                 yield self._memory
             return
         if self.read_only:
-            uri = Path(self.path).resolve().as_uri() + "?mode=ro"
+            # With no -wal or -shm beside it, no server has the database open and its WAL is
+            # checkpointed: read it as a file (`immutable`), so no lock or sidecar file is
+            # created. Otherwise a live server owns those files: read through them (`mode=ro`).
+            path = Path(self.path).resolve()
+            live = any(Path(f"{path}{suffix}").exists() for suffix in ("-wal", "-shm"))
+            uri = path.as_uri() + ("?mode=ro" if live else "?immutable=1")
             connection = sqlite3.connect(uri, uri=True, timeout=30, isolation_level=None)
         else:
             connection = sqlite3.connect(self.path, timeout=30, isolation_level=None)
@@ -246,7 +251,8 @@ def connect(
     """A SQLite path (or ":memory:") or a postgres:// / postgresql:// URL, with `schema` created
     (a DDL template with `{real}`, `{serial}` and `{blob}`) and `migrate` run under the lock.
     `lock_key` is the Postgres advisory lock that serialises schema setup and exclusive sessions.
-    `read_only` opens an existing database without writing anything (above)."""
+    `read_only` opens an existing database without writing anything (above). A URL of another
+    scheme is refused, never taken for a file name (or printed: it can hold a password)."""
     if target.startswith(("postgres://", "postgresql://")):
         return PostgresBackend(
             target,
@@ -255,6 +261,11 @@ def connect(
             migrate=migrate,
             lock_key=lock_key,
             read_only=read_only,
+        )
+    if "://" in target:
+        raise MendariError(
+            "the database is neither a SQLite path nor a postgres:// or postgresql:// URL "
+            "(a driver suffix such as +psycopg is not one)"
         )
     return SqliteBackend(target, schema=schema, migrate=migrate, read_only=read_only)
 

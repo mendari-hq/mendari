@@ -194,9 +194,11 @@ uv run mendari --version
 
 **Errors and exit codes.** A command that cannot do what was asked prints one line per problem
 (`error: ...`, naming the file, the field or the flag, and what to do) and exits 1, never a
-traceback; `--debug` on any command (or `MENDARI_DEBUG=1`) shows the full traceback instead.
-Exit 1 is also a failed check (a failing behaviour test, a broken chain, `monitor`'s alerts);
-`eval --fail-on-degradation` exits 2 on a regression; Ctrl-C exits 130.
+traceback; `--debug` on any command (or `MENDARI_DEBUG=1`; `0` or `off` keeps it off) shows the
+full traceback instead. Exit 1 is also a failed check (a failing behaviour test, a broken chain,
+`monitor`'s alerts); `eval --fail-on-degradation` exits 2 on a regression; Ctrl-C exits 130 (a
+parallel `eval` stops sending the rest of the dataset); a closed pipe (`| head`) exits 141, with
+no error line.
 
 **The loop cannot pass by accident.** `mendari test` refuses a behaviour test whose `expect` is
 missing, empty, misspelt or names what the pack can never decide, and fails when the pack has

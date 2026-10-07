@@ -261,7 +261,7 @@ def test_mendari_serve_runs_the_jev_defaults(
     set_up_jev(monkeypatch, JEV_API_KEY="test-key")
     monkeypatch.setenv("FORWARDED_ALLOW_IPS", "127.0.0.1")  # `serve` sets it; restored after
     built: dict[str, object] = {}
-    started = SimpleNamespace(state=SimpleNamespace(provider_settings_unused=[]))
+    started = SimpleNamespace(state=SimpleNamespace(provider_settings_not_taken=[]))
     monkeypatch.setattr(app_module, "create_app", lambda **kwargs: built.update(kwargs) or started)
     monkeypatch.setattr(uvicorn, "run", lambda *args, **kwargs: None)
     flags = ["--provider", "router=naive_bayes"]

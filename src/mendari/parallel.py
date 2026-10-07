@@ -20,10 +20,18 @@ R = TypeVar("R")
 
 
 def parallel_map(fn: Callable[[T], R], items: Iterable[T], workers: int) -> list[R]:
-    """`[fn(item) for item in items]`, on up to `workers` threads, results in input order."""
+    """`[fn(item) for item in items]`, on up to `workers` threads, results in input order. An
+    error or Ctrl-C while waiting cancels what has not started (a remote provider is not called
+    for the rest of a dataset) and waits only for what is running."""
     items = list(items)
     if workers <= 1:
         return [fn(item) for item in items]
-    with ThreadPoolExecutor(max_workers=workers) as pool:
+    pool = ThreadPoolExecutor(max_workers=workers)
+    try:
         futures = [pool.submit(contextvars.copy_context().run, fn, item) for item in items]
-        return [future.result() for future in futures]
+        results = [future.result() for future in futures]
+    except BaseException:
+        pool.shutdown(wait=False, cancel_futures=True)
+        raise
+    pool.shutdown()
+    return results
