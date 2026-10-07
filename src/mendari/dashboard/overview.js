@@ -4,7 +4,7 @@
 import { chartHtml, sparkline } from "./charts.js";
 import { holdNotice, originBadge, providerWords, statusNotice } from "./pack.js";
 import { views, wire } from "./router.js";
-import { $, api, emptyState, esc, icon, may, money, num, OUTCOMES, outcomeText, pct, slotText, stat, state, storageGet, storageSet, zoneName } from "./ui.js";
+import { $, api, emptyState, esc, figureHtml, icon, may, money, num, OUTCOMES, outcomeText, shown, slotText, stat, state, storageGet, storageSet, zoneName } from "./ui.js";
 
 views.overview = async (main) => {
   const [stats, chain, holds] = await Promise.all([
@@ -66,11 +66,10 @@ function totalsBetween(daily, from, to) {
 const ratio = (part, whole) => (whole ? part / whole : null);
 
 function periodFigures(stats, chain, period) {
+  // The period's figures come from the server (stats.periods: the same local days as below);
+  // the trend lines are drawn from the daily counts.
+  const { days, from, now, before } = stats.periods[period];
   const today = localToday();
-  const days = period === "all" ? null : Number(period);
-  const from = days ? addDays(today, 1 - days) : null;
-  const now = totalsBetween(stats.daily, from, null);
-  const before = days ? totalsBetween(stats.daily, addDays(from, -days), addDays(from, -1)) : null;
   const scope = days ? `last ${days} days` : "all time";
   // The trend lines run over the period (at most the last 30 days), from the first decision on.
   const trendFrom = [stats.daily[0].date, from ?? addDays(today, -29)].sort().pop();
@@ -80,55 +79,43 @@ function periodFigures(stats, chain, period) {
     ${secondaryStats(stats, chain, now, before, days, trendDays)}
     <div class="panel">
       <h2>Outcome mix <span class="muted">· ${esc(scope)}</span></h2>
-      ${now.decisions ? stackBar(now, now.decisions) : `<p class="muted">No decisions in the ${esc(scope)}.</p>`}
+      ${now.decisions ? stackBar(now) : `<p class="muted">No decisions in the ${esc(scope)}.</p>`}
     </div>`;
 }
 
-// A change against the previous period, in words: points for a rate, percent for a count. Nothing
-// when the previous period had nothing to compare with.
-function change(current, previous, days, { rate = true } = {}) {
-  if (!days || current === null || previous === null || previous === undefined) return "";
-  const previousText = `vs previous ${days} days`;
-  if (rate) {
-    const points = (current - previous) * 100;
-    if (Math.abs(points) < 0.05) return `<div class="stat-change">No change ${previousText}</div>`;
-    return `<div class="stat-change">${points > 0 ? "+" : "−"}${Math.abs(points).toFixed(1)} pts ${previousText}</div>`;
-  }
-  if (!previous) return "";
-  const percent = ((current - previous) / previous) * 100;
-  if (Math.abs(percent) < 0.5) return `<div class="stat-change">No change ${previousText}</div>`;
-  return `<div class="stat-change">${percent > 0 ? "+" : "−"}${Math.abs(percent).toFixed(0)}% ${previousText}</div>`;
+// The window before, beside the figure: its own k of n, never a difference of two shares (which
+// has no interval and, on few cases, reads as a large swing). Nothing when it had no cases.
+function previous(figure, days) {
+  if (!days || !figure || !figure.n) return "";
+  return `<div class="stat-change">previous ${days} days: ${esc(shown(figure))}</div>`;
 }
 
 // The four numbers people act on: how much is automated, what waits for a person (now, whatever
 // the period), and whether people agree with the pack (overrides, observed accuracy), each with
-// what it is out of and how it moved.
+// what it is out of and the window before it.
 function primaryStats(stats, now, before, scope, days, trendDays) {
   const waiting = stats.pending_reviews;
   const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
-  const automated = ratio(now.AUTO, now.decisions);
-  const overrides = ratio(now.overridden, now.reviewed);
-  const accuracy = ratio(now.agreed, now.labelled);
   const autoTrend = sparkline(trendDays.map((day) => ratio(day.AUTO, day.decisions)));
   return `<div class="stats-primary">
     ${stat({
-      label: "Automated", value: pct(automated), trend: autoTrend,
-      foot: now.decisions ? `${now.AUTO} of ${plural(now.decisions, "decision")}, ${scope}` : `No decisions, ${scope}`,
-      change: change(automated, before && ratio(before.AUTO, before.decisions), days),
+      label: "Automated", value: figureHtml(now.figures.automated), html: true, trend: autoTrend,
+      foot: now.decisions ? `of the ${plural(now.decisions, "decision")}, ${scope}` : `No decisions, ${scope}`,
+      change: previous(before?.figures.automated, days),
     })}
     ${stat({
       label: "Waiting for review", value: String(waiting), tone: waiting ? "warning" : "",
       foot: waiting ? `<a href="#review">Open the review queue ${icon("arrow-right")}</a>` : "Nothing waiting",
     })}
     ${stat({
-      label: "Human override rate", value: pct(overrides),
-      foot: now.reviewed ? `of ${plural(now.reviewed, "review")}, ${scope}` : `No reviews, ${scope}`,
-      change: change(overrides, before && ratio(before.overridden, before.reviewed), days),
+      label: "Human override rate", value: figureHtml(now.figures.overrides), html: true,
+      foot: now.reviewed ? `of the ${plural(now.reviewed, "review")}, ${scope}` : `No reviews, ${scope}`,
+      change: previous(before?.figures.overrides, days),
     })}
     ${stat({
-      label: "Observed accuracy", value: pct(accuracy),
+      label: "Observed accuracy", value: figureHtml(now.figures.accuracy), html: true,
       foot: now.labelled ? `against ${plural(now.labelled, "human label")}, ${scope}` : `No human labels, ${scope}`,
-      change: change(accuracy, before && ratio(before.agreed, before.labelled), days),
+      change: previous(before?.figures.accuracy, days),
     })}
   </div>`;
 }
@@ -140,7 +127,7 @@ function secondaryStats(stats, chain, now, before, days, trendDays) {
     ${stat({
       size: "small", label: "Decisions", value: now.decisions.toLocaleString(),
       trend: sparkline(trendDays.map((day) => day.decisions), { zero: true }),
-      change: change(now.decisions, before?.decisions, days, { rate: false }),
+      change: days && before?.decisions ? `<div class="stat-change">previous ${days} days: ${before.decisions.toLocaleString()}</div>` : "",
     })}
     ${stat({ size: "small", label: "Latency p95", value: stats.latency_ms.p95 === null ? "n/a" : `${num(stats.latency_ms.p95, 2)} ms`, foot: "all time" })}
     ${stat({ size: "small", label: "Cost / decision", value: money(stats.cost_usd.per_decision), foot: "all time" })}
@@ -157,13 +144,14 @@ function secondaryStats(stats, chain, now, before, days, trendDays) {
   </div>`;
 }
 
-// The outcome mix: segments wide enough carry their name and share inside the bar; the legend
-// shows only the rest (it stays in the page for screen readers either way).
-function stackBar(counts, total) {
-  const share = (o) => pct(total ? counts[o] / total : null);
-  const parts = OUTCOMES.filter((o) => counts[o]).map((o) => `<span class="bg-${o}" data-outcome="${o}" style="width:${(100 * counts[o]) / total}%" title="${outcomeText(o)}: ${counts[o]}">
-      <span class="stack-label" aria-hidden="true">${esc(outcomeText(o))} ${share(o)}</span></span>`).join("");
-  const keys = `<div class="legend stack-legend">${OUTCOMES.map((o) => `<span data-outcome="${o}"><i class="bg-${o}"></i>${esc(outcomeText(o))} ${counts[o]} (${share(o)})</span>`).join("")}</div>`;
+// The outcome mix: segments wide enough carry their name and count inside the bar; the legend
+// gives each outcome as k of n with its interval, and shows only the segments without room (it
+// stays in the page for screen readers either way).
+function stackBar(now) {
+  const total = now.decisions;
+  const parts = OUTCOMES.filter((o) => now[o]).map((o) => `<span class="bg-${o}" data-outcome="${o}" style="width:${(100 * now[o]) / total}%" title="${outcomeText(o)}: ${esc(shown(now.figures.outcomes[o]))}">
+      <span class="stack-label" aria-hidden="true">${esc(outcomeText(o))} ${now[o]}</span></span>`).join("");
+  const keys = `<div class="legend stack-legend">${OUTCOMES.map((o) => `<span data-outcome="${o}"><i class="bg-${o}"></i>${esc(outcomeText(o))} ${figureHtml(now.figures.outcomes[o])}</span>`).join("")}</div>`;
   return `<div class="stack">${parts}</div>${keys}`;
 }
 

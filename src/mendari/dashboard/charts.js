@@ -17,8 +17,9 @@
 //            swatch "AUTO" colours the segment and its legend chip with the outcome tokens.
 //   lines    x: { title, format }, series: [{ key, label, swatch, dashed }], marker: { x, label },
 //            directLabels (each series named at its end instead of the legend, where there is room),
-//            points: [{ x, title, values: { seriesKey: rate | null }, extra: [[label, value]] }]
-//            (y values are rates from 0 to 1)
+//            points: [{ x, title, values: { seriesKey: rate | null }, text: { seriesKey: words },
+//            extra: [[label, value]] }] (y values are shares from 0 to 1, for position only; each
+//            mark reads `text`, a figure as k of n, and "n/a" without one)
 //   scatter  x, y: { kind: "rate" | "log", title, format?, from? }, diagonal, square, sizeBy, dodge,
 //            points: [{ x, y, weight?, shape?, tone?, ring?, label?, title, rows: [[label, value]] }]
 //            (label: a direct label drawn beside the point; dodge: see dodgePoints)
@@ -193,7 +194,7 @@ function drawLines(spec, width) {
     const known = spec.series.filter((s) => p.values[s.key] !== null && p.values[s.key] !== undefined);
     const mark = {
       title: p.title,
-      rows: [...spec.series.map((s) => [s.label, p.values[s.key] === null || p.values[s.key] === undefined ? "n/a" : rateTick(p.values[s.key]), `line ${s.swatch}${s.dashed ? " dashed" : ""}`]), ...(p.extra ?? [])],
+      rows: [...spec.series.map((s) => [s.label, p.text?.[s.key] ?? "n/a", `line ${s.swatch}${s.dashed ? " dashed" : ""}`]), ...(p.extra ?? [])],
     };
     marks.push(mark);
     const focus = known.map((s) => `<circle class="focus-dot st-${esc(s.swatch)}" cx="${px(x(p.x))}" cy="${px(y(p.values[s.key]))}" r="6"/>`).join("");

@@ -18,6 +18,12 @@ import httpx
 import pytest
 from playwright.sync_api import Browser, Locator, Page, Route, ViewportSize, expect
 
+from mendari.core.registry import resolve_pack
+from mendari.evals import figures, stats
+from mendari.evals.harness import resolve_dataset
+from mendari.evals.render import shown
+from tests.conftest import ROOT
+
 pytestmark = pytest.mark.browser
 
 INBOX = "mendari/patient-inbox-router"
@@ -74,6 +80,58 @@ def show(page: Page, view: str) -> None:
 def open_pack(page: Page, pack_id: str, view: str = "overview") -> None:
     page.add_init_script(f"localStorage.setItem('oh.pack', {json.dumps(pack_id)})")
     show(page, view)
+
+
+def counted_board(pack_id: str, *, positives: int | None = None) -> dict[str, Any]:
+    """The pack's shipped leaderboard as the server would serve it (`figures.board`) were each
+    row measured on the pack as it is, with the counts its dataset proves: the cases labelled
+    for the primary question, k exactly the row's rate (a row whose rate is no share of them is
+    left out). With `positives`, each critical label's counts are scaled to that many
+    positives (synthetic), so the rows rank. The shipped rows (mendari.leaderboard/1) have no
+    counts and rank nothing: views that show accuracy figures and ranks are checked on this."""
+    pack = resolve_pack(pack_id)
+    board = json.loads(pack.attestation("evals/leaderboard.json").read_text())
+    primary = pack.manifest.policy.primary
+    rows = []
+    for row in board["rows"]:
+        local = ROOT / "datasets" / f"{row['dataset']}.jsonl"  # a local-site example
+        name = str(local) if local.is_file() else row["dataset"]
+        dataset = resolve_dataset(pack, name).head(row["n"])
+        labelled = sum(r.get("labels", {}).get(primary) is not None for r in dataset.records)
+        accuracy = figures.counted(row["accuracy"], labelled)
+        if accuracy is None:
+            continue
+        critical = row["critical"]
+        if positives is not None:
+            critical = [
+                {**c, "n": positives, "detected": round(positives * c["detected"] / c["n"])}
+                for c in critical
+                if c["n"]
+            ]
+        rows.append(
+            {
+                **row,
+                "critical": critical,
+                "pack_digest": pack.digest,
+                "dataset_sha256": dataset.sha256,
+                "accuracy_proportion": accuracy,
+                "false_automation": stats.proportion(0, labelled).to_dict()
+                if not row["auto_rate"]
+                else None,
+            }
+        )
+    return figures.board({**board, "rows": rows}, pack.digest, pack.version)
+
+
+def serve_board(page: Page, pack_id: str, board: dict[str, Any]) -> None:
+    """Answer the pack's detail with `board` as its leaderboard."""
+
+    def handle(route: Route) -> None:
+        body = route.fetch().json()
+        body["leaderboard"] = board
+        route.fulfill(json=body)
+
+    page.route(re.compile(rf".*/api/packs/{re.escape(pack_id)}$"), handle)
 
 
 @pytest.mark.parametrize("pack_id", PACKS)
@@ -328,7 +386,9 @@ def test_system_theme_follows_the_system_setting_live(page: Page) -> None:
     expect(page.locator("html")).to_have_attribute("data-theme", "dark")
 
 
-def test_the_leaderboard_ranks_safety_first_and_marks_the_deployed_row(page: Page) -> None:
+def test_the_leaderboard_shows_the_one_ranking_and_marks_the_deployed_row(page: Page) -> None:
+    """The shipped rows were measured on earlier versions (mendari.leaderboard/1): none ranks,
+    and each says why under its name."""
     open_pack(page, GUARD, "evals")
     expect(page).to_have_url(re.compile("#evals$"))
     compare = page.get_by_role("link", name="Provider comparison")
@@ -336,47 +396,125 @@ def test_the_leaderboard_ranks_safety_first_and_marks_the_deployed_row(page: Pag
     held_out = page.get_by_role("button", name=re.compile("unsafe_drafts_holdout"))
     expect(held_out).to_have_attribute("aria-pressed", "true")  # held-out set first
     table = page.locator("#board table").first  # the per-check table follows it
-    ranks = table.locator("tbody .rank").all_inner_texts()
-    assert ranks == [str(i) for i in range(1, len(ranks) + 1)]
-    # Locally the pack runs its default screen (the keyword rules), the weakest on held-out blocks.
+    expect(table.locator("tbody .rank.none").first).to_be_visible()
+    assert set(table.locator("tbody .rank").all_inner_texts()) == {"\u2013"}  # an en dash
+    expect(table.locator("tbody .standing").first).to_contain_text("its pack digest not recorded")
+    # Locally the pack runs its default screen (the keyword rules).
     deployed = table.locator("tbody tr.deployed")
     expect(deployed).to_have_count(1)
     expect(deployed).to_contain_text("Rules")
     expect(deployed).to_contain_text("Deployed")
-    expect(table.locator("tbody tr").last).to_have_class(re.compile("deployed"))
     # Constant columns fold into the caption (risk level 2: nothing is automated).
-    note = page.locator("#board .table-note")
-    expect(note).to_contain_text("Automated 0.0% in every configuration")
+    note = page.locator("#board .table-note").first
+    expect(note).to_contain_text(f"Automated {shown(figures.of(0, 24))} in every configuration")
     expect(note).to_contain_text("all rows: dosing = Dosing")
     expect(table.locator("caption")).to_contain_text("unsafe_drafts_holdout · n=24")
-    # Sort by accuracy: the header says so, and the best accuracy comes first.
-    accuracy = table.get_by_role("button", name="Accuracy")
-    accuracy.click()
-    expect(table.locator("th", has_text="Accuracy")).to_have_attribute("aria-sort", "descending")
-    expect(accuracy).to_be_focused()
+    expect(page.locator("#board")).to_contain_text("recorded before leaderboards kept the counts")
 
 
-def test_sorting_moves_the_rows_instead_of_redrawing_the_table(page: Page) -> None:
-    """The row elements survive a sort (and with them anything a row holds), ranks follow the new
-    order, and only the sorted column's header says it is sorted."""
+def test_a_ranked_board_shows_its_ranks_and_keeps_them_when_sorted(page: Page) -> None:
+    """The ranks are the server's (mendari.rank/1), in its order; sorting by a column moves the
+    rows (the row elements survive it), each keeping its own rank."""
+    board = counted_board(GUARD, positives=120)
+    served = [r for r in board["rows"] if r["group"] == 0]
+    assert [r["rank"] for r in served] == list(range(1, len(served) + 1))  # all rank here
+    serve_board(page, GUARD, board)
     open_pack(page, GUARD, "evals")
+    page.get_by_role("button", name=board["groups"][0]["label"]).click()
     table = page.locator("#board table.data").first
+    rank_of = """(table) => Object.fromEntries([...table.querySelectorAll('tbody tr')].map((tr) =>
+      [tr.querySelector('.config').title, tr.querySelector('.rank').textContent]))"""
+    before = table.evaluate(rank_of)
+    assert before == {r["config"]: str(r["rank"]) for r in served}
+    assert table.locator("tbody .rank").all_inner_texts() == [str(r["rank"]) for r in served]
     table.locator("tbody tr").first.evaluate("(tr) => { tr.dataset.kept = 'yes'; }")
     table.get_by_role("button", name="Accuracy").click()
     expect(table.locator("th", has_text="Accuracy")).to_have_attribute("aria-sort", "descending")
+    expect(table.get_by_role("button", name="Accuracy")).to_be_focused()
     expect(table.locator("tbody tr[data-kept='yes']")).to_have_count(1)
-    ranks = table.locator("tbody .rank").all_inner_texts()
-    assert ranks == [str(i) for i in range(1, len(ranks) + 1)]
-    accuracy = table.locator("th", has_text="Accuracy").evaluate("(th) => th.cellIndex")
-    values = table.locator(f"tbody td:nth-child({accuracy + 1})").all_inner_texts()
-    shares = [float(v.split("%")[0]) for v in values if "%" in v]
-    assert shares == sorted(shares, reverse=True)
+    assert table.evaluate(rank_of) == before  # each row keeps its rank
+    column = table.locator("th", has_text="Accuracy").evaluate("(th) => th.cellIndex")
+    cells = table.locator(f"tbody td:nth-child({column + 1})").all_inner_texts()
+    found = [re.match(r"(\d+) of (\d+)", c) for c in cells]
+    shares = [int(m.group(1)) / int(m.group(2)) for m in found if m]
+    assert len(shares) == len(cells) and shares == sorted(shares, reverse=True)
     table.get_by_role("button", name="Accuracy").click()  # again: ascending, the arrow flips
     expect(table.locator("th", has_text="Accuracy")).to_have_attribute("aria-sort", "ascending")
     expect(table.locator("th", has_text="Accuracy").locator("use")).to_have_attribute(
         "href", "#i-chevron-up"
     )
     expect(table.locator("th[aria-sort='descending']")).to_have_count(0)
+
+
+def test_the_dashboard_prints_a_figure_as_the_card_does(page: Page) -> None:
+    """ui.js's port of render.shown, checked against what Python prints for 2,401 figures and 601
+    bounds (tests/fixtures/shown.json), the exact rounding ties among them."""
+    open_pack(page, INBOX)
+    fixture = json.loads((ROOT / "tests" / "fixtures" / "shown.json").read_text())
+    wrong = page.evaluate(
+        """async (fixture) => {
+          const ui = await import(new URL("/static/ui.js", location).href);
+          const wrong = [];
+          for (const [value, text] of fixture.percent) {
+            if (ui.percent(value) !== text) wrong.push(["percent", value, ui.percent(value), text]);
+          }
+          for (const [k, n, low, high, text] of fixture.shown) {
+            const got = ui.shown({ k, n, low, high });
+            if (got !== text) wrong.push(["shown", k, n, got, text]);
+          }
+          if (ui.shown(null) !== fixture.none) wrong.push(["none", ui.shown(null)]);
+          return wrong;
+        }""",
+        fixture,
+    )
+    assert wrong == []
+
+
+# Text a person reads in the view (and its labels and tooltips), with each figure's interval and
+# what is a setting rather than a share of cases taken out: no percentage may remain.
+BARE_PERCENT = r"""() => {
+  const texts = [];
+  const walker = document.createTreeWalker(document.querySelector("main"), NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (node.parentElement.closest("svg text.tick, .chart-axis-note, script, style")) continue;
+    texts.push(node.textContent);
+  }
+  for (const el of document.querySelectorAll("main [aria-label], main [title]")) {
+    texts.push(el.getAttribute("aria-label") ?? "", el.getAttribute("title") ?? "");
+  }
+  return texts.join("\n")
+    .replace(/\[[^\]]*%\]/g, "[interval]")
+    .replace(/The vertical axis starts at [\d.]+%/g, "")
+    .match(/[^\n]{0,40}\d\s?%[^\n]{0,20}/g) ?? [];
+}"""
+
+
+@pytest.mark.parametrize(
+    ("pack_id", "view"),
+    [
+        (INBOX, "evals/report"),
+        (GUARD, "evals/report"),
+        (GUARD, "evals"),
+        (INBOX, "overview"),
+        (INBOX, "monitoring"),
+    ],
+)
+def test_no_share_of_cases_is_a_bare_percentage(page: Page, pack_id: str, view: str) -> None:
+    """Every share of cases on the evaluation, overview and monitoring views is k of n with its
+    interval (LP-10); a percentage is only ever a figure's interval or an axis."""
+    serve_history(page, [{"date": eastern_days_ago(0), "AUTO": 12, "HUMAN_REVIEW": 7, "reviewed": 3,
+                          "overridden": 1, "labelled": 4, "agreed": 3}])  # fmt: skip
+    serve_board(page, GUARD, counted_board(GUARD))  # with its accuracy figures and cost chart
+    open_pack(page, pack_id, view.split("/")[0])
+    if "/" in view:
+        page.goto(f"/#{view}")
+        expect(page.locator("#evals-body")).to_contain_text("Per label")
+    expect(page.locator("#view")).not_to_have_attribute("aria-busy", "true")
+    for summary in page.locator("main details > summary").all():
+        summary.click()  # subgroups, confusion matrix, chart data and per-check tables too
+    assert page.evaluate(BARE_PERCENT) == []
+    page.evaluate("document.querySelector('main').insertAdjacentHTML('beforeend', '<p>42.0%</p>')")
+    assert page.evaluate(BARE_PERCENT) == ["42.0%"]  # the scan does find one
 
 
 def test_the_leaderboard_remembers_the_dataset(page: Page) -> None:
@@ -406,8 +544,9 @@ def test_subgroups_are_grouped_lowest_first(page: Page) -> None:
     expect(groups.first).to_be_visible()
     groups.first.locator("summary").click()
     accuracies = groups.first.locator("tbody td:nth-child(3)").all_inner_texts()
-    values = [float(a.split("%")[0]) for a in accuracies if "%" in a]
-    assert values == sorted(values)
+    pairs = [re.match(r"(\d+) of (\d+) \[", a) for a in accuracies]
+    values = [int(m.group(1)) / int(m.group(2)) for m in pairs if m]
+    assert len(values) == len(accuracies) and values == sorted(values)
 
 
 def test_the_leaderboard_keeps_rank_and_configuration_in_view_on_a_phone(page: Page) -> None:
@@ -445,6 +584,9 @@ def serve_history(page: Page, days: list[dict[str, Any]]) -> None:
     def handle(route: Route) -> None:
         body = route.fetch().json()
         body["daily"] = [{**dict.fromkeys([*counts, "agreed"], 0), **day} for day in days]
+        # The periods, as the server works them out from those days (figures.periods).
+        today = datetime.now(ZoneInfo("America/New_York")).date()
+        body["periods"] = figures.periods(body["daily"], today)
         route.fulfill(json=body)
 
     page.route("**/api/stats*", handle)
@@ -490,7 +632,7 @@ def test_chart_marks_are_reached_and_read_with_the_keyboard(page: Page) -> None:
     expect(marks.nth(1)).to_be_focused()
     expect(tip).to_be_visible()
     expect(tip).to_contain_text("Automate at ≥ 0.60")
-    expect(tip).to_contain_text("Coverage")
+    expect(tip).to_contain_text("Would be automated")
     page.keyboard.press("End")
     expect(marks.nth(8)).to_be_focused()
     expect(marks.nth(8)).to_have_attribute("tabindex", "0")
@@ -500,7 +642,10 @@ def test_chart_marks_are_reached_and_read_with_the_keyboard(page: Page) -> None:
     marks.nth(2).hover()
     expect(tip).to_contain_text("Automate at ≥ 0.70")
     # The label a screen reader gets carries the same exact values.
-    expect(marks.nth(2)).to_have_attribute("aria-label", re.compile(r"Coverage .*%, Accuracy .*%"))
+    expect(marks.nth(2)).to_have_attribute(
+        "aria-label",
+        re.compile(r"Would be automated \d+ of \d+ \[.*%\], Of those, correct \d+ of \d+ \["),
+    )
 
 
 def test_every_chart_has_a_summary_and_its_data_table(page: Page) -> None:
@@ -560,22 +705,22 @@ def test_charts_switch_with_the_theme_without_a_reload(page: Page) -> None:
 
 
 def test_the_cost_chart_rings_the_deployed_configuration(page: Page) -> None:
+    board = counted_board(GUARD)
+    serve_board(page, GUARD, board)
     open_pack(page, GUARD, "evals")
     chart = page.locator('figure.chart[data-chart^="cost"]')
     configs = page.locator("#board table.data").first.locator("tbody .config").all_inner_texts()
     expect(chart.locator(".mark").first).to_be_visible()
     names = " | ".join(chart.locator(".mark").evaluate_all("els => els.map((e) => e.ariaLabel)"))
-    # Every leaderboard row is on the chart (rows at the same point share one named mark). A row
-    # measured on an earlier version of the pack says so under its name.
-    assert any(re.search(r"\nmeasured on \d", config) for config in configs)
-    shown = [
-        re.sub(r"\nmeasured on \S+$", "", config).removesuffix(" Deployed") for config in configs
-    ]
-    assert all(name in names for name in shown)
+    # Every leaderboard row is on the chart (rows at the same point share one named mark); under
+    # each name, its standing (too few positives here to rank).
+    assert all(c.endswith("\ninsufficient evidence") for c in configs)
+    assert all(c.split("\n")[0].removesuffix(" Deployed") in names for c in configs)
     expect(chart.locator("svg .ring")).to_have_count(1)  # locally the rules screen is deployed
     expect(chart.locator("svg text", has_text="$0").first).to_be_visible()  # rules cost nothing
     expect(chart.locator(".mark").first).to_have_attribute(
-        "aria-label", re.compile(r"Accuracy .*Verdict: block caught \d+/\d+")
+        "aria-label",
+        re.compile(r"Accuracy \d+ of \d+ \[.*Verdict: block caught \d+ of \d+ \["),
     )
 
 
@@ -1396,20 +1541,25 @@ def test_the_period_sets_the_figures_and_compares_with_the_one_before(page: Page
     stats = page.locator(".stats-primary .stat")
     automated, overrides = stats.nth(0), stats.nth(2)
     expect(page.get_by_role("button", name="30 days")).to_have_attribute("aria-pressed", "true")
-    expect(automated).to_contain_text("50.0%")  # 4 of 8
+    expect(automated.locator(".stat-value")).to_contain_text(shown(figures.of(4, 8)))
     expect(automated.locator("svg.sparkline")).to_have_count(1)
     page.get_by_role("button", name="7 days").click()
-    expect(automated).to_contain_text("75.0%")  # 3 of 4
-    expect(automated).to_contain_text("3 of 4 decisions, last 7 days")
-    expect(automated.locator(".stat-change")).to_have_text("+50.0 pts vs previous 7 days")
-    expect(overrides).to_contain_text("100.0%")
-    expect(overrides.locator(".stat-change")).to_have_text("+100.0 pts vs previous 7 days")
+    expect(automated.locator(".stat-value")).to_contain_text(shown(figures.of(3, 4)))
+    expect(automated).to_contain_text("of the 4 decisions, last 7 days")
+    # The week before is its own k of n, never a difference of two shares.
+    expect(automated.locator(".stat-change")).to_have_text(
+        f"previous 7 days: {shown(figures.of(1, 4))}"
+    )
+    expect(overrides.locator(".stat-value")).to_contain_text(shown(figures.of(1, 1)))
+    expect(overrides.locator(".stat-change")).to_have_text(
+        f"previous 7 days: {shown(figures.of(0, 2))}"
+    )
     expect(stats.nth(3).locator(".stat-change")).to_have_count(0)  # nothing labelled before
     decisions = page.locator(".stats-secondary .stat").first
     expect(decisions).to_contain_text("4")
-    expect(decisions.locator(".stat-change")).to_have_text("No change vs previous 7 days")
+    expect(decisions.locator(".stat-change")).to_have_text("previous 7 days: 4")
     page.get_by_role("button", name="All").click()
-    expect(automated).to_contain_text("4 of 8 decisions, all time")
+    expect(automated).to_contain_text("of the 8 decisions, all time")
     expect(page.locator(".stat-change")).to_have_count(0)  # nothing before "all"
     page.reload()
     expect(page.get_by_role("button", name="All")).to_have_attribute("aria-pressed", "true")
@@ -1422,11 +1572,15 @@ def test_the_outcome_mix_names_segments_that_have_room(page: Page) -> None:
     open_pack(page, INBOX)
     segment = page.locator(".stack > span")
     expect(segment.nth(0)).to_have_class(re.compile("labelled"))
-    expect(segment.nth(0)).to_contain_text("Automated 60.0%")
+    expect(segment.nth(0)).to_contain_text("Automated 12")
+    expect(segment.nth(0)).to_have_attribute("title", f"Automated: {shown(figures.of(12, 20))}")
     expect(segment.nth(2)).not_to_have_class(re.compile("labelled"))  # 5%: no room
     legend = page.locator(".stack-legend")
     expect(legend.locator('[data-outcome="AUTO"]')).to_have_class(re.compile("sr-only"))
     expect(legend.locator('[data-outcome="ABSTAIN"]')).to_be_visible()
+    expect(legend.locator('[data-outcome="ABSTAIN"]')).to_have_text(
+        f"Abstained {shown(figures.of(1, 20))}"
+    )
     expect(legend.locator('[data-outcome="BLOCK"]')).to_be_visible()  # 0 blocked is worth saying
     page.set_viewport_size(PHONE)
     expect(segment.nth(1)).to_contain_text("Human review")
@@ -1434,6 +1588,7 @@ def test_the_outcome_mix_names_segments_that_have_room(page: Page) -> None:
 
 
 def test_configurations_at_the_same_point_share_one_labelled_mark(page: Page) -> None:
+    serve_board(page, GUARD, counted_board(GUARD))
     open_pack(page, GUARD, "evals")
     page.get_by_role("button", name=re.compile("^unsafe_drafts_holdout")).click()
     chart = page.locator('figure.chart[data-chart^="cost"]').last
@@ -1447,7 +1602,7 @@ def test_line_charts_name_their_lines_where_there_is_room(page: Page) -> None:
     page.goto("/#evals/report")
     sweep = page.locator('figure.chart[data-chart^="sweep"]')
     expect(sweep).to_have_class(re.compile("direct"))
-    expect(sweep.locator(".direct-label")).to_have_text(["Accuracy", "Coverage"])
+    expect(sweep.locator(".direct-label")).to_have_text(["Of those, correct", "Would be automated"])
     expect(sweep.locator(".chart-legend")).to_be_hidden()
     page.set_viewport_size(PHONE)
     expect(sweep).not_to_have_class(re.compile("direct"))
@@ -1971,25 +2126,30 @@ def test_monitoring_shows_the_last_week_against_the_benchmark(page: Page) -> Non
 
 
 def test_monitoring_draws_the_weekly_trend(page: Page) -> None:
-    def week(start: str, end: str, accuracy: float | None, overrides: float | None) -> Any:
+    def week(start: str, end: str, agreed: int, labelled: int, overridden: int) -> Any:
         return {
             "from": start,
             "to": end,
             "decisions": 30,
-            "automated_rate": 0.8,
+            "automated_rate": 24 / 30,
             "reviewed": 6,
-            "override_rate": overrides,
-            "labelled": 25,
-            "observed_accuracy": accuracy,
+            "override_rate": overridden / 6,
+            "labelled": labelled,
+            "observed_accuracy": agreed / labelled if labelled else None,
             "cost_per_decision": None,
+            "figures": {  # as the server works them out (monitoring._summary)
+                "automated": figures.of(24, 30),
+                "overrides": figures.of(overridden, 6),
+                "accuracy": figures.of(agreed, labelled),
+            },
         }
 
     def with_weeks(route: Route) -> None:
         report = route.fetch().json()
         report["weeks"] = [
-            week("2026-09-09", "2026-09-16", 0.96, 0.10),
-            week("2026-09-16", "2026-09-23", None, 0.12),
-            week("2026-09-23", "2026-09-30", 0.91, 0.20),
+            week("2026-09-09", "2026-09-16", 24, 25, 1),
+            week("2026-09-16", "2026-09-23", 0, 0, 1),
+            week("2026-09-23", "2026-09-30", 23, 25, 2),
         ]
         route.fulfill(json=report)
 
@@ -2000,6 +2160,8 @@ def test_monitoring_draws_the_weekly_trend(page: Page) -> None:
     expect(chart).to_contain_text("Sep 30")
     rows = page.locator('[data-table="monitoring-weeks"] tbody tr')
     expect(rows.first).to_contain_text("Sep 9 \u2013 Sep 16")  # an en dash
+    expect(rows.first).to_contain_text(shown(figures.of(24, 25)))
+    expect(rows.nth(1)).to_contain_text("no cases")  # a week with nothing labelled
 
 
 def test_monitoring_alerts_lead_the_page(page: Page) -> None:
@@ -2009,7 +2171,12 @@ def test_monitoring_alerts_lead_the_page(page: Page) -> None:
             json={
                 "pack": {"id": INBOX},
                 "days": 30,
-                "benchmark": {"accuracy": 0.97, "tolerance": 0.03},
+                "benchmark": {
+                    "accuracy": 0.97,
+                    "n": 600,
+                    "tolerance": 0.03,
+                    "figures": {"accuracy": figures.counted(0.97, 600)},
+                },
                 "last_7_days": {
                     "decisions": 40,
                     "automated_rate": 0.9,
@@ -2020,13 +2187,19 @@ def test_monitoring_alerts_lead_the_page(page: Page) -> None:
                     "cost_per_decision": 0.0,
                     "drift_psi": 0.31,
                     "automated_rated_wrong": 2,
+                    "figures": {
+                        "automated": figures.of(36, 40),
+                        "overrides": figures.of(1, 4),
+                        "accuracy": figures.of(24, 30),
+                    },
                 },
                 "weeks": [],
                 "alerts": [
                     {
                         "kind": "accuracy",
                         "severity": "high",
-                        "message": "observed accuracy 80.0% over the last 7 days",
+                        "message": f"observed accuracy {shown(figures.of(24, 30))} over the "
+                        "last 7 days",
                     },
                     {
                         "kind": "drift",
@@ -2039,7 +2212,10 @@ def test_monitoring_alerts_lead_the_page(page: Page) -> None:
     )
     open_pack(page, INBOX, "monitoring")
     expect(page.locator(".callout.danger")).to_contain_text(
-        "Accuracy below the benchmark: observed accuracy 80.0%"
+        f"Accuracy below the benchmark: observed accuracy {shown(figures.of(24, 30))}"
+    )
+    expect(page.locator(".stats-primary")).to_contain_text(
+        f"benchmark {shown(figures.of(582, 600))}"
     )
     expect(page.locator(".callout.warning")).to_contain_text("Confidence drift: PSI 0.31")
     expect(page.locator(".stat.tone-danger")).to_have_count(2)

@@ -442,10 +442,10 @@ operations, LP-22 site network, LP-23 EHR pilot.
         reports, leaderboards, the overview's periods, monitoring and registry versions;
         `render.shown` prints from k and n (never a stored bound); the ranking recomputes its
         bounds; `tests/fixtures/shown.json` for the ports; the equal-mass ECE on the card.
-      - [ ] **B** The dashboard: a `shown` port in `ui.js` checked against the fixture; the
-        report, leaderboard (`row.rank`, `standing_text`, `groups`), monitoring and overview
-        read `figures`; the subgroup false-automation column goes (the card has none); a
-        bare-percentage scan over the views.
+      - [ ] **B** (PR open) The dashboard: a `shown` port in `ui.js` checked against the
+        fixture (all 3,003 cases); the report, leaderboard (`row.rank`, `standing_text`,
+        `groups`), monitoring and overview read `figures`; the subgroup false-automation column
+        goes (the card has none); a bare-percentage scan over five views, shown to catch one.
       - [ ] **C** The Hub: `hub/lib/figures.ts`, the pack page's leaderboard in served order
         (it ranks by accuracy alone today), the benchmark fact as k of n.
       - Owner, optional: give the 166 shipped `mendari.leaderboard/1` rows their accuracy
