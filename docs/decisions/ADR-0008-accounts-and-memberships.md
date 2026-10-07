@@ -66,3 +66,14 @@ provider's claims needs nothing to change.
   deployment-wide totals and holds set for the whole deployment.
 - Switching the hosted site to memberships mode, the owner's bootstrap, and the cap's value are
   the owner's, after a preflight (`mendari access check`) against the production database.
+- Memberships mode keeps its sessions apart (a sealed `member` row; claims mode's are `user`
+  rows): switching mode, either way, signs everyone out. The session keeps the organization and
+  membership chosen, never roles: each request reads that membership, so a removal or a change
+  of roles applies at the next request. One check in the guard refuses a principal of no
+  organization before every route that is not public, a page or a person's own (choosing an
+  organization, asking to join), and the guard then acts for nobody.
+- A sign-in records the person only when a membership waits for their verified address, they
+  hold one, or they were recorded before; a request to join answers the same whether or not
+  the organization exists, so it names no organization to whoever asks.
+- A dashboard window sends the organization it shows (`X-Mendari-Org`); a request from a window
+  left on another than the one chosen since is refused (`409`).

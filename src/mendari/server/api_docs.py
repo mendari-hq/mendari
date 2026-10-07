@@ -405,6 +405,14 @@ def _secure(
         needed += " (never a person's session, a key or a token)"
         operation["description"] = f"{operation.get('description', '')}\n\n**Needs** {needed}."
         return
+    if permission == "person":  # memberships mode: a person, with an organization or none
+        operation["security"] = [{"session": []}]
+        needed = (
+            "a person who signed in, with an organization or none (never a key, a token or an "
+            "EHR launch)"
+        )
+        operation["description"] = f"{operation.get('description', '')}\n\n**Needs** {needed}."
+        return
     if permission == "keys":  # people only (server/auth.py PEOPLE_ONLY)
         operation["security"] = [{"session": []}]
         needed = "a signed-in person with the `keys` permission (an administrator; never a key)"

@@ -144,6 +144,19 @@ class NoOrganization(AuthError):
         super().__init__(message, 403)
 
 
+class OrganizationChanged(AuthError):
+    """A request from a window showing another organization than the one its person has chosen
+    since (memberships mode: the dashboard sends the one it shows, `X-Mendari-Org`): refused, so
+    nothing meant for one organization lands in another (a `409`)."""
+
+    def __init__(
+        self,
+        message: str = "this window shows another organization than the one you chose since: "
+        "reload it",
+    ):
+        super().__init__(message, 409)
+
+
 class ScopeError(MendariError):
     """A scope that Mendari does not grant: unknown, for something not served (a write, a
     resource type, a granular or patient scope), or beyond the credential's role (a `422`)."""

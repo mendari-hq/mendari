@@ -241,6 +241,10 @@ class Limiter:
         """The class a request counts against, or None (not limited here)."""
         if method == "GET" and path in ("/auth/login", "/smart/launch"):
             return "signin"
+        if method == "POST" and permission == "person":
+            # Memberships mode: choosing an organization, asking to join; open to any account
+            # that signs in, so counted per address as signing in is.
+            return "signin"
         if method == "POST" and path == "/auth/token":
             return "token"
         if method == "POST" and path == "/api/smart/decide":

@@ -184,6 +184,7 @@ CHAINED: dict[Route, tuple[str, ...]] = {
     (ENGINE, "DELETE", "/api/auth/keys/{key_id}"): ("key.revoked",),
     (ENGINE, "POST", "/api/auth/clients"): ("client.registered",),
     (ENGINE, "DELETE", "/api/auth/clients/{client_id}"): ("client.revoked",),
+    (ENGINE, "POST", "/api/auth/access-requests"): ("access.requested",),  # memberships mode
     (ENGINE, "POST", "/api/packs/{namespace}/{name}/evals"): ("eval.recorded",),
 }
 # A GET that writes is not found by its method: these are listed by hand. That every read of a
@@ -192,6 +193,8 @@ CHAINED: dict[Route, tuple[str, ...]] = {
 # use on a deployment chains `deployment.recorded` on whichever route meets it.
 CHAINED_READS: dict[Route, tuple[str, ...]] = {
     (ENGINE, "GET", "/api/internal/retention"): ("input.purged", "note.erased", "retention.purged"),
+    # Memberships mode: the person recorded, what waited for their verified address bound.
+    (ENGINE, "GET", "/auth/callback"): ("user.recorded", "membership.bound"),
     (ENGINE, "GET", "/api/audit/{decision_id}"): ("input.read",),  # encrypt mode, a reader
     (ENGINE, "GET", "/api/review"): ("input.read",),
     (ENGINE, "GET", "/api/feedback"): ("input.read",),
@@ -199,6 +202,10 @@ CHAINED_READS: dict[Route, tuple[str, ...]] = {
 }
 NOT_CHAINED: dict[Route, str] = {
     (ENGINE, "POST", "/auth/logout"): "sign-out: ends a session (security log: auth.logout)",
+    (ENGINE, "POST", "/api/auth/organization"): (
+        "a session's state: which of the person's own memberships it acts for (security log: "
+        "auth.organization.selected)"
+    ),
     (ENGINE, "POST", "/api/smart/logout"): "sign-out: ends an EHR launch's session",
     (ENGINE, "POST", "/auth/token"): (
         "a five-minute access token for a registered client, like a session; the client's "
@@ -242,11 +249,13 @@ def _routes(app: FastAPI, name: str) -> set[Route]:
 
 @pytest.fixture
 def routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> set[Route]:
-    """Every route of every app, the engine with sign-in and Backend Services on (its most)."""
+    """Every route of every app, the engine with sign-in, Backend Services and memberships mode
+    on (its most)."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
     monkeypatch.setenv("MENDARI_PUBLIC_URL", "https://mendari.test")
     monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "on")
+    monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
     found: set[Route] = set()
     apps = {
         ENGINE: create_app(db_path=tmp_path / "engine.db"),

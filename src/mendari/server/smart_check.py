@@ -7,8 +7,10 @@ It reports, in order:
 2. the allow-list: the base's origin on `MENDARI_FHIR_ALLOWED_SERVERS`;
 3. the registration: the organization and level the base is registered to, whether people can
    sign in to that organization (without `MENDARI_OIDC_ORG_CLAIM` everyone is in `default`, so
-   a launch registered elsewhere decides where no reviewer reads), and whether an unregistered
-   base may launch (open mode with nothing registered);
+   a launch registered elsewhere decides where no reviewer reads; in memberships mode,
+   `MENDARI_ACCOUNTS=memberships`, people reach it by membership, and it needs a record, which
+   this check does not read: `mendari access check`), and whether an unregistered base may
+   launch (open mode with nothing registered);
 4. the SMART client: `MENDARI_SMART_CLIENT_ID` set, and scopes the launch accepts (no
    `offline_access`; with sign-in on, `openid fhirUser`);
 5. discovery: the EHR's `.well-known/smart-configuration`, its endpoints on the allow-list;
@@ -28,6 +30,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from mendari.core import accounts
 from mendari.errors import FhirError, MendariError
 from mendari.server.auth import DEFAULT_ORG, auth_settings
 from mendari.standards import oidc, smart
@@ -59,7 +62,7 @@ def check(base: str) -> list[Finding]:
     try:
         allowed = allowed_servers()
         ehrs = smart.smart_ehrs()
-        signed_in = auth_settings() is not None
+        signing_in = auth_settings()
     except MendariError as error:  # the server would not start with these settings
         say("fail", "settings", str(error))
         return found
@@ -68,9 +71,29 @@ def check(base: str) -> list[Finding]:
         say("ok", "allow-list", f"{origin} is on MENDARI_FHIR_ALLOWED_SERVERS")
     else:
         say("fail", "allow-list", f"add {origin} to MENDARI_FHIR_ALLOWED_SERVERS")
+    signed_in = signing_in is not None
+    memberships = signing_in is not None and signing_in.accounts == "memberships"
     registered = ehrs.get(key)
     org_claim = os.environ.get("MENDARI_OIDC_ORG_CLAIM", "").strip()
-    if registered is not None and registered.org != DEFAULT_ORG and not org_claim:
+    if memberships and registered is not None:
+        if not accounts.is_org_id(registered.org):
+            say(
+                "fail",
+                "registration",
+                f"organization {registered.org}: in memberships mode no record can have that id "
+                "(lower-case letters, digits and hyphens), and launches of an organization "
+                "without one are refused",
+            )
+        else:
+            say(
+                "warn",
+                "registration",
+                f"organization {registered.org}, level {registered.level}; in memberships mode "
+                "its launches are refused until it has a record: `mendari access check`",
+            )
+        if org_claim:
+            say("warn", "sign-in", "MENDARI_OIDC_ORG_CLAIM is ignored in memberships mode")
+    elif registered is not None and registered.org != DEFAULT_ORG and not org_claim:
         # Sign-in puts everyone in `default` (server/auth.py): no reviewer could read these.
         say(
             "fail" if signed_in else "warn",

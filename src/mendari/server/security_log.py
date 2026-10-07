@@ -24,8 +24,12 @@ a person can quote it and the line be found.
 **Access lines** (`event: request`): one per `/api`, `/fhir`, `/cds-services`, `/auth` and
 `/smart` request, refused ones included, but not `/api/health` (probes) or static files.
 
-**Events**: `auth.signin.ok|refused`, `auth.logout`, `auth.credential.refused`,
-`auth.permission.refused`, `auth.origin.refused` (another site's request, server/origin.py),
+**Events**: `auth.signin.ok|refused`, `auth.logout`, `auth.credential.refused` (memberships
+mode adds the reason `no_organization_record`), `auth.permission.refused` (and the reasons
+`no_organization`, `org_changed` and `not_a_member`), `auth.organization.selected` and
+`auth.access.requested` (memberships mode: a person choosing one of their organizations, and
+asking to join one, refused as `unknown_organization`, `member` or `open_requests`),
+`auth.origin.refused` (another site's request, server/origin.py),
 `auth.token.issued|refused`, `smart.launch.ok|refused` (an EHR launch that starts a session,
 with its `ehr:<hash>` and, with sign-in on, its organization; or one that does not:
 `state_unknown`, `browser`, `token`, `id_token`, `issuer`, `unregistered`, `user_type` and the
@@ -326,5 +330,5 @@ class RequestLog:
         `anonymous`: a public route, or a refused request."""
         principal = scope.get("state", {}).get("principal")
         if principal is not None:
-            return str(principal.id), str(principal.org)
+            return str(principal.id), None if principal.org is None else str(principal.org)
         return ("open", None) if self.open_mode else ("anonymous", None)

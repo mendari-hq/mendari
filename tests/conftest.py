@@ -46,6 +46,7 @@ LIVE_SETTINGS = (
     "DATABASE_URL", "DATABASE_URL_UNPOOLED", "AI_GATEWAY_API_KEY", "VERCEL_OIDC_TOKEN",
     "LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL", "JEV_API_URL", "JEV_API_KEY", "JEV_MODEL",
     "JEV_CONNECTOR", "MENDARI_PROVIDERS", "MENDARI_ALERT_WEBHOOK", "MENDARI_REGISTRY_URL",
+    "MENDARI_ACCOUNTS",
     "MENDARI_REGISTRY_TOKEN", "MENDARI_REGISTRY_ADMIN_TOKEN", "MENDARI_PAS_PAYER_URL",
     "CRON_SECRET",
 )  # fmt: skip
@@ -379,6 +380,48 @@ def signed_in(
         {**row, "roles": [role], "org": org}, int(time.time()), sessions.Lifetime()
     )
     store.smart_put(sid, "user", session, expires_at)
+    return {"cookie": f"{sessions.cookie_name(sessions.SESSION, host)}={sid}"}
+
+
+def member(
+    store: AuditStore,
+    *,
+    org: str | None,
+    roles: list[str] | None = None,
+    sub: str = "member-1",
+    email: str | None = None,
+    host: str = "mendari.test",
+) -> dict[str, str]:
+    """Request headers for a person signed in in memberships mode (`MENDARI_ACCOUNTS`): their
+    record, `org`'s record if it has none, and, with `roles`, their membership of it, chosen in
+    a session row as `/auth/callback` makes one (issuer https://idp.example.org). `org=None`: a
+    person of no organization."""
+    from mendari.server.auth import MEMBER, person_id
+
+    issuer = "https://idp.example.org"
+    person = person_id(issuer, sub)
+    store.record_user(issuer=issuer, subject=sub, email=email, name=sub)
+    chosen = None
+    if org is not None:
+        if store.organization(org) is None:  # `default`'s too, as the bootstrap makes it
+            with store._db.session(exclusive=True) as db:
+                store._insert_organization(db, org=org, name=org.title(), created_by="test")
+        found = store.membership_in_force(person, org)
+        if found is None and roles:
+            found = store.add_membership(org=org, roles=roles, created_by="test", user_id=person)
+        chosen = found
+    row = {
+        "iss": issuer,
+        "sub": sub,
+        "name": sub,
+        "actor": email or f"{issuer}|{sub}",
+        "email": email,
+        "org": None if chosen is None else org,
+        "membership": None if chosen is None else chosen["id"],
+    }
+    session, expires_at = sessions.begin(row, int(time.time()), sessions.Lifetime())
+    sid = secrets.token_urlsafe(32)
+    store.smart_put(sid, MEMBER, session, expires_at)
     return {"cookie": f"{sessions.cookie_name(sessions.SESSION, host)}={sid}"}
 
 

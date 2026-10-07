@@ -55,12 +55,13 @@ from mendari.core.audit import AuditStore
 from mendari.errors import AuthError, ClientError, MendariError, ScopeError
 from mendari.server import scopes, security_log
 from mendari.server.auth import (
-    OPEN,
     PERMISSIONS,
     AuthSettings,
-    Principal,
+    let_through,
     names_a_credential,
+    org_of,
     read_body,
+    scope_of,
 )
 from mendari.server.limits import Limiter, client_ip
 
@@ -505,7 +506,7 @@ def add_backend_routes(
         it; left out, everything the role can use) and its public JWK Set (RS384 or ES384
         keys). Mendari gives the `client_id`. The client signs its assertions with its own
         private key, which never reaches Mendari. Registering is recorded in the audit chain."""
-        principal: Principal = getattr(request.state, "principal", OPEN)
+        principal = let_through(request)
         role_permissions = PERMISSIONS[body.role]
         scope = (
             default_scope(body.role)
@@ -516,7 +517,7 @@ def add_backend_routes(
         client = store.register_client(
             name=body.name,
             role=body.role,
-            org=principal.org,
+            org=org_of(principal),
             created_by=principal.actor,
             scopes=scope,
             jwks=keys,
@@ -533,8 +534,7 @@ def add_backend_routes(
     def list_clients(request: Request) -> list[dict[str, Any]]:
         """Clients of this organization: name, role, scope, their keys' ids and thumbprints,
         who registered each and when, and when and by whom it was revoked."""
-        principal: Principal = getattr(request.state, "principal", OPEN)
-        return store.clients(None if principal.kind == "open" else principal.org)
+        return store.clients(scope_of(let_through(request)))
 
     @app.delete(
         "/api/auth/clients/{client_id}",
@@ -545,9 +545,8 @@ def add_backend_routes(
     def revoke_client(request: Request, client_id: str) -> Response:
         """Revoke a client: it gets no new token, and the tokens it holds are refused from the
         next request. Revoking is recorded in the audit chain."""
-        principal: Principal = getattr(request.state, "principal", OPEN)
-        org = None if principal.kind == "open" else principal.org
-        if not store.revoke_client(client_id, org, revoked_by=principal.actor):
+        principal = let_through(request)
+        if not store.revoke_client(client_id, scope_of(principal), revoked_by=principal.actor):
             raise AuthError("no such client", 404)
         security_log.event(
             "admin.client.revoked", actor=principal.id, org=principal.org, ids=[client_id]

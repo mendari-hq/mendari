@@ -6,11 +6,11 @@ organizations and memberships, each holding a set of roles. A deployment that ru
 organization from its identity provider's claims needs none of this: it stays as it is
 (`MENDARI_ACCOUNTS=claims`, the default).
 
-The records are being built in steps (LP-12). This page covers what the operator runs today, on
-the command line, against the server's database; signing in by records
-(`MENDARI_ACCOUNTS=memberships`), the no-access page, invitations in the dashboard and the
-Access screen follow. **Until signing in by records ships, nobody can accept an invitation or
-take up a membership made here**: the records wait for it, and claims mode never reads them.
+The records are being built in steps (LP-12). This page covers the command line and signing in
+by records (`MENDARI_ACCOUNTS=memberships`); the dashboard's no-access page and organization
+switcher, invitations in the dashboard and the Access screen follow. **Until invitations ship
+(LP-12f), nobody can accept one**, and a request to join is only listed
+(`mendari access requests`). Claims mode never reads or writes the records.
 
 ## The rules
 
@@ -84,6 +84,43 @@ mendari access invite --org clinic-a --email lead@example.org --role admin --db 
 The link is printed once, on its own line: pass it on yourself. It can be accepted once signing
 in by records ships; until then it waits, and expires on its day. From then on that
 organization's administrators invite their own people.
+
+## Signing in by records
+
+`MENDARI_ACCOUNTS=memberships` takes each person's organization and roles from their
+membership, never from the identity provider's claims. Switching a deployment is the owner's
+decision; in order:
+
+1. `mendari access check` against its database exits 0 (every organization in use has a
+   record);
+2. `mendari access bootstrap --email <the owner's address>`;
+3. set `MENDARI_ACCOUNTS=memberships` and redeploy. **Everyone signs in again**, both ways: a
+   session of one mode is no session in the other. Rolling back is unsetting it: the records
+   stay, and claims mode never reads them.
+
+Then:
+
+- `MENDARI_OIDC_ROLE_CLAIM`, `MENDARI_OIDC_ROLE_MAP` and `MENDARI_OIDC_ORG_CLAIM` are ignored
+  (the server logs a warning when one is set). A person's roles are their membership's.
+- A sign-in records the person (a `users` row, `user.recorded`) only when a membership waits for
+  their address, verified by the identity provider, when they hold one, or when they were
+  recorded before. Anyone else who signs in leaves no record.
+- With exactly one membership, it is selected at sign-in. With several, or with one given since
+  they signed in, the person chooses one. With none, they act for **no organization**: never
+  `default`. They are refused (`403`, `NoOrganization`) everywhere but the public routes, the
+  dashboard page, choosing one of their organizations and asking to join one.
+- Asking to join answers the same whether or not the organization exists, the person is
+  already a member, or they have five requests open: only a request to an organization with a
+  record, from someone not in it, is recorded.
+- A membership removed, or its roles changed, applies at the person's next request. Keys and
+  clients a removed person created belong to the organization and keep working: revoke them
+  too if they should not (`mendari access members` lists who is in it; the Access screen will
+  list who created each key).
+- Keys, Backend Services clients and EHR registrations of an organization with no record are
+  refused.
+- The whole-chain verify, deployment-wide deployment records and some health fields are still
+  shown to every organization's administrators until LP-12g scopes them: switch the hosted
+  site after LP-12g.
 
 ## Reading what is there
 

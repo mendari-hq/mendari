@@ -15,7 +15,21 @@ server is open, as before (production sits behind Vercel Authentication). When c
   out of the map ends access at once. With an identity provider that has no roles (Google, say),
   the claim can be `email`, mapped person by person ("owner@example.org=admin"); an email gives a
   role only when the provider says it is verified (`email_verified`).
-  The organization comes from `MENDARI_OIDC_ORG_CLAIM` (default: one organization).
+  The organization comes from `MENDARI_OIDC_ORG_CLAIM` (default: one organization). This is
+  claims mode, the default (`MENDARI_ACCOUNTS=claims`).
+- **Memberships mode** (`MENDARI_ACCOUNTS=memberships`, ADR-0008) takes a person's
+  organization and roles from records instead (`core/audit.py`: users, organizations,
+  memberships), never from claims: the role and organization claims and the role map are
+  ignored. A sign-in records the person only when a membership waits for their verified
+  address, they hold one, or they were recorded before; it binds what waits, and selects their
+  organization when they hold exactly one. The session (its own kind, `member`, sealed) keeps
+  who they are and the organization and membership they chose, never roles: each request
+  reads that membership as it is then, so a removed membership or changed roles apply at the
+  next request. Without one in force they act for no organization (never `default`): they may
+  choose one of theirs (`POST /api/auth/organization`) or ask to join one
+  (`POST /api/auth/access-requests`), and are refused (`NoOrganization`, 403) before every
+  other route but the public ones and the pages. Keys, clients and EHR launches of an
+  organization with no record are refused. Switching mode, either way, signs everyone out.
 - **Who the audit chain names** (`Principal.actor`, permanent): a person by their verified email,
   else by the identity provider's subject qualified by its issuer (`<issuer>|<subject>`); a key
   as `key <id>`, a client as `client <id>`.
@@ -58,11 +72,13 @@ server is open, as before (production sits behind Vercel Authentication). When c
 | governance | read, approve automation |
 | admin | everything, including evaluations, exports and (people only) API keys |
 | an EHR launch (`ehr`, not a role) | `launch`; registered to decide, also `launch_decide` |
+| a person, memberships mode, any organization or none | `person`: choose one, ask to join |
 """
 
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import re
 import secrets
@@ -74,10 +90,10 @@ from typing import Any, Literal
 from urllib.parse import quote, urlencode, urlsplit
 
 from fastapi import FastAPI, Request
-from fastapi.responses import RedirectResponse, Response
-from pydantic import BaseModel, Field, model_validator
+from fastapi.responses import JSONResponse, RedirectResponse, Response
+from pydantic import BaseModel, Field, field_validator, model_validator
 
-from mendari.core import accounts
+from mendari.core import accounts, tenancy
 from mendari.core.audit import (
     KEY_DAYS,
     KEY_MAX_DAYS,
@@ -86,7 +102,14 @@ from mendari.core.audit import (
     MACHINE_ROLES,
     AuditStore,
 )
-from mendari.errors import AuthError, FhirError, MendariError, ScopeError
+from mendari.errors import (
+    AuthError,
+    FhirError,
+    MendariError,
+    NoOrganization,
+    OrganizationChanged,
+    ScopeError,
+)
 from mendari.server import scopes, security_log, sessions
 from mendari.server.scopes import Grant
 from mendari.standards import oidc, smart
@@ -130,6 +153,15 @@ LAUNCH_PATH = "/api/smart/"  # where the launch cookie is a credential (and on t
 # One refusal for a scoped credential outside its scopes (the challenge names the scope needed).
 OUT_OF_SCOPE = "this credential's scopes do not cover this request"
 DEFAULT_ORG = "default"
+ACCOUNTS_MODES = ("claims", "memberships")  # MENDARI_ACCOUNTS (ADR-0008)
+MEMBER = "member"  # a person's session row in memberships mode (sealed; `user` in claims mode)
+# A person in memberships mode, with or without an organization: what choosing one and asking to
+# join need. In claims mode these routes are not mounted, and the rule reads as `admin`.
+PERSON = "person"
+# The organization a dashboard window shows, sent with each of its requests in memberships mode:
+# a request from a window left on another organization than the one chosen since is refused.
+ORG_PIN = "x-mendari-org"
+auth_logger = logging.getLogger("mendari.auth")
 
 # (method, path pattern) -> permission, first match wins; unlisted routes need "admin".
 _RULES: list[tuple[str, re.Pattern[str], str]] = [
@@ -137,6 +169,7 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
     for method, pattern, permission in [
         ("GET", r"^/api/health$", "public"),
         ("GET", r"^/api/auth/me$", "public"),
+        ("POST", r"^/api/auth/(organization|access-requests)$", PERSON),
         ("*", r"^/auth/", "public"),
         # The EHR launch and its callback; the launch's context (`{"active": false}` without
         # one) and ending it. The launch's own routes need an EHR launch (`ehr` principals).
@@ -204,13 +237,31 @@ class AuthSettings:
     public_url: str | None
     endpoint_origins: frozenset[str] = frozenset()
     scopes: str = "openid profile email"
+    accounts: Literal["claims", "memberships"] = "claims"  # MENDARI_ACCOUNTS (ADR-0008)
+
+
+def accounts_mode() -> Literal["claims", "memberships"]:
+    """`MENDARI_ACCOUNTS`: `claims` (the default) or `memberships`; anything else fails at
+    startup."""
+    raw = os.environ.get("MENDARI_ACCOUNTS", "").strip().lower() or "claims"
+    if raw == "claims":
+        return "claims"
+    if raw == "memberships":
+        return "memberships"
+    raise MendariError("MENDARI_ACCOUNTS is claims or memberships")
 
 
 def auth_settings() -> AuthSettings | None:
     """From the environment; None (the server stays open) unless issuer and client id are set."""
+    mode = accounts_mode()
     issuer = os.environ.get("MENDARI_OIDC_ISSUER", "").strip().rstrip("/")
     client_id = os.environ.get("MENDARI_OIDC_CLIENT_ID", "").strip()
     if not issuer and not client_id:
+        if mode == "memberships":
+            raise MendariError(
+                "MENDARI_ACCOUNTS=memberships needs sign-in (MENDARI_OIDC_ISSUER, "
+                "MENDARI_OIDC_CLIENT_ID)"
+            )
         return None
     if not issuer or not client_id:
         raise MendariError("set both MENDARI_OIDC_ISSUER and MENDARI_OIDC_CLIENT_ID")
@@ -226,6 +277,17 @@ def auth_settings() -> AuthSettings | None:
             if role.strip() not in ROLES:
                 raise MendariError(f"MENDARI_OIDC_ROLE_MAP: {role.strip()!r} is not a role")
             role_map[source.strip()] = role.strip()
+    ignored = [
+        name
+        for name in ("MENDARI_OIDC_ROLE_CLAIM", "MENDARI_OIDC_ROLE_MAP", "MENDARI_OIDC_ORG_CLAIM")
+        if os.environ.get(name, "").strip()
+    ]
+    if mode == "memberships" and ignored:
+        auth_logger.warning(
+            "MENDARI_ACCOUNTS=memberships: %s ignored (roles and organizations come from "
+            "memberships)",
+            ", ".join(ignored),
+        )
     return AuthSettings(
         issuer=issuer,
         client_id=client_id,
@@ -235,6 +297,7 @@ def auth_settings() -> AuthSettings | None:
         org_claim=os.environ.get("MENDARI_OIDC_ORG_CLAIM", "").strip() or None,
         public_url=os.environ.get("MENDARI_PUBLIC_URL", "").strip().rstrip("/") or None,
         endpoint_origins=allowed_servers("MENDARI_OIDC_ENDPOINT_ORIGINS"),
+        accounts=mode,
     )
 
 
@@ -251,7 +314,9 @@ class Principal:
     # EHR's issuer), `key <id>`, `client <id>`. Permanent.
     actor: str = field(kw_only=True)
     roles: frozenset[str] = field(default_factory=frozenset)
-    org: str = DEFAULT_ORG
+    # None only for a person of no organization, in memberships mode: refused before every route
+    # that reads or writes an organization's data (`Auth.check`, `org_of`).
+    org: str | None = DEFAULT_ORG
     grant: Grant | None = None  # a credential's scopes; None: the role's permissions, unnarrowed
     expires_at: str | None = None  # a key's or an access token's expiry
     level: str | None = None  # an EHR launch's registered level (`view` or `decide`); no role
@@ -304,6 +369,31 @@ class Launch:
 OPEN = Principal(
     kind="open", name="open mode", roles=frozenset({"admin"}), id="open", actor="open mode"
 )
+
+
+def org_of(principal: Principal) -> str:
+    """The organization `principal` acts for. A person of no organization never reaches a route
+    that asks (`Auth.check`); should one, it is refused here too (`NoOrganization`, 403), never
+    widened to every organization or to `default`."""
+    if principal.org is None:
+        raise NoOrganization()
+    return principal.org
+
+
+def let_through(request: Request) -> Principal:
+    """Who the guard let through, on a route that is mounted only with sign-in on (Backend
+    Services): there is no open mode to fall back to, so none is refused, never served as
+    every organization."""
+    principal: Principal | None = getattr(request.state, "principal", None)
+    if principal is None:
+        raise AuthError("sign in first, or send an API key", 401, challenge=challenge())
+    return principal
+
+
+def scope_of(principal: Principal) -> str | None:
+    """What a store method that filters by organization is given: None (every organization) in
+    open mode only, else `org_of`."""
+    return None if principal.kind == "open" else org_of(principal)
 
 
 person_id = accounts.person_id  # a signed-in person's `Principal.id` (core/accounts.py)
@@ -453,6 +543,19 @@ class RotateKeyRequest(BaseModel):
         return self
 
 
+class OrganizationRequest(BaseModel):
+    org: str = Field(
+        min_length=2,
+        max_length=63,
+        description="An organization's id: lower-case letters, digits and hyphens.",
+    )
+
+    @field_validator("org")
+    @classmethod
+    def _an_organization_id(cls, value: str) -> str:
+        return accounts.check_org_id(value)
+
+
 class Auth:
     """Resolves the principal of a request and guards every route."""
 
@@ -473,10 +576,34 @@ class Auth:
         self.discovery = oidc.Discovery()  # the identity provider's configuration, for an hour
         # The registered EHRs (`MENDARI_SMART_EHRS`) when the SMART launch is on; None when off.
         self.ehrs = None if ehrs is None else dict(ehrs)
+        # Memberships mode (ADR-0008): people's organizations and roles from records.
+        self.memberships = settings is not None and settings.accounts == "memberships"
+        self._recorded: set[str] = set()  # organizations seen with a record (never deleted)
 
     @property
     def enabled(self) -> bool:
         return self.settings is not None
+
+    def acting(self, request: Request) -> Principal:
+        """Who the guard let through to a route that acts for an organization: open mode's
+        principal only while sign-in is off. With sign-in on, a route reached without one is a
+        mistake in the rules: refused, never served as every organization."""
+        principal: Principal | None = getattr(request.state, "principal", None)
+        if principal is not None:
+            return principal
+        if self.enabled:
+            raise AuthError("sign in first, or send an API key", 401, challenge=challenge())
+        return OPEN
+
+    def recorded(self, org: str) -> bool:
+        """Memberships mode: whether `org` has a record. Credentials of an organization without
+        one (a key, a client, an EHR registration from claims mode) are refused there."""
+        if org in self._recorded:
+            return True
+        if self.store.organization(org) is None:
+            return False
+        self._recorded.add(org)
+        return True
 
     def principal(self, request: Request) -> Principal | None:
         """Who sends this request; None for no one, or for a credential that is not valid."""
@@ -539,6 +666,11 @@ class Auth:
             return None
         if not self.enabled:
             return Launch(session, None)  # open mode: the registration gates the launch only
+        if self.memberships and not self.recorded(registered.org):
+            security_log.event(
+                "auth.credential.refused", outcome="refused", reason="no_organization_record"
+            )
+            return None
         identity = session.get("identity")
         actor = session.get("actor")
         if session.get("identified") is not True:
@@ -560,6 +692,8 @@ class Auth:
     def _person(self, request: Request) -> Principal | None:
         """A person signed in, by the session cookie; None for none."""
         assert self.settings is not None
+        if self.memberships:
+            return self._member(request)
         session, sent = sessions.resume(self.store, request, COOKIE, "user", self.lifetime)
         if session is None:
             if sent:  # ended, expired or never made: a dashboard left open, or a guess
@@ -589,6 +723,39 @@ class Auth:
             actor=str(session.get("actor") or f"{issuer}|{session['sub']}"),
         )
 
+    def _member(self, request: Request) -> Principal | None:
+        """A person signed in, in memberships mode: who they are from their session, and their
+        organization and roles from the membership they chose, as it is now (one read, nothing
+        cached). None for no session. Without that membership in force (none chosen, removed,
+        or removed and given again: a new one is chosen anew) they act for no organization,
+        with no role: never `default`, never another of their memberships. Reserved roles
+        (`pack_author`, `labeller`) grant nothing."""
+        session, sent = sessions.resume(self.store, request, COOKIE, MEMBER, self.lifetime)
+        if session is None:
+            if sent:
+                security_log.event("auth.credential.refused", outcome="refused", reason="session")
+            return None
+        issuer, subject = session.get("iss"), session.get("sub")
+        if not isinstance(issuer, str) or not isinstance(subject, str):
+            return None
+        person = person_id(issuer, subject)
+        org: str | None = None
+        roles: frozenset[str] = frozenset()
+        chosen, held = session.get("org"), session.get("membership")
+        if isinstance(chosen, str) and isinstance(held, str):
+            found = self.store.membership_in_force(person, chosen)
+            if found is not None and found["id"] == held:
+                org, roles = chosen, frozenset(found["roles"]) & frozenset(ROLES)
+        request.state.member_session = session  # what choosing an organization rewrites
+        return Principal(
+            kind="user",
+            name=str(session.get("name") or subject),
+            roles=roles,
+            org=org,
+            id=person,
+            actor=str(session.get("actor") or f"{issuer}|{subject}"),
+        )
+
     def _bearer(self, headers: list[str]) -> Principal:
         """The principal an `Authorization` header names, by the credential's prefix."""
         if len(headers) != 1:
@@ -612,6 +779,8 @@ class Auth:
             key = self.store.api_key(credential)  # None too when revoked or expired
             if key is None:
                 raise refused_credential("key")
+            if self.memberships and not self.recorded(key["org"]):
+                raise refused_credential("no_organization_record")
             if key["replaced_by"] and key["id"] not in self._replaced_seen:
                 # A rotated key still in its overlap: say once (per instance) that it is used.
                 self._replaced_seen.add(key["id"])
@@ -646,6 +815,8 @@ class Auth:
         token = self.store.access_token(credential) if self.tokens else None
         if token is None or token["role"] not in MACHINE_ROLES:
             raise refused_credential("token")
+        if self.memberships and not self.recorded(token["org"]):
+            raise refused_credential("no_organization_record")
         try:
             registered = scopes.parse(token["registered"], permissions=PERMISSIONS[token["role"]])
         except ScopeError:  # a registration no longer granted: refuse
@@ -665,6 +836,8 @@ class Auth:
     def check(self, request: Request) -> Response | None:
         """None when the request may go on; otherwise the response that refuses it."""
         permission = permission_for(request.method, request.url.path)
+        if permission == PERSON and not self.memberships:
+            permission = "admin"  # claims mode: as any route no rule lists (deny by default)
         if permission == "public" or self.settings is None:
             return None
         principal = self.authenticate(request)
@@ -679,6 +852,21 @@ class Auth:
                 ended = "no EHR launch here: open Mendari again from the EHR"
                 raise AuthError(ended, 401, challenge=challenge())
             raise AuthError("sign in first, or send an API key", 401, challenge=challenge())
+        if permission == PERSON:  # memberships mode: choosing an organization, asking to join
+            if principal.kind != "user":
+                _refused_permission(principal, "people_only")
+                refused = challenge("insufficient_scope")
+                raise AuthError("only a person who signed in may do this", 403, challenge=refused)
+            request.state.principal = principal
+            return None
+        if principal.org is None:  # before any role, body, limit, route or stream
+            _refused_permission(principal, "no_organization")
+            raise NoOrganization()
+        if self.memberships and principal.kind == "user":
+            shown = request.headers.get(ORG_PIN)
+            if shown is not None and shown != principal.org:
+                _refused_permission(principal, "org_changed")
+                raise OrganizationChanged()
         if permission not in principal.role_permissions():
             refused = challenge("insufficient_scope")
             if permission in PEOPLE_ONLY and principal.kind != "user":
@@ -718,7 +906,9 @@ def _within_scope(principal: Principal, method: str, path: str) -> None:
 
 def _refused_permission(principal: Principal, reason: str) -> None:
     """A security log line for a principal refused a route: the permission it lacks, or
-    `people_only` or `out_of_scope`."""
+    `people_only`, `ehr_only`, `out_of_scope`, `no_organization` (memberships mode: a person of
+    none), `org_changed` (a window on another organization than the one chosen since) or
+    `not_a_member` (choosing an organization one holds no membership of)."""
     security_log.event(
         "auth.permission.refused",
         outcome="refused",
@@ -750,11 +940,16 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
         return GuardedHttp(allowed={*allowed_servers(), issuer_origin, *options.endpoint_origins})
 
     @app.get("/auth/login", include_in_schema=False)
-    def login(request: Request, next: str = "/") -> Response:
+    def login(request: Request, next: str = "/", account: str = "") -> Response:
         options = configured()
         target = safe_next(next)
+        # "Use another account": the identity provider asks which (OpenID Connect's
+        # `prompt=select_account`). Any other value is ignored.
+        choose = {"account": "choose"} if account == "choose" else {}
         # Started on another name: begin again on the public URL, where the callback lands.
-        moved = sessions.to_public_url(request, options.public_url, "/auth/login", {"next": target})
+        moved = sessions.to_public_url(
+            request, options.public_url, "/auth/login", {"next": target, **choose}
+        )
         if moved is not None:
             return moved
         with http_for(options) as http:
@@ -783,6 +978,7 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
                 "nonce": nonce,
                 "code_challenge": challenge,
                 "code_challenge_method": "S256",
+                **({"prompt": "select_account"} if choose else {}),
             }
         )
         response = RedirectResponse(f"{config['authorization_endpoint']}?{query}", status_code=302)
@@ -847,6 +1043,8 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
             _signin_refused("no_subject")
             raise AuthError("the id_token names no subject")  # OpenID Connect requires one
         person = person_id(options.issuer, claims["sub"])
+        if auth.memberships:
+            return by_records(request, options, claims, person, pending)
         roles = roles_from(claims, options)
         if not roles:
             _signin_refused("no_role", actor=person)
@@ -876,13 +1074,68 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
         sessions.clear_cookie(response, request, sessions.SIGNIN)  # used: one sign-in, once
         return response
 
+    def by_records(
+        request: Request,
+        options: AuthSettings,
+        claims: Mapping[str, Any],
+        person: str,
+        pending: Mapping[str, Any],
+    ) -> Response:
+        """Memberships mode's sign-in (ADR-0008): no claim gives a role or an organization. The
+        person is recorded only when a membership waits for their verified address, they hold
+        one, or they were recorded before (anyone else who signs in leaves no record); what
+        waits is bound; with exactly one membership it is selected. Never refused for having
+        none, never placed in `default`: they act for no organization until they choose one."""
+        email = claims.get("email")
+        address = None
+        if claims.get("email_verified") is True and isinstance(email, str):
+            try:
+                address = accounts.normalise_email(email)
+            except ValueError:  # not one an invitation can name: they sign in without it
+                address = None
+        name = str(claims.get("name") or claims.get("email") or claims["sub"])
+        actor = chain_name(options.issuer, claims)
+        with tenancy.acting_for_nobody(actor):  # nothing here reads an organization's data
+            waiting = address is not None and store.pending_for(address)
+            if waiting or store.member_of(person) or store.user(person) is not None:
+                store.record_user(
+                    issuer=options.issuer, subject=claims["sub"], email=address, name=name
+                )
+            if waiting and address is not None:
+                store.bind_pending(person, address)
+            held = store.member_of(person)
+            chosen = store.membership_in_force(person, held[0]["org"]) if len(held) == 1 else None
+        session, expires_at = sessions.begin(
+            {
+                "iss": options.issuer,
+                "sub": claims["sub"],
+                "name": name,
+                "actor": actor,
+                "email": address,  # verified at this sign-in, for an invitation (LP-12f)
+                "org": None if chosen is None else chosen["org"],
+                "membership": None if chosen is None else chosen["id"],
+            },
+            int(time.time()),
+            auth.lifetime,
+        )
+        previous, _ = sessions.read(request, COOKIE)
+        if previous:  # this browser's earlier session ends: one browser, one person
+            store.smart_delete(previous, MEMBER)
+        sid = secrets.token_urlsafe(32)
+        store.smart_put(sid, MEMBER, session, expires_at)
+        security_log.event("auth.signin.ok", actor=person, org=session["org"])
+        response = RedirectResponse(pending["next"], status_code=302)
+        sessions.set_cookie(response, request, COOKIE, sid)
+        sessions.clear_cookie(response, request, sessions.SIGNIN)  # used: one sign-in, once
+        return response
+
     @app.post("/auth/logout", include_in_schema=False)
     def logout(request: Request) -> Response:
         """Sign out, and end this browser's EHR launch too (a shared workstation)."""
         sid, _ = sessions.read(request, COOKIE)
         launch, _ = sessions.read(request, sessions.SMART)
         if sid:
-            store.smart_delete(sid, "user")
+            store.smart_delete(sid, MEMBER if auth.memberships else "user")
             security_log.event("auth.logout")
         if launch:
             store.smart_delete(launch, "session")
@@ -898,13 +1151,22 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
         summary="Who am I",
     )
     def me(request: Request) -> dict[str, Any]:
-        """Whether sign-in is on here, and the signed-in person or key with their roles."""
+        """Whether sign-in is on here, and the signed-in person or key with their roles. In
+        memberships mode, also `accounts: "memberships"` and, for a person, `memberships`: the
+        organizations they hold a membership of (theirs only), each with its name and roles;
+        `principal.org` is null while they act for none."""
         principal = auth.principal(request)
+        shown: dict[str, Any] = {"accounts": "memberships"} if auth.memberships else {}
         if principal is None:
-            return {"mode": "sign-in", "signed_in": False}
+            return {"mode": "sign-in", "signed_in": False, **shown}
         signed_in = principal.kind != "open"
         mode = "sign-in" if signed_in else "open"
-        return {"mode": mode, "signed_in": signed_in, "principal": principal.to_dict()}
+        if auth.memberships and principal.kind == "user":
+            shown["memberships"] = store.member_of(principal.id)
+        return {"mode": mode, "signed_in": signed_in, "principal": principal.to_dict(), **shown}
+
+    if auth.memberships:
+        add_membership_routes(app, auth)
 
     @app.post(
         "/api/auth/keys",
@@ -919,14 +1181,14 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
         or one the role cannot use, is a `422` naming it), expiring after `days` (90 unless
         asked, 365 at most). The key is in this response only; it is stored hashed. Creating it
         is recorded in the audit chain, without the key."""
-        principal: Principal = getattr(request.state, "principal", OPEN)
+        principal = auth.acting(request)
         scope = None
         if body.scope is not None:
             scope = scopes.parse(body.scope, permissions=PERMISSIONS[body.role]).scope
         key = store.create_api_key(
             name=body.name,
             role=body.role,
-            org=principal.org,
+            org=org_of(principal),
             created_by=principal.actor,
             scopes=scope,
             days=body.days,
@@ -944,8 +1206,7 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
     def list_keys(request: Request) -> list[dict[str, Any]]:
         """Keys of this organization: name, role, scope, who created it and when, when it
         expires, and when and by whom it was revoked. Never the key."""
-        principal: Principal = getattr(request.state, "principal", OPEN)
-        return store.api_keys(None if principal.kind == "open" else principal.org)
+        return store.api_keys(scope_of(auth.acting(request)))
 
     @app.post(
         "/api/auth/keys/{key_id}/rotate",
@@ -965,7 +1226,7 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
         organization's key: `404`; revoked, expired or already replaced: `409` (unless that
         replacement was revoked: if this answer was lost, revoke the replacement and rotate
         again); a scope its role no longer allows: `422`."""
-        principal: Principal = getattr(request.state, "principal", OPEN)
+        principal = auth.acting(request)
         asked = body or RotateKeyRequest()
 
         def check_scope(scope: str | None, role: str) -> str | None:
@@ -975,7 +1236,7 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
 
         key = store.rotate_api_key(
             key_id,
-            None if principal.kind == "open" else principal.org,
+            scope_of(principal),
             rotated_by=principal.actor,
             overlap_hours=asked.overlap_hours,
             days=asked.days,
@@ -995,9 +1256,84 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
     def revoke_key(request: Request, key_id: str) -> Response:
         """Revoke a key; requests that send it are refused from now on. Revoking is recorded in
         the audit chain."""
-        principal: Principal = getattr(request.state, "principal", OPEN)
-        org = None if principal.kind == "open" else principal.org
-        if not store.revoke_api_key(key_id, org, revoked_by=principal.actor):
+        principal = auth.acting(request)
+        if not store.revoke_api_key(key_id, scope_of(principal), revoked_by=principal.actor):
             raise AuthError("no such key", 404)
         security_log.event("admin.key.revoked", actor=principal.id, org=principal.org, ids=[key_id])
         return Response(status_code=204)
+
+
+def add_membership_routes(app: FastAPI, auth: Auth) -> None:
+    """Memberships mode's routes for a person, with or without an organization (`person`):
+    choosing one of theirs, and asking to join one. Not mounted in claims mode."""
+    store = auth.store
+
+    def member_session(request: Request) -> tuple[Principal, str, dict[str, Any]]:
+        principal = auth.acting(request)
+        session: dict[str, Any] | None = getattr(request.state, "member_session", None)
+        sid, _ = sessions.read(request, COOKIE)
+        if principal.kind != "user" or session is None or sid is None:
+            raise AuthError("sign in first", 401, challenge=challenge())
+        return principal, sid, session
+
+    @app.post(
+        "/api/auth/organization",
+        tags=["Sign-in"],
+        summary="Choose your organization",
+    )
+    def choose_organization(request: Request, body: OrganizationRequest) -> dict[str, Any]:
+        """Memberships mode: act for `org` from now on, in this browser. A membership of it in
+        force is required (`403` otherwise, and the session stays as it was); the session's
+        time limits stay as they were. Its roles apply at once. Windows still showing the
+        organization before are refused (`409`) until reloaded."""
+        principal, sid, session = member_session(request)
+        found = store.membership_in_force(principal.id, body.org)
+        if found is None:
+            _refused_permission(principal, "not_a_member")
+            raise AuthError("you hold no membership of that organization in force", 403)
+        now = int(time.time())
+        absolute = session.get("absolute_at")
+        until = now + auth.lifetime.idle
+        if isinstance(absolute, int):
+            until = min(until, absolute)
+        chosen = {**session, "org": body.org, "membership": found["id"]}
+        if not store.smart_replace(sid, MEMBER, chosen, until):  # ended since: sign in again
+            raise AuthError("your session has ended: sign in again", 401, challenge=challenge())
+        security_log.event("auth.organization.selected", actor=principal.id, org=body.org)
+        record = store.organization(body.org)
+        name = body.org if record is None else str(record["name"])
+        return {"org": body.org, "name": name, "roles": found["roles"]}
+
+    @app.post(
+        "/api/auth/access-requests",
+        status_code=202,
+        tags=["Sign-in"],
+        summary="Ask to join an organization",
+    )
+    def ask_to_join(request: Request, body: OrganizationRequest) -> JSONResponse:
+        """Memberships mode: ask the administrators of `org` to let you in. The answer is the
+        same whether or not that organization exists, you are already a member, or you have too
+        many requests open (5): only a request to an organization with a record, from someone
+        not a member of it, is recorded (and chained, `access.requested`), once while it is
+        open."""
+        principal, _, session = member_session(request)
+        try:
+            made = store.request_access(user_id=principal.id, org=body.org)
+        except accounts.AccessRefused as refused:
+            security_log.event(
+                "auth.access.requested",
+                outcome="refused",
+                reason=refused.reason,
+                actor=principal.id,
+            )
+        else:
+            store.record_user(  # who asked, for the administrators who answer
+                issuer=str(session["iss"]),
+                subject=str(session["sub"]),
+                email=session.get("email"),
+                name=str(session.get("name") or session["sub"]),
+            )
+            security_log.event(
+                "auth.access.requested", actor=principal.id, org=body.org, ids=[str(made["id"])]
+            )
+        return JSONResponse({"org": body.org, "requested": True}, status_code=202)
