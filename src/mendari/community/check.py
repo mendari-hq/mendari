@@ -59,7 +59,7 @@ from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from functools import cache
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from mendari.community import maintainers, phi_scan
@@ -93,7 +93,9 @@ MIN_CRITICAL_DETECTION = 0.9
 MAX_PACK_BYTES = 2 * 1024 * 1024
 MAX_PACK_FILES = 200
 # Fields of an evaluation report that differ on every run.
-VOLATILE_REPORT_KEYS = ("id", "created_at", "latency_ms")
+# What differs between two runs on the same cases: a mendari.eval/1 report's id, time and
+# latency; a mendari.eval/2 report's run block (mendari.evals.result.RUN_KEYS).
+VOLATILE_REPORT_KEYS = ("id", "created_at", "latency_ms", "run", "result_sha256")
 CHANGELOG = "CHANGELOG.md"
 CARD = "DECISION_CARD.md"
 SHOWN = 10  # at most this many paths in one message
@@ -1299,17 +1301,18 @@ def _hygiene_files(ctx: _Context) -> None:
             f"a community pack holds text files only (a trained model aside); remove "
             f"{_listed(binary)}",
         )
+    kept = _benchmark_files(ctx)
     evals = sorted(
         relative
         for path in files
         if (relative := path.relative_to(ctx.root).as_posix()).startswith("evals/")
-        and relative != _benchmark_path(ctx)
+        and relative not in kept
     )
     if evals:
         fail(
             "hygiene",
-            f"evals/ holds only the benchmark, which CI checks; remove {_listed(evals)} (numbers "
-            "CI cannot reproduce do not go on the Decision Card)",
+            f"evals/ holds only the benchmark and its ledger, which CI checks; remove "
+            f"{_listed(evals)} (numbers CI cannot reproduce do not go on the Decision Card)",
         )
 
 
@@ -1319,6 +1322,24 @@ def _raw_manifest(ctx: _Context) -> dict[str, Any]:
     except (OSError, MendariError):
         return {}
     return raw if isinstance(raw, dict) else {}
+
+
+def _benchmark_files(ctx: _Context) -> set[str]:
+    """The benchmark and the ledger its result is computed from (`ledgers/<id>.jsonl` beside
+    it, as `mendari eval --out` writes it), when it names one."""
+    benchmark = _benchmark_path(ctx)
+    if benchmark is None:
+        return set()
+    kept = {benchmark}
+    try:
+        report = json.loads((ctx.root / benchmark).read_text(encoding="utf-8"))
+        ledger = report["ledger"]["id"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return kept
+    if isinstance(ledger, str) and re.fullmatch(r"sha256:[0-9a-f]{64}", ledger):
+        folder = PurePosixPath(benchmark).parent / "ledgers"
+        kept.add(str(folder / (ledger.removeprefix("sha256:") + ".jsonl")))
+    return kept
 
 
 def _benchmark_path(ctx: _Context) -> str | None:

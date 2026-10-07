@@ -43,22 +43,25 @@ def test_case_ids_and_dataset_identity_stay_home() -> None:
     text = json.dumps(shared)
     assert shared["format"] == "mendari.site-report/1"
     assert "misclassified" not in shared
-    assert all(case["id"] not in text for case in BENCHMARK["misclassified"])
+    named = [case.get("case") or case["id"] for case in BENCHMARK["misclassified"]]
+    assert named and all(name not in text for name in named)
     assert shared["dataset"] == {"n": BENCHMARK["dataset"]["n"]}  # no name, no digest
     assert "id" not in shared and "created_at" not in shared  # links to the site's store
 
 
 def test_missed_critical_cases_leave_no_id() -> None:
     """The inbox pack's rules miss 16 of the 20 held-out emergencies: their ids were sent as
-    `missed_ids` before. Only the counts leave now."""
+    `missed_ids` before, their ledger hashes are kept as `missed_cases` now. Only the counts
+    leave."""
     pack = resolve_pack("mendari/patient-inbox-router")
     dataset = resolve_dataset(pack, "red_flags_holdout")
     report = evaluate(Decision(pack), dataset)
-    missed = report["decisions"]["critical"][0]["missed_ids"]
+    missed = report["decisions"]["critical"][0]["missed_cases"]
     assert len(missed) >= 10
     shared = shareable(report)
     text = json.dumps(shared)
     assert all(record["id"] not in text for record in dataset.records)
+    assert all(case not in text for case in missed)  # nor their hashes
     critical = shared["decisions"]["critical"][0]
     assert critical == {
         "question": "urgency",

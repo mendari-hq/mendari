@@ -134,7 +134,8 @@ CREATE TABLE IF NOT EXISTS eval_reports (
     pack_id     TEXT NOT NULL,
     dataset     TEXT NOT NULL,
     report      TEXT NOT NULL,
-    org         TEXT
+    org         TEXT,
+    ledger      TEXT
 );
 CREATE TABLE IF NOT EXISTS provider_usage (
     day         TEXT NOT NULL,
@@ -284,6 +285,7 @@ _ADDED_COLUMNS = (
     ("feedback", "superseded_by", "TEXT"),
     ("decisions", "org", "TEXT"),  # tenancy (v0.6); NULL is the default organization
     ("eval_reports", "org", "TEXT"),
+    ("eval_reports", "ledger", "TEXT"),  # the run's mendari.ledger/1 (LP-10); NULL before it
     # 1 when the input was refused before any provider ran (Phase 3); NULL on older rows, which
     # fall back to "BLOCK without confidence" (_REFUSED, task_fhir.refused).
     ("decisions", "refused", "INTEGER"),
@@ -797,20 +799,38 @@ class AuditStore:
             "note": note,
         }
 
-    def save_report(self, report: Mapping[str, Any]) -> None:
-        with self._db.session(exclusive=False) as db:
+    def save_report(self, report: Mapping[str, Any], *, ledger: bytes | None = None) -> None:
+        """Keep an evaluation report, and the ledger its result is computed from, for the
+        organization; chained as `eval.recorded` with ids and hashes only (which report, result
+        and ledger, of which pack digest and dataset)."""
+        from mendari.evals.result import normalize
+
+        run = normalize(report)["run"]
+        org = tenancy.current() or tenancy.DEFAULT_ORG
+        recorded = {
+            "report": run["id"],
+            "result_sha256": report.get("result_sha256"),
+            "ledger": (report.get("ledger") or {}).get("id"),
+            "pack_id": report["pack"]["id"],
+            "pack_digest": report["pack"]["digest"],
+            "dataset_sha256": report["dataset"]["sha256"],
+            "org": org,
+        }
+        with self._db.session(exclusive=True) as db:
             db.all(
-                "INSERT INTO eval_reports (id, created_at, pack_id, dataset, report, org) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO eval_reports (id, created_at, pack_id, dataset, report, org, ledger) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
-                    report["id"],
-                    report["created_at"],
+                    run["id"],
+                    run["created_at"],
                     report["pack"]["id"],
                     report["dataset"]["name"],
                     _canonical(report),
-                    tenancy.current() or tenancy.DEFAULT_ORG,
+                    org,
+                    None if ledger is None else ledger.decode("ascii"),
                 ),
             )
+            self._append(db, f"eval:{run['id']}", "eval.recorded", recorded)
 
     def consume(self, provider: str, *, daily_limit: int | None) -> None:
         """Count one call to a metered provider; raise `budget_exhausted` past the daily limit

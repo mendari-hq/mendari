@@ -14,7 +14,7 @@
 | Risk level | **0**, administrative |
 | Automation | AUTO permitted by policy thresholds. Only while `safety_screen` is `rules_and_jev` or `rules_and_llm`; otherwise a person reviews. |
 | Pack digest | `sha256:261d9a85d9c866e1cb714296fb8324bc921bf3de0e73768beeafb77be9f0eeae` |
-| Last validation | 2026-10-06 on `test` (n=600, sha256 `2997856d17a5…`) |
+| Last validation | 2026-10-07 on `test` (n=600, sha256 `2997856d17a5…`) |
 
 ## Intended use
 

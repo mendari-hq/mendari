@@ -5,6 +5,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from mendari.evals.result import normalize
+
 
 def pct(value: float | None, digits: int = 1) -> str:
     return "n/a" if value is None else f"{value * 100:.{digits}f}%"
@@ -49,7 +51,7 @@ def report_text(report: dict[str, Any]) -> str:
             f"Critical {item['question']}={item['label']}".ljust(25)
             + f" {item['detected']}/{item['n']} detected, {item['auto_missed']} automated"
         )
-    latency = report["latency_ms"]
+    latency = normalize(report)["run"].get("latency_ms") or {"p50": None, "p95": None}
     cost = report["cost"]
     lines += [
         "Latency".ljust(26) + f"p50 {num(latency['p50'], 2)} ms   p95 {num(latency['p95'], 2)} ms",

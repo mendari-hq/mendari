@@ -412,6 +412,32 @@ scoreboard and grading, LP-16 for registry-pulled packs (community packs already
 with a CPU budget, #133), LP-18 and LP-19 registry, LP-12 accounts, LP-20 pack store, LP-21
 operations, LP-22 site network, LP-23 EHR pilot.
 
+- [ ] **LP-10** Statistics and a per-case ledger behind every number. Split in three PRs:
+  - [x] **LP-10a** The statistics, the ledger, the report format and `mendari compare` (PR
+    open). `mendari.evals.stats`, pure Python: Clopper-Pearson from the beta quantile (a
+    Stirling-form incomplete beta, Halley inversion), exact McNemar, a seeded percentile
+    bootstrap and its paired form, Holm over a named family, an equal-mass ECE; checked against
+    scipy and statsmodels (development dependencies only) to 1e-12, the bootstrap on the same
+    index matrix. A run keeps a ledger (`mendari.ledger/1`: per case a keyed hash of its id,
+    truth, prediction, probabilities, outcome, critical positives, cost; no text, no id) and its
+    report (`mendari.eval/2`) computes its result only from it, with a `run` block apart; a v1
+    report still loads (card, leaderboard, sharing). The five reference packs are rebuilt with
+    their ledgers; CI checks each result byte for byte and against its ledger. A stored report
+    is chained (`eval.recorded`). `mendari compare A B --dataset X`: paired, exact McNemar,
+    Holm, a bootstrap on Brier, the changed cases. Spec: `docs/spec/evaluation-reports.md`.
+  - [ ] **LP-10b** Every proportion shown as k of n with its interval (card, CLI, dashboard),
+    the 100-positive evidence rule, leaderboard rows keyed by pack digest and dataset hash with
+    "earlier version" rows unranked, and one ranking function (critical cases first). Decisions
+    taken (recommended): nothing ranks without 100 positives on a critical label; the 166
+    committed rows, all from earlier versions and 144 of them remote, are kept and marked, not
+    re-measured (paid calls).
+  - [ ] **LP-10c** The model that answered, on each answer and in each report; and removing
+    `DEFAULT_MODEL` (an `llm` variant with no model fails as `not_configured`, in `preflight`).
+    **Owner first:** no default configuration uses an LLM, but an `llm` slot chosen through
+    `MENDARI_PROVIDERS` without `LLM_MODEL` would start sending every case to a person. The last
+    tracked hosted setting (removed 2026-10-04) had `mendari/ai-guard:screen=rules_and_llm`:
+    check Vercel's `LLM_MODEL` for Production and Preview before that part merges.
+
 ## Plan: community packs through pull requests (2026-10-04)
 Make the repository public so outside developers can contribute packs by pull request. Plan from
 three research reports on `b00e2809` (public repo, contribution flow, shipping and the bar).

@@ -61,6 +61,7 @@ BROKEN: dict[str, tuple[list[str], dict[str, str]]] = {
     "calibrate": (["mendari/patient-inbox-router", "--slot", "routr", "--variant", "x"], {}),
     "agreement": (["mendari/patient-inbox-router", "--slot", "routr", "--variants", "a", "b"], {}),
     "leaderboard": (["mendari/ai-guard", "--report", "{missing}"], {}),
+    "compare": (["{missing}", "{missing}", "--dataset", "test"], {}),
     "card": (["no/such-pack"], {}),
     "schema": (["no/such-pack"], {}),
     "serve": (["--db", "{not_db}"], {}),

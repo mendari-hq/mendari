@@ -18,6 +18,7 @@ from typing import Any
 from mendari.core.decision import Decision
 from mendari.errors import MendariError
 from mendari.evals.harness import evaluate, load_dataset
+from mendari.evals.ledger import case_hash
 from mendari.sandbox import example_datasets_dir
 from mendari.sandbox.fhir_records import CASE_SYSTEM
 from mendari.standards import bulk
@@ -59,8 +60,11 @@ def run(fhir: str, pack_id: str) -> dict[str, Any]:
         direct = [r for r in load_dataset(labels_path).records if r["id"] in exported]
         write_jsonl(folder / "bulk.jsonl", records)
         write_jsonl(folder / "direct.jsonl", direct)
-        from_bulk = evaluate(decision, load_dataset(folder / "bulk.jsonl"))
-        from_file = evaluate(decision, load_dataset(folder / "direct.jsonl"))
+        exported_set = load_dataset(folder / "bulk.jsonl")
+        direct_set = load_dataset(folder / "direct.jsonl")
+        # Each file keys its own case hashes: name the cases by their ids to compare them.
+        from_bulk = by_id(evaluate(decision, exported_set), exported_set)
+        from_file = by_id(evaluate(decision, direct_set), direct_set)
     differences = [key for key in COMPARED if from_bulk[key] != from_file[key]]
     return {
         "files": {o["type"]: o["count"] for o in manifest.get("output", [])},
@@ -74,3 +78,14 @@ def run(fhir: str, pack_id: str) -> dict[str, Any]:
 
 def write_jsonl(path: Path, records: list[dict[str, Any]]) -> None:
     path.write_text("".join(json.dumps(r) + "\n" for r in records), encoding="utf-8")
+
+
+def by_id(report: dict[str, Any], dataset: Any) -> dict[str, Any]:
+    """The report with each case hash replaced by the case's id (local only: a check)."""
+    ids = {case_hash(dataset.case_key, record["id"]): record["id"] for record in dataset.records}
+    named: dict[str, Any] = json.loads(json.dumps(report))
+    for item in named["misclassified"]:
+        item["case"] = ids[item["case"]]
+    for item in named["decisions"]["critical"]:
+        item["missed_cases"] = sorted(ids[case] for case in item["missed_cases"])
+    return named

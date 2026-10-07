@@ -183,7 +183,7 @@ Benchmark `test` (n=600) with specialty_reader=`naive_bayes`, triage_screen=`rul
 | Accuracy of AUTO decisions | n/a |
 | False automation rate | n/a |
 | Expected human override rate | 0.5% |
-| Latency p50 / p95 | 1.91 / 2.21 ms |
+| Latency p50 / p95 | 1.88 / 2.04 ms |
 | Cost per decision | $0.00000 |
 | Critical `urgency=urgent` | 113/113 detected, 0 automated |
 | Critical `next_step=urgent_review` | 124/124 detected, 0 automated |

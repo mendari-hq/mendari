@@ -110,7 +110,7 @@ def test_local_validation_via_api(client: TestClient) -> None:
     assert "trial-local-site-example" not in client.get(PACK).json()["datasets"]
     report = client.post(f"{PACK}/evals", json={"dataset": "local-site-example"}).json()
     assert report["comparison"]["status"] == "degraded"
-    assert client.get("/api/evals").json()[0]["id"] == report["id"]
+    assert client.get("/api/evals").json()[0]["run"]["id"] == report["run"]["id"]
     # Evaluation traffic does not enter the operational audit log.
     assert client.get("/api/stats").json()["decisions"] == 0
     assert client.post(f"{PACK}/evals", json={"dataset": "../../etc/passwd"}).status_code == 404

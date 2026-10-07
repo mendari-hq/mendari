@@ -175,7 +175,8 @@ def cmd_decide(args: argparse.Namespace) -> int:
 
 def cmd_eval(args: argparse.Namespace) -> int:
     from mendari.core.card import benchmark
-    from mendari.evals import compare, evaluate, resolve_dataset
+    from mendari.evals import compare, resolve_dataset
+    from mendari.evals.harness import evaluation
     from mendari.evals.render import comparison_text, report_text
 
     decision = _decision(args)
@@ -184,7 +185,8 @@ def cmd_eval(args: argparse.Namespace) -> int:
     if args.limit:
         dataset = dataset.head(args.limit)
     workers = args.workers or (8 if decision.is_remote else 1)
-    report = evaluate(decision, dataset, workers=workers)
+    run = evaluation(decision, dataset, workers=workers)
+    report = run.report
 
     comparison = None
     if args.baseline != "none":
@@ -199,10 +201,15 @@ def cmd_eval(args: argparse.Namespace) -> int:
             report["comparison"] = comparison
 
     if args.out:
-        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-        Path(args.out).write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+        out = Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+        # The ledger its result is computed from, beside it (mendari compare reads it).
+        ledgers = out.parent / "ledgers"
+        ledgers.mkdir(exist_ok=True)
+        (ledgers / run.ledger.file_name).write_bytes(run.ledger.dumps())
     if args.db:
-        AuditStore(args.db).save_report(report)
+        AuditStore(args.db).save_report(report, ledger=run.ledger.dumps())
     if args.share_out:
         from mendari.evals.share import shareable
 
@@ -301,6 +308,35 @@ def cmd_agreement(args: argparse.Namespace) -> int:
         for item in report["differences"][:20]:
             print(f"  {item['case']}  {item['question']}: {item[left]} vs {item[right]}")
     return 0 if report["agree"] else 1
+
+
+def cmd_compare(args: argparse.Namespace) -> int:
+    from mendari.core.registry import resolve_pack
+    from mendari.evals import paired
+    from mendari.evals.harness import load_dataset, resolve_dataset
+    from mendari.evals.ledger import case_hash
+
+    if args.seed < 0 or args.resamples < 1 or not 0 < args.alpha < 1:
+        raise MendariError("--seed is 0 or more, --resamples 1 or more, --alpha between 0 and 1")
+    a = paired.load(args.a, flag="A")
+    b = paired.load(args.b, flag="B")
+    if Path(args.dataset).is_file():
+        dataset = load_dataset(args.dataset)
+    else:
+        dataset = resolve_dataset(resolve_pack(a.header["pack"]["id"]), args.dataset)
+    result = paired.compare(
+        a, b, dataset_sha256=dataset.sha256, seed=args.seed, resamples=args.resamples,
+        alpha=args.alpha,
+    )  # fmt: skip
+    if args.out:
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.out).write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    if args.json:
+        _print_json(result)  # case hashes only
+    else:
+        ids = {case_hash(dataset.case_key, r["id"]): r["id"] for r in dataset.records}
+        print(paired.text(result, ids))
+    return 0
 
 
 def cmd_leaderboard(args: argparse.Namespace) -> int:
@@ -1443,6 +1479,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="dataset name or file (repeat; default: the pack's tests and every dataset)",
     )
     agree.add_argument("--json", action="store_true", help="the full report")
+
+    paired_runs = sub.add_parser(
+        "compare", help="compare two evaluation runs case by case (from their ledgers)"
+    )
+    paired_runs.add_argument("a", help="run A: a ledger (.jsonl) or a report with its ledger")
+    paired_runs.add_argument("b", help="run B, on the same dataset")
+    paired_runs.add_argument("--dataset", required=True, help="pack dataset name or JSONL path")
+    paired_runs.add_argument("--seed", type=int, default=0, help="bootstrap seed (default 0)")
+    paired_runs.add_argument("--resamples", type=int, default=2000, help="bootstrap resamples")
+    paired_runs.add_argument("--alpha", type=float, default=0.05, help="level (default 0.05)")
+    paired_runs.add_argument("--json", action="store_true", help="JSON, cases by hash only")
+    paired_runs.add_argument("--out", help="also write the comparison as JSON")
+    paired_runs.set_defaults(handler=cmd_compare)
 
     board = pack_command(
         "leaderboard", cmd_leaderboard, "compare provider configurations on the same datasets"

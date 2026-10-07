@@ -6,6 +6,9 @@ import { criticalText } from "./pack.js";
 import { tableHtml } from "./table.js";
 import { esc, money, num, pct, slotText, stat, time } from "./ui.js";
 
+// A report's run: its id, time and latency (mendari.eval/2), or a mendari.eval/1 report's own.
+export const runOf = (r) => r.run ?? r;
+
 export function reportView(r) {
   const q = r.questions[r.primary];
   const d = r.decisions;
@@ -16,10 +19,11 @@ export function reportView(r) {
     foot: c.auto_missed ? `<b>${c.auto_missed} automated</b>` : "none automated",
   })).join("");
   const small = (label, value, foot = "") => stat({ size: "small", label, value, foot: esc(foot) });
-  const id = `${r.id ?? r.created_at}`.replace(/[^a-zA-Z0-9-]/g, "");
+  const run = runOf(r);
+  const id = `${run.id ?? run.created_at}`.replace(/[^a-zA-Z0-9-]/g, "");
   return `
     <div class="report-meta">
-      <div class="row"><b>${esc(r.dataset.name)}</b><span class="muted">n=${r.dataset.n} · ${esc(time(r.created_at))} ·
+      <div class="row"><b>${esc(r.dataset.name)}</b><span class="muted">n=${r.dataset.n} · ${esc(time(run.created_at))} ·
         ${Object.entries(r.providers).map(([s, p]) => `${esc(s)}=${esc(p.variant)}`).join(", ")}</span></div>
     </div>
     ${r.comparison ? comparisonView(r.comparison) : ""}
@@ -36,7 +40,7 @@ export function reportView(r) {
       ${small("Automated", pct(d.outcome_rates.AUTO), `accuracy ${pct(d.automation.accuracy)}`)}
       ${small("Abstention", pct(d.abstention_rate))}
       ${small("Expected override", pct(d.review.expected_override_rate), `of ${d.review.n} reviewed`)}
-      ${small("Latency p50 / p95", `${num(r.latency_ms.p50, 2)} / ${num(r.latency_ms.p95, 2)} ms`)}
+      ${small("Latency p50 / p95", `${num(run.latency_ms?.p50, 2)} / ${num(run.latency_ms?.p95, 2)} ms`)}
       ${small("Cost / decision", r.cost.per_decision_usd === null ? "unknown" : money(r.cost.per_decision_usd))}
     </div>
     <div class="grid-2">

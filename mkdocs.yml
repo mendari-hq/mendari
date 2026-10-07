@@ -63,6 +63,7 @@ nav:
       - Holding automation: operations/automation-hold.md
   - Reference:
       - Decision Pack spec 0.2: spec/decision-pack-0.2.md
+      - Evaluation reports and ledgers: spec/evaluation-reports.md
       - Decision Pack spec 0.1: spec/decision-pack-0.1.md
       - Architecture: architecture.md
   - Security:

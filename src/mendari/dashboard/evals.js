@@ -3,7 +3,7 @@
 
 import { leaderboardView, wireLeaderboard } from "./leaderboard.js";
 import { providerWords, remoteModels } from "./pack.js";
-import { reportView } from "./report.js";
+import { reportView, runOf } from "./report.js";
 import { views, wire } from "./router.js";
 import { $, announce, api, emptyState, esc, may, packPath, reducedMotion, slotText, state, time, toastError, whileBusy } from "./ui.js";
 
@@ -58,7 +58,7 @@ function showEvalsTab(requested) {
     body.innerHTML = reports.length ? `
       <div class="row toolbar">
         <label for="history">Report</label>
-        <select id="history">${reports.map((r, i) => `<option value="${i}">${esc(time(r.created_at))} · ${esc(r.dataset.name)} (n=${r.dataset.n})</option>`).join("")}</select>
+        <select id="history">${reports.map((r, i) => `<option value="${i}">${esc(time(runOf(r).created_at))} · ${esc(r.dataset.name)} (n=${r.dataset.n})</option>`).join("")}</select>
       </div>
       <div id="history-report">${reportView(reports[0])}</div>` : emptyState({
       icon: "history", title: "No evaluations run here yet",

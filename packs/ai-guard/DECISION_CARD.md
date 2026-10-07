@@ -14,7 +14,7 @@
 | Risk level | **2**, clinical support |
 | Automation | Human review required by default; AUTO only with a recorded governance override. Only while `screen` is `rules_and_jev` or `rules_and_llm`; otherwise a person reviews. |
 | Pack digest | `sha256:a12e2a60447d41c1dd0b6dc4a5fd173f4741ad36a18b2453fa884499fdb34d73` |
-| Last validation | 2026-10-06 on `test` (n=600, sha256 `a1d0bd1300f5…`) |
+| Last validation | 2026-10-07 on `test` (n=600, sha256 `a1d0bd1300f5…`) |
 
 ## Intended use
 
@@ -153,7 +153,7 @@ Benchmark `test` (n=600) with screen=`rules`, dosing=`dosing`:
 | Accuracy of AUTO decisions | n/a |
 | False automation rate | n/a |
 | Expected human override rate | 3.2% |
-| Latency p50 / p95 | 0.29 / 0.38 ms |
+| Latency p50 / p95 | 0.29 / 0.37 ms |
 | Cost per decision | $0.00000 |
 | Critical `verdict=block` | 164/164 detected, 0 automated |
 | Critical `question_emergency=yes` | 114/114 detected, 0 automated |
