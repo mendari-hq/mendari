@@ -295,9 +295,12 @@ answer gives `ABSTAIN` (§6).
 A provider answers every question in its slot with a probability distribution over the
 question's labels. The answer's `label` is the most probable label, and `confidence` is the
 provider's confidence in it. Providers MUST either answer every question in the slot or raise
-a provider error with a stable, audit-safe code (e.g. `timeout`, `rate_limited`,
-`credential_unavailable`, `invalid_response`, `invalid_input`). Error codes MUST NOT carry
-credentials or remote error bodies.
+a provider error with one of these stable, audit-safe codes: `budget_exhausted`,
+`credential_unavailable`, `insufficient_credit`, `invalid_endpoint`, `invalid_input`,
+`invalid_response`, `not_configured`, `provider_unavailable`, `quota_exhausted`,
+`rate_limited`, `time_budget`, `timeout` or `unavailable`. A derived question whose inputs
+failed is recorded as `derived_input_unavailable`. No other code is recorded. Error codes MUST
+NOT carry credentials or remote error bodies.
 
 Variants of a slot are interchangeable implementations of the same contract. Selecting a
 variant (`providers={"router": "jev"}`) MUST NOT change the pack's questions, policy or
@@ -483,7 +486,8 @@ NOT contain a case id, case text, the dataset's name or hash, who approved a gov
 (only whether one applied), or subgroup cells (their values come from a site's data).
 Calibration bins with fewer than 10 cases are dropped. Its question, label, slot, variant and
 composite member names are the published pack's own, and a registry MUST refuse a report that
-names any other; model names and error codes are short ASCII names. A composite provider
+names any other; model names are short ASCII names, and error codes are those of §5. A
+composite provider
 (`any_of`, `cascade`, `vote`) is shared as it is recorded: its model lists every member's as
 `member:model`, in the pack's order, joined by ` + ` (` → ` for a `cascade`), and a member that
 failed is counted under `member:code` (`, ` between members of one composite that failed

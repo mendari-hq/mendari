@@ -52,7 +52,9 @@ The first release (not yet published).
   its model lists each member's and a failed member's error names the member, as the
   evaluation records them, and the registry refuses member names that are not the pack's own
   (it refused any report from a composite). A version published before this records no
-  members, so it refuses such a report with the reason (publish a new version).
+  members, so it refuses such a report with the reason (publish a new version). A shared
+  report's error codes must be Mendari's own, a closed set the spec lists (they were checked
+  only as names), and the type checker holds every provider error to that set.
 - **Distribution:** a wheel and an sdist, container images (the engine with every pack, and one
   per pack), and deployment templates for docker compose and Kubernetes.
 - **The command line:** every error is one line per problem and exit 1, never a traceback
