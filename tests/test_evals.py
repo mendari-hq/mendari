@@ -54,12 +54,16 @@ def test_threshold_sweep() -> None:
         "coverage": 1.0,
         "accuracy": pytest.approx(2 / 3),
         "errors": 1,
+        "chosen": 3,
+        "scored": 3,
     }
     assert rows[1] == {
         "threshold": 0.9,
         "coverage": pytest.approx(1 / 3),
         "accuracy": 1.0,
         "errors": 0,
+        "chosen": 1,
+        "scored": 3,
     }
 
 

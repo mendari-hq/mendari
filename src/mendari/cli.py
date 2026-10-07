@@ -382,7 +382,7 @@ def cmd_leaderboard(args: argparse.Namespace) -> int:
     board = leaderboard.build(pack, reports, existing)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(board, indent=2) + "\n", encoding="utf-8")
-    print("\n".join(leaderboard.markdown(board)))
+    print("\n".join(leaderboard.markdown(board, pack.digest)))
     print(f"-> {target}")
     return 0
 
@@ -1099,6 +1099,9 @@ def cmd_pull(args: argparse.Namespace) -> int:
 
 
 def cmd_search(args: argparse.Namespace) -> int:
+    from mendari.evals import render
+    from mendari.evals.result import counted
+
     with _registry_client(args) as registry:
         found = registry.search(
             q=" ".join(args.query),
@@ -1110,8 +1113,13 @@ def cmd_search(args: argparse.Namespace) -> int:
         _print_json(found)
         return 0
     for item in found:
-        accuracy = (item.get("benchmark") or {}).get("accuracy")
-        shown = "" if accuracy is None else f"  benchmark {accuracy:.1%}"
+        benchmark = item.get("benchmark") or {}
+        accuracy = benchmark.get("accuracy")
+        shown = (
+            ""
+            if accuracy is None
+            else f"  benchmark {render.shown(counted(accuracy, benchmark.get('n')))}"
+        )
         risk = f"risk {item['risk']['level']}"
         print(f"{item['id']}@{item['version']}  {risk}  {item['publisher_type']}{shown}")
         print(f"    {item['summary'][:110]}")

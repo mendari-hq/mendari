@@ -4,6 +4,13 @@ Renamed on 2026-09-30, when the project became Mendari: this pack was `openhealt
 Its id, its publisher's name and its `https://mendari.co/...` identifiers changed; its criteria,
 rules, models, data and results did not.
 
+## 0.2.1
+
+- Known failure modes state their findings and the command that measures them, no longer
+  figures typed in by hand (LP-10: every figure on a card is computed). Criteria, rules,
+  providers, policy, models and data are unchanged; every decision is identical. The digest
+  changes because the manifest does.
+
 ## 0.2.0
 
 - The procedure codes are fictional: the 15 CPT codes the pack, its data and its tests used are

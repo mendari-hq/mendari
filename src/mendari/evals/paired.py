@@ -25,11 +25,10 @@ from typing import Any
 from mendari.errors import MendariError
 from mendari.evals import metrics, stats
 from mendari.evals.ledger import Ledger
-from mendari.evals.result import PREDICTED, PROBABILITIES, TRUTH
+from mendari.evals.result import MIN_POSITIVES, PREDICTED, PROBABILITIES, TRUTH
 
 FORMAT = "mendari.compare/1"
 ALPHA = 0.05
-MIN_POSITIVES = 100  # a critical label's evidence floor (LP-10)
 
 Case = Mapping[str, Any]
 Event = Callable[[Case], bool | None]  # None: the figure does not apply to this case

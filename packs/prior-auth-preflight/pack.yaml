@@ -1,6 +1,6 @@
 spec_version: "0.2"
 id: mendari/prior-auth-preflight
-version: 0.2.0
+version: 0.2.1
 name: Prior Authorization Preflight
 summary: >-
   Checks an order against the patient's payer before it is sent for prior authorization: does
@@ -57,8 +57,10 @@ card:
     - Only the codes listed in logic/structured.yaml count. A lumbar X-ray billed under
       another code (for example FX112, four or more views) reads as missing imaging. On the
       bundled local-site example (datasets/prior-auth-local-site-example.jsonl), which has
-      such X-rays and shorthand notes, prior imaging is 88 % correct and the next step 93 %
-      (86 % on shorthand notes). Add a site's codes before use.
+      such X-rays and shorthand notes, prior imaging and the next step are answered wrong more
+      often than on the benchmark, most on shorthand notes (`mendari eval
+      mendari/prior-auth-preflight --dataset datasets/prior-auth-local-site-example.jsonl`
+      shows by how much). Add a site's codes before use.
     - Durations are read as written in the notes ("8 weeks of physical therapy"). A note like
       "PT since July" cannot be compared with dates by the keyword rules and reads as unclear.
     - The keyword rules read English notes only and miss phrasings they do not list,

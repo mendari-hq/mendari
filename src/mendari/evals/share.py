@@ -237,7 +237,11 @@ def site_report(report: Mapping[str, Any], *, min_group: int = MIN_GROUP) -> Sit
             "primary": report.get("primary"),
             "questions": questions,
             "decisions": decisions,
-            "threshold_sweep": report.get("threshold_sweep"),
+            "threshold_sweep": [
+                {key: row.get(key) for key in ("threshold", "coverage", "accuracy", "errors")}
+                for row in _list(report.get("threshold_sweep"), "threshold_sweep")
+                if isinstance(row, dict)
+            ],
             "latency_ms": normalize(report)["run"].get("latency_ms"),
             "cost": report.get("cost"),
             "errors": report.get("errors") or {},

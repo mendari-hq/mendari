@@ -1327,55 +1327,73 @@
       "threshold": 0.5,
       "coverage": 1.0,
       "accuracy": 0.9766666666666667,
-      "errors": 14
+      "errors": 14,
+      "chosen": 600,
+      "scored": 600
     },
     {
       "threshold": 0.6,
       "coverage": 0.5766666666666667,
       "accuracy": 0.9595375722543352,
-      "errors": 14
+      "errors": 14,
+      "chosen": 346,
+      "scored": 600
     },
     {
       "threshold": 0.7,
       "coverage": 0.48333333333333334,
       "accuracy": 1.0,
-      "errors": 0
+      "errors": 0,
+      "chosen": 290,
+      "scored": 600
     },
     {
       "threshold": 0.8,
       "coverage": 0.48333333333333334,
       "accuracy": 1.0,
-      "errors": 0
+      "errors": 0,
+      "chosen": 290,
+      "scored": 600
     },
     {
       "threshold": 0.85,
       "coverage": 0.48333333333333334,
       "accuracy": 1.0,
-      "errors": 0
+      "errors": 0,
+      "chosen": 290,
+      "scored": 600
     },
     {
       "threshold": 0.9,
       "coverage": 0.435,
       "accuracy": 1.0,
-      "errors": 0
+      "errors": 0,
+      "chosen": 261,
+      "scored": 600
     },
     {
       "threshold": 0.95,
       "coverage": 0.2733333333333333,
       "accuracy": 1.0,
-      "errors": 0
+      "errors": 0,
+      "chosen": 164,
+      "scored": 600
     },
     {
       "threshold": 0.97,
       "coverage": 0.2733333333333333,
       "accuracy": 1.0,
-      "errors": 0
+      "errors": 0,
+      "chosen": 164,
+      "scored": 600
     },
     {
       "threshold": 0.99,
       "coverage": 0.07666666666666666,
       "accuracy": 1.0,
-      "errors": 0
+      "errors": 0,
+      "chosen": 46,
+      "scored": 600
     }
   ],
   "cost": {
@@ -1409,6 +1427,8 @@
     "site": {
       "public": {
         "n": 600,
+        "labelled": 600,
+        "automated": 0,
         "accuracy": 0.9766666666666667,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1418,6 +1438,8 @@
     "kind": {
       "dose": {
         "n": 62,
+        "labelled": 62,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1425,6 +1447,8 @@
       },
       "escalated": {
         "n": 68,
+        "labelled": 68,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1432,6 +1456,8 @@
       },
       "missed_emergency": {
         "n": 46,
+        "labelled": 46,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1439,6 +1465,8 @@
       },
       "safe": {
         "n": 268,
+        "labelled": 268,
+        "automated": 0,
         "accuracy": 0.9477611940298507,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1446,6 +1474,8 @@
       },
       "scope": {
         "n": 58,
+        "labelled": 58,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1453,6 +1483,8 @@
       },
       "unsafe": {
         "n": 56,
+        "labelled": 56,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1460,6 +1492,8 @@
       },
       "unsupported": {
         "n": 42,
+        "labelled": 42,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1469,6 +1503,8 @@
     "topic": {
       "allergy": {
         "n": 18,
+        "labelled": 18,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1476,6 +1512,8 @@
       },
       "appointment": {
         "n": 28,
+        "labelled": 28,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1483,6 +1521,8 @@
       },
       "back": {
         "n": 72,
+        "labelled": 72,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1490,6 +1530,8 @@
       },
       "bleeding": {
         "n": 18,
+        "labelled": 18,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1497,6 +1539,8 @@
       },
       "breathing": {
         "n": 18,
+        "labelled": 18,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1504,6 +1548,8 @@
       },
       "chest": {
         "n": 9,
+        "labelled": 9,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1511,6 +1557,8 @@
       },
       "cold": {
         "n": 51,
+        "labelled": 51,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1518,6 +1566,8 @@
       },
       "dizzy": {
         "n": 55,
+        "labelled": 55,
+        "automated": 0,
         "accuracy": 0.8909090909090909,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1525,6 +1575,8 @@
       },
       "headache": {
         "n": 78,
+        "labelled": 78,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1532,6 +1584,8 @@
       },
       "infant": {
         "n": 19,
+        "labelled": 19,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1539,6 +1593,8 @@
       },
       "overdose": {
         "n": 18,
+        "labelled": 18,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1546,6 +1602,8 @@
       },
       "rash": {
         "n": 61,
+        "labelled": 61,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1553,6 +1611,8 @@
       },
       "refill": {
         "n": 72,
+        "labelled": 72,
+        "automated": 0,
         "accuracy": 0.9722222222222222,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1560,6 +1620,8 @@
       },
       "stroke": {
         "n": 14,
+        "labelled": 14,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1567,6 +1629,8 @@
       },
       "sugar": {
         "n": 69,
+        "labelled": 69,
+        "automated": 0,
         "accuracy": 0.9130434782608695,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1576,6 +1640,8 @@
     "style": {
       "plain": {
         "n": 600,
+        "labelled": 600,
+        "automated": 0,
         "accuracy": 0.9766666666666667,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1684,15 +1750,15 @@
     }
   ],
   "run": {
-    "id": "ae54e69b-3406-4b4a-855a-a0b0f6f19c09",
-    "created_at": "2026-10-07T18:04:30+00:00",
+    "id": "36334ce0-c32a-44c4-99f4-70b4e5177919",
+    "created_at": "2026-10-07T18:31:12+00:00",
     "latency_ms": {
-      "mean": 0.31211969985937077,
-      "p50": 0.29191700741648674,
-      "p95": 0.3626667894423008,
-      "max": 7.3973326943814754
+      "mean": 0.3049636686531206,
+      "p50": 0.2820407971739769,
+      "p95": 0.34791696816682816,
+      "max": 7.487792056053877
     },
     "engine": "0.1.0"
   },
-  "result_sha256": "sha256:c96d2d778571902b07bb4c27eecd92a6176c0154e8ba2121124810c339b7cfb6"
+  "result_sha256": "sha256:baf11e3f70c916d913ed3d40caa989c24ab1cef0ebb88be9f6c277e72f6d1cfb"
 }

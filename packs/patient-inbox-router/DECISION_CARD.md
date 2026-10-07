@@ -92,148 +92,148 @@ Every decision is one of `AUTO`, `HUMAN_REVIEW`, `ABSTAIN` or `BLOCK`, with a pr
 
 ## Validation
 
-Benchmark `test` (n=600) with safety_screen=`rules`, router=`naive_bayes`:
+Benchmark `test` (n=600) with safety_screen=`rules`, router=`naive_bayes`. Each proportion: k of n [exact 95% interval, Clopper-Pearson].
 
 | Metric | Value |
 |---|---|
-| `destination` accuracy | 99.3% |
+| `destination` accuracy | 596 of 600 [98.3-99.8%] |
 | Macro-F1 | 0.992 |
 | Expected calibration error | 0.005 |
-| Brier score | 0.009 |
-| AUTO rate | 0.0% |
-| HUMAN_REVIEW rate | 99.7% |
-| ABSTAIN rate | 0.3% |
-| BLOCK rate | 0.0% |
-| Accuracy of AUTO decisions | n/a |
-| False automation rate | n/a |
-| Expected human override rate | 0.5% |
+| Brier score | 0.009 [0.002-0.017, bootstrap] |
+| AUTO | 0 of 600 [0.0-0.6%] |
+| HUMAN_REVIEW | 598 of 600 [98.8-99.96%] |
+| ABSTAIN | 2 of 600 [0.04-1.2%] |
+| BLOCK | 0 of 600 [0.0-0.6%] |
+| AUTO decisions correct | no cases |
+| False automation (of labelled cases) | 0 of 600 [0.0-0.6%] |
+| Expected human override (of reviewed) | 3 of 598 [0.1-1.5%] |
 | Latency p50 / p95 | 0.15 / 0.20 ms |
 | Cost per decision | $0.00000 |
-| Critical `urgency=urgent` | 23/23 detected, 0 automated |
+| Critical `urgency=urgent` | 23 of 23 [85.2-100.0%] detected, 0 automated (insufficient evidence: under 100 positives) |
 
 Per-label performance:
 
-| Label | Precision | Recall | F1 | n |
-|---|---|---|---|---|
-| `front_desk` | 100.0% | 97.9% | 0.990 | 193 |
-| `medical_assistant` | 100.0% | 100.0% | 1.000 | 161 |
-| `nurse` | 100.0% | 100.0% | 1.000 | 117 |
-| `physician` | 100.0% | 100.0% | 1.000 | 67 |
-| `billing` | 93.9% | 100.0% | 0.969 | 62 |
+| Label | Precision | Recall | F1 |
+|---|---|---|---|
+| `front_desk` | 189 of 189 [98.1-100.0%] | 189 of 193 [94.8-99.4%] | 0.990 |
+| `medical_assistant` | 161 of 161 [97.7-100.0%] | 161 of 161 [97.7-100.0%] | 1.000 |
+| `nurse` | 117 of 117 [96.9-100.0%] | 117 of 117 [96.9-100.0%] | 1.000 |
+| `physician` | 67 of 67 [94.6-100.0%] | 67 of 67 [94.6-100.0%] | 1.000 |
+| `billing` | 62 of 66 [85.2-98.3%] | 62 of 62 [94.2-100.0%] | 0.969 |
 
 Subgroups:
 
-| Subgroup | n | Accuracy | AUTO rate | Abstention |
+| Subgroup | n | Accuracy | AUTO | Abstention |
 |---|---|---|---|---|
-| language=en | 548 | 100.0% | 0.0% | 0.0% |
-| language=es | 52 | 92.3% | 0.0% | 3.8% |
-| channel=portal | 482 | 99.2% | 0.0% | 0.4% |
-| channel=sms | 118 | 100.0% | 0.0% | 0.0% |
-| age_band=0-17 | 22 | 100.0% | 0.0% | 0.0% |
-| age_band=18-39 | 175 | 99.4% | 0.0% | 0.0% |
-| age_band=40-64 | 246 | 99.2% | 0.0% | 0.4% |
-| age_band=65+ | 157 | 99.4% | 0.0% | 0.6% |
-| topic=anaphylaxis | 2 | 100.0% | 0.0% | 0.0% |
-| topic=bill | 34 | 100.0% | 0.0% | 0.0% |
-| topic=bleeding | 2 | 100.0% | 0.0% | 0.0% |
-| topic=breathing | 10 | 100.0% | 0.0% | 0.0% |
-| topic=cancel | 22 | 100.0% | 0.0% | 0.0% |
-| topic=chest_pain | 5 | 100.0% | 0.0% | 0.0% |
-| topic=contact_update | 14 | 100.0% | 0.0% | 0.0% |
-| topic=diagnosis | 11 | 100.0% | 0.0% | 0.0% |
-| topic=forms | 12 | 100.0% | 0.0% | 0.0% |
-| topic=infant_fever | 2 | 100.0% | 0.0% | 0.0% |
-| topic=insurance | 11 | 100.0% | 0.0% | 0.0% |
-| topic=logistics | 22 | 100.0% | 0.0% | 0.0% |
-| topic=mixed_clinical | 7 | 100.0% | 0.0% | 0.0% |
-| topic=order_status | 17 | 100.0% | 0.0% | 0.0% |
-| topic=outside_records | 24 | 100.0% | 0.0% | 0.0% |
-| topic=payment | 17 | 100.0% | 0.0% | 0.0% |
-| topic=portal | 20 | 100.0% | 0.0% | 0.0% |
-| topic=referral_status | 20 | 100.0% | 0.0% | 0.0% |
-| topic=refill | 88 | 100.0% | 0.0% | 0.0% |
-| topic=reschedule | 37 | 100.0% | 0.0% | 0.0% |
-| topic=results | 41 | 100.0% | 0.0% | 0.0% |
-| topic=schedule | 59 | 93.2% | 0.0% | 3.4% |
-| topic=side_effects | 23 | 100.0% | 0.0% | 0.0% |
-| topic=stroke | 2 | 100.0% | 0.0% | 0.0% |
-| topic=symptoms | 42 | 100.0% | 0.0% | 0.0% |
-| topic=treatment_change | 15 | 100.0% | 0.0% | 0.0% |
-| topic=vaccines | 11 | 100.0% | 0.0% | 0.0% |
-| topic=vague | 19 | 100.0% | 0.0% | 0.0% |
-| topic=wound_care | 11 | 100.0% | 0.0% | 0.0% |
+| language=en | 548 | 548 of 548 [99.3-100.0%] | 0 of 548 [0.0-0.7%] | 0 of 548 [0.0-0.7%] |
+| language=es | 52 | 48 of 52 [81.5-97.9%] | 0 of 52 [0.0-6.8%] | 2 of 52 [0.5-13.2%] |
+| channel=portal | 482 | 478 of 482 [97.9-99.8%] | 0 of 482 [0.0-0.8%] | 2 of 482 [0.1-1.5%] |
+| channel=sms | 118 | 118 of 118 [96.9-100.0%] | 0 of 118 [0.0-3.1%] | 0 of 118 [0.0-3.1%] |
+| age_band=0-17 | 22 | 22 of 22 [84.6-100.0%] | 0 of 22 [0.0-15.4%] | 0 of 22 [0.0-15.4%] |
+| age_band=18-39 | 175 | 174 of 175 [96.9-99.99%] | 0 of 175 [0.0-2.1%] | 0 of 175 [0.0-2.1%] |
+| age_band=40-64 | 246 | 244 of 246 [97.1-99.9%] | 0 of 246 [0.0-1.5%] | 1 of 246 [0.01-2.2%] |
+| age_band=65+ | 157 | 156 of 157 [96.5-99.98%] | 0 of 157 [0.0-2.3%] | 1 of 157 [0.02-3.5%] |
+| topic=anaphylaxis | 2 | 2 of 2 [15.8-100.0%] | 0 of 2 [0.0-84.2%] | 0 of 2 [0.0-84.2%] |
+| topic=bill | 34 | 34 of 34 [89.7-100.0%] | 0 of 34 [0.0-10.3%] | 0 of 34 [0.0-10.3%] |
+| topic=bleeding | 2 | 2 of 2 [15.8-100.0%] | 0 of 2 [0.0-84.2%] | 0 of 2 [0.0-84.2%] |
+| topic=breathing | 10 | 10 of 10 [69.2-100.0%] | 0 of 10 [0.0-30.8%] | 0 of 10 [0.0-30.8%] |
+| topic=cancel | 22 | 22 of 22 [84.6-100.0%] | 0 of 22 [0.0-15.4%] | 0 of 22 [0.0-15.4%] |
+| topic=chest_pain | 5 | 5 of 5 [47.8-100.0%] | 0 of 5 [0.0-52.2%] | 0 of 5 [0.0-52.2%] |
+| topic=contact_update | 14 | 14 of 14 [76.8-100.0%] | 0 of 14 [0.0-23.2%] | 0 of 14 [0.0-23.2%] |
+| topic=diagnosis | 11 | 11 of 11 [71.5-100.0%] | 0 of 11 [0.0-28.5%] | 0 of 11 [0.0-28.5%] |
+| topic=forms | 12 | 12 of 12 [73.5-100.0%] | 0 of 12 [0.0-26.5%] | 0 of 12 [0.0-26.5%] |
+| topic=infant_fever | 2 | 2 of 2 [15.8-100.0%] | 0 of 2 [0.0-84.2%] | 0 of 2 [0.0-84.2%] |
+| topic=insurance | 11 | 11 of 11 [71.5-100.0%] | 0 of 11 [0.0-28.5%] | 0 of 11 [0.0-28.5%] |
+| topic=logistics | 22 | 22 of 22 [84.6-100.0%] | 0 of 22 [0.0-15.4%] | 0 of 22 [0.0-15.4%] |
+| topic=mixed_clinical | 7 | 7 of 7 [59.0-100.0%] | 0 of 7 [0.0-41.0%] | 0 of 7 [0.0-41.0%] |
+| topic=order_status | 17 | 17 of 17 [80.5-100.0%] | 0 of 17 [0.0-19.5%] | 0 of 17 [0.0-19.5%] |
+| topic=outside_records | 24 | 24 of 24 [85.8-100.0%] | 0 of 24 [0.0-14.2%] | 0 of 24 [0.0-14.2%] |
+| topic=payment | 17 | 17 of 17 [80.5-100.0%] | 0 of 17 [0.0-19.5%] | 0 of 17 [0.0-19.5%] |
+| topic=portal | 20 | 20 of 20 [83.2-100.0%] | 0 of 20 [0.0-16.8%] | 0 of 20 [0.0-16.8%] |
+| topic=referral_status | 20 | 20 of 20 [83.2-100.0%] | 0 of 20 [0.0-16.8%] | 0 of 20 [0.0-16.8%] |
+| topic=refill | 88 | 88 of 88 [95.9-100.0%] | 0 of 88 [0.0-4.1%] | 0 of 88 [0.0-4.1%] |
+| topic=reschedule | 37 | 37 of 37 [90.5-100.0%] | 0 of 37 [0.0-9.5%] | 0 of 37 [0.0-9.5%] |
+| topic=results | 41 | 41 of 41 [91.4-100.0%] | 0 of 41 [0.0-8.6%] | 0 of 41 [0.0-8.6%] |
+| topic=schedule | 59 | 55 of 59 [83.5-98.1%] | 0 of 59 [0.0-6.1%] | 2 of 59 [0.4-11.7%] |
+| topic=side_effects | 23 | 23 of 23 [85.2-100.0%] | 0 of 23 [0.0-14.8%] | 0 of 23 [0.0-14.8%] |
+| topic=stroke | 2 | 2 of 2 [15.8-100.0%] | 0 of 2 [0.0-84.2%] | 0 of 2 [0.0-84.2%] |
+| topic=symptoms | 42 | 42 of 42 [91.6-100.0%] | 0 of 42 [0.0-8.4%] | 0 of 42 [0.0-8.4%] |
+| topic=treatment_change | 15 | 15 of 15 [78.2-100.0%] | 0 of 15 [0.0-21.8%] | 0 of 15 [0.0-21.8%] |
+| topic=vaccines | 11 | 11 of 11 [71.5-100.0%] | 0 of 11 [0.0-28.5%] | 0 of 11 [0.0-28.5%] |
+| topic=vague | 19 | 19 of 19 [82.4-100.0%] | 0 of 19 [0.0-17.6%] | 0 of 19 [0.0-17.6%] |
+| topic=wound_care | 11 | 11 of 11 [71.5-100.0%] | 0 of 11 [0.0-28.5%] | 0 of 11 [0.0-28.5%] |
 
 Calibration (reliability):
 
-| Confidence bin | n | Mean confidence | Accuracy |
-|---|---|---|---|
-| 0.4 to 0.5 | 2 | 46.4% | 50.0% |
-| 0.5 to 0.6 | 1 | 59.3% | 100.0% |
-| 0.6 to 0.7 | 2 | 64.9% | 0.0% |
-| 0.7 to 0.8 | 2 | 73.4% | 50.0% |
-| 0.8 to 0.9 | 3 | 86.0% | 100.0% |
-| 0.9 to 1.0 | 590 | 99.9% | 100.0% |
+| Confidence bin | Mean confidence | Correct |
+|---|---|---|
+| 0.4 to 0.5 | 0.464 | 1 of 2 [1.3-98.7%] |
+| 0.5 to 0.6 | 0.593 | 1 of 1 [2.5-100.0%] |
+| 0.6 to 0.7 | 0.649 | 0 of 2 [0.0-84.2%] |
+| 0.7 to 0.8 | 0.734 | 1 of 2 [1.3-98.7%] |
+| 0.8 to 0.9 | 0.860 | 3 of 3 [29.2-100.0%] |
+| 0.9 to 1.0 | 0.999 | 590 of 590 [99.4-100.0%] |
 
 Threshold sweep (if everything ≥ threshold were automated):
 
-| Threshold | Coverage | Accuracy | Errors |
-|---|---|---|---|
-| 0.50 | 99.7% | 99.5% | 3 |
-| 0.60 | 99.5% | 99.5% | 3 |
-| 0.70 | 99.2% | 99.8% | 1 |
-| 0.80 | 98.8% | 100.0% | 0 |
-| 0.85 | 98.5% | 100.0% | 0 |
-| 0.90 | 98.3% | 100.0% | 0 |
-| 0.95 | 98.2% | 100.0% | 0 |
-| 0.97 | 97.8% | 100.0% | 0 |
-| 0.99 | 96.3% | 100.0% | 0 |
+| Threshold | Would be automated | Of those, correct |
+|---|---|---|
+| 0.50 | 598 of 600 [98.8-99.96%] | 595 of 598 [98.5-99.9%] |
+| 0.60 | 597 of 600 [98.5-99.9%] | 594 of 597 [98.5-99.9%] |
+| 0.70 | 595 of 600 [98.1-99.7%] | 594 of 595 [99.1-99.996%] |
+| 0.80 | 593 of 600 [97.6-99.5%] | 593 of 593 [99.4-100.0%] |
+| 0.85 | 591 of 600 [97.2-99.3%] | 591 of 591 [99.4-100.0%] |
+| 0.90 | 590 of 600 [97.0-99.2%] | 590 of 590 [99.4-100.0%] |
+| 0.95 | 589 of 600 [96.7-99.1%] | 589 of 589 [99.4-100.0%] |
+| 0.97 | 587 of 600 [96.3-98.8%] | 587 of 587 [99.4-100.0%] |
+| 0.99 | 578 of 600 [94.5-97.7%] | 578 of 578 [99.4-100.0%] |
 
 ## Provider comparison
 
-Every configuration below ran on the same records. Remote models are named because they are a deployment choice. Synthetic and hand-written data: compare configurations with each other, not with performance at a real site.
+Every configuration below ran on the same records. Remote models are named because they are a deployment choice. Synthetic and hand-written data: compare configurations with each other, not with performance at a real site. Ranked (mendari.rank/1) by the critical cases caught first, never accuracy alone: only configurations measured on this version of the pack rank, and only on records with at least 100 positives of a critical label.
 
-**`red_flags`** (n=38)
+**`red_flags`** (n=38; k of n [exact 95% interval, Clopper-Pearson])
 
-| Configuration | Accuracy | Macro-F1 | ECE | AUTO | False automation | Critical detected | p50 latency | Cost / decision | Errors |
-|---|---|---|---|---|---|---|---|---|---|
-| safety_screen=llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) (measured on 0.3.0) | 100.0% | 1.000 | 0.069 | 15.8% | n/a | 28/28 (0 automated) | 9,502 ms | $0.00461 | 0 |
-| safety_screen=llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) (measured on 0.3.0) | 100.0% | 1.000 | 0.075 | 5.3% | n/a | 28/28 (0 automated) | 2,475 ms | $0.00351 | 0 |
-| safety_screen=rules_and_jev (jev-1.13.0) · router=jev (jev-1.13.0) (measured on 0.3.0) | 100.0% | 1.000 | 0.007 | 18.4% | n/a | 28/28 (0 automated) | 192 ms | $0.00003 | 0 |
-| safety_screen=rules_and_llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) (measured on 0.3.0) | 100.0% | 1.000 | 0.071 | 15.8% | n/a | 28/28 (0 automated) | 10,039 ms | $0.00477 | 0 |
-| safety_screen=rules_and_llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) (measured on 0.3.0) | 96.4% | 0.982 | 0.075 | 0.0% | n/a | 28/28 (0 automated) | 2,386 ms | $0.00352 | 1 (invalid_response 1) |
-| safety_screen=rules_and_llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) (measured on 0.3.0) | 85.7% | 0.923 | 0.104 | 2.6% | n/a | 28/28 (0 automated) | 1,276 ms | $0.00017 | 0 |
-| safety_screen=llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) (measured on 0.3.0) | 78.6% | 0.880 | 0.184 | 2.6% | n/a | 27/28 (0 automated) | 1,257 ms | $0.00017 | 1 (invalid_response 1) |
-| safety_screen=rules · router=naive_bayes (measured on 0.4.0) | 75.0% | 0.857 | 0.181 | 0.0% | n/a | 28/28 (0 automated) | 0.09 ms | $0.00000 | 0 |
-| safety_screen=rules · router=rules (measured on 0.4.0) | 21.4% | 0.353 | 0.300 | 0.0% | n/a | 28/28 (0 automated) | 0.13 ms | $0.00000 | 0 |
+| Rank | Configuration | Critical detected | False automation | Accuracy | AUTO | Macro-F1 | ECE | p50 latency | Cost / decision | Errors |
+|---|---|---|---|---|---|---|---|---|---|---|
+| none: earlier version (0.3.0) | safety_screen=llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) | 28 of 28 [87.7-100.0%] (0 automated; insufficient evidence) | n/a | 38 of 38 [90.7-100.0%] | 6 of 38 [6.0-31.3%] | 1.000 | 0.069 | 9,502 ms | $0.00461 | 0 |
+| none: earlier version (0.3.0) | safety_screen=llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) | 28 of 28 [87.7-100.0%] (0 automated; insufficient evidence) | n/a | 38 of 38 [90.7-100.0%] | 2 of 38 [0.6-17.7%] | 1.000 | 0.075 | 2,475 ms | $0.00351 | 0 |
+| none: earlier version (0.3.0) | safety_screen=llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) | 27 of 28 [81.7-99.9%] (0 automated; insufficient evidence) | n/a | 30 of 38 [62.7-90.4%] | 1 of 38 [0.1-13.8%] | 0.880 | 0.184 | 1,257 ms | $0.00017 | 1 (invalid_response 1) |
+| none: earlier version (0.4.0) | safety_screen=rules · router=naive_bayes | 28 of 28 [87.7-100.0%] (0 automated; insufficient evidence) | n/a | 28 of 38 [56.9-86.6%] | 0 of 38 [0.0-9.3%] | 0.857 | 0.181 | 0.09 ms | $0.00000 | 0 |
+| none: earlier version (0.4.0) | safety_screen=rules · router=rules | 28 of 28 [87.7-100.0%] (0 automated; insufficient evidence) | n/a | 8 of 38 [9.6-37.3%] | 0 of 38 [0.0-9.3%] | 0.353 | 0.300 | 0.13 ms | $0.00000 | 0 |
+| none: earlier version (0.3.0) | safety_screen=rules_and_jev (jev-1.13.0) · router=jev (jev-1.13.0) | 28 of 28 [87.7-100.0%] (0 automated; insufficient evidence) | n/a | 38 of 38 [90.7-100.0%] | 7 of 38 [7.7-34.3%] | 1.000 | 0.007 | 192 ms | $0.00003 | 0 |
+| none: earlier version (0.3.0) | safety_screen=rules_and_llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) | 28 of 28 [87.7-100.0%] (0 automated; insufficient evidence) | n/a | 38 of 38 [90.7-100.0%] | 6 of 38 [6.0-31.3%] | 1.000 | 0.071 | 10,039 ms | $0.00477 | 0 |
+| none: earlier version (0.3.0) | safety_screen=rules_and_llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) | 28 of 28 [87.7-100.0%] (0 automated; insufficient evidence) | n/a | 37 of 38 [86.2-99.9%] | 0 of 38 [0.0-9.3%] | 0.982 | 0.075 | 2,386 ms | $0.00352 | 1 (invalid_response 1) |
+| none: earlier version (0.3.0) | safety_screen=rules_and_llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) | 28 of 28 [87.7-100.0%] (0 automated; insufficient evidence) | n/a | 33 of 38 [71.9-95.6%] | 1 of 38 [0.1-13.8%] | 0.923 | 0.104 | 1,276 ms | $0.00017 | 0 |
 
-**`red_flags_holdout`** (n=30)
+**`red_flags_holdout`** (n=30; k of n [exact 95% interval, Clopper-Pearson])
 
-| Configuration | Accuracy | Macro-F1 | ECE | AUTO | False automation | Critical detected | p50 latency | Cost / decision | Errors |
-|---|---|---|---|---|---|---|---|---|---|
-| safety_screen=rules_and_jev (jev-1.13.0) · router=jev (jev-1.13.0) (measured on 0.3.0) | 100.0% | 1.000 | 0.007 | 26.7% | n/a | 20/20 (0 automated) | 172 ms | $0.00003 | 0 |
-| safety_screen=rules_and_llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) (measured on 0.3.0) | 100.0% | 1.000 | 0.046 | 3.3% | n/a | 20/20 (0 automated) | 2,407 ms | $0.00352 | 0 |
-| safety_screen=rules_and_llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) (measured on 0.3.0) | 100.0% | 1.000 | 0.248 | 6.7% | n/a | 20/20 (0 automated) | 1,266 ms | $0.00017 | 0 |
-| safety_screen=llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) (measured on 0.3.0) | 95.0% | 0.974 | 0.103 | 20.0% | n/a | 20/20 (0 automated) | 9,112 ms | $0.00460 | 0 |
-| safety_screen=llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) (measured on 0.3.0) | 95.0% | 0.974 | 0.071 | 3.3% | n/a | 20/20 (0 automated) | 2,356 ms | $0.00354 | 1 (invalid_response 1) |
-| safety_screen=rules · router=naive_bayes (measured on 0.4.0) | 95.0% | 0.974 | 0.194 | 0.0% | n/a | 4/20 (0 automated) | 0.09 ms | $0.00000 | 0 |
-| safety_screen=rules_and_llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) (measured on 0.3.0) | 95.0% | 0.974 | 0.031 | 26.7% | n/a | 20/20 (0 automated) | 10,327 ms | $0.00452 | 0 |
-| safety_screen=llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) (measured on 0.3.0) | 90.0% | 0.947 | 0.140 | 6.7% | n/a | 19/20 (0 automated) | 1,185 ms | $0.00016 | 0 |
-| safety_screen=rules · router=rules (measured on 0.4.0) | 10.0% | 0.182 | 0.278 | 0.0% | n/a | 4/20 (0 automated) | 0.13 ms | $0.00000 | 0 |
+| Rank | Configuration | Critical detected | False automation | Accuracy | AUTO | Macro-F1 | ECE | p50 latency | Cost / decision | Errors |
+|---|---|---|---|---|---|---|---|---|---|---|
+| none: earlier version (0.3.0) | safety_screen=llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) | 20 of 20 [83.2-100.0%] (0 automated; insufficient evidence) | n/a | 28 of 30 [77.9-99.2%] | 6 of 30 [7.7-38.6%] | 0.974 | 0.103 | 9,112 ms | $0.00460 | 0 |
+| none: earlier version (0.3.0) | safety_screen=llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) | 20 of 20 [83.2-100.0%] (0 automated; insufficient evidence) | n/a | 28 of 30 [77.9-99.2%] | 1 of 30 [0.1-17.2%] | 0.974 | 0.071 | 2,356 ms | $0.00354 | 1 (invalid_response 1) |
+| none: earlier version (0.3.0) | safety_screen=llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) | 19 of 20 [75.1-99.9%] (0 automated; insufficient evidence) | n/a | 27 of 30 [73.5-97.9%] | 2 of 30 [0.8-22.1%] | 0.947 | 0.140 | 1,185 ms | $0.00016 | 0 |
+| none: earlier version (0.4.0) | safety_screen=rules · router=naive_bayes | 4 of 20 [5.7-43.7%] (0 automated; insufficient evidence) | n/a | 28 of 30 [77.9-99.2%] | 0 of 30 [0.0-11.6%] | 0.974 | 0.194 | 0.09 ms | $0.00000 | 0 |
+| none: earlier version (0.4.0) | safety_screen=rules · router=rules | 4 of 20 [5.7-43.7%] (0 automated; insufficient evidence) | n/a | 3 of 30 [2.1-26.5%] | 0 of 30 [0.0-11.6%] | 0.182 | 0.278 | 0.13 ms | $0.00000 | 0 |
+| none: earlier version (0.3.0) | safety_screen=rules_and_jev (jev-1.13.0) · router=jev (jev-1.13.0) | 20 of 20 [83.2-100.0%] (0 automated; insufficient evidence) | n/a | 30 of 30 [88.4-100.0%] | 8 of 30 [12.3-45.9%] | 1.000 | 0.007 | 172 ms | $0.00003 | 0 |
+| none: earlier version (0.3.0) | safety_screen=rules_and_llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) | 20 of 20 [83.2-100.0%] (0 automated; insufficient evidence) | n/a | 28 of 30 [77.9-99.2%] | 8 of 30 [12.3-45.9%] | 0.974 | 0.031 | 10,327 ms | $0.00452 | 0 |
+| none: earlier version (0.3.0) | safety_screen=rules_and_llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) | 20 of 20 [83.2-100.0%] (0 automated; insufficient evidence) | n/a | 30 of 30 [88.4-100.0%] | 1 of 30 [0.1-17.2%] | 1.000 | 0.046 | 2,407 ms | $0.00352 | 0 |
+| none: earlier version (0.3.0) | safety_screen=rules_and_llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) | 20 of 20 [83.2-100.0%] (0 automated; insufficient evidence) | n/a | 30 of 30 [88.4-100.0%] | 2 of 30 [0.8-22.1%] | 1.000 | 0.248 | 1,266 ms | $0.00017 | 0 |
 
-**`test`** (n=100)
+**`test`** (n=100; k of n [exact 95% interval, Clopper-Pearson])
 
-| Configuration | Accuracy | Macro-F1 | ECE | AUTO | False automation | Critical detected | p50 latency | Cost / decision | Errors |
-|---|---|---|---|---|---|---|---|---|---|
-| safety_screen=rules · router=cascade (jev-1.13.0) (measured on 0.3.0) | 100.0% | 1.000 | 0.001 | 98.0% | 0.0% | 2/2 (0 automated) | 0.42 ms | $0.00000 | 0 |
-| safety_screen=rules · router=naive_bayes (measured on 0.4.0) | 100.0% | 1.000 | 0.001 | 0.0% | n/a | 2/2 (0 automated) | 0.16 ms | $0.00000 | 0 |
-| safety_screen=llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) (measured on 0.3.0) | 99.0% | 0.989 | 0.112 | 47.0% | 0.0% | 2/2 (0 automated) | 2,365 ms | $0.00362 | 0 |
-| safety_screen=rules_and_jev (jev-1.13.0) · router=jev (jev-1.13.0) (measured on 0.3.0) | 99.0% | 0.984 | 0.018 | 91.0% | 0.0% | 2/2 (0 automated) | 205 ms | $0.00003 | 0 |
-| safety_screen=rules_and_llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) (measured on 0.3.0) | 99.0% | 0.984 | 0.043 | 84.0% | 0.0% | 2/2 (0 automated) | 6,916 ms | $0.00423 | 0 |
-| safety_screen=rules_and_llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) (measured on 0.3.0) | 98.0% | 0.974 | 0.116 | 40.0% | 0.0% | 2/2 (0 automated) | 2,402 ms | $0.00361 | 0 |
-| safety_screen=llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) (measured on 0.3.0) | 97.0% | 0.968 | 0.034 | 85.0% | 1.2% | 2/2 (0 automated) | 6,206 ms | $0.00413 | 0 |
-| safety_screen=llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) (measured on 0.3.0) | 96.0% | 0.961 | 0.086 | 48.0% | 4.2% | 2/2 (0 automated) | 1,237 ms | $0.00017 | 0 |
-| safety_screen=rules_and_llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) (measured on 0.3.0) | 95.0% | 0.937 | 0.080 | 47.0% | 4.3% | 2/2 (0 automated) | 1,281 ms | $0.00017 | 0 |
-| safety_screen=rules · router=rules (measured on 0.4.0) | 89.0% | 0.883 | 0.282 | 0.0% | n/a | 2/2 (0 automated) | 0.23 ms | $0.00000 | 0 |
+| Rank | Configuration | Critical detected | False automation | Accuracy | AUTO | Macro-F1 | ECE | p50 latency | Cost / decision | Errors |
+|---|---|---|---|---|---|---|---|---|---|---|
+| none: earlier version (0.3.0) | safety_screen=llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) | 2 of 2 [15.8-100.0%] (0 automated; insufficient evidence) | n/a | 97 of 100 [91.5-99.4%] | 85 of 100 [76.5-91.4%] | 0.968 | 0.034 | 6,206 ms | $0.00413 | 0 |
+| none: earlier version (0.3.0) | safety_screen=llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) | 2 of 2 [15.8-100.0%] (0 automated; insufficient evidence) | n/a | 99 of 100 [94.6-99.97%] | 47 of 100 [36.9-57.2%] | 0.989 | 0.112 | 2,365 ms | $0.00362 | 0 |
+| none: earlier version (0.3.0) | safety_screen=llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) | 2 of 2 [15.8-100.0%] (0 automated; insufficient evidence) | n/a | 96 of 100 [90.1-98.9%] | 48 of 100 [37.9-58.2%] | 0.961 | 0.086 | 1,237 ms | $0.00017 | 0 |
+| none: earlier version (0.3.0) | safety_screen=rules · router=cascade (jev-1.13.0) | 2 of 2 [15.8-100.0%] (0 automated; insufficient evidence) | n/a | 100 of 100 [96.4-100.0%] | 98 of 100 [93.0-99.8%] | 1.000 | 0.001 | 0.42 ms | $0.00000 | 0 |
+| none: earlier version (0.4.0) | safety_screen=rules · router=naive_bayes | 2 of 2 [15.8-100.0%] (0 automated; insufficient evidence) | n/a | 100 of 100 [96.4-100.0%] | 0 of 100 [0.0-3.6%] | 1.000 | 0.001 | 0.16 ms | $0.00000 | 0 |
+| none: earlier version (0.4.0) | safety_screen=rules · router=rules | 2 of 2 [15.8-100.0%] (0 automated; insufficient evidence) | n/a | 89 of 100 [81.2-94.4%] | 0 of 100 [0.0-3.6%] | 0.883 | 0.282 | 0.23 ms | $0.00000 | 0 |
+| none: earlier version (0.3.0) | safety_screen=rules_and_jev (jev-1.13.0) · router=jev (jev-1.13.0) | 2 of 2 [15.8-100.0%] (0 automated; insufficient evidence) | n/a | 99 of 100 [94.6-99.97%] | 91 of 100 [83.6-95.8%] | 0.984 | 0.018 | 205 ms | $0.00003 | 0 |
+| none: earlier version (0.3.0) | safety_screen=rules_and_llm (anthropic/claude-haiku-4.5) · router=llm (anthropic/claude-haiku-4.5) | 2 of 2 [15.8-100.0%] (0 automated; insufficient evidence) | n/a | 99 of 100 [94.6-99.97%] | 84 of 100 [75.3-90.6%] | 0.984 | 0.043 | 6,916 ms | $0.00423 | 0 |
+| none: earlier version (0.3.0) | safety_screen=rules_and_llm (anthropic/claude-sonnet-5) · router=llm (anthropic/claude-sonnet-5) | 2 of 2 [15.8-100.0%] (0 automated; insufficient evidence) | n/a | 98 of 100 [93.0-99.8%] | 40 of 100 [30.3-50.3%] | 0.974 | 0.116 | 2,402 ms | $0.00361 | 0 |
+| none: earlier version (0.3.0) | safety_screen=rules_and_llm (openai/gpt-oss-120b) · router=llm (openai/gpt-oss-120b) | 2 of 2 [15.8-100.0%] (0 automated; insufficient evidence) | n/a | 95 of 100 [88.7-98.4%] | 47 of 100 [36.9-57.2%] | 0.937 | 0.080 | 1,281 ms | $0.00017 | 0 |
 
 
 ## Known failure modes

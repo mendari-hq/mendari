@@ -17,6 +17,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from mendari.evals.render import shown
+from mendari.evals.result import counted
+
 EPSILON = 1e-9
 
 
@@ -28,16 +31,31 @@ def gate(
     failures: list[str] = []
     primary = str(report["primary"])
 
-    def metric(name: str, new: float | None, old: float | None, *, higher_is_better: bool) -> None:
+    def metric(
+        name: str,
+        new: float | None,
+        old: float | None,
+        *,
+        higher_is_better: bool,
+        of: tuple[int | None, int | None] = (None, None),
+    ) -> None:
+        """`of`: the counts the rates are of, on main and in this change, to show k of n."""
         worse = None
         if new is not None and old is not None:
             worse = (old - new) if higher_is_better else (new - old)
-        rows.append({"metric": name, "main": old, "change": new, "worse_by": worse})
+        rows.append(
+            {"metric": name, "main": old, "change": new, "worse_by": worse,
+             "main_n": of[0], "change_n": of[1]}
+        )  # fmt: skip
 
     new_q = report["questions"].get(primary, {})
     old_q = (main or {}).get("questions", {}).get(primary, {})
     metric(
-        f"{primary} accuracy", new_q.get("accuracy"), old_q.get("accuracy"), higher_is_better=True
+        f"{primary} accuracy",
+        new_q.get("accuracy"),
+        old_q.get("accuracy"),
+        higher_is_better=True,
+        of=(old_q.get("n"), new_q.get("n")),
     )
     if main is not None and rows[-1]["worse_by"] is not None and rows[-1]["worse_by"] > tolerance:
         failures.append(f"{primary} accuracy fell by more than {tolerance:.0%}")
@@ -45,10 +63,11 @@ def gate(
     new_auto = report["decisions"]["automation"]
     old_auto = (main or {}).get("decisions", {}).get("automation", {})
     metric(
-        "false automation rate",
+        "false automation rate (of automated)",
         new_auto.get("false_automation_rate"),
         old_auto.get("false_automation_rate"),
         higher_is_better=False,
+        of=(old_auto.get("n"), new_auto.get("n")),
     )
     if main is not None and rows[-1]["worse_by"] is not None and rows[-1]["worse_by"] > tolerance:
         failures.append(f"the false automation rate rose by more than {tolerance:.0%}")
@@ -66,6 +85,7 @@ def gate(
             item.get("detection_rate"),
             before and before.get("detection_rate"),
             higher_is_better=True,
+            of=(before and before.get("n"), item.get("n")),
         )
         if before is None:
             continue
@@ -77,14 +97,20 @@ def gate(
 
 
 def markdown(pack_id: str, rows: list[dict[str, Any]], failures: list[str], new: bool) -> str:
-    def shown(value: Any) -> str:
-        return "n/a" if value is None else f"{value:.1%}"
+    def cell(value: Any, n: Any) -> str:
+        if value is None:
+            return "n/a"
+        return shown(counted(value, n)) if isinstance(n, int) else f"{value:.1%}"
 
     lines = [f"### {pack_id}", ""]
     if new:
         lines += ["A new pack: nothing on `main` to compare with.", ""]
     lines += ["| Metric | main | this change |", "|---|---|---|"]
-    lines += [f"| {r['metric']} | {shown(r['main'])} | {shown(r['change'])} |" for r in rows]
+    lines += [
+        f"| {r['metric']} | {cell(r['main'], r.get('main_n'))} "
+        f"| {cell(r['change'], r.get('change_n'))} |"
+        for r in rows
+    ]
     lines += ["", *(f"- **Regression:** {f}" for f in failures)]
     if not failures:
         lines.append("No regression in the critical metrics.")

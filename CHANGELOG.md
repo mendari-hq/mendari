@@ -25,6 +25,11 @@ The first release (not yet published).
   score has a seeded bootstrap interval, and an equal-mass calibration error sits beside the
   equal-width one. `mendari compare A B --dataset X` compares two runs case by case (exact
   McNemar, Holm-adjusted). A stored report is chained in the audit trail (`eval.recorded`).
+  Cards and the command line show each proportion that way, and a critical label with fewer
+  than 100 positives says "insufficient evidence". Leaderboards (`mendari.leaderboard/2`) key
+  their rows by pack digest and dataset hash, and one ranking (critical cases first, never
+  accuracy alone) orders them everywhere; a row from an earlier pack version is kept, marked
+  and unranked.
 - **Dashboard** and REST API; sign-in through an organization's OpenID Connect provider; API
   keys by role.
 - **Hub:** a pack registry and its client (`mendari pull`, `mendari search`), and community

@@ -626,7 +626,7 @@ def test_a_critical_label_found_too_rarely_fails(new_pack: Path) -> None:
     _write_examples(new_pack, _examples(new_pack) + missed)
     regenerate(new_pack)
     report = run(new_pack, base=None)
-    assert has(report, "evaluation", "urgent_symptoms=yes is found in 75% of its cases")
+    assert has(report, "evaluation", "urgent_symptoms=yes is found in 6 of its 8 cases")
     assert report.passed is False and not messages(report, "honest-numbers")
 
 
@@ -699,7 +699,8 @@ def test_an_update_cannot_hide_a_regression_by_editing_its_own_benchmark(
     assert has(
         report,
         "evaluation",
-        "on the base's benchmark dataset: the critical label urgent_symptoms=yes is found in 67%",
+        "on the base's benchmark dataset: the critical label urgent_symptoms=yes is found in 4 of "
+        "its 6 cases",
     )
     assert has(report, "evaluation", "on the base's benchmark dataset: regression against the base")
     gone = [f.message for f in report.warnings if f.rule == "evaluation"]

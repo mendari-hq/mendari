@@ -991,8 +991,8 @@ def _floors(ctx: _Context, report: Mapping[str, Any], where: str = "") -> None:
         if rate is not None and rate < MIN_CRITICAL_DETECTION:
             fail(
                 "evaluation",
-                f"{where}the critical label {name} is found in {rate:.0%} of its cases; it must "
-                f"be at least {MIN_CRITICAL_DETECTION:.0%}",
+                f"{where}the critical label {name} is found in {item['detected']} of its "
+                f"{item['n']} cases; it must be at least {MIN_CRITICAL_DETECTION:.0%}",
             )
 
 

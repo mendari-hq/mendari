@@ -2,8 +2,8 @@
   "format": "mendari.eval/2",
   "pack": {
     "id": "mendari/prior-auth-preflight",
-    "version": "0.2.0",
-    "digest": "sha256:36ba77e89092654b012bd69b62b49fe645017d1b0b8544dcace1b02751a0f1af"
+    "version": "0.2.1",
+    "digest": "sha256:ea8c6bead960988678701c2ffd35d3a13c72ee26a277478aa03d0707146f0ec8"
   },
   "providers": {
     "structured": {
@@ -32,7 +32,7 @@
     "limit": null
   },
   "ledger": {
-    "id": "sha256:d939603b72d901c7652adb17a243aeb813f353cab76411458405762f53d5a565",
+    "id": "sha256:2e5da9a6837f114ee5199c6edcdf1fa87f6f4bab42b04af06ff2f656f3a0f6ec",
     "cases": 600
   },
   "seeds": {
@@ -1501,55 +1501,73 @@
       "threshold": 0.5,
       "coverage": 1.0,
       "accuracy": 1.0,
-      "errors": 0
+      "errors": 0,
+      "chosen": 600,
+      "scored": 600
     },
     {
       "threshold": 0.6,
       "coverage": 1.0,
       "accuracy": 1.0,
-      "errors": 0
+      "errors": 0,
+      "chosen": 600,
+      "scored": 600
     },
     {
       "threshold": 0.7,
       "coverage": 1.0,
       "accuracy": 1.0,
-      "errors": 0
+      "errors": 0,
+      "chosen": 600,
+      "scored": 600
     },
     {
       "threshold": 0.8,
       "coverage": 1.0,
       "accuracy": 1.0,
-      "errors": 0
+      "errors": 0,
+      "chosen": 600,
+      "scored": 600
     },
     {
       "threshold": 0.85,
       "coverage": 1.0,
       "accuracy": 1.0,
-      "errors": 0
+      "errors": 0,
+      "chosen": 600,
+      "scored": 600
     },
     {
       "threshold": 0.9,
       "coverage": 1.0,
       "accuracy": 1.0,
-      "errors": 0
+      "errors": 0,
+      "chosen": 600,
+      "scored": 600
     },
     {
       "threshold": 0.95,
       "coverage": 0.6016666666666667,
       "accuracy": 1.0,
-      "errors": 0
+      "errors": 0,
+      "chosen": 361,
+      "scored": 600
     },
     {
       "threshold": 0.97,
       "coverage": 0.4116666666666667,
       "accuracy": 1.0,
-      "errors": 0
+      "errors": 0,
+      "chosen": 247,
+      "scored": 600
     },
     {
       "threshold": 0.99,
       "coverage": 0.015,
       "accuracy": 1.0,
-      "errors": 0
+      "errors": 0,
+      "chosen": 9,
+      "scored": 600
     }
   ],
   "cost": {
@@ -1589,6 +1607,8 @@
     "site": {
       "public": {
         "n": 600,
+        "labelled": 600,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1598,6 +1618,8 @@
     "service": {
       "knee_arthroscopy": {
         "n": 160,
+        "labelled": 160,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1605,6 +1627,8 @@
       },
       "lumbar_mri": {
         "n": 214,
+        "labelled": 214,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1612,6 +1636,8 @@
       },
       "other": {
         "n": 89,
+        "labelled": 89,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1619,6 +1645,8 @@
       },
       "sleep_study": {
         "n": 137,
+        "labelled": 137,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1628,6 +1656,8 @@
     "payer": {
       "acme": {
         "n": 283,
+        "labelled": 283,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1635,6 +1665,8 @@
       },
       "beacon": {
         "n": 255,
+        "labelled": 255,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1642,6 +1674,8 @@
       },
       "other": {
         "n": 62,
+        "labelled": 62,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1651,6 +1685,8 @@
     "style": {
       "prose": {
         "n": 600,
+        "labelled": 600,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1660,6 +1696,8 @@
     "age_band": {
       "18-39": {
         "n": 188,
+        "labelled": 188,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1667,6 +1705,8 @@
       },
       "40-64": {
         "n": 253,
+        "labelled": 253,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1674,6 +1714,8 @@
       },
       "65+": {
         "n": 159,
+        "labelled": 159,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1683,6 +1725,8 @@
     "sex": {
       "female": {
         "n": 277,
+        "labelled": 277,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1690,6 +1734,8 @@
       },
       "male": {
         "n": 323,
+        "labelled": 323,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1699,15 +1745,15 @@
   },
   "misclassified": [],
   "run": {
-    "id": "ac50dbd1-3e81-41b5-ba6d-1aa57955886f",
-    "created_at": "2026-10-07T18:04:28+00:00",
+    "id": "34f9878e-6fa4-4cdb-a90e-c66fb96646fb",
+    "created_at": "2026-10-07T18:31:10+00:00",
     "latency_ms": {
-      "mean": 3.4557802796674273,
-      "p50": 3.4447917714715004,
-      "p95": 3.6166668869554996,
-      "max": 4.728584084659815
+      "mean": 3.412849767288814,
+      "p50": 3.4007499925792217,
+      "p95": 3.6123329773545265,
+      "max": 4.033165983855724
     },
     "engine": "0.1.0"
   },
-  "result_sha256": "sha256:063caf21a51466d5342ebb6d94b3dd25450e9833e7f2bb45636ac22d9fd7987c"
+  "result_sha256": "sha256:e137fa6906be9de495574198c288c81e93820c26116df347222c88fe4a92a106"
 }

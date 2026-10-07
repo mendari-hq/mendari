@@ -70,9 +70,10 @@ def test_rows_merge_by_configuration_and_dataset(inbox_pack: Pack) -> None:
 def test_markdown_and_card(inbox_pack: Pack, tmp_path: Path) -> None:
     board = leaderboard.build(inbox_pack, [report(inbox_pack, "red_flags_holdout")])
     table = "\n".join(leaderboard.markdown(board))
-    assert "**`red_flags_holdout`** (n=30)" in table
-    assert "| safety_screen=rules · router=naive_bayes |" in table
-    assert "automated)" in table
+    assert "**`red_flags_holdout`** (n=30; k of n [exact 95% interval" in table
+    # 20 urgent positives: shown, never ranked (the evidence floor is 100).
+    assert "| none: insufficient evidence | safety_screen=rules · router=naive_bayes |" in table
+    assert "(0 automated; insufficient evidence)" in table
 
     root = tmp_path / "pack"
     shutil.copytree(INBOX_DIR, root)
@@ -96,7 +97,7 @@ def test_other_questions_are_shown_where_configurations_differ(inbox_pack: Pack)
     screened["questions"]["urgency"]["accuracy"] = 0.5
     table = "\n".join(leaderboard.markdown(leaderboard.build(inbox_pack, [rules, nb, screened])))
     assert "| Configuration | `urgency` |" in table
-    assert "| safety_screen=jev (jev-x) · router=naive_bayes | 50.0% / " in table
+    assert "| safety_screen=jev (jev-x) · router=naive_bayes | 19 of 38 [" in table
     assert "`destination`" not in table.split("Other questions")[1]  # the primary has its own
 
 
@@ -106,9 +107,11 @@ def test_several_critical_labels_are_named() -> None:
         {"question": "egfr_30_or_more", "label": "no", "n": 0, "detected": 0, "auto_missed": 0},
     ]
     assert leaderboard.critical_text({"critical": critical}) == (
-        "note_pregnancy=yes 5/5 (0 automated)"
+        "note_pregnancy=yes 5 of 5 [47.8-100.0%] (0 automated; insufficient evidence)"
     )
-    assert leaderboard.critical_text({"critical": critical[:1]}) == "5/5 (0 automated)"
+    assert leaderboard.critical_text({"critical": critical[:1]}) == (
+        "5 of 5 [47.8-100.0%] (0 automated; insufficient evidence)"
+    )
 
 
 def test_cli_runs_configurations_and_merges(
