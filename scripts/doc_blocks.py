@@ -15,8 +15,12 @@ one):
     <!-- check: include <file> -->        the whole snippet file, included (docs/guides/api.md)
     <!-- check: skip <reason>: <why> -->  not run, for one of SKIP_REASONS
 
-    python3 scripts/doc_blocks.py run quickstart     # also: cli, python, install
+    python3 scripts/doc_blocks.py run quickstart     # also: cli, install
+    uv run python scripts/doc_blocks.py run python   # needs mendari importable
     python3 scripts/doc_blocks.py list               # every block and its marker
+
+What a run leaves in the clone that git neither tracks nor ignores (the packs `mendari new`
+writes) is removed afterwards, so a second run starts as the first did.
 """
 
 from __future__ import annotations
@@ -51,7 +55,10 @@ SKIP_REASONS = {
 QUICKSTART_LIMIT_S = 600  # the v1.0 exit: from the README to your own validation in 10 minutes
 
 _MARKER = re.compile(r"^<!-- check: (?P<kind>run|snippet|include|skip) (?P<arg>[^>]*?) -->$")
-_FENCE = re.compile(r"^(?P<indent>\s*)(?P<fence>```|~~~)\s*(?P<lang>[\w+-]*)\s*$")
+# A fence of three or more backticks or tildes (CommonMark), at any indentation (MkDocs puts
+# admonition content four spaces in), after any `>` of a block quote.
+_QUOTE = re.compile(r"^(\s*>\s?)*")
+_FENCE = re.compile(r"^\s*(?P<fence>`{3,}|~{3,})\s*(?P<lang>[\w+-]*)[^`]*$")
 
 
 @dataclass(frozen=True)
@@ -70,7 +77,8 @@ class Block:
 
 def blocks(path: str, text: str | None = None) -> list[Block]:
     """Every fenced block of a Markdown file, with the marker on the line before it (if any)."""
-    lines = (text if text is not None else (ROOT / path).read_text(encoding="utf-8")).split("\n")
+    raw = (text if text is not None else (ROOT / path).read_text(encoding="utf-8")).split("\n")
+    lines = [_QUOTE.sub("", line) for line in raw]
     found = []
     index = 0
     while index < len(lines):
@@ -78,8 +86,12 @@ def blocks(path: str, text: str | None = None) -> list[Block]:
         if opening is None:
             index += 1
             continue
+        fence = opening["fence"]
         end = index + 1
-        while end < len(lines) and lines[end].strip() != opening["fence"]:
+        # Closed by a fence of the same character, at least as long, with nothing after it.
+        while end < len(lines) and not (
+            set(lines[end].strip()) == {fence[0]} and len(lines[end].strip()) >= len(fence)
+        ):
             end += 1
         marker = _MARKER.match(lines[index - 1].strip()) if index else None
         found.append(
@@ -116,6 +128,19 @@ def _clean_env() -> dict[str, str]:
     return {name: value for name, value in os.environ.items() if not name.startswith(prefixes)}
 
 
+def _strays() -> set[Path]:
+    """What in the clone git neither tracks nor ignores: each untracked file, or an untracked
+    folder whole (never a tracked folder that holds one)."""
+    listed = subprocess.run(
+        ["git", "ls-files", "--others", "--exclude-standard", "--directory", "-z"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    ).stdout.split("\0")
+    return {ROOT / entry.rstrip("/") for entry in listed if entry}
+
+
 def _shell(block: Block, *, env: dict[str, str], cwd: Path) -> bool:
     print(f"$ {block.where}\n{block.text}", flush=True)
     done = subprocess.run(["bash", "-euo", "pipefail", "-c", block.text], cwd=cwd, env=env)
@@ -123,6 +148,17 @@ def _shell(block: Block, *, env: dict[str, str], cwd: Path) -> bool:
 
 
 def run(runner: str) -> int:
+    before = _strays()
+    try:
+        return _run(runner)
+    finally:
+        import shutil
+
+        for stray in _strays() - before:  # what the documented commands wrote into the clone
+            shutil.rmtree(stray) if stray.is_dir() else stray.unlink()
+
+
+def _run(runner: str) -> int:
     chosen = marked(runner)
     if not chosen:
         print(f"no block is marked `run {runner}`")
@@ -147,9 +183,8 @@ def run(runner: str) -> int:
             env["VIRTUAL_ENV"] = str(venv)
             if not all(_shell(block, env=env, cwd=ROOT) for block in chosen):
                 return 1
-            # The server extra is in: `mendari serve` would start (its own help answers).
-            check = subprocess.run([str(venv / "bin" / "mendari"), "serve", "--help"], env=env)
-            return check.returncode
+            # The server extra is in: the documented `mendari serve` starts and answers.
+            return _serves(venv / "bin" / "mendari", Path(directory), env)
     if not all(_shell(block, env=env, cwd=ROOT) for block in chosen):
         print(f"the {runner} blocks failed after {time.monotonic() - start:.0f} s")
         return 1
@@ -158,6 +193,34 @@ def run(runner: str) -> int:
         print(f"the quickstart took {took:.0f} s (limit {QUICKSTART_LIMIT_S} s)")
         return 0 if took < QUICKSTART_LIMIT_S else 1
     return 0
+
+
+def _serves(mendari: Path, work: Path, env: dict[str, str]) -> int:
+    """`mendari serve` from the new environment answers /api/health within a minute."""
+    import socket
+    import urllib.request
+
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    server = subprocess.Popen(
+        [str(mendari), "serve", "--port", str(port), "--db", str(work / "serve.db")], env=env
+    )
+    try:
+        for _ in range(60):
+            try:
+                with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=2):
+                    print(f"mendari serve answered on port {port}")
+                    return 0
+            except OSError:
+                if server.poll() is not None:
+                    break
+                time.sleep(1)
+        print("mendari serve did not answer /api/health")
+        return 1
+    finally:
+        server.terminate()
+        server.wait(timeout=30)
 
 
 def main(argv: list[str]) -> int:

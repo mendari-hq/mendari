@@ -196,14 +196,20 @@ uv run mendari eval mendari/clinical-trial-prescreener --dataset exclusions_hold
 uv run mendari --version
 ```
 
-Your own site's data, and the server (`audit verify` reads the database it writes):
+Your own site's data, and the server:
 
-<!-- check: skip placeholder: my-site.jsonl is your own data, and serve runs until stopped; CI runs serve (check_doc_snippets.py) and audit verify on its database -->
+<!-- check: skip placeholder: my-site.jsonl is your own data, and serve runs until stopped; check_doc_snippets.py starts the same app in CI -->
 ```bash
 uv run mendari eval mendari/patient-inbox-router --dataset my-site.jsonl --fail-on-degradation
 uv run mendari serve                                     # API + CDS Hooks + dashboard
                                                          # (developer docs: /docs)
-uv run mendari audit verify --db var/mendari.db
+```
+
+Then, in the folder the server ran in, verify the audit chain of the database it wrote:
+
+<!-- check: run server-db -->
+```bash
+mendari audit verify --db var/mendari.db
 ```
 
 **Errors and exit codes.** A command that cannot do what was asked prints one line per problem
@@ -292,8 +298,8 @@ and CI runs those scripts against a local server, in open mode and with a `servi
 
 A pack with a `guard` section (the AI Guard reference pack is one) checks a model's draft
 before anyone reads it. The draft is `released` only when the decision is automated with a
-release recommendation; otherwise it is `held_for_review` or `blocked`, with the reasons and the
-pack's `fallback`. Here, a dose above the daily maximum is blocked:
+release recommendation; otherwise it is `held_for_review` or `blocked`, with the reasons (and, when
+blocked, the pack's `fallback`). Here, a dose above the daily maximum is blocked:
 
 <!-- check: snippet guard.py/check -->
 ```python
@@ -644,7 +650,7 @@ Anyone with Mendari installed ([Install](#install); `pip install mendari` once 0
 PyPI) can pull from a registry they name with `mendari login --registry URL` or
 `MENDARI_REGISTRY_URL`. There is no public registry yet; the docker sandbox runs one.
 
-<!-- check: skip registry: needs a registry and a publisher token; CI job hub-e2e runs the same commands -->
+<!-- check: skip registry: needs a registry and a publisher token; CI job hub-e2e publishes the reference packs to a local registry through the same client and runs mendari pull and test -->
 ```bash
 mendari keys generate --out keys/                           # a publisher key pair (Ed25519)
 mendari login --registry https://hub.example.org --token <publisher token>

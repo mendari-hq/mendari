@@ -254,7 +254,7 @@ behaviour.
   SNOMED CT codes left out of the record), all fixed.
 
 - [ ] **LP-15** What the docs promise, and the local loop. Split in three PRs (recommended):
-  - [x] **LP-15a** The local loop (PR open). One top-level error handler for every `mendari`
+  - [x] **LP-15a** The local loop (#147, merged 2026-10-07). One top-level error handler for every `mendari`
     command: one line per problem (`error: ...`, naming the file, flag, URL origin or database
     without its password, and the fix), exit 1, never a traceback and never a library's own
     message (it can carry case text: an unknown error is its type only); `--debug` on any
@@ -314,7 +314,15 @@ behaviour.
     `MENDARI_PACKS_PATH` and `MENDARI_PACKS` (README, docs home, API guide, the deployment
     settings table), and the inbox rule as LP-01 enforces it (the README says what the decide
     step prints with and without a model, quoting the reason). The CLI tour was split so the
-    lines that need your data or a running server are marked as such.
+    lines that need your data or a running server are marked as such. Review: one adversarial
+    review (two lenses), each finding checked by a skeptic: 1 medium (a skip hid a runnable
+    `audit verify` and said CI ran it; it now runs on the server's database) and 8 low (the
+    install check passed without the server extra, now it starts `mendari serve` and waits for
+    `/api/health`; a registry skip's reason overstated what CI runs; block quotes and longer
+    fences slipped past the parser, and a raw `<pre>` would; the quickstart left `mendari new`'s
+    packs in the clone, now removed after a run; a held draft's `fallback`; the packs-folder
+    rows (precedence is by version, a missing folder is skipped); the API guide's
+    `MENDARI_PACKS`; the runner's usage line), all fixed, 1 refuted.
   - [ ] **LP-15c** A TestPyPI pre-release path in `release.yml` (its own protected environment,
     then a clean-runner install and `mendari test`); multi-arch images (built once as an OCI
     archive, each architecture tested, pushed as tested); a docs deploy workflow and

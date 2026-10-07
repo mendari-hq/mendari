@@ -15,7 +15,8 @@ program. They need `curl` and `jq`, and every body is synthetic.
 In a clone, `uv sync` installs Mendari with the server (without uv: `pip install '.[server]'`;
 the `server` extra brings uvicorn, which `mendari serve` needs). The server serves the reference
 packs; to serve your own too, set `MENDARI_PACKS_PATH` to their folders (`:`-separated, searched
-before the reference packs), or `MENDARI_PACKS` to the ids to serve only those.
+first). `MENDARI_PACKS` (comma-separated ids) then narrows what is served to those packs, which
+must be on the path.
 
 Start a server, and in another terminal name it and, with sign-in on, your API key:
 

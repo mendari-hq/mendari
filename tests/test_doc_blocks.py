@@ -114,6 +114,27 @@ def test_a_block_without_a_marker_is_found() -> None:
     ]
 
 
+def test_fences_are_found_however_they_are_written() -> None:
+    """In a block quote, indented in an admonition, and a longer fence holding a shorter one."""
+    markdown = (
+        "> ```bash\n> uv run mendari list\n> ```\n\n"
+        "!!! note\n    ```python\n    print(1)\n    ```\n\n"
+        "````bash\n```\nnot a close\n````\n"
+    )
+    found = doc_blocks.blocks("x.md", markdown)
+    assert [(b.lang, b.text.strip()) for b in found] == [
+        ("bash", "uv run mendari list"),
+        ("python", "print(1)"),
+        ("bash", "```\nnot a close"),
+    ]
+
+
+def test_no_raw_html_code_block_slips_past() -> None:
+    for path in doc_blocks.DOCS:
+        text = (ROOT / path).read_text(encoding="utf-8")
+        assert "<pre" not in text, f"{path}: write a fenced block, which carries a marker"
+
+
 def test_ci_runs_every_runner() -> None:
     ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     quickstart = ci.split("\n  quickstart:\n", 1)[1].split("\n\n  ", 1)[0]
