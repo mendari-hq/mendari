@@ -30,7 +30,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -87,11 +87,31 @@ class Ledger:
         if not lines or not isinstance(lines[0], dict) or lines[0].get("format") != FORMAT:
             raise MendariError(f"{where}: not a {FORMAT} ledger")
         header, cases = lines[0], lines[1:]
-        if not all(isinstance(case, dict) and isinstance(case.get("c"), str) for case in cases):
+        if not _shaped(header, _HEADER) or not (
+            isinstance(header["pack"].get("id"), str)
+            and isinstance(header["dataset"].get("sha256"), str)
+            and header["primary"] in header["questions"]
+        ):
+            raise MendariError(f"{where}: its header is not a {FORMAT} header")
+        if not all(
+            isinstance(case, dict) and "r" in case and _shaped(case, _CASE) for case in cases
+        ):
             raise MendariError(f"{where}: a case line is not a ledger case")
-        if header.get("cases", {}).get("n") != len(cases):
+        if header["cases"].get("n") != len(cases):
             raise MendariError(f"{where}: its header and its cases disagree on how many there are")
         return cls(header, cases)
+
+
+# What every reader of a ledger relies on (mendari.evals.result, paired).
+_HEADER = {
+    "pack": dict, "dataset": dict, "cases": dict, "primary": str, "questions": dict,
+    "critical": list, "subgroups": list, "providers": dict, "policy": dict, "models": list,
+}  # fmt: skip
+_CASE = {"c": str, "o": str, "q": dict, "k": list, "u": list, "a": dict}
+
+
+def _shaped(line: Mapping[str, Any], shape: Mapping[str, type]) -> bool:
+    return all(isinstance(line.get(key), kind) for key, kind in shape.items())
 
 
 def _rounded(value: float | None) -> float | None:
@@ -104,6 +124,8 @@ def build(
     results: Sequence[DecisionResult],
 ) -> Ledger:
     """The ledger of one run: `results` in the order of `dataset.records`."""
+    if not getattr(dataset, "case_key", b""):  # an empty key would let the ids be recovered
+        raise MendariError(f"{dataset.name}: no case key (load the dataset with load_dataset)")
     pack = decision.pack
     manifest = pack.manifest
     questions = {question: list(manifest.labels(question)) for question in manifest.questions}

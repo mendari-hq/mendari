@@ -161,7 +161,9 @@ def _beta_quantile_lower(a: float, b: float, p: float) -> float:
     """x with I_x(a, b) = p, for 0 < p <= 1/2. Halley's method from the A&S 26.5.22 guess,
     kept inside a bracket [lo, hi] that every evaluation shrinks; a step that is not finite or
     leaves the bracket is replaced by bisection (the safeguard of Numerical Recipes 9.4,
-    rtsafe). Ends when a step is at most four ulps or the bracket is two adjacent doubles."""
+    rtsafe). Ends when a step is at most four ulps or the bracket is two adjacent doubles; if
+    I has reached the floor of its precision first (far tails, levels of 0.999999 and over), the
+    iterate nearest p."""
     if b == 1.0:  # I_x(a, 1) = x^a: closed form
         return math.exp(math.log(p) / a)
     if a == 1.0:  # I_x(1, b) = 1 - (1-x)^b
@@ -170,10 +172,13 @@ def _beta_quantile_lower(a: float, b: float, p: float) -> float:
     x = _initial_guess(a, b, p)
     if not 0.0 < x < 1.0:
         x = a / (a + b)
+    best_x, best_f = x, math.inf
     for _ in range(100):
         f = _ibeta(a, b, x) - p
         if f == 0.0:
             return x
+        if abs(f) < best_f:
+            best_x, best_f = x, abs(f)
         if f < 0.0:
             lo = x
         else:
@@ -195,15 +200,18 @@ def _beta_quantile_lower(a: float, b: float, p: float) -> float:
             if not lo < new < hi:  # lo and hi are adjacent doubles
                 return hi
         x = new
-    raise ArithmeticError(f"beta quantile did not converge (a={a}, b={b}, p={p})")
+    return best_x
 
 
 def beta_ppf(a: float, b: float, q: float) -> float:
     """Quantile of Beta(a, b): x with I_x(a, b) = q. Solves in the lower tail of whichever of
     Beta(a,b), Beta(b,a) puts q below one half, so I is evaluated where it is small and its
-    relative accuracy carries over to x (1 - x' is exact to half an ulp of the result)."""
+    relative accuracy carries over to x (1 - x' is exact to half an ulp of the result). For
+    a, b >= 1 (the starting guess's domain, and all Clopper-Pearson needs)."""
     if not 0.0 < q < 1.0:
         raise ValueError("q must be in (0, 1)")
+    if not (a >= 1.0 and b >= 1.0):
+        raise ValueError("a and b must be at least 1")
     if q <= 0.5:
         return _beta_quantile_lower(a, b, q)
     return 1.0 - _beta_quantile_lower(b, a, 1.0 - q)

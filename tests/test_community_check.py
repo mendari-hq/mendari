@@ -730,11 +730,29 @@ def test_a_faked_benchmark_fails(new_pack: Path) -> None:
 def test_a_benchmark_only_differing_in_id_time_and_latency_passes(new_pack: Path) -> None:
     path = new_pack / "evals" / "benchmark.json"
     benchmark = json.loads(path.read_text())
-    benchmark["id"] = "another"
-    benchmark["latency_ms"] = {"mean": 9.0, "p50": 9.0, "p95": 9.0, "max": 9.0}
+    assert benchmark["format"] == "mendari.eval/2"  # the run block is what differs between runs
+    benchmark["run"]["id"] = "another"
+    benchmark["run"]["created_at"] = "2020-01-02T12:00:00+00:00"
+    benchmark["run"]["latency_ms"] = {"mean": 9.0, "p50": 9.0, "p95": 9.0, "max": 9.0}
     path.write_text(json.dumps(benchmark, indent=2) + "\n")
     assert main(["card", str(new_pack), "--write"]) == 0
+    card = (new_pack / "DECISION_CARD.md").read_text()
+    assert "9.00 / 9.00" in card
     assert run(new_pack, base=None).passed
+
+
+def test_a_benchmark_s_ledger_and_result_hash_are_checked(new_pack: Path) -> None:
+    path = new_pack / "evals" / "benchmark.json"
+    benchmark = json.loads(path.read_text())
+    (ledger,) = (new_pack / "evals" / "ledgers").iterdir()
+    assert ledger.name == benchmark["ledger"]["id"].removeprefix("sha256:") + ".jsonl"
+    original = ledger.read_bytes()
+    ledger.write_bytes(original.replace(b'"o":"', b'"o":"X', 1))  # one case edited
+    assert has(run(new_pack, base=None), "honest-numbers", "is not the ledger")
+    ledger.write_bytes(original)
+    benchmark["result_sha256"] = "sha256:" + "0" * 64
+    path.write_text(json.dumps(benchmark, indent=2) + "\n")
+    assert has(run(new_pack, base=None), "honest-numbers", "result_sha256 is not")
 
 
 def test_an_edited_or_missing_card_fails(new_pack: Path) -> None:

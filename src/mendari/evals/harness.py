@@ -99,12 +99,19 @@ def load_dataset(
 
 def record_problems(manifest: PackManifest, dataset: Dataset) -> list[str]:
     """What in a dataset's records the pack cannot evaluate, one line per record named by its id
-    (never its text): `labels` that are not a mapping of the pack's questions to their labels,
-    or `attributes` that are not a mapping. Other keys are kept as they are (`mendari feedback
-    export` adds what the system decided and the ratings behind its labels)."""
+    (never its text): a repeated id (its ledger hash would be too), `labels` that are not a
+    mapping of the pack's questions to their labels, or `attributes` that are not a mapping.
+    Other keys are kept as they are (`mendari feedback export` adds what the system decided and
+    the ratings behind its labels)."""
     problems = []
+    seen: set[str] = set()
     for record in dataset.records:
         where = f"{dataset.name} case {record['id']}"
+        key = ledgers.canonical(record["id"])  # what its ledger hash is made from
+        if key in seen:
+            problems.append(f"{where}: another case has the same id")
+            continue
+        seen.add(key)
         labels = record.get("labels", {})
         if not isinstance(labels, dict):
             problems.append(f"{where}: `labels` must be a mapping of question to label")

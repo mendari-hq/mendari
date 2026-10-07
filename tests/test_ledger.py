@@ -7,16 +7,20 @@ stored report is chained; and two runs compare case by case."""
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import sqlite3
 from contextlib import closing
 from copy import deepcopy
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from mendari import Decision, Pack
+from mendari import Decision, Pack, load_pack
 from mendari.cli import main
+from mendari.core import clock
 from mendari.core.audit import AuditStore
 from mendari.core.card import render_card
 from mendari.errors import MendariError
@@ -124,11 +128,29 @@ def test_a_case_hash_is_keyed_by_the_datasets_own_bytes(tmp_path: Path) -> None:
     assert one != case_hash(case_key(raw), 1800) != case_hash(case_key(raw), "1800")
 
 
-def test_two_cases_with_one_id_are_refused(tmp_path: Path, inbox_pack: Pack) -> None:
+def test_two_cases_with_one_id_are_refused_before_any_decision(
+    tmp_path: Path, inbox_pack: Pack
+) -> None:
     line = json.dumps({"id": "x", "input": {"message": {"body": "Refill please."}}})
     (tmp_path / "twice.jsonl").write_text(f"{line}\n{line}\n")
-    with pytest.raises(MendariError, match="two cases have the same id"):
-        evaluation(Decision(inbox_pack), load_dataset(tmp_path / "twice.jsonl"))
+    decision = Decision(inbox_pack)
+    calls: list[int] = []
+    decide = decision.decide
+
+    def counted(*args: Any, **kwargs: Any) -> Any:
+        calls.append(1)
+        return decide(*args, **kwargs)
+
+    decision.decide = counted  # type: ignore[method-assign]
+    with pytest.raises(MendariError, match="another case has the same id"):
+        evaluation(decision, load_dataset(tmp_path / "twice.jsonl"))
+    assert calls == []  # refused before a provider is asked
+
+
+def test_a_dataset_without_its_case_key_is_refused(runs: Any, inbox_pack: Pack) -> None:
+    _, _, dataset = runs
+    with pytest.raises(MendariError, match="no case key"):
+        evaluation(Decision(inbox_pack), replace(dataset.head(3), case_key=b""))
 
 
 @pytest.mark.parametrize(
@@ -136,7 +158,8 @@ def test_two_cases_with_one_id_are_refused(tmp_path: Path, inbox_pack: Pack) -> 
     [
         (b"not json\n", "not a ledger"),
         (b'{"format":"other"}\n', "not a mendari.ledger/1"),
-        (b'{"format":"mendari.ledger/1","cases":{"n":2}}\n{"c":"a"}\n', "disagree"),
+        (b'{"format":"mendari.ledger/1","cases":{"n":2}}\n{"c":"a"}\n', "header is not"),
+        (b'{"format":"mendari.ledger/1","cases":"n"}\n', "header is not"),
     ],
 )
 def test_what_is_not_a_ledger_is_refused(data: bytes, says: str) -> None:
@@ -144,11 +167,44 @@ def test_what_is_not_a_ledger_is_refused(data: bytes, says: str) -> None:
         Ledger.loads(data)
 
 
-def test_a_v1_report_still_loads_everywhere(tmp_path: Path, inbox_pack: Pack) -> None:
+def test_a_ledger_with_a_case_of_another_shape_or_count_is_refused(runs: Any) -> None:
+    run, _, _ = runs
+    lines = run.ledger.dumps().decode().splitlines()
+    with pytest.raises(MendariError, match="a case line is not a ledger case"):
+        Ledger.loads("\n".join([lines[0], '{"c":"a"}', *lines[2:]]).encode())
+    with pytest.raises(MendariError, match="disagree on how many"):
+        Ledger.loads("\n".join(lines[:-1]).encode())
+
+
+def test_a_v1_report_still_loads_everywhere(tmp_path: Path) -> None:
     assert normalize(V1)["run"]["id"] == V1["id"]
     assert leaderboard.row(V1)["report_id"] == V1["id"]
     assert site_report(V1).questions  # shareable as before
-    assert "Last validation" in render_card(inbox_pack)  # the card reads either format
+    copy = tmp_path / "patient-inbox-router"
+    shutil.copytree(ROOT / "packs" / "patient-inbox-router", copy)
+    shutil.copy(ROOT / "tests" / "fixtures" / "eval-v1-inbox.json", copy / "evals/benchmark.json")
+    card = render_card(load_pack(copy))  # the card reads a v1 benchmark as it did
+    assert f"| Last validation | {clock.local_date(V1['created_at'])} on `test`" in card
+    assert f"{V1['latency_ms']['p50']:.2f} / " in card
+
+
+def test_evaluating_again_keeps_exactly_one_ledger(tmp_path: Path) -> None:
+    out = tmp_path / "evals" / "report.json"
+    argv = ["eval", "mendari/ai-guard", "--dataset", "test", "--baseline", "none"]
+    assert main([*argv, "--limit", "20", "--out", str(out)]) == 0
+    assert main([*argv, "--limit", "30", "--out", str(out)]) == 0  # another ledger
+    report = json.loads(out.read_text())
+    assert [p.name for p in (out.parent / "ledgers").iterdir()] == [
+        report["ledger"]["id"].removeprefix("sha256:") + ".jsonl"
+    ]
+
+
+def test_an_out_that_is_not_a_file_gets_the_report_and_no_ledger(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    argv = ["eval", "mendari/ai-guard", "--dataset", "test", "--limit", "5", "--baseline", "none"]
+    assert main([*argv, "--out", os.devnull]) == 0
+    assert "no ledger is written beside it" in capsys.readouterr().err
 
 
 def test_a_stored_report_keeps_its_ledger_and_is_chained(tmp_path: Path) -> None:
@@ -210,6 +266,23 @@ def test_a_paired_comparison_counts_the_cases_that_changed(runs: Any) -> None:
         result, {case_hash(dataset.case_key, r["id"]): r["id"] for r in dataset.records}
     )
     assert "accuracy: A 596 of 600" in words and "pub-" in words
+    assert "different" in words and "intervals at 95%" in words
+
+
+@pytest.mark.parametrize(
+    ("flips", "alpha", "evidence"),
+    [(5, 0.05, "insufficient"), (6, 0.05, "sufficient"), (7, 0.01, "insufficient"),
+     (8, 0.01, "sufficient"), (5, 0.1, "sufficient")],
+)  # fmt: skip
+def test_the_evidence_floor_follows_alpha(
+    runs: Any, flips: int, alpha: float, evidence: str
+) -> None:
+    run, _, dataset = runs
+    result = paired.compare(
+        run.ledger, _flipped(run.ledger, flips), dataset_sha256=dataset.sha256, alpha=alpha
+    )
+    accuracy = next(f for f in result["figures"] if f["figure"] == "accuracy")
+    assert accuracy["evidence"] == evidence  # the smallest p that many cases give, vs alpha
 
 
 def test_runs_on_another_dataset_or_pack_are_refused(runs: Any) -> None:

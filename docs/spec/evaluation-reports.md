@@ -78,10 +78,12 @@ ledger ids, the pack digest, the dataset's hash and the organization: ids and ha
 
 `mendari compare A B --dataset X` compares two runs of one pack on the same dataset, from their
 ledgers, on the cases both ran. For each figure (each critical label's detection, false
-automation, primary accuracy, automation) it gives each run's k of n with its interval, the
-discordant cases (only A, only B), the exact two-sided McNemar p-value, and the p-value adjusted
-with Holm over the family the output names. A figure with fewer than 6 discordant cases, or a
-critical label with fewer than 100 positives, is "insufficient evidence". The primary question's
+automation, primary accuracy, automation) it gives each run's k of n with its 95% interval, the
+discordant cases (only A, only B), the exact two-sided McNemar p-value, the p-value adjusted with
+Holm over the family the output names, and `different`, Holm's decision at alpha. A figure with
+too few discordant cases for the exact test ever to reach alpha (fewer than 6 at 0.05), or a
+critical label with fewer than 100 positives, also says "insufficient evidence"; that qualifies
+`different` and never overrides it. The primary question's
 Brier score is compared with a seeded paired bootstrap (2,000 resamples), outside the Holm family.
 The cases that changed are listed by ledger hash (and, on the command line, by id from the
 dataset X): critical detections first, then false automation, correctness and automation.

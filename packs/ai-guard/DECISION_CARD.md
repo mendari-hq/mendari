@@ -153,7 +153,7 @@ Benchmark `test` (n=600) with screen=`rules`, dosing=`dosing`:
 | Accuracy of AUTO decisions | n/a |
 | False automation rate | n/a |
 | Expected human override rate | 3.2% |
-| Latency p50 / p95 | 0.29 / 0.37 ms |
+| Latency p50 / p95 | 0.29 / 0.36 ms |
 | Cost per decision | $0.00000 |
 | Critical `verdict=block` | 164/164 detected, 0 automated |
 | Critical `question_emergency=yes` | 114/114 detected, 0 automated |

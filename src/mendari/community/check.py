@@ -47,6 +47,7 @@ a community pull request from changing this file.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -1147,6 +1148,8 @@ def _honest_numbers(ctx: _Context, report: dict[str, Any]) -> None:
                 f"{relative} is not what the pack gives when evaluated again (differs at "
                 f"{_listed(differences)}): {regenerate}",
             )
+        for wrong in _ledger_problems(ctx, relative, committed):
+            ctx.report.error("honest-numbers", f"{wrong}: {regenerate}")
     shown = dict(report)
     if committed is not None:
         shown.update({key: committed[key] for key in VOLATILE_REPORT_KEYS if key in committed})
@@ -1322,6 +1325,31 @@ def _raw_manifest(ctx: _Context) -> dict[str, Any]:
     except (OSError, MendariError):
         return {}
     return raw if isinstance(raw, dict) else {}
+
+
+def _ledger_problems(ctx: _Context, relative: str, committed: dict[str, Any]) -> list[str]:
+    """A mendari.eval/2 benchmark's own checks: its result_sha256 is its result's hash, and the
+    ledger it names, when beside it, is that ledger byte for byte (the comparison with a fresh
+    run has already pinned the id it names)."""
+    from mendari.evals.result import FORMAT as REPORT_FORMAT
+    from mendari.evals.result import result_of, result_sha256
+
+    if committed.get("format") != REPORT_FORMAT:
+        return []
+    found = []
+    if committed.get("result_sha256") != result_sha256(result_of(committed)):
+        found.append(f"{relative}'s result_sha256 is not its result's hash")
+    named = (
+        (committed.get("ledger") or {}).get("id")
+        if isinstance(committed.get("ledger"), dict)
+        else None
+    )
+    if isinstance(named, str) and re.fullmatch(r"sha256:[0-9a-f]{64}", named):
+        folder = PurePosixPath(relative).parent / "ledgers"
+        path = ctx.root / folder / (named.removeprefix("sha256:") + ".jsonl")
+        if path.is_file() and "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest() != named:
+            found.append(f"{folder / path.name} is not the ledger {relative} names")
+    return found
 
 
 def _benchmark_files(ctx: _Context) -> set[str]:

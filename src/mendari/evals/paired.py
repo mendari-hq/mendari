@@ -4,11 +4,13 @@ LP-10), from their ledgers: two configurations, or two versions of a pack. Unlik
 `mendari.evals.compare` (one run against the pack's published benchmark, different cases), every
 figure here is on the cases both runs share, so a difference is the configurations', not the cases'.
 
-Each figure is k of n in each run with its exact interval; the cases where the two disagree
+Each figure is k of n in each run with its exact 95% interval; the cases where the two disagree
 (b: only A, c: only B) give an exact McNemar p-value, adjusted with Holm over the family named in
-the output. A figure with too few discordant cases for the test to reach the level (fewer than 6
-at 0.05), or a critical label with fewer than 100 positives, says "insufficient evidence". The
-primary question's Brier score is compared with a seeded paired bootstrap, outside the Holm family.
+the output, and `different` is Holm's decision at alpha. A figure with too few discordant cases
+for the exact test ever to reach alpha (fewer than 6 at the default 0.05), or a critical label
+with fewer than 100 positives, also says "insufficient evidence", beside that decision. The
+primary question's Brier score is compared with a seeded paired bootstrap (a 95% interval),
+outside the Holm family.
 The cases that changed are listed by their ledger hash: critical detections first, then false
 automation, correctness, and automation.
 """
@@ -151,7 +153,9 @@ def compare(
         only_a = sum(1 for ea, eb, _ in on if ea and not eb)
         only_b = sum(1 for ea, eb, _ in on if eb and not ea)
         p = stats.mcnemar_exact(only_a, only_b)
-        few = only_a + only_b < 6 or (name.startswith("critical") and n < MIN_POSITIVES)
+        # The smallest p-value that many discordant cases can give, against alpha.
+        unreachable = stats.mcnemar_exact(only_a + only_b, 0) > alpha
+        few = unreachable or (name.startswith("critical") and n < MIN_POSITIVES)
         figures.append(
             {
                 "figure": name,
@@ -208,6 +212,7 @@ def compare(
             "only_in_b": len(b.cases) - len(shared),
         },
         "alpha": alpha,
+        "interval_level": stats.LEVEL,
         "seeds": {"bootstrap": seed, "resamples": resamples},
         "holm_family": list(p_values),
         "figures": figures,
@@ -231,15 +236,14 @@ def text(result: Mapping[str, Any], ids: Mapping[str, Any] | None = None) -> str
     lines = [
         f"{result['pack']}: A against B on {dataset['paired']} shared cases "
         f"(only in A: {dataset['only_in_a']}, only in B: {dataset['only_in_b']})",
-        f"Holm-adjusted over: {', '.join(result['holm_family'])} (alpha {result['alpha']})",
+        f"Holm-adjusted over: {', '.join(result['holm_family'])} (alpha {result['alpha']}); "
+        f"intervals at {result['interval_level']:.0%}",
         "",
     ]
     for f in result["figures"]:
-        verdict = (
-            "insufficient evidence"
-            if f["evidence"] == "insufficient"
-            else ("different" if f["different"] else "no difference shown")
-        )
+        verdict = "different" if f["different"] else "no difference shown"
+        if f["evidence"] == "insufficient":
+            verdict += "; insufficient evidence"
         lines.append(
             f"{f['figure']}: A {_shown(f['a'])}, B {_shown(f['b'])}; only A {f['only_a']}, "
             f"only B {f['only_b']}, p {f['p']:.4g} (adjusted {f['p_adjusted']:.4g}): {verdict}"

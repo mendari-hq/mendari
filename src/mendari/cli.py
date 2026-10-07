@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import errno
 import json
 import os
@@ -203,11 +204,11 @@ def cmd_eval(args: argparse.Namespace) -> int:
     if args.out:
         out = Path(args.out)
         out.parent.mkdir(parents=True, exist_ok=True)
+        if not out.exists() or out.is_file():  # a file: its ledger goes beside it, first
+            _write_ledger(out, run.ledger.dumps(), run.ledger.file_name)
+        else:  # a device such as /dev/stdout
+            print("note: --out is not a file, so no ledger is written beside it", file=sys.stderr)
         out.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-        # The ledger its result is computed from, beside it (mendari compare reads it).
-        ledgers = out.parent / "ledgers"
-        ledgers.mkdir(exist_ok=True)
-        (ledgers / run.ledger.file_name).write_bytes(run.ledger.dumps())
     if args.db:
         AuditStore(args.db).save_report(report, ledger=run.ledger.dumps())
     if args.share_out:
@@ -308,6 +309,21 @@ def cmd_agreement(args: argparse.Namespace) -> int:
         for item in report["differences"][:20]:
             print(f"  {item['case']}  {item['question']}: {item[left]} vs {item[right]}")
     return 0 if report["agree"] else 1
+
+
+def _write_ledger(out: Path, ledger: bytes, name: str) -> None:
+    """The run's ledger in `ledgers/` beside the report at `out` (mendari compare reads it), and
+    the one the report it replaces named removed, so a benchmark keeps exactly its own."""
+    folder = out.parent / "ledgers"
+    previous = None
+    with contextlib.suppress(OSError, ValueError, KeyError, TypeError):
+        previous = json.loads(out.read_text(encoding="utf-8"))["ledger"]["id"]
+    folder.mkdir(exist_ok=True)
+    (folder / name).write_bytes(ledger)
+    if isinstance(previous, str) and re.fullmatch(r"sha256:[0-9a-f]{64}", previous):
+        stale = folder / (previous.removeprefix("sha256:") + ".jsonl")
+        if stale.name != name:
+            stale.unlink(missing_ok=True)
 
 
 def cmd_compare(args: argparse.Namespace) -> int:
@@ -1315,15 +1331,17 @@ def _publish_benchmark(target: Path) -> None:
     eval --baseline none --out` and `mendari card --write` would."""
     from mendari.core.card import render_card
     from mendari.core.pack import load_pack
-    from mendari.evals import evaluate, resolve_dataset
+    from mendari.evals import resolve_dataset
+    from mendari.evals.harness import evaluation as evaluate_with_ledger
 
     pack = load_pack(target, origin="community")
     evaluation = pack.manifest.evaluation
     assert evaluation.benchmark and evaluation.benchmark_dataset
-    report = evaluate(Decision(pack), resolve_dataset(pack, evaluation.benchmark_dataset))
+    run = evaluate_with_ledger(Decision(pack), resolve_dataset(pack, evaluation.benchmark_dataset))
     destination = target / evaluation.benchmark
     destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    _write_ledger(destination, run.ledger.dumps(), run.ledger.file_name)
+    destination.write_text(json.dumps(run.report, indent=2) + "\n", encoding="utf-8")
     pack = load_pack(target, origin="community")
     (target / "DECISION_CARD.md").write_text(render_card(pack), encoding="utf-8")
 

@@ -40,24 +40,40 @@ def _grid() -> list[tuple[int, int]]:
     return [*cases, (3, 300), (6, 250), (2, 2500)]
 
 
+# Where I reaches the floor of its precision before a step can: the nearest iterate is kept.
+EXTREME = [(2, 27), (797, 799), (2, 180), (269, 271)]
+
+
 @pytest.mark.parametrize("level", [0.9, 0.95, 0.99, 0.999])
 def test_clopper_pearson_matches_scipy_and_statsmodels(level: float) -> None:
     alpha = 1 - level
-    worst = 0.0
-    for k, n in _grid():
+    for k, n in _grid():  # each case asserted: a NaN fails, as a running max() would not
         low, high = stats.clopper_pearson(k, n, level)
         model_low, model_high = proportion_confint(k, n, alpha=alpha, method="beta")
         scipy_low = 0.0 if k == 0 else st.beta.ppf(alpha / 2, k, n - k + 1)
         scipy_high = 1.0 if k == n else st.beta.ppf(1 - alpha / 2, k + 1, n - k)
-        worst = max(worst, abs(low - model_low), abs(high - model_high))
-        worst = max(worst, abs(low - scipy_low), abs(high - scipy_high))
-    assert worst < EXACT
+        assert abs(low - model_low) < EXACT and abs(high - model_high) < EXACT, (k, n, level)
+        assert abs(low - scipy_low) < EXACT and abs(high - scipy_high) < EXACT, (k, n, level)
+
+
+@pytest.mark.parametrize(("k", "n"), EXTREME)
+def test_clopper_pearson_at_extreme_levels(k: int, n: int) -> None:
+    level = 0.999999
+    low, high = stats.clopper_pearson(k, n, level)
+    assert abs(low - st.beta.ppf((1 - level) / 2, k, n - k + 1)) < EXACT
+    assert abs(high - st.beta.ppf(1 - (1 - level) / 2, k + 1, n - k)) < EXACT
+
+
+def test_the_beta_quantile_takes_shapes_of_at_least_one() -> None:
+    for a, b in [(0.5, 3), (2, 0.4)]:
+        with pytest.raises(ValueError, match="at least 1"):
+            stats.beta_ppf(a, b, 0.2)
 
 
 def test_the_beta_quantile_matches_scipy() -> None:
     rng = random.Random(7)
     for _ in range(500):
-        a, b = rng.uniform(0.5, 400), rng.uniform(0.5, 400)
+        a, b = rng.uniform(1, 400), rng.uniform(1, 400)
         q = rng.choice([rng.uniform(1e-6, 1 - 1e-6), 0.025, 0.975, 0.5])
         assert abs(stats.beta_ppf(a, b, q) - st.beta.ppf(q, a, b)) < EXACT
 
@@ -250,10 +266,8 @@ def test_equal_mass_ece_is_not_estimable_on_small_bins() -> None:
 
 @pytest.mark.slow
 def test_clopper_pearson_over_a_wide_grid() -> None:
-    worst = 0.0
     for n in range(1, 601):
         for k in range(n + 1):
             low, high = stats.clopper_pearson(k, n)
             model_low, model_high = proportion_confint(k, n, alpha=0.05, method="beta")
-            worst = max(worst, abs(low - model_low), abs(high - model_high))
-    assert worst < EXACT
+            assert abs(low - model_low) < EXACT and abs(high - model_high) < EXACT, (k, n)

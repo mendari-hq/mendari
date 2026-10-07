@@ -234,7 +234,8 @@ The report shows:
 - how many decisions were automated, and how many of those were wrong;
 - how many critical cases were caught (`evaluation.critical`: here, every `urgent_symptoms = yes`).
 
-Make this run the pack's published benchmark. Write it to a file, then add
+Make this run the pack's published benchmark. Write it to a file (its per-case ledger, from which
+its figures are computed, goes beside it in `evals/ledgers/`), then add
 `benchmark: evals/benchmark.json` under `evaluation:` in `pack.yaml`:
 
 ```bash

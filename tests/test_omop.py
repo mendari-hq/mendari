@@ -100,6 +100,14 @@ def test_a_dataset_evaluates_the_same_through_omop(tmp_path: Path) -> None:
     assert result["identical"] is True and result["cases"] == result["people"] > 0
 
 
+def test_cases_it_gets_wrong_are_the_same_cases_through_omop() -> None:
+    """The local-site example has misclassified and missed critical cases: each file keys its
+    own case hashes, so the check compares them by id (CI's reference-pack job runs it)."""
+    local = Path(__file__).resolve().parents[1] / "datasets" / "trial-local-site-example.jsonl"
+    result = omop_check.run(local, TRIAL)
+    assert result["identical"] is True, result["differences"]
+
+
 def test_the_cli_writes_datasets_and_reports_populations(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

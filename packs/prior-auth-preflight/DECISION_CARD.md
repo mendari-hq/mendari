@@ -186,7 +186,7 @@ Benchmark `test` (n=600) with structured=`criteria`, notes=`rules`:
 | Accuracy of AUTO decisions | n/a |
 | False automation rate | n/a |
 | Expected human override rate | 0.0% |
-| Latency p50 / p95 | 3.47 / 3.63 ms |
+| Latency p50 / p95 | 3.44 / 3.62 ms |
 | Cost per decision | $0.00000 |
 | Critical `red_flag=yes` | 25/25 detected, 0 automated |
 
