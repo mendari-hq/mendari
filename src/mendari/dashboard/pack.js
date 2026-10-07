@@ -276,7 +276,7 @@ const COMPOSITES = new Set(["any_of", "cascade", "vote"]);
 // ["vendor/model-2"]); local fingerprints ("rules@1a2b") are not a deployment choice. Only a
 // composite's model is "member:model" parts (" + ", or " → " for a cascade), as
 // leaderboard.config_label reads it; any other model is one id, colons and all
-// ("anthropic.claude-sonnet-5-v1:0", "llama3.1:8b").
+// ("vendor.model-v1:0", "model:8b").
 export const remoteModels = (model, type) => (COMPOSITES.has(type)
   ? (model ?? "").split(/ \+ | → /).map((part) => (part.includes(":") ? part.slice(part.indexOf(":") + 1) : part))
   : [model ?? ""])
