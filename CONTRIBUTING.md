@@ -91,7 +91,8 @@ hand:
   `image:tag@sha256:<digest>`, from `docker buildx imagetools inspect image:tag`. Dependabot
   does not see images in workflow `services:` or `docker run` lines, or the images an action
   pulls for itself (`release.yml`'s emulator, `setup-qemu-action`'s `image`, and builder,
-  `setup-buildx-action`'s `driver-opts`), so check those by hand.
+  `setup-buildx-action`'s `driver-opts`), or the secret scan's gitleaks (`scripts/secret_scan.sh`,
+  its one pin), so check those by hand.
 - **uv:** change `version:` in every `setup-uv` step and the `ghcr.io/astral-sh/uv` stage of the
   `Dockerfile` together.
 - **A download:** pin its version and its sha256, and check it with `sha256sum -c` right after.
