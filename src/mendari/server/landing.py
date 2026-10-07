@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """The developer landing at `/docs` (`dashboard/docs.html`, `docs.js`): what Mendari is, a
-quickstart in three calls, FHIR in and out, authentication and links, on one static page.
+quickstart in three calls, FHIR in and out, guarding a model's replies, authentication and links,
+on one static page.
 
 **Public, also with sign-in on**, so it shows only what is the same for every deployment of this
 release, plus this deployment's modes (sign-in, the SMART launch, Backend Services), which
@@ -132,6 +133,7 @@ def page(
             "setup": _code("code-setup", _SETUP, "name the server and your key"),
             "quickstart": _steps("quickstart", prints),
             "fhir": _steps("fhir", prints),
+            "guard": _steps("guard", prints) + _steps("guard", prints, language="python"),
             "smart": _smart(smart_launch, sign_in=sign_in),
             "auth": _auth(sign_in, token_url),
             "auth-steps": _steps("auth", prints),
@@ -183,14 +185,21 @@ def _code(code_id: str, text: str, label: str, *, kind: str = "Shell", copy: boo
 
 
 def _steps(
-    file: str, prints: Mapping[tuple[str, str], list[tuple[str, Mapping[str, object]]]]
+    file: str,
+    prints: Mapping[tuple[str, str], list[tuple[str, Mapping[str, object]]]],
+    *,
+    language: str = "bash",
 ) -> str:
     """One snippet file's steps as numbered items: a heading from the step's title, its commands,
     and for the quickstart's decision what it prints (`prints`, by file and step: a label and
-    the answer, once per kind of server shown)."""
+    the answer, once per kind of server shown). A Python file's steps follow its bash file's,
+    numbered on."""
     items = []
-    for number, step in enumerate(snippets.load(file), 1):
-        anchor = f"{file}-{step.name}"
+    python = language == "python"
+    first = len(snippets.load(file)) + 1 if python else 1
+    kind = "Python" if python else "Shell"
+    for number, step in enumerate(snippets.load(file, language=language), first):
+        anchor = f"{file}-{step.name}" + ("-python" if python else "")
         shown = "".join(
             _code(
                 f"code-{anchor}-prints" + (f"-{index}" if index else ""),
@@ -204,7 +213,7 @@ def _steps(
         items.append(
             f'<li class="docs-step"><h3 id="{anchor}"><span class="docs-step-number">{number}'
             f"</span> {escape(step.title)}</h3>"
-            f"{_code(f'code-{anchor}', escape(step.text), step.title)}{shown}</li>"
+            f"{_code(f'code-{anchor}', escape(step.text), step.title, kind=kind)}{shown}</li>"
         )
     return "".join(items)
 

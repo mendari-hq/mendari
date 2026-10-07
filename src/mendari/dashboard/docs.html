@@ -59,6 +59,7 @@
         <li><a href="#what">What Mendari is</a></li>
         <li><a href="#quickstart">Quickstart</a></li>
         <li><a href="#fhir">FHIR in, FHIR out</a></li>
+        <li><a href="#guard">Guarding a model's replies</a></li>
         <li><a href="#auth">Authentication</a></li>
         <li><a href="#more">Reference and more</a></li>
       </ul>
@@ -144,6 +145,12 @@
         <p><code>GET /cds-services</code> lists the services, one per pack that declares a hook (it needs the <code>read</code> permission), and <code>POST /cds-services/{id}</code> decides on a hook's context and prefetch (<code>decide</code>), answering with cards.</p>
         <h3 id="smart">SMART on FHIR</h3>
         <!-- landing:smart -->
+      </section>
+
+      <section class="docs-section" id="guard" aria-labelledby="guard-title">
+        <h2 id="guard-title">Guarding a model's replies</h2>
+        <p>A pack with a <code>guard</code> section, such as the AI Guard reference pack, checks a model's draft before a patient reads it. <code>POST /api/packs/{id}/guard</code> answers <code>{status, reply, outcome, recommendation, reasons, fallback, decision_id}</code>: the draft is <code>released</code> only when the decision is automated with a release recommendation; otherwise it is <code>held_for_review</code> or <code>blocked</code>. Never send a blocked draft: act on <code>fallback</code>. The same check runs in Python, without a server.</p>
+        <ol class="docs-steps"><!-- landing:guard --></ol>
       </section>
 
       <section class="docs-section" id="auth" aria-labelledby="auth-title">

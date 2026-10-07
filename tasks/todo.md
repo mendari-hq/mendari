@@ -294,10 +294,27 @@ behaviour.
     deploy templates' `|| true` swallows both): give alerts their own code? `MENDARI_PROVIDERS`
     stays a warning in the CLI and a report on a server (production runs an unscoped setting);
     make it strict?
-  - [ ] **LP-15b** Every README, docs/index.md and /docs landing snippet run in CI or marked
-    skipped with a reviewed reason (a test fails on an unmarked one); a CI-run AI Guard example
-    (HTTP and Python) in the snippets, README, API guide and landing; the server install, the
-    packs-folder setting and the inbox rule (LP-01) in the docs.
+  - [x] **LP-15b** The docs' commands (PR open). Every bash and Python block of README.md,
+    docs/index.md and docs/guides/api.md carries a marker on the line before it
+    (`scripts/doc_blocks.py`): `run quickstart|cli|python <group>|install|server-db`,
+    `snippet <file>/<step>` (the same text as a snippet CI runs), `include <file>`, or `skip
+    <reason>: <why>` from a fixed list (private-repo, docker, ehr, database, registry, secrets,
+    settings, long-running, placeholder, ci; each names the CI job that covers it where one
+    does). `tests/test_doc_blocks.py` fails on an unmarked block, an unknown language, a skip
+    without a reason, a snippet block not equal to its step, and a landing code block that is
+    not a snippet step. CI's `quickstart` job (a clean runner, no cache) runs the quickstart
+    (timed, from the markers now), the CLI tour, the Python examples, a fresh `pip install .`
+    and `'.[server]'`, and `check_doc_snippets.py`: a REST, a FHIR and an AI Guard decision by
+    the documented commands, the Python examples, and the README's commands on the database the
+    open pass's server wrote (`audit export`, `feedback export`). An AI Guard example, HTTP
+    (`snippets/guard.sh`) and Python (`snippets/guard.py`, run as a program): a dose above the
+    daily maximum, blocked, from the pack's own tests; in the README (replacing a sketch that
+    could not run), the API guide and the /docs landing (a new "Guarding a model's replies"
+    section). Docs: the server install and its extra (the CLI's hint names the clone form),
+    `MENDARI_PACKS_PATH` and `MENDARI_PACKS` (README, docs home, API guide, the deployment
+    settings table), and the inbox rule as LP-01 enforces it (the README says what the decide
+    step prints with and without a model, quoting the reason). The CLI tour was split so the
+    lines that need your data or a running server are marked as such.
   - [ ] **LP-15c** A TestPyPI pre-release path in `release.yml` (its own protected environment,
     then a clean-runner install and `mendari test`); multi-arch images (built once as an OCI
     archive, each architecture tested, pushed as tested); a docs deploy workflow and

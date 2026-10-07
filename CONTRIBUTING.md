@@ -105,6 +105,14 @@ hand:
 - **Python dependencies:** `uv lock --upgrade-package <name>`, never a bare `uv lock --upgrade`
   in a feature PR. The `Dockerfile` installs `uv.lock` exactly.
 
+## Commands in the docs
+
+Every bash or Python block in `README.md`, `docs/index.md` and `docs/guides/api.md` says, on the
+line before it, how CI checks it: `<!-- check: run ... -->` runs it on a clean runner,
+`<!-- check: snippet <file>/<step> -->` is the same text as an API example CI runs, and
+`<!-- check: skip <reason>: <why> -->` says why it cannot run (`scripts/doc_blocks.py` lists the
+markers and the reasons). `tests/test_doc_blocks.py` fails on a block without one.
+
 ## Sign off: the Developer Certificate of Origin
 
 Every commit is signed off: `git commit -s` adds a line
