@@ -23,6 +23,7 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 
+from mendari import notices
 from mendari.core.audit import AuditStore
 from mendari.errors import MendariError
 from mendari.server import smart_routes
@@ -260,6 +261,7 @@ def test_deciding_a_work_item_reads_the_record_and_audits_the_decision(
         "/api/smart/decide", json={"pack_id": REFERRAL, "focus": "ServiceRequest/ref-sr1"}
     )
     assert response.status_code == 200, response.text
+    assert response.json()["notice"] == notices.notice()
     decision = response.json()["decision"]
     assert decision["input_issues"] == []  # the fixture is US Core
     read = sorted(r.url.path.removeprefix("/fhir/") for r in ehr.requests)

@@ -79,7 +79,7 @@ def test_cds_hooks_say_it_in_discovery_and_on_every_card(router: Decision) -> No
             "prefetch": {"communication": COMMUNICATION, "patient": PATIENT},
         },
     )
-    assert response["cards"][0]["detail"].splitlines()[0] == f"*{SYNTHETIC_EXAMPLE}*"
+    assert response["cards"][0]["detail"].splitlines()[0].startswith(f"*{SYNTHETIC_EXAMPLE}*")
 
 
 def test_the_readme_lists_the_reference_packs_as_synthetic_examples() -> None:

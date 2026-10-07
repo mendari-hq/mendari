@@ -69,9 +69,16 @@ export const priorityBadge = (p) => `<span class="badge p-${esc(p)}" title="prio
 // Icons come from the sprite in index.html; they are decorative, so the text beside them names them.
 export const icon = (name) => `<svg class="icon" aria-hidden="true"><use href="#i-${name}"/></svg>`;
 
-export async function api(path, options = {}) {
+export async function api(path, options = {}, asked = false) {
   const response = await fetch(path, { headers: { "content-type": "application/json" }, ...options });
   const body = await response.json().catch(() => null);
+  // Refused for want of the notice's acknowledgement (a new version since the dashboard opened):
+  // ask, then try once more (notice.js).
+  if (response.status === 403 && response.headers.get("Mendari-Notice-Required") && !asked) {
+    const { acknowledgeNotice } = await import("./notice.js");
+    await acknowledgeNotice();
+    return api(path, options, true);
+  }
   if (response.status === 401 && path.startsWith("/api/smart/")) throw launchEnded();
   if (response.status === 409 && path.startsWith("/api/smart/")) throw launchReplaced();
   if (response.status === 401 && signedIn()) throw sessionEnded();

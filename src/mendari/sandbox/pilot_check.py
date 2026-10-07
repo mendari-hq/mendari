@@ -5,7 +5,9 @@ It runs against an engine configured for sign-in, PHI mode `encrypt` and an inpu
 (`MENDARI_INPUT_HASH_KEY`: every decision's input hash is keyed), and an OpenID Connect
 provider with a scriptable sign-in form (the CI job uses navikt's mock-oauth2-server). Every
 person signs in through the real flow: the engine's `/auth/login`, the provider's form, the
-engine's callback. Then:
+engine's callback. Each person who mints a key, decides or reviews first acknowledges the
+research-preview notice (`/api/notice/acknowledge`), as the dashboard asks once per version.
+Then:
 
 1. an admin creates an API key for the message worker (role `service`);
 2. the worker decides synthetic inbox messages with the key;
@@ -81,6 +83,16 @@ class Pilot:
         return response.json() if response.content else None
 
 
+def acknowledge(pilot: Pilot, person: dict[str, str], who: str) -> None:
+    """A person acknowledges the research-preview notice (`mendari.notices`): until then the
+    engine refuses their minting, deciding and reviewing (`MENDARI_NOTICE_ACKNOWLEDGEMENT`)."""
+    pilot.expect(
+        pilot.call("POST", "/api/notice/acknowledge", person),
+        200,
+        f"{who} acknowledges the research-preview notice",
+    )
+
+
 def run(
     *, engine: str, messages: int = 12, transport: httpx.BaseTransport | None = None
 ) -> dict[str, Any]:
@@ -98,6 +110,7 @@ def run(
         settings = pilot.expect(pilot.call("GET", "/api/health", admin), 200, "settings")
         if settings.get("phi_mode") != "encrypt":
             raise MendariError("the engine must run with sign-in on and PHI mode encrypt")
+        acknowledge(pilot, admin, "the admin")
         body = {"name": "message worker", "role": "service"}
         key = pilot.expect(
             pilot.call("POST", "/api/auth/keys", admin, json=body), 201, "an API key is created"
@@ -120,6 +133,7 @@ def run(
         require_keyed_hashes(decided)
 
         reviewer = pilot.sign_in("reviewer")
+        acknowledge(pilot, reviewer, "the reviewer")
         queue = pilot.expect(
             pilot.call("GET", f"/api/review?pack_id={INBOX}", reviewer),
             200,

@@ -63,7 +63,30 @@ behaviour.
   instead of codes is LP-05; note there that a pack's own names are its author's claim (a
   community pack could name `block` "Safe"), so the code stays one click away.
 - [ ] **LP-05** One versioned notice on every surface, a recorded acknowledgement before Try it,
-  a plain-language result view.
+  a plain-language result view. Split in two.
+  - [x] **LP-05a** `mendari/notices.py`: "Research preview. Not a medical device. Not for
+    emergencies: patients should call 911.", version 1. Stamped by the server into every page
+    (`<!-- mendari:notice -->`: the dashboard shell, launch view included, and `/docs`), the
+    OpenAPI description, every Decision Card (second line), CDS Hooks discovery and every
+    card, every JSON decide answer (`notice`, the SMART launch's too; not the stored record and
+    not a FHIR `$decide` resource), `/docs/reference`, the launch and sign-in error pages, the
+    drawer (which covers the page), and the Hub layout (a test holds the words equal). A
+    signed-in person who may decide or review acknowledges once per version when the dashboard
+    opens (a modal Escape does not skip): `GET /api/notice`, `POST /api/notice/acknowledge`
+    (chained once as `notice.acknowledged` with the actor; security log lines for both and for
+    refusals). Until then deciding, reviewing, feedback and minting a key or client answer `403
+    NoticeNotAcknowledged` (header `Mendari-Notice-Required`, no sign-in challenge). Keys,
+    clients, EHR launches and open mode are never asked; an acknowledgement is a person's,
+    across organizations; `/api/health` shows the mode. The review found no high or medium
+    finding; its 11 lows are fixed, and the focused check's 4 lows (the dialog says its own
+    errors and offers Sign out; a refusal mid-session asks again and retries once; docs on the
+    header). Checked locally (Actions blocked by billing): 2,742 passed with Postgres, 159
+    browser tests passed. `MENDARI_NOTICE_ACKNOWLEDGEMENT`
+    (`required`, or `off`; off in the test suite as rate limits are). Deferred: a deployment
+    data policy (`synthetic`/`phi`) for the badge and the acknowledgement's wording at a PHI
+    pilot.
+  - [ ] **LP-05b** Plain-language result view (display names, engine detail in the drawer, the
+    code one click away since a pack's names are its author's claim) and axe-core checks.
 - [ ] **LP-06** Automation hold (the kill switch, brought forward from A13).
 - [ ] **LP-08** Hosted data protection (ask the owner before merging the start-up guard: it
   stops a deployment running PHI mode `off` with sign-in on; production keys are the owner's).

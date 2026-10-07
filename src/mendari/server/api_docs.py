@@ -13,6 +13,7 @@ import json
 from collections.abc import Callable, Mapping
 from typing import Any
 
+from mendari import notices
 from mendari.core.pack import Pack
 from mendari.evals.pack_tests import load_cases
 from mendari.server import scopes
@@ -114,7 +115,9 @@ def description(
         "scope needed otherwise). Each operation below names the permission and the scope it "
         "needs. An `Authorization` header decides alone: a credential in it that is not valid "
         "is a `401`, even with a session cookie. Credentials are never accepted in a URL or a form "
-        "(`access_token` is a `400`). Refusals carry `WWW-Authenticate` (RFC 6750), and `/api` "
+        "(`access_token` is a `400`). Refusals carry `WWW-Authenticate` (RFC 6750), except a "
+        "signed-in person's who has not acknowledged the notice (`GET /api/notice`): a `403` "
+        "with `Mendari-Notice-Required` on routes that take data in. `/api` "
         "answers are `Cache-Control: no-store`. Only a signed-in person manages keys, never a key. "
         "A clinician an EHR launches (from an EHR registered here, `smartLaunch`) reaches only "
         "the launch's own routes: `GET /api/smart/patient` and `/focus`, and, registered to "
@@ -131,7 +134,7 @@ and out, and authentication, on one page.
 {PRODUCT} Every decision ends as {", ".join(outcomes[:-1])} or {outcomes[-1]}, and is recorded
 in a hash-chained audit trail.
 
-All data here is synthetic. This is a research preview, not a medical device.
+{notices.NOTICE} All data here is synthetic.
 
 ### A first request
 

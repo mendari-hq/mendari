@@ -48,6 +48,8 @@ _REVIEWABLE = (Outcome.HUMAN_REVIEW.value, Outcome.ABSTAIN.value)
 _CHAIN_LOCK = 0x0E4_A0D17
 # A system that reports a downstream outcome, named as an identifier ("ehr", "mendari",
 # "urn:oid:1.2.3"), never free text: it is chained for good and exported in FHIR.
+# A person acknowledged a notice version (mendari.notices; chained under notice:<v>:<id>).
+NOTICE_EVENT = "notice.acknowledged"
 SYSTEM_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,99}$")
 # A served pack's labels for one of its questions, by (pack id, question); None when unknown.
 QuestionLabels = Callable[[str, str], Sequence[str] | None]
@@ -1328,6 +1330,31 @@ class AuditStore:
             )
             self._append(db, f"governance:{approval['id']}", "governance.approved", approval)
         return approval
+
+    def acknowledge_notice(self, chain_id: str, *, version: str, actor: str) -> bool:
+        """A person's acknowledgement of a notice version (`mendari.notices`), chained once under
+        `chain_id` (`notice:<version>:<principal id>`). False: already acknowledged."""
+        if self.notice_acknowledged(chain_id):  # no chain lock for an answer already given
+            return False
+        with self._db.session(exclusive=True) as db:
+            if db.one(
+                "SELECT seq FROM audit_events WHERE decision_id = ? AND event = ?",
+                (chain_id, NOTICE_EVENT),
+            ):
+                return False
+            payload = {"version": version, "actor": actor, "org": tenancy.current()}
+            self._append(db, chain_id, "notice.acknowledged", payload)
+        return True
+
+    def notice_acknowledged(self, chain_id: str) -> bool:
+        with self._db.session(exclusive=False) as db:
+            return (
+                db.one(
+                    "SELECT seq FROM audit_events WHERE decision_id = ? AND event = ?",
+                    (chain_id, NOTICE_EVENT),
+                )
+                is not None
+            )
 
     def revoke_approval(self, approval_id: str, *, revoked_by: str) -> bool:
         org = tenancy.current() or tenancy.DEFAULT_ORG

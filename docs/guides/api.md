@@ -75,7 +75,8 @@ who can reach the server can call every operation, and the `Authorization` heade
 - With SMART Backend Services on, a registered client exchanges a signed assertion (RS384 or
   ES384, never a client secret) for a five-minute access token, `Bearer mat_…`.
 - A credential never goes in a URL or a form. Refusals are a `401` or `403` with
-  `WWW-Authenticate`.
+  `WWW-Authenticate`, except a signed-in person's who has not yet acknowledged the notice
+  (`GET /api/notice`): a `403` with `Mendari-Notice-Required` on routes that take data in.
 
 ```bash
 --8<-- "auth.sh"

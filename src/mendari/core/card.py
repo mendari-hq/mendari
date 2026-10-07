@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from mendari import notices
 from mendari.core import clock
 from mendari.core.origin import COMMUNITY_AUTOMATION
 from mendari.core.pack import Pack
@@ -78,6 +79,8 @@ def render_card(pack: Pack) -> str:
         f"# Decision Card: {m.name}",
         "",
         f"**{pack.status_label}**",
+        "",
+        f"*{notices.NOTICE}*",
         "",
         f"`{m.id}` · version **{m.version}** · {m.license} · "
         f"published by {m.publisher.name} ({m.publisher.type}, self-declared)",

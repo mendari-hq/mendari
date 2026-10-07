@@ -6,6 +6,12 @@ import { esc, icon, reducedMotion } from "./ui.js";
 // inside, Escape or the close button closes it, and focus returns to what opened it.
 let drawer = null;
 
+// The drawer covers the page, and the notice under the top bar with it: it says it again.
+const noticeLine = () => {
+  const text = document.querySelector("body > .preview-notice")?.textContent;
+  return text ? `<p class="preview-notice drawer-notice" role="note">${esc(text)}</p>` : "";
+};
+
 export function showDrawer({ title, body, opener, onClose }) {
   closeDrawer({ restoreFocus: false, closedByUser: false });
   const root = document.createElement("div");
@@ -14,7 +20,7 @@ export function showDrawer({ title, body, opener, onClose }) {
     <section class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
       <header class="drawer-head"><h2 id="drawer-title" tabindex="-1">${esc(title)}</h2>
         <button type="button" class="icon-button" data-close aria-label="Close">${icon("x")}</button></header>
-      <div class="drawer-body">${body}</div>
+      <div class="drawer-body">${noticeLine()}${body}</div>
     </section>`;
   document.body.append(root);
   document.querySelectorAll(".topbar, .shell").forEach((el) => (el.inert = true));

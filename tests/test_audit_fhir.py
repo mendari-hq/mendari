@@ -238,6 +238,7 @@ NOT_ON_A_DECISION = {
     "key.revoked",
     "client.registered",
     "client.revoked",
+    "notice.acknowledged",
 }
 
 

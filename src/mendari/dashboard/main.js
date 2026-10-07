@@ -1,5 +1,6 @@
 // Boot: theme, time zone, packs, then the first view. Imports every view so it registers.
 
+import { acknowledgeNotice } from "./notice.js";
 import "./overview.js";
 import "./review.js";
 import "./audit.js";
@@ -38,6 +39,7 @@ async function boot() {
     api("/api/smart/session").catch(() => null), api("/api/auth/me").catch(() => null),
   ]);
   showSignedIn(me);
+  if (me?.signed_in) await acknowledgeNotice();
   state.smart = session?.active ? session : null;
   state.launchOnly = Boolean(state.smart && me?.mode === "sign-in" && !me.signed_in);
   showLaunch();

@@ -884,10 +884,11 @@ def test_with_a_model_in_the_screen_the_card_says_the_inbox_automates(page: Page
 
 def test_the_overview_names_the_slots_running_without_a_model(page: Page) -> None:
     open_pack(page, INBOX)
-    note = page.get_by_role("note")
+    note = page.get_by_role("note").filter(has_text="Running without a model")
     expect(note).to_contain_text("Running without a model: Safety screen, Router.")
     open_pack(page, "mendari/prior-auth-preflight")
-    expect(page.get_by_role("note")).to_contain_text("Running without a model: Notes.")
+    note = page.get_by_role("note").filter(has_text="Running without a model")
+    expect(note).to_contain_text("Running without a model: Notes.")
 
 
 def test_the_digest_copies(page: Page) -> None:

@@ -14,6 +14,8 @@ Configuration comes from the environment:
   (`decisions=5000,jev=2000,llm=200`; unset: none).
 - `MENDARI_RATE_LIMITS`: `on` (the default with sign-in), `log` or `off`, then overrides
   (`server/limits.py`). The client address is Vercel's `X-Forwarded-For`.
+- `MENDARI_NOTICE_ACKNOWLEDGEMENT`: `required` (the default) or `off`: whether a signed-in
+  person acknowledges the notice (`mendari.notices`) before taking data in.
 - `MENDARI_TIMEZONE`: time zone for calendar days and displayed times (default
   `America/New_York`); stored timestamps stay UTC.
 - `MENDARI_FHIR_VALIDATION`: US Core checks on FHIR inputs, `warn` (default: issues are

@@ -2,6 +2,8 @@
 
 **Synthetic example. Not clinically reviewed. Not for patient care.**
 
+*Research preview. Not a medical device. Not for emergencies: patients should call 911.*
+
 `mendari/patient-inbox-router` · version **0.4.1** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
 
 > Routes patient portal and SMS messages to the front desk, a medical assistant, a nurse, a physician or billing, and escalates possible emergencies to stat nurse triage.

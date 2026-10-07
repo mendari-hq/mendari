@@ -548,6 +548,7 @@ startup, so a typo never runs with a weaker setting.
 | `MENDARI_RETENTION_DAYS` | none | How long `mendari phi purge` keeps inputs and notes | 3 |
 | `MENDARI_MAX_BODY_BYTES` | 4 MiB (64 KiB at least) | The largest request body; a `413` above it | 1 |
 | `MENDARI_RATE_LIMITS` | `on` with sign-in, `off` without | `on`, `log` or `off`, then overrides (`decide=1200/min:200`) | 4 |
+| `MENDARI_NOTICE_ACKNOWLEDGEMENT` | `required` | `required`: a signed-in person who may decide or review acknowledges the notice (research preview, synthetic data only) once per version when the dashboard opens, chained as `notice.acknowledged`; until then deciding, reviewing, feedback and minting an API key or client are refused (`403`, header `Mendari-Notice-Required`); `off`: a site whose own agreements replace it. Keys, clients, EHR launches and open mode are never asked | 4 |
 | `MENDARI_ORG_DAILY_LIMITS` | unset: none | Per-organization daily quotas: `decisions=…,jev=…,llm=…` | 4 |
 | `JEV_API_URL`, `JEV_MODEL`, `JEV_API_KEY` | unset: no Jev | All three set: the inbox, referral and prior-auth packs send their `state_fields` to Jev in every slot `MENDARI_PROVIDERS` chooses nothing for; a model id or an endpoint Jev cannot be called with stops startup | 5 |
 | `MENDARI_PROVIDERS` | unset: each pack's default, or the Jev defaults | The provider variant of each slot it applies to: `slot=variant`, or `<pack>:slot=variant` for one pack | 5 |

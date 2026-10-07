@@ -16,6 +16,7 @@ from collections import Counter
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
+from html import escape
 from pathlib import Path
 from typing import Annotated, Any, Literal
 from urllib.parse import parse_qsl, urlsplit
@@ -40,7 +41,7 @@ from starlette.datastructures import Headers
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from mendari import __version__, guard, settings
+from mendari import __version__, guard, notices, settings
 from mendari.core import clock, tenancy
 from mendari.core.audit import SYSTEM_ID, AuditStore
 from mendari.core.card import benchmark, render_card
@@ -58,6 +59,7 @@ from mendari.errors import (
     FhirStructureError,
     MendariError,
     NoteError,
+    NoticeNotAcknowledged,
     PackNotFoundError,
     PackValidationError,
     ProviderError,
@@ -300,6 +302,12 @@ def shown_to_reader(item: Mapping[str, Any]) -> bool:
     return any(event.get("note_status") == "open" for event in item.get("events") or ())
 
 
+# What every JSON decide answer carries (mendari.notices), and the header a refusal for want of
+# an acknowledgement carries instead of a sign-in challenge.
+NOTICE = {"notice": notices.notice()}
+NOTICE_HEADER = "Mendari-Notice-Required"
+
+
 def principal_of(request: Request) -> Principal:
     """Who the guard let through (`open mode` when sign-in is off)."""
     principal: Principal = getattr(request.state, "principal", None) or OPEN
@@ -348,6 +356,8 @@ def create_app(
     if org_limits and webhook:
         check_webhook(webhook)  # likewise: a quota's alert must be able to leave
     store = AuditStore(db_path, migrate_url=migrate_url, phi=phi)
+    acknowledgement = notices.mode()  # read once; a bad value fails at startup
+    acknowledged: set[str] = set()  # chain ids found acknowledged: an acknowledgement stays
     auth = Auth(
         sign_in,
         store,
@@ -684,6 +694,8 @@ def create_app(
                 "daily_limit": (budget_limits or {}).get("llm"),
             },
             "rate_limits": limiter.describe(request),
+            # The notice people acknowledge before taking data in (mendari.notices).
+            "notice": {"version": notices.VERSION, "acknowledgement": acknowledgement},
             # Browser sessions: ended after this long without a request, and at most after.
             "sessions": {
                 "idle_minutes": session_lifetime.idle // 60,
@@ -779,6 +791,45 @@ def create_app(
             if isinstance(case, dict) and isinstance(case.get("input"), dict)
         ]
 
+    @app.get("/api/notice", tags=["Packs"], summary="The notice, and whether you acknowledged it")
+    def notice(request: Request) -> dict[str, Any]:
+        """What Mendari is (`text`), shown on its pages and in every JSON decide answer, and what
+        a signed-in person who may decide or review acknowledges before taking data in
+        (`acknowledgement`). `required`: whether this caller must acknowledge `version` first;
+        `acknowledged`: whether they have."""
+        principal = principal_of(request)
+        asked = (
+            acknowledgement == "required"
+            and principal.kind == "user"
+            and any(principal.may(permission) for permission in notices.GATED)
+        )
+        return {
+            **notices.notice(),
+            "acknowledgement": notices.ACKNOWLEDGEMENT,
+            "required": asked,
+            "acknowledged": asked and store.notice_acknowledged(notices.chain_id(principal.id)),
+        }
+
+    @app.post(
+        "/api/notice/acknowledge",
+        tags=["Packs"],
+        summary="Acknowledge the notice",
+    )
+    def acknowledge_notice(request: Request) -> dict[str, Any]:
+        """Records, in the audit trail and once per notice version, that the signed-in person
+        acknowledged `acknowledgement` (`GET /api/notice`). Without sign-in there is no one to
+        record, and nothing is asked."""
+        principal = principal_of(request)
+        if principal.kind != "user":
+            return {**notices.notice(), "acknowledged": False, "required": False}
+        key = notices.chain_id(principal.id)
+        if key not in acknowledged and store.acknowledge_notice(
+            key, version=notices.VERSION, actor=principal.actor
+        ):
+            log_event(request, "notice.acknowledged", reason=f"version {notices.VERSION}")
+        acknowledged.add(key)
+        return {**notices.notice(), "acknowledged": True, "required": acknowledgement == "required"}
+
     @app.post(
         "/api/packs/{namespace}/{name}/decide",
         tags=["Decisions"],
@@ -795,7 +846,7 @@ def create_app(
         The answer is complete, with each answer's `evidence`; the audit record keeps it only as
         the PHI mode allows (`GET /api/audit/{id}`). `input_hash` is `hmac-sha256:<key id>:<hex>`
         where the deployment has an input hash key (always with PHI), else `sha256:<hex>`."""
-        return decision_for(f"{namespace}/{name}").decide(payload).to_dict()
+        return {**decision_for(f"{namespace}/{name}").decide(payload).to_dict(), **NOTICE}
 
     @app.post(
         "/api/packs/{namespace}/{name}/guard",
@@ -805,7 +856,7 @@ def create_app(
     def guard_draft(namespace: str, name: str, payload: JsonBody) -> dict[str, Any]:
         """Check an LLM's draft reply: `released` (send `reply`), `held_for_review` or
         `blocked` (send nothing; follow `fallback`). Audited like any decision."""
-        return guard.check(decision_for(f"{namespace}/{name}"), payload).to_dict()
+        return {**guard.check(decision_for(f"{namespace}/{name}"), payload).to_dict(), **NOTICE}
 
     @app.post(
         "/api/packs/{namespace}/{name}/fhir/decide",
@@ -825,7 +876,7 @@ def create_app(
         `enforce` blocks. An error on this route is an `OperationOutcome`. For FHIR out as well,
         use `POST /fhir/$decide`."""
         result, task = decision_for(f"{namespace}/{name}").decide_fhir(payload)
-        return {"decision": result.to_dict(), "task": task}
+        return {"decision": result.to_dict(), "task": task, **NOTICE}
 
     # -- monitoring ------------------------------------------------------------------------------
 
@@ -1528,10 +1579,35 @@ def create_app(
         response: Response = await call_next(request)
         return response
 
+    def notice_refusal(request: Request) -> Response | None:
+        """A signed-in person who may decide or review takes data in only once they have
+        acknowledged the current notice (`mendari.notices`; the dashboard asks when it opens).
+        Keys, clients, EHR launches and open mode are never asked."""
+        principal = principal_of(request)
+        if acknowledgement == "off" or principal.kind != "user":
+            return None
+        route = (request.method, request.url.path)
+        if permission_for(*route) not in notices.GATED and route not in notices.MINTING:
+            return None
+        if request.url.path == "/api/notice/acknowledge":  # what the refusal asks for
+            return None
+        key = notices.chain_id(principal.id)
+        if key in acknowledged or store.notice_acknowledged(key):
+            acknowledged.add(key)
+            return None
+        log_event(request, "notice.refused", outcome="refused", reason=f"version {notices.VERSION}")
+        error = NoticeNotAcknowledged(
+            "acknowledge the notice first (POST /api/notice/acknowledge): "
+            + notices.ACKNOWLEDGEMENT
+        )
+        refused = error_response(request.url.path, 403, error)
+        refused.headers[NOTICE_HEADER] = notices.VERSION  # not a sign-in challenge
+        return refused
+
     def admit(request: Request) -> Response | None:
         """The sign-in check, then the rate limit (server/limits.py), both before the route:
         a refused request reads no body, calls no provider and writes nothing to the chain."""
-        refused = auth.check(request)
+        refused = auth.check(request) or notice_refusal(request)
         if refused is not None or not limiter.on:
             return refused
         permission = permission_for(request.method, request.url.path)
@@ -1577,8 +1653,8 @@ def create_app(
         if path.startswith("/api/"):  # data, often an organization's: never stored anywhere
             response.headers["Cache-Control"] = "no-store"
         api = path.startswith(("/api/", "/fhir/")) or path == "/fhir"
-        if api and response.status_code in (401, 403):  # RFC 7235 and 6750: say how to sign in
-            response.headers.setdefault("WWW-Authenticate", challenge())
+        if api and response.status_code in (401, 403) and NOTICE_HEADER not in response.headers:
+            response.headers.setdefault("WWW-Authenticate", challenge())  # RFC 7235 and 6750
         response.headers.setdefault("Content-Security-Policy", csp)
         response.headers.setdefault("Cross-Origin-Embedder-Policy", "require-corp")
         if not is_local_host(request.url.hostname):  # browsers ignore it over plain http
@@ -2059,6 +2135,7 @@ def content_security_policy(page: str, *, inline_styles: bool = True) -> str:
 
 
 _IMPORT_MAP = '<script type="importmap"></script>'
+_NOTICE_MARKER = "<!-- mendari:notice -->"  # where a page shows the notice (mendari.notices)
 _ASSET = re.compile(r'\b(src|href)="(/static/[^"?#]+\.(?:js|css))"')
 _VERSIONED_FILE = re.compile(r"^[^/]+/\d+\.\d+\.\d+/[^/]+$")  # <package>/<version>/<file>
 _ENTRY_MODULE = re.compile(r'<script type="module" src="/static/([^"/?#]+\.js)"')
@@ -2076,6 +2153,9 @@ def versioned_page(name: str) -> str:
     modulepreload link per module fetches that graph in parallel (the dashboard's whole graph
     from main.js; the /docs landing only docs.js, theme.js and ui.js)."""
     page = (DASHBOARD_DIR / name).read_text(encoding="utf-8")
+    page = page.replace(
+        _NOTICE_MARKER, f'<p class="preview-notice" role="note">{escape(notices.NOTICE)}</p>'
+    )
     if _IMPORT_MAP in page:
         stamped = {
             f"/static/{module}": f"/static/{module}?v={_digest(DASHBOARD_DIR / module)}"
