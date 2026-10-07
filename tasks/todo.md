@@ -476,7 +476,7 @@ operations, LP-22 site network, LP-23 EHR pilot.
   digest); the build prompt says to stop until this file records it. Not started.
 - [ ] **LP-12** Accounts, memberships and invitations (ADR-0008, Proposed). Planned by a mapping
   workflow as eleven PRs, each leaving claims mode exactly as it is:
-  - [ ] **12a + 12b** (PR open) This entry and ADR-0008; tenancy fails closed: for a signed-in
+  - [x] **12a + 12b** (#159) This entry and ADR-0008; tenancy fails closed: for a signed-in
     principal of no organization (`tenancy.acting_for_nobody`), every read and write that
     resolves its organization through `tenancy.current()` is refused (`NoOrganization`, 403),
     never widened to all of them (None) or to `default`; an empty organization is one, never
@@ -489,7 +489,12 @@ operations, LP-22 site network, LP-23 EHR pilot.
   - [ ] **12d** (PR open) User, organization, membership, invitation and request records, each
     write chaining ids and digests only; the operator's `mendari access` commands
     (organizations, bootstrap, invite, members, requests, and the read-only preflight
-    `check`); runbook `docs/operations/accounts.md`. No route reads them yet.
+    `check`); runbook `docs/operations/accounts.md`. No route reads them yet. Settled in its
+    review: the bootstrap's membership stays pending until the owner signs in (it never picks
+    a stored person by address); an address is ASCII, lower-cased, never case-folded; only an
+    administrator who has signed in keeps an organization administered; the commands that
+    write refuse a protected database without its input-hash key; the preflight counts
+    evaluation reports and names an id no record can have (`"recordable": false`).
   - [ ] **12e** `MENDARI_ACCOUNTS=memberships`: sign-in by records, the no-access page and a
     request-access path, organization selection. A principal of no organization must be
     refused before every path that does not resolve its organization through
@@ -532,7 +537,8 @@ operations, LP-22 site network, LP-23 EHR pilot.
   EHR registrations of an organization with no record (recommended); the per-principal cap's
   value; invitation lifetime (7 days, at most 30) and whether `default`'s admins may invite;
   the reserved role spellings; notice acknowledgement per person (recommended); what the local
-  datasets folder may hold in memberships mode.
+  datasets folder may hold in memberships mode; what becomes of an organization in use whose
+  id no record can have (the preflight names it; until then, stay in claims mode).
 
 ## Plan: community packs through pull requests (2026-10-04)
 Make the repository public so outside developers can contribute packs by pull request. Plan from

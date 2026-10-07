@@ -639,14 +639,30 @@ def cmd_automation_list(args: argparse.Namespace) -> int:
 
 
 def _access_store(target: str | None, *, writes: bool = True) -> tuple[AuditStore, str]:
-    """The deployment's database for `mendari access`: given, or $DATABASE_URL, and one with
-    Mendari's tables (nothing is created in another). Opened read-only unless the command
-    `writes`. Returns it and its name as shown."""
+    """The deployment's database for `mendari access`: given, or $DATABASE_URL. Unless the
+    command `writes`, opened read-only: nothing is created, migrated or marked, and an older
+    database is read as it is. To write, it must have Mendari's tables (nothing is created in
+    another database) and is opened under this deployment's PHI settings, read but never marked
+    from here: a database a PHI mode protects takes an address's digest keyed with the
+    deployment's input-hash key only (`MENDARI_INPUT_HASH_KEY`). Returns it and its name as
+    shown (no password)."""
+    from mendari.core.phi import phi_policy
+
     target = target or os.environ.get("DATABASE_URL", "").strip() or None
     if target is None:
         raise MendariError("give --db (the server's database) or set DATABASE_URL")
-    shown = _servers_database(target, used=False)
-    return (AuditStore(target) if writes else _read_store(target)), shown
+    if not writes:
+        return _read_store(target), _shown(target)
+    shown = _servers_database(target, used=False, tables=_EVERY_RELEASE)  # mistyped: refused
+    policy = phi_policy()
+    store = AuditStore(target, phi=policy, marks=False)
+    if store.protected and not policy.hash_key:
+        store.close()
+        raise MendariError(
+            f"{shown} is protected (PHI mode {store.protected}): run this with the deployment's "
+            "MENDARI_INPUT_HASH_KEY, so the chain holds keyed digests of e-mail addresses"
+        )
+    return store, shown
 
 
 def _access_call(make: Any) -> Any:
@@ -721,8 +737,10 @@ def cmd_access_requests(args: argparse.Namespace) -> int:
 
 def cmd_access_check(args: argparse.Namespace) -> int:
     """The preflight before memberships mode (read-only): each organization the database's keys,
-    clients, approvals, holds and decisions name, and this deployment's EHR registrations, with
-    counts, and which have no record. Ids and counts only."""
+    clients, approvals, holds, decisions and evaluation reports name, and the EHR registrations
+    of the environment it runs in (`MENDARI_SMART_EHRS`), with counts, which have no record, and
+    which cannot have one. Ids and counts only."""
+    from mendari.core import accounts
     from mendari.standards import smart
 
     store, shown = _access_store(args.db, writes=False)  # a preflight writes nothing
@@ -733,9 +751,18 @@ def cmd_access_check(args: argparse.Namespace) -> int:
             registration.org, {"org": registration.org, "recorded": registration.org in recorded}
         )
         entry["smart_ehrs"] = entry.get("smart_ehrs", 0) + 1
+        entry.setdefault("recordable", accounts.is_org_id(registration.org))
     report = sorted(in_use.values(), key=lambda entry: entry["org"])
     _print_json(report)
     missing = [entry["org"] for entry in report if not entry["recorded"]]
+    unrecordable = [entry["org"] for entry in report if not entry["recordable"]]
+    if unrecordable:
+        print(
+            f"{shown}: {', '.join(unrecordable)} cannot have a record (an organization id is "
+            "lower-case letters, digits and hyphens): its keys, clients and data stay under that "
+            "id; do not switch to memberships mode until the owner decides what becomes of it",
+            file=sys.stderr,
+        )
     if missing:
         print(f"{shown}: no record for {', '.join(missing)}", file=sys.stderr)
         return 1

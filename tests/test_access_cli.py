@@ -6,13 +6,16 @@ from __future__ import annotations
 
 import json
 import re
+import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import pytest
 
-from mendari import AuditStore
+from mendari import AuditStore, Decision, Pack
 from mendari.cli import main
-from tests.conftest import ROOT
+from mendari.core.phi import PhiPolicy
+from tests.conftest import HASH_KEY_B64, INPUT_HASH_KEY, ROOT
 
 
 def run(capsys: pytest.CaptureFixture[str], *argv: str) -> tuple[int, str, str]:
@@ -64,13 +67,24 @@ def test_the_preflight_names_each_organization_in_use_without_a_record(
     store.hold_automation(
         org="default", pack_id=None, pack_digest=None, reason="test", set_by="Ada"
     )
+    with store._db.session(exclusive=True) as db:  # an evaluation report from before tenancy
+        db.all(
+            "INSERT INTO eval_reports (id, created_at, pack_id, dataset, report) "
+            "VALUES ('r1', '2026-10-07T00:00:00+00:00', 'p', 'd', '{}')"
+        )
     events = store.verify()["events"]
     code, out, err = run(capsys, "access", "check", "--db", db_target)
     report = json.loads(out)
     assert code == 1 and "no record for clinic-b, default" in err
     assert report == [
-        {"org": "clinic-b", "api_keys": 1, "recorded": False},
-        {"org": "default", "automation_holds": 1, "recorded": False},
+        {"org": "clinic-b", "api_keys": 1, "recorded": False, "recordable": True},
+        {
+            "org": "default",
+            "automation_holds": 1,
+            "eval_reports": 1,
+            "recorded": False,
+            "recordable": True,
+        },
     ]  # ids and counts only
     assert store.verify()["events"] == events and store.organizations() == []  # wrote nothing
     store.create_organization(org="clinic-b", name="Clinic B", created_by="cli")
@@ -95,3 +109,74 @@ def test_the_account_tests_use_reserved_addresses_only() -> None:
         for address in re.findall(r"[\w.+-]+@[\w.-]+\.\w+", text):
             reserved = r"@(example\.(org|com|net)|[\w.-]+\.test)$"
             assert re.search(reserved, address, re.IGNORECASE), (name, address)
+
+
+def test_the_preflight_names_an_organization_no_record_can_have(
+    db_target: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A claim may have named an organization with an id no record takes: it is named apart, so
+    nobody switches to memberships mode and strands its keys."""
+    store = AuditStore(db_target)
+    store.create_api_key(name="k", role="viewer", org="Clinic_C", created_by="Ada")
+    code, out, err = run(capsys, "access", "check", "--db", db_target)
+    assert code == 1 and json.loads(out) == [
+        {"org": "Clinic_C", "api_keys": 1, "recorded": False, "recordable": False}
+    ]
+    assert "Clinic_C cannot have a record" in err and "the owner decides" in err
+
+
+def test_a_protected_database_takes_only_keyed_address_digests(
+    db_target: str, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with AuditStore(db_target, phi=PhiPolicy(mode="hash", hash_key=INPUT_HASH_KEY)):
+        pass  # kept under PHI mode hash: protected
+    monkeypatch.delenv("MENDARI_PHI_MODE", raising=False)
+    monkeypatch.delenv("MENDARI_INPUT_HASH_KEY", raising=False)
+    argv = ["access", "bootstrap", "--email", "owner@example.org", "--db", db_target]
+    assert main(argv) == 1
+    assert "MENDARI_INPUT_HASH_KEY" in capsys.readouterr().err
+    monkeypatch.setenv("MENDARI_INPUT_HASH_KEY", HASH_KEY_B64)
+    assert main(argv) == 0
+    store = AuditStore(db_target, read_only=True)
+    with store._db.session(exclusive=False) as db:
+        rows = db.all("SELECT payload FROM audit_events WHERE event = 'membership.created'")
+    payloads = [json.loads(r["payload"]) for r in rows]
+    assert [p["email_digest"].split(":")[0] for p in payloads] == ["hmac-sha256"]
+
+
+def test_the_read_commands_leave_the_database_as_it_was_and_read_an_older_one(
+    tmp_path: Path, inbox_pack: Pack, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`org list`, `members`, `requests` and `check` open the database read-only: no sidecar file,
+    no migration; a database from before these records (or before tenancy's columns) reads as
+    having none, every row `default`'s."""
+    folder = tmp_path / "var"
+    folder.mkdir()
+    db = folder / "mendari.db"
+    with AuditStore(db) as store:
+        Decision(inbox_pack, store=store)({"message": {"body": "Refill please."}})
+    with closing(sqlite3.connect(db)) as connection, connection:
+        for table in ("users", "organizations", "memberships", "invitations", "access_requests"):
+            connection.execute(f"DROP TABLE {table}")
+        connection.execute("ALTER TABLE decisions DROP COLUMN org")
+        connection.execute("PRAGMA journal_mode=DELETE")
+    before = db.read_bytes()
+    reads = (
+        ["access", "org", "list"],
+        ["access", "members", "--org", "default"],
+        ["access", "requests"],
+    )
+    for argv in reads:
+        assert main([*argv, "--db", str(db)]) == 0
+        assert json.loads(capsys.readouterr().out) == []
+    assert main(["access", "check", "--db", str(db)]) == 1
+    assert json.loads(capsys.readouterr().out) == [
+        {"org": "default", "decisions": 1, "recorded": False, "recordable": True}
+    ]
+    assert db.read_bytes() == before and sorted(p.name for p in folder.iterdir()) == ["mendari.db"]
+    other = tmp_path / "other.db"
+    with closing(sqlite3.connect(other)) as connection, connection:
+        connection.execute("CREATE TABLE invoices (id INTEGER PRIMARY KEY)")
+    for argv in (*reads, ["access", "check"]):
+        assert main([*argv, "--db", str(other)]) == 1
+        assert "not a Mendari database" in capsys.readouterr().err

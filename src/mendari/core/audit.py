@@ -2589,7 +2589,10 @@ class AuditStore:
         """The person signing in, recorded the first time (`user.recorded`) and kept current:
         `email` only when the identity provider verified it."""
         user_id = accounts.person_id(issuer, subject)
-        address = accounts.normalise_email(email) if email else None
+        try:  # one no invitation can name (not ASCII) is kept as none: they still sign in
+            address = accounts.normalise_email(email) if email else None
+        except ValueError:
+            address = None
         now = _now()
         with self._db.session(exclusive=True) as db:
             row = db.one("SELECT id FROM users WHERE id = ?", (user_id,))
@@ -2674,6 +2677,8 @@ class AuditStore:
             where.append("user_id = ?")
             params.append(user_id)
         with self._db.session(exclusive=False) as db:
+            if not db.columns("memberships"):  # a database from before them, read as it is
+                return []
             rows = db.all(
                 f"SELECT * FROM memberships WHERE {' AND '.join(where)} ORDER BY created_at, id",
                 params,
@@ -2776,7 +2781,7 @@ class AuditStore:
             row = self._membership_row(db, membership_id, org)
             previous = json.loads(row["roles"])
             if accounts.ADMIN in previous and accounts.ADMIN not in chosen:
-                self._keep_an_admin(db, org, membership_id)
+                self._keep_an_admin(db, org, row)
             db.all(
                 "UPDATE memberships SET roles = ? WHERE id = ?", (json.dumps(chosen), membership_id)
             )
@@ -2799,7 +2804,7 @@ class AuditStore:
             except ValueError:
                 return False
             if accounts.ADMIN in json.loads(row["roles"]):
-                self._keep_an_admin(db, org, membership_id)
+                self._keep_an_admin(db, org, row)
             now = _now()
             db.all(
                 "UPDATE memberships SET removed_at = ?, removed_by = ? WHERE id = ?",
@@ -2822,10 +2827,16 @@ class AuditStore:
             raise ValueError("no such membership")
         return row
 
-    def _keep_an_admin(self, db: _Session, org: str, leaving: str) -> None:
+    def _keep_an_admin(self, db: _Session, org: str, leaving: Any) -> None:
+        """Refuse what would leave `org` without an administrator who can act: one bound to a
+        person who has signed in. A pending membership (`user_id` NULL) counts for nothing,
+        either way: removing or demoting one never lowers how many can act."""
+        if leaving["user_id"] is None:
+            return
         others = db.all(
-            "SELECT roles FROM memberships WHERE org = ? AND id <> ? AND removed_at IS NULL",
-            (org, leaving),
+            "SELECT roles FROM memberships WHERE org = ? AND id <> ? AND removed_at IS NULL "
+            "AND user_id IS NOT NULL",
+            (org, leaving["id"]),
         )
         if not any(accounts.ADMIN in json.loads(r["roles"]) for r in others):
             raise ValueError(f"{org!r} would be left without an administrator")
@@ -2996,8 +3007,8 @@ class AuditStore:
             )
 
     def request_access(self, *, user_id: str, org: str) -> dict[str, Any]:
-        """A person asking to join `org` (`access.requested`; the chain holds its digest, as
-        the id may name no organization); their open request again if they asked before."""
+        """A person asking to join `org` (`access.requested`); their open request again if they
+        asked before."""
         accounts.check_org_id(org)
         with self._db.session(exclusive=True) as db:
             open_one = db.one(
@@ -3021,7 +3032,7 @@ class AuditStore:
                 db,
                 f"access:{request['id']}",
                 "access.requested",
-                {"id": request["id"], "user": user_id, "org_digest": accounts.name_digest(org)},
+                {"id": request["id"], "user": user_id, "org": org},
             )
         return request
 
@@ -3029,6 +3040,8 @@ class AuditStore:
         """The open requests (to `org`, if given), oldest first."""
         where, params = ("AND org = ?", (org,)) if org is not None else ("", ())
         with self._db.session(exclusive=False) as db:
+            if not db.columns("access_requests"):  # a database from before them
+                return []
             rows = db.all(
                 f"SELECT * FROM access_requests WHERE handled_at IS NULL {where} "
                 "ORDER BY created_at, id",
@@ -3076,8 +3089,12 @@ class AuditStore:
 
     def bootstrap(self, *, email: str, created_by: str) -> dict[str, Any]:
         """The owner in their existing data: `default`'s record if it has none, and an
-        administrator's membership of it for whoever has, or will have, signed in with `email`
-        verified (pending until then). Idempotent; adds records and rewrites none."""
+        administrator's membership of it pending for `email`, made the owner's at their next
+        sign-in with that address verified (`bind_pending`). It never picks a stored person by
+        their address (an address stored from an earlier sign-in proves nothing now).
+        Idempotent: nothing again while that pending membership, or an administrator's of
+        `default` held by a person who signed in with that address, is in force. Adds records
+        and rewrites none."""
         address = accounts.normalise_email(email)
         done: dict[str, Any] = {"organization": None, "membership": None}
         with self._db.session(exclusive=True) as db:
@@ -3086,28 +3103,17 @@ class AuditStore:
                 done["organization"] = self._insert_organization(
                     db, org=org, name="The owner's organization", created_by=created_by
                 )
-            user = db.one(
-                "SELECT id FROM users WHERE email = ? ORDER BY created_at LIMIT 1", (address,)
-            )
-            if user is not None:
-                taken = db.one(
-                    "SELECT id FROM memberships WHERE org = ? AND user_id = ? "
-                    "AND removed_at IS NULL",
-                    (org, user["id"]),
-                )
-                if taken is None:
-                    done["membership"] = self._insert_membership(
-                        db,
-                        org=org,
-                        roles=[accounts.ADMIN],
-                        created_by=created_by,
-                        user_id=user["id"],
-                    )
-            elif not db.one(
+            pending = db.one(
                 "SELECT id FROM memberships WHERE org = ? AND pending_email = ? "
                 "AND user_id IS NULL AND removed_at IS NULL",
                 (org, address),
-            ):
+            )
+            bound = db.all(
+                "SELECT m.roles FROM memberships m JOIN users u ON u.id = m.user_id "
+                "WHERE m.org = ? AND u.email = ? AND m.removed_at IS NULL",
+                (org, address),
+            )
+            if pending is None and not any(accounts.ADMIN in json.loads(r["roles"]) for r in bound):
                 done["membership"] = self._insert_membership(
                     db, org=org, roles=[accounts.ADMIN], created_by=created_by, email=address
                 )
@@ -3115,14 +3121,17 @@ class AuditStore:
 
     def organizations_in_use(self) -> list[dict[str, Any]]:
         """The preflight before memberships mode (`mendari access check`): each organization
-        that keys, clients, approvals, holds or decisions name (a decision's NULL is
-        `default`), with how many of each, and whether it has a record. Counts and ids only."""
-        tables = (
+        that keys, clients, approvals, holds, decisions or evaluation reports name (a NULL is
+        `default`), with how many of each, whether it has a record, and whether its id can
+        have one (`recordable`). Counts and ids only."""
+        default = f"COALESCE(org, '{tenancy.DEFAULT_ORG}')"
+        tables = (  # (table, its rows' organization, the live rows)
             ("api_keys", "org", "revoked_at IS NULL"),
             ("oauth_clients", "org", "revoked_at IS NULL"),
             ("governance_approvals", "org", "revoked_at IS NULL"),
             ("automation_holds", "org", "lifted_at IS NULL"),
-            ("decisions", f"COALESCE(org, '{tenancy.DEFAULT_ORG}')", "1 = 1"),
+            ("decisions", default, "1 = 1"),
+            ("eval_reports", default, "1 = 1"),
         )
         found: dict[str, dict[str, Any]] = {}
         with self._db.session(exclusive=False) as db:
@@ -3132,15 +3141,29 @@ class AuditStore:
                 else set()
             )
             for table, column, live in tables:
-                for row in db.all(
-                    f"SELECT {column} AS org, COUNT(*) AS n FROM {table} WHERE {live} "
-                    f"GROUP BY {column}"
-                ):
+                present = db.columns(table)
+                if not present:  # an older database, read as it is
+                    continue
+                if "org" in present:
+                    rows = db.all(
+                        f"SELECT {column} AS org, COUNT(*) AS n FROM {table} WHERE {live} "
+                        f"GROUP BY {column}"
+                    )
+                else:  # before its `org` column (v0.6), every row was `default`'s
+                    rows = [
+                        {"org": tenancy.DEFAULT_ORG, "n": r["n"]}
+                        for r in db.all(f"SELECT COUNT(*) AS n FROM {table} WHERE {live}")
+                        if int(r["n"])
+                    ]
+                for row in rows:
                     if row["org"] is None:  # a deployment-wide hold
                         continue
                     entry = found.setdefault(str(row["org"]), {"org": str(row["org"])})
                     entry[table] = int(row["n"])
-        return [{**found[org], "recorded": org in recorded} for org in sorted(found)]
+        return [
+            {**found[org], "recorded": org in recorded, "recordable": accounts.is_org_id(org)}
+            for org in sorted(found)
+        ]
 
     def iter_events(self, **filters: Any) -> Iterator[dict[str, Any]]:
         """Every event `events()` matches, page by page, without loading the whole chain."""

@@ -63,6 +63,15 @@ def test_the_bootstrap_adds_the_owner_once_and_rewrites_nothing(
     assert store.bootstrap(email="owner@example.org", created_by="cli")["membership"] is None
 
 
+def test_the_bootstrap_never_picks_a_person_by_a_stored_address(store: AuditStore) -> None:
+    """An address stored at an earlier sign-in proves nothing now (the account may have changed
+    hands): the owner's membership waits for a sign-in that verifies it."""
+    earlier = person(store, "earlier", "owner@example.org")
+    made = store.bootstrap(email="owner@example.org", created_by="cli")["membership"]
+    assert (made["user_id"], made["pending_email"]) == (None, "owner@example.org")
+    assert store.memberships(org="default", user_id=earlier["id"]) == []
+
+
 def test_organizations_are_named_records_and_default_is_reserved(store: AuditStore) -> None:
     store.create_organization(org="clinic-a", name="Clinic A", created_by="cli")
     for org in ("default", "Clinic", "-a", "a", "x" * 64, "clinic a"):
@@ -151,6 +160,27 @@ def test_roles_grading_is_never_held_and_an_organization_keeps_an_admin(
     assert [m["user_id"] for m in store.memberships(org="clinic-a")] == [bo["id"]]
 
 
+def test_only_an_administrator_who_signed_in_keeps_an_organization_administered(
+    store: AuditStore,
+) -> None:
+    """A pending administrator's membership (nobody has taken it up) never counts as the one that
+    keeps an organization administered, and removing one never lowers how many can act."""
+    store.create_organization(org="clinic-a", name="Clinic A", created_by="cli")
+    ada = person(store, "ada", "ada@example.org")
+    acting = store.add_membership(
+        org="clinic-a", roles=["admin"], created_by="cli", user_id=ada["id"]
+    )
+    pending = store.add_membership(
+        org="clinic-a", roles=["admin"], created_by="cli", email="bo@example.org"
+    )
+    with pytest.raises(ValueError, match="without an administrator"):
+        store.remove_membership(acting["id"], org="clinic-a", removed_by="cli")
+    with pytest.raises(ValueError, match="without an administrator"):
+        store.set_membership_roles(acting["id"], ["viewer"], org="clinic-a", changed_by="cli")
+    assert store.set_membership_roles(pending["id"], ["viewer"], org="clinic-a", changed_by="cli")
+    assert store.remove_membership(pending["id"], org="clinic-a", removed_by="cli") is True
+
+
 def test_a_request_for_access_is_asked_once_and_granted_or_refused(store: AuditStore) -> None:
     store.create_organization(org="clinic-a", name="Clinic A", created_by="cli")
     ada = person(store, "ada", "ada@example.org")
@@ -183,12 +213,31 @@ def test_the_chain_holds_ids_and_digests_never_an_address_or_a_name(store: Audit
     payloads = dump(store, "audit_events")
     assert "@" not in payloads and "Northfield" not in payloads
     with store._db.session(exclusive=False) as db:
+        [requested] = db.all("SELECT payload FROM audit_events WHERE event = 'access.requested'")
+    assert json.loads(requested["payload"])["org"] == "default"  # the id, not a digest of it
+    with store._db.session(exclusive=False) as db:
         chained = {r["event"] for r in db.all("SELECT event FROM audit_events")}
     assert {
         "user.recorded", "organization.created", "membership.created", "invitation.created",
         "invitation.accepted", "access.requested", "access.handled",
     } <= chained  # fmt: skip
     assert store.verify()["ok"]
+
+
+def test_an_address_is_ascii_lower_cased_and_never_case_folded(store: AuditStore) -> None:
+    """Case-folding maps different mailboxes to one ("ß" to "ss", the Kelvin sign to "k"), and
+    the match proves who someone is: an address here is ASCII, its letters lower-cased."""
+    assert accounts.normalise_email(" Ada@Example.ORG ") == "ada@example.org"
+    for address in ("stra\u00dfe@example.org", "\u212aim@example.org", "ada@ex\u00e4mple.org"):
+        with pytest.raises(ValueError, match="ASCII"):
+            accounts.normalise_email(address)
+    store.create_organization(org="clinic-a", name="Clinic A", created_by="cli")
+    with pytest.raises(ValueError, match="ASCII"):
+        store.create_invitation(
+            org="clinic-a", email="stra\u00dfe@example.org", roles=["viewer"], created_by="cli"
+        )
+    signed_in = person(store, "kim", "\u212aim@example.org")  # still signs in, matches nothing
+    assert signed_in["email"] is None
 
 
 def test_an_address_digest_is_keyed_when_there_is_an_input_hash_key() -> None:
@@ -205,3 +254,25 @@ def test_the_membership_roles_are_the_servers_and_the_reserved_ones() -> None:
 
     assert accounts.PERSON_ROLES == ROLES
     assert set(accounts.MEMBERSHIP_ROLES) == {*ROLES, "pack_author", "labeller"}
+
+
+def test_an_older_database_reads_as_having_no_records_every_row_defaults(
+    db_target: str, inbox_pack: Pack
+) -> None:
+    """Read-only, a database from before these records, or before tenancy's `org` column, is
+    read as it is (SQLite and Postgres): no memberships, no requests, every decision
+    `default`'s."""
+    store = AuditStore(db_target)
+    inputs = message("Can I get a refill?")
+    store.record(Decision(inbox_pack)(inputs), inputs)
+    with store._db.session(exclusive=True) as db:
+        for table in ("access_requests", "invitations", "memberships", "organizations"):
+            db.all(f"DROP TABLE {table}")
+        db.all("ALTER TABLE decisions DROP COLUMN org")
+    store.close()
+    older = AuditStore(db_target, read_only=True)
+    assert older.memberships() == [] and older.access_requests() == []
+    assert older.organizations() == []
+    assert older.organizations_in_use() == [
+        {"org": "default", "decisions": 1, "recorded": False, "recordable": True}
+    ]

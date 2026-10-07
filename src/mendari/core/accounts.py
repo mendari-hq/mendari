@@ -4,7 +4,8 @@ share. The records live in the audit store (`core/audit.py`); memberships mode r
 (`MENDARI_ACCOUNTS=memberships`), claims mode never does.
 
 - A person is their identity provider's issuer and subject (`person_id`, hashed so it names
-  nobody), with the e-mail address it verified, kept to match invitations.
+  nobody), with the e-mail address it verified, kept to match invitations: ASCII, compared
+  without regard to the case of its letters (`normalise_email`).
 - An organization is a record with an id of lower-case letters, digits and hyphens. `default`
   is reserved for the owner's existing data: only the bootstrap creates its record.
 - A membership holds a set of roles: the server's roles, plus `pack_author` and `labeller`,
@@ -49,12 +50,17 @@ def person_id(issuer: str, subject: str) -> str:
 
 def check_org_id(org: str) -> str:
     """`org` when it is an organization id; a `ValueError` otherwise."""
-    if not isinstance(org, str) or not ORG_ID.fullmatch(org):
+    if not is_org_id(org):
         raise ValueError(
             "an organization id is 2 to 63 lower-case letters, digits or hyphens, starting "
             "with a letter or digit"
         )
     return org
+
+
+def is_org_id(org: str) -> bool:
+    """Whether `org` can be an organization's id, and so have a record."""
+    return isinstance(org, str) and ORG_ID.fullmatch(org) is not None
 
 
 def check_roles(roles: Iterable[str]) -> list[str]:
@@ -72,11 +78,16 @@ def check_roles(roles: Iterable[str]) -> list[str]:
 
 
 def normalise_email(email: str) -> str:
-    """An e-mail address as it is matched: trimmed and case-folded. A `ValueError` for what is
-    not one address."""
+    """An e-mail address as it is matched: trimmed, ASCII only, ASCII letters lower-cased. A
+    `ValueError` for what is not one such address. Never case-folded: folding maps different
+    mailboxes to one ("ß" to "ss", the Kelvin sign to "k"), and the match proves who someone
+    is (an invitation, a pending membership); an internationalised address is refused."""
     if not isinstance(email, str):
         raise ValueError("an e-mail address is text")
-    address = email.strip().casefold()
+    address = email.strip()
+    if not address.isascii():
+        raise ValueError("an e-mail address here is ASCII (an internationalised one is refused)")
+    address = address.lower()
     if len(address) > 254 or not _EMAIL.fullmatch(address):
         raise ValueError("not an e-mail address")
     return address
