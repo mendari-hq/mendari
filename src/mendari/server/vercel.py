@@ -30,6 +30,11 @@ Configuration comes from the environment:
   Vercel Authentication), `MENDARI_OIDC_CLIENT_SECRET`, `MENDARI_OIDC_ROLE_CLAIM`,
   `MENDARI_OIDC_ROLE_MAP`, `MENDARI_OIDC_ORG_CLAIM`, `MENDARI_OIDC_ENDPOINT_ORIGINS` (the
   provider's endpoints on other hosts, e.g. Google's).
+- `MENDARI_PHI_KEY` and `MENDARI_INPUT_HASH_KEY`, for Production and Preview: the PHI mode
+  here is `encrypt` unless `MENDARI_PHI_MODE=hash` (which needs only the hash key); `off` is
+  refused.
+- `CRON_SECRET` (16 characters or more): turns on the daily retention purge (`vercel.json`
+  crons, `/api/internal/retention`); `MENDARI_RETENTION_DAYS` (default 30).
 - `LLM_MODEL`: default model for `llm` variants (AI Gateway id, e.g. anthropic/claude-sonnet-5).
 - `JEV_API_URL`, `JEV_MODEL`, `JEV_CONNECTOR`: see `mendari.providers.jev`.
 """

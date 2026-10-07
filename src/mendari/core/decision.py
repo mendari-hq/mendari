@@ -331,6 +331,8 @@ class Decision:
         `labels` says how the stored record names the resources they name (`to_record`)."""
         started = time.perf_counter()
         manifest = self.pack.manifest
+        if self.store is not None and manifest.audit.store_input == "full":
+            self.store.refuse_plaintext()  # before a provider (or a quota) sees the case
         answers: dict[str, Answer] = {}
         failures: dict[str, str] = {}
         tokens_in = tokens_out = 0

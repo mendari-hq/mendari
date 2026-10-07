@@ -27,7 +27,7 @@ from mendari.server import security_log, smart_routes
 from mendari.server.app import create_app, quota_alert
 from mendari.server.security_log import FIELDS, InternalError
 from mendari.standards.fhir_client import FhirClient, GuardedHttp
-from tests.conftest import HASH_KEY_B64, message, security_lines, signed_in
+from tests.conftest import HASH_KEY_B64, hosted, message, security_lines, signed_in
 from tests.test_auth import FakeIdp, sign_in, signing_in_with
 from tests.test_smart import APP, EHR, REFERRAL, FakeEhr, full_launch, launch
 
@@ -120,7 +120,7 @@ def test_every_response_carries_a_request_id_and_errors_repeat_it(
         "x-request-id": "x" * 9,
     }
     assert client.get("/api/packs", headers=vercel).headers["x-request-id"] == "x" * 9
-    monkeypatch.setenv("VERCEL", "1")  # only Vercel's own header is trusted, and only there
+    hosted(monkeypatch)  # only Vercel's own header is trusted, and only there
     client = TestClient(create_app(db_path=tmp_path / "a.db"))
     assert client.get("/api/packs", headers=vercel).headers["x-request-id"] == vercel["x-vercel-id"]
     capsys.readouterr()

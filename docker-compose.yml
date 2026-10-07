@@ -49,6 +49,9 @@ services:
       MENDARI_FHIR_ALLOWED_SERVERS: ${MENDARI_FHIR_ALLOWED_SERVERS:-http://fhir:8080,http://launcher,http://payer:8200}
       # SMART launch (a public client; the launcher accepts any client id).
       MENDARI_SMART_CLIENT_ID: ${MENDARI_SMART_CLIENT_ID:-mendari-sandbox}
+      # The EHR launch on needs a chosen PHI mode: `off` keeps inputs in plaintext, for this
+      # sandbox's synthetic data only (docs/deploying-with-phi.md).
+      MENDARI_PHI_MODE: "off"
       MENDARI_PUBLIC_URL: ${MENDARI_PUBLIC_URL:-http://engine:8000}
       # The CQL engine for `cql` provider variants (HAPI's Clinical Reasoning module).
       MENDARI_CQL_URL: ${MENDARI_CQL_URL:-http://fhir:8080/fhir}
@@ -78,6 +81,9 @@ services:
       MENDARI_PUBLIC_URL: http://engine-signin:8000
       MENDARI_OIDC_ISSUER: https://idp.example.org
       MENDARI_OIDC_CLIENT_ID: mendari-sandbox
+      # Sign-in on needs a chosen PHI mode: `off` keeps inputs in plaintext, for this sandbox's
+      # synthetic data only (docs/deploying-with-phi.md).
+      MENDARI_PHI_MODE: "off"
       MENDARI_OIDC_ORG_CLAIM: org
       MENDARI_SMART_EHRS: http://launcher/v/r4/fhir=pilot:decide
     volumes:

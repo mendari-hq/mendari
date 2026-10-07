@@ -39,6 +39,7 @@ from mendari.server.limits import (
 from mendari.standards.fhir_client import GuardedHttp
 from tests.conftest import (
     ROOT,
+    hosted,
     launched,
     message,
     security_lines,
@@ -461,12 +462,13 @@ def test_a_forwarded_address_counts_only_where_it_is_trusted(
     client, _ = signing_in(tmp_path / "a", monkeypatch, "on,signin=1/min")
     assert logins(client, ["192.0.2.1", "192.0.2.2"]) == [302, 429]
     # On Vercel, the platform sets it.
-    monkeypatch.setenv("VERCEL", "1")
+    hosted(monkeypatch)
     client, _ = signing_in(tmp_path / "b", monkeypatch, "on,signin=1/min")
     assert logins(client, ["192.0.2.1", "192.0.2.2", "192.0.2.1"]) == [302, 302, 429]
     assert logins(client, ["not an address"]) == [302]  # one shared bucket for junk
     assert logins(client, ["also junk"]) == [429]
     monkeypatch.delenv("VERCEL")
+    monkeypatch.setenv("MENDARI_PHI_MODE", "off")  # off Vercel again: synthetic cases
     # Behind uvicorn's proxy handling: only from the proxy it trusts.
     proxied, _ = signing_in(
         tmp_path / "c", monkeypatch, "on,signin=1/min", address="198.51.100.1", wrap=True

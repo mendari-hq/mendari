@@ -30,6 +30,8 @@ POSTGRES_URL = os.environ.get("MENDARI_TEST_DATABASE_URL", "").strip()
 # An input hash key (MENDARI_INPUT_HASH_KEY), which PHI modes hash and encrypt require.
 INPUT_HASH_KEY = secrets.token_bytes(32)
 HASH_KEY_B64 = base64.b64encode(INPUT_HASH_KEY).decode()
+PHI_KEY = secrets.token_bytes(32)  # test keys for PHI mode `encrypt` (`encrypt_mode`)
+PHI_KEY_B64 = base64.b64encode(PHI_KEY).decode()
 
 
 @pytest.fixture(autouse=True)
@@ -63,6 +65,17 @@ def _no_notice_acknowledgement(monkeypatch: pytest.MonkeyPatch) -> None:
     """Tests decide as signed-in people without first acknowledging the notice: the
     acknowledgement is off unless a test turns it on (tests/test_notice.py), as rate limits are."""
     monkeypatch.setenv("MENDARI_NOTICE_ACKNOWLEDGEMENT", "off")
+
+
+@pytest.fixture(autouse=True)
+def _phi_mode_chosen(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sign-in needs a chosen PHI mode (core/phi.py `require_protection`): tests on synthetic
+    data choose `off` unless they set another (tests/test_phi.py), and never run as the hosted
+    site, whatever the developer's shell says."""
+    monkeypatch.setenv("MENDARI_PHI_MODE", "off")
+    monkeypatch.delenv("VERCEL", raising=False)
+    monkeypatch.delenv("CRON_SECRET", raising=False)
+    monkeypatch.delenv("MENDARI_RETENTION_DAYS", raising=False)
 
 
 @pytest.fixture(autouse=True)
@@ -219,6 +232,23 @@ def without_request_id(body: dict[str, Any], response: Any) -> dict[str, Any]:
     `X-Request-Id`."""
     assert body.get("request_id") == response.headers["x-request-id"]
     return {key: value for key, value in body.items() if key != "request_id"}
+
+
+def encrypt_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    """PHI mode `encrypt` with the test keys (`PHI_KEY`, `INPUT_HASH_KEY`): how a signed-in
+    deployment with real cases runs."""
+    monkeypatch.setenv("MENDARI_PHI_MODE", "encrypt")
+    monkeypatch.setenv("MENDARI_PHI_KEY", PHI_KEY_B64)
+    monkeypatch.setenv("MENDARI_INPUT_HASH_KEY", HASH_KEY_B64)
+
+
+def hosted(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Run as the hosted site does: `VERCEL` set and the test keys, no mode chosen, so it runs
+    its default, `encrypt`."""
+    monkeypatch.setenv("VERCEL", "1")
+    monkeypatch.delenv("MENDARI_PHI_MODE", raising=False)
+    monkeypatch.setenv("MENDARI_PHI_KEY", PHI_KEY_B64)
+    monkeypatch.setenv("MENDARI_INPUT_HASH_KEY", HASH_KEY_B64)
 
 
 def message(body: str, **extra: Any) -> dict[str, Any]:

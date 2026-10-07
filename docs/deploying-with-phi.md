@@ -309,6 +309,19 @@ MENDARI_RETENTION_DAYS=90
 | `hash` | Nothing but a keyed hash of it (HMAC-SHA256). Reviewers see the decision and its reasons, not the message or record. |
 | `encrypt` | The input, encrypted (AES-256-GCM, bound to its decision), apart from the audit chain. |
 
+**A protected database stays protected.** Once a server or command opens a database under
+`hash` or `encrypt`, the database is marked so (`settings`, `phi_protected`). From then on a
+server under `off` refuses to start on it, and a command under `off` (`mendari decide --db`, a
+note) refuses to keep input text in it: run it with the deployment's mode and keys.
+
+**Choosing is required.** With sign-in or the EHR launch on (`MENDARI_SMART_CLIENT_ID`: a launch
+fetches the patient's record), the engine refuses to start until `MENDARI_PHI_MODE` is set:
+`encrypt` or `hash` for anything real, `off` written out only for a local sandbox on synthetic
+data (the engine logs a warning). On Vercel (Production and Preview alike; Vercel's entrypoint,
+the root `app.py`, says so even when the project hides Vercel's system variables) it refuses
+`off` itself: its mode is `encrypt` unless set to `hash`, so set the keys for both environments
+before deploying (an unset key stops it, naming both).
+
 What the decision record (whose digest is chained for good) keeps of an input, in `hash` and
 `encrypt`:
 - **no evidence values.** An answer's evidence can quote the input (`4548-4 8.1 % on
@@ -323,9 +336,9 @@ What the decision record (whose digest is chained for good) keeps of an input, i
   `MENDARI_INPUT_HASH_KEY`. A plain SHA-256 of a short or structured input (an age, a sex and an
   order code) is found by guessing in seconds, and anyone who may read a decision sees its hash;
   without the key, guesses match nothing. The engine refuses to start in `hash` or `encrypt`
-  without this key, and so does `mendari decide --db`, which records a decision under the
-  deployment's PHI mode, as the server does. In `off` mode without it, the hash stays the plain `sha256:` of earlier
-  releases, as on records already chained.
+  without this key, and so does `mendari decide --db`, which records a decision under the PHI
+  mode set where it runs (set the deployment's). In `off` mode without it, the hash stays the
+  plain `sha256:` of earlier releases, as on records already chained.
 
 Under `encrypt`:
 - only signed-in **reviewers** and **admins** get an input back: in a decision's record, the
@@ -333,12 +346,47 @@ Under `encrypt`:
   (`input.read`, with who);
 - viewers, services and governance see that an input exists, not what it says;
 - the audit trail's list never carries inputs;
+- a decision recorded under `off`, before the switch, kept its input (and its evidence) inside
+  its chained record, and every record written before 2026-10-02 kept its evidence there, in any
+  mode. Under `hash` and `encrypt` these are shown as a sealed input is: to reviewers and admins
+  only, each read chained. Nothing can delete them without breaking the chain, so retention and
+  erasure leave them (those older records' input issues and reasons can also name a resource by
+  its logical id, which is withheld the same way). Choose one: keep that database, read-gated as
+  described, or retire it: note the chain's head hash (`mendari audit verify`), keep an ids-only
+  FHIR export if you want the history (`/api/audit/export/fhir`), and start a new, empty database
+  under `encrypt`;
 - **without sign-in, inputs stay sealed for everyone**, since there is no one to log a read
   against. Encrypt mode needs step 2.
 
 **Retention.** Schedule `mendari phi purge --db "$DATABASE_URL"` (daily, for example). It
-deletes kept inputs and erases notes older than `MENDARI_RETENTION_DAYS`, and records each
-deletion in the chain. Decisions, reviews and the chain itself stay, and `mendari audit verify` still passes.
+deletes kept inputs and erases notes older than `MENDARI_RETENTION_DAYS` (30 unless set;
+1 to 36500), in batches of 500, and records each deletion in the chain, then a summary
+(`retention.purged`: how many, after how many days, and whether the schedule or the command ran
+it). Decisions, reviews and the chain itself stay, and `mendari audit verify` still passes.
+`--days 0 --yes` deletes and erases everything kept; no setting can ask for that, so a typo in a
+scheduled job never does.
+
+On Vercel the schedule is in `vercel.json` (`crons`: daily at 08:00 UTC, 4 am Eastern in summer
+and 3 am in winter). Set `CRON_SECRET` (at least 16 random characters) for Production: Vercel Cron sends it as a bearer token to
+`/api/internal/retention`, which purges as the command does and answers `401` to anything
+else. Without `CRON_SECRET` (or with one too short, or with spaces around it, which the server
+ignores with a warning rather than refusing to start) the route does not exist and nothing is
+purged; `/api/health`
+shows `retention_days`, `retention_scheduled` and `last_purge` (the last summary, with when) to
+those who may read.
+
+**Erasing one decision's input.** On request, or for a case recorded by mistake:
+
+```bash
+mendari phi erase --db "$DATABASE_URL" --decision <id> --reason request --by dpo@example.org
+```
+
+or, as an admin, `POST /api/audit/{id}/erase` with `{"reason": "request"}` (or `"error"`). It
+deletes the decision's sealed input and evidence and erases its notes, and chains, with the
+reason and who, `input.erased` when it held a sealed input and one `note.erased` per note. The
+record and the chain stay, and `mendari audit verify --notes` still passes. What the chain itself holds (see
+above) stays: the answer's `still_in_chain` says so, and a decision that keeps nothing else is
+refused (`422`).
 
 **The keys.**
 - Keep `MENDARI_PHI_KEY` and `MENDARI_INPUT_HASH_KEY` in your secret manager, never in the
@@ -499,7 +547,8 @@ collector, journald) and keep it as your policy says; Mendari keeps no log table
   a session, or did not: `state_unknown`, `browser`, `token`, `id_token`, `issuer`, `pack`,
   `ehr_error` and the like), `auth.token.issued|refused`, `ratelimit.hit` (once per bucket until it has room
   again), `quota.reached`, `admin.key.created|revoked`, `admin.client.registered|revoked`,
-  `governance.approved|revoked`, `eval.run`, `export.audit|feedback`, `phi.inputs.read` (under
+  `governance.approved|revoked`, `eval.run`, `export.audit|feedback`, `input.erased`,
+  `retention.purged|refused` (the scheduled purge, with the count deleted), `phi.inputs.read` (under
   `hash` or `encrypt`: the decisions whose input or notes a reader was shown, and how many, as
   the chain's `input.read` has them) and `error.unhandled` (the exception's type and stack
   frames).
@@ -542,10 +591,11 @@ startup, so a typo never runs with a weaker setting.
 | `MENDARI_SMART_CLIENT_ID` | unset: no EHR launch | The SMART app's client id at the EHR; turns the launch on | 2 |
 | `MENDARI_SMART_EHRS` | none: with sign-in on, every launch refused | The EHRs that may launch: `<FHIR base>=<org>:view` or `:decide`, comma-separated; `<org>` is one your people sign in to (`default` without `MENDARI_OIDC_ORG_CLAIM`); read at startup | 2 |
 | `MENDARI_SMART_SCOPES` | `launch openid fhirUser patient/*.rs` | What a launch asks the EHR for; with sign-in on it must keep `openid fhirUser`, and `offline_access` refuses every launch | 2 |
-| `MENDARI_PHI_MODE` | `off` | `hash` or `encrypt` for real patient data | 3 |
+| `MENDARI_PHI_MODE` | `encrypt` on Vercel; elsewhere `off` without sign-in or the EHR launch, and with either none (required) | `hash` or `encrypt` for real patient data; Vercel refuses `off`, and so does a database once kept under `hash` or `encrypt` | 3 |
 | `MENDARI_PHI_KEY` | none | 32 bytes, base64; seals inputs, evidence and notes under `encrypt` | 3 |
 | `MENDARI_INPUT_HASH_KEY` | none | 32 bytes, base64, not the PHI key; required under `hash` and `encrypt` | 3 |
-| `MENDARI_RETENTION_DAYS` | none | How long `mendari phi purge` keeps inputs and notes | 3 |
+| `MENDARI_RETENTION_DAYS` | 30 (1 to 36500) | How long kept inputs and notes are kept, by `mendari phi purge` and the scheduled purge | 3 |
+| `CRON_SECRET` | unset: no scheduled purge | At least 16 random characters, no spaces around them: Vercel Cron's bearer token for `/api/internal/retention` (otherwise unused, with a warning: the purge stays off) | 3 |
 | `MENDARI_MAX_BODY_BYTES` | 4 MiB (64 KiB at least) | The largest request body; a `413` above it | 1 |
 | `MENDARI_RATE_LIMITS` | `on` with sign-in, `off` without | `on`, `log` or `off`, then overrides (`decide=1200/min:200`) | 4 |
 | `MENDARI_NOTICE_ACKNOWLEDGEMENT` | `required` | `required`: a signed-in person who may decide or review acknowledges the notice (research preview, synthetic data only) once per version when the dashboard opens, chained as `notice.acknowledged`; until then deciding, reviewing, feedback and minting an API key or client are refused (`403`, header `Mendari-Notice-Required`); `off`: a site whose own agreements replace it. Keys, clients, EHR launches and open mode are never asked | 4 |

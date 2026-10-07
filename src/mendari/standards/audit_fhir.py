@@ -76,6 +76,7 @@ _EVENTS = {
     "feedback.recorded": ("C", "Feedback recorded"),
     "input.read": ("R", "Encrypted input or notes read"),  # PHI mode: access logging
     "input.purged": ("D", "Encrypted input deleted by the retention policy"),
+    "input.erased": ("D", "Encrypted input deleted on request"),
     "pas.submitted": ("E", "Prior authorization requested (Da Vinci PAS)"),
     "note.erased": ("D", "Note erased, on request or by the retention policy"),
 }
@@ -93,6 +94,7 @@ _DETAILS = {
     # that chained it before keep it in the store, not in an export.
     "pas.submitted": ("outcome",),
     "note.erased": ("reason",),
+    "input.erased": ("reason",),
 }
 
 

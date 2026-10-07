@@ -5,6 +5,9 @@
       "dependabot/**": false
     }
   },
+  "crons": [
+    { "path": "/api/internal/retention", "schedule": "0 8 * * *" }
+  ],
   "functions": {
     "app.py": {
       "maxDuration": 300,

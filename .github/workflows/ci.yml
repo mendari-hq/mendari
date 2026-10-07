@@ -379,8 +379,11 @@ jobs:
           MENDARI_OIDC_ISSUER: https://idp.example.org
           MENDARI_OIDC_CLIENT_ID: mendari
           MENDARI_RATE_LIMITS: log
+          MENDARI_PHI_MODE: encrypt  # as a signed-in deployment runs it
         run: |
           mkdir -p /tmp/zap && chmod 777 /tmp/zap
+          export MENDARI_PHI_KEY=$(python3 -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())")
+          export MENDARI_INPUT_HASH_KEY=$(python3 -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())")
           sid=$(uv run python -c "import secrets, time; from mendari.core.audit import AuditStore; sid = secrets.token_urlsafe(32); AuditStore('/tmp/zap/scan.db').smart_put(sid, 'user', {'sub': 'zap', 'name': 'zap', 'roles': ['admin'], 'org': 'default'}, int(time.time()) + 7200); print(sid)")
           echo "::add-mask::$sid"
           echo "ZAP_SESSION=$sid" >> "$GITHUB_ENV"

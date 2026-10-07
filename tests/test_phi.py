@@ -195,5 +195,5 @@ def test_the_cli_purges(
     assert main(["phi", "purge", "--db", str(tmp_path / "a.db"), "--days", "30"]) == 0
     out = capsys.readouterr().out
     assert "0 stored input(s) deleted and 0 note(s) erased, older than 30 days" in out
-    monkeypatch.delenv("MENDARI_RETENTION_DAYS", raising=False)
+    monkeypatch.setenv("MENDARI_RETENTION_DAYS", "0")  # never everything from a setting
     assert main(["phi", "purge", "--db", str(tmp_path / "a.db")]) == 1
