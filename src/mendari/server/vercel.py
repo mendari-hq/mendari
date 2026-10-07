@@ -44,24 +44,11 @@ from __future__ import annotations
 
 import os
 
-from mendari.errors import MendariError
 from mendari.sandbox import example_datasets_dir
 from mendari.server.app import create_app
-from mendari.settings import daily_limits, default_providers, parse_providers
+from mendari.settings import daily_limits, database_target, default_providers, parse_providers
 
-
-def database_target() -> str:
-    url = os.environ.get("DATABASE_URL", "").strip()
-    if url:
-        return url
-    if os.environ.get("VERCEL"):
-        raise MendariError(
-            "DATABASE_URL is not set. Connect a Postgres database (e.g. Neon) to this Vercel "
-            "project for Production and Preview, then redeploy."
-        )
-    return "var/mendari.db"
-
-
+# Built at import, as Vercel needs: anything that imports this module opens `database_target()`.
 app = create_app(
     db_path=database_target(),
     migrate_url=os.environ.get("DATABASE_URL_UNPOOLED", "").strip() or None,
