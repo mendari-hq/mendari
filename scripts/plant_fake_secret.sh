@@ -6,19 +6,22 @@
 # else, are never printed, and are in no file of this repository.
 set -eu
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1  # no developer's hooks or signing
+# Its own identity: a runner has none, and a merge refuses to guess one.
+export GIT_AUTHOR_NAME=control GIT_AUTHOR_EMAIL=control@example.org
+export GIT_COMMITTER_NAME=control GIT_COMMITTER_EMAIL=control@example.org
 dir="$1"
 
 key() {  # AKIA and 16 base-32 symbols, redrawn until well above the rule's entropy floor (3.0)
   key=""
   until awk -v k="$key" 'BEGIN { n = length(k); for (i = 1; i <= n; i++) c[substr(k, i, 1)]++
       for (s in c) { p = c[s] / n; h -= p * log(p) } exit !(n == 20 && h / log(2) > 3.5) }'; do
-    key="AKIA$(LC_ALL=C tr -dc 'A-Z2-7' < /dev/urandom | head -c 16)"
+    key="AKIA$(LC_ALL=C tr -dc 'A-Z2-7' < /dev/urandom 2> /dev/null | head -c 16)"
   done
   printf '%s' "$key"
 }
 commit() {
   git -C "$dir" add -A
-  git -C "$dir" -c user.name=control -c user.email=control@example.org commit --no-verify -q -m "$1"
+  git -C "$dir" commit --no-verify -q -m "$1"
 }
 
 git init -q "$dir"

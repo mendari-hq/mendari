@@ -6,6 +6,7 @@ resolution), must be found; a git error or an ignore file fails the scan rather 
 from __future__ import annotations
 
 import math
+import os
 import re
 import shutil
 import subprocess
@@ -41,8 +42,12 @@ def keys(repo: Path) -> list[str]:
 
 
 def test_the_keys_are_made_up_and_planted_where_only_a_full_scan_looks(tmp_path: Path) -> None:
-    subprocess.run(["sh", str(SCRIPTS / "plant_fake_secret.sh"), str(tmp_path / "a")], check=True)
-    subprocess.run(["sh", str(SCRIPTS / "plant_fake_secret.sh"), str(tmp_path / "b")], check=True)
+    # As on a CI runner: no git identity, and git told never to guess one.
+    bare = {**os.environ, "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "user.useConfigOnly",
+            "GIT_CONFIG_VALUE_0": "true"}  # fmt: skip
+    for name in ("a", "b"):
+        plant = ["sh", str(SCRIPTS / "plant_fake_secret.sh"), str(tmp_path / name)]
+        subprocess.run(plant, check=True, env=bare)
     first, second = keys(tmp_path / "a"), keys(tmp_path / "b")
     assert len(set(first + second)) == 4  # a new pair each time
     for key in first:  # well above the rule's entropy floor (3.0), so never skipped as noise
