@@ -28,6 +28,11 @@ from tests.test_fhir import COMMUNICATION, PATIENT
 REFERENCE = sorted((p for p in discover().packs if p.origin == "maintained"), key=lambda p: p.id)
 
 
+def test_the_label_says_what_the_plan_requires() -> None:
+    """The launch plan's words for a reference pack (A2 step 6, B21), written once."""
+    assert SYNTHETIC_EXAMPLE == "Synthetic example. Not clinically reviewed. Not for patient care."
+
+
 def _manifest(pack: Pack, edit: Any) -> PackManifest:
     raw = pack.manifest.model_dump(by_alias=True, exclude_none=True)
     edit(raw)

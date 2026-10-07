@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Vercel entrypoint shim. Vercel auto-detects `app` in a root `app.py`; the real entrypoint,
 with its configuration, is `mendari.server.vercel` (src layout, so `src/` goes on the path)."""
 

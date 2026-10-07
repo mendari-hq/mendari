@@ -6,7 +6,10 @@ Python 3.11+ · uv · pydantic v2 · FastAPI · SQLite (local) or Postgres (Verc
 
 ```bash
 uv sync                                   # install (dev group included)
-uv run pytest                             # full suite, < 3 s, warnings are errors
+uv run pytest                             # full suite, about 6 min (3,500 tests), warnings are errors
+uv run pytest -m core                     # the edit loop, about 20 s: pack loading, decisions, policy, audit
+uv run pytest tests/test_<area>.py        # and the file for what you changed (not with -m core, which filters it)
+uv run pytest --lf                        # after a failing full run: only what failed
 uv run pytest -m browser                  # dashboard in Chromium (once: uv run playwright install chromium)
 uv run pytest -m slow                     # the structural R4 gate over HL7's 5,309 R4 examples (if cached)
 # Postgres backend tests (Mendari's own container; never reuse another project's database):
@@ -16,6 +19,7 @@ MENDARI_TEST_DATABASE_URL=postgresql://postgres:mendari-test@127.0.0.1:56432/men
 uv run ruff check src tests && uv run ruff format --check src tests
 uv run mypy src tests
 uv run python scripts/check_doc_snippets.py  # the API examples (dashboard/snippets) on a local server
+uv run python scripts/check_gates.py      # the launch gates (launch/gates.yaml): met and not met
 uv run mendari demo                       # end-to-end smoke test on synthetic data
 ./scripts/build-reference-pack.sh         # both reference packs: data → train → test → benchmark → card
 uv run python scripts/fhir_r4_schema.py   # regenerate the R4 structure rules from HL7's pinned schema
@@ -33,6 +37,9 @@ docker compose up --build                 # HAPI FHIR + engine + worker sandbox
   `scripts/build-reference-pack.sh` and commit the regenerated `data/`, `models/`,
   `evals/benchmark.json` and `DECISION_CARD.md` together. CI checks data and model are
   byte-reproducible.
+- **Launch gates are a checked file** (`launch/gates.yaml`, `scripts/check_gates.py`,
+  LP-03). A prompt that lands replaces its `pending` probe with the tests its acceptance created.
+  Only the owner fills in an attestation; a build session never marks an owner prerequisite met.
 - **Policy only lowers automation.** Caps (per-label, provider failure, risk level) may turn
   AUTO into HUMAN_REVIEW, never the reverse. Risk-level limits live in `core/policy.py`, not
   in packs (ADR-0002).

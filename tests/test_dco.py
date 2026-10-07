@@ -26,6 +26,21 @@ def _script() -> Any:
 
 
 check_dco = _script()
+
+
+def test_contributing_asks_every_commit_to_be_signed_off() -> None:
+    contributing = (ROOT / "CONTRIBUTING.md").read_text()
+    assert "## Sign off: the Developer Certificate of Origin" in contributing
+    assert "git commit -s" in contributing and "Signed-off-by:" in contributing
+
+
+def test_the_code_of_conduct_is_contributor_covenant_2_1() -> None:
+    conduct = (ROOT / "CODE_OF_CONDUCT.md").read_text()
+    assert conduct.startswith("# Contributor Covenant Code of Conduct\n")
+    assert "version 2.1" in conduct
+    assert "https://www.contributor-covenant.org/version/2/1/code_of_conduct.html" in conduct
+
+
 AUTHOR = ("Ada Contributor", "ada@example.org")
 BOT = ("dependabot[bot]", "49699333+dependabot[bot]@users.noreply.github.com")
 
