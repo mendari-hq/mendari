@@ -21,7 +21,7 @@ from tests.conftest import calm_jev
 from tests.test_backend_services import PUBLIC_URL
 from tests.test_backend_services import on as backend_services_on
 
-SECTIONS = ("what", "quickstart", "fhir", "auth", "more")
+SECTIONS = ("what", "quickstart", "fhir", "guard", "auth", "more")
 _INLINE = re.compile(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", re.S)
 
 

@@ -1,23 +1,31 @@
 # Using the API
 
-Mendari's REST and FHIR API by example: a quickstart in three calls, FHIR in and out, and
-authentication. A running server shows the same examples on its own landing page, `/docs`, with
+Mendari's REST and FHIR API by example: a quickstart in three calls, FHIR in and out, guarding
+a model's replies, and authentication. A running server shows the same examples on its own landing page, `/docs`, with
 its address filled in and a table of what every call needs; its full reference, with "Try it
 out", is `/docs/reference`.
 
 Every example below is one of the scripts in `src/mendari/dashboard/snippets/`, included here as
 it is. CI runs them against a local server, once in open mode and once with a `service` key
-(`scripts/check_doc_snippets.py`), so they work as written. They need `curl` and `jq`, and every
-body is synthetic.
+(`scripts/check_doc_snippets.py`), so they work as written; the Python example runs as a
+program. They need `curl` and `jq`, and every body is synthetic.
 
 ## Before you start
 
+In a clone, `uv sync` installs Mendari with the server (without uv: `pip install '.[server]'`;
+the `server` extra brings uvicorn, which `mendari serve` needs). The server serves the reference
+packs; to serve your own too, set `MENDARI_PACKS_PATH` to their folders (`:`-separated, searched
+first). `MENDARI_PACKS` (comma-separated ids) then narrows what is served to those packs, which
+must be on the path.
+
 Start a server, and in another terminal name it and, with sign-in on, your API key:
 
+<!-- check: skip long-running: starts a server; check_doc_snippets.py starts the same app in CI -->
 ```bash
 uv run mendari serve                      # http://localhost:8000
 ```
 
+<!-- check: skip settings: sets the two variables check_doc_snippets.py sets for each pass -->
 ```bash
 export MENDARI=http://localhost:8000      # the server
 export MENDARI_KEY=                       # with sign-in on: an API key (ohk_…); open mode ignores it
@@ -31,6 +39,7 @@ Each script runs as a whole (`bash quickstart.sh`), or step by step: copy the li
 List the packs, decide on a synthetic patient message (one of the pack's behaviour tests), and read
 the decision's audit record:
 
+<!-- check: include quickstart.sh -->
 ```bash
 --8<-- "quickstart.sh"
 ```
@@ -49,6 +58,7 @@ and searched as `Task`, and their audit trail as `AuditEvent` and `Provenance`, 
 organization's only. Mendari is a decision engine, not a FHIR data server: it stores and serves no
 clinical resources.
 
+<!-- check: include fhir.sh -->
 ```bash
 --8<-- "fhir.sh"
 ```
@@ -58,6 +68,26 @@ clinical resources.
 
 **SMART on FHIR.** When a deployment sets `MENDARI_SMART_CLIENT_ID`, an EHR launches Mendari at
 `/smart/launch`, and the dashboard opens on that patient's work.
+
+## Guarding a model's replies
+
+A pack with a `guard` section, such as the AI Guard reference pack, checks a model's draft before
+a patient reads it. `POST /api/packs/{id}/guard` answers `{status, reply, outcome, recommendation,
+reasons, fallback, decision_id}`: the draft is `released` only when the decision is automated with
+a release recommendation; otherwise it is `held_for_review` or `blocked`. Never send a blocked
+draft: act on `fallback`. Here a dose above the daily maximum is blocked:
+
+<!-- check: include guard.sh -->
+```bash
+--8<-- "guard.sh"
+```
+
+The same check in Python, without a server:
+
+<!-- check: include guard.py -->
+```python
+--8<-- "guard.py"
+```
 
 ## Authentication
 
@@ -79,6 +109,7 @@ who can reach the server can call every operation, and the `Authorization` heade
   `WWW-Authenticate`, except a signed-in person's who has not yet acknowledged the notice
   (`GET /api/notice`): a `403` with `Mendari-Notice-Required` on routes that take data in.
 
+<!-- check: include auth.sh -->
 ```bash
 --8<-- "auth.sh"
 ```

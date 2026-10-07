@@ -254,7 +254,7 @@ behaviour.
   SNOMED CT codes left out of the record), all fixed.
 
 - [ ] **LP-15** What the docs promise, and the local loop. Split in three PRs (recommended):
-  - [x] **LP-15a** The local loop (PR open). One top-level error handler for every `mendari`
+  - [x] **LP-15a** The local loop (#147, merged 2026-10-07). One top-level error handler for every `mendari`
     command: one line per problem (`error: ...`, naming the file, flag, URL origin or database
     without its password, and the fix), exit 1, never a traceback and never a library's own
     message (it can carry case text: an unknown error is its type only); `--debug` on any
@@ -294,10 +294,35 @@ behaviour.
     deploy templates' `|| true` swallows both): give alerts their own code? `MENDARI_PROVIDERS`
     stays a warning in the CLI and a report on a server (production runs an unscoped setting);
     make it strict?
-  - [ ] **LP-15b** Every README, docs/index.md and /docs landing snippet run in CI or marked
-    skipped with a reviewed reason (a test fails on an unmarked one); a CI-run AI Guard example
-    (HTTP and Python) in the snippets, README, API guide and landing; the server install, the
-    packs-folder setting and the inbox rule (LP-01) in the docs.
+  - [x] **LP-15b** The docs' commands (PR open). Every bash and Python block of README.md,
+    docs/index.md and docs/guides/api.md carries a marker on the line before it
+    (`scripts/doc_blocks.py`): `run quickstart|cli|python <group>|install|server-db`,
+    `snippet <file>/<step>` (the same text as a snippet CI runs), `include <file>`, or `skip
+    <reason>: <why>` from a fixed list (private-repo, docker, ehr, database, registry, secrets,
+    settings, long-running, placeholder, ci; each names the CI job that covers it where one
+    does). `tests/test_doc_blocks.py` fails on an unmarked block, an unknown language, a skip
+    without a reason, a snippet block not equal to its step, and a landing code block that is
+    not a snippet step. CI's `quickstart` job (a clean runner, no cache) runs the quickstart
+    (timed, from the markers now), the CLI tour, the Python examples, a fresh `pip install .`
+    and `'.[server]'`, and `check_doc_snippets.py`: a REST, a FHIR and an AI Guard decision by
+    the documented commands, the Python examples, and the README's commands on the database the
+    open pass's server wrote (`audit export`, `feedback export`). An AI Guard example, HTTP
+    (`snippets/guard.sh`) and Python (`snippets/guard.py`, run as a program): a dose above the
+    daily maximum, blocked, from the pack's own tests; in the README (replacing a sketch that
+    could not run), the API guide and the /docs landing (a new "Guarding a model's replies"
+    section). Docs: the server install and its extra (the CLI's hint names the clone form),
+    `MENDARI_PACKS_PATH` and `MENDARI_PACKS` (README, docs home, API guide, the deployment
+    settings table), and the inbox rule as LP-01 enforces it (the README says what the decide
+    step prints with and without a model, quoting the reason). The CLI tour was split so the
+    lines that need your data or a running server are marked as such. Review: one adversarial
+    review (two lenses), each finding checked by a skeptic: 1 medium (a skip hid a runnable
+    `audit verify` and said CI ran it; it now runs on the server's database) and 8 low (the
+    install check passed without the server extra, now it starts `mendari serve` and waits for
+    `/api/health`; a registry skip's reason overstated what CI runs; block quotes and longer
+    fences slipped past the parser, and a raw `<pre>` would; the quickstart left `mendari new`'s
+    packs in the clone, now removed after a run; a held draft's `fallback`; the packs-folder
+    rows (precedence is by version, a missing folder is skipped); the API guide's
+    `MENDARI_PACKS`; the runner's usage line), all fixed, 1 refuted.
   - [ ] **LP-15c** A TestPyPI pre-release path in `release.yml` (its own protected environment,
     then a clean-runner install and `mendari test`); multi-arch images (built once as an OCI
     archive, each architecture tested, pushed as tested); a docs deploy workflow and

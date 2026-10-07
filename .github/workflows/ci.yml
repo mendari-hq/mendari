@@ -456,10 +456,10 @@ jobs:
 
   quickstart:
     # The v1.0 exit: a new user goes from the README to their own local validation in under 10
-    # minutes. The commands come from the README itself (scripts/run_quickstart.py), on a clean
-    # runner with no cache.
+    # minutes. The commands come from the docs themselves (scripts/run_quickstart.py), on a clean
+    # runner with no cache; so do the rest of the documented commands that can run here (LP-15).
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25  # the quickstart itself is held to 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
@@ -470,6 +470,16 @@ jobs:
           python-version: "3.12"
           enable-cache: false
       - run: python3 scripts/run_quickstart.py
+      # Every other documented block that can run on a clean runner, as documented
+      # (scripts/doc_blocks.py; tests/test_doc_blocks.py fails on a block without a marker):
+      - name: The command-line tour
+        run: python3 scripts/doc_blocks.py run cli
+      - name: The Python examples
+        run: uv run python scripts/doc_blocks.py run python
+      - name: A new virtual environment installs from the clone, with the server extra
+        run: python3 scripts/doc_blocks.py run install
+      - name: A REST, a FHIR and an AI Guard decision by the documented commands, and the commands on the server's database
+        run: uv run python scripts/check_doc_snippets.py
 
   pilot-check:
     # The v0.6 exit: a pilot organization runs the inbox router with its own identity provider,

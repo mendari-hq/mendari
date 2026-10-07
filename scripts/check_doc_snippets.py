@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Run the API examples (`src/mendari/dashboard/snippets/*.sh`) against a local server (CI job
-`test`, one step).
+"""Run the API examples (`src/mendari/dashboard/snippets/*.sh`) against a local server, and the
+Python examples (`*.py`) as programs (CI jobs `test` and `quickstart`, one step).
 
     uv run python scripts/check_doc_snippets.py           # --show: print what each file printed
 
@@ -36,6 +36,8 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import uvicorn
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # doc_blocks, a script beside this one
 
 from mendari.core.audit import AuditStore
 from mendari.server import security_log, snippets
@@ -148,6 +150,65 @@ def run_pass(
                 print(f"  ok   {file}.sh: {', '.join(step.name for step in chosen)}")
             else:
                 ok = False
+    if not key:  # the documented commands on a server's database: the one this pass wrote
+        ok = run_server_db(db, work, base_env, show=show) and ok
+    return ok
+
+
+def run_server_db(db: Path, work: Path, base_env: dict[str, str], *, show: bool = False) -> bool:
+    """The docs' blocks marked `run server-db` (`scripts/doc_blocks.py`), run as documented in a
+    folder where `var/mendari.db` and `$DATABASE_URL` are the database a server wrote."""
+    import doc_blocks
+
+    (work / "var").mkdir(exist_ok=True)
+    shutil.copyfile(db, work / "var" / "mendari.db")
+    env = {**base_env, "DATABASE_URL": "var/mendari.db"}
+    ok = True
+    for block in doc_blocks.marked("server-db"):
+        done = subprocess.run(
+            ["bash", "-euo", "pipefail", "-c", block.text],
+            cwd=work,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+        if done.returncode != 0:
+            print(f"  FAIL {block.where} (exit {done.returncode})")
+            for line in (done.stdout + done.stderr).strip().splitlines()[-20:]:
+                print(f"       {line}")
+            ok = False
+        else:
+            if show:
+                print(done.stdout.rstrip())
+            print(f"  ok   {block.where}: {block.text.split()[1]} {block.text.split()[2]}")
+    return ok
+
+
+def run_python(base_env: dict[str, str], *, show: bool = False) -> bool:
+    """The Python examples, each a program run as it is, without a server; False if one failed."""
+    print("Python:")
+    ok = True
+    for file in snippets.PYTHON:
+        done = subprocess.run(
+            [sys.executable, str(snippets.DIRECTORY / f"{file}.py")],
+            env=base_env,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+        steps = snippets.load(file, language="python")
+        if done.returncode != 0:
+            print(f"  FAIL {file}.py (exit {done.returncode})")
+            for line in (done.stdout + done.stderr).strip().splitlines()[-40:]:
+                print(f"       {line}")
+            ok = False
+            continue
+        if show:
+            print(done.stdout.rstrip())
+        print(f"  ok   {file}.py: {', '.join(step.name for step in steps)}")
     return ok
 
 
@@ -171,6 +232,7 @@ def main(show: bool = False) -> int:
                     base_env=base_env,
                     show=show,
                 ),
+                run_python(base_env, show=show),
             ]
     finally:
         os.environ.clear()

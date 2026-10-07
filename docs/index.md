@@ -34,12 +34,19 @@ hash-chained audit record.
 In a clone of the [repository](https://github.com/Junebugg1214/mendari) (Mendari is not on PyPI
 until its first release), with [uv](https://docs.astral.sh/uv/):
 
+<!-- check: run quickstart -->
 ```bash
 uv sync
 uv run mendari demo                                      # route, review, audit, validate locally
 uv run mendari new my-pack --id my-clinic/my-pack       # your own pack, in YAML
 uv run mendari test my-pack
 ```
+
+`uv sync` installs the server too (without uv: `pip install '.[server]'` in the clone); then
+`uv run mendari serve` serves the reference packs, and `MENDARI_PACKS_PATH` names your own packs'
+folders to serve them as well. Every decision a pack can automate goes to a person instead until
+its policy's safeguards run: the patient inbox, for one, automates only while a model screens
+messages for emergencies, and sends everything to a person with the keyword rules alone.
 
 The code, the reference packs and the contribution guide are in the
 [repository](https://github.com/Junebugg1214/mendari).

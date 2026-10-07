@@ -57,6 +57,10 @@ def test_every_file_has_named_steps() -> None:
         assert len(names) == len(set(names)), f"{file}.sh repeats a step name: {names}"
         assert all(step.text for step in steps), f"{file}.sh has an empty step"
     assert {path.stem for path in snippets.DIRECTORY.glob("*.sh")} == set(snippets.FILES)
+    assert {path.stem for path in snippets.DIRECTORY.glob("*.py")} == set(snippets.PYTHON)
+    for file in snippets.PYTHON:
+        steps = snippets.load(file, language="python")
+        assert steps and all(step.text and step.language == "python" for step in steps), file
 
 
 def test_a_malformed_step_header_is_refused(tmp_path: Path) -> None:
@@ -84,16 +88,6 @@ def test_the_curl_block_finder_sees_old_style_and_skips_vercel_curl() -> None:
         "curl -s localhost:8000/fhir/metadata",
         'bundle=$(curl -sS "$MENDARI/x")',
     ]
-
-
-def test_the_readme_quickstart_ci_runs_calls_no_server() -> None:
-    """The `quickstart` CI job runs every bash block of "## Quickstart" before "### Python": the
-    REST quickstart must sit after it, since it needs `mendari serve` running."""
-    blocks = _script("run_quickstart").quickstart_blocks(README)
-    assert blocks
-    for block in blocks:
-        assert "curl" not in block and "mendari serve" not in block, block
-    assert "### REST API" in README.split("\n### Python", 1)[1]
 
 
 def test_every_call_fails_on_a_refusal_and_names_the_server_by_variable() -> None:
@@ -156,11 +150,11 @@ def test_every_body_is_a_synthetic_example_the_project_already_ships() -> None:
                 ],
             }
             continue
-        pack_id = re.fullmatch(r"/api/packs/([^/]+/[^/]+)/decide", path)
+        pack_id = re.fullmatch(r"/api/packs/([^/]+/[^/]+)/(?:decide|guard)", path)
         assert pack_id is not None, f"{step.file}.sh {step.name}: a body for {path}"
         inputs = [case["input"] for case in load_cases(packs[pack_id.group(1)])]
         assert body in inputs, f"{step.file}.sh {step.name}: not one of the pack's examples"
-    assert bodies == 2
+    assert bodies == 3  # the inbox's decision, the FHIR one and the AI Guard's draft
 
 
 def test_the_key_pass_skips_only_what_a_service_key_may_not_do() -> None:
@@ -181,7 +175,12 @@ def test_the_api_guide_includes_every_snippet_file_as_it_is() -> None:
     makes `mkdocs build --strict` fail on one that is gone."""
     guide = (ROOT / "docs" / "guides" / "api.md").read_text(encoding="utf-8")
     included = re.findall(r'^--8<-- "([^"]+)"$', guide, re.M)
-    assert included == [f"{file}.sh" for file in snippets.FILES]
+    expected = [
+        name
+        for file in snippets.FILES
+        for name in (f"{file}.sh", *([f"{file}.py"] if file in snippets.PYTHON else []))
+    ]
+    assert included == expected
     mkdocs = (ROOT / "mkdocs.yml").read_text(encoding="utf-8")
     assert "base_path: [src/mendari/dashboard/snippets]" in mkdocs
     assert "check_paths: true" in mkdocs and "guides/api.md" in mkdocs

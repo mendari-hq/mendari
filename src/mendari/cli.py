@@ -361,7 +361,10 @@ def cmd_serve(args: argparse.Namespace) -> int:
     try:
         import uvicorn  # noqa: F401 - there before any work (_run_server runs it)
     except ImportError:
-        raise MendariError("the server needs extras: pip install 'mendari[server]'") from None
+        raise MendariError(
+            "the server needs the server extra: pip install 'mendari[server]' (in a clone: "
+            "pip install '.[server]', or uv sync)"
+        ) from None
     from mendari.server.app import create_app
 
     # Behind a proxy, the client's address (rate limits per address, the log) comes from
@@ -886,7 +889,10 @@ def cmd_sandbox_payer(args: argparse.Namespace) -> int:
     try:
         import uvicorn  # noqa: F401 - there before any work (_run_server runs it)
     except ImportError:
-        raise MendariError("the payer needs extras: pip install 'mendari[server]'") from None
+        raise MendariError(
+            "the payer needs the server extra: pip install 'mendari[server]' (in a clone: "
+            "pip install '.[server]', or uv sync)"
+        ) from None
     from mendari.sandbox.payer import create_payer_app
 
     _run_server(create_payer_app(), args.host, args.port)
@@ -986,7 +992,10 @@ def cmd_registry_serve(args: argparse.Namespace) -> int:
     try:
         import uvicorn  # noqa: F401 - there before any work (_run_server runs it)
     except ImportError:
-        raise MendariError("the registry needs extras: pip install 'mendari[server]'") from None
+        raise MendariError(
+            "the registry needs the server extra: pip install 'mendari[server]' (in a clone: "
+            "pip install '.[server]', or uv sync)"
+        ) from None
     from mendari.hub.registry import create_registry_app
 
     _run_server(create_registry_app(args.db), args.host, args.port)

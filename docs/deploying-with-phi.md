@@ -641,6 +641,8 @@ startup, so a typo never runs with a weaker setting.
 | Setting | Default | What it does | § |
 |---|---|---|---|
 | `MENDARI_OIDC_ISSUER`, `MENDARI_OIDC_CLIENT_ID` | unset: open mode | Sign-in; every route then needs a role | 2 |
+| `MENDARI_PACKS_PATH` | none | Folders of your own packs (`:`-separated), searched first; when one id is found in several places the newest version is served; a relative folder is read from the working directory, and one that does not exist is skipped | 1 |
+| `MENDARI_PACKS` | every pack found | Only these pack ids are served (comma-separated; each must be found on the path): one pack per image | 1 |
 | `MENDARI_PUBLIC_URL` | unset | The address people use; required for Backend Services | 2 |
 | `MENDARI_SESSION_IDLE_MINUTES` | 30 (5 to 120) | A session ends after this long without a request | 2 |
 | `MENDARI_SESSION_MAX_HOURS` | 8 (1 to 12) | ...and this long after signing in | 2 |

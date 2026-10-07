@@ -58,6 +58,7 @@ Mendari is not on PyPI yet: `pip install mendari` will work from the first relea
 Until then, install it from a clone of this repository. You need Python 3.11+, and for
 development [uv](https://docs.astral.sh/uv/):
 
+<!-- check: skip private-repo: CI's checkout is this clone, and the quickstart job runs uv sync in it -->
 ```bash
 git clone https://github.com/Junebugg1214/mendari.git
 cd mendari
@@ -66,6 +67,7 @@ uv sync                          # the package, the server, and the test and lin
 
 Without uv, in the clone, into any Python 3.11+ virtual environment:
 
+<!-- check: run install -->
 ```bash
 pip install .                    # the library and the `mendari` command
 pip install '.[server]'          # with the `server` extra: `mendari serve` and `registry serve`
@@ -73,6 +75,7 @@ pip install '.[server]'          # with the `server` extra: `mendari serve` and 
 
 The `server` extra adds uvicorn, which `mendari serve`, `mendari registry serve` and the
 sandbox payer need; `uv sync` includes it. Vercel runs the ASGI app directly and needs no extra.
+Without it, `mendari serve` says so in one line.
 
 **Where packs come from.** Every command that takes a pack (`list`, `test`, `serve`,
 `Decision.from_hub`, ...) looks in this order:
@@ -110,6 +113,7 @@ the path at them: `MENDARI_PACKS_PATH=./my-packs uv run mendari serve`. On a ser
 
 In the clone, with uv ([Install](#install)):
 
+<!-- check: run quickstart -->
 ```bash
 uv sync
 uv run mendari demo
@@ -144,6 +148,7 @@ overstates real-world accuracy. It is a regression test, not a performance estim
 No programming needed: a pack is YAML. The [authoring guide](https://github.com/Junebugg1214/mendari/blob/main/docs/guides/authoring-a-pack.md)
 walks a clinician through it:
 
+<!-- check: run quickstart -->
 ```bash
 uv run mendari new refill-router --id my-clinic/refill-router
 uv run mendari test refill-router
@@ -152,6 +157,7 @@ uv run mendari eval refill-router --dataset examples
 
 ### Python
 
+<!-- check: run python inbox -->
 ```python
 from mendari import Decision
 
@@ -168,6 +174,7 @@ result.answers["urgency"].evidence   # ('urgent:chest-pain',)
 Swap a provider without touching the pack's contract, policy or tests, e.g. to Mendari + Jev,
 which routine messages are automated with:
 
+<!-- check: run python inbox -->
 ```python
 Decision.from_hub(
     "mendari/patient-inbox-router", providers={"safety_screen": "rules_and_jev", "router": "cascade"}
@@ -176,20 +183,33 @@ Decision.from_hub(
 
 ### CLI
 
+<!-- check: run cli -->
 ```bash
 uv run mendari list                                      # packs on the search path
 uv run mendari validate mendari/patient-inbox-router
 uv run mendari test mendari/patient-inbox-router         # the pack's own behaviour tests
 uv run mendari decide mendari/patient-inbox-router --text "Can I pay my bill online?"
 uv run mendari eval mendari/patient-inbox-router --dataset datasets/local-site-example.jsonl
-uv run mendari eval mendari/patient-inbox-router --dataset my-site.jsonl --fail-on-degradation
 uv run mendari card mendari/patient-inbox-router         # render the Decision Card
 uv run mendari test mendari/clinical-trial-prescreener
 uv run mendari eval mendari/clinical-trial-prescreener --dataset exclusions_holdout
+uv run mendari --version
+```
+
+Your own site's data, and the server:
+
+<!-- check: skip placeholder: my-site.jsonl is your own data, and serve runs until stopped; check_doc_snippets.py starts the same app in CI -->
+```bash
+uv run mendari eval mendari/patient-inbox-router --dataset my-site.jsonl --fail-on-degradation
 uv run mendari serve                                     # API + CDS Hooks + dashboard
                                                          # (developer docs: /docs)
-uv run mendari audit verify --db var/mendari.db
-uv run mendari --version
+```
+
+Then, in the folder the server ran in, verify the audit chain of the database it wrote:
+
+<!-- check: run server-db -->
+```bash
+mendari audit verify --db var/mendari.db
 ```
 
 **Errors and exit codes.** A command that cannot do what was asked prints one line per problem
@@ -215,6 +235,7 @@ exist is an error, never a new empty database that "verifies".
 
 With `uv run mendari serve` running, in another terminal (the examples need `curl` and `jq`):
 
+<!-- check: skip settings: sets the two variables check_doc_snippets.py sets for each pass -->
 ```bash
 export MENDARI=http://localhost:8000   # the server
 export MENDARI_KEY=                    # with sign-in on: an API key (ohk_…); open mode ignores it
@@ -223,11 +244,13 @@ export MENDARI_KEY=                    # with sign-in on: an API key (ohk_…); 
 List the packs, decide on a synthetic patient message (one of the pack's behaviour tests), and
 read the decision's audit record:
 
+<!-- check: snippet quickstart.sh/packs -->
 ```bash
 curl -sS --fail-with-body "$MENDARI/api/packs" -H "Authorization: Bearer $MENDARI_KEY" \
   | jq '.[] | {id, version, risk}'
 ```
 
+<!-- check: snippet quickstart.sh/decide -->
 ```bash
 decision=$(curl -sS --fail-with-body -X POST \
   "$MENDARI/api/packs/mendari/patient-inbox-router/decide" \
@@ -237,18 +260,25 @@ jq '{id, outcome, recommendation, priority, reasons}' <<<"$decision"
 id=$(jq -r .id <<<"$decision")
 ```
 
+<!-- check: snippet quickstart.sh/record -->
 ```bash
 curl -sS --fail-with-body "$MENDARI/api/audit/$id" -H "Authorization: Bearer $MENDARI_KEY" \
   | jq '{outcome, review_status, events: [.events[].event]}'
 ```
 
-Check `outcome`, not only the status code: an input that fails the pack's schema is a recorded
-decision with `outcome: BLOCK`. Whether sign-in is on, and what your key may do:
+With no model in the inbox's urgency screen (the default: keyword rules only), the refill is
+routed to the medical assistant, but a person confirms it: the decision prints
+`"outcome": "HUMAN_REVIEW"` with the reason `automation requires safety_screen = rules_and_jev or
+rules_and_llm (running: rules)`. The inbox automates only while a model screens for emergencies
+too ([Jev](#jev)); then the same message is `AUTO`. Check `outcome`, not only the status code: an
+input that fails the pack's schema is a recorded decision with `outcome: BLOCK`. Whether sign-in is on, and what your key may do:
 
+<!-- check: snippet auth.sh/mode -->
 ```bash
 curl -sS --fail-with-body "$MENDARI/api/auth/me" | jq '{mode, signed_in}'
 ```
 
+<!-- check: snippet auth.sh/me -->
 ```bash
 curl -sS --fail-with-body "$MENDARI/api/auth/me" -H "Authorization: Bearer $MENDARI_KEY" \
   | jq .principal
@@ -268,25 +298,32 @@ and CI runs those scripts against a local server, in open mode and with a `servi
 
 A pack with a `guard` section (the AI Guard reference pack is one) checks a model's draft
 before anyone reads it. The draft is `released` only when the decision is automated with a
-release recommendation; otherwise it is `held_for_review` or `blocked`, with the reasons:
+release recommendation; otherwise it is `held_for_review` or `blocked`, with the reasons (and, when
+blocked, the pack's `fallback`). Here, a dose above the daily maximum is blocked:
 
+<!-- check: snippet guard.py/check -->
 ```python
 from mendari import Decision
 from mendari.guard import check
 
 guard = Decision.from_hub("mendari/ai-guard")
-draft = my_llm(question)  # any model
+question = "My back hurts. What can I take?"
+draft = "Take 2 Advil tablets of 400 mg three times a day."  # what your model wrote
 result = check(guard, {"question": question, "draft": draft})
-if result.status == "released":
-    send(result.reply)
-elif result.status == "blocked":
-    escalate(result.decision.fallback)  # never send a blocked draft
-else:
-    queue_for_clinician(draft, result.decision.reasons)
+print(result.status)  # blocked: never send a blocked draft
+print(result.decision.fallback)  # what to do instead
 ```
 
-Over HTTP: `POST /api/packs/{id}/guard` with the same input returns `{status, reply, outcome,
-recommendation, reasons, fallback, decision_id}`.
+Send `result.reply` only when `result.status` is `released`; queue a `held_for_review` draft for a
+clinician with `result.decision.reasons`. Over HTTP, with `mendari serve` running:
+
+<!-- check: snippet guard.sh/check -->
+```bash
+curl -sS --fail-with-body -X POST "$MENDARI/api/packs/mendari/ai-guard/guard" \
+  -H "Authorization: Bearer $MENDARI_KEY" -H 'content-type: application/json' \
+  -d '{"question": "My back hurts. What can I take?", "draft": "Take 2 Advil tablets of 400 mg three times a day."}' \
+  | jq '{status, reply, outcome, recommendation, fallback}'
+```
 
 ### Container images and on-prem templates
 
@@ -300,6 +337,7 @@ with Postgres, your identity provider, PHI mode and the daily retention and moni
 
 ### Docker sandbox
 
+<!-- check: skip docker: needs the Docker sandbox; CI job sandbox-e2e runs it -->
 ```bash
 docker compose up --build
 ```
@@ -315,6 +353,7 @@ server. No real PHI is involved.
 A SMART EHR launch, scripted end to end (EHR and browser in one), decides a patient's referrals
 or messages:
 
+<!-- check: skip docker: needs the Docker sandbox; CI job sandbox-e2e runs it -->
 ```bash
 docker compose exec engine mendari sandbox smart-launch --pack mendari/referral-router \
   --engine http://engine:8000 --launcher http://launcher --fhir http://fhir:8080/fhir
@@ -324,6 +363,7 @@ The profile `signin` adds a second engine with sign-in on (port 8001) where the 
 registered to decide for organization `pilot`; CI's `sandbox-e2e` checks that its launches
 decide there, chained as the launcher's `<issuer>|<subject>`:
 
+<!-- check: skip docker: needs the Docker sandbox; CI job sandbox-e2e runs it -->
 ```bash
 docker compose --profile signin up -d --build --wait engine launcher engine-signin
 docker compose exec engine-signin mendari smart check http://launcher/v/r4/fhir
@@ -335,6 +375,7 @@ docker compose exec engine-signin mendari sandbox smart-launch --pack mendari/re
 **Bulk FHIR into local validation.** Export a site's data, then evaluate a pack on it with the
 site's own labels (ground truth from chart review, joined by an identifier system):
 
+<!-- check: skip ehr: needs an EHR's Bulk FHIR endpoint and a registered key; CI job sandbox-e2e runs bulk-check -->
 ```bash
 mendari bulk export --fhir https://ehr.example.org/fhir --group my-cohort --out export/ \
   --client-id my-app --private-key key.pem --key-id k1        # SMART Backend Services
@@ -379,6 +420,7 @@ NamingSystems, generated from the code and the served packs (`standards/terminol
 served at `/fhir/CodeSystem/{id}` and `/fhir/NamingSystem/{id}`. FHIR routes speak FHIR R4 JSON
 only (`415`/`406` otherwise).
 
+<!-- check: snippet fhir.sh/metadata -->
 ```bash
 curl -sS --fail-with-body "$MENDARI/fhir/metadata" | jq '{fhirVersion, software}'
 ```
@@ -386,6 +428,7 @@ curl -sS --fail-with-body "$MENDARI/fhir/metadata" | jq '{fhirVersion, software}
 With a synthetic patient message as a Bundle (with sign-in on, `MENDARI_KEY` as in the
 [REST quickstart](#rest-api)):
 
+<!-- check: snippet fhir.sh/decide -->
 ```bash
 bundle=$(curl -sS --fail-with-body -X POST "$MENDARI/fhir/\$decide" \
   -H "Authorization: Bearer $MENDARI_KEY" -H 'content-type: application/fhir+json' \
@@ -419,6 +462,7 @@ carries no input text and no patient or subject references, and searching by `pa
 `next` link (50 by default, at most 500), reads date-only values as the UTC day, and ignores
 unknown parameters with a warning entry (`Prefer: handling=strict` makes them a `400`).
 
+<!-- check: snippet fhir.sh/search -->
 ```bash
 curl -sS --fail-with-body "$MENDARI/fhir/Task?status=requested&_total=accurate" \
   -H "Authorization: Bearer $MENDARI_KEY" | jq .total                   # the review queue
@@ -434,6 +478,7 @@ The audit trail exports as FHIR R4. Each event in the hash chain becomes an **Au
 each decision, review and downstream outcome becomes a **Provenance** on the decision's `Task`.
 They carry ids, codes and the chain's hashes, never case text:
 
+<!-- check: snippet fhir.sh/trail -->
 ```bash
 curl -sS --fail-with-body "$MENDARI/api/audit/$id/fhir" -H "Authorization: Bearer $MENDARI_KEY" \
   | jq '[.entry[].resource.resourceType]'
@@ -442,12 +487,14 @@ curl -sS --fail-with-body "$MENDARI/api/audit/$id/fhir" -H "Authorization: Beare
 The whole trail, for a signed-in administrator (or in open mode; never with a key), and from
 the database with the CLI:
 
+<!-- check: snippet fhir.sh/export -->
 ```bash
 curl -sS --fail-with-body \
   "$MENDARI/api/audit/export/fhir?pack_id=mendari/patient-inbox-router&since=2026-09-01" \
   | jq -c '{resourceType, id}'
 ```
 
+<!-- check: run server-db -->
 ```bash
 mendari audit export --db var/mendari.db --out audit.ndjson             # FHIR NDJSON
 ```
@@ -533,6 +580,7 @@ The request and the payer's answer validate against PAS 2.2.1 in CI.
 **OMOP CDM.** Research data in OMOP (SQLite or Postgres, with an optional schema such as `cdm`)
 becomes record-pack inputs, one per person, for population-level evaluation:
 
+<!-- check: skip database: needs an OMOP CDM database; CI job reference-pack runs omop-check -->
 ```bash
 mendari omop run --db "$OMOP_URL" --schema cdm --pack mendari/clinical-trial-prescreener
 mendari omop dataset --db "$OMOP_URL" --schema cdm --pack mendari/clinical-trial-prescreener \
@@ -552,6 +600,7 @@ fail it.
 
 Every page in [`docs/`](https://github.com/Junebugg1214/mendari/tree/main/docs) builds into a documentation site with MkDocs Material:
 
+<!-- check: skip long-running: mkdocs serve runs until stopped; CI job docs builds the same site strictly -->
 ```bash
 uv sync --group docs
 uv run mkdocs serve    # http://127.0.0.1:8000
@@ -601,6 +650,7 @@ Anyone with Mendari installed ([Install](#install); `pip install mendari` once 0
 PyPI) can pull from a registry they name with `mendari login --registry URL` or
 `MENDARI_REGISTRY_URL`. There is no public registry yet; the docker sandbox runs one.
 
+<!-- check: skip registry: needs a registry and a publisher token; CI job hub-e2e publishes the reference packs to a local registry through the same client and runs mendari pull and test -->
 ```bash
 mendari keys generate --out keys/                           # a publisher key pair (Ed25519)
 mendari login --registry https://hub.example.org --token <publisher token>
@@ -640,6 +690,7 @@ The docker sandbox runs a registry on port 8100 (`scripts/hub_seed.py` publishes
 By default the server is open: for local use and the sandbox, on `127.0.0.1`. Setting an
 identity provider switches on sign-in, as the project's production deployment does (Google):
 
+<!-- check: skip settings: settings for your identity provider, not commands; CI job pilot-check sets the same names -->
 ```bash
 MENDARI_OIDC_ISSUER=https://login.example.org/realms/clinic   # your IdP (OpenID Connect)
 MENDARI_OIDC_CLIENT_ID=mendari
@@ -728,6 +779,7 @@ error, such as a `--db` it cannot read: the line on stderr says which) and
 posts them to `--webhook` / `MENDARI_ALERT_WEBHOOK` (https only; keep the URL as a secret,
 since most carry their token in the path):
 
+<!-- check: skip placeholder: posts alerts to a webhook you supply -->
 ```bash
 mendari monitor --db "$DATABASE_URL" --org clinic-a --webhook https://alerts.example.org/hook
 ```
@@ -827,6 +879,7 @@ the result in `evals/leaderboard.json` and the Decision Card. Configurations who
 exist only on a deployment (such as Jev through Vercel Connect) run through the deployment's
 budgeted evaluation endpoint, and their reports are merged in with `--report`:
 
+<!-- check: skip secrets: calls an LLM and a Vercel deployment with your credentials -->
 ```bash
 uv run mendari leaderboard mendari/patient-inbox-router --dataset test --limit 100 \
   --dataset red_flags --dataset red_flags_holdout \
@@ -852,6 +905,7 @@ AUTO decision counts as "confidently wrong".
 The system never retrains or rewrites itself from ratings. Instead, the thumbs-down cases are
 downloaded as a dataset:
 
+<!-- check: run server-db -->
 ```bash
 mendari feedback export mendari/patient-inbox-router --db "$DATABASE_URL" --out down.jsonl
 ```
@@ -900,6 +954,7 @@ at load, so no pack can choose which secret is sent, or where.
 | `JEV_API_KEY` | Key for local use instead of a connector |
 | `MENDARI_JEV_DAILY_LIMIT` | Daily call budget (default 500; `none` for no limit) |
 
+<!-- check: skip secrets: calls Jev with your credentials -->
 ```bash
 JEV_API_URL=... JEV_MODEL=... JEV_API_KEY=... uv run mendari eval mendari/patient-inbox-router \
   --dataset test --provider safety_screen=rules_and_jev --provider router=cascade
@@ -969,6 +1024,7 @@ Ollama, vLLM or llama.cpp to run an open-source model on your own hardware inste
 As for Jev, these names are fixed, and an `llm` variant that names other variables
 (`base_url_env`, `api_key_env`, `local_key_env`, `model_env`) is refused at load.
 
+<!-- check: skip secrets: needs your Vercel project and its credentials -->
 ```bash
 vercel env pull .env.local   # a fresh OIDC token for local calls through the gateway
 vercel env run -- uv run mendari calibrate <pack> --slot router --variant llm --limit 100
@@ -1063,6 +1119,7 @@ notes/           project notes: milestone plans, design and audit reviews, the b
 
 ## Development
 
+<!-- check: skip ci: each line is a step of CI jobs test, browser and reference-pack -->
 ```bash
 uv sync
 uv run pytest                          # unit and integration tests
