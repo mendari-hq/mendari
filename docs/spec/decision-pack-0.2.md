@@ -51,11 +51,14 @@ card:
   out_of_scope: [...]
   known_failure_modes: [...]
   evidence: [{title, url?, note?}]
+  provenance: synthetic | de_identified | site_records   # optional; the status line (below)
 inputs: {schema: <path>, fhir: <path>?}
 questions:
   <key>:
     type: choice | boolean | score  # default choice (§4)
     instructions: ...
+    display: What a person reads      # optional, at most 80 characters
+    names: {<label>: What a person reads}  # optional, the question's own labels only
     criteria: {<label>: <criterion>}          # choice; optional for boolean
     levels: {<label>: {score, criterion}}     # score only
     derive: {from: [<question>...], table: [<row>...]}  # derived questions only (§4.3)
@@ -152,7 +155,16 @@ Its answer carries `value`, the **expected score** Σ p(label) × score(label), 
 act on graded severity without collapsing the distribution to one label (§6). Criteria are taken
 from the levels.
 
-```yaml
+```
+
+**Status line.** Every surface that shows a pack (its Decision Card's first line, the dashboard,
+Try it, the review queue, CDS Hooks discovery and cards, the registry and the Hub) shows a line
+derived from `card.provenance`, never written by the pack: with `synthetic`, "Synthetic example.
+Not clinically reviewed. Not for patient care."; otherwise "Not clinically reviewed." There is
+not yet a way to record a clinician's review of a pack's digest, so no pack can claim one.
+**Display names.** `display` names a question and `names` its labels for the people who read
+them; without them a key reads as words (`medical_assistant`: "Medical assistant"). They change
+no decision.yaml
 severity:
   type: score
   instructions: How severe is the diabetes?
@@ -575,6 +587,7 @@ of these.
 | `min_score` / `max_score` policy conditions; `labels` becomes optional | §6 |
 | `min_probability` policy conditions (a label's probability, not only the winning label) | §6 |
 | `automation_requires` (AUTO only while given slots run given variants) | §6 |
+| `card.provenance` (the status line every surface shows) and question `display` and `names` | §3 |
 | Derive rows `in` (scoped to members), `when` (gated on other answers) and label lists | §4.3 |
 | `criteria` provider: `exists`/`value` checks, any question label, per-check `when` | §5 |
 | FHIR `lists`, `age_years`/`base64_text`; card and Task templates naming answers | §9 |

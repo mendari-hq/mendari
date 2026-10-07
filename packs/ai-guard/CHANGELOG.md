@@ -4,6 +4,16 @@ Renamed on 2026-09-30, when the project became Mendari: this pack was `openhealt
 Its id, its publisher's name and its `https://mendari.co/...` identifiers changed; its criteria,
 rules, models, data and results did not.
 
+## 0.1.3
+
+- Every surface now says what the pack is: "Synthetic example. Not clinically reviewed. Not for
+  patient care." It is derived from the new `card.provenance: synthetic`, never written by the
+  pack (the Decision Card's first line, the dashboard, Try it, the review queue, CDS Hooks cards
+  and discovery, the registry and the Hub).
+- Each question has a `display` name, so people read words instead of keys.
+- Criteria, rules, providers, policy, models and data are unchanged; every decision is identical.
+  The digest changes because the manifest does.
+
 ## 0.1.2
 
 - Synthetic drafts now fit their questions. Each routine question is answered only with drafts

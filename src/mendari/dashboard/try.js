@@ -3,7 +3,7 @@
 import { chartHtml } from "./charts.js";
 import { feedbackControls } from "./feedback.js";
 import { schemaForm, wireSchemaForm } from "./form.js";
-import { communityNotice, criteriaTable, derivedPrimary, isMessagePack, labelTone, providerWords, questionText } from "./pack.js";
+import { communityNotice, criteriaTable, derivedPrimary, isMessagePack, labelTone, providerWords, questionText, statusNotice } from "./pack.js";
 import { refreshReviewCount, views, wire } from "./router.js";
 import { $, api, emptyState, esc, focusHeading, icon, may, num, packPath, pct, PRIORITY_TEXT, state, storageGet, storageSet, toastError, whileBusy } from "./ui.js";
 
@@ -35,6 +35,7 @@ async function tryRecord(main) {
     <h1>Try it</h1>
     <p class="muted">Synthetic records only; decisions here are recorded. Start from one of the pack's tests and change any field.</p>
     ${communityNotice(state.detail)}
+    ${statusNotice(state.detail)}
     <div class="panel">
       <div class="row mb-3">
         <label for="example">Example</label>
@@ -141,6 +142,7 @@ async function tryMessage(main) {
     <h1>Try it</h1>
     <p class="muted">Synthetic messages only; decisions here are recorded.</p>
     ${communityNotice(state.detail)}
+    ${statusNotice(state.detail)}
     <div class="panel">
       <div class="choices samples mb-3" role="group" aria-label="Sample messages"><span class="muted">Samples</span>
         ${SAMPLES.map((s, i) => `<button type="button" data-sample="${i}">${esc(s.label)}</button>`).join("")}</div>

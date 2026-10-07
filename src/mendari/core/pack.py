@@ -87,6 +87,13 @@ class Pack:
         return ORIGIN_LABELS[self.shown_origin]
 
     @property
+    def status_label(self) -> str:
+        """What every surface says of the pack's status (`core/status.py`)."""
+        from mendari.core.status import status_label
+
+        return status_label(self.manifest)
+
+    @property
     def version(self) -> str:
         return self.manifest.version
 

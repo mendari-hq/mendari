@@ -1,5 +1,23 @@
 # Lessons
 
+## 2026-10-06 - process
+
+### What happened
+A full-suite run was reported as passing while two tests had failed. The run was
+`pytest -q ... | tail -3` in the background: the project's own `addopts` already has `-q`, so
+the extra `-q` (`-qq`) dropped the summary line, and the pipe made the command's exit code
+`tail`'s. The `FAILED` lines were in the output but not where they were looked for.
+
+### Root cause
+Reading a run's success from the shell's exit code and the last lines of piped output.
+
+### Rule
+Run pytest without piping its exit code away (`pytest ... > log 2>&1; echo exit=$?`), and read
+both pytest's own exit code and `grep -c FAILED log` before calling a run green.
+
+### Verification
+Every reported run names pytest's exit code, and the count of `FAILED` lines is 0.
+
 ## 2026-09-25 - testing
 
 ### What happened

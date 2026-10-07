@@ -77,6 +77,8 @@ def render_card(pack: Pack) -> str:
     out: list[str] = [
         f"# Decision Card: {m.name}",
         "",
+        f"**{pack.status_label}**",
+        "",
         f"`{m.id}` · version **{m.version}** · {m.license} · "
         f"published by {m.publisher.name} ({m.publisher.type}, self-declared)",
         "",

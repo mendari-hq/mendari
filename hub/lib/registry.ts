@@ -24,6 +24,8 @@ export type PackSummary = {
   archive_sha256: string;
   publisher_type: string | null;
   claimed_publisher: { name: string; type: string };
+  // Derived by the registry from the manifest's card.provenance; absent on versions published before it.
+  status_label?: string;
   benchmark: Benchmark;
 };
 

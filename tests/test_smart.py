@@ -222,7 +222,13 @@ def test_each_launch_names_itself_and_the_window_it_opens(app: TestClient, ehr: 
     listed = {pack["id"]: pack for pack in app.get("/api/packs").json()}
     # With the label the patient view shows (a community pack says so where a person decides).
     assert one["packs"] == [
-        {"id": i, "name": p["name"], "origin": p["origin"], "origin_label": p["origin_label"]}
+        {
+            "id": i,
+            "name": p["name"],
+            "origin": p["origin"],
+            "origin_label": p["origin_label"],
+            "status_label": p["status_label"],
+        }
         for i, p in sorted(listed.items())
     ]
     second = full_launch(app, ehr)
@@ -865,6 +871,7 @@ def test_a_launch_opens_the_dashboard_page_and_nothing_else(
         "name": "Referral Router",
         "origin": "maintained",
         "origin_label": "Maintained by Mendari",
+        "status_label": "Synthetic example. Not clinically reviewed. Not for patient care.",
     }
     assert referral in session["packs"]
     assert app.get("/", follow_redirects=False).status_code == 200

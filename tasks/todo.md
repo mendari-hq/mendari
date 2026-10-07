@@ -49,7 +49,19 @@ behaviour.
   the Hub no longer shows them: any publisher token can still submit under any site name.
   Left for LP-22 (with site signatures): counts in, rates out (the registry computing every
   rate), a keyed dataset commitment, one live submission per site.
-- [ ] **LP-04** Review status (the synthetic-example label) and display names: spec 0.3.
+- [x] **LP-04** The synthetic-example label and display names, as optional 0.2 fields (no
+  published engine yet, so no 0.3): `card.provenance` (`synthetic`, `de_identified`,
+  `site_records`) and question `display` and `names`. The line every surface shows is derived
+  (`core/status.py`), never written by a pack: "Synthetic example. Not clinically reviewed. Not
+  for patient care." with `synthetic`, else "Not clinically reviewed." (no way exists yet to
+  record a clinician's review of a digest, so no pack can claim one). Shown on the Decision
+  Card's first line, `/api/packs`, the SMART session's packs, the dashboard (overview, card, Try
+  it, review queue, audit drawer, patient view), CDS Hooks discovery and every card's detail,
+  the registry's metadata and the Hub, and the README. The five packs set `provenance:
+  synthetic` and display names (versions bumped, rebuilt: data and models byte-identical;
+  9,958 decisions identical to main's in every offline configuration). Rendering display names
+  instead of codes is LP-05; note there that a pack's own names are its author's claim (a
+  community pack could name `block` "Safe"), so the code stays one click away.
 - [ ] **LP-05** One versioned notice on every surface, a recorded acknowledgement before Try it,
   a plain-language result view.
 - [ ] **LP-06** Automation hold (the kill switch, brought forward from A13).

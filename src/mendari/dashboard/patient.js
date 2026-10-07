@@ -11,7 +11,7 @@
 // patient, items and decide requests carry the pin (`X-Mendari-Launch`): the server answers 409
 // to a replaced one, so a launch that replaces this one between those requests shows nothing.
 
-import { communityNotice, isCommunity, originBadge } from "./pack.js";
+import { communityNotice, isCommunity, originBadge, statusNotice } from "./pack.js";
 import { render, route, views } from "./router.js";
 import { $, api, emptyState, esc, icon, may, outcomeBadge, priorityBadge, state, toast, toastError, whileBusy } from "./ui.js";
 
@@ -46,6 +46,7 @@ views.patient = async (main, params) => {
     <h1>This patient</h1>
     <p class="muted">From the EHR launch: what ${esc(packName())} decides about for this patient.</p>
     ${communityNotice(currentPack())}
+    ${statusNotice(currentPack())}
     ${banner(patient)}
     ${items.length ? `<ul class="work-items">${items.map(workItem).join("")}</ul>` : emptyState({
       icon: "inbox", title: "Nothing to decide",

@@ -11,6 +11,12 @@ export const originBadge = (pack) => (pack?.origin_label
   ? `<span class="badge origin${isCommunity(pack) ? " origin-community" : ""}">${esc(pack.origin_label)}</span>`
   : "");
 
+// What the pack is (`status_label`, derived from its card.provenance, never written by the pack):
+// a synthetic example, and not clinically reviewed, wherever the pack is shown.
+export const statusNotice = (pack) => (pack?.status_label
+  ? `<p class="callout warning status-notice"><b>${esc(pack.status_label)}</b></p>`
+  : "");
+
 export const communityNotice = (pack) => (isCommunity(pack)
   ? `<div class="callout community-notice"><b>${esc(pack.origin_label)}.</b> An outside developer contributed this pack,
       and Mendari has not clinically reviewed it. It recommends and never automates: a person confirms every decision.</div>`

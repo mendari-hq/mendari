@@ -1,6 +1,8 @@
 # Decision Card: Referral Router
 
-`mendari/referral-router` · version **0.1.2** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
+**Synthetic example. Not clinically reviewed. Not for patient care.**
+
+`mendari/referral-router` · version **0.1.3** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
 
 > Reads a specialty referral as it is signed: suggests the specialty, spots referrals that should be seen within two weeks, checks that the referral has what that specialty needs, and sends complete routine referrals straight to the specialty's scheduling queue.
 
@@ -9,8 +11,8 @@
 | Source | Maintained by Mendari |
 | Risk level | **1**, clinical information processing (clinical information) |
 | Automation | AUTO permitted by policy thresholds; every decision is audited. Only while `triage_screen` is `rules_and_jev` or `rules_and_llm`; otherwise a person reviews. |
-| Pack digest | `sha256:d997766e1b2ca369ff987e8c5022556b6589f436bfbb0bbca22f199b6e68a31f` |
-| Last validation | 2026-10-05 on `test` (n=600, sha256 `f085362d6bc2…`) |
+| Pack digest | `sha256:d8ff01b38b7cbca14e6b2925467e86c68b4e50741cd606e1635586b51c6fc3ff` |
+| Last validation | 2026-10-06 on `test` (n=600, sha256 `f085362d6bc2…`) |
 
 ## Intended use
 
@@ -174,7 +176,7 @@ Benchmark `test` (n=600) with specialty_reader=`naive_bayes`, triage_screen=`rul
 | Accuracy of AUTO decisions | n/a |
 | False automation rate | n/a |
 | Expected human override rate | 0.5% |
-| Latency p50 / p95 | 1.91 / 2.45 ms |
+| Latency p50 / p95 | 1.88 / 2.02 ms |
 | Cost per decision | $0.00000 |
 | Critical `urgency=urgent` | 113/113 detected, 0 automated |
 | Critical `next_step=urgent_review` | 124/124 detected, 0 automated |
@@ -371,7 +373,17 @@ Renamed on 2026-09-30, when the project became Mendari: this pack was `openhealt
 Its id, its publisher's name and its `https://mendari.co/...` identifiers changed; its criteria,
 rules, models, data and results did not.
 
-#### 0.1.2
+#### 0.1.3
+
+- Every surface now says what the pack is: "Synthetic example. Not clinically reviewed. Not for
+  patient care." It is derived from the new `card.provenance: synthetic`, never written by the
+  pack (the Decision Card's first line, the dashboard, Try it, the review queue, CDS Hooks cards
+  and discovery, the registry and the Hub).
+- Each question has a `display` name, so people read words instead of keys, and one label has a name (`return_for_info`).
+- Criteria, rules, providers, policy, models and data are unchanged; every decision is identical.
+  The digest changes because the manifest does.
+
+### 0.1.2
 
 - `specialty_reader`: a `cascade` variant (naive Bayes when it is at least 95% sure, else Jev),
   as the Patient Inbox Router's router has. When Jev cannot answer, the referral still gets

@@ -294,6 +294,7 @@ def add_smart_routes(
                 "name": pack.manifest.name,
                 "origin": pack.shown_origin,
                 "origin_label": pack.origin_label,
+                "status_label": pack.status_label,
             }
             for pack in packs.values()
         ]

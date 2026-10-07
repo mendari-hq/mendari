@@ -1,6 +1,6 @@
 spec_version: "0.2"
 id: mendari/prior-auth-preflight
-version: 0.1.2
+version: 0.1.3
 name: Prior Authorization Preflight
 summary: >-
   Checks an order against the patient's payer before it is sent for prior authorization: does
@@ -21,6 +21,8 @@ risk:
     expedited review) always goes to a person.
 
 card:
+  # What every surface's status line is derived from (core/status.py).
+  provenance: synthetic
   intended_use: >-
     Preflight of outpatient orders that need prior authorization, when the order is signed
     (CDS Hooks `order-sign`) or before an authorization specialist submits it: identify the
@@ -77,6 +79,8 @@ inputs:
 questions:
   # -- from codes (computed in code) -----------------------------------------------------------
   service:
+    display: "Requirement set"
+    names: {"lumbar_mri": "Lumbar MRI"}
     instructions: Which requirement set does the ordered service fall under?
     criteria:
       lumbar_mri: MRI of the lumbar spine (CPT 72148, 72149, 72158).
@@ -84,12 +88,14 @@ questions:
       sleep_study: Attended sleep study (CPT 95810, 95811).
       other: Any other service; the pack has no requirement set for it.
   payer:
+    display: "Payer"
     instructions: Which payer covers the patient?
     criteria:
       acme: Acme Health (synthetic).
       beacon: Beacon Care (synthetic).
       other: Any other payer; the pack has no requirement set for it.
   diagnosis_supports:
+    display: "Supporting diagnosis coded"
     instructions: Is a diagnosis that supports the ordered service coded?
     criteria:
       "yes": >-
@@ -98,6 +104,7 @@ questions:
       "no": No supporting diagnosis is coded.
       unknown: The record does not say.
   prior_imaging:
+    display: "Required imaging on file"
     instructions: Is the imaging the payer asks for on file from the last 180 days?
     criteria:
       "yes": >-
@@ -108,6 +115,7 @@ questions:
 
   # -- from the notes ("unknown" = mentioned, but unclear) ------------------------------------
   conservative_therapy:
+    display: "6 weeks of conservative treatment"
     instructions: >-
       Do the notes document at least 6 weeks of conservative treatment for the problem?
     criteria:
@@ -122,6 +130,7 @@ questions:
         Treatment is mentioned but its length is not stated or cannot be worked out, e.g. "has
         tried some physical therapy".
   red_flag:
+    display: "Red flag in the notes"
     instructions: >-
       Do the notes document a red flag that calls for imaging without waiting for conservative
       treatment?
@@ -136,6 +145,7 @@ questions:
         unrelated, or only in a family member.
       unknown: A possible red flag is mentioned but unclear.
   mechanical_symptoms:
+    display: "Mechanical knee symptoms"
     instructions: Do the notes document mechanical symptoms of the knee?
     criteria:
       "yes": The knee locks, catches, gives way or buckles.
@@ -144,6 +154,7 @@ questions:
         clicking.
       unknown: Mentioned but unclear.
   sleep_symptoms:
+    display: "Sleep apnoea symptoms"
     instructions: Do the notes document symptoms of obstructive sleep apnoea?
     criteria:
       "yes": >-
@@ -154,6 +165,8 @@ questions:
 
   # -- the next step ---------------------------------------------------------------------------
   next_step:
+    display: "Next step"
+    names: {"submit_ready": "Ready to submit"}
     instructions: What should happen to the prior-authorization request next?
     criteria:
       submit_ready: >-
