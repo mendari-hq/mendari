@@ -1,0 +1,85 @@
+# What NOTICE says: the project, its copyright line, and every third-party work the repository
+# carries or its packages bundle, with the licence and the notice each requires. NOTICE is
+# generated from this file (scripts/build_notice.py); tests/test_notice_file.py checks that it is,
+# and that every vendored package is listed at the version vendored.
+
+[project]
+name = "Mendari"
+# The owner's to confirm before the repository is public (tasks/todo.md, LP-13): contributors keep
+# their copyright, certified by their sign-off (DCO 1.1), so the line names them together.
+copyright = "Copyright 2026 The Mendari authors"
+licence = "Licensed under the Apache License, Version 2.0 (LICENSE)."
+
+[[material]]
+name = "Swagger UI"
+package = "swagger-ui-dist"
+vendored = "src/mendari/dashboard/vendor/swagger-ui"
+where = "src/mendari/dashboard/vendor/swagger-ui/<version>/: the API reference (/docs/reference)"
+licence = "Apache License 2.0"
+distributed = true
+# Apache-2.0 section 4(d): the upstream NOTICE, carried as it is.
+notice_file = "src/mendari/dashboard/vendor/swagger-ui/<version>/NOTICE"
+also = "Its bundle's own notices, for the code it bundles (MIT, BSD-3-Clause, and Apache-2.0 or MPL-2.0): swagger-ui-bundle.js.LICENSE.txt beside it."
+
+[[material]]
+name = "Lucide icons"
+where = "the SVG symbols in src/mendari/dashboard/index.html and docs.html"
+licence = "ISC License; portions from Feather, MIT License"
+distributed = true
+notice = """Copyright (c) for portions of Lucide are held by Cole Bemis 2013-2022 as part of Feather (MIT).
+All other copyright (c) for Lucide are held by Lucide Contributors 2022."""
+also = "The licences in full: src/mendari/dashboard/LICENSE-lucide.txt."
+
+[[material]]
+name = "HL7 FHIR R4 and US Core 6.1.0"
+where = "src/mendari/standards/fhir_r4_structure.json and us_core_6_1_0.json, derived from the published specifications by scripts/fhir_r4_schema.py and scripts/us_core_subset.py"
+licence = "CC0 1.0 (HL7 International's FHIR specifications)"
+distributed = true
+notice = "HL7 and FHIR are registered trademarks of Health Level Seven International."
+
+[[material]]
+name = "LOINC"
+where = "LOINC codes in the synthetic reference packs and datasets (packs/, datasets/)"
+licence = "the LOINC License (https://loinc.org/license)"
+distributed = true
+notice = """This material contains content from LOINC (https://loinc.org). LOINC is copyright Regenstrief
+Institute, Inc. and the Logical Observation Identifiers Names and Codes (LOINC) Committee and is
+available at no cost under the license at https://loinc.org/license. LOINC is a registered United
+States trademark of Regenstrief Institute, Inc."""
+
+[[material]]
+name = "SNOMED CT"
+where = "SNOMED CT codes in synthetic examples (packs/clinical-trial-prescreener, src/mendari/sandbox)"
+licence = "SNOMED International's licence terms"
+distributed = true
+notice = "SNOMED and SNOMED CT are registered trademarks of SNOMED International."
+
+[[material]]
+name = "CPT"
+where = "CPT codes in the synthetic prior-authorization reference pack and its dataset (packs/prior-auth-preflight, datasets/)"
+licence = "the American Medical Association's terms"
+distributed = true
+notice = "CPT is a registered trademark of the American Medical Association. CPT codes and descriptions are copyright the American Medical Association."
+
+[[material]]
+name = "ICD-10-CM"
+where = "ICD-10-CM codes in the synthetic reference packs and datasets"
+licence = "public domain (U.S. National Center for Health Statistics)"
+distributed = true
+
+[[material]]
+name = "X12 code values"
+where = "the Da Vinci PAS mapping (src/mendari/standards/pas.py)"
+licence = "X12's terms"
+distributed = true
+notice = "X12 is a registered trademark of X12."
+
+[[material]]
+name = "axe-core"
+package = "axe-core"
+vendored = "tests/browser/vendor/axe-core"
+where = "tests/browser/vendor/axe-core/<version>/: the browser tests' accessibility checks, in no package"
+licence = "Mozilla Public License 2.0"
+distributed = false
+notice = "Copyright (c) Deque Systems, Inc."
+also = "Its third-party notices: LICENSE-3RD-PARTY.txt beside it."

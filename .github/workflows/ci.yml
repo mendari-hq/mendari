@@ -419,6 +419,22 @@ jobs:
           docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
           git /repo --config /repo/.gitleaks.toml --redact --no-banner --exit-code 1
 
+  dco:
+    # Every commit a pull request brings is signed off by its author (Developer Certificate of
+    # Origin 1.1, CONTRIBUTING.md). Merges, named bots and history before the rule are exempt.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Every commit is signed off
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: python3 scripts/check_dco.py --base "$BASE" --head "$HEAD"
+
   docs:
     # v1.0: the documentation site (mkdocs.yml, every page in docs/) builds with no broken
     # link, anchor or page left out of the navigation.
