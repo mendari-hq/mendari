@@ -2319,7 +2319,7 @@ class AuditStore:
                 "FROM api_keys WHERE id = ?",
                 (key_id,),
             )
-            if row is None or (org and row["org"] != org):
+            if row is None or (org is not None and row["org"] != org):
                 raise AuthError("no such key", 404)
             if row["revoked_at"] is not None:
                 raise AuthError("this key is revoked: create a new one", 409)
@@ -2365,7 +2365,8 @@ class AuditStore:
 
     def api_keys(self, org: str | None = None) -> list[dict[str, Any]]:
         """Every key (of `org`, if given), oldest first; never the secret or its hash."""
-        where, params = ("WHERE org = ?", (org,)) if org else ("", ())
+        # None is every organization (open mode, the command line); "" is an organization.
+        where, params = ("WHERE org = ?", (org,)) if org is not None else ("", ())
         with self._db.session(exclusive=False) as db:
             return db.all(
                 "SELECT id, name, role, org, scopes AS scope, created_by, created_at, "
@@ -2388,7 +2389,7 @@ class AuditStore:
         """Revoke a key of `org` (any, if None); False for an unknown or already revoked one."""
         with self._db.session(exclusive=True) as db:
             row = db.one("SELECT org FROM api_keys WHERE id = ? AND revoked_at IS NULL", (key_id,))
-            if row is None or (org and row["org"] != org):
+            if row is None or (org is not None and row["org"] != org):
                 return False
             revoked = {"id": key_id, "revoked_by": revoked_by, "revoked_at": _now()}
             db.all(
@@ -2451,7 +2452,8 @@ class AuditStore:
 
     def clients(self, org: str | None = None) -> list[dict[str, Any]]:
         """Every client (of `org`, if given), oldest first, with its keys' ids and thumbprints."""
-        where, params = ("WHERE org = ?", (org,)) if org else ("", ())
+        # None is every organization (open mode, the command line); "" is an organization.
+        where, params = ("WHERE org = ?", (org,)) if org is not None else ("", ())
         with self._db.session(exclusive=False) as db:
             rows = db.all(
                 "SELECT client_id, name, role, org, scopes AS scope, jwks, created_by, "
@@ -2482,7 +2484,7 @@ class AuditStore:
                 "SELECT org FROM oauth_clients WHERE client_id = ? AND revoked_at IS NULL",
                 (client_id,),
             )
-            if row is None or (org and row["org"] != org):
+            if row is None or (org is not None and row["org"] != org):
                 return False
             revoked = {"client_id": client_id, "revoked_by": revoked_by, "revoked_at": _now()}
             db.all(

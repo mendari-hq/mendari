@@ -471,6 +471,63 @@ operations, LP-22 site network, LP-23 EHR pilot.
     tracked hosted setting (removed 2026-10-04) had `mendari/ai-guard:screen=rules_and_llm`:
     check Vercel's `LLM_MODEL` for Production and Preview before that part merges.
 
+- [ ] **LP-11** Evaluation-set store and blind labelling. **Owner first:** where hidden-set
+  content, labels and keys live (outside this repository, every pack directory and every pack
+  digest); the build prompt says to stop until this file records it. Not started.
+- [ ] **LP-12** Accounts, memberships and invitations (ADR-0008, Proposed). Planned by a mapping
+  workflow as eleven PRs, each leaving claims mode exactly as it is:
+  - [ ] **12a + 12b** (PR open) This entry and ADR-0008; tenancy fails closed: for a signed-in
+    principal of no organization (`tenancy.acting_for_nobody`), every read and write that
+    resolves its organization through `tenancy.current()` is refused (`NoOrganization`, 403),
+    never widened to all of them (None) or to `default`; an empty organization is one, never
+    "any", in the key and client store.
+  - [ ] **12c** Decide-scoped credentials list packs and read CDS discovery (ADR-0004).
+  - [ ] **12d** User, organization, membership, invitation and request records; the operator's
+    `mendari access` commands (organizations, bootstrap, preflight). No route reads them yet.
+  - [ ] **12e** `MENDARI_ACCOUNTS=memberships`: sign-in by records, the no-access page and a
+    request-access path, organization selection. A principal of no organization must be
+    refused before every path that does not resolve its organization through
+    `tenancy.current()` (found by the 12a-b review): the routes that pass `principal.org` to
+    the store (holds GET/POST/DELETE; health's holds, quota and EHR registrations; key and
+    client create, list, rotate, revoke), the whole-chain `/api/audit/verify`, and the
+    streamed FHIR audit export (it reaches tenancy only once streaming, so it would answer
+    200 and then abort). Its principal carries no default organization.
+  - [ ] **12f** Invitations and member management (no e-mail sent).
+  - [ ] **12g** The organization bound into each chained event (memberships mode), checked by
+    `verify`; per-organization administrative reader and export; the generated two-organization
+    isolation test with its reviewed allow-list.
+  - [ ] **12h** The Access screen; a client's key set replaced; credential history.
+  - [ ] **12i** Key presets in one table (API, screen, docs, doc-snippet checks).
+  - [ ] **12j** A daily cap per principal (429, `Retry-After`; off unless configured).
+  - [ ] **12k** Close-out: the a6-accounts gate's probes, the README, the ADR's status.
+
+  **Conflicts written before building, and the default each PR follows** (the owner may choose
+  otherwise; each default is named by the one PR that depends on it):
+  1. "An empty claim or the literal `default` gets no organization" applies to memberships mode
+     only: claims mode, and production (Google, no organization claim), land in `default`.
+  2. The reserved roles (`pack_author`, `labeller`, `grading`) do not join the claims-mode
+     roles; a membership may hold the first two (granting nothing until LP-20 and LP-11), and
+     no membership holds `grading`. If LP-11 lands first with its own names, LP-12 reuses them.
+  3. Adding the organization to the payloads of event kinds that lack it (decision events and
+     others) is memberships-only; the kinds that already carry it (governance, holds, keys,
+     clients, evaluations, notice acknowledgements) keep it; new kinds always carry it.
+  4. Rotating a Backend Services client replaces its key set (same client id, tokens dropped).
+  5. Deployment-wide views (whole-chain verify, totals, deployment-wide holds) are the
+     operator's: by default the command line only.
+  6. The discovery fix (12c) changes claims mode too, production included: a decide-scoped
+     credential lists packs and reads CDS discovery, and `/api/auth/me` lists `discover`.
+  7. The claims-mode no-role page stays as it is.
+  8. Additive claims-visible changes count as "claims mode behaves as before".
+
+  **Owner decisions** (none blocks a PR; each PR follows the recommended default): switching
+  the hosted site to memberships mode, and when; the owner's identity for bootstrap (the
+  Google-verified e-mail, bound at first sign-in, recommended); who the operator is; whether
+  `seq` may show in an organization's views; refusing, in memberships mode, keys, clients and
+  EHR registrations of an organization with no record (recommended); the per-principal cap's
+  value; invitation lifetime (7 days, at most 30) and whether `default`'s admins may invite;
+  the reserved role spellings; notice acknowledgement per person (recommended); what the local
+  datasets folder may hold in memberships mode.
+
 ## Plan: community packs through pull requests (2026-10-04)
 Make the repository public so outside developers can contribute packs by pull request. Plan from
 three research reports on `b00e2809` (public repo, contribution flow, shipping and the bar).
