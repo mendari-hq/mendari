@@ -323,11 +323,33 @@ behaviour.
     packs in the clone, now removed after a run; a held draft's `fallback`; the packs-folder
     rows (precedence is by version, a missing folder is skipped); the API guide's
     `MENDARI_PACKS`; the runner's usage line), all fixed, 1 refuted.
-  - [ ] **LP-15c** A TestPyPI pre-release path in `release.yml` (its own protected environment,
-    then a clean-runner install and `mendari test`); multi-arch images (built once as an OCI
-    archive, each architecture tested, pushed as tested); a docs deploy workflow and
-    `site_url`. **Owner:** the docs host and URL (GitHub Pages needs the repository public on
-    the Free plan); the first TestPyPI upload waits for counsel's SNOMED CT answer (LP-14).
+  - [x] **LP-15c** The release paths (PR open). `release.yml` gains `target` (`testpypi`, the
+    default, or `pypi`): `publish-testpypi` publishes the tested files through its own
+    protected `testpypi` environment (the same guards: dispatch from a tag, the build first, a
+    public repository, reviewers checked through the API), then `verify-testpypi` downloads
+    what TestPyPI serves, compares it byte for byte with the tested wheel, installs it on a
+    clean runner with only its dependencies' locked, hash-checked versions from PyPI (no name
+    on TestPyPI can stand in for one) and runs `mendari test`. A pre-release (`0.1.0rc1`) may
+    stand under its release's changelog section. Images are built once for linux/amd64 and
+    linux/arm64 into an OCI archive; each architecture's image is taken from that archive,
+    tested (`mendari test`, under QEMU for arm64) and checked for excluded paths, and the
+    archive is pushed as it is (`skopeo copy --all`), with a release to PyPI only. `docs.yml`
+    deploys the site to GitHub Pages by hand (dispatch only, public repository only, the
+    `github-pages` environment) from the strict build, checked for excluded paths and for the
+    notice on every page: the docs site now shows the notice (`mendari.notices`, through a
+    MkDocs hook and Material's announcement bar; `scripts/check_site_notice.py`, also in CI's
+    `docs` job). `site_url`: `https://junebugg1214.github.io/mendari/`. Nothing published or
+    deployed. **Owner, open:** the docs URL (GitHub Pages by default; a custom domain is a
+    `site_url` change), Pages needs the repository public on the Free plan; the first TestPyPI
+    upload waits for counsel's SNOMED CT answer (LP-14); the `testpypi` environment and
+    TestPyPI's pending publisher (owner steps 7 and 8). **Review** (two lenses, each finding
+    checked by a skeptic): 2 medium, fixed: the rehearsal at `0.1.0rc1` failed the release's
+    own suite (the changelog test wanted an rc section; a full run at `0.1.0rc1` now fails only
+    the terminology pin, which the rc PR adds), and the emulator and builder images the image
+    actions pull were moving tags (now pinned by digest, and the supply-chain test reads them);
+    8 low, fixed (a skopeo pull no longer counts as built here; the Pages artifact is the
+    checked `site`; one docs deploy at a time; 404.html is checked and the notice check has
+    tests; check_release's wording; comments); 1 refuted (skopeo negotiates Docker's API).
 
 **Pre-public:** LP-13 and LP-14 (done above), LP-15 (above: a, then b and c), LP-03 (launch
 gates as a checked file).
@@ -626,8 +648,9 @@ build session. A1–A8 come before A9 (making the repository public); A10 and A1
 7. **A11, before any tag.**
    - Settings → **Environments** → New environment `pypi`: Required reviewers: you; Deployment
      branches and tags → Selected branches and tags → add a **tag** rule `v*`. Then the same for
-     `ghcr` (`release.yml` publishes the images from it). Check after: both list one reviewer and
-     the `v*` tag rule. A publishing job refuses to run while its environment has no reviewer.
+     `testpypi` (the rehearsal) and `ghcr` (`release.yml` publishes the images from it). Check
+     after: all three list one reviewer and the `v*` tag rule. A publishing job refuses to run
+     while its environment has no reviewer.
      (On GitHub Free, protection rules work only once the repository is public.)
    - Settings → **Rules → Rulesets** → New ruleset → **New tag ruleset**: name "release tags",
      Enforcement Active, Bypass list: Repository admin; Target tags: include `v*`; rules:
@@ -636,21 +659,34 @@ build session. A1–A8 come before A9 (making the repository public); A10 and A1
    - pypi.org → Your account → **Publishing** → Add a new pending publisher (GitHub): PyPI
      project name `mendari`, owner `Junebugg1214`, repository `mendari`, workflow
      `release.yml`, environment `pypi`. Check after: it is listed as a pending publisher, and
-     the name `mendari` is still free on PyPI.
-8. **Release 0.1.0.** On an up-to-date `main`, with `CHANGELOG.md`'s `## 0.1.0` section as you
+     the name `mendari` is still free on PyPI. The same on **test.pypi.org** with environment
+     `testpypi`.
+8. **Release 0.1.0.** First a rehearsal on TestPyPI, after counsel's answer on SNOMED CT (LP-14:
+   the wheel carries those codes): a build PR sets the version to `0.1.0rc1` everywhere it is
+   written (`tests/test_release_gate.py` lists them; `CHANGELOG.md`'s `## 0.1.0` section serves
+   it) and pins the rc's fixed FHIR resources, which carry the version (`PINNED` in
+   `tests/test_terminology.py`; its failure prints the entry), then tag it
+   `v0.1.0rc1`, and Actions → **release** → Run workflow → "Use workflow from" → **Tags** →
+   `v0.1.0rc1`, publish **on**, target `testpypi`; approve the `testpypi` deployment. Check
+   after: the `verify-testpypi` job passed (TestPyPI serves the tested wheel byte for byte, and
+   it installs and runs `mendari test`). Then, on an up-to-date `main` back at `0.1.0`, with
+   `CHANGELOG.md`'s `## 0.1.0` section as you
    want it: `git tag v0.1.0 && git push origin v0.1.0` (a tag push starts nothing). Then Actions →
    **release** → Run workflow → "Use workflow from" → **Tags** → `v0.1.0`, publish **off**; it checks the tag and the version,
-   runs the tests and builds and tests the packages and the six images. When it is green, run it
-   again from the same tag with publish **on**, and in the run approve the `pypi` deployment and the six `ghcr`
+   runs the tests and builds and tests the packages and the six images (amd64 and arm64). When it
+   is green, run it again from the same tag with publish **on** and target **`pypi`**, and in the
+   run approve the `pypi` deployment and the six `ghcr`
    deployments. Check after: pypi.org/project/mendari shows 0.1.0
    with a wheel and an sdist; in a fresh venv, `pip install mendari` then `mendari test
    mendari/patient-inbox-router` passes; the release job's "The sdist holds only what a source
    build needs" step passed; GitHub → your profile → Packages lists the six `mendari-*`
    images (make each public in its package settings if it is private).
-9. **Docs on GitHub Pages** (a build PR adds the deploy workflow first). Settings → **Pages** →
-   Source: **GitHub Actions**. Check after: the site opens at the Pages URL, then a build PR
-   points the README and `mendari new` at it and switches the install line to `pip install
-   mendari`.
+9. **Docs on GitHub Pages** (the deploy workflow is `docs.yml`, LP-15c). Settings → **Pages** →
+   Source: **GitHub Actions**; then Actions → **docs** → Run workflow, from `main`. Check after:
+   the site opens at `https://junebugg1214.github.io/mendari/` (mkdocs.yml `site_url`; for a
+   custom domain, change it and add the domain in Pages), every page shows the notice, then a
+   build PR points the README and `mendari new` at it and switches the install line to `pip
+   install mendari`.
 
 ### Community packs: owner steps (B8–B10)
 After the community-packs PR (`claude/community-packs`) is merged and the repository is public

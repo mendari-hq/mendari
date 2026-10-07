@@ -451,8 +451,10 @@ jobs:
           python-version: "3.12"
       - run: uv sync --locked --group docs
       - run: uv run mkdocs build --strict
-      - name: The site holds no notes, plans, agent or CI files
-        run: python3 scripts/check_excluded.py site
+      - name: The site holds no notes, plans, agent or CI files, and every page the notice
+        run: |
+          python3 scripts/check_excluded.py site
+          python3 scripts/check_site_notice.py site
 
   quickstart:
     # The v1.0 exit: a new user goes from the README to their own local validation in under 10

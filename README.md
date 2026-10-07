@@ -329,9 +329,9 @@ curl -sS --fail-with-body -X POST "$MENDARI/api/packs/mendari/ai-guard/guard" \
 
 `docker build .` builds the engine with every pack, installing exactly `uv.lock` on a base image
 pinned by digest. `--build-arg PACK=mendari/referral-router` builds one that serves only that pack
-(`MENDARI_PACKS`). A release publishes both kinds to GitHub Container Registry (workflow
-`release`, which only a maintainer starts, never a tag push), exactly as tested; nothing is
-published before that. [`deploy/`](https://github.com/Junebugg1214/mendari/tree/main/deploy) has
+(`MENDARI_PACKS`). A release publishes both kinds to GitHub Container Registry, for linux/amd64
+and linux/arm64 (workflow `release`, which only a maintainer starts, never a tag push), exactly
+as tested; nothing is published before that. [`deploy/`](https://github.com/Junebugg1214/mendari/tree/main/deploy) has
 templates for a site's own infrastructure: docker compose on one server and Kubernetes. Both come
 with Postgres, your identity provider, PHI mode and the daily retention and monitoring jobs.
 

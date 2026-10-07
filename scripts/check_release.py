@@ -4,7 +4,8 @@
 `version REF`: the run is on a release tag (REF is `refs/tags/v<version>`, the workflow's
 `github.ref`; a bare `v<version>` locally), the tag names the commit checked out, and the version
 is the same everywhere it is written (pyproject.toml, mendari.__version__, uv.lock, the docker
-compose image tags) and has its own section in CHANGELOG.md, the newest.
+compose image tags) and has its section in CHANGELOG.md, the newest (a pre-release such as
+0.1.0rc1 may use its release's, 0.1.0).
 
 `environment NAME`: a publishing job goes on only when the repository is public and the
 deployment environment it uses has required reviewers. GitHub creates an environment named by a
@@ -72,10 +73,15 @@ def version_problems(tag: str, root: Path = ROOT, head: str | None = None) -> li
             found.append(f"{where} says {', '.join(sorted(said)) or 'nothing'}, the tag {wanted}")
     changelog = root / "CHANGELOG.md"
     sections = changelog_versions(changelog.read_text()) if changelog.exists() else []
-    if wanted not in sections:
-        found.append(f"CHANGELOG.md has no '## {wanted}' section")
-    elif sections[0] != wanted:
-        found.append(f"CHANGELOG.md's newest section is {sections[0]}, not {wanted}")
+    # A pre-release (0.1.0rc1) may stand under the section of the release it rehearses (0.1.0).
+    final = re.sub(r"(?:a|b|rc)\d+$", "", wanted)
+    accepted = [version for version in (wanted, final) if version in sections]
+    named = " or ".join(dict.fromkeys((wanted, final)))
+    if not accepted:
+        either = f" or '## {final}'" if final != wanted else ""
+        found.append(f"CHANGELOG.md has no '## {wanted}'{either} section")
+    elif sections[0] not in accepted:
+        found.append(f"CHANGELOG.md's newest section is {sections[0]}, not {named}")
     if head is not None:
         try:
             tagged = _git(root, "rev-parse", "--verify", "--quiet", f"refs/tags/{tag}^{{commit}}")
