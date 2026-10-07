@@ -24,6 +24,7 @@ def _script() -> Any:
     spec = importlib.util.spec_from_file_location("vendor_docs_ui", SCRIPT)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # dataclasses look their module up there
     spec.loader.exec_module(module)
     return module
 
@@ -128,3 +129,17 @@ def test_the_tarball_gives_up_regular_files_only(tmp_path: Path) -> None:
             archive.addfile(info, io.BytesIO(data) if info.isfile() else None)
     with pytest.raises(SystemExit, match="the tarball lacks \\['LICENSE'\\]"):
         vendor_docs_ui._extract(buffer.getvalue())
+
+
+def test_axe_core_is_vendored_as_released_with_its_licenses() -> None:
+    """The browser tests' accessibility checker: pinned, checked like Swagger UI, MPL-2.0 with its
+    third-party notices, and nowhere the engine serves."""
+    axe = vendor_docs_ui.AXE
+    assert vendor_docs_ui.check(axe.directory, axe) == []
+    manifest = json.loads((axe.directory / "manifest.json").read_text())
+    assert manifest["license"] == "MPL-2.0"
+    assert manifest["tarball"].startswith("https://registry.npmjs.org/axe-core/-/")
+    files = axe.directory / manifest["version"]
+    assert "Mozilla Public License" in (files / "LICENSE").read_text()
+    assert (files / "LICENSE-3RD-PARTY.txt").stat().st_size > 0
+    assert not str(axe.directory).startswith(str(ROOT / "src"))

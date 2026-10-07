@@ -91,3 +91,16 @@ updates:
     groups:
       docs-ui:
         patterns: ["*"]
+
+  # axe-core for the browser tests' accessibility checks (tests/browser/test_accessibility.py),
+  # vendored the same way and never served: CI fails until scripts/vendor_docs_ui.py is run.
+  - package-ecosystem: npm
+    directory: /tests/browser/vendor/axe-core
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 3
+    groups:
+      axe:
+        patterns: ["*"]

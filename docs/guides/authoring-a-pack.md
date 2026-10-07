@@ -83,7 +83,11 @@ Say what the pack was built from with `provenance` (`synthetic`, `de_identified`
 `site_records`). Mendari derives the line every surface shows from it: a pack built on synthetic
 data reads "Synthetic example. Not clinically reviewed. Not for patient care." Give each question
 a `display` name, and a label a name in `names` when its key does not read well as words
-(`lumbar_mri`: "Lumbar MRI"), so people read words instead of keys.
+(`lumbar_mri`: "Lumbar MRI"), so people read words instead of keys. The dashboard shows these
+names in Try it's result and on the review queue's cards, with each key one click away ("Show
+codes"): a name is your claim about what a label means, and a reviewer can check it against the
+key the decision really chose. The engine's detail (each label's probability, the providers, the
+thresholds and the reasons as the engine gave them) is in the decision record.
 
 ## 3. Choose the risk level honestly
 

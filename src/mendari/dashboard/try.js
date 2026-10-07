@@ -1,11 +1,10 @@
 // Try it: a message form or a record form generated from the input schema; the result.
 
-import { chartHtml } from "./charts.js";
 import { feedbackControls } from "./feedback.js";
 import { schemaForm, wireSchemaForm } from "./form.js";
-import { communityNotice, criteriaTable, derivedPrimary, isMessagePack, labelTone, providerWords, questionText, statusNotice } from "./pack.js";
+import { codesToggle, communityNotice, criteriaTable, derivedPrimary, isMessagePack, labelName, named, plainReasons, questionName, statusNotice, wireCodes } from "./pack.js";
 import { refreshReviewCount, views, wire } from "./router.js";
-import { $, api, emptyState, esc, focusHeading, icon, may, num, packPath, pct, PRIORITY_TEXT, state, storageGet, storageSet, toastError, whileBusy } from "./ui.js";
+import { $, api, emptyState, esc, focusHeading, icon, may, packPath, pct, PRIORITY_TEXT, state, storageGet, storageSet, toastError, whileBusy } from "./ui.js";
 
 const SAMPLES = [
   { label: "Refill", subject: "Refill request", body: "Hi, I need a refill on my lisinopril. I have about three pills left. Thanks" },
@@ -185,19 +184,6 @@ async function tryMessage(main) {
   });
 }
 
-function answerBars(id, question, a, answers) {
-  const rows = Object.entries(a.probabilities).sort((x, y) => y[1] - x[1])
-    .map(([label, value]) => ({ label, value, chosen: label === a.label, tone: labelTone(question, label, answers) }));
-  return `<h3>${esc(questionText(question))} <span class="muted"><span class="mono">${esc(question)}</span> · ${providerWords(a.provider)}${a.value !== undefined ? ` · expected score ${num(a.value, 2)}` : ""}</span></h3>
-    ${chartHtml({
-      id: `answer-${id}-${question}`,
-      type: "bars",
-      ariaLabel: `${questionText(question)} ${rows.map((r) => `${r.label} ${pct(r.value)}`).join(", ")}. Chosen: ${a.label}.`,
-      rows,
-    })}
-    ${a.evidence.length ? `<div class="chips mt-2">${a.evidence.map((e) => `<span class="chip">${esc(e)}</span>`).join("")}</div>` : ""}`;
-}
-
 // The outcome in words, with the priority when it isn't routine: "Blocked · urgent".
 const RESULT_WORDS = { AUTO: "Automated", HUMAN_REVIEW: "Sent to review", ABSTAIN: "Abstained: a person decides", BLOCK: "Blocked" };
 
@@ -210,29 +196,43 @@ function showResult(result) {
   const box = $("#result");
   box.innerHTML = decisionView(result);
   wire(box);
+  wireCodes(box.querySelector(".result"));
   focusHeading($("#result-title"));
   refreshReviewCount();
 }
 
+// The result in words (LP-05b): names, not codes (the codes one click away), the reasons a person
+// reads, and each question's answer. The engine's detail (each label's probability, the
+// providers, thresholds and timings, the reasons as the engine gave them) is in the decision
+// record, one link away.
 function decisionView(r) {
-  const derive = derivedPrimary();
-  const primary = r.answers[r.primary];
-  const answers = derive && primary
-    ? `<h3>Criteria</h3>${criteriaTable(r.answers)}${answerBars(r.id, r.primary, primary, r.answers)}
-      <details><summary>Probabilities for every criterion</summary>
-        ${Object.entries(r.answers).filter(([q]) => q !== r.primary).map(([q, a]) => answerBars(r.id, q, a, r.answers)).join("")}</details>`
-    : Object.entries(r.answers).map(([q, a]) => answerBars(r.id, q, a, r.answers)).join("");
   const urgent = r.outcome === "BLOCK" || r.priority === "stat";
+  const why = plainReasons(r);
+  // Every question the pack asks: an answer by name, or that none came (a provider failed).
+  const asked = [...new Set([...Object.keys(r.answers), ...Object.keys(r.errors ?? {})])];
+  const answers = derivedPrimary()
+    ? criteriaTable(r.answers, { plain: true })
+    : `<dl class="answers">${asked.map((q) => {
+      const a = r.answers[q];
+      return `<div>
+        <dt>${named(questionName(q), q)}</dt>
+        <dd>${a ? `<b>${named(labelName(q, a.label), a.label)}</b>${a.confidence !== null && a.confidence !== undefined ? ` <span class="muted">${pct(a.confidence)} sure</span>` : ""}` : `<span class="muted">no answer</span>`}</dd>
+      </div>`;
+    }).join("")}</dl>`;
+  // The confidence is the primary answer's: said only of the label the engine chose, not of one a
+  // rule set instead.
+  const chosen = r.recommendation && r.recommendation === r.answers[r.primary]?.label;
+  const certainty = !r.recommendation ? "" : chosen && r.confidence !== null ? ` · ${pct(r.confidence)} sure` : r.rule ? " · set by the pack's rule" : "";
   return `<section class="panel result" aria-labelledby="result-title">
     <div class="result-head ${urgent ? "tone-solid" : `tone-${esc(r.outcome)}`}">
       <h2 id="result-title">${icon(RESULT_ICON[r.outcome])}${esc(resultHeadline(r))}</h2>
-      <p>${r.recommendation ? `→ <b>${esc(r.recommendation)}</b>` : "No recommendation"}
-        ${r.confidence !== null ? ` · confidence ${pct(r.confidence)}` : ""} · ${num(r.latency_ms, 2)} ms ·
-        <a class="action-link" href="#audit/${encodeURIComponent(r.id)}">Decision <span class="mono">${esc(r.id.slice(0, 8))}</span></a></p>
+      <p>${r.recommendation ? `${named(questionName(r.primary), r.primary)}: <b>${named(labelName(r.primary, r.recommendation), r.recommendation)}</b>` : "No recommendation"}${certainty}</p>
     </div>
     ${r.fallback ? `<div class="callout ${r.outcome === "BLOCK" ? "danger" : "neutral"}"><b>Instead:</b> ${esc(r.fallback)}</div>` : ""}
-    <ul class="reasons">${r.reasons.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
-    ${answers}
+    ${why.length ? `<h3>Why</h3><ul class="reasons">${why.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+    ${asked.length ? `<h3>Answers</h3>${answers}` : ""}
+    <p class="result-more">${codesToggle()} ·
+      <a class="action-link" href="#audit/${encodeURIComponent(r.id)}">Engine detail in the decision record <span class="mono">${esc(r.id.slice(0, 8))}</span></a></p>
     <h3>Was this right?</h3>${feedbackControls(r)}
   </section>`;
 }

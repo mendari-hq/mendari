@@ -177,8 +177,11 @@ def test_try_it_decides_on_a_pack_made_with_the_community_scaffold(site: Page) -
     site.get_by_role("button", name="Chest pain").click()
     site.locator("#decide").click()
     expect(site.locator("#result-title")).to_contain_text("Sent to review")
-    expect(site.locator(".result .result-head")).to_contain_text("→")
-    expect(site.locator(".result")).not_to_contain_text("input rejected")
+    head = site.locator(".result .result-head")
+    # A recommendation, by name (as shown: the code beside it is hidden): the input was read.
+    expect(head).to_contain_text("Request:", use_inner_text=True)
+    expect(head).not_to_contain_text("Blocked")
+    expect(site.locator(".result")).not_to_contain_text("The input was refused")
 
 
 def test_try_it_still_sends_the_inbox_routers_channel_and_patient(site: Page) -> None:

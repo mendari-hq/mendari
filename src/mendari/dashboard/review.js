@@ -1,6 +1,6 @@
 // Review queue: grouped by priority, stat first; resolving moves focus to the next card.
 
-import { communityNotice, criteriaTable, inputView, isCommunity, originBadge, statusNotice } from "./pack.js";
+import { communityNotice, criteriaTable, inputView, isCommunity, labelName, originBadge, statusNotice } from "./pack.js";
 import { refreshReviewCount, views } from "./router.js";
 import { $, announce, api, emptyState, esc, focusHeading, icon, may, outcomeBadge, pct, PRIORITY_TEXT, priorityBadge, reducedMotion, signedIn, state, storageGet, storageSet, time, toast, toastError } from "./ui.js";
 
@@ -85,7 +85,8 @@ function holdResolution(card, button, label, reviewer) {
   const labelButtons = card.querySelectorAll(".labels button");
   labelButtons.forEach((b) => (b.disabled = true));
   button.classList.add("held");
-  const what = card.dataset.recommendation ? `Override to <b>${esc(label)}</b>` : `Label <b>${esc(label)}</b>`;
+  const name = labelName(state.detail.primary, label);
+  const what = card.dataset.recommendation ? `Override to <b>${esc(name)}</b>` : `Label <b>${esc(name)}</b>`;
   const bar = document.createElement("div");
   bar.className = "undo-bar";
   bar.innerHTML = `<span>${what} in <span class="undo-seconds">${UNDO_SECONDS}</span> s</span>
@@ -110,10 +111,10 @@ function holdResolution(card, button, label, reviewer) {
     button.classList.remove("held");
     labelButtons.forEach((b) => (b.disabled = false));
     button.focus();
-    announce(`Cancelled: ${label} was not sent`);
+    announce(`Cancelled: ${name} was not sent`);
   });
   bar.querySelector(".undo").focus();
-  announce(`${card.dataset.recommendation ? "Override" : "Label"} ${label} sends in ${UNDO_SECONDS} seconds. Press Undo to cancel.`);
+  announce(`${card.dataset.recommendation ? "Override" : "Label"} ${name} sends in ${UNDO_SECONDS} seconds. Press Undo to cancel.`);
 }
 
 // Leaving the queue (another view, another pack) sends what is held; so does closing the page, with
@@ -130,7 +131,8 @@ async function sendResolution(card, label, reviewer, { keepalive = false } = {})
       body: JSON.stringify({ final_label: label, reviewer }),
       keepalive,
     });
-    toast(result.human_override ? `Override recorded: ${label}` : `Confirmed: ${label}`);
+    const name = labelName(state.detail.primary, label);
+    toast(result.human_override ? `Override recorded: ${name}` : `Confirmed: ${name}`);
     refreshReviewCount();
     if (!card.isConnected) return; // sent on the way out of the queue
     // Keyboard reviewers carry on where they were: the next card (or the one before) gets focus,
@@ -163,7 +165,8 @@ function reviewCard(item) {
   const record = item.record;
   const recommendation = item.recommendation;
   const labels = state.detail.labels;
-  const title = recommendation ? `Recommended: ${recommendation}` : "No recommendation: the pack abstained";
+  const name = (label) => labelName(state.detail.primary, label);
+  const title = recommendation ? `Recommended: ${name(recommendation)}` : "No recommendation: the pack abstained";
   return `<article class="panel review-card${item.priority === "stat" ? " is-stat" : ""}" data-id="${esc(item.id)}" data-priority="${esc(item.priority)}"
       data-recommendation="${esc(recommendation ?? "")}"
       tabindex="-1" aria-labelledby="card-${esc(item.id)}">
@@ -181,9 +184,9 @@ function reviewCard(item) {
     <ul class="reasons">${record.reasons.filter((r) => item.priority !== "stat" || !r.startsWith("rule ")).map((r) => `<li>${esc(r)}</li>`).join("")}</ul>
     ${criteriaTable(record.answers)}
     ${may("review") ? `<div class="labels">
-      ${recommendation ? `<button type="button" class="primary" data-label="${esc(recommendation)}">${icon("check")} Confirm ${esc(recommendation)}</button>
+      ${recommendation ? `<button type="button" class="primary" data-label="${esc(recommendation)}">${icon("check")} Confirm ${esc(name(recommendation))}</button>
         <span class="muted">or choose another label:</span>` : `<span class="muted">Choose the right label:</span>`}
-      ${labels.filter((l) => l !== recommendation).map((l) => `<button type="button" data-label="${esc(l)}">${esc(l)}</button>`).join("")}
+      ${labels.filter((l) => l !== recommendation).map((l) => `<button type="button" data-label="${esc(l)}">${esc(name(l))}</button>`).join("")}
     </div>` : `<p class="muted">Resolving is for reviewers; your role can read the queue.</p>`}
   </article>`;
 }
