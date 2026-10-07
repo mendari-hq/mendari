@@ -70,7 +70,7 @@ from mendari.errors import (
     ScopeError,
     SmartError,
 )
-from mendari.evals import compare, leaderboard, load_dataset, resolve_dataset
+from mendari.evals import compare, figures, leaderboard, load_dataset, resolve_dataset
 from mendari.evals.feedback import feedback_dataset
 from mendari.evals.harness import Dataset, evaluation
 from mendari.evals.monitoring import check_webhook, monitor
@@ -338,6 +338,12 @@ def input_reader(request: Request) -> str | None:
     if principal is None or principal.kind == "open" or not principal.may("read_input"):
         return None
     return str(principal.actor)
+
+
+def _with_figures(report: dict[str, Any]) -> dict[str, Any]:
+    """A report as served: with its figures (`mendari.evals.figures`), worked out on every read
+    and never stored; null figures for a stored report they cannot be read from."""
+    return {**report, "figures": figures.guarded(lambda: figures.report(report))}
 
 
 def create_app(
@@ -856,7 +862,9 @@ def create_app(
             ),
             "input_schema": pack.input_schema,
             "output_schema": pack.output_schema,
-            "benchmark": benchmark(pack),
+            "benchmark": None
+            if (published := benchmark(pack)) is None
+            else _with_figures(published),
             "leaderboard": leaderboard.load(pack),
             "card_markdown": render_card(pack),
             "datasets": [*pack.manifest.evaluation.datasets, *local_datasets(pack)],
@@ -1168,7 +1176,7 @@ def create_app(
                 report, baseline, pack.manifest.evaluation.degradation_tolerance
             )
         store.save_report(report, ledger=run.ledger.dumps())
-        return report
+        return _with_figures(report)
 
     @app.get(
         "/api/evals",
@@ -1176,8 +1184,8 @@ def create_app(
         summary="List evaluation reports",
     )
     def list_evals(pack_id: str | None = None) -> list[dict[str, Any]]:
-        """Saved evaluation reports, newest first."""
-        return store.reports(pack_id)
+        """Saved evaluation reports, newest first, each with its figures (`figures`)."""
+        return [_with_figures(report) for report in store.reports(pack_id)]
 
     # -- review & audit ----------------------------------------------------------------------
 
@@ -1424,8 +1432,11 @@ def create_app(
         summary="Decision statistics",
     )
     def stats(pack_id: str | None = None) -> dict[str, Any]:
-        """Counts by outcome, the review backlog, override rate, latency and cost."""
-        return store.stats(pack_id)
+        """Counts by outcome, the review backlog, override rate, latency and cost; and the
+        overview's periods (`periods`: the last 7 and 30 days and all time, each with the one
+        before), their shares of cases as figures."""
+        counts = store.stats(pack_id)
+        return {**counts, "periods": figures.periods(counts["daily"], clock.today())}
 
     # -- CDS Hooks ---------------------------------------------------------------------------
 

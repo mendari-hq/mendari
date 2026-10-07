@@ -178,6 +178,7 @@ Benchmark `test` (n=600) with structured=`criteria`, notes=`rules`. Each proport
 | `next_step` accuracy | 600 of 600 [99.4-100.0%] |
 | Macro-F1 | 1.000 |
 | Expected calibration error | 0.045 |
+| Expected calibration error, equal-mass bins | 0.045 |
 | Brier score | 0.004 [0.004-0.005, bootstrap] |
 | AUTO | 0 of 600 [0.0-0.6%] |
 | HUMAN_REVIEW | 600 of 600 [99.4-100.0%] |
@@ -186,7 +187,7 @@ Benchmark `test` (n=600) with structured=`criteria`, notes=`rules`. Each proport
 | AUTO decisions correct | no cases |
 | False automation (of labelled cases) | 0 of 600 [0.0-0.6%] |
 | Expected human override (of reviewed) | 0 of 600 [0.0-0.6%] |
-| Latency p50 / p95 | 3.44 / 3.62 ms |
+| Latency p50 / p95 | 3.43 / 3.71 ms |
 | Cost per decision | $0.00000 |
 | Critical `red_flag=yes` | 25 of 25 [86.3-100.0%] detected, 0 automated (insufficient evidence: under 100 positives) |
 

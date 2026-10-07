@@ -37,6 +37,21 @@ def records(row: Mapping[str, Any]) -> Records:
     return (str(row["dataset"]), str(row.get("dataset_sha256") or ""), int(row["n"]))
 
 
+def about(group: Records, *, limited: bool, twin: bool) -> list[str]:
+    """What a set of records is, in the words the card, the dashboard and the Hub all use:
+    its size, whether it is the first cases of a file (a `--limit` run), whether its hash was
+    recorded, and the hash's start when another set has the same name and size (`twin`)."""
+    _, sha, n = group
+    words = [f"n={n}"]
+    if limited:
+        words.append(f"the first {n} cases of the file")
+    if not sha:
+        words.append("dataset hash not recorded")
+    elif twin:
+        words.append(f"records sha256:{sha[:12]}…")
+    return words
+
+
 def measured_on(version: Any, digest: Any, current: str | None) -> str:
     """Why a row (or a benchmark) is not of the pack as it is, in words."""
     if not digest:
@@ -46,19 +61,23 @@ def measured_on(version: Any, digest: Any, current: str | None) -> str:
     return f"earlier version {version}"
 
 
+def _bound(p: Any, side: int, missing: float) -> float:
+    """A bound of a stored proportion, worked out again from its k and n: a stored bound is
+    never trusted (a board can come from a registry upload)."""
+    if not isinstance(p, Mapping) or not p.get("n"):
+        return missing
+    return stats.interval(int(p["k"]), int(p["n"]))[side]
+
+
 def _key(row: Mapping[str, Any]) -> tuple[Any, ...]:
     critical = [c for c in row.get("critical", []) if c["n"] >= MIN_POSITIVES]
-    detection = min(
-        (stats.clopper_pearson(c["detected"], c["n"])[0] for c in critical), default=0.0
-    )
-    false_automation = row.get("false_automation") or {}
-    accuracy = row.get("accuracy_proportion") or {}
+    detection = min((stats.interval(c["detected"], c["n"])[0] for c in critical), default=0.0)
     cost = row.get("cost_per_decision_usd")
     return (
         sum(c["auto_missed"] for c in row.get("critical", [])),
         -detection,
-        false_automation.get("high") if false_automation.get("high") is not None else 1.0,
-        -(accuracy.get("low") or 0.0),
+        _bound(row.get("false_automation"), 1, 1.0),
+        -_bound(row.get("accuracy_proportion"), 0, 0.0),
         cost if cost is not None else float("inf"),
         str(row["config"]),
     )

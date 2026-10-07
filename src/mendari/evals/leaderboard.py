@@ -12,12 +12,13 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, datetime
 from typing import Any
 
 from mendari.core.pack import Pack
-from mendari.evals import ranking, stats
+from mendari.evals import figures, ranking, stats
 from mendari.evals.render import INTERVALS, evidence, num, shown
 from mendari.evals.result import MIN_POSITIVES, counted, false_automation, normalize
 
@@ -137,12 +138,13 @@ def critical_text(item: Mapping[str, Any]) -> str:
 
 
 def load(pack: Pack) -> dict[str, Any] | None:
-    """The pack's leaderboard, ranked against the pack as it is (its digest), or None: none
-    there, or not one the card can show (`read`)."""
+    """The pack's leaderboard as served (`figures.board`): ranked against the pack as it is
+    (its digest), its rows with their figures, by set of records. None when there is none, or
+    not one the card can show (`read`)."""
     board = read(pack)[0]
     if board is None:
         return None
-    return {**board, "rows": ranking.rank(board.get("rows", []), pack.digest)}
+    return figures.board(board, pack.digest, pack.version)
 
 
 def read(pack: Pack) -> tuple[dict[str, Any] | None, str | None]:
@@ -156,7 +158,8 @@ def read(pack: Pack) -> tuple[dict[str, Any] | None, str | None]:
         if not isinstance(board.get("rows", []), list):
             raise TypeError("rows")
         markdown(board, pack.digest, pack.version)
-    except (AttributeError, IndexError, KeyError, TypeError, ValueError) as error:
+        figures.board(board, pack.digest, pack.version)  # what the server serves of it
+    except (AttributeError, IndexError, KeyError, TypeError, ValueError, ArithmeticError) as error:
         return None, f"not a leaderboard ({type(error).__name__})"
     return board, None
 
@@ -175,7 +178,7 @@ def markdown(
         digest = recorded.get("digest")
         version = version if version is not None else recorded.get("version")
     groups = ranking.grouped(board.get("rows", []), digest)
-    sizes = [(name, n) for (name, _, n), _ in groups]
+    sizes = Counter((name, n) for (name, _, n), _ in groups)
 
     def config(item: Mapping[str, Any]) -> str:
         if item["standing"] == ranking.EARLIER:
@@ -191,14 +194,13 @@ def markdown(
             return f"none: {why}"
         return f"none: {item['standing']}"
 
-    for (name, sha, n), rows in groups:
-        about = [f"n={n}"]
-        if any(item.get("limit") for item in rows):
-            about.append(f"the first {n} cases of the file")
-        if not sha:
-            about.append("dataset hash not recorded")
-        elif sizes.count((name, n)) > 1:
-            about.append(f"records sha256:{sha[:12]}…")
+    for group, rows in groups:
+        name, _, n = group
+        about = ranking.about(
+            group,
+            limited=any(item.get("limit") for item in rows),
+            twin=sizes[(name, n)] > 1,
+        )
         out += [
             f"**`{name}`** ({'; '.join(about)}; {INTERVALS})",
             "",
@@ -277,7 +279,9 @@ def _question_table(
     ]
 
 
-def _ms(value: float) -> str:
+def _ms(value: float | None) -> str:
+    if value is None:  # a row whose run did not say
+        return "n/a"
     return f"{value:.2f} ms" if value < 10 else f"{value:,.0f} ms"
 
 

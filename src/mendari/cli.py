@@ -1099,8 +1099,7 @@ def cmd_pull(args: argparse.Namespace) -> int:
 
 
 def cmd_search(args: argparse.Namespace) -> int:
-    from mendari.evals import render
-    from mendari.evals.result import counted
+    from mendari.evals import figures, render
 
     with _registry_client(args) as registry:
         found = registry.search(
@@ -1114,15 +1113,13 @@ def cmd_search(args: argparse.Namespace) -> int:
         return 0
     for item in found:
         benchmark = item.get("benchmark") or {}
-        accuracy, n = benchmark.get("accuracy"), benchmark.get("n")
-        # A registry entry is someone else's data: a figure that is not a share of n cases is
-        # shown as n/a, never a reason to stop the listing.
-        whole = isinstance(n, int) and not isinstance(n, bool) and n >= 0
-        share = isinstance(accuracy, int | float) and 0.0 <= accuracy <= 1.0
+        accuracy = benchmark.get("accuracy")
+        # A registry entry is someone else's data: a figure that is not a whole k of a whole n
+        # is shown as n/a (figures.counted), never a reason to stop the listing.
         shown = (
             ""
             if accuracy is None
-            else f"  benchmark {render.shown(counted(accuracy, n) if whole and share else None)}"
+            else f"  benchmark {render.shown(figures.counted(accuracy, benchmark.get('n')))}"
         )
         risk = f"risk {item['risk']['level']}"
         print(f"{item['id']}@{item['version']}  {risk}  {item['publisher_type']}{shown}")

@@ -175,6 +175,7 @@ Benchmark `test` (n=600) with specialty_reader=`naive_bayes`, triage_screen=`rul
 | `next_step` accuracy | 597 of 600 [98.5-99.9%] |
 | Macro-F1 | 0.981 |
 | Expected calibration error | 0.056 |
+| Expected calibration error, equal-mass bins | 0.054 |
 | Brier score | 0.013 [0.006-0.023, bootstrap] |
 | AUTO | 0 of 600 [0.0-0.6%] |
 | HUMAN_REVIEW | 600 of 600 [99.4-100.0%] |
@@ -183,7 +184,7 @@ Benchmark `test` (n=600) with specialty_reader=`naive_bayes`, triage_screen=`rul
 | AUTO decisions correct | no cases |
 | False automation (of labelled cases) | 0 of 600 [0.0-0.6%] |
 | Expected human override (of reviewed) | 3 of 600 [0.1-1.5%] |
-| Latency p50 / p95 | 1.86 / 2.02 ms |
+| Latency p50 / p95 | 1.84 / 2.03 ms |
 | Cost per decision | $0.00000 |
 | Critical `urgency=urgent` | 113 of 113 [96.8-100.0%] detected, 0 automated |
 | Critical `next_step=urgent_review` | 124 of 124 [97.1-100.0%] detected, 0 automated |

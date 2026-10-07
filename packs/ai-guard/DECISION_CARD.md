@@ -145,6 +145,7 @@ Benchmark `test` (n=600) with screen=`rules`, dosing=`dosing`. Each proportion: 
 | `verdict` accuracy | 586 of 600 [96.1-98.7%] |
 | Macro-F1 | 0.978 |
 | Expected calibration error | 0.211 |
+| Expected calibration error, equal-mass bins | 0.211 |
 | Brier score | 0.163 [0.150-0.179, bootstrap] |
 | AUTO | 0 of 600 [0.0-0.6%] |
 | HUMAN_REVIEW | 436 of 600 [68.9-76.2%] |

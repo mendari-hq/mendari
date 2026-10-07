@@ -186,6 +186,7 @@ Benchmark `test` (n=300) with structured=`criteria`, notes=`rules`. Each proport
 | `eligibility` accuracy | 298 of 300 [97.6-99.9%] |
 | Macro-F1 | 0.992 |
 | Expected calibration error | 0.083 |
+| Expected calibration error, equal-mass bins | 0.083 |
 | Brier score | 0.049 [0.036-0.066, bootstrap] |
 | AUTO | 0 of 300 [0.0-1.2%] |
 | HUMAN_REVIEW | 300 of 300 [98.8-100.0%] |
@@ -194,7 +195,7 @@ Benchmark `test` (n=300) with structured=`criteria`, notes=`rules`. Each proport
 | AUTO decisions correct | no cases |
 | False automation (of labelled cases) | 0 of 300 [0.0-1.2%] |
 | Expected human override (of reviewed) | 2 of 300 [0.1-2.4%] |
-| Latency p50 / p95 | 0.40 / 0.49 ms |
+| Latency p50 / p95 | 0.40 / 0.51 ms |
 | Cost per decision | $0.00000 |
 | Critical `note_pregnancy=yes` | 12 of 13 [64.0-99.8%] detected, 0 automated (insufficient evidence: under 100 positives) |
 | Critical `note_pancreatitis=yes` | 6 of 6 [54.1-100.0%] detected, 0 automated (insufficient evidence: under 100 positives) |

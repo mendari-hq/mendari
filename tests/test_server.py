@@ -118,6 +118,46 @@ def test_local_validation_via_api(client: TestClient) -> None:
     assert wrong_pack.status_code == 404
 
 
+def test_reports_and_leaderboards_are_served_with_their_figures(
+    client: TestClient, db_target: str
+) -> None:
+    """Figures (mendari.evals.figures) are worked out on every read and never stored, so a
+    served report still hashes to its result_sha256."""
+    from mendari import AuditStore
+    from mendari.evals import figures
+    from mendari.evals.result import result_of, result_sha256
+
+    detail = client.get(PACK).json()
+    assert detail["benchmark"]["figures"]["accuracy"] == figures.of(596, 600)
+    board = detail["leaderboard"]
+    assert board["ranking"]["method"] == "mendari.rank/1" and board["groups"]
+    assert all("figures" in row and "standing_text" in row for row in board["rows"])
+    report = client.post(f"{PACK}/evals", json={"dataset": "local-site-example"}).json()
+    assert report["figures"]["accuracy"] == figures.counted(
+        report["questions"]["destination"]["accuracy"], report["questions"]["destination"]["n"]
+    )
+    assert report["figures"]["comparison"]["findings"]  # the local site degrades
+    assert result_sha256(result_of(report)) == report["result_sha256"]
+    (listed,) = client.get("/api/evals").json()
+    assert listed["figures"] == report["figures"]
+    (stored,) = AuditStore(db_target).reports()
+    assert "figures" not in stored
+    periods = client.get("/api/stats").json()["periods"]
+    assert set(periods) == {"7", "30", "all"} and periods["7"]["now"]["decisions"] == 0
+
+
+def test_a_stored_report_figures_cannot_be_read_from_is_served_with_none(
+    client: TestClient, db_target: str
+) -> None:
+    from mendari import AuditStore
+
+    odd = json.loads((LOCAL_DATASET.parents[1] / "tests/fixtures/eval-v1-inbox.json").read_text())
+    odd["decisions"]["critical"][0]["detected"] = 99  # more than its 23 positives
+    AuditStore(db_target).save_report(odd)
+    (listed,) = client.get("/api/evals").json()
+    assert listed["figures"] is None  # n/a on the page, never a failed history tab
+
+
 def test_examples_are_the_packs_behaviour_tests(client: TestClient) -> None:
     trial = "/api/packs/mendari/clinical-trial-prescreener"
     examples = client.get(f"{trial}/examples").json()
