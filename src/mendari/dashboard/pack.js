@@ -17,6 +17,15 @@ export const statusNotice = (pack) => (pack?.status_label
   ? `<p class="callout warning status-notice"><b>${esc(pack.status_label)}</b></p>`
   : "");
 
+// The automation holds in force (GET /api/holds) that cover this pack: its own, or every pack's.
+export const holdsFor = (holds, pack) => (holds ?? []).filter((h) =>
+  (h.pack_id == null || h.pack_id === pack.id) && (h.pack_digest == null || h.pack_digest === pack.digest));
+
+export const holdNotice = (holds, pack) => (holdsFor(holds, pack).length
+  ? `<p class="callout danger hold-notice"><b>Automation is on hold.</b> A person reviews every decision this pack would
+      have automated, with the same recommendation and priority. See the Decision Card.</p>`
+  : "");
+
 export const communityNotice = (pack) => (isCommunity(pack)
   ? `<div class="callout community-notice"><b>${esc(pack.origin_label)}.</b> An outside developer contributed this pack,
       and Mendari has not clinically reviewed it. It recommends and never automates: a person confirms every decision.</div>`

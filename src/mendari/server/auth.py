@@ -144,6 +144,9 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         ("GET", r"^/docs/reference$", "page"),  # a signed-out browser is sent to sign in
         ("GET", r"^/openapi\.json$", "read"),
         ("GET", r"^/api/notice$", "read"),
+        ("GET", r"^/api/holds$", "read"),
+        ("POST", r"^/api/holds$", "approve"),
+        ("DELETE", r"^/api/holds/[^/]+$", "approve"),
         ("POST", r"^/api/notice/acknowledge$", "decide"),  # what deciding asks first
         ("POST", r"^/api/packs/[^/]+/[^/]+/(decide|guard|fhir/decide|pas)$", "decide"),
         ("POST", r"^/cds-services/[^/]+$", "decide"),

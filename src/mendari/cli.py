@@ -5,12 +5,15 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from collections.abc import Sequence
 from datetime import date
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
+from mendari.core import tenancy
 from mendari.core.audit import AuditStore
 from mendari.core.decision import Decision
 from mendari.core.pack import Pack
@@ -91,7 +94,14 @@ def cmd_decide(args: argparse.Namespace) -> int:
 
     # Recorded under the deployment's PHI mode, as the server records it (checked first).
     store = AuditStore(args.db, phi=phi_policy()) if args.db else None
-    decision = _decision(args, store=store)
+    held = None
+    if store is not None:  # recorded in a deployment's trail: its holds apply here too
+
+        def held(pack: Pack) -> str | None:
+            hold = store.hold_for(pack.id, pack.digest, tenancy.DEFAULT_ORG)
+            return None if hold is None else f"hold {hold['id']}"
+
+    decision = _decision(args, store=store, hold_source=held)
     if args.text is not None:
         payload: Any = {"message": {"body": args.text}}
     else:
@@ -331,6 +341,153 @@ def cmd_audit_verify(args: argparse.Namespace) -> int:
     status = store.verify(notes=args.notes)
     _print_json(status)
     return 0 if status["ok"] else 1
+
+
+def _shown(target: str) -> str:
+    """A database target as it is printed: a URL without its password, anywhere in it."""
+    if "://" not in target:
+        return target
+    parts = urlsplit(target)
+    netloc = parts.hostname or ""
+    if parts.port:
+        netloc = f"{netloc}:{parts.port}"
+    if parts.username:
+        netloc = f"{parts.username}@{netloc}"
+    query = "&".join(
+        f"{key}=***" if key.lower() in ("password", "pass", "passwd") else f"{key}={value}"
+        for key, value in parse_qsl(parts.query, keep_blank_values=True)
+    )
+    return urlunsplit((parts.scheme, netloc, parts.path, query, ""))
+
+
+_MENDARI_TABLES = ("decisions", "deployments", "automation_holds")
+
+
+def _probe(target: str) -> tuple[bool, bool]:
+    """(the database has Mendari's tables, it holds anything: a decision, a deployment or a
+    hold), read without writing: nothing is created or migrated in a database that is not
+    Mendari's."""
+    if target.startswith(("postgres://", "postgresql://")):
+        import psycopg
+
+        with psycopg.connect(target) as connection:
+            found = connection.execute(
+                "SELECT count(*) FROM unnest(%s::text[]) AS t WHERE to_regclass(t) IS NOT NULL",
+                (list(_MENDARI_TABLES),),
+            ).fetchone()
+            if not found or found[0] != len(_MENDARI_TABLES):
+                return False, False
+            rows = sum(
+                (connection.execute(f"SELECT count(*) FROM {table}").fetchone() or (0,))[0]
+                for table in _MENDARI_TABLES
+            )
+        return True, rows > 0
+    import sqlite3
+
+    lite = sqlite3.connect(f"file:{Path(target).resolve()}?mode=ro", uri=True)
+    try:
+        names = {
+            row[0] for row in lite.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        }
+        if not set(_MENDARI_TABLES) <= names:
+            return False, False
+        rows = 0
+        for table in _MENDARI_TABLES:
+            counted = lite.execute(f"SELECT count(*) FROM {table}").fetchone()
+            rows += counted[0] if counted else 0
+        return True, rows > 0
+    finally:
+        lite.close()
+
+
+def _hold_store(target: str | None, *, serving: bool) -> tuple[AuditStore, str] | None:
+    """The deployment's database for the break-glass, refused when it cannot be the one a server
+    runs on: not given, a SQLite file that does not exist (it would be created, and hold
+    nothing), a database without Mendari's tables (nothing is created in it), and, to set a hold
+    (`serving`), one that holds no decision, deployment or hold. Returns it and its name as
+    shown (no password)."""
+    target = target or os.environ.get("DATABASE_URL", "").strip() or None
+    if target is None:
+        print("error: give --db (the server's database) or set DATABASE_URL", file=sys.stderr)
+        return None
+    shown = _shown(target)
+    if not target.startswith(("postgres://", "postgresql://")) and not Path(target).is_file():
+        print(f"error: no database at {shown}: give the server's --db", file=sys.stderr)
+        return None
+    try:
+        mendari, used = _probe(target)
+    except Exception as error:
+        print(f"error: cannot read {shown} ({type(error).__name__})", file=sys.stderr)
+        return None
+    if not mendari:
+        print(f"error: {shown} is not a Mendari database", file=sys.stderr)
+        return None
+    if serving and not used:
+        print(f"error: {shown} has never been used: is it the server's?", file=sys.stderr)
+        return None
+    return AuditStore(target), shown
+
+
+def _command_line_actor() -> str:
+    user = re.sub(r"[^A-Za-z0-9._-]", "", os.environ.get("USER", ""))[:64] or "unknown user"
+    return f"command line ({user})"
+
+
+def cmd_automation_hold(args: argparse.Namespace) -> int:
+    """The break-glass: written straight to the database, so it works with the server down.
+    Running servers see it within a few seconds."""
+    from mendari.errors import ReviewError
+
+    if args.digest is not None and not re.fullmatch(r"sha256:[0-9a-f]{64}", args.digest):
+        print("error: --digest is a pack digest (sha256:<64 hex>)", file=sys.stderr)
+        return 1
+    found = _hold_store(args.db, serving=True)
+    if found is None:
+        return 1
+    store, shown = found
+    if args.pack is not None:
+        served = {d["pack_digest"] for d in store.deployments(args.pack, limit=1000)}
+        if not served:
+            print(f"error: {shown} has never served {args.pack}", file=sys.stderr)
+            return 1
+        if args.digest is not None and args.digest not in served:
+            print(f"error: {shown} has never served {args.pack} at {args.digest}", file=sys.stderr)
+            return 1
+    org = None if args.all_orgs else args.org
+    try:
+        hold = store.hold_automation(
+            org=org,
+            pack_id=args.pack,
+            pack_digest=args.digest,
+            reason=args.reason,
+            set_by=_command_line_actor(),
+        )
+    except ReviewError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    _print_json(hold)
+    print(f"held in {shown}", file=sys.stderr)
+    return 0
+
+
+def cmd_automation_lift(args: argparse.Namespace) -> int:
+    found = _hold_store(args.db, serving=False)
+    if found is None:
+        return 1
+    store, shown = found
+    if not store.lift_hold(args.hold_id, lifted_by=_command_line_actor(), org=None):
+        print(f"error: no hold {args.hold_id} in force in {shown}", file=sys.stderr)
+        return 1
+    print(f"lifted {args.hold_id} in {shown}", file=sys.stderr)
+    return 0
+
+
+def cmd_automation_list(args: argparse.Namespace) -> int:
+    found = _hold_store(args.db, serving=False)
+    if found is None:
+        return 1
+    _print_json(found[0].holds(everyone=True))
+    return 0
 
 
 def cmd_audit_export(args: argparse.Namespace) -> int:
@@ -1160,6 +1317,32 @@ def build_parser() -> argparse.ArgumentParser:
     audit_export.add_argument("--until", help="events before this time (ISO 8601, UTC)")
     audit_export.add_argument("--out", help="write to this file (default: standard output)")
     audit_export.set_defaults(handler=cmd_audit_export)
+
+    automation = sub.add_parser(
+        "automation", help="hold or lift automation (works with the server down)"
+    ).add_subparsers(dest="automation_command", required=True)
+    hold = automation.add_parser(
+        "hold", help="stop automation: every decision it covers goes to a person"
+    )
+    scope = hold.add_mutually_exclusive_group(required=True)
+    scope.add_argument(
+        "--all-orgs", action="store_true", help="every organization (the deployment)"
+    )
+    scope.add_argument("--org", help="one organization")
+    hold.add_argument("--pack", help="one pack (namespace/name); default: every pack")
+    hold.add_argument("--digest", help="one version of --pack (sha256:...)")
+    hold.add_argument(
+        "--reason", required=True, help="why, in a few words (at most 200 characters)"
+    )
+    hold.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+    hold.set_defaults(handler=cmd_automation_hold)
+    lift = automation.add_parser("lift", help="lift a hold (any organization's)")
+    lift.add_argument("hold_id")
+    lift.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+    lift.set_defaults(handler=cmd_automation_lift)
+    listed = automation.add_parser("list", help="every hold in force")
+    listed.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+    listed.set_defaults(handler=cmd_automation_list)
 
     feedback = sub.add_parser("feedback", help="thumbs up / down feedback").add_subparsers(
         dest="feedback_command", required=True

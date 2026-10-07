@@ -87,7 +87,33 @@ behaviour.
     pilot.
   - [ ] **LP-05b** Plain-language result view (display names, engine detail in the drawer, the
     code one click away since a pack's names are its author's claim) and axe-core checks.
-- [ ] **LP-06** Automation hold (the kill switch, brought forward from A13).
+- [x] **LP-06** Automation hold (the kill switch, brought forward from A13). A hold is a row
+  (`automation_holds`): an organization (or every one), a pack (or every pack), a digest (or
+  every version); set and lifted with a reason, chained (`automation.held`, `.lifted`). Each
+  decision looks up the holds covering it (`Decision.hold_source`, reused at most 5 s on an
+  instance) and policy turns `AUTO` into `HUMAN_REVIEW` with the same recommendation and
+  priority (`apply_policy(hold=...)`, `_cap`), nothing else. `GET/POST /api/holds`, `DELETE
+  /api/holds/{id}` (`approve`; an organization's own), the Decision Card's controls and the
+  overview's banner, `/api/health` `holds`, and a break-glass that writes the database with the
+  server down: `mendari automation hold|lift|list` (`--all-orgs` only there). Over an
+  organization's daily decisions quota, local providers now still answer (remote calls fail
+  with the quota, through a context variable on the call budget) and the quota holds the
+  decision: an emergency still reaches a nurse at `stat` (before, every provider failed).
+  `docs/operations/automation-hold.md`. The review (1 medium, 7 lows) fixed: the break-glass
+  takes `--db` or `$DATABASE_URL`, says where it wrote, and refuses a missing database, one that
+  never served a decision, an unknown pack and a malformed digest (it used to create a fresh
+  database and report success); a hold set here is not undone by a look-up already reading (a
+  generation counter); `mendari decide --db` honours holds; over quota, Jev and LLM refuse before
+  fetching a credential; a held decision keeps its other reasons; the API refuses a digest it
+  does not serve; the command-line actor is sanitized; the docs no longer show a key setting a
+  hold. And an older gap: PAS submitted any `submit_ready` decision, held or unreviewed, to the
+  payer; it now sends only one that was automated or a reviewer resolved as `submit_ready`.
+  The focused check's 6 lows: PAS reads the label the review chained (an outcome reported
+  later cannot stand in); the break-glass reads a database before it opens one (nothing is
+  created in another application's), accepts any database holding decisions, deployments or
+  holds (`list` and `lift` need only Mendari's tables), shows a URL without its password in any
+  form, and refuses a digest that database never served; README and the PAS docstring say a
+  held decision needs a review.
 - [ ] **LP-08** Hosted data protection (ask the owner before merging the start-up guard: it
   stops a deployment running PHI mode `off` with sign-in on; production keys are the owner's).
 - [ ] **LP-09** Key rotation.

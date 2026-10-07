@@ -239,6 +239,8 @@ NOT_ON_A_DECISION = {
     "client.registered",
     "client.revoked",
     "notice.acknowledged",
+    "automation.held",
+    "automation.lifted",
 }
 
 

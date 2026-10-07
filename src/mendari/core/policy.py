@@ -56,10 +56,13 @@ def apply_policy(
     variants: Mapping[str, str] | None = None,
     *,
     community: bool = False,
+    hold: str | None = None,
 ) -> PolicyResult:
     """`variants` is the running variant of each provider slot, for `automation_requires`;
     without it, a pack that sets `automation_requires` never automates. A `community` pack
-    (`core/origin.py`) recommends and never automates, whatever its rules or confidence."""
+    (`core/origin.py`) recommends and never automates, whatever its rules or confidence. A
+    `hold` (why automation is stopped: an operator's hold, a used-up quota) turns AUTO into
+    HUMAN_REVIEW and changes nothing else."""
     policy = manifest.policy
     primary = answers.get(policy.primary)
     reasons: list[str] = []
@@ -114,7 +117,7 @@ def apply_policy(
         outcome = Outcome.HUMAN_REVIEW
     if outcome is Outcome.AUTO:
         outcome = _cap(
-            manifest, recommendation, failures, governance, variants or {}, reasons, community
+            manifest, recommendation, failures, governance, variants or {}, reasons, community, hold
         )
     if outcome is Outcome.ABSTAIN:
         recommendation = None
@@ -141,6 +144,24 @@ def matches(condition: Condition, answer: Answer | None) -> bool:
 
 
 def _cap(
+    manifest: PackManifest,
+    recommendation: str | None,
+    failures: Mapping[str, str],
+    governance: GovernanceOverride | None,
+    variants: Mapping[str, str],
+    reasons: list[str],
+    community: bool,
+    hold: str | None = None,
+) -> Outcome:
+    """AUTO, or HUMAN_REVIEW with why. A hold keeps the reason the other caps would give too."""
+    outcome = _caps(manifest, recommendation, failures, governance, variants, reasons, community)
+    if hold is not None:
+        reasons.append(f"automation is on hold: {hold}")
+        return Outcome.HUMAN_REVIEW
+    return outcome
+
+
+def _caps(
     manifest: PackManifest,
     recommendation: str | None,
     failures: Mapping[str, str],

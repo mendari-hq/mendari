@@ -166,6 +166,11 @@ def test_the_api_builds_submits_and_chains_the_answer(
     path = f"/api/packs/{PA}/pas"
     built = client.post(path, json=body).json()
     assert built["submitted"] is None and not submitted
+    # The decision went to a person (no model in the notes screen): it is sent once one confirms.
+    refused = client.post(path, json=body | {"submit": True})
+    assert refused.status_code == 422 and "reviewer confirms" in refused.text and not submitted
+    review = {"final_label": "submit_ready", "reviewer": "pa-nurse"}
+    assert client.post(f"/api/review/{decision_id}", json=review).status_code == 200
     answer = client.post(path, json=body | {"submit": True}).json()
     assert answer["submitted"]["outcome"] == "complete" and len(submitted) == 1
 
@@ -185,3 +190,34 @@ def test_the_api_builds_submits_and_chains_the_answer(
         for r in audit
     )
     assert client.post(path, json=body | {"decision_id": "nope"}).status_code == 404
+
+
+def test_an_outcome_reported_later_never_stands_in_for_the_reviewer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A service key may report an outcome (`final_label`) after a review; PAS goes by the label
+    the reviewer resolved, as the chain recorded it."""
+    monkeypatch.setenv("MENDARI_PAS_PAYER_URL", "https://payer.example/fhir")
+    client = TestClient(create_app(db_path=tmp_path / "o.db"))
+    signed = client.post(
+        f"/cds-services/{PA.replace('/', '.')}",
+        json=request("acme", COMPLETE, _order("mri", "72148")),
+    ).json()
+    decision_id = signed["cards"][0]["extension"]["mendari.decision_id"]
+    review = {"final_label": "needs_attention", "reviewer": "pa-nurse"}
+    assert client.post(f"/api/review/{decision_id}", json=review).status_code == 200
+    outcome = {"final_label": "submit_ready", "source": "ehr"}
+    assert client.post(f"/api/audit/{decision_id}/outcome", json=outcome).status_code == 200
+    body = {
+        "decision_id": decision_id,
+        "patient": PATIENT,
+        "coverage": COVERAGE,
+        "insurer": INSURER,
+        "requester": REQUESTER,
+        "order": _order("mri", "72148"),
+        "service_type": "62",
+        "place_of_service": "22",
+        "submit": True,
+    }
+    refused = client.post(f"/api/packs/{PA}/pas", json=body)
+    assert refused.status_code == 422 and "reviewer confirms" in refused.text

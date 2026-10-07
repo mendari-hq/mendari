@@ -150,6 +150,17 @@ CREATE TABLE IF NOT EXISTS governance_approvals (
     revoked_at   TEXT,
     revoked_by   TEXT
 );
+CREATE TABLE IF NOT EXISTS automation_holds (
+    id           TEXT PRIMARY KEY,
+    org          TEXT,
+    pack_id      TEXT,
+    pack_digest  TEXT,
+    reason       TEXT NOT NULL,
+    set_by       TEXT NOT NULL,
+    set_at       TEXT NOT NULL,
+    lifted_by    TEXT,
+    lifted_at    TEXT
+);
 CREATE TABLE IF NOT EXISTS deployments (
     id           TEXT PRIMARY KEY,
     environment  TEXT NOT NULL,
@@ -1355,6 +1366,81 @@ class AuditStore:
                 )
                 is not None
             )
+
+    def hold_automation(
+        self,
+        *,
+        org: str | None,
+        pack_id: str | None,
+        pack_digest: str | None,
+        reason: str,
+        set_by: str,
+    ) -> dict[str, Any]:
+        """Stop automation (AUTO becomes HUMAN_REVIEW) for every decision a hold covers: an
+        organization (None: every one), a pack (None: every pack) and a digest (None: every
+        version). Chained as `automation.held`; it lasts until lifted."""
+        reason = " ".join(reason.split())
+        if not reason or len(reason) > 200:
+            raise ReviewError("a hold needs a reason of at most 200 characters")
+        if pack_digest is not None and pack_id is None:
+            raise ReviewError("a hold on a digest names its pack")
+        hold = {
+            "id": secrets.token_hex(8),
+            "org": org,
+            "pack_id": pack_id,
+            "pack_digest": pack_digest,
+            "reason": reason,
+            "set_by": set_by,
+            "set_at": _now(),
+        }
+        with self._db.session(exclusive=True) as db:
+            db.all(
+                "INSERT INTO automation_holds (id, org, pack_id, pack_digest, reason, set_by, "
+                "set_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                tuple(hold.values()),
+            )
+            self._append(db, f"hold:{hold['id']}", "automation.held", hold)
+        return hold
+
+    def lift_hold(self, hold_id: str, *, lifted_by: str, org: str | None) -> bool:
+        """Lift an active hold; `org` limits it to that organization's own holds (None: any,
+        the command line's). False: none such."""
+        scope = "" if org is None else " AND org = ?"
+        with self._db.session(exclusive=True) as db:
+            row = db.one(
+                f"SELECT id FROM automation_holds WHERE id = ? AND lifted_at IS NULL{scope}",
+                (hold_id,) if org is None else (hold_id, org),
+            )
+            if row is None:
+                return False
+            lifted = {"id": hold_id, "lifted_by": lifted_by, "lifted_at": _now()}
+            db.all(
+                "UPDATE automation_holds SET lifted_by = ?, lifted_at = ? WHERE id = ?",
+                (lifted["lifted_by"], lifted["lifted_at"], hold_id),
+            )
+            self._append(db, f"hold:{hold_id}", "automation.lifted", lifted)
+        return True
+
+    def holds(self, org: str | None = None, *, everyone: bool = False) -> list[dict[str, Any]]:
+        """Active holds: `org`'s and the deployment's (org NULL), or every one (`everyone`)."""
+        query = "SELECT * FROM automation_holds WHERE lifted_at IS NULL"
+        params: tuple[Any, ...] = ()
+        if not everyone:
+            query += " AND (org IS NULL OR org = ?)"
+            params = (org,)
+        with self._db.session(exclusive=False) as db:
+            return [dict(row) for row in db.all(query + " ORDER BY set_at, id", params)]
+
+    def hold_for(self, pack_id: str, pack_digest: str, org: str) -> dict[str, Any] | None:
+        """The first active hold that covers a decision of this pack, digest and organization."""
+        with self._db.session(exclusive=False) as db:
+            row = db.one(
+                "SELECT * FROM automation_holds WHERE lifted_at IS NULL "
+                "AND (org IS NULL OR org = ?) AND (pack_id IS NULL OR pack_id = ?) "
+                "AND (pack_digest IS NULL OR pack_digest = ?) ORDER BY set_at, id LIMIT 1",
+                (org, pack_id, pack_digest),
+            )
+        return None if row is None else dict(row)
 
     def revoke_approval(self, approval_id: str, *, revoked_by: str) -> bool:
         org = tenancy.current() or tenancy.DEFAULT_ORG

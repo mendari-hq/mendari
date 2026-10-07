@@ -35,7 +35,13 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from mendari.core.spec import Question, deployment_env_problem
 from mendari.errors import MendariError, PackValidationError, ProviderError
-from mendari.providers.base import Answer, Provider, ProviderOutput, batch_state
+from mendari.providers.base import (
+    Answer,
+    Provider,
+    ProviderOutput,
+    batch_state,
+    refuse_if_over_quota,
+)
 from mendari.providers.batch import batched_answer, unwrap
 from mendari.providers.credentials import key_source, resolve_key
 from mendari.providers.http import post_json, require_secure
@@ -145,6 +151,7 @@ class JevProvider(Provider):
         if len(batch) != len(providers):
             raise TypeError("a Jev batch holds only Jev providers")
         model, endpoint = self._configured()
+        refuse_if_over_quota()  # over quota: no credential fetched, no call
         token = resolve_key(key_env=API_KEY_ENV, connector_env=CONNECTOR_ENV)
         self.charge()  # after the credential: a call that cannot be made uses no budget
 

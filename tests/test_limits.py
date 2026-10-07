@@ -653,7 +653,10 @@ def test_over_its_quota_a_decision_falls_back_to_human_review_with_one_alert(
     assert [o["outcome"] for o in outcomes[:2]] == ["AUTO", "AUTO"]
     for over in outcomes[2:]:  # never automated: a person decides
         assert over["outcome"] in ("HUMAN_REVIEW", "ABSTAIN")
-        assert set(over["errors"].values()) == {"quota_exhausted"}
+        # Its remote calls fail with the quota; its local providers still answer (the keyword
+        # screen beside Jev), and the policy holds it.
+        assert set(over["errors"].values()) == {"jev:quota_exhausted"}
+        assert any("decisions quota is used up" in reason for reason in over["reasons"])
     assert [p["url"] for p in posted] == ["https://alerts.example.org/hook"]
     alert = posted[0]["json"]
     assert alert["organization"] == "default" and alert["alerts"][0]["kind"] == "quota_reached"
@@ -806,3 +809,17 @@ def test_sign_in_allows_at_least_what_the_edge_does() -> None:
     per_minute = signin.count * 60 // signin.seconds
     assert per_minute >= max(vercel["limit"], int(per_second.group(1)) * 60)
     assert signin.burst >= max(vercel["limit"], *bursts)
+
+
+def test_over_its_quota_an_emergency_still_reaches_a_nurse_at_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, screened: dict[str, str]
+) -> None:
+    """Over quota, every provider used to fail, the emergency rule among them: the message went
+    to a person at routine priority. Local providers now still answer."""
+    monkeypatch.setenv("MENDARI_ORG_DAILY_LIMITS", "decisions=1")
+    client = TestClient(create_app(db_path=tmp_path / "q.db", providers=screened))
+    client.post(DECIDE, json=message(ROUTINE))
+    chest = "Crushing chest pain for 30 minutes, going down my left arm."
+    over = client.post(DECIDE, json=message(chest)).json()
+    assert over["outcome"] == "HUMAN_REVIEW" and over["priority"] == "stat"
+    assert over["recommendation"] == "nurse" and over["rule"] == "possible-emergency"
