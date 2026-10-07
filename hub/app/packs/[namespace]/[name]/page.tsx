@@ -3,7 +3,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import Markdown from "react-markdown";
-import { pack, percent, RISK_WORDS, type LeaderboardRow } from "@/lib/registry";
+import { shown } from "@/lib/figures";
+import { pack, RISK_WORDS, type BoardFigures } from "@/lib/registry";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +23,7 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
   const detail = await pack(namespace, name);
   if (!detail) notFound();
   const latest = detail.latest;
-  const rows: LeaderboardRow[] = Array.isArray(latest.leaderboard?.rows) ? latest.leaderboard.rows : [];
+  const board = latest.figures?.leaderboard ?? null; // ranked and worked out by the registry
   return (
     <>
       <p className="muted"><Link href="/">Decision Packs</Link> / <Link href={`/publishers/${namespace}`}>{namespace}</Link></p>
@@ -36,7 +37,11 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
       </div>
       <section className="facts" aria-label="At a glance">
         <Fact label="Latest version" value={latest.version} />
-        <Fact label="Benchmark accuracy" value={percent(latest.benchmark?.accuracy)} foot={latest.benchmark ? `${latest.benchmark.n} cases, ${latest.benchmark.dataset}` : undefined} />
+        <Fact
+          label="Benchmark accuracy"
+          value={shown(latest.figures?.benchmark)}
+          foot={typeof latest.benchmark?.dataset === "string" ? `on ${latest.benchmark.dataset}` : undefined}
+        />
         <Fact label="Decides" value={latest.primary} foot={`${latest.questions.length} questions`} />
         <Fact label="License" value={latest.license} />
       </section>
@@ -47,7 +52,7 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
         <span className="mono">{latest.digest.slice(0, 19)}…</span>, then cache it for{" "}
         <code>mendari eval {detail.id} --dataset your-cases.jsonl</code>.
       </p>
-      {rows.length ? <Leaderboard rows={rows} /> : null}
+      {board?.groups.length ? <Leaderboard board={board} /> : null}
       <h2>Site reports</h2>
       <p className="muted">
         A site can share how this pack did on its own data (metrics only; no case leaves the site):{" "}
@@ -79,35 +84,50 @@ function Fact({ label, value, foot }: { label: string; value: string; foot?: str
   );
 }
 
-function Leaderboard({ rows }: { rows: LeaderboardRow[] }) {
-  const datasets = Array.from(new Set(rows.map((row) => row.dataset)));
+function Leaderboard({ board }: { board: BoardFigures }) {
   return (
     <>
       <h2>Provider leaderboard</h2>
-      <p className="muted">Every configuration on every dataset, ranked by accuracy. Open a dataset to compare.</p>
-      {datasets.map((dataset, index) => {
-        const ranked = rows.filter((row) => row.dataset === dataset).sort((a, b) => (b.accuracy ?? -1) - (a.accuracy ?? -1));
+      <p className="muted">
+        Each set of records is compared on its own, ranked ({board.ranking.method}) by the critical cases caught
+        first, never by accuracy alone. Only configurations measured on this version of the pack rank, and only
+        where a critical label has at least {board.ranking.min_positives} positives.
+      </p>
+      {board.groups.map((group, index) => {
+        const rows = board.rows.filter((row) => row.group === index);
         return (
-          <details key={dataset} open={index === 0}>
-            <summary><b>{dataset}</b> <span className="muted">n={ranked[0]?.n}</span></summary>
+          <details key={`${group.label} ${index}`} open={index === 0}>
+            <summary><b>{group.dataset}</b> <span className="muted">{group.about.join("; ")}</span></summary>
             <div className="table-wrap">
               <table>
                 <thead>
                   <tr>
-                    <th>Configuration</th><th className="num">Accuracy</th><th className="num">Macro-F1</th>
-                    <th className="num">ECE</th><th className="num">Automated</th><th className="num">p50 ms</th><th className="num">Cost / decision</th>
+                    <th className="num">Rank</th><th>Configuration</th><th>Critical detected</th>
+                    <th className="num">False automation</th><th className="num">Accuracy</th><th className="num">Automated</th>
+                    <th className="num">Macro-F1</th><th className="num">ECE</th><th className="num">p50 ms</th><th className="num">Cost / decision</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {ranked.map((row) => (
-                    <tr key={`${dataset} ${row.config}`}>
-                      <td>{row.config}</td>
-                      <td className="num">{percent(row.accuracy)}</td>
-                      <td className="num">{row.macro_f1 == null ? "n/a" : row.macro_f1.toFixed(3)}</td>
-                      <td className="num">{row.ece == null ? "n/a" : row.ece.toFixed(3)}</td>
-                      <td className="num">{percent(row.auto_rate)}</td>
-                      <td className="num">{row.latency_p50_ms == null ? "n/a" : row.latency_p50_ms.toFixed(1)}</td>
-                      <td className="num">{row.cost_per_decision_usd == null ? "n/a" : `$${row.cost_per_decision_usd.toPrecision(2)}`}</td>
+                  {rows.map((row) => (
+                    <tr key={`${index} ${row.config} ${row.pack_version}`}>
+                      <td className="num">{row.rank ?? <span title={row.standing_text ?? ""}>–</span>}</td>
+                      <td>{row.config}{row.standing_text ? <span className="standing">{row.standing_text}</span> : null}</td>
+                      <td>
+                        {row.figures.critical.length ? row.figures.critical.map((c) => (
+                          <div key={`${c.question}=${c.label}`}>
+                            {row.figures.critical.length > 1 ? `${c.question}=${c.label} ` : ""}
+                            {shown(c.detected)} ({c.auto_missed} automated)
+                            {c.insufficient_evidence ? <span className="evidence-mark">insufficient evidence</span> : null}
+                          </div>
+                        )) : "n/a"}
+                      </td>
+                      <td className="num">{shown(row.figures.false_automation)}</td>
+                      <td className="num">{shown(row.figures.accuracy)}</td>
+                      <td className="num">{shown(row.figures.automation)}</td>
+                      <td className="num">{typeof row.macro_f1 === "number" ? row.macro_f1.toFixed(3) : "n/a"}</td>
+                      <td className="num">{typeof row.ece === "number" ? row.ece.toFixed(3) : "n/a"}</td>
+                      <td className="num">{typeof row.latency_p50_ms === "number" ? row.latency_p50_ms.toFixed(1) : "n/a"}</td>
+                      <td className="num">{typeof row.cost_per_decision_usd === "number" ? `$${row.cost_per_decision_usd.toPrecision(2)}` : "unknown"}</td>
                     </tr>
                   ))}
                 </tbody>
