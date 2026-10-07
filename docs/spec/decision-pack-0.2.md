@@ -451,12 +451,16 @@ MUST report the overall delta of primary accuracy and SHOULD localize degradatio
 recall, subgroup, calibration and false automation. Any automated true-critical case is always
 a finding.
 
-A **leaderboard** (`format: mendari.leaderboard/1`) compares provider configurations. Each
+A **leaderboard** (`format: mendari.leaderboard/2`) compares provider configurations. Each
 row summarises one report: the configuration (slot variants, naming the model of remote
-providers), dataset and size, primary accuracy, macro-F1 and ECE, AUTO and false automation
-rates, critical detection and automated misses, p50/p95 latency, cost per decision and error
-count. Rows for one dataset MUST come from the same records. Like reports, a leaderboard MUST
-NOT contain case inputs.
+providers), the pack version and digest, the dataset with its hash and size, primary accuracy,
+macro-F1 and ECE, AUTO and false automation, critical detection and automated misses, p50/p95
+latency, cost per decision, error count and the report's ledger. A row is keyed by pack digest,
+dataset hash, size and configuration, and is ranked by one function
+([`mendari.rank/1`](evaluation-reports.md#leaderboards-mendarileaderboard2-and-mendarirank1)),
+whose order the card, the command line and the dashboard all show. Rows for one dataset MUST
+come from the same records. Like reports, a leaderboard MUST NOT contain case inputs. A
+`mendari.leaderboard/1` file still loads; its rows have no digest, so none ranks.
 
 A **shared report** (`format: mendari.site-report/1`) is what a site sends a registry about
 its own evaluation. It is a closed schema of names and rounded numbers: the pack (id, version,

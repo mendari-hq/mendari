@@ -58,3 +58,15 @@ def test_a_new_pack_is_shown_and_passes() -> None:
     assert failures == [] and all(r["main"] is None for r in rows)
     text = markdown("mendari/new", rows, failures, new=True)
     assert "nothing on `main` to compare with" in text and "| destination accuracy |" in text
+
+
+def test_the_table_is_k_of_n_and_says_where_evidence_is_short() -> None:
+    rows, failures = gate(benchmark(), benchmark(), 0.03)
+    text = markdown("mendari/patient-inbox-router", rows, failures, new=False)
+    # 23 urgent positives: under the 100 a critical label needs to rank or compare on.
+    assert "| critical urgency=urgent detected (insufficient evidence: under 100 positives) |" in (
+        text
+    )
+    # The benchmark automates nothing: no cases, never a bare rate or n/a.
+    assert "| false automation rate (of automated) | no cases | no cases |" in text
+    assert "| destination accuracy | 596 of 600 [98.3-99.8%] | 596 of 600 [98.3-99.8%] |" in text

@@ -157,7 +157,7 @@ def test_the_cli_exits_1_on_alerts_and_posts_them(
         ]
     )
     assert code == 1
-    assert "[high] accuracy: observed accuracy 0.0%" in capsys.readouterr().out
+    assert "[high] accuracy: observed accuracy 0 of 25 [" in capsys.readouterr().out
     assert posted[0][0] == "https://alerts.example/hook"
     assert posted[0][1]["alerts"][0]["pack"]["id"] == inbox_pack.id
 
@@ -190,4 +190,4 @@ def test_the_cli_watches_one_organization(
     args = ["monitor", "--db", str(db), "--pack", inbox_pack.id]
     assert main([*args, "--org", "clinic-b"]) == 0
     assert main([*args, "--org", "clinic-a"]) == 1
-    assert "observed accuracy 0.0%" in capsys.readouterr().out
+    assert "observed accuracy 0 of 25 [" in capsys.readouterr().out

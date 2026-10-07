@@ -9,7 +9,8 @@ from mendari.core.audit import AuditStore
 from mendari.core.card import benchmark
 from mendari.core.decision import Decision
 from mendari.evals import compare, evaluate, load_dataset, resolve_dataset
-from mendari.evals.render import comparison_text, pct
+from mendari.evals.render import comparison_text, shown
+from mendari.evals.result import counted
 
 PACK_ID = "mendari/patient-inbox-router"
 SAMPLE_IDS = ("pub-01800", "pub-01801", "pub-01802", "pub-01803", "pub-01805", "pub-01806")
@@ -61,8 +62,8 @@ def _run(store: AuditStore, datasets_dir: Path | None) -> None:
     outcomes = "  ".join(f"{k} {v}" for k, v in stats["outcomes"].items())
     print(f"decisions: {stats['decisions']}   {outcomes}")
     print(
-        f"human override rate: {pct(stats['human_override_rate'])} "
-        f"of {stats['reviews_resolved']} reviews"
+        f"overridden: {shown(counted(stats['human_override_rate'], stats['reviews_resolved']))} "
+        "reviews"
     )
     chain = store.verify()
     print(f"audit chain: {'verified' if chain['ok'] else 'BROKEN'} ({chain['events']} events)")

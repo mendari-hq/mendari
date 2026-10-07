@@ -2,8 +2,8 @@
   "format": "mendari.eval/2",
   "pack": {
     "id": "mendari/clinical-trial-prescreener",
-    "version": "0.1.4",
-    "digest": "sha256:7f233cfc881fc096d9ea28da6bcc8026fb5afb00db238a878080d8a698b66d39"
+    "version": "0.1.5",
+    "digest": "sha256:6d7f48eec32a6f84dedfbb5e249dd4c133cd50e9ca9b488f72f86de1ccaa6b49"
   },
   "providers": {
     "structured": {
@@ -32,7 +32,7 @@
     "limit": null
   },
   "ledger": {
-    "id": "sha256:89d11a3956ba24388f903ee70c68e479642caa6584573725812e3267f23e7d8d",
+    "id": "sha256:26948593e73882768b717901e7f44a08c4974778252b753411d29e57a3cb15eb",
     "cases": 300
   },
   "seeds": {
@@ -1973,55 +1973,73 @@
       "threshold": 0.5,
       "coverage": 1.0,
       "accuracy": 0.9933333333333333,
-      "errors": 2
+      "errors": 2,
+      "chosen": 300,
+      "scored": 300
     },
     {
       "threshold": 0.6,
       "coverage": 1.0,
       "accuracy": 0.9933333333333333,
-      "errors": 2
+      "errors": 2,
+      "chosen": 300,
+      "scored": 300
     },
     {
       "threshold": 0.7,
       "coverage": 1.0,
       "accuracy": 0.9933333333333333,
-      "errors": 2
+      "errors": 2,
+      "chosen": 300,
+      "scored": 300
     },
     {
       "threshold": 0.8,
       "coverage": 0.6933333333333334,
       "accuracy": 0.9951923076923077,
-      "errors": 1
+      "errors": 1,
+      "chosen": 208,
+      "scored": 300
     },
     {
       "threshold": 0.85,
       "coverage": 0.6933333333333334,
       "accuracy": 0.9951923076923077,
-      "errors": 1
+      "errors": 1,
+      "chosen": 208,
+      "scored": 300
     },
     {
       "threshold": 0.9,
       "coverage": 0.6933333333333334,
       "accuracy": 0.9951923076923077,
-      "errors": 1
+      "errors": 1,
+      "chosen": 208,
+      "scored": 300
     },
     {
       "threshold": 0.95,
       "coverage": 0.6933333333333334,
       "accuracy": 0.9951923076923077,
-      "errors": 1
+      "errors": 1,
+      "chosen": 208,
+      "scored": 300
     },
     {
       "threshold": 0.97,
       "coverage": 0.6466666666666666,
       "accuracy": 1.0,
-      "errors": 0
+      "errors": 0,
+      "chosen": 194,
+      "scored": 300
     },
     {
       "threshold": 0.99,
       "coverage": 0.27,
       "accuracy": 1.0,
-      "errors": 0
+      "errors": 0,
+      "chosen": 81,
+      "scored": 300
     }
   ],
   "cost": {
@@ -2070,6 +2088,8 @@
     "site": {
       "public": {
         "n": 300,
+        "labelled": 300,
+        "automated": 0,
         "accuracy": 0.9933333333333333,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -2079,6 +2099,8 @@
     "language": {
       "en": {
         "n": 286,
+        "labelled": 286,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -2086,6 +2108,8 @@
       },
       "es": {
         "n": 14,
+        "labelled": 14,
+        "automated": 0,
         "accuracy": 0.8571428571428571,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -2095,6 +2119,8 @@
     "sex": {
       "female": {
         "n": 148,
+        "labelled": 148,
+        "automated": 0,
         "accuracy": 0.9932432432432432,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -2102,6 +2128,8 @@
       },
       "male": {
         "n": 152,
+        "labelled": 152,
+        "automated": 0,
         "accuracy": 0.993421052631579,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -2111,6 +2139,8 @@
     "age_band": {
       "18-39": {
         "n": 68,
+        "labelled": 68,
+        "automated": 0,
         "accuracy": 0.9852941176470589,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -2118,6 +2148,8 @@
       },
       "40-64": {
         "n": 154,
+        "labelled": 154,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -2125,6 +2157,8 @@
       },
       "65+": {
         "n": 69,
+        "labelled": 69,
+        "automated": 0,
         "accuracy": 0.9855072463768116,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -2132,6 +2166,8 @@
       },
       "missing": {
         "n": 9,
+        "labelled": 9,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -2156,15 +2192,15 @@
     }
   ],
   "run": {
-    "id": "b0a4d52d-9812-4390-a77f-af5f430fe3f5",
-    "created_at": "2026-10-07T18:04:19+00:00",
+    "id": "cc72b924-7819-4c0d-96c1-6fa256c221fa",
+    "created_at": "2026-10-07T18:58:52+00:00",
     "latency_ms": {
-      "mean": 0.4126785881817341,
-      "p50": 0.40300004184246063,
-      "p95": 0.4931674338877201,
-      "max": 0.7641669362783432
+      "mean": 0.41263889366139966,
+      "p50": 0.4032501019537449,
+      "p95": 0.4897499457001686,
+      "max": 0.7260837592184544
     },
     "engine": "0.1.0"
   },
-  "result_sha256": "sha256:e3ed6ef892f6861178b12ced57eb7d4ea0b2a20cf4a8610e077dac87db078ffe"
+  "result_sha256": "sha256:87c1e76e51c7212adef93b9ddd5979fdbab8fd70645d0248866f9896a82f454c"
 }

@@ -86,7 +86,9 @@ from mendari.core.pack import (
 )
 from mendari.core.spec import Evaluation
 from mendari.errors import MendariError, PackValidationError
+from mendari.evals import stats
 from mendari.evals.harness import Dataset
+from mendari.evals.render import evidence, shown
 
 MAX_TOLERANCE = 0.05
 MIN_CRITICAL_CASES = 5
@@ -991,8 +993,9 @@ def _floors(ctx: _Context, report: Mapping[str, Any], where: str = "") -> None:
         if rate is not None and rate < MIN_CRITICAL_DETECTION:
             fail(
                 "evaluation",
-                f"{where}the critical label {name} is found in {rate:.0%} of its cases; it must "
-                f"be at least {MIN_CRITICAL_DETECTION:.0%}",
+                f"{where}the critical label {name} is found in "
+                f"{shown(stats.proportion(item['detected'], item['n']))} cases"
+                f"{evidence(item['n'])}; it must be at least {MIN_CRITICAL_DETECTION:.0%}",
             )
 
 

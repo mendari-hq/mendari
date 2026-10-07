@@ -27,6 +27,8 @@ from mendari.core.audit import AuditStore
 from mendari.core.card import benchmark
 from mendari.core.pack import Pack
 from mendari.errors import MendariError
+from mendari.evals.render import shown
+from mendari.evals.result import counted
 
 MIN_LABELLED = 20
 MIN_FOR_DRIFT = 50
@@ -48,6 +50,7 @@ def monitor(
     reference = (benchmark(pack) or {}).get("questions", {}).get(primary, {})
     bench = {
         "accuracy": reference.get("accuracy"),
+        "n": reference.get("n"),
         "tolerance": pack.manifest.evaluation.degradation_tolerance,
     }
     drift = _psi(reference.get("calibration", {}).get("bins", []), last_week)
@@ -86,8 +89,9 @@ def _alerts(
             _alert(
                 "accuracy",
                 "high",
-                f"observed accuracy {observed:.1%} over the last 7 days, below the benchmark's "
-                f"{target:.1%} by more than {bench['tolerance']:.0%}",
+                f"observed accuracy {shown(counted(observed, recent['labelled']))} over the "
+                f"last 7 days, below the benchmark's {shown(counted(target, bench.get('n')))} "
+                f"by more than {bench['tolerance']:.0%}",
             )
         )
     if drift is not None and recent["decisions"] >= MIN_FOR_DRIFT and drift >= DRIFT_ALERT:
@@ -99,7 +103,10 @@ def _alerts(
     now_rate, then_rate = recent["override_rate"], before["override_rate"]
     compared = recent["reviewed"] >= MIN_REVIEWED and before["reviewed"] >= MIN_REVIEWED
     if compared and then_rate and now_rate is not None and now_rate >= 2 * then_rate:
-        message = f"override rate {now_rate:.0%} this week, {then_rate:.0%} the week before"
+        message = (
+            f"overridden {shown(counted(now_rate, recent['reviewed']))} this week, "
+            f"{shown(counted(then_rate, before['reviewed']))} the week before"
+        )
         alerts.append(_alert("overrides", "medium", message))
     return alerts
 

@@ -17,10 +17,11 @@ from datetime import UTC, datetime
 from typing import Any
 
 from mendari.core.pack import Pack
-from mendari.evals.render import num, pct
-from mendari.evals.result import normalize
+from mendari.evals import ranking, stats
+from mendari.evals.render import INTERVALS, evidence, num, shown
+from mendari.evals.result import MIN_POSITIVES, counted, false_automation, normalize
 
-FORMAT = "mendari.leaderboard/1"
+FORMAT = "mendari.leaderboard/2"
 PATH = "evals/leaderboard.json"
 _COMPOSITES = ("any_of", "cascade", "vote")
 
@@ -56,6 +57,15 @@ def row(report: Mapping[str, Any]) -> dict[str, Any]:
         "report_id": run.get("id"),
         "created_at": run.get("created_at"),
         "pack_version": report["pack"]["version"],
+        # What a row is of: the pack as it was, the records, and the run's ledger (LP-10).
+        "pack_digest": report["pack"].get("digest"),
+        "dataset_sha256": report["dataset"].get("sha256"),
+        "limit": report["dataset"].get("limit"),
+        "ledger": (report.get("ledger") or {}).get("id"),
+        "accuracy_proportion": _stored(counted(question.get("accuracy"), question.get("n")))
+        if labelled
+        else None,
+        "false_automation": _stored(false_automation(report)),
         "accuracy": question.get("accuracy") if labelled else None,
         "macro_f1": question.get("macro_f1") if labelled else None,
         "ece": question.get("calibration", {}).get("ece") if labelled else None,
@@ -84,47 +94,55 @@ def build(
     reports: Iterable[Mapping[str, Any]],
     existing: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """A leaderboard from reports, merged into `existing`: a new report replaces the row for
-    the same configuration and dataset. Rows from another pack are refused."""
-    rows = {
-        (r["config"], r["dataset"]): r for r in (existing or {}).get("rows", []) if "config" in r
-    }
+    """A leaderboard from reports, merged into `existing`: a new report replaces the row of the
+    same configuration on the same pack digest and records; a row of an earlier version stays,
+    marked and unranked. Rows from another pack are refused. Ranked as `ranking.rank` does."""
+    rows = {_row_key(r): r for r in (existing or {}).get("rows", []) if "config" in r}
     for report in reports:
         if report["pack"]["id"] != pack.id:
             named = normalize(report)["run"].get("id")
             raise ValueError(f"report {named} is for {report['pack']['id']}, not {pack.id}")
         new = row(report)
-        rows[(new["config"], new["dataset"])] = new
+        rows[_row_key(new)] = new
     return {
         "format": FORMAT,
-        "pack": {"id": pack.id, "version": pack.version},
+        "pack": {"id": pack.id, "version": pack.version, "digest": pack.digest},
+        "ranking": {"method": ranking.METHOD, "min_positives": MIN_POSITIVES},
         "updated_at": datetime.now(UTC).isoformat(timespec="seconds"),
-        "rows": sorted(rows.values(), key=lambda r: (r["dataset"], r["config"])),
+        "rows": ranking.rank(list(rows.values()), pack.digest),
     }
 
 
-def by_dataset(board: Mapping[str, Any]) -> dict[str, list[dict[str, Any]]]:
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    for item in board.get("rows", []):
-        grouped.setdefault(item["dataset"], []).append(item)
-    return grouped
+def _row_key(row: Mapping[str, Any]) -> tuple[Any, ...]:
+    return (row.get("pack_digest") or row.get("pack_version"), *ranking.records(row), row["config"])
+
+
+def _stored(p: stats.Proportion | None) -> dict[str, Any] | None:
+    return None if p is None else p.to_dict()
 
 
 def critical_text(item: Mapping[str, Any]) -> str:
-    """e.g. `28/28 (0 automated)`, each named (`note_pregnancy=yes 5/5 …`) when a pack has
-    several critical labels; empty when the dataset has no critical cases."""
+    """e.g. `28 of 28 [87.7-100.0%] (0 automated; insufficient evidence ...)`, each named
+    (`note_pregnancy=yes 5 of 5 …`) when a pack has several critical labels; empty when the
+    dataset has no critical cases."""
     named = len(item["critical"]) > 1
     return "; ".join(
         (f"{c['question']}={c['label']} " if named else "")
-        + f"{c['detected']}/{c['n']} ({c['auto_missed']} automated)"
+        + f"{shown(stats.proportion(c['detected'], c['n']))} ({c['auto_missed']} automated"
+        + evidence(c["n"], short=True)
+        + ")"
         for c in item["critical"]
         if c["n"]
     )
 
 
 def load(pack: Pack) -> dict[str, Any] | None:
-    """The pack's leaderboard, or None: none there, or not one the card can show (`read`)."""
-    return read(pack)[0]
+    """The pack's leaderboard, ranked against the pack as it is (its digest), or None: none
+    there, or not one the card can show (`read`)."""
+    board = read(pack)[0]
+    if board is None:
+        return None
+    return {**board, "rows": ranking.rank(board.get("rows", []), pack.digest)}
 
 
 def read(pack: Pack) -> tuple[dict[str, Any] | None, str | None]:
@@ -137,44 +155,90 @@ def read(pack: Pack) -> tuple[dict[str, Any] | None, str | None]:
     try:
         if not isinstance(board.get("rows", []), list):
             raise TypeError("rows")
-        markdown(board)
+        markdown(board, pack.digest, pack.version)
     except (AttributeError, IndexError, KeyError, TypeError, ValueError) as error:
         return None, f"not a leaderboard ({type(error).__name__})"
     return board, None
 
 
-def markdown(board: Mapping[str, Any], version: str | None = None) -> list[str]:
-    """One table per dataset, best primary accuracy first. A row measured on a pack version
-    other than `version` (the pack's own) says which: its AUTO and false automation follow that
-    version's policy."""
+def markdown(
+    board: Mapping[str, Any], digest: str | None = None, version: str | None = None
+) -> list[str]:
+    """One table per set of records (`ranking.grouped`), ranked against `digest` (the pack's
+    own; `version` is its version): ranked rows first, then the unranked, each saying why (an
+    earlier version of the pack, whose AUTO and false automation followed that version's policy,
+    or too few critical positives)."""
     out: list[str] = []
+    recorded = board.get("pack")
+    recorded = recorded if isinstance(recorded, Mapping) else {}
+    if digest is None:  # the pack it was last built for (mendari.leaderboard/2 records it)
+        digest = recorded.get("digest")
+        version = version if version is not None else recorded.get("version")
+    groups = ranking.grouped(board.get("rows", []), digest)
+    sizes = [(name, n) for (name, _, n), _ in groups]
 
     def config(item: Mapping[str, Any]) -> str:
-        measured = item.get("pack_version")
-        stale = version is not None and measured is not None and measured != version
-        return f"{item['config']} (measured on {measured})" if stale else str(item["config"])
+        if item["standing"] == ranking.EARLIER:
+            why = ranking.measured_on(item.get("pack_version"), item.get("pack_digest"), version)
+            return f"{item['config']} ({why})"
+        return str(item["config"])
 
-    for dataset, rows in by_dataset(board).items():
-        n = max(item["n"] for item in rows)
+    def place(item: Mapping[str, Any]) -> str:
+        if item["rank"] is not None:
+            return str(item["rank"])
+        if item["standing"] == ranking.EARLIER:
+            why = ranking.measured_on(item.get("pack_version"), item.get("pack_digest"), version)
+            return f"none: {why}"
+        return f"none: {item['standing']}"
+
+    for (name, sha, n), rows in groups:
+        about = [f"n={n}"]
+        if any(item.get("limit") for item in rows):
+            about.append(f"the first {n} cases of the file")
+        if not sha:
+            about.append("dataset hash not recorded")
+        elif sizes.count((name, n)) > 1:
+            about.append(f"records sha256:{sha[:12]}…")
         out += [
-            f"**`{dataset}`** (n={n})",
+            f"**`{name}`** ({'; '.join(about)}; {INTERVALS})",
             "",
-            "| Configuration | Accuracy | Macro-F1 | ECE | AUTO | False automation "
-            "| Critical detected | p50 latency | Cost / decision | Errors |",
-            "|---|---|---|---|---|---|---|---|---|---|",
+            "| Rank | Configuration | Critical detected | False automation | Accuracy | AUTO "
+            "| Macro-F1 | ECE | p50 latency | Cost / decision | Errors |",
+            "|---|---|---|---|---|---|---|---|---|---|---|",
         ]
-        ranked = sorted(rows, key=lambda item: -(item["accuracy"] or 0.0))
-        for item in ranked:
+        for item in rows:
+            cost = item["cost_per_decision_usd"]
             out.append(
-                f"| {config(item)} | {pct(item['accuracy'])} | {num(item['macro_f1'])} "
-                f"| {num(item['ece'])} | {pct(item['auto_rate'])} "
-                f"| {pct(item['false_automation_rate'])} | {critical_text(item) or 'n/a'} "
-                f"| {_ms(item['latency_p50_ms'])} | ${item['cost_per_decision_usd']:.5f} "
-                f"| {_errors(item)} |"
+                f"| {place(item)} | {item['config']} | {critical_text(item) or 'n/a'} "
+                f"| {shown(_false_automation(item))} | {shown(_accuracy(item))} "
+                f"| {shown(counted(item['auto_rate'], item['n']))} | {num(item['macro_f1'])} "
+                f"| {num(item['ece'])} | {_ms(item['latency_p50_ms'])} "
+                f"| {'unknown' if cost is None else f'${cost:.5f}'} | {_errors(item)} |"
             )
+        if any(item.get("accuracy_proportion") is None for item in rows):
+            out += [
+                "",
+                "Accuracy and false automation are n/a on a row recorded before leaderboards kept "
+                "the counts they are of (mendari.leaderboard/1).",
+            ]
         out.append("")
-        out += _question_table(ranked, config)
+        out += _question_table(rows, config)
     return out
+
+
+def _accuracy(item: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    """A row's primary accuracy over the cases labelled for it. A row from before stored only
+    the rate, and not how many cases were labelled (fewer than the dataset's when some have no
+    label), so it shows n/a."""
+    stored: Mapping[str, Any] | None = item.get("accuracy_proportion")
+    return stored
+
+
+def _false_automation(item: Mapping[str, Any]) -> stats.Proportion | Mapping[str, Any] | None:
+    """A row's false automation over its labelled cases. A row from before stored only the rate
+    over its automated cases, a different measure, so it shows n/a."""
+    stored: Mapping[str, Any] | None = item.get("false_automation")
+    return stored
 
 
 def _question_table(
@@ -196,7 +260,9 @@ def _question_table(
 
     def cell(item: Mapping[str, Any], key: str) -> str:
         metrics = item.get("questions", {}).get(key)
-        return "n/a" if metrics is None else f"{pct(metrics['accuracy'])} / {num(metrics['ece'])}"
+        if metrics is None:
+            return "n/a"
+        return f"{shown(counted(metrics['accuracy'], metrics.get('n')))} / {num(metrics['ece'])}"
 
     return [
         "Other questions (accuracy / ECE):",

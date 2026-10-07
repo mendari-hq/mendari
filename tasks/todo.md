@@ -430,7 +430,18 @@ operations, LP-22 site network, LP-23 EHR pilot.
     "earlier version" rows unranked, and one ranking function (critical cases first). Decisions
     taken (recommended): nothing ranks without 100 positives on a critical label; the 166
     committed rows, all from earlier versions and 144 of them remote, are kept and marked, not
-    re-measured (paid calls).
+    re-measured (paid calls). Split in two:
+    - [ ] **10b-i** (PR open) The card, the command line, the monitoring and gate messages,
+      `mendari.leaderboard/2` and `mendari.rank/1` (`mendari.evals.ranking`). The trial and
+      prior-auth packs' known failure modes no longer type in percentages (0.1.5, 0.2.1:
+      wording only).
+    - [ ] **10b-ii** The dashboard (report, leaderboard in `row.rank` order with each row's
+      standing, monitoring and overview figures as k of n) and the Hub's pack pages (which
+      rank by accuracy alone today).
+    - [ ] Follow-up: the five packs' known failure modes still quote counts from hand-written
+      sets (e.g. "8/12 in the held-out set"), measured on earlier pack versions. They agree
+      with the card's provider comparison today; replacing them with the command that measures
+      each (as 10b-i did for the local-site percentages) is a wording change per pack.
   - [ ] **LP-10c** The model that answered, on each answer and in each report; and removing
     `DEFAULT_MODEL` (an `llm` variant with no model fails as `not_configured`, in `preflight`).
     **Owner first:** no default configuration uses an LLM, but an `llm` slot chosen through

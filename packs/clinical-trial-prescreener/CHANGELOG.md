@@ -4,6 +4,14 @@ Renamed on 2026-09-30, when the project became Mendari: this pack was `openhealt
 Its id, its publisher's name and its `https://mendari.co/...` identifiers changed; its criteria,
 rules, models, data and results did not.
 
+## 0.1.5
+
+- Two known failure modes (the local site, and rules added to a model) state their findings,
+  and the command that measures the first, instead of percentages typed in by hand (LP-10: a
+  share of cases on a card is k of n with its interval, computed). Criteria, rules, providers,
+  policy, models and data are unchanged; every decision is identical. The digest changes
+  because the manifest does.
+
 ## 0.1.4
 
 - `code_systems` declares the systems the pack uses: ICD-10-CM, LOINC and SNOMED CT, with SNOMED

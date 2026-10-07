@@ -11,9 +11,16 @@ from mendari.core import clock
 from mendari.core.origin import COMMUNITY_AUTOMATION
 from mendari.core.pack import Pack
 from mendari.core.spec import Condition, DeriveRow, Outcome, PackManifest, Question
-from mendari.evals import leaderboard
-from mendari.evals.render import num, pct
-from mendari.evals.result import normalize
+from mendari.evals import leaderboard, ranking, stats
+from mendari.evals.render import INTERVALS, evidence, num, shown
+from mendari.evals.result import (
+    MIN_POSITIVES,
+    counted,
+    false_automation,
+    normalize,
+    subgroup_labelled,
+    sweep,
+)
 
 RISK_NAMES = {
     0: "administrative",
@@ -184,6 +191,14 @@ def render_card(pack: Pack) -> str:
         )
     out += ["", "## Validation", ""]
     out += _validation(report) if report else ["No published benchmark."]
+    if report and report["pack"].get("digest") != pack.digest:
+        measured = ranking.measured_on(
+            report["pack"].get("version"), report["pack"].get("digest"), pack.version
+        )
+        out += [
+            "",
+            f"This benchmark was measured on {measured}; evaluate it again before relying on it.",
+        ]
     unread = [(m.evaluation.benchmark, report_problem), (leaderboard.PATH, board_problem)]
     for relative, why in unread:
         if why:
@@ -193,17 +208,21 @@ def render_card(pack: Pack) -> str:
             "",
             "## Provider comparison",
             "",
-            "Every configuration below ran on the same records. Remote models are named because "
-            "they are a deployment choice. Synthetic and hand-written data: compare "
-            "configurations with each other, not with performance at a real site.",
+            "Each table below is one dataset at one size, and the configurations in a table that "
+            "records the dataset's hash ran on exactly the same records. Remote models are named "
+            "because they are a deployment choice. Synthetic and hand-written data: compare "
+            "configurations with each other, not with performance at a real site. Ranked "
+            f"({ranking.METHOD}) by the critical cases caught first, never accuracy alone: only "
+            "configurations measured on this version of the pack rank, and only on records with "
+            f"at least {MIN_POSITIVES} positives of a critical label.",
             "",
-            *leaderboard.markdown(board, m.version),
+            *leaderboard.markdown(board, pack.digest, pack.version),
         ]
     out += ["", "## Known failure modes", "", *[f"- {item}" for item in m.card.known_failure_modes]]
     out += ["", "## Evidence and provenance", ""]
-    for evidence in m.card.evidence:
-        title = f"[{evidence.title}]({evidence.url})" if evidence.url else evidence.title
-        out.append(f"- **{title}**" + (f": {evidence.note}" if evidence.note else ""))
+    for cited in m.card.evidence:
+        title = f"[{cited.title}]({cited.url})" if cited.url else cited.title
+        out.append(f"- **{title}**" + (f": {cited.note}" if cited.note else ""))
     if pack.path("CHANGELOG.md").is_file():
         history = pack.read_text("CHANGELOG.md").split("\n", 1)[-1].strip()
         out += [
@@ -319,20 +338,25 @@ def _validation(report: dict[str, Any]) -> list[str]:
     primary = report["primary"]
     q = report["questions"][primary]
     d = report["decisions"]
+    counts = d["outcome_counts"]
+    total = sum(counts.values())
+    automation = d["automation"]
     providers = ", ".join(f"{slot}=`{p['variant']}`" for slot, p in report["providers"].items())
     rows = [
-        f"Benchmark `{report['dataset']['name']}` (n={report['dataset']['n']}) with {providers}:",
+        f"Benchmark `{report['dataset']['name']}` (n={report['dataset']['n']}) with {providers}. "
+        f"Each proportion: {INTERVALS}.",
         "",
         "| Metric | Value |",
         "|---|---|",
-        f"| `{primary}` accuracy | {pct(q['accuracy'])} |",
+        f"| `{primary}` accuracy | {shown(counted(q['accuracy'], q['n']))} |",
         f"| Macro-F1 | {num(q['macro_f1'])} |",
         f"| Expected calibration error | {num(q['calibration']['ece'])} |",
-        f"| Brier score | {num(q['brier'])} |",
-        *[f"| {k} rate | {pct(v)} |" for k, v in d["outcome_rates"].items()],
-        f"| Accuracy of AUTO decisions | {pct(d['automation']['accuracy'])} |",
-        f"| False automation rate | {pct(d['automation']['false_automation_rate'])} |",
-        f"| Expected human override rate | {pct(d['review']['expected_override_rate'])} |",
+        f"| Brier score | {num(q['brier'])}{_brier_interval(q)} |",
+        *[f"| {k} | {shown(stats.proportion(v, total))} |" for k, v in counts.items()],
+        f"| AUTO decisions correct | {shown(counted(automation['accuracy'], automation['n']))} |",
+        f"| False automation (of labelled cases) | {shown(false_automation(report))} |",
+        f"| Expected human override (of reviewed) | "
+        f"{shown(counted(d['review']['expected_override_rate'], d['review']['n']))} |",
         f"| Latency p50 / p95 | {num(report['run']['latency_ms']['p50'], 2)} / "
         f"{num(report['run']['latency_ms']['p95'], 2)} ms |",
     ]
@@ -340,59 +364,71 @@ def _validation(report: dict[str, Any]) -> list[str]:
     rows.append(f"| Cost per decision | {'unknown' if cost is None else f'${cost:.5f}'} |")
     for item in d["critical"]:
         rows.append(
-            f"| Critical `{item['question']}={item['label']}` | {item['detected']}/{item['n']} "
-            f"detected, {item['auto_missed']} automated |"
+            f"| Critical `{item['question']}={item['label']}` | "
+            f"{shown(stats.proportion(item['detected'], item['n']))} detected, "
+            f"{item['auto_missed']} automated{evidence(item['n'])} |"
         )
+    confusion = q["confusion"]
     rows += [
         "",
         "Per-label performance:",
         "",
-        "| Label | Precision | Recall | F1 | n |",
-        "|---|---|---|---|---|",
+        "| Label | Precision | Recall | F1 |",
+        "|---|---|---|---|",
     ]
     for label, m in q["per_label"].items():
+        predicted = sum(row[label] for row in confusion.values())
         rows.append(
-            f"| `{label}` | {pct(m['precision'])} | {pct(m['recall'])} | {num(m['f1'])} "
-            f"| {m['support']} |"
+            f"| `{label}` | {shown(counted(m['precision'], predicted))} "
+            f"| {shown(counted(m['recall'], m['support']))} | {num(m['f1'])} |"
         )
     rows += [
         "",
         "Subgroups:",
         "",
-        "| Subgroup | n | Accuracy | AUTO rate | Abstention |",
+        "| Subgroup | n | Accuracy | AUTO | Abstention |",
         "|---|---|---|---|---|",
     ]
     for attribute, values in report["subgroups"].items():
         for value, m in values.items():
+            labelled = subgroup_labelled(report, m)
             rows.append(
-                f"| {attribute}={value} | {m['n']} | {pct(m['accuracy'])} "
-                f"| {pct(m['auto_rate'])} | {pct(m['abstention_rate'])} |"
+                f"| {attribute}={value} | {m['n']} | {shown(counted(m['accuracy'], labelled))} "
+                f"| {shown(counted(m['auto_rate'], m['n']))} "
+                f"| {shown(counted(m['abstention_rate'], m['n']))} |"
             )
     rows += [
         "",
         "Calibration (reliability):",
         "",
-        "| Confidence bin | n | Mean confidence | Accuracy |",
-        "|---|---|---|---|",
+        "| Confidence bin | Mean confidence | Correct |",
+        "|---|---|---|",
     ]
     for b in q["calibration"]["bins"]:
         rows.append(
-            f"| {b['low']:.1f} to {b['high']:.1f} | {b['n']} | {pct(b['confidence'])} "
-            f"| {pct(b['accuracy'])} |"
+            f"| {b['low']:.1f} to {b['high']:.1f} | {num(b['confidence'])} "
+            f"| {shown(counted(b['accuracy'], b['n']))} |"
         )
     rows += [
         "",
         "Threshold sweep (if everything ≥ threshold were automated):",
         "",
-        "| Threshold | Coverage | Accuracy | Errors |",
-        "|---|---|---|---|",
+        "| Threshold | Would be automated | Of those, correct |",
+        "|---|---|---|",
     ]
-    for row in report["threshold_sweep"]:
-        rows.append(
-            f"| {row['threshold']:.2f} | {pct(row['coverage'])} | {pct(row['accuracy'])} "
-            f"| {row['errors']} |"
-        )
+    for row in sweep(report):
+        scored, chosen = row["scored"], row["chosen"]
+        automated = None if scored is None else stats.proportion(chosen, scored)
+        correct = None if chosen is None else stats.proportion(chosen - row["errors"], chosen)
+        rows.append(f"| {row['threshold']:.2f} | {shown(automated)} | {shown(correct)} |")
     return rows
+
+
+def _brier_interval(question: Mapping[str, Any]) -> str:
+    interval = question.get("brier_interval")
+    if not interval:
+        return ""
+    return f" [{num(interval['low'])}-{num(interval['high'])}, bootstrap]"
 
 
 def _code_systems(m: PackManifest) -> list[str]:

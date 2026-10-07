@@ -122,6 +122,8 @@ def threshold_sweep(
                 "coverage": safe_div(len(chosen), n),
                 "accuracy": safe_div(sum(chosen), len(chosen)),
                 "errors": len(chosen) - sum(chosen),
+                "chosen": len(chosen),  # the counts each rate is of, shown as k of n
+                "scored": n,
             }
         )
     return rows

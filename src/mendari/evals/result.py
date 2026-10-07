@@ -27,6 +27,9 @@ from mendari.evals.ledger import Ledger, canonical
 FORMAT = "mendari.eval/2"
 FORMATS_READ = ("mendari.eval/1", "openhealth.eval/1", FORMAT)
 SEED = 0
+# A critical label's evidence floor: fewer positives than this, and its figure says "insufficient
+# evidence" and ranks nothing (LP-10).
+MIN_POSITIVES = 100
 OUTCOMES = ["AUTO", "HUMAN_REVIEW", "ABSTAIN", "BLOCK"]
 # Keys of a report that are not its result: what differs between two runs on the same cases.
 RUN_KEYS = ("run", "comparison", "result_sha256")
@@ -227,6 +230,8 @@ def _subgroups(
             auto = [(c, e) for c, e in labelled if c["o"] == "AUTO"]
             groups[attribute][value] = {
                 "n": len(members),
+                "labelled": len(labelled),  # what accuracy is of
+                "automated": len(auto),  # what the false automation rate is of
                 "accuracy": metrics.safe_div(
                     sum(e[PREDICTED] == e[TRUTH] for _, e in labelled), len(labelled)
                 ),
@@ -239,6 +244,55 @@ def _subgroups(
                 ),
             }
     return groups
+
+
+def counted(rate: float | None, n: int | None) -> stats.Proportion | None:
+    """k of n, with its interval, for a rate a report states over n cases (k = rate x n: exact
+    for any n a report holds). None when the report does not say."""
+    if n is None or (rate is None and n):
+        return None
+    return stats.proportion(round((rate or 0.0) * n), n)
+
+
+def false_automation(report: Mapping[str, Any]) -> stats.Proportion | None:
+    """Automated with a wrong recommendation, over every case labelled for the primary question:
+    stored in a mendari.eval/2 report, worked out from a mendari.eval/1 one."""
+    stored = (report.get("proportions") or {}).get("false_automation")
+    if stored is not None:
+        return stats.proportion(stored["k"], stored["n"])
+    automation = report["decisions"]["automation"]
+    wrong = counted(automation["false_automation_rate"], automation["n"])
+    labelled = report["questions"].get(report["primary"], {}).get("n")
+    return None if labelled is None else stats.proportion(wrong.k if wrong else 0, labelled)
+
+
+def sweep(report: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """The threshold sweep with the counts each row is of (`scored` cases, `chosen` at or above
+    the threshold): stored since LP-10b; for an earlier report, `scored` is the primary
+    question's calibration bins, which hold exactly the cases the sweep is over, and `chosen`
+    follows from the coverage."""
+    question = report["questions"].get(report["primary"]) or {}
+    bins = (question.get("calibration") or {}).get("bins")
+    scored = sum(b["n"] for b in bins) if bins is not None else None
+    rows = []
+    for row in report.get("threshold_sweep", []):
+        if "chosen" not in row:
+            coverage = row.get("coverage")
+            chosen = None if scored is None or coverage is None else round(coverage * scored)
+            row = {**row, "scored": scored, "chosen": chosen}
+        rows.append(dict(row))
+    return rows
+
+
+def subgroup_labelled(report: Mapping[str, Any], members: Mapping[str, Any]) -> int | None:
+    """How many of a subgroup's members are labelled for the primary question, which its
+    accuracy is over: stored since LP-10b; for an earlier report, known only when every case
+    is labelled."""
+    if "labelled" in members:
+        return int(members["labelled"])
+    question = report["questions"].get(report["primary"]) or {}
+    every = question.get("n") is not None and question.get("n") == report["dataset"].get("n")
+    return int(members["n"]) if every else None
 
 
 def normalize(report: Mapping[str, Any]) -> dict[str, Any]:

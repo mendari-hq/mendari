@@ -1574,55 +1574,73 @@
       "threshold": 0.5,
       "coverage": 0.9983333333333333,
       "accuracy": 0.996661101836394,
-      "errors": 2
+      "errors": 2,
+      "chosen": 599,
+      "scored": 600
     },
     {
       "threshold": 0.6,
       "coverage": 0.9983333333333333,
       "accuracy": 0.996661101836394,
-      "errors": 2
+      "errors": 2,
+      "chosen": 599,
+      "scored": 600
     },
     {
       "threshold": 0.7,
       "coverage": 0.9983333333333333,
       "accuracy": 0.996661101836394,
-      "errors": 2
+      "errors": 2,
+      "chosen": 599,
+      "scored": 600
     },
     {
       "threshold": 0.8,
       "coverage": 0.9983333333333333,
       "accuracy": 0.996661101836394,
-      "errors": 2
+      "errors": 2,
+      "chosen": 599,
+      "scored": 600
     },
     {
       "threshold": 0.85,
       "coverage": 0.9983333333333333,
       "accuracy": 0.996661101836394,
-      "errors": 2
+      "errors": 2,
+      "chosen": 599,
+      "scored": 600
     },
     {
       "threshold": 0.9,
       "coverage": 0.9983333333333333,
       "accuracy": 0.996661101836394,
-      "errors": 2
+      "errors": 2,
+      "chosen": 599,
+      "scored": 600
     },
     {
       "threshold": 0.95,
       "coverage": 0.2833333333333333,
       "accuracy": 1.0,
-      "errors": 0
+      "errors": 0,
+      "chosen": 170,
+      "scored": 600
     },
     {
       "threshold": 0.97,
       "coverage": 0.11333333333333333,
       "accuracy": 1.0,
-      "errors": 0
+      "errors": 0,
+      "chosen": 68,
+      "scored": 600
     },
     {
       "threshold": 0.99,
       "coverage": 0.095,
       "accuracy": 1.0,
-      "errors": 0
+      "errors": 0,
+      "chosen": 57,
+      "scored": 600
     }
   ],
   "cost": {
@@ -1662,6 +1680,8 @@
     "site": {
       "public": {
         "n": 600,
+        "labelled": 600,
+        "automated": 0,
         "accuracy": 0.995,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1671,6 +1691,8 @@
     "specialty": {
       "cardiology": {
         "n": 108,
+        "labelled": 108,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1678,6 +1700,8 @@
       },
       "dermatology": {
         "n": 75,
+        "labelled": 75,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1685,6 +1709,8 @@
       },
       "endocrinology": {
         "n": 48,
+        "labelled": 48,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1692,6 +1718,8 @@
       },
       "gastroenterology": {
         "n": 87,
+        "labelled": 87,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1699,6 +1727,8 @@
       },
       "neurology": {
         "n": 75,
+        "labelled": 75,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1706,6 +1736,8 @@
       },
       "orthopedics": {
         "n": 81,
+        "labelled": 81,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1713,6 +1745,8 @@
       },
       "other": {
         "n": 30,
+        "labelled": 30,
+        "automated": 0,
         "accuracy": 0.9,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1720,6 +1754,8 @@
       },
       "pulmonology": {
         "n": 55,
+        "labelled": 55,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1727,6 +1763,8 @@
       },
       "rheumatology": {
         "n": 41,
+        "labelled": 41,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1736,6 +1774,8 @@
     "kind": {
       "look_alike": {
         "n": 66,
+        "labelled": 66,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1743,6 +1783,8 @@
       },
       "routine": {
         "n": 372,
+        "labelled": 372,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1750,6 +1792,8 @@
       },
       "urgent": {
         "n": 113,
+        "labelled": 113,
+        "automated": 0,
         "accuracy": 1.0,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1757,6 +1801,8 @@
       },
       "vague": {
         "n": 49,
+        "labelled": 49,
+        "automated": 0,
         "accuracy": 0.9387755102040817,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1766,6 +1812,8 @@
     "style": {
       "prose": {
         "n": 600,
+        "labelled": 600,
+        "automated": 0,
         "accuracy": 0.995,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1775,6 +1823,8 @@
     "age_band": {
       "18-39": {
         "n": 159,
+        "labelled": 159,
+        "automated": 0,
         "accuracy": 0.9937106918238994,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1782,6 +1832,8 @@
       },
       "40-64": {
         "n": 247,
+        "labelled": 247,
+        "automated": 0,
         "accuracy": 0.9959514170040485,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1789,6 +1841,8 @@
       },
       "65+": {
         "n": 194,
+        "labelled": 194,
+        "automated": 0,
         "accuracy": 0.9948453608247423,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1798,6 +1852,8 @@
     "sex": {
       "female": {
         "n": 302,
+        "labelled": 302,
+        "automated": 0,
         "accuracy": 0.9933774834437086,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1805,6 +1861,8 @@
       },
       "male": {
         "n": 298,
+        "labelled": 298,
+        "automated": 0,
         "accuracy": 0.9966442953020134,
         "auto_rate": 0.0,
         "abstention_rate": 0.0,
@@ -1836,15 +1894,15 @@
     }
   ],
   "run": {
-    "id": "c6320691-c553-455d-b925-29d85f0e280c",
-    "created_at": "2026-10-07T18:04:23+00:00",
+    "id": "ca7d6d23-6c85-4111-b9d3-86824da79988",
+    "created_at": "2026-10-07T18:58:56+00:00",
     "latency_ms": {
-      "mean": 1.8773096419560413,
-      "p50": 1.8662093207240105,
-      "p95": 1.9963751547038555,
-      "max": 2.326290588825941
+      "mean": 1.8753392598591745,
+      "p50": 1.8616248853504658,
+      "p95": 2.0151659846305847,
+      "max": 2.4064998142421246
     },
     "engine": "0.1.0"
   },
-  "result_sha256": "sha256:af2275415dfad48bdc6b640a5f6ecb991b9151470abfd7bc782155ebadec947d"
+  "result_sha256": "sha256:98d7d35282b9411a852007d9240a0a23e4acf0056ecccde55f81ac040b7b2461"
 }

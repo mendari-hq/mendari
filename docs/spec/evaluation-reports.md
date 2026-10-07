@@ -74,6 +74,43 @@ from the hashes. A dataset with two cases of one id is refused.
 server stores it beside the report, and chains an `eval.recorded` event (the report, result and
 ledger ids, the pack digest, the dataset's hash and the organization: ids and hashes only).
 
+## How a figure is shown
+
+Every proportion a person reads, on a card, on the command line or on the dashboard, is shown
+as k of n with its exact interval: `596 of 600 [98.3-99.8%]`. A bound is printed with as many
+digits as it needs never to read 0 or 100% when it is neither. A share of no cases says
+"no cases". Next to a critical label with fewer than 100 positives (the evidence rule), the
+figure says "insufficient evidence". The only other percentages are thresholds and tolerances,
+which are settings, not shares of cases.
+
+A pack's known failure modes are its author's words, not computed. The reference packs state no
+share of cases as a percentage there: they state the finding and, for a local-site example, the
+command that measures it.
+
+## Leaderboards: `mendari.leaderboard/2` and `mendari.rank/1`
+
+A leaderboard row carries its pack's version and digest, the dataset's name, hash, size and
+`limit`, the report's ledger, and `accuracy_proportion` and `false_automation` as k of n with
+their intervals. A row is keyed by pack digest, dataset hash, size and configuration: a new run
+of one configuration on the same pack and records replaces its row; a run on another pack
+version adds one.
+
+`build` writes the pack's digest and each row's `rank` and `standing`, from one ranking
+function, `mendari.rank/1` (`mendari.evals.ranking`). Rows are ranked against the rows on the
+same records (dataset hash and size), in this order:
+
+1. fewer critical positives automated;
+2. a higher lower bound of the worst critical label's detection, over the critical labels with
+   at least 100 positives;
+3. a lower upper bound of false automation;
+4. a higher lower bound of accuracy;
+5. a lower cost per decision, then the configuration's name, so the order is total.
+
+Accuracy never ranks alone. A row measured on another pack digest has the standing
+`earlier version` and no rank: its AUTO and false automation followed that version's policy. When
+no critical label on those records has 100 positives, every row has the standing
+`insufficient evidence` and none ranks.
+
 ## Paired comparisons: `mendari.compare/1`
 
 `mendari compare A B --dataset X` compares two runs of one pack on the same dataset, from their

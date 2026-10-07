@@ -3,9 +3,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
-from mendari.evals.result import normalize
+from mendari.evals import stats
+from mendari.evals.result import MIN_POSITIVES, counted, false_automation, normalize
 
 
 def pct(value: float | None, digits: int = 1) -> str:
@@ -16,40 +18,94 @@ def num(value: float | None, digits: int = 3) -> str:
     return "n/a" if value is None else f"{value:.{digits}f}"
 
 
+def shown(p: stats.Proportion | Mapping[str, Any] | None) -> str:
+    """A proportion as k of n and its exact 95% interval: "596 of 600 [98.2-99.9%]"."""
+    if p is None:
+        return "n/a"
+    if isinstance(p, Mapping):
+        p = stats.Proportion(p["k"], p["n"], p.get("low"), p.get("high"))
+    if not p.n or p.low is None or p.high is None:
+        return "no cases"
+    low = percent(p.low)
+    high = percent(p.high)
+    # With k above 0 the lower bound is above 0, and with k below n the upper bound is below
+    # 100, however close a stored bound (6 places) or 4 printed decimals come to either.
+    if p.k > 0 and float(low) == 0.0:
+        low = f"<{10.0**-BOUND_DIGITS:.{BOUND_DIGITS}f}"
+    if p.k < p.n and float(high) == 100.0:
+        high = f">{100 - 10.0**-BOUND_DIGITS:.{BOUND_DIGITS}f}"
+    return f"{p.k} of {p.n} [{low}-{high}%]"
+
+
+BOUND_DIGITS = 4
+
+
+def percent(value: float) -> str:
+    """A bound as a percentage, with the digits it needs (up to 4) never to read as 0 or 100
+    when it is not (an upper bound of 99.96% is not "100.0")."""
+    digits = 1
+    while (
+        digits < BOUND_DIGITS
+        and 0.0 < value < 1.0
+        and f"{value * 100:.{digits}f}" in (f"{0:.{digits}f}", f"{100:.{digits}f}")
+    ):
+        digits += 1
+    return f"{value * 100:.{digits}f}"
+
+
+def evidence(positives: int, *, short: bool = False) -> str:
+    """Beside a critical label's figure: too few positives to rank or compare on (LP-10)."""
+    if positives >= MIN_POSITIVES:
+        return ""
+    return (
+        "; insufficient evidence"
+        if short
+        else (f" (insufficient evidence: under {MIN_POSITIVES} positives)")
+    )
+
+
+INTERVALS = "k of n [exact 95% interval, Clopper-Pearson]"
+
+
 def report_text(report: dict[str, Any]) -> str:
     primary = report["primary"]
     q = report["questions"].get(primary)
     d = report["decisions"]
-    rates = d["outcome_rates"]
+    counts = d["outcome_counts"]
+    total = sum(counts.values())
     auto = d["automation"]
-    wrong_auto = round((auto["false_automation_rate"] or 0) * auto["n"])
     providers = "  ".join(f"{slot}={p['variant']}" for slot, p in report["providers"].items())
     lines = [
         f"Pack        {report['pack']['id']} {report['pack']['version']} "
         f"({report['pack']['digest'][:19]}…)",
         f"Providers   {providers}",
         f"Dataset     {report['dataset']['name']} (n={report['dataset']['n']})",
+        f"Proportions {INTERVALS}",
         "",
     ]
     if q:
         lines += [
             f"{primary.capitalize()} accuracy".ljust(26)
-            + f"{pct(q['accuracy'])}   macro-F1 {num(q['macro_f1'])}",
+            + f"{shown(counted(q['accuracy'], q['n']))}   macro-F1 {num(q['macro_f1'])}",
             "Calibration".ljust(26)
             + f"ECE {num(q['calibration']['ece'])}   Brier {num(q['brier'])}",
         ]
     lines += [
-        "Outcomes".ljust(26)
-        + "  ".join(f"{k.replace('HUMAN_', '')} {pct(v)}" for k, v in rates.items()),
-        "Automation".ljust(26) + f"accuracy {pct(auto['accuracy'])}   false automation rate "
-        f"{pct(auto['false_automation_rate'])} ({wrong_auto} of {auto['n']})",
-        "Expected override rate".ljust(26)
-        + f"{pct(d['review']['expected_override_rate'])} of reviewed",
+        *[
+            f"Outcome {k.replace('HUMAN_', '').lower()}".ljust(26)
+            + shown(stats.proportion(v, total))
+            for k, v in counts.items()
+        ],
+        "Automated, correct".ljust(26) + shown(counted(auto["accuracy"], auto["n"])),
+        "False automation".ljust(26) + f"{shown(false_automation(report))} of labelled cases",
+        "Expected override".ljust(26)
+        + f"{shown(counted(d['review']['expected_override_rate'], d['review']['n']))} of reviewed",
     ]
     for item in d["critical"]:
         lines.append(
             f"Critical {item['question']}={item['label']}".ljust(25)
-            + f" {item['detected']}/{item['n']} detected, {item['auto_missed']} automated"
+            + f" {shown(stats.proportion(item['detected'], item['n']))} detected, "
+            f"{item['auto_missed']} automated{evidence(item['n'])}"
         )
     latency = normalize(report)["run"].get("latency_ms") or {"p50": None, "p95": None}
     cost = report["cost"]
@@ -79,7 +135,9 @@ def comparison_text(comparison: dict[str, Any], max_findings: int = 6) -> str:
         (f"Local performance ({local['dataset']['name']}, n={local['dataset']['n']}):", local),
     ]
     width = max(len(label) for label, _ in rows) + 2
-    lines = [label.ljust(width) + pct(side["accuracy"]) for label, side in rows] + [""]
+    lines = [
+        label.ljust(width) + shown(counted(side["accuracy"], side.get("n"))) for label, side in rows
+    ] + [""]
     tolerance = comparison["tolerance"] * 100
     if comparison["status"] == "ok":
         lines.append(f"No degradation beyond tolerance ({tolerance:.1f} pts).")
@@ -95,16 +153,21 @@ def comparison_text(comparison: dict[str, Any], max_findings: int = 6) -> str:
     findings = comparison["findings"]
     for finding in findings[:max_findings]:
         if finding["kind"] == "critical":
-            lines.append(f"  - {finding['subject']}: {finding['local']} of {finding['n']}")
+            automated = shown(stats.proportion(finding["local"], finding["n"]))
+            lines.append(
+                f"  - {finding['subject']}: {automated} positives"
+                f"{evidence(finding['n'], short=True)}"
+            )
         elif finding["kind"] == "calibration":
             lines.append(
                 f"  - {finding['subject']}: {num(finding['baseline'])} -> {num(finding['local'])}"
             )
         else:
-            lines.append(
-                f"  - {finding['subject']}: {pct(finding['baseline'])} -> {pct(finding['local'])} "
-                f"(n={finding['n']})"
-            )
+            before = shown(counted(finding["baseline"], finding.get("baseline_n")))
+            if finding.get("baseline_scope") == "overall":  # the benchmark has no such subgroup
+                before = f"benchmark overall {before}"
+            after = shown(counted(finding["local"], finding.get("local_n")))
+            lines.append(f"  - {finding['subject']}: {before} -> {after}")
     if len(findings) > max_findings:
         lines.append(f"  … and {len(findings) - max_findings} smaller findings in the JSON report")
     return "\n".join(lines)
