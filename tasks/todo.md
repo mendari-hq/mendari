@@ -476,15 +476,22 @@ operations, LP-22 site network, LP-23 EHR pilot.
   digest); the build prompt says to stop until this file records it. Not started.
 - [ ] **LP-12** Accounts, memberships and invitations (ADR-0008, Proposed). Planned by a mapping
   workflow as eleven PRs, each leaving claims mode exactly as it is:
-  - [ ] **12a + 12b** (PR open) This entry and ADR-0008; tenancy fails closed: a signed-in
-    principal of no organization (`tenancy.acting_for_nobody`) is refused every organization
-    read and write (`NoOrganization`, 403), never widened to all of them (None) or to `default`;
-    an empty organization is one, never "any", in the key and client store.
+  - [ ] **12a + 12b** (PR open) This entry and ADR-0008; tenancy fails closed: for a signed-in
+    principal of no organization (`tenancy.acting_for_nobody`), every read and write that
+    resolves its organization through `tenancy.current()` is refused (`NoOrganization`, 403),
+    never widened to all of them (None) or to `default`; an empty organization is one, never
+    "any", in the key and client store.
   - [ ] **12c** Decide-scoped credentials list packs and read CDS discovery (ADR-0004).
   - [ ] **12d** User, organization, membership, invitation and request records; the operator's
     `mendari access` commands (organizations, bootstrap, preflight). No route reads them yet.
   - [ ] **12e** `MENDARI_ACCOUNTS=memberships`: sign-in by records, the no-access page and a
-    request-access path, organization selection.
+    request-access path, organization selection. A principal of no organization must be
+    refused before every path that does not resolve its organization through
+    `tenancy.current()` (found by the 12a-b review): the routes that pass `principal.org` to
+    the store (holds GET/POST/DELETE; health's holds, quota and EHR registrations; key and
+    client create, list, rotate, revoke), the whole-chain `/api/audit/verify`, and the
+    streamed FHIR audit export (it reaches tenancy only once streaming, so it would answer
+    200 and then abort). Its principal carries no default organization.
   - [ ] **12f** Invitations and member management (no e-mail sent).
   - [ ] **12g** The organization bound into each chained event (memberships mode), checked by
     `verify`; per-organization administrative reader and export; the generated two-organization
@@ -501,7 +508,9 @@ operations, LP-22 site network, LP-23 EHR pilot.
   2. The reserved roles (`pack_author`, `labeller`, `grading`) do not join the claims-mode
      roles; a membership may hold the first two (granting nothing until LP-20 and LP-11), and
      no membership holds `grading`. If LP-11 lands first with its own names, LP-12 reuses them.
-  3. The organization in existing event kinds' payloads is memberships-only; new kinds always.
+  3. Adding the organization to the payloads of event kinds that lack it (decision events and
+     others) is memberships-only; the kinds that already carry it (governance, holds, keys,
+     clients, evaluations, notice acknowledgements) keep it; new kinds always carry it.
   4. Rotating a Backend Services client replaces its key set (same client id, tokens dropped).
   5. Deployment-wide views (whole-chain verify, totals, deployment-wide holds) are the
      operator's: by default the command line only.

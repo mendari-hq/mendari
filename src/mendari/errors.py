@@ -111,7 +111,7 @@ class AuthError(MendariError):
 
 class NoOrganization(AuthError):
     """A signed-in principal acting for no organization (memberships mode, LP-12) reached
-    organization data: every read and write of it is refused, never widened to all of them."""
+    organization data through `tenancy.current()`: refused, never widened to all of them."""
 
     def __init__(self, message: str = "you have no organization here"):
         super().__init__(message, 403)

@@ -10,8 +10,11 @@ deployments work as before.
 
 None means open mode or the command line (every organization), never a signed-in principal. A
 signed-in principal with no organization (memberships mode, LP-12) acts for nobody instead: then
-`current()` raises `NoOrganization`, so every read and write of organization data fails closed
-where it is reached, and none can fall back to every organization or to the default one.
+`current()` raises `NoOrganization`, so every read and write that resolves its organization
+through `current()` fails closed where it is reached, never falling back to every organization
+or to the default one. Store methods that take the organization as an argument (holds, quotas,
+keys, clients) do not consult it: memberships mode must not let a principal of no organization
+reach the routes that call them (LP-12e).
 """
 
 from __future__ import annotations

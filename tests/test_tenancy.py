@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Tenancy fails closed (LP-12): a signed-in principal acting for no organization reaches no
-organization's data. Every read and write of it is refused, never widened to all organizations
-(None, which is open mode and the command line) or to the default one. And an empty
-organization is an organization, never "any"."""
+"""Tenancy fails closed (LP-12): for a signed-in principal acting for no organization, every
+read and write that resolves its organization through `tenancy.current()` is refused, never
+widened to all organizations (None, which is open mode and the command line) or to the default
+one. And an empty organization is an organization, never "any"."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from mendari import AuditStore, Decision, Pack
 from mendari.core import tenancy
 from mendari.errors import MendariError, NoOrganization
 from tests.conftest import message
+from tests.test_backend_services import RSA_KEY
 
 REFILL = "Hi, I need a refill on my metoprolol."
 
@@ -81,5 +82,10 @@ def test_an_empty_organization_is_one_not_every(store: AuditStore) -> None:
         store.rotate_api_key(key["id"], "", rotated_by="Mallory")
     assert store.api_key(key["key"]) is not None  # still in force, and only once
     assert [k["id"] for k in store.api_keys("clinic-a")] == [key["id"]]
-    assert store.clients("") == []
-    assert store.revoke_client("any", "", revoked_by="Mallory") is False
+    client = store.register_client(
+        name="c", role="viewer", org="clinic-a", created_by="Ada", scopes="system/*.rs",
+        jwks=[RSA_KEY.jwk],
+    )  # fmt: skip
+    assert store.clients("") == [] and len(store.clients(None)) == 1
+    assert store.revoke_client(client["client_id"], "", revoked_by="Mallory") is False
+    assert store.client(client["client_id"]) is not None  # still in force

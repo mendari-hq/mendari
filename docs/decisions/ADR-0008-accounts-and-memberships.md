@@ -10,7 +10,10 @@ A request acts for one organization, taken from the identity provider's claim at
 There are no user, organization or membership records. A sign-in with no organization claim
 lands in `default`, so `default` is a catch-all, not the owner's own organization; a partner
 team needs the owner to edit settings and redeploy to get an organization of its own. The
-audit chain is one chain for the deployment, and its events name no organization.
+audit chain is one chain for the deployment, with no organization column; decision events name
+no organization, while a few administrative kinds (`governance.approved`, `automation.held`,
+`key.created`, `client.registered`, `eval.recorded`, `notice.acknowledged`) carry it in their
+hashed payload.
 
 The hosted site needs each partner team in its own organization without a redeploy, and nobody
 in an organization by default. A self-hosted site that runs one organization from its identity
@@ -21,10 +24,13 @@ provider's claims needs nothing to change.
   `MENDARI_ACCOUNTS=memberships` is for the hosted site: users (issuer, subject, verified
   e-mail), organizations as records, and memberships, each holding a set of roles.
 - **No fallback organization.** In memberships mode a sign-in without an active membership acts
-  for no organization: `tenancy.acting_for_nobody`, in which any read or write of organization
-  data raises `NoOrganization` (403). It is never None, which means every organization (open
-  mode, the command line). `default` is reserved for the owner's existing data; an idempotent
-  bootstrap command adds the owner's membership and rewrites no row.
+  for no organization: `tenancy.acting_for_nobody`, in which every read and write that resolves
+  its organization through `tenancy.current()` raises `NoOrganization` (403). It is never None,
+  which means every organization (open mode, the command line). The routes that pass the
+  principal's organization to the store themselves (holds, quotas, keys, clients, the health
+  summary) and the streamed audit export do not go through it: memberships mode refuses a
+  principal of no organization before them. `default` is reserved for the owner's existing
+  data; an idempotent bootstrap command adds the owner's membership and rewrites no row.
 - **Invitations** are single-use, expiring links bound to a verified e-mail address, shown to
   the inviting admin to pass on. Mendari sends no e-mail. The operator creates organizations
   until self-service.
@@ -32,7 +38,7 @@ provider's claims needs nothing to change.
   deployment-wide routes and the reason each holds no organization data. Each chained event of
   an organization names it in its hashed payload (memberships mode; new event kinds always), so
   `verify` can cross-check it against the row it is about; older events are attributed by the
-  row they name, never rewritten. Each organization gets a reader and an export of its own
+  row they name, never rewritten. The kinds that already carry it keep it in both modes. Each organization gets a reader and an export of its own
   administrative events.
 - **Reserved roles.** `pack_author` and `labeller` may be held on a membership and grant nothing
   until LP-20 and LP-11 give them permissions; `grading` is held by no person (LP-11: a machine
