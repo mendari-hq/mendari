@@ -7,6 +7,7 @@ exactly as it was; and a database written by an older Mendari is verified as it 
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -36,7 +37,7 @@ def used_database(path: Path, pack: Pack) -> Path:
     any write would show in its bytes or its journal mode."""
     with AuditStore(path) as store:
         Decision(pack, store=store)({"message": {"body": "Can I get a refill of my lisinopril?"}})
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection, connection:
         connection.execute("PRAGMA journal_mode=DELETE")
     return path
 
@@ -58,7 +59,7 @@ def test_another_applications_database_is_refused_untouched(
     command: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     other = tmp_path / "other.db"
-    with sqlite3.connect(other) as connection:
+    with closing(sqlite3.connect(other)) as connection, connection:
         connection.execute("CREATE TABLE invoices (id INTEGER PRIMARY KEY)")
     before = other.read_bytes()
     assert run(command, str(other), tmp_path) == 1
@@ -75,7 +76,7 @@ def test_the_servers_database_is_left_exactly_as_it_was(
     before = db.read_bytes()
     assert run(command, str(db), tmp_path) in (0, 1)  # monitor may alert; it never writes
     assert db.read_bytes() == before
-    with sqlite3.connect(db) as connection:
+    with closing(sqlite3.connect(db)) as connection, connection:
         assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
 
 
@@ -95,7 +96,7 @@ def test_an_older_database_is_verified_as_it_is_and_never_migrated(
     release adds: `verify` reads only the chain and the records, which every release keeps, and
     the commands that need the rest say what to do instead of migrating it."""
     db = used_database(tmp_path / "mendari.db", inbox_pack)
-    with sqlite3.connect(db) as connection:
+    with closing(sqlite3.connect(db)) as connection, connection:
         connection.execute("DROP TABLE settings")
         connection.execute("ALTER TABLE feedback DROP COLUMN superseded_by")
     before = db.read_bytes()
@@ -158,7 +159,7 @@ def test_an_older_database_is_exported_purged_and_erased_as_it_is(
     """Every release has had the chain and the records: a database from before a release that
     added tables (the automation hold, LP-06) is still Mendari's."""
     db = used_database(tmp_path / "mendari.db", inbox_pack)
-    with sqlite3.connect(db) as connection:
+    with closing(sqlite3.connect(db)) as connection, connection:
         connection.execute("DROP TABLE automation_holds")
         connection.execute("ALTER TABLE decision_inputs DROP COLUMN details")
     out = tmp_path / "export.ndjson"
