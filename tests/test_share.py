@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 import shutil
 from collections.abc import Iterator
 from pathlib import Path
@@ -21,7 +22,7 @@ from pydantic import ValidationError
 from mendari import Decision, Pack, load_pack
 from mendari.core.policy import GovernanceOverride
 from mendari.core.registry import resolve_pack
-from mendari.errors import MendariError
+from mendari.errors import FAILURE_CODES, MendariError
 from mendari.evals import evaluate, resolve_dataset
 from mendari.evals.share import (
     MAX_MEMBERS,
@@ -33,7 +34,7 @@ from mendari.evals.share import (
     summary,
 )
 from mendari.hub.registry import RegistryStore
-from tests.conftest import INBOX_DIR, SCREENED, Registry
+from tests.conftest import INBOX_DIR, ROOT, SCREENED, Registry
 
 BENCHMARK = json.loads(
     (resolve_pack("mendari/referral-router").root / "evals" / "benchmark.json").read_text()
@@ -427,6 +428,13 @@ def test_anything_else_in_a_model_is_refused(type_: str, model: str) -> None:
         ("Jane Doe:chest_pain", False),
         ("jev:not_configured\n", False),
         ("not_configured\n", False),
+        # Mendari's codes only (a closed set), however much a name looks like one.
+        ("derived_input_unavailable", True),
+        ("Jane_Doe", False),
+        ("jev:Jane_Doe", False),
+        ("jev:timeout, llm:Jane_Doe", False),
+        ("server_error", False),
+        ("Timeout", False),
     ],
 )
 def test_an_error_is_a_code_or_the_members_that_failed(key: str, shareable_: bool) -> None:
@@ -436,3 +444,15 @@ def test_an_error_is_a_code_or_the_members_that_failed(key: str, shareable_: boo
     else:
         with pytest.raises(ValidationError):
             SiteReport.model_validate(report)
+
+
+@pytest.mark.parametrize("code", sorted(FAILURE_CODES))
+def test_every_error_code_mendari_records_can_be_shared(code: str) -> None:
+    errors = {code: 1, f"jev:{code}": 2, f"rules:{code}, jev:{code}": 3}
+    assert SiteReport.model_validate({**SHARED, "errors": errors}).errors == errors
+
+
+def test_the_spec_lists_every_error_code() -> None:
+    spec = (ROOT / "docs" / "spec" / "decision-pack-0.2.md").read_text()
+    listed = spec[spec.index("a provider error with one of these") : spec.index("No other code")]
+    assert set(re.findall(r"`([a-z_]+)`", listed)) == FAILURE_CODES

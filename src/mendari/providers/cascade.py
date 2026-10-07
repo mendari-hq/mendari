@@ -25,7 +25,7 @@ from typing import Any, cast
 
 from pydantic import Field
 
-from mendari.errors import ProviderError
+from mendari.errors import ProviderError, ProviderErrorCode
 from mendari.providers.base import ProviderOutput
 from mendari.providers.composite import CompositeConfig, CompositeProvider, all_failed
 
@@ -42,7 +42,7 @@ class CascadeProvider(CompositeProvider):
     def answer(self, inputs: Mapping[str, Any]) -> ProviderOutput:
         accept_at = cast(CascadeConfig, self.settings).accept_at
         outputs: dict[str, ProviderOutput] = {}
-        failed: dict[str, str] = {}
+        failed: dict[str, ProviderErrorCode] = {}
         trail: list[str] = []
         names = list(self.members)
         for position, name in enumerate(names):

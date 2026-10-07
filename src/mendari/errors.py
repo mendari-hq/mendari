@@ -1,6 +1,33 @@
 # SPDX-License-Identifier: Apache-2.0
 """Exception hierarchy. Every error raised on purpose by Mendari derives from MendariError."""
 
+from __future__ import annotations
+
+from typing import Literal, get_args
+
+# Every code a provider error may carry: a closed set, held by its type (mypy refuses any other
+# code), so what a decision records, and a shared report counts, is one of these.
+ProviderErrorCode = Literal[
+    "budget_exhausted",
+    "credential_unavailable",
+    "insufficient_credit",
+    "invalid_endpoint",
+    "invalid_input",
+    "invalid_response",
+    "not_configured",
+    "provider_unavailable",
+    "quota_exhausted",
+    "rate_limited",
+    "time_budget",
+    "timeout",
+    "unavailable",
+]
+# A derived question whose inputs failed (core/derive.py): not a provider error, but recorded
+# among them.
+DERIVED_INPUT_UNAVAILABLE = "derived_input_unavailable"
+# Every code a decision may record a question's failure under.
+FAILURE_CODES = frozenset({*get_args(ProviderErrorCode), DERIVED_INPUT_UNAVAILABLE})
+
 
 class MendariError(Exception):
     """Base class for Mendari errors."""
@@ -23,8 +50,8 @@ class PackNotFoundError(MendariError):
 class ProviderError(MendariError):
     """A provider could not answer. `code` is a stable, audit-safe identifier."""
 
-    def __init__(self, code: str, detail: str = ""):
-        self.code = code
+    def __init__(self, code: ProviderErrorCode, detail: str = ""):
+        self.code: ProviderErrorCode = code
         self.detail = detail
         super().__init__(f"{code}: {detail}" if detail else code)
 

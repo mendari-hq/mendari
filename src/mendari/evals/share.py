@@ -9,12 +9,12 @@ never holds a case id, case text, the dataset's name or hash, who approved a gov
 override (only that one applied), or subgroup cells: a subgroup's values come from a site's
 data (a clinic, a clinician, a date), and nothing can tell a category from a name until a pack
 declares each subgroup's values. Every string is a name the pack or Mendari defines (a
-question, label, slot, variant, composite member, provider type, model or error code), short and
-ASCII; every number is bounded and rounded. A composite provider (`any_of`, `cascade`, `vote`)
-is shared as it is recorded: its model lists each member's as `member:model`, joined as the
-composite joins them (" + ", or a cascade's " → ", the one character that is not ASCII), and a
-failed member's error is `member:code`. Calibration bins with fewer than `MIN_GROUP` cases are
-dropped.
+question, label, slot, variant, composite member, provider type or model), short and ASCII, or
+one of Mendari's error codes (a closed set, `FAILURE_CODES`); every number is bounded and
+rounded. A composite provider (`any_of`, `cascade`, `vote`) is shared as it is recorded: its
+model lists each member's as `member:model`, joined as the composite joins them (" + ", or a
+cascade's " → ", the one character that is not ASCII), and a failed member's error is
+`member:code`. Calibration bins with fewer than `MIN_GROUP` cases are dropped.
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ from pydantic import (
     field_validator,
 )
 
-from mendari.errors import MendariError
+from mendari.errors import FAILURE_CODES, MendariError
 from mendari.evals.result import normalize
 from mendari.providers import PROVIDER_TYPES
 from mendari.providers.composite import CompositeProvider
@@ -45,10 +45,11 @@ SITE_REPORT_FORMAT = "mendari.site-report/1"
 _NAME_PART = r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}"
 _MODEL_PART = r"[A-Za-z0-9][A-Za-z0-9._@:/+-]{0,127}"
 _NAME = rf"^{_NAME_PART}$"
-# An error code, or a composite's failed members as `member:code` (", " between several, as
-# `CompositeProvider.output` records them).
-_MEMBER_CODE = rf"{_NAME_PART}:{_NAME_PART}"
-_ERROR_KEY = rf"^(?:{_NAME_PART}|{_MEMBER_CODE}(?:, {_MEMBER_CODE}){{0,{MAX_MEMBERS - 1}}})$"
+# An error code (Mendari's closed set), or a composite's failed members as `member:code` (", "
+# between several, as `CompositeProvider.output` records them).
+_CODE = f"(?:{'|'.join(map(re.escape, sorted(FAILURE_CODES)))})"
+_MEMBER_CODE = rf"{_NAME_PART}:{_CODE}"
+_ERROR_KEY = rf"^(?:{_CODE}|{_MEMBER_CODE}(?:, {_MEMBER_CODE}){{0,{MAX_MEMBERS - 1}}})$"
 
 Name = Annotated[str, Field(pattern=_NAME)]
 ErrorKey = Annotated[str, Field(pattern=_ERROR_KEY)]

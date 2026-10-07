@@ -17,7 +17,7 @@ from typing import Any, cast
 
 from pydantic import Field
 
-from mendari.errors import ProviderError
+from mendari.errors import ProviderError, ProviderErrorCode
 from mendari.providers.base import ProviderOutput
 from mendari.providers.composite import CompositeConfig, CompositeProvider, all_failed
 
@@ -45,7 +45,7 @@ class AnyOfProvider(CompositeProvider):
 
     def answer(self, inputs: Mapping[str, Any]) -> ProviderOutput:
         outputs: dict[str, ProviderOutput] = {}
-        failed: dict[str, str] = {}
+        failed: dict[str, ProviderErrorCode] = {}
         for name in self.members:
             try:
                 outputs[name] = self.ask(name, inputs)

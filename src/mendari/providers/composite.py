@@ -19,7 +19,7 @@ from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from mendari.errors import PackValidationError, ProviderError
+from mendari.errors import PackValidationError, ProviderError, ProviderErrorCode
 from mendari.providers.base import Answer, Provider, ProviderInfo, ProviderOutput
 
 
@@ -119,5 +119,5 @@ class CompositeProvider(Provider):
         )
 
 
-def all_failed(failed: Mapping[str, str]) -> ProviderError:
+def all_failed(failed: Mapping[str, ProviderErrorCode]) -> ProviderError:
     return ProviderError(next(iter(failed.values())), "every member failed")

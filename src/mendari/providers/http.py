@@ -17,7 +17,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from mendari.errors import ProviderError
+from mendari.errors import ProviderError, ProviderErrorCode
 
 MAX_RESPONSE_BYTES = 65_536
 _LOCAL_HOST = re.compile(r"^(localhost|127\.0\.0\.1|\[::1\]|::1)$")
@@ -73,7 +73,7 @@ def post_json(
             session.close()
 
 
-RETRYABLE = {429: "rate_limited", 529: "provider_unavailable"}
+RETRYABLE: dict[int, ProviderErrorCode] = {429: "rate_limited", 529: "provider_unavailable"}
 BACKOFF_S = 0.5
 MAX_RETRY_WAIT_S = 2.0
 _sleep = time.sleep

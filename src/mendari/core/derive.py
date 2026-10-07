@@ -26,6 +26,7 @@ from collections.abc import Mapping, MutableMapping
 from dataclasses import replace
 
 from mendari.core.spec import DeriveRow, PackManifest, Question
+from mendari.errors import DERIVED_INPUT_UNAVAILABLE
 from mendari.providers.base import Answer, ProviderInfo
 
 DERIVED = ProviderInfo(slot="derived", variant="decision_table", type="derived")
@@ -42,7 +43,7 @@ def complete_answers(
         if spec is None:
             continue
         if any(member not in answers for member in spec.members):
-            failures[key] = "derived_input_unavailable"
+            failures[key] = DERIVED_INPUT_UNAVAILABLE
             continue
         answers[key] = derive_answer(key, question, answers)
     for key, question in manifest.questions.items():

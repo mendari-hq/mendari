@@ -19,7 +19,7 @@ from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any, cast
 
-from mendari.errors import ProviderError
+from mendari.errors import ProviderError, ProviderErrorCode
 from mendari.providers.base import Answer, ProviderInfo, ProviderOutput
 from mendari.providers.composite import CompositeConfig, CompositeProvider, all_failed
 
@@ -47,7 +47,7 @@ class VoteProvider(CompositeProvider):
     def answer(self, inputs: Mapping[str, Any]) -> ProviderOutput:
         weights = cast(VoteConfig, self.settings).weights or {}
         outputs: dict[str, ProviderOutput] = {}
-        failed: dict[str, str] = {}
+        failed: dict[str, ProviderErrorCode] = {}
         for name in self.members:
             try:
                 outputs[name] = self.ask(name, inputs)
