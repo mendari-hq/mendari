@@ -26,15 +26,26 @@ def shown(p: stats.Proportion | Mapping[str, Any] | None) -> str:
         p = stats.Proportion(p["k"], p["n"], p.get("low"), p.get("high"))
     if not p.n or p.low is None or p.high is None:
         return "no cases"
-    return f"{p.k} of {p.n} [{percent(p.low)}-{percent(p.high)}%]"
+    low = percent(p.low)
+    high = percent(p.high)
+    # With k above 0 the lower bound is above 0, and with k below n the upper bound is below
+    # 100, however close a stored bound (6 places) or 4 printed decimals come to either.
+    if p.k > 0 and float(low) == 0.0:
+        low = f"<{10.0**-BOUND_DIGITS:.{BOUND_DIGITS}f}"
+    if p.k < p.n and float(high) == 100.0:
+        high = f">{100 - 10.0**-BOUND_DIGITS:.{BOUND_DIGITS}f}"
+    return f"{p.k} of {p.n} [{low}-{high}%]"
+
+
+BOUND_DIGITS = 4
 
 
 def percent(value: float) -> str:
-    """A bound as a percentage, with the digits it needs never to read as 0 or 100 when it is
-    not (an upper bound of 99.96% is not "100.0")."""
+    """A bound as a percentage, with the digits it needs (up to 4) never to read as 0 or 100
+    when it is not (an upper bound of 99.96% is not "100.0")."""
     digits = 1
     while (
-        digits < 4
+        digits < BOUND_DIGITS
         and 0.0 < value < 1.0
         and f"{value * 100:.{digits}f}" in (f"{0:.{digits}f}", f"{100:.{digits}f}")
     ):
@@ -142,14 +153,20 @@ def comparison_text(comparison: dict[str, Any], max_findings: int = 6) -> str:
     findings = comparison["findings"]
     for finding in findings[:max_findings]:
         if finding["kind"] == "critical":
-            lines.append(f"  - {finding['subject']}: {finding['local']} of {finding['n']}")
+            automated = shown(stats.proportion(finding["local"], finding["n"]))
+            lines.append(
+                f"  - {finding['subject']}: {automated} positives"
+                f"{evidence(finding['n'], short=True)}"
+            )
         elif finding["kind"] == "calibration":
             lines.append(
                 f"  - {finding['subject']}: {num(finding['baseline'])} -> {num(finding['local'])}"
             )
         else:
             before = shown(counted(finding["baseline"], finding.get("baseline_n")))
-            after = shown(counted(finding["local"], finding.get("local_n", finding["n"])))
+            if finding.get("baseline_scope") == "overall":  # the benchmark has no such subgroup
+                before = f"benchmark overall {before}"
+            after = shown(counted(finding["local"], finding.get("local_n")))
             lines.append(f"  - {finding['subject']}: {before} -> {after}")
     if len(findings) > max_findings:
         lines.append(f"  … and {len(findings) - max_findings} smaller findings in the JSON report")

@@ -6,6 +6,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from mendari.evals.result import subgroup_labelled
+
 MIN_GROUP = 15  # smallest subgroup worth flagging; smaller ones are too noisy to act on
 MIN_LABEL_SUPPORT = 10
 
@@ -80,7 +82,7 @@ def compare(local: dict[str, Any], baseline: dict[str, Any], tolerance: float) -
                         "baseline": base_recall,
                         "local": local_m["recall"],
                         "n": local_m["support"],
-                        "baseline_n": base_q["per_label"][label]["support"],
+                        "baseline_n": base_q["per_label"][label].get("support"),
                         "local_n": local_m["support"],
                         "drop": drop,
                     }
@@ -92,10 +94,13 @@ def compare(local: dict[str, Any], baseline: dict[str, Any], tolerance: float) -
             if local_m["n"] < MIN_GROUP or local_m["accuracy"] is None:
                 continue
             reference = base_values.get(value)
-            own = reference and reference["n"] >= MIN_GROUP and reference["accuracy"] is not None
+            own = bool(
+                reference and reference["n"] >= MIN_GROUP and reference["accuracy"] is not None
+            )
+            # Against the benchmark's own subgroup when it has one big enough, else its overall
+            # accuracy, said as such. Each accuracy is over the labelled members.
             base_acc = reference["accuracy"] if own else base_q["accuracy"]
-            # What each accuracy is of: the labelled cases (mendari.eval/2), or all of them.
-            base_n = reference.get("labelled", reference["n"]) if own else base_q["n"]
+            base_n = subgroup_labelled(baseline, reference) if own else base_q.get("n")
             drop = base_acc - local_m["accuracy"]
             if drop > 2 * tolerance:
                 findings.append(
@@ -103,10 +108,11 @@ def compare(local: dict[str, Any], baseline: dict[str, Any], tolerance: float) -
                         "kind": "subgroup",
                         "subject": f"{attribute}={value}",
                         "baseline": base_acc,
+                        "baseline_scope": "subgroup" if own else "overall",
                         "local": local_m["accuracy"],
                         "n": local_m["n"],
                         "baseline_n": base_n,
-                        "local_n": local_m.get("labelled", local_m["n"]),
+                        "local_n": subgroup_labelled(local, local_m),
                         "drop": drop,
                     }
                 )
@@ -117,11 +123,11 @@ def compare(local: dict[str, Any], baseline: dict[str, Any], tolerance: float) -
         findings.append(
             {
                 "kind": "false_automation",
-                "subject": "false automation rate",
+                "subject": "false automation rate (of automated)",
                 "baseline": base_far,
                 "local": local_far,
                 "n": local["decisions"]["automation"]["n"],
-                "baseline_n": baseline["decisions"]["automation"]["n"],
+                "baseline_n": baseline["decisions"]["automation"].get("n"),
                 "local_n": local["decisions"]["automation"]["n"],
                 "drop": local_far - base_far,
             }
@@ -168,7 +174,7 @@ def compare(local: dict[str, Any], baseline: dict[str, Any], tolerance: float) -
         "baseline": {
             "dataset": baseline["dataset"],
             "accuracy": base_q["accuracy"],
-            "n": base_q["n"],
+            "n": base_q.get("n"),
             "pack_version": baseline["pack"]["version"],
         },
         "local": {"dataset": local["dataset"], "accuracy": local_q["accuracy"], "n": local_q["n"]},

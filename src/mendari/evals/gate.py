@@ -17,7 +17,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from mendari.evals.render import shown
+from mendari.evals.render import evidence, shown
 from mendari.evals.result import counted
 
 EPSILON = 1e-9
@@ -87,6 +87,7 @@ def gate(
             higher_is_better=True,
             of=(before and before.get("n"), item.get("n")),
         )
+        rows[-1]["positives"] = item.get("n")
         if before is None:
             continue
         if (item.get("detection_rate") or 0) < (before.get("detection_rate") or 0) - EPSILON:
@@ -98,16 +99,19 @@ def gate(
 
 def markdown(pack_id: str, rows: list[dict[str, Any]], failures: list[str], new: bool) -> str:
     def cell(value: Any, n: Any) -> str:
-        if value is None:
-            return "n/a"
-        return shown(counted(value, n)) if isinstance(n, int) else f"{value:.1%}"
+        """k of n with its interval; "no cases" when n is 0, "n/a" when the side does not say."""
+        return shown(counted(value, n)) if isinstance(n, int) else "n/a"
+
+    def name(row: Mapping[str, Any]) -> str:
+        positives = row.get("positives")
+        return row["metric"] + (evidence(positives) if isinstance(positives, int) else "")
 
     lines = [f"### {pack_id}", ""]
     if new:
         lines += ["A new pack: nothing on `main` to compare with.", ""]
     lines += ["| Metric | main | this change |", "|---|---|---|"]
     lines += [
-        f"| {r['metric']} | {cell(r['main'], r.get('main_n'))} "
+        f"| {name(r)} | {cell(r['main'], r.get('main_n'))} "
         f"| {cell(r['change'], r.get('change_n'))} |"
         for r in rows
     ]

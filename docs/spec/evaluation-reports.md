@@ -83,8 +83,9 @@ digits as it needs never to read 0 or 100% when it is neither. A share of no cas
 figure says "insufficient evidence". The only other percentages are thresholds and tolerances,
 which are settings, not shares of cases.
 
-A pack's known failure modes state what fails and the command that measures it, never a figure
-typed in by hand.
+A pack's known failure modes are its author's words, not computed. The reference packs state no
+share of cases as a percentage there: they state the finding and, for a local-site example, the
+command that measures it.
 
 ## Leaderboards: `mendari.leaderboard/2` and `mendari.rank/1`
 

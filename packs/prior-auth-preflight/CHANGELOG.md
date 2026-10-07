@@ -6,10 +6,10 @@ rules, models, data and results did not.
 
 ## 0.2.1
 
-- Known failure modes state their findings and the command that measures them, no longer
-  figures typed in by hand (LP-10: every figure on a card is computed). Criteria, rules,
-  providers, policy, models and data are unchanged; every decision is identical. The digest
-  changes because the manifest does.
+- The local-site known failure mode states its finding and the command that measures it,
+  instead of percentages typed in by hand (LP-10: a share of cases on a card is k of n with
+  its interval, computed). Criteria, rules, providers, policy, models and data are unchanged;
+  every decision is identical. The digest changes because the manifest does.
 
 ## 0.2.0
 

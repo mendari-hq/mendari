@@ -25,6 +25,7 @@ from typing import Any
 from mendari.errors import MendariError
 from mendari.evals import metrics, stats
 from mendari.evals.ledger import Ledger
+from mendari.evals.render import shown
 from mendari.evals.result import MIN_POSITIVES, PREDICTED, PROBABILITIES, TRUTH
 
 FORMAT = "mendari.compare/1"
@@ -223,12 +224,6 @@ def compare(
     }
 
 
-def _shown(p: Mapping[str, Any]) -> str:
-    if not p["n"]:
-        return "no cases"
-    return f"{p['k']} of {p['n']} [{p['low']:.4f}, {p['high']:.4f}]"
-
-
 def text(result: Mapping[str, Any], ids: Mapping[str, Any] | None = None) -> str:
     """The comparison in words; `ids` (local only) names each changed case by its id."""
     dataset = result["dataset"]
@@ -236,7 +231,7 @@ def text(result: Mapping[str, Any], ids: Mapping[str, Any] | None = None) -> str
         f"{result['pack']}: A against B on {dataset['paired']} shared cases "
         f"(only in A: {dataset['only_in_a']}, only in B: {dataset['only_in_b']})",
         f"Holm-adjusted over: {', '.join(result['holm_family'])} (alpha {result['alpha']}); "
-        f"intervals at {result['interval_level']:.0%}",
+        f"k of n [exact {result['interval_level']:.0%} interval, Clopper-Pearson]",
         "",
     ]
     for f in result["figures"]:
@@ -244,7 +239,7 @@ def text(result: Mapping[str, Any], ids: Mapping[str, Any] | None = None) -> str
         if f["evidence"] == "insufficient":
             verdict += "; insufficient evidence"
         lines.append(
-            f"{f['figure']}: A {_shown(f['a'])}, B {_shown(f['b'])}; only A {f['only_a']}, "
+            f"{f['figure']}: A {shown(f['a'])}, B {shown(f['b'])}; only A {f['only_a']}, "
             f"only B {f['only_b']}, p {f['p']:.4g} (adjusted {f['p_adjusted']:.4g}): {verdict}"
         )
     brier = result["brier"]

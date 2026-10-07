@@ -116,6 +116,46 @@ def test_comparison_with_itself_is_clean(inbox_pack: Pack) -> None:
     assert comparison["status"] == "ok" and comparison["findings"] == []
 
 
+def test_a_subgroup_the_benchmark_lacks_is_compared_with_its_overall_figure(
+    inbox_pack: Pack,
+) -> None:
+    """Never the whole benchmark's count shown as if it were the subgroup's."""
+    from mendari.evals.render import comparison_text
+
+    baseline = benchmark(inbox_pack)
+    assert baseline is not None
+    local = copy.deepcopy(baseline)
+    group = {"n": 40, "labelled": 40, "accuracy": 0.5, "auto_rate": 0.0, "abstention_rate": 0.0}
+    local["subgroups"]["language"]["xx"] = {**group, "false_automation_rate": None}
+    comparison = compare(local, baseline, 0.03)
+    (finding,) = [f for f in comparison["findings"] if f["subject"] == "language=xx"]
+    assert finding["baseline_scope"] == "overall" and finding["local_n"] == 40
+    primary = baseline["questions"][baseline["primary"]]
+    line = next(x for x in comparison_text(comparison).splitlines() if "language=xx" in x)
+    assert line.startswith(f"  - language=xx: benchmark overall {round(primary['accuracy'] * 600)}")
+    assert line.endswith("-> 20 of 40 [33.8-66.2%]")
+
+
+def test_a_baseline_without_its_counts_is_compared_with_n_a(inbox_pack: Pack) -> None:
+    """The counts each figure is of are read from a published benchmark only where they are."""
+    from mendari.evals.render import comparison_text
+
+    baseline = benchmark(inbox_pack)
+    assert baseline is not None
+    baseline["decisions"]["automation"]["false_automation_rate"] = 0.0
+    local = copy.deepcopy(baseline)
+    local["decisions"]["automation"].update(false_automation_rate=0.5, n=10)
+    label, figures = next(iter(local["questions"][local["primary"]]["per_label"].items()))
+    figures.update(recall=0.0, support=50)
+    question = baseline["questions"][baseline["primary"]]
+    del question["n"], question["per_label"][label]["support"]
+    del baseline["decisions"]["automation"]["n"]
+    comparison = compare(local, baseline, 0.03)
+    kinds = {f["kind"] for f in comparison["findings"]}
+    assert {"label_recall", "false_automation"} <= kinds
+    assert "false automation rate (of automated): n/a -> 5 of 10" in comparison_text(comparison)
+
+
 @pytest.mark.parametrize(
     "spoil",
     [

@@ -114,23 +114,11 @@ def build(
 
 
 def _row_key(row: Mapping[str, Any]) -> tuple[Any, ...]:
-    return (
-        row.get("pack_digest") or row.get("pack_version"),
-        row.get("dataset_sha256") or row["dataset"],
-        row["n"],
-        row["config"],
-    )
+    return (row.get("pack_digest") or row.get("pack_version"), *ranking.records(row), row["config"])
 
 
 def _stored(p: stats.Proportion | None) -> dict[str, Any] | None:
     return None if p is None else p.to_dict()
-
-
-def by_dataset(board: Mapping[str, Any]) -> dict[str, list[dict[str, Any]]]:
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    for item in board.get("rows", []):
-        grouped.setdefault(item["dataset"], []).append(item)
-    return grouped
 
 
 def critical_text(item: Mapping[str, Any]) -> str:
@@ -167,60 +155,83 @@ def read(pack: Pack) -> tuple[dict[str, Any] | None, str | None]:
     try:
         if not isinstance(board.get("rows", []), list):
             raise TypeError("rows")
-        markdown(board)
+        markdown(board, pack.digest, pack.version)
     except (AttributeError, IndexError, KeyError, TypeError, ValueError) as error:
         return None, f"not a leaderboard ({type(error).__name__})"
     return board, None
 
 
-def markdown(board: Mapping[str, Any], digest: str | None = None) -> list[str]:
-    """One table per dataset, in `ranking.rank`'s order against `digest` (the pack's own):
-    ranked rows first, then the unranked, each saying why (an earlier version of the pack, whose
-    AUTO and false automation followed that version's policy, or too few critical positives)."""
+def markdown(
+    board: Mapping[str, Any], digest: str | None = None, version: str | None = None
+) -> list[str]:
+    """One table per set of records (`ranking.grouped`), ranked against `digest` (the pack's
+    own; `version` is its version): ranked rows first, then the unranked, each saying why (an
+    earlier version of the pack, whose AUTO and false automation followed that version's policy,
+    or too few critical positives)."""
     out: list[str] = []
+    recorded = board.get("pack")
+    recorded = recorded if isinstance(recorded, Mapping) else {}
     if digest is None:  # the pack it was last built for (mendari.leaderboard/2 records it)
-        recorded = board.get("pack")
-        digest = recorded.get("digest") if isinstance(recorded, Mapping) else None
-    rows_ranked = ranking.rank(board.get("rows", []), digest)
+        digest = recorded.get("digest")
+        version = version if version is not None else recorded.get("version")
+    groups = ranking.grouped(board.get("rows", []), digest)
+    sizes = [(name, n) for (name, _, n), _ in groups]
 
     def config(item: Mapping[str, Any]) -> str:
         if item["standing"] == ranking.EARLIER:
-            return f"{item['config']} (earlier version: {item.get('pack_version')})"
+            why = ranking.measured_on(item.get("pack_version"), item.get("pack_digest"), version)
+            return f"{item['config']} ({why})"
         return str(item["config"])
 
-    for dataset, rows in by_dataset({"rows": rows_ranked}).items():
-        n = max(item["n"] for item in rows)
+    def place(item: Mapping[str, Any]) -> str:
+        if item["rank"] is not None:
+            return str(item["rank"])
+        if item["standing"] == ranking.EARLIER:
+            why = ranking.measured_on(item.get("pack_version"), item.get("pack_digest"), version)
+            return f"none: {why}"
+        return f"none: {item['standing']}"
+
+    for (name, sha, n), rows in groups:
+        about = [f"n={n}"]
+        if any(item.get("limit") for item in rows):
+            about.append(f"the first {n} cases of the file")
+        if not sha:
+            about.append("dataset hash not recorded")
+        elif sizes.count((name, n)) > 1:
+            about.append(f"records sha256:{sha[:12]}…")
         out += [
-            f"**`{dataset}`** (n={n}; {INTERVALS})",
+            f"**`{name}`** ({'; '.join(about)}; {INTERVALS})",
             "",
             "| Rank | Configuration | Critical detected | False automation | Accuracy | AUTO "
             "| Macro-F1 | ECE | p50 latency | Cost / decision | Errors |",
             "|---|---|---|---|---|---|---|---|---|---|---|",
         ]
         for item in rows:
+            cost = item["cost_per_decision_usd"]
             out.append(
-                f"| {_place(item)} | {item['config']} | {critical_text(item) or 'n/a'} "
+                f"| {place(item)} | {item['config']} | {critical_text(item) or 'n/a'} "
                 f"| {shown(_false_automation(item))} | {shown(_accuracy(item))} "
                 f"| {shown(counted(item['auto_rate'], item['n']))} | {num(item['macro_f1'])} "
                 f"| {num(item['ece'])} | {_ms(item['latency_p50_ms'])} "
-                f"| ${item['cost_per_decision_usd']:.5f} | {_errors(item)} |"
+                f"| {'unknown' if cost is None else f'${cost:.5f}'} | {_errors(item)} |"
             )
+        if any(item.get("accuracy_proportion") is None for item in rows):
+            out += [
+                "",
+                "Accuracy and false automation are n/a on a row recorded before leaderboards kept "
+                "the counts they are of (mendari.leaderboard/1).",
+            ]
         out.append("")
         out += _question_table(rows, config)
     return out
 
 
-def _place(item: Mapping[str, Any]) -> str:
-    """A row's rank, or why it has none."""
-    if item["rank"] is not None:
-        return str(item["rank"])
-    if item["standing"] == ranking.EARLIER:
-        return f"none: earlier version ({item.get('pack_version')})"
-    return f"none: {item['standing']}"
-
-
-def _accuracy(item: Mapping[str, Any]) -> stats.Proportion | Mapping[str, Any] | None:
-    return item.get("accuracy_proportion") or counted(item["accuracy"], item["n"])
+def _accuracy(item: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    """A row's primary accuracy over the cases labelled for it. A row from before stored only
+    the rate, and not how many cases were labelled (fewer than the dataset's when some have no
+    label), so it shows n/a."""
+    stored: Mapping[str, Any] | None = item.get("accuracy_proportion")
+    return stored
 
 
 def _false_automation(item: Mapping[str, Any]) -> stats.Proportion | Mapping[str, Any] | None:

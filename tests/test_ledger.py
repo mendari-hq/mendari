@@ -34,6 +34,7 @@ from mendari.evals.result import (
     result_from_ledger,
     result_of,
     result_sha256,
+    subgroup_labelled,
 )
 from mendari.evals.share import site_report
 
@@ -186,6 +187,27 @@ def test_a_v1_report_still_loads_everywhere(tmp_path: Path) -> None:
     card = render_card(load_pack(copy))  # the card reads a v1 benchmark as it did
     assert f"| Last validation | {clock.local_date(V1['created_at'])} on `test`" in card
     assert f"{V1['latency_ms']['p50']:.2f} / " in card
+    # Its sweep in counts: 598 of the 600 scored cases at 0.50 or more, 3 of them wrong.
+    assert "| 0.50 | 598 of 600 [98.8-99.96%] | 595 of 598 [98.5-99.9%] |" in card
+
+
+def test_a_benchmark_of_the_same_version_is_never_called_an_earlier_one(tmp_path: Path) -> None:
+    copy = tmp_path / "patient-inbox-router"
+    shutil.copytree(ROOT / "packs" / "patient-inbox-router", copy)
+    manifest = copy / "pack.yaml"
+    changed = manifest.read_text().replace("summary: >-\n", "summary: >-\n  Changed.\n", 1)
+    manifest.write_text(changed)
+    card = render_card(load_pack(copy))  # a new digest, the version unchanged
+    assert "This benchmark was measured on version 0.4.1 before its last change" in card
+    assert "earlier version 0.4.1" not in card
+
+
+def test_a_v1_subgroup_is_k_of_n_only_when_its_labelled_members_are_known() -> None:
+    every = {"primary": "q", "questions": {"q": {"n": 40}}, "dataset": {"n": 40}}
+    some = {"primary": "q", "questions": {"q": {"n": 30}}, "dataset": {"n": 40}}
+    assert subgroup_labelled(every, {"n": 12, "accuracy": 0.5}) == 12
+    assert subgroup_labelled(some, {"n": 12, "accuracy": 0.5}) is None  # not "6 of 12"
+    assert subgroup_labelled(some, {"n": 12, "labelled": 8, "accuracy": 0.5}) == 8
 
 
 def test_evaluating_again_keeps_exactly_one_ledger(tmp_path: Path) -> None:
@@ -266,7 +288,8 @@ def test_a_paired_comparison_counts_the_cases_that_changed(runs: Any) -> None:
         result, {case_hash(dataset.case_key, r["id"]): r["id"] for r in dataset.records}
     )
     assert "accuracy: A 596 of 600" in words and "pub-" in words
-    assert "different" in words and "intervals at 95%" in words
+    assert "different" in words and "k of n [exact 95% interval, Clopper-Pearson]" in words
+    assert "1.0000" not in words  # bounds as percentages, never raw fractions
 
 
 @pytest.mark.parametrize(

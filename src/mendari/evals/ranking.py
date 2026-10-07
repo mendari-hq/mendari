@@ -3,7 +3,8 @@
 command line and the dashboard all show what this writes into the rows, never their own order.
 
 Only rows measured on the pack as it is (its digest) rank, against rows on the same records (the
-dataset's hash and size). Within those, critical cases come first and accuracy never alone:
+dataset's name, hash and size; a row that did not record the hash is never on the same records as
+one that did). Within those, critical cases come first and accuracy never alone:
 
 1. fewer critical positives automated;
 2. a higher lower bound of the worst critical label's detection, over the critical labels with
@@ -28,8 +29,21 @@ METHOD = "mendari.rank/1"
 RANKED, EARLIER, INSUFFICIENT = "ranked", "earlier version", "insufficient evidence"
 
 
-def _group(row: Mapping[str, Any]) -> tuple[str, int]:
-    return (str(row.get("dataset_sha256") or row["dataset"]), int(row["n"]))
+Records = tuple[str, str, int]
+
+
+def records(row: Mapping[str, Any]) -> Records:
+    """What a row was measured on: the dataset's name, hash ("" when not recorded) and size."""
+    return (str(row["dataset"]), str(row.get("dataset_sha256") or ""), int(row["n"]))
+
+
+def measured_on(version: Any, digest: Any, current: str | None) -> str:
+    """Why a row (or a benchmark) is not of the pack as it is, in words."""
+    if not digest:
+        return f"version {version}, its pack digest not recorded"
+    if current is not None and version == current:
+        return f"version {version} before its last change"
+    return f"earlier version {version}"
 
 
 def _key(row: Mapping[str, Any]) -> tuple[Any, ...]:
@@ -51,13 +65,21 @@ def _key(row: Mapping[str, Any]) -> tuple[Any, ...]:
 
 
 def rank(rows: Sequence[Mapping[str, Any]], digest: str | None) -> list[dict[str, Any]]:
-    """`rows` with `standing` and `rank` (1, 2, ... within their dataset; None unranked), in the
-    order they are shown: each dataset's ranked rows first, then the unranked by name."""
-    groups: dict[tuple[str, int], list[dict[str, Any]]] = {}
+    """`rows` with `standing` and `rank` (1, 2, ... within their records; None unranked), in the
+    order they are shown (`grouped`)."""
+    return [row for _, members in grouped(rows, digest) for row in members]
+
+
+def grouped(
+    rows: Sequence[Mapping[str, Any]], digest: str | None
+) -> list[tuple[Records, list[dict[str, Any]]]]:
+    """The rows by the records they were measured on (by dataset name, then the largest size,
+    then the recorded hashes), each group's ranked rows first, then its unranked by name."""
+    groups: dict[Records, list[dict[str, Any]]] = {}
     for row in rows:
-        groups.setdefault(_group(row), []).append(dict(row))
-    out: list[dict[str, Any]] = []
-    for group in sorted(groups):
+        groups.setdefault(records(row), []).append(dict(row))
+    out: list[tuple[Records, list[dict[str, Any]]]] = []
+    for group in sorted(groups, key=lambda g: (g[0], -g[2], not g[1], g[1])):
         members = groups[group]
         on = [digest is not None and r.get("pack_digest") == digest for r in members]
         current = [r for r, ok in zip(members, on, strict=True) if ok]
@@ -71,5 +93,5 @@ def rank(rows: Sequence[Mapping[str, Any]], digest: str | None) -> list[dict[str
             row.update(standing=INSUFFICIENT, rank=None)
         for row in others:
             row.update(standing=EARLIER, rank=None)
-        out += ranked + sorted(unranked + others, key=lambda r: str(r["config"]))
+        out.append((group, ranked + sorted(unranked + others, key=lambda r: str(r["config"]))))
     return out

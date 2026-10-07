@@ -67,8 +67,8 @@ card:
       On the bundled local-site example (datasets/trial-local-site-example.jsonl), which has
       both, plus Spanish notes, eligibility is answered wrong far more often than on the
       benchmark (`mendari eval mendari/clinical-trial-prescreener --dataset
-      datasets/trial-local-site-example.jsonl` shows by how much, and on which cases). Add a
-      site's codes, units and names before use, and validate locally.
+      datasets/trial-local-site-example.jsonl` compares it with the benchmark, by label and by
+      subgroup). Add a site's codes, units and names before use, and validate locally.
     - An incomplete medication list reads as "not on metformin", which fails a criterion.
     - Old data is not used. An HbA1c older than 90 days or an eGFR older than 365 days gives
       `unknown`, so the patient needs review rather than being guessed.

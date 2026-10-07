@@ -266,6 +266,35 @@ def false_automation(report: Mapping[str, Any]) -> stats.Proportion | None:
     return None if labelled is None else stats.proportion(wrong.k if wrong else 0, labelled)
 
 
+def sweep(report: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """The threshold sweep with the counts each row is of (`scored` cases, `chosen` at or above
+    the threshold): stored since LP-10b; for an earlier report, `scored` is the primary
+    question's calibration bins, which hold exactly the cases the sweep is over, and `chosen`
+    follows from the coverage."""
+    question = report["questions"].get(report["primary"]) or {}
+    bins = (question.get("calibration") or {}).get("bins")
+    scored = sum(b["n"] for b in bins) if bins is not None else None
+    rows = []
+    for row in report.get("threshold_sweep", []):
+        if "chosen" not in row:
+            coverage = row.get("coverage")
+            chosen = None if scored is None or coverage is None else round(coverage * scored)
+            row = {**row, "scored": scored, "chosen": chosen}
+        rows.append(dict(row))
+    return rows
+
+
+def subgroup_labelled(report: Mapping[str, Any], members: Mapping[str, Any]) -> int | None:
+    """How many of a subgroup's members are labelled for the primary question, which its
+    accuracy is over: stored since LP-10b; for an earlier report, known only when every case
+    is labelled."""
+    if "labelled" in members:
+        return int(members["labelled"])
+    question = report["questions"].get(report["primary"]) or {}
+    every = question.get("n") is not None and question.get("n") == report["dataset"].get("n")
+    return int(members["n"]) if every else None
+
+
 def normalize(report: Mapping[str, Any]) -> dict[str, Any]:
     """A report of either format, as `mendari.eval/2` reads: v1's id, created_at and latency_ms
     in a `run` block. A v2 report is returned as it is."""

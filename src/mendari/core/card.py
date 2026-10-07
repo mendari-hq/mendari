@@ -13,7 +13,14 @@ from mendari.core.pack import Pack
 from mendari.core.spec import Condition, DeriveRow, Outcome, PackManifest, Question
 from mendari.evals import leaderboard, ranking, stats
 from mendari.evals.render import INTERVALS, evidence, num, shown
-from mendari.evals.result import MIN_POSITIVES, counted, false_automation, normalize
+from mendari.evals.result import (
+    MIN_POSITIVES,
+    counted,
+    false_automation,
+    normalize,
+    subgroup_labelled,
+    sweep,
+)
 
 RISK_NAMES = {
     0: "administrative",
@@ -185,10 +192,12 @@ def render_card(pack: Pack) -> str:
     out += ["", "## Validation", ""]
     out += _validation(report) if report else ["No published benchmark."]
     if report and report["pack"].get("digest") != pack.digest:
+        measured = ranking.measured_on(
+            report["pack"].get("version"), report["pack"].get("digest"), pack.version
+        )
         out += [
             "",
-            f"This benchmark was measured on an earlier version of the pack "
-            f"({report['pack'].get('version')}); evaluate it again before relying on it.",
+            f"This benchmark was measured on {measured}; evaluate it again before relying on it.",
         ]
     unread = [(m.evaluation.benchmark, report_problem), (leaderboard.PATH, board_problem)]
     for relative, why in unread:
@@ -199,14 +208,15 @@ def render_card(pack: Pack) -> str:
             "",
             "## Provider comparison",
             "",
-            "Every configuration below ran on the same records. Remote models are named because "
-            "they are a deployment choice. Synthetic and hand-written data: compare "
+            "Each table below is one dataset at one size, and the configurations in a table that "
+            "records the dataset's hash ran on exactly the same records. Remote models are named "
+            "because they are a deployment choice. Synthetic and hand-written data: compare "
             "configurations with each other, not with performance at a real site. Ranked "
             f"({ranking.METHOD}) by the critical cases caught first, never accuracy alone: only "
             "configurations measured on this version of the pack rank, and only on records with "
             f"at least {MIN_POSITIVES} positives of a critical label.",
             "",
-            *leaderboard.markdown(board, pack.digest),
+            *leaderboard.markdown(board, pack.digest, pack.version),
         ]
     out += ["", "## Known failure modes", "", *[f"- {item}" for item in m.card.known_failure_modes]]
     out += ["", "## Evidence and provenance", ""]
@@ -381,7 +391,7 @@ def _validation(report: dict[str, Any]) -> list[str]:
     ]
     for attribute, values in report["subgroups"].items():
         for value, m in values.items():
-            labelled = m.get("labelled", m["n"])
+            labelled = subgroup_labelled(report, m)
             rows.append(
                 f"| {attribute}={value} | {m['n']} | {shown(counted(m['accuracy'], labelled))} "
                 f"| {shown(counted(m['auto_rate'], m['n']))} "
@@ -406,13 +416,11 @@ def _validation(report: dict[str, Any]) -> list[str]:
         "| Threshold | Would be automated | Of those, correct |",
         "|---|---|---|",
     ]
-    for row in report["threshold_sweep"]:
-        chosen = row.get("chosen")
-        correct = shown(counted(row["accuracy"], chosen)) if chosen is not None else row["errors"]
-        rows.append(
-            f"| {row['threshold']:.2f} | {shown(counted(row['coverage'], row.get('scored')))} "
-            f"| {correct} |"
-        )
+    for row in sweep(report):
+        scored, chosen = row["scored"], row["chosen"]
+        automated = None if scored is None else stats.proportion(chosen, scored)
+        correct = None if chosen is None else stats.proportion(chosen - row["errors"], chosen)
+        rows.append(f"| {row['threshold']:.2f} | {shown(automated)} | {shown(correct)} |")
     return rows
 
 

@@ -238,6 +238,36 @@ def test_the_cli_logs_in_pushes_searches_and_pulls(
     assert json.loads(capsys.readouterr().out) == []
 
 
+def test_search_lists_every_entry_whatever_its_figures(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A registry entry is someone else's data: a figure that is not a share of n cases shows
+    as n/a, and the listing goes on."""
+    import contextlib
+
+    from mendari import cli
+
+    def entry(name: str, accuracy: object, n: object) -> dict[str, object]:
+        return {
+            "id": f"site-a/{name}", "version": "1.0.0", "risk": {"level": 1},
+            "publisher_type": "community", "summary": name,
+            "benchmark": {"dataset": "test", "accuracy": accuracy, "n": n},
+        }  # fmt: skip
+
+    found = [entry("over", 1.5, 10), entry("negative", 0.9, -1), entry("fine", 0.9, 10)]
+
+    class Registry:
+        def search(self, **_: object) -> list[dict[str, object]]:
+            return found
+
+    monkeypatch.setattr(cli, "_registry_client", lambda _: contextlib.nullcontext(Registry()))
+    assert main(["search"]) == 0
+    out = capsys.readouterr().out
+    assert "site-a/over@1.0.0  risk 1  community  benchmark n/a" in out
+    assert "site-a/negative@1.0.0  risk 1  community  benchmark n/a" in out
+    assert "site-a/fine@1.0.0  risk 1  community  benchmark 9 of 10 [55.5-99.7%]" in out
+
+
 def test_without_a_registry_the_client_says_how_to_set_one(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

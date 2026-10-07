@@ -30,6 +30,12 @@ def row(config: str, **changes: Any) -> dict[str, Any]:
         "false_automation": stats.proportion(1, 600).to_dict(),
         "accuracy_proportion": stats.proportion(570, 600).to_dict(),
         "cost_per_decision_usd": 0.0,
+        # What the table shows besides (mendari.evals.leaderboard.markdown).
+        "auto_rate": 0.0,
+        "macro_f1": 0.9,
+        "ece": 0.02,
+        "latency_p50_ms": 1.0,
+        "errors": 0,
     }
     return {**base, **changes}
 
@@ -124,3 +130,73 @@ def test_the_reference_cards_hold_no_bare_percentage() -> None:
         for line in validation.splitlines():
             if line.startswith("|") and "%" in line:
                 assert " of " in line or "no cases" in line, line
+
+
+def test_a_bound_too_close_to_print_never_reads_0_or_100() -> None:
+    assert shown(stats.proportion(1, 60000)) == "1 of 60000 [<0.0001-0.01%]"
+    assert shown(stats.proportion(59999, 60000)) == "59999 of 60000 [99.99->99.9999%]"
+    assert shown(stats.proportion(0, 60000)).startswith("0 of 60000 [0.0-")  # truly 0
+    assert shown(stats.proportion(60000, 60000)).endswith("-100.0%]")  # truly 100
+
+
+def test_each_table_is_one_set_of_records() -> None:
+    """A dataset at two sizes, or without its hash recorded, is two sets of records: each its
+    own table and its own ranking, never two rank 1s under one heading."""
+    from mendari.evals.leaderboard import markdown
+
+    full = [row("a-full"), row("b-full", cost_per_decision_usd=0.01)]
+    first = [row(c, n=100, limit=100) for c in ("a-first", "b-first")]
+    old = row("old", pack_digest=None, dataset_sha256=None)
+    board = {"rows": [old, *first, *full]}
+    groups = ranking.grouped(board["rows"], DIGEST)
+    assert [(name, n, bool(sha)) for (name, sha, n), _ in groups] == [
+        ("test", 600, True),
+        ("test", 600, False),
+        ("test", 100, True),
+    ]
+    assert [[r["rank"] for r in rows] for _, rows in groups] == [[1, 2], [None], [1, 2]]
+    tables = "\n".join(markdown(board, DIGEST, "1.0.0")).split("**`test`**")[1:]
+    assert len(tables) == 3
+    assert tables[1].startswith(" (n=600; dataset hash not recorded;")
+    assert tables[2].startswith(" (n=100; the first 100 cases of the file;")
+    assert "| none: version 1.0.0, its pack digest not recorded | old |" in tables[1]
+
+
+def test_unranked_rows_come_after_the_ranked_whatever_their_names() -> None:
+    late = row("zz-current")
+    earlier = row("aa-earlier", pack_digest="sha256:" + "0" * 64, pack_version="0.9.0")
+    assert order([earlier, late]) == [
+        ("zz-current", 1, "ranked"),
+        ("aa-earlier", None, "earlier version"),
+    ]
+
+
+def test_why_a_row_is_not_of_the_pack_as_it_is() -> None:
+    assert ranking.measured_on("0.9.0", DIGEST, "1.0.0") == "earlier version 0.9.0"
+    assert ranking.measured_on("1.0.0", DIGEST, "1.0.0") == "version 1.0.0 before its last change"
+    assert ranking.measured_on("1.0.0", None, "1.0.0") == (
+        "version 1.0.0, its pack digest not recorded"
+    )
+
+
+def test_a_row_from_leaderboard_1_has_no_accuracy_as_k_of_n() -> None:
+    """A v1 row stored its accuracy over the cases labelled for the primary question, and not
+    how many: on red_flags (38 cases, 28 labelled) 0.75 is 21 of 28, never "28 of 38"."""
+    from mendari.evals.leaderboard import markdown
+
+    v2_only = ("accuracy_proportion", "false_automation")
+    v1 = {k: v for k, v in row("v1").items() if k not in v2_only}
+    v1.update(dataset="red_flags", n=38, accuracy=0.75, pack_digest=None, dataset_sha256=None)
+    v1.update(critical=[])
+    table = "\n".join(markdown({"rows": [v1]}, DIGEST, "1.0.0"))
+    (line,) = [x for x in table.splitlines() if x.startswith("| none:")]
+    assert "28 of 38" not in line and "| n/a | n/a | 0 of 38" in line
+    assert "n/a on a row recorded before leaderboards kept the counts" in table
+
+
+def test_an_unknown_cost_is_said_not_a_crash() -> None:
+    from mendari.evals.leaderboard import markdown
+
+    unknown = row("remote", cost_per_decision_usd=None)
+    table = "\n".join(markdown({"rows": [unknown]}, DIGEST, "1.0.0"))
+    assert "| unknown |" in table

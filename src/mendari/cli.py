@@ -382,7 +382,7 @@ def cmd_leaderboard(args: argparse.Namespace) -> int:
     board = leaderboard.build(pack, reports, existing)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(board, indent=2) + "\n", encoding="utf-8")
-    print("\n".join(leaderboard.markdown(board, pack.digest)))
+    print("\n".join(leaderboard.markdown(board, pack.digest, pack.version)))
     print(f"-> {target}")
     return 0
 
@@ -1114,11 +1114,15 @@ def cmd_search(args: argparse.Namespace) -> int:
         return 0
     for item in found:
         benchmark = item.get("benchmark") or {}
-        accuracy = benchmark.get("accuracy")
+        accuracy, n = benchmark.get("accuracy"), benchmark.get("n")
+        # A registry entry is someone else's data: a figure that is not a share of n cases is
+        # shown as n/a, never a reason to stop the listing.
+        whole = isinstance(n, int) and not isinstance(n, bool) and n >= 0
+        share = isinstance(accuracy, int | float) and 0.0 <= accuracy <= 1.0
         shown = (
             ""
             if accuracy is None
-            else f"  benchmark {render.shown(counted(accuracy, benchmark.get('n')))}"
+            else f"  benchmark {render.shown(counted(accuracy, n) if whole and share else None)}"
         )
         risk = f"risk {item['risk']['level']}"
         print(f"{item['id']}@{item['version']}  {risk}  {item['publisher_type']}{shown}")
