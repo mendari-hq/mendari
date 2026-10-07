@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import datetime
 import hashlib
 import json
 import shutil
@@ -10,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 from mendari.core.pack import Pack, load_pack, pack_digest
 from mendari.core.registry import resolve_pack
@@ -361,6 +363,31 @@ def test_metadata_that_cannot_be_served_is_refused_before_it_is_stored(
     monkeypatch.undo()
     assert registry.client.get("/v1/search").json() == []
     assert registry.publish().status_code == 201
+
+
+def test_a_composite_whose_members_cannot_run_publishes_without_them(
+    registry: Registry, tmp_path: Path
+) -> None:
+    """Members are checked when a provider is built, not when a pack loads: a composite whose
+    members are a list, or keyed by what YAML reads as a date, still publishes (it was a 500),
+    and no report can name it."""
+    root = tmp_path / "pack"
+    shutil.copytree(REFERRAL.root, root)
+    manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    variants = manifest["providers"]["triage_screen"]["variants"]
+    rules = variants["rules"]
+    escalate = {"urgency": "urgent", "clear_question": "yes"}
+    variants["dated"] = {
+        "type": "any_of",
+        "escalate": escalate,
+        "members": {datetime.date(2024, 1, 1): rules, "rules": rules},
+    }
+    variants["listed"] = {"type": "any_of", "escalate": escalate, "members": [rules, rules]}
+    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    published = registry.publish(load_pack(root))
+    assert published.status_code == 201, published.text
+    members = published.json()["names"]["members"]["triage_screen"]
+    assert set(members) == {"rules_and_jev", "rules_and_llm"}
 
 
 def test_a_pack_version_is_served_with_its_figures(registry: Registry) -> None:

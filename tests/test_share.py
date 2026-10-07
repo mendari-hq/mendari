@@ -309,6 +309,11 @@ def test_a_composite_is_shared_as_recorded_and_the_registry_accepts_it(
         renamed("safety_screen", screen.replace("jev:", "naive_bayes:")),  # the router's member
         {**shared, "errors": {"Jane_Doe:not_configured": 1}},
         {**shared, "errors": {"jev:not_configured, Jane_Doe:timeout": 1}},
+        # As a composite records its failed members: each once, in its order, all its own.
+        {**shared, "errors": {"llm:timeout": 1}},  # rules_and_llm's member: it did not run
+        {**shared, "errors": {"jev:timeout, rules:timeout": 1}},
+        {**shared, "errors": {"jev:timeout, jev:not_configured": 1}},
+        {**shared, "errors": {"naive_bayes:timeout, jev:timeout": 1}},
     ]
     for body in refused:
         answer = registry.client.post(
@@ -316,8 +321,13 @@ def test_a_composite_is_shared_as_recorded_and_the_registry_accepts_it(
         )
         assert answer.status_code == 422, answer.text
         assert "a composite member" in answer.text and "Jane" not in answer.text
+    failed = {**shared, "errors": {"rules:timeout, jev:not_configured": 1, "timeout": 2}}
+    answer = registry.client.post(
+        path, json={"site": "Site B", "report": failed}, headers=publisher
+    )
+    assert answer.status_code == 201, answer.text
     listed = registry.client.get(f"/v1/packs/{pack.id}/reports").json()["sites"]
-    assert [site["site"] for site in listed] == ["Site A"]
+    assert [site["site"] for site in listed] == ["Site A", "Site B"]
 
 
 def test_a_version_published_before_members_were_recorded_refuses_a_composite(
@@ -339,10 +349,6 @@ def test_a_version_published_before_members_were_recorded_refuses_a_composite(
         db.all(f"UPDATE hub_versions SET metadata = ? {where}", (json.dumps(metadata), *key))
     publisher = {"authorization": f"Bearer {registry.token}"}
     path = f"/v1/packs/{pack.id}/{pack.version}/reports"
-    answer = registry.client.post(
-        path, json={"site": "Site A", "report": shared}, headers=publisher
-    )
-    assert answer.status_code == 409 and "publish a new version" in answer.text
     single = {
         **shared,
         "providers": {
@@ -351,6 +357,11 @@ def test_a_version_published_before_members_were_recorded_refuses_a_composite(
         },
         "errors": {},
     }
+    for body in (shared, {**single, "errors": {"jev:not_configured": 1}}):
+        answer = registry.client.post(
+            path, json={"site": "Site A", "report": body}, headers=publisher
+        )
+        assert answer.status_code == 409 and "publish a new version" in answer.text
     answer = registry.client.post(
         path, json={"site": "Site A", "report": single}, headers=publisher
     )
@@ -391,6 +402,8 @@ def test_a_composite_lists_its_members_as_its_type_joins_them(type_: str, model:
         ("vote", "rules:rules + jev:Jane Doe called"),
         ("vote", " + ".join(f"m{i}:rules" for i in range(MAX_MEMBERS + 1))),
         ("vote", f"rules:rules + jev:{'j' * 129}"),
+        ("vote", "rules:rules + jev:jev\n"),  # "$" would admit a final newline
+        ("llm", "anthropic/claude-sonnet-5\n"),
     ],
 )
 def test_anything_else_in_a_model_is_refused(type_: str, model: str) -> None:
@@ -412,6 +425,8 @@ def test_anything_else_in_a_model_is_refused(type_: str, model: str) -> None:
         ("jev:not_configured, ", False),
         ("jev:not:configured", False),
         ("Jane Doe:chest_pain", False),
+        ("jev:not_configured\n", False),
+        ("not_configured\n", False),
     ],
 )
 def test_an_error_is_a_code_or_the_members_that_failed(key: str, shareable_: bool) -> None:

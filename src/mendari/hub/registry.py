@@ -235,7 +235,8 @@ class RegistryStore:
                 raise HubError(f"the pack does not load: {error}") from None
             except Exception as error:  # the publisher's content: named, never a 500
                 raise HubError(f"the pack does not load ({type(error).__name__})") from None
-        try:  # as every answer will serialize it, before anything is stored: versions are immutable
+        try:  # as it is stored and every answer serializes it, first: versions are immutable
+            stored = json.dumps(metadata, sort_keys=True)
             to_json(metadata)
         except Exception as error:
             raise HubError(
@@ -266,7 +267,7 @@ class RegistryStore:
                     version,
                     _now(),
                     verified.sha256,
-                    json.dumps(metadata, sort_keys=True),
+                    stored,
                 ),
             )
         return self.version(namespace, name, version)
@@ -427,7 +428,7 @@ def _unknown_names(report: SiteReport, names: Mapping[str, Any], primary: Any) -
     for item in report.decisions.critical:
         if item.label not in questions.get(item.question, ()):
             return "a critical label"
-    members: set[str] = set()  # of the composites that ran
+    ran: list[list[str]] = []  # the members of each composite that ran
     for slot, provider in report.providers.items():
         if slots.get(slot, {}).get(provider.variant) != provider.type:
             return "a provider slot or variant"
@@ -435,10 +436,19 @@ def _unknown_names(report: SiteReport, names: Mapping[str, Any], primary: Any) -
         listed = composite_members(provider)
         if listed is not None and listed != declared:
             return "a composite member"
-        members.update(declared)
-    if any(not set(failed_members(key)) <= members for key in report.errors):
-        return "a composite member"
+        ran.append(declared)
+    for key in report.errors:
+        # As a composite records its failed members: each once, in its own order.
+        failed = failed_members(key)
+        if failed and not any(_in_order(failed, members) for members in ran):
+            return "a composite member"
     return None
+
+
+def _in_order(names: list[str], members: list[str]) -> bool:
+    """Whether `names` are some of `members`, each once, in their order."""
+    remaining = iter(members)
+    return all(name in remaining for name in names)
 
 
 def describe(pack: Pack, verified: archive.Verified) -> dict[str, Any]:
@@ -477,6 +487,8 @@ def describe(pack: Pack, verified: archive.Verified) -> dict[str, Any]:
                     for variant, v in provider.variants.items()
                     if v.type in JOINERS
                     and isinstance(members := (v.model_extra or {}).get("members"), dict)
+                    # YAML reads a key like 2024-01-01 as a date: such a composite never runs
+                    and all(isinstance(member, str) for member in members)
                 }
                 for slot, provider in m.providers.items()
             },
