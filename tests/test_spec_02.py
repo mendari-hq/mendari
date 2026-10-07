@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import itertools
 import random
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +15,14 @@ from mendari import Decision, Outcome, load_pack
 from mendari.core.card import render_card
 from mendari.core.derive import complete_answers, derive_answer, explain
 from mendari.core.policy import matches
-from mendari.core.spec import Condition, PackManifest, Question
+from mendari.core.spec import (
+    LICENSED_CODE_SYSTEMS,
+    Condition,
+    PackManifest,
+    Question,
+    is_spdx_expression,
+    licensed_systems,
+)
 from mendari.evals import evaluate, resolve_dataset
 from mendari.providers import Answer, ProviderInfo
 from tests.conftest import INBOX_DIR
@@ -492,3 +500,148 @@ def test_decisions_list_the_criteria_that_decided() -> None:
     assert not any(
         reason.startswith(("not_eligible", "needs_review")) for reason in candidate.reasons
     )
+
+
+# -- licence and code systems (LP-14) -----------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "licence",
+    [
+        "Apache-2.0",
+        "MIT OR Apache-2.0",
+        "(MIT AND BSD-3-Clause)",
+        "LicenseRef-site-terms",
+        "DocumentRef-spdx-tool-1.2:LicenseRef-MIT-Style-2",
+        "GPL-2.0-or-later WITH Classpath-exception-2.0",
+        "GPL-2.0+",
+    ],
+)
+def test_a_licence_is_an_spdx_expression(licence: str) -> None:
+    PackManifest.model_validate(manifest_dict() | {"license": licence})
+
+
+@pytest.mark.parametrize(
+    "licence",
+    [
+        "Apache 2.0",
+        "apache license",
+        "MIT OR",
+        "(MIT",
+        "",
+        "AND",
+        "MIT WITH OR",
+        "MIT WITH",
+        "MIT)",
+    ],
+)
+def test_a_licence_that_is_not_an_spdx_expression_is_refused(licence: str) -> None:
+    with pytest.raises(ValidationError, match="SPDX license expression"):
+        PackManifest.model_validate(manifest_dict() | {"license": licence})
+
+
+def test_a_licensed_code_system_needs_its_licence_terms() -> None:
+    snomed = {"url": "http://snomed.info/sct", "name": "SNOMED CT"}
+    for url in ("http://snomed.info/sct", "urn:oid:2.16.840.1.113883.6.96",
+                "http://www.ama-assn.org/go/cpt", "urn:oid:2.16.840.1.113883.6.12"):  # fmt: skip
+        with pytest.raises(ValidationError, match="whose codes are licensed"):
+            PackManifest.model_validate(manifest_dict() | {"code_systems": [snomed | {"url": url}]})
+    noted = snomed | {"licence_note": "Used in a SNOMED International member country."}
+    free = {"url": "http://loinc.org", "name": "LOINC"}
+    manifest = PackManifest.model_validate(manifest_dict() | {"code_systems": [noted, free]})
+    assert [use.url for use in manifest.code_systems] == [
+        "http://snomed.info/sct",
+        "http://loinc.org",
+    ]
+    with pytest.raises(ValidationError, match="more than once"):
+        PackManifest.model_validate(manifest_dict() | {"code_systems": [free, free]})
+    with pytest.raises(ValidationError):
+        PackManifest.model_validate(manifest_dict() | {"code_systems": [free | {"url": "loinc"}]})
+
+
+def test_a_pack_whose_files_name_a_licensed_system_must_declare_it(tmp_path: Path) -> None:
+    root = tmp_path / "pack"
+    shutil.copytree(TRIAL_MINI, root)
+    data = root / "logic" / "codes.json"
+    data.write_text('{"note": "coded as urn:oid:2.16.840.1.113883.6.96"}\n')
+    with pytest.raises(Exception, match=r"logic/codes\.json names SNOMED CT .* declare it"):
+        load_pack(root)
+    manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    manifest["code_systems"] = [
+        {"url": "http://snomed.info/sct", "name": "SNOMED CT", "licence_note": "Member country."}
+    ]
+    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    card = render_card(load_pack(root))
+    assert "- SNOMED CT (`http://snomed.info/sct`). Licence: Member country." in card
+
+
+def test_a_licence_is_short_and_read_without_recursion() -> None:
+    nested = "(" * 600 + "MIT" + ")" * 600  # parsed iteratively: no RecursionError
+    assert is_spdx_expression(nested)
+    with pytest.raises(ValidationError, match="at most 200 characters"):
+        PackManifest.model_validate(manifest_dict() | {"license": nested})
+
+
+@pytest.mark.parametrize(
+    ("text", "system"),
+    [
+        ('"system": "http://snomed.info/sct"', "http://snomed.info/sct"),
+        ('"system": "http:\\/\\/snomed.info\\/sct"', "http://snomed.info/sct"),  # JSON-escaped
+        ('codeSystem="2.16.840.1.113883.6.96"', "http://snomed.info/sct"),  # a bare OID
+        ("http://snomed.info/id/22298006", "http://snomed.info/sct"),
+        ("coded in urn:oid:2.16.840.1.113883.6.12.", "http://www.ama-assn.org/go/cpt"),
+        ("https://www.meddra.org", "http://terminology.hl7.org/CodeSystem/mdr"),
+        ("https://codesystem.x12.org/005010/1365", "https://codesystem.x12.org"),
+        ("http://www.ada.org/cdt", "http://www.ada.org/cdt"),
+        # As HL7's terminology registry (THO) lists them, and escaped as files may:
+        ("https://x12.org/codes/claim-adjustment-reason-codes", "https://codesystem.x12.org"),
+        ("http://terminology.hl7.org/CodeSystem/X12.3", "https://codesystem.x12.org"),
+        ("http://terminology.hl7.org/CodeSystem/CD2", "http://www.ada.org/cdt"),
+        (
+            "http://terminology.hl7.org/CodeSystem/MDRSPA",
+            "http://terminology.hl7.org/CodeSystem/mdr",
+        ),
+        ("urn:oid:2.16.840.1.113883.6.163.1", "http://terminology.hl7.org/CodeSystem/mdr"),
+        ("snomed.info%2Fsct", "http://snomed.info/sct"),
+        ("snomed.info&#x2F;sct", "http://snomed.info/sct"),
+    ],
+)
+def test_licensed_systems_are_found_however_a_file_spells_them(text: str, system: str) -> None:
+    assert licensed_systems(text) == {system}
+
+
+def test_other_oids_and_free_systems_name_no_licensed_system() -> None:
+    for text in (
+        "2.16.840.1.113883.6.121",
+        "2.16.840.1.113883.6.12.5",
+        "2.16.840.1.113883.6.1634",
+        "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+        "http://terminology.hl7.org/CodeSystem/CD2-other",
+        "http://loinc.org",
+        "http://hl7.org/fhir/sid/icd-10-cm",
+        "https://mendari.co/fhir/CodeSystem/fictional-procedures",
+    ):
+        assert licensed_systems(text) == set(), text
+
+
+def test_a_code_system_may_be_any_absolute_uri() -> None:
+    for url in ("urn:ietf:bcp:47", "urn:iso:std:iso:3166", "urn:oid:2.16.840.1.113883.6.1"):
+        PackManifest.model_validate(manifest_dict() | {"code_systems": [{"url": url, "name": "x"}]})
+    with pytest.raises(ValidationError):
+        PackManifest.model_validate(
+            manifest_dict() | {"code_systems": [{"url": "loinc.org", "name": "x"}]}
+        )
+
+
+@pytest.mark.parametrize("url", sorted(LICENSED_CODE_SYSTEMS))
+def test_a_pack_naming_a_licensed_system_with_escaped_slashes_must_declare_it(
+    tmp_path: Path, url: str
+) -> None:
+    """The load check reads every licensed system's url as a JSON serializer may write it, its
+    slashes escaped (`http:\\/\\/...`), not only the unit under test."""
+    root = tmp_path / "pack"
+    shutil.copytree(TRIAL_MINI, root)
+    escaped = url.replace("/", "\\/")
+    (root / "logic" / "codes.json").write_text(f'{{"system": "{escaped}"}}\n')
+    with pytest.raises(Exception, match="declare it in code_systems with a licence_note"):
+        load_pack(root)

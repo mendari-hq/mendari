@@ -295,7 +295,8 @@ CI checks the mechanics. The owner then reads what it cannot judge, and may ask 
   runs the pack on one, so nothing like "always answer no".
 - **Provenance and licensing.** Nothing copied from proprietary criteria (InterQual, MCG, payer
   policies) or copyrighted instruments; code systems with licence terms (CPT, SNOMED CT) only
-  as their licences allow; the sources of `card.evidence` given (see
+  as their licences allow, each declared in `code_systems` with its `licence_note`; the
+  sources of `card.evidence` given (see
   [CONTRIBUTING.md](https://github.com/Junebugg1214/mendari/blob/main/CONTRIBUTING.md#content-provenance)).
 - **The card.** Intended use, users, population, out-of-scope uses and failure modes, written
   for a clinician.

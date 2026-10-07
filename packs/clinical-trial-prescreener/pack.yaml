@@ -1,6 +1,6 @@
 spec_version: "0.2"
 id: mendari/clinical-trial-prescreener
-version: 0.1.3
+version: 0.1.4
 name: Clinical Trial Prescreener
 summary: >-
   Checks a patient's record against the eligibility criteria of a synthetic type 2 diabetes
@@ -10,6 +10,23 @@ publisher:
   name: Mendari reference packs
   type: community
 license: Apache-2.0
+# The code systems the pack's inputs, rules and data use (spec §3). A licensed one says the terms.
+code_systems:
+  - url: http://hl7.org/fhir/sid/icd-10-cm
+    name: >-
+      ICD-10-CM (U.S. National Center for Health Statistics: free to use; adapted from the World
+      Health Organization's copyrighted ICD-10, with WHO's authorization, for U.S. government
+      purposes)
+  - url: http://snomed.info/sct
+    name: SNOMED CT (SNOMED International)
+    licence_note: >-
+      Using SNOMED CT needs an Affiliate Licence from SNOMED International: free of charge in
+      its member territories (in the United States through the National Library of Medicine's
+      UMLS licence), in low-income countries and for qualifying research; fees apply elsewhere.
+      Whether the reference packs may carry its codes is a question recorded for counsel
+      (tasks/todo.md, LP-14).
+  - url: http://loinc.org
+    name: LOINC (Regenstrief Institute; the LOINC License, whose notice is in NOTICE)
 
 risk:
   level: 2

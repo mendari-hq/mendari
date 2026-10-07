@@ -22,7 +22,14 @@ from pydantic import ValidationError
 from mendari.core import input_schema as schema_rules
 from mendari.core import patterns
 from mendari.core.origin import ORIGIN_LABELS, Origin, is_community, shown_origin
-from mendari.core.spec import Outcome, PackManifest, Priority
+from mendari.core.spec import (
+    LICENSED_CODE_SYSTEMS,
+    LICENSED_HINTS,
+    Outcome,
+    PackManifest,
+    Priority,
+    licensed_systems,
+)
 from mendari.errors import PackValidationError
 
 MANIFEST = "pack.yaml"
@@ -220,7 +227,7 @@ def load_pack(
         )
     # Hashed first: everything below is read through `_read`, which accepts only a file the
     # digest covers, whatever spelling reaches it, and only the bytes the digest hashed.
-    digest, digested = _digest(root, str(path))
+    digest, digested, named = _digest(root, str(path))
     if not _pack_file(root, MANIFEST, str(path), digested).is_file():
         raise PackValidationError(str(path), [f"{MANIFEST} not found in {root}"])
     raw = parse_yaml(_read(root, MANIFEST, str(path), digested), MANIFEST, str(path))
@@ -241,6 +248,20 @@ def load_pack(
         manifest = PackManifest.model_validate(raw)
     except ValidationError as error:
         raise PackValidationError(label, _format_errors(error)) from None
+    declared = {
+        url
+        for use in manifest.code_systems
+        if use.licence_note is not None
+        for url in licensed_systems(use.url)
+    }
+    problems = [
+        f"{where} names {LICENSED_CODE_SYSTEMS[url][0]} ({url}), whose codes are licensed: "
+        "declare it in code_systems with a licence_note"
+        for url, where in sorted(named.items())
+        if url not in declared
+    ]
+    if problems:
+        raise PackValidationError(manifest.id, problems)
 
     problems = [
         f"missing file {relative!r}"
@@ -325,12 +346,15 @@ def pack_digest(root: Path) -> str:
     return _digest(root)[0]
 
 
-def _digest(root: Path, label: str = "") -> tuple[str, Digested]:
-    """The pack digest, and the identity on disk of every file it hashed (of the file read, so
-    a link inside the pack counts as the file it leads to) with the SHA-256 of what it read. A
-    file that cannot be read is a `PackValidationError` naming it (labelled `label`)."""
+def _digest(root: Path, label: str = "") -> tuple[str, Digested, dict[str, str]]:
+    """The pack digest; the identity on disk of every file it hashed (of the file read, so a link
+    inside the pack counts as the file it leads to) with the SHA-256 of what it read; and each
+    licensed code system (`LICENSED_CODE_SYSTEMS`) a hashed file names, with the first file
+    naming it. A file that cannot be read is a `PackValidationError` naming it (labelled
+    `label`)."""
     digest = hashlib.sha256()
     digested = {}
+    named: dict[str, str] = {}
     for file in sorted(p for p in root.rglob("*") if p.is_file()):
         relative = file.relative_to(root)
         if _attestation(relative.parts) or any(_excluded(part) for part in relative.parts):
@@ -343,11 +367,14 @@ def _digest(root: Path, label: str = "") -> tuple[str, Digested]:
             problem = f"{relative.as_posix()}: cannot be read ({type(error).__name__})"
             raise PackValidationError(label or str(root), [problem]) from None
         digested[(status.st_dev, status.st_ino)] = hashlib.sha256(content).hexdigest()
+        if any(hint in content for hint in LICENSED_HINTS):
+            for url in licensed_systems(content.decode("utf-8", "replace")):
+                named.setdefault(url, relative.as_posix())
         digest.update(relative.as_posix().encode())
         digest.update(b"\0")
         digest.update(content)
         digest.update(b"\0")
-    return "sha256:" + digest.hexdigest(), digested
+    return "sha256:" + digest.hexdigest(), digested, named
 
 
 # Manifest fields naming a file the pack decides or tests with, in a provider variant or a

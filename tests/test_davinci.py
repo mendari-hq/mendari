@@ -51,9 +51,9 @@ def coverage_info(action: dict[str, Any]) -> dict[str, list[Any]]:
 
 
 def test_each_decided_order_comes_back_with_coverage_information(preflight: Decision) -> None:
-    lab = _order("lab", "80053")  # a metabolic panel: not the pack's business
+    lab = _order("lab", "FX904")  # a metabolic panel: not the pack's business
     response = cds_hooks.invoke(
-        preflight, request("acme", COMPLETE, _order("mri", "72148"), _order("scope", "29881"), lab)
+        preflight, request("acme", COMPLETE, _order("mri", "FX101"), _order("scope", "FX202"), lab)
     )
     assert len(response["cards"]) == 2  # the cards are as before
     actions = response["systemActions"]
@@ -65,14 +65,14 @@ def test_each_decided_order_comes_back_with_coverage_information(preflight: Deci
     assert "doc-needed" not in parts
     decision_id = response["cards"][0]["extension"]["mendari.decision_id"]
     assert parts["coverage-assertion-id"] == [decision_id]  # traceable to the audit record
-    original = _order("mri", "72148")
+    original = _order("mri", "FX101")
     updated = {k: v for k, v in actions[0]["resource"].items() if k != "extension"}
     assert updated == original  # the order itself is unchanged
 
 
 def test_missing_documentation_says_so(preflight: Decision) -> None:
     response = cds_hooks.invoke(
-        preflight, request("acme", "Back pain for two weeks.", _order("mri", "72148"))
+        preflight, request("acme", "Back pain for two weeks.", _order("mri", "FX101"))
     )
     parts = coverage_info(response["systemActions"][0])
     assert parts["doc-needed"] == ["clinical"] and parts["pa-needed"] == ["auth-needed"]
@@ -81,16 +81,16 @@ def test_missing_documentation_says_so(preflight: Decision) -> None:
 
 def test_a_service_without_prior_auth_and_an_unknown_payer(preflight: Decision) -> None:
     response = cds_hooks.invoke(
-        preflight, request("beacon", "Loud snoring.", _order("psg", "95810"))
+        preflight, request("beacon", "Loud snoring.", _order("psg", "FX301"))
     )
     parts = coverage_info(response["systemActions"][0])
     assert parts["covered"] == ["covered"] and parts["pa-needed"] == ["no-auth"]
-    unknown = cds_hooks.invoke(preflight, request("zenith", COMPLETE, _order("mri", "72148")))
+    unknown = cds_hooks.invoke(preflight, request("zenith", COMPLETE, _order("mri", "FX101")))
     assert "systemActions" not in unknown  # not_checked asserts nothing
 
 
 def test_without_the_patients_coverage_nothing_is_asserted(preflight: Decision) -> None:
-    body = request("acme", COMPLETE, _order("mri", "72148"))
+    body = request("acme", COMPLETE, _order("mri", "FX101"))
     body["prefetch"]["coverage"] = {"resourceType": "Bundle", "type": "searchset", "entry": []}
     response = cds_hooks.invoke(preflight, body)
     assert "systemActions" not in response  # no Coverage to assert anything about
@@ -153,12 +153,12 @@ def test_the_documentation_asked_for_follows_the_decision_table(
 def test_crd_links_the_questionnaire_only_when_documentation_is_missing(
     preflight: Decision,
 ) -> None:
-    missing = cds_hooks.invoke(preflight, request("acme", "Back pain.", _order("mri", "72148")))
+    missing = cds_hooks.invoke(preflight, request("acme", "Back pain.", _order("mri", "FX101")))
     [link] = coverage_info(missing["systemActions"][0])["questionnaire"]
     assert link == (
         f"https://mendari.co/packs/{PA}/Questionnaire/lumbar_mri-acme|{preflight.pack.version}"
     )
-    ready = cds_hooks.invoke(preflight, request("acme", COMPLETE, _order("mri", "72148")))
+    ready = cds_hooks.invoke(preflight, request("acme", COMPLETE, _order("mri", "FX101")))
     assert "questionnaire" not in coverage_info(ready["systemActions"][0])
 
 
@@ -178,7 +178,7 @@ def test_the_questionnaire_package_is_pre_answered_from_the_decision(tmp_path: A
     client = TestClient(create_app(db_path=tmp_path / "a.db"))
     signed = client.post(
         f"/cds-services/{PA.replace('/', '.')}",
-        json=request("acme", "Back pain for two weeks.", _order("mri", "72148")),
+        json=request("acme", "Back pain for two weeks.", _order("mri", "FX101")),
     ).json()
     order = signed["systemActions"][0]["resource"]
     answer = client.post(

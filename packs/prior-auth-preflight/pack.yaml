@@ -1,6 +1,6 @@
 spec_version: "0.2"
 id: mendari/prior-auth-preflight
-version: 0.1.3
+version: 0.2.0
 name: Prior Authorization Preflight
 summary: >-
   Checks an order against the patient's payer before it is sent for prior authorization: does
@@ -10,6 +10,17 @@ publisher:
   name: Mendari reference packs
   type: community
 license: Apache-2.0
+# The code systems the pack's inputs, rules and data use (spec §3). A licensed one says the terms.
+code_systems:
+  - url: https://mendari.co/fhir/CodeSystem/fictional-procedures
+    name: >-
+      Mendari fictional procedure codes: invented for this synthetic example; not CPT, never
+      for billing. A site maps its own codes to these.
+  - url: http://hl7.org/fhir/sid/icd-10-cm
+    name: >-
+      ICD-10-CM (U.S. National Center for Health Statistics: free to use; adapted from the World
+      Health Organization's copyrighted ICD-10, with WHO's authorization, for U.S. government
+      purposes)
 
 risk:
   level: 1
@@ -44,7 +55,7 @@ card:
       request itself (Da Vinci PAS is later standards work).
   known_failure_modes:
     - Only the codes listed in logic/structured.yaml count. A lumbar X-ray billed under
-      another code (for example 72110, four or more views) reads as missing imaging. On the
+      another code (for example FX112, four or more views) reads as missing imaging. On the
       bundled local-site example (datasets/prior-auth-local-site-example.jsonl), which has
       such X-rays and shorthand notes, prior imaging is 88 % correct and the next step 93 %
       (86 % on shorthand notes). Add a site's codes before use.
@@ -83,9 +94,9 @@ questions:
     names: {"lumbar_mri": "Lumbar MRI"}
     instructions: Which requirement set does the ordered service fall under?
     criteria:
-      lumbar_mri: MRI of the lumbar spine (CPT 72148, 72149, 72158).
-      knee_arthroscopy: Knee arthroscopy (CPT 29880, 29881).
-      sleep_study: Attended sleep study (CPT 95810, 95811).
+      lumbar_mri: MRI of the lumbar spine (codes FX101, FX102, FX103).
+      knee_arthroscopy: Knee arthroscopy (codes FX201, FX202).
+      sleep_study: Attended sleep study (codes FX301, FX302).
       other: Any other service; the pack has no requirement set for it.
   payer:
     display: "Payer"
@@ -108,7 +119,7 @@ questions:
     instructions: Is the imaging the payer asks for on file from the last 180 days?
     criteria:
       "yes": >-
-        A lumbar spine X-ray (CPT 72100) for a lumbar MRI, or a knee MRI (CPT 73721-73723) for
+        A lumbar spine X-ray (code FX111) for a lumbar MRI, or a knee MRI (FX211 to FX213) for
         a knee arthroscopy, in the last 180 days.
       "no": None on file, or older than 180 days.
       unknown: Imaging is on file without a date.

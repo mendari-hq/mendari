@@ -7,9 +7,9 @@ as_of: as_of
 questions:
   service:
     checks:
-      - value: {field: order.code, in: ["72148", "72149", "72158"], then: lumbar_mri}
-      - value: {field: order.code, in: ["29880", "29881"], then: knee_arthroscopy}
-      - value: {field: order.code, in: ["95810", "95811"], then: sleep_study}
+      - value: {field: order.code, in: ["FX101", "FX102", "FX103"], then: lumbar_mri}
+      - value: {field: order.code, in: ["FX201", "FX202"], then: knee_arthroscopy}
+      - value: {field: order.code, in: ["FX301", "FX302"], then: sleep_study}
     default: other
 
   payer:
@@ -21,17 +21,17 @@ questions:
   diagnosis_supports:
     checks:
       - condition: {codes: ["M54.1*", "M51.*"], then: "yes"}
-        when: {field: order.code, in: ["72148", "72149", "72158"]}
+        when: {field: order.code, in: ["FX101", "FX102", "FX103"]}
       - condition: {codes: ["S83.2*", "M23.2*"], then: "yes"}
-        when: {field: order.code, in: ["29880", "29881"]}
+        when: {field: order.code, in: ["FX201", "FX202"]}
       - condition: {codes: ["G47.33", "R06.83"], then: "yes"}
-        when: {field: order.code, in: ["95810", "95811"]}
+        when: {field: order.code, in: ["FX301", "FX302"]}
     default: "no"
 
   prior_imaging:
     checks:
-      - exists: {in: procedures, codes: ["72100"], within_days: 180, then: "yes"}
-        when: {field: order.code, in: ["72148", "72149", "72158"]}
-      - exists: {in: procedures, codes: ["73721", "73722", "73723"], within_days: 180, then: "yes"}
-        when: {field: order.code, in: ["29880", "29881"]}
+      - exists: {in: procedures, codes: ["FX111"], within_days: 180, then: "yes"}
+        when: {field: order.code, in: ["FX101", "FX102", "FX103"]}
+      - exists: {in: procedures, codes: ["FX211", "FX212", "FX213"], within_days: 180, then: "yes"}
+        when: {field: order.code, in: ["FX201", "FX202"]}
     default: "no"

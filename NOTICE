@@ -33,18 +33,17 @@ LOINC
   registered United States trademark of Regenstrief Institute, Inc.
 
 SNOMED CT
-  SNOMED CT codes in synthetic examples (packs/clinical-trial-prescreener, src/mendari/sandbox)
+  SNOMED CT codes in synthetic examples (packs/clinical-trial-prescreener, packs/referral-router, datasets/trial-local-site-example.jsonl, src/mendari/sandbox), each pack declaring it with its terms
   Licence: SNOMED International's licence terms.
   SNOMED and SNOMED CT are registered trademarks of SNOMED International.
 
-CPT
-  CPT codes in the synthetic prior-authorization reference pack and its dataset (packs/prior-auth-preflight, datasets/)
-  Licence: the American Medical Association's terms.
-  CPT is a registered trademark of the American Medical Association. CPT codes and descriptions are copyright the American Medical Association.
-
 ICD-10-CM
   ICD-10-CM codes in the synthetic reference packs and datasets
-  Licence: public domain (U.S. National Center for Health Statistics).
+  Licence: free to use from the U.S. National Center for Health Statistics, which adapted it from the World Health Organization's copyrighted ICD-10 with WHO's authorization, for U.S. government purposes.
+
+ICD-10-PCS
+  three procedure codes and their titles in the sandbox's payer crosswalk (src/mendari/sandbox/synthetic_prior_auth.py), sent with the synthetic prior-authorization orders
+  Licence: public domain (U.S. Centers for Medicare & Medicaid Services).
 
 X12 code values
   the Da Vinci PAS mapping (src/mendari/standards/pas.py)

@@ -18,14 +18,59 @@ from typing import Any, Literal
 
 Site = Literal["public", "local"]
 AS_OF = date(2026, 9, 1)
+# The pack's procedure codes: invented for this synthetic example (LP-14), in a code system named
+# as fictional. Not CPT, never for billing; a site maps its own codes. Each display is ours.
+PROCEDURE_SYSTEM = "https://mendari.co/fhir/CodeSystem/fictional-procedures"
+PROCEDURES = {
+    "FX101": "MRI lumbar spine without contrast",
+    "FX102": "MRI lumbar spine with contrast",
+    "FX103": "MRI lumbar spine",
+    "FX111": "X-ray lumbar spine",
+    "FX112": "X-ray lumbar spine, 4+ views",
+    "FX201": "Knee arthroscopy",
+    "FX202": "Knee arthroscopy with meniscectomy",
+    "FX211": "MRI knee",
+    "FX212": "MRI knee with contrast",
+    "FX213": "MRI knee without and with contrast",
+    "FX301": "Polysomnography",
+    "FX302": "Polysomnography with CPAP titration",
+    "FX901": "MRI brain",
+    "FX902": "Echocardiogram",
+    "FX903": "Colonoscopy",
+    "FX904": "Comprehensive metabolic panel",
+}
+# What a payer reads for the fictional codes the samples send (Da Vinci PAS and US Core bind the
+# requested service to value sets with no fictional system): ICD-10-PCS, CMS's public-domain
+# procedure codes, with their official titles. Only the services a sample or a test sends to a
+# payer or a validator. ICD-10-PCS is HIPAA's code set for hospital inpatient procedures: on the
+# sandbox's outpatient, professional request it stands in for the CPT code a real order carries.
+PAYER_CODES = {
+    "FX101": ("BR39ZZZ", "Magnetic Resonance Imaging (MRI) of Lumbar Spine"),
+    "FX111": ("BR09ZZZ", "Plain Radiography of Lumbar Spine"),
+    "FX301": ("4A1ZXQZ", "Monitoring of Sleep, External Approach"),
+}
+
+
+def procedure_codings(code: str) -> list[dict[str, str]]:
+    """A FHIR order's or procedure's codings for a fictional code: the code itself first (the
+    pack reads `coding[0]`), then its ICD-10-PCS code when it has one (`PAYER_CODES`)."""
+    from mendari.standards.pas import ICD10_PCS
+
+    codings = [{"system": PROCEDURE_SYSTEM, "code": code, "display": PROCEDURES[code]}]
+    if code in PAYER_CODES:
+        payer, shown = PAYER_CODES[code]
+        codings.append({"system": ICD10_PCS, "code": payer, "display": shown})
+    return codings
+
+
 ORDERS = {
-    "lumbar_mri": [("72148", "MRI lumbar spine without contrast"), ("72158", "MRI lumbar spine")],
+    "lumbar_mri": [("FX101", "MRI lumbar spine without contrast"), ("FX103", "MRI lumbar spine")],
     "knee_arthroscopy": [
-        ("29881", "Knee arthroscopy with meniscectomy"),
-        ("29880", "Knee arthroscopy"),
+        ("FX202", "Knee arthroscopy with meniscectomy"),
+        ("FX201", "Knee arthroscopy"),
     ],
-    "sleep_study": [("95810", "Polysomnography"), ("95811", "Polysomnography with CPAP titration")],
-    "other": [("70553", "MRI brain"), ("93306", "Echocardiogram"), ("45378", "Colonoscopy")],
+    "sleep_study": [("FX301", "Polysomnography"), ("FX302", "Polysomnography with CPAP titration")],
+    "other": [("FX901", "MRI brain"), ("FX902", "Echocardiogram"), ("FX903", "Colonoscopy")],
 }
 SUPPORTING = {
     "lumbar_mri": [
@@ -39,8 +84,8 @@ SUPPORTING = {
     "sleep_study": [("G47.33", "Obstructive sleep apnea"), ("R06.83", "Snoring")],
 }
 UNRELATED = [("I10", "Essential hypertension"), ("E78.5", "Hyperlipidemia"), ("J45.909", "Asthma")]
-IMAGING = {"lumbar_mri": ("72100", "X-ray lumbar spine"), "knee_arthroscopy": ("73721", "MRI knee")}
-LOCAL_LUMBAR_XRAY = ("72110", "X-ray lumbar spine, 4+ views")  # not listed by the pack
+IMAGING = {"lumbar_mri": ("FX111", "X-ray lumbar spine"), "knee_arthroscopy": ("FX211", "MRI knee")}
+LOCAL_LUMBAR_XRAY = ("FX112", "X-ray lumbar spine, 4+ views")  # not listed by the pack
 PAYERS = {
     "public": {"acme": 0.5, "beacon": 0.4, "other": 0.1},
     "local": {"acme": 0.25, "beacon": 0.55, "other": 0.2},

@@ -27,19 +27,21 @@ from typing import Any
 from mendari import AuditStore, Decision
 from mendari.core.pack import Pack
 from mendari.sandbox import payer as sandbox_payer
+from mendari.sandbox.synthetic_prior_auth import procedure_codings
 from mendari.standards import cds_hooks, davinci, pas
 
 TODAY = date.today()
-CPT = "http://www.ama-assn.org/go/cpt"
 
 
-def order(id_: str, code: str, display: str) -> dict[str, Any]:
+def order(id_: str, code: str) -> dict[str, Any]:
+    codings = procedure_codings(code)  # the pack's fictional code, then a payer's ICD-10-PCS
+    display = codings[0]["display"]
     return {
         "resourceType": "ServiceRequest",
         "id": id_,
         "status": "draft",
         "intent": "order",
-        "code": {"coding": [{"system": CPT, "code": code, "display": display}], "text": display},
+        "code": {"coding": codings, "text": display},
         "subject": {"reference": "Patient/pa-p1"},
         "authoredOn": TODAY.isoformat(),
         "requester": {"reference": "Practitioner/pa-pr1"},
@@ -58,6 +60,14 @@ def prefetch(payer: str, note: str) -> dict[str, Any]:
         coding = {"system": system, "code": code}
         return {"resourceType": kind, "id": id_, "code": {"coding": [coding]}, **extra}
 
+    def procedure(id_: str, code: str, **extra: Any) -> dict[str, Any]:
+        return {
+            "resourceType": "Procedure",
+            "id": id_,
+            "code": {"coding": procedure_codings(code)},
+            **extra,
+        }
+
     ago = (TODAY - timedelta(days=40)).isoformat()
     icd = "http://hl7.org/fhir/sid/icd-10-cm"
     return {
@@ -75,11 +85,9 @@ def prefetch(payer: str, note: str) -> dict[str, Any]:
             coded("Condition", "pa-d1", icd, "M54.16", subject={"reference": "Patient/pa-p1"})
         ),
         "procedures": bundle(
-            coded(
-                "Procedure",
+            procedure(
                 "pa-x1",
-                CPT,
-                "72100",
+                "FX111",
                 status="completed",
                 performedDateTime=ago,
                 subject={"reference": "Patient/pa-p1"},
@@ -115,17 +123,17 @@ def write(out: Path, decision: Decision, store: AuditStore) -> None:
         "crd-submit-ready": (
             "acme",
             "Completed 8 weeks of physical therapy.",
-            order("mri", "72148", "MRI lumbar spine"),
+            order("mri", "FX101"),
         ),
         "crd-needs-attention": (
             "acme",
             "Back pain for two weeks.",
-            order("mri2", "72148", "MRI lumbar spine"),
+            order("mri2", "FX101"),
         ),
         "crd-not-required": (
             "beacon",
             "Loud snoring and daytime sleepiness.",
-            order("psg", "95810", "Polysomnography"),
+            order("psg", "FX301"),
         ),
     }
     out.mkdir(parents=True, exist_ok=True)

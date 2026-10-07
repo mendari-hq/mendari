@@ -4,7 +4,7 @@
 
 *Research preview. Not a medical device. Not for emergencies: patients should call 911.*
 
-`mendari/prior-auth-preflight` · version **0.1.3** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
+`mendari/prior-auth-preflight` · version **0.2.0** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
 
 > Checks an order against the patient's payer before it is sent for prior authorization: does this payer require authorization for this service, and does the record have what the payer asks for? Complete requests are queued for submission; the gaps in the others are listed.
 
@@ -13,8 +13,8 @@
 | Source | Maintained by Mendari |
 | Risk level | **1**, clinical information processing (clinical information) |
 | Automation | AUTO permitted by policy thresholds; every decision is audited. Only while `notes` is `rules_and_jev` or `rules_and_llm`; otherwise a person reviews. |
-| Pack digest | `sha256:1736737143053a3f7a1302cb00e844f28aa014ad5842db785ab0ef78f7f47bf4` |
-| Last validation | 2026-10-06 on `test` (n=600, sha256 `17c6f97cd68c…`) |
+| Pack digest | `sha256:36ba77e89092654b012bd69b62b49fe645017d1b0b8544dcace1b02751a0f1af` |
+| Last validation | 2026-10-07 on `test` (n=600, sha256 `e74e45ea35d5…`) |
 
 ## Intended use
 
@@ -57,15 +57,20 @@ Adults with an order for a lumbar spine MRI, a knee arthroscopy or a sleep study
 
 FHIR R4 mapping: `fhir/mapping.yaml`.
 
+Code systems:
+
+- Mendari fictional procedure codes: invented for this synthetic example; not CPT, never for billing. A site maps its own codes to these. (`https://mendari.co/fhir/CodeSystem/fictional-procedures`).
+- ICD-10-CM (U.S. National Center for Health Statistics: free to use; adapted from the World Health Organization's copyrighted ICD-10, with WHO's authorization, for U.S. government purposes) (`http://hl7.org/fhir/sid/icd-10-cm`).
+
 ## Outputs
 
 **`service`**: Which requirement set does the ordered service fall under?
 
 | Label | Criteria |
 |---|---|
-| `lumbar_mri` | MRI of the lumbar spine (CPT 72148, 72149, 72158). |
-| `knee_arthroscopy` | Knee arthroscopy (CPT 29880, 29881). |
-| `sleep_study` | Attended sleep study (CPT 95810, 95811). |
+| `lumbar_mri` | MRI of the lumbar spine (codes FX101, FX102, FX103). |
+| `knee_arthroscopy` | Knee arthroscopy (codes FX201, FX202). |
+| `sleep_study` | Attended sleep study (codes FX301, FX302). |
 | `other` | Any other service; the pack has no requirement set for it. |
 
 **`payer`**: Which payer covers the patient?
@@ -88,7 +93,7 @@ FHIR R4 mapping: `fhir/mapping.yaml`.
 
 | Label | Criteria |
 |---|---|
-| `yes` | A lumbar spine X-ray (CPT 72100) for a lumbar MRI, or a knee MRI (CPT 73721-73723) for a knee arthroscopy, in the last 180 days. |
+| `yes` | A lumbar spine X-ray (code FX111) for a lumbar MRI, or a knee MRI (FX211 to FX213) for a knee arthroscopy, in the last 180 days. |
 | `no` | None on file, or older than 180 days. |
 | `unknown` | Imaging is on file without a date. |
 
@@ -181,7 +186,7 @@ Benchmark `test` (n=600) with structured=`criteria`, notes=`rules`:
 | Accuracy of AUTO decisions | n/a |
 | False automation rate | n/a |
 | Expected human override rate | 0.0% |
-| Latency p50 / p95 | 3.49 / 3.67 ms |
+| Latency p50 / p95 | 3.51 / 3.70 ms |
 | Cost per decision | $0.00000 |
 | Critical `red_flag=yes` | 25/25 detected, 0 automated |
 
@@ -348,7 +353,7 @@ Other questions (accuracy / ECE):
 
 ## Known failure modes
 
-- Only the codes listed in logic/structured.yaml count. A lumbar X-ray billed under another code (for example 72110, four or more views) reads as missing imaging. On the bundled local-site example (datasets/prior-auth-local-site-example.jsonl), which has such X-rays and shorthand notes, prior imaging is 88 % correct and the next step 93 % (86 % on shorthand notes). Add a site's codes before use.
+- Only the codes listed in logic/structured.yaml count. A lumbar X-ray billed under another code (for example FX112, four or more views) reads as missing imaging. On the bundled local-site example (datasets/prior-auth-local-site-example.jsonl), which has such X-rays and shorthand notes, prior imaging is 88 % correct and the next step 93 % (86 % on shorthand notes). Add a site's codes before use.
 - Durations are read as written in the notes ("8 weeks of physical therapy"). A note like "PT since July" cannot be compared with dates by the keyword rules and reads as unclear.
 - The keyword rules read English notes only and miss phrasings they do not list, including red flags. On hand-written notes they found 7/7 red flags in the set they were written on but 3/6 held out ("breast cancer treated 3 years ago", "numbness around the anus" and "lost 10 pounds without trying" were missed), and 9/11 at the local site. The policy therefore allows AUTO only while the notes are also read by a model (`automation_requires`), and a possible red flag always goes to a person.
 - The overall probability treats every answer as independent.
@@ -365,7 +370,21 @@ Renamed on 2026-09-30, when the project became Mendari: this pack was `openhealt
 Its id, its publisher's name and its `https://mendari.co/...` identifiers changed; its criteria,
 rules, models, data and results did not.
 
-#### 0.1.3
+#### 0.2.0
+
+- The procedure codes are fictional: the 15 CPT codes the pack, its data and its tests used are
+  replaced one for one by invented codes (`FX101` to `FX903`) in a code system named as
+  fictional, `https://mendari.co/fhir/CodeSystem/fictional-procedures`. CPT belongs to the
+  American Medical Association, and the pack no longer carries any. Its other code systems,
+  and the notices they need, are in `code_systems` and NOTICE.
+  **A site that sends CPT codes maps them to these** (in `logic/structured.yaml` and the FHIR
+  mapping's `focus_where`), as it already maps any code the pack does not list.
+- `code_systems` declares the systems the pack uses (the fictional procedures, ICD-10-CM).
+- Every decision is the same as in 0.1.3 with the codes swapped: each requirement set,
+  answer, probability and outcome of the 1,272 examples, datasets and tests. The data and the
+  model were rebuilt from the generator (only the codes changed); the digest changes.
+
+### 0.1.3
 
 - Every surface now says what the pack is: "Synthetic example. Not clinically reviewed. Not for
   patient care." It is derived from the new `card.provenance: synthetic`, never written by the

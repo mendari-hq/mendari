@@ -4,7 +4,7 @@
 
 *Research preview. Not a medical device. Not for emergencies: patients should call 911.*
 
-`mendari/referral-router` · version **0.1.3** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
+`mendari/referral-router` · version **0.1.4** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
 
 > Reads a specialty referral as it is signed: suggests the specialty, spots referrals that should be seen within two weeks, checks that the referral has what that specialty needs, and sends complete routine referrals straight to the specialty's scheduling queue.
 
@@ -13,8 +13,8 @@
 | Source | Maintained by Mendari |
 | Risk level | **1**, clinical information processing (clinical information) |
 | Automation | AUTO permitted by policy thresholds; every decision is audited. Only while `triage_screen` is `rules_and_jev` or `rules_and_llm`; otherwise a person reviews. |
-| Pack digest | `sha256:d8ff01b38b7cbca14e6b2925467e86c68b4e50741cd606e1635586b51c6fc3ff` |
-| Last validation | 2026-10-06 on `test` (n=600, sha256 `f085362d6bc2…`) |
+| Pack digest | `sha256:5aafc3ce636a6e059063e23b465e7951a9380e12fd53a0c9c6d65e665e583e4e` |
+| Last validation | 2026-10-07 on `test` (n=600, sha256 `f085362d6bc2…`) |
 
 ## Intended use
 
@@ -55,6 +55,11 @@ Adults referred from primary care to one of eight outpatient specialties, with r
 | `labs` | any | no |
 
 FHIR R4 mapping: `fhir/mapping.yaml`.
+
+Code systems:
+
+- SNOMED CT (SNOMED International) (`http://snomed.info/sct`). Licence: Using SNOMED CT needs an Affiliate Licence from SNOMED International: free of charge in its member territories (in the United States through the National Library of Medicine's UMLS licence), in low-income countries and for qualifying research; fees apply elsewhere. Whether the reference packs may carry its codes is a question recorded for counsel (tasks/todo.md, LP-14).
+- LOINC (Regenstrief Institute; the LOINC License, whose notice is in NOTICE) (`http://loinc.org`).
 
 ## Outputs
 
@@ -178,7 +183,7 @@ Benchmark `test` (n=600) with specialty_reader=`naive_bayes`, triage_screen=`rul
 | Accuracy of AUTO decisions | n/a |
 | False automation rate | n/a |
 | Expected human override rate | 0.5% |
-| Latency p50 / p95 | 1.88 / 2.02 ms |
+| Latency p50 / p95 | 1.91 / 2.21 ms |
 | Cost per decision | $0.00000 |
 | Critical `urgency=urgent` | 113/113 detected, 0 automated |
 | Critical `next_step=urgent_review` | 124/124 detected, 0 automated |
@@ -375,7 +380,14 @@ Renamed on 2026-09-30, when the project became Mendari: this pack was `openhealt
 Its id, its publisher's name and its `https://mendari.co/...` identifiers changed; its criteria,
 rules, models, data and results did not.
 
-#### 0.1.3
+#### 0.1.4
+
+- `code_systems` declares the systems the pack uses: SNOMED CT, with its licence terms (a pack
+  naming a licensed code system now has to say them), and LOINC.
+- Criteria, rules, providers, policy, models and data are unchanged; every decision is identical.
+  The digest changes because the manifest does.
+
+### 0.1.3
 
 - Every surface now says what the pack is: "Synthetic example. Not clinically reviewed. Not for
   patient care." It is derived from the new `card.provenance: synthetic`, never written by the

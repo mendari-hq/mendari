@@ -4,7 +4,7 @@
 
 *Research preview. Not a medical device. Not for emergencies: patients should call 911.*
 
-`mendari/clinical-trial-prescreener` · version **0.1.3** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
+`mendari/clinical-trial-prescreener` · version **0.1.4** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
 
 > Checks a patient's record against the eligibility criteria of a synthetic type 2 diabetes study (GLYCEMIA-2): structured criteria are computed from coded data, and exclusions are looked for in the clinic notes. Every result goes to a research coordinator for review.
 
@@ -13,8 +13,8 @@
 | Source | Maintained by Mendari |
 | Risk level | **2**, clinical support |
 | Automation | Human review required by default; AUTO only with a recorded governance override. |
-| Pack digest | `sha256:e1ee962b097c0bdf6dcaaf85d2fb22376d8fa8b75e4146f6d91a62519d39f1b4` |
-| Last validation | 2026-10-06 on `test` (n=300, sha256 `12d2fb4b741a…`) |
+| Pack digest | `sha256:7f233cfc881fc096d9ea28da6bcc8026fb5afb00db238a878080d8a698b66d39` |
+| Last validation | 2026-10-07 on `test` (n=300, sha256 `12d2fb4b741a…`) |
 
 ## Intended use
 
@@ -52,6 +52,12 @@ Adults with diabetes in outpatient care whose record has coded conditions, lab r
 | `notes` | string | no |
 
 FHIR R4 mapping: `fhir/mapping.yaml`.
+
+Code systems:
+
+- ICD-10-CM (U.S. National Center for Health Statistics: free to use; adapted from the World Health Organization's copyrighted ICD-10, with WHO's authorization, for U.S. government purposes) (`http://hl7.org/fhir/sid/icd-10-cm`).
+- SNOMED CT (SNOMED International) (`http://snomed.info/sct`). Licence: Using SNOMED CT needs an Affiliate Licence from SNOMED International: free of charge in its member territories (in the United States through the National Library of Medicine's UMLS licence), in low-income countries and for qualifying research; fees apply elsewhere. Whether the reference packs may carry its codes is a question recorded for counsel (tasks/todo.md, LP-14).
+- LOINC (Regenstrief Institute; the LOINC License, whose notice is in NOTICE) (`http://loinc.org`).
 
 ## Outputs
 
@@ -188,7 +194,7 @@ Benchmark `test` (n=300) with structured=`criteria`, notes=`rules`:
 | Accuracy of AUTO decisions | n/a |
 | False automation rate | n/a |
 | Expected human override rate | 0.7% |
-| Latency p50 / p95 | 0.40 / 0.49 ms |
+| Latency p50 / p95 | 0.41 / 0.52 ms |
 | Cost per decision | $0.00000 |
 | Critical `note_pregnancy=yes` | 12/13 detected, 0 automated |
 | Critical `note_pancreatitis=yes` | 6/6 detected, 0 automated |
@@ -374,7 +380,14 @@ Renamed on 2026-09-30, when the project became Mendari: this pack was `openhealt
 Its id, its publisher's name and its `https://mendari.co/...` identifiers changed; its criteria,
 rules, models, data and results did not.
 
-#### 0.1.3
+#### 0.1.4
+
+- `code_systems` declares the systems the pack uses: ICD-10-CM, LOINC and SNOMED CT, with SNOMED
+  CT's licence terms (a pack naming a licensed code system now has to say them).
+- Criteria, rules, providers, policy, models and data are unchanged; every decision is identical.
+  The digest changes because the manifest does.
+
+### 0.1.3
 
 - Every surface now says what the pack is: "Synthetic example. Not clinically reviewed. Not for
   patient care." It is derived from the new `card.provenance: synthetic`, never written by the

@@ -19,7 +19,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "code": {"type": "string", "description": "CPT code of the ordered service"},
+        "code": {"type": "string", "description": "Procedure code of the ordered service (the pack's fictional codes; a site maps its own)"},
         "name": {"type": "string"}
       }
     },

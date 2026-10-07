@@ -24,6 +24,117 @@ MAX_DERIVE_ROWS = 10
 _PACK_ID = re.compile(r"^[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9-]*$")
 _SEMVER = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$")
 _KEY = re.compile(r"^[a-z][a-z0-9_]*$")
+# An SPDX license expression (`license`, at most `MAX_LICENSE_CHARS`): identifiers (or
+# `LicenseRef-…`, optionally after `DocumentRef-…:`), `AND`, `OR`, `WITH` an exception, and
+# parentheses. The syntax is checked, not the identifiers against SPDX's list.
+MAX_LICENSE_CHARS = 200
+_SPDX_TOKEN = re.compile(r"\(|\)|[^\s()]+")
+_SPDX_ID = re.compile(
+    r"^(?:(?:DocumentRef-[A-Za-z0-9.-]+:)?LicenseRef-[A-Za-z0-9.-]+|[A-Za-z0-9][A-Za-z0-9.-]*\+?)$"
+)
+_SPDX_OPERATORS = frozenset({"AND", "OR", "WITH"})
+
+
+def _oid(oid: str, *, children: bool = False) -> str:
+    """An OID as files spell it, bare or as `urn:oid:`, never a longer OID it begins (unless
+    `children`: then its sub-OIDs too, as MedDRA's translations are numbered)."""
+    child = r"(?:\.\d+)?" if children else ""
+    return r"(?<![\d.])" + re.escape(oid) + child + r"(?!\d|\.\d)"
+
+
+# Code systems whose codes are licensed, not free to redistribute everywhere: a pack that names
+# one (in `code_systems`, or by its url or OID anywhere in its files) declares it with a
+# `licence_note` saying the terms it is used under (LP-14). A bare code value names no system:
+# declaring the system it comes from is the author's to do. Canonical url -> (name, spellings),
+# the spellings taken from HL7's terminology registry (THO) and the systems' own urls.
+_THO = r"terminology\.hl7\.org/CodeSystem/"
+LICENSED_CODE_SYSTEMS: dict[str, tuple[str, re.Pattern[str]]] = {
+    "http://www.ama-assn.org/go/cpt": (
+        "CPT (American Medical Association)",
+        re.compile(r"ama-assn\.org/go/cpt|" + _oid("2.16.840.1.113883.6.12")),
+    ),
+    "http://snomed.info/sct": (
+        "SNOMED CT (SNOMED International)",
+        re.compile(r"snomed\.info/(?:x?sct|id/)|" + _oid("2.16.840.1.113883.6.96")),
+    ),
+    "http://terminology.hl7.org/CodeSystem/mdr": (
+        "MedDRA (ICH)",
+        re.compile(
+            _THO
+            + r"(?:mdr|(?:MTH)?MDR[A-Z]*)(?![\w-])|meddra\.org|"
+            + _oid("2.16.840.1.113883.6.163", children=True)
+            + "|"
+            + _oid("2.16.840.1.113883.6.164")
+            + "|"
+            + _oid("2.16.840.1.113883.6.165")
+        ),
+    ),
+    "https://codesystem.x12.org": (
+        "X12 code lists (X12)",
+        re.compile(
+            r"(?:codesystem|valueset)\.x12\.org|x12\.org/codes/|"
+            + _THO
+            + r"X12\.|"
+            + _oid("2.16.840.1.113883.6.255")
+        ),
+    ),
+    "http://www.ada.org/cdt": (
+        "CDT (American Dental Association)",
+        re.compile(r"ada\.org/cdt|" + _THO + r"CD2(?![\w-])|" + _oid("2.16.840.1.113883.6.13")),
+    ),
+}
+# Text that every spelling above contains, with no slash (a file may escape slashes): a file
+# holding none of them is not searched.
+LICENSED_HINTS = (
+    b"ama-assn.org",
+    b"snomed.info",
+    b"113883.6.",
+    b"terminology.hl7.org",
+    b"meddra",
+    b"x12.org",
+    b"ada.org",
+)
+# A slash as files may escape it: JSON's `\/` (any number of backslashes), `%2F`, `&#47;`.
+_ESCAPED_SLASH = re.compile(r"\\+/|%2[Ff]|&#(?:47|[xX]0*2[Ff]);")
+
+
+def licensed_systems(text: str) -> set[str]:
+    r"""The licensed code systems `text` names, by canonical url. An escaped slash (`\/`,
+    `%2F`, `&#47;`) is read as a slash, so `http:\/\/snomed.info\/sct` names SNOMED CT."""
+    text = _ESCAPED_SLASH.sub("/", text)
+    return {url for url, (_, spelled) in LICENSED_CODE_SYSTEMS.items() if spelled.search(text)}
+
+
+def is_spdx_expression(text: str) -> bool:
+    """Whether `text` is an SPDX license expression (syntax only), read without recursion."""
+    tokens = _SPDX_TOKEN.findall(text)
+    if not tokens:
+        return False
+    depth = 0
+    position = 0
+    expect_term = True  # a term (an id or an opening parenthesis) comes next, else an operator
+    while position < len(tokens):
+        token = tokens[position]
+        if expect_term:
+            if token == "(":
+                depth += 1
+            elif token not in _SPDX_OPERATORS and token != ")" and _SPDX_ID.match(token):
+                expect_term = False
+                if position + 1 < len(tokens) and tokens[position + 1] == "WITH":
+                    exception = tokens[position + 2] if position + 2 < len(tokens) else ""
+                    if exception in _SPDX_OPERATORS or not _SPDX_ID.match(exception):
+                        return False
+                    position += 2
+            else:
+                return False
+        elif token == ")" and depth > 0:
+            depth -= 1
+        elif token in {"AND", "OR"}:
+            expect_term = True
+        else:
+            return False
+        position += 1
+    return not expect_term and depth == 0
 
 
 def readable(key: str) -> str:
@@ -112,6 +223,15 @@ class Evidence(_Strict):
     title: str
     url: str | None = None
     note: str | None = None
+
+
+class CodeSystemUse(_Strict):
+    """A code system the pack's inputs, rules or data use (`code_systems`): its canonical url, its
+    name and, for a licensed one (`LICENSED_CODE_SYSTEMS`), the terms the pack uses it under."""
+
+    url: str = Field(min_length=1, max_length=500, pattern=r"^(?:https?://|urn:)\S+$")
+    name: str = Field(min_length=1, max_length=200)
+    licence_note: str | None = Field(default=None, min_length=1, max_length=1000)
 
 
 # What a pack's criteria, examples and datasets were built from (`card.provenance`).
@@ -505,10 +625,11 @@ class PackManifest(_Strict):
     name: str
     summary: str
     publisher: Publisher
-    license: str
+    license: str = Field(max_length=MAX_LICENSE_CHARS)  # an SPDX license expression
     risk: Risk
     card: Card
     inputs: Inputs
+    code_systems: list[CodeSystemUse] = []
     questions: dict[str, Question] = Field(min_length=1)
     providers: dict[str, ProviderSlot] = Field(min_length=1)
     policy: Policy
@@ -523,6 +644,31 @@ class PackManifest(_Strict):
     def _id(cls, value: str) -> str:
         if not is_pack_id(value):
             raise ValueError("id must look like 'namespace/name' (lowercase, digits, dashes)")
+        return value
+
+    @field_validator("license")
+    @classmethod
+    def _license(cls, value: str) -> str:
+        if not is_spdx_expression(value):
+            raise ValueError(
+                "license must be an SPDX license expression, e.g. Apache-2.0 or MIT OR Apache-2.0"
+            )
+        return value
+
+    @field_validator("code_systems")
+    @classmethod
+    def _code_systems(cls, value: list[CodeSystemUse]) -> list[CodeSystemUse]:
+        urls = [use.url for use in value]
+        repeated = sorted({url for url in urls if urls.count(url) > 1})
+        if repeated:
+            raise ValueError(f"code_systems names {repeated} more than once")
+        for use in value:
+            for url in licensed_systems(use.url):
+                if use.licence_note is None:
+                    raise ValueError(
+                        f"code system {use.url} is {LICENSED_CODE_SYSTEMS[url][0]}, whose codes "
+                        "are licensed: give a licence_note saying the terms the pack uses it under"
+                    )
         return value
 
     @field_validator("version")

@@ -129,9 +129,15 @@ Packs carry clinical content, so where it comes from matters as much as the code
   payer medical policies, licensed questionnaires or scoring instruments. Write criteria in
   your own words from public sources (guidelines, published papers, regulations), and cite
   them in `card.evidence`.
-- **Code systems with licence terms** (CPT, licensed by the AMA; SNOMED CT, which needs an
-  affiliate licence outside its member countries) appear only as their licences allow; say
-  which you use in the PR.
+- **Code systems with licence terms** (CPT, licensed by the AMA; SNOMED CT, whose Affiliate
+  Licence is free in member countries and paid in some others) appear only as their licences
+  allow. List the
+  systems a pack uses in its manifest's `code_systems`; a licensed one needs a `licence_note`
+  with the terms, and a pack whose files name one by its url or OID without it does not load
+  (spec §3). A bare code names no system, so declaring where your codes come from is yours to
+  do. Prefer
+  free systems (ICD-10-CM, LOINC) or a fictional one named as such, as the prior-authorization
+  reference pack does.
 - **Say what you used.** The pack template asks for the sources of the criteria and of
   `card.evidence`, and who reviewed the clinical content.
 

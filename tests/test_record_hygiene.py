@@ -237,7 +237,7 @@ def test_a_dictionary_of_guesses_finds_nothing_against_a_keyed_hash() -> None:
     is found among a few thousand guesses of its plain SHA-256, and never under the key."""
 
     def guesses() -> Any:
-        orders = [("72158", "MRI lumbar spine"), ("73721", "MRI knee"), ("70553", "MRI brain")]
+        orders = [("FX103", "MRI lumbar spine"), ("FX211", "MRI knee"), ("FX901", "MRI brain")]
         sexes = ("female", "male", "other", "unknown")
         for age, sex, (code, name), payer in itertools.product(
             range(111), sexes, orders, ("acme", "beacon", "cobalt")
@@ -250,7 +250,7 @@ def test_a_dictionary_of_guesses_finds_nothing_against_a_keyed_hash() -> None:
 
     secret = {
         "patient": {"age": 57, "sex": "male"},
-        "order": {"code": "72158", "name": "MRI lumbar spine"},
+        "order": {"code": "FX103", "name": "MRI lumbar spine"},
         "coverage": {"payer": "beacon"},
     }
     plain, keyed = PhiPolicy(), PhiPolicy(hash_key=INPUT_HASH_KEY)
