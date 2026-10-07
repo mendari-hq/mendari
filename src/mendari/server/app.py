@@ -368,10 +368,13 @@ def create_app(
     retention_days = settings.retention_days()  # likewise
     cron_secret = os.environ.get("CRON_SECRET", "")  # the scheduled purge's credential
     if cron_secret and (len(cron_secret) < MIN_CRON_SECRET or cron_secret != cron_secret.strip()):
-        raise MendariError(
-            f"CRON_SECRET must be at least {MIN_CRON_SECRET} random characters, with no spaces "
-            "around them (Vercel Cron sends it as it is stored)"
+        # An optional job never stops the server: the purge stays off, and health says so.
+        phi_logger.warning(
+            "CRON_SECRET is not used, so the scheduled purge is off: it needs at least %d random "
+            "characters, with no spaces around them (Vercel Cron sends it as it is stored)",
+            MIN_CRON_SECRET,
         )
+        cron_secret = ""
     body_limit = settings.max_body_bytes()  # likewise
     rate_limits = limit_settings(sign_in=sign_in is not None)  # likewise
     org_limits = settings.org_daily_limits()  # likewise

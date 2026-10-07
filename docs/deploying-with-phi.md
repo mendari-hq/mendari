@@ -369,7 +369,9 @@ scheduled job never does.
 On Vercel the schedule is in `vercel.json` (`crons`: daily at 08:00 UTC, 4 am Eastern in summer
 and 3 am in winter). Set `CRON_SECRET` (at least 16 random characters) for Production: Vercel Cron sends it as a bearer token to
 `/api/internal/retention`, which purges as the command does and answers `401` to anything
-else. Without `CRON_SECRET` the route does not exist and nothing is purged; `/api/health`
+else. Without `CRON_SECRET` (or with one too short, or with spaces around it, which the server
+ignores with a warning rather than refusing to start) the route does not exist and nothing is
+purged; `/api/health`
 shows `retention_days`, `retention_scheduled` and `last_purge` (the last summary, with when) to
 those who may read.
 
@@ -593,7 +595,7 @@ startup, so a typo never runs with a weaker setting.
 | `MENDARI_PHI_KEY` | none | 32 bytes, base64; seals inputs, evidence and notes under `encrypt` | 3 |
 | `MENDARI_INPUT_HASH_KEY` | none | 32 bytes, base64, not the PHI key; required under `hash` and `encrypt` | 3 |
 | `MENDARI_RETENTION_DAYS` | 30 (1 to 36500) | How long kept inputs and notes are kept, by `mendari phi purge` and the scheduled purge | 3 |
-| `CRON_SECRET` | unset: no scheduled purge | At least 16 random characters, no spaces around them: Vercel Cron's bearer token for `/api/internal/retention` | 3 |
+| `CRON_SECRET` | unset: no scheduled purge | At least 16 random characters, no spaces around them: Vercel Cron's bearer token for `/api/internal/retention` (otherwise unused, with a warning: the purge stays off) | 3 |
 | `MENDARI_MAX_BODY_BYTES` | 4 MiB (64 KiB at least) | The largest request body; a `413` above it | 1 |
 | `MENDARI_RATE_LIMITS` | `on` with sign-in, `off` without | `on`, `log` or `off`, then overrides (`decide=1200/min:200`) | 4 |
 | `MENDARI_NOTICE_ACKNOWLEDGEMENT` | `required` | `required`: a signed-in person who may decide or review acknowledges the notice (research preview, synthetic data only) once per version when the dashboard opens, chained as `notice.acknowledged`; until then deciding, reviewing, feedback and minting an API key or client are refused (`403`, header `Mendari-Notice-Required`); `off`: a site whose own agreements replace it. Keys, clients, EHR launches and open mode are never asked | 4 |

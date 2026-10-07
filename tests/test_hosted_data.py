@@ -773,7 +773,7 @@ def test_the_scheduled_purge_runs_with_the_cron_secret_only(
 
 
 def test_without_a_cron_secret_there_is_no_scheduled_purge(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     client = cron_client(tmp_path, monkeypatch, secret=None)
     assert client.get("/api/internal/retention").status_code == 404
@@ -782,8 +782,13 @@ def test_without_a_cron_secret_there_is_no_scheduled_purge(
         == 404
     )
     for wrong in ("short", f" {CRON}", f"{CRON}\n"):  # Vercel sends it as stored
-        with pytest.raises(MendariError, match="CRON_SECRET must be at least 16"):
-            cron_client(tmp_path, monkeypatch, secret=wrong)
+        caplog.clear()
+        with caplog.at_level(logging.WARNING, logger="mendari.phi"):
+            client = cron_client(tmp_path, monkeypatch, secret=wrong)  # it still starts
+        assert "CRON_SECRET is not used" in caplog.text
+        assert client.get("/api/internal/retention").status_code == 404  # the purge is off
+        admin = signed_in(AuditStore(tmp_path / "a.db", phi=policy("encrypt")), role="admin")
+        assert client.get("/api/health", headers=admin).json()["retention_scheduled"] is False
 
 
 def test_vercel_schedules_the_purge_daily(tmp_path: Path) -> None:
