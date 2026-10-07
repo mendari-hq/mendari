@@ -468,9 +468,13 @@ digest), the providers and policy, per-question metrics, outcome counts and rate
 label's counts, the threshold sweep, latency, cost, error counts and the dataset's size. It MUST
 NOT contain a case id, case text, the dataset's name or hash, who approved a governance override
 (only whether one applied), or subgroup cells (their values come from a site's data).
-Calibration bins with fewer than 10 cases are dropped. Its question, label, slot and variant
-names are the published pack's own, and a registry MUST refuse a report that names any other;
-model names and error codes are short ASCII names. A registry MUST NOT echo what it refuses.
+Calibration bins with fewer than 10 cases are dropped. Its question, label, slot, variant and
+composite member names are the published pack's own, and a registry MUST refuse a report that
+names any other; model names and error codes are short ASCII names. A composite provider
+(`any_of`, `cascade`, `vote`) is shared as it is recorded: its model lists every member's as
+`member:model`, in the pack's order, joined by ` + ` (` → ` for a `cascade`), and a member that
+failed is counted under `member:code` (`, ` between members that failed together). A registry
+MUST NOT echo what it refuses.
 
 ## 9. FHIR and CDS Hooks
 
