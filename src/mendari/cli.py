@@ -638,6 +638,111 @@ def cmd_automation_list(args: argparse.Namespace) -> int:
     return 0
 
 
+def _access_store(target: str | None, *, writes: bool = True) -> tuple[AuditStore, str]:
+    """The deployment's database for `mendari access`: given, or $DATABASE_URL, and one with
+    Mendari's tables (nothing is created in another). Opened read-only unless the command
+    `writes`. Returns it and its name as shown."""
+    target = target or os.environ.get("DATABASE_URL", "").strip() or None
+    if target is None:
+        raise MendariError("give --db (the server's database) or set DATABASE_URL")
+    shown = _servers_database(target, used=False)
+    return (AuditStore(target) if writes else _read_store(target)), shown
+
+
+def _access_call(make: Any) -> Any:
+    """A store call's refusal (a bad id, role or address) as a one-line error."""
+    try:
+        return make()
+    except ValueError as error:
+        raise MendariError(str(error)) from None
+
+
+def cmd_access_org_create(args: argparse.Namespace) -> int:
+    store, shown = _access_store(args.db)
+    created = _access_call(
+        lambda: store.create_organization(
+            org=args.org, name=args.name, created_by=_command_line_actor()
+        )
+    )
+    _print_json(created)
+    print(f"created in {shown}", file=sys.stderr)
+    return 0
+
+
+def cmd_access_org_list(args: argparse.Namespace) -> int:
+    store, _ = _access_store(args.db, writes=False)
+    _print_json(store.organizations())
+    return 0
+
+
+def cmd_access_bootstrap(args: argparse.Namespace) -> int:
+    """The owner in their existing data (`default`): its record and an administrator's
+    membership for the e-mail address they sign in with, verified. Run it again: it adds
+    nothing twice and rewrites nothing."""
+    store, shown = _access_store(args.db)
+    done = _access_call(lambda: store.bootstrap(email=args.email, created_by=_command_line_actor()))
+    _print_json(done)
+    if done["organization"] is None and done["membership"] is None:
+        print(f"nothing to do in {shown}: already bootstrapped", file=sys.stderr)
+    else:
+        print(f"bootstrapped in {shown}", file=sys.stderr)
+    return 0
+
+
+def cmd_access_invite(args: argparse.Namespace) -> int:
+    """An invitation link to pass on: Mendari sends no e-mail. Shown once."""
+    store, _ = _access_store(args.db)
+    made = _access_call(
+        lambda: store.create_invitation(
+            org=args.org,
+            email=args.email,
+            roles=args.role,
+            created_by=_command_line_actor(),
+            days=args.days,
+        )
+    )
+    token = made.pop("token")
+    _print_json(made)
+    print(f"the link (shown once): <the deployment's address>/invite#{token}", file=sys.stderr)
+    return 0
+
+
+def cmd_access_members(args: argparse.Namespace) -> int:
+    store, _ = _access_store(args.db, writes=False)
+    _print_json(store.memberships(org=args.org))
+    return 0
+
+
+def cmd_access_requests(args: argparse.Namespace) -> int:
+    store, _ = _access_store(args.db, writes=False)
+    _print_json(store.access_requests(args.org))
+    return 0
+
+
+def cmd_access_check(args: argparse.Namespace) -> int:
+    """The preflight before memberships mode (read-only): each organization the database's keys,
+    clients, approvals, holds and decisions name, and this deployment's EHR registrations, with
+    counts, and which have no record. Ids and counts only."""
+    from mendari.standards import smart
+
+    store, shown = _access_store(args.db, writes=False)  # a preflight writes nothing
+    in_use = {entry["org"]: entry for entry in store.organizations_in_use()}
+    recorded = {org["id"] for org in store.organizations()}
+    for registration in smart.smart_ehrs().values():
+        entry = in_use.setdefault(
+            registration.org, {"org": registration.org, "recorded": registration.org in recorded}
+        )
+        entry["smart_ehrs"] = entry.get("smart_ehrs", 0) + 1
+    report = sorted(in_use.values(), key=lambda entry: entry["org"])
+    _print_json(report)
+    missing = [entry["org"] for entry in report if not entry["recorded"]]
+    if missing:
+        print(f"{shown}: no record for {', '.join(missing)}", file=sys.stderr)
+        return 1
+    print(f"{shown}: every organization in use has a record", file=sys.stderr)
+    return 0
+
+
 def cmd_audit_export(args: argparse.Namespace) -> int:
     from mendari.standards import audit_fhir
 
@@ -1626,6 +1731,52 @@ def build_parser() -> argparse.ArgumentParser:
     listed = automation.add_parser("list", help="every hold in force")
     listed.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
     listed.set_defaults(handler=cmd_automation_list)
+
+    access = sub.add_parser(
+        "access",
+        help="organizations, memberships and invitations (MENDARI_ACCOUNTS=memberships)",
+    ).add_subparsers(dest="access_command", required=True)
+    org_cmd = access.add_parser("org", help="organizations").add_subparsers(
+        dest="org_command", required=True
+    )
+    org_create = org_cmd.add_parser("create", help="create an organization's record")
+    org_create.add_argument("org", help="its id: lower-case letters, digits and hyphens")
+    org_create.add_argument("--name", required=True, help="its name, as people read it")
+    org_create.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+    org_create.set_defaults(handler=cmd_access_org_create)
+    org_list = org_cmd.add_parser("list", help="every organization's record")
+    org_list.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+    org_list.set_defaults(handler=cmd_access_org_list)
+    bootstrap = access.add_parser(
+        "bootstrap", help="the owner's administrator membership of `default` (idempotent)"
+    )
+    bootstrap.add_argument(
+        "--email", required=True, help="the address the owner signs in with, verified"
+    )
+    bootstrap.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+    bootstrap.set_defaults(handler=cmd_access_bootstrap)
+    invite = access.add_parser("invite", help="an invitation link to pass on (no e-mail sent)")
+    invite.add_argument("--org", required=True)
+    invite.add_argument("--email", required=True, help="who may accept it, signed in, verified")
+    invite.add_argument(
+        "--role", action="append", required=True, help="a role it grants (repeat for several)"
+    )
+    invite.add_argument("--days", type=int, default=7, help="how long it stays valid (1-30)")
+    invite.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+    invite.set_defaults(handler=cmd_access_invite)
+    members = access.add_parser("members", help="an organization's memberships in force")
+    members.add_argument("--org", required=True)
+    members.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+    members.set_defaults(handler=cmd_access_members)
+    requests = access.add_parser("requests", help="open requests for access")
+    requests.add_argument("--org", help="to one organization")
+    requests.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+    requests.set_defaults(handler=cmd_access_requests)
+    check = access.add_parser(
+        "check", help="preflight: which organizations in use have no record (read-only)"
+    )
+    check.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+    check.set_defaults(handler=cmd_access_check)
 
     feedback = sub.add_parser("feedback", help="thumbs up / down feedback").add_subparsers(
         dest="feedback_command", required=True

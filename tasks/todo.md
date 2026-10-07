@@ -482,8 +482,14 @@ operations, LP-22 site network, LP-23 EHR pilot.
     never widened to all of them (None) or to `default`; an empty organization is one, never
     "any", in the key and client store.
   - [ ] **12c** Decide-scoped credentials list packs and read CDS discovery (ADR-0004).
-  - [ ] **12d** User, organization, membership, invitation and request records; the operator's
-    `mendari access` commands (organizations, bootstrap, preflight). No route reads them yet.
+    **Owner first:** it widens what a decide-scoped key or token reaches in claims mode,
+    production included (the pack list and CDS discovery, read-only and deployment-wide), and
+    `/api/auth/me` lists a new `discover` permission. The LP-12 prompt asks for it; the owner
+    approves the ADR-0004 extension before it is built.
+  - [ ] **12d** (PR open) User, organization, membership, invitation and request records, each
+    write chaining ids and digests only; the operator's `mendari access` commands
+    (organizations, bootstrap, invite, members, requests, and the read-only preflight
+    `check`); runbook `docs/operations/accounts.md`. No route reads them yet.
   - [ ] **12e** `MENDARI_ACCOUNTS=memberships`: sign-in by records, the no-access page and a
     request-access path, organization selection. A principal of no organization must be
     refused before every path that does not resolve its organization through
