@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import math
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -12,6 +12,7 @@ from mendari import AuditStore, CallBudget, Pack
 from mendari.errors import PackValidationError, ProviderError
 from mendari.providers import PROVIDER_TYPES, Provider, ProviderInfo
 from mendari.providers.calibration import fit_temperature, nll, rescale
+from mendari.providers.composite import CompositeProvider
 from mendari.providers.jev import JevProvider
 from tests.conftest import message
 
@@ -150,9 +151,26 @@ def test_vote_is_a_weighted_average(inbox_pack: Pack, jev_calls: list[dict[str, 
 
 def test_vote_leaves_out_failed_members(inbox_pack: Pack) -> None:
     config = {"type": "vote", "members": {"nb": NB, "jev": JEV}}  # Jev unconfigured
-    output = router(inbox_pack, config).answer(message(REFILL))
+    vote = cast(CompositeProvider, router(inbox_pack, config))
+    output = vote.answer(message(REFILL))
     assert output.answers["destination"].label == "medical_assistant"
     assert output.failures == {"destination": "jev:not_configured"}
+    nb = vote.members["nb"].info.model
+    assert output.answers["destination"].provider.model == f"nb:{nb}"  # only who answered
+
+
+def test_vote_records_the_models_that_answered(
+    inbox_pack: Pack, jev_calls: list[dict[str, Any]]
+) -> None:
+    """Each member that answered, with the model its answer records: Jev's, the one it
+    reported (asked for jev-test-model, answered by jev-9.9.9); the slot keeps the configured."""
+    vote = cast(
+        CompositeProvider, router(inbox_pack, {"type": "vote", "members": {"nb": NB, "jev": JEV}})
+    )
+    answer = vote.answer(message(REFILL)).answers["destination"]
+    nb = vote.members["nb"].info.model
+    assert answer.provider.model == f"nb:{nb} + jev:jev-9.9.9"
+    assert vote.info.model == f"nb:{nb} + jev:jev-test-model"
 
 
 @pytest.mark.parametrize(

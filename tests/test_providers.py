@@ -377,6 +377,13 @@ def test_jev_alias_records_the_model_that_actually_answered(
     assert output.extra == {"requested_model": "jev-latest", "effective_model": "jev-2.0.1"}
 
 
+def test_jev_refuses_a_reported_model_with_a_trailing_newline(inbox_pack: Pack) -> None:
+    """ "$" in a pattern admits one final newline: the reported model is matched whole."""
+    questions = {"destination": inbox_pack.manifest.questions["destination"]}
+    with pytest.raises(ProviderError, match="invalid_response"):
+        validate_response(jev_body(model="jev-2.0.1\n"), questions)
+
+
 def test_jev_accepts_approximately_normalised_probabilities(inbox_pack: Pack) -> None:
     body = jev_body()
     body["answers"]["destination"]["probabilities"]["billing"] += 0.004  # sums to 1.004

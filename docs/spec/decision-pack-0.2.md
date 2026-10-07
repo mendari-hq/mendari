@@ -193,6 +193,13 @@ An answer has `label` (the most probable label), `confidence` (its probability),
 `probabilities` (every label of the question), `evidence`, the provider that produced it, and,
 for score questions only, `value`.
 
+The provider's `model` is the model that answered: the one a remote provider reports having
+answered with, when it reports a well-formed id (Jev, `llm`; a dated snapshot behind an alias,
+say), else the configured model; for a local provider, the fingerprint of the file that
+answered. A composite records it as `member:model`: for `any_of` and `cascade` the member
+whose answer was used, for `vote` each member that answered. The model asked for stays in the
+deployment's configured providers.
+
 ### 4.3 Derived questions
 
 A derived question is computed from other questions' answers by a decision table; no provider
