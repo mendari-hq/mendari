@@ -32,7 +32,9 @@ SEED = 0
 MIN_POSITIVES = 100
 OUTCOMES = ["AUTO", "HUMAN_REVIEW", "ABSTAIN", "BLOCK"]
 # Keys of a report that are not its result: what differs between two runs on the same cases.
-RUN_KEYS = ("run", "comparison", "result_sha256")
+# Not the result: the run, a comparison with a benchmark, the hash, and the figures a server
+# serves beside a report (mendari.evals.figures, worked out on every read, never stored).
+RUN_KEYS = ("run", "comparison", "result_sha256", "figures")
 TRUTH, PREDICTED, CONFIDENCE, PROBABILITIES, MODEL, ERROR = range(6)
 
 

@@ -47,6 +47,7 @@ from mendari.core.db import Backend, Session, connect
 from mendari.core.pack import Pack
 from mendari.core.registry import version_key
 from mendari.errors import HubError, MendariError
+from mendari.evals import figures
 from mendari.evals.share import SiteReport, summary, where
 from mendari.hub import archive
 
@@ -646,10 +647,16 @@ def create_registry_app(
         if not versions:
             raise HubError(f"no pack {namespace}/{name}", 404)
         publisher_type = store.namespace(namespace)["publisher_type"]
+        latest = versions[-1]
         return {
             "id": f"{namespace}/{name}",
             "versions": [v["version"] for v in versions],
-            "latest": {**versions[-1], "publisher_type": publisher_type},
+            # Figures are worked out on read (mendari.evals.figures), never stored.
+            "latest": {
+                **latest,
+                "publisher_type": publisher_type,
+                "figures": figures.registry(latest),
+            },
         }
 
     @app.get("/v1/packs/{namespace}/{name}/reports")
@@ -667,7 +674,8 @@ def create_registry_app(
 
     @app.get("/v1/packs/{namespace}/{name}/{version}")
     def pack_version(namespace: str, name: str, version: str) -> dict[str, Any]:
-        return store.version(namespace, name, version)
+        found = store.version(namespace, name, version)
+        return {**found, "figures": figures.registry(found)}
 
     @app.get("/v1/packs/{namespace}/{name}/{version}/archive")
     def pack_archive(namespace: str, name: str, version: str) -> Response:
@@ -727,9 +735,8 @@ def create_registry_app(
                 continue
             if publisher_type and item["publisher_type"] != publisher_type:
                 continue
-            found.append(
-                {k: v for k, v in item.items() if k not in ("card_markdown", "leaderboard")}
-            )
+            kept = {k: v for k, v in item.items() if k not in ("card_markdown", "leaderboard")}
+            found.append({**kept, "figures": figures.registry(item, with_leaderboard=False)})
         return sorted(found, key=lambda item: item["id"])
 
     return app

@@ -19,6 +19,7 @@ import math
 import random
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
+from functools import lru_cache
 from statistics import NormalDist
 from typing import Any
 
@@ -459,6 +460,14 @@ class Proportion:
 
 def _stored(value: float | None) -> float | None:
     return None if value is None else round(value, DIGITS)
+
+
+@lru_cache(maxsize=65536)
+def interval(k: int, n: int) -> tuple[float, float]:
+    """The exact 95% interval of k of n (n >= 1), unrounded: what every displayed figure is
+    printed from, never a stored (6-place) bound, so a figure reads the same wherever it is
+    shown. Memoised: a page shows many figures of the same few sizes."""
+    return clopper_pearson(k, n, LEVEL)
 
 
 def proportion(k: int, n: int, level: float = LEVEL) -> Proportion:

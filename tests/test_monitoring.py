@@ -14,6 +14,7 @@ from mendari import AuditStore, Decision, Pack
 from mendari.cli import main
 from mendari.core import tenancy
 from mendari.errors import MendariError
+from mendari.evals import figures
 from mendari.evals.monitoring import _alerts, _psi, check_webhook, monitor
 from mendari.server.app import create_app
 from tests.conftest import SCREENED, message
@@ -107,6 +108,7 @@ def test_overrides_that_double_raise_an_alert() -> None:
             "decisions": reviewed,
             "reviewed": reviewed,
             "override_rate": rate,
+            "figures": {"overrides": figures.of(round(rate * reviewed), reviewed)},
         }
 
     bench = {"accuracy": 0.9, "tolerance": 0.03}

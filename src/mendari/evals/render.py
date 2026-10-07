@@ -6,7 +6,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from mendari.evals import stats
+from mendari.evals import figures, stats
 from mendari.evals.result import MIN_POSITIVES, counted, false_automation, normalize
 
 
@@ -19,22 +19,35 @@ def num(value: float | None, digits: int = 3) -> str:
 
 
 def shown(p: stats.Proportion | Mapping[str, Any] | None) -> str:
-    """A proportion as k of n and its exact 95% interval: "596 of 600 [98.2-99.9%]"."""
+    """A proportion as k of n and its exact 95% interval: "596 of 600 [98.3-99.8%]". The
+    interval is worked out from k and n (`stats.interval`), never read from a stored bound, so
+    the card, the command line, the dashboard and the Hub print the same text (the dashboard's
+    and the Hub's ports are checked against this, tests/fixtures/shown.json)."""
     if p is None:
         return "n/a"
-    if isinstance(p, Mapping):
-        p = stats.Proportion(p["k"], p["n"], p.get("low"), p.get("high"))
-    if not p.n or p.low is None or p.high is None:
+    k, n = (int(p["k"]), int(p["n"])) if isinstance(p, Mapping) else (p.k, p.n)
+    if not n:
         return "no cases"
-    low = percent(p.low)
-    high = percent(p.high)
-    # With k above 0 the lower bound is above 0, and with k below n the upper bound is below
-    # 100, however close a stored bound (6 places) or 4 printed decimals come to either.
-    if p.k > 0 and float(low) == 0.0:
-        low = f"<{10.0**-BOUND_DIGITS:.{BOUND_DIGITS}f}"
-    if p.k < p.n and float(high) == 100.0:
-        high = f">{100 - 10.0**-BOUND_DIGITS:.{BOUND_DIGITS}f}"
-    return f"{p.k} of {p.n} [{low}-{high}%]"
+    return f"{k} of {n} [{bounds(k, n)}%]"
+
+
+def bounds(k: int, n: int) -> str:
+    """The interval's bounds as percentages, "98.3-99.8". A bound strictly inside (0, 100)
+    never reads as either: the lower one is above 0 when k is, and below 100 always; the upper
+    one is below 100 when k is below n, and above 0 always."""
+    low, high = stats.interval(k, n)
+    under = f"<{10.0**-BOUND_DIGITS:.{BOUND_DIGITS}f}"
+    over = f">{100 - 10.0**-BOUND_DIGITS:.{BOUND_DIGITS}f}"
+    low_text, high_text = percent(low), percent(high)
+    if float(low_text) == 0.0 and k > 0:
+        low_text = under
+    elif float(low_text) == 100.0:
+        low_text = over
+    if float(high_text) == 100.0 and k < n:
+        high_text = over
+    elif float(high_text) == 0.0:
+        high_text = under
+    return f"{low_text}-{high_text}"
 
 
 BOUND_DIGITS = 4
@@ -67,6 +80,17 @@ def evidence(positives: int, *, short: bool = False) -> str:
 INTERVALS = "k of n [exact 95% interval, Clopper-Pearson]"
 
 
+def equal_mass(question: Mapping[str, Any]) -> str:
+    """The equal-mass ECE (ten equal-count bins), "not estimable" with why when a bin would
+    hold too few cases, or n/a for a report from before it was computed (mendari.eval/1)."""
+    stored = (question.get("calibration") or {}).get("equal_mass")
+    if not isinstance(stored, Mapping):
+        return "n/a"
+    if stored.get("ece") is None:
+        return f"not estimable ({stored.get('reason', 'too few cases')})"
+    return num(stored["ece"])
+
+
 def report_text(report: dict[str, Any]) -> str:
     primary = report["primary"]
     q = report["questions"].get(primary)
@@ -88,7 +112,8 @@ def report_text(report: dict[str, Any]) -> str:
             f"{primary.capitalize()} accuracy".ljust(26)
             + f"{shown(counted(q['accuracy'], q['n']))}   macro-F1 {num(q['macro_f1'])}",
             "Calibration".ljust(26)
-            + f"ECE {num(q['calibration']['ece'])}   Brier {num(q['brier'])}",
+            + f"ECE {num(q['calibration']['ece'])}   equal-mass ECE {equal_mass(q)}   "
+            + f"Brier {num(q['brier'])}",
         ]
     lines += [
         *[
@@ -130,14 +155,19 @@ def comparison_text(comparison: dict[str, Any], max_findings: int = 6) -> str:
     if comparison["status"] == "unknown":
         return f"Comparison unavailable: {comparison['reason']}"
     base, local = comparison["baseline"], comparison["local"]
+    worked = figures.comparison(comparison) or {}  # the same figures the dashboard shows
     rows = [
-        (f"Public benchmark ({base['dataset']['name']}, n={base['dataset']['n']}):", base),
-        (f"Local performance ({local['dataset']['name']}, n={local['dataset']['n']}):", local),
+        (
+            f"Public benchmark ({base['dataset']['name']}, n={base['dataset']['n']}):",
+            worked.get("baseline"),
+        ),
+        (
+            f"Local performance ({local['dataset']['name']}, n={local['dataset']['n']}):",
+            worked.get("local"),
+        ),
     ]
     width = max(len(label) for label, _ in rows) + 2
-    lines = [
-        label.ljust(width) + shown(counted(side["accuracy"], side.get("n"))) for label, side in rows
-    ] + [""]
+    lines = [label.ljust(width) + shown(figure) for label, figure in rows] + [""]
     tolerance = comparison["tolerance"] * 100
     if comparison["status"] == "ok":
         lines.append(f"No degradation beyond tolerance ({tolerance:.1f} pts).")
@@ -151,11 +181,12 @@ def comparison_text(comparison: dict[str, Any], max_findings: int = 6) -> str:
         f"{heading} ({comparison['delta'] * 100:+.1f} pts overall; tolerance {tolerance:.1f}):"
     )
     findings = comparison["findings"]
-    for finding in findings[:max_findings]:
+    for finding, figure in list(zip(findings, worked.get("findings", []), strict=True))[
+        :max_findings
+    ]:
         if finding["kind"] == "critical":
-            automated = shown(stats.proportion(finding["local"], finding["n"]))
             lines.append(
-                f"  - {finding['subject']}: {automated} positives"
+                f"  - {finding['subject']}: {shown(figure['automated'])} positives"
                 f"{evidence(finding['n'], short=True)}"
             )
         elif finding["kind"] == "calibration":
@@ -163,11 +194,10 @@ def comparison_text(comparison: dict[str, Any], max_findings: int = 6) -> str:
                 f"  - {finding['subject']}: {num(finding['baseline'])} -> {num(finding['local'])}"
             )
         else:
-            before = shown(counted(finding["baseline"], finding.get("baseline_n")))
-            if finding.get("baseline_scope") == "overall":  # the benchmark has no such subgroup
+            before = shown(figure["baseline"])
+            if figure["overall"]:  # the benchmark has no such subgroup
                 before = f"benchmark overall {before}"
-            after = shown(counted(finding["local"], finding.get("local_n")))
-            lines.append(f"  - {finding['subject']}: {before} -> {after}")
+            lines.append(f"  - {finding['subject']}: {before} -> {shown(figure['local'])}")
     if len(findings) > max_findings:
         lines.append(f"  … and {len(findings) - max_findings} smaller findings in the JSON report")
     return "\n".join(lines)

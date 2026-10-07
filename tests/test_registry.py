@@ -414,6 +414,47 @@ def test_metadata_that_cannot_be_served_is_refused_before_it_is_stored(
     assert registry.publish().status_code == 201
 
 
+def test_a_pack_version_is_served_with_its_figures(registry: Registry) -> None:
+    """Figures are worked out on read (mendari.evals.figures), so a version published before
+    needs no migration; what the publisher sent is served untouched beside them."""
+    from mendari.evals import figures
+
+    assert registry.publish().status_code == 201
+    latest = registry.client.get(f"/v1/packs/{REFERRAL.id}").json()["latest"]
+    benchmark = json.loads(REFERRAL.attestation("evals/benchmark.json").read_text())
+    primary = benchmark["questions"][REFERRAL.manifest.policy.primary]
+    assert latest["figures"]["benchmark"] == figures.counted(primary["accuracy"], primary["n"])
+    board = latest["figures"]["leaderboard"]
+    assert board["groups"] and all(row["rank"] is None for row in board["rows"])
+    stored = json.loads(REFERRAL.attestation("evals/leaderboard.json").read_text())
+    assert latest["leaderboard"] == stored
+    version = registry.client.get(f"/v1/packs/{REFERRAL.id}/{REFERRAL.version}").json()
+    assert version["figures"] == latest["figures"]
+    (found,) = registry.client.get("/v1/search").json()
+    assert found["figures"] == {
+        "format": figures.FORMAT,
+        "benchmark": latest["figures"]["benchmark"],
+        "leaderboard": None,
+    }
+
+
+def test_a_malformed_leaderboard_serves_no_figures_and_never_a_server_error(
+    registry: Registry, tmp_path: Path
+) -> None:
+    root = tmp_path / "pack"
+    shutil.copytree(REFERRAL.root, root)
+    path = root / "evals" / "leaderboard.json"
+    board = json.loads(path.read_text())
+    board["rows"][0]["critical"][0]["detected"] = 10**12  # more cases than any dataset
+    path.write_text(json.dumps(board))
+    assert registry.publish(load_pack(root)).status_code == 201
+    for route in (f"/v1/packs/{REFERRAL.id}", f"/v1/packs/{REFERRAL.id}/{REFERRAL.version}"):
+        answer = registry.client.get(route)
+        assert answer.status_code == 200, answer.text
+        body = answer.json()
+        assert body.get("latest", body)["figures"]["leaderboard"] is None
+
+
 def test_a_shipped_benchmark_and_leaderboard_are_shown_as_they_are(registry: Registry) -> None:
     shown = registry.publish().json()
     benchmark = json.loads(REFERRAL.attestation("evals/benchmark.json").read_text())

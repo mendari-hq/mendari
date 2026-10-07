@@ -12,7 +12,7 @@ from mendari.core.origin import COMMUNITY_AUTOMATION
 from mendari.core.pack import Pack
 from mendari.core.spec import Condition, DeriveRow, Outcome, PackManifest, Question
 from mendari.evals import leaderboard, ranking, stats
-from mendari.evals.render import INTERVALS, evidence, num, shown
+from mendari.evals.render import INTERVALS, equal_mass, evidence, num, shown
 from mendari.evals.result import (
     MIN_POSITIVES,
     counted,
@@ -351,6 +351,7 @@ def _validation(report: dict[str, Any]) -> list[str]:
         f"| `{primary}` accuracy | {shown(counted(q['accuracy'], q['n']))} |",
         f"| Macro-F1 | {num(q['macro_f1'])} |",
         f"| Expected calibration error | {num(q['calibration']['ece'])} |",
+        f"| Expected calibration error, equal-mass bins | {equal_mass(q)} |",
         f"| Brier score | {num(q['brier'])}{_brier_interval(q)} |",
         *[f"| {k} | {shown(stats.proportion(v, total))} |" for k, v in counts.items()],
         f"| AUTO decisions correct | {shown(counted(automation['accuracy'], automation['n']))} |",

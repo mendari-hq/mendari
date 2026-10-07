@@ -27,8 +27,8 @@ from mendari.core.audit import AuditStore
 from mendari.core.card import benchmark
 from mendari.core.pack import Pack
 from mendari.errors import MendariError
+from mendari.evals import figures
 from mendari.evals.render import shown
-from mendari.evals.result import counted
 
 MIN_LABELLED = 20
 MIN_FOR_DRIFT = 50
@@ -52,6 +52,7 @@ def monitor(
         "accuracy": reference.get("accuracy"),
         "n": reference.get("n"),
         "tolerance": pack.manifest.evaluation.degradation_tolerance,
+        "figures": {"accuracy": figures.counted(reference.get("accuracy"), reference.get("n"))},
     }
     drift = _psi(reference.get("calibration", {}).get("bins", []), last_week)
     recent, before = _summary(last_week), _summary(week_before)
@@ -89,9 +90,9 @@ def _alerts(
             _alert(
                 "accuracy",
                 "high",
-                f"observed accuracy {shown(counted(observed, recent['labelled']))} over the "
-                f"last 7 days, below the benchmark's {shown(counted(target, bench.get('n')))} "
-                f"by more than {bench['tolerance']:.0%}",
+                f"observed accuracy {shown(recent['figures']['accuracy'])} over the last 7 "
+                f"days, below the benchmark's {shown(bench['figures']['accuracy'])} by more than "
+                f"{bench['tolerance'] * 100:.1f} pts",
             )
         )
     if drift is not None and recent["decisions"] >= MIN_FOR_DRIFT and drift >= DRIFT_ALERT:
@@ -104,8 +105,8 @@ def _alerts(
     compared = recent["reviewed"] >= MIN_REVIEWED and before["reviewed"] >= MIN_REVIEWED
     if compared and then_rate and now_rate is not None and now_rate >= 2 * then_rate:
         message = (
-            f"overridden {shown(counted(now_rate, recent['reviewed']))} this week, "
-            f"{shown(counted(then_rate, before['reviewed']))} the week before"
+            f"overridden {shown(recent['figures']['overrides'])} this week, "
+            f"{shown(before['figures']['overrides'])} the week before"
         )
         alerts.append(_alert("overrides", "medium", message))
     return alerts
@@ -127,15 +128,23 @@ def _summary(rows: Sequence[Row]) -> dict[str, Any]:
     reviewed = [r for r in rows if r["human_override"] is not None]
     labelled = [r for r in rows if r["final_label"] and r["recommendation"]]
     agreed = sum(r["final_label"] == r["recommendation"] for r in labelled)
+    automated = sum(r["outcome"] == "AUTO" for r in rows)
+    overridden = sum(bool(r["human_override"]) for r in reviewed)
     costs = [r["cost_usd"] for r in rows if r["cost_usd"] is not None]
     return {
         "decisions": len(rows),
-        "automated_rate": _rate(sum(r["outcome"] == "AUTO" for r in rows), rows),
+        "automated_rate": _rate(automated, rows),
         "reviewed": len(reviewed),
-        "override_rate": _rate(sum(bool(r["human_override"]) for r in reviewed), reviewed),
+        "override_rate": _rate(overridden, reviewed),
         "labelled": len(labelled),
         "observed_accuracy": _rate(agreed, labelled),
         "cost_per_decision": sum(costs) / len(costs) if costs else None,
+        # The same shares as k of n with their intervals (mendari.evals.figures), as shown.
+        "figures": {
+            "automated": figures.of(automated, len(rows)),
+            "overrides": figures.of(overridden, len(reviewed)),
+            "accuracy": figures.of(agreed, len(labelled)),
+        },
     }
 
 

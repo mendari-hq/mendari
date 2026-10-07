@@ -77,15 +77,49 @@ ledger ids, the pack digest, the dataset's hash and the organization: ids and ha
 ## How a figure is shown
 
 Every proportion a person reads, on a card, on the command line or on the dashboard, is shown
-as k of n with its exact interval: `596 of 600 [98.3-99.8%]`. A bound is printed with as many
-digits as it needs never to read 0 or 100% when it is neither. A share of no cases says
-"no cases". Next to a critical label with fewer than 100 positives (the evidence rule), the
+as k of n with its exact interval: `596 of 600 [98.3-99.8%]`. The interval is worked out from k
+and n each time it is shown, never read from a stored (6-place) bound, so every surface prints
+the same text. A bound is printed with as many digits as it needs (up to 4) never to read 0 or
+100% when it is neither; one closer still reads `<0.0001` or `>99.9999`. A share of no cases
+says "no cases"; a share whose count is not known (a rate stored without it) says "n/a". Next to a critical label with fewer than 100 positives (the evidence rule), the
 figure says "insufficient evidence". The only other percentages are thresholds and tolerances,
 which are settings, not shares of cases.
 
 A pack's known failure modes are its author's words, not computed. The reference packs state no
 share of cases as a percentage there: they state the finding and, for a local-site example, the
 command that measures it.
+
+## Figures as served: `mendari.figures/1`
+
+A server works out the figures of what it serves, in Python (`mendari.evals.figures`), so a
+browser only formats them. A figure is `{k, n, low, high}`: k of n with its unrounded exact
+interval (`low` and `high` null when n is 0). A figure is null when what it is of is not known,
+or when its counts are not a whole k of a whole n (a rate that is not a share of its n cases,
+a count above 10^9). Figures are never stored: they are recomputed from the stored report,
+leaderboard or registry version on every read, so one published before needs no migration.
+
+| Where | Key | Holds |
+|---|---|---|
+| `GET /api/packs/{pack}` | `benchmark.figures` | the benchmark report's figures |
+| `GET /api/packs/{pack}` | `leaderboard` | the leaderboard as served: `ranking`, `groups` (one per set of records, with `about` and `label`) and each row's `rank`, `standing`, `standing_text`, `group` and `figures` |
+| `POST /api/packs/{pack}/evals`, `GET /api/evals` | `figures` | each report's figures (null when a stored report's cannot be read) |
+| `GET /api/stats` | `periods` | the last 7 and 30 days and all time (local days), each with the window before it: automated, overridden and agreed shares and each outcome |
+| `GET /api/monitoring` | `figures` | each week's and the last 7 days' automated, override and accuracy shares, and the benchmark's accuracy |
+| `GET /v1/packs/{pack}`, `/v1/packs/{pack}/{version}` | `figures` | the version's benchmark accuracy and leaderboard (null when it is malformed); search carries the benchmark's only |
+
+A report's figures are each over what the card shows it over: accuracy over the labelled
+cases, each outcome and automation over all cases, false automation over the labelled cases,
+precision over the cases predicted with the label and recall over its support, a subgroup's
+accuracy over its labelled members, each calibration bin's correct cases, and each sweep row's
+automated cases over the scored ones and correct cases over the automated. A report from
+before its counts were stored has each figure it can prove: the sweep's counts from the
+calibration bins, a subgroup's accuracy only when every case is labelled. `figures` is a run
+key: a served report's `result_sha256` is still its result's hash.
+
+The dashboard (`dashboard/ui.js`) and the Hub (`hub/lib/figures.ts`) print a figure as
+`render.shown` does, checked against `tests/fixtures/shown.json` (written by
+`scripts/shown_fixture.py`), which holds the exact rounding ties where JavaScript's `toFixed`
+and Python's formatting disagree.
 
 ## Leaderboards: `mendari.leaderboard/2` and `mendari.rank/1`
 
@@ -106,7 +140,8 @@ same records (dataset hash and size), in this order:
 4. a higher lower bound of accuracy;
 5. a lower cost per decision, then the configuration's name, so the order is total.
 
-Accuracy never ranks alone. A row measured on another pack digest has the standing
+Accuracy never ranks alone. Each bound is worked out from the row's k and n, never read from
+the row: a board can come from a registry upload. A row measured on another pack digest has the standing
 `earlier version` and no rank: its AUTO and false automation followed that version's policy. When
 no critical label on those records has 100 positives, every row has the standing
 `insufficient evidence` and none ranks.

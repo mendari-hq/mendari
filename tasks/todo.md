@@ -435,9 +435,22 @@ operations, LP-22 site network, LP-23 EHR pilot.
       `mendari.leaderboard/2` and `mendari.rank/1` (`mendari.evals.ranking`). The trial and
       prior-auth packs' known failure modes no longer type in percentages (0.1.5, 0.2.1:
       wording only).
-    - [ ] **10b-ii** The dashboard (report, leaderboard in `row.rank` order with each row's
-      standing, monitoring and overview figures as k of n) and the Hub's pack pages (which
-      rank by accuracy alone today).
+    - [ ] **10b-ii** The dashboard and the Hub show every share of cases as k of n. Design
+      chosen by a judged workflow (server figures; three designs): Python works out each
+      figure once and the browser only formats it.
+      - [ ] **A** (PR open) `mendari.evals.figures` (`mendari.figures/1`) served beside
+        reports, leaderboards, the overview's periods, monitoring and registry versions;
+        `render.shown` prints from k and n (never a stored bound); the ranking recomputes its
+        bounds; `tests/fixtures/shown.json` for the ports; the equal-mass ECE on the card.
+      - [ ] **B** The dashboard: a `shown` port in `ui.js` checked against the fixture; the
+        report, leaderboard (`row.rank`, `standing_text`, `groups`), monitoring and overview
+        read `figures`; the subgroup false-automation column goes (the card has none); a
+        bare-percentage scan over the views.
+      - [ ] **C** The Hub: `hub/lib/figures.ts`, the pack page's leaderboard in served order
+        (it ranks by accuracy alone today), the benchmark fact as k of n.
+      - Owner, optional: give the 166 shipped `mendari.leaderboard/1` rows their accuracy
+        counts from the committed datasets where provable (the dataset unchanged since the
+        row's run, k/n exactly the stored rate). Without it they show accuracy as n/a.
     - [ ] Follow-up: the five packs' known failure modes still quote counts from hand-written
       sets (e.g. "8/12 in the held-out set"), measured on earlier pack versions. They agree
       with the card's provider comparison today; replacing them with the command that measures

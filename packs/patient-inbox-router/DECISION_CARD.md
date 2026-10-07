@@ -99,6 +99,7 @@ Benchmark `test` (n=600) with safety_screen=`rules`, router=`naive_bayes`. Each 
 | `destination` accuracy | 596 of 600 [98.3-99.8%] |
 | Macro-F1 | 0.992 |
 | Expected calibration error | 0.005 |
+| Expected calibration error, equal-mass bins | 0.001 |
 | Brier score | 0.009 [0.002-0.017, bootstrap] |
 | AUTO | 0 of 600 [0.0-0.6%] |
 | HUMAN_REVIEW | 598 of 600 [98.8-99.96%] |

@@ -29,7 +29,10 @@ The first release (not yet published).
   than 100 positives says "insufficient evidence". Leaderboards (`mendari.leaderboard/2`) key
   their rows by pack digest and dataset hash, and one ranking (critical cases first, never
   accuracy alone) orders them everywhere; a row from an earlier pack version is kept, marked
-  and unranked.
+  and unranked. The server serves every share of cases it shows as figures worked out in
+  Python (`mendari.figures/1`): beside each report, on the leaderboard (ranked, by set of
+  records), the overview's periods, monitoring and the registry's versions; the dashboard and
+  the Hub only format them. The card and `mendari eval` show the equal-mass calibration error.
 - **Dashboard** and REST API; sign-in through an organization's OpenID Connect provider; API
   keys by role.
 - **Hub:** a pack registry and its client (`mendari pull`, `mendari search`), and community
