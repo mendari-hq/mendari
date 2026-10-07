@@ -257,7 +257,7 @@ def test_a_refused_pattern_says_what_to_write_instead(pattern: str, says: str, n
     assert problem.endswith('(see "Patterns run on RE2" in docs/guides/contributing-a-pack.md)')
 
 
-def test_a_deployment_without_community_packs_never_imports_re2() -> None:
+def test_a_deployment_without_community_packs_never_imports_re2(tmp_path: Path) -> None:
     """RE2, the rewriting and the caps are imported only for a community pack: the Vercel
     function (and every deployment, community packs being off by default) loads none of them."""
     code = (
@@ -265,7 +265,9 @@ def test_a_deployment_without_community_packs_never_imports_re2() -> None:
         "print(sorted(m for m in ('re2', 'mendari.core.re2_syntax', 'mendari.core.caps') "
         "if m in sys.modules))"
     )
-    ran = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+    ran = subprocess.run(  # in a scratch folder: the entrypoint's app opens var/mendari.db there
+        [sys.executable, "-c", code], cwd=tmp_path, capture_output=True, text=True, check=True
+    )
     assert ran.stdout.strip() == "[]"
 
 

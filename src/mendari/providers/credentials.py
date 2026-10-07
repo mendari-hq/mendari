@@ -49,13 +49,17 @@ def vercel_oidc_token() -> str:
     return token
 
 
+def _deployment_oidc_token() -> str:
+    return vercel_oidc_token()  # looked up when called, so a test suite can refuse it
+
+
 class ConnectorToken:
     def __init__(
         self,
         connector: str,
         *,
         client: httpx.Client | None = None,
-        oidc: Callable[[], str] = vercel_oidc_token,
+        oidc: Callable[[], str] = _deployment_oidc_token,
         clock: Callable[[], float] = time.time,
     ):
         self.connector = connector

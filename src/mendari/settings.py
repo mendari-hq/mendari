@@ -100,6 +100,20 @@ def retention_days() -> int:
     return int(raw)
 
 
+def database_target() -> str:
+    """The hosted server's database (`mendari.server.vercel`): $DATABASE_URL, required on
+    Vercel; elsewhere `var/mendari.db`."""
+    url = os.environ.get("DATABASE_URL", "").strip()
+    if url:
+        return url
+    if os.environ.get("VERCEL"):
+        raise MendariError(
+            "DATABASE_URL is not set. Connect a Postgres database (e.g. Neon) to this Vercel "
+            "project for Production and Preview, then redeploy."
+        )
+    return "var/mendari.db"
+
+
 def enabled_packs() -> frozenset[str]:
     """$MENDARI_PACKS: the packs this server serves (comma-separated ids); empty: every pack
     found. The per-pack container images set it to their one pack."""

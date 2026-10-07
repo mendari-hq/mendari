@@ -19,6 +19,8 @@ import pytest
 import yaml
 
 from mendari import AuditStore, Decision, Pack, load_pack
+from mendari.errors import ProviderError
+from mendari.providers import credentials, llm
 from mendari.providers.jev import JevProvider
 from mendari.server import sessions
 
@@ -28,6 +30,22 @@ LOCAL_DATASET = ROOT / "datasets" / "local-site-example.jsonl"
 # Postgres tests run when this points at a disposable database, e.g.
 # postgresql://postgres:mendari-test@127.0.0.1:56432/mendari_test (see CLAUDE.md).
 POSTGRES_URL = os.environ.get("MENDARI_TEST_DATABASE_URL", "").strip()
+# A developer's shell may hold a deployment's own systems: its database (Neon's integration
+# exports these), the AI Gateway's key or a Vercel OIDC token (`vercel env pull`), an LLM or Jev
+# endpoint and key, the alert webhook, the registry, the payer. No test may reach them, whatever
+# a module opens at import (the Vercel entrypoint builds its app on DATABASE_URL) or a
+# subprocess inherits: they are gone before anything is collected, and so are the old
+# OPENHEALTH_* names, which `mendari.legacy` would copy back in a subprocess. A test that needs
+# one sets its own.
+LIVE_SETTINGS = (
+    "DATABASE_URL", "DATABASE_URL_UNPOOLED", "AI_GATEWAY_API_KEY", "VERCEL_OIDC_TOKEN",
+    "LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL", "JEV_API_URL", "JEV_API_KEY", "JEV_MODEL",
+    "JEV_CONNECTOR", "MENDARI_PROVIDERS", "MENDARI_ALERT_WEBHOOK", "MENDARI_REGISTRY_URL",
+    "MENDARI_REGISTRY_TOKEN", "MENDARI_REGISTRY_ADMIN_TOKEN", "MENDARI_PAS_PAYER_URL",
+    "CRON_SECRET",
+)  # fmt: skip
+for _name in [*LIVE_SETTINGS, *(name for name in os.environ if name.startswith("OPENHEALTH_"))]:
+    os.environ.pop(_name, None)
 # An input hash key (MENDARI_INPUT_HASH_KEY), which PHI modes hash and encrypt require.
 INPUT_HASH_KEY = secrets.token_bytes(32)
 HASH_KEY_B64 = base64.b64encode(INPUT_HASH_KEY).decode()
@@ -51,6 +69,20 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     for item in items:
         if item.path.parent == ROOT / "tests" and item.path.name in CORE:
             item.add_marker(pytest.mark.core)
+
+
+@pytest.fixture(autouse=True)
+def _no_vercel_oidc_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No test mints a Vercel OIDC token: without one in the environment, the vercel library
+    would mint one through the developer's Vercel CLI login for a linked project (a `.vercel`
+    folder above the working directory) and the AI Gateway would bill it. A test of that path
+    gives its own (tests/test_llm.py, tests/test_credentials.py)."""
+
+    def refused() -> str:
+        raise ProviderError("credential_unavailable", "no Vercel OIDC token in the test suite")
+
+    monkeypatch.setattr(credentials, "vercel_oidc_token", refused)
+    monkeypatch.setattr(llm, "vercel_oidc_token", refused)
 
 
 @pytest.fixture(autouse=True)
