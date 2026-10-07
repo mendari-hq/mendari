@@ -340,7 +340,7 @@ def test_dependabot_watches_every_manifest() -> None:
     manifests = {
         "/" + str(p.parent.relative_to(ROOT))
         for p in ROOT.glob("**/package.json")
-        if not {"node_modules", ".venv", ".git", "var"} & set(p.relative_to(ROOT).parts)
+        if not {"node_modules", ".venv", ".git", "var", ".next"} & set(p.relative_to(ROOT).parts)
     }
     assert manifests and manifests <= covered["npm"], manifests - covered.get("npm", set())
 

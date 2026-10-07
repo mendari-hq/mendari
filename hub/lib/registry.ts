@@ -5,7 +5,42 @@ const BASE = (process.env.REGISTRY_URL ?? "http://127.0.0.1:8100").replace(/\/$/
 
 export type Risk = { level: number; category: string };
 
+import type { Figure } from "./figures";
+
 export type Benchmark = { dataset: string | null; n: number | null; accuracy: number | null } | null;
+
+// A leaderboard as the registry serves it beside a version (mendari.figures/1): ranked against the
+// version's own digest, by set of records, each row with its figures. Null when malformed.
+export type ServedRow = {
+  config: string;
+  dataset: string;
+  n: number;
+  pack_version: string;
+  macro_f1?: number | null;
+  ece?: number | null;
+  latency_p50_ms?: number | null;
+  cost_per_decision_usd?: number | null;
+  rank: number | null;
+  standing: string;
+  standing_text: string | null;
+  group: number;
+  figures: {
+    accuracy: Figure | null;
+    false_automation: Figure | null;
+    automation: Figure | null;
+    critical: { question: string; label: string; detected: Figure; auto_missed: number; insufficient_evidence: boolean }[];
+    critical_named?: boolean; // the pack has several critical labels: name each, as the card does
+  };
+};
+
+export type BoardFigures = {
+  ranking: { method: string; min_positives: number };
+  groups: { dataset: string; sha256: string | null; n: number; about: string[]; label: string }[];
+  rows: ServedRow[];
+};
+
+// What the registry works out on read beside a version; absent from an older registry.
+export type VersionFigures = { format: string; benchmark: Figure | null; leaderboard: BoardFigures | null };
 
 export type PackSummary = {
   id: string;
@@ -28,25 +63,12 @@ export type PackSummary = {
   // Derived by the registry from the manifest's card.provenance; absent on versions published before it.
   status_label?: string;
   benchmark: Benchmark;
-};
-
-export type LeaderboardRow = {
-  config: string;
-  dataset: string;
-  n: number;
-  accuracy: number | null;
-  macro_f1: number | null;
-  ece: number | null;
-  auto_rate: number | null;
-  false_automation_rate: number | null;
-  latency_p50_ms: number | null;
-  cost_per_decision_usd: number | null;
-  pack_version: string;
+  figures?: VersionFigures;
 };
 
 export type PackVersion = PackSummary & {
   card_markdown: string | null;
-  leaderboard: { dataset?: string; rows?: LeaderboardRow[]; [key: string]: unknown } | null;
+  leaderboard: Record<string, unknown> | null; // as the publisher sent it; the Hub shows figures.leaderboard
 };
 
 export type PackDetail = { id: string; versions: string[]; latest: PackVersion };
@@ -92,9 +114,6 @@ export const packVersion = (namespace: string, name: string, version: string) =>
   );
 
 export const namespace = (name: string) => get<Namespace>(`/v1/namespaces/${encodeURIComponent(name)}`);
-
-export const percent = (value: number | null | undefined, digits = 1) =>
-  value === null || value === undefined ? "n/a" : `${(value * 100).toFixed(digits)}%`;
 
 export const RISK_WORDS: Record<number, string> = {
   0: "Administrative",

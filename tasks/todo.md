@@ -22,7 +22,7 @@ behaviour.
 - [x] **LP-02 Secret scan.** Run 2026-10-06 over a mirror clone (145 refs: 6 branches, 139
   pull-request refs, no tags; 389 commits) with gitleaks 8.30.1 and trufflehog 3.98.0: gitleaks
   2 findings, both the reviewed `deploy/onprem/.env.example` false positive; trufflehog 0. The
-  private report is in the owner's folder (locations only); nothing to rotate. Then (PR open):
+  private report is in the owner's folder (locations only); nothing to rotate. Then (#152):
   one scan, `scripts/secret_scan.sh` (gitleaks, pinned there only), over every commit of every
   ref with merge resolutions included (`--diff-merges=remerge`: without it git shows no diff
   for a merge, so what a merge alone added was never read, by any scan, until now); a git error,
@@ -369,7 +369,7 @@ behaviour.
 
 **Pre-public:** LP-13 and LP-14 (done above), LP-15 (above: a, then b and c), LP-03 (below).
 
-- [x] **LP-03** Launch gates as a checked file (PR open). `launch/gates.yaml`: the audit's five
+- [x] **LP-03** Launch gates as a checked file (#150). `launch/gates.yaml`: the audit's five
   gates and their 33 prerequisites, in its order, each `build` or `owner`, each with probes
   (tests, a file, a setting, the owner's attestation, or `pending` naming the prompt). An
   attestation about packs (clinician review, the FDA opinion) names each pack's digest and is
@@ -413,8 +413,8 @@ with a CPU budget, #133), LP-18 and LP-19 registry, LP-12 accounts, LP-20 pack s
 operations, LP-22 site network, LP-23 EHR pilot.
 
 - [ ] **LP-10** Statistics and a per-case ledger behind every number. Split in three PRs:
-  - [x] **LP-10a** The statistics, the ledger, the report format and `mendari compare` (PR
-    open). `mendari.evals.stats`, pure Python: Clopper-Pearson from the beta quantile (a
+  - [x] **LP-10a** The statistics, the ledger, the report format and `mendari compare`
+    (#153). `mendari.evals.stats`, pure Python: Clopper-Pearson from the beta quantile (a
     Stirling-form incomplete beta, Halley inversion), exact McNemar, a seeded percentile
     bootstrap and its paired form, Holm over a named family, an equal-mass ECE; checked against
     scipy and statsmodels (development dependencies only) to 1e-12, the bootstrap on the same
@@ -431,23 +431,26 @@ operations, LP-22 site network, LP-23 EHR pilot.
     taken (recommended): nothing ranks without 100 positives on a critical label; the 166
     committed rows, all from earlier versions and 144 of them remote, are kept and marked, not
     re-measured (paid calls). Split in two:
-    - [ ] **10b-i** (PR open) The card, the command line, the monitoring and gate messages,
+    - [x] **10b-i** (#154) The card, the command line, the monitoring and gate messages,
       `mendari.leaderboard/2` and `mendari.rank/1` (`mendari.evals.ranking`). The trial and
       prior-auth packs' known failure modes no longer type in percentages (0.1.5, 0.2.1:
       wording only).
     - [ ] **10b-ii** The dashboard and the Hub show every share of cases as k of n. Design
       chosen by a judged workflow (server figures; three designs): Python works out each
       figure once and the browser only formats it.
-      - [ ] **A** (PR open) `mendari.evals.figures` (`mendari.figures/1`) served beside
+      - [x] **A** (#155) `mendari.evals.figures` (`mendari.figures/1`) served beside
         reports, leaderboards, the overview's periods, monitoring and registry versions;
         `render.shown` prints from k and n (never a stored bound); the ranking recomputes its
         bounds; `tests/fixtures/shown.json` for the ports; the equal-mass ECE on the card.
-      - [ ] **B** (PR open) The dashboard: a `shown` port in `ui.js` checked against the
-        fixture (all 3,003 cases); the report, leaderboard (`row.rank`, `standing_text`,
-        `groups`), monitoring and overview read `figures`; the subgroup false-automation column
-        goes (the card has none); a bare-percentage scan over five views, shown to catch one.
-      - [ ] **C** The Hub: `hub/lib/figures.ts`, the pack page's leaderboard in served order
-        (it ranks by accuracy alone today), the benchmark fact as k of n.
+      - [x] **B** (#156, merged 2026-10-07) The dashboard: a `shown` port in `ui.js` checked
+        against the fixture (all 3,003 cases); the report, leaderboard (`row.rank`,
+        `standing_text`, `groups`), monitoring and overview read `figures`; the subgroup
+        false-automation column goes (the card has none); a bare-percentage scan over five
+        views, shown to catch one.
+      - [ ] **C** (PR open) The Hub: `hub/lib/figures.ts` (checked against the fixture), the
+        pack page's leaderboard in served order (it ranked by accuracy alone), the benchmark
+        fact and the search cards as k of n. Its card is still raw Markdown tables (no GFM);
+        left for LP-18, which reworks what the Hub shows of a version.
       - Owner, optional: give the 166 shipped `mendari.leaderboard/1` rows their accuracy
         counts from the committed datasets where provable (the dataset unchanged since the
         row's run, k/n exactly the stored rate). Without it they show accuracy as n/a.

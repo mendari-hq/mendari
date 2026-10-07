@@ -34,6 +34,8 @@ test("the home page lists every published pack", async ({ page }) => {
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Decision Packs");
   await expect(page.getByRole("list", { name: "Packs" }).getByRole("heading", { level: 3 })).toHaveText(PACKS);
   await expect(page.locator(".badge.verified")).toHaveCount(5);
+  // Each benchmark is k of n with its interval (worked out by the registry), never a bare rate.
+  await expect(page.getByText(/^Benchmark accuracy \d+ of \d+ \[[<\d.]+-[>\d.]+%\]$/)).toHaveCount(5);
   expect(errors).toEqual([]);
 });
 
@@ -57,9 +59,22 @@ test("a pack page has the facts, the pull command, the leaderboard and the card"
   await expect(page.locator(".pull")).toHaveText("pip install mendari && mendari pull mendari/referral-router");
   await expect(page.locator(".fact").first()).toContainText(shippedVersion("referral-router"));
   await expect(page.locator(".badge.verified")).toHaveText("verified publisher");
-  await expect(page.locator("details").first()).toHaveAttribute("open", "");
-  await expect(page.locator("details").first().locator("tbody tr").first()).toBeVisible();
+  await expect(page.locator(".fact").nth(1).locator(".fact-value")).toHaveText(/^\d+ of \d+ \[[<\d.]+-[>\d.]+%\]$/);
+  const board = page.locator("details").first();
+  await expect(board).toHaveAttribute("open", "");
+  await expect(board.locator("tbody tr").first()).toBeVisible();
+  // The shipped rows were measured on earlier versions: none ranks, and each says why.
+  await expect(board.locator("tbody tr").first().locator("td").first()).toHaveText("\u2013");
+  await expect(board.locator(".standing").first()).toContainText("its pack digest not recorded");
   await expect(page.getByRole("heading", { name: "Decision Card", exact: true })).toBeVisible();
+  // No share of cases is a bare percentage: each is k of n with its interval. The card's own
+  // text (thresholds, units) is left out.
+  const bare = await page.locator("main").evaluate((main) => {
+    const clone = main.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll("article.markdown").forEach((article) => article.remove());
+    return (clone.textContent ?? "").replace(/\[[^\]]*%\]/g, "").match(/.{0,30}\d\s?%.{0,10}/g) ?? [];
+  });
+  expect(bare).toEqual([]);
   expect(errors).toEqual([]);
 });
 

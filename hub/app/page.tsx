@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import Link from "next/link";
-import { percent, RISK_WORDS, search, type PackSummary } from "@/lib/registry";
+import { shown } from "@/lib/figures";
+import { RISK_WORDS, search, type PackSummary } from "@/lib/registry";
 
 export const dynamic = "force-dynamic";
 
@@ -75,8 +76,8 @@ function PackCard({ item }: { item: PackSummary }) {
       <div className="row">
         {item.standards.map((standard) => <span className="chip" key={standard}>{standard}</span>)}
         <span className="grow" />
-        {item.benchmark?.accuracy != null ? (
-          <span className="muted">Benchmark {percent(item.benchmark.accuracy)} on {item.benchmark.n} cases</span>
+        {item.figures?.benchmark ? (
+          <span className="muted">Benchmark accuracy {shown(item.figures.benchmark)}</span>
         ) : null}
       </div>
     </li>

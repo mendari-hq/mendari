@@ -38,6 +38,9 @@ The first release (not yet published).
   none. Its "False automation" is now of the labelled cases, as on the card (it was of the
   automated ones); the subgroups table drops its false-automation column, which the card never
   had; the overview compares a period with the one before by that period's own figure.
+  The Hub shows each pack's benchmark accuracy as k of n with its interval, and its leaderboard
+  in the ranking's order, one set of records at a time, each row with its rank or why it has
+  none (it ranked by accuracy alone).
 - **Dashboard** and REST API; sign-in through an organization's OpenID Connect provider; API
   keys by role.
 - **Hub:** a pack registry and its client (`mendari pull`, `mendari search`), and community

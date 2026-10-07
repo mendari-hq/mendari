@@ -260,6 +260,23 @@ def rows_on(digest: str, sha: str = "d" * 64) -> list[dict[str, Any]]:
     ]  # fmt: skip
 
 
+def test_a_critical_figure_is_named_when_the_pack_has_several_labels() -> None:
+    """As the card names it (leaderboard.critical_text): by the labels the pack has, not by
+    those with positives on these records."""
+    digest = "sha256:" + "a" * 64
+    row = rows_on(digest)[0]
+    two = [
+        *row["critical"],
+        {"question": "q", "label": "no", "n": 0, "detected": 0, "auto_missed": 0},
+    ]
+    served = figures.board({"rows": [{**row, "critical": two}]}, digest, "1.0.0")["rows"][0]
+    assert served["figures"]["critical_named"] is True and len(served["figures"]["critical"]) == 1
+    card = leaderboard.critical_text({**row, "critical": two})
+    assert card.startswith("q=yes ")  # named on the card too
+    alone = figures.board({"rows": [row]}, digest, "1.0.0")["rows"][0]["figures"]
+    assert alone["critical_named"] is False
+
+
 def test_a_current_board_with_enough_positives_ranks() -> None:
     digest = "sha256:" + "a" * 64
     rows = [*rows_on(digest), {**rows_on(digest, "e" * 64)[0], "config": "elsewhere"}]
