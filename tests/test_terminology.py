@@ -264,7 +264,8 @@ def test_fixed_resources_are_pinned_to_the_mendari_version(served: Terminology) 
         *terminology.sandbox_resources(),
     ]
     found = {f"{r['resourceType']}/{r['id']}": content(r)[:16] for r in fixed}
-    assert __version__ in PINNED, "a new Mendari version: pin its fixed resources"
+    # A new version (a pre-release too: the resources carry it) pins these, as PINNED's entry.
+    assert __version__ in PINNED, f"a new Mendari version: pin its fixed resources: {found}"
     assert found == PINNED[__version__], "changed a fixed resource: it needs a new version"
 
 

@@ -1,0 +1,52 @@
+name: docs
+
+# The documentation site (mkdocs.yml, docs/) on GitHub Pages, deployed by hand only: nothing
+# deploys it on a push. The owner (tasks/todo.md, "Going public: owner steps"):
+#   1. Settings → Pages → Source: GitHub Actions (the `github-pages` environment it creates
+#      allows the default branch);
+#   2. Actions → docs → Run workflow, from main.
+# The build is the strict one CI runs on every pull request, checked for excluded paths and for
+# the notice on every page; the deploy job starts only on a public repository.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deploy at a time, in dispatch order: a newer run waits for the one deploying, and replaces
+# any older one still waiting, so an older build never lands after a newer one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+        with:
+          version: "0.12.22"
+          python-version: "3.12"
+      - run: uv sync --locked --group docs
+      - run: uv run mkdocs build --strict
+      - name: The site holds no notes, plans, agent or CI files, and every page shows the notice
+        run: |
+          python3 scripts/check_excluded.py site
+          python3 scripts/check_site_notice.py site
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9  # v5.0.0
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    if: "!github.event.repository.private"
+    runs-on: ubuntu-latest
+    environment: github-pages
+    permissions:
+      pages: write  # publish the artifact to Pages
+      id-token: write  # Pages verifies the deployment came from this workflow
+    steps:
+      - uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346  # v5.0.1

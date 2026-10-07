@@ -7,6 +7,7 @@ refusing whenever the API cannot show it."""
 from __future__ import annotations
 
 import importlib.util
+import re
 import shutil
 import subprocess
 import sys
@@ -31,6 +32,9 @@ def _script() -> Any:
 
 check = _script()
 VERSION = check.versions()["pyproject.toml"].pop()
+RELEASE = re.sub(r"(?:a|b|rc)\d+$", "", VERSION)  # 0.1.0 for 0.1.0, and for 0.1.0rc1
+# The changelog sections that serve this version, as a refusal names them.
+SERVING = " or ".join(dict.fromkeys((VERSION, RELEASE)))
 
 
 def test_the_version_is_the_same_wherever_it_is_written() -> None:
@@ -43,8 +47,9 @@ def test_the_version_is_the_same_wherever_it_is_written() -> None:
 
 
 def test_the_changelog_has_a_section_for_this_version_and_it_is_the_newest() -> None:
+    # A pre-release (a TestPyPI rehearsal) stands under its release's section.
     sections = check.changelog_versions((ROOT / "CHANGELOG.md").read_text())
-    assert sections and sections[0] == VERSION
+    assert sections and sections[0] in (VERSION, RELEASE)
     assert check.version_problems(f"v{VERSION}") == []
 
 
@@ -75,11 +80,13 @@ def test_a_version_out_of_step_or_without_its_changelog_section_is_refused(tree:
     (tree / "CHANGELOG.md").write_text("# Changelog\n\n## 0.0.9\n\n- Old.\n")
     assert check.version_problems(f"v{VERSION}", tree) == [
         f"src/mendari/__init__.py says 0.0.9, the tag {VERSION}",
-        f"CHANGELOG.md has no '## {VERSION}' section",
+        "CHANGELOG.md has no "
+        + " or ".join(f"'## {v}'" for v in SERVING.split(" or "))
+        + " section",
     ]
     (tree / "CHANGELOG.md").write_text(f"# Changelog\n\n## 9.0.0\n\n## {VERSION} - 2026-10-07\n")
     assert check.version_problems(f"v{VERSION}", tree)[-1] == (
-        f"CHANGELOG.md's newest section is 9.0.0, not {VERSION}"
+        f"CHANGELOG.md's newest section is 9.0.0, not {SERVING}"
     )
     (tree / "CHANGELOG.md").unlink()
     assert check.version_problems(f"v{VERSION}", tree)[-1].startswith("CHANGELOG.md has no")
@@ -94,6 +101,29 @@ def test_a_run_from_a_branch_is_refused(capsys: pytest.CaptureFixture[str]) -> N
     assert check.main(["version", "refs/tags/v9.9.9"]) == 1  # a tag, but not this version's
     err = capsys.readouterr().err
     assert "the tag 9.9.9" in err and "the tag v9.9.9 does not exist here" in err
+
+
+def test_a_pre_release_stands_under_its_release_s_section(tree: Path) -> None:
+    """A TestPyPI rehearsal (0.1.0rc1) needs its version written everywhere, but not a changelog
+    section of its own: the release's (0.1.0) will do."""
+    rc = f"{RELEASE}rc1"
+    for name in ("pyproject.toml", "uv.lock", "docker-compose.yml", "src/mendari/__init__.py"):
+        path = tree / name
+        path.write_text(
+            path.read_text()
+            .replace(f'"{VERSION}"', f'"{rc}"')
+            .replace(f":{VERSION}", f":{rc}")
+            .replace(f'version = "{VERSION}"', f'version = "{rc}"')
+        )
+    assert check.version_problems(f"v{rc}", tree) == []
+    (tree / "CHANGELOG.md").write_text(f"# Changelog\n\n## 9.0.0\n\n## {RELEASE}\n")
+    assert check.version_problems(f"v{rc}", tree) == [
+        f"CHANGELOG.md's newest section is 9.0.0, not {rc} or {RELEASE}"
+    ]
+    (tree / "CHANGELOG.md").write_text("# Changelog\n\n## 0.0.1\n")
+    assert check.version_problems(f"v{rc}", tree) == [
+        f"CHANGELOG.md has no '## {rc}' or '## {RELEASE}' section"
+    ]
 
 
 def test_the_tag_must_name_the_commit_built(tree: Path) -> None:

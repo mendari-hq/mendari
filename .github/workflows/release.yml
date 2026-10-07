@@ -9,21 +9,33 @@ name: release
 #      tagged commit (`github.sha`), which the `v*` rule on the environments allows. It checks the
 #      tag and the version, runs the tests, builds the sdist, the wheel and the six images, and
 #      tests each. Run from a branch, it refuses at the first step;
-#   3. runs it again from the tag with publish on. A publishing job starts only after the same
-#      build passes, only on a public repository, and only once its environment's reviewer
-#      approves; its first step then checks, through the API, that the repository is public and
-#      the environment has required reviewers, refusing when it cannot tell (an environment a job
-#      names is created unprotected if it does not exist, and would need no approval).
-# PyPI uses trusted publishing (environment `pypi`): no API token is stored anywhere. Images go
-# to GitHub Container Registry (environment `ghcr`): each is pushed exactly as it was tested.
+#   3. rehearses on TestPyPI first: from a pre-release tag (`v0.1.0rc1`), publish on, target
+#      `testpypi` (the default); TestPyPI's copy is checked byte for byte against the tested
+#      wheel, installed on a clean runner and run (`mendari test`);
+#   4. runs it again from the release tag with publish on and target `pypi`. A publishing job
+#      starts only after the same build passes, only on a public repository, and only once its
+#      environment's reviewer approves; its first step then checks, through the API, that the
+#      repository is public and the environment has required reviewers, refusing when it cannot
+#      tell (an environment a job names is created unprotected if it does not exist, and would
+#      need no approval).
+# PyPI and TestPyPI use trusted publishing (environments `pypi` and `testpypi`): no API token is
+# stored anywhere. Images, for linux/amd64 and linux/arm64, go to GitHub Container Registry with
+# a release to PyPI (environment `ghcr`): each is built once, tested on both architectures, and
+# pushed exactly as it was tested.
 on:
   workflow_dispatch:
     inputs:
       publish:
-        description: Publish to PyPI and GitHub Container Registry once the build passes
+        description: Publish once the build passes
         required: true
         type: boolean
         default: false
+      target:
+        description: Where to publish (testpypi rehearses; pypi also pushes the images)
+        required: true
+        type: choice
+        options: [testpypi, pypi]
+        default: testpypi
 
 permissions:
   contents: read
@@ -65,9 +77,10 @@ jobs:
           retention-days: 7
 
   images:
-    # The engine with every pack, and one image per pack, each built from the run's commit (the
-    # tagged one the build checked), tested and checked, then saved: the publishing job pushes
-    # these very images.
+    # The engine with every pack, and one image per pack, each built once from the run's commit
+    # (the tagged one the build checked) for linux/amd64 and linux/arm64 into one OCI archive,
+    # then each architecture's image taken from that archive, tested and checked: the
+    # publishing job pushes this very archive.
     needs: build
     runs-on: ubuntu-latest
     strategy:
@@ -85,27 +98,41 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
-      - name: Build, test and check the image (no notes, plans, agent or CI files), then save it
+      # The emulator that runs the arm64 build and test, and the builder: each pulled by digest
+      # (the actions' defaults are moving tags), and the emulator not kept in the Actions cache.
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1  # v4.4.0
+        with:
+          image: docker.io/tonistiigi/binfmt:qemu-v10.2.3@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
+          platforms: arm64
+          cache-image: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
+        with:
+          driver-opts: image=moby/buildkit:v0.33.1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
+      - name: Build both architectures once, then test and check each (no notes, plans, agent or CI files)
         env:
           NAME: ${{ matrix.name }}
           PACK: ${{ matrix.pack }}
           ONLY: ${{ matrix.only }}
           TAG: ${{ github.ref_name }}
         run: |
-          image="${NAME}:${TAG}"
-          docker build --build-arg PACK="$ONLY" -t "$image" .
-          docker run --rm "$image" mendari test "$PACK"
-          python3 scripts/check_excluded.py --image "$image"
-          docker save "$image" | gzip > "/tmp/${NAME}.tar.gz"
+          skopeo --version  # copies images between the archive, docker and the registry
+          docker buildx build --platform linux/amd64,linux/arm64 --build-arg PACK="$ONLY" \
+            --output "type=oci,dest=/tmp/${NAME}.tar" .
+          for arch in amd64 arm64; do
+            image="${NAME}:${TAG}-${arch}"
+            skopeo copy --override-arch "$arch" "oci-archive:/tmp/${NAME}.tar" "docker-daemon:${image}"
+            docker run --rm --platform "linux/${arch}" "$image" mendari test "$PACK"
+            python3 scripts/check_excluded.py --image "$image"
+          done
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: image-${{ matrix.name }}
-          path: /tmp/${{ matrix.name }}.tar.gz
+          path: /tmp/${{ matrix.name }}.tar
           retention-days: 7
 
   publish-pypi:
     needs: [build, images]
-    if: inputs.publish && !github.event.repository.private
+    if: inputs.publish && inputs.target == 'pypi' && !github.event.repository.private
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
@@ -128,9 +155,9 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33  # v1.14.2
 
   publish-images:
-    # Each image is a deployment the reviewer approves in the run.
+    # Each image is a deployment the reviewer approves in the run; with a release to PyPI only.
     needs: [build, images]
-    if: inputs.publish && !github.event.repository.private
+    if: inputs.publish && inputs.target == 'pypi' && !github.event.repository.private
     runs-on: ubuntu-latest
     environment: ghcr
     permissions:
@@ -165,13 +192,78 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Push the tested image
+      - name: Push the tested archive, both architectures
         env:
           NAME: ${{ matrix.name }}
           OWNER: ${{ github.repository_owner }}
           TAG: ${{ github.ref_name }}
         run: |
-          gunzip -c "/tmp/image/${NAME}.tar.gz" | docker load
-          image="ghcr.io/${OWNER,,}/${NAME}:${TAG}"
-          docker tag "${NAME}:${TAG}" "$image"
-          docker push "$image"
+          # skopeo reads the login above (docker's config) and pushes the archive as it is.
+          skopeo copy --all "oci-archive:/tmp/image/${NAME}.tar" "docker://ghcr.io/${OWNER,,}/${NAME}:${TAG}"
+
+  publish-testpypi:
+    # The rehearsal: the same tested files, to TestPyPI, through its own protected environment.
+    needs: [build, images]
+    if: inputs.publish && inputs.target == 'testpypi' && !github.event.repository.private
+    runs-on: ubuntu-latest
+    environment: testpypi
+    permissions:
+      contents: read
+      actions: read  # the environment's protection rules, for the guard
+      id-token: write  # trusted publishing: no API token is stored anywhere
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Refuse unless the repository is public and this environment has required reviewers
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/check_release.py environment testpypi
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33  # v1.14.2
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  verify-testpypi:
+    # What TestPyPI serves is the tested wheel, byte for byte, and it installs and runs on a clean
+    # runner. Only Mendari comes from TestPyPI: its dependencies come from PyPI, pinned and
+    # hash-checked from uv.lock, so no name on TestPyPI can stand in for one.
+    needs: publish-testpypi
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+        with:
+          version: "0.12.22"
+          python-version: "3.12"
+          enable-cache: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: dist
+          path: dist/
+      - name: TestPyPI serves the tested wheel; it installs in a clean environment and runs
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#v}"
+          python3 -m venv /tmp/clean
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do  # the index can take a minute to show it
+            /tmp/clean/bin/pip download --quiet --no-deps --only-binary :all: -d /tmp/served \
+              --index-url https://test.pypi.org/simple/ "mendari==${version}" && break
+            sleep 30
+          done
+          served=$(ls /tmp/served/*.whl)
+          cmp "$served" "dist/$(basename "$served")"
+          uv export --frozen --no-dev --extra server --no-emit-project --format requirements-txt \
+            > /tmp/requirements.txt
+          /tmp/clean/bin/pip install --quiet --require-hashes -r /tmp/requirements.txt
+          /tmp/clean/bin/pip install --quiet --no-deps "$served"
+          /tmp/clean/bin/mendari --version
+          /tmp/clean/bin/mendari test mendari/patient-inbox-router

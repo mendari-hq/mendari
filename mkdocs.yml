@@ -3,12 +3,21 @@
 #   uv run mkdocs build --strict                      # what CI runs: a broken link fails
 site_name: Mendari
 site_description: Open, auditable Decision Packs for healthcare
+# Where the docs workflow (.github/workflows/docs.yml) publishes the site: GitHub Pages by
+# default, until the owner names the host (tasks/todo.md, LP-15c); a custom domain changes this
+# line. Links inside docs/ stay relative.
+site_url: https://junebugg1214.github.io/mendari/
 repo_url: https://github.com/Junebugg1214/mendari
 edit_uri: edit/main/docs/
 strict: true
 
+# The notice every page shows, from src/mendari/notices.py (scripts/check_site_notice.py checks).
+hooks:
+  - scripts/mkdocs_hooks.py
+
 theme:
   name: material
+  custom_dir: docs_theme
   font: false  # system fonts: the site makes no third-party requests
   features:
     - navigation.sections

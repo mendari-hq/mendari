@@ -84,15 +84,40 @@ def _docker_run_images(script: str) -> Iterator[str]:
         yield tokens[j]
 
 
-def _docker_built_tags(script: str) -> set[str]:
+def _shell_name(text: str) -> str:
+    """`$image` and `${image}` are the same variable (and `${a}b` stays apart from `$ab`)."""
+    return re.sub(r"\$(?:\{(\w+)\}|(\w+))", lambda m: "${%s}" % (m[1] or m[2]), text)
+
+
+def _skopeo_copies(script: str) -> Iterator[tuple[str, str]]:
+    """The source and destination of each `skopeo copy`: its last two words."""
     tokens = _tokens(script)
-    tags: set[str] = set()
+    for i in range(len(tokens) - 1):
+        if tokens[i] == "skopeo" and tokens[i + 1] == "copy":
+            j = i + 2
+            while j < len(tokens) and not _is_separator(tokens[j]):
+                j += 1
+            words = [word for word in tokens[i + 2 : j] if not word.startswith("-")]
+            if len(words) >= 2:
+                yield words[-2], words[-1]
+
+
+def _docker_built_tags(script: str) -> set[str]:
+    """Tags a script builds (`docker build -t`), or loads from an archive it built
+    (`skopeo copy oci-archive:<file> docker-daemon:<tag>`; a registry source is not built)."""
+    tokens = _tokens(script)
+    tags: set[str] = {
+        _shell_name(destination.removeprefix("docker-daemon:"))
+        for source, destination in _skopeo_copies(script)
+        if destination.startswith("docker-daemon:")
+        and source.startswith(("oci-archive:", "docker-archive:"))
+    }
     for i in range(len(tokens) - 1):
         if tokens[i] == "docker" and tokens[i + 1] == "build":
             j = i + 2
             while j < len(tokens) - 1 and not _is_separator(tokens[j]):
                 if tokens[j] in ("-t", "--tag"):
-                    tags.add(tokens[j + 1])
+                    tags.add(_shell_name(tokens[j + 1]))
                 j += 1
     return tags
 
@@ -154,17 +179,27 @@ def _workflow_images(path: Path) -> Iterator[tuple[str, set[str]]]:
             container = job["container"]
             yield (container if isinstance(container, str) else container["image"]), built
         for step in job.get("steps", []):
-            if step.get("uses", "").startswith("docker://"):
-                yield step["uses"].removeprefix("docker://"), built
+            uses, given = step.get("uses", ""), step.get("with", {})
+            if uses.startswith("docker://"):
+                yield uses.removeprefix("docker://"), built
+            # Actions that pull an image of their own: their defaults are moving tags.
+            if uses.startswith("docker/setup-qemu-action@"):
+                yield given.get("image", "tonistiigi/binfmt:latest"), built
+            if uses.startswith("docker/setup-buildx-action@"):
+                options = dict(o.split("=", 1) for o in given.get("driver-opts", "").split())
+                yield options.get("image", "moby/buildkit:buildx-stable-1"), built
             if "run" in step:
                 for image in _docker_run_images(step["run"]):
                     yield image, built
+                for source, _ in _skopeo_copies(step["run"]):
+                    if source.startswith("docker://"):
+                        yield source.removeprefix("docker://"), built
 
 
 @pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.name)
 def test_every_workflow_image_is_pinned_by_digest(path: Path) -> None:
     for image, built in _workflow_images(path):
-        if image in built:
+        if _shell_name(image) in built:
             continue  # built from this repository's Dockerfile earlier in the same workflow
         assert DIGEST_PIN.search(image), f"{path.name}: {image} is not pinned by digest"
 
@@ -175,7 +210,14 @@ def test_the_image_parser_sees_the_images_it_should() -> None:
     assert any(image.startswith("ghcr.io/zaproxy/zaproxy:") for image in images)
     assert any(image.startswith("postgres:") for image in images)
     assert "mendari-engine:ci" in images
+    assert any(image.startswith("moby/buildkit:") for image in images)  # an action's own image
     assert list(_docker_run_images("docker run --rm --network host -v a:b img:1 cmd")) == ["img:1"]
+    # Only a tag loaded from an archive counts as built here; a registry's never does.
+    assert _docker_built_tags('skopeo copy oci-archive:/a.tar "docker-daemon:${image}"') == {
+        "${image}"
+    }
+    assert _docker_built_tags("skopeo copy docker://postgres:16 docker-daemon:pg:16") == set()
+    assert _shell_name("$image") == _shell_name("${image}") != _shell_name("${ima}ge")
 
 
 @pytest.mark.parametrize("path", COMPOSE_FILES, ids=lambda p: str(p.relative_to(ROOT)))

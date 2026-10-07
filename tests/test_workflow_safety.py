@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """The workflows are safe to run on pull requests from forks, once the repository is public: no
 trigger runs a fork's code with secrets or a write token, every token is read-only unless a job
-publishes from a protected environment in the release workflow, which only a person starts, no
+publishes from its environment in a workflow only a person starts (the release jobs, whose
+environments must have reviewers, and the docs deploy), no
 expression is pasted into a shell script, and a pack directory a pull request names is data,
 never code. Nothing is published on a tag push. Also: every file has a code owner, the history
 is scanned for secrets, and every commit of a pull request is signed off."""
@@ -26,12 +27,18 @@ WORKFLOWS = sorted((ROOT / ".github" / "workflows").glob("*.yml"))
 # text a fork controls. None is used, and a new one needs a deliberate change here.
 UNSAFE_TRIGGERS = {"pull_request_target", "workflow_run", "issue_comment", "pull_request_review"}
 ALLOWED_TRIGGERS = {"push", "pull_request", "workflow_dispatch"}
-# The only write permissions: each on a job that publishes from a protected environment, in the
-# release workflow, which only a manual dispatch starts.
+# The only write permissions, each on a job that publishes from its own environment in a
+# workflow only a manual dispatch starts: the release workflow's publishing jobs (GUARDED below:
+# their environments must have reviewers) and the docs deploy (`github-pages`, which allows only
+# the default branch; no reviewer check).
 ALLOWED_WRITES = {
     ("release.yml", "publish-pypi"): ({"id-token"}, "pypi"),
+    ("release.yml", "publish-testpypi"): ({"id-token"}, "testpypi"),
     ("release.yml", "publish-images"): ({"packages"}, "ghcr"),
+    ("docs.yml", "deploy"): ({"pages", "id-token"}, "github-pages"),
 }
+# Publishing jobs that must first check, through the API, that their environment has reviewers.
+GUARDED = {"publish-pypi", "publish-testpypi", "publish-images"}
 RELEASE = ROOT / ".github" / "workflows" / "release.yml"
 SECRET = re.compile(r"\$\{\{[^}]*\bsecrets\.(\w+)")
 SAME_REPOSITORY = "github.event.pull_request.head.repo.full_name == github.repository"
@@ -94,8 +101,11 @@ def test_a_release_publishes_only_by_hand_after_its_build_from_a_guarded_environ
     inputs = _triggers(release)["workflow_dispatch"]["inputs"]
     # No tag input: the run itself is on the tag (its `github.ref`, which the environments' `v*`
     # rule checks), and every job checks out that run's one commit.
-    assert set(inputs) == {"publish"}
+    assert set(inputs) == {"publish", "target"}
     assert inputs["publish"] == {**inputs["publish"], "type": "boolean", "default": False}
+    # A publishing run rehearses on TestPyPI unless PyPI is chosen.
+    assert inputs["target"]["options"] == ["testpypi", "pypi"]
+    assert inputs["target"]["default"] == "testpypi"
     jobs = release["jobs"]
     checkouts = [
         step["with"]
@@ -107,11 +117,15 @@ def test_a_release_publishes_only_by_hand_after_its_build_from_a_guarded_environ
     assert all(checkout["ref"] == "${{ github.sha }}" for checkout in checkouts)
     assert "inputs.tag" not in RELEASE.read_text()
     publishing = {name for name, job in jobs.items() if _writes(job.get("permissions"))}
-    assert publishing == {"publish-pypi", "publish-images"}
+    assert publishing == GUARDED
+    targets = {"publish-pypi": "pypi", "publish-images": "pypi", "publish-testpypi": "testpypi"}
     for name in publishing:
         job = jobs[name]
         assert set(job["needs"]) == {"build", "images"}, name
-        assert job["if"] == "inputs.publish && !github.event.repository.private", name
+        assert job["if"] == (
+            f"inputs.publish && inputs.target == '{targets[name]}' "
+            "&& !github.event.repository.private"
+        ), name
         steps = job["steps"]
         guard = next(i for i, step in enumerate(steps) if "check_release.py" in step.get("run", ""))
         assert (
@@ -131,9 +145,42 @@ def test_a_release_publishes_only_by_hand_after_its_build_from_a_guarded_environ
     assert any("check_sdist.py" in run and "check_excluded.py" in run for run in build)
     images = "\n".join(step.get("run", "") for step in jobs["images"]["steps"])
     assert "mendari test" in images and 'check_excluded.py --image "$image"' in images
+    # Built once for both architectures, and each architecture's image, from that archive, tested.
+    assert "--platform linux/amd64,linux/arm64" in images and "type=oci" in images
+    assert "for arch in amd64 arm64" in images and '--platform "linux/${arch}"' in images
     assert jobs["images"]["needs"] == "build"
     pushed = "\n".join(step.get("run", "") for step in jobs["publish-images"]["steps"])
-    assert "docker load" in pushed and "docker build" not in pushed  # the tested image, unrebuilt
+    assert 'skopeo copy --all "oci-archive:' in pushed  # the tested archive, as it is
+    assert "build" not in pushed
+    # The rehearsal: TestPyPI serves the tested wheel byte for byte, and only Mendari comes from
+    # it (its dependencies from PyPI, hash-checked from uv.lock).
+    verify = jobs["verify-testpypi"]
+    assert verify["needs"] == "publish-testpypi" and not _writes(verify.get("permissions"))
+    checked = "\n".join(step.get("run", "") for step in verify["steps"])
+    assert "--index-url https://test.pypi.org/simple/" in checked and "--no-deps" in checked
+    assert 'cmp "$served"' in checked and "--require-hashes" in checked
+    assert "mendari test mendari/patient-inbox-router" in checked
+    assert "extra-index-url" not in RELEASE.read_text()  # no name on TestPyPI stands in for one
+
+
+def test_the_docs_deploy_by_hand_from_a_strict_checked_build() -> None:
+    docs = _workflow(ROOT / ".github" / "workflows" / "docs.yml")
+    assert set(_triggers(docs)) == {"workflow_dispatch"}
+    jobs = docs["jobs"]
+    built = "\n".join(step.get("run", "") for step in jobs["build"]["steps"])
+    for command in ("mkdocs build --strict", "check_excluded.py site", "check_site_notice.py site"):
+        assert command in built, command
+    (upload,) = [
+        step
+        for step in jobs["build"]["steps"]
+        if step.get("uses", "").split("@")[0] == "actions/upload-pages-artifact"
+    ]
+    assert upload["with"] == {"path": "site"}  # the checked build, nothing else
+    assert docs["concurrency"] == {"group": "pages", "cancel-in-progress": False}
+    deploy = jobs["deploy"]
+    assert deploy["needs"] == "build"
+    assert deploy["if"] == "!github.event.repository.private"
+    assert [step["uses"].split("@")[0] for step in deploy["steps"]] == ["actions/deploy-pages"]
 
 
 def test_ci_checks_what_would_be_published_for_excluded_paths() -> None:
