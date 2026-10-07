@@ -9,7 +9,7 @@ import { wire } from "./router.js";
 import { tableHtml } from "./table.js";
 import { $, esc, evidenceMark, figureHtml, num, share, shown, slotText, state, storageGet, storageSet, time } from "./ui.js";
 
-const sameProvider = (a, b) => a?.variant === b?.variant && remoteModels(a?.model).join() === remoteModels(b?.model).join();
+const sameProvider = (a, b) => a?.variant === b?.variant && remoteModels(a?.model, a?.type).join() === remoteModels(b?.model, b?.type).join();
 
 const isDeployed = (row) => Object.keys(row.providers).every((slot) => sameProvider(row.providers[slot], state.detail.active_providers[slot]));
 
@@ -59,7 +59,7 @@ function boardTables(board, group) {
   const min = board.ranking.min_positives;
   const same = (value) => rows.length > 1 && new Set(rows.map((r) => JSON.stringify(value(r)))).size === 1;
   const slots = [...new Set(rows.flatMap((r) => Object.keys(r.providers)))];
-  const varying = slots.filter((slot) => !same((r) => [r.providers[slot]?.variant, remoteModels(r.providers[slot]?.model)]));
+  const varying = slots.filter((slot) => !same((r) => [r.providers[slot]?.variant, remoteModels(r.providers[slot]?.model, r.providers[slot]?.type)]));
   const constantSlots = slots.filter((slot) => !varying.includes(slot));
   const ms = (v) => (v === null || v === undefined ? "n/a" : v < 10 ? v.toFixed(2) : Math.round(v).toLocaleString());
   const cost = (v) => (v === null || v === undefined ? "unknown" : v.toFixed(5));

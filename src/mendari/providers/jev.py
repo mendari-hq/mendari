@@ -316,8 +316,8 @@ def parse_response(
     if not isinstance(raw, dict):
         raise _invalid("response is not an object")
     effective = raw.get("model")
-    if not isinstance(effective, str) or not re.match(MODEL_PATTERN, effective):
-        raise _invalid("missing or malformed model")
+    if not isinstance(effective, str) or not re.fullmatch(MODEL_PATTERN, effective):
+        raise _invalid("missing or malformed model")  # fullmatch: "$" admits a final newline
     answers, usage = raw.get("answers"), raw.get("usage")
     if not isinstance(answers, dict) or not isinstance(usage, dict):
         raise _invalid("answers and usage must be objects")

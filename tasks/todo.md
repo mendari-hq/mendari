@@ -425,7 +425,7 @@ operations, LP-22 site network, LP-23 EHR pilot.
     their ledgers; CI checks each result byte for byte and against its ledger. A stored report
     is chained (`eval.recorded`). `mendari compare A B --dataset X`: paired, exact McNemar,
     Holm, a bootstrap on Brier, the changed cases. Spec: `docs/spec/evaluation-reports.md`.
-  - [ ] **LP-10b** Every proportion shown as k of n with its interval (card, CLI, dashboard),
+  - [x] **LP-10b** Every proportion shown as k of n with its interval (card, CLI, dashboard),
     the 100-positive evidence rule, leaderboard rows keyed by pack digest and dataset hash with
     "earlier version" rows unranked, and one ranking function (critical cases first). Decisions
     taken (recommended): nothing ranks without 100 positives on a critical label; the 166
@@ -435,7 +435,7 @@ operations, LP-22 site network, LP-23 EHR pilot.
       `mendari.leaderboard/2` and `mendari.rank/1` (`mendari.evals.ranking`). The trial and
       prior-auth packs' known failure modes no longer type in percentages (0.1.5, 0.2.1:
       wording only).
-    - [ ] **10b-ii** The dashboard and the Hub show every share of cases as k of n. Design
+    - [x] **10b-ii** The dashboard and the Hub show every share of cases as k of n. Design
       chosen by a judged workflow (server figures; three designs): Python works out each
       figure once and the browser only formats it.
       - [x] **A** (#155) `mendari.evals.figures` (`mendari.figures/1`) served beside
@@ -447,7 +447,7 @@ operations, LP-22 site network, LP-23 EHR pilot.
         `standing_text`, `groups`), monitoring and overview read `figures`; the subgroup
         false-automation column goes (the card has none); a bare-percentage scan over five
         views, shown to catch one.
-      - [ ] **C** (PR open) The Hub: `hub/lib/figures.ts` (checked against the fixture), the
+      - [x] **C** (#157) The Hub: `hub/lib/figures.ts` (checked against the fixture), the
         pack page's leaderboard in served order (it ranked by accuracy alone), the benchmark
         fact and the search cards as k of n. Its card is still raw Markdown tables (no GFM);
         left for LP-18, which reworks what the Hub shows of a version.
@@ -460,6 +460,12 @@ operations, LP-22 site network, LP-23 EHR pilot.
       each (as 10b-i did for the local-site percentages) is a wording change per pack.
   - [ ] **LP-10c** The model that answered, on each answer and in each report; and removing
     `DEFAULT_MODEL` (an `llm` variant with no model fails as `not_configured`, in `preflight`).
+    - [ ] **10c-i** (PR open) The model that answered: Jev already recorded it; the `llm`
+      provider now stamps the id the endpoint reports (well formed only, else the configured
+      one, and the call stands) on each answer, and `vote` names each member that answered with
+      its model. No format bump: the spec already defined `models` as the models that answered;
+      earlier `llm`/`vote` runs named the configured one (CHANGELOG).
+    - [ ] **10c-ii** Removing `DEFAULT_MODEL`, owner-gated as below.
     **Owner first:** no default configuration uses an LLM, but an `llm` slot chosen through
     `MENDARI_PROVIDERS` without `LLM_MODEL` would start sending every case to a person. The last
     tracked hosted setting (removed 2026-10-04) had `mendari/ai-guard:screen=rules_and_llm`:
