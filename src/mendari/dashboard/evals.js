@@ -138,7 +138,7 @@ const elapsedText = (ms) => {
 
 // Slots whose deployed provider calls a remote model (Jev, an LLM), in words.
 const remoteSlots = () => Object.entries(state.detail.active_providers)
-  .filter(([, p]) => remoteModels(p.model).length)
+  .filter(([, p]) => remoteModels(p.model, p.type).length)
   .map(([slot, p]) => `${esc(slotText(slot))}: ${providerWords(p)}`);
 
 // Before an evaluation that calls remote models: what it runs, on how many records, and which
