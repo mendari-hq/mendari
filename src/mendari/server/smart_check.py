@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """`mendari smart check <FHIR base>`: before go-live, whether an EHR's launches will work here,
 with this deployment's settings as the server would read them (ADR-0006).
 

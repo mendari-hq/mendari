@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Dashboard smoke tests in a real browser (Chromium).
 
 Skipped by the default `pytest` run; run them with `uv run pytest -m browser` (first time:

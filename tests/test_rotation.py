@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Key rotation (LP-09): the PHI key, the input hash key and API keys each change without losing
 data or breaking the audit chain.
 

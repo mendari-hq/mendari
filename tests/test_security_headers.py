@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Security headers on every response (server/app.py), and a CSP on every page that allows
 exactly that page's own inline scripts and nothing from another origin."""
 

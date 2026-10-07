@@ -1,0 +1,8 @@
+# Mendari's security contact (RFC 9116). There is no security e-mail address: report privately
+# through GitHub's private vulnerability reporting. Renew Expires before it passes (at most a
+# year ahead; tests/test_security_txt.py fails 30 days before).
+Contact: https://github.com/Junebugg1214/mendari/security/advisories/new
+Expires: 2027-10-01T04:00:00.000Z
+Policy: https://github.com/Junebugg1214/mendari/blob/main/SECURITY.md
+Preferred-Languages: en
+Canonical: https://mendari.co/.well-known/security.txt

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """A scripted SMART on FHIR EHR launch against the sandbox (docker compose): the EHR and the
 browser in one, over plain HTTP.
 

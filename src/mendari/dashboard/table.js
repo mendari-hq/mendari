@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Data tables: a semantic <table> with a caption, a sticky header, right-aligned tabular numbers,
 // keyboard-operable sorting (aria-sort), an optional rank column and an optional sticky first
 // column. Views build HTML with tableHtml(spec), put it in the page, then call wireTables(root).

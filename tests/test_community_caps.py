@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Caps on what multiplies a community pack's pattern work (plan B11, stage 2; core/caps.py).
 
 A community pack's patterns run on RE2, whose time is linear in the text, so a decision's work

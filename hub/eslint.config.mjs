@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { createRequire } from "node:module";
 import nextCoreWebVitals from "eslint-config-next/core-web-vitals";
 import nextTypescript from "eslint-config-next/typescript";

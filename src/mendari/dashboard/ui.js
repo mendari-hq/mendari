@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Shared helpers: formatting, badges and icons, the API, messages, local storage, the app state,
 // focus and busy states, and the stat block.
 

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 r"""A community pack's patterns, written in Python's `re` syntax, rewritten for RE2.
 
 A pack author writes `re` patterns (the spec, the guide and every maintained pack use them).

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Write what `mendari sandbox seed` posts, for the HL7 validator (CI job `fhir-conformance`).
 
 uv run python scripts/sandbox_fhir_sample.py var/fhir-samples

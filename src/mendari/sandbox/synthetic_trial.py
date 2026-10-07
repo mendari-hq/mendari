@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Synthetic patients for the Clinical Trial Prescreener (the synthetic GLYCEMIA-2 study).
 
 Each record is a structured patient summary plus clinic notes, with ground-truth labels for

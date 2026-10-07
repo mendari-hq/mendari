@@ -68,6 +68,7 @@ include = [
     "/datasets",
     "/README.md",
     "/LICENSE",
+    "/NOTICE",
     "/pyproject.toml",
 ]
 

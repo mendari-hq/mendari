@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """`POST /fhir/$decide` (standards/decide_op.py): Parameters in, a collection Bundle out."""
 
 from __future__ import annotations

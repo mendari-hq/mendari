@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Composite providers: several member providers answer the same slot, combined by a rule.
 
 - `any_of`: the most alarming answer wins (safety screens).

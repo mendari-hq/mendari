@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Pack archives (`.ohpack`): a pack, byte for byte, with a signed list of its files.
 
 An archive is a deterministic gzip tar (sorted entries, zero mtimes, owner and mode fixed, gzip

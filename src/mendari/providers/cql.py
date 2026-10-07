@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """CQL: answers computed by a Clinical Quality Language library on a CQL engine.
 
 CQL is how eCQMs and much clinical decision support logic are written, so a site can bring its

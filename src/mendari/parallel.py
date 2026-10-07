@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Thread pools that keep the caller's context.
 
 Worker threads do not inherit context variables. On Vercel, the OIDC token that authenticates

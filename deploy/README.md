@@ -11,8 +11,8 @@ first: it explains every setting below and the checks to run before go-live.
 | [`onprem/nginx-limits.conf`](onprem/nginx-limits.conf) | A reverse proxy in front of either, with per-address limits on sign-in |
 | [`vercel/`](vercel) | The project's own Vercel deployment: its firewall rule and runbook |
 
-Images are published to GitHub Container Registry when a release is tagged (`v*`, workflow
-`images`): `mendari-engine` (every pack) or one image per pack, such as
+Images are published to GitHub Container Registry by a release (workflow `release`, started by
+a maintainer, never by a tag push alone): `mendari-engine` (every pack) or one image per pack, such as
 `mendari-referral-router`, which serves only that pack. No release has been tagged yet, so
 build your own until then: `docker build --build-arg PACK=mendari/referral-router .`.
 

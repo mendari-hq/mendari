@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Monitoring: the deployed pack over time against its benchmark: alerts first, then the last
 // 7 days (observed accuracy, overrides, confidence drift, automated decisions rated wrong), then
 // week by week. Computed by the server (evals/monitoring.py) for this organization.

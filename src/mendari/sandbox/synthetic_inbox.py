@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Synthetic patient-portal messages for the Patient Inbox Router. Entirely fictional: no PHI.
 
 Two populations are generated from one template bank:

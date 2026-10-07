@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Da Vinci CRD on the Prior Authorization Preflight's order-sign service (standards/davinci.py).
 The HL7 validator checks the same resources against the CRD guide in the CI job
 `fhir-conformance` (scripts/davinci_sample.py)."""

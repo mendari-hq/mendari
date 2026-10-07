@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // The notice a signed-in person acknowledges before taking data in (mendari.notices): asked once
 // per notice version, when the dashboard opens, and again if the server refuses for want of it
 // (a new version mid-session: `api` in ui.js). The server refuses their decisions and reviews

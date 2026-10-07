@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Pure metric functions. Inputs are plain lists so they are trivial to test and reuse."""
 
 from __future__ import annotations

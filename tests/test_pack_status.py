@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Every surface says what a pack is (core/status.py), and questions read as words.
 
 The five reference packs are synthetic examples, not clinically reviewed and not for patient

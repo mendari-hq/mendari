@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Mendari's CodeSystems and NamingSystems, generated from the code and the packs served
 (standards/terminology.py)."""
 

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Temperature scaling: one scalar that makes a model's probabilities honest.
 
 A temperature T rescales scores before the softmax (p ∝ exp(score / T)): T > 1 softens an

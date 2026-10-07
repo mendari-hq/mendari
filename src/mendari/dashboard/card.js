@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Decision Card: the pack as a document, sections linked as routes ("#card/policy").
 
 import { communityNotice, holdsFor, isCommunity, originBadge, providerWords, rowLabels, statusNotice } from "./pack.js";

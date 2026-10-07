@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PHI mode (core/phi.py): inputs never stored, or stored encrypted, read by role and logged,
 and purged by a retention policy without breaking the hash chain."""
 

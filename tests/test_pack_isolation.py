@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """A pack never stops the server: whatever one pack's content makes loading, checking or
 building raise, that pack is listed under /api/health `invalid` and every other pack is served
 (core/pack.py, core/registry.py, server/app.py, standards/terminology.py, hub/registry.py)."""

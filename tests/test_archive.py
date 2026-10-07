@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Signed pack archives (hub/archive.py): reproducible, tamper-evident, safe to open."""
 
 from __future__ import annotations

@@ -113,8 +113,10 @@ GitHub's `…@users.noreply.github.com` address works). By signing off you certi
 [Developer Certificate of Origin 1.1](https://developercertificate.org/): in short, that you
 wrote the contribution or have the right to submit it under the project's licence, and that
 it is public and kept with your sign-off. A pull request with a commit that is not signed off
-is not merged. To sign off commits you already made: `git rebase --signoff origin/main`, then
-push with `--force-with-lease`.
+is not merged: CI's `dco` check (`scripts/check_dco.py`) fails it, naming each commit whose
+message has no `Signed-off-by:` line with the author's own address. Merge commits and
+Dependabot's are not checked. To sign off commits you already made:
+`git rebase --signoff origin/main`, then push with `--force-with-lease`.
 
 ## Content provenance
 
@@ -136,5 +138,11 @@ Packs carry clinical content, so where it comes from matters as much as the code
 ## Licence
 
 Contributions are accepted under the project's licence, Apache-2.0: whatever you contribute, you
-license on the same terms. There is no separate agreement to sign: the sign-off above is the
-record that you may.
+license on the same terms (inbound equals outbound). There is no separate agreement to sign: the
+sign-off above is the record that you may. Source files start with
+`SPDX-License-Identifier: Apache-2.0`; keep it in a file you add (`tests/test_spdx.py` checks).
+Third-party material keeps its own licence: say what it is in the PR, and add it to
+`licenses/notice.toml` (then `uv run python scripts/build_notice.py` writes `NOTICE`).
+
+A maintainer merges ([GOVERNANCE.md](GOVERNANCE.md)): a pull request needs green CI and one
+maintainer's approval, and a reference pack also needs a clinical reviewer's sign-off.

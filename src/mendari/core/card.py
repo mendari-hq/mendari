@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Render a pack's Decision Card (Markdown) from its manifest, policy and published benchmark."""
 
 from __future__ import annotations

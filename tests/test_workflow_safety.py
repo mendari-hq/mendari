@@ -1,8 +1,10 @@
+# SPDX-License-Identifier: Apache-2.0
 """The workflows are safe to run on pull requests from forks, once the repository is public: no
 trigger runs a fork's code with secrets or a write token, every token is read-only unless a job
-publishes from a protected environment on a release tag, no expression is pasted into a shell
-script, and a pack directory a pull request names is data, never code. Also: every file has a
-code owner, and the history is scanned for secrets."""
+publishes from a protected environment in the release workflow, which only a person starts, no
+expression is pasted into a shell script, and a pack directory a pull request names is data,
+never code. Nothing is published on a tag push. Also: every file has a code owner, the history
+is scanned for secrets, and every commit of a pull request is signed off."""
 
 from __future__ import annotations
 
@@ -24,12 +26,13 @@ WORKFLOWS = sorted((ROOT / ".github" / "workflows").glob("*.yml"))
 # text a fork controls. None is used, and a new one needs a deliberate change here.
 UNSAFE_TRIGGERS = {"pull_request_target", "workflow_run", "issue_comment", "pull_request_review"}
 ALLOWED_TRIGGERS = {"push", "pull_request", "workflow_dispatch"}
-# The only write permissions: each on a job that publishes from a protected environment, in a
-# workflow that runs only on a release tag.
+# The only write permissions: each on a job that publishes from a protected environment, in the
+# release workflow, which only a manual dispatch starts.
 ALLOWED_WRITES = {
-    ("release.yml", "publish"): ({"id-token"}, "pypi"),
-    ("images.yml", "image"): ({"packages"}, "ghcr"),
+    ("release.yml", "publish-pypi"): ({"id-token"}, "pypi"),
+    ("release.yml", "publish-images"): ({"packages"}, "ghcr"),
 }
+RELEASE = ROOT / ".github" / "workflows" / "release.yml"
 SECRET = re.compile(r"\$\{\{[^}]*\bsecrets\.(\w+)")
 SAME_REPOSITORY = "github.event.pull_request.head.repo.full_name == github.repository"
 
@@ -76,8 +79,84 @@ def test_tokens_are_read_only_unless_a_protected_release_job_publishes(path: Pat
         allowed, environment = ALLOWED_WRITES.get((path.name, name), (set(), None))
         assert writes <= allowed, f"{path.name}:{name} writes {writes - allowed}"
         assert job.get("environment") == environment, f"{path.name}:{name} needs its environment"
-        triggers = _triggers(workflow)
-        assert set(triggers) == {"push"} and set(triggers["push"]) == {"tags"}, path.name
+        assert set(_triggers(workflow)) == {"workflow_dispatch"}, path.name
+
+
+@pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.name)
+def test_nothing_starts_on_a_tag_push(path: Path) -> None:
+    push = _triggers(_workflow(path)).get("push") or {}
+    assert "tags" not in push and "tags-ignore" not in push, path.name
+
+
+def test_a_release_publishes_only_by_hand_after_its_build_from_a_guarded_environment() -> None:
+    release = _workflow(RELEASE)
+    assert set(_triggers(release)) == {"workflow_dispatch"}
+    inputs = _triggers(release)["workflow_dispatch"]["inputs"]
+    # No tag input: the run itself is on the tag (its `github.ref`, which the environments' `v*`
+    # rule checks), and every job checks out that run's one commit.
+    assert set(inputs) == {"publish"}
+    assert inputs["publish"] == {**inputs["publish"], "type": "boolean", "default": False}
+    jobs = release["jobs"]
+    checkouts = [
+        step["with"]
+        for job in jobs.values()
+        for step in job["steps"]
+        if step.get("uses", "").startswith("actions/checkout@")
+    ]
+    assert len(checkouts) == len(jobs)
+    assert all(checkout["ref"] == "${{ github.sha }}" for checkout in checkouts)
+    assert "inputs.tag" not in RELEASE.read_text()
+    publishing = {name for name, job in jobs.items() if _writes(job.get("permissions"))}
+    assert publishing == {"publish-pypi", "publish-images"}
+    for name in publishing:
+        job = jobs[name]
+        assert set(job["needs"]) == {"build", "images"}, name
+        assert job["if"] == "inputs.publish && !github.event.repository.private", name
+        steps = job["steps"]
+        guard = next(i for i, step in enumerate(steps) if "check_release.py" in step.get("run", ""))
+        assert (
+            steps[guard]["run"]
+            == f"python3 scripts/check_release.py environment {job['environment']}"
+        )
+        assert steps[guard]["env"] == {"GH_TOKEN": "${{ github.token }}"}
+        # Only the checkout comes before the guard: nothing is downloaded or pushed until it passes.
+        assert [step["uses"].split("@")[0] for step in steps[:guard]] == ["actions/checkout"], name
+    build_steps = jobs["build"]["steps"]
+    first = next(step for step in build_steps if "run" in step)
+    # The run's ref and the version are checked first, before anything is built.
+    assert first["run"] == 'python3 scripts/check_release.py version "$REF"'
+    assert first["env"] == {"REF": "${{ github.ref }}"}
+    build = [step.get("run", "") for step in build_steps]
+    assert any("uv run pytest" in run for run in build)
+    assert any("check_sdist.py" in run and "check_excluded.py" in run for run in build)
+    images = "\n".join(step.get("run", "") for step in jobs["images"]["steps"])
+    assert "mendari test" in images and 'check_excluded.py --image "$image"' in images
+    assert jobs["images"]["needs"] == "build"
+    pushed = "\n".join(step.get("run", "") for step in jobs["publish-images"]["steps"])
+    assert "docker load" in pushed and "docker build" not in pushed  # the tested image, unrebuilt
+
+
+def test_ci_checks_what_would_be_published_for_excluded_paths() -> None:
+    ci = _workflow(ROOT / ".github" / "workflows" / "ci.yml")["jobs"]
+
+    def runs(job: str) -> str:
+        return "\n".join(step.get("run", "") for step in ci[job]["steps"])
+
+    assert "check_excluded.py /tmp/dist/mendari-*.tar.gz /tmp/dist/*.whl" in runs("hub-e2e")
+    assert "check_excluded.py site" in runs("docs")
+    assert "check_excluded.py --image mendari-engine:ci" in runs("docker")
+
+
+def test_every_commit_of_a_pull_request_is_signed_off() -> None:
+    dco = _workflow(ROOT / ".github" / "workflows" / "ci.yml")["jobs"]["dco"]
+    assert dco["if"] == "github.event_name == 'pull_request'"
+    assert dco["steps"][0]["with"]["fetch-depth"] == 0  # the pull request's whole range
+    (check,) = [step for step in dco["steps"] if "run" in step]
+    assert check["env"] == {
+        "BASE": "${{ github.event.pull_request.base.sha }}",
+        "HEAD": "${{ github.event.pull_request.head.sha }}",
+    }
+    assert check["run"] == 'python3 scripts/check_dco.py --base "$BASE" --head "$HEAD"'
 
 
 @pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.name)

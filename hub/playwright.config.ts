@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { defineConfig } from "@playwright/test";
 
 // The site against a running registry that holds the five reference packs (REGISTRY_URL, seeded

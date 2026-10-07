@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The result in words (LP-05b): Try it's result shows the pack's names, never its codes; each code
 is one click away ("Show codes"), since a pack's names are its author's claim; the engine's detail
 (probabilities, providers, thresholds, the reasons as the engine gave them) is in the decision

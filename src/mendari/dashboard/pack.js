@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Pack-generic rendering: inputs, criteria tables, providers and what labels lead to.
 
 import { chartHtml } from "./charts.js";

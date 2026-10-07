@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Community packs in a real browser (plan B3): the picker groups packs by where they come from
 and opens on a maintained one, and every view that shows a community pack says "Community · not
 clinically reviewed", readably in both themes. Run with `uv run pytest -m browser`."""

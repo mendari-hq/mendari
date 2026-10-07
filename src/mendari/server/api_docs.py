@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """What `/docs/reference` and `/openapi.json` say about this deployment.
 
 The OpenAPI document is generated from the routes; this adds what generation cannot know: a

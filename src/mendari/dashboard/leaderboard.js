@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Provider comparison: the safety-first leaderboard, cost against accuracy, per-check accuracy.
 
 import { chartHtml } from "./charts.js";

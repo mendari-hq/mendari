@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """What every surface says of a pack's status, and what a person reads instead of its keys.
 
 The status line is derived from the manifest's `card.provenance`, never written by a pack.

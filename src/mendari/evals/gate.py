@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The eval gate for pack changes: no merge that regresses a pack's critical metrics.
 
 A pull request that touches a pack evaluates it on its benchmark dataset and compares the

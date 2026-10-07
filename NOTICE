@@ -1,0 +1,60 @@
+Mendari
+Copyright 2026 The Mendari authors
+
+Licensed under the Apache License, Version 2.0 (LICENSE).
+
+This product includes the following third-party material:
+
+Swagger UI 5.33.0
+  src/mendari/dashboard/vendor/swagger-ui/5.33.0/: the API reference (/docs/reference)
+  Licence: Apache License 2.0.
+  swagger-ui
+  Copyright 2020-2021 SmartBear Software Inc.
+  Its bundle's own notices, for the code it bundles (MIT, BSD-3-Clause, and Apache-2.0 or MPL-2.0): swagger-ui-bundle.js.LICENSE.txt beside it.
+
+Lucide icons
+  the SVG symbols in src/mendari/dashboard/index.html and docs.html
+  Licence: ISC License; portions from Feather, MIT License.
+  Copyright (c) for portions of Lucide are held by Cole Bemis 2013-2022 as part of Feather (MIT).
+  All other copyright (c) for Lucide are held by Lucide Contributors 2022.
+  The licences in full: src/mendari/dashboard/LICENSE-lucide.txt.
+
+HL7 FHIR R4 and US Core 6.1.0
+  src/mendari/standards/fhir_r4_structure.json and us_core_6_1_0.json, derived from the published specifications by scripts/fhir_r4_schema.py and scripts/us_core_subset.py
+  Licence: CC0 1.0 (HL7 International's FHIR specifications).
+  HL7 and FHIR are registered trademarks of Health Level Seven International.
+
+LOINC
+  LOINC codes in the synthetic reference packs and datasets (packs/, datasets/)
+  Licence: the LOINC License (https://loinc.org/license).
+  This material contains content from LOINC® (http://loinc.org). LOINC is copyright © 1995-2026,
+  Regenstrief Institute, Inc. and the Logical Observation Identifiers Names and Codes (LOINC)
+  Committee and is available at no cost under the license at http://loinc.org/license. LOINC® is a
+  registered United States trademark of Regenstrief Institute, Inc.
+
+SNOMED CT
+  SNOMED CT codes in synthetic examples (packs/clinical-trial-prescreener, src/mendari/sandbox)
+  Licence: SNOMED International's licence terms.
+  SNOMED and SNOMED CT are registered trademarks of SNOMED International.
+
+CPT
+  CPT codes in the synthetic prior-authorization reference pack and its dataset (packs/prior-auth-preflight, datasets/)
+  Licence: the American Medical Association's terms.
+  CPT is a registered trademark of the American Medical Association. CPT codes and descriptions are copyright the American Medical Association.
+
+ICD-10-CM
+  ICD-10-CM codes in the synthetic reference packs and datasets
+  Licence: public domain (U.S. National Center for Health Statistics).
+
+X12 code values
+  the Da Vinci PAS mapping (src/mendari/standards/pas.py)
+  Licence: X12's terms.
+  X12 is a registered trademark of X12.
+
+The source repository also carries, in no package:
+
+axe-core 4.14.0
+  tests/browser/vendor/axe-core/4.14.0/: the browser tests' accessibility checks
+  Licence: Mozilla Public License 2.0.
+  Copyright (c) Deque Systems, Inc.
+  Its third-party notices: LICENSE-3RD-PARTY.txt beside it.

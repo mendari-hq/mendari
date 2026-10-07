@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """API keys in the store (core/audit.py, ADR-0004): machine roles, scopes, expiry, legacy keys
 and the chain, on SQLite and Postgres."""
 

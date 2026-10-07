@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The scripted v0.6 pilot (sandbox/pilot_check.py). The pilot itself runs against a real OpenID
 Connect provider in the CI job `pilot-check`."""
 

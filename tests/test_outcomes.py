@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Downstream outcomes (`POST /api/audit/{id}/outcome`, `AuditStore.record_outcome`): the source
 is a system identifier, the recorder is whoever called, and the label is one of the decision's
 question's labels. Everything recorded is chained for good and exported in FHIR, so nothing a

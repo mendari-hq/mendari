@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Push, pull, search and Decision.from_hub (hub/client.py) against a registry served over HTTP."""
 
 from __future__ import annotations

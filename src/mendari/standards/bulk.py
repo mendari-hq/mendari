@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Bulk FHIR (Bulk Data Access 2.0) `$export` into local-validation datasets.
 
 `export` asks a FHIR server for a patient-level or group export, polls the status URL (honouring

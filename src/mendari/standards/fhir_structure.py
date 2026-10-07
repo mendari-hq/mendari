@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The structural R4 gate: is this FHIR R4 JSON at all, before any profile is checked?
 
 The rules are HL7's R4 JSON Schema (`fhir_r4_structure.json`, generated and patched by

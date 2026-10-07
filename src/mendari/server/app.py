@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """HTTP surface: REST decisions, FHIR in/out, CDS Hooks, review queue, audit, evals, dashboard.
 
 v0.1 has no authentication of its own and is meant for synthetic data only. Locally it binds

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """FHIR R4 adapter: map resources onto a pack's input, and a decision onto a FHIR Task.
 
 Mappings are declarative (``fhir/mapping.yaml`` in the pack) so that clinical informaticists

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Plain-text rendering of evaluation reports and comparisons for the terminal."""
 
 from __future__ import annotations

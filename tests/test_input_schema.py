@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """A pack's input schema is self-contained, and checking an input never leaves the pack
 (core/input_schema.py)."""
 

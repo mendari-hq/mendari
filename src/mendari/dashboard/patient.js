@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // This patient: opened by a SMART on FHIR launch from the EHR. The patient's banner, then the
 // resources the current pack decides about (their messages, their referrals), each decided on
 // request, with the decision shown in place (and, for those who may read the audit trail, one

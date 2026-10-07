@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """SMART Backend Services (server/backend_services.py, ADR-0004): clients, the token endpoint,
 access tokens and discovery, on SQLite and Postgres. Synthetic keys and data only."""
 

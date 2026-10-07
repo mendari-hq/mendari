@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """AI Guard: check an LLM's draft reply before it reaches a patient.
 
 A pack with a `guard` section (spec 0.2) names the input field holding the draft and the

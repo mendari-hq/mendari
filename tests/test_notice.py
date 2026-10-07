@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The notice (mendari.notices): one text on every surface Mendari serves, and an acknowledgement
 a signed-in person gives before deciding, chained once per notice version."""
 

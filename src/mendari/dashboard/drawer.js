@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // The drawer: one dialog at a time beside the page (full screen on phones).
 
 import { esc, icon, reducedMotion } from "./ui.js";

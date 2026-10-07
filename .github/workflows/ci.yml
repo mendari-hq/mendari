@@ -285,10 +285,12 @@ jobs:
           uv run python scripts/hub_seed.py --registry http://127.0.0.1:8100
       - name: Build the sdist, then the wheel from it; the sdist holds only the build inputs
         # PyPI files can never be replaced: notes, agent and CI configuration, deploy templates
-        # and the websites must not reach a release (scripts/check_sdist.py).
+        # and the websites must not reach a release (scripts/check_sdist.py), nor notes, plans,
+        # agent or CI files at any depth in either package (scripts/check_excluded.py).
         run: |
           uv build --out-dir /tmp/dist
           uv run python scripts/check_sdist.py /tmp/dist/mendari-*.tar.gz
+          python3 scripts/check_excluded.py /tmp/dist/mendari-*.tar.gz /tmp/dist/*.whl
       - name: A clean virtual environment installs mendari, pulls a pack and tests it
         env:
           HOME: /tmp/clean-home
@@ -419,6 +421,22 @@ jobs:
           docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
           git /repo --config /repo/.gitleaks.toml --redact --no-banner --exit-code 1
 
+  dco:
+    # Every commit a pull request brings is signed off by its author (Developer Certificate of
+    # Origin 1.1, CONTRIBUTING.md). Merges, named bots and history before the rule are exempt.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Every commit is signed off
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: python3 scripts/check_dco.py --base "$BASE" --head "$HEAD"
+
   docs:
     # v1.0: the documentation site (mkdocs.yml, every page in docs/) builds with no broken
     # link, anchor or page left out of the navigation.
@@ -433,6 +451,8 @@ jobs:
           python-version: "3.12"
       - run: uv sync --locked --group docs
       - run: uv run mkdocs build --strict
+      - name: The site holds no notes, plans, agent or CI files
+        run: python3 scripts/check_excluded.py site
 
   quickstart:
     # The v1.0 exit: a new user goes from the README to their own local validation in under 10
@@ -496,6 +516,13 @@ jobs:
         with:
           persist-credentials: false
       - run: docker build -t mendari-engine:ci .
+      - name: The image holds no notes, plans, agent or CI files, and carries NOTICE
+        run: |
+          python3 scripts/check_excluded.py --image mendari-engine:ci
+          docker run --rm mendari-engine:ci python -c "
+          from importlib.metadata import files
+          assert any(str(f).endswith('licenses/NOTICE') for f in files('mendari') or []), 'no NOTICE'
+          "
       - run: docker run --rm mendari-engine:ci mendari test mendari/patient-inbox-router
       - run: docker run --rm mendari-engine:ci mendari test mendari/clinical-trial-prescreener
       - run: docker run --rm mendari-engine:ci mendari test mendari/referral-router

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """PHI mode: how a deployment keeps decision inputs ($MENDARI_PHI_MODE).
 
 - `off` (default): as before. A pack's `audit.store_input` decides whether the input is kept

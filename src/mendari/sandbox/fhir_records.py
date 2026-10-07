@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Synthetic cases as US Core 6.1.0 FHIR resources, for the sandbox FHIR server.
 
 Each builder turns one local-site dataset record into transaction entries tagged as synthetic

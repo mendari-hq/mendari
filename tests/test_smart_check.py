@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """`mendari smart check <base>` (server/smart_check.py) against the fake EHR of test_smart.py:
 what a launch from that base would meet here, before go-live. The real launcher is checked in
 the CI job `sandbox-e2e`."""

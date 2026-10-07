@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The developer landing (/docs) in a real browser: both themes under its strict CSP with nothing
 from another origin, copy buttons that copy and say so, the keyboard path through it, its
 headings, landmarks and names, and a phone's width.

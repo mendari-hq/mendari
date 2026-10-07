@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The AI Guard reference pack and its synthetic data."""
 
 from __future__ import annotations

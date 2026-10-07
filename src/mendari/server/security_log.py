@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The security log: one JSON line per request and per security event, on stdout (ADR-0005).
 
 Vercel keeps stdout as the function's runtime log, and a self-hosted install sends it to the

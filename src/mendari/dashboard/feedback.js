@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Feedback: the page, and the right / wrong controls with the optional right answer.
 
 import { ratingCell } from "./audit.js";

@@ -17,6 +17,15 @@ has no security e-mail address.
 We acknowledge a report within 3 working days and aim to fix critical issues within 14 days. We
 credit reporters who want it, once a fix is released.
 
+**Coordinated disclosure, 90 days.** Please keep a report private until we publish its advisory
+or 90 days have passed since you reported it, whichever comes first. We publish the advisory
+when the fix is released, and by day 90 at the latest, with the known mitigations if no fix is
+ready yet. If a fix is close at day 90 we may ask you for a short extension, which is yours to
+grant; if the issue is being exploited, we may agree with you to disclose sooner.
+
+The same policy is linked from `https://mendari.co/.well-known/security.txt` (RFC 9116), which
+names this reporting form as the only contact.
+
 **In scope:** the engine (`src/mendari`), the dashboard, the registry and Hub client, the Hub
 website (`hub/`), the container images and the deployment templates (`deploy/`).
 

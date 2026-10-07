@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Mendari: package, evaluate, govern and deploy healthcare decisions as Decision Packs.
 
 from mendari import Decision

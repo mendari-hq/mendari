@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Loading placeholders shaped like each view (title, intro, then its stats, cards or rows), so the
 // page keeps its layout while data arrives instead of collapsing to one line and jumping back.
 // Purely visual: the view is marked aria-busy while it loads, and the words say "Loading".

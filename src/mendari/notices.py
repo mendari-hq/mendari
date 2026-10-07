@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """What Mendari is, said once and shown everywhere (the launch plan's notice).
 
 `NOTICE` is stamped into the pages the server serves (the dashboard, the launch view, `/docs` and

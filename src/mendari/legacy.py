@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Mendari was called OpenHealth Hub until 2026-09-30. Deployments configured before the rename
 keep working: a setting under the old `OPENHEALTH_` prefix is read as its `MENDARI_` name (the
 `MENDARI_` name wins when both are set), and a setting that names a reference pack by its old id

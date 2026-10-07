@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Deterministic, auditable pattern rules.
 
 Each label accumulates the weights of the patterns that match; a softmax over the scores gives

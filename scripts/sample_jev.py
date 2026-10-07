@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """A Jev that finds no emergency, for the FHIR samples only: it answers in this process and
 nothing is sent anywhere. The inbox automates a routine message only while a model screens it for
 urgency (its policy's `automation_requires`), and the HL7 validator should see automated

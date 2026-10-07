@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Searches of the audit store, in terms of what the store holds and nothing of FHIR.
 
 `standards/fhir_search.py` turns a FHIR search into a `Query`; `AuditStore.search_decisions`

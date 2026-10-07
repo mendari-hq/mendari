@@ -272,8 +272,9 @@ recommendation, reasons, fallback, decision_id}`.
 
 `docker build .` builds the engine with every pack, installing exactly `uv.lock` on a base image
 pinned by digest. `--build-arg PACK=mendari/referral-router` builds one that serves only that pack
-(`MENDARI_PACKS`). Tagging a release (`v*`) publishes both kinds to GitHub Container Registry
-(workflow `images`), after testing each; nothing is published before that. [`deploy/`](https://github.com/Junebugg1214/mendari/tree/main/deploy) has
+(`MENDARI_PACKS`). A release publishes both kinds to GitHub Container Registry (workflow
+`release`, which only a maintainer starts, never a tag push), exactly as tested; nothing is
+published before that. [`deploy/`](https://github.com/Junebugg1214/mendari/tree/main/deploy) has
 templates for a site's own infrastructure: docker compose on one server and Kubernetes. Both come
 with Postgres, your identity provider, PHI mode and the daily retention and monitoring jobs.
 
@@ -1075,4 +1076,6 @@ docs site go live. That is the owner's decision.
 
 ## License
 
-Apache-2.0. See [LICENSE](https://github.com/Junebugg1214/mendari/blob/main/LICENSE).
+Apache-2.0. See [LICENSE](https://github.com/Junebugg1214/mendari/blob/main/LICENSE), and
+[NOTICE](https://github.com/Junebugg1214/mendari/blob/main/NOTICE) for the third-party material and
+terminology notices. Changes: [CHANGELOG.md](https://github.com/Junebugg1214/mendari/blob/main/CHANGELOG.md).

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Local hub: find Decision Packs on the search path.
 
 Search order: `MENDARI_PACKS_PATH` (os.pathsep-separated), then packs pulled from a registry

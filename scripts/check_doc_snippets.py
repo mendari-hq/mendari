@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Run the API examples (`src/mendari/dashboard/snippets/*.sh`) against a local server (CI job
 `test`, one step).
 

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The Bulk exit check on the sandbox: export -> dataset -> evaluation, compared with evaluating
 the same cases from the dataset file.
 

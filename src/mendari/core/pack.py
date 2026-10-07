@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Loading a Decision Pack directory into a validated, content-addressed `Pack`."""
 
 from __future__ import annotations

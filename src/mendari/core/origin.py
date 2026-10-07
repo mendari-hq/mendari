@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Where a pack comes from, and what that allows it.
 
 A pack's origin is set by where it was found, never by its manifest (`publisher.type` is

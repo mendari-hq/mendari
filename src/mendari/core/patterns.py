@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Regular expressions a pack's author wrote, compiled when the pack loads, and the engine
 that runs them.
 

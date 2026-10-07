@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Generate `tests/fixtures/fhir/r4-search-parameters.json` from the R4 core package.
 
 The standard R4 SearchParameters of the types Mendari searches (Task, AuditEvent, Provenance,

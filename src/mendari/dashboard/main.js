@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Boot: theme, time zone, packs, then the first view. Imports every view so it registers.
 
 import { acknowledgeNotice } from "./notice.js";

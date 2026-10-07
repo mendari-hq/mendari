@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """`POST /fhir/$decide`: a decision as FHIR, through a FHIR operation Mendari defines.
 
 Why a custom, system-level operation and not `PlanDefinition/$apply`: R4's `$apply` resolves

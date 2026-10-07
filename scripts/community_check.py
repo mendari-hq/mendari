@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The community-pack half of the `pack-check` job (workflow `packs`): every pull request runs it.
 
     uv run python scripts/community_check.py --base BASE_SHA --actor AUTHOR --owner NAME \\

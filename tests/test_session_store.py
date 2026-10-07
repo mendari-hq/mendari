@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The session table (`smart_sessions`): pending sign-ins and launches, sessions, and one-time
 claims. Every row is keyed by a digest of its kind and its value, so a value of one kind never
 names a row of another, and every take or delete is scoped to its kind. Both backends (the

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Cascade: members are tried in order, and the first confident answer is accepted.
 
 Built for cost: a cheap local provider answers most cases, and an expensive or remote one is

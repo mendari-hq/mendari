@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The API examples, from one source: `dashboard/snippets/*.sh`.
 
 Each file is a runnable bash script, split into display steps by `# step: <name> — <title>`

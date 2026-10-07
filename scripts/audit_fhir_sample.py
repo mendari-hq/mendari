@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Write a sample of the FHIR audit export for the HL7 validator (CI job `fhir-conformance`).
 
 A throwaway store (in PHI mode `encrypt`) gets synthetic decisions from the inbox pack, its

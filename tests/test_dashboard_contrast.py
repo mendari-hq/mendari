@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The dashboard's colour tokens meet WCAG AA in both themes, and components use only tokens:
 colours, spacing and layers.
 

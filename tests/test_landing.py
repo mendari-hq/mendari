@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The developer landing at /docs (`server/landing.py`, `dashboard/docs.html`): public and static,
 its examples the snippet scripts CI runs, its table of what each call needs built from the route
 rules, and with sign-in on nothing about the deployment beyond its modes."""

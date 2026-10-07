@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """`mendari new`: the template pack validates, passes its tests and evaluates as written, as
 the authoring guide (docs/guides/authoring-a-pack.md) says."""
 

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Provider leaderboard: provider configurations compared on the same datasets.
 
 Each row summarises one evaluation report, i.e. one configuration on one dataset. Reports come

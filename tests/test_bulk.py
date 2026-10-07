@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Bulk FHIR $export into local datasets (standards/bulk.py) against a fake server. The real
 export runs against HAPI in the CI job `sandbox-e2e`."""
 

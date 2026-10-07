@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Write the FHIR resources Mendari produces from FHIR input, for the HL7 validator (CI job
 `fhir-conformance`), which checks them against Mendari's terminology (`--ig`):
 

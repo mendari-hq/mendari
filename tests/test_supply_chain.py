@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The supply chain is pinned (threat model E5): every action by commit SHA, every image by
 digest, every download by checksum, and the image and build backend from known versions. A tag
 can be moved by whoever controls it; a SHA or a digest cannot. These tests keep new workflow
@@ -98,7 +99,8 @@ def _docker_built_tags(script: str) -> set[str]:
 
 def test_the_workflows_and_files_are_there() -> None:
     names = {p.name for p in WORKFLOWS}
-    assert {"ci.yml", "images.yml", "release.yml", "packs.yml"} <= names
+    assert {"ci.yml", "release.yml", "packs.yml"} <= names
+    assert "images.yml" not in names  # images are published by release.yml, after its build
     assert all(p.exists() for p in COMPOSE_FILES)
 
 

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Malformed input and errors: no input crashes a FHIR route, FHIR routes answer errors with an
 OperationOutcome, and no error echoes what the client sent."""
 

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import Link from "next/link";
 import { percent, RISK_WORDS, search, type PackSummary } from "@/lib/registry";
 

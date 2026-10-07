@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The CQL provider (providers/cql.py), the record-to-FHIR converter it sends (standards/
 record_fhir.py) and variant agreement (evals/agreement.py). A fake CQL engine answers here; the CI
 job `cql` runs the trial pack's library on HAPI FHIR's Clinical Reasoning module."""

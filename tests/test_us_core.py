@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """US Core 6.1.0 checks on FHIR inputs (standards/us_core.py) and how decisions use them."""
 
 from __future__ import annotations

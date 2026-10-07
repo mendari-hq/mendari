@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """SMART on FHIR endpoints: the EHR launch, the session, and the patient's work items.
 
 - `GET /smart/launch?iss=&launch=[&pack=]` and `GET /smart/callback` run the launch

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """FHIR search against the store (standards/fhir_search.py, AuditStore.search_*), on SQLite and
 Postgres: what SQL finds is what filtering the rendered resources finds, pages neither repeat nor
 skip, every page is scoped to the organization, and a search never writes."""

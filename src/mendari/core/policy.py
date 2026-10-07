@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Turn provider answers into one of AUTO / HUMAN_REVIEW / ABSTAIN / BLOCK.
 
 Order of evaluation:

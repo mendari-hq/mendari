@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The notice in a real browser (mendari.notices): on every view at every width, outside what a
 drawer makes inert, and Try it asks a signed-in person to acknowledge it before the form."""
 

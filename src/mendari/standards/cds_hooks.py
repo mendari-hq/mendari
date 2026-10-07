@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """CDS Hooks 2.0: expose each pack that declares `cds_hooks` as a CDS service.
 
 The EHR sends the data via `prefetch` (resources or search Bundles), and for order hooks the

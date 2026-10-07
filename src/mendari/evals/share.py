@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """What of an evaluation report a site can share: metrics, never cases.
 
 A shared report (`format: mendari.site-report/1`) is a closed schema, the same on both sides:

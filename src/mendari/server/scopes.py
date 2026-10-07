@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """One scope language for API keys and access tokens (ADR-0004).
 
 - **FHIR reads** use SMART v2 resource scopes for what `/fhir` serves: `system/<Type>.<letters>`,

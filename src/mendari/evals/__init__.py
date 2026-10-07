@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 from mendari.evals.compare import compare
 from mendari.evals.harness import Dataset, evaluate, load_dataset, resolve_dataset
 from mendari.evals.pack_tests import run_pack_tests

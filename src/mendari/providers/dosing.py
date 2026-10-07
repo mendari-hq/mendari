@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Dose arithmetic on free text: does a stated dose go above a medicine's daily maximum?
 
 "Take 1000 mg of acetaminophen every 4 hours" means 6000 mg a day. Working that out is

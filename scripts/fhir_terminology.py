@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Write Mendari's terminology (CodeSystems and NamingSystems) for the HL7 validator (CI job
 `fhir-conformance`), one file per resource, as the server serves them for the packs installed
 here (the latest version of each), plus the sandbox's experimental systems, which are never
