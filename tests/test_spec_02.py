@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import itertools
 import random
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -492,3 +493,55 @@ def test_decisions_list_the_criteria_that_decided() -> None:
     assert not any(
         reason.startswith(("not_eligible", "needs_review")) for reason in candidate.reasons
     )
+
+
+# -- licence and code systems (LP-14) -----------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "licence",
+    ["Apache-2.0", "MIT OR Apache-2.0", "(MIT AND BSD-3-Clause)", "LicenseRef-site-terms"],
+)
+def test_a_licence_is_an_spdx_expression(licence: str) -> None:
+    PackManifest.model_validate(manifest_dict() | {"license": licence})
+
+
+@pytest.mark.parametrize("licence", ["Apache 2.0", "apache license", "MIT OR", "(MIT", "", "AND"])
+def test_a_licence_that_is_not_an_spdx_expression_is_refused(licence: str) -> None:
+    with pytest.raises(ValidationError, match="SPDX license expression"):
+        PackManifest.model_validate(manifest_dict() | {"license": licence})
+
+
+def test_a_licensed_code_system_needs_its_licence_terms() -> None:
+    snomed = {"url": "http://snomed.info/sct", "name": "SNOMED CT"}
+    for url in ("http://snomed.info/sct", "urn:oid:2.16.840.1.113883.6.96",
+                "http://www.ama-assn.org/go/cpt", "urn:oid:2.16.840.1.113883.6.12"):  # fmt: skip
+        with pytest.raises(ValidationError, match="whose codes are licensed"):
+            PackManifest.model_validate(manifest_dict() | {"code_systems": [snomed | {"url": url}]})
+    noted = snomed | {"licence_note": "Used in a SNOMED International member country."}
+    free = {"url": "http://loinc.org", "name": "LOINC"}
+    manifest = PackManifest.model_validate(manifest_dict() | {"code_systems": [noted, free]})
+    assert [use.url for use in manifest.code_systems] == [
+        "http://snomed.info/sct",
+        "http://loinc.org",
+    ]
+    with pytest.raises(ValidationError, match="more than once"):
+        PackManifest.model_validate(manifest_dict() | {"code_systems": [free, free]})
+    with pytest.raises(ValidationError):
+        PackManifest.model_validate(manifest_dict() | {"code_systems": [free | {"url": "loinc"}]})
+
+
+def test_a_pack_whose_files_name_a_licensed_system_must_declare_it(tmp_path: Path) -> None:
+    root = tmp_path / "pack"
+    shutil.copytree(TRIAL_MINI, root)
+    data = root / "logic" / "codes.json"
+    data.write_text('{"note": "coded as urn:oid:2.16.840.1.113883.6.96"}\n')
+    with pytest.raises(Exception, match=r"logic/codes\.json names SNOMED CT .* declare it"):
+        load_pack(root)
+    manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    manifest["code_systems"] = [
+        {"url": "http://snomed.info/sct", "name": "SNOMED CT", "licence_note": "Member country."}
+    ]
+    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    card = render_card(load_pack(root))
+    assert "- SNOMED CT (`http://snomed.info/sct`). Licence: Member country." in card

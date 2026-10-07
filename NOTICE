@@ -33,14 +33,9 @@ LOINC
   registered United States trademark of Regenstrief Institute, Inc.
 
 SNOMED CT
-  SNOMED CT codes in synthetic examples (packs/clinical-trial-prescreener, src/mendari/sandbox)
+  SNOMED CT codes in synthetic examples (packs/clinical-trial-prescreener, packs/referral-router, src/mendari/sandbox), each pack declaring it with its terms
   Licence: SNOMED International's licence terms.
   SNOMED and SNOMED CT are registered trademarks of SNOMED International.
-
-CPT
-  CPT codes in the synthetic prior-authorization reference pack and its dataset (packs/prior-auth-preflight, datasets/)
-  Licence: the American Medical Association's terms.
-  CPT is a registered trademark of the American Medical Association. CPT codes and descriptions are copyright the American Medical Association.
 
 ICD-10-CM
   ICD-10-CM codes in the synthetic reference packs and datasets

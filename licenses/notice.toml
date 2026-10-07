@@ -51,17 +51,10 @@ registered United States trademark of Regenstrief Institute, Inc."""
 
 [[material]]
 name = "SNOMED CT"
-where = "SNOMED CT codes in synthetic examples (packs/clinical-trial-prescreener, src/mendari/sandbox)"
+where = "SNOMED CT codes in synthetic examples (packs/clinical-trial-prescreener, packs/referral-router, src/mendari/sandbox), each pack declaring it with its terms"
 licence = "SNOMED International's licence terms"
 distributed = true
 notice = "SNOMED and SNOMED CT are registered trademarks of SNOMED International."
-
-[[material]]
-name = "CPT"
-where = "CPT codes in the synthetic prior-authorization reference pack and its dataset (packs/prior-auth-preflight, datasets/)"
-licence = "the American Medical Association's terms"
-distributed = true
-notice = "CPT is a registered trademark of the American Medical Association. CPT codes and descriptions are copyright the American Medical Association."
 
 [[material]]
 name = "ICD-10-CM"

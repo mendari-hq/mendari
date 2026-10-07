@@ -166,7 +166,7 @@ behaviour.
   retired the deployed key; 1 medium; 5 low) and a focused check (4 low), all fixed; refuted
   suggestions kept out on purpose (retiring every read key at the start would retire the new key if
   run one step early).
-- [x] **LP-13** Pre-public files and release gates (PR open). `NOTICE` generated from
+- [x] **LP-13** Pre-public files and release gates (#145, merged 2026-10-07). `NOTICE` generated from
   `licenses/notice.toml` by `scripts/build_notice.py` (`--check`): the project's copyright line,
   Swagger UI (its own NOTICE carried), Lucide (its licence file now carries Feather's MIT text),
   HL7 FHIR R4 and US Core, LOINC, SNOMED CT, CPT, ICD-10-CM and X12 notices, and axe-core as
@@ -202,8 +202,35 @@ behaviour.
   image, enforced). Deploy `web/` again (owner) once the repository is public, so security.txt's
   contact works.
 
-**Pre-public:** LP-13 (done above), LP-14 (a redistributable
-prior-auth pack, licence inventory), LP-15 (the docs' promises, the local loop), LP-03 (launch
+- [x] **LP-14** A redistributable reference pack and a licence inventory (PR open). The
+  prior-authorization pack's 15 CPT codes are replaced one for one by fictional codes (`FX101` to
+  `FX903`, `https://mendari.co/fhir/CodeSystem/fictional-procedures`, named "not CPT, never for
+  billing"; a sandbox CodeSystem for the validator) in its logic, mapping, tests, generator, the
+  hand-written documentation-note sets and every test; the pack is 0.2.0 and decides all 1,272
+  examples, datasets and tests exactly as before with the codes swapped (compared case by case).
+  PAS accepts the order's code in CPT (a site's own, under its AMA licence) or the fictional
+  system. Manifest: `license` must be an SPDX expression; `code_systems` (url, name,
+  `licence_note`) lists the systems a pack uses; a licensed one (CPT, SNOMED CT, MedDRA, by url
+  or OID) needs its `licence_note`, and a pack any of whose files names one without it does not
+  load (every spec version; the Decision Card lists them). The trial prescreener and the referral
+  router (0.1.4) declare SNOMED CT with its terms. `scripts/check_licences.py` and
+  `tests/test_licence_inventory.py`: the Python runtime closure (37 packages, walked with
+  importlib.metadata, each checked against uv.lock) and the Hub's 142 production packages, against
+  a permissive allow-list; named exceptions with reasons (certifi MPL-2.0, psycopg LGPL-3.0, sharp's
+  libvips LGPL, caniuse-lite CC-BY-4.0). `tests/test_code_systems.py`: no CPT in any tracked pack,
+  dataset or fixture; a licensed system only where declared or in four US Core fixtures allowed
+  with why. NOTICE drops CPT.
+  **For counsel (not decided here):** whether SNOMED CT codes may stay in two reference packs and
+  four US Core test fixtures (free in member countries, an affiliate licence elsewhere; replacing
+  them means changing two packs' codes, and the US Core fixtures code procedures and referrals in
+  SNOMED CT); whether the LGPL-3.0 PostgreSQL driver needs anything beyond an unmodified,
+  separately installed dependency. **For the owner (conflict with the build prompt):** LP-14 asks
+  to move a copyleft driver to an optional extra; psycopg is a hard dependency because the hosted
+  deployment installs from the lock without extras, so moving it would change how production
+  installs. Kept as is, with a named exception; say if you want the extra (then the Vercel
+  install must name it, checked on a preview first).
+
+**Pre-public:** LP-13 and LP-14 (done above), LP-15 (the docs' promises, the local loop), LP-03 (launch
 gates as a checked file).
 
 **Trust layer:** LP-10 statistics and ledger, LP-11 hidden sets and blind labelling, LP-17

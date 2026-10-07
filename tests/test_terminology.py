@@ -45,6 +45,8 @@ PINNED = {
         "CodeSystem/audit-event": "69760b971e953d00",
         "CodeSystem/sandbox": "8a63d292423bdf66",
         "CodeSystem/message-channel": "0c3b329c01cfcc58",
+        # Added in LP-14, a new url (no earlier content): the prior-auth pack's fictional codes.
+        "CodeSystem/fictional-procedures": "506d396c0a77d1af",
         "NamingSystem/decision-id": "a3ac1c38e9476b4f",
         "NamingSystem/input-hash": "fb7c0678a0c9fdbf",
         "NamingSystem/decision-pack": "677f5f91c8577ec0",
@@ -278,7 +280,8 @@ def test_every_resource_is_well_formed(served: Terminology) -> None:
         assert resource["text"]["div"].startswith('<div xmlns="http://www.w3.org/1999/xhtml">')
         if resource["resourceType"] == "CodeSystem":
             assert resource["caseSensitive"] is True
-            assert resource["experimental"] is (resource["id"] in ("sandbox", "message-channel"))
+            sandbox = ("sandbox", "message-channel", "fictional-procedures")
+            assert resource["experimental"] is (resource["id"] in sandbox)
             for concept in resource["concept"]:
                 assert f"<td>{concept['code']}</td>" in resource["text"]["div"]
 

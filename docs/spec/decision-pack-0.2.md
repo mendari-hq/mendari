@@ -42,7 +42,10 @@ version: 1.2.3                # semantic version, at most 64 characters
 name: Human-readable name
 summary: One or two sentences.
 publisher: {name: ..., type: community | verified | institutional, url: ...}  # self-declared
-license: SPDX identifier
+license: SPDX license expression   # e.g. Apache-2.0, or MIT OR Apache-2.0
+code_systems:                 # optional: the code systems the inputs, rules and data use
+  - {url: http://loinc.org, name: LOINC}
+  - {url: http://snomed.info/sct, name: SNOMED CT, licence_note: ...}  # a licensed one says its terms
 risk: {level: 0-4, category: ..., rationale: ...}
 card:
   intended_use: ...
@@ -87,6 +90,14 @@ Validation rules (all MUST hold):
 - `thresholds.review ≤ thresholds.auto`, both in [0, 1].
 - Packs at risk level ≥ 2 MUST NOT contain policy rules whose outcome is `AUTO`.
 - `version` is a semantic version of at most 64 characters.
+- `license` is an SPDX license expression: identifiers (or `LicenseRef-…`) joined by `AND` and
+  `OR`, an exception after `WITH`, and parentheses. Its syntax is checked, not each identifier
+  against SPDX's list.
+- `code_systems` lists each system once: a `url` (`http(s)://…` or `urn:oid:…`) and a `name`. A
+  code system whose codes are licensed rather than free to redistribute everywhere (CPT,
+  SNOMED CT and MedDRA, by url or OID) MUST have a `licence_note` saying the terms the pack uses it
+  under. A pack any of whose digested files names such a system MUST declare it so, whatever
+  file names it.
 - A YAML file of the pack (manifest, policy, provider configs, tests) that uses anchors has
   at most 1,000,000 nodes and 32,000,000 characters of scalar text, counted as JSON writes them
   (a control character counts six), once every alias is expanded (an alias counts each time it
@@ -606,6 +617,7 @@ of these.
 | A `cql` library's declaration is its first statement (every spec version) | §5 |
 | Every pack pattern (rules patterns, input-schema `pattern`s and `patternProperties` keys) compiles with `re`, at most 2,000 characters, at most 500 per pack, checked at load (every spec version) | §5 |
 | A version of at most 64 characters; YAML using anchors of at most 1,000,000 nodes and 32,000,000 characters as JSON, aliases expanded; YAML numbers of at most 4,300 characters and 4 `:` parts; every file a pack decides or tests with is one its digest hashes, compared on disk, and `evaluation.benchmark` is in `evals/` (every spec version) | §3 |
+| `license` is an SPDX license expression; `code_systems`, and a licensed code system (CPT, SNOMED CT, MedDRA) named anywhere in the pack is declared there with a `licence_note` (every spec version) | §3 |
 | Every behaviour test is a mapping with an `input` mapping, an optional text `name` and an optional `expect` mapping, and is JSON: no date, binary, set, lone surrogate or non-finite number (every spec version) | §10 |
 | No lone surrogate, `!!binary`, `!!set`, `!!omap` or `!!pairs` in a pack's YAML, no lone surrogate or non-finite number in its JSON; a file is used only with the content its digest hashed (every spec version) | §3 |
 | No symbolic link out of a directory pack; a self-contained input schema (local references only, no nested `$schema` or `$id`, no `$dynamicAnchor`, no `format: regex`; every spec version) | §3 |

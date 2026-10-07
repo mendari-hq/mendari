@@ -17,6 +17,7 @@ from mendari.cli import main
 from mendari.core.policy import Outcome
 from mendari.sandbox import synthetic_prior_auth
 from mendari.standards import cds_hooks
+from mendari.standards.pas import FICTIONAL_PROCEDURES
 
 ROOT = Path(__file__).parents[1]
 PACK_DIR = ROOT / "packs" / "prior-auth-preflight"
@@ -120,7 +121,7 @@ def _order(id_: str, code: str) -> dict[str, Any]:
         "id": id_,
         "status": "draft",
         "intent": "order",
-        "code": {"coding": [{"system": "https://mendari.co/fhir/CodeSystem/fictional-procedures", "code": code}]},
+        "code": {"coding": [{"system": FICTIONAL_PROCEDURES, "code": code}]},
         "subject": {"reference": "Patient/p1"},
     }
 
