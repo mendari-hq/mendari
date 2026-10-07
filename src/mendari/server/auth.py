@@ -74,9 +74,16 @@ from urllib.parse import quote, urlencode, urlsplit
 
 from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
-from mendari.core.audit import KEY_DAYS, KEY_MAX_DAYS, MACHINE_ROLES, AuditStore
+from mendari.core.audit import (
+    KEY_DAYS,
+    KEY_MAX_DAYS,
+    KEY_MAX_OVERLAP_HOURS,
+    KEY_OVERLAP_HOURS,
+    MACHINE_ROLES,
+    AuditStore,
+)
 from mendari.errors import AuthError, FhirError, MendariError, ScopeError
 from mendari.server import scopes, security_log, sessions
 from mendari.server.scopes import Grant
@@ -430,6 +437,24 @@ class KeyRequest(BaseModel):
     days: int = Field(default=KEY_DAYS, ge=1, le=KEY_MAX_DAYS, description="Days until it expires.")
 
 
+class RotateKeyRequest(BaseModel):
+    overlap_hours: int = Field(
+        default=KEY_OVERLAP_HOURS,
+        ge=0,
+        le=KEY_MAX_OVERLAP_HOURS,
+        description="Hours the old key keeps working (0: refused at once).",
+    )
+    days: int = Field(
+        default=KEY_DAYS, ge=1, le=KEY_MAX_DAYS, description="Days until the new key expires."
+    )
+
+    @model_validator(mode="after")
+    def _overlap_within_the_new_key(self) -> RotateKeyRequest:
+        if self.overlap_hours > self.days * 24:
+            raise ValueError("overlap_hours is longer than the new key lives")
+        return self
+
+
 class Auth:
     """Resolves the principal of a request and guards every route."""
 
@@ -443,6 +468,7 @@ class Auth:
         ehrs: Mapping[str, Registration] | None = None,
     ):
         self.settings = settings
+        self._replaced_seen: set[str] = set()  # rotated keys already logged in use
         self.store = store
         self.tokens = tokens  # SMART Backend Services is on: access tokens are looked up
         self.lifetime = lifetime or sessions.Lifetime()  # idle and absolute session expiry
@@ -588,6 +614,15 @@ class Auth:
             key = self.store.api_key(credential)  # None too when revoked or expired
             if key is None:
                 raise refused_credential("key")
+            if key["replaced_by"] and key["id"] not in self._replaced_seen:
+                # A rotated key still in its overlap: say once (per instance) that it is used.
+                self._replaced_seen.add(key["id"])
+                security_log.event(
+                    "auth.key.replaced_used",
+                    actor=f"key:{key['id']}",
+                    org=key["org"],
+                    ids=[str(key["id"]), str(key["replaced_by"])],
+                )
             try:
                 grant = None if key["scope"] is None else scopes.parse(key["scope"])
             except ScopeError:  # a scope no longer granted: refuse, never widen
@@ -913,6 +948,45 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
         expires, and when and by whom it was revoked. Never the key."""
         principal: Principal = getattr(request.state, "principal", OPEN)
         return store.api_keys(None if principal.kind == "open" else principal.org)
+
+    @app.post(
+        "/api/auth/keys/{key_id}/rotate",
+        status_code=201,
+        tags=["Sign-in"],
+        summary="Rotate an API key",
+    )
+    def rotate_key(
+        request: Request, key_id: str, body: RotateKeyRequest | None = None
+    ) -> dict[str, Any]:
+        """Replace a key with a new one of the same name, role and scope, expiring after `days`.
+        The old key keeps working for `overlap_hours` (24 unless asked, a week at most, never
+        past its own expiry), then is refused as an expired key is, so a machine can switch
+        without a gap; `replaces` says when it stops. The new key is in this response only.
+        Recorded in the audit chain: the new key's creation (with `replaces`) and the rotation.
+        A leaked key: rotate it with `overlap_hours: 0`, or revoke it. Unknown or another
+        organization's key: `404`; revoked, expired or already replaced: `409` (unless that
+        replacement was revoked: if this answer was lost, revoke the replacement and rotate
+        again); a scope its role no longer allows: `422`."""
+        principal: Principal = getattr(request.state, "principal", OPEN)
+        asked = body or RotateKeyRequest()
+
+        def check_scope(scope: str | None, role: str) -> str | None:
+            return (
+                None if scope is None else scopes.parse(scope, permissions=PERMISSIONS[role]).scope
+            )
+
+        key = store.rotate_api_key(
+            key_id,
+            None if principal.kind == "open" else principal.org,
+            rotated_by=principal.actor,
+            overlap_hours=asked.overlap_hours,
+            days=asked.days,
+            check_scope=check_scope,
+        )
+        security_log.event(
+            "admin.key.rotated", actor=principal.id, org=principal.org, ids=[key_id, str(key["id"])]
+        )
+        return key
 
     @app.delete(
         "/api/auth/keys/{key_id}",

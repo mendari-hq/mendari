@@ -242,6 +242,9 @@ NOT_ON_A_DECISION = {
     "automation.held",
     "automation.lifted",
     "retention.purged",  # a purge's summary (`RETENTION_CHAIN`); each deletion is on its decision
+    "key.rotated",  # an API key's rotation, on the key (LP-09)
+    "phi.rotated",  # a PHI key rotation's batch (`KEYS_CHAIN`)
+    "input_hash.epoch",  # a new input hash key (`KEYS_CHAIN`)
 }
 
 

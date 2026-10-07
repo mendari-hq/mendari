@@ -337,8 +337,11 @@ def cmd_serve(args: argparse.Namespace) -> int:
 def cmd_audit_verify(args: argparse.Namespace) -> int:
     from mendari.core.phi import phi_policy
 
-    # Notes sealed under encrypt are checked with this deployment's key ($MENDARI_PHI_KEY).
-    store = AuditStore(args.db, phi=phi_policy()) if args.notes else AuditStore(args.db)
+    # Notes sealed under encrypt are checked with this deployment's keys; verifying marks
+    # nothing in the database (no key a stray setting holds is recorded as known).
+    store = (
+        AuditStore(args.db, phi=phi_policy(), marks=False) if args.notes else AuditStore(args.db)
+    )
     status = store.verify(notes=args.notes)
     _print_json(status)
     return 0 if status["ok"] else 1
@@ -385,7 +388,8 @@ def _probe(target: str) -> tuple[bool, bool]:
         return True, rows > 0
     import sqlite3
 
-    lite = sqlite3.connect(f"file:{Path(target).resolve()}?mode=ro", uri=True)
+    # as_uri() escapes what a URI would read otherwise ("#", "?", "%", spaces).
+    lite = sqlite3.connect(Path(target).resolve().as_uri() + "?mode=ro", uri=True)
     try:
         names = {
             row[0] for row in lite.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
@@ -411,22 +415,30 @@ def _hold_store(target: str | None, *, serving: bool) -> tuple[AuditStore, str] 
     if target is None:
         print("error: give --db (the server's database) or set DATABASE_URL", file=sys.stderr)
         return None
+    shown = _servers_database(target, used=serving)
+    return None if shown is None else (AuditStore(target), shown)
+
+
+def _servers_database(target: str, *, used: bool) -> str | None:
+    """`target` as shown (no password) when it can be a server's database: it exists, has
+    Mendari's tables (read before anything is created in it) and, with `used`, holds a
+    decision, a deployment or a hold. None, after saying why, when it cannot."""
     shown = _shown(target)
     if not target.startswith(("postgres://", "postgresql://")) and not Path(target).is_file():
         print(f"error: no database at {shown}: give the server's --db", file=sys.stderr)
         return None
     try:
-        mendari, used = _probe(target)
+        mendari, held = _probe(target)
     except Exception as error:
         print(f"error: cannot read {shown} ({type(error).__name__})", file=sys.stderr)
         return None
     if not mendari:
         print(f"error: {shown} is not a Mendari database", file=sys.stderr)
         return None
-    if serving and not used:
+    if used and not held:
         print(f"error: {shown} has never been used: is it the server's?", file=sys.stderr)
         return None
-    return AuditStore(target), shown
+    return shown
 
 
 def _command_line_actor() -> str:
@@ -1020,6 +1032,38 @@ def cmd_phi_purge(args: argparse.Namespace) -> int:
         f"{summary['inputs']} stored input(s) deleted and {summary['notes']} note(s) erased, "
         f"older than {days} days (decisions and chain kept)"
     )
+    return 0
+
+
+def cmd_phi_rotate(args: argparse.Namespace) -> int:
+    """Re-seal under the current PHI key, or (`--check`) show, marking nothing, whether
+    everything opens with it alone. JSON on stdout: key ids and counts, never a key or a value.
+    A database from an older release is still migrated on opening, as by every command."""
+    from mendari.core.phi import phi_policy
+
+    policy = phi_policy()
+    if _servers_database(args.db, used=True) is None:
+        return 1
+    store = AuditStore(args.db, phi=policy, marks=False)  # --check marks nothing
+    if args.check:
+        checked = store.phi_check()
+        print(json.dumps(checked, indent=2))
+        if checked["ready"]:
+            print("ready: everything opens with the current key alone", file=sys.stderr)
+        return 0 if checked["ready"] else 1
+    if not args.to:
+        raise MendariError("give --to <key id>: phi_keys.current in /api/health")
+    rotated = store.rotate_phi(to=args.to, batch=args.batch)
+    print(json.dumps(rotated, indent=2))
+    if rotated["unopenable"]:
+        print(
+            f"{len(rotated['unopenable'])} value(s) no key here opens were left as they are: add "
+            "the key they name to MENDARI_PHI_READ_KEYS, or erase them (mendari phi erase), then "
+            "run again",
+            file=sys.stderr,
+        )
+        return 1
+    print("done: run `mendari phi rotate --check` before dropping the read keys", file=sys.stderr)
     return 0
 
 
@@ -1623,6 +1667,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     purge.add_argument("--yes", action="store_true", help="confirm --days 0")
     purge.set_defaults(handler=cmd_phi_purge)
+    rotate = phi_cmd.add_parser(
+        "rotate", help="re-seal kept inputs and notes under the current PHI key (key rotation)"
+    )
+    rotate.add_argument("--db", default="var/mendari.db", help="SQLite path or postgresql:// URL")
+    rotate.add_argument("--to", help="the current key's id (phi_keys.current in /api/health)")
+    rotate.add_argument("--batch", type=int, default=200, help="values per batch (default 200)")
+    rotate.add_argument(
+        "--check",
+        action="store_true",
+        help="check, marking nothing: does everything open with the current key alone?",
+    )
+    rotate.set_defaults(handler=cmd_phi_rotate)
     phi_erase = phi_cmd.add_parser(
         "erase", help="erase one decision's kept input, evidence and notes, on request"
     )

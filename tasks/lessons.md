@@ -702,3 +702,21 @@ from the other writers of the same database: mark the database itself (`settings
 For each new protection, list every process that can write the store (server, CLI, scripts,
 other deployments) and test the protection from one that does not share the server's settings.
 
+## 2026-10-06 - testing
+
+### What happened
+LP-09's tests rotated the PHI key once and passed; the review found that every second rotation
+by the documented steps was refused, and that the refusal's advice retired the key in use.
+
+### Root cause
+A guard meant for "a rotation left unfinished" was written against the first rotation only; no
+test ran the operation twice, nor with the writes a live system makes between its steps.
+
+### Rule
+For any lifecycle operation (rotate, migrate, retire, re-key), test it run twice in a row, by the
+documented steps, with the writes a live deployment makes between those steps.
+
+### Verification
+The test suite has a "second time" case for each such operation
+(`test_rotations_follow_one_another_by_the_documented_steps`).
+

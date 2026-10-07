@@ -114,28 +114,46 @@ behaviour.
   holds (`list` and `lift` need only Mendari's tables), shows a URL without its password in any
   form, and refuses a digest that database never served; README and the PAS docstring say a
   held decision needs a review.
-- [ ] **LP-08** Hosted data protection, built (PR open; **merge waits for the owner**: once
-  deployed, Production and Preview start only with `MENDARI_PHI_KEY` and
-  `MENDARI_INPUT_HASH_KEY` set, and the daily purge runs only with `CRON_SECRET`; production keys
-  are the owner's). The hosted site runs `encrypt` unless told `hash` and refuses `off` (the
-  root `app.py` marks it hosted even when Vercel hides its system variables); elsewhere sign-in
-  or the EHR launch needs a chosen mode (`off` written out: a synthetic sandbox, with a
-  warning); and a database once opened under `hash` or `encrypt` is marked and never takes
-  plaintext again (a server under `off` refuses to start on it, a decision or note refuses
-  before any provider runs). What a record holds itself (an input kept under `off`; evidence and
-  resources' logical ids on records from before 2026-10-02) is shown only to reviewers and
-  admins, each read chained and logged (`input_read`); the audit list never carries it. One
-  decision's kept input, evidence and notes are erased on request (`mendari phi erase`, admin
-  `POST /api/audit/{id}/erase`; `still_in_chain` says what only retiring the database removes).
-  Retention: `MENDARI_RETENTION_DAYS` (30, 1 to 36500), batches of 500, a chained summary
-  (`retention.purged`) and `last_purge` in health; `mendari phi purge --days 0 --yes`; a Vercel
-  Cron route with `CRON_SECRET`. A test asks every read route as every principal over old and
-  new records (negative controls fail it). Reviews: the adversarial review (2 medium, 5 low),
-  a focused check (5 low), a check of the spec additions (1 medium: a command run off Vercel
-  fell back to `off` on the hosted database, fixed by the protected mark; 3 low) and a check of
-  that fix (3 low), all fixed. Owner question still open: refuse an explicit `off` with sign-in
-  on outside Vercel too (the compose sign-in sandbox relies on it)?
-- [ ] **LP-09** Key rotation.
+- [x] **LP-08** Hosted data protection (#141, merged and deployed 2026-10-06 with LP-04, LP-05a and
+  LP-06, #138 to #140). The deployment's keys are the owner's (set before the merge). A malformed
+  `CRON_SECRET` now turns the purge off with a warning instead of stopping the server. The hosted
+  site runs `encrypt` unless told `hash` and refuses `off` (the root `app.py` marks it hosted even
+  when Vercel hides its system variables); elsewhere sign-in or the EHR launch needs a chosen mode
+  (`off` written out: a synthetic sandbox, with a warning); and a database once opened under `hash`
+  or `encrypt` is marked and never takes plaintext again (a server under `off` refuses to start on
+  it, a decision or note refuses before any provider runs). What a record holds itself (an input
+  kept under `off`; evidence and resources' logical ids on records from before 2026-10-02) is shown
+  only to reviewers and admins, each read chained and logged (`input_read`); the audit list never
+  carries it. One decision's kept input, evidence and notes are erased on request (`mendari phi
+  erase`, admin `POST /api/audit/{id}/erase`; `still_in_chain` says what only retiring the database
+  removes). Retention: `MENDARI_RETENTION_DAYS` (30, 1 to 36500), batches of 500, a chained summary
+  (`retention.purged`) and `last_purge` in health; `mendari phi purge --days 0 --yes`; a Vercel Cron
+  route with `CRON_SECRET`. A test asks every read route as every principal over old and new records
+  (negative controls fail it). Reviews: the adversarial review (2 medium, 5 low), a focused check (5
+  low), a check of the spec additions (1 medium: a command run off Vercel fell back to `off` on the
+  hosted database, fixed by the protected mark; 3 low) and a check of that fix (3 low), all fixed.
+  Owner question still open: refuse an explicit `off` with sign-in on outside Vercel too (the
+  compose sign-in sandbox relies on it)?
+- [x] **LP-09** Key rotation (PR open). The PHI key: a ring, `MENDARI_PHI_KEY` seals and
+  `MENDARI_PHI_READ_KEYS` (up to 4, checked at startup, never shown) only opens; from the first
+  rotation on each token names its key (`v2:<key id>:`; before it, the old format, so a release
+  before LP-09 still reads everything). `mendari phi rotate --to <phi_keys.current>` re-seals
+  inputs, their details and notes in batches, outside the chain lock, with compare-and-set writes
+  and one chained `phi.rotated` per batch; an interrupted run is run again; a value no key opens is
+  listed, never lost. A key a rotation moved values off is retired (a stale deployment on it refuses
+  to seal); a retired key is never a target again. `--check` (marking nothing) opens everything with
+  the current key alone, recomputes input hashes and note commitments, and lists read keys not
+  retired. Every key a deployment held is marked known, so `verify --notes` tells a missing key from
+  an altered note. The input hash key: one chained `input_hash.epoch` per key id; hashes never
+  re-keyed. API keys: `POST /api/auth/keys/{id}/rotate` (same name, role and re-checked scope; the
+  old key works for an overlap, 24 h unless asked, then expires; 404/409/422; a lost answer is
+  recovered by revoking the replacement); every `keys` POST waits for the notice;
+  `admin.key.rotated`, `auth.key.replaced_used`. The runbook in docs/deploying-with-phi.md (reader
+  first, swap, re-seal, check, drop). Reviews: a design review (3 lenses, 17 changes), an
+  adversarial review (1 high: a second rotation by the documented steps was refused and its advice
+  retired the deployed key; 1 medium; 5 low) and a focused check (4 low), all fixed; refuted
+  suggestions kept out on purpose (retiring every read key at the start would retire the new key if
+  run one step early).
 
 **Pre-public:** LP-13 (NOTICE, DCO check, release guards, SPDX), LP-14 (a redistributable
 prior-auth pack, licence inventory), LP-15 (the docs' promises, the local loop), LP-03 (launch

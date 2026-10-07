@@ -645,7 +645,8 @@ out of the map ends that access at once:
 The dashboard then says "Your session ended. Sign in again." and comes back to the same view.
 Machines use **API keys** (`Authorization: Bearer ohk_…`), which signed-in admins
 create in `POST /api/auth/keys` (never a key: managing credentials is people-only). A key is
-shown once, stored hashed and revocable. It has the `viewer` or `service` role, expires (90 days
+shown once, stored hashed, revocable, and rotated with an overlap
+(`POST /api/auth/keys/{id}/rotate`). It has the `viewer` or `service` role, expires (90 days
 by default, 365 at most), and can be narrowed with **scopes**: SMART's `system/Task.rs`,
 `system/AuditEvent.rs`, `system/Provenance.rs`, `system/CodeSystem.rs`, `system/NamingSystem.r`
 or `system/*.rs` for FHIR reads, and `https://mendari.co/fhir/scope/decide` and
@@ -722,7 +723,9 @@ Off Vercel, with sign-in or the EHR launch on, the engine refuses to start until
 chosen; on Vercel the mode is `encrypt` unless set to `hash`, and `off` is refused. A database
 once kept under `hash` or `encrypt` never takes plaintext again. `mendari phi purge` applies `MENDARI_RETENTION_DAYS` (default 30) without breaking the
 chain; on Vercel a daily cron runs it once `CRON_SECRET` is set, and `mendari phi erase` erases
-one decision's kept input on request. Notes (review
+one decision's kept input on request. The PHI key rotates without losing anything
+(`MENDARI_PHI_READ_KEYS`, then `mendari phi rotate`), the input hash key starts a new epoch, and
+API keys rotate with an overlap. Notes (review
 and rating notes, a payer's answer to a prior authorization) follow inputs: they are kept apart
 from the chain, which holds only a salted commitment to each, sealed under `encrypt` and refused
 under `hash`. Retention erases them too, `mendari notes erase` erases one at once, and

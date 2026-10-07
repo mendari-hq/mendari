@@ -287,7 +287,9 @@ From the threat model's residual risks, and the plan's deferred list:
 - **Vercel's own request log** keeps paths with their query strings; credentials are refused in
   URLs for that reason.
 - **Limits run on each instance's clock**, and Vercel's firewall counts per region.
-- **Deferred:** a PHI keyring and re-keying (rotation is "purge, then switch"), database tables
+- **Built since (LP-09):** a PHI key ring and re-keying in batches (`mendari phi rotate`),
+  input hash key epochs, API key rotation with an overlap.
+- **Deferred:** database tables
   for security events (stdout plus the chain instead), in-app limits on reads, signed JWT access
   tokens, JWKS URLs and external authorization servers.
 

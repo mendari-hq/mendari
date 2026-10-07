@@ -18,7 +18,9 @@ import secrets
 import statistics
 import time
 import uuid
+from collections import Counter
 from collections.abc import Callable, Hashable, Iterator, Mapping, Sequence
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -27,11 +29,11 @@ from mendari.core import clock, tenancy
 from mendari.core.db import Backend as _Backend
 from mendari.core.db import Session as _Session
 from mendari.core.db import connect
-from mendari.core.phi import NOTE_AAD, PhiPolicy
+from mendari.core.phi import LEGACY, NOTE_AAD, PhiPolicy, key_id, token_key
 from mendari.core.query import Atom, Page, Query, Within
 from mendari.core.session_seal import SealError, seal, unseal
 from mendari.core.spec import Outcome
-from mendari.errors import MendariError, NoteError, ProviderError, ReviewError
+from mendari.errors import AuthError, MendariError, NoteError, ProviderError, ReviewError
 
 Rating = Literal["up", "down"]
 
@@ -74,6 +76,20 @@ RETENTION_CHAIN = "retention"
 # The `settings` row a database is marked with once a store opens it under PHI mode `hash` or
 # `encrypt` (the first such mode): from then on no store under `off` keeps input text in it.
 PROTECTED = "phi_protected"
+# Key rotation (LP-09). Key events are chained under `KEYS_CHAIN` (`phi.rotated`,
+# `input_hash.epoch`), no decision's. `settings` rows: from the first rotation on, new tokens name
+# their key (`PHI_TOKENS_V2`); the key the last rotation re-sealed under (`ROTATION_TARGET`);
+# each key a rotation moved values off (`RETIRED` + its id), which then seals nothing more here;
+# each PHI key a deployment ever held (`KNOWN` + its id), so a value naming another was altered;
+# and each input hash key's epoch (`HASH_EPOCH` + its id: since when).
+KEYS_CHAIN = "keys"
+PHI_TOKENS_V2 = "phi_tokens_v2"
+ROTATION_TARGET = "phi_key_target"
+RETIRED = "phi_key_retired:"
+KNOWN = "phi_key_known:"
+HASH_EPOCH = "hash_epoch:"
+ROTATE_BATCH = 200  # values a rotation re-seals per batch (one chained event each)
+CHECK_FAILURES_SHOWN = 50
 # Rows per insert when chaining several events at once (`_append_many`): a page is at most 500.
 _APPEND_BATCH = 500
 
@@ -191,7 +207,8 @@ CREATE TABLE IF NOT EXISTS api_keys (
     revoked_at  TEXT,
     scopes      TEXT,
     expires_at  TEXT,
-    revoked_by  TEXT
+    revoked_by  TEXT,
+    replaced_by TEXT
 );
 CREATE TABLE IF NOT EXISTS capability_versions (
     environment  TEXT NOT NULL,
@@ -271,6 +288,7 @@ _ADDED_COLUMNS = (
     ("api_keys", "scopes", "TEXT"),
     ("api_keys", "expires_at", "TEXT"),
     ("api_keys", "revoked_by", "TEXT"),
+    ("api_keys", "replaced_by", "TEXT"),  # a rotated key's replacement (LP-09)
     # What a record leaves out beside its kept input, sealed (Phase 4b): each answer's evidence.
     # NULL: none, or a row from before.
     ("decision_inputs", "details", "TEXT"),
@@ -281,6 +299,9 @@ _ADDED_COLUMNS = (
 MACHINE_ROLES = ("viewer", "service")
 KEY_DAYS = 90
 KEY_MAX_DAYS = 365
+# A rotated key keeps working this many hours (24 unless asked, a week at most), then expires.
+KEY_OVERLAP_HOURS = 24
+KEY_MAX_OVERLAP_HOURS = 168
 LEGACY_KEY_DAYS = 30
 # Expired session-table rows one put deletes (smart_put).
 SESSION_PURGE_BATCH = 100
@@ -296,6 +317,14 @@ _PRIORITY_ORDER = (
 
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="milliseconds")
+
+
+def _mark(db: _Session, name: str, value: str) -> None:
+    """Set a `settings` row unless it is set: the first value stays."""
+    db.all(
+        "INSERT INTO settings (name, value) VALUES (?, ?) ON CONFLICT (name) DO NOTHING",
+        (name, value),
+    )
 
 
 def _later(delta: timedelta) -> str:
@@ -348,12 +377,19 @@ def _supersede_earlier_ratings(db: _Session) -> None:
 
 class AuditStore:
     def __init__(
-        self, target: str | Path, *, migrate_url: str | None = None, phi: PhiPolicy | None = None
+        self,
+        target: str | Path,
+        *,
+        migrate_url: str | None = None,
+        phi: PhiPolicy | None = None,
+        marks: bool = True,
     ):
         """`target` is a SQLite path (or ":memory:") or a postgres:// / postgresql:// URL.
 
         `migrate_url` is an optional direct (unpooled) Postgres URL used only for schema setup.
-        `phi` is how inputs are kept (`core/phi.py`; default: as the pack says).
+        `phi` is how inputs are kept (`core/phi.py`; default: as the pack says). `marks`
+        (default): opening marks the database with this store's PHI mode and keys (`_protected`);
+        a read-only tool passes False and only reads the marks.
         """
         self.phi = phi or PhiPolicy()
         self._db: _Backend = connect(
@@ -366,20 +402,72 @@ class AuditStore:
         self.path = str(target) if self._db.kind == "sqlite" else None
         # environment -> (the CapabilityStatement version served, since when): capability_since
         self._capability_since: dict[str, tuple[str, str]] = {}
-        self.protected = self._protected()
+        self._hash_epoch: str | None = None  # the hash key id this process last recorded under
+        self.protected = self._protected(marks)
 
-    def _protected(self) -> str | None:
+    def _protected(self, marks: bool = True) -> str | None:
         """The PHI mode that first protected this database (`hash` or `encrypt`), marking it now
-        if this store's mode is one; None while only mode `off` has opened it."""
+        (with `marks`) if this store's mode is one; None while only mode `off` has opened it. A
+        store under `encrypt` also marks each key it holds as known, and, with read keys (a
+        rotation under way), that tokens name their key from now on; every store that finds that
+        mark seals so."""
         with self._db.session(exclusive=False) as db:
-            if self.phi.mode != "off":
-                db.all(
-                    "INSERT INTO settings (name, value) VALUES (?, ?) "
-                    "ON CONFLICT (name) DO NOTHING",
-                    (PROTECTED, self.phi.mode),
+            if marks and self.phi.mode != "off":
+                _mark(db, PROTECTED, self.phi.mode)
+            if marks and self.phi.mode == "encrypt":
+                for known in sorted(self.phi.ring_ids):
+                    _mark(db, KNOWN + known, _now())
+                if self.phi.read_keys:
+                    _mark(db, PHI_TOKENS_V2, "1")
+            found = {
+                row["name"]: str(row["value"])
+                for row in db.all(
+                    "SELECT name, value FROM settings WHERE name IN (?, ?)",
+                    (PROTECTED, PHI_TOKENS_V2),
                 )
-            row = db.one("SELECT value FROM settings WHERE name = ?", (PROTECTED,))
-        return None if row is None else str(row["value"])
+            }
+        if PHI_TOKENS_V2 in found and not self.phi.tag_tokens:
+            self.phi = replace(self.phi, tag_tokens=True)
+        return found.get(PROTECTED)
+
+    def ready_to_keep(self) -> None:
+        """Whether this store may keep what a decision brings: not under `off` in a protected
+        database (`refuse_plaintext`), nor under `encrypt` with a key a rotation retired
+        (`_refuse_retired`). The server checks at startup; a decision before any provider
+        runs; each write again, in its own transaction."""
+        self.refuse_plaintext()
+        if self.phi.mode == "encrypt":
+            with self._db.session(exclusive=False) as db:
+                self._refuse_retired(db)
+
+    def _refuse_retired(self, db: _Session) -> None:
+        """Under `encrypt`, nothing is sealed with a key a rotation moved values off: a deployment
+        still on the previous key, once the rotation began, refuses instead of sealing what the
+        rotation would leave behind."""
+        current = key_id(self.phi.key)
+        if db.one("SELECT name FROM settings WHERE name = ?", (RETIRED + current,)):
+            raise MendariError(
+                f"This deployment's PHI key {current} was retired by a key rotation: deploy the "
+                "current MENDARI_PHI_KEY (the retired one belongs in MENDARI_PHI_READ_KEYS)."
+            )
+
+    def _mark_hash_epoch(self, db: _Session) -> str | None:
+        """A new input hash key starts an epoch: the first record hashed under a key id this
+        database has not seen chains `input_hash.epoch` (the key id), once per key, whichever
+        deployments share the database. Old hashes stay as they were, under the key id each
+        names; hashes of two epochs never match, and nothing here tries. The key id, for the
+        caller to remember once its transaction commits (None: already remembered)."""
+        current = key_id(self.phi.hash_key)
+        if self._hash_epoch == current:
+            return None
+        added = db.all(
+            "INSERT INTO settings (name, value) VALUES (?, ?) ON CONFLICT (name) DO NOTHING "
+            "RETURNING name",
+            (HASH_EPOCH + current, _now()),
+        )
+        if added:
+            self._append(db, KEYS_CHAIN, "input_hash.epoch", {"key_id": current})
+        return current
 
     def refuse_plaintext(self) -> None:
         """Mode `off` keeps no input text (an input in its record, a note) in a database a
@@ -434,6 +522,9 @@ class AuditStore:
         evidence = {} if in_record else _take_evidence(record)
         status = "pending" if result.outcome.value in _REVIEWABLE else "not_required"
         with self._db.session(exclusive=True) as db:
+            if keep and self.phi.mode == "encrypt":
+                self._refuse_retired(db)
+            epoch = self._mark_hash_epoch(db) if self.phi.hash_key else None
             db.all(
                 "INSERT INTO decisions (id, created_at, pack_id, pack_version, outcome, "
                 "recommendation, priority, confidence, latency_ms, cost_usd, record, "
@@ -472,6 +563,8 @@ class AuditStore:
                         self.phi.seal_details(result.id, details) if evidence else None,
                     ),
                 )
+        if epoch is not None:  # committed: this process need not look again
+            self._hash_epoch = epoch
 
     def resolve_review(
         self,
@@ -853,6 +946,8 @@ class AuditStore:
         if text is None:
             return None
         self.refuse_plaintext()  # under `off` a note is kept as it is
+        if self.phi.mode == "encrypt":
+            self._refuse_retired(db)
         note_id = note_id or str(uuid.uuid4())
         salt = secrets.token_bytes(32)
         body = {"salt": base64.b64encode(salt).decode(), "text": text}
@@ -1218,6 +1313,315 @@ class AuditStore:
                 db.all(f"DELETE FROM decision_inputs WHERE decision_id IN ({marks})", doomed)
                 self._append_many(db, "input.purged", [(d, purged) for d in doomed])
             total += len(doomed)
+
+    # -- key rotation (LP-09) -------------------------------------------------------------
+    # The PHI key: `rotate_phi` re-seals under the current key what is sealed under another
+    # (kept inputs, their details, notes); `phi_check` proves, read-only, that everything opens
+    # with the current key alone before the read keys are dropped. Chained records are never
+    # touched. The input hash key needs no rotation: each hash names its key (`_mark_hash_epoch`).
+
+    def rotate_phi(self, *, to: str, batch: int = ROTATE_BATCH) -> dict[str, Any]:
+        """Re-seal under the current PHI key every kept input, its details and every note sealed
+        under another key (`mendari phi rotate`). `to` is the current key's id, as the operator
+        read it off `/api/health` (`phi_keys.current`): a run whose key is another refuses, and so
+        does one to a key an earlier rotation retired. Values are read in pages by
+        id, opened with the ring and re-sealed outside the chain lock, then written in a short
+        exclusive session that changes a value only if it is still what was read
+        (compare-and-set) and chains one `phi.rotated` with what it changed; the keys values moved
+        off are marked retired in that session, so nothing seals with them here again. An
+        interrupted run is run again: what is done stays done. A value no key opens is left as
+        it is and listed in `unopenable` (a missing read key, or a value to erase)."""
+        if self.phi.mode != "encrypt":
+            raise MendariError("a PHI key rotation runs under MENDARI_PHI_MODE=encrypt")
+        if batch < 1:
+            raise MendariError("a batch is 1 value or more")
+        current = key_id(self.phi.key)
+        if to != current:
+            raise MendariError(
+                f"this run's MENDARI_PHI_KEY is key {current}, not {to}: run with the key the "
+                "deployment seals with (its id is phi_keys.current in /api/health)"
+            )
+        if not self.protected:
+            raise MendariError("this database was never kept under PHI mode hash or encrypt")
+        with self._db.session(exclusive=True) as db:
+            if db.one("SELECT name FROM settings WHERE name = ?", (RETIRED + to,)):
+                raise MendariError(
+                    f"key {to} was retired by an earlier rotation: make a new key and rotate to "
+                    "it (docs/deploying-with-phi.md, Rotating the keys)"
+                )
+            db.all(
+                "INSERT INTO settings (name, value) VALUES (?, ?) "
+                "ON CONFLICT (name) DO UPDATE SET value = excluded.value",
+                (ROTATION_TARGET, to),
+            )
+            _mark(db, PHI_TOKENS_V2, "1")
+        self.phi = replace(self.phi, tag_tokens=True)
+        summary: dict[str, Any] = {
+            "to": to,
+            "inputs": 0,
+            "details": 0,
+            "notes": 0,
+            "batches": 0,
+            "from": Counter(),
+            "unopenable": [],
+        }
+        prefix = f"v2:{to}:"
+        self._rotate_inputs(prefix, batch, summary)
+        self._rotate_notes(prefix, batch, summary)
+        return {**summary, "from": dict(summary["from"])}
+
+    def _rotate_inputs(self, prefix: str, batch: int, summary: dict[str, Any]) -> None:
+        after = ""
+        while True:
+            with self._db.session(exclusive=False) as db:
+                rows = db.all(
+                    "SELECT decision_id, ciphertext, details FROM decision_inputs "
+                    "WHERE decision_id > ? AND (substr(ciphertext, 1, 20) <> ? "
+                    "OR (details IS NOT NULL AND substr(details, 1, 20) <> ?)) "
+                    "ORDER BY decision_id LIMIT ?",
+                    (after, prefix, prefix, batch),
+                )
+            if not rows:
+                return
+            after = rows[-1]["decision_id"]
+            changes = []
+            for row in rows:
+                decision_id = row["decision_id"]
+                try:
+                    value, opened = self.phi.open("input", row["ciphertext"], decision_id)
+                    froms = [opened]
+                    details = None
+                    if row["details"] is not None:
+                        evidence, by = self.phi.open("details", row["details"], decision_id)
+                        details = self.phi.seal("details", evidence, decision_id)
+                        froms.append(by)
+                except MendariError:
+                    summary["unopenable"].append(
+                        {"kind": "input", "id": decision_id, "key": token_key(row["ciphertext"])}
+                    )
+                    continue
+                cipher = self.phi.seal("input", value, decision_id)
+                changes.append((row, cipher, details, froms))
+            if changes:
+                self._apply_inputs(changes, summary)
+
+    def _apply_inputs(self, changes: list[Any], summary: dict[str, Any]) -> None:
+        moved: Counter[str] = Counter()
+        inputs = details = 0
+        with self._db.session(exclusive=True) as db:
+            for row, cipher, sealed_details, froms in changes:
+                same = "details IS NULL" if row["details"] is None else "details = ?"
+                old = () if row["details"] is None else (row["details"],)
+                done = db.all(
+                    "UPDATE decision_inputs SET ciphertext = ?, details = ? "
+                    f"WHERE decision_id = ? AND ciphertext = ? AND {same} RETURNING decision_id",
+                    (cipher, sealed_details, row["decision_id"], row["ciphertext"], *old),
+                )
+                if done:  # still what was read: neither erased, purged nor re-sealed since
+                    inputs += 1
+                    details += sealed_details is not None
+                    moved.update(froms)
+            if inputs:
+                self._chain_rotation(db, moved, summary["to"], inputs=inputs, details=details)
+        summary["inputs"] += inputs
+        summary["details"] += details
+        summary["from"].update(moved)
+        summary["batches"] += bool(inputs)
+
+    def _rotate_notes(self, prefix: str, batch: int, summary: dict[str, Any]) -> None:
+        after = ""
+        while True:
+            with self._db.session(exclusive=False) as db:
+                rows = db.all(
+                    "SELECT id, decision_id, sealed FROM notes WHERE id > ? AND sealed IS NOT NULL "
+                    "AND substr(sealed, 1, 1) <> '{' AND substr(sealed, 1, 20) <> ? "
+                    "ORDER BY id LIMIT ?",
+                    (after, prefix, batch),
+                )
+            if not rows:
+                return
+            after = rows[-1]["id"]
+            changes = []
+            for row in rows:
+                try:
+                    body, opened = self.phi.open(
+                        "note", row["sealed"], row["id"], row["decision_id"]
+                    )
+                except MendariError:
+                    summary["unopenable"].append(
+                        {"kind": "note", "id": row["id"], "key": token_key(row["sealed"])}
+                    )
+                    continue
+                sealed = self.phi.seal("note", body, row["id"], row["decision_id"])
+                changes.append((row, sealed, opened))
+            if not changes:
+                continue
+            moved: Counter[str] = Counter()
+            notes = 0
+            with self._db.session(exclusive=True) as db:
+                for row, sealed, opened in changes:
+                    done = db.all(
+                        "UPDATE notes SET sealed = ? WHERE id = ? AND sealed = ? RETURNING id",
+                        (sealed, row["id"], row["sealed"]),
+                    )
+                    if done:  # neither erased nor re-sealed since it was read
+                        notes += 1
+                        moved[opened] += 1
+                if notes:
+                    self._chain_rotation(db, moved, summary["to"], notes=notes)
+            summary["notes"] += notes
+            summary["from"].update(moved)
+            summary["batches"] += bool(notes)
+
+    def _chain_rotation(
+        self,
+        db: _Session,
+        moved: Counter[str],
+        to: str,
+        *,
+        inputs: int = 0,
+        details: int = 0,
+        notes: int = 0,
+    ) -> None:
+        """One batch's chained event (`phi.rotated`: key ids and counts, never a key), and the
+        keys it moved values off marked retired."""
+        for retired in moved:
+            if retired != to:
+                _mark(db, RETIRED + retired, _now())
+        payload = {
+            "to": to,
+            "from": dict(sorted(moved.items())),
+            "inputs": inputs,
+            "details": details,
+            "notes": notes,
+        }
+        self._append(db, KEYS_CHAIN, "phi.rotated", payload)
+
+    def phi_check(self, *, batch: int = 500) -> dict[str, Any]:
+        """Reads only (`mendari phi rotate --check`, on a store opened with `marks=False`): whether
+        every sealed value opens with the current key alone, as dropping the read keys
+        requires. Counts sealed values by the key each names (`legacy`: sealed before key
+        ids), with the newest under each other key; opens every kept input, its details and
+        every note with the current key only; recomputes the input hash of each record
+        hashed under the current hash key, and checks each note against the commitment its
+        event chained. Lists the input hash epochs (key id, first and last decision, how
+        many). `ready` only when everything opened and matched."""
+        alone = self.phi.current_only()
+        current = key_id(self.phi.key) if self.phi.key else None
+        hash_now = key_id(self.phi.hash_key) if self.phi.hash_key else None
+        by_key: dict[str, Counter[str]] = {"inputs": Counter(), "notes": Counter()}
+        newest: dict[str, str] = {}
+        failures: list[dict[str, str]] = []
+
+        def seen(kind: str, token: str, created_at: str) -> str:
+            named = token_key(token)
+            by_key[kind][named] += 1
+            if named != current:
+                newest[named] = max(newest.get(named, ""), str(created_at))
+            return named
+
+        after = ""
+        while True:
+            with self._db.session(exclusive=False) as db:
+                rows = db.all(
+                    "SELECT i.decision_id, i.created_at, i.ciphertext, i.details, d.record "
+                    "FROM decision_inputs i LEFT JOIN decisions d ON d.id = i.decision_id "
+                    "WHERE i.decision_id > ? ORDER BY i.decision_id LIMIT ?",
+                    (after, batch),
+                )
+            if not rows:
+                break
+            after = rows[-1]["decision_id"]
+            for row in rows:
+                decision_id = row["decision_id"]
+                named = seen("inputs", row["ciphertext"], row["created_at"])
+                try:
+                    value, _ = alone.open("input", row["ciphertext"], decision_id)
+                    if row["details"] is not None:
+                        seen("inputs", row["details"], row["created_at"])
+                        alone.open("details", row["details"], decision_id)
+                except MendariError:
+                    failures.append({"kind": "input", "id": decision_id, "key": named})
+                    continue
+                hashed = str(json.loads(row["record"] or "{}").get("input_hash") or "")
+                under_current = bool(hash_now) and hashed.startswith(f"hmac-sha256:{hash_now}:")
+                if under_current and hashed != self.phi.input_hash(value):
+                    failures.append({"kind": "input", "id": decision_id, "key": "input_hash"})
+        with self._db.session(exclusive=False) as db:
+            refs = {
+                str(ref["id"]): str(ref.get("sha256"))
+                for row in db.all(
+                    "SELECT payload FROM audit_events WHERE payload LIKE ?", ('%"note_ref"%',)
+                )
+                if isinstance(ref := json.loads(row["payload"]).get("note_ref"), Mapping)
+            }
+        after = ""
+        while True:
+            with self._db.session(exclusive=False) as db:
+                rows = db.all(
+                    "SELECT id, decision_id, created_at, sealed FROM notes WHERE id > ? "
+                    "AND sealed IS NOT NULL AND substr(sealed, 1, 1) <> '{' ORDER BY id LIMIT ?",
+                    (after, batch),
+                )
+            if not rows:
+                break
+            after = rows[-1]["id"]
+            for row in rows:
+                named = seen("notes", row["sealed"], row["created_at"])
+                try:
+                    body, _ = alone.open("note", row["sealed"], row["id"], row["decision_id"])
+                except MendariError:
+                    failures.append({"kind": "note", "id": row["id"], "key": named})
+                    continue
+                salt = base64.b64decode(str(body.get("salt", "")))
+                if (
+                    row["id"] in refs
+                    and _commitment(salt, str(body.get("text"))) != refs[row["id"]]
+                ):
+                    failures.append({"kind": "note", "id": row["id"], "key": "commitment"})
+        with self._db.session(exclusive=False) as db:
+            retired = {
+                str(row["name"])[len(RETIRED) :]
+                for row in db.all("SELECT name FROM settings WHERE name LIKE ?", (RETIRED + "%",))
+            }
+        read = sorted(self.phi.ring_ids - {current})
+        return {
+            "current": current,
+            "read": read,
+            # A read key no rotation moved values off is not retired: a deployment that still
+            # seals with it (built before the swap) would go on doing so; delete those first.
+            "read_not_retired": [key for key in read if key not in retired],
+            "current_retired": current in retired,
+            "by_key": {kind: dict(sorted(counts.items())) for kind, counts in by_key.items()},
+            "newest_not_current": dict(sorted(newest.items())),
+            "failures": len(failures),
+            "failed": failures[:CHECK_FAILURES_SHOWN],
+            "hash_epochs": self._hash_epochs(batch),
+            "ready": not failures and current not in retired,
+        }
+
+    def _hash_epochs(self, batch: int) -> dict[str, dict[str, Any]]:
+        """Each input hash key id the records name (`sha256`: unkeyed), with how many decisions
+        and the first and last one's time."""
+        epochs: dict[str, dict[str, Any]] = {}
+        after = ""
+        while True:
+            with self._db.session(exclusive=False) as db:
+                rows = db.all(
+                    "SELECT id, created_at, record FROM decisions WHERE id > ? ORDER BY id LIMIT ?",
+                    (after, batch),
+                )
+            if not rows:
+                return epochs
+            after = rows[-1]["id"]
+            for row in rows:
+                hashed = str(json.loads(row["record"]).get("input_hash") or "")
+                named = hashed.split(":")[1] if hashed.startswith("hmac-sha256:") else "sha256"
+                epoch = epochs.setdefault(named, {"decisions": 0, "first": None, "last": None})
+                epoch["decisions"] += 1
+                when = str(row["created_at"])
+                epoch["first"] = min(filter(None, (epoch["first"], when)))
+                epoch["last"] = max(filter(None, (epoch["last"], when)))
 
     def query(
         self,
@@ -1764,6 +2168,25 @@ class AuditStore:
     ) -> dict[str, Any]:
         """A new key for a machine; its secret is in the result and nowhere else. `scopes` (the
         caller has checked them, server/scopes.py) narrow the role; None keeps the role's."""
+        with self._db.session(exclusive=True) as db:
+            return self._insert_key(
+                db, name=name, role=role, org=org, created_by=created_by, scopes=scopes, days=days
+            )
+
+    def _insert_key(
+        self,
+        db: _Session,
+        *,
+        name: str,
+        role: str,
+        org: str,
+        created_by: str,
+        scopes: str | None,
+        days: int,
+        replaces: str | None = None,
+    ) -> dict[str, Any]:
+        """Store a new key (hashed) and chain `key.created` (with `replaces` for a rotation's);
+        the key with its secret, which is nowhere else."""
         if role not in MACHINE_ROLES:
             raise ValueError(f"a key's role is one of {MACHINE_ROLES}")
         if not 1 <= days <= KEY_MAX_DAYS:
@@ -1778,25 +2201,102 @@ class AuditStore:
             "created_by": created_by,
             "created_at": _now(),
             "expires_at": _later(timedelta(days=days)),
+            **({"replaces": replaces} if replaces else {}),
         }
-        with self._db.session(exclusive=True) as db:
-            db.all(
-                "INSERT INTO api_keys (id, key_sha256, name, role, org, created_by, created_at, "
-                "scopes, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    key["id"],
-                    _key(secret),
-                    name,
-                    role,
-                    org,
-                    created_by,
-                    key["created_at"],
-                    scopes,
-                    key["expires_at"],
-                ),
-            )
-            self._append(db, f"key:{key['id']}", "key.created", key)
+        db.all(
+            "INSERT INTO api_keys (id, key_sha256, name, role, org, created_by, created_at, "
+            "scopes, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                key["id"],
+                _key(secret),
+                name,
+                role,
+                org,
+                created_by,
+                key["created_at"],
+                scopes,
+                key["expires_at"],
+            ),
+        )
+        self._append(db, f"key:{key['id']}", "key.created", key)
         return {**key, "key": secret}
+
+    def rotate_api_key(
+        self,
+        key_id: str,
+        org: str | None = None,
+        *,
+        rotated_by: str,
+        overlap_hours: int = KEY_OVERLAP_HOURS,
+        days: int = KEY_DAYS,
+        check_scope: Callable[[str | None, str], str | None] = lambda scope, role: scope,
+    ) -> dict[str, Any]:
+        """Replace a key of `org` (any, if None) with a new one of the same name, role,
+        organization and scope (`check_scope` re-checks the scope for the role, as creating a
+        key does; it raises to refuse). The old key keeps working for `overlap_hours` (0 to 168,
+        never past its own expiry nor longer than the new key lives), then is refused as an
+        expired key is. Chained: the new key's `key.created` (with `replaces`), then
+        `key.rotated` on the old one. The new key with its secret, and what it replaces.
+
+        Refused: an unknown key or another organization's (404); a revoked or expired one, one
+        of a role no key holds now, or one already replaced (409), unless its replacement was
+        revoked (the answer carrying it may have been lost)."""
+        if not 0 <= overlap_hours <= KEY_MAX_OVERLAP_HOURS:
+            raise ValueError(f"the overlap is 0 to {KEY_MAX_OVERLAP_HOURS} hours")
+        if not 1 <= days <= KEY_MAX_DAYS:
+            raise ValueError(f"a key lives 1 to {KEY_MAX_DAYS} days")
+        if overlap_hours > days * 24:
+            raise ValueError("the overlap is longer than the new key lives")
+        now = _now()
+        with self._db.session(exclusive=True) as db:
+            row = db.one(
+                "SELECT id, name, role, org, scopes, expires_at, revoked_at, replaced_by "
+                "FROM api_keys WHERE id = ?",
+                (key_id,),
+            )
+            if row is None or (org and row["org"] != org):
+                raise AuthError("no such key", 404)
+            if row["revoked_at"] is not None:
+                raise AuthError("this key is revoked: create a new one", 409)
+            if not row["expires_at"] or row["expires_at"] <= now:
+                raise AuthError("this key has expired: create a new one", 409)
+            if row["role"] not in MACHINE_ROLES:
+                raise AuthError(
+                    f"this key's role, {row['role']}, is not one a key holds now: create a new one",
+                    409,
+                )
+            if row["replaced_by"]:
+                replacement = db.one(
+                    "SELECT revoked_at FROM api_keys WHERE id = ?", (row["replaced_by"],)
+                )
+                if replacement is None or replacement["revoked_at"] is None:
+                    raise AuthError(f"this key was already replaced by {row['replaced_by']}", 409)
+            scope = check_scope(row["scopes"], row["role"])
+            new = self._insert_key(
+                db,
+                name=row["name"],
+                role=row["role"],
+                org=row["org"],
+                created_by=rotated_by,
+                scopes=scope,
+                days=days,
+                replaces=key_id,
+            )
+            until = min(str(row["expires_at"]), _later(timedelta(hours=overlap_hours)))
+            db.all(
+                "UPDATE api_keys SET expires_at = ?, replaced_by = ? WHERE id = ?",
+                (until, new["id"], key_id),
+            )
+            rotated = {
+                "id": key_id,
+                "replaced_by": new["id"],
+                "rotated_by": rotated_by,
+                "expires_at": until,
+                "expires_at_before": row["expires_at"],
+                "overlap_hours": overlap_hours,
+            }
+            self._append(db, f"key:{key_id}", "key.rotated", rotated)
+        return {**new, "replaces": {"id": key_id, "expires_at": until}}
 
     def api_keys(self, org: str | None = None) -> list[dict[str, Any]]:
         """Every key (of `org`, if given), oldest first; never the secret or its hash."""
@@ -1804,7 +2304,8 @@ class AuditStore:
         with self._db.session(exclusive=False) as db:
             return db.all(
                 "SELECT id, name, role, org, scopes AS scope, created_by, created_at, "
-                f"expires_at, revoked_at, revoked_by FROM api_keys {where} ORDER BY created_at",
+                "expires_at, revoked_at, revoked_by, replaced_by "
+                f"FROM api_keys {where} ORDER BY created_at",
                 params,
             )
 
@@ -1813,8 +2314,8 @@ class AuditStore:
         without an expiry is refused too)."""
         with self._db.session(exclusive=False) as db:
             return db.one(
-                "SELECT id, name, role, org, scopes AS scope, expires_at FROM api_keys "
-                "WHERE key_sha256 = ? AND revoked_at IS NULL AND expires_at > ?",
+                "SELECT id, name, role, org, scopes AS scope, expires_at, replaced_by "
+                "FROM api_keys WHERE key_sha256 = ? AND revoked_at IS NULL AND expires_at > ?",
                 (_key(secret), _now()),
             )
 
@@ -2130,18 +2631,29 @@ class AuditStore:
             prev = event["hash"]
         if not notes:
             return {"ok": True, "events": len(events), "head": prev}
-        broken, counts = self._check_notes(events, {row["id"]: row for row in kept})
+        broken, counts, unopenable = self._check_notes(events, {row["id"]: row for row in kept})
         if broken is not None:
             return {"ok": False, "events": len(events), "broken_at": broken, "notes": counts}
+        if unopenable:  # the chain holds; these notes cannot be checked with this ring
+            return {"ok": False, "events": len(events), "notes": counts, "unopenable": unopenable}
         return {"ok": True, "events": len(events), "head": prev, "notes": counts}
 
     def _check_notes(
         self, events: list[dict[str, Any]], kept: Mapping[str, Mapping[str, Any]]
-    ) -> tuple[int | None, dict[str, int]]:
-        """The `seq` of the first event whose note does not match its commitment (or None), and
-        how many notes were checked, found erased, or left unchecked (sealed under a key this
-        deployment does not have). A sealed note that does not open with the key fails."""
+    ) -> tuple[int | None, dict[str, int], dict[str, int]]:
+        """The `seq` of the first event whose note does not match its commitment (or None); how
+        many notes were checked, found erased, or left unchecked (sealed, and this deployment not
+        in mode `encrypt`); and, by the key each names (`legacy`: sealed before key ids), the
+        notes no key of this deployment's ring opens. A note that fails under a key the ring has,
+        by the id it names, was altered: that breaks verification."""
         counts = {"checked": 0, "erased": 0, "unchecked": 0}
+        unopenable: Counter[str] = Counter()
+        with self._db.session(exclusive=False) as db:
+            known = {
+                str(row["name"])[len(KNOWN) :]
+                for row in db.all("SELECT name FROM settings WHERE name LIKE ?", (KNOWN + "%",))
+            }
+        missing = known - self.phi.ring_ids  # keys this database held that this ring lacks
         payloads = [(event, json.loads(event["payload"])) for event in events]
         erased = {p.get("note_id") for e, p in payloads if e["event"] == "note.erased"}
         for event, payload in payloads:
@@ -2153,24 +2665,30 @@ class AuditStore:
                 event["decision_id"],
                 event["event"],
             ):
-                return event["seq"], counts
+                return event["seq"], counts, dict(unopenable)
             if row["sealed"] is None:
                 if ref["id"] not in erased:
-                    return event["seq"], counts
+                    return event["seq"], counts, dict(unopenable)
                 counts["erased"] += 1
                 continue
             try:
                 body = self._note_body(row)
             except MendariError:
-                return event["seq"], counts
+                # Unopenable only for want of a key this database held (a legacy token, if any
+                # is missing); anything else, a forged key id included, was altered.
+                named = token_key(str(row["sealed"]))
+                if not (named in missing or (named == LEGACY and missing)):
+                    return event["seq"], counts, dict(unopenable)
+                unopenable[named] += 1
+                continue
             if body is None:
                 counts["unchecked"] += 1
                 continue
             salt = base64.b64decode(str(body.get("salt", "")))
             if _commitment(salt, str(body.get("text"))) != ref.get("sha256"):
-                return event["seq"], counts
+                return event["seq"], counts, dict(unopenable)
             counts["checked"] += 1
-        return None, counts
+        return None, counts, dict(unopenable)
 
 
 def _decision(db: _Session, decision_id: str) -> dict[str, Any] | None:
