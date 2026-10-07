@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Vercel entrypoint, imported by the root `app.py` shim that Vercel auto-detects.
 
 Configuration comes from the environment:

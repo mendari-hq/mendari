@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Da Vinci PAS (Prior Authorization Support, STU 2.2): a complete request, submitted.
 
 When the Prior Authorization Preflight finds a request complete (`submit_ready`), the practice

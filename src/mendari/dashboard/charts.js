@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Charts: four small SVG primitives (stacked columns, lines, scatter, horizontal bars), no library.
 // Views build a spec, put chartHtml(spec) in the page, then call wireCharts(root).
 //

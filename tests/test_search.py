@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """FHIR search without a store: the parameter table, the parser, date and token semantics,
 cursors and the searchset Bundle (standards/search.py)."""
 

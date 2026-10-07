@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The `/fhir` read and search routes (server/app.py) on SQLite and Postgres: what they serve is
 what the renderers make, under an absolute base; reads carry their version and are never
 conditional; searches take GET and POST forms with hybrid strictness; nothing crosses an

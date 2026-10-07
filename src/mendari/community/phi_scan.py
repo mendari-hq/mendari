@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Text in a pack's data and tests that looks like it came from a real person (warnings).
 
 A community pack's data must be synthetic, and anything merged into a public history stays

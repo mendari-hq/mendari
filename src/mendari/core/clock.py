@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Dates as people see them, in the deployment's time zone (see `settings.display_timezone`).
 
 Stored timestamps stay UTC ISO-8601: the audit hash chain covers them, and APIs and FHIR expect

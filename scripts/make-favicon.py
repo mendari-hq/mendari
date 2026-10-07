@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Regenerate src/mendari/dashboard/favicon.ico from favicon.svg (run after editing the SVG).
 
 The .ico holds 16, 32 and 48 px PNGs rendered by Chromium (the browser tests' dev dependency):

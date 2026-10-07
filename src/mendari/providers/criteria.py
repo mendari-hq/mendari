@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Structured criteria: answers from coded data, dates and numbers, computed in code.
 
 Eligibility-style questions ("HbA1c between 7.0 and 10.5 % in the last 90 days", "on metformin

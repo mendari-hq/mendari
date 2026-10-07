@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """A community pack's patterns run on RE2, which never backtracks (plan B11; core/patterns.py,
 core/re2_syntax.py): its rules and its input schema's `pattern`, `patternProperties` and
 `additionalProperties` (and so `propertyNames`). Every other pack's run on `re`, exactly as

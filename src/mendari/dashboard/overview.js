@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Overview: what is deployed, the numbers people act on, outcome mix and decisions per day.
 
 import { chartHtml, sparkline } from "./charts.js";

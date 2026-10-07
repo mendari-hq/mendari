@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The developer landing at `/docs` (`dashboard/docs.html`, `docs.js`): what Mendari is, a
 quickstart in three calls, FHIR in and out, authentication and links, on one static page.
 

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Malformed pack content is named, never a 500 or a traceback: behaviour tests of the wrong
 shape, strings and values JSON cannot hold anywhere in a pack's YAML or JSON, unreadable or
 malformed provider files, files edited after the load, malformed attestations and dataset lines

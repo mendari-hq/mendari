@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """HTTP for remote providers: HTTPS only, bounded responses, audit-safe error codes.
 
 Remote error bodies are never surfaced (they can echo inputs or credentials); a failure is

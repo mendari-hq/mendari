@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Jev adapter: fast, bounded probabilistic answers to typed questions.
 
 A pack's questions map one-to-one onto Jev questions (instructions + label criteria):

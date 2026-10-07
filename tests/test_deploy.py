@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Per-pack images (MENDARI_PACKS) and the on-prem templates in deploy/."""
 
 from __future__ import annotations

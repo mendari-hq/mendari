@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The scope language for keys and tokens (server/scopes.py, ADR-0004)."""
 
 from __future__ import annotations

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Write samples of the Da Vinci resources Mendari produces, for the HL7 validator (CI job
 `fhir-conformance`), each checked against its implementation guide.
 

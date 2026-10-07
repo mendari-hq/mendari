@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Train a pack's `naive_bayes` variants on its own datasets (`mendari train`)."""
 
 from __future__ import annotations

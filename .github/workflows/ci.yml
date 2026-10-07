@@ -285,10 +285,12 @@ jobs:
           uv run python scripts/hub_seed.py --registry http://127.0.0.1:8100
       - name: Build the sdist, then the wheel from it; the sdist holds only the build inputs
         # PyPI files can never be replaced: notes, agent and CI configuration, deploy templates
-        # and the websites must not reach a release (scripts/check_sdist.py).
+        # and the websites must not reach a release (scripts/check_sdist.py), nor notes, plans,
+        # agent or CI files at any depth in either package (scripts/check_excluded.py).
         run: |
           uv build --out-dir /tmp/dist
           uv run python scripts/check_sdist.py /tmp/dist/mendari-*.tar.gz
+          python3 scripts/check_excluded.py /tmp/dist/mendari-*.tar.gz /tmp/dist/*.whl
       - name: A clean virtual environment installs mendari, pulls a pack and tests it
         env:
           HOME: /tmp/clean-home
@@ -449,6 +451,8 @@ jobs:
           python-version: "3.12"
       - run: uv sync --locked --group docs
       - run: uv run mkdocs build --strict
+      - name: The site holds no notes, plans, agent or CI files
+        run: python3 scripts/check_excluded.py site
 
   quickstart:
     # The v1.0 exit: a new user goes from the README to their own local validation in under 10
@@ -512,6 +516,13 @@ jobs:
         with:
           persist-credentials: false
       - run: docker build -t mendari-engine:ci .
+      - name: The image holds no notes, plans, agent or CI files, and carries NOTICE
+        run: |
+          python3 scripts/check_excluded.py --image mendari-engine:ci
+          docker run --rm mendari-engine:ci python -c "
+          from importlib.metadata import files
+          assert any(str(f).endswith('licenses/NOTICE') for f in files('mendari') or []), 'no NOTICE'
+          "
       - run: docker run --rm mendari-engine:ci mendari test mendari/patient-inbox-router
       - run: docker run --rm mendari-engine:ci mendari test mendari/clinical-trial-prescreener
       - run: docker run --rm mendari-engine:ci mendari test mendari/referral-router

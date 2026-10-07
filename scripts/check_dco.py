@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Every commit a pull request brings is signed off under the Developer Certificate of Origin 1.1
 (CONTRIBUTING.md): its message has a `Signed-off-by:` line naming the commit's author, by e-mail
 (`git commit -s` writes one).

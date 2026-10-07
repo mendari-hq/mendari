@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Browser sessions (server/sessions.py): idle and absolute expiry held in the row's
 `expires_at`, roles worked out on every request, `__Host-` cookie names with the old name read
 for rows from before the release, and sign-ins and EHR launches tied to the browser that

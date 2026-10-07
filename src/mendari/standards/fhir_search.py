@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """FHIR search over what Mendari stores: a parsed search (`search.py`) as the store's own query
 (`core/query.py`), run, and rendered into the resources of one `searchset` page.
 

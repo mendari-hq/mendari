@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Sign-in for organizations: OpenID Connect with the organization's identity provider, roles,
 and API keys for machines.
 

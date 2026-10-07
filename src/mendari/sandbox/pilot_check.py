@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The v0.6 pilot, scripted: an organization runs the inbox router with its own identity provider,
 PHI-safe settings, monitoring and governance approvals (the roadmap's exit check).
 

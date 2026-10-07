@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """What a caller without a credential can make the server do (Phase 4b, stage A): the
 capability statement takes no lock, sign-in fetches the identity provider's configuration once
 an hour and purges a bounded number of rows, public health is three fields and no database

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Evaluations: the sub-views (comparison, report, run, history) and the run confirmation.
 
 import { leaderboardView, wireLeaderboard } from "./leaderboard.js";

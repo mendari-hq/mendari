@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Write the decisions Mendari serves as FHIR Tasks (`standards/task_fhir.py`), and their audit
 trail as served under `/fhir`, for the HL7 validator (CI job `fhir-conformance`), which checks
 them against Mendari's terminology (`--ig`).

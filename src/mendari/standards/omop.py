@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """OMOP CDM 5.4 as pack inputs, for population-level evaluation.
 
 Research networks (OHDSI) keep patient data in the OMOP Common Data Model. This reads a

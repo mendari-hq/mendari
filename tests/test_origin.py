@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Origin checks (server/origin.py): a request another site starts in a browser that holds a
 Mendari cookie (or any browser, in open mode) reaches only public routes and pages, to read;
 HSTS on every host but this machine."""

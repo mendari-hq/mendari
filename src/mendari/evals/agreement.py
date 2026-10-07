@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Do two variants of a provider slot give the same answers? For logic ported from one form to
 another (the trial pack's criteria, written once in YAML and once in CQL), agreement on every
 case is the test that the port is faithful.

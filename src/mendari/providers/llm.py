@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """LLM provider: label probabilities from a chat model, through any OpenAI-compatible API.
 
 By default it calls the Vercel AI Gateway (Claude, open-weight models and others, one API).

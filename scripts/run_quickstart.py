@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Run the README's quickstart as a new user would, and time it (CI job `quickstart`).
 
 The commands are read from the README itself (the ```bash blocks of "## Quickstart" before its

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // The registry API (src/mendari/hub/registry.py), read on the server at request time.
 
 const BASE = (process.env.REGISTRY_URL ?? "http://127.0.0.1:8100").replace(/\/$/, "");

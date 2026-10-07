@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The base of a pull request, read from git: the files a change touches and what a file held
 before it. Paths come NUL-separated (`-z`) and travel only through argv, so a name is never
 split or run, whatever characters it holds."""

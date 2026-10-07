@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Try it: a message form or a record form generated from the input schema; the result.
 
 import { feedbackControls } from "./feedback.js";

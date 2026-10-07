@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Browser sessions: how long they last, what their cookies are called, and the cookie that ties
 a sign-in (or an EHR launch) to the browser that started it. A person's session (`/auth/login`)
 and an EHR launch's (`/smart/launch`) follow the same rules.

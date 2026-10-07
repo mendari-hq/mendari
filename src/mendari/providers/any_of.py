@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Composite provider: several independent providers answer the same questions, and the most
 alarming answer wins.
 

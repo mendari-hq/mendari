@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The provider contract: answer a pack's questions with a probability distribution per question."""
 
 from __future__ import annotations

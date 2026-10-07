@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Generate `src/mendari/standards/us_core_6_1_0.json` from the official FHIR packages.
 
 The in-process US Core check (`mendari.standards.us_core`) reads that file. It holds, for each

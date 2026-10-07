@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """A pack's input schema: self-contained, and checked without reaching outside the pack.
 
 jsonschema resolves a `$ref` it does not find in the document by fetching it: any URL (so the

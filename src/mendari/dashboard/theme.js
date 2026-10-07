@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Theme: System / Light / Dark, set before first paint by index.html and kept in sync here.
 
 import { storageGet, storageSet } from "./ui.js";

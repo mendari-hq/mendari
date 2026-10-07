@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """A mock payer for the sandbox: `Claim/$submit` for Da Vinci PAS requests.
 
 It certifies every well-formed prior-authorization request (X12 306 review action A1) with a

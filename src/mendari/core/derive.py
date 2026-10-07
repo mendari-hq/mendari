@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Derived questions: one answer computed from several others by a decision table.
 
     eligibility:

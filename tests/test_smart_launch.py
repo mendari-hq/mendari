@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The scripted sandbox launch (sandbox/smart_launch.py). The launch itself runs against the real
 compose stack in the CI job `sandbox-e2e`."""
 

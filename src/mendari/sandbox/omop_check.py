@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The OMOP exit check: a dataset written into an OMOP CDM database and read back as pack inputs
 must evaluate exactly like the dataset itself (the same decisions, metrics per question and
 misclassified cases). This is the roadmap's v0.7 check for "OMOP CDM -> pack inputs".

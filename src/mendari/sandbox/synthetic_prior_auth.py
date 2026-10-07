@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Synthetic prior-authorization cases for the Prior Authorization Preflight. Entirely
 fictional: no PHI, and the payers (Acme, Beacon) and their requirements are made up.
 

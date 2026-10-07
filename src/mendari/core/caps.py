@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Caps on what multiplies the work of a community pack's patterns (plan B11).
 
 A community pack's patterns run on RE2 (`core/patterns.py`), which never backtracks: a pattern's

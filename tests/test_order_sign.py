@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """CDS `order-sign`: the orders come in `context.draftOrders`; each referral gets a decision."""
 
 from __future__ import annotations

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Sandbox workflow against a FHIR R4 server (HAPI FHIR in docker compose).
 
 `seed` loads synthetic cases as US Core resources (`fhir_records`): inbox Patients and

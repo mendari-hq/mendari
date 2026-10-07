@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Rate limits on the routes that cost something, shared by every instance (ADR-0005).
 
 Two layers: the edge (Vercel's firewall, or a site's proxy) limits per IP on the routes anyone

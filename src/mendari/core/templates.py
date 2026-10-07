@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Wording templates in packs (FHIR Task text, CDS card summaries).
 
 A template may use `{recommendation}`, `{priority}`, and `{<question>}` for any question of the

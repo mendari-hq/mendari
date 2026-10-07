@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Provider registry. A provider type is any class implementing `Provider.answer`."""
 
 from __future__ import annotations

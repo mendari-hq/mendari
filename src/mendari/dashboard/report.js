@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Evaluation report: stats, reliability, threshold sweep, per label, confusion, subgroups.
 
 import { chartHtml } from "./charts.js";

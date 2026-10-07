@@ -18,7 +18,7 @@ WORKDIR /src
 # Dependencies first, in their own layer: it is rebuilt only when the lock changes.
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --extra server --no-editable --no-install-project
-COPY README.md LICENSE ./
+COPY README.md LICENSE NOTICE ./
 COPY src ./src
 COPY packs ./packs
 COPY datasets ./datasets

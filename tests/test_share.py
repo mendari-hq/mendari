@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Shareable evaluation reports (evals/share.py): metrics leave the site, cases never do.
 
 A shared report is `mendari.site-report/1`, a closed schema the client builds and the registry

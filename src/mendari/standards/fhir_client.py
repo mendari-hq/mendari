@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Outbound FHIR reads, only to servers the deployment allows.
 
 Every call Mendari makes to a FHIR server someone else named goes through `FhirClient`:

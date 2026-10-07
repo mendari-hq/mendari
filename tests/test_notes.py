@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Notes out of the chain (Phase 4b, stage H; ADR-0005 "commit, don't copy").
 
 A review's, a rating's or a payer's free text is kept in `notes`, sealed under PHI mode `encrypt`,

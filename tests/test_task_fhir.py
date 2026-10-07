@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """A decision as a FHIR Task, derived from its record and chain (standards/task_fhir.py)."""
 
 from __future__ import annotations

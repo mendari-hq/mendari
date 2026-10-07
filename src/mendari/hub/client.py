@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The Hub client: log in, push, pull, search.
 
 `pull` never uses a pack it has not verified:

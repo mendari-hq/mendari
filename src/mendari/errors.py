@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Exception hierarchy. Every error raised on purpose by Mendari derives from MendariError."""
 
 

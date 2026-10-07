@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """SMART Backend Services: Mendari's own token endpoint for machines (ADR-0004).
 
 **Off unless a deployment turns it on** (`MENDARI_BACKEND_SERVICES=on`), and then only with

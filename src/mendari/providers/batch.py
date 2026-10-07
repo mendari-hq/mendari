@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Per-decision call batching: remote providers that share an endpoint answer in one call.
 
 Without it, a decision whose router and safety screen both use Jev makes two HTTP calls with

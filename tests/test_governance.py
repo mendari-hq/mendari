@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Governance approvals: a deploying organization lets a level 2-3 pack automate (ADR-0002)."""
 
 from __future__ import annotations

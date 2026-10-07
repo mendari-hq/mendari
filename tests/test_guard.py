@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """AI Guard: release, hold or block an LLM's draft reply."""
 
 from __future__ import annotations

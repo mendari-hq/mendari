@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The runtime: validate input, ask providers, apply policy, emit an auditable result."""
 
 from __future__ import annotations

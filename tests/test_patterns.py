@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """A pack's own patterns are compiled with `re` when it loads (core/patterns.py)."""
 
 from __future__ import annotations

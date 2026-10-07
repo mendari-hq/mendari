@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Organization sign-in, roles and API keys (server/auth.py), against a fake identity provider."""
 
 from __future__ import annotations

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // The developer landing at /docs (docs.html, filled by server/landing.py): the theme toggle, this
 // server's address in the examples, and copy buttons. Everything else is static HTML, so the page
 // reads the same without JavaScript; only the copy buttons stay hidden.

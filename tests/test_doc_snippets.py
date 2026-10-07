@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The API examples have one source, `src/mendari/dashboard/snippets/*.sh` (`server/snippets.py`):
 the README shows their steps verbatim, their bodies are the packs' synthetic examples, and
 `scripts/check_doc_snippets.py` (a CI step) runs them against a local server, in open mode and

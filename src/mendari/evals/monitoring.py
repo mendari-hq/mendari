@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """A deployed pack over time: is it still doing what its benchmark says?
 
 For the last N days of a pack's decisions (for the organization the request acts for):

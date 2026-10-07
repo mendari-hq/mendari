@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """SMART on FHIR EHR launch (App Launch 2.x): OAuth 2 authorization code with PKCE, and OpenID
 Connect for who the user is.
 

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The `dosing` provider: dose arithmetic on free text, in code."""
 
 from __future__ import annotations

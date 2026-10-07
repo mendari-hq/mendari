@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The threat model stays true to the code (docs/security/threat-model.md): every threat has one
 id, the rows run in STRIDE order with numbers in order, and every test a row names as "Checked
 by" exists. Parallel lanes once added rows with the same id; this catches that and a test that

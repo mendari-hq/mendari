@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: Apache-2.0 */
 /* Tokens first (light, then dark); components use tokens only, as the dashboard does. */
 :root {
   --color-bg: #f6f7f9;

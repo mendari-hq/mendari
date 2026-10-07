@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Write NOTICE from licenses/notice.toml: the project, its copyright line, and every third-party
 work the repository carries or its packages bundle, with the licence and the notice each requires.
 

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Mendari's own code systems and identifier systems as FHIR R4 CodeSystem and NamingSystem
 resources, generated from the code and the packs a deployment serves, so they cannot drift from
 what Mendari emits. The server serves them and CI loads them into the HL7 validator

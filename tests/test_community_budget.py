@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """A community pack's patterns share one time budget per decision (`core/patterns.py`).
 
 RE2 is linear and the caps bound how many patterns run and how large they are, but a pack within

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The audit trail as FHIR R4: an AuditEvent per chained event, a Provenance per activity.
 
 - **AuditEvent** for every event in the hash chain (`decision.created`, `review.resolved`,

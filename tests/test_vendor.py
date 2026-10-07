@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The vendored Swagger UI behind /docs/reference (threat model I6, E5): its files are exactly
 the pinned release's, with its license, and an update Dependabot proposes fails here until the
 files are vendored again with `scripts/vendor_docs_ui.py`."""

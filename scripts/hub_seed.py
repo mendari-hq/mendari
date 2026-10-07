@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Publish the five reference packs to a registry (local development, CI, the clean-machine check).
 
 Creates the `mendari` namespace as a verified publisher, a publisher token and a signing key,

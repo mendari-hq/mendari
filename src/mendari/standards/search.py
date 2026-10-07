@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """FHIR R4 search, the parts that know nothing of storage or HTTP: what each type can be searched
 by, the parser, date and token semantics, paging cursors and the `searchset` Bundle.
 

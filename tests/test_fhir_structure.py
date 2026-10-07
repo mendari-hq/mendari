@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The structural R4 gate (standards/fhir_structure.py) and the file it reads.
 
 jsonschema is the oracle: the same derived schema, run by a JSON Schema implementation, must give

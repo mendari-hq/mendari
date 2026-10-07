@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The registry: namespaces, publisher keys, immutable signed pack versions, and search.
 
 - **Namespaces** are owned by publishers. Each has a publisher type (community, verified,

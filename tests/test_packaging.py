@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The source distribution ships only what a source build needs. PyPI files can never be
 replaced, so the include list in pyproject.toml is checked here (fast, no build), and the built
 archive is checked in CI by scripts/check_sdist.py (jobs `hub-e2e` and `release`)."""

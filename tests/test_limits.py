@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Rate limits and per-organization quotas (server/limits.py, ADR-0005), on SQLite and Postgres.
 
 `tests/conftest.py` turns limits off for every other test; each test here turns them on. Synthetic

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """`mendari demo`: the v0.1 story end to end, offline, on synthetic data, in a few seconds."""
 
 from __future__ import annotations

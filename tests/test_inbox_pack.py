@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The Patient Inbox Router's automation gate (policy `automation_requires`): with the keyword
 rules alone in the urgency screen, nothing is automated; with a model beside them, routine
 messages are. On hand-written held-out messages the rules alone caught 4 of 20 emergencies and

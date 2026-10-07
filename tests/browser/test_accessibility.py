@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Accessibility: axe-core (vendored, tests/browser/vendor/axe-core; scripts/vendor_docs_ui.py)
 on every dashboard view, an open record drawer and the developer pages, in both themes, against
 WCAG 2.0, 2.1 and 2.2 A and AA. axe is injected by the test (the pages' own CSP never allows it:

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The API reference (/docs/reference) in a real browser: Swagger UI from vendored files under
 the page's strict CSP, with no request to another origin, and "Try it out" working.
 

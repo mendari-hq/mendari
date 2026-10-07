@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """An EHR launch's rows sealed at rest (core/session_seal.py, ADR-0006, threat I11): the session
 row (the EHR's access token, the patient) under the session cookie, the pending launch (the PKCE
 verifier, the nonce) under the launch's binding cookie. A database reader opens neither; a row

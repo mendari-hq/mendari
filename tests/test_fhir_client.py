@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Outbound FHIR reads under the allow-list (standards/fhir_client.py) and CDS Hooks fetch."""
 
 from __future__ import annotations

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """OMOP CDM as pack inputs (standards/omop.py), the round-trip check and the CLI."""
 
 from __future__ import annotations

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
 # Rebuild the reference packs' derived artifacts from source, deterministically:
 # synthetic data -> trained model -> published benchmark -> Decision Card.
 set -euo pipefail

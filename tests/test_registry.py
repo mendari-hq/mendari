@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The registry service (hub/registry.py), on SQLite and Postgres."""
 
 from __future__ import annotations

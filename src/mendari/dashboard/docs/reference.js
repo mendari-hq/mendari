@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // The API reference at /docs/reference: Swagger UI, vendored (scripts/vendor_docs_ui.py), on this
 // deployment's OpenAPI document. It runs after the deferred bundle, which defines SwaggerUIBundle.
 

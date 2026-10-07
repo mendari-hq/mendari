@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The eval gate for one changed pack (workflow `packs`): its metrics against `main`'s benchmark
 as Markdown for the job summary; exit 1 on a regression (mendari.evals.gate).
 

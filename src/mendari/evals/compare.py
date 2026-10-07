@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Local validation: compare an evaluation on local data with the pack's published benchmark,
 and say *where* performance degrades, not just by how much."""
 

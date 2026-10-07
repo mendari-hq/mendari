@@ -85,7 +85,7 @@ behaviour.
     (`required`, or `off`; off in the test suite as rate limits are). Deferred: a deployment
     data policy (`synthetic`/`phi`) for the badge and the acknowledgement's wording at a PHI
     pilot.
-  - [x] **LP-05b** Plain-language result view and axe-core checks (PR open). Try it's result shows
+  - [x] **LP-05b** Plain-language result view and axe-core checks (#143, merged 2026-10-07). Try it's result shows
     the pack's names (`display`, `names`; else the key as words, as the server spells it), the
     reasons a person reads (a rule's own sentence, a hold's reason, the engine's reasons said
     plainly) and each answer by name; the codes sit beside the names, hidden until "Show codes" (a
@@ -146,7 +146,7 @@ behaviour.
   hosted database, fixed by the protected mark; 3 low) and a check of that fix (3 low), all fixed.
   Owner question still open: refuse an explicit `off` with sign-in on outside Vercel too (the
   compose sign-in sandbox relies on it)?
-- [x] **LP-09** Key rotation (PR open). The PHI key: a ring, `MENDARI_PHI_KEY` seals and
+- [x] **LP-09** Key rotation (#142, merged 2026-10-07). The PHI key: a ring, `MENDARI_PHI_KEY` seals and
   `MENDARI_PHI_READ_KEYS` (up to 4, checked at startup, never shown) only opens; from the first
   rotation on each token names its key (`v2:<key id>:`; before it, the old format, so a release
   before LP-09 still reads everything). `mendari phi rotate --to <phi_keys.current>` re-seals
@@ -166,8 +166,36 @@ behaviour.
   retired the deployed key; 1 medium; 5 low) and a focused check (4 low), all fixed; refuted
   suggestions kept out on purpose (retiring every read key at the start would retire the new key if
   run one step early).
+- [x] **LP-13** Pre-public files and release gates (PR open). `NOTICE` generated from
+  `licenses/notice.toml` by `scripts/build_notice.py` (`--check`): the project's copyright line,
+  Swagger UI (its own NOTICE carried), Lucide (its licence file now carries Feather's MIT text),
+  HL7 FHIR R4 and US Core, LOINC, SNOMED CT, CPT, ICD-10-CM and X12 notices, and axe-core as
+  test-only; it ships in the sdist, the wheel (`.dist-info/licenses`) and the image.
+  `scripts/check_excluded.py` refuses `CLAUDE.md`, `AGENTS.md`, `.claude/`, `tasks/`, `notes/` and
+  `.github/` at any depth in the sdist, the wheel, the docs site and the image (CI `hub-e2e`,
+  `docs`, `docker`; the release build). DCO: CONTRIBUTING says inbound = outbound Apache-2.0, the
+  DCO 1.1 sign-off, how to fix a missing one and who merges; `scripts/check_dco.py` checks every
+  non-merge commit a PR brings (author's address in a `Signed-off-by:`; Dependabot and GitHub
+  Actions exempt; history before `d1b352c3` exempt), run by CI's `dco` job. SECURITY.md: a 90-day
+  coordinated-disclosure window; `web/.well-known/security.txt` (the reporting form, no address;
+  expires 2027-10-01, a test fails 30 days before). Releases: `images.yml` removed; `release.yml`
+  starts only by hand (`workflow_dispatch`: the tag, and `publish`, off by default), checks the tag
+  names the commit and the version is the same in pyproject, `__init__`, uv.lock and the compose
+  tags with its `CHANGELOG.md` section newest, runs the tests, builds and checks the packages,
+  builds, tests and checks the six images and saves them; the publishing jobs need that build, a
+  public repository (job `if`) and, checked through the API before anything else, required
+  reviewers on their environment (failing closed), and push the saved images as tested.
+  `SPDX-License-Identifier: Apache-2.0` on every source file under src/, tests/, scripts/ and hub/
+  (not vendored files or the shown snippets), `tests/test_spdx.py`. Version kept in pyproject and
+  `__init__` with a test across all four places (a dynamic version would change the Vercel build).
+  **Owner decisions, open (the recommended defaults used meanwhile):** the copyright holder
+  ("The Mendari authors" in NOTICE until you name one); publish the existing history or start the
+  public repository from a fresh commit (nothing done: history untouched); whether `tasks/` and
+  `notes/` go public (they stay in the repository but out of every package, the site and the
+  image, enforced). Deploy `web/` again (owner) once the repository is public, so security.txt's
+  contact works.
 
-**Pre-public:** LP-13 (NOTICE, DCO check, release guards, SPDX), LP-14 (a redistributable
+**Pre-public:** LP-13 (done above), LP-14 (a redistributable
 prior-auth pack, licence inventory), LP-15 (the docs' promises, the local loop), LP-03 (launch
 gates as a checked file).
 
@@ -300,7 +328,7 @@ B6/B7 → B8 → B9 → B10).
   docs home. `mendari new --community` also prints the guide's URL.
 - [ ] **B8 (owner, steps below)** Labels (`pack`, `pack:new`, `pack:update`, `needs-clinical-review`,
   `clinical-review:provided`, `risk-level-change`, `patient-safety`, `idea`, `good first pack`);
-  the DCO app; `pack-check` and `DCO` required; a `main` ruleset requiring a code owner's
+  the `dco` check (built in LP-13); `pack-check` and `dco` required; a `main` ruleset requiring a code owner's
   approval, with the admin on the bypass list.
 - [x] **B11 (build, before B9) Safe by construction.** Decided 2026-10-05 after three checks of
   the pattern and name checks each found new ways past them (14 open findings after #129: slow
@@ -465,7 +493,8 @@ build session. A1–A8 come before A9 (making the repository public); A10 and A1
 7. **A11, before any tag.**
    - Settings → **Environments** → New environment `pypi`: Required reviewers: you; Deployment
      branches and tags → Selected branches and tags → add a **tag** rule `v*`. Then the same for
-     `ghcr` (`images.yml` uses it). Check after: both list one reviewer and the `v*` tag rule.
+     `ghcr` (`release.yml` publishes the images from it). Check after: both list one reviewer and
+     the `v*` tag rule. A publishing job refuses to run while its environment has no reviewer.
      (On GitHub Free, protection rules work only once the repository is public.)
    - Settings → **Rules → Rulesets** → New ruleset → **New tag ruleset**: name "release tags",
      Enforcement Active, Bypass list: Repository admin; Target tags: include `v*`; rules:
@@ -475,9 +504,12 @@ build session. A1–A8 come before A9 (making the repository public); A10 and A1
      project name `mendari`, owner `Junebugg1214`, repository `mendari`, workflow
      `release.yml`, environment `pypi`. Check after: it is listed as a pending publisher, and
      the name `mendari` is still free on PyPI.
-8. **Release 0.1.0.** On an up-to-date `main`: `git tag v0.1.0 && git push origin v0.1.0` (the
-   tag must equal the package version; `release.yml` checks). In the run, approve the `pypi`
-   deployment and the six `ghcr` deployments. Check after: pypi.org/project/mendari shows 0.1.0
+8. **Release 0.1.0.** On an up-to-date `main`, with `CHANGELOG.md`'s `## 0.1.0` section as you
+   want it: `git tag v0.1.0 && git push origin v0.1.0` (a tag push starts nothing). Then Actions →
+   **release** → Run workflow: tag `v0.1.0`, publish **off**; it checks the tag and the version,
+   runs the tests and builds and tests the packages and the six images. When it is green, run it
+   again with publish **on**, and in the run approve the `pypi` deployment and the six `ghcr`
+   deployments. Check after: pypi.org/project/mendari shows 0.1.0
    with a wheel and an sdist; in a fresh venv, `pip install mendari` then `mendari test
    mendari/patient-inbox-router` passes; the release job's "The sdist holds only what a source
    build needs" step passed; GitHub → your profile → Packages lists the six `mendari-*`
@@ -497,14 +529,14 @@ session.
    PR), `clinical-review:provided`, `risk-level-change`, `patient-safety` (blocks every other
    change to the pack until answered), `idea`, `good first pack`. Check after: open "New issue"
    → "Propose a pack" from a second account; the issue gets `pack` and `idea`.
-2. **B8, the DCO app.** github.com/apps/dco → Install → Only select repositories → `mendari`.
-   Check after: a PR with an unsigned commit shows a failing **DCO** check whose details say how
-   to sign off; one signed with `git commit -s` passes.
+2. **B8, the DCO check.** Nothing to install: CI's `dco` job (LP-13, `scripts/check_dco.py`)
+   checks every commit of a PR. Check after: a PR with an unsigned commit shows a failing
+   **dco** check whose log says how to sign off; one signed with `git commit -s` passes.
 3. **B8, required checks and code-owner review.** Settings → Rules → Rulesets → New ruleset →
    **New branch ruleset**: name "main", Enforcement **Active**, Bypass list → Add bypass →
    **Repository admin** (Always allow), Target branches → **Include default branch**. Rules:
    **Require a pull request before merging** (Required approvals 1, **Require review from Code
-   Owners** ticked), **Require status checks to pass** → add `pack-check` and `DCO` (they appear
+   Owners** ticked), **Require status checks to pass** → add `pack-check` and `dco` (they appear
    once each has run on a PR; add `secrets` too if you like), **Block force pushes**. If the
    classic branch rule on `main` (Settings → Branches) already requires checks, keep it or move
    its checks here, so the two don't disagree. Settings → General → Pull Requests: **Allow

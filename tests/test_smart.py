@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """SMART on FHIR EHR launch (standards/smart.py, server/smart_routes.py) against a fake EHR: an
 authorization server that checks PKCE and signs RS256 id_tokens, and a FHIR server that answers
 from the US Core referral fixture."""

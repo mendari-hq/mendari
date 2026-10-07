@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Automation holds in the dashboard: the overview says when one covers the pack, and the
 Decision Card lists them and holds or lifts (the API is answered here, so the shared server's
 decisions never change)."""

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The eval gate for pack changes (evals/gate.py): a seeded regression fails, an improvement or
 an unchanged pack passes, and a new pack is shown without a comparison."""
 

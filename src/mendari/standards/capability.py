@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The CapabilityStatement at `GET /fhir/metadata`: what this deployment's FHIR routes do.
 
 It is built from the routes that are mounted, through `CAPABILITIES`: an entry is advertised

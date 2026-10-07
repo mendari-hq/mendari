@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The audit trail as FHIR AuditEvent and Provenance (standards/audit_fhir.py)."""
 
 from __future__ import annotations

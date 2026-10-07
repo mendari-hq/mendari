@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """A live dashboard for browser tests: the real app on a free port, seeded through its own API.
 
 The server runs the packs' default providers only (rules, naive Bayes, criteria, dosing), so the

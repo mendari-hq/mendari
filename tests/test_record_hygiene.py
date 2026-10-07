@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Record hygiene and the keyed input hash (Phase 4b, stage I; ADR-0005).
 
 What the audit trail keeps for good is the record whose digest is chained. Under PHI modes `hash`

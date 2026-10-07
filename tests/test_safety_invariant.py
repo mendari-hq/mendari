@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The critical-label invariant, held for every maintained pack (spec 0.2, §8).
 
 For every configuration a pack can run without calling a service (each slot's local variants:

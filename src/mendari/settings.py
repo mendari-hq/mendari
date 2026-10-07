@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Deployment settings read from the environment, shared by the CLI and the server entrypoints."""
 
 from __future__ import annotations

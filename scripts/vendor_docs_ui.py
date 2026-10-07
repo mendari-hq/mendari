@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Vendor pinned npm releases: Swagger UI (`swagger-ui-dist`) for the API reference at
 `/docs/reference`, and axe-core for the browser tests' accessibility checks (`PACKAGES`).
 

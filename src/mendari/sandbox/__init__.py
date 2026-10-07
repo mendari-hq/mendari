@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Synthetic sandbox: data generation, FHIR workflow and demo. Nothing here touches real PHI."""
 
 from pathlib import Path

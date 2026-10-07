@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """`mendari community-check` (plan B4, B6): every rule CI enforces on a community pack, each on a
 pack that breaks only it, in a throwaway git repository shaped like Mendari's
 (`community-packs/<name>/`, `community-packs/MAINTAINERS.yaml`). The pack is what

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The DCO check (scripts/check_dco.py, CONTRIBUTING.md): every commit a pull request brings is
 signed off by its author; a bot's and a merge are not checked, nor history before the rule."""
 

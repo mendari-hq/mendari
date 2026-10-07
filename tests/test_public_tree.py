@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The repository is public: its working records (tasks/, notes/) and docs describe what was
 decided, never how the project's own deployment is configured. History keeps the old values;
 these patterns keep them from coming back into the tree."""

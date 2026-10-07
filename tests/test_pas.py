@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Da Vinci PAS (standards/pas.py), the sandbox payer and the API. The HL7 validator checks the
 request and the payer's answer against PAS 2.2.1 in the CI job `fhir-conformance`."""
 

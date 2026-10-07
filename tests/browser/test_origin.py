@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Requests other sites start, in a real browser (Chromium's own Fetch Metadata and SameSite
 rules): run with `uv run pytest -m browser`."""
 

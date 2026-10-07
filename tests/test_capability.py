@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """`GET /fhir/metadata` (standards/capability.py): the statement says what the routes do."""
 
 from __future__ import annotations

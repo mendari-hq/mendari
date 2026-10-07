@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Audit trail: the decisions table and each record in the drawer.
 
 import { closeDrawer, showDrawer } from "./drawer.js";

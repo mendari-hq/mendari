@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The organization a request acts for, when one deployment serves several, and who asked.
 
 The sign-in guard (`server/auth.py`) sets both from the signed-in person, API key, client or EHR

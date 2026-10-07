@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Origin checks: a page on another site cannot make a signed-in browser act here.
 
 A browser attaches Mendari's cookies to some requests that another site starts. SameSite=Lax

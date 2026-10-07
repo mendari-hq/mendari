@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """A Mendari decision as a FHIR R4 Task (ADR-0003), derived on read: nothing new is stored.
 
 The Task Mendari serves is the decision itself, not the work item the decision routes (that one

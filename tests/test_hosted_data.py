@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Hosted data protection (LP-08): nothing kept that cannot be protected or erased.
 
 - The hosted site (`VERCEL`) runs `encrypt` unless told `hash`, and refuses `off`; elsewhere,

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Automation holds (`AuditStore.hold_automation`): one switch that sends to a person every
 decision it covers that would have been automated, set and lifted without a redeploy, chained in
 the audit trail. A hold only ever lowers automation, and changes nothing else about a decision."""

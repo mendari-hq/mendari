@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Check FHIR resources with the official HL7 FHIR validator against US Core 6.1.0.
 
     uv run python scripts/fhir_validate.py --valid FILE... [--invalid FILE...] [--docker]

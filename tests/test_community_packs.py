@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Community packs (plan B1, B2): packs outside developers contribute by pull request, in
 `community-packs/<name>/` with id `community/<name>`. Where a pack was found sets its origin
 (`core/origin.py`); a community pack is served only with MENDARI_COMMUNITY_PACKS=on, never

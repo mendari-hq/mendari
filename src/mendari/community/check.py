@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """`mendari community-check`: what CI enforces on a community pack, before anyone reviews it.
 
 One entry point for the command line and CI (`scripts/community_check.py`, the `pack-check` job

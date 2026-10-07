@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Two EHR launches in one browser, through the real server (sign-in on, an EHR registered to
 the one organization, no one signed in) and the fake EHR of tests/test_smart.py: run with
 `uv run pytest -m browser`."""

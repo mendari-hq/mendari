@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """OpenID Connect pieces shared by the organization login and the SMART launch: PKCE, discovery
 and id_token verification.
 

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Content negotiation on FHIR routes (R4 http.html): FHIR R4 JSON only, refused otherwise."""
 
 from __future__ import annotations

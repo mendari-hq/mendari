@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Turn thumbs-down feedback into a dataset.
 
 Each exported line is a pack-dataset record. Where the people who rated a decision gave the right

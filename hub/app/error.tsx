@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 "use client";
 
 export default function ErrorPage({ reset }: { error: Error; reset: () => void }) {

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Synthetic (question, draft reply, context) cases for AI Guard. Entirely fictional: no PHI.
 
 Each record is a patient's question, a language model's draft reply and optional context

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 // Views and routes ("#view" or "#view/param"): rendering, focus on navigation, the review badge.
 
 import { wireCharts } from "./charts.js";

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Generate `src/mendari/standards/fhir_r4_structure.json` from HL7's R4 JSON Schema.
 
 The structural gate on FHIR input (`mendari.standards.fhir_structure`) reads that file: the

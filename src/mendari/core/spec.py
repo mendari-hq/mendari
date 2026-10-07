@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Decision Pack manifest, spec versions 0.1 and 0.2.
 
 A pack declares *questions* (a fixed set of labels, each with human-readable criteria).

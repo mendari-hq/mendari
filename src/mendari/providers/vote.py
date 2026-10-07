@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Vote: a weighted average of the members' probability distributions (soft voting).
 
     ensemble:

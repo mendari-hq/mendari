@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Synthetic specialty referrals for the Referral Router. Entirely fictional: no PHI.
 
 Each record is a referral (reason text and the priority the referrer chose) with the patient's

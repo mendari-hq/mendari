@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Run a Decision over a labelled dataset and produce a standard evaluation report.
 
 Dataset format (JSON Lines), one case per line:

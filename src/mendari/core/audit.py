@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Audit trail and human-review queue, backed by SQLite (local) or Postgres (hosted).
 
 Every decision is written once as an immutable record. Later facts (a reviewer's final label,

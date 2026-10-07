@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Credentials for remote providers.
 
 A provider key is resolved in this order:

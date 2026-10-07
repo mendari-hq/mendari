@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The security log (server/security_log.py): JSON lines on stdout from an allow-list of fields,
 a request id on every response, one access line per API request and the security events; never
 a credential, a query value, a body, case text or an exception's message."""

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Sealing session-table rows under the secret that names them (ADR-0006).
 
 An EHR launch's rows hold what must not be readable at rest: the session's EHR access token and

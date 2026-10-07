@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """A small, dependency-free multinomial naive Bayes text classifier with temperature scaling.
 
 It exists so that every pack can ship a local, inspectable, reproducible statistical baseline:

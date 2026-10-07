@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Database backends shared by the audit store and the registry: SQLite (local) or Postgres
 (hosted), running the same SQL written with `?` placeholders.
 
