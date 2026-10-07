@@ -596,6 +596,32 @@ def test_a_report_with_nothing_labelled_for_its_question_still_shows(page: Page)
     expect(automated).to_contain_text("correct: none of them labelled")  # never "nothing automated"
 
 
+def test_a_model_is_named_whole_unless_a_composite_joins_its_members(page: Page) -> None:
+    """An endpoint's model id can hold colons (a Bedrock version, an Ollama tag); only a
+    composite's model is "member:model" parts, as leaderboard.config_label reads it."""
+    open_pack(page, INBOX)
+    named = page.evaluate(
+        """async () => {
+          const pack = await import(new URL("/static/pack.js", location).href);
+          const name = (variant, type, model) => pack.providerName({ variant, type, model });
+          return [
+            name("llm", "llm", "anthropic.claude-sonnet-5-20261001-v1:0"),
+            name("llm", "llm", "llama3.1:8b"),
+            name("rules_and_llm", "any_of", "rules:rules@1a2b + llm:vendor/model-2"),
+            name("cascade", "cascade", "nb:naive_bayes@3c4d \u2192 jev:jev-1.13.0"),
+            name("rules", "rules", "rules@1a2b"),
+          ];
+        }"""
+    )
+    assert named == [
+        "anthropic.claude-sonnet-5-20261001-v1:0",
+        "llama3.1:8b",
+        "Rules + model-2",
+        "Cascade (Jev 1.13.0)",
+        "Rules",
+    ]
+
+
 def test_the_leaderboard_remembers_the_dataset(page: Page) -> None:
     open_pack(page, GUARD, "evals")
     page.get_by_role("button", name=re.compile(r"^test n=")).click()

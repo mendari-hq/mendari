@@ -201,9 +201,15 @@ class LlmProvider(Provider):
         failed = {p for p in batch if any(key in problems for key in p.questions)}
         # The call's usage and cost are reported once, by the first provider that answered.
         lead = next((p for p in batch if p not in failed), None)
+        # The model the endpoint says answered (a dated snapshot behind an alias, say), recorded
+        # on each answer as Jev's is (LP-10): only a well-formed id, never remote free text; with
+        # none, or a malformed one, the answer keeps the configured model and the call stands.
+        reported = raw.get("model")
+        if not (isinstance(reported, str) and re.fullmatch(MODEL_PATTERN, reported)):
+            reported = None
         extra: dict[str, Any] = {"requested_model": self.model}
-        if isinstance(raw.get("model"), str):
-            extra["effective_model"] = raw["model"]
+        if reported is not None:
+            extra["effective_model"] = reported
         if len(batch) > 1:
             extra["batch"] = [f"{p.info.slot}/{p.info.variant}" for p in batch]
 
@@ -214,6 +220,7 @@ class LlmProvider(Provider):
                 outputs.append(ProviderError("invalid_response", problems[key]))
                 continue
             first = provider is lead
+            answered_by = replace(provider.info, model=reported or provider.info.model)
             answers = {}
             for key in provider.questions:
                 probabilities = distributions[key]
@@ -222,7 +229,8 @@ class LlmProvider(Provider):
                 if temperature is not None:
                     probabilities = rescale(probabilities, temperature)
                     evidence = (f"calibrated T={temperature:.2f}",)
-                answers[key] = provider.make_answer(key, probabilities, evidence)
+                answer = provider.make_answer(key, probabilities, evidence)
+                answers[key] = replace(answer, provider=answered_by)
             cost = usage["cost_usd"]
             outputs.append(
                 ProviderOutput(

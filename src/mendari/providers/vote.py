@@ -16,10 +16,11 @@ of the others are renormalised) and recorded as a failure, so the decision is no
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 from typing import Any, cast
 
 from mendari.errors import ProviderError
-from mendari.providers.base import Answer, ProviderOutput
+from mendari.providers.base import Answer, ProviderInfo, ProviderOutput
 from mendari.providers.composite import CompositeConfig, CompositeProvider, all_failed
 
 
@@ -77,7 +78,17 @@ class VoteProvider(CompositeProvider):
                 label=label,
                 confidence=probabilities[label],
                 probabilities=probabilities,
-                provider=self.info,
+                provider=self._answered_by(question, outputs),
                 evidence=evidence,
             )
         return self.output(answers, outputs, failed)
+
+    def _answered_by(self, question: str, outputs: Mapping[str, ProviderOutput]) -> ProviderInfo:
+        """This slot, naming the members that answered `question`, each with the model its
+        answer records (the one a remote member reported); a member that failed is in the
+        failures, not here."""
+        parts = []
+        for name, output in outputs.items():
+            model = output.answers[question].provider.model or self.members[name].type
+            parts.append(f"{name}:{model}")
+        return replace(self.info, model=self.joiner.join(parts))

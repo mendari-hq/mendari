@@ -193,6 +193,19 @@ An answer has `label` (the most probable label), `confidence` (its probability),
 `probabilities` (every label of the question), `evidence`, the provider that produced it, and,
 for score questions only, `value`.
 
+The provider's `model` is the model that answered:
+
+- `llm`: the id the endpoint reports answering with (a dated snapshot behind an alias, say)
+  when it is well formed; otherwise the configured model, and the call stands.
+- `jev`: the version Jev reports; one missing or malformed is an `invalid_response`, and the
+  slot's questions fail (§5).
+- A provider computed from a file in the pack (rules, criteria, naive Bayes, dosing, CQL): the
+  fingerprint of that file.
+- A composite: `member:model`, for `any_of` and `cascade` the member whose answer was used, for
+  `vote` each member that answered.
+
+The model asked for stays in the deployment's configured providers.
+
 ### 4.3 Derived questions
 
 A derived question is computed from other questions' answers by a decision table; no provider

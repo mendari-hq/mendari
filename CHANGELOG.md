@@ -41,6 +41,10 @@ The first release (not yet published).
   The Hub shows each pack's benchmark accuracy as k of n with its interval, and its leaderboard
   in the ranking's order, one set of records at a time, each row with its rank or why it has
   none (it ranked by accuracy alone).
+  Each answer of an `llm` or `vote` provider records the model that answered (the id the
+  endpoint reports, when well formed), as Jev's already did: on the decision, the audit
+  record, `$decide`, the ledger and the report's `models`. Earlier `llm` and `vote` runs name
+  the configured model there.
 - **Dashboard** and REST API; sign-in through an organization's OpenID Connect provider; API
   keys by role.
 - **Hub:** a pack registry and its client (`mendari pull`, `mendari search`), and community

@@ -263,17 +263,23 @@ const REMOTE_VARIANTS = new Set(["jev", "llm"]);
 // variants (a cascade, a vote) follow in brackets.
 export function providerName(p) {
   if (!p) return "–";
-  const models = remoteModels(p.model).map(modelText);
+  const models = remoteModels(p.model, p.type).map(modelText);
   let used = 0;
   const words = p.variant.split("_and_").map((part) =>
     (REMOTE_VARIANTS.has(part) && models[used] ? models[used++] : VARIANT_WORDS[part] ?? part.replaceAll("_", " "))).join(" + ");
   return used < models.length ? `${words} (${models.slice(used).join(", ")})` : words;
 }
 
+const COMPOSITES = new Set(["any_of", "cascade", "vote"]);
+
 // The remote models behind a provider ("rules:rules@1a2b + llm:vendor/model-2" ->
-// ["vendor/model-2"]); local fingerprints ("rules@1a2b") are not a deployment choice.
-export const remoteModels = (model) => (model ?? "").split(" + ")
-  .map((part) => (part.includes(":") ? part.slice(part.indexOf(":") + 1) : part))
+// ["vendor/model-2"]); local fingerprints ("rules@1a2b") are not a deployment choice. Only a
+// composite's model is "member:model" parts (" + ", or " → " for a cascade), as
+// leaderboard.config_label reads it; any other model is one id, colons and all
+// ("vendor.model-v1:0", "model:8b").
+export const remoteModels = (model, type) => (COMPOSITES.has(type)
+  ? (model ?? "").split(/ \+ | → /).map((part) => (part.includes(":") ? part.slice(part.indexOf(":") + 1) : part))
+  : [model ?? ""])
   .filter((m) => m && !m.includes("@"));
 
 // A model as its id says it, without the gateway's vendor prefix ("vendor/model-2" -> "model-2"),

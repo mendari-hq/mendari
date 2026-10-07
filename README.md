@@ -1021,6 +1021,8 @@ Ollama, vLLM or llama.cpp to run an open-source model on your own hardware inste
 - Verbalised probabilities are not logprobs. `mendari calibrate` fits a temperature per
   question on the pack's calibration split (live calls), and the evaluation report shows ECE.
 - Cost per decision is the gateway's reported cost, recorded in every audit record.
+- Every answer records the model the endpoint reports having answered with (a dated snapshot
+  behind an alias, say) when it reports a well-formed id, and the configured model otherwise.
 
 | Variable | Purpose |
 |---|---|

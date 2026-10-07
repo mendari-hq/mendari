@@ -33,6 +33,17 @@ STATE_FIELDS = ["message.subject", "message.body"]
 def gateway(monkeypatch: pytest.MonkeyPatch) -> list[httpx.Request]:
     """A fake AI Gateway. Each call answers every requested question, putting 0.9 on
     `medical_assistant`/`routine` (or on the label in `answers_with`); returns the requests."""
+    return serve(monkeypatch)
+
+
+NOT_REPORTED = object()  # the response carries no `model` at all
+
+
+def serve(
+    monkeypatch: pytest.MonkeyPatch, reported: Any = "anthropic/claude-sonnet-5"
+) -> list[httpx.Request]:
+    """The fake gateway, saying `reported` answered (as a gateway names the snapshot behind an
+    alias)."""
     requests: list[httpx.Request] = []
     monkeypatch.setenv("AI_GATEWAY_API_KEY", "gw-test-key")
     for name in ("LLM_MODEL", "LLM_BASE_URL", "LLM_API_KEY"):
@@ -48,7 +59,10 @@ def gateway(monkeypatch: pytest.MonkeyPatch) -> list[httpx.Request]:
             top = "medical_assistant" if "medical_assistant" in labels else labels[-1]
             rest = 0.1 / (len(labels) - 1)
             content[question] = {label: (0.9 if label == top else rest) for label in labels}
-        return httpx.Response(200, json=completion(content))
+        body = completion(content, model=reported)
+        if reported is NOT_REPORTED:
+            del body["model"]
+        return httpx.Response(200, json=body)
 
     install(monkeypatch, handler)
     return requests
@@ -318,6 +332,86 @@ def test_slightly_unnormalised_answers_are_renormalised(inbox_pack: Pack) -> Non
     )
     assert sum(distributions["destination"].values()) == pytest.approx(1.0)
     assert usage["cost_usd"] == 0.0012
+
+
+# -- the model that answered (LP-10) -------------------------------------------------------------
+
+CONFIGURED = "anthropic/claude-sonnet-5"
+DATED = "anthropic/claude-sonnet-5-20261001"
+
+
+def test_the_answer_records_the_model_the_endpoint_reports(
+    inbox_pack: Pack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    requests = serve(monkeypatch, DATED)
+    output = router(inbox_pack, state_fields=STATE_FIELDS).answer(message(REFILL))
+    assert json.loads(requests[0].content)["model"] == CONFIGURED  # what was asked for
+    assert output.answers["destination"].provider == ProviderInfo(
+        slot="router", variant="llm", type="llm", model=DATED
+    )
+    assert output.extra == {"requested_model": CONFIGURED, "effective_model": DATED}
+
+
+@pytest.mark.parametrize(
+    "reported",
+    [NOT_REPORTED, None, 42, "", "/models/x.gguf", "Jane Doe, DOB 1960-02-01", "a" * 129,
+     "model\n", "claude-sonnet-4@20250514"],
+    ids=["absent", "null", "number", "empty", "path", "free-text", "too-long", "newline", "at"],
+)  # fmt: skip
+def test_a_missing_or_malformed_reported_model_keeps_the_configured_one(
+    inbox_pack: Pack, monkeypatch: pytest.MonkeyPatch, reported: Any
+) -> None:
+    """Never remote free text in a record, and never a failed call over it: a local server
+    that names its model oddly still answers, under the model it was configured with."""
+    serve(monkeypatch, reported)
+    output = router(inbox_pack, state_fields=STATE_FIELDS).answer(message(REFILL))
+    assert output.answers["destination"].label == "medical_assistant"
+    assert output.answers["destination"].provider.model == CONFIGURED
+    assert output.extra == {"requested_model": CONFIGURED}
+
+
+def test_a_batched_call_records_the_reported_model_for_each_slot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    requests = serve(monkeypatch, DATED)
+    decision = Decision(
+        pack_with_llm(tmp_path), providers={"router": "llm", "safety_screen": "llm"}
+    )
+    result = decision(message(REFILL))
+    assert len(requests) == 1
+    assert result.answers["destination"].provider == ProviderInfo("router", "llm", "llm", DATED)
+    assert result.answers["urgency"].provider == ProviderInfo("safety_screen", "llm", "llm", DATED)
+
+
+def test_the_answering_model_reaches_the_record_the_ledger_and_the_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each answer and the audit trail name the model that answered; the ledger and the report
+    keep the configured one per slot (`providers`) beside it (`models`)."""
+    from mendari.evals.harness import evaluation, load_dataset
+
+    serve(monkeypatch, DATED)
+    decision = Decision(pack_with_llm(tmp_path), providers={"router": "llm"})
+    result = decision(message(REFILL))
+    assert result.to_dict()["answers"]["destination"]["provider"]["model"] == DATED
+    with AuditStore(":memory:") as store:
+        store.record(result, message(REFILL))
+        stored = store.get(result.id)
+        assert stored is not None
+        assert stored["record"]["answers"]["destination"]["provider"]["model"] == DATED
+    cases = tmp_path / "cases.jsonl"
+    labels = {"destination": "medical_assistant", "urgency": "routine"}
+    cases.write_text(
+        "".join(
+            json.dumps({"id": f"c{i}", "input": message(REFILL), "labels": labels}) + "\n"
+            for i in range(3)
+        )
+    )
+    run = evaluation(decision, load_dataset(cases))
+    assert DATED in run.ledger.header["models"] and CONFIGURED not in run.ledger.header["models"]
+    assert run.ledger.header["providers"]["router"]["model"] == CONFIGURED
+    assert run.report["models"]["destination"] == {DATED: 3}
+    assert run.report["providers"]["router"]["model"] == CONFIGURED
 
 
 # -- decisions, batching, budget ---------------------------------------------------------------
