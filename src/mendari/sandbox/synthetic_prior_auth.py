@@ -19,8 +19,8 @@ from typing import Any, Literal
 Site = Literal["public", "local"]
 AS_OF = date(2026, 9, 1)
 # The pack's procedure codes: invented for this synthetic example (LP-14), in a code system named
-# as fictional (`standards/pas.py` FICTIONAL_PROCEDURES). Not CPT, never for billing; a site maps
-# its own codes (the Decision Card says how). Each display is ours.
+# as fictional. Not CPT, never for billing; a site maps its own codes. Each display is ours.
+PROCEDURE_SYSTEM = "https://mendari.co/fhir/CodeSystem/fictional-procedures"
 PROCEDURES = {
     "FX101": "MRI lumbar spine without contrast",
     "FX102": "MRI lumbar spine with contrast",
@@ -37,7 +37,30 @@ PROCEDURES = {
     "FX901": "MRI brain",
     "FX902": "Echocardiogram",
     "FX903": "Colonoscopy",
+    "FX904": "Comprehensive metabolic panel",
 }
+# What a payer reads for the fictional codes the samples send (Da Vinci PAS and US Core bind the
+# requested service to value sets with no fictional system): ICD-10-PCS, CMS's public-domain
+# procedure codes. Only the services a sample or a test sends to a payer or a validator.
+PAYER_CODES = {
+    "FX101": ("BR39ZZZ", "Magnetic Resonance Imaging (MRI) of Lumbar Spine"),
+    "FX111": ("BR09ZZZ", "Plain Radiography of Lumbar Spine"),
+    "FX301": ("4A1ZXQZ", "Monitoring of Sleep, External Approach"),
+}
+
+
+def procedure_codings(code: str) -> list[dict[str, str]]:
+    """A FHIR order's or procedure's codings for a fictional code: the code itself first (the
+    pack reads `coding[0]`), then its ICD-10-PCS code when it has one (`PAYER_CODES`)."""
+    from mendari.standards.pas import ICD10_PCS
+
+    codings = [{"system": PROCEDURE_SYSTEM, "code": code, "display": PROCEDURES[code]}]
+    if code in PAYER_CODES:
+        payer, shown = PAYER_CODES[code]
+        codings.append({"system": ICD10_PCS, "code": payer, "display": shown})
+    return codings
+
+
 ORDERS = {
     "lumbar_mri": [("FX101", "MRI lumbar spine without contrast"), ("FX103", "MRI lumbar spine")],
     "knee_arthroscopy": [

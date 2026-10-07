@@ -1,23 +1,28 @@
 # SPDX-License-Identifier: Apache-2.0
 """What code systems the repository's data carries (LP-14). CPT, whose codes the American Medical
 Association licenses, appears in no tracked pack, dataset or fixture: the prior-authorization
-pack's procedures are fictional. A licensed system (`LICENSED_CODE_SYSTEMS`: SNOMED CT, MedDRA)
-appears only in a pack that declares it with its licence terms (`code_systems`, checked at load)
-or in a US Core fixture listed here with why. Whether SNOMED CT may stay is recorded for counsel
-(tasks/todo.md, LP-14)."""
+pack's procedure codes, everywhere it or its data uses one, are fictional. A licensed system
+(`LICENSED_CODE_SYSTEMS`) named by its url or OID appears only in a pack that declares it with its
+licence terms (`code_systems`, checked at load) or in a US Core fixture listed here with why. A
+bare code names no system, so the scan cannot see one: datasets/trial-local-site-example.jsonl
+carries bare SNOMED CT codes (the trial pack's local-site example). Whether SNOMED CT may stay is
+recorded for counsel (tasks/todo.md, LP-14)."""
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 from mendari.core.pack import load_pack
 from mendari.core.spec import LICENSED_CODE_SYSTEMS, licensed_systems
+from mendari.sandbox import synthetic_prior_auth
+from mendari.sandbox.synthetic_prior_auth import PROCEDURE_SYSTEM as FICTIONAL_PROCEDURES
 from mendari.sandbox.synthetic_prior_auth import PROCEDURES
-from mendari.standards.pas import FICTIONAL_PROCEDURES
 
 ROOT = Path(__file__).resolve().parents[1]
 TREES = ("packs", "community-packs", "datasets", "tests/fixtures")
@@ -97,3 +102,41 @@ def test_the_prior_auth_codes_are_fictional_and_complete() -> None:
     assert used and used <= set(PROCEDURES)
     assert all(re.fullmatch(r"FX\d{3}", code) for code in PROCEDURES)
     assert not set(LICENSED_CODE_SYSTEMS) & {FICTIONAL_PROCEDURES}
+
+
+def test_every_procedure_code_the_prior_auth_pack_or_its_data_uses_is_fictional() -> None:
+    """Read as values, not spellings: every order and prior-procedure code in the pack's data,
+    the local-site dataset and the behaviour tests, every code its rules and FHIR mapping list,
+    and every code the generator writes is one of the fictional codes. A CPT code coming back
+    (a bare `72148`, which names no system) fails here."""
+    pack = ROOT / "packs" / "prior-auth-preflight"
+    found: set[str] = set()
+    for path in [
+        *sorted((pack / "data").glob("*.jsonl")),
+        ROOT / "datasets" / "prior-auth-local-site-example.jsonl",
+    ]:
+        for line in path.read_text().splitlines():
+            record = json.loads(line).get("input", {})
+            found.add(record["order"]["code"])
+            found |= {procedure["code"] for procedure in record.get("procedures", [])}
+    for case in yaml.safe_load((pack / "tests" / "cases.yaml").read_text()):
+        found.add(case["input"]["order"]["code"])
+        found |= {procedure["code"] for procedure in case["input"].get("procedures", [])}
+    rules = yaml.safe_load((pack / "logic" / "structured.yaml").read_text())
+    for question in rules["questions"].values():
+        for check in question["checks"]:
+            for kind in ("value", "exists"):
+                if kind in check and check[kind].get("field") == "order.code":
+                    found |= set(check[kind]["in"])
+                if kind in check and check[kind].get("in") == "procedures":
+                    found |= set(check[kind]["codes"])
+            when = check.get("when", {})
+            if when.get("field") == "order.code":
+                found |= set(when["in"])
+    found |= set(yaml.safe_load((pack / "fhir" / "mapping.yaml").read_text())["focus_where"]["in"])
+    generated = [code for orders in synthetic_prior_auth.ORDERS.values() for code, _ in orders]
+    generated += [code for code, _ in synthetic_prior_auth.IMAGING.values()]
+    generated.append(synthetic_prior_auth.LOCAL_LUMBAR_XRAY[0])
+    found |= set(generated)
+    assert len(found) >= 15
+    assert found <= set(PROCEDURES), sorted(found - set(PROCEDURES))

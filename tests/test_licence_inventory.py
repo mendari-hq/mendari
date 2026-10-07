@@ -5,10 +5,12 @@ copyleft licence fails with the package named, unless it is a named exception wi
 
 from __future__ import annotations
 
+import email.message
 import importlib.util
 import json
 import sys
 import tomllib
+import types
 from pathlib import Path
 from typing import Any
 
@@ -119,3 +121,58 @@ def test_a_new_copyleft_package_in_the_hub_lockfile_fails(tmp_path: Path) -> Non
     assert check.problems(check.hub_packages(path)) == [
         "copyleft-widget 1.0.0: AGPL-3.0 is not allowed"
     ]
+
+
+def distribution(
+    licence: str | None = None, expression: str | None = None, *classifiers: str
+) -> Any:
+    fields = email.message.Message()
+    if expression is not None:
+        fields["License-Expression"] = expression
+    if licence is not None:
+        fields["License"] = licence
+    for classifier in classifiers:
+        fields["Classifier"] = f"License :: OSI Approved :: {classifier}"
+    return types.SimpleNamespace(metadata=fields)
+
+
+@pytest.mark.parametrize(
+    ("metadata", "read"),
+    [
+        (distribution(None, "MIT", "MIT License"), "MIT"),
+        (distribution("GPL-3.0-only", "MIT"), "MIT"),  # License-Expression wins (PEP 639)
+        # A stated licence wins over classifiers, which cannot turn copyleft into a choice:
+        (
+            distribution(
+                "MPL-2.0 AND MIT", None, "MIT License", "Mozilla Public License 2.0 (MPL 2.0)"
+            ),
+            "MPL-2.0 AND MIT",
+        ),
+        (distribution("GPL-3.0-only", None, "MIT License"), "GPL-3.0-only"),
+        # Classifiers alone list parts, all of which must pass:
+        (
+            distribution(None, None, "MIT License", "Mozilla Public License 2.0 (MPL 2.0)"),
+            "MIT AND MPL-2.0",
+        ),
+        (distribution("UNKNOWN", None, "MIT License"), "MIT"),
+        (
+            distribution(
+                "Apache License\n  Version 2.0, January 2004", None, "Apache Software License"
+            ),
+            "Apache-2.0",
+        ),
+        (distribution("Apache 2.0", None, "Apache Software License"), "Apache-2.0"),
+        (distribution(None, None, "MIT License", "GNU General Public License v3 (GPLv3)"), None),
+        (distribution(None, None), None),
+    ],
+)
+def test_a_distributions_licence_is_read_failing_closed(metadata: Any, read: str | None) -> None:
+    assert check.python_licence(metadata) == read
+
+
+def test_a_copyleft_part_fails_even_beside_a_permissive_classifier() -> None:
+    tqdm_like = distribution(
+        "MPL-2.0 AND MIT", None, "MIT License", "Mozilla Public License 2.0 (MPL 2.0)"
+    )
+    package = check.Package("tqdm", "4.67.1", check.python_licence(tqdm_like))
+    assert check.problems([package]) == ["tqdm 4.67.1: MPL-2.0 AND MIT is not allowed"]

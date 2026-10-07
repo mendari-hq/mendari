@@ -13,7 +13,7 @@
 | Source | Maintained by Mendari |
 | Risk level | **1**, clinical information processing (clinical information) |
 | Automation | AUTO permitted by policy thresholds; every decision is audited. Only while `triage_screen` is `rules_and_jev` or `rules_and_llm`; otherwise a person reviews. |
-| Pack digest | `sha256:d1f189a97c69c59ea270eee6ce0d0b4252c771e0c33b8c0ecd8d5c221cc5fdf3` |
+| Pack digest | `sha256:27f7fd76470344601d951586e725a399d24a5cad6cdb1ab9f2974b5497f1e265` |
 | Last validation | 2026-10-07 on `test` (n=600, sha256 `f085362d6bc2…`) |
 
 ## Intended use
@@ -58,7 +58,7 @@ FHIR R4 mapping: `fhir/mapping.yaml`.
 
 Code systems:
 
-- SNOMED CT (SNOMED International) (`http://snomed.info/sct`). Licence: SNOMED CT is free to use in SNOMED International's member countries (in the United States under the National Library of Medicine's UMLS licence); elsewhere it needs an Affiliate Licence from SNOMED International. Whether the reference packs may carry its codes is a question recorded for counsel (tasks/todo.md, LP-14).
+- SNOMED CT (SNOMED International) (`http://snomed.info/sct`). Licence: Using SNOMED CT needs an Affiliate Licence from SNOMED International: free of charge in its member territories (in the United States through the National Library of Medicine's UMLS licence), fee-based elsewhere. Whether the reference packs may carry its codes is a question recorded for counsel (tasks/todo.md, LP-14).
 - LOINC (Regenstrief Institute; the LOINC License, whose notice is in NOTICE) (`http://loinc.org`).
 
 ## Outputs
@@ -183,7 +183,7 @@ Benchmark `test` (n=600) with specialty_reader=`naive_bayes`, triage_screen=`rul
 | Accuracy of AUTO decisions | n/a |
 | False automation rate | n/a |
 | Expected human override rate | 0.5% |
-| Latency p50 / p95 | 1.94 / 2.08 ms |
+| Latency p50 / p95 | 1.94 / 2.13 ms |
 | Cost per decision | $0.00000 |
 | Critical `urgency=urgent` | 113/113 detected, 0 automated |
 | Critical `next_step=urgent_review` | 124/124 detected, 0 automated |

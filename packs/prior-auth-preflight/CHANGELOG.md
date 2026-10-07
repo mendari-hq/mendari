@@ -9,7 +9,8 @@ rules, models, data and results did not.
 - The procedure codes are fictional: the 15 CPT codes the pack, its data and its tests used are
   replaced one for one by invented codes (`FX101` to `FX903`) in a code system named as
   fictional, `https://mendari.co/fhir/CodeSystem/fictional-procedures`. CPT belongs to the
-  American Medical Association; the pack can now be redistributed under Apache-2.0 anywhere.
+  American Medical Association, and the pack no longer carries any. Its other code systems,
+  and the notices they need, are in `code_systems` and NOTICE.
   **A site that sends CPT codes maps them to these** (in `logic/structured.yaml` and the FHIR
   mapping's `focus_where`), as it already maps any code the pack does not list.
 - `code_systems` declares the systems the pack uses (the fictional procedures, ICD-10-CM).

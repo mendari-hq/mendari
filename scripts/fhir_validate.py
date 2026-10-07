@@ -88,6 +88,13 @@ EXPECTED_WARNINGS = (
     ),
     Expected(r"CodeSystem 'urn:ietf:bcp:47'.* could not be found", "", NO_TERMINOLOGY_SERVER),
     Expected(
+        r"^A definition for CodeSystem 'http://www\.cms\.gov/Medicare/Coding/ICD10'( version "
+        r"'null')? could not be found, so the code cannot be validated",
+        r"\.(code|productOrService)\.coding\[\d+\]\.system$",
+        "ICD-10-PCS, the public-domain code a synthetic order also carries for the payer (LP-14), "
+        "is in no FHIR package; " + NO_TERMINOLOGY_SERVER,
+    ),
+    Expected(
         r"^Unable to validate code .* in system 'http://unitsofmeasure\.org' because the "
         "validator is running without terminology services",
         "",

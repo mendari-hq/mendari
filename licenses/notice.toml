@@ -51,7 +51,7 @@ registered United States trademark of Regenstrief Institute, Inc."""
 
 [[material]]
 name = "SNOMED CT"
-where = "SNOMED CT codes in synthetic examples (packs/clinical-trial-prescreener, packs/referral-router, src/mendari/sandbox), each pack declaring it with its terms"
+where = "SNOMED CT codes in synthetic examples (packs/clinical-trial-prescreener, packs/referral-router, datasets/trial-local-site-example.jsonl, src/mendari/sandbox), each pack declaring it with its terms"
 licence = "SNOMED International's licence terms"
 distributed = true
 notice = "SNOMED and SNOMED CT are registered trademarks of SNOMED International."
@@ -59,7 +59,7 @@ notice = "SNOMED and SNOMED CT are registered trademarks of SNOMED International
 [[material]]
 name = "ICD-10-CM"
 where = "ICD-10-CM codes in the synthetic reference packs and datasets"
-licence = "public domain (U.S. National Center for Health Statistics)"
+licence = "free to use from the U.S. National Center for Health Statistics, which adapted it from the World Health Organization's copyrighted ICD-10 with WHO's authorization"
 distributed = true
 
 [[material]]

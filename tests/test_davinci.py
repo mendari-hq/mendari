@@ -51,7 +51,7 @@ def coverage_info(action: dict[str, Any]) -> dict[str, list[Any]]:
 
 
 def test_each_decided_order_comes_back_with_coverage_information(preflight: Decision) -> None:
-    lab = _order("lab", "80053")  # a metabolic panel: not the pack's business
+    lab = _order("lab", "FX904")  # a metabolic panel: not the pack's business
     response = cds_hooks.invoke(
         preflight, request("acme", COMPLETE, _order("mri", "FX101"), _order("scope", "FX202"), lab)
     )

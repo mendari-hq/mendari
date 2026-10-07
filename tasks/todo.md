@@ -208,10 +208,10 @@ behaviour.
   billing"; a sandbox CodeSystem for the validator) in its logic, mapping, tests, generator, the
   hand-written documentation-note sets and every test; the pack is 0.2.0 and decides all 1,272
   examples, datasets and tests exactly as before with the codes swapped (compared case by case).
-  PAS accepts the order's code in CPT (a site's own, under its AMA licence) or the fictional
-  system. Manifest: `license` must be an SPDX expression; `code_systems` (url, name,
-  `licence_note`) lists the systems a pack uses; a licensed one (CPT, SNOMED CT, MedDRA, by url
-  or OID) needs its `licence_note`, and a pack any of whose files names one without it does not
+  PAS sends only a billable code (below). Manifest: `license` must be an SPDX expression;
+  `code_systems` (url, name,
+  `licence_note`) lists the systems a pack uses; a licensed one (CPT, SNOMED CT, MedDRA, X12,
+  CDT, by url or OID) needs its `licence_note`, and a pack any of whose files names one without it does not
   load (every spec version; the Decision Card lists them). The trial prescreener and the referral
   router (0.1.4) declare SNOMED CT with its terms. `scripts/check_licences.py` and
   `tests/test_licence_inventory.py`: the Python runtime closure (37 packages, walked with
@@ -220,15 +220,29 @@ behaviour.
   libvips LGPL, caniuse-lite CC-BY-4.0). `tests/test_code_systems.py`: no CPT in any tracked pack,
   dataset or fixture; a licensed system only where declared or in four US Core fixtures allowed
   with why. NOTICE drops CPT.
-  **For counsel (not decided here):** whether SNOMED CT codes may stay in two reference packs and
-  four US Core test fixtures (free in member countries, an affiliate licence elsewhere; replacing
-  them means changing two packs' codes, and the US Core fixtures code procedures and referrals in
-  SNOMED CT); whether the LGPL-3.0 PostgreSQL driver needs anything beyond an unmodified,
-  separately installed dependency. **For the owner (conflict with the build prompt):** LP-14 asks
-  to move a copyleft driver to an optional extra; psycopg is a hard dependency because the hosted
-  deployment installs from the lock without extras, so moving it would change how production
-  installs. Kept as is, with a named exception; say if you want the extra (then the Vercel
-  install must name it, checked on a preview first).
+  **For counsel (not decided here):** whether SNOMED CT codes may stay in two reference packs,
+  four US Core test fixtures and `datasets/trial-local-site-example.jsonl` (bare codes, shipped
+  in the wheel); SNOMED CT needs an Affiliate Licence, free in member territories, fee-based
+  elsewhere; replacing them means changing two packs' codes, and the US Core fixtures code
+  procedures and referrals in SNOMED CT. What ICD-10-CM's terms need (free to use from NCHS,
+  adapted from WHO's copyrighted ICD-10). What distributing the LGPL-3.0 PostgreSQL driver
+  inside the published container images requires (psycopg-binary carries its own libpq and
+  OpenSSL; the image label says only Apache-2.0). **For the owner (conflict with the build
+  prompt):** LP-14 asks to move a copyleft driver to an optional extra; psycopg is a hard
+  dependency because the hosted deployment installs from the lock without extras, so moving it
+  would change how production installs. Kept as is, with a named exception; say if you want the
+  extra (then the Vercel install must name it, checked on a preview first).
+  PAS: the fictional codes are billable nowhere, and Da Vinci PAS binds the requested service
+  (required) to X12 278 Requested Service Type, so PAS sends only CPT, HCPCS or ICD-10-PCS, and
+  the synthetic orders the samples send also carry a public-domain ICD-10-PCS code (checked with
+  the pinned HL7 validator: no errors). Review: one adversarial review, each finding checked by
+  a skeptic: 2 medium (the PAS sample and the US Core fixture failed the HL7 validator with
+  fictional codes alone; the licence reader let a stated copyleft licence through behind a
+  permissive classifier) and 12 low (the scan's spellings: JSON-escaped slashes, bare OIDs,
+  SNOMED concept URIs, MedDRA's own url, X12 and CDT; a test that could not see bare CPT codes
+  coming back; a licence of nested parentheses crashing the loader; `WITH OR` accepted; any
+  `urn:` system refused; the SNOMED CT, ICD-10-CM and psycopg wording; the trial dataset's
+  SNOMED CT codes left out of the record), all fixed.
 
 **Pre-public:** LP-13 and LP-14 (done above), LP-15 (the docs' promises, the local loop), LP-03 (launch
 gates as a checked file).

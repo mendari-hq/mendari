@@ -24,6 +24,7 @@ from mendari.core import patterns
 from mendari.core.origin import ORIGIN_LABELS, Origin, is_community, shown_origin
 from mendari.core.spec import (
     LICENSED_CODE_SYSTEMS,
+    LICENSED_HINTS,
     Outcome,
     PackManifest,
     Priority,
@@ -366,7 +367,7 @@ def _digest(root: Path, label: str = "") -> tuple[str, Digested, dict[str, str]]
             problem = f"{relative.as_posix()}: cannot be read ({type(error).__name__})"
             raise PackValidationError(label or str(root), [problem]) from None
         digested[(status.st_dev, status.st_ino)] = hashlib.sha256(content).hexdigest()
-        if any(hint in content for hint in _LICENSED_HINTS):
+        if any(hint in content for hint in LICENSED_HINTS):
             for url in licensed_systems(content.decode("utf-8", "replace")):
                 named.setdefault(url, relative.as_posix())
         digest.update(relative.as_posix().encode())
@@ -374,10 +375,6 @@ def _digest(root: Path, label: str = "") -> tuple[str, Digested, dict[str, str]]
         digest.update(content)
         digest.update(b"\0")
     return "sha256:" + digest.hexdigest(), digested, named
-
-
-# Bytes every spelling in `LICENSED_CODE_SYSTEMS` contains: a file without any is not searched.
-_LICENSED_HINTS = (b"ama-assn.org", b"snomed.info", b"113883.6.", b"CodeSystem/mdr")
 
 
 # Manifest fields naming a file the pack decides or tests with, in a provider variant or a

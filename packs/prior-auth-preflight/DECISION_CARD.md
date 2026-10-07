@@ -13,7 +13,7 @@
 | Source | Maintained by Mendari |
 | Risk level | **1**, clinical information processing (clinical information) |
 | Automation | AUTO permitted by policy thresholds; every decision is audited. Only while `notes` is `rules_and_jev` or `rules_and_llm`; otherwise a person reviews. |
-| Pack digest | `sha256:8a91dd509e69266183fe270c294e53f02774917e571a67bddab5733af37b3d28` |
+| Pack digest | `sha256:748f03439fa58788de42763bdabc61145e2773c8f6ab934d6154dfd890d3ed97` |
 | Last validation | 2026-10-07 on `test` (n=600, sha256 `e74e45ea35d5…`) |
 
 ## Intended use
@@ -60,7 +60,7 @@ FHIR R4 mapping: `fhir/mapping.yaml`.
 Code systems:
 
 - Mendari fictional procedure codes: invented for this synthetic example; not CPT, never for billing. A site maps its own codes to these. (`https://mendari.co/fhir/CodeSystem/fictional-procedures`).
-- ICD-10-CM (public domain, U.S. National Center for Health Statistics) (`http://hl7.org/fhir/sid/icd-10-cm`).
+- ICD-10-CM (U.S. National Center for Health Statistics: free to use; adapted from the World Health Organization's copyrighted ICD-10 with its authorization) (`http://hl7.org/fhir/sid/icd-10-cm`).
 
 ## Outputs
 
@@ -186,7 +186,7 @@ Benchmark `test` (n=600) with structured=`criteria`, notes=`rules`:
 | Accuracy of AUTO decisions | n/a |
 | False automation rate | n/a |
 | Expected human override rate | 0.0% |
-| Latency p50 / p95 | 3.49 / 3.71 ms |
+| Latency p50 / p95 | 3.59 / 3.77 ms |
 | Cost per decision | $0.00000 |
 | Critical `red_flag=yes` | 25/25 detected, 0 automated |
 
@@ -375,7 +375,8 @@ rules, models, data and results did not.
 - The procedure codes are fictional: the 15 CPT codes the pack, its data and its tests used are
   replaced one for one by invented codes (`FX101` to `FX903`) in a code system named as
   fictional, `https://mendari.co/fhir/CodeSystem/fictional-procedures`. CPT belongs to the
-  American Medical Association; the pack can now be redistributed under Apache-2.0 anywhere.
+  American Medical Association, and the pack no longer carries any. Its other code systems,
+  and the notices they need, are in `code_systems` and NOTICE.
   **A site that sends CPT codes maps them to these** (in `logic/structured.yaml` and the FHIR
   mapping's `focus_where`), as it already maps any code the pack does not list.
 - `code_systems` declares the systems the pack uses (the fictional procedures, ICD-10-CM).

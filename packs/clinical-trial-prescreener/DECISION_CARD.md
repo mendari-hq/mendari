@@ -13,7 +13,7 @@
 | Source | Maintained by Mendari |
 | Risk level | **2**, clinical support |
 | Automation | Human review required by default; AUTO only with a recorded governance override. |
-| Pack digest | `sha256:a7b3a3953c0e76c3a8dda3f65c5a2771ad7ac40a7b0473583f4b43f1109647e7` |
+| Pack digest | `sha256:21de4d228968bbe1b20efb6dac73f99e1296b7c909b99fd1602ac6ad3378df32` |
 | Last validation | 2026-10-07 on `test` (n=300, sha256 `12d2fb4b741a…`) |
 
 ## Intended use
@@ -55,8 +55,8 @@ FHIR R4 mapping: `fhir/mapping.yaml`.
 
 Code systems:
 
-- ICD-10-CM (public domain, U.S. National Center for Health Statistics) (`http://hl7.org/fhir/sid/icd-10-cm`).
-- SNOMED CT (SNOMED International) (`http://snomed.info/sct`). Licence: SNOMED CT is free to use in SNOMED International's member countries (in the United States under the National Library of Medicine's UMLS licence); elsewhere it needs an Affiliate Licence from SNOMED International. Whether the reference packs may carry its codes is a question recorded for counsel (tasks/todo.md, LP-14).
+- ICD-10-CM (U.S. National Center for Health Statistics: free to use; adapted from the World Health Organization's copyrighted ICD-10 with its authorization) (`http://hl7.org/fhir/sid/icd-10-cm`).
+- SNOMED CT (SNOMED International) (`http://snomed.info/sct`). Licence: Using SNOMED CT needs an Affiliate Licence from SNOMED International: free of charge in its member territories (in the United States through the National Library of Medicine's UMLS licence), fee-based elsewhere. Whether the reference packs may carry its codes is a question recorded for counsel (tasks/todo.md, LP-14).
 - LOINC (Regenstrief Institute; the LOINC License, whose notice is in NOTICE) (`http://loinc.org`).
 
 ## Outputs
@@ -194,7 +194,7 @@ Benchmark `test` (n=300) with structured=`criteria`, notes=`rules`:
 | Accuracy of AUTO decisions | n/a |
 | False automation rate | n/a |
 | Expected human override rate | 0.7% |
-| Latency p50 / p95 | 0.42 / 0.91 ms |
+| Latency p50 / p95 | 0.42 / 0.55 ms |
 | Cost per decision | $0.00000 |
 | Critical `note_pregnancy=yes` | 12/13 detected, 0 automated |
 | Critical `note_pancreatitis=yes` | 6/6 detected, 0 automated |

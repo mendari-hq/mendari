@@ -24,8 +24,9 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from packaging.markers import default_environment
 from packaging.requirements import Requirement
+
+from mendari.core.spec import is_spdx_expression
 
 ROOT = Path(__file__).resolve().parent.parent
 HUB_LOCK = ROOT / "hub" / "package-lock.json"
@@ -60,10 +61,12 @@ CLASSIFIERS = {
     "The Unlicense (Unlicense)": "Unlicense",
 }
 _LGPL_DRIVER = (
-    "LGPL-3.0-only, used unmodified as a separately installed library (imported, never copied "
-    "into Mendari's packages). The PostgreSQL driver of the hosted and on-prem deployments; "
-    "moving it to an optional extra changes how the production deployment installs, so it is "
-    "the owner's decision (tasks/todo.md, LP-14), and the licence question is counsel's"
+    "LGPL-3.0-only, unmodified and imported as its own package, never copied into Mendari's "
+    "code: pip and uv install it from PyPI beside Mendari, and the published container images "
+    "carry it (psycopg-binary with its own libpq and OpenSSL), so they distribute it. The "
+    "PostgreSQL driver of the hosted and on-prem deployments; moving it to an optional extra "
+    "changes how production installs (the owner's decision), and what distributing it in the "
+    "images requires is counsel's question (tasks/todo.md, LP-14)"
 )
 _SHARP = (
     "sharp's prebuilt libvips for one platform, an optional dependency of Next.js image "
@@ -173,21 +176,25 @@ def _canonical(name: str) -> str:
 
 
 def python_licence(distribution: metadata.Distribution) -> str | None:
+    """A distribution's licence as an SPDX expression, or None when its metadata says none we can
+    read. A stated licence wins: `License-Expression`, else a `License` field that is an SPDX
+    expression. Only a package that states neither is read from its trove classifiers, all of
+    which must be known, and joined with `AND`: classifiers list a package's parts, never a
+    choice, so every one must pass."""
     fields = distribution.metadata
-    expression = fields.get("License-Expression")
+    expression = (fields.get_all("License-Expression") or [""])[0]
     if expression:
         return " ".join(expression.split())
-    stated = (fields.get("License") or "").strip()
-    if stated in PERMISSIVE or stated in {"MPL-2.0", "LGPL-3.0-only"}:
-        return stated
+    stated = (fields.get_all("License") or [""])[0].strip()
+    if "\n" not in stated and stated.upper() != "UNKNOWN" and is_spdx_expression(stated):
+        return " ".join(stated.split())
     named = [
         CLASSIFIERS.get(c.split(" :: ")[-1])
         for c in fields.get_all("Classifier") or []
         if c.startswith("License :: ")
     ]
-    known = sorted({n for n in named if n})
-    if known and len(known) == len(named):
-        return " OR ".join(known)
+    if named and None not in named:
+        return " AND ".join(sorted({n for n in named if n}))
     return None
 
 
@@ -204,10 +211,9 @@ def python_closure(root: str = "mendari", extras: tuple[str, ...] = ("server",))
         wanted.setdefault(key, set()).update(asked)
         for line in metadata.distribution(name).requires or []:
             requirement = Requirement(line)
-            environment: dict[str, str] = dict(default_environment())
+            # `evaluate` reads this interpreter's environment, with `extra` set as given.
             needed = requirement.marker is None or any(
-                requirement.marker.evaluate({**environment, "extra": extra})
-                for extra in ("", *wanted[key])
+                requirement.marker.evaluate({"extra": extra}) for extra in ("", *wanted[key])
             )
             if needed:
                 pending.append((requirement.name, set(requirement.extras)))

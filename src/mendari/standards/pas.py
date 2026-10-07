@@ -31,10 +31,13 @@ PAS = "http://hl7.org/fhir/us/davinci-pas"
 X12 = "https://codesystem.x12.org/005010"
 POS = "https://www.cms.gov/Medicare/Coding/place-of-service-codes/Place_of_Service_Code_Set"
 CPT = "http://www.ama-assn.org/go/cpt"
-# The Prior Authorization Preflight's synthetic orders: invented procedure codes, named as such,
-# never billed (LP-14). A site sends its own CPT codes, under its own licence from the AMA.
-FICTIONAL_PROCEDURES = "https://mendari.co/fhir/CodeSystem/fictional-procedures"
-PROCEDURE_SYSTEMS = (CPT, FICTIONAL_PROCEDURES)
+HCPCS = "http://www.cms.gov/Medicare/Coding/HCPCSReleaseCodeSets"  # as PAS's value set spells it
+ICD10_PCS = "http://www.cms.gov/Medicare/Coding/ICD10"
+# The requested service as a payer reads it: PAS binds Claim.item.productOrService (required) to
+# X12 278 Requested Service Type, which takes these systems. A site sends its own CPT codes under
+# its licence from the AMA. The reference pack's fictional codes are billable nowhere, so a
+# synthetic order also carries a public-domain ICD-10-PCS code (`sandbox/synthetic_prior_auth.py`).
+PROCEDURE_SYSTEMS = (CPT, HCPCS, ICD10_PCS)
 ICD10 = "http://hl7.org/fhir/sid/icd-10-cm"
 RELATIONSHIP = "http://terminology.hl7.org/CodeSystem/subscriber-relationship"
 PROFILE = {
@@ -87,7 +90,7 @@ def request_bundle(
     problems += [
         f"the order's {name}"
         for name, value in (
-            ("procedure code (CPT, or the reference pack's fictional code)", procedure),
+            ("procedure code in CPT, HCPCS or ICD-10-PCS", procedure),
             ("X12 service type (1365)", service_type),
             ("place of service", place_of_service),
         )

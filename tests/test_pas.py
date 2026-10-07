@@ -71,10 +71,26 @@ def test_the_request_is_a_preauthorization_claim_and_what_it_references() -> Non
     coverage = resources[claim["insurance"][0]["coverage"]["reference"]]
     assert {"system": f"{pas.X12}/1069", "code": "18"} in coverage["relationship"]["coding"]
     item = claim["item"][0]
-    assert item["productOrService"]["coding"][0]["code"] == "FX101"
+    # The payer reads the order's ICD-10-PCS code: the pack's fictional one is billable nowhere.
+    assert item["productOrService"]["coding"] == [{"system": pas.ICD10_PCS, "code": "BR39ZZZ"}]
     assert item["category"]["coding"][0] == {"system": f"{pas.X12}/1365", "code": "62"}
     assert claim["diagnosis"][0]["diagnosisCodeableConcept"]["coding"][0]["code"] == "M54.16"
     assert build()["entry"][0]["resource"]["identifier"] == claim["identifier"]  # stable ids
+
+
+def test_the_service_is_sent_only_in_a_billable_code_system() -> None:
+    """PAS binds the requested service (required) to X12 278 Requested Service Type: CPT (a
+    site's, under its AMA licence), HCPCS or ICD-10-PCS. The reference pack's fictional code
+    alone is refused, never sent."""
+    fictional = _order("mri", "FX101")
+    fictional["code"]["coding"] = fictional["code"]["coding"][:1]
+    with pytest.raises(pas.PasError, match="procedure code in CPT, HCPCS or ICD-10-PCS"):
+        build(order=fictional)
+    for system in (pas.CPT, pas.HCPCS):
+        coded = _order("mri", "FX101")
+        coded["code"]["coding"].insert(1, {"system": system, "code": "X0000"})
+        item = build(order=coded)["entry"][0]["resource"]["item"][0]
+        assert item["productOrService"]["coding"] == [{"system": system, "code": "X0000"}]
 
 
 def test_the_orders_own_codes_are_used() -> None:

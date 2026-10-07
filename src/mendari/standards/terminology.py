@@ -39,7 +39,7 @@ from mendari.core.pack import Pack
 from mendari.core.spec import Outcome
 from mendari.errors import MendariError
 from mendari.sandbox.fhir_records import CHANNEL_SYSTEM, CHANNELS, SANDBOX_TAG
-from mendari.sandbox.synthetic_prior_auth import PROCEDURES
+from mendari.sandbox.synthetic_prior_auth import PROCEDURE_SYSTEM, PROCEDURES
 from mendari.standards import audit_fhir, davinci
 from mendari.standards.fhir import (
     DECISION_ID_SYSTEM,
@@ -51,7 +51,6 @@ from mendari.standards.fhir import (
     display,
     narrative,
 )
-from mendari.standards.pas import FICTIONAL_PROCEDURES
 
 PUBLISHER = "Mendari"
 NAMING_SYSTEMS_DATE = "2026-10-02"  # when their definitions last changed (pinned by a test)
@@ -203,7 +202,7 @@ def sandbox_resources() -> list[dict[str, Any]]:
             experimental=True,
         ),
         _code_system(
-            FICTIONAL_PROCEDURES,
+            PROCEDURE_SYSTEM,
             "fictional-procedures",
             "Mendari fictional procedure codes",
             "Procedure codes invented for the Prior Authorization Preflight's synthetic data. Not "

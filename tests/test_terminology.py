@@ -46,7 +46,7 @@ PINNED = {
         "CodeSystem/sandbox": "8a63d292423bdf66",
         "CodeSystem/message-channel": "0c3b329c01cfcc58",
         # Added in LP-14, a new url (no earlier content): the prior-auth pack's fictional codes.
-        "CodeSystem/fictional-procedures": "506d396c0a77d1af",
+        "CodeSystem/fictional-procedures": "b3c2e5361a6b9ea7",
         "NamingSystem/decision-id": "a3ac1c38e9476b4f",
         "NamingSystem/input-hash": "fb7c0678a0c9fdbf",
         "NamingSystem/decision-pack": "677f5f91c8577ec0",

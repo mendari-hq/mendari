@@ -24,74 +24,100 @@ MAX_DERIVE_ROWS = 10
 _PACK_ID = re.compile(r"^[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9-]*$")
 _SEMVER = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$")
 _KEY = re.compile(r"^[a-z][a-z0-9_]*$")
-# An SPDX license expression (`license`): identifiers (or `LicenseRef-…`), `AND`, `OR`, `WITH` an
-# exception, and parentheses. The syntax is checked, not the identifiers against SPDX's list.
+# An SPDX license expression (`license`, at most `MAX_LICENSE_CHARS`): identifiers (or
+# `LicenseRef-…`, optionally after `DocumentRef-…:`), `AND`, `OR`, `WITH` an exception, and
+# parentheses. The syntax is checked, not the identifiers against SPDX's list.
+MAX_LICENSE_CHARS = 200
 _SPDX_TOKEN = re.compile(r"\(|\)|[^\s()]+")
-_SPDX_ID = re.compile(r"^(?:LicenseRef-[A-Za-z0-9.-]+|[A-Za-z0-9][A-Za-z0-9.-]*\+?)$")
+_SPDX_ID = re.compile(
+    r"^(?:(?:DocumentRef-[A-Za-z0-9.-]+:)?LicenseRef-[A-Za-z0-9.-]+|[A-Za-z0-9][A-Za-z0-9.-]*\+?)$"
+)
+_SPDX_OPERATORS = frozenset({"AND", "OR", "WITH"})
+
+
+def _oid(oid: str) -> str:
+    """An OID as files spell it, bare or as `urn:oid:`, never a longer OID it begins."""
+    return r"(?<![\d.])" + re.escape(oid) + r"(?!\d|\.\d)"
+
+
 # Code systems whose codes are licensed, not free to redistribute everywhere: a pack that names
-# one (in `code_systems`, or anywhere in its files) declares it with a `licence_note` saying the
-# terms it is used under (LP-14). Canonical url -> (name, how the system is spelled in files).
+# one (in `code_systems`, or by its url or OID anywhere in its files) declares it with a
+# `licence_note` saying the terms it is used under (LP-14). A bare code value names no system:
+# declaring the system it comes from is the author's to do. Canonical url -> (name, spellings).
 LICENSED_CODE_SYSTEMS: dict[str, tuple[str, re.Pattern[str]]] = {
     "http://www.ama-assn.org/go/cpt": (
         "CPT (American Medical Association)",
-        re.compile(r"ama-assn\.org/go/cpt|urn:oid:2\.16\.840\.1\.113883\.6\.12(?![\d.])"),
+        re.compile(r"ama-assn\.org/go/cpt|" + _oid("2.16.840.1.113883.6.12")),
     ),
     "http://snomed.info/sct": (
         "SNOMED CT (SNOMED International)",
-        re.compile(r"snomed\.info/sct|urn:oid:2\.16\.840\.1\.113883\.6\.96(?![\d.])"),
+        re.compile(r"snomed\.info/(?:x?sct|id/)|" + _oid("2.16.840.1.113883.6.96")),
     ),
     "http://terminology.hl7.org/CodeSystem/mdr": (
         "MedDRA (ICH)",
         re.compile(
-            r"terminology\.hl7\.org/CodeSystem/mdr(?![\w-])|urn:oid:2\.16\.840\.1\.113883\.6\.163(?![\d.])"
+            r"terminology\.hl7\.org/CodeSystem/mdr(?![\w-])|meddra\.org|"
+            + _oid("2.16.840.1.113883.6.163")
         ),
     ),
+    "https://codesystem.x12.org": (
+        "X12 code lists (X12)",
+        re.compile(r"(?:codesystem|valueset)\.x12\.org"),
+    ),
+    "http://www.ada.org/cdt": (
+        "CDT (American Dental Association)",
+        re.compile(r"ada\.org/cdt|" + _oid("2.16.840.1.113883.6.13")),
+    ),
 }
+# Bytes every spelling above contains: a file holding none of them is not searched.
+LICENSED_HINTS = (
+    b"ama-assn.org",
+    b"snomed.info",
+    b"113883.6.",
+    b"CodeSystem/mdr",
+    b"meddra.org",
+    b"x12.org",
+    b"ada.org",
+)
 
 
 def licensed_systems(text: str) -> set[str]:
-    """The licensed code systems `text` names, by canonical url."""
+    r"""The licensed code systems `text` names, by canonical url. JSON's escaped slash (`\/`) is
+    read as a slash, so `http:\/\/snomed.info\/sct` names SNOMED CT."""
+    text = text.replace("\\/", "/")
     return {url for url, (_, spelled) in LICENSED_CODE_SYSTEMS.items() if spelled.search(text)}
 
 
 def is_spdx_expression(text: str) -> bool:
-    """Whether `text` is an SPDX license expression (syntax only)."""
+    """Whether `text` is an SPDX license expression (syntax only), read without recursion."""
     tokens = _SPDX_TOKEN.findall(text)
-    position = 0
-
-    def term() -> None:
-        nonlocal position
-        if position < len(tokens) and tokens[position] == "(":
-            position += 1
-            either()
-            if position >= len(tokens) or tokens[position] != ")":
-                raise ValueError
-            position += 1
-        elif (
-            position < len(tokens)
-            and _SPDX_ID.match(tokens[position])
-            and tokens[position] not in {"AND", "OR", "WITH"}
-        ):
-            position += 1
-            if position < len(tokens) and tokens[position] == "WITH":
-                if position + 1 >= len(tokens) or not _SPDX_ID.match(tokens[position + 1]):
-                    raise ValueError
-                position += 2
-        else:
-            raise ValueError
-
-    def either() -> None:
-        nonlocal position
-        term()
-        while position < len(tokens) and tokens[position] in {"AND", "OR"}:
-            position += 1
-            term()
-
-    try:
-        either()
-    except ValueError:
+    if not tokens:
         return False
-    return bool(tokens) and position == len(tokens)
+    depth = 0
+    position = 0
+    expect_term = True  # a term (an id or an opening parenthesis) comes next, else an operator
+    while position < len(tokens):
+        token = tokens[position]
+        if expect_term:
+            if token == "(":
+                depth += 1
+            elif token not in _SPDX_OPERATORS and token != ")" and _SPDX_ID.match(token):
+                expect_term = False
+                if position + 1 < len(tokens) and tokens[position + 1] == "WITH":
+                    exception = tokens[position + 2] if position + 2 < len(tokens) else ""
+                    if exception in _SPDX_OPERATORS or not _SPDX_ID.match(exception):
+                        return False
+                    position += 2
+            else:
+                return False
+        elif token == ")" and depth > 0:
+            depth -= 1
+        elif token in {"AND", "OR"}:
+            expect_term = True
+        else:
+            return False
+        position += 1
+    return not expect_term and depth == 0
 
 
 def readable(key: str) -> str:
@@ -186,7 +212,7 @@ class CodeSystemUse(_Strict):
     """A code system the pack's inputs, rules or data use (`code_systems`): its canonical url, its
     name and, for a licensed one (`LICENSED_CODE_SYSTEMS`), the terms the pack uses it under."""
 
-    url: str = Field(min_length=1, max_length=500, pattern=r"^(?:https?://|urn:oid:)\S+$")
+    url: str = Field(min_length=1, max_length=500, pattern=r"^(?:https?://|urn:)\S+$")
     name: str = Field(min_length=1, max_length=200)
     licence_note: str | None = Field(default=None, min_length=1, max_length=1000)
 
@@ -582,7 +608,7 @@ class PackManifest(_Strict):
     name: str
     summary: str
     publisher: Publisher
-    license: str  # an SPDX license expression
+    license: str = Field(max_length=MAX_LICENSE_CHARS)  # an SPDX license expression
     risk: Risk
     card: Card
     inputs: Inputs

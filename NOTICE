@@ -33,13 +33,13 @@ LOINC
   registered United States trademark of Regenstrief Institute, Inc.
 
 SNOMED CT
-  SNOMED CT codes in synthetic examples (packs/clinical-trial-prescreener, packs/referral-router, src/mendari/sandbox), each pack declaring it with its terms
+  SNOMED CT codes in synthetic examples (packs/clinical-trial-prescreener, packs/referral-router, datasets/trial-local-site-example.jsonl, src/mendari/sandbox), each pack declaring it with its terms
   Licence: SNOMED International's licence terms.
   SNOMED and SNOMED CT are registered trademarks of SNOMED International.
 
 ICD-10-CM
   ICD-10-CM codes in the synthetic reference packs and datasets
-  Licence: public domain (U.S. National Center for Health Statistics).
+  Licence: free to use from the U.S. National Center for Health Statistics, which adapted it from the World Health Organization's copyrighted ICD-10 with WHO's authorization.
 
 X12 code values
   the Da Vinci PAS mapping (src/mendari/standards/pas.py)

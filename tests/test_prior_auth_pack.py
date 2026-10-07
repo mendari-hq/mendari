@@ -16,8 +16,8 @@ from mendari import Decision
 from mendari.cli import main
 from mendari.core.policy import Outcome
 from mendari.sandbox import synthetic_prior_auth
+from mendari.sandbox.synthetic_prior_auth import procedure_codings
 from mendari.standards import cds_hooks
-from mendari.standards.pas import FICTIONAL_PROCEDURES
 
 ROOT = Path(__file__).parents[1]
 PACK_DIR = ROOT / "packs" / "prior-auth-preflight"
@@ -121,7 +121,7 @@ def _order(id_: str, code: str) -> dict[str, Any]:
         "id": id_,
         "status": "draft",
         "intent": "order",
-        "code": {"coding": [{"system": FICTIONAL_PROCEDURES, "code": code}]},
+        "code": {"coding": procedure_codings(code)},  # fictional, then a payer's ICD-10-PCS
         "subject": {"reference": "Patient/p1"},
     }
 
@@ -173,7 +173,7 @@ def test_order_sign_gives_a_card_per_covered_order(preflight: Decision) -> None:
                 "entry": [
                     {"resource": _order("mri", "FX101")},
                     {"resource": _order("scope", "FX202")},
-                    {"resource": _order("lab", "80053")},  # a metabolic panel: not covered
+                    {"resource": _order("lab", "FX904")},  # a metabolic panel: not covered
                 ],
             },
         },

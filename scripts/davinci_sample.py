@@ -27,24 +27,21 @@ from typing import Any
 from mendari import AuditStore, Decision
 from mendari.core.pack import Pack
 from mendari.sandbox import payer as sandbox_payer
-from mendari.sandbox.synthetic_prior_auth import PROCEDURES
+from mendari.sandbox.synthetic_prior_auth import procedure_codings
 from mendari.standards import cds_hooks, davinci, pas
 
 TODAY = date.today()
-PROCEDURE = pas.FICTIONAL_PROCEDURES  # the reference pack's invented codes, not CPT
 
 
 def order(id_: str, code: str) -> dict[str, Any]:
-    display = PROCEDURES[code]
+    codings = procedure_codings(code)  # the pack's fictional code, then a payer's ICD-10-PCS
+    display = codings[0]["display"]
     return {
         "resourceType": "ServiceRequest",
         "id": id_,
         "status": "draft",
         "intent": "order",
-        "code": {
-            "coding": [{"system": PROCEDURE, "code": code, "display": display}],
-            "text": display,
-        },
+        "code": {"coding": codings, "text": display},
         "subject": {"reference": "Patient/pa-p1"},
         "authoredOn": TODAY.isoformat(),
         "requester": {"reference": "Practitioner/pa-pr1"},
@@ -63,6 +60,14 @@ def prefetch(payer: str, note: str) -> dict[str, Any]:
         coding = {"system": system, "code": code}
         return {"resourceType": kind, "id": id_, "code": {"coding": [coding]}, **extra}
 
+    def procedure(id_: str, code: str, **extra: Any) -> dict[str, Any]:
+        return {
+            "resourceType": "Procedure",
+            "id": id_,
+            "code": {"coding": procedure_codings(code)},
+            **extra,
+        }
+
     ago = (TODAY - timedelta(days=40)).isoformat()
     icd = "http://hl7.org/fhir/sid/icd-10-cm"
     return {
@@ -80,10 +85,8 @@ def prefetch(payer: str, note: str) -> dict[str, Any]:
             coded("Condition", "pa-d1", icd, "M54.16", subject={"reference": "Patient/pa-p1"})
         ),
         "procedures": bundle(
-            coded(
-                "Procedure",
+            procedure(
                 "pa-x1",
-                PROCEDURE,
                 "FX111",
                 status="completed",
                 performedDateTime=ago,
