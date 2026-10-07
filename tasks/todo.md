@@ -389,8 +389,11 @@ behaviour.
   - The terms, privacy notice and acceptable-use pages (gate G2-3) have no build prompt yet.
   - LP-02's "a tag run" of the secret scan conflicts with LP-13's rule that nothing starts on a
     tag push: run it on a schedule and from `release.yml` instead.
-  - Collecting the tests imports `mendari.server.vercel`, which builds the app on whatever
-    `DATABASE_URL` the developer's shell exports: fixed next, in its own PR.
+  - Collecting the tests imported `mendari.server.vercel`, which builds the app on whatever
+    `DATABASE_URL` the developer's shell exports. Fixed in its own PR, with every other setting
+    that names a live system (the AI Gateway key, LLM and Jev endpoints, the alert webhook, the
+    registry) removed before collection, and no test able to mint a Vercel OIDC token
+    (`tests/test_isolation.py`).
 
 **Trust layer:** LP-10 statistics and ledger, LP-11 hidden sets and blind labelling, LP-17
 scoreboard and grading, LP-16 for registry-pulled packs (community packs already run on RE2
