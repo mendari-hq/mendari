@@ -19,11 +19,23 @@ medium or worse, and asks first for anything touching production, secrets or a p
 behaviour.
 
 **Stage 2 safety** (in this order)
-- [ ] **LP-02 Secret scan.** Run 2026-10-06 over a mirror clone (145 refs: 6 branches, 139
-  pull-request refs, no tags; 389 commits): gitleaks 2 findings, both the reviewed
-  `deploy/onprem/.env.example` false positive; trufflehog 0. The private report is in the
-  owner's folder (locations only); nothing to rotate. Left: a scheduled CI scan of every ref and
-  a positive control.
+- [x] **LP-02 Secret scan.** Run 2026-10-06 over a mirror clone (145 refs: 6 branches, 139
+  pull-request refs, no tags; 389 commits) with gitleaks 8.30.1 and trufflehog 3.98.0: gitleaks
+  2 findings, both the reviewed `deploy/onprem/.env.example` false positive; trufflehog 0. The
+  private report is in the owner's folder (locations only); nothing to rotate. Then (PR open):
+  one scan, `scripts/secret_scan.sh` (gitleaks, pinned there only), over every commit of every
+  ref with merge resolutions included (`--diff-merges=remerge`: without it git shows no diff
+  for a merge, so what a merge alone added was never read, by any scan, until now); a git error,
+  which gitleaks logs and then calls clean, fails it, as does a `.gitleaksignore`. It runs on
+  every pull request, weekly and by hand over every ref (`secrets.yml`: each branch, tag and
+  pull request's head, fetched with the read-only token, never stored), and in the release
+  build over the history it is built from (LP-02's "tag run": LP-13 starts nothing on a tag
+  push). The positive control (`scripts/secret_scan_control.sh`) plants two keys made up at run
+  time where only a full scan looks, one only on a pull request's head and one only in a merge's
+  resolution, and both must be found, in each of those runs and in
+  `tests/test_secret_scan.py`. A full scan of this repository's refs, merges included: 283
+  commits, clean. Gate G1-2's `secret-scan` is now met. **Owner, once public:** GitHub turns a
+  schedule off after 60 days with no activity; check monthly that `secrets.yml` ran.
 - [x] **LP-01 Inbox gate** merged in #130 (gate, rationale, three tests). The invariant for
   every maintained pack: `tests/test_safety_invariant.py` runs every configuration that needs no
   service on every declared dataset. By default no true critical case is automated (1,366
@@ -388,9 +400,9 @@ behaviour.
     with the owner's next change there, so a comment alone does not redeploy the public site.
   - The terms, privacy notice and acceptable-use pages (gate G2-3) have no build prompt yet.
   - LP-02's "a tag run" of the secret scan conflicts with LP-13's rule that nothing starts on a
-    tag push: run it on a schedule and from `release.yml` instead.
+    tag push: it runs on a schedule and in `release.yml`'s build instead (LP-02 above).
   - Collecting the tests imported `mendari.server.vercel`, which builds the app on whatever
-    `DATABASE_URL` the developer's shell exports. Fixed in its own PR, with every other setting
+    `DATABASE_URL` the developer's shell exports. Fixed in #151, with every other setting
     that names a live system (the AI Gateway key, LLM and Jev endpoints, the alert webhook, the
     registry) removed before collection, and no test able to mint a Vercel OIDC token
     (`tests/test_isolation.py`).

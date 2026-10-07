@@ -12,6 +12,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
+import subprocess
 import tomllib
 from pathlib import Path
 from types import ModuleType
@@ -26,7 +27,10 @@ WORKFLOWS = sorted((ROOT / ".github" / "workflows").glob("*.yml"))
 # Triggers that run in the base repository's context (its secrets, a write token) with code or
 # text a fork controls. None is used, and a new one needs a deliberate change here.
 UNSAFE_TRIGGERS = {"pull_request_target", "workflow_run", "issue_comment", "pull_request_review"}
-ALLOWED_TRIGGERS = {"push", "pull_request", "workflow_dispatch"}
+ALLOWED_TRIGGERS = {"push", "pull_request", "workflow_dispatch", "schedule"}
+# A schedule runs the default branch's own workflow and code, no one's input: only the weekly scan
+# of every ref uses one.
+SCHEDULED = {"secrets.yml"}
 # The only write permissions, each on a job that publishes from its own environment in a
 # workflow only a manual dispatch starts: the release workflow's publishing jobs (GUARDED below:
 # their environments must have reviewers) and the docs deploy (`github-pages`, which allows only
@@ -72,6 +76,7 @@ def test_no_trigger_runs_fork_code_in_the_base_context(path: Path) -> None:
     triggers = set(_triggers(_workflow(path)))
     assert not triggers & UNSAFE_TRIGGERS, f"{path.name}: {triggers & UNSAFE_TRIGGERS}"
     assert triggers <= ALLOWED_TRIGGERS, f"{path.name}: review {triggers - ALLOWED_TRIGGERS}"
+    assert ("schedule" in triggers) == (path.name in SCHEDULED), path.name
 
 
 @pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.name)
@@ -232,13 +237,32 @@ def test_every_file_has_a_code_owner() -> None:
     assert rules[0] == ["*", "@Junebugg1214"]
 
 
+SCAN = {"name": "gitleaks over the full history", "run": "sh scripts/secret_scan.sh"}
+CONTROL = {
+    "name": "The positive control finds the planted keys",
+    "run": "sh scripts/secret_scan_control.sh",
+}
+
+
+def _no_way_around(job: dict[str, Any]) -> None:
+    assert not {"if", "continue-on-error"} & set(job)
+    for step in job["steps"]:
+        assert not {"if", "continue-on-error"} & set(step), step
+
+
 def test_the_history_is_scanned_for_secrets() -> None:
-    ci = _workflow(ROOT / ".github" / "workflows" / "ci.yml")
-    steps = ci["jobs"]["secrets"]["steps"]
-    assert steps[0]["with"]["fetch-depth"] == 0  # every commit, not only the last
-    (scan,) = [step["run"] for step in steps if "run" in step]
-    assert "ghcr.io/gitleaks/gitleaks:" in scan and "--config /repo/.gitleaks.toml" in scan
-    assert "--exit-code 1" in scan
+    secrets = _workflow(ROOT / ".github" / "workflows" / "ci.yml")["jobs"]["secrets"]
+    _no_way_around(secrets)
+    checkout, scan, control = secrets["steps"]
+    assert checkout["with"]["fetch-depth"] == 0  # every commit, not only the last
+    assert (scan, control) == (SCAN, CONTROL)
+    script = (ROOT / "scripts" / "secret_scan.sh").read_text()
+    # Every ref, merge resolutions included; this repository's rules; a finding is exit 3; a git
+    # error, which gitleaks logs and then calls clean, fails; and no ignore file.
+    assert "--diff-filter=tuxdb --diff-merges=remerge'" in script  # gitleaks' defaults, and merges
+    assert '"$config:/gitleaks.toml:ro"' in script and "--config /gitleaks.toml" in script
+    assert "--exit-code 3" in script and "--no-color" in script
+    assert "if grep -q ' ERR ' \"$log\"; then" in script and ".gitleaksignore" in script
     config = tomllib.loads((ROOT / ".gitleaks.toml").read_text())
     assert config["extend"] == {"useDefault": True}
     # Each allowance is narrow: one file, one rule, the match itself.
@@ -246,6 +270,31 @@ def test_the_history_is_scanned_for_secrets() -> None:
         assert allowance["condition"] == "AND" and allowance["description"]
         assert allowance["paths"] and allowance["regexes"] and allowance["targetRules"]
     assert [a["paths"] for a in config["allowlists"]] == [[r"^deploy/onprem/\.env\.example$"]]
+    # No other allowance: no ignore file, no inline marker.
+    assert not (ROOT / ".gitleaksignore").exists()
+    marker = "gitleaks" + ":allow"
+    found = subprocess.run(["git", "grep", "-l", marker], cwd=ROOT, capture_output=True, text=True)
+    assert found.stdout == ""
+
+
+def test_every_ref_is_scanned_weekly_with_a_positive_control() -> None:
+    """LP-02: each branch and tag, and each pull request's head, which the pull request's own
+    scan never reaches; and the release scans the history it is built from."""
+    secrets = _workflow(ROOT / ".github" / "workflows" / "secrets.yml")
+    assert set(_triggers(secrets)) == {"schedule", "workflow_dispatch"}
+    assert secrets["permissions"] == {"contents": "read"}
+    (job,) = secrets["jobs"].values()
+    _no_way_around(job)
+    checkout, fetch, scan, control = job["steps"]
+    assert checkout["with"] == {"persist-credentials": False, "fetch-depth": 0}
+    assert fetch["env"] == {"TOKEN": "${{ github.token }}"}  # read-only, given to one command
+    assert "'+refs/pull/*/head:refs/pull/*/head'" in fetch["run"]
+    assert 'test "$heads" -gt 0 ||' in fetch["run"]  # a fetch that brought none fails
+    assert (scan["run"], control["run"]) == (SCAN["run"], CONTROL["run"])
+    build = _workflow(RELEASE)["jobs"]["build"]
+    assert build["steps"][0]["with"]["fetch-depth"] == 0
+    runs = [step.get("run", "") for step in build["steps"]]
+    assert runs.index(SCAN["run"]) < runs.index("uv build")
 
 
 # -- the pack workflow ----------------------------------------------------------------------------

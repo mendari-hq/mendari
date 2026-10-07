@@ -349,3 +349,13 @@ def test_dependabot_branches_get_no_vercel_preview() -> None:
     # A preview would also create a Neon branch, and Dependabot's own runs cannot clean it up.
     vercel = json.loads((ROOT / "vercel.json").read_text())
     assert vercel["git"]["deploymentEnabled"] == {"dependabot/**": False}
+
+
+def test_the_secret_scan_is_pinned_in_one_place() -> None:
+    """The gitleaks image every scan runs (scripts/secret_scan.sh) is pinned by digest there, and no
+    workflow runs another (Dependabot does not see it: bump it by hand)."""
+    script = (ROOT / "scripts" / "secret_scan.sh").read_text()
+    (image,) = re.findall(r'^image="([^"]+)"$', script, re.M)
+    assert image.startswith("ghcr.io/gitleaks/gitleaks:") and DIGEST_PIN.search(image)
+    for path in WORKFLOWS:
+        assert "gitleaks/gitleaks" not in path.read_text(), path.name

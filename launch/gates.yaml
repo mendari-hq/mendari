@@ -33,7 +33,15 @@ gates:
         what: "A1 step 1: the history scan (gitleaks and trufflehog, every ref) into a private report, scheduled in CI with a positive control"
         owner: build
         probes:
-          - pending: "LP-02, the rest: a scheduled CI scan of every ref and a positive control (the one-off scan ran on 2026-10-06, tasks/todo.md)"
+          # The one-off scan of every ref (gitleaks and trufflehog) ran on 2026-10-06; its report is
+          # the owner's, outside the repository (tasks/todo.md, LP-02).
+          - tests:
+              - tests/test_workflow_safety.py::test_the_history_is_scanned_for_secrets
+              - tests/test_workflow_safety.py::test_every_ref_is_scanned_weekly_with_a_positive_control
+              - tests/test_secret_scan.py::test_the_keys_are_made_up_and_planted_where_only_a_full_scan_looks
+              - tests/test_secret_scan.py::test_an_ignore_file_fails_the_scan
+              - tests/test_secret_scan.py::test_the_positive_control_finds_both_planted_keys
+              - tests/test_secret_scan.py::test_a_clean_history_passes_and_a_broken_one_fails
       - id: rotation
         what: "Every secret the scan finds is rotated before a partner gets access (B08)"
         owner: owner
