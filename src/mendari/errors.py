@@ -136,6 +136,14 @@ class AuthError(MendariError):
         super().__init__(message)
 
 
+class NoOrganization(AuthError):
+    """A signed-in principal acting for no organization (memberships mode, LP-12) reached
+    organization data through `tenancy.current()`: refused, never widened to all of them."""
+
+    def __init__(self, message: str = "you have no organization here"):
+        super().__init__(message, 403)
+
+
 class ScopeError(MendariError):
     """A scope that Mendari does not grant: unknown, for something not served (a write, a
     resource type, a granular or patient scope), or beyond the credential's role (a `422`)."""
