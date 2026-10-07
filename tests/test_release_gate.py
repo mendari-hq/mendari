@@ -85,6 +85,17 @@ def test_a_version_out_of_step_or_without_its_changelog_section_is_refused(tree:
     assert check.version_problems(f"v{VERSION}", tree)[-1].startswith("CHANGELOG.md has no")
 
 
+def test_a_run_from_a_branch_is_refused(capsys: pytest.CaptureFixture[str]) -> None:
+    """The workflow passes its own `github.ref`: a run started from a branch never builds (the
+    environments allow only `v*` tags, and the build would name no release)."""
+    for ref in ("refs/heads/main", "refs/pull/1/merge", "refs/heads/v0.1.0"):
+        assert check.main(["version", ref]) == 1
+        assert "not a tag: choose the tag under 'Use workflow from'" in capsys.readouterr().err
+    assert check.main(["version", "refs/tags/v9.9.9"]) == 1  # a tag, but not this version's
+    err = capsys.readouterr().err
+    assert "the tag 9.9.9" in err and "the tag v9.9.9 does not exist here" in err
+
+
 def test_the_tag_must_name_the_commit_built(tree: Path) -> None:
     def git(*args: str) -> str:
         return subprocess.run(

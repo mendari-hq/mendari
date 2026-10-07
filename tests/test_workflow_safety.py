@@ -92,9 +92,20 @@ def test_a_release_publishes_only_by_hand_after_its_build_from_a_guarded_environ
     release = _workflow(RELEASE)
     assert set(_triggers(release)) == {"workflow_dispatch"}
     inputs = _triggers(release)["workflow_dispatch"]["inputs"]
+    # No tag input: the run itself is on the tag (its `github.ref`, which the environments' `v*`
+    # rule checks), and every job checks out that run's one commit.
+    assert set(inputs) == {"publish"}
     assert inputs["publish"] == {**inputs["publish"], "type": "boolean", "default": False}
-    assert inputs["tag"]["required"] is True
     jobs = release["jobs"]
+    checkouts = [
+        step["with"]
+        for job in jobs.values()
+        for step in job["steps"]
+        if step.get("uses", "").startswith("actions/checkout@")
+    ]
+    assert len(checkouts) == len(jobs)
+    assert all(checkout["ref"] == "${{ github.sha }}" for checkout in checkouts)
+    assert "inputs.tag" not in RELEASE.read_text()
     publishing = {name for name, job in jobs.items() if _writes(job.get("permissions"))}
     assert publishing == {"publish-pypi", "publish-images"}
     for name in publishing:
@@ -110,10 +121,12 @@ def test_a_release_publishes_only_by_hand_after_its_build_from_a_guarded_environ
         assert steps[guard]["env"] == {"GH_TOKEN": "${{ github.token }}"}
         # Only the checkout comes before the guard: nothing is downloaded or pushed until it passes.
         assert [step["uses"].split("@")[0] for step in steps[:guard]] == ["actions/checkout"], name
-    build = [step.get("run", "") for step in jobs["build"]["steps"]]
-    assert build[next(i for i, run in enumerate(build) if run)] == (
-        'python3 scripts/check_release.py version "$TAG"'
-    )  # the version is checked first, before anything is built
+    build_steps = jobs["build"]["steps"]
+    first = next(step for step in build_steps if "run" in step)
+    # The run's ref and the version are checked first, before anything is built.
+    assert first["run"] == 'python3 scripts/check_release.py version "$REF"'
+    assert first["env"] == {"REF": "${{ github.ref }}"}
+    build = [step.get("run", "") for step in build_steps]
     assert any("uv run pytest" in run for run in build)
     assert any("check_sdist.py" in run and "check_excluded.py" in run for run in build)
     images = "\n".join(step.get("run", "") for step in jobs["images"]["steps"])

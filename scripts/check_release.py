@@ -1,16 +1,18 @@
 # SPDX-License-Identifier: Apache-2.0
 """The release workflow's gates (.github/workflows/release.yml). Standard library only.
 
-`version TAG`: the tag is a release tag (`v` and the package version), names the commit checked
-out, and the version is the same everywhere it is written (pyproject.toml, mendari.__version__,
-uv.lock, the docker compose image tags) and has its own section in CHANGELOG.md.
+`version REF`: the run is on a release tag (REF is `refs/tags/v<version>`, the workflow's
+`github.ref`; a bare `v<version>` locally), the tag names the commit checked out, and the version
+is the same everywhere it is written (pyproject.toml, mendari.__version__, uv.lock, the docker
+compose image tags) and has its own section in CHANGELOG.md, the newest.
 
-`environment NAME`: a publishing job may run only when the repository is public and the
+`environment NAME`: a publishing job goes on only when the repository is public and the
 deployment environment it uses has required reviewers. GitHub creates an environment named by a
-job, unprotected, if it does not exist; this refuses that, and refuses whenever the API cannot
-show the evidence (fail closed). Reads GITHUB_REPOSITORY and GH_TOKEN.
+job, unprotected, if it does not exist, and runs the job with no approval; this refuses that, and
+refuses whenever the API cannot show the evidence (fail closed). Reads GITHUB_REPOSITORY and
+GH_TOKEN.
 
-    python3 scripts/check_release.py version v0.1.0
+    python3 scripts/check_release.py version refs/tags/v0.1.0
     python3 scripts/check_release.py environment pypi
 """
 
@@ -75,9 +77,13 @@ def version_problems(tag: str, root: Path = ROOT, head: str | None = None) -> li
     elif sections[0] != wanted:
         found.append(f"CHANGELOG.md's newest section is {sections[0]}, not {wanted}")
     if head is not None:
-        tagged = _git(root, "rev-parse", f"refs/tags/{tag}^{{commit}}")
-        if tagged != head:
-            found.append(f"the tag {tag} is not the commit checked out")
+        try:
+            tagged = _git(root, "rev-parse", "--verify", "--quiet", f"refs/tags/{tag}^{{commit}}")
+        except subprocess.CalledProcessError:
+            found.append(f"the tag {tag} does not exist here")
+        else:
+            if tagged != head:
+                found.append(f"the tag {tag} is not the commit checked out")
     return found
 
 
@@ -127,7 +133,11 @@ def main(argv: list[str]) -> int:
         return 2
     command, value = argv
     if command == "version":
-        found = version_problems(value, head=_git(ROOT, "rev-parse", "HEAD"))
+        tag = value.removeprefix("refs/tags/")
+        if tag != value or not value.startswith("refs/"):
+            found = version_problems(tag, head=_git(ROOT, "rev-parse", "HEAD"))
+        else:  # a branch: the environments allow only tags, and nothing names the release
+            found = [f"the run is on {value}, not a tag: choose the tag under 'Use workflow from'"]
     else:
         repository = os.environ.get("GITHUB_REPOSITORY", "")
         token = os.environ.get("GH_TOKEN", "")

@@ -22,8 +22,8 @@ import sys
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-# main when the rule began (LP-13): commits it can reach are exempt.
-EFFECTIVE_AFTER = "d1b352c3697d10ed793da0900f1696b80776a726"
+# main when the rule began (LP-13, after #143): commits it can reach are exempt.
+EFFECTIVE_AFTER = "bb3411821752f11b368e1f7b0d3c7aab7da95d3c"
 # Bots whose commits carry the platform's own sign-off; matched on the author's e-mail.
 BOTS = re.compile(r"^\d+\+(dependabot|github-actions)\[bot\]@users\.noreply\.github\.com$")
 SIGNED = re.compile(r"^Signed-off-by: (?P<name>.+) <(?P<email>[^<>]+)>\s*$", re.MULTILINE)

@@ -176,15 +176,22 @@ behaviour.
   `docs`, `docker`; the release build). DCO: CONTRIBUTING says inbound = outbound Apache-2.0, the
   DCO 1.1 sign-off, how to fix a missing one and who merges; `scripts/check_dco.py` checks every
   non-merge commit a PR brings (author's address in a `Signed-off-by:`; Dependabot and GitHub
-  Actions exempt; history before `d1b352c3` exempt), run by CI's `dco` job. SECURITY.md: a 90-day
+  Actions exempt; history up to main's `bb341182` exempt), run by CI's `dco` job. SECURITY.md: a 90-day
   coordinated-disclosure window; `web/.well-known/security.txt` (the reporting form, no address;
   expires 2027-10-01, a test fails 30 days before). Releases: `images.yml` removed; `release.yml`
-  starts only by hand (`workflow_dispatch`: the tag, and `publish`, off by default), checks the tag
-  names the commit and the version is the same in pyproject, `__init__`, uv.lock and the compose
+  starts only by hand (`workflow_dispatch` run from the tag itself, with `publish` off by default;
+  run from a branch it refuses), every job checks out the run's one commit, it checks the tag
+  names that commit and the version is the same in pyproject, `__init__`, uv.lock and the compose
   tags with its `CHANGELOG.md` section newest, runs the tests, builds and checks the packages,
   builds, tests and checks the six images and saves them; the publishing jobs need that build, a
-  public repository (job `if`) and, checked through the API before anything else, required
-  reviewers on their environment (failing closed), and push the saved images as tested.
+  public repository (job `if`) and their environment's approval, then check through the API, as
+  their first step, that the repository is public and the environment has required reviewers
+  (failing closed: an environment a job names is created unprotected if missing), and push the
+  saved images as tested. LOINC's notice is its licence's text word for word. Review: one
+  adversarial review, each finding checked by a skeptic: 1 medium (run from `main` as the steps
+  said, the `v*` rule on the environments refused every publish; the run is now bound to the tag)
+  and 4 low (each job resolved the tag anew; the guard's order as documented; LOINC's notice
+  missing its years; the DCO start point before #143), all fixed.
   `SPDX-License-Identifier: Apache-2.0` on every source file under src/, tests/, scripts/ and hub/
   (not vendored files or the shown snippets), `tests/test_spdx.py`. Version kept in pyproject and
   `__init__` with a test across all four places (a dynamic version would change the Vercel build).
@@ -506,9 +513,9 @@ build session. A1–A8 come before A9 (making the repository public); A10 and A1
      the name `mendari` is still free on PyPI.
 8. **Release 0.1.0.** On an up-to-date `main`, with `CHANGELOG.md`'s `## 0.1.0` section as you
    want it: `git tag v0.1.0 && git push origin v0.1.0` (a tag push starts nothing). Then Actions →
-   **release** → Run workflow: tag `v0.1.0`, publish **off**; it checks the tag and the version,
+   **release** → Run workflow → "Use workflow from" → **Tags** → `v0.1.0`, publish **off**; it checks the tag and the version,
    runs the tests and builds and tests the packages and the six images. When it is green, run it
-   again with publish **on**, and in the run approve the `pypi` deployment and the six `ghcr`
+   again from the same tag with publish **on**, and in the run approve the `pypi` deployment and the six `ghcr`
    deployments. Check after: pypi.org/project/mendari shows 0.1.0
    with a wheel and an sdist; in a fresh venv, `pip install mendari` then `mendari test
    mendari/patient-inbox-router` passes; the release job's "The sdist holds only what a source

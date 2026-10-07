@@ -2,22 +2,23 @@ name: release
 
 # A release is made by hand, never by a tag push. The owner (tasks/todo.md, "Going public: owner
 # steps"):
-#   1. writes the version's section in CHANGELOG.md and tags the commit `v<version>`;
-#   2. runs this workflow (Actions → release → Run workflow) with that tag and publish off: it
-#      checks the tag and the version, runs the tests, builds the sdist, the wheel and the six
-#      images, and tests each;
-#   3. runs it again with publish on. A publishing job starts only after the same build passes,
-#      and only on a public repository; it first checks, through the API, that its environment
-#      has required reviewers (refusing when it cannot tell), then waits for their approval.
+#   1. writes the version's section in CHANGELOG.md, tags the commit `v<version>` and pushes the
+#      tag (which starts nothing);
+#   2. runs this workflow (Actions → release → Run workflow) with **the tag** chosen under "Use
+#      workflow from" and publish off: the run, its workflow file and every job are then the
+#      tagged commit (`github.sha`), which the `v*` rule on the environments allows. It checks the
+#      tag and the version, runs the tests, builds the sdist, the wheel and the six images, and
+#      tests each. Run from a branch, it refuses at the first step;
+#   3. runs it again from the tag with publish on. A publishing job starts only after the same
+#      build passes, only on a public repository, and only once its environment's reviewer
+#      approves; its first step then checks, through the API, that the repository is public and
+#      the environment has required reviewers, refusing when it cannot tell (an environment a job
+#      names is created unprotected if it does not exist, and would need no approval).
 # PyPI uses trusted publishing (environment `pypi`): no API token is stored anywhere. Images go
 # to GitHub Container Registry (environment `ghcr`): each is pushed exactly as it was tested.
 on:
   workflow_dispatch:
     inputs:
-      tag:
-        description: The release tag, e.g. v0.1.0 (it must exist and match the package version)
-        required: true
-        type: string
       publish:
         description: Publish to PyPI and GitHub Container Registry once the build passes
         required: true
@@ -34,16 +35,16 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
           persist-credentials: false
-          ref: refs/tags/${{ inputs.tag }}
-          fetch-depth: 0
+          ref: ${{ github.sha }}
+          fetch-depth: 0  # the tags, to check this run's tag names this commit
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
         with:
           version: "0.12.22"
           python-version: "3.12"
-      - name: The tag names this commit; the version, wherever written, is the tag's and has its changelog section
+      - name: The run is on a release tag naming this commit; the version, wherever written, is the tag's and has its changelog section
         env:
-          TAG: ${{ inputs.tag }}
-        run: python3 scripts/check_release.py version "$TAG"
+          REF: ${{ github.ref }}
+        run: python3 scripts/check_release.py version "$REF"
       - run: uv sync --locked && uv run pytest -q
       - run: uv build
       - name: The sdist holds only what a source build needs; no package holds notes, plans, agent or CI files
@@ -64,8 +65,9 @@ jobs:
           retention-days: 7
 
   images:
-    # The engine with every pack, and one image per pack, each built from the tagged commit,
-    # tested and checked, then saved: the publishing job pushes these very images.
+    # The engine with every pack, and one image per pack, each built from the run's commit (the
+    # tagged one the build checked), tested and checked, then saved: the publishing job pushes
+    # these very images.
     needs: build
     runs-on: ubuntu-latest
     strategy:
@@ -82,13 +84,13 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
           persist-credentials: false
-          ref: refs/tags/${{ inputs.tag }}
+          ref: ${{ github.sha }}
       - name: Build, test and check the image (no notes, plans, agent or CI files), then save it
         env:
           NAME: ${{ matrix.name }}
           PACK: ${{ matrix.pack }}
           ONLY: ${{ matrix.only }}
-          TAG: ${{ inputs.tag }}
+          TAG: ${{ github.ref_name }}
         run: |
           image="${NAME}:${TAG}"
           docker build --build-arg PACK="$ONLY" -t "$image" .
@@ -114,7 +116,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
           persist-credentials: false
-          ref: refs/tags/${{ inputs.tag }}
+          ref: ${{ github.sha }}
       - name: Refuse unless the repository is public and this environment has required reviewers
         env:
           GH_TOKEN: ${{ github.token }}
@@ -149,7 +151,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
           persist-credentials: false
-          ref: refs/tags/${{ inputs.tag }}
+          ref: ${{ github.sha }}
       - name: Refuse unless the repository is public and this environment has required reviewers
         env:
           GH_TOKEN: ${{ github.token }}
@@ -167,7 +169,7 @@ jobs:
         env:
           NAME: ${{ matrix.name }}
           OWNER: ${{ github.repository_owner }}
-          TAG: ${{ inputs.tag }}
+          TAG: ${{ github.ref_name }}
         run: |
           gunzip -c "/tmp/image/${NAME}.tar.gz" | docker load
           image="ghcr.io/${OWNER,,}/${NAME}:${TAG}"
