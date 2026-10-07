@@ -4,6 +4,7 @@ the audit trail. A hold only ever lowers automation, and changes nothing else ab
 
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -199,11 +200,12 @@ def test_the_break_glass_refuses_a_database_that_is_not_the_servers(
     assert main([*args, "--db", missing]) == 1
     assert not Path(missing).exists()  # nothing created
     other = tmp_path / "other.db"  # another application's database: left as it was
-    with sqlite3.connect(other) as connection:
+    with closing(sqlite3.connect(other)) as connection:  # closed: Python 3.13 warns otherwise
         connection.execute("CREATE TABLE things (id INTEGER)")
+        connection.commit()
     assert main([*args, "--db", str(other)]) == 1
     assert "is not a Mendari database" in capsys.readouterr().err
-    with sqlite3.connect(other) as connection:
+    with closing(sqlite3.connect(other)) as connection:
         tables = {r[0] for r in connection.execute("SELECT name FROM sqlite_master")}
     assert tables == {"things"}
     text = tmp_path / "notes.txt"
