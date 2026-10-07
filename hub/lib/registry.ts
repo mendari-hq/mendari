@@ -29,6 +29,7 @@ export type ServedRow = {
     false_automation: Figure | null;
     automation: Figure | null;
     critical: { question: string; label: string; detected: Figure; auto_missed: number; insufficient_evidence: boolean }[];
+    critical_named?: boolean; // the pack has several critical labels: name each, as the card does
   };
 };
 

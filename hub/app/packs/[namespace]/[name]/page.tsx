@@ -94,7 +94,8 @@ function Leaderboard({ board }: { board: BoardFigures }) {
         where a critical label has at least {board.ranking.min_positives} positives.
       </p>
       {board.groups.map((group, index) => {
-        const rows = board.rows.filter((row) => row.group === index);
+        // Each row keyed by its place in the served order (unique, and fixed by the registry).
+        const rows = board.rows.map((row, position) => ({ row, position })).filter(({ row }) => row.group === index);
         return (
           <details key={`${group.label} ${index}`} open={index === 0}>
             <summary><b>{group.dataset}</b> <span className="muted">{group.about.join("; ")}</span></summary>
@@ -108,14 +109,14 @@ function Leaderboard({ board }: { board: BoardFigures }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((row) => (
-                    <tr key={`${index} ${row.config} ${row.pack_version}`}>
+                  {rows.map(({ row, position }) => (
+                    <tr key={position}>
                       <td className="num">{row.rank ?? <span title={row.standing_text ?? ""}>–</span>}</td>
                       <td>{row.config}{row.standing_text ? <span className="standing">{row.standing_text}</span> : null}</td>
                       <td>
                         {row.figures.critical.length ? row.figures.critical.map((c) => (
                           <div key={`${c.question}=${c.label}`}>
-                            {row.figures.critical.length > 1 ? `${c.question}=${c.label} ` : ""}
+                            {(row.figures.critical_named ?? row.figures.critical.length > 1) ? `${c.question}=${c.label} ` : ""}
                             {shown(c.detected)} ({c.auto_missed} automated)
                             {c.insufficient_evidence ? <span className="evidence-mark">insufficient evidence</span> : null}
                           </div>

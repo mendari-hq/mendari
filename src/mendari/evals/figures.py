@@ -240,6 +240,9 @@ def _row(row: Mapping[str, Any]) -> dict[str, Any]:
         "false_automation": _stored(row.get("false_automation")),
         "automation": counted(row.get("auto_rate"), row["n"]),
         "critical": [critical(c) for c in row["critical"] if c["n"]],
+        # Each critical figure says its label when the pack has several, as the card does
+        # (`leaderboard.critical_text`), whether or not they all have positives here.
+        "critical_named": len(row["critical"]) > 1,
         "questions": {
             key: counted(m.get("accuracy"), m.get("n"))
             for key, m in (row.get("questions") or {}).items()
