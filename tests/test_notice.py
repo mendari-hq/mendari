@@ -74,11 +74,23 @@ def test_every_decide_answer_carries_it(open_client: TestClient) -> None:
     assert checked["notice"] == notices.notice() and checked["status"]
 
 
+def test_the_notice_says_what_the_plan_requires() -> None:
+    """The launch plan's notice (A4.2): its three clauses, in the one place it is written.
+    Changing them is the owner's decision, with a new VERSION."""
+    for clause in ("Research preview.", "Not a medical device.", "patients should call 911."):
+        assert clause in notices.NOTICE
+
+
+def test_the_acknowledgement_is_required_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MENDARI_NOTICE_ACKNOWLEDGEMENT")
+    assert notices.mode() == "required"
+
+
 @pytest.fixture
 def signed_in_app(
     db_target: str, monkeypatch: pytest.MonkeyPatch
 ) -> Iterator[tuple[TestClient, AuditStore]]:
-    monkeypatch.setenv("MENDARI_NOTICE_ACKNOWLEDGEMENT", "required")
+    monkeypatch.delenv("MENDARI_NOTICE_ACKNOWLEDGEMENT")  # the default: required
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
     with TestClient(create_app(db_path=db_target), base_url="https://mendari.test") as client:

@@ -56,8 +56,18 @@ jobs:
           exit $failed
 
   browser:
-    # The dashboard in a real browser (tests/browser, skipped by the default pytest run).
+    # The dashboard in a real browser (tests/browser, skipped by the default pytest run), then the
+    # launch gates, whose probes run browser tests and both databases' cases.
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+        env:
+          POSTGRES_PASSWORD: mendari-test
+          POSTGRES_DB: mendari_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
@@ -69,6 +79,16 @@ jobs:
       - run: uv sync --locked
       - run: uv run playwright install --with-deps chromium
       - run: uv run pytest -m browser
+      # A report, never a gate on a pull request: it fails only when launch/gates.yaml itself is
+      # wrong (a test it names is gone, an attestation where none belongs). Here because its
+      # probes include browser tests.
+      - name: The launch gates (launch/gates.yaml), in the run's summary
+        env:
+          MENDARI_TEST_DATABASE_URL: postgresql://postgres:mendari-test@localhost:5432/mendari_test
+        run: |
+          uv run python scripts/check_gates.py > /tmp/gates.md
+          cat /tmp/gates.md
+          cat /tmp/gates.md >> "$GITHUB_STEP_SUMMARY"
 
   reference-pack:
     # Derived pack artifacts (synthetic data, trained model) must be reproducible from source.

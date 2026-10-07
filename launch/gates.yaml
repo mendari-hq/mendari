@@ -1,0 +1,308 @@
+# The launch gates (LP-03): the launch plan's five stage gates as corrected by the vision audit
+# (notes/vision-audit.md, "Stage gates at this commit"; each gate's prerequisites in
+# notes/vision-audit-evidence.md, "### G1-2" to "### G5-6"), each prerequisite with a probe.
+#
+#   uv run python scripts/check_gates.py                  # the table; exit 0 whatever is met
+#   uv run python scripts/check_gates.py --assert G1-2    # exit 1 unless every G1-2 line is met
+#
+# A prerequisite is met when every one of its probes is:
+#   tests: [node ids]   each test exists and passes; a skipped one is not proof. A test run on
+#                       both databases is named without its case, so both count: its Postgres
+#                       case needs MENDARI_TEST_DATABASE_URL (CI's report has it; a local run
+#                       without Mendari's Postgres shows the line not met)
+#   file: path          the file exists in the repository
+#   setting: {file, key, equals}
+#                       a tracked YAML, JSON or TOML file holds that value (key: a dotted path,
+#                       list positions as numbers)
+#   attested: {what, by, date}
+#                       the owner writes their name (by) and the date (YYYY-MM-DD) once it is
+#                       true. Only for an owner prerequisite, and only the owner fills it in: a
+#                       build session never does. With `digests`, it is bound to the packs: the
+#                       owner lists every pack under packs/ with the digest attested
+#                       (`mendari validate` prints it), and it is void once one changes.
+#   setting values are compared with their type: quote yes, no, on, off and numbers meant as text.
+#   pending: text       not met: names the prompt (or owner step) that adds the probe
+# Owner prerequisites always carry an attestation; build prerequisites never do. When a prompt
+# lands, it replaces its `pending` probe here with the tests its acceptance created.
+
+gates:
+  - id: G1-2
+    name: "Stage 1 to 2: design partners"
+    prerequisites:
+      - id: secret-scan
+        what: "A1 step 1: the history scan (gitleaks and trufflehog, every ref) into a private report, scheduled in CI with a positive control"
+        owner: build
+        probes:
+          - pending: "LP-02, the rest: a scheduled CI scan of every ref and a positive control (the one-off scan ran on 2026-10-06, tasks/todo.md)"
+      - id: rotation
+        what: "Every secret the scan finds is rotated before a partner gets access (B08)"
+        owner: owner
+        probes:
+          - attested: {what: "the scan's report read; every live secret it found rotated, or none found", by: "", date: ""}
+      - id: a4-safety-notices
+        what: "A4: the inbox automation gate, one notice on every surface, an acknowledgement, plain-language results, axe checks"
+        owner: build
+        probes:
+          - tests:
+              - tests/test_inbox_pack.py::test_without_a_model_screen_nothing_is_automated
+              - tests/test_inbox_pack.py::test_the_gate_never_hides_an_emergency
+              - tests/test_safety_invariant.py::test_every_maintained_pack_is_checked
+              - tests/test_safety_invariant.py::test_no_critical_case_is_automated_by_default
+              - tests/test_safety_invariant.py::test_the_check_catches_an_automated_critical_case
+              - tests/test_notice.py::test_the_notice_says_what_the_plan_requires
+              - tests/test_notice.py::test_every_page_and_the_openapi_description_carry_the_notice
+              - tests/test_notice.py::test_every_decision_card_carries_it
+              - tests/test_notice.py::test_the_hub_says_the_same_words
+              - tests/test_notice.py::test_every_decide_answer_carries_it
+              - tests/test_notice.py::test_cds_hooks_carry_it
+              - tests/test_notice.py::test_the_acknowledgement_is_required_by_default
+              - tests/test_notice.py::test_a_signed_in_person_acknowledges_before_deciding
+              - tests/test_notice.py::test_a_new_notice_version_asks_again
+              - tests/test_notice.py::test_an_admin_cannot_mint_a_way_around_it
+              - tests/test_pack_status.py::test_display_names_are_checked
+              - tests/browser/test_notice.py::test_every_view_shows_the_notice
+              - tests/browser/test_notice.py::test_an_open_drawer_says_it_too
+              - tests/browser/test_notice.py::test_a_signed_in_person_acknowledges_when_the_dashboard_opens
+              - tests/browser/test_notice.py::test_the_acknowledgement_passes_axe
+              - tests/browser/test_plain_result.py::test_the_result_shows_names_and_no_raw_code
+              - tests/browser/test_plain_result.py::test_the_engine_detail_is_in_the_record
+              - tests/browser/test_plain_result.py::test_the_result_passes_axe
+              - tests/browser/test_accessibility.py::test_every_view_passes_axe
+              - tests/browser/test_accessibility.py::test_an_open_drawer_passes_axe
+      - id: nda-pilot-agreement
+        what: "A mutual NDA and a design-partner pilot agreement, synthetic data only (B07)"
+        owner: owner
+        probes:
+          - attested: {what: "both templates approved by counsel (or: no design partners, waived)", by: "", date: ""}
+      - id: patent-decision
+        what: "Whether to file a provisional patent, decided with counsel before any public disclosure (B04)"
+        owner: owner
+        probes:
+          - attested: {what: "the decision, and the serial number if filed", by: "", date: ""}
+      - id: synthetic-example-label
+        what: "Every reference pack labelled a synthetic example on every surface (A2 step 6, B21)"
+        owner: build
+        probes:
+          - tests:
+              - tests/test_pack_status.py::test_the_label_says_what_the_plan_requires
+              - tests/test_pack_status.py::test_every_reference_pack_says_it_is_a_synthetic_example
+              - tests/test_pack_status.py::test_the_line_follows_provenance_and_nothing_else
+              - tests/test_pack_status.py::test_the_api_says_it
+              - tests/test_pack_status.py::test_cds_hooks_say_it_in_discovery_and_on_every_card
+              - tests/test_pack_status.py::test_the_readme_lists_the_reference_packs_as_synthetic_examples
+              - tests/test_smart.py::test_a_launch_opens_the_dashboard_page_and_nothing_else
+              - tests/browser/test_pack_status.py::test_every_view_shows_the_label
+
+  - id: G2-3
+    name: "Stage 2 to 3: open-source launch"
+    prerequisites:
+      - id: a1-rest
+        what: "The rest of A1: excluded paths, release by hand from guarded environments, LICENSE, NOTICE, SECURITY.md, code of conduct, the DCO"
+        owner: build
+        probes:
+          - file: LICENSE
+          - file: NOTICE
+          - file: SECURITY.md
+          - file: CODE_OF_CONDUCT.md
+          - tests:
+              - tests/test_excluded_paths.py::test_each_excluded_path_is_refused_at_any_depth
+              - tests/test_excluded_paths.py::test_an_image_is_checked_in_its_application_paths_and_for_agent_files_anywhere
+              - tests/test_workflow_safety.py::test_ci_checks_what_would_be_published_for_excluded_paths
+              - tests/test_packaging.py::test_the_sdist_includes_exactly_the_build_inputs
+              - tests/test_notice_file.py::test_notice_is_what_the_manifest_says
+              - tests/test_dco.py::test_a_signed_commit_passes_and_an_unsigned_one_fails
+              - tests/test_dco.py::test_contributing_asks_every_commit_to_be_signed_off
+              - tests/test_dco.py::test_the_code_of_conduct_is_contributor_covenant_2_1
+              - tests/test_workflow_safety.py::test_every_commit_of_a_pull_request_is_signed_off
+              - tests/test_security_txt.py::test_the_policy_and_its_disclosure_window_are_linked
+              - tests/test_workflow_safety.py::test_nothing_starts_on_a_tag_push
+              - tests/test_workflow_safety.py::test_a_release_publishes_only_by_hand_after_its_build_from_a_guarded_environment
+              - tests/test_release_gate.py::test_the_environment_guard_fails_closed
+      - id: a2-docs-promise
+        what: "A2: what the docs promise works (release paths, docs deploy, every documented command checked, one-line errors), and the scaffold and README point at the published docs"
+        owner: build
+        probes:
+          - tests:
+              - tests/test_release_gate.py::test_the_version_is_the_same_wherever_it_is_written
+              - tests/test_workflow_safety.py::test_a_release_publishes_only_by_hand_after_its_build_from_a_guarded_environment
+              - tests/test_workflow_safety.py::test_the_docs_deploy_by_hand_from_a_strict_checked_build
+              - tests/test_doc_blocks.py::test_every_shell_and_python_block_has_its_marker
+              - tests/test_doc_blocks.py::test_ci_runs_every_runner
+              - tests/test_cli_errors.py::test_a_broken_input_is_one_line_and_exit_1
+              - tests/test_cli_errors.py::test_debug_lets_the_error_through
+              - tests/test_validate_datasets.py::test_validate_reads_every_declared_dataset
+          - pending: "owner step 9 (the docs on GitHub Pages), then a build PR that points `mendari new` and the README at mkdocs.yml's site_url (LP-15 requirement 2)"
+      - id: a5-phi-protection
+        what: "A5: patient data on the hosted site encrypted by default, retention on a schedule, erasure, key rotation"
+        owner: build
+        probes:
+          - tests:
+              - tests/test_hosted_data.py::test_the_hosted_site_refuses_plaintext_and_runs_encrypt_by_default
+              - tests/test_hosted_data.py::test_sign_in_needs_a_chosen_mode
+              - tests/test_hosted_data.py::test_no_route_shows_a_stored_case_but_to_a_reader_and_every_read_is_chained
+              - tests/test_hosted_data.py::test_erasing_a_kept_input_and_its_notes_keeps_the_chain
+              - tests/test_hosted_data.py::test_admins_erase_through_the_api
+              - tests/test_hosted_data.py::test_the_cli_erases
+              - tests/test_hosted_data.py::test_retention_keeps_30_days_unless_told_and_never_0_from_a_setting
+              - tests/test_hosted_data.py::test_purging_everything_is_asked_for_on_the_command_line
+              - tests/test_hosted_data.py::test_retention_purges_in_batches_and_chains_a_summary
+              - tests/test_hosted_data.py::test_the_scheduled_purge_runs_with_the_cron_secret_only
+              - tests/test_hosted_data.py::test_vercel_schedules_the_purge_daily
+              - tests/test_rotation.py::test_a_thousand_values_rotate_in_batches_and_everything_still_opens
+              - tests/test_rotation.py::test_an_interrupted_rotation_resumes
+              - tests/test_rotation.py::test_a_new_input_hash_key_starts_an_epoch
+              - tests/test_rotation.py::test_a_rotated_key_overlaps_then_expires
+              - tests/test_rotation.py::test_admins_rotate_keys_through_the_api
+          - pending: "the owner's answer to LP-08's open question (tasks/todo.md): outside Vercel, an explicit MENDARI_PHI_MODE=off with sign-in on starts with a warning, where A5 step 1 asks for a refusal; a build PR refuses it, or the owner accepts the warning and this line goes. The hosted keys and CRON_SECRET are the owner's"
+      - id: a6-accounts
+        what: "A6: accounts, organizations as records, memberships, invitations, self-service keys without a redeploy"
+        owner: build
+        probes:
+          - pending: "LP-12"
+      - id: partners-3
+        what: "Three or more design partners active, each under a signed NDA and pilot agreement"
+        owner: owner
+        probes:
+          - attested: {what: "the number of partners with signed agreements (the documents stay outside the repository)", by: "", date: ""}
+      - id: labelling-underway
+        what: "Hidden-set labelling under way: clinician labellers working in A8's labelling workflow"
+        owner: owner
+        probes:
+          - pending: "LP-11 (the labelling workflow), after LP-10"
+          - attested: {what: "the labellers contracted and the sets in labelling", by: "", date: ""}
+      - id: trademark-filed
+        what: "The trademark application for Mendari filed (B05)"
+        owner: owner
+        probes:
+          - attested: {what: "the USPTO serial number", by: "", date: ""}
+      - id: legal-pages-live
+        what: "Terms of use, privacy notice and acceptable-use policy live and linked (B16)"
+        owner: owner
+        probes:
+          - pending: "a build prompt, not yet assigned: serve and link the three texts and record acceptance (tasks/todo.md)"
+          - attested: {what: "counsel-approved texts live on the hosted site", by: "", date: ""}
+
+  - id: G3-4
+    name: "Stage 3 to 4: scoreboards and pack store"
+    prerequisites:
+      - id: a3-pack-safety
+        what: "A3: a pack from an outside author is safe to run (time limits on every pattern, a decision budget, fuzzing; done for community packs, #133)"
+        owner: build
+        probes:
+          - tests:
+              - tests/test_providers.py::test_a_pack_cannot_send_a_process_secret_to_its_own_jev_endpoint
+              - tests/test_archive.py::test_a_gzip_bomb_is_refused_while_it_expands
+              - tests/test_pack_isolation.py::test_a_billion_laughs_in_a_rules_file_is_refused_in_milliseconds
+              - tests/test_pack_isolation.py::test_any_error_loading_one_pack_lists_it_by_type_and_serves_the_others
+              - tests/test_community_budget.py::test_a_community_packs_rules_stop_at_the_budget_and_a_person_decides
+          - pending: "LP-16 (time limits and a decision budget for every pack outside the community path)"
+      - id: a7-pack-store
+        what: "A7: a versioned pack store per organization, with upload checks and promotion signed off by someone other than the author"
+        owner: build
+        probes:
+          - pending: "LP-20"
+      - id: a9-scoreboard
+        what: "A9: a scoreboard and grading service with exact intervals, paired tests and signed results"
+        owner: build
+        probes:
+          - pending: "LP-17, after LP-10 and LP-11"
+      - id: a10-registry-hub
+        what: "A10: a registry that shows only what it checked, yank as a recall, accounts, and the Hub deployed"
+        owner: build
+        probes:
+          - pending: "LP-18 and LP-19"
+      - id: external-review
+        what: "An external security review whose scope covers the registry, the Hub and the pack store (B29)"
+        owner: owner
+        probes:
+          - attested: {what: "the firm, the scope letter covering hub/, the registry and the pack store, and the report's date", by: "", date: ""}
+      - id: hidden-sets-frozen
+        what: "Hidden evaluation sets frozen, with 100 or more positives per critical label (B34)"
+        owner: owner
+        probes:
+          - pending: "LP-11 (set freezing and the coverage report)"
+          - attested: {what: "each set's id, freeze hash and positives per critical label (100 or more)", by: "", date: ""}
+      - id: grading-method
+        what: "The grading method published as a versioned document, with 30 days' notice before a change (B30)"
+        owner: owner
+        probes:
+          - pending: "LP-17 (writes the method document)"
+          - attested: {what: "published at a public URL, with its version and effective date", by: "", date: ""}
+
+  - id: G4-5
+    name: "Stage 4 to 5: self-service"
+    prerequisites:
+      - id: a13-operations
+        what: "A13: a kill switch (the automation hold, LP-06, done) and a per-organization usage screen"
+        owner: build
+        probes:
+          - tests:
+              - tests/test_hold.py::test_holding_and_lifting_over_http_takes_effect_at_once
+              - tests/test_hold.py::test_fhir_and_cds_hooks_decisions_are_held_too
+              - tests/test_hold.py::test_a_hold_covers_what_it_names_and_nothing_else
+              - tests/test_hold.py::test_a_hold_only_ever_lowers_automation
+              - tests/test_limits.py::test_over_its_quota_an_emergency_still_reaches_a_nurse_at_once
+          - pending: "LP-21 (the usage ledger and screen), after LP-12"
+      - id: status-page
+        what: "A public status page with uptime checks on the API, sign-in, decide, the registry and the Hub (B36)"
+        owner: owner
+        probes:
+          - pending: "LP-21 (a readiness route the checks call)"
+          - attested: {what: "the provider, its public URL and the checks configured", by: "", date: ""}
+      - id: hosted-monitoring
+        what: "The monitor scheduled on the hosted deployment, posting alerts to the alert webhook"
+        owner: build
+        probes:
+          - pending: "LP-21"
+      - id: incident-runbook
+        what: "An incident runbook: severity, who is paged, holding automation, revoking access, notifying users, restore with a chain check"
+        owner: build
+        probes:
+          - file: docs/operations/incident-runbook.md
+          - pending: "LP-21 (the runbook's sections and a tested restore with audit verify)"
+      - id: firewall-enforced
+        what: "The firewall's per-address limit on /auth/ and /smart/ enforced after its week in log mode (B12)"
+        owner: owner
+        probes:
+          - setting: {file: deploy/vercel/firewall-rules.json, key: rules.0.action.mitigate.rateLimit.action, equals: rate_limit}
+          - attested: {what: "enforced on the hosted project, with the log-only week's dates", by: "", date: ""}
+      - id: soc2-readiness
+        what: "SOC 2 readiness started with a compliance platform, Type I first (B35)"
+        owner: owner
+        probes:
+          - attested: {what: "the platform and the target report", by: "", date: ""}
+
+  - id: G5-6
+    name: "Stage 5 to 6: clinical pilots"
+    prerequisites:
+      - id: a11-site-network
+        what: "A11: the site evaluation network (site keys, signed results, pooled intervals, a homogeneity warning)"
+        owner: build
+        probes:
+          - pending: "LP-22, after LP-07 (done), LP-10 and LP-19"
+      - id: a12-ehr-pilot
+        what: "A12: EHR pilot readiness (EHR-signed CDS Hooks tokens, selectionBehavior, a feedback endpoint, mappings for real EHR data)"
+        owner: build
+        probes:
+          - pending: "LP-23, after LP-12, and the owner's choice of EHR vendor (B38)"
+      - id: clinician-review
+        what: "Each reference pack reviewed by a clinician of the right kind (B21.1-B21.5)"
+        owner: owner
+        probes:
+          - attested: {what: "per pack, the reviewer's role and name (in a note outside the repository); digests: each pack's digest reviewed", by: "", date: "", digests: {}}
+      - id: fda-cds-opinion
+        what: "Counsel's opinion on FDA clinical decision support for each pack (B37)"
+        owner: owner
+        probes:
+          - attested: {what: "counsel and the opinion's date; digests: the pack digests it covers", by: "", date: "", digests: {}}
+      - id: site-agreements
+        what: "Per pilot site: a pilot agreement, a BAA, the IRB or QI determination, local governance approval (B39)"
+        owner: owner
+        probes:
+          - attested: {what: "per site: each agreement's date and counterparty, and the pack digests approved", by: "", date: ""}
+      - id: site-validation
+        what: "Each site validated on its own chart-reviewed data, shared through the site network, before automation (B42)"
+        owner: owner
+        probes:
+          - pending: "LP-22 (sharing signed results)"
+          - attested: {what: "per site: the pack digest, the reviewed set's size and method, and the signed report's id", by: "", date: ""}

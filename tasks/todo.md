@@ -1,5 +1,9 @@
 # Mendari: task tracking
 
+**Governing plan:** the vision plan below (2026-10-06): the launch plan as corrected by
+`notes/vision-audit.md`, built as prompts LP-01 to LP-23; its gates are `launch/gates.yaml`
+(`uv run python scripts/check_gates.py`).
+
 Roadmap to the full goal: [`docs/roadmap.md`](../docs/roadmap.md).
 
 ## Plan: the vision (2026-10-06), the governing plan
@@ -253,7 +257,7 @@ behaviour.
   `urn:` system refused; the SNOMED CT, ICD-10-CM and psycopg wording; the trial dataset's
   SNOMED CT codes left out of the record), all fixed.
 
-- [ ] **LP-15** What the docs promise, and the local loop. Split in three PRs (recommended):
+- [x] **LP-15** What the docs promise, and the local loop. Split in three PRs (recommended):
   - [x] **LP-15a** The local loop (#147, merged 2026-10-07). One top-level error handler for every `mendari`
     command: one line per problem (`error: ...`, naming the file, flag, URL origin or database
     without its password, and the fix), exit 1, never a traceback and never a library's own
@@ -294,7 +298,7 @@ behaviour.
     deploy templates' `|| true` swallows both): give alerts their own code? `MENDARI_PROVIDERS`
     stays a warning in the CLI and a report on a server (production runs an unscoped setting);
     make it strict?
-  - [x] **LP-15b** The docs' commands (PR open). Every bash and Python block of README.md,
+  - [x] **LP-15b** The docs' commands (#148, merged 2026-10-07). Every bash and Python block of README.md,
     docs/index.md and docs/guides/api.md carries a marker on the line before it
     (`scripts/doc_blocks.py`): `run quickstart|cli|python <group>|install|server-db`,
     `snippet <file>/<step>` (the same text as a snippet CI runs), `include <file>`, or `skip
@@ -323,7 +327,7 @@ behaviour.
     packs in the clone, now removed after a run; a held draft's `fallback`; the packs-folder
     rows (precedence is by version, a missing folder is skipped); the API guide's
     `MENDARI_PACKS`; the runner's usage line), all fixed, 1 refuted.
-  - [x] **LP-15c** The release paths (PR open). `release.yml` gains `target` (`testpypi`, the
+  - [x] **LP-15c** The release paths (#149, merged 2026-10-07). `release.yml` gains `target` (`testpypi`, the
     default, or `pypi`): `publish-testpypi` publishes the tested files through its own
     protected `testpypi` environment (the same guards: dispatch from a tag, the build first, a
     public repository, reviewers checked through the API), then `verify-testpypi` downloads
@@ -351,8 +355,42 @@ behaviour.
     checked `site`; one docs deploy at a time; 404.html is checked and the notice check has
     tests; check_release's wording; comments); 1 refuted (skopeo negotiates Docker's API).
 
-**Pre-public:** LP-13 and LP-14 (done above), LP-15 (above: a, then b and c), LP-03 (launch
-gates as a checked file).
+**Pre-public:** LP-13 and LP-14 (done above), LP-15 (above: a, then b and c), LP-03 (below).
+
+- [x] **LP-03** Launch gates as a checked file (PR open). `launch/gates.yaml`: the audit's five
+  gates and their 33 prerequisites, in its order, each `build` or `owner`, each with probes
+  (tests, a file, a setting, the owner's attestation, or `pending` naming the prompt). An
+  attestation about packs (clinician review, the FDA opinion) names each pack's digest and is
+  void once one changes. `scripts/check_gates.py` prints the table and asserts a gate only when
+  asked (`--assert`); CI's `browser` job (with Postgres, so both databases' cases count)
+  reports it in the run's summary and fails only on a broken gates file. Today: G1-2 2 of 6,
+  G2-3 1 of 8, G3-4 0 of 7, G4-5 0 of 6, G5-6 0 of 6. Read against the audited `e55ed48c`,
+  every prerequisite is unmet, the audit's 0 of each (each has a pending probe, an empty
+  attestation, a missing NOTICE or runbook, or tests that did not exist yet); worked out by
+  hand, as the script itself stops there with exit 2, naming the test files it lacks. A5 waits
+  on LP-08's open owner question (an explicit `MENDARI_PHI_MODE=off` with sign-in starts with a
+  warning outside Vercel, where A5 step 1 asks for a refusal). New evidence tests: the notice's
+  three clauses, the acknowledgement required by default (the notice tests now run on the
+  default), axe on the acknowledgement dialog, the label on every dashboard view of every
+  reference pack and its words, CONTRIBUTING's sign-off and the Contributor Covenant 2.1. `tests/test_shipped.py`: the Definition of
+  shipped as inventories (no mock, stub, fake or TODO in product code; no vendor or model name
+  outside `providers/`, with its four sign-in and library exceptions; every state-changing route
+  of the engine, the registry and the sandbox payer listed with its chained event or the reason
+  it has none; the package version; a licence line on every tracked source file). The dashboard
+  no longer formats one vendor's model ids specially (a model reads as its id; `jev-…` still
+  reads "Jev …"). `uv run pytest -m core` is the edit loop (about 20 s); CLAUDE.md says the full
+  suite takes about 6 min. **Found, for later prompts:**
+  - Writes with no chained event (an expected failure in `test_shipped.py` until they are):
+    `POST …/evals` stores a report unchained (S6.coverage: an `eval.recorded` event, for
+    LP-10); the registry's six writes (publish and reports, LP-18; claims, approval, tokens and
+    keys, LP-19).
+  - `web/index.html` and `web/style.css` (the mendari.co page) have no licence line: it goes in
+    with the owner's next change there, so a comment alone does not redeploy the public site.
+  - The terms, privacy notice and acceptable-use pages (gate G2-3) have no build prompt yet.
+  - LP-02's "a tag run" of the secret scan conflicts with LP-13's rule that nothing starts on a
+    tag push: run it on a schedule and from `release.yml` instead.
+  - Collecting the tests imports `mendari.server.vercel`, which builds the app on whatever
+    `DATABASE_URL` the developer's shell exports: fixed next, in its own PR.
 
 **Trust layer:** LP-10 statistics and ledger, LP-11 hidden sets and blind labelling, LP-17
 scoreboard and grading, LP-16 for registry-pulled packs (community packs already run on RE2
