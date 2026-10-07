@@ -67,7 +67,7 @@ def test_the_structured_answers_agree_with_ground_truth_on_public_data(
 def test_the_local_site_differs_the_way_the_card_says() -> None:
     local = synthetic_prior_auth.local_site()
     codes = Counter(p["code"] for r in local for p in r["input"]["procedures"])
-    assert codes["72110"] > 0  # lumbar X-rays under a code the pack does not list
+    assert codes["FX112"] > 0  # lumbar X-rays under a code the pack does not list
     assert sum(r["attributes"]["style"] == "shorthand" for r in local) > 100
     payers = Counter(r["labels"]["payer"] for r in local)
     assert payers["beacon"] > payers["acme"]
@@ -88,7 +88,7 @@ def test_sandbox_generate_writes_the_prior_auth_data(tmp_path: Path) -> None:
 def test_reasons_list_the_gaps_and_nothing_is_automated_on_rules(preflight: Decision) -> None:
     record = {
         "as_of": "2026-09-01",
-        "order": {"code": "72148"},
+        "order": {"code": "FX101"},
         "coverage": {"payer": "acme"},
         "conditions": [{"code": "M54.16"}],
         "procedures": [],
@@ -120,7 +120,7 @@ def _order(id_: str, code: str) -> dict[str, Any]:
         "id": id_,
         "status": "draft",
         "intent": "order",
-        "code": {"coding": [{"system": "http://www.ama-assn.org/go/cpt", "code": code}]},
+        "code": {"coding": [{"system": "https://mendari.co/fhir/CodeSystem/fictional-procedures", "code": code}]},
         "subject": {"reference": "Patient/p1"},
     }
 
@@ -146,8 +146,8 @@ def _prefetch(payer: str, note: str) -> dict[str, Any]:
             coded("Condition", "d1", "M54.16"), coded("Condition", "d2", "S83.241A")
         ),
         "procedures": bundle(
-            coded("Procedure", "x1", "72100", performedDateTime=_ago(40)),
-            coded("Procedure", "x2", "73721", performedDateTime=_ago(40)),
+            coded("Procedure", "x1", "FX111", performedDateTime=_ago(40)),
+            coded("Procedure", "x2", "FX211", performedDateTime=_ago(40)),
         ),
         "notes": bundle(
             {
@@ -170,8 +170,8 @@ def test_order_sign_gives_a_card_per_covered_order(preflight: Decision) -> None:
             "draftOrders": {
                 "resourceType": "Bundle",
                 "entry": [
-                    {"resource": _order("mri", "72148")},
-                    {"resource": _order("scope", "29881")},
+                    {"resource": _order("mri", "FX101")},
+                    {"resource": _order("scope", "FX202")},
                     {"resource": _order("lab", "80053")},  # a metabolic panel: not covered
                 ],
             },
@@ -190,7 +190,7 @@ def test_order_sign_gives_a_card_per_covered_order(preflight: Decision) -> None:
 
 def test_beacon_sleep_study_needs_no_prior_auth(preflight: Decision) -> None:
     result, _ = preflight.decide_fhir(
-        _prefetch("beacon", "Loud snoring."), focus=_order("psg", "95810")
+        _prefetch("beacon", "Loud snoring."), focus=_order("psg", "FX301")
     )
     assert result.recommendation == "not_required"
     assert result.answers["payer"].label == "beacon"

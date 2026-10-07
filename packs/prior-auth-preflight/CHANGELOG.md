@@ -4,6 +4,19 @@ Renamed on 2026-09-30, when the project became Mendari: this pack was `openhealt
 Its id, its publisher's name and its `https://mendari.co/...` identifiers changed; its criteria,
 rules, models, data and results did not.
 
+## 0.2.0
+
+- The procedure codes are fictional: the 15 CPT codes the pack, its data and its tests used are
+  replaced one for one by invented codes (`FX101` to `FX903`) in a code system named as
+  fictional, `https://mendari.co/fhir/CodeSystem/fictional-procedures`. CPT belongs to the
+  American Medical Association; the pack can now be redistributed under Apache-2.0 anywhere.
+  **A site that sends CPT codes maps them to these** (in `logic/structured.yaml` and the FHIR
+  mapping's `focus_where`), as it already maps any code the pack does not list.
+- `code_systems` declares the systems the pack uses (the fictional procedures, ICD-10-CM).
+- Every decision is the same as in 0.1.3 with the codes swapped: each requirement set,
+  answer, probability and outcome of the 1,272 examples, datasets and tests. The data and the
+  model were rebuilt from the generator (only the codes changed); the digest changes.
+
 ## 0.1.3
 
 - Every surface now says what the pack is: "Synthetic example. Not clinically reviewed. Not for

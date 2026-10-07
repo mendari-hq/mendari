@@ -10,12 +10,12 @@
   input: &lumbar
     as_of: "2026-09-01"
     patient: {age: 52, sex: male}
-    order: {code: "72148", name: MRI lumbar spine without contrast}
+    order: {code: "FX101", name: MRI lumbar spine without contrast}
     coverage: {payer: acme}
     conditions:
       - {code: M54.16, text: "Radiculopathy, lumbar region"}
     procedures:
-      - {code: "72100", name: X-ray lumbar spine, date: "2026-07-20"}
+      - {code: "FX111", name: X-ray lumbar spine, date: "2026-07-20"}
     notes: "Low back pain for 3 months. Completed 8 weeks of physical therapy without improvement."
   expect:
     recommendation: submit_ready
@@ -54,7 +54,7 @@
   input:
     <<: *lumbar
     procedures:
-      - {code: "72100", name: X-ray lumbar spine, date: "2025-11-01"}
+      - {code: "FX111", name: X-ray lumbar spine, date: "2025-11-01"}
   expect: {recommendation: needs_attention, answers: {prior_imaging: "no"}}
 
 - name: Beacon does not ask for prior imaging
@@ -74,11 +74,11 @@
 - name: a knee arthroscopy needs mechanical symptoms
   input: &knee
     <<: *lumbar
-    order: {code: "29881", name: Knee arthroscopy with meniscectomy}
+    order: {code: "FX202", name: Knee arthroscopy with meniscectomy}
     conditions:
       - {code: S83.241A, text: Tear of medial meniscus}
     procedures:
-      - {code: "73721", name: MRI knee, date: "2026-07-10"}
+      - {code: "FX211", name: MRI knee, date: "2026-07-10"}
     notes: "Knee pain on stairs, no locking or catching. Completed 8 weeks of PT."
   expect: {recommendation: needs_attention, answers: {service: knee_arthroscopy, mechanical_symptoms: "no"}}
 
@@ -97,7 +97,7 @@
 - name: a sleep study needs apnoea symptoms
   input: &sleep
     <<: *lumbar
-    order: {code: "95810", name: Polysomnography}
+    order: {code: "FX301", name: Polysomnography}
     conditions:
       - {code: R06.83, text: Snoring}
     procedures: []
@@ -125,5 +125,5 @@
 - name: a service without a requirement set is not checked
   input:
     <<: *lumbar
-    order: {code: "70553", name: MRI brain}
+    order: {code: "FX901", name: MRI brain}
   expect: {recommendation: not_checked, answers: {service: other}}

@@ -47,8 +47,8 @@
         "code": {
           "coding": [
             {
-              "system": "http://www.ama-assn.org/go/cpt",
-              "code": "72148"
+              "system": "https://mendari.co/fhir/CodeSystem/fictional-procedures",
+              "code": "FX101"
             }
           ],
           "text": "MRI lumbar spine without contrast"

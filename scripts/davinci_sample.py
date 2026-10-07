@@ -27,19 +27,24 @@ from typing import Any
 from mendari import AuditStore, Decision
 from mendari.core.pack import Pack
 from mendari.sandbox import payer as sandbox_payer
+from mendari.sandbox.synthetic_prior_auth import PROCEDURES
 from mendari.standards import cds_hooks, davinci, pas
 
 TODAY = date.today()
-CPT = "http://www.ama-assn.org/go/cpt"
+PROCEDURE = pas.FICTIONAL_PROCEDURES  # the reference pack's invented codes, not CPT
 
 
-def order(id_: str, code: str, display: str) -> dict[str, Any]:
+def order(id_: str, code: str) -> dict[str, Any]:
+    display = PROCEDURES[code]
     return {
         "resourceType": "ServiceRequest",
         "id": id_,
         "status": "draft",
         "intent": "order",
-        "code": {"coding": [{"system": CPT, "code": code, "display": display}], "text": display},
+        "code": {
+            "coding": [{"system": PROCEDURE, "code": code, "display": display}],
+            "text": display,
+        },
         "subject": {"reference": "Patient/pa-p1"},
         "authoredOn": TODAY.isoformat(),
         "requester": {"reference": "Practitioner/pa-pr1"},
@@ -78,8 +83,8 @@ def prefetch(payer: str, note: str) -> dict[str, Any]:
             coded(
                 "Procedure",
                 "pa-x1",
-                CPT,
-                "72100",
+                PROCEDURE,
+                "FX111",
                 status="completed",
                 performedDateTime=ago,
                 subject={"reference": "Patient/pa-p1"},
@@ -115,17 +120,17 @@ def write(out: Path, decision: Decision, store: AuditStore) -> None:
         "crd-submit-ready": (
             "acme",
             "Completed 8 weeks of physical therapy.",
-            order("mri", "72148", "MRI lumbar spine"),
+            order("mri", "FX101"),
         ),
         "crd-needs-attention": (
             "acme",
             "Back pain for two weeks.",
-            order("mri2", "72148", "MRI lumbar spine"),
+            order("mri2", "FX101"),
         ),
         "crd-not-required": (
             "beacon",
             "Loud snoring and daytime sleepiness.",
-            order("psg", "95810", "Polysomnography"),
+            order("psg", "FX301"),
         ),
     }
     out.mkdir(parents=True, exist_ok=True)

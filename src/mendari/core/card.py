@@ -10,7 +10,7 @@ from mendari import notices
 from mendari.core import clock
 from mendari.core.origin import COMMUNITY_AUTOMATION
 from mendari.core.pack import Pack
-from mendari.core.spec import Condition, DeriveRow, Outcome, Question
+from mendari.core.spec import Condition, DeriveRow, Outcome, PackManifest, Question
 from mendari.evals import leaderboard
 from mendari.evals.render import num, pct
 
@@ -124,6 +124,7 @@ def render_card(pack: Pack) -> str:
         *_schema_rows(pack.input_schema),
         "",
         f"FHIR R4 mapping: `{m.inputs.fhir}`." if m.inputs.fhir else "No FHIR mapping.",
+        *_code_systems(m),
         "",
         "## Outputs",
         "",
@@ -387,4 +388,15 @@ def _validation(report: dict[str, Any]) -> list[str]:
             f"| {row['threshold']:.2f} | {pct(row['coverage'])} | {pct(row['accuracy'])} "
             f"| {row['errors']} |"
         )
+    return rows
+
+
+def _code_systems(m: PackManifest) -> list[str]:
+    """The code systems the pack declares (`code_systems`), each licensed one with its terms."""
+    if not m.code_systems:
+        return []
+    rows = ["", "Code systems:", ""]
+    for use in m.code_systems:
+        terms = f" Licence: {' '.join(use.licence_note.split())}" if use.licence_note else ""
+        rows.append(f"- {use.name} (`{use.url}`).{terms}")
     return rows

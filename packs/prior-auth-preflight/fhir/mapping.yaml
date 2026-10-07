@@ -6,7 +6,7 @@ focus_where:
   # Only the services the pack has requirement sets for; other orders signed at the same time
   # get no decision and no card.
   path: code.coding[0].code
-  in: ["72148", "72149", "72158", "29880", "29881", "95810", "95811"]
+  in: ["FX101", "FX102", "FX103", "FX201", "FX202", "FX301", "FX302"]
 
 resources:
   ServiceRequest:

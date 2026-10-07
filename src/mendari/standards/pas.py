@@ -31,6 +31,10 @@ PAS = "http://hl7.org/fhir/us/davinci-pas"
 X12 = "https://codesystem.x12.org/005010"
 POS = "https://www.cms.gov/Medicare/Coding/place-of-service-codes/Place_of_Service_Code_Set"
 CPT = "http://www.ama-assn.org/go/cpt"
+# The Prior Authorization Preflight's synthetic orders: invented procedure codes, named as such,
+# never billed (LP-14). A site sends its own CPT codes, under its own licence from the AMA.
+FICTIONAL_PROCEDURES = "https://mendari.co/fhir/CodeSystem/fictional-procedures"
+PROCEDURE_SYSTEMS = (CPT, FICTIONAL_PROCEDURES)
 ICD10 = "http://hl7.org/fhir/sid/icd-10-cm"
 RELATIONSHIP = "http://terminology.hl7.org/CodeSystem/subscriber-relationship"
 PROFILE = {
@@ -78,12 +82,12 @@ def request_bundle(
         raise PasError("only a complete request (submit_ready) is sent for prior authorization")
     service_type = service_type or _code(order.get("category"), f"{X12}/1365")
     place_of_service = place_of_service or _code(order.get("locationCode"), POS)
-    procedure = _code(order.get("code"), CPT)
+    procedure_system, procedure = _procedure(order.get("code"))
     problems = _missing(patient, coverage, insurer, requester)
     problems += [
         f"the order's {name}"
         for name, value in (
-            ("CPT code", procedure),
+            ("procedure code (CPT, or the reference pack's fictional code)", procedure),
             ("X12 service type (1365)", service_type),
             ("place of service", place_of_service),
         )
@@ -145,7 +149,7 @@ def request_bundle(
                 ],
                 "sequence": 1,
                 "category": {"coding": [{"system": f"{X12}/1365", "code": service_type}]},
-                "productOrService": {"coding": [{"system": CPT, "code": procedure}]},
+                "productOrService": {"coding": [{"system": procedure_system, "code": procedure}]},
                 "servicedDate": day,
                 "locationCodeableConcept": {"coding": [{"system": POS, "code": place_of_service}]},
             }
@@ -230,6 +234,16 @@ def _text(value: Any, limit: int) -> str | None:
     """A payer's string, cut to `limit` characters; anything else (a payer's mistake) is
     dropped rather than kept."""
     return value[:limit] if isinstance(value, str) and value else None
+
+
+def _procedure(concept: Any) -> tuple[str, str | None]:
+    """The order's procedure as (system, code), from the first system in `PROCEDURE_SYSTEMS` it is
+    coded in; (CPT, None) when it is coded in none."""
+    for system in PROCEDURE_SYSTEMS:
+        code = _code(concept, system)
+        if code:
+            return system, code
+    return CPT, None
 
 
 def _code(concept: Any, system: str) -> str | None:

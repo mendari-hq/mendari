@@ -42,13 +42,13 @@ on the service ordered:
 
       service:
         checks:
-          - value: {field: order.code, in: ["72148", "72149", "72158"], then: lumbar_mri}
-          - value: {field: order.code, in: ["29880", "29881"], then: knee_arthroscopy}
+          - value: {field: order.code, in: ["FX101", "FX102", "FX103"], then: lumbar_mri}
+          - value: {field: order.code, in: ["FX201", "FX202"], then: knee_arthroscopy}
         default: other
       prior_imaging:
         checks:
-          - exists: {in: procedures, codes: ["72100"], within_days: 180, then: "yes"}
-            when: {field: order.code, in: ["72148", "72149", "72158"]}
+          - exists: {in: procedures, codes: ["FX111"], within_days: 180, then: "yes"}
+            when: {field: order.code, in: ["FX101", "FX102", "FX103"]}
         default: "no"
 
 A code ending in `*` matches by prefix (ICD-10 families). This is a deliberately small stepping

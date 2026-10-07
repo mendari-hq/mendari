@@ -39,6 +39,7 @@ from mendari.core.pack import Pack
 from mendari.core.spec import Outcome
 from mendari.errors import MendariError
 from mendari.sandbox.fhir_records import CHANNEL_SYSTEM, CHANNELS, SANDBOX_TAG
+from mendari.sandbox.synthetic_prior_auth import PROCEDURES
 from mendari.standards import audit_fhir, davinci
 from mendari.standards.fhir import (
     DECISION_ID_SYSTEM,
@@ -50,6 +51,7 @@ from mendari.standards.fhir import (
     display,
     narrative,
 )
+from mendari.standards.pas import FICTIONAL_PROCEDURES
 
 PUBLISHER = "Mendari"
 NAMING_SYSTEMS_DATE = "2026-10-02"  # when their definitions last changed (pinned by a test)
@@ -178,8 +180,9 @@ def resources(packs: Iterable[Pack]) -> list[dict[str, Any]]:
 
 
 def sandbox_resources() -> list[dict[str, Any]]:
-    """The sandbox's own systems, experimental and never served: its synthetic-data tag and its
-    Communications' message channel. CI loads them so the sandbox samples validate."""
+    """The sandbox's own systems, experimental and never served: its synthetic-data tag, its
+    Communications' message channel and the Prior Authorization Preflight's fictional procedure
+    codes. CI loads them so the sandbox and Da Vinci samples validate."""
     return [
         _code_system(
             SANDBOX_TAG["system"],
@@ -197,6 +200,16 @@ def sandbox_resources() -> list[dict[str, Any]]:
             "How a synthetic patient message arrived (Communication.medium).",
             __version__,
             [_concept(code, shown) for code, shown in CHANNELS.items()],
+            experimental=True,
+        ),
+        _code_system(
+            FICTIONAL_PROCEDURES,
+            "fictional-procedures",
+            "Mendari fictional procedure codes",
+            "Procedure codes invented for the Prior Authorization Preflight's synthetic data. Not "
+            "CPT or any real code system; never for billing. A site maps its own codes.",
+            __version__,
+            [_concept(code, shown) for code, shown in PROCEDURES.items()],
             experimental=True,
         ),
     ]

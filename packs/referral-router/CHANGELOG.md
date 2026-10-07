@@ -4,6 +4,13 @@ Renamed on 2026-09-30, when the project became Mendari: this pack was `openhealt
 Its id, its publisher's name and its `https://mendari.co/...` identifiers changed; its criteria,
 rules, models, data and results did not.
 
+## 0.1.4
+
+- `code_systems` declares the systems the pack uses: SNOMED CT, with its licence terms (a pack
+  naming a licensed code system now has to say them), and LOINC.
+- Criteria, rules, providers, policy, models and data are unchanged; every decision is identical.
+  The digest changes because the manifest does.
+
 ## 0.1.3
 
 - Every surface now says what the pack is: "Synthetic example. Not clinically reviewed. Not for

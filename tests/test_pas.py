@@ -48,7 +48,7 @@ REQUESTER = {"resourceType": "Organization", "id": "clinic", "name": "Clinic (sy
 def build(**changes: Any) -> dict[str, Any]:
     arguments: dict[str, Any] = {
         "decision": {"id": "d-1", "recommendation": "submit_ready"},
-        "order": _order("mri", "72148"),
+        "order": _order("mri", "FX101"),
         "patient": PATIENT,
         "coverage": COVERAGE,
         "insurer": INSURER,
@@ -71,14 +71,14 @@ def test_the_request_is_a_preauthorization_claim_and_what_it_references() -> Non
     coverage = resources[claim["insurance"][0]["coverage"]["reference"]]
     assert {"system": f"{pas.X12}/1069", "code": "18"} in coverage["relationship"]["coding"]
     item = claim["item"][0]
-    assert item["productOrService"]["coding"][0]["code"] == "72148"
+    assert item["productOrService"]["coding"][0]["code"] == "FX101"
     assert item["category"]["coding"][0] == {"system": f"{pas.X12}/1365", "code": "62"}
     assert claim["diagnosis"][0]["diagnosisCodeableConcept"]["coding"][0]["code"] == "M54.16"
     assert build()["entry"][0]["resource"]["identifier"] == claim["identifier"]  # stable ids
 
 
 def test_the_orders_own_codes_are_used() -> None:
-    order = _order("mri", "72148") | {
+    order = _order("mri", "FX101") | {
         "category": [{"coding": [{"system": f"{pas.X12}/1365", "code": "62"}]}],
         "locationCode": [{"coding": [{"system": pas.POS, "code": "11"}]}],
     }
@@ -151,7 +151,7 @@ def test_the_api_builds_submits_and_chains_the_answer(
     client = TestClient(create_app(db_path=tmp_path / "a.db"))
     signed = client.post(
         f"/cds-services/{PA.replace('/', '.')}",
-        json=request("acme", COMPLETE, _order("mri", "72148")),
+        json=request("acme", COMPLETE, _order("mri", "FX101")),
     ).json()
     decision_id = signed["cards"][0]["extension"]["mendari.decision_id"]
     body = {
@@ -160,7 +160,7 @@ def test_the_api_builds_submits_and_chains_the_answer(
         "coverage": COVERAGE,
         "insurer": INSURER,
         "requester": REQUESTER,
-        "order": _order("mri", "72148"),
+        "order": _order("mri", "FX101"),
         "service_type": "62",
         "place_of_service": "22",
     }
@@ -202,7 +202,7 @@ def test_an_outcome_reported_later_never_stands_in_for_the_reviewer(
     client = TestClient(create_app(db_path=tmp_path / "o.db"))
     signed = client.post(
         f"/cds-services/{PA.replace('/', '.')}",
-        json=request("acme", COMPLETE, _order("mri", "72148")),
+        json=request("acme", COMPLETE, _order("mri", "FX101")),
     ).json()
     decision_id = signed["cards"][0]["extension"]["mendari.decision_id"]
     review = {"final_label": "needs_attention", "reviewer": "pa-nurse"}
@@ -215,7 +215,7 @@ def test_an_outcome_reported_later_never_stands_in_for_the_reviewer(
         "coverage": COVERAGE,
         "insurer": INSURER,
         "requester": REQUESTER,
-        "order": _order("mri", "72148"),
+        "order": _order("mri", "FX101"),
         "service_type": "62",
         "place_of_service": "22",
         "submit": True,

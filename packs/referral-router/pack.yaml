@@ -1,6 +1,6 @@
 spec_version: "0.2"
 id: mendari/referral-router
-version: 0.1.3
+version: 0.1.4
 name: Referral Router
 summary: >-
   Reads a specialty referral as it is signed: suggests the specialty, spots referrals that
@@ -10,6 +10,17 @@ publisher:
   name: Mendari reference packs
   type: community
 license: Apache-2.0
+# The code systems the pack's inputs, rules and data use (spec §3). A licensed one says the terms.
+code_systems:
+  - url: http://snomed.info/sct
+    name: SNOMED CT (SNOMED International)
+    licence_note: >-
+      SNOMED CT is free to use in SNOMED International's member countries (in the United
+      States under the National Library of Medicine's UMLS licence); elsewhere it needs an
+      Affiliate Licence from SNOMED International. Whether the reference packs may carry its
+      codes is a question recorded for counsel (tasks/todo.md, LP-14).
+  - url: http://loinc.org
+    name: LOINC (Regenstrief Institute; the LOINC License, whose notice is in NOTICE)
 
 risk:
   level: 1

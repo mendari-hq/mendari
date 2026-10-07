@@ -473,7 +473,7 @@ def submit_prior_authorization(
         lambda **kw: GuardedHttp(transport=transport, allowed={"https://payer.example"}),
     )
     hook = f"/cds-services/{PA.replace('/', '.')}"
-    signed = client.post(hook, json=request("acme", COMPLETE, _order("mri", "72148"))).json()
+    signed = client.post(hook, json=request("acme", COMPLETE, _order("mri", "FX101"))).json()
     decision_id: str = signed["cards"][0]["extension"]["mendari.decision_id"]
     body = {
         "decision_id": decision_id,
@@ -481,7 +481,7 @@ def submit_prior_authorization(
         "coverage": COVERAGE,
         "insurer": INSURER,
         "requester": REQUESTER,
-        "order": _order("mri", "72148"),
+        "order": _order("mri", "FX101"),
         "service_type": "62",
         "place_of_service": "22",
         "submit": True,
