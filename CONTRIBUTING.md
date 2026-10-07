@@ -93,11 +93,15 @@ hand:
 - **uv:** change `version:` in every `setup-uv` step and the `ghcr.io/astral-sh/uv` stage of the
   `Dockerfile` together.
 - **A download:** pin its version and its sha256, and check it with `sha256sum -c` right after.
-- **Swagger UI (the API reference):** Dependabot changes only
-  `src/mendari/dashboard/vendor/swagger-ui/package.json` and its lockfile, and
+- **Swagger UI (the API reference) and axe-core (the browser tests' accessibility checks):**
+  Dependabot changes only `package.json` and its lockfile in
+  `src/mendari/dashboard/vendor/swagger-ui` or `tests/browser/vendor/axe-core`, and
   `tests/test_vendor.py` fails until the files follow. In that PR, run
-  `uv run python scripts/vendor_docs_ui.py`, read the hosts it lists (a new one deserves a
-  look at the release notes), and commit what it wrote.
+  `uv run python scripts/vendor_docs_ui.py` (or name the package: `… axe-core`), read the hosts
+  it lists (a new one deserves a look at the release notes), and commit what it wrote.
+- **Accessibility:** `uv run pytest -m browser` runs axe-core on every dashboard view, an open
+  record and the developer pages, in both themes (WCAG 2.0 to 2.2, A and AA). A new view or
+  control is checked by adding it there (`tests/browser/test_accessibility.py`).
 - **Python dependencies:** `uv lock --upgrade-package <name>`, never a bare `uv lock --upgrade`
   in a feature PR. The `Dockerfile` installs `uv.lock` exactly.
 

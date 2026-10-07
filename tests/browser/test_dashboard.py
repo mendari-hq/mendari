@@ -578,18 +578,24 @@ def test_the_cost_chart_rings_the_deployed_configuration(page: Page) -> None:
     )
 
 
-def test_probability_bars_are_coloured_by_what_the_label_does(page: Page) -> None:
+def engine_detail(page: Page, example: str) -> None:
+    """Decide a GUARD example in Try it, then open its record, where the engine's charts are."""
     open_pack(page, GUARD, "try")
-    verdict = 'figure.chart[data-chart$="-verdict"] .chosen rect'
-    page.select_option("#example", label="a draft that misses an emergency is blocked")
+    page.select_option("#example", label=example)
     page.get_by_role("button", name="Decide").click()
+    page.get_by_role("link", name=re.compile("^Engine detail")).click()
+    expect(page.locator(".drawer")).to_be_visible()
+
+
+def test_probability_bars_are_coloured_by_what_the_label_does(page: Page) -> None:
+    verdict = '.drawer figure.chart[data-chart$="-verdict"] .chosen rect'
+    engine_detail(page, "a draft that misses an emergency is blocked")
     expect(page.locator(f"{verdict}.f-block")).to_have_count(1)  # a block is danger, not green
-    expect(page.locator('figure.chart[data-chart$="-verdict"] svg')).to_have_attribute(
+    expect(page.locator('.drawer figure.chart[data-chart$="-verdict"] svg')).to_have_attribute(
         "aria-label",
         re.compile(r"^May the draft be sent to the patient\? block \d.*Chosen: block\.$"),
     )
-    page.select_option("#example", label="a safe draft passes and waits for one-step approval")
-    page.get_by_role("button", name="Decide").click()
+    engine_detail(page, "a safe draft passes and waits for one-step approval")
     expect(page.locator(f"{verdict}.f-c1")).to_have_count(1)
     expect(page.locator(f"{verdict}.f-block")).to_have_count(0)
 
@@ -628,13 +634,10 @@ def test_the_threshold_sweep_does_not_claim_automation_that_never_happens(page: 
 
 def test_criterion_bars_take_the_colour_of_their_effect(page: Page) -> None:
     """unsafe_advice = yes blocks the draft through the decision table, so its bar is danger too,
-    matching the criteria table's Effect column. The chart sits in a closed disclosure, so this
-    also checks that a chart hidden at first is drawn when it is opened."""
-    open_pack(page, GUARD, "try")
-    page.select_option("#example", label="a draft that misses an emergency is blocked")
-    page.get_by_role("button", name="Decide").click()
-    page.get_by_text("Probabilities for every criterion").click()
-    unsafe = page.locator('figure.chart[data-chart$="-unsafe_advice"]')
+    matching the criteria table's Effect column. The charts are the engine's detail, in the
+    decision record's drawer, drawn when it opens."""
+    engine_detail(page, "a draft that misses an emergency is blocked")
+    unsafe = page.locator('.drawer figure.chart[data-chart$="-unsafe_advice"]')
     expect(unsafe.locator(".chosen rect.f-block")).to_have_count(1)
     expect(unsafe.locator(".chosen .bar-label")).to_have_text("yes")
 
@@ -706,7 +709,7 @@ def test_stat_reviews_come_first_and_focus_moves_to_the_next_card(
     first, second = cards.nth(0), cards.nth(1)
     expect(first.locator(".stat-banner")).to_contain_text("Possible emergency")
     first_id, second_id = first.get_attribute("data-id"), second.get_attribute("data-id")
-    confirm = first.get_by_role("button", name=re.compile("^Confirm nurse"))
+    confirm = first.get_by_role("button", name=re.compile("^Confirm Nurse"))
     confirm.focus()
     page.keyboard.press("Enter")  # a keyboard reviewer confirms...
     expect(page.locator(f'.review-card[data-id="{first_id}"]')).to_have_count(0)
@@ -724,10 +727,17 @@ def test_the_result_leads_with_the_outcome_and_takes_focus(page: Page) -> None:
     # Criteria that block are danger-coloured, not the review amber.
     expect(page.locator("#result .criteria tr.hit-block")).not_to_have_count(0)
     expect(page.locator("#result .criteria tr.hit-review")).to_have_count(0)
-    # Criteria read as the pack's own question, with the code as secondary text.
+    # Criteria read as the pack's names; each code is one click away ("Show codes").
     criterion = page.locator("#result .criteria td.criterion").first
-    expect(criterion).to_contain_text("Does the patient's message describe a possible emergency")
-    expect(criterion.locator(".mono")).to_have_text("question_emergency")
+    expect(criterion).to_contain_text("Possible emergency in the message")
+    code = criterion.locator(".code-ref code")
+    expect(code).to_have_text("question_emergency")
+    expect(code).to_be_hidden()
+    toggle = page.get_by_role("button", name="Show codes")
+    toggle.click()
+    expect(code).to_be_visible()
+    expect(toggle).to_have_attribute("aria-pressed", "true")  # a toggle keeps its name
+    expect(criterion).to_contain_text("Possible emergency in the message question_emergency")
 
 
 def test_a_wrong_rating_takes_the_right_answer_and_can_be_changed(
@@ -979,15 +989,18 @@ def test_headings_are_in_order_and_tables_have_headers(page: Page, pack_id: str)
     expect(page.locator('.nav a[aria-current="page"]')).to_have_text("Evaluations")
 
 
-def test_the_focus_ring_shows_on_a_solid_danger_header(page: Page) -> None:
+def test_after_a_blocked_result_tab_reaches_its_controls_with_a_ring(page: Page) -> None:
+    """The solid red header holds the headline only; the first Tab after it reaches the result's
+    own controls (the codes, then the record), each with a visible focus ring."""
     open_pack(page, GUARD, "try")
     page.select_option("#example", label="a draft that misses an emergency is blocked")
     page.get_by_role("button", name="Decide").click()
     expect(page.locator("#result-title")).to_be_focused()
-    page.keyboard.press("Tab")  # the decision link inside the solid red header
-    link = page.locator("#result .result-head a")
-    expect(link).to_be_focused()
-    assert link.evaluate("el => getComputedStyle(el).outlineColor") == "rgb(255, 255, 255)"
+    expect(page.locator("#result .result-head :is(a, button)")).to_have_count(0)
+    page.keyboard.press("Tab")
+    codes = page.get_by_role("button", name="Show codes")
+    expect(codes).to_be_focused()
+    assert codes.evaluate("el => getComputedStyle(el).outlineStyle") != "none"
 
 
 def test_a_view_that_fails_to_load_says_so_and_can_retry(page: Page) -> None:
@@ -1211,7 +1224,7 @@ def test_a_record_drawer_is_titled_in_words(page: Page, live_server: str) -> Non
     ).json()
     page.add_init_script(f"localStorage.setItem('oh.pack', {json.dumps(INBOX)})")
     page.goto(f"/#audit/{decision['id']}")
-    expect(page.locator("#drawer-title")).to_have_text("Human review · nurse")
+    expect(page.locator("#drawer-title")).to_have_text("Human review · Nurse")
 
 
 # -- Phase B2: tablet layout, phone top bar, loading, run progress, override undo -----------------
@@ -1312,11 +1325,11 @@ def test_an_override_waits_five_seconds_and_can_be_undone(page: Page, live_serve
     page.clock.install()
     open_pack(page, INBOX, "review")
     card = page.locator(f'.review-card[data-id="{decision["id"]}"]')
-    physician = card.get_by_role("button", name="physician", exact=True)
+    physician = card.get_by_role("button", name="Physician", exact=True)
     physician.click()
     undo = card.get_by_role("button", name="Undo")
     expect(undo).to_be_focused()
-    expect(card.locator(".undo-bar")).to_contain_text("Override to physician in 5 s")
+    expect(card.locator(".undo-bar")).to_contain_text("Override to Physician in 5 s")
     page.clock.run_for(3000)
     expect(card.locator(".undo-seconds")).to_have_text("2")
     undo.click()
@@ -1334,7 +1347,7 @@ def test_leaving_the_queue_sends_a_held_override(page: Page, live_server: str) -
     decision = decide_inbox(live_server, "Crushing chest pain once more, sweating")
     open_pack(page, INBOX, "review")
     card = page.locator(f'.review-card[data-id="{decision["id"]}"]')
-    card.get_by_role("button", name="billing", exact=True).click()
+    card.get_by_role("button", name="Billing", exact=True).click()
     with page.expect_request(lambda r: r.method == "POST" and decision["id"] in r.url) as request:
         page.locator('.nav a[data-view="audit"]').click()
     assert json.loads(request.value.post_data or "{}")["final_label"] == "billing"

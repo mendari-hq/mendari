@@ -1,11 +1,97 @@
 // Pack-generic rendering: inputs, criteria tables, providers and what labels lead to.
 
-import { esc, pct, slotText, state } from "./ui.js";
+import { chartHtml } from "./charts.js";
+import { esc, num, pct, slotText, state } from "./ui.js";
 
 // Where a pack comes from (`origin`, from /api/packs): set by where the deployment found it, never
 // by its manifest. A community pack is not clinically reviewed and never automates
 // (core/origin.py); every view that shows a pack says so.
 export const isCommunity = (pack) => pack?.origin === "community";
+
+// A pack's words for its questions and labels (spec 0.2 `display`, `names`), else the key as
+// words, spelled as the server spells it (core/spec.py `readable`). A pack's names are its
+// author's claim, so the code stays one click away: `named` puts it beside the name, shown only
+// once someone presses "Show codes" (`codesToggle`).
+export const readable = (key) => {
+  const words = String(key).replaceAll("_", " ").trim();
+  return words.slice(0, 1).toUpperCase() + words.slice(1);
+};
+// Own keys only: a label may be named like an object's built-in (`constructor`).
+const own = (object, key) => (object && Object.hasOwn(object, key) ? object[key] : undefined);
+const question = (key) => own(state.detail.manifest.questions, key);
+export const questionName = (key) => question(key)?.display ?? readable(key);
+export const labelName = (key, label) => own(question(key)?.names, label) ?? readable(label);
+// The space is the code's own, so a name and its code never run together.
+export const named = (name, code) => `${esc(name)}<span class="code-ref"> <code>${esc(code)}</code></span>`;
+
+// A toggle button keeps its name; whether it is on is its pressed state (WAI-ARIA).
+export const codesToggle = () => `<button type="button" class="linklike" data-codes aria-pressed="false">Show codes</button>`;
+
+// "Show codes" shows every code under `scope` beside its name, and hides them again.
+export function wireCodes(scope) {
+  scope.querySelectorAll("[data-codes]").forEach((button) => button.addEventListener("click", () => {
+    button.setAttribute("aria-pressed", String(scope.classList.toggle("show-codes")));
+  }));
+}
+
+// A decision's reasons in words, for the main view. A rule's reason is the pack author's own
+// sentence; the engine's reasons are said plainly, keeping what a person must know (which answer
+// is missing, that safety checks may be incomplete, what a refused input lacks). Only reasons the
+// engine alone needs are left to the decision record: a threshold that was met, and a derived
+// decision's table rows (the criteria show them). Anything else not recognised is shown as
+// written, never dropped.
+export function plainReasons(r) {
+  const plain = (r.reasons ?? []).map((reason) => plainReason(reason, r)).filter((x) => x !== null);
+  return [...new Set(plain)];
+}
+
+const ENGINE_ONLY = /^confidence [\d.]+ >= auto threshold [\d.]+$/;
+
+function plainReason(reason, r) {
+  const rule = r.rule ? `rule ${r.rule}: ` : null;  // the rule's name may hold anything, a colon too
+  if (rule && reason.startsWith(rule)) return reason.slice(rule.length);
+  if (ENGINE_ONLY.test(reason)) return null;
+  if (derivedPrimary() && (state.detail.labels ?? []).some((label) => reason.startsWith(`${label}: `))) return null;
+  const refused = reason.match(/^input rejected: ([\s\S]+)$/);
+  if (refused) return `The input was refused: ${refused[1]}`;
+  const failed = reason.match(/^provider failure \([^)]*\); ([\s\S]+)$/);
+  if (failed) {
+    const missing = Object.keys(r.errors ?? {}).map(questionName);
+    return `${missing.length ? `No answer for ${missing.join(", ")}` : "Part of the engine could not answer"}; ${failed[1]}, so a person checks.`;
+  }
+  const unanswered = reason.match(/^no answer for '(.+?)' /);
+  if (unanswered) return `No answer for ${questionName(unanswered[1])}, so a person decides.`;
+  const hold = reason.match(/^automation is on hold: ([\s\S]+)$/);
+  if (hold) return /^hold [0-9a-f]+$/.test(hold[1]) ? "Automation is on hold for this pack, so a person checks." : `Automation is on hold: ${hold[1]}`;
+  const never = reason.match(/^policy never automates '(.+)'$/);
+  if (never) return `${labelName(r.primary, never[1])} is never automated: a person checks.`;
+  const approved = reason.match(/^risk level \d+ AUTO permitted by governance override \(([\s\S]+)\)$/);
+  if (approved) return `Automation at this pack's risk level was approved (${approved[1]}).`;
+  const said = [
+    [/ < review threshold /, "Not sure enough to recommend, so a person decides."],
+    [/ is below the auto threshold /, "Not sure enough to act alone, so a person checks."],
+    [/^automation requires /, "This deployment's safety screen is not one this pack automates with, so a person checks."],
+    [/^risk level \d+ requires human review$/, "This pack's risk level needs a person to check."],
+    [/^a community pack .* never blocks on its own/, "A community pack never blocks on its own: a person decides."],
+    [/^a community pack .* recommends and never automates$/, "A community pack only recommends: a person checks."],
+  ];
+  return said.find(([pattern]) => pattern.test(reason))?.[1] ?? reason;
+}
+
+// One question's answer as the engine gave it, for the decision record: each label's probability,
+// the provider and an ordinal's expected score.
+export function answerChart(id, question, a, answers) {
+  const rows = Object.entries(a.probabilities ?? {}).sort((x, y) => y[1] - x[1])
+    .map(([label, value]) => ({ label, value, chosen: label === a.label, tone: labelTone(question, label, answers) }));
+  return `<h4>${esc(questionText(question))} <span class="muted"><span class="mono">${esc(question)}</span> · ${providerWords(a.provider)}${a.value !== undefined ? ` · expected score ${num(a.value, 2)}` : ""}</span></h4>
+    ${rows.length ? chartHtml({
+      id: `answer-${id}-${question}`,
+      type: "bars",
+      ariaLabel: `${questionText(question)} ${rows.map((row) => `${row.label} ${pct(row.value)}`).join(", ")}. Chosen: ${a.label}.`,
+      rows,
+    }) : `<p class="muted">${esc(a.label)}</p>`}
+    ${a.evidence?.length ? `<div class="chips mt-2">${a.evidence.map((e) => `<span class="chip">${esc(e)}</span>`).join("")}</div>` : ""}`;
+}
 
 export const originBadge = (pack) => (pack?.origin_label
   ? `<span class="badge origin${isCommunity(pack) ? " origin-community" : ""}">${esc(pack.origin_label)}</span>`
@@ -111,10 +197,29 @@ function memberEffect(derive, member, label, answers) {
   return null;
 }
 
-export function criteriaTable(answers, { evidence = true } = {}) {
+// The criteria of a derived decision. `plain` (the main result view): each criterion, answer and
+// effect by name, the codes one click away; otherwise (the record, the review queue) the engine's
+// view, with confidence, source and evidence.
+export function criteriaTable(answers, { evidence = true, plain = false } = {}) {
   const derive = derivedPrimary();
   if (!derive || !answers) return "";
   const questions = state.detail.manifest.questions;
+  if (plain) {
+    const primary = state.detail.primary;
+    const rows = derive.from.map((member) => {
+      const a = answers[member];
+      const effect = a ? memberEffect(derive, member, a.label, answers) : null;
+      const tone = effect ? labelTone(primary, effect, answers) || "neutral" : "";
+      return `<tr class="${effect ? `hit hit-${tone}` : ""}">
+        <td class="criterion">${named(questionName(member), member)}</td>
+        <td>${a ? `<b>${named(labelName(member, a.label), a.label)}</b>` : `<span class="muted">no answer</span>`}</td>
+        <td class="mono">${a && a.confidence !== null && a.confidence !== undefined ? pct(a.confidence, 0) : ""}</td>
+        <td>${effect ? `<span class="badge ${TONE_BADGE[tone]}">→ ${named(labelName(primary, effect), effect)}</span>` : ""}</td>
+      </tr>`;
+    }).join("");
+    return `<div class="table-wrap"><table class="compact criteria">
+      <tr><th>Criterion</th><th>Answer</th><th>Sure</th><th>Effect</th></tr>${rows}</table></div>`;
+  }
   const rows = derive.from.map((member) => {
     const a = answers[member];
     const effect = a ? memberEffect(derive, member, a.label, answers) : null;

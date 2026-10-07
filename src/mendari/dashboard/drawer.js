@@ -38,6 +38,7 @@ export function showDrawer({ title, body, opener, onClose }) {
     }
   });
   root.querySelector("#drawer-title").focus();
+  return root;
 }
 
 // `closedByUser`: a person closed it (button, Escape, backdrop), so its onClose runs (e.g. the URL
