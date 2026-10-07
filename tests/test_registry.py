@@ -3,75 +3,26 @@
 
 from __future__ import annotations
 
+import datetime
 import hashlib
 import json
 import shutil
-from collections.abc import Iterator
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
+import yaml
 
 from mendari.core.pack import Pack, load_pack, pack_digest
 from mendari.core.registry import resolve_pack
 from mendari.evals.share import shareable
 from mendari.hub import archive
 from mendari.hub import registry as registry_module
-from mendari.hub.registry import RegistryStore, create_registry_app
+from mendari.hub.registry import RegistryStore
+from tests.conftest import REGISTRY_ADMIN, Registry
 
-ADMIN = "admin-token-for-tests"
 REFERRAL = resolve_pack("mendari/referral-router")
 GUARD = resolve_pack("mendari/ai-guard")
-
-
-@dataclass
-class Registry:
-    client: TestClient
-    token: str  # the mendari namespace's publisher token
-    key: archive.Ed25519PrivateKey
-
-    def publish(
-        self,
-        pack: Any = REFERRAL,
-        *,
-        key: Any = None,
-        token: str | None = None,
-        version: str | None = None,
-    ) -> Any:
-        data = archive.build(pack, key or self.key)
-        namespace, name = pack.id.split("/")
-        return self.client.put(
-            f"/v1/packs/{namespace}/{name}/{version or pack.version}",
-            content=data,
-            headers={"authorization": f"Bearer {token or self.token}"},
-        )
-
-
-@pytest.fixture
-def registry(db_target: str) -> Iterator[Registry]:
-    client = TestClient(create_registry_app(db_target, admin_token=ADMIN))
-    client.__enter__()  # runs the app's lifespan, so its store is closed at the end
-    admin = {"authorization": f"Bearer {ADMIN}"}
-    assert (
-        client.post(
-            "/v1/namespaces",
-            json={"name": "mendari", "display_name": "Mendari"},
-            headers=admin,
-        ).status_code
-        == 201
-    )
-    token = client.post("/v1/namespaces/mendari/tokens", headers=admin).json()["token"]
-    private, public = archive.generate_key()
-    added = client.post(
-        "/v1/namespaces/mendari/keys",
-        json={"public_pem": public.decode()},
-        headers={"authorization": f"Bearer {token}"},
-    )
-    assert added.status_code == 201
-    yield Registry(client, token, archive.load_private_key(private))
-    client.__exit__(None, None, None)
 
 
 def test_a_signed_pack_is_published_once_and_read_back(registry: Registry) -> None:
@@ -101,7 +52,7 @@ def test_the_archive_downloads_byte_for_byte(registry: Registry) -> None:
 
 
 def test_publishing_needs_the_namespaces_token(registry: Registry) -> None:
-    admin = {"authorization": f"Bearer {ADMIN}"}
+    admin = {"authorization": f"Bearer {REGISTRY_ADMIN}"}
     registry.client.post("/v1/namespaces", json={"name": "other"}, headers=admin)
     other_token = registry.client.post("/v1/namespaces/other/tokens", headers=admin).json()["token"]
     assert registry.publish(token=other_token).status_code == 403
@@ -133,7 +84,7 @@ def test_admin_routes_need_the_admin_token(registry: Registry) -> None:
 
 def test_verification_sets_the_publisher_type(registry: Registry) -> None:
     registry.publish()
-    admin = {"authorization": f"Bearer {ADMIN}"}
+    admin = {"authorization": f"Bearer {REGISTRY_ADMIN}"}
     patched = registry.client.patch(
         "/v1/namespaces/mendari", json={"publisher_type": "verified"}, headers=admin
     )
@@ -412,6 +363,31 @@ def test_metadata_that_cannot_be_served_is_refused_before_it_is_stored(
     monkeypatch.undo()
     assert registry.client.get("/v1/search").json() == []
     assert registry.publish().status_code == 201
+
+
+def test_a_composite_whose_members_cannot_run_publishes_without_them(
+    registry: Registry, tmp_path: Path
+) -> None:
+    """Members are checked when a provider is built, not when a pack loads: a composite whose
+    members are a list, or keyed by what YAML reads as a date, still publishes (it was a 500),
+    and no report can name it."""
+    root = tmp_path / "pack"
+    shutil.copytree(REFERRAL.root, root)
+    manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    variants = manifest["providers"]["triage_screen"]["variants"]
+    rules = variants["rules"]
+    escalate = {"urgency": "urgent", "clear_question": "yes"}
+    variants["dated"] = {
+        "type": "any_of",
+        "escalate": escalate,
+        "members": {datetime.date(2024, 1, 1): rules, "rules": rules},
+    }
+    variants["listed"] = {"type": "any_of", "escalate": escalate, "members": [rules, rules]}
+    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    published = registry.publish(load_pack(root))
+    assert published.status_code == 201, published.text
+    members = published.json()["names"]["members"]["triage_screen"]
+    assert set(members) == {"rules_and_jev", "rules_and_llm"}
 
 
 def test_a_pack_version_is_served_with_its_figures(registry: Registry) -> None:

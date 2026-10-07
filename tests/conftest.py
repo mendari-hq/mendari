@@ -11,15 +11,20 @@ import time
 import uuid
 from collections.abc import Callable, Coroutine, Iterator
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TypeVar
 
 import httpx
 import pytest
 import yaml
+from fastapi.testclient import TestClient
 
 from mendari import AuditStore, Decision, Pack, load_pack
+from mendari.core.registry import resolve_pack
 from mendari.errors import ProviderError
+from mendari.hub import archive
+from mendari.hub.registry import create_registry_app
 from mendari.providers import credentials, llm
 from mendari.providers.jev import JevProvider
 from mendari.server import sessions
@@ -222,6 +227,59 @@ def db_target(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[str]:
 def store(db_target: str) -> Iterator[AuditStore]:
     with AuditStore(db_target) as audit_store:
         yield audit_store
+
+
+REGISTRY_ADMIN = "admin-token-for-tests"
+
+
+@dataclass
+class Registry:
+    client: TestClient
+    token: str  # the mendari namespace's publisher token
+    key: archive.Ed25519PrivateKey
+
+    def publish(
+        self,
+        pack: Pack | None = None,  # the referral router
+        *,
+        key: Any = None,
+        token: str | None = None,
+        version: str | None = None,
+    ) -> Any:
+        pack = pack or resolve_pack("mendari/referral-router")
+        data = archive.build(pack, key or self.key)
+        namespace, name = pack.id.split("/")
+        return self.client.put(
+            f"/v1/packs/{namespace}/{name}/{version or pack.version}",
+            content=data,
+            headers={"authorization": f"Bearer {token or self.token}"},
+        )
+
+
+@pytest.fixture
+def registry(db_target: str) -> Iterator[Registry]:
+    """A registry (hub/registry.py) with the `mendari` namespace, its token and a key."""
+    client = TestClient(create_registry_app(db_target, admin_token=REGISTRY_ADMIN))
+    client.__enter__()  # runs the app's lifespan, so its store is closed at the end
+    admin = {"authorization": f"Bearer {REGISTRY_ADMIN}"}
+    assert (
+        client.post(
+            "/v1/namespaces",
+            json={"name": "mendari", "display_name": "Mendari"},
+            headers=admin,
+        ).status_code
+        == 201
+    )
+    token = client.post("/v1/namespaces/mendari/tokens", headers=admin).json()["token"]
+    private, public = archive.generate_key()
+    added = client.post(
+        "/v1/namespaces/mendari/keys",
+        json={"public_pem": public.decode()},
+        headers={"authorization": f"Bearer {token}"},
+    )
+    assert added.status_code == 201
+    yield Registry(client, token, archive.load_private_key(private))
+    client.__exit__(None, None, None)
 
 
 @pytest.fixture(scope="session")

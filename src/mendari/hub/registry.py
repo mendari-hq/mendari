@@ -48,7 +48,14 @@ from mendari.core.pack import Pack
 from mendari.core.registry import version_key
 from mendari.errors import HubError, MendariError
 from mendari.evals import figures
-from mendari.evals.share import SiteReport, summary, where
+from mendari.evals.share import (
+    JOINERS,
+    SiteReport,
+    composite_members,
+    failed_members,
+    summary,
+    where,
+)
 from mendari.hub import archive
 
 PublisherType = Literal["community", "verified", "institutional"]
@@ -228,7 +235,8 @@ class RegistryStore:
                 raise HubError(f"the pack does not load: {error}") from None
             except Exception as error:  # the publisher's content: named, never a 500
                 raise HubError(f"the pack does not load ({type(error).__name__})") from None
-        try:  # as every answer will serialize it, before anything is stored: versions are immutable
+        try:  # as it is stored and every answer serializes it, first: versions are immutable
+            stored = json.dumps(metadata, sort_keys=True)
             to_json(metadata)
         except Exception as error:
             raise HubError(
@@ -259,7 +267,7 @@ class RegistryStore:
                     version,
                     _now(),
                     verified.sha256,
-                    json.dumps(metadata, sort_keys=True),
+                    stored,
                 ),
             )
         return self.version(namespace, name, version)
@@ -307,6 +315,15 @@ class RegistryStore:
             raise HubError(
                 f"{namespace}/{name}@{version} was published before site reports were checked "
                 "against their pack; publish a new version to receive them",
+                409,
+            )
+        composite = any(p.type in JOINERS for p in report.providers.values()) or any(
+            failed_members(key) for key in report.errors
+        )
+        if composite and not isinstance(names.get("members"), dict):
+            raise HubError(
+                f"{namespace}/{name}@{version} was published before reports from composite "
+                "providers were checked against their pack; publish a new version to receive them",
                 409,
             )
         problem = _unknown_names(report, names, found.get("primary"))
@@ -395,6 +412,7 @@ def _unknown_names(report: SiteReport, names: Mapping[str, Any], primary: Any) -
     name itself: it would be echoed to whoever sent it), or None."""
     questions: Mapping[str, list[str]] = names.get("questions") or {}
     slots: Mapping[str, Mapping[str, str]] = names.get("slots") or {}
+    composites: Mapping[str, Mapping[str, list[str]]] = names.get("members") or {}
     if report.primary != primary:
         return "a primary question"
     for key, metrics in report.questions.items():
@@ -410,10 +428,27 @@ def _unknown_names(report: SiteReport, names: Mapping[str, Any], primary: Any) -
     for item in report.decisions.critical:
         if item.label not in questions.get(item.question, ()):
             return "a critical label"
+    ran: list[list[str]] = []  # the members of each composite that ran
     for slot, provider in report.providers.items():
         if slots.get(slot, {}).get(provider.variant) != provider.type:
             return "a provider slot or variant"
+        declared = composites.get(slot, {}).get(provider.variant, [])
+        listed = composite_members(provider)
+        if listed is not None and listed != declared:
+            return "a composite member"
+        ran.append(declared)
+    for key in report.errors:
+        # As a composite records its failed members: each once, in its own order.
+        failed = failed_members(key)
+        if failed and not any(_in_order(failed, members) for members in ran):
+            return "a composite member"
     return None
+
+
+def _in_order(names: list[str], members: list[str]) -> bool:
+    """Whether `names` are some of `members`, each once, in their order."""
+    remaining = iter(members)
+    return all(name in remaining for name in names)
 
 
 def describe(pack: Pack, verified: archive.Verified) -> dict[str, Any]:
@@ -438,11 +473,23 @@ def describe(pack: Pack, verified: archive.Verified) -> dict[str, Any]:
         "questions": sorted(m.questions),
         "primary": m.policy.primary,
         # The only names a site's report may use (`add_report`): questions and their labels,
-        # and provider slots with their variants and types.
+        # provider slots with their variants and types, and each composite variant's members
+        # in order (its model lists them, and a failed one names itself in an error).
         "names": {
             "questions": {key: m.labels(key) for key in m.questions},
             "slots": {
                 slot: {variant: v.type for variant, v in provider.variants.items()}
+                for slot, provider in m.providers.items()
+            },
+            "members": {
+                slot: {
+                    variant: list(members)
+                    for variant, v in provider.variants.items()
+                    if v.type in JOINERS
+                    and isinstance(members := (v.model_extra or {}).get("members"), dict)
+                    # YAML reads a key like 2024-01-01 as a date: such a composite never runs
+                    and all(isinstance(member, str) for member in members)
+                }
                 for slot, provider in m.providers.items()
             },
         },
