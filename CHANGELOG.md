@@ -19,6 +19,12 @@ The first release (not yet published).
 - **Governance:** a review queue, an append-only hash-chained audit trail on SQLite or Postgres,
   PHI modes (off, hash, encrypt) with key rotation, retention, and an evaluation harness with
   Decision Cards.
+- **Evaluation with exact statistics:** a run keeps a per-case ledger (no input text, no case
+  id) and its report's result is computed only from it (`mendari.eval/2`), byte for byte the same
+  on a second run; each proportion is k of n with its exact Clopper-Pearson interval, each Brier
+  score has a seeded bootstrap interval, and an equal-mass calibration error sits beside the
+  equal-width one. `mendari compare A B --dataset X` compares two runs case by case (exact
+  McNemar, Holm-adjusted). A stored report is chained in the audit trail (`eval.recorded`).
 - **Dashboard** and REST API; sign-in through an organization's OpenID Connect provider; API
   keys by role.
 - **Hub:** a pack registry and its client (`mendari pull`, `mendari search`), and community

@@ -194,7 +194,7 @@ Benchmark `test` (n=300) with structured=`criteria`, notes=`rules`:
 | Accuracy of AUTO decisions | n/a |
 | False automation rate | n/a |
 | Expected human override rate | 0.7% |
-| Latency p50 / p95 | 0.41 / 0.52 ms |
+| Latency p50 / p95 | 0.40 / 0.49 ms |
 | Cost per decision | $0.00000 |
 | Critical `note_pregnancy=yes` | 12/13 detected, 0 automated |
 | Critical `note_pancreatitis=yes` | 6/6 detected, 0 automated |

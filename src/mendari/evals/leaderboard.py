@@ -18,6 +18,7 @@ from typing import Any
 
 from mendari.core.pack import Pack
 from mendari.evals.render import num, pct
+from mendari.evals.result import normalize
 
 FORMAT = "mendari.leaderboard/1"
 PATH = "evals/leaderboard.json"
@@ -41,6 +42,8 @@ def config_label(providers: Mapping[str, Mapping[str, Any]]) -> str:
 
 
 def row(report: Mapping[str, Any]) -> dict[str, Any]:
+    report = normalize(report)
+    run = report["run"]
     primary = report["primary"]
     question = report["questions"].get(primary, {})
     labelled = question.get("n", 0) > 0
@@ -50,8 +53,8 @@ def row(report: Mapping[str, Any]) -> dict[str, Any]:
         "providers": report["providers"],
         "dataset": report["dataset"]["name"],
         "n": report["dataset"]["n"],
-        "report_id": report["id"],
-        "created_at": report["created_at"],
+        "report_id": run.get("id"),
+        "created_at": run.get("created_at"),
         "pack_version": report["pack"]["version"],
         "accuracy": question.get("accuracy") if labelled else None,
         "macro_f1": question.get("macro_f1") if labelled else None,
@@ -62,8 +65,8 @@ def row(report: Mapping[str, Any]) -> dict[str, Any]:
             {k: item[k] for k in ("question", "label", "n", "detected", "auto_missed")}
             for item in decisions.get("critical", [])
         ],
-        "latency_p50_ms": report["latency_ms"]["p50"],
-        "latency_p95_ms": report["latency_ms"]["p95"],
+        "latency_p50_ms": run.get("latency_ms", {}).get("p50"),
+        "latency_p95_ms": run.get("latency_ms", {}).get("p95"),
         "cost_per_decision_usd": report["cost"]["per_decision_usd"],
         "errors": sum(report.get("errors", {}).values()),
         "error_codes": dict(report.get("errors", {})),
@@ -88,7 +91,8 @@ def build(
     }
     for report in reports:
         if report["pack"]["id"] != pack.id:
-            raise ValueError(f"report {report['id']} is for {report['pack']['id']}, not {pack.id}")
+            named = normalize(report)["run"].get("id")
+            raise ValueError(f"report {named} is for {report['pack']['id']}, not {pack.id}")
         new = row(report)
         rows[(new["config"], new["dataset"])] = new
     return {

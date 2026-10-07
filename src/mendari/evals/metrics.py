@@ -84,7 +84,9 @@ def brier(probabilities: Sequence[Mapping[str, float]], truths: Sequence[str]) -
         return None
     total = 0.0
     for dist, truth in zip(probabilities, truths, strict=True):
-        total += sum((p - (label == truth)) ** 2 for label, p in dist.items())
+        for label, p in dist.items():
+            d = p - (label == truth)
+            total += d * d  # a multiply rounds the same everywhere; ** 2 calls the platform's pow
     return total / len(probabilities)
 
 

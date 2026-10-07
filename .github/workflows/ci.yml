@@ -103,8 +103,13 @@ jobs:
           python-version: "3.12"
       - run: uv sync --locked
       - run: ./scripts/build-reference-pack.sh
-      - name: Data and model are byte-identical
-        run: git diff --exit-code -- packs datasets ':!packs/*/evals/benchmark.json' ':!packs/*/DECISION_CARD.md'
+      - name: Data, models and ledgers are byte-identical, and the build made nothing new
+        run: |
+          git diff --exit-code -- packs datasets ':!packs/*/evals/benchmark.json' ':!packs/*/DECISION_CARD.md'
+          made=$(git status --porcelain --untracked-files=all -- packs datasets | grep '^??' || true)
+          test -z "$made" || { echo "::error::the build made files that are not committed: $made"; exit 1; }
+      - name: Each benchmark's result is the committed one, byte for byte, and its ledger's (LP-10)
+        run: uv run python scripts/check_eval_results.py
       - name: The trial pack's local-site example evaluates identically through OMOP CDM
         run: uv run mendari sandbox omop-check --dataset datasets/trial-local-site-example.jsonl
 

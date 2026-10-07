@@ -13,6 +13,7 @@ from mendari.core.pack import Pack
 from mendari.core.spec import Condition, DeriveRow, Outcome, PackManifest, Question
 from mendari.evals import leaderboard
 from mendari.evals.render import num, pct
+from mendari.evals.result import normalize
 
 RISK_NAMES = {
     0: "administrative",
@@ -50,6 +51,8 @@ def read_benchmark(pack: Pack) -> tuple[dict[str, Any] | None, str | None]:
     report, problem = pack.attestation_json(relative)
     if report is None:
         return None, problem
+    if isinstance(report, dict):
+        report = normalize(report)  # either format; v1's time and latency in its run block
     try:
         _last_validation(report)
         _validation(report)
@@ -305,8 +308,9 @@ def _required(requires: Mapping[str, list[str]]) -> str:
 
 def _last_validation(report: dict[str, Any]) -> str:
     dataset = report["dataset"]
+    when = clock.local_date(report["run"]["created_at"])
     return (
-        f"| Last validation | {clock.local_date(report['created_at'])} on `{dataset['name']}` "
+        f"| Last validation | {when} on `{dataset['name']}` "
         f"(n={dataset['n']}, sha256 `{dataset['sha256'][:12]}…`) |"
     )
 
@@ -329,8 +333,8 @@ def _validation(report: dict[str, Any]) -> list[str]:
         f"| Accuracy of AUTO decisions | {pct(d['automation']['accuracy'])} |",
         f"| False automation rate | {pct(d['automation']['false_automation_rate'])} |",
         f"| Expected human override rate | {pct(d['review']['expected_override_rate'])} |",
-        f"| Latency p50 / p95 | {num(report['latency_ms']['p50'], 2)} / "
-        f"{num(report['latency_ms']['p95'], 2)} ms |",
+        f"| Latency p50 / p95 | {num(report['run']['latency_ms']['p50'], 2)} / "
+        f"{num(report['run']['latency_ms']['p95'], 2)} ms |",
     ]
     cost = report["cost"]["per_decision_usd"]
     rows.append(f"| Cost per decision | {'unknown' if cost is None else f'${cost:.5f}'} |")

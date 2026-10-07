@@ -21,6 +21,7 @@ from typing import Annotated, Any, Literal
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, ValidationError
 
 from mendari.errors import MendariError
+from mendari.evals.result import normalize
 
 MIN_GROUP = 10
 SITE_REPORT_FORMAT = "mendari.site-report/1"
@@ -193,6 +194,12 @@ def _list(value: Any, where: str) -> list[Any]:
     return value
 
 
+# A question's figures a site report carries (mendari.site-report/1): what a mendari.eval/2
+# report adds (each proportion's interval, the bootstrap Brier interval, the equal-mass
+# calibration) stays with the site.
+_QUESTION_KEPT = ("n", "accuracy", "macro_f1", "per_label", "confusion", "brier")
+
+
 def site_report(report: Mapping[str, Any], *, min_group: int = MIN_GROUP) -> SiteReport:
     """The shareable part of an evaluation report, validated: small bins dropped; case ids,
     subgroups, the dataset's identity and the override's approver left out. Raises
@@ -208,7 +215,8 @@ def site_report(report: Mapping[str, Any], *, min_group: int = MIN_GROUP) -> Sit
             for b in _list(calibration.get("bins"), f"questions.{name}.calibration.bins")
             if (_object(b, "a calibration bin").get("n") or 0) >= min_group
         ]
-        questions[name] = {**question, "calibration": {**calibration, "bins": bins}}
+        kept = {key: question.get(key) for key in _QUESTION_KEPT if key in question}
+        questions[name] = {**kept, "calibration": {"ece": calibration.get("ece"), "bins": bins}}
     decisions = dict(_object(report.get("decisions"), "decisions"))
     decisions["critical"] = [
         {key: _object(item, "decisions.critical").get(key) for key in _CRITICAL_KEPT}
@@ -230,7 +238,7 @@ def site_report(report: Mapping[str, Any], *, min_group: int = MIN_GROUP) -> Sit
             "questions": questions,
             "decisions": decisions,
             "threshold_sweep": report.get("threshold_sweep"),
-            "latency_ms": report.get("latency_ms"),
+            "latency_ms": normalize(report)["run"].get("latency_ms"),
             "cost": report.get("cost"),
             "errors": report.get("errors") or {},
         }

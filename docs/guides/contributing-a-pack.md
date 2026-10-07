@@ -101,7 +101,8 @@ where the pack lives, never from `publisher.type`, which every pack declares for
 4. **Write it.** The criteria, the rules, the synthetic data
     ([below](#synthetic-data-without-python)) and the behaviour tests in `tests/cases.yaml`: at
     least one test case for each critical label (`evaluation.critical`), and at least five
-    benchmark cases for each. Then regenerate the benchmark and the card, after every change:
+    benchmark cases for each. Then regenerate the benchmark (with its ledger, in
+    `evals/ledgers/`, which CI checks too) and the card, after every change:
 
     ```bash
     uv run mendari eval community-packs/<name> --dataset examples --baseline none \

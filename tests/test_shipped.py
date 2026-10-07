@@ -184,6 +184,7 @@ CHAINED: dict[Route, tuple[str, ...]] = {
     (ENGINE, "DELETE", "/api/auth/keys/{key_id}"): ("key.revoked",),
     (ENGINE, "POST", "/api/auth/clients"): ("client.registered",),
     (ENGINE, "DELETE", "/api/auth/clients/{client_id}"): ("client.revoked",),
+    (ENGINE, "POST", "/api/packs/{namespace}/{name}/evals"): ("eval.recorded",),
 }
 # A GET that writes is not found by its method: these are listed by hand. That every read of a
 # stored input is chained is checked over every GET route by tests/test_hosted_data.py
@@ -216,7 +217,6 @@ NOT_CHAINED: dict[Route, str] = {
 }
 # Writes with no chained event yet, each with the prompt that chains it (tasks/todo.md, LP-03).
 NOT_CHAINED_YET: dict[Route, str] = {
-    (ENGINE, "POST", "/api/packs/{namespace}/{name}/evals"): "LP-10: an eval.recorded event",
     (REGISTRY, "POST", "/v1/namespaces"): "LP-19: chained claims",
     (REGISTRY, "PATCH", "/v1/namespaces/{namespace}"): "LP-19: chained approvals",
     (REGISTRY, "POST", "/v1/namespaces/{namespace}/tokens"): "LP-19: token ownership",
@@ -290,8 +290,7 @@ def test_the_inventory_names_events_the_code_chains() -> None:
 
 @pytest.mark.xfail(
     strict=True,
-    reason="LP-10 chains a stored evaluation (eval.recorded); LP-18 and LP-19 chain the "
-    "registry's writes (S6.coverage)",
+    reason="LP-18 and LP-19 chain the registry's writes (S6.coverage)",
 )
 def test_every_write_appends_a_chained_event() -> None:
     assert NOT_CHAINED_YET == {}

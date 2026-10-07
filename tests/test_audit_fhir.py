@@ -246,6 +246,7 @@ NOT_ON_A_DECISION = {
     "key.rotated",  # an API key's rotation, on the key (LP-09)
     "phi.rotated",  # a PHI key rotation's batch (`KEYS_CHAIN`)
     "input_hash.epoch",  # a new input hash key (`KEYS_CHAIN`)
+    "eval.recorded",  # a stored evaluation report (`eval:<report id>`, LP-10)
 }
 
 

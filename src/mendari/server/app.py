@@ -70,9 +70,9 @@ from mendari.errors import (
     ScopeError,
     SmartError,
 )
-from mendari.evals import compare, evaluate, leaderboard, load_dataset, resolve_dataset
+from mendari.evals import compare, leaderboard, load_dataset, resolve_dataset
 from mendari.evals.feedback import feedback_dataset
-from mendari.evals.harness import Dataset
+from mendari.evals.harness import Dataset, evaluation
 from mendari.evals.monitoring import check_webhook, monitor
 from mendari.evals.pack_tests import load_cases
 from mendari.legacy import current_pack_id
@@ -1160,13 +1160,14 @@ def create_app(
             dataset = dataset.head(request.limit)
         workers = REMOTE_EVAL_WORKERS if decision.is_remote else 1
         log_event(http, "eval.run", ids=[pack.id], count=len(dataset.records))
-        report = evaluate(decision, dataset, workers=workers)
+        run = evaluation(decision, dataset, workers=workers)
+        report = run.report
         baseline = benchmark(pack)
         if baseline is not None and request.dataset != pack.manifest.evaluation.benchmark_dataset:
             report["comparison"] = compare(
                 report, baseline, pack.manifest.evaluation.degradation_tolerance
             )
-        store.save_report(report)
+        store.save_report(report, ledger=run.ledger.dumps())
         return report
 
     @app.get(

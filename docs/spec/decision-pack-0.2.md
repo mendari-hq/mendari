@@ -441,7 +441,10 @@ reliability bins, and Brier score; outcome rates; automation accuracy and false 
 rate; expected override rate among reviewed cases; for each `critical` label, the detection
 count and the number of true critical cases that were automated; latency percentiles; cost;
 subgroup metrics for each configured attribute; and a threshold sweep. Reports MUST NOT
-contain case inputs.
+contain case inputs. Superseded by `mendari.eval/2`, whose result is computed from a per-case
+ledger and carries each proportion with its exact interval: see
+[Evaluation reports, ledgers and paired comparisons](evaluation-reports.md). A
+`mendari.eval/1` report still loads.
 
 **Local validation** compares a report on local data with the pack's published benchmark. It
 MUST report the overall delta of primary accuracy and SHOULD localize degradation by label
