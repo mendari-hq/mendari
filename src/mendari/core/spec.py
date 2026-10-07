@@ -35,15 +35,19 @@ _SPDX_ID = re.compile(
 _SPDX_OPERATORS = frozenset({"AND", "OR", "WITH"})
 
 
-def _oid(oid: str) -> str:
-    """An OID as files spell it, bare or as `urn:oid:`, never a longer OID it begins."""
-    return r"(?<![\d.])" + re.escape(oid) + r"(?!\d|\.\d)"
+def _oid(oid: str, *, children: bool = False) -> str:
+    """An OID as files spell it, bare or as `urn:oid:`, never a longer OID it begins (unless
+    `children`: then its sub-OIDs too, as MedDRA's translations are numbered)."""
+    child = r"(?:\.\d+)?" if children else ""
+    return r"(?<![\d.])" + re.escape(oid) + child + r"(?!\d|\.\d)"
 
 
 # Code systems whose codes are licensed, not free to redistribute everywhere: a pack that names
 # one (in `code_systems`, or by its url or OID anywhere in its files) declares it with a
 # `licence_note` saying the terms it is used under (LP-14). A bare code value names no system:
-# declaring the system it comes from is the author's to do. Canonical url -> (name, spellings).
+# declaring the system it comes from is the author's to do. Canonical url -> (name, spellings),
+# the spellings taken from HL7's terminology registry (THO) and the systems' own urls.
+_THO = r"terminology\.hl7\.org/CodeSystem/"
 LICENSED_CODE_SYSTEMS: dict[str, tuple[str, re.Pattern[str]]] = {
     "http://www.ama-assn.org/go/cpt": (
         "CPT (American Medical Association)",
@@ -56,35 +60,48 @@ LICENSED_CODE_SYSTEMS: dict[str, tuple[str, re.Pattern[str]]] = {
     "http://terminology.hl7.org/CodeSystem/mdr": (
         "MedDRA (ICH)",
         re.compile(
-            r"terminology\.hl7\.org/CodeSystem/mdr(?![\w-])|meddra\.org|"
-            + _oid("2.16.840.1.113883.6.163")
+            _THO
+            + r"(?:mdr|(?:MTH)?MDR[A-Z]*)(?![\w-])|meddra\.org|"
+            + _oid("2.16.840.1.113883.6.163", children=True)
+            + "|"
+            + _oid("2.16.840.1.113883.6.164")
+            + "|"
+            + _oid("2.16.840.1.113883.6.165")
         ),
     ),
     "https://codesystem.x12.org": (
         "X12 code lists (X12)",
-        re.compile(r"(?:codesystem|valueset)\.x12\.org"),
+        re.compile(
+            r"(?:codesystem|valueset)\.x12\.org|x12\.org/codes/|"
+            + _THO
+            + r"X12\.|"
+            + _oid("2.16.840.1.113883.6.255")
+        ),
     ),
     "http://www.ada.org/cdt": (
         "CDT (American Dental Association)",
-        re.compile(r"ada\.org/cdt|" + _oid("2.16.840.1.113883.6.13")),
+        re.compile(r"ada\.org/cdt|" + _THO + r"CD2(?![\w-])|" + _oid("2.16.840.1.113883.6.13")),
     ),
 }
-# Bytes every spelling above contains: a file holding none of them is not searched.
+# Text that every spelling above contains, with no slash (a file may escape slashes): a file
+# holding none of them is not searched.
 LICENSED_HINTS = (
     b"ama-assn.org",
     b"snomed.info",
     b"113883.6.",
-    b"CodeSystem/mdr",
-    b"meddra.org",
+    b"terminology.hl7.org",
+    b"meddra",
     b"x12.org",
     b"ada.org",
 )
+# A slash as files may escape it: JSON's `\/` (any number of backslashes), `%2F`, `&#47;`.
+_ESCAPED_SLASH = re.compile(r"\\+/|%2[Ff]|&#(?:47|[xX]0*2[Ff]);")
 
 
 def licensed_systems(text: str) -> set[str]:
-    r"""The licensed code systems `text` names, by canonical url. JSON's escaped slash (`\/`) is
-    read as a slash, so `http:\/\/snomed.info\/sct` names SNOMED CT."""
-    text = text.replace("\\/", "/")
+    r"""The licensed code systems `text` names, by canonical url. An escaped slash (`\/`,
+    `%2F`, `&#47;`) is read as a slash, so `http:\/\/snomed.info\/sct` names SNOMED CT."""
+    text = _ESCAPED_SLASH.sub("/", text)
     return {url for url, (_, spelled) in LICENSED_CODE_SYSTEMS.items() if spelled.search(text)}
 
 

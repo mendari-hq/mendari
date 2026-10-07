@@ -1,11 +1,11 @@
 {
   "format": "mendari.eval/1",
-  "id": "91999ae2-28de-498c-ae3e-754cdc4dc57a",
-  "created_at": "2026-10-07T06:24:33+00:00",
+  "id": "94b1eef7-534b-466b-a778-18377343cc56",
+  "created_at": "2026-10-07T06:58:05+00:00",
   "pack": {
     "id": "mendari/prior-auth-preflight",
     "version": "0.2.0",
-    "digest": "sha256:748f03439fa58788de42763bdabc61145e2773c8f6ab934d6154dfd890d3ed97"
+    "digest": "sha256:36ba77e89092654b012bd69b62b49fe645017d1b0b8544dcace1b02751a0f1af"
   },
   "providers": {
     "structured": {
@@ -684,10 +684,10 @@
     }
   ],
   "latency_ms": {
-    "mean": 3.6012544351009033,
-    "p50": 3.5878331400454044,
-    "p95": 3.767541144043207,
-    "max": 13.29520856961608
+    "mean": 3.526836533565074,
+    "p50": 3.505334258079529,
+    "p95": 3.7013329565525055,
+    "max": 11.45666604861617
   },
   "cost": {
     "total_usd": 0.0,

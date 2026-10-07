@@ -163,6 +163,12 @@ def distribution(
         ),
         (distribution("Apache 2.0", None, "Apache Software License"), "Apache-2.0"),
         (distribution(None, None, "MIT License", "GNU General Public License v3 (GPLv3)"), None),
+        # A one-word field that is no licence id we know leaves the classifiers to say it...
+        (distribution("BSD", None, "BSD License"), "BSD-3-Clause"),
+        (distribution("PSFL", None, "Python Software Foundation License"), "PSF-2.0"),
+        # ...but one that names copyleft in words is unreadable, whatever the classifiers say:
+        (distribution("GPLv3", None, "MIT License"), None),
+        (distribution("GNU Lesser General Public License v3 or later", None, "MIT License"), None),
         (distribution(None, None), None),
     ],
 )

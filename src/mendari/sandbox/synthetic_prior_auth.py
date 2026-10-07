@@ -41,7 +41,9 @@ PROCEDURES = {
 }
 # What a payer reads for the fictional codes the samples send (Da Vinci PAS and US Core bind the
 # requested service to value sets with no fictional system): ICD-10-PCS, CMS's public-domain
-# procedure codes. Only the services a sample or a test sends to a payer or a validator.
+# procedure codes, with their official titles. Only the services a sample or a test sends to a
+# payer or a validator. ICD-10-PCS is HIPAA's code set for hospital inpatient procedures: on the
+# sandbox's outpatient, professional request it stands in for the CPT code a real order carries.
 PAYER_CODES = {
     "FX101": ("BR39ZZZ", "Magnetic Resonance Imaging (MRI) of Lumbar Spine"),
     "FX111": ("BR09ZZZ", "Plain Radiography of Lumbar Spine"),

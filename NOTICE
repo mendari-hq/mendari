@@ -39,7 +39,11 @@ SNOMED CT
 
 ICD-10-CM
   ICD-10-CM codes in the synthetic reference packs and datasets
-  Licence: free to use from the U.S. National Center for Health Statistics, which adapted it from the World Health Organization's copyrighted ICD-10 with WHO's authorization.
+  Licence: free to use from the U.S. National Center for Health Statistics, which adapted it from the World Health Organization's copyrighted ICD-10 with WHO's authorization, for U.S. government purposes.
+
+ICD-10-PCS
+  three procedure codes and their titles in the sandbox's payer crosswalk (src/mendari/sandbox/synthetic_prior_auth.py), sent with the synthetic prior-authorization orders
+  Licence: public domain (U.S. Centers for Medicare & Medicaid Services).
 
 X12 code values
   the Da Vinci PAS mapping (src/mendari/standards/pas.py)

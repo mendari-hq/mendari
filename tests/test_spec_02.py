@@ -16,6 +16,7 @@ from mendari.core.card import render_card
 from mendari.core.derive import complete_answers, derive_answer, explain
 from mendari.core.policy import matches
 from mendari.core.spec import (
+    LICENSED_CODE_SYSTEMS,
     Condition,
     PackManifest,
     Question,
@@ -592,6 +593,17 @@ def test_a_licence_is_short_and_read_without_recursion() -> None:
         ("https://www.meddra.org", "http://terminology.hl7.org/CodeSystem/mdr"),
         ("https://codesystem.x12.org/005010/1365", "https://codesystem.x12.org"),
         ("http://www.ada.org/cdt", "http://www.ada.org/cdt"),
+        # As HL7's terminology registry (THO) lists them, and escaped as files may:
+        ("https://x12.org/codes/claim-adjustment-reason-codes", "https://codesystem.x12.org"),
+        ("http://terminology.hl7.org/CodeSystem/X12.3", "https://codesystem.x12.org"),
+        ("http://terminology.hl7.org/CodeSystem/CD2", "http://www.ada.org/cdt"),
+        (
+            "http://terminology.hl7.org/CodeSystem/MDRSPA",
+            "http://terminology.hl7.org/CodeSystem/mdr",
+        ),
+        ("urn:oid:2.16.840.1.113883.6.163.1", "http://terminology.hl7.org/CodeSystem/mdr"),
+        ("snomed.info%2Fsct", "http://snomed.info/sct"),
+        ("snomed.info&#x2F;sct", "http://snomed.info/sct"),
     ],
 )
 def test_licensed_systems_are_found_however_a_file_spells_them(text: str, system: str) -> None:
@@ -602,6 +614,9 @@ def test_other_oids_and_free_systems_name_no_licensed_system() -> None:
     for text in (
         "2.16.840.1.113883.6.121",
         "2.16.840.1.113883.6.12.5",
+        "2.16.840.1.113883.6.1634",
+        "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+        "http://terminology.hl7.org/CodeSystem/CD2-other",
         "http://loinc.org",
         "http://hl7.org/fhir/sid/icd-10-cm",
         "https://mendari.co/fhir/CodeSystem/fictional-procedures",
@@ -616,3 +631,17 @@ def test_a_code_system_may_be_any_absolute_uri() -> None:
         PackManifest.model_validate(
             manifest_dict() | {"code_systems": [{"url": "loinc.org", "name": "x"}]}
         )
+
+
+@pytest.mark.parametrize("url", sorted(LICENSED_CODE_SYSTEMS))
+def test_a_pack_naming_a_licensed_system_with_escaped_slashes_must_declare_it(
+    tmp_path: Path, url: str
+) -> None:
+    """The load check reads every licensed system's url as a JSON serializer may write it, its
+    slashes escaped (`http:\\/\\/...`), not only the unit under test."""
+    root = tmp_path / "pack"
+    shutil.copytree(TRIAL_MINI, root)
+    escaped = url.replace("/", "\\/")
+    (root / "logic" / "codes.json").write_text(f'{{"system": "{escaped}"}}\n')
+    with pytest.raises(Exception, match="declare it in code_systems with a licence_note"):
+        load_pack(root)

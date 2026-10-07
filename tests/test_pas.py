@@ -78,10 +78,10 @@ def test_the_request_is_a_preauthorization_claim_and_what_it_references() -> Non
     assert build()["entry"][0]["resource"]["identifier"] == claim["identifier"]  # stable ids
 
 
-def test_the_service_is_sent_only_in_a_billable_code_system() -> None:
+def test_the_service_is_sent_only_in_a_code_system_pas_takes() -> None:
     """PAS binds the requested service (required) to X12 278 Requested Service Type: CPT (a
-    site's, under its AMA licence), HCPCS or ICD-10-PCS. The reference pack's fictional code
-    alone is refused, never sent."""
+    site's, under its AMA licence), HCPCS, or ICD-10-PCS (the sandbox's stand-in). The reference
+    pack's fictional code alone is refused, never sent."""
     fictional = _order("mri", "FX101")
     fictional["code"]["coding"] = fictional["code"]["coding"][:1]
     with pytest.raises(pas.PasError, match="procedure code in CPT, HCPCS or ICD-10-PCS"):

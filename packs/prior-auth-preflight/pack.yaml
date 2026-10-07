@@ -19,7 +19,8 @@ code_systems:
   - url: http://hl7.org/fhir/sid/icd-10-cm
     name: >-
       ICD-10-CM (U.S. National Center for Health Statistics: free to use; adapted from the World
-      Health Organization's copyrighted ICD-10 with its authorization)
+      Health Organization's copyrighted ICD-10, with WHO's authorization, for U.S. government
+      purposes)
 
 risk:
   level: 1

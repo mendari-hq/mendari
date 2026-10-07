@@ -70,7 +70,9 @@ def test_a_licensed_system_is_only_where_it_is_declared_or_allowed() -> None:
             assert path in FIXTURE_ALLOWANCES, f"{path} names {systems}: allow it here with why"
             assert systems == {SNOMED}, path
             continue
-        assert path.startswith("packs/"), f"{path} names {systems} outside a pack"
+        # A reference or community pack may carry one it declares (CONTRIBUTING.md); a dataset
+        # or a fixture outside a pack may not.
+        assert path.startswith(("packs/", "community-packs/")), f"{path} names {systems}"
         manifest = load_pack(ROOT / "/".join(path.split("/")[:2])).manifest
         declared = {use.url: use.licence_note for use in manifest.code_systems}
         for system in systems:
@@ -140,3 +142,11 @@ def test_every_procedure_code_the_prior_auth_pack_or_its_data_uses_is_fictional(
     found |= set(generated)
     assert len(found) >= 15
     assert found <= set(PROCEDURES), sorted(found - set(PROCEDURES))
+    # The manifest's words (criteria, Jev instructions) name no five-digit procedure code, as
+    # 0.1.3's "MRI of the lumbar spine (CPT 72148, ...)" did, and neither it nor the input schema
+    # calls a code CPT.
+    manifest = (pack / "pack.yaml").read_text()
+    assert re.findall(r"(?<![\d.])\d{5}(?![\d.])", manifest) == []
+    for name in ("pack.yaml", "schemas/input.schema.json"):
+        text = (pack / name).read_text()
+        assert len(re.findall(r"\bCPT\b", text)) == len(re.findall(r"\bnot CPT\b", text)), name

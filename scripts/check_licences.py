@@ -48,6 +48,16 @@ PERMISSIVE = frozenset(
         "Zlib",
     }
 )
+# SPDX ids of copyleft licences, read as stated (and then failed unless excepted).
+KNOWN_COPYLEFT = re.compile(
+    r"^(?:A?GPL|LGPL)-\d\.\d(?:-only|-or-later|\+)?$|^(?:MPL|EPL|CDDL|EUPL)-\d\.\d$|^CC-BY-SA-"
+)
+# A `License` field in words that names copyleft: unreadable, so it fails closed.
+COPYLEFT_WORDS = re.compile(
+    r"\bA?GPL|\bLGPL|General Public|Affero|\bMPL\b|Mozilla Public|\bEUPL|\bCDDL|\bEPL\b|"
+    r"Eclipse Public|copyleft|ShareAlike",
+    re.IGNORECASE,
+)
 # A trove classifier's licence, when that is all a package says. "BSD License" names no clause
 # count; every BSD variant is permissive.
 CLASSIFIERS = {
@@ -63,7 +73,9 @@ CLASSIFIERS = {
 _LGPL_DRIVER = (
     "LGPL-3.0-only, unmodified and imported as its own package, never copied into Mendari's "
     "code: pip and uv install it from PyPI beside Mendari, and the published container images "
-    "carry it (psycopg-binary with its own libpq and OpenSSL), so they distribute it. The "
+    "carry it, so they distribute it, with the native libraries psycopg-binary bundles (libpq, "
+    "OpenSSL 3 and 1.1.1, libxcrypt and keyutils (LGPL-2.1+), Cyrus SASL, OpenLDAP, MIT Kerberos, "
+    "PCRE2, libselinux; its SBOM lists them). The "
     "PostgreSQL driver of the hosted and on-prem deployments; moving it to an optional extra "
     "changes how production installs (the owner's decision), and what distributing it in the "
     "images requires is counsel's question (tasks/todo.md, LP-14)"
@@ -178,16 +190,21 @@ def _canonical(name: str) -> str:
 def python_licence(distribution: metadata.Distribution) -> str | None:
     """A distribution's licence as an SPDX expression, or None when its metadata says none we can
     read. A stated licence wins: `License-Expression`, else a `License` field that is an SPDX
-    expression. Only a package that states neither is read from its trove classifiers, all of
-    which must be known, and joined with `AND`: classifiers list a package's parts, never a
-    choice, so every one must pass."""
+    expression of licences we know. A `License` field naming a copyleft licence in any other words
+    (`GPLv3`, the GNU text) is unreadable: None, never the classifiers. Only a package that states
+    nothing we can use is read from its trove classifiers, all of which must be known, joined with
+    `AND`: classifiers list a package's parts, never a choice, so every one must pass."""
     fields = distribution.metadata
     expression = (fields.get_all("License-Expression") or [""])[0]
     if expression:
         return " ".join(expression.split())
     stated = (fields.get_all("License") or [""])[0].strip()
-    if "\n" not in stated and stated.upper() != "UNKNOWN" and is_spdx_expression(stated):
-        return " ".join(stated.split())
+    if "\n" not in stated and is_spdx_expression(stated):
+        ids = [token for token in re.findall(r"[^\s()]+", stated) if token not in {"AND", "OR"}]
+        if all(token in PERMISSIVE or KNOWN_COPYLEFT.match(token) for token in ids):
+            return " ".join(stated.split())
+    if COPYLEFT_WORDS.search(stated):
+        return None
     named = [
         CLASSIFIERS.get(c.split(" :: ")[-1])
         for c in fields.get_all("Classifier") or []

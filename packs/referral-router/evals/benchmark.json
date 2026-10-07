@@ -1,11 +1,11 @@
 {
   "format": "mendari.eval/1",
-  "id": "5f204bf1-e7d6-45e1-8102-369503fabca0",
-  "created_at": "2026-10-07T06:24:29+00:00",
+  "id": "36069f5b-5af2-4b0e-a91a-e73e509d6edc",
+  "created_at": "2026-10-07T06:58:01+00:00",
   "pack": {
     "id": "mendari/referral-router",
     "version": "0.1.4",
-    "digest": "sha256:27f7fd76470344601d951586e725a399d24a5cad6cdb1ab9f2974b5497f1e265"
+    "digest": "sha256:5aafc3ce636a6e059063e23b465e7951a9380e12fd53a0c9c6d65e665e583e4e"
   },
   "providers": {
     "specialty_reader": {
@@ -745,10 +745,10 @@
     }
   ],
   "latency_ms": {
-    "mean": 1.9517313929585118,
-    "p50": 1.9412077963352203,
-    "p95": 2.1325829438865185,
-    "max": 2.5486252270638943
+    "mean": 1.9638737748997908,
+    "p50": 1.906540710479021,
+    "p95": 2.2136662155389786,
+    "max": 7.0747919380664825
   },
   "cost": {
     "total_usd": 0.0,

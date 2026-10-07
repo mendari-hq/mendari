@@ -59,7 +59,13 @@ notice = "SNOMED and SNOMED CT are registered trademarks of SNOMED International
 [[material]]
 name = "ICD-10-CM"
 where = "ICD-10-CM codes in the synthetic reference packs and datasets"
-licence = "free to use from the U.S. National Center for Health Statistics, which adapted it from the World Health Organization's copyrighted ICD-10 with WHO's authorization"
+licence = "free to use from the U.S. National Center for Health Statistics, which adapted it from the World Health Organization's copyrighted ICD-10 with WHO's authorization, for U.S. government purposes"
+distributed = true
+
+[[material]]
+name = "ICD-10-PCS"
+where = "three procedure codes and their titles in the sandbox's payer crosswalk (src/mendari/sandbox/synthetic_prior_auth.py), sent with the synthetic prior-authorization orders"
+licence = "public domain (U.S. Centers for Medicare & Medicaid Services)"
 distributed = true
 
 [[material]]

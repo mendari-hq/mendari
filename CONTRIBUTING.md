@@ -129,8 +129,9 @@ Packs carry clinical content, so where it comes from matters as much as the code
   payer medical policies, licensed questionnaires or scoring instruments. Write criteria in
   your own words from public sources (guidelines, published papers, regulations), and cite
   them in `card.evidence`.
-- **Code systems with licence terms** (CPT, licensed by the AMA; SNOMED CT, which needs an
-  affiliate licence outside its member countries) appear only as their licences allow. List the
+- **Code systems with licence terms** (CPT, licensed by the AMA; SNOMED CT, whose Affiliate
+  Licence is free in member countries and paid in some others) appear only as their licences
+  allow. List the
   systems a pack uses in its manifest's `code_systems`; a licensed one needs a `licence_note`
   with the terms, and a pack whose files name one by its url or OID without it does not load
   (spec §3). A bare code names no system, so declaring where your codes come from is yours to

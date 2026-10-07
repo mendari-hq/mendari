@@ -13,7 +13,7 @@
 | Source | Maintained by Mendari |
 | Risk level | **1**, clinical information processing (clinical information) |
 | Automation | AUTO permitted by policy thresholds; every decision is audited. Only while `notes` is `rules_and_jev` or `rules_and_llm`; otherwise a person reviews. |
-| Pack digest | `sha256:748f03439fa58788de42763bdabc61145e2773c8f6ab934d6154dfd890d3ed97` |
+| Pack digest | `sha256:36ba77e89092654b012bd69b62b49fe645017d1b0b8544dcace1b02751a0f1af` |
 | Last validation | 2026-10-07 on `test` (n=600, sha256 `e74e45ea35d5…`) |
 
 ## Intended use
@@ -60,7 +60,7 @@ FHIR R4 mapping: `fhir/mapping.yaml`.
 Code systems:
 
 - Mendari fictional procedure codes: invented for this synthetic example; not CPT, never for billing. A site maps its own codes to these. (`https://mendari.co/fhir/CodeSystem/fictional-procedures`).
-- ICD-10-CM (U.S. National Center for Health Statistics: free to use; adapted from the World Health Organization's copyrighted ICD-10 with its authorization) (`http://hl7.org/fhir/sid/icd-10-cm`).
+- ICD-10-CM (U.S. National Center for Health Statistics: free to use; adapted from the World Health Organization's copyrighted ICD-10, with WHO's authorization, for U.S. government purposes) (`http://hl7.org/fhir/sid/icd-10-cm`).
 
 ## Outputs
 
@@ -186,7 +186,7 @@ Benchmark `test` (n=600) with structured=`criteria`, notes=`rules`:
 | Accuracy of AUTO decisions | n/a |
 | False automation rate | n/a |
 | Expected human override rate | 0.0% |
-| Latency p50 / p95 | 3.59 / 3.77 ms |
+| Latency p50 / p95 | 3.51 / 3.70 ms |
 | Cost per decision | $0.00000 |
 | Critical `red_flag=yes` | 25/25 detected, 0 automated |
 
