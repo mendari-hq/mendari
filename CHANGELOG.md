@@ -25,3 +25,11 @@ The first release (not yet published).
   packs.
 - **Distribution:** a wheel and an sdist, container images (the engine with every pack, and one
   per pack), and deployment templates for docker compose and Kubernetes.
+- **The command line:** every error is one line per problem and exit 1, never a traceback
+  (`--debug` or `MENDARI_DEBUG=1` shows one); a usage error is one line too, exit 1 (argparse's
+  was 2); `--version`. `mendari test` refuses a behaviour test whose `expect` is missing,
+  empty, misspelt or names what the pack can never decide, and fails when a pack has no tests;
+  `mendari validate` reads every declared dataset; a typed provider setting that applies to
+  nothing in the pack is an error. `audit verify`, `audit export`, `feedback export` and
+  `monitor` open the database read-only and refuse one that does not exist; `phi purge`,
+  `phi erase` and `notes erase` refuse one too.

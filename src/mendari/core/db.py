@@ -5,6 +5,11 @@
 A store passes its schema (a DDL template with `{real}`, `{serial}` and `{blob}`), its migration
 and its Postgres advisory-lock key. Exclusive sessions are transactions serialised with each
 other: an IMMEDIATE transaction on SQLite, the advisory lock on Postgres.
+
+`read_only` opens an existing database to read it and nothing else (LP-15: `audit verify`,
+`audit export`, `feedback export`, `monitor`): no file or folder is created, no schema written,
+nothing migrated, no journal mode changed, and the connection itself refuses writes (SQLite
+`mode=ro`; Postgres `READ ONLY` transactions). A target that does not exist is an error.
 """
 
 from __future__ import annotations
@@ -16,6 +21,8 @@ from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
+
+from mendari.errors import MendariError
 
 Migrate = Callable[["Session"], None]
 
@@ -36,6 +43,7 @@ class Session(ABC):
 
 class Backend(ABC):
     kind: str
+    read_only: bool = False
 
     @abstractmethod
     def session(self, *, exclusive: bool) -> Any:
@@ -60,8 +68,18 @@ class SqliteSession(Session):
 class SqliteBackend(Backend):
     kind = "sqlite"
 
-    def __init__(self, path: str, *, schema: str, migrate: Migrate):
+    def __init__(self, path: str, *, schema: str, migrate: Migrate, read_only: bool = False):
         self.path = path
+        self.read_only = read_only
+        if read_only:
+            if path in ("", ":memory:") or not Path(path).is_file():
+                raise MendariError(
+                    f"no database at {path or '(empty)'}: give the server's --db (a SQLite file "
+                    "or a postgresql:// URL)"
+                )
+            self._memory = None
+            self._lock = threading.RLock()
+            return
         if path != ":memory:":
             Path(path).parent.mkdir(parents=True, exist_ok=True)
         self._memory = (
@@ -84,16 +102,30 @@ class SqliteBackend(Backend):
                 self._memory.row_factory = sqlite3.Row
                 yield self._memory
             return
-        connection = sqlite3.connect(self.path, timeout=30, isolation_level=None)
+        if self.read_only:
+            # With no -wal or -shm beside it, no server has the database open and its WAL is
+            # checkpointed: read it as a file (`immutable`), so no lock or sidecar file is
+            # created. Otherwise a live server owns those files: read through them (`mode=ro`).
+            path = Path(self.path).resolve()
+            live = any(Path(f"{path}{suffix}").exists() for suffix in ("-wal", "-shm"))
+            uri = path.as_uri() + ("?mode=ro" if live else "?immutable=1")
+            connection = sqlite3.connect(uri, uri=True, timeout=30, isolation_level=None)
+        else:
+            connection = sqlite3.connect(self.path, timeout=30, isolation_level=None)
         connection.row_factory = sqlite3.Row
         try:
-            connection.execute("PRAGMA journal_mode=WAL")
+            if self.read_only:
+                connection.execute("PRAGMA query_only=1")
+            else:
+                connection.execute("PRAGMA journal_mode=WAL")
             yield connection
         finally:
             connection.close()
 
     @contextmanager
     def session(self, *, exclusive: bool) -> Iterator[Session]:
+        if exclusive and self.read_only:
+            raise MendariError("this database was opened read-only: nothing is written to it")
         with self._connect() as connection:
             if not exclusive:
                 yield SqliteSession(connection)
@@ -140,11 +172,19 @@ class PostgresBackend(Backend):
         schema: str,
         migrate: Migrate,
         lock_key: int,
+        read_only: bool = False,
     ):
         self.lock_key = lock_key
+        self.read_only = read_only
         import psycopg
         from psycopg.rows import dict_row
         from psycopg_pool import ConnectionPool
+
+        if read_only:
+            # Reached first, directly: a wrong URL or a missing database fails now, not after
+            # the pool's timeout.
+            with psycopg.connect(url, prepare_threshold=None, connect_timeout=15):
+                pass
 
         # prepare_threshold=None: prepared statements break behind transaction-mode poolers
         # (Neon's pooled endpoint, PgBouncer).
@@ -161,8 +201,12 @@ class PostgresBackend(Backend):
                 "prepare_threshold": None,
                 "application_name": "mendari",
             },
+            # Read-only: every transaction is READ ONLY, so the server itself refuses a write.
+            configure=_read_only_connection if read_only else None,
             open=True,
         )
+        if read_only:
+            return
         # Schema setup goes over the direct (unpooled) connection when one is given, as Neon
         # recommends for DDL; the advisory lock serialises concurrent cold starts.
         ddl = schema.format(
@@ -184,6 +228,8 @@ class PostgresBackend(Backend):
 
     @contextmanager
     def session(self, *, exclusive: bool) -> Iterator[Session]:
+        if exclusive and self.read_only:
+            raise MendariError("this database was opened read-only: nothing is written to it")
         with self._pool.connection() as connection, connection.transaction():
             if exclusive:
                 connection.execute("SELECT pg_advisory_xact_lock(%s)", (self.lock_key,))
@@ -200,12 +246,29 @@ def connect(
     migrate: Migrate,
     lock_key: int,
     migrate_url: str | None = None,
+    read_only: bool = False,
 ) -> Backend:
     """A SQLite path (or ":memory:") or a postgres:// / postgresql:// URL, with `schema` created
     (a DDL template with `{real}`, `{serial}` and `{blob}`) and `migrate` run under the lock.
-    `lock_key` is the Postgres advisory lock that serialises schema setup and exclusive sessions."""
+    `lock_key` is the Postgres advisory lock that serialises schema setup and exclusive sessions.
+    `read_only` opens an existing database without writing anything (above). A URL of another
+    scheme is refused, never taken for a file name (or printed: it can hold a password)."""
     if target.startswith(("postgres://", "postgresql://")):
         return PostgresBackend(
-            target, migrate_url, schema=schema, migrate=migrate, lock_key=lock_key
+            target,
+            migrate_url,
+            schema=schema,
+            migrate=migrate,
+            lock_key=lock_key,
+            read_only=read_only,
         )
-    return SqliteBackend(target, schema=schema, migrate=migrate)
+    if "://" in target:
+        raise MendariError(
+            "the database is neither a SQLite path nor a postgres:// or postgresql:// URL "
+            "(a driver suffix such as +psycopg is not one)"
+        )
+    return SqliteBackend(target, schema=schema, migrate=migrate, read_only=read_only)
+
+
+def _read_only_connection(connection: Any) -> None:
+    connection.read_only = True

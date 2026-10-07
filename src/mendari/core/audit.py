@@ -273,6 +273,9 @@ CREATE TABLE IF NOT EXISTS settings (
 )
 """
 
+# The tables a read-only store reads (`_read_only_check`); the first two must be there.
+_READ_TABLES = ("audit_events", "decisions", "feedback", "decision_inputs", "notes", "settings")
+
 # Columns added after their table's first release. New databases get them from _TABLES; older
 # ones get them from _migrate(). Additive only: nullable, no default, never renamed or dropped.
 _ADDED_COLUMNS = (
@@ -384,27 +387,66 @@ class AuditStore:
         migrate_url: str | None = None,
         phi: PhiPolicy | None = None,
         marks: bool = True,
+        read_only: bool = False,
     ):
         """`target` is a SQLite path (or ":memory:") or a postgres:// / postgresql:// URL.
 
         `migrate_url` is an optional direct (unpooled) Postgres URL used only for schema setup.
         `phi` is how inputs are kept (`core/phi.py`; default: as the pack says). `marks`
         (default): opening marks the database with this store's PHI mode and keys (`_protected`);
-        a read-only tool passes False and only reads the marks.
+        a read-only tool passes False and only reads the marks. `read_only` opens an existing
+        Mendari database and writes nothing to it, not even a mark or a migration
+        (`core/db.py`); a database written by an older Mendari is read as it is
+        (`unmigrated`, `require_current`).
         """
         self.phi = phi or PhiPolicy()
+        self.read_only = read_only
         self._db: _Backend = connect(
             str(target),
             schema=_TABLES,
             migrate=_migrate,
             lock_key=_CHAIN_LOCK,
             migrate_url=migrate_url,
+            read_only=read_only,
         )
         self.path = str(target) if self._db.kind == "sqlite" else None
+        # Read-only: what an older database lacks that a migration would add (none otherwise).
+        self.unmigrated: list[str] = []
+        if read_only:
+            marks = False
+            self.unmigrated = self._read_only_check()
         # environment -> (the CapabilityStatement version served, since when): capability_since
         self._capability_since: dict[str, tuple[str, str]] = {}
         self._hash_epoch: str | None = None  # the hash key id this process last recorded under
         self.protected = self._protected(marks)
+
+    def _read_only_check(self) -> list[str]:
+        """A read-only store's target is a Mendari database: its chain and decisions tables are
+        there. Returns the tables and columns a migration would add that it lacks."""
+        with self._db.session(exclusive=False) as db:
+            present = {table: db.columns(table) for table in _READ_TABLES}
+            if not present["audit_events"] or not present["decisions"]:
+                self._db.close()
+                raise MendariError(
+                    "not a Mendari database (no audit chain in it): give the server's --db"
+                )
+            lacking = [table for table, columns in present.items() if not columns]
+            lacking += [
+                f"{table}.{column}"
+                for table, column, _ in _ADDED_COLUMNS
+                if present.get(table) and column not in present[table]
+            ]
+            return lacking
+
+    def require_current(self, command: str) -> None:
+        """Refuses, in one line, a read-only command that needs what an older database lacks:
+        opening it read-only never migrates it (`mendari serve` on it once does)."""
+        if self.unmigrated:
+            raise MendariError(
+                f"{command}: this database was written by an older Mendari and lacks "
+                f"{', '.join(self.unmigrated[:3])}; start the server on it once (it migrates), "
+                "then run this again (`mendari audit verify` reads it as it is)"
+            )
 
     def _protected(self, marks: bool = True) -> str | None:
         """The PHI mode that first protected this database (`hash` or `encrypt`), marking it now
@@ -412,6 +454,8 @@ class AuditStore:
         store under `encrypt` also marks each key it holds as known, and, with read keys (a
         rotation under way), that tokens name their key from now on; every store that finds that
         mark seals so."""
+        if "settings" in self.unmigrated:
+            return None  # an older database, read as it is: nothing marked it
         with self._db.session(exclusive=False) as db:
             if marks and self.phi.mode != "off":
                 _mark(db, PROTECTED, self.phi.mode)
@@ -2617,7 +2661,9 @@ class AuditStore:
                 row["id"]: json.loads(row["record"])
                 for row in db.all("SELECT id, record FROM decisions")
             }
-            kept = db.all("SELECT id, decision_id, event, sealed FROM notes") if notes else []
+            # An older database read as it is may have no notes table: nothing kept to check.
+            has_notes = notes and "notes" not in self.unmigrated
+            kept = db.all("SELECT id, decision_id, event, sealed FROM notes") if has_notes else []
         prev = GENESIS
         for event in events:
             expected = _chain_hash(
@@ -2649,11 +2695,13 @@ class AuditStore:
         by the id it names, was altered: that breaks verification."""
         counts = {"checked": 0, "erased": 0, "unchecked": 0}
         unopenable: Counter[str] = Counter()
-        with self._db.session(exclusive=False) as db:
-            known = {
-                str(row["name"])[len(KNOWN) :]
-                for row in db.all("SELECT name FROM settings WHERE name LIKE ?", (KNOWN + "%",))
-            }
+        known: set[str] = set()
+        if "settings" not in self.unmigrated:  # an older database, read as it is, has none
+            with self._db.session(exclusive=False) as db:
+                known = {
+                    str(row["name"])[len(KNOWN) :]
+                    for row in db.all("SELECT name FROM settings WHERE name LIKE ?", (KNOWN + "%",))
+                }
         missing = known - self.phi.ring_ids  # keys this database held that this ring lacks
         payloads = [(event, json.loads(event["payload"])) for event in events]
         erased = {p.get("note_id") for e, p in payloads if e["event"] == "note.erased"}

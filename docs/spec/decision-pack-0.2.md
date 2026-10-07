@@ -555,13 +555,22 @@ requires a recorded governance override (§7). The reference server exposes this
 ## 10. Behaviour tests
 
 `tests/cases.yaml` is a list of `{name, input, expect}`: each case is a mapping with an `input`
-mapping, an optional `name` (text) and an optional `expect` mapping. `expect` may contain
-`outcome`, `outcome_in` (a list), `not_outcome`, `recommendation`, `priority` and `answers` (a
-mapping of question to label). Tests describe behaviour that every provider variant is
-expected to preserve, especially the safety behaviour. Every case MUST have that shape and be
-JSON once loaded: a date or a number that is not finite (or, refused by the loader with its
-line and column, binary, a set or a string with a lone surrogate) makes the tests invalid,
-named by the case's number and what is wrong.
+mapping, an optional `name` (text) and an `expect` mapping, and no other key. `expect` holds at
+least one of `outcome`, `outcome_in` (a non-empty list), `not_outcome`, `recommendation`,
+`priority` and `answers` (a non-empty mapping of question to label), and nothing else, so a
+misspelt key or an empty expectation cannot pass by accident. Each value is one the pack can
+decide: an outcome (`AUTO`, `HUMAN_REVIEW`, `ABSTAIN`, `BLOCK`), a priority (`routine`,
+`urgent`, `asap`, `stat`), a label of the primary question for `recommendation` (or null), and,
+in `answers`, the pack's own questions and their labels. Tests describe behaviour that every
+provider variant is expected to preserve, especially the safety behaviour. Every case MUST have
+that shape and be JSON once loaded: a date or a number that is not finite (or, refused by the
+loader with its line and column, binary, a set or a string with a lone surrogate) makes the
+tests invalid, named by the case's number (and name) and what is wrong. Running a pack's tests
+when it has none is a failure, not a pass.
+
+`mendari validate` also reads every dataset `evaluation.datasets` declares: each line is JSON
+with an `input` that matches the input schema as a decision checks it, and each record's
+`labels` (if any) map the pack's questions to their labels (§8).
 
 ## 11. Identity and versioning
 
@@ -620,6 +629,7 @@ of these.
 | Every pack pattern (rules patterns, input-schema `pattern`s and `patternProperties` keys) compiles with `re`, at most 2,000 characters, at most 500 per pack, checked at load (every spec version) | §5 |
 | A version of at most 64 characters; YAML using anchors of at most 1,000,000 nodes and 32,000,000 characters as JSON, aliases expanded; YAML numbers of at most 4,300 characters and 4 `:` parts; every file a pack decides or tests with is one its digest hashes, compared on disk, and `evaluation.benchmark` is in `evals/` (every spec version) | §3 |
 | `license` is an SPDX license expression; `code_systems`, and a licensed code system (CPT, SNOMED CT, MedDRA, X12, CDT) named by url or OID anywhere in the pack is declared there with a `licence_note` (every spec version) | §3 |
+| A behaviour test has an `expect` of at least one known key and no other, each value one the pack can decide, and no key beyond `name`, `input` and `expect`; a test run with no test fails; declared datasets are read by `validate` (every spec version) | §10 |
 | Every behaviour test is a mapping with an `input` mapping, an optional text `name` and an optional `expect` mapping, and is JSON: no date, binary, set, lone surrogate or non-finite number (every spec version) | §10 |
 | No lone surrogate, `!!binary`, `!!set`, `!!omap` or `!!pairs` in a pack's YAML, no lone surrogate or non-finite number in its JSON; a file is used only with the content its digest hashed (every spec version) | §3 |
 | No symbolic link out of a directory pack; a self-contained input schema (local references only, no nested `$schema` or `$id`, no `$dynamicAnchor`, no `format: regex`; every spec version) | §3 |

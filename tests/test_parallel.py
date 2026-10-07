@@ -6,6 +6,8 @@ import contextvars
 import json
 import time
 
+import pytest
+
 from mendari.parallel import parallel_map
 from mendari.providers.credentials import vercel_oidc_token
 
@@ -41,3 +43,26 @@ def test_workers_see_the_requests_vercel_oidc_token(monkeypatch: object) -> None
 def test_results_keep_input_order() -> None:
     assert parallel_map(lambda n: n * n, range(50), workers=8) == [n * n for n in range(50)]
     assert parallel_map(lambda n: n, [3, 1, 2], workers=1) == [3, 1, 2]
+
+
+def test_an_interrupt_cancels_what_has_not_started() -> None:
+    """Ctrl-C (or any error) while waiting stops the rest of a dataset: a remote provider is not
+    called for every case left in the queue."""
+    import threading
+    import time
+
+    started: list[int] = []
+    lock = threading.Lock()
+
+    def slow(item: int) -> int:
+        with lock:
+            started.append(item)
+        if item == 0:
+            raise KeyboardInterrupt  # the first result waited on is an interrupt
+        time.sleep(0.05)
+        return item
+
+    with pytest.raises(KeyboardInterrupt):
+        parallel_map(slow, range(200), workers=4)
+    time.sleep(0.2)  # what was running finishes; nothing queued starts
+    assert len(started) < 20

@@ -189,7 +189,27 @@ uv run mendari eval mendari/clinical-trial-prescreener --dataset exclusions_hold
 uv run mendari serve                                     # API + CDS Hooks + dashboard
                                                          # (developer docs: /docs)
 uv run mendari audit verify --db var/mendari.db
+uv run mendari --version
 ```
+
+**Errors and exit codes.** A command that cannot do what was asked prints one line per problem
+(`error: ...`, naming the file, the field or the flag, and what to do) and exits 1, never a
+traceback; `--debug` on any command (or `MENDARI_DEBUG=1`; `0` or `off` keeps it off) shows the
+full traceback instead. Exit 1 is also a failed check (a failing behaviour test, a broken chain,
+`monitor`'s alerts); `eval --fail-on-degradation` exits 2 on a regression; Ctrl-C exits 130 (a
+parallel `eval` stops sending the rest of the dataset); a closed pipe (`| head`) exits 141, with
+no error line.
+
+**The loop cannot pass by accident.** `mendari test` refuses a behaviour test whose `expect` is
+missing, empty, misspelt or names what the pack can never decide, and fails when the pack has
+no tests; `mendari validate` also reads every dataset the pack declares. A `--provider` (or
+`leaderboard --run`) setting that applies to nothing in the pack is an error; from
+`MENDARI_PROVIDERS`, which a deployment shares across packs, it is a warning (and, on a server,
+reported in `/api/health` as `provider_settings_unused`).
+
+**Read-only commands.** `audit verify`, `audit export`, `feedback export` and `monitor` open the
+server's database read-only: they never create, migrate or write it, and a `--db` that does not
+exist is an error, never a new empty database that "verifies".
 
 ### REST API
 
@@ -703,7 +723,8 @@ enough evidence:
 - an automated decision rated wrong;
 - an override rate that doubled.
 
-For a scheduler (cron, a Kubernetes CronJob), `mendari monitor` exits 1 on any alert and
+For a scheduler (cron, a Kubernetes CronJob), `mendari monitor` exits 1 on any alert (or on an
+error, such as a `--db` it cannot read: the line on stderr says which) and
 posts them to `--webhook` / `MENDARI_ALERT_WEBHOOK` (https only; keep the URL as a secret,
 since most carry their token in the path):
 

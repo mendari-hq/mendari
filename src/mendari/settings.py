@@ -201,6 +201,15 @@ def org_daily_limits() -> dict[str, int]:
     return limits
 
 
+def applies_to(key: str, pack_id: str, slots: Collection[str], *, community: bool) -> bool:
+    """Whether a provider setting (`slot` or `namespace/name:slot`) names a slot of this pack: an
+    unscoped one any non-community pack with that slot, a scoped one only its own pack."""
+    target, sep, slot = key.rpartition(":")
+    if sep:
+        return target == pack_id and slot in slots
+    return not community and slot in slots
+
+
 def providers_for(
     pack_id: str,
     slots: Mapping[str, Collection[str]],
