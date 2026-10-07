@@ -77,5 +77,6 @@ nav:
       - "ADR-0005: Hardening before PHI": decisions/ADR-0005-hardening-before-phi.md
       - "ADR-0006: An EHR launch is a principal": decisions/ADR-0006-an-ehr-launch-is-a-principal.md
       - "ADR-0007: Community packs by pull request": decisions/ADR-0007-community-packs-by-pull-request.md
+      - "ADR-0008: Accounts and memberships": decisions/ADR-0008-accounts-and-memberships.md
   - Project:
       - Roadmap: roadmap.md

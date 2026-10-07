@@ -1,0 +1,62 @@
+# ADR-0008: Accounts and memberships beside the claims a sign-in carries
+
+## Status
+Proposed (2026-10-07). Built in steps (LP-12, `tasks/todo.md`); the owner's decisions listed
+there confirm or change the defaults below before this is accepted.
+
+## Context
+A request acts for one organization, taken from the identity provider's claim at sign-in
+(`MENDARI_OIDC_ORG_CLAIM`), and its roles come from `MENDARI_OIDC_ROLE_MAP`, read at start-up.
+There are no user, organization or membership records. A sign-in with no organization claim
+lands in `default`, so `default` is a catch-all, not the owner's own organization; a partner
+team needs the owner to edit settings and redeploy to get an organization of its own. The
+audit chain is one chain for the deployment, and its events name no organization.
+
+The hosted site needs each partner team in its own organization without a redeploy, and nobody
+in an organization by default. A self-hosted site that runs one organization from its identity
+provider's claims needs nothing to change.
+
+## Decision
+- **Two modes.** `MENDARI_ACCOUNTS=claims` (the default) is today's behaviour, unchanged.
+  `MENDARI_ACCOUNTS=memberships` is for the hosted site: users (issuer, subject, verified
+  e-mail), organizations as records, and memberships, each holding a set of roles.
+- **No fallback organization.** In memberships mode a sign-in without an active membership acts
+  for no organization: `tenancy.acting_for_nobody`, in which any read or write of organization
+  data raises `NoOrganization` (403). It is never None, which means every organization (open
+  mode, the command line). `default` is reserved for the owner's existing data; an idempotent
+  bootstrap command adds the owner's membership and rewrites no row.
+- **Invitations** are single-use, expiring links bound to a verified e-mail address, shown to
+  the inviting admin to pass on. Mendari sends no e-mail. The operator creates organizations
+  until self-service.
+- **Every route is filtered by the caller's organization**, with a reviewed allow-list of the
+  deployment-wide routes and the reason each holds no organization data. Each chained event of
+  an organization names it in its hashed payload (memberships mode; new event kinds always), so
+  `verify` can cross-check it against the row it is about; older events are attributed by the
+  row they name, never rewritten. Each organization gets a reader and an export of its own
+  administrative events.
+- **Reserved roles.** `pack_author` and `labeller` may be held on a membership and grant nothing
+  until LP-20 and LP-11 give them permissions; `grading` is held by no person (LP-11: a machine
+  role only). None of them joins the claims-mode roles, whose sign-in and role map stay as
+  they are.
+- **Credentials.** One Access screen for API keys and Backend Services clients (create, scope,
+  rotate, revoke, history). Rotating a client replaces its key set. Key presets, one per
+  documented integration path, live in one table that drives the API, the screen and the docs.
+  A decide-scoped credential may list packs and read CDS Hooks discovery, deployment-wide,
+  read-only lists (an extension of ADR-0004). A daily cap per principal sits beside the
+  per-organization quota and answers 429 with `Retry-After`; it is off unless configured.
+
+## Alternatives rejected
+- **A second hash formula that covers the organization.** The previous release's `verify`
+  would fail on a database written by this one, so rolling back would break the chain.
+- **An `org` column on `audit_events`.** It marks every older database as unmigrated and
+  builds an index on the largest table under the start-up lock.
+- **Falling back to `default` in memberships mode.** It is the catch-all this decision removes.
+
+## Consequences
+- Claims mode is unchanged: the tests that pin it stay as they are, and an acceptance test
+  says so. Additive, claims-visible changes (new routes, the Access screen, presets, the cap
+  off by default) count as "behaves as before".
+- The operator, by default the command line only, is the one who sees the whole chain verified,
+  deployment-wide totals and holds set for the whole deployment.
+- Switching the hosted site to memberships mode, the owner's bootstrap, and the cap's value are
+  the owner's, after a preflight (`mendari access check`) against the production database.

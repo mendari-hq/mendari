@@ -720,3 +720,23 @@ documented steps, with the writes a live deployment makes between those steps.
 The test suite has a "second time" case for each such operation
 (`test_rotations_follow_one_another_by_the_documented_steps`).
 
+## 2026-10-07 - process
+
+### What happened
+A review-fix commit on #158 added a code comment naming real vendors and models; the PR's CI
+failed `test_shipped.py::test_no_vendor_or_model_name_in_product_code_outside_the_providers`.
+The full suite had run on the commit before the fixes, and only the files the fixes touched ran
+after them.
+
+### Root cause
+Repository-wide checks (vendor names, SPDX headers, the manifest scan, the route inventory)
+read every file, so a change anywhere can fail them; a targeted run over the changed modules'
+own tests never includes them.
+
+### Rule
+After any commit that follows the last full run, run the repository-wide checks too:
+`tests/test_shipped.py tests/test_spdx.py tests/test_supply_chain.py tests/test_licence_inventory.py`
+(about 30 s), besides the changed modules' tests.
+
+### Verification
+Before pushing a review-fix commit, the command log shows those four files passing.
