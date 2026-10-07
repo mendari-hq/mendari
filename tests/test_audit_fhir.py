@@ -244,6 +244,18 @@ NOT_ON_A_DECISION = {
     "automation.lifted",
     "retention.purged",  # a purge's summary (`RETENTION_CHAIN`); each deletion is on its decision
     "key.rotated",  # an API key's rotation, on the key (LP-09)
+    # People, organizations and memberships (LP-12d): on their own chain ids, never a decision.
+    "user.recorded",
+    "organization.created",
+    "membership.created",
+    "membership.roles_changed",
+    "membership.removed",
+    "membership.bound",
+    "invitation.created",
+    "invitation.accepted",
+    "invitation.revoked",
+    "access.requested",
+    "access.handled",
     "phi.rotated",  # a PHI key rotation's batch (`KEYS_CHAIN`)
     "input_hash.epoch",  # a new input hash key (`KEYS_CHAIN`)
     "eval.recorded",  # a stored evaluation report (`eval:<report id>`, LP-10)

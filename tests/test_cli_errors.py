@@ -70,6 +70,16 @@ BROKEN: dict[str, tuple[list[str], dict[str, str]]] = {
     "automation hold": (["--all-orgs", "--reason", "drill", "--db", "{not_db}"], {}),
     "automation lift": (["h-1", "--db", "{not_db}"], {}),
     "automation list": (["--db", "{not_db}"], {}),
+    "access org create": (["clinic-a", "--name", "Clinic A", "--db", "{not_db}"], {}),
+    "access org list": (["--db", "{missing_db}"], {}),
+    "access bootstrap": (["--email", "owner@example.org", "--db", "{not_db}"], {}),
+    "access invite": (
+        ["--org", "a", "--email", "x@example.org", "--role", "viewer", "--db", "{not_db}"],
+        {},
+    ),
+    "access members": (["--org", "a", "--db", "{missing_db}"], {}),
+    "access requests": (["--db", "{not_db}"], {}),
+    "access check": (["--db", "{missing_db}"], {}),
     "feedback export": (["mendari/ai-guard", "--out", "{out}", "--db", "{missing_db}"], {}),
     "sandbox generate": (
         ["--kind", "inbox", "--pack-dir", "{pack_dir}", "--local-out", "{file}/x.jsonl"],

@@ -26,7 +26,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-from mendari.core import clock, tenancy
+from mendari.core import accounts, clock, tenancy
 from mendari.core.db import Backend as _Backend
 from mendari.core.db import Session as _Session
 from mendari.core.db import connect
@@ -268,6 +268,62 @@ CREATE TABLE IF NOT EXISTS notes (
     erased_by   TEXT
 );
 CREATE INDEX IF NOT EXISTS notes_decision ON notes (decision_id);
+CREATE TABLE IF NOT EXISTS users (
+    id               TEXT PRIMARY KEY,
+    issuer           TEXT NOT NULL,
+    subject          TEXT NOT NULL,
+    email            TEXT,
+    name             TEXT,
+    created_at       TEXT NOT NULL,
+    last_sign_in_at  TEXT,
+    UNIQUE (issuer, subject)
+);
+CREATE TABLE IF NOT EXISTS organizations (
+    id          TEXT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    created_by  TEXT NOT NULL,
+    created_at  TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS memberships (
+    id             TEXT PRIMARY KEY,
+    org            TEXT NOT NULL,
+    user_id        TEXT,
+    pending_email  TEXT,
+    roles          TEXT NOT NULL,
+    created_by     TEXT NOT NULL,
+    created_at     TEXT NOT NULL,
+    removed_at     TEXT,
+    removed_by     TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS memberships_member ON memberships (org, user_id)
+    WHERE removed_at IS NULL AND user_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS memberships_pending ON memberships (org, pending_email)
+    WHERE removed_at IS NULL AND user_id IS NULL;
+CREATE TABLE IF NOT EXISTS invitations (
+    id            TEXT PRIMARY KEY,
+    token_sha256  TEXT NOT NULL UNIQUE,
+    org           TEXT NOT NULL,
+    email         TEXT NOT NULL,
+    roles         TEXT NOT NULL,
+    created_by    TEXT NOT NULL,
+    created_at    TEXT NOT NULL,
+    expires_at    TEXT NOT NULL,
+    accepted_at   TEXT,
+    accepted_by   TEXT,
+    revoked_at    TEXT,
+    revoked_by    TEXT
+);
+CREATE TABLE IF NOT EXISTS access_requests (
+    id          TEXT PRIMARY KEY,
+    user_id     TEXT NOT NULL,
+    org         TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    handled_at  TEXT,
+    handled_by  TEXT,
+    outcome     TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS access_requests_open ON access_requests (user_id, org)
+    WHERE handled_at IS NULL;
 CREATE TABLE IF NOT EXISTS settings (
     name  TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -2522,6 +2578,593 @@ class AuditStore:
                 (_key(secret), int(time.time())),
             )
 
+    # -- people, organizations and memberships (LP-12, ADR-0008) --------------------------------
+    # Memberships mode reads these; claims mode never does. Each write chains an event of ids and
+    # digests only (an e-mail address as `accounts.email_digest`, an organization's name as a
+    # digest). The command line (`mendari access`) and, from LP-12e on, the server write them.
+
+    def record_user(
+        self, *, issuer: str, subject: str, email: str | None, name: str | None
+    ) -> dict[str, Any]:
+        """The person signing in, recorded the first time (`user.recorded`) and kept current:
+        `email` only when the identity provider verified it."""
+        user_id = accounts.person_id(issuer, subject)
+        try:  # one no invitation can name (not ASCII) is kept as none: they still sign in
+            address = accounts.normalise_email(email) if email else None
+        except ValueError:
+            address = None
+        now = _now()
+        with self._db.session(exclusive=True) as db:
+            row = db.one("SELECT id FROM users WHERE id = ?", (user_id,))
+            if row is None:
+                db.all(
+                    "INSERT INTO users (id, issuer, subject, email, name, created_at, "
+                    "last_sign_in_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (user_id, issuer, subject, address, name, now, now),
+                )
+                self._append(db, user_id, "user.recorded", {"user": user_id})
+            else:
+                db.all(
+                    "UPDATE users SET email = ?, name = ?, last_sign_in_at = ? WHERE id = ?",
+                    (address, name, now, user_id),
+                )
+            user = db.one("SELECT * FROM users WHERE id = ?", (user_id,))
+        return dict(user) if user is not None else {}
+
+    def user(self, user_id: str) -> dict[str, Any] | None:
+        with self._db.session(exclusive=False) as db:
+            row = db.one("SELECT * FROM users WHERE id = ?", (user_id,))
+        return None if row is None else dict(row)
+
+    def create_organization(self, *, org: str, name: str, created_by: str) -> dict[str, Any]:
+        """A new organization's record (`organization.created`). `default` is the owner's,
+        created by `bootstrap` only."""
+        accounts.check_org_id(org)
+        if org == accounts.RESERVED_ORG:
+            raise ValueError(
+                f"{org!r} is reserved for the owner's data: `mendari access bootstrap`"
+            )
+        with self._db.session(exclusive=True) as db:
+            return self._insert_organization(db, org=org, name=name, created_by=created_by)
+
+    def _insert_organization(
+        self, db: _Session, *, org: str, name: str, created_by: str
+    ) -> dict[str, Any]:
+        name = name.strip()
+        if not name or len(name) > 200:
+            raise ValueError("an organization's name is 1 to 200 characters")
+        if db.one("SELECT id FROM organizations WHERE id = ?", (org,)) is not None:
+            raise ValueError(f"organization {org!r} already exists")
+        created = {"id": org, "name": name, "created_by": created_by, "created_at": _now()}
+        db.all(
+            "INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, ?, ?, ?)",
+            (org, name, created_by, created["created_at"]),
+        )
+        self._append(
+            db,
+            f"org:{org}",
+            "organization.created",
+            {
+                "id": org,
+                "org": org,
+                "name_digest": accounts.name_digest(name),
+                "created_by": created_by,
+            },
+        )
+        return created
+
+    def organizations(self) -> list[dict[str, Any]]:
+        """Every organization's record; none in a database from before them (read-only)."""
+        with self._db.session(exclusive=False) as db:
+            if not db.columns("organizations"):
+                return []
+            return [dict(r) for r in db.all("SELECT * FROM organizations ORDER BY id")]
+
+    def organization(self, org: str) -> dict[str, Any] | None:
+        with self._db.session(exclusive=False) as db:
+            row = db.one("SELECT * FROM organizations WHERE id = ?", (org,))
+        return None if row is None else dict(row)
+
+    def memberships(
+        self, *, org: str | None = None, user_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        """The memberships in force (of `org`, or `user_id`'s), oldest first, roles as lists."""
+        where, params = ["removed_at IS NULL"], []
+        if org is not None:
+            where.append("org = ?")
+            params.append(org)
+        if user_id is not None:
+            where.append("user_id = ?")
+            params.append(user_id)
+        with self._db.session(exclusive=False) as db:
+            if not db.columns("memberships"):  # a database from before them, read as it is
+                return []
+            rows = db.all(
+                f"SELECT * FROM memberships WHERE {' AND '.join(where)} ORDER BY created_at, id",
+                params,
+            )
+        return [_membership(r) for r in rows]
+
+    def active_membership(self, user_id: str, org: str) -> dict[str, Any] | None:
+        found = self.memberships(org=org, user_id=user_id)
+        return found[0] if found else None
+
+    def add_membership(
+        self,
+        *,
+        org: str,
+        roles: Sequence[str],
+        created_by: str,
+        user_id: str | None = None,
+        email: str | None = None,
+    ) -> dict[str, Any]:
+        """A membership of `org` for a recorded person (`user_id`) or, pending until they sign
+        in with it verified, for an e-mail address (`membership.created`)."""
+        with self._db.session(exclusive=True) as db:
+            return self._insert_membership(
+                db, org=org, roles=roles, created_by=created_by, user_id=user_id, email=email
+            )
+
+    def _insert_membership(
+        self,
+        db: _Session,
+        *,
+        org: str,
+        roles: Sequence[str],
+        created_by: str,
+        user_id: str | None = None,
+        email: str | None = None,
+    ) -> dict[str, Any]:
+        if (user_id is None) == (email is None):
+            raise ValueError("a membership is a person's or a pending e-mail address's")
+        chosen = accounts.check_roles(roles)
+        if db.one("SELECT id FROM organizations WHERE id = ?", (org,)) is None:
+            raise ValueError(f"no organization {org!r}")
+        address = None if email is None else accounts.normalise_email(email)
+        if user_id is not None:
+            if db.one("SELECT id FROM users WHERE id = ?", (user_id,)) is None:
+                raise ValueError("no such person")
+            taken = db.one(
+                "SELECT id FROM memberships WHERE org = ? AND user_id = ? AND removed_at IS NULL",
+                (org, user_id),
+            )
+        else:
+            taken = db.one(
+                "SELECT id FROM memberships WHERE org = ? AND pending_email = ? "
+                "AND user_id IS NULL AND removed_at IS NULL",
+                (org, address),
+            )
+        if taken is not None:
+            raise ValueError(f"already a member of {org!r}")
+        membership = {
+            "id": secrets.token_hex(8),
+            "org": org,
+            "user_id": user_id,
+            "pending_email": address,
+            "roles": chosen,
+            "created_by": created_by,
+            "created_at": _now(),
+        }
+        db.all(
+            "INSERT INTO memberships (id, org, user_id, pending_email, roles, created_by, "
+            "created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                membership["id"],
+                org,
+                user_id,
+                address,
+                json.dumps(chosen),
+                created_by,
+                membership["created_at"],
+            ),
+        )
+        who = (
+            {"user": user_id}
+            if user_id
+            else {"email_digest": accounts.email_digest(self.phi, address or "")}
+        )
+        self._append(
+            db,
+            f"membership:{membership['id']}",
+            "membership.created",
+            {"id": membership["id"], "org": org, **who, "roles": chosen, "created_by": created_by},
+        )
+        return membership
+
+    def set_membership_roles(
+        self, membership_id: str, roles: Sequence[str], *, org: str, changed_by: str
+    ) -> dict[str, Any]:
+        """Change a membership of `org`'s roles (`membership.roles_changed`); never leaving
+        `org` without an administrator."""
+        chosen = accounts.check_roles(roles)
+        with self._db.session(exclusive=True) as db:
+            row = self._membership_row(db, membership_id, org)
+            previous = json.loads(row["roles"])
+            if accounts.ADMIN in previous and accounts.ADMIN not in chosen:
+                self._keep_an_admin(db, org, row)
+            db.all(
+                "UPDATE memberships SET roles = ? WHERE id = ?", (json.dumps(chosen), membership_id)
+            )
+            self._append(
+                db,
+                f"membership:{membership_id}",
+                "membership.roles_changed",
+                {"id": membership_id, "org": org, "roles": chosen, "previous": previous,
+                 "changed_by": changed_by},
+            )  # fmt: skip
+            changed = db.one("SELECT * FROM memberships WHERE id = ?", (membership_id,))
+        return _membership(changed)
+
+    def remove_membership(self, membership_id: str, *, org: str, removed_by: str) -> bool:
+        """End a membership of `org` (`membership.removed`); never its last administrator's.
+        False for one not in force."""
+        with self._db.session(exclusive=True) as db:
+            try:
+                row = self._membership_row(db, membership_id, org)
+            except ValueError:
+                return False
+            if accounts.ADMIN in json.loads(row["roles"]):
+                self._keep_an_admin(db, org, row)
+            now = _now()
+            db.all(
+                "UPDATE memberships SET removed_at = ?, removed_by = ? WHERE id = ?",
+                (now, removed_by, membership_id),
+            )
+            self._append(
+                db,
+                f"membership:{membership_id}",
+                "membership.removed",
+                {"id": membership_id, "org": org, "removed_by": removed_by},
+            )
+        return True
+
+    def _membership_row(self, db: _Session, membership_id: str, org: str) -> Any:
+        row = db.one(
+            "SELECT * FROM memberships WHERE id = ? AND org = ? AND removed_at IS NULL",
+            (membership_id, org),
+        )
+        if row is None:
+            raise ValueError("no such membership")
+        return row
+
+    def _keep_an_admin(self, db: _Session, org: str, leaving: Any) -> None:
+        """Refuse what would leave `org` without an administrator who can act: one bound to a
+        person who has signed in. A pending membership (`user_id` NULL) counts for nothing,
+        either way: removing or demoting one never lowers how many can act."""
+        if leaving["user_id"] is None:
+            return
+        others = db.all(
+            "SELECT roles FROM memberships WHERE org = ? AND id <> ? AND removed_at IS NULL "
+            "AND user_id IS NOT NULL",
+            (org, leaving["id"]),
+        )
+        if not any(accounts.ADMIN in json.loads(r["roles"]) for r in others):
+            raise ValueError(f"{org!r} would be left without an administrator")
+
+    def bind_pending(self, user_id: str, email: str) -> list[dict[str, Any]]:
+        """The pending memberships for `email` (verified by the identity provider at this
+        sign-in) made `user_id`'s (`membership.bound`); one where they are already a member
+        stays pending."""
+        address = accounts.normalise_email(email)
+        bound = []
+        with self._db.session(exclusive=True) as db:
+            pending = db.all(
+                "SELECT * FROM memberships WHERE pending_email = ? AND user_id IS NULL "
+                "AND removed_at IS NULL ORDER BY created_at, id",
+                (address,),
+            )
+            for row in pending:
+                if db.one(
+                    "SELECT id FROM memberships WHERE org = ? AND user_id = ? "
+                    "AND removed_at IS NULL",
+                    (row["org"], user_id),
+                ):
+                    continue
+                db.all(
+                    "UPDATE memberships SET user_id = ?, pending_email = NULL WHERE id = ?",
+                    (user_id, row["id"]),
+                )
+                self._append(
+                    db,
+                    f"membership:{row['id']}",
+                    "membership.bound",
+                    {"id": row["id"], "org": row["org"], "user": user_id},
+                )
+                bound.append(
+                    _membership(db.one("SELECT * FROM memberships WHERE id = ?", (row["id"],)))
+                )
+        return bound
+
+    def create_invitation(
+        self,
+        *,
+        org: str,
+        email: str,
+        roles: Sequence[str],
+        created_by: str,
+        days: int = accounts.INVITE_DAYS,
+    ) -> dict[str, Any]:
+        """A single-use invitation to `org` for whoever signs in with `email` verified, valid
+        `days` (`invitation.created`). Its token is in the result and nowhere else: Mendari
+        sends no e-mail, the inviting admin passes the link on."""
+        chosen = accounts.check_roles(roles)
+        address = accounts.normalise_email(email)
+        if not 1 <= days <= accounts.INVITE_MAX_DAYS:
+            raise ValueError(f"an invitation lasts 1 to {accounts.INVITE_MAX_DAYS} days")
+        token = accounts.TOKEN_PREFIX + secrets.token_urlsafe(32)
+        invitation = {
+            "id": secrets.token_hex(8),
+            "org": org,
+            "email": address,
+            "roles": chosen,
+            "created_by": created_by,
+            "created_at": _now(),
+            "expires_at": _later(timedelta(days=days)),
+        }
+        with self._db.session(exclusive=True) as db:
+            if db.one("SELECT id FROM organizations WHERE id = ?", (org,)) is None:
+                raise ValueError(f"no organization {org!r}")
+            db.all(
+                "INSERT INTO invitations (id, token_sha256, org, email, roles, created_by, "
+                "created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    invitation["id"],
+                    _key(token),
+                    org,
+                    address,
+                    json.dumps(chosen),
+                    created_by,
+                    invitation["created_at"],
+                    invitation["expires_at"],
+                ),
+            )
+            self._append(
+                db,
+                f"invitation:{invitation['id']}",
+                "invitation.created",
+                {"id": invitation["id"], "org": org, "roles": chosen,
+                 "email_digest": accounts.email_digest(self.phi, address),
+                 "created_by": created_by, "expires_at": invitation["expires_at"]},
+            )  # fmt: skip
+        return {**invitation, "token": token}
+
+    def invitations(self, org: str) -> list[dict[str, Any]]:
+        """`org`'s invitations, newest first; never their tokens."""
+        with self._db.session(exclusive=False) as db:
+            rows = db.all(
+                "SELECT id, org, email, roles, created_by, created_at, expires_at, accepted_at, "
+                "accepted_by, revoked_at, revoked_by FROM invitations WHERE org = ? "
+                "ORDER BY created_at DESC, id",
+                (org,),
+            )
+        return [{**dict(r), "roles": json.loads(r["roles"])} for r in rows]
+
+    def revoke_invitation(self, invitation_id: str, *, org: str, revoked_by: str) -> bool:
+        """Revoke an open invitation of `org` (`invitation.revoked`); False otherwise."""
+        with self._db.session(exclusive=True) as db:
+            row = db.one(
+                "SELECT id FROM invitations WHERE id = ? AND org = ? AND accepted_at IS NULL "
+                "AND revoked_at IS NULL",
+                (invitation_id, org),
+            )
+            if row is None:
+                return False
+            db.all(
+                "UPDATE invitations SET revoked_at = ?, revoked_by = ? WHERE id = ?",
+                (_now(), revoked_by, invitation_id),
+            )
+            self._append(
+                db,
+                f"invitation:{invitation_id}",
+                "invitation.revoked",
+                {"id": invitation_id, "org": org, "revoked_by": revoked_by},
+            )
+        return True
+
+    def accept_invitation(
+        self, token: str, *, user_id: str, verified_email: str | None
+    ) -> dict[str, Any]:
+        """Accept an invitation as the signed-in `user_id`, whose identity provider verified
+        `verified_email`: once, before it expires, and only for the address it was made for
+        (`invitation.accepted`, then `membership.created` unless already a member). Unknown,
+        used, revoked and expired are one answer; another address keeps it open."""
+        if not verified_email:
+            raise AuthError("sign in with the e-mail address the invitation is for, verified", 403)
+        address = accounts.normalise_email(verified_email)
+        now = _now()
+        with self._db.session(exclusive=True) as db:
+            row = db.one(
+                "SELECT * FROM invitations WHERE token_sha256 = ? AND accepted_at IS NULL "
+                "AND revoked_at IS NULL AND expires_at > ?",
+                (_key(token), now),
+            )
+            if row is None:
+                raise AuthError("this invitation is not valid: ask for a new one", 404)
+            if row["email"] != address:
+                raise AuthError("this invitation is for another e-mail address", 403)
+            db.all(
+                "UPDATE invitations SET accepted_at = ?, accepted_by = ? WHERE id = ?",
+                (now, user_id, row["id"]),
+            )
+            self._append(
+                db,
+                f"invitation:{row['id']}",
+                "invitation.accepted",
+                {"id": row["id"], "org": row["org"], "user": user_id},
+            )
+            member = db.one(
+                "SELECT * FROM memberships WHERE org = ? AND user_id = ? AND removed_at IS NULL",
+                (row["org"], user_id),
+            )
+            if member is not None:
+                return _membership(member)
+            return self._insert_membership(
+                db,
+                org=row["org"],
+                roles=json.loads(row["roles"]),
+                created_by=f"invitation:{row['id']}",
+                user_id=user_id,
+            )
+
+    def request_access(self, *, user_id: str, org: str) -> dict[str, Any]:
+        """A person asking to join `org` (`access.requested`); their open request again if they
+        asked before."""
+        accounts.check_org_id(org)
+        with self._db.session(exclusive=True) as db:
+            open_one = db.one(
+                "SELECT * FROM access_requests WHERE user_id = ? AND org = ? "
+                "AND handled_at IS NULL",
+                (user_id, org),
+            )
+            if open_one is not None:
+                return dict(open_one)
+            request = {
+                "id": secrets.token_hex(8),
+                "user_id": user_id,
+                "org": org,
+                "created_at": _now(),
+            }
+            db.all(
+                "INSERT INTO access_requests (id, user_id, org, created_at) VALUES (?, ?, ?, ?)",
+                (request["id"], user_id, org, request["created_at"]),
+            )
+            self._append(
+                db,
+                f"access:{request['id']}",
+                "access.requested",
+                {"id": request["id"], "user": user_id, "org": org},
+            )
+        return request
+
+    def access_requests(self, org: str | None = None) -> list[dict[str, Any]]:
+        """The open requests (to `org`, if given), oldest first."""
+        where, params = ("AND org = ?", (org,)) if org is not None else ("", ())
+        with self._db.session(exclusive=False) as db:
+            if not db.columns("access_requests"):  # a database from before them
+                return []
+            rows = db.all(
+                f"SELECT * FROM access_requests WHERE handled_at IS NULL {where} "
+                "ORDER BY created_at, id",
+                params,
+            )
+        return [dict(r) for r in rows]
+
+    def handle_access_request(
+        self,
+        request_id: str,
+        *,
+        org: str,
+        outcome: Literal["granted", "refused"],
+        handled_by: str,
+        roles: Sequence[str] = ("viewer",),
+    ) -> dict[str, Any] | None:
+        """Grant (a membership with `roles`) or refuse an open request to `org`
+        (`access.handled`); None for one not open."""
+        if outcome not in ("granted", "refused"):
+            raise ValueError("an access request is granted or refused")
+        with self._db.session(exclusive=True) as db:
+            row = db.one(
+                "SELECT * FROM access_requests WHERE id = ? AND org = ? AND handled_at IS NULL",
+                (request_id, org),
+            )
+            if row is None:
+                return None
+            membership = None
+            if outcome == "granted":
+                membership = self._insert_membership(
+                    db, org=org, roles=roles, created_by=handled_by, user_id=row["user_id"]
+                )
+            db.all(
+                "UPDATE access_requests SET handled_at = ?, handled_by = ?, outcome = ? "
+                "WHERE id = ?",
+                (_now(), handled_by, outcome, request_id),
+            )
+            self._append(
+                db,
+                f"access:{request_id}",
+                "access.handled",
+                {"id": request_id, "org": org, "outcome": outcome, "handled_by": handled_by},
+            )
+        return {"id": request_id, "outcome": outcome, "membership": membership}
+
+    def bootstrap(self, *, email: str, created_by: str) -> dict[str, Any]:
+        """The owner in their existing data: `default`'s record if it has none, and an
+        administrator's membership of it pending for `email`, made the owner's at their next
+        sign-in with that address verified (`bind_pending`). It never picks a stored person by
+        their address (an address stored from an earlier sign-in proves nothing now).
+        Idempotent: nothing again while that pending membership, or an administrator's of
+        `default` held by a person who signed in with that address, is in force. Adds records
+        and rewrites none."""
+        address = accounts.normalise_email(email)
+        done: dict[str, Any] = {"organization": None, "membership": None}
+        with self._db.session(exclusive=True) as db:
+            org = accounts.RESERVED_ORG
+            if db.one("SELECT id FROM organizations WHERE id = ?", (org,)) is None:
+                done["organization"] = self._insert_organization(
+                    db, org=org, name="The owner's organization", created_by=created_by
+                )
+            pending = db.one(
+                "SELECT id FROM memberships WHERE org = ? AND pending_email = ? "
+                "AND user_id IS NULL AND removed_at IS NULL",
+                (org, address),
+            )
+            bound = db.all(
+                "SELECT m.roles FROM memberships m JOIN users u ON u.id = m.user_id "
+                "WHERE m.org = ? AND u.email = ? AND m.removed_at IS NULL",
+                (org, address),
+            )
+            if pending is None and not any(accounts.ADMIN in json.loads(r["roles"]) for r in bound):
+                done["membership"] = self._insert_membership(
+                    db, org=org, roles=[accounts.ADMIN], created_by=created_by, email=address
+                )
+        return done
+
+    def organizations_in_use(self) -> list[dict[str, Any]]:
+        """The preflight before memberships mode (`mendari access check`): each organization
+        that keys, clients, approvals, holds, decisions or evaluation reports name (a NULL is
+        `default`), with how many of each, whether it has a record, and whether its id can
+        have one (`recordable`). Counts and ids only."""
+        default = f"COALESCE(org, '{tenancy.DEFAULT_ORG}')"
+        tables = (  # (table, its rows' organization, the live rows)
+            ("api_keys", "org", "revoked_at IS NULL"),
+            ("oauth_clients", "org", "revoked_at IS NULL"),
+            ("governance_approvals", "org", "revoked_at IS NULL"),
+            ("automation_holds", "org", "lifted_at IS NULL"),
+            ("decisions", default, "1 = 1"),
+            ("eval_reports", default, "1 = 1"),
+        )
+        found: dict[str, dict[str, Any]] = {}
+        with self._db.session(exclusive=False) as db:
+            recorded = (
+                {r["id"] for r in db.all("SELECT id FROM organizations")}
+                if db.columns("organizations")  # none before LP-12, read as it is
+                else set()
+            )
+            for table, column, live in tables:
+                present = db.columns(table)
+                if not present:  # an older database, read as it is
+                    continue
+                if "org" in present:
+                    rows = db.all(
+                        f"SELECT {column} AS org, COUNT(*) AS n FROM {table} WHERE {live} "
+                        f"GROUP BY {column}"
+                    )
+                else:  # before its `org` column (v0.6), every row was `default`'s
+                    rows = [
+                        {"org": tenancy.DEFAULT_ORG, "n": r["n"]}
+                        for r in db.all(f"SELECT COUNT(*) AS n FROM {table} WHERE {live}")
+                        if int(r["n"])
+                    ]
+                for row in rows:
+                    if row["org"] is None:  # a deployment-wide hold
+                        continue
+                    entry = found.setdefault(str(row["org"]), {"org": str(row["org"])})
+                    entry[table] = int(row["n"])
+        return [
+            {**found[org], "recorded": org in recorded, "recordable": accounts.is_org_id(org)}
+            for org in sorted(found)
+        ]
+
     def iter_events(self, **filters: Any) -> Iterator[dict[str, Any]]:
         """Every event `events()` matches, page by page, without loading the whole chain."""
         after = 0
@@ -2950,6 +3593,13 @@ def _scope() -> tuple[str, tuple[str, ...]]:
     if org is None:
         return "1 = 1", ()
     return "COALESCE(d.org, ?) = ?", (tenancy.DEFAULT_ORG, org)
+
+
+def _membership(row: Any) -> dict[str, Any]:
+    """A membership row as a dict, its roles a list."""
+    data = dict(row)
+    data["roles"] = json.loads(data["roles"])
+    return data
 
 
 def _key(secret: str) -> str:

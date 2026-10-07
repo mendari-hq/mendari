@@ -77,6 +77,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse, Response
 from pydantic import BaseModel, Field, model_validator
 
+from mendari.core import accounts
 from mendari.core.audit import (
     KEY_DAYS,
     KEY_MAX_DAYS,
@@ -305,11 +306,7 @@ OPEN = Principal(
 )
 
 
-def person_id(issuer: str, subject: str) -> str:
-    """A signed-in person's `Principal.id`: their subject at their identity provider, which is
-    stable and unique only together with the issuer, hashed so it names nobody."""
-    digest = hashlib.sha256(f"{issuer}|{subject}".encode()).hexdigest()
-    return f"user:{digest[:16]}"
+person_id = accounts.person_id  # a signed-in person's `Principal.id` (core/accounts.py)
 
 
 def ehr_id(issuer: str, subject: str) -> str:
