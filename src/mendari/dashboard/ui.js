@@ -7,7 +7,67 @@ export const $ = (selector, root = document) => root.querySelector(selector);
 export const esc = (value) =>
   String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
+// A single case's confidence or probability, never a share of cases (that is a figure, below).
 export const pct = (v, d = 1) => (v === null || v === undefined ? "n/a" : `${(v * 100).toFixed(d)}%`);
+
+// ---- figures: k of n with its exact interval (mendari.figures/1, worked out by the server) ----
+// Printed as the card and the command line print them (render.shown in Python), digit for digit:
+// tests/fixtures/shown.json holds what Python prints and the browser suite checks this against it.
+
+// x with d decimals as Python's f"{x:.{d}f}": toFixed rounds an exact binary tie up (98.25 to
+// "98.3"), Python to the even digit ("98.2"). The double's own digits (toFixed(100)) show a tie.
+function fixed(x, d) {
+  const [whole, frac] = x.toFixed(100).split(".");
+  if (frac[d] === "5" && /^0*$/.test(frac.slice(d + 1))) {
+    const last = d ? frac[d - 1] : whole[whole.length - 1];
+    if (Number(last) % 2 === 0) return d ? `${whole}.${frac.slice(0, d)}` : whole;
+  }
+  return x.toFixed(d);
+}
+
+const BOUND_DIGITS = 4;
+const UNDER = `<${(10 ** -BOUND_DIGITS).toFixed(BOUND_DIGITS)}`;
+const OVER = `>${(100 - 10 ** -BOUND_DIGITS).toFixed(BOUND_DIGITS)}`;
+
+// A bound as a percentage, with the digits it needs (up to 4) never to read 0 or 100 when it is not.
+export function percent(value) {
+  let digits = 1;
+  while (digits < BOUND_DIGITS && value > 0 && value < 1
+    && [(0).toFixed(digits), (100).toFixed(digits)].includes(fixed(value * 100, digits))) digits++;
+  return fixed(value * 100, digits);
+}
+
+// "98.3-99.8": a bound strictly inside (0, 100) never reads as either.
+function bounds(p) {
+  let low = percent(p.low);
+  let high = percent(p.high);
+  if (Number(low) === 0 && p.k > 0) low = UNDER;
+  else if (Number(low) === 100) low = OVER;
+  if (Number(high) === 100 && p.k < p.n) high = OVER;
+  else if (Number(high) === 0) high = UNDER;
+  return `${low}-${high}`;
+}
+
+// "596 of 600 [98.3-99.8%]"; "no cases" when n is 0; "n/a" when what it is of is not known.
+export function shown(p) {
+  if (p === null || p === undefined) return "n/a";
+  if (!p.n) return "no cases";
+  return `${p.k} of ${p.n} [${bounds(p)}%]`;
+}
+
+// The same text as HTML, the interval set smaller (its text is unchanged for screen readers).
+export function figureHtml(p) {
+  if (p === null || p === undefined || !p.n) return esc(shown(p));
+  return `${p.k} of ${p.n} <span class="interval">[${bounds(p)}%]</span>`;
+}
+
+// k / n, for sorting, tone and geometry only (never shown as a number).
+export const share = (p) => (p && p.n ? p.k / p.n : null);
+
+// Beside a critical label's figure with fewer positives than ranking and comparing need.
+export const evidenceMark = (insufficient, min) => (insufficient
+  ? ` <span class="evidence-mark" title="Fewer than ${esc(min)} positives: too few to rank or compare on">insufficient evidence</span>`
+  : "");
 
 export const num = (v, d = 3) => (v === null || v === undefined ? "n/a" : Number(v).toFixed(d));
 

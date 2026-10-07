@@ -33,6 +33,11 @@ The first release (not yet published).
   Python (`mendari.figures/1`): beside each report, on the leaderboard (ranked, by set of
   records), the overview's periods, monitoring and the registry's versions; the dashboard and
   the Hub only format them. The card and `mendari eval` show the equal-mass calibration error.
+  The dashboard shows each share of cases as k of n with its interval, printed as the card
+  prints it, and the leaderboard in the ranking's order with each row's rank or why it has
+  none. Its "False automation" is now of the labelled cases, as on the card (it was of the
+  automated ones); the subgroups table drops its false-automation column, which the card never
+  had; the overview compares a period with the one before by that period's own figure.
 - **Dashboard** and REST API; sign-in through an organization's OpenID Connect provider; API
   keys by role.
 - **Hub:** a pack registry and its client (`mendari pull`, `mendari search`), and community

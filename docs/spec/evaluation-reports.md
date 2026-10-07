@@ -123,11 +123,11 @@ before its counts were stored has each figure it can prove: the sweep's counts f
 calibration bins, a subgroup's accuracy only when every case is labelled. `figures` is a run
 key: a served report's `result_sha256` is still its result's hash.
 
-A browser that prints a figure ports `render.shown` and is checked against
-`tests/fixtures/shown.json` (written and checked by `scripts/shown_fixture.py`): the text Python
-prints for 2,401 figures and 601 bounds, including the exact rounding ties where JavaScript's
-`toFixed` and Python's formatting disagree. Its bounds' last bits are the platform's maths
-library's, so it is checked by what it prints, never byte for byte.
+A browser that prints a figure (the dashboard's `ui.js`) ports `render.shown` and is checked
+against `tests/fixtures/shown.json` (written and checked by `scripts/shown_fixture.py`): the text
+Python prints for 2,401 figures and 601 bounds, including the exact rounding ties where
+JavaScript's `toFixed` and Python's formatting disagree. Its bounds' last bits are the
+platform's maths library's, so it is checked by what it prints, never byte for byte.
 
 ## Leaderboards: `mendari.leaderboard/2` and `mendari.rank/1`
 

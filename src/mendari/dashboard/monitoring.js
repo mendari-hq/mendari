@@ -7,7 +7,7 @@ import { chartHtml, wireCharts } from "./charts.js";
 import { communityNotice } from "./pack.js";
 import { render, views } from "./router.js";
 import { tableHtml } from "./table.js";
-import { $, api, emptyState, esc, icon, money, pct, stat, state, storageGet, storageSet } from "./ui.js";
+import { $, api, emptyState, esc, figureHtml, icon, money, share, shown, stat, state, storageGet, storageSet } from "./ui.js";
 
 const PERIODS = [30, 90, 180];
 // A calendar day of the period ("2026-09-30" -> "Sep 30"); the server counts weeks in UTC days.
@@ -34,10 +34,10 @@ views.monitoring = async (main) => {
     </div>
     ${alerts(report.alerts)}
     <div class="stats-primary">
-      ${stat({ label: "Observed accuracy, 7 days", value: pct(week.observed_accuracy),
-        foot: `${week.labelled} labelled · benchmark ${pct(bench.accuracy)}`,
+      ${stat({ label: "Observed accuracy, 7 days", value: figureHtml(week.figures.accuracy), html: true,
+        foot: `of the labelled decisions · benchmark ${esc(shown(bench.figures.accuracy))}`,
         tone: report.alerts.some((a) => a.kind === "accuracy") ? "danger" : "" })}
-      ${stat({ label: "Human overrides, 7 days", value: pct(week.override_rate), foot: `of ${week.reviewed} reviewed` })}
+      ${stat({ label: "Human overrides, 7 days", value: figureHtml(week.figures.overrides), html: true, foot: "of the reviewed decisions" })}
       ${stat({ label: "Confidence drift (PSI)", value: week.drift_psi === null ? "n/a" : week.drift_psi.toFixed(2),
         foot: "0.25 or more is a real shift", tone: report.alerts.some((a) => a.kind === "drift") ? "warning" : "" })}
       ${stat({ label: "Automated, rated wrong", value: String(week.automated_rated_wrong), foot: "last 7 days",
@@ -66,12 +66,12 @@ function alerts(list) {
 // two weeks have one or the other, a line has nothing to join, so a sentence says what fills it.
 function trendChart(report) {
   const weeks = report.weeks;
-  const known = (v) => v !== null && v !== undefined;
-  if (weeks.filter((w) => known(w.observed_accuracy) || known(w.override_rate)).length < 2) {
+  const known = (figure) => share(figure) !== null;
+  if (weeks.filter((w) => known(w.figures.accuracy) || known(w.figures.overrides)).length < 2) {
     return `<p class="muted">The trend appears once decisions in two weeks have been reviewed, re-routed downstream or rated.</p>`;
   }
   const label = (i) => (Number.isInteger(i) && weeks[i] ? day(weeks[i].to) : "");
-  const bench = report.benchmark.accuracy;
+  const bench = report.benchmark.figures.accuracy;
   return chartHtml({
     id: "monitoring-trend",
     type: "lines",
@@ -80,11 +80,12 @@ function trendChart(report) {
     series: [{ key: "accuracy", label: "Observed accuracy", swatch: "c1" }, { key: "overrides", label: "Overrides", swatch: "c2", dashed: true }],
     directLabels: true,
     legend: [{ swatch: "line c1", label: "Observed accuracy" }, { swatch: "line c2 dashed", label: "Overrides" }],
-    note: `Observed accuracy compares the pack's recommendation with what a person or a downstream system said${bench === null || bench === undefined ? "" : `; the benchmark is ${pct(bench)}`}.`,
+    note: `Observed accuracy compares the pack's recommendation with what a person or a downstream system said${bench ? `; the benchmark is ${esc(shown(bench))}` : ""}.`,
     points: weeks.map((w, i) => ({
       x: i, title: `${day(w.from)} to ${day(w.to)}`,
-      values: { accuracy: w.observed_accuracy, overrides: w.override_rate },
-      extra: [["Decisions", String(w.decisions)], ["Labelled", String(w.labelled)], ["Reviewed", String(w.reviewed)]],
+      values: { accuracy: share(w.figures.accuracy), overrides: share(w.figures.overrides) },
+      text: { accuracy: shown(w.figures.accuracy), overrides: shown(w.figures.overrides) },
+      extra: [["Decisions", String(w.decisions)]],
     })),
   });
 }
@@ -97,9 +98,9 @@ function weeksTable(weeks) {
     columns: [
       { key: "week", label: "Week", sort: (w) => w.from, cell: (w) => `<span class="nowrap">${esc(day(w.from))} – ${esc(day(w.to))}</span>` },
       { key: "decisions", label: "Decisions", numeric: true, sort: (w) => w.decisions, cell: (w) => String(w.decisions) },
-      { key: "automated", label: "Automated", numeric: true, sort: (w) => w.automated_rate, cell: (w) => pct(w.automated_rate) },
-      { key: "overrides", label: "Overrides", numeric: true, sort: (w) => w.override_rate, cell: (w) => pct(w.override_rate) },
-      { key: "accuracy", label: "Observed accuracy", numeric: true, sort: (w) => w.observed_accuracy, cell: (w) => `${pct(w.observed_accuracy)} <span class="muted">(${w.labelled})</span>` },
+      { key: "automated", label: "Automated", numeric: true, sort: (w) => share(w.figures.automated), cell: (w) => figureHtml(w.figures.automated) },
+      { key: "overrides", label: "Overrides", numeric: true, sort: (w) => share(w.figures.overrides), cell: (w) => figureHtml(w.figures.overrides) },
+      { key: "accuracy", label: "Observed accuracy", numeric: true, sort: (w) => share(w.figures.accuracy), cell: (w) => figureHtml(w.figures.accuracy) },
       { key: "cost", label: "Cost / decision", numeric: true, sort: (w) => w.cost_per_decision, cell: (w) => money(w.cost_per_decision) },
     ],
   });

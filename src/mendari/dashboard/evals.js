@@ -16,7 +16,8 @@ const EVAL_TABS = [
   ["history", "History"],
 ];
 
-const evalTabs = () => EVAL_TABS.filter(([key]) => key !== "compare" || state.detail.leaderboard);
+// A leaderboard with no configurations (no sets of records) is no comparison to show.
+const evalTabs = () => EVAL_TABS.filter(([key]) => key !== "compare" || state.detail.leaderboard?.groups?.length);
 
 views.evals = async (main, params) => {
   evalsState.reports = await api(`/api/evals?pack_id=${encodeURIComponent(state.packId)}`);

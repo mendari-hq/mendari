@@ -19,7 +19,9 @@
 //   }],
 //   rows,
 //   defaultCompare(a, b),    the order before anyone sorts (default: as given)
-//   rank,                    add a "Rank" column numbered in the current order; 1-3 get a chip
+//   rank(row),               add a "Rank" column: the row's rank from the data (1-3 get a chip),
+//                            which stays with its row whatever the sort; null for a row without
+//   unranked(row),           one, and the reason, for the "–" it shows instead
 //   rowClass(row), rowAttrs(row),   trusted strings
 //   stickyFirst,             keep the first column in view when the table scrolls sideways
 //   limitHeight,             scroll inside a max height, so the sticky header stays visible
@@ -61,8 +63,8 @@ function tableInner(id) {
     const label = c.sort ? `<button type="button" class="sort" data-sort="${esc(c.key)}">${c.label}${sortIcon(ariaSort)}</button>` : c.label;
     return `<th scope="col" class="${cls(c)}"${c.sort ? ` aria-sort="${ariaSort}"` : ""}>${label}</th>`;
   }).join("");
-  const body = rows.map((row, index) => {
-    const rank = spec.rank ? `<td class="num rank-cell">${rankChip(index)}</td>` : "";
+  const body = rows.map((row) => {
+    const rank = spec.rank ? `<td class="num rank-cell">${rankCell(spec, row)}</td>` : "";
     const cells = spec.columns.map((c) => `<td class="${cls(c)}">${c.cell(row)}</td>`).join("");
     return `<tr class="${spec.rowClass ? spec.rowClass(row) : ""}" data-row="${spec.rows.indexOf(row)}" ${spec.rowAttrs ? spec.rowAttrs(row) : ""}>${rank}${cells}</tr>`;
   }).join("");
@@ -72,18 +74,21 @@ function tableInner(id) {
 
 const sortIcon = (ariaSort) => icon(ariaSort === "ascending" ? "chevron-up" : ariaSort === "descending" ? "chevron-down" : "chevrons");
 
-const rankChip = (index) => `<span class="rank${index < 3 ? " top" : ""}">${index + 1}</span>`;
+function rankCell(spec, row) {
+  const rank = spec.rank(row);
+  if (rank === null || rank === undefined) {
+    const why = spec.unranked ? spec.unranked(row) : "";
+    return `<span class="rank none" title="${esc(why)}" aria-hidden="true">–</span><span class="sr-only">No rank${why ? `: ${esc(why)}` : ""}</span>`;
+  }
+  return `<span class="rank${rank <= 3 ? " top" : ""}">${esc(rank)}</span>`;
+}
 
 // Put the rendered table in the entry's current order: rows are moved (data-row is the row's index
-// in spec.rows), ranks renumbered, and each header's aria-sort and arrow updated in place.
+// in spec.rows), each with its own rank, and each header's aria-sort and arrow updated in place.
 function applySort(container, entry) {
   const tbody = container.querySelector("tbody");
   const rowElements = new Map([...tbody.rows].map((tr) => [Number(tr.dataset.row), tr]));
-  sortedRows(entry).forEach((row, index) => {
-    const tr = rowElements.get(entry.spec.rows.indexOf(row));
-    tbody.append(tr);
-    if (entry.spec.rank) tr.querySelector(".rank-cell").innerHTML = rankChip(index);
-  });
+  sortedRows(entry).forEach((row) => tbody.append(rowElements.get(entry.spec.rows.indexOf(row))));
   container.querySelectorAll("th[aria-sort]").forEach((th) => {
     const button = th.querySelector("button[data-sort]");
     const ariaSort = entry.sort?.key === button.dataset.sort ? entry.sort.dir : "none";
