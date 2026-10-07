@@ -106,7 +106,7 @@ def test_subgroups_never_leave_and_small_bins_are_left_out() -> None:
 def test_numbers_are_rounded_on_both_sides() -> None:
     report = copy.deepcopy(BENCHMARK)
     report["questions"]["next_step"]["brier"] = 0.1234567890123456
-    report["latency_ms"]["max"] = 123456789.12345678
+    report["run"]["latency_ms"]["max"] = 123456789.12345678
     shared = shareable(report)
     assert shared["questions"]["next_step"]["brier"] == 0.123
     assert shared["latency_ms"]["max"] == 123456789.123

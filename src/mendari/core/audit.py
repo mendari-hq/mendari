@@ -812,8 +812,8 @@ class AuditStore:
             "result_sha256": report.get("result_sha256"),
             "ledger": (report.get("ledger") or {}).get("id"),
             "pack_id": report["pack"]["id"],
-            "pack_digest": report["pack"]["digest"],
-            "dataset_sha256": report["dataset"]["sha256"],
+            "pack_digest": report["pack"].get("digest"),
+            "dataset_sha256": report["dataset"].get("sha256"),
             "org": org,
         }
         with self._db.session(exclusive=True) as db:
