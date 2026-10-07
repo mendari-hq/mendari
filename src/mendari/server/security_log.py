@@ -29,9 +29,10 @@ a person can quote it and the line be found.
 with its `ehr:<hash>` and, with sign-in on, its organization; or one that does not:
 `state_unknown`, `browser`, `token`, `id_token`, `issuer`, `unregistered`, `user_type` and the
 like, server/smart_routes.py), `ratelimit.hit` (once per bucket until it has room again),
-`quota.reached`, `admin.key.created|revoked`, `admin.client.registered|revoked`,
-`governance.approved|revoked`, `eval.run`, `export.audit|feedback`, `phi.inputs.read` (decision
-ids and a count) and `error.unhandled`.
+`quota.reached`, `admin.key.created|rotated|revoked` (a rotation names the old key and its
+replacement), `auth.key.replaced_used` (a rotated key used during its overlap, once per instance),
+`admin.client.registered|revoked`, `governance.approved|revoked`, `eval.run`,
+`export.audit|feedback`, `phi.inputs.read` (decision ids and a count) and `error.unhandled`.
 
 **Library loggers** that would log a URL or a connection at INFO (httpx, psycopg's pool: see
 `QUIETED`) keep only warnings: on Vercel the runtime gives the root logger INFO and a handler.

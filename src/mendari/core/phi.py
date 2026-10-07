@@ -17,6 +17,13 @@ and its date): kept in the record only when the input is, sealed beside a kept i
 `encrypt`, dropped otherwise. Each kind of sealed data has its own associated data (its kind,
 then its ids), so a ciphertext never opens as another kind, nor for another decision or note.
 
+Key rotation (LP-09). `$MENDARI_PHI_KEY` is the current key, the only one that seals.
+`$MENDARI_PHI_READ_KEYS` lists other keys this deployment opens but never seals with: the previous
+key while a rotation re-seals what it holds (`mendari phi rotate`), or the next key before it
+becomes current. Once a rotation begins (the database is marked, `core/audit.py`), each token
+names its key: `v2:<key id>:<base64>`; older tokens (plain base64) are opened by trying every key
+of the ring. A key id is public (`key_id`), never a fragment of the key.
+
 The input hash in every record is keyed in `hash` and `encrypt`: an HMAC-SHA256 under
 `$MENDARI_INPUT_HASH_KEY` (32 bytes, base64; its own key, so rotating the PHI key leaves hashes
 alone, and `hash` mode, which has no PHI key, still has one). A plain SHA-256 of a short or
@@ -33,6 +40,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -52,6 +60,21 @@ class PhiPolicy:
     # $MENDARI_INPUT_HASH_KEY; empty: the unkeyed `sha256:` (allowed in mode `off` only, which
     # `phi_policy` enforces).
     hash_key: bytes = field(default=b"", repr=False)
+    # $MENDARI_PHI_READ_KEYS: keys that open, never seal (a rotation's previous or next key).
+    read_keys: tuple[bytes, ...] = field(default=(), repr=False)
+    # Whether new tokens name their key (`v2:<key id>:`): from the first rotation on, which the
+    # database records (`core/audit.py`), so a release that predates key ids can still read
+    # what was sealed before.
+    tag_tokens: bool = False
+
+    @property
+    def key_ids(self) -> dict[str, str | list[str]]:
+        """The ring's public names, for the health details: the current key and the read keys."""
+        return {"current": key_id(self.key), "read": [key_id(k) for k in self.read_keys]}
+
+    def current_only(self) -> PhiPolicy:
+        """This policy without its read keys: what opens once they are dropped."""
+        return PhiPolicy(self.mode, self.key, self.hash_key, (), self.tag_tokens)
 
     @property
     def hash_kind(self) -> str:
@@ -70,37 +93,64 @@ class PhiPolicy:
         return f"hmac-sha256:{key_id(self.hash_key)}:{digest.hexdigest()}"
 
     def encrypt(self, decision_id: str, inputs: Any) -> str:
-        return self._seal(decision_id.encode(), inputs)
+        return self.seal("input", inputs, decision_id)
 
     def decrypt(self, decision_id: str, token: str) -> Any:
-        return self._open(decision_id.encode(), token, "a stored input")
+        return self.open("input", token, decision_id)[0]
 
     def seal_note(self, note_id: str, decision_id: str, body: Any) -> str:
-        return self._seal(_note_aad(note_id, decision_id), body)
+        return self.seal("note", body, note_id, decision_id)
 
     def open_note(self, note_id: str, decision_id: str, token: str) -> Any:
-        return self._open(_note_aad(note_id, decision_id), token, "a stored note")
+        return self.open("note", token, note_id, decision_id)[0]
 
     def seal_details(self, decision_id: str, details: Any) -> str:
         """Seal what a record leaves out beside its kept input (each answer's evidence)."""
-        return self._seal(DETAILS_AAD + decision_id.encode(), details)
+        return self.seal("details", details, decision_id)
 
     def open_details(self, decision_id: str, token: str) -> Any:
-        return self._open(DETAILS_AAD + decision_id.encode(), token, "a stored record's details")
+        return self.open("details", token, decision_id)[0]
+
+    def seal(self, kind: Sealed, value: Any, *ids: str) -> str:
+        """Seal one value of a kind (`input` and `details`: a decision's id; `note`: the note's
+        id, then its decision's) under the current key."""
+        return self._seal(_aad(kind, ids), value)
+
+    def open(self, kind: Sealed, token: str, *ids: str) -> tuple[Any, str]:
+        """Open one value of a kind (as `seal`): the value, and the id of the key that opened
+        it."""
+        return self._open(_aad(kind, ids), token, _WHAT[kind])
+
+    @property
+    def ring_ids(self) -> frozenset[str]:
+        """The ids of every key this policy opens with."""
+        return frozenset(key_id(k) for k in self._ring())
+
+    def _ring(self) -> tuple[bytes, ...]:
+        return tuple(k for k in (self.key, *self.read_keys) if k)
 
     def _seal(self, aad: bytes, value: Any) -> str:
-        nonce = secrets.token_bytes(12)
+        nonce = secrets.token_bytes(12)  # fresh for every seal, re-seals included
         plain = _canonical(value).encode()
-        sealed = AESGCM(self.key).encrypt(nonce, plain, aad)
-        return base64.b64encode(nonce + sealed).decode()
+        sealed = base64.b64encode(nonce + AESGCM(self.key).encrypt(nonce, plain, aad)).decode()
+        return f"v2:{key_id(self.key)}:{sealed}" if self.tag_tokens else sealed
 
-    def _open(self, aad: bytes, token: str, what: str) -> Any:
-        raw = base64.b64decode(token)
-        try:
-            plain = AESGCM(self.key).decrypt(raw[:12], raw[12:], aad)
-        except (InvalidTag, ValueError):  # ValueError: no key (not in mode encrypt)
-            raise MendariError(f"{what} does not decrypt with this key") from None
-        return json.loads(plain)
+    def _open(self, aad: bytes, token: str, what: str) -> tuple[Any, str]:
+        named, raw = _parse(token, what)
+        ring = self._ring()
+        keys = ring if named is None else tuple(k for k in ring if key_id(k) == named)
+        if named is not None and not keys:
+            raise MendariError(f"{what} is sealed under key {named}, which this deployment lacks")
+        for key in keys:
+            try:
+                plain = AESGCM(key).decrypt(raw[:12], raw[12:], aad)
+            except InvalidTag:
+                continue
+            try:
+                return json.loads(plain), key_id(key)
+            except ValueError:
+                raise MendariError(f"{what} is not a stored value") from None
+        raise MendariError(f"{what} does not decrypt with this deployment's keys")
 
 
 # A note's associated data: its kind, then its id and its decision's, NUL-separated (ids never
@@ -111,6 +161,57 @@ DETAILS_AAD = b"mendari-details-v1\x00"
 # What the input hash's HMAC covers before the input, so the hash key signs nothing else alike.
 INPUT_HASH_PREFIX = b"mendari-input-v1\x00"
 _GENERATE = '`python -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())"`'
+
+
+# What a sealed token is, and nothing else: `v2:<16 hex>:` then strict base64, or (sealed before
+# key ids) strict base64 alone, at least a nonce and a tag (28 bytes). A plain-JSON note (mode
+# `off`) starts with "{" and is never opened.
+_V2 = re.compile(r"v2:([0-9a-f]{16}):")
+_MIN_SEALED = 12 + 16
+LEGACY = "legacy"  # a token sealed before key ids: the ring is tried
+READ_KEYS_MAX = 4
+Sealed = Literal["input", "details", "note"]
+_WHAT: dict[str, str] = {
+    "input": "a stored input",
+    "details": "a stored record's details",
+    "note": "a stored note",
+}
+
+
+def token_key(token: str) -> str:
+    """The key id a token names, `legacy` for one sealed before key ids, `invalid` for a value
+    that is no sealed token. Reads the token's prefix only: nothing is opened."""
+    try:
+        named, _ = _parse(token, "a token")
+    except MendariError:
+        return "invalid"
+    return LEGACY if named is None else named
+
+
+def _aad(kind: Sealed, ids: tuple[str, ...]) -> bytes:
+    """A sealed value's associated data: an input's is its bare decision id, a record's
+    details' and a note's their kind, then their ids (`DETAILS_AAD`, `NOTE_AAD`)."""
+    if kind == "input":
+        (decision_id,) = ids
+        return decision_id.encode()
+    if kind == "details":
+        (decision_id,) = ids
+        return DETAILS_AAD + decision_id.encode()
+    note_id, decision_id = ids
+    return _note_aad(note_id, decision_id)
+
+
+def _parse(token: str, what: str) -> tuple[str | None, bytes]:
+    """A token's key id (None: sealed before key ids) and its nonce and ciphertext."""
+    named = _V2.match(token)
+    body = token[named.end() :] if named else token
+    try:
+        raw = base64.b64decode(body, validate=True)
+    except (binascii.Error, ValueError):
+        raise MendariError(f"{what} is not a sealed token") from None
+    if len(raw) < _MIN_SEALED:
+        raise MendariError(f"{what} is not a sealed token")
+    return (named.group(1) if named else None), raw
 
 
 def _canonical(value: Any) -> str:
@@ -184,7 +285,10 @@ def phi_policy() -> PhiPolicy:
             f"MENDARI_PHI_MODE={mode} needs MENDARI_INPUT_HASH_KEY: 32 random bytes, base64 "
             f"({_GENERATE}), apart from MENDARI_PHI_KEY"
         )
+    listed = os.environ.get("MENDARI_PHI_READ_KEYS", "").strip()
     if mode != "encrypt":
+        if listed:
+            raise MendariError("MENDARI_PHI_READ_KEYS is for PHI mode encrypt only")
         return PhiPolicy(mode=mode, hash_key=hash_key)  # type: ignore[arg-type]
     if not key:
         raise MendariError(
@@ -192,4 +296,35 @@ def phi_policy() -> PhiPolicy:
         )
     if hmac.compare_digest(key, hash_key):
         raise MendariError("MENDARI_INPUT_HASH_KEY must differ from MENDARI_PHI_KEY")
-    return PhiPolicy(mode="encrypt", key=key, hash_key=hash_key)
+    read_keys = _read_keys(listed, key, hash_key)
+    return PhiPolicy(mode="encrypt", key=key, hash_key=hash_key, read_keys=read_keys)
+
+
+def _read_keys(listed: str, key: bytes, hash_key: bytes) -> tuple[bytes, ...]:
+    """$MENDARI_PHI_READ_KEYS, comma-separated: each 32 random bytes in base64, unlike the current
+    key, the input hash key and each other; at most `READ_KEYS_MAX`. A problem names the entry's
+    position, never its value."""
+    if not listed:
+        return ()
+    entries = [entry.strip() for entry in listed.split(",")]
+    if len(entries) > READ_KEYS_MAX:
+        raise MendariError(f"MENDARI_PHI_READ_KEYS holds at most {READ_KEYS_MAX} keys")
+    keys: list[bytes] = []
+    for position, entry in enumerate(entries, start=1):
+        try:
+            read = base64.b64decode(entry, validate=True) if entry else b""
+        except (binascii.Error, ValueError):
+            read = b""
+        if len(read) != 32:
+            raise MendariError(
+                f"MENDARI_PHI_READ_KEYS entry {position} must be 32 random bytes, base64"
+            )
+        if hmac.compare_digest(read, key) or hmac.compare_digest(read, hash_key):
+            raise MendariError(
+                f"MENDARI_PHI_READ_KEYS entry {position} is the current PHI key or the input "
+                "hash key"
+            )
+        if any(hmac.compare_digest(read, other) for other in keys):
+            raise MendariError(f"MENDARI_PHI_READ_KEYS entry {position} repeats an earlier one")
+        keys.append(read)
+    return tuple(keys)

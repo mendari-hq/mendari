@@ -154,11 +154,11 @@ Give each key the least it needs:
   Hooks services needs `{"role": "service", "scope": "https://mendari.co/fhir/scope/decide"}`.
   No scope reaches Mendari's own reads under `/api` or the CDS Hooks discovery list
   (`GET /cds-services`): read those signed in, or with an unscoped key.
-- **Expiry**: `days`, 90 unless asked, 365 at most. Make a new key before the old one expires;
-  `GET /api/auth/keys` shows when each does.
+- **Expiry**: `days`, 90 unless asked, 365 at most. Rotate a key before it expires
+  (`POST /api/auth/keys/{id}/rotate`, section 3): `GET /api/auth/keys` shows when each does.
 
-Creating and revoking a key are recorded in the audit chain (who, when, the role, scope and
-expiry; never the key).
+Creating, rotating and revoking a key are recorded in the audit chain (who, when, the role,
+scope and expiry; never the key).
 
 **Upgrading from a release without key expiry (before Phase 4).** The first start of this
 release gives every existing key an expiry 30 days later, once (`GET /api/auth/keys` shows it).
@@ -395,15 +395,70 @@ refused (`422`).
   hashes alone.
 - Losing the PHI key makes stored inputs, evidence and notes unreadable. The decisions and the
   chain are unaffected.
-- To rotate the PHI key: purge (or let retention expire) the inputs kept under the old key,
-  then switch. Re-encrypting in place is not provided.
+- To change either key, see **Rotating the keys** below.
 - The input hash key's id (16 hex digits of an HMAC under it, which reveal nothing about it) is
   in every keyed hash and in `/api/health` (`input_hash`).
-- To rotate the input hash key, as the PHI key: purge, then switch. Records made before keep the
-  old key's id and are never re-hashed (their digests are chained); Mendari never recomputes an
-  old hash, so nothing breaks, and new records carry the new id. If the key leaks, whoever also
-  holds the database can attack the hashes made under it: switch at once, and treat those
-  hashes as no better than plain SHA-256.
+
+**Rotating the keys.** Each of the three changes without losing data or breaking the chain.
+
+*The PHI key* (`mendari phi rotate`). Every kept input, its evidence and every note is re-sealed
+under the new key in batches, each recorded in the chain (`phi.rotated`: key ids and counts,
+never a key); decisions and the chain itself are never touched. In this order:
+
+1. Make the new key (`python -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())"`)
+   and keep it in your secret manager beside the old one.
+2. **Reader first.** Set `MENDARI_PHI_READ_KEYS=<new key>` for Production and Preview (and every
+   deployment that shares the database) and redeploy. Every instance can now open what the new
+   key will seal; nothing seals with it yet. From here on, new values name their key
+   (`v2:<key id>:…`): never roll back below this release.
+3. **Swap.** Set `MENDARI_PHI_KEY=<new key>` and `MENDARI_PHI_READ_KEYS=<old key>`, and redeploy.
+   `/api/health` (signed in) shows the new key's id as `phi_keys.current`. Delete or protect the
+   deployments built before the swap (on Vercel, never Instant Rollback to one): once the
+   rotation begins they refuse to seal with the old key, so their decisions fail rather than
+   leave values behind.
+4. **Re-seal.** From a machine that reaches the database, outside the daily purge (08:00 UTC),
+   with a `0600` file holding `MENDARI_PHI_MODE=encrypt`, `MENDARI_PHI_KEY`,
+   `MENDARI_PHI_READ_KEYS` and `MENDARI_INPUT_HASH_KEY` as deployed:
+
+   ```bash
+   mendari phi rotate --db "$DATABASE_URL" --to <phi_keys.current>
+   ```
+
+   An interrupted run is run again the same way: what is done stays done. A value no key opens
+   is left as it is and listed (exit 1): add the key it names to `MENDARI_PHI_READ_KEYS`, or
+   erase it (`mendari phi erase`), and run again.
+5. **Check.** `mendari phi rotate --db "$DATABASE_URL" --check` opens every value with the new
+   key alone, recomputes each input hash made under the current hash key and checks each note
+   against its commitment. `"ready": true` (exit 0) means nothing needs the old key. A key in
+   `read_not_retired` had no value to move, so it was not retired: make sure no deployment still
+   seals with it (step 3) before you drop it. Then `mendari audit verify --notes`.
+6. **Drop the old key.** Remove `MENDARI_PHI_READ_KEYS`, redeploy, delete the file from step 4,
+   and run the check again a day later. Keep the old key in the secret manager until every
+   backup and the database's point-in-time history from before step 4 have expired: they still
+   hold values sealed under it.
+
+With Neon preview branches, each branch is a copy: run steps 4 and 5 on any branch a deployment
+still uses, or recreate the branches afterwards.
+
+*The input hash key.* Set the new `MENDARI_INPUT_HASH_KEY` and redeploy. The first record
+hashed under it starts a new epoch, chained (`input_hash.epoch`, with the key id before it).
+Hashes are never re-keyed: a keyed hash cannot be recomputed without its input, and the chain
+holds each record's digest. Records keep the key id they were hashed under; hashes from two
+epochs never match, and nothing in Mendari compares them. `mendari phi rotate --check` lists the
+epochs (key id, first and last decision, how many). The old key may be destroyed once nothing
+needs to recompute an old hash (nothing in Mendari does). If a key leaks, whoever also holds the
+database can attack the hashes made under it: switch at once, and treat those hashes as no
+better than plain SHA-256.
+
+*API keys.* `POST /api/auth/keys/{id}/rotate` (a signed-in admin) makes a new key with the same
+name, role and scope, shown once, and lets the old one work for `overlap_hours` (24 unless asked,
+168 at most, never past its own expiry); then the old key is refused, as an expired key is.
+Move the machine to the new key within the overlap: the security log's `auth.key.replaced_used`
+(once per instance) shows a client still on the old one. A leaked key: rotate it with
+`{"overlap_hours": 0}`, or revoke it (`DELETE /api/auth/keys/{id}`). The chain has both
+(`key.created` with `replaces`, `key.rotated`). If the answer carrying the new key is lost,
+revoke the replacement (`GET /api/auth/keys` lists it as the old key's `replaced_by`) and rotate
+the old key again. Backend Services clients are not rotated this way: register a client with the new JWKS, move the integration, then revoke the old client.
 
 **Notes.** A reviewer's or a rater's note, and a payer's answer to a prior authorization (its
 authorization number and disposition), are free text. They are kept in a `notes` table, never in
@@ -547,7 +602,9 @@ collector, journald) and keep it as your policy says; Mendari keeps no log table
   a session, or did not: `state_unknown`, `browser`, `token`, `id_token`, `issuer`, `pack`,
   `ehr_error` and the like), `auth.token.issued|refused`, `ratelimit.hit` (once per bucket until it has room
   again), `quota.reached`, `admin.key.created|revoked`, `admin.client.registered|revoked`,
-  `governance.approved|revoked`, `eval.run`, `export.audit|feedback`, `input.erased`,
+  `governance.approved|revoked`, `admin.key.rotated`, `auth.key.replaced_used` (a rotated key
+  still in use during its overlap, once per instance), `eval.run`, `export.audit|feedback`,
+  `input.erased`,
   `retention.purged|refused` (the scheduled purge, with the count deleted), `phi.inputs.read` (under
   `hash` or `encrypt`: the decisions whose input or notes a reader was shown, and how many, as
   the chain's `input.read` has them) and `error.unhandled` (the exception's type and stack
@@ -594,6 +651,7 @@ startup, so a typo never runs with a weaker setting.
 | `MENDARI_PHI_MODE` | `encrypt` on Vercel; elsewhere `off` without sign-in or the EHR launch, and with either none (required) | `hash` or `encrypt` for real patient data; Vercel refuses `off`, and so does a database once kept under `hash` or `encrypt` | 3 |
 | `MENDARI_PHI_KEY` | none | 32 bytes, base64; seals inputs, evidence and notes under `encrypt` | 3 |
 | `MENDARI_INPUT_HASH_KEY` | none | 32 bytes, base64, not the PHI key; required under `hash` and `encrypt` | 3 |
+| `MENDARI_PHI_READ_KEYS` | none | Under `encrypt`, up to 4 keys (base64, comma-separated) the deployment opens with but never seals: the previous key during a rotation, or the next one before it becomes current | 3 |
 | `MENDARI_RETENTION_DAYS` | 30 (1 to 36500) | How long kept inputs and notes are kept, by `mendari phi purge` and the scheduled purge | 3 |
 | `CRON_SECRET` | unset: no scheduled purge | At least 16 random characters, no spaces around them: Vercel Cron's bearer token for `/api/internal/retention` (otherwise unused, with a warning: the purge stays off) | 3 |
 | `MENDARI_MAX_BODY_BYTES` | 4 MiB (64 KiB at least) | The largest request body; a `413` above it | 1 |

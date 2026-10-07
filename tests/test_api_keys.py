@@ -52,6 +52,7 @@ def test_a_key_is_for_a_machine_role_and_lives_one_to_365_days(store: AuditStore
         "org": "default",
         "scope": "system/*.rs",
         "expires_at": year["expires_at"],
+        "replaced_by": None,  # set once the key is rotated (LP-09)
     }
 
 
@@ -125,6 +126,7 @@ def test_a_listing_shows_scope_and_expiry_never_the_key(store: AuditStore) -> No
         "expires_at",
         "revoked_at",
         "revoked_by",
+        "replaced_by",
     }
     assert (listed["scope"], listed["revoked_by"]) == ("system/Task.rs", "Grace")
     assert listed["expires_at"] == made["expires_at"]

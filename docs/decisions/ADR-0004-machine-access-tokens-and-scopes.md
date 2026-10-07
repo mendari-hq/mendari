@@ -61,5 +61,6 @@ per-provider handling.
   and stale authorization until a token expires.
 - **JWKS URLs.** Deferred: an outbound fetch on an unauthenticated request, and an SSRF and
   amplification surface.
-- **Pack-scoped keys, rotation, last-used tracking, a new key format.** Deferred until external
-  developers use the API.
+- **Pack-scoped keys, last-used tracking, a new key format.** Deferred until external
+  developers use the API. (Rotation with an overlap was added by LP-09, 2026-10:
+  `POST /api/auth/keys/{id}/rotate`.)

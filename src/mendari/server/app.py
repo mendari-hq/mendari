@@ -389,7 +389,7 @@ def create_app(
     if org_limits and webhook:
         check_webhook(webhook)  # likewise: a quota's alert must be able to leave
     store = AuditStore(db_path, migrate_url=migrate_url, phi=phi)
-    store.refuse_plaintext()  # a database once protected never runs under `off` again
+    store.ready_to_keep()  # never `off` on a protected database, nor a retired PHI key
     acknowledgement = notices.mode()  # read once; a bad value fails at startup
     acknowledged: set[str] = set()  # chain ids found acknowledged: an acknowledgement stays
     auth = Auth(
@@ -732,6 +732,9 @@ def create_app(
                 if principal.kind == "open" or ehr.org == principal.org
             ],
             "phi_mode": phi.mode,
+            # Under `encrypt`, the ids of the PHI keys (never a key): the one that seals, and
+            # those it only opens with (MENDARI_PHI_READ_KEYS, during a rotation).
+            **({"phi_keys": phi.key_ids} if phi.mode == "encrypt" else {}),
             # Kept inputs and notes are deleted after this many days (MENDARI_RETENTION_DAYS),
             # by `mendari phi purge` or, with CRON_SECRET set, the scheduled purge.
             "retention_days": retention_days,
@@ -1761,7 +1764,9 @@ def create_app(
         if acknowledgement == "off" or principal.kind != "user":
             return None
         route = (request.method, request.url.path)
-        if permission_for(*route) not in notices.GATED and route not in notices.MINTING:
+        permission = permission_for(*route)
+        minting = request.method == "POST" and permission == notices.MINTING_PERMISSION
+        if permission not in notices.GATED and not minting:
             return None
         if request.url.path == "/api/notice/acknowledge":  # what the refusal asks for
             return None

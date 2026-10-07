@@ -69,8 +69,9 @@ who can reach the server can call every operation, and the `Authorization` heade
 - People sign in at `/auth/login` with their organization's identity provider; the dashboard and
   the API reference use that session.
 - Machines send `Authorization: Bearer ohk_…`, an API key a signed-in administrator creates with
-  `POST /api/auth/keys`. A key has one role, `viewer` or `service`, expires (90 days unless asked,
-  365 at most), and may carry scopes that narrow it: SMART v2 reads such as `system/Task.rs`, and
+  `POST /api/auth/keys` and rotates with `POST /api/auth/keys/{id}/rotate` (the old key works
+  for an overlap, 24 hours unless asked). A key has one role, `viewer` or `service`, expires (90
+  days unless asked, 365 at most), and may carry scopes that narrow it: SMART v2 reads such as `system/Task.rs`, and
   `https://mendari.co/fhir/scope/decide` or `https://mendari.co/fhir/scope/outcome`.
 - With SMART Backend Services on, a registered client exchanges a signed assertion (RS384 or
   ES384, never a client secret) for a five-minute access token, `Bearer mat_…`.
