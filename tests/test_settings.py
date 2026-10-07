@@ -6,6 +6,7 @@ import logging
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
@@ -70,10 +71,22 @@ def test_the_server_reports_settings_it_skipped(tmp_path: Path) -> None:
     }
 
 
-def test_the_cli_refuses_settings_that_cannot_apply(capsys: pytest.CaptureFixture[str]) -> None:
-    assert main(["test", str(FIXTURES / "trial-mini"), "--provider", "screen=llm"]) != 0
+def test_the_cli_refuses_settings_that_cannot_apply(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    trial = str(FIXTURES / "trial-mini")
+    assert main(["test", trial, "--provider", "screen=llm"]) != 0
     assert "do not apply to mendari-test/trial-mini: ['screen=llm']" in capsys.readouterr().err
-    assert main(["test", str(FIXTURES / "trial-mini"), "--provider", "router=jev"]) == 0  # n/a
+    # Typed, a setting that applies to nothing in the pack is a mistake (LP-15)...
+    assert main(["test", trial, "--provider", "router=jev"]) == 1
+    err = capsys.readouterr().err
+    assert "provider setting router=jev: the pack has no slot 'router'" in err
+    assert main(["test", trial, "--provider", "other/pack:screen=llm"]) == 1
+    assert "names other/pack, not this pack" in capsys.readouterr().err
+    # ...but MENDARI_PROVIDERS, a deployment's list for every pack, only warns.
+    monkeypatch.setenv("MENDARI_PROVIDERS", "router=jev")
+    assert main(["test", trial]) == 0
+    assert "warning: MENDARI_PROVIDERS: provider setting router=jev" in capsys.readouterr().err
 
 
 # -- with Jev set up, the reference packs run Mendari + Jev --------------------------------------
@@ -248,7 +261,8 @@ def test_mendari_serve_runs_the_jev_defaults(
     set_up_jev(monkeypatch, JEV_API_KEY="test-key")
     monkeypatch.setenv("FORWARDED_ALLOW_IPS", "127.0.0.1")  # `serve` sets it; restored after
     built: dict[str, object] = {}
-    monkeypatch.setattr(app_module, "create_app", lambda **kwargs: built.update(kwargs))
+    started = SimpleNamespace(state=SimpleNamespace(provider_settings_unused=[]))
+    monkeypatch.setattr(app_module, "create_app", lambda **kwargs: built.update(kwargs) or started)
     monkeypatch.setattr(uvicorn, "run", lambda *args, **kwargs: None)
     flags = ["--provider", "router=naive_bayes"]
     assert main(["serve", "--db", str(tmp_path / "a.db"), *flags]) == 0

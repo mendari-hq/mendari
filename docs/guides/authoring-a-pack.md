@@ -44,8 +44,12 @@ None of them may go through a hidden folder or `__pycache__`, or be in `evals/` 
 `DECISION_CARD.md`, however the path is spelled (on macOS and Windows `EVALS/` is `evals/`).
 `evaluation.benchmark` is the opposite: a published result about the pack, it lives in `evals/`.
 Behaviour tests must be plain JSON values: quote a date (`"2024-01-01"`). Each is a mapping with
-an `input` mapping, and may have a `name` and an `expect` mapping (its `answers` a mapping of
-question to label). No YAML file of the pack may use `!!binary`, `!!set`, `!!omap`, `!!pairs` or
+an `input` mapping, an `expect` mapping and, optionally, a `name`. `expect` says what the pack
+must decide with at least one of `outcome`, `outcome_in`, `not_outcome`, `recommendation`,
+`priority` and `answers` (a mapping of question to label), and nothing else: a misspelt key, an
+empty `expect`, or a value the pack can never decide (an unknown outcome, label or question) is
+named by `mendari validate` and `test`, which also fails when a pack has no tests (spec §10).
+`mendari validate` reads every dataset `evaluation.datasets` declares as well. No YAML file of the pack may use `!!binary`, `!!set`, `!!omap`, `!!pairs` or
 a lone surrogate escape (`"\ud800"`); `mendari validate` names the file, line and column. If you
 edit a file of a pack a server has loaded, restart the server: until then reads of
 the edited file are refused, since it is no longer what the pack's digest describes.

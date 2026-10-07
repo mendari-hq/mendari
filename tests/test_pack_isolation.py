@@ -594,10 +594,15 @@ def test_a_test_input_that_is_not_json_is_a_validation_problem(
     loader refuses in any pack file, by place), never a 500 or a traceback."""
     outside = tmp_path / "outside"
     count = len(yaml.safe_load((INBOX_DIR / "tests" / "cases.yaml").read_text()))
-    case = f"\n- name: odd\n  input: {{message: {{body: hello}}, x_odd: {value}}}\n  expect: {{}}\n"
+    case = (
+        f"\n- name: odd\n  input: {{message: {{body: hello}}, x_odd: {value}}}\n"
+        "  expect: {outcome: AUTO}\n"
+    )
     pack = _outsider(outside, _append("tests/cases.yaml", case))
     line = (pack / "tests" / "cases.yaml").read_text().count("\n") - 1
-    problem = what.format(file="tests/cases.yaml", case=count + 1, at=f"line {line}, column 42")
+    problem = what.format(
+        file="tests/cases.yaml", case=f"{count + 1} (odd)", at=f"line {line}, column 42"
+    )
     with pytest.raises(PackValidationError) as raised:
         load_cases(load_pack(pack))
     assert raised.value.problems == [problem]

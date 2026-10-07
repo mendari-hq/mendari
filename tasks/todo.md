@@ -202,7 +202,7 @@ behaviour.
   image, enforced). Deploy `web/` again (owner) once the repository is public, so security.txt's
   contact works.
 
-- [x] **LP-14** A redistributable reference pack and a licence inventory (PR open). The
+- [x] **LP-14** A redistributable reference pack and a licence inventory (#146, merged 2026-10-07). The
   prior-authorization pack's 15 CPT codes are replaced one for one by fictional codes (`FX101` to
   `FX903`, `https://mendari.co/fhir/CodeSystem/fictional-procedures`, named "not CPT, never for
   billing"; a sandbox CodeSystem for the validator) in its logic, mapping, tests, generator, the
@@ -253,7 +253,47 @@ behaviour.
   `urn:` system refused; the SNOMED CT, ICD-10-CM and psycopg wording; the trial dataset's
   SNOMED CT codes left out of the record), all fixed.
 
-**Pre-public:** LP-13 and LP-14 (done above), LP-15 (the docs' promises, the local loop), LP-03 (launch
+- [ ] **LP-15** What the docs promise, and the local loop. Split in three PRs (recommended):
+  - [x] **LP-15a** The local loop (PR open). One top-level error handler for every `mendari`
+    command: one line per problem (`error: ...`, naming the file, flag, URL origin or database
+    without its password, and the fix), exit 1, never a traceback and never a library's own
+    message (it can carry case text: an unknown error is its type only); `--debug` on any
+    command or `MENDARI_DEBUG=1` lets it through; usage errors one line and exit 1 (argparse's
+    was 2; `eval --fail-on-degradation` keeps 2); Ctrl-C `interrupted`, 130; `--version`; ports
+    checked before a server starts. Behaviour tests strict: `expect` required, non-empty, only
+    the six keys, each value one the pack can decide (outcome, priority, the primary's label,
+    the pack's questions and labels), no case key beyond `name`, `input`, `expect`; a case named
+    by number and name; `mendari test` on a pack with no tests fails. `validate` reads every
+    declared dataset (JSON per line, inputs as a decision checks them, labels the pack's own; ten
+    problems a dataset at most, never case text); `eval` refuses such a dataset instead of
+    crashing (KeyError, AttributeError before). A typed provider setting (`--provider`,
+    `leaderboard --run`, `omop run`, `serve --provider`) that applies to nothing in the pack is
+    an error; `MENDARI_PROVIDERS` only warns in the CLI and is reported by a server
+    (`provider_settings_unused` in `/api/health`'s detail and the startup log), never a failed
+    start. `audit verify`, `audit export`, `feedback export` and `monitor` open the database
+    read-only (SQLite `mode=ro` and `query_only`; Postgres `READ ONLY` transactions): nothing
+    created, migrated, marked or rewritten (journal mode kept), a missing or foreign database is
+    one line; an older, unmigrated database is verified as it is, and the commands that need
+    its newer columns say to start the server on it once. `phi purge`, `phi erase` and
+    `notes erase` refuse a missing database too; the automation and rotation commands raise like
+    every other. Spec §10 (every spec version, as LP-04 and LP-14 did before a release), the
+    authoring guide, the README, the threat model rows T1 and D7, the CHANGELOG.
+    **Owner decisions, open (defaults used):** `monitor` keeps exit 1 for alerts, so a
+    scheduler cannot tell alerts from a database it cannot read (the line says which; the
+    deploy templates' `|| true` swallows both): give alerts their own code? `MENDARI_PROVIDERS`
+    stays a warning in the CLI and a report on a server (production runs an unscoped setting);
+    make it strict?
+  - [ ] **LP-15b** Every README, docs/index.md and /docs landing snippet run in CI or marked
+    skipped with a reviewed reason (a test fails on an unmarked one); a CI-run AI Guard example
+    (HTTP and Python) in the snippets, README, API guide and landing; the server install, the
+    packs-folder setting and the inbox rule (LP-01) in the docs.
+  - [ ] **LP-15c** A TestPyPI pre-release path in `release.yml` (its own protected environment,
+    then a clean-runner install and `mendari test`); multi-arch images (built once as an OCI
+    archive, each architecture tested, pushed as tested); a docs deploy workflow and
+    `site_url`. **Owner:** the docs host and URL (GitHub Pages needs the repository public on
+    the Free plan); the first TestPyPI upload waits for counsel's SNOMED CT answer (LP-14).
+
+**Pre-public:** LP-13 and LP-14 (done above), LP-15 (above: a, then b and c), LP-03 (launch
 gates as a checked file).
 
 **Trust layer:** LP-10 statistics and ledger, LP-11 hidden sets and blind labelling, LP-17

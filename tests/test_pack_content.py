@@ -57,9 +57,44 @@ def _client(tmp_path: Path, outside: Path) -> TestClient:
         (f"- name: z\n  input: {INPUT}\n  expect: AUTO\n", "`expect` must be a mapping"),
         (f"- name: z\n  input: {INPUT}\n  expect: {{answers: 5}}\n", "`expect.answers` must"),
         (f"- name: z\n  input: {INPUT}\n  expect: {{outcome_in: 5}}\n", "`expect.outcome_in`"),
-        (f"- name: 5\n  input: {INPUT}\n", "`name` must be text"),
+        (f"- name: 5\n  input: {INPUT}\n  expect: {{outcome: AUTO}}\n", "`name` must be text"),
         ("- name: z\n  input: [1]\n", "`input` must be a mapping"),
         ("- name: z\n", "`input` must be a mapping"),
+        # Strict since LP-15: a test that cannot fail is refused, named.
+        (f"- name: z\n  input: {INPUT}\n", "no `expect`: say what the pack must decide"),
+        (f"- name: z\n  input: {INPUT}\n  expect: {{}}\n", "`expect` is empty"),
+        (
+            f"- name: z\n  input: {INPUT}\n  expect: {{outcom: AUTO}}\n",
+            "unknown `expect` key 'outcom' (allowed: outcome, outcome_in",
+        ),
+        (
+            f"- name: z\n  input: {INPUT}\n  expect: {{outcome: AUTO}}\n  providers: {{}}\n",
+            "unknown key 'providers' (a case has `name`, `input` and `expect`)",
+        ),
+        (
+            f"- name: z\n  input: {INPUT}\n  expect: {{answers: {{}}}}\n",
+            "`expect.answers` is empty",
+        ),
+        (
+            f"- name: z\n  input: {INPUT}\n  expect: {{outcome_in: []}}\n",
+            "`expect.outcome_in` is empty",
+        ),
+        (
+            f"- name: z\n  input: {INPUT}\n  expect: {{not_outcome: auto}}\n",
+            "outcome 'auto' is not one of AUTO, HUMAN_REVIEW, ABSTAIN, BLOCK",
+        ),
+        (
+            f"- name: z\n  input: {INPUT}\n  expect: {{priority: high}}\n",
+            "priority 'high' is not one",
+        ),
+        (
+            f"- name: z\n  input: {INPUT}\n  expect: {{recommendation: nowhere}}\n",
+            "recommendation 'nowhere' is not a label of",
+        ),
+        (
+            f"- name: z\n  input: {INPUT}\n  expect: {{answers: {{nosuch: x}}}}\n",
+            "`expect.answers` names 'nosuch', which is not one of the pack's questions",
+        ),
     ],
     ids=[
         "not-a-mapping",
@@ -70,6 +105,16 @@ def _client(tmp_path: Path, outside: Path) -> TestClient:
         "name-not-text",
         "input-list",
         "input-missing",
+        "expect-missing",
+        "expect-empty",
+        "expect-key-typo",
+        "case-key-unknown",
+        "answers-empty",
+        "outcome-in-empty",
+        "not-outcome-typo",
+        "priority-unknown",
+        "recommendation-unknown",
+        "answers-unknown-question",
     ],
 )
 def test_a_behaviour_test_of_the_wrong_shape_is_named_never_a_500(
@@ -84,7 +129,9 @@ def test_a_behaviour_test_of_the_wrong_shape_is_named_never_a_500(
     with pytest.raises(PackValidationError) as raised:
         load_cases(load_pack(pack))
     [found] = raised.value.problems
-    assert found.startswith(f"tests/cases.yaml case {count + 1}: {problem}")
+    # A case is named by its number, and by its name when it has one (text).
+    named = " (z)" if "name: z" in case else ""
+    assert found.startswith(f"tests/cases.yaml case {count + 1}{named}: {problem}")
     assert found in _no_traceback(capsys, "validate", str(pack))
     assert found in _no_traceback(capsys, "test", str(pack))
     client = _client(tmp_path, outside)

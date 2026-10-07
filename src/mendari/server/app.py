@@ -102,7 +102,7 @@ from mendari.server.backend_services import (
 from mendari.server.limits import Limiter, RateLimited, client_ip, limit_settings
 from mendari.server.origin import OriginCheck, is_local_host, trusted_origins
 from mendari.server.smart_routes import add_smart_routes, error_page
-from mendari.settings import FhirValidation, providers_for
+from mendari.settings import FhirValidation, applies_to, providers_for
 from mendari.standards import (
     audit_fhir,
     capability,
@@ -439,6 +439,20 @@ def create_app(
 
     skipped_settings: dict[str, list[str]] = {}
     fallbacks = {pack_id: dict(slots) for pack_id, slots in (default_providers or {}).items()}
+    # Settings that apply to no served pack (an unknown slot, a pack not served): reported in
+    # /api/health and the startup log, never a failed start (instances share one setting).
+    unused_settings = sorted(
+        f"{key}={variant}"
+        for key, variant in overrides.items()
+        if not any(
+            applies_to(key, pack.id, pack.manifest.providers, community=pack.community)
+            for pack in packs.values()
+        )
+    )
+    if unused_settings:
+        providers_logger.warning(
+            "provider settings that apply to no served pack: %s", ", ".join(unused_settings)
+        )
 
     def variants_for(pack: Pack) -> tuple[dict[str, str], list[str]]:
         """The variants the deployment chose for this pack's slots (the rest run the pack's
@@ -593,6 +607,7 @@ def create_app(
         redoc_url=None,
         swagger_ui_oauth2_redirect_url=None,
     )
+    app.state.provider_settings_unused = unused_settings  # `mendari serve --provider`
 
     def limit_class(method: str, path: str) -> str | None:
         return limiter.classify(method, path, permission_for(method, path))
@@ -749,6 +764,8 @@ def create_app(
             "without_model": without_model,
             # Deployment provider settings that name a slot or variant a pack does not have.
             "provider_settings_skipped": skipped_settings,
+            # ...and those that apply to no served pack at all (a typo, a pack not served).
+            "provider_settings_unused": unused_settings,
             "jev": {
                 # The reference packs run Mendari + Jev where no setting chose (JEV_DEFAULTS).
                 "defaults": bool(fallbacks),

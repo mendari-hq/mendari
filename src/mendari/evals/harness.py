@@ -24,7 +24,7 @@ from typing import Any
 
 from mendari.core.decision import Decision, DecisionResult
 from mendari.core.pack import Pack, not_json
-from mendari.core.spec import Outcome
+from mendari.core.spec import Outcome, PackManifest
 from mendari.errors import MendariError
 from mendari.evals import metrics
 from mendari.parallel import parallel_map
@@ -91,6 +91,35 @@ def load_dataset(
     )
 
 
+def record_problems(manifest: PackManifest, dataset: Dataset) -> list[str]:
+    """What in a dataset's records the pack cannot evaluate, one line per record named by its id
+    (never its text): `labels` that are not a mapping of the pack's questions to their labels,
+    or `attributes` that are not a mapping. Other keys are kept as they are (`mendari feedback
+    export` adds what the system decided and the ratings behind its labels)."""
+    problems = []
+    for record in dataset.records:
+        where = f"{dataset.name} case {record['id']}"
+        labels = record.get("labels", {})
+        if not isinstance(labels, dict):
+            problems.append(f"{where}: `labels` must be a mapping of question to label")
+        elif not isinstance(record.get("attributes", {}), dict):
+            problems.append(f"{where}: `attributes` must be a mapping")
+        else:
+            for question, label in labels.items():
+                if question not in manifest.questions:
+                    problems.append(
+                        f"{where}: labels name {question!r}, not a question of the pack"
+                    )
+                    break
+                if label not in manifest.labels(question):
+                    problems.append(
+                        f"{where}: labels.{question} is {label!r}, not one of its labels "
+                        f"({', '.join(manifest.labels(question))})"
+                    )
+                    break
+    return problems
+
+
 def resolve_dataset(pack: Pack, ref: str) -> Dataset:
     """A dataset named in the pack's `evaluation.datasets`, or a path to a JSONL file."""
     named = pack.manifest.evaluation.datasets.get(ref)
@@ -103,7 +132,12 @@ def resolve_dataset(pack: Pack, ref: str) -> Dataset:
 
 
 def evaluate(decision: Decision, dataset: Dataset, *, workers: int = 1) -> dict[str, Any]:
-    """Run every case. `workers > 1` overlaps network-bound providers; order is preserved."""
+    """Run every case. `workers > 1` overlaps network-bound providers; order is preserved. A
+    dataset whose records the pack cannot evaluate (`record_problems`) is refused first."""
+    problems = record_problems(decision.pack.manifest, dataset)
+    if problems:
+        more = f" (and {len(problems) - 1} more)" if len(problems) > 1 else ""
+        raise MendariError(f"{problems[0]}{more}")
     inputs = [record["input"] for record in dataset.records]
     results = parallel_map(decision.decide, inputs, workers)
     return build_report(decision, dataset, results)

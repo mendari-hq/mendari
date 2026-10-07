@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import json
 import os
 import re
@@ -11,17 +12,19 @@ import sys
 from collections.abc import Sequence
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
+from mendari import __version__
 from mendari.core import tenancy
 from mendari.core.audit import SYSTEM_ID, AuditStore
 from mendari.core.decision import Decision
 from mendari.core.pack import Pack
 from mendari.core.registry import discover, resolve_pack
-from mendari.errors import MendariError
+from mendari.errors import MendariError, PackValidationError
 from mendari.sandbox import example_datasets_dir
 from mendari.settings import (
+    applies_to,
     daily_limits,
     default_providers,
     fhir_validation,
@@ -34,18 +37,45 @@ EXIT_DEGRADED = 2
 
 def _decision(args: argparse.Namespace, **kwargs: Any) -> Decision:
     pack = resolve_pack(args.pack)
-    providers = _providers(pack, parse_providers(args.provider))
+    providers = _providers(pack, parse_providers(args.provider), typed=bool(args.provider))
     return Decision(pack, providers=providers, fhir_validation=fhir_validation(), **kwargs)
 
 
-def _providers(pack: Pack, settings: dict[str, str]) -> dict[str, str]:
-    """The settings that apply to this pack; a setting that names it but cannot apply is an
-    error here (it was typed on purpose), where the server only reports it."""
+def _providers(pack: Pack, settings: dict[str, str], *, typed: bool = True) -> dict[str, str]:
+    """The settings that apply to this pack. A setting that names it but cannot apply (a slot's
+    unknown variant) is an error here, where the server only reports it. So is a typed setting
+    (`--provider`, `--run`) that applies to nothing in the pack: an unknown slot, another pack's
+    setting, or an unscoped one for a community pack. From $MENDARI_PROVIDERS, a deployment-wide
+    list naming other packs' slots too, such a setting is only a warning."""
     slots = {slot: set(spec.variants) for slot, spec in pack.manifest.providers.items()}
     chosen, skipped = providers_for(pack.id, slots, settings, community=pack.community)
     if skipped:
         raise MendariError(f"provider settings that do not apply to {pack.id}: {skipped}")
+    unused = [
+        _unused(pack, key, variant, slots)
+        for key, variant in settings.items()
+        if not applies_to(key, pack.id, slots, community=pack.community)
+    ]
+    if unused and typed:
+        raise PackValidationError(pack.id, unused)
+    for problem in unused:
+        print(f"warning: MENDARI_PROVIDERS: {problem}", file=sys.stderr)
     return chosen
+
+
+def _unused(pack: Pack, key: str, variant: str, slots: dict[str, set[str]]) -> str:
+    target, sep, slot = key.rpartition(":")
+    if sep and target != pack.id:
+        return f"provider setting {key}={variant} names {target}, not this pack"
+    if not sep and pack.community:
+        return (
+            f"provider setting {key}={variant}: a community pack takes only settings that name "
+            f"it ({pack.id}:{slot}={variant})"
+        )
+    return (
+        f"provider setting {key}={variant}: the pack has no slot {slot!r} "
+        f"(its slots: {', '.join(sorted(slots))})"
+    )
 
 
 def _print_json(value: Any) -> None:
@@ -81,6 +111,11 @@ def cmd_test(args: argparse.Namespace) -> int:
 
     decision = _decision(args)
     outcomes = run_pack_tests(decision)
+    if not outcomes:  # nothing ran: a pass would say nothing (LP-15)
+        where = decision.pack.manifest.tests or "tests/cases.yaml (and `tests:` in pack.yaml)"
+        raise MendariError(
+            f"{decision.pack.ref}: no behaviour tests to run: add cases to {where} (spec §10)"
+        )
     for outcome in outcomes:
         print(f"{'PASS' if outcome.passed else 'FAIL'}  {outcome.name}")
         for failure in outcome.failures:
@@ -321,6 +356,11 @@ def cmd_serve(args: argparse.Namespace) -> int:
         budget_limits=daily_limits(),
         datasets_dir=Path(args.datasets_dir) if args.datasets_dir else example_datasets_dir(),
     )
+    # A typed --provider that no served pack takes is a mistake; MENDARI_PROVIDERS, shared by a
+    # deployment's instances, is only reported (/api/health, the startup log).
+    unused = app.state.provider_settings_unused
+    if args.provider and unused:
+        raise MendariError(f"--provider settings that apply to no served pack: {', '.join(unused)}")
     # No uvicorn access log: its line carries the query string (a sign-in callback's code and
     # state, a search's values). Mendari's own access line (server/security_log.py) replaces it.
     uvicorn.run(
@@ -338,14 +378,34 @@ def cmd_serve(args: argparse.Namespace) -> int:
 def cmd_audit_verify(args: argparse.Namespace) -> int:
     from mendari.core.phi import phi_policy
 
-    # Notes sealed under encrypt are checked with this deployment's keys; verifying marks
-    # nothing in the database (no key a stray setting holds is recorded as known).
-    store = (
-        AuditStore(args.db, phi=phi_policy(), marks=False) if args.notes else AuditStore(args.db)
-    )
-    status = store.verify(notes=args.notes)
+    # Notes sealed under encrypt are checked with this deployment's keys. Verifying opens the
+    # database read-only: it creates, migrates and marks nothing (no key a stray setting holds is
+    # recorded as known), and an older database is verified as it is.
+    with _read_store(args.db, phi=phi_policy() if args.notes else None) as store:
+        status = store.verify(notes=args.notes)
     _print_json(status)
     return 0 if status["ok"] else 1
+
+
+def _read_store(target: str, *, phi: Any = None) -> AuditStore:
+    """The server's audit database opened read-only (LP-15): a missing file or a database that is
+    not Mendari's is one line, and nothing is created or written, whatever the command does."""
+    import sqlite3
+
+    try:
+        return AuditStore(target, phi=phi, read_only=True)
+    except sqlite3.Error as error:
+        raise MendariError(
+            f"cannot read the database {_shown(target)} ({type(error).__name__}): is it the "
+            "server's --db, and readable?"
+        ) from None
+    except Exception as error:
+        if type(error).__module__.startswith("psycopg"):
+            raise MendariError(
+                f"cannot read the database {_shown(target)} ({type(error).__name__}): is the "
+                "URL right and the server reachable?"
+            ) from None
+        raise
 
 
 def _shown(target: str) -> str:
@@ -406,7 +466,7 @@ def _probe(target: str) -> tuple[bool, bool]:
         lite.close()
 
 
-def _hold_store(target: str | None, *, serving: bool) -> tuple[AuditStore, str] | None:
+def _hold_store(target: str | None, *, serving: bool) -> tuple[AuditStore, str]:
     """The deployment's database for the break-glass, refused when it cannot be the one a server
     runs on: not given, a SQLite file that does not exist (it would be created, and hold
     nothing), a database without Mendari's tables (nothing is created in it), and, to set a hold
@@ -414,31 +474,26 @@ def _hold_store(target: str | None, *, serving: bool) -> tuple[AuditStore, str] 
     shown (no password)."""
     target = target or os.environ.get("DATABASE_URL", "").strip() or None
     if target is None:
-        print("error: give --db (the server's database) or set DATABASE_URL", file=sys.stderr)
-        return None
+        raise MendariError("give --db (the server's database) or set DATABASE_URL")
     shown = _servers_database(target, used=serving)
-    return None if shown is None else (AuditStore(target), shown)
+    return AuditStore(target), shown
 
 
-def _servers_database(target: str, *, used: bool) -> str | None:
+def _servers_database(target: str, *, used: bool) -> str:
     """`target` as shown (no password) when it can be a server's database: it exists, has
     Mendari's tables (read before anything is created in it) and, with `used`, holds a
-    decision, a deployment or a hold. None, after saying why, when it cannot."""
+    decision, a deployment or a hold. A `MendariError` saying why when it cannot."""
     shown = _shown(target)
     if not target.startswith(("postgres://", "postgresql://")) and not Path(target).is_file():
-        print(f"error: no database at {shown}: give the server's --db", file=sys.stderr)
-        return None
+        raise MendariError(f"no database at {shown}: give the server's --db")
     try:
         mendari, held = _probe(target)
     except Exception as error:
-        print(f"error: cannot read {shown} ({type(error).__name__})", file=sys.stderr)
-        return None
+        raise MendariError(f"cannot read {shown} ({type(error).__name__})") from None
     if not mendari:
-        print(f"error: {shown} is not a Mendari database", file=sys.stderr)
-        return None
+        raise MendariError(f"{shown} is not a Mendari database")
     if used and not held:
-        print(f"error: {shown} has never been used: is it the server's?", file=sys.stderr)
-        return None
+        raise MendariError(f"{shown} has never been used: is it the server's?")
     return shown
 
 
@@ -450,73 +505,57 @@ def _command_line_actor() -> str:
 def cmd_automation_hold(args: argparse.Namespace) -> int:
     """The break-glass: written straight to the database, so it works with the server down.
     Running servers see it within a few seconds."""
-    from mendari.errors import ReviewError
-
     if args.digest is not None and not re.fullmatch(r"sha256:[0-9a-f]{64}", args.digest):
-        print("error: --digest is a pack digest (sha256:<64 hex>)", file=sys.stderr)
-        return 1
-    found = _hold_store(args.db, serving=True)
-    if found is None:
-        return 1
-    store, shown = found
+        raise MendariError("--digest is a pack digest (sha256:<64 hex>)")
+    store, shown = _hold_store(args.db, serving=True)
     if args.pack is not None:
         served = {d["pack_digest"] for d in store.deployments(args.pack, limit=1000)}
         if not served:
-            print(f"error: {shown} has never served {args.pack}", file=sys.stderr)
-            return 1
+            raise MendariError(f"{shown} has never served {args.pack}")
         if args.digest is not None and args.digest not in served:
-            print(f"error: {shown} has never served {args.pack} at {args.digest}", file=sys.stderr)
-            return 1
+            raise MendariError(f"{shown} has never served {args.pack} at {args.digest}")
     org = None if args.all_orgs else args.org
-    try:
-        hold = store.hold_automation(
-            org=org,
-            pack_id=args.pack,
-            pack_digest=args.digest,
-            reason=args.reason,
-            set_by=_command_line_actor(),
-        )
-    except ReviewError as error:
-        print(f"error: {error}", file=sys.stderr)
-        return 1
+    hold = store.hold_automation(
+        org=org,
+        pack_id=args.pack,
+        pack_digest=args.digest,
+        reason=args.reason,
+        set_by=_command_line_actor(),
+    )
     _print_json(hold)
     print(f"held in {shown}", file=sys.stderr)
     return 0
 
 
 def cmd_automation_lift(args: argparse.Namespace) -> int:
-    found = _hold_store(args.db, serving=False)
-    if found is None:
-        return 1
-    store, shown = found
+    store, shown = _hold_store(args.db, serving=False)
     if not store.lift_hold(args.hold_id, lifted_by=_command_line_actor(), org=None):
-        print(f"error: no hold {args.hold_id} in force in {shown}", file=sys.stderr)
-        return 1
+        raise MendariError(f"no hold {args.hold_id} in force in {shown}")
     print(f"lifted {args.hold_id} in {shown}", file=sys.stderr)
     return 0
 
 
 def cmd_automation_list(args: argparse.Namespace) -> int:
-    found = _hold_store(args.db, serving=False)
-    if found is None:
-        return 1
-    _print_json(found[0].holds(everyone=True))
+    store, _ = _hold_store(args.db, serving=False)
+    _print_json(store.holds(everyone=True))
     return 0
 
 
 def cmd_audit_export(args: argparse.Namespace) -> int:
     from mendari.standards import audit_fhir
 
-    events = AuditStore(args.db).iter_events(pack_id=args.pack, since=args.since, until=args.until)
-    lines = (json.dumps(r, separators=(",", ":")) + "\n" for r in audit_fhir.resources(events))
-    if not args.out:
-        sys.stdout.writelines(lines)
-        return 0
-    count = 0
-    with open(args.out, "w", encoding="utf-8") as out:
-        for line in lines:
-            out.write(line)
-            count += 1
+    with _read_store(args.db) as store:
+        store.require_current("audit export")
+        events = store.iter_events(pack_id=args.pack, since=args.since, until=args.until)
+        lines = (json.dumps(r, separators=(",", ":")) + "\n" for r in audit_fhir.resources(events))
+        if not args.out:
+            sys.stdout.writelines(lines)
+            return 0
+        count = 0
+        with open(args.out, "w", encoding="utf-8") as out:
+            for line in lines:
+                out.write(line)
+                count += 1
     print(f"{count} resources written to {args.out}", file=sys.stderr)
     return 0
 
@@ -525,7 +564,8 @@ def cmd_feedback_export(args: argparse.Namespace) -> int:
     from mendari.evals.feedback import feedback_dataset
 
     pack = resolve_pack(args.pack)
-    with AuditStore(args.db) as store:
+    with _read_store(args.db) as store:
+        store.require_current("feedback export")
         records, skipped = feedback_dataset(store, pack_id=pack.id, rating=args.rating)
     _write_jsonl(Path(args.out), records)
     print(
@@ -752,7 +792,8 @@ def cmd_omop_run(args: argparse.Namespace) -> int:
 
     pack = resolve_pack(args.pack)
     records = _omop_records(args)
-    decision = Decision(pack, providers=_providers(pack, parse_providers(args.provider)))
+    providers = _providers(pack, parse_providers(args.provider), typed=bool(args.provider))
+    decision = Decision(pack, providers=providers)
     decided = [decision.decide(r["input"]).to_dict() for r in records]
     report = {
         "pack": {"id": pack.id, "version": pack.version, "digest": pack.digest},
@@ -996,9 +1037,9 @@ def cmd_monitor(args: argparse.Namespace) -> int:
     webhook = args.webhook or os.environ.get("MENDARI_ALERT_WEBHOOK", "").strip()
     if webhook:
         check_webhook(webhook)  # before any work, so a typo fails at once
-    store = AuditStore(args.db)
     packs = [resolve_pack(args.pack)] if args.pack else discover().packs
-    with tenancy.acting_for(args.org):
+    with _read_store(args.db) as store, tenancy.acting_for(args.org):
+        store.require_current("monitor")
         reports = [monitor(store, pack, days=args.days) for pack in packs]
     alerting = [r for r in reports if r["alerts"]]
     for report in reports:
@@ -1028,6 +1069,7 @@ def cmd_phi_purge(args: argparse.Namespace) -> int:
         raise MendariError(f"--days is a number of days, 0 to {MAX_RETENTION_DAYS}")
     if days == 0 and not args.yes:
         raise MendariError("--days 0 deletes every kept input and erases every note: add --yes")
+    _servers_database(args.db, used=False)  # a mistyped --db is refused, never created
     summary = AuditStore(args.db, phi=phi_policy()).purge(days, source="command")
     print(
         f"{summary['inputs']} stored input(s) deleted and {summary['notes']} note(s) erased, "
@@ -1043,8 +1085,7 @@ def cmd_phi_rotate(args: argparse.Namespace) -> int:
     from mendari.core.phi import phi_policy
 
     policy = phi_policy()
-    if _servers_database(args.db, used=True) is None:
-        return 1
+    _servers_database(args.db, used=True)
     store = AuditStore(args.db, phi=policy, marks=False)  # --check marks nothing
     if args.check:
         checked = store.phi_check()
@@ -1073,6 +1114,7 @@ def cmd_phi_erase(args: argparse.Namespace) -> int:
 
     if not SYSTEM_ID.fullmatch(args.by):
         raise MendariError("--by is an identifier, such as an email address")
+    _servers_database(args.db, used=True)  # a mistyped --db is refused, never created
     erased = AuditStore(args.db, phi=phi_policy()).erase_input(
         args.decision, erased_by=args.by, reason=args.reason
     )
@@ -1093,6 +1135,7 @@ def cmd_phi_erase(args: argparse.Namespace) -> int:
 def cmd_notes_erase(args: argparse.Namespace) -> int:
     from mendari.core.phi import phi_policy
 
+    _servers_database(args.db, used=True)  # a mistyped --db is refused, never created
     erased = AuditStore(args.db, phi=phi_policy()).erase_note(
         args.id, erased_by=args.by, reason=args.reason
     )
@@ -1222,10 +1265,44 @@ def _write_jsonl(path: Path, records: Sequence[dict[str, Any]]) -> None:
 # -- parser ----------------------------------------------------------------------------------
 
 
+def _port(text: str) -> int:
+    """A TCP port, checked before a server starts (argparse names the flag)."""
+    try:
+        port = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a port: {text!r}") from None
+    if not 0 < port < 65536:
+        raise argparse.ArgumentTypeError(f"not a port: {port} (1 to 65535)")
+    return port
+
+
+class UsageError(MendariError):
+    """A command line argparse refuses: one line, naming the command and where its help is."""
+
+
+class _Parser(argparse.ArgumentParser):
+    """Every parser and subparser of `mendari` (add_subparsers makes its subparsers of this
+    class): a usage error is one line and exit 1, like any other error (LP-15), and every
+    command takes `--debug`."""
+
+    def __init__(self, *args: Any, **kwargs: Any):
+        super().__init__(*args, **kwargs)
+        self.add_argument(
+            "--debug",
+            action="store_true",
+            default=argparse.SUPPRESS,
+            help="show the full traceback of an error (also MENDARI_DEBUG=1)",
+        )
+
+    def error(self, message: str) -> NoReturn:
+        raise UsageError(f"{self.prog}: {message} (see {self.prog} --help)")
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = _Parser(
         prog="mendari", description="Package, evaluate and deploy healthcare Decision Packs."
     )
+    parser.add_argument("--version", action="version", version=f"mendari {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
     def pack_command(name: str, handler: Any, help_text: str, providers: bool = False) -> Any:
@@ -1338,7 +1415,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     serve = sub.add_parser("serve", help="run the API, CDS Hooks services and dashboard")
     serve.add_argument("--host", default="127.0.0.1")
-    serve.add_argument("--port", type=int, default=8000)
+    serve.add_argument("--port", type=_port, default=8000)
     serve.add_argument(
         "--db", default="var/mendari.db", help="audit database: SQLite path or postgresql:// URL"
     )
@@ -1483,7 +1560,7 @@ def build_parser() -> argparse.ArgumentParser:
     pilot.set_defaults(handler=cmd_sandbox_pilot_check)
     payer = sandbox.add_parser("payer", help="a mock payer answering Da Vinci PAS requests")
     payer.add_argument("--host", default="127.0.0.1")
-    payer.add_argument("--port", type=int, default=8200)
+    payer.add_argument("--port", type=_port, default=8200)
     payer.set_defaults(handler=cmd_sandbox_payer)
     omop_write = sandbox.add_parser(
         "omop", help="write a dataset's records into an OMOP CDM database (synthetic data)"
@@ -1630,7 +1707,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--db", default="var/registry.db", help="SQLite path or postgresql:// URL"
     )
     serve_registry.add_argument("--host", default="127.0.0.1")
-    serve_registry.add_argument("--port", type=int, default=8100)
+    serve_registry.add_argument("--port", type=_port, default=8100)
     serve_registry.set_defaults(handler=cmd_registry_serve)
 
     monitor_cmd = sub.add_parser("monitor", help="check deployed packs for drift and degradation")
@@ -1745,12 +1822,65 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    """Runs one command. Any error is one line per problem on stderr and exit 1, never a
+    traceback (LP-15); `--debug` (or MENDARI_DEBUG=1) lets the error through with its
+    traceback. Ctrl-C is `interrupted` and exit 130. A line names what the user gave (a file,
+    a flag, a URL's origin, a database without its password) and never an exception's own text
+    unless Mendari wrote it: an error from a library can carry case text."""
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    debug = "--debug" in arguments or os.environ.get("MENDARI_DEBUG", "").strip() not in ("", "0")
     try:
+        args = build_parser().parse_args(arguments)
         return int(args.handler(args))
-    except MendariError as error:
-        print(f"error: {error}", file=sys.stderr)
+    except KeyboardInterrupt:
+        if debug:
+            raise
+        print("interrupted", file=sys.stderr)
+        return 130
+    except Exception as error:
+        if debug:
+            raise
+        for line in _problem_lines(error):
+            print(f"error: {line}", file=sys.stderr)
         return 1
+
+
+def _problem_lines(error: Exception) -> list[str]:
+    """What an error says, one line per problem, with the fix where one is known."""
+    if isinstance(error, PackValidationError):
+        return [_one_line(f"{error.pack}: {problem}") for problem in error.problems]
+    if isinstance(error, MendariError):
+        return [_one_line(str(error))]
+    if isinstance(error, OSError) and error.filename is not None:
+        fixes = {
+            errno.ENOENT: "check the path",
+            errno.EISDIR: "give a file, not a folder",
+            errno.ENOTDIR: "give a folder, not a file",
+            errno.EACCES: "check its permissions",
+            errno.EEXIST: "choose a path that does not exist",
+        }
+        fix = fixes.get(error.errno or 0, "check the path")
+        return [f"{error.filename}: {error.strerror or type(error).__name__}; {fix}"]
+    if isinstance(error, json.JSONDecodeError):
+        return [f"not valid JSON (line {error.lineno}, column {error.colno}: {error.msg})"]
+    if isinstance(error, UnicodeDecodeError):
+        return [f"a file is not UTF-8 text ({error.reason}); save it as UTF-8"]
+    kind = type(error).__name__
+    module = type(error).__module__
+    if module.startswith(("sqlite3", "psycopg")):
+        return [f"the database could not be used ({kind}); check --db and that it is reachable"]
+    if module.startswith("httpx"):
+        try:  # the origin only: a full URL can carry a query or a token
+            url = error.request.url  # type: ignore[attr-defined]
+            where = f"{url.scheme}://{url.netloc.decode()}"
+        except (AttributeError, RuntimeError):  # an error raised without its request
+            where = "the server"
+        return [f"could not reach {where} ({kind}); is it running, and the URL right?"]
+    return [f"unexpected {kind}; run again with --debug for the traceback"]
+
+
+def _one_line(text: str) -> str:
+    return " ".join(text.split())
 
 
 if __name__ == "__main__":
