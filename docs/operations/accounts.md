@@ -153,8 +153,10 @@ Then:
   `GET /api/audit/verify` and `GET /api/deployments` answer `404`; `/api/health` leaves out
   today's Jev and LLM calls and the last purge's counts (it keeps when and by what); and a
   hold set from the command line for every organization shows in `/api/holds` as what it
-  covers and since when, without the operator's reason or name. Claims mode shows them as
-  before.
+  covers and since when, without the operator's reason or name. The operator reads them with
+  `mendari audit verify`, `mendari automation list` and `mendari usage` (today's calls against
+  their limits, the last purge with its counts, the deployment records), each with `--db`.
+  Claims mode shows them as before.
 
 ## An organization's audit
 
@@ -164,8 +166,10 @@ reports, at `GET /api/audit/administrative` (paged, oldest first; `kind`, `subje
 `until`), and export them as FHIR AuditEvents of ids and codes at
 `GET /api/audit/administrative/export/fhir` (a key's or client's name, a hold's reason and an
 approval's reference stay out). Each event is attributed through the row it is about, never
-by its chain id alone; neither shows its place in the deployment's chain (`seq`), another
-organization's events or the deployment's own. A person's acknowledgement of the notice is
+by its chain id alone; neither shows its number in the deployment's chain (`seq`), another
+organization's events or the deployment's own. Each event's hash is shown, as `mendari audit
+verify` checks it; what that lets an organization infer about the chain around its own events
+is in the threat model (I4). A person's acknowledgement of the notice is
 theirs, across organizations, not one organization's, so it is not listed.
 
 The operator exports the same, for one organization or for the whole deployment (its own

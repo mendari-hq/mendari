@@ -21,7 +21,7 @@ The public sandbox and the project's own Vercel deployment are **synthetic only*
 **Health checks and request size.** Probes and load balancers call `/api/health` without a
 credential and get `status`, `version` and `sign_in` only. The settings (PHI mode, packs,
 providers, the FHIR servers Mendari calls, today's remote calls) are shown to someone signed in,
-or a key, that may read. A request body is 4 MiB at most: raise `MENDARI_MAX_BODY_BYTES` (in
+or a key, that may read; in memberships mode today's calls are the operator's (`mendari usage`). A request body is 4 MiB at most: raise `MENDARI_MAX_BODY_BYTES` (in
 bytes, 64 KiB or more) if your FHIR Bundles are larger, and give your proxy the same limit
 (nginx's `client_max_body_size`, say). A larger body gets a `413`.
 
@@ -647,7 +647,8 @@ Unless the screen (or the notes) is the keyword rules plus a model (`rules_and_j
 releases nothing: every case goes to a person, and each decision's reasons say what is missing.
 Signed in, `/api/health` shows which variant each slot runs (`providers`), whether the Jev
 defaults are on (`jev.defaults`) and the slots that run no model at all (`without_model`); that
-Jev actually answers shows in `jev.calls_today` and in the decisions' errors. The server also
+Jev actually answers shows in `jev.calls_today` (in memberships mode, `mendari usage`) and in
+the decisions' errors. The server also
 logs, at startup, each slot the Jev defaults turn on.
 
 ## 6. Monitoring and governance

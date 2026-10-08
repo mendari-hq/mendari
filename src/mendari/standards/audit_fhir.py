@@ -344,7 +344,8 @@ _ADMINISTRATIVE: dict[str, tuple[str, str, dict[str, str] | None]] = {
     "invitation.accepted": ("U", "Invitation accepted", _ROLES),
     "invitation.revoked": ("U", "Invitation revoked", {}),
     "access.requested": ("C", "Access requested", {}),
-    "access.handled": ("U", "Access request handled", _ROLES),
+    # Closing a request changes no role: a grant's role is its own `membership.created`.
+    "access.handled": ("U", "Access request handled", {}),
     "notice.acknowledged": ("C", "Notice acknowledged", None),
     "user.recorded": ("C", "Person recorded", {}),
     "deployment.recorded": ("C", "Deployment recorded", None),
@@ -366,6 +367,9 @@ _ACTORS = (
     "actor",
     "user",
 )
+# A kind whose actor is under a key that means something else elsewhere (`replaced_by` is the
+# replacement key's id on `key.rotated`): its agent, never one of its details.
+_ACTOR_KEY = {"client.keys_replaced": "replaced_by"}
 # What a payload says, as ids and codes (never `name`, `reason`, `reference` or `providers`).
 _ADMINISTRATIVE_DETAILS = (
     "id",
@@ -395,10 +399,13 @@ _ADMINISTRATIVE_DETAILS = (
     "email_digest",
     "name_digest",
     "key_id",
+    "to",
+    "from",
     "environment",
     "release",
     "retention_days",
     "inputs",
+    "details",
     "notes",
     "source",
 )
@@ -413,17 +420,26 @@ def administrative_resources(events: Iterable[Mapping[str, Any]]) -> Iterator[di
 def administrative_event(event: Mapping[str, Any]) -> dict[str, Any]:
     kind, payload = event["event"], event["payload"]
     action, display, dicom = _ADMINISTRATIVE.get(kind, ("E", kind, None))
-    actor = next((payload[key] for key in _ACTORS if payload.get(key)), None)
+    actor_key = _ACTOR_KEY.get(kind)
+    if actor_key is not None:
+        actor = payload.get(actor_key) or None
+    else:
+        actor = next((payload[key] for key in _ACTORS if payload.get(key)), None)
     details = [{"type": "hash", "valueString": event["hash"]}]
     for key in _ADMINISTRATIVE_DETAILS:
         value = payload.get(key)
-        if value is None or isinstance(value, Mapping):
+        if value is None or key == actor_key:
             continue
-        if isinstance(value, list | tuple):
+        if isinstance(value, Mapping):  # a PHI key rotation's `from`: each key id, how many
+            if kind != "phi.rotated":
+                continue
+            value = ",".join(f"{name}={count}" for name, count in value.items())
+        elif isinstance(value, list | tuple):
             value = ",".join(str(item) for item in value)
         elif isinstance(value, bool):
             value = str(value).lower()
-        details.append({"type": key, "valueString": str(value)})
+        if str(value):  # an R4 string is never empty (the "" organization, an empty list)
+            details.append({"type": key, "valueString": str(value)})
     subtype = [{"system": ADMINISTRATIVE_SYSTEM, "code": kind, "display": display}]
     summary = (
         f"{display} ({kind}, action {action}) on {event['subject']}, recorded "

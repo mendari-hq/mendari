@@ -10,22 +10,24 @@ Claims mode keeps them as before. On SQLite and Postgres (`db_target`), in both 
 
 from __future__ import annotations
 
+import base64
 import json
 from collections.abc import Iterator
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
-from mendari import AuditStore
+from mendari import AuditStore, Decision, Pack
 from mendari.cli import main
 from mendari.core import tenancy
 from mendari.core.audit import ADMINISTRATIVE_KINDS, OFF_DECISION_KINDS
 from mendari.server.app import create_app
 from mendari.standards import audit_fhir, fhir_structure
 from mendari.standards.terminology import Terminology
-from tests.conftest import member, signed_in
+from tests.conftest import member, message, signed_in
 from tests.test_chain_orgs import jwks
 
 IDP = "https://idp.example.org"
@@ -62,6 +64,7 @@ def seed(store: AuditStore, org: str) -> dict[str, str]:
         name=f"client {marker}", role="viewer", org=org, created_by="ops",
         scopes="system/Task.rs", jwks=jwks(),
     )  # fmt: skip
+    store.replace_client_keys(client["client_id"], org, replaced_by="keeper", jwks=jwks())
     store.revoke_client(client["client_id"], revoked_by="ops")
     hold = store.hold_automation(
         org=org, pack_id=None, pack_digest=None, reason=f"hold {marker}", set_by="ops"
@@ -154,6 +157,15 @@ def test_an_organization_reads_only_its_own_administrative_events(two: dict[str,
     assert listed(client, two["headers"][alpha], subject=made[bravo]["key"]) == []
     assert listed(client, two["headers"][alpha], since="2999-01-01T00:00:00Z") == []
     assert listed(client, two["headers"][alpha], until="2000-01-01T00:00:00+00:00") == []
+    # The same instant written at another offset is compared as stored (UTC), never as text.
+    first = datetime.fromisoformat(items[0]["created_at"])
+    last = datetime.fromisoformat(items[-1]["created_at"])
+    west, east = timezone(timedelta(hours=-4)), timezone(timedelta(hours=14))
+    after_last = (last + timedelta(seconds=1)).astimezone(west).isoformat()
+    before_first = (first - timedelta(seconds=1)).astimezone(east).isoformat()
+    assert listed(client, two["headers"][alpha], since=after_last) == []
+    assert listed(client, two["headers"][alpha], until=before_first) == []
+    assert listed(client, two["headers"][alpha], since=first.astimezone(west).isoformat()) == items
 
 
 def test_a_cursor_of_another_organization_is_refused_as_any_other(two: dict[str, Any]) -> None:
@@ -199,6 +211,64 @@ def test_the_administrative_export_is_r4_audit_events_of_ids_and_codes(
     }
     listed_hashes = [item["hash"] for item in listed(client, two["headers"][alpha])]
     assert [r["id"] for r in resources] == listed_hashes
+    # Who acted is the agent: `replaced_by` names a person on a key set's replacement, and the
+    # replacement key on a rotation, where it stays a detail.
+    replaced = next(r for r in resources if r["subtype"][0]["code"] == "client.keys_replaced")
+    assert replaced["agent"] == [{"who": {"display": "keeper"}, "requestor": True}]
+    assert "replaced_by" not in {d["type"] for d in replaced["entity"][0]["detail"]}
+    rotated = next(r for r in resources if r["subtype"][0]["code"] == "key.rotated")
+    replacement = next(d for d in rotated["entity"][0]["detail"] if d["type"] == "replaced_by")
+    assert f"key:{replacement['valueString']}" in exported
+    # Narrowed as the list is: by kind, by time.
+    for query in (
+        {"kind": ["key.revoked", "client.revoked"]},
+        {"since": "2999-01-01T00:00:00Z"},
+        {"until": "2000-01-01T00:00:00+00:00"},
+    ):
+        narrowed = client.get(
+            "/api/audit/administrative/export/fhir", params=query, headers=two["headers"][alpha]
+        )
+        ids = [json.loads(line)["id"] for line in narrowed.text.splitlines()]
+        assert ids == [item["hash"] for item in listed(client, two["headers"][alpha], **query)]
+
+
+def test_the_export_reads_every_page(two: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    store, alpha = two["store"], ORGS[0]
+    every = store.administrative_events(alpha, limit=500).rows
+    paged = AuditStore.administrative_events
+
+    def by_two(self: AuditStore, org: str | None, **filters: Any) -> Any:
+        return paged(self, org, **{**filters, "limit": 2})
+
+    monkeypatch.setattr(AuditStore, "administrative_events", by_two)
+    assert len(every) > 2 and list(store.iter_administrative_events(alpha)) == every
+    assert paged(store, alpha, limit=0).rows == [] and paged(store, alpha, limit=-1).after is None
+
+
+def item(kind: str, payload: dict[str, Any], subject: str = "x:1") -> dict[str, Any]:
+    """An administrative event as the list gives it, to render."""
+    created = "2026-10-01T00:00:00.000+00:00"
+    return {"subject": subject, "event": kind, "payload": payload, "created_at": created,
+            "hash": "a" * 64}  # fmt: skip
+
+
+def test_each_administrative_event_renders_as_what_happened() -> None:
+    """Codes that claim no more than happened; what an R4 string may be; a key rotation's ids."""
+    handled = audit_fhir.administrative_event(
+        item("access.handled", {"id": "r1", "org": "c", "outcome": "refused", "handled_by": "u"})
+    )
+    assert [code["code"] for code in handled["subtype"]] == ["access.handled"]  # no role changed
+    granted = audit_fhir.administrative_event(item("membership.created", {"id": "m", "org": "c"}))
+    assert "110136" in {code["code"] for code in granted["subtype"]}
+    for kind in ("key.created", "automation.held"):  # the "" organization, an empty list
+        event = audit_fhir.administrative_event(item(kind, {"id": "k", "org": "", "roles": []}))
+        assert fhir_structure.check(event) == [], kind
+        assert "org" not in {d["type"] for d in event["entity"][0]["detail"]}
+    payload = {"to": "k2", "from": {"k1": 3, "k0": 1}, "inputs": 3, "details": 1, "notes": 0}
+    rotated = audit_fhir.administrative_event(item("phi.rotated", payload, "keys"))
+    details = {d["type"]: d["valueString"] for d in rotated["entity"][0]["detail"]}
+    assert (details["to"], details["from"], details["details"]) == ("k2", "k1=3,k0=1", "1")
+    assert fhir_structure.check(rotated) == []
 
 
 def test_the_reader_leaves_out_an_event_whose_payload_names_another_organization(
@@ -225,6 +295,15 @@ def test_the_list_refuses_what_it_cannot_read(two: dict[str, Any]) -> None:
     assert asked(since="2026-10-01") == 400  # not an instant
     assert asked(until="2026-10-01T00:00:00") == 400  # no offset
     assert asked(subject="x" * 201) == 400
+    assert asked(since="0001-01-01T00:00:00+01:00") == 400  # before year 1 in UTC
+    assert asked(until="9999-12-31T23:59:59.9999+00:00") == 400  # rounds past year 9999
+    assert asked(after=base64.urlsafe_b64encode(b"[" * 10_000).decode()) == 400
+    exported = client.get(
+        "/api/audit/administrative/export/fhir",
+        params={"since": "0001-01-01T00:00:00+01:00"},
+        headers=headers,
+    )
+    assert exported.status_code == 400
     assert asked(limit=0) == asked(limit=10_000) == 200  # clamped to 1 and 500
 
 
@@ -245,11 +324,16 @@ def test_memberships_mode_leaves_the_deployment_wide_views_to_the_operator(
     """Owner decision 5 (todo.md): the whole chain's verification, the totals and the
     deployment's holds are the operator's in memberships mode; claims mode is unchanged."""
     client, headers = two["client"], two["headers"][ORGS[0]]
+    own = two["store"].hold_automation(
+        org=ORGS[0], pack_id=None, pack_digest=None, reason="clinic drill", set_by="lead"
+    )
     verified = client.get("/api/audit/verify", headers=headers)
     health = client.get("/api/health", headers=headers).json()
     holds = client.get("/api/holds", headers=headers).json()
     deployments = client.get("/api/deployments", headers=headers)
     everyone = next(hold for hold in holds if hold["id"] == two["everyone"]["id"])
+    mine = next(hold for hold in holds if hold["id"] == own["id"])
+    assert (mine["reason"], mine["set_by"]) == ("clinic drill", "lead")  # its own, in full
     if two["accounts"] == "claims":
         assert verified.status_code == 200 and verified.json()["ok"]
         assert "calls_today" in health["jev"] and "calls_today" in health["llm"]
@@ -287,12 +371,16 @@ def test_every_kind_on_no_decision_has_an_administrative_code() -> None:
 
 
 def test_the_operator_exports_one_organization_or_every_event_on_no_decision(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], inbox_pack: Pack
 ) -> None:
     db = str(tmp_path / "cli.db")
     with AuditStore(db, bind_org=True) as store:
         made = {org: seed(store, org) for org in ORGS}
         store.purge(30, source="command")
+        decided = {}
+        for org in ORGS:
+            with tenancy.acting_for(org):
+                decided[org] = Decision(inbox_pack, store=store)(message("Refill please.")).id
 
     def exported(*options: str) -> list[dict[str, Any]]:
         assert main(["audit", "export", "--db", db, *options]) == 0
@@ -305,3 +393,11 @@ def test_the_operator_exports_one_organization_or_every_event_on_no_decision(
     codes = {r["subtype"][0]["code"] for r in every}
     assert "retention.purged" in codes and len(every) > len(alpha)
     assert main(["audit", "export", "--db", db, "--administrative", "--pack", INBOX]) == 2
+    capsys.readouterr()
+    trail = exported("--org", ORGS[0])  # a decision trail: that organization's only
+    events = [r for r in trail if r["resourceType"] == "AuditEvent"]
+    assert {r["entity"][0]["what"]["identifier"]["value"] for r in events} == {decided[ORGS[0]]}
+    assert main(["usage", "--db", db]) == 0
+    usage = json.loads(capsys.readouterr().out)
+    assert usage["jev"] == {"calls_today": 0, "daily_limit": usage["jev"]["daily_limit"]}
+    assert {"inputs", "notes"} <= set(usage["last_purge"]) and "llm" in usage

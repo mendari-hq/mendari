@@ -744,7 +744,8 @@ def create_app(
         without a credential (no database work either). A principal that may `read` (everyone
         in open mode) also gets the deployment's settings: packs (and how many come from
         where), storage, the FHIR validation mode, PHI mode, the input hash's kind and key id,
-        which provider answers each pack's questions, today's remote calls, the rate limits
+        which provider answers each pack's questions, today's remote calls (in memberships
+        mode the operator's, `mendari usage`, as the last purge's counts are), the rate limits
         (where the caller's address is read, and the address seen on this request), the session
         policy, the organization's daily quotas with what it used today, and whether SMART
         Backend Services is on (`backend_services`: its token endpoint, or null).
@@ -2209,10 +2210,12 @@ def administrative_cursor(text: str | None) -> tuple[str, str] | None:
     or a `400`, the same for anything else, as the store answers one not of the list."""
     if text is None:
         return None
-    try:
-        key = json.loads(base64.urlsafe_b64decode(text + "=" * (-len(text) % 4)))
-    except (ValueError, UnicodeDecodeError):  # binascii.Error is a ValueError
-        key = None
+    key = None
+    if len(text) <= 1000:  # one of this list's is a few hundred characters
+        try:
+            key = json.loads(base64.urlsafe_b64decode(text + "=" * (-len(text) % 4)))
+        except (ValueError, RecursionError):  # binascii and Unicode errors are ValueErrors
+            key = None
     if not (
         isinstance(key, dict)
         and set(key) == {"subject", "hash"}
@@ -2248,12 +2251,12 @@ def instant(name: str, value: str | None) -> str | None:
     if value is None:
         return None
     try:
-        parsed: datetime | None = datetime.fromisoformat(value)
-    except ValueError:
-        parsed = None
-    if parsed is None or parsed.tzinfo is None:
-        raise HTTPException(400, f"{name} is an instant with its offset: 2026-10-01T00:00:00Z")
-    return stored_instant(parsed)
+        parsed = datetime.fromisoformat(value)
+        if parsed.tzinfo is not None:
+            return stored_instant(parsed)
+    except (ValueError, OverflowError):  # not an instant, or past datetime's range in UTC
+        pass
+    raise HTTPException(400, f"{name} is an instant with its offset: 2026-10-01T00:00:00Z")
 
 
 def operators_hold(hold: Mapping[str, Any]) -> dict[str, Any]:

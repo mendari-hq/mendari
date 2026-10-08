@@ -3873,6 +3873,8 @@ class AuditStore:
         `kinds` and `subject` (a chain id: `key:<id>`) narrow the list; `since` / `until` bound
         `created_at` (the stored format). An event whose payload names another organization
         than its row's is left out (`verify` reports it)."""
+        if limit < 1:
+            return Page()
         with self._db.session(exclusive=False) as db:
             listed = _administrative(db, org, subject)
             if listed is None:  # no such subject here (or no table of its kind)

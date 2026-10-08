@@ -17,7 +17,7 @@ from typing import Any, NoReturn
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 from mendari import __version__
-from mendari.core import tenancy
+from mendari.core import clock, tenancy
 from mendari.core.audit import SYSTEM_ID, AuditStore
 from mendari.core.decision import Decision
 from mendari.core.pack import Pack
@@ -797,6 +797,29 @@ def cmd_audit_export(args: argparse.Namespace) -> int:
                 out.write(line)
                 count += 1
     print(f"{count} resources written to {args.out}", file=sys.stderr)
+    return 0
+
+
+def cmd_usage(args: argparse.Namespace) -> int:
+    """The deployment's totals, read-only: today's metered calls (Jev, LLM) against this
+    environment's daily limits, the last purge with its counts, and the latest deployment
+    records. In memberships mode the server shows them to no organization (ADR-0008)."""
+    limits = daily_limits()
+    with _read_store(args.db) as store:
+        _print_json(
+            {
+                "day": clock.today().isoformat(),
+                **{
+                    provider: {
+                        "calls_today": store.usage(provider),
+                        "daily_limit": limits[provider],
+                    }
+                    for provider in ("jev", "llm")
+                },
+                "last_purge": store.last_purge(),
+                "deployments": store.deployments(None, limit=args.deployments),
+            }
+        )
     return 0
 
 
@@ -1753,6 +1776,16 @@ def build_parser() -> argparse.ArgumentParser:
     audit_export.add_argument("--until", help="events before this time (ISO 8601, UTC)")
     audit_export.add_argument("--out", help="write to this file (default: standard output)")
     audit_export.set_defaults(handler=cmd_audit_export)
+
+    usage = sub.add_parser(
+        "usage",
+        help="the deployment's totals: today's metered calls, the last purge, its deployments",
+    )
+    usage.add_argument("--db", default="var/mendari.db", help="SQLite path or postgresql:// URL")
+    usage.add_argument(
+        "--deployments", type=int, default=20, help="how many deployment records (newest first)"
+    )
+    usage.set_defaults(handler=cmd_usage)
 
     automation = sub.add_parser(
         "automation", help="hold or lift automation (works with the server down)"
