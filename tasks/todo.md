@@ -517,7 +517,7 @@ Connect) is not supported yet.
       one, and the call stands) on each answer, and `vote` names each member that answered with
       its model. No format bump: the spec already defined `models` as the models that answered;
       earlier `llm`/`vote` runs named the configured one (CHANGELOG).
-    - [x] **10c-ii** (#PR) No default model: an `llm` variant asks the model it pins, else
+    - [x] **10c-ii** (#171) No default model: an `llm` variant asks the model it pins, else
       `LLM_MODEL` (empty is unset), else it is `not_configured`, in `preflight` and wherever a
       request is built, so no request carries no model and nothing is charged. A decision that
       needs it goes to a person; inside `rules_and_llm` the rules still answer. `mendari

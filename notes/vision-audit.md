@@ -1334,7 +1334,7 @@ Every change passes every line that applies before it merges. "Today" says wheth
 
 **4. Model-agnostic behaviour**
 
-- [ ] No vendor or model name in product code outside `src/mendari/providers/`, and no default model. The default model is gone (LP-10c-ii, #PR; P1.2, S5.default). Left to check: the dashboard formats Jev's own model ids (`src/mendari/dashboard/pack.js`).
+- [ ] No vendor or model name in product code outside `src/mendari/providers/`, and no default model. The default model is gone (LP-10c-ii, #171; P1.2, S5.default). Left to check: the dashboard formats Jev's own model ids (`src/mendari/dashboard/pack.js`).
 - [ ] A new provider implements the `Provider` interface in `src/mendari/providers/base.py` and raises only `ProviderError`.
 - [ ] Anything scored is scored in every arm the pack supports; an unsupported arm shows "not applicable".
 - [ ] The model that actually answered is recorded per decision and per report.
