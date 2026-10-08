@@ -475,7 +475,7 @@ operations, LP-22 site network, LP-23 EHR pilot.
       each (as 10b-i did for the local-site percentages) is a wording change per pack.
   - [ ] **LP-10c** The model that answered, on each answer and in each report; and removing
     `DEFAULT_MODEL` (an `llm` variant with no model fails as `not_configured`, in `preflight`).
-    - [ ] **10c-i** (PR open) The model that answered: Jev already recorded it; the `llm`
+    - [x] **10c-i** (#158) The model that answered: Jev already recorded it; the `llm`
       provider now stamps the id the endpoint reports (well formed only, else the configured
       one, and the call stands) on each answer, and `vote` names each member that answered with
       its model. No format bump: the spec already defined `models` as the models that answered;
@@ -511,7 +511,7 @@ operations, LP-22 site network, LP-23 EHR pilot.
     write refuse a protected database without its input-hash key; the preflight counts
     evaluation reports and names an id no record can have (`"recordable": false`).
   - [ ] **12e** `MENDARI_ACCOUNTS=memberships`, in two PRs.
-    - [ ] **12e-i** (PR open) The server: sign-in by records (the person recorded only when a
+    - [x] **12e-i** (#163, merged 2026-10-07) The server: sign-in by records (the person recorded only when a
       membership waits for their verified address, they hold one, or were recorded before;
       what waits bound; one membership selected), a sealed `member` session holding the
       chosen organization and membership, never roles (read each request); one check in the
@@ -524,7 +524,14 @@ operations, LP-22 site network, LP-23 EHR pilot.
     - [ ] **12e-ii** The dashboard: the no-access view with the request form, the chooser
       (whenever a person holds a membership and none is chosen), the switcher, the
       access-ended and window-moved banners, "Use another account"; browser tests.
-  - [ ] **12f** Invitations and member management (no e-mail sent).
+  - [ ] **12f** Invitations and member management (no e-mail sent), in two PRs, so the server
+    does not wait on 12e-ii's dashboard files:
+    - [ ] **12f-i** The server: an administrator's routes to invite (the link shown once),
+      list and revoke invitations, list members, change roles, remove a member, and handle
+      access requests; a signed-in person's route to accept an invitation made for their
+      verified address. Built on 12d's store methods.
+    - [ ] **12f-ii** The dashboard: the members and invitations views, the `/invite` page;
+      the browser test of the whole flow (an expired link and a wrong address included).
   - [ ] **12g** The organization bound into each chained event (memberships mode), checked by
     `verify`; per-organization administrative reader and export; the generated two-organization
     isolation test with its reviewed allow-list.
