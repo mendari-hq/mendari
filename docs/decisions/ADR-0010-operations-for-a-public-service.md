@@ -10,7 +10,9 @@ here, in the order they landed:
 - 21d, operational health in the monitor;
 - 21f, the monitor cron (`GET /api/internal/monitor` and `mendari monitor --each-org`, without
   the hosted schedule);
-- 21g, the usage ledger (`usage_ledger`, written with each decision and evaluation report).
+- 21g, the usage ledger (`usage_ledger`, written with each decision and evaluation report);
+- 21i, the usage screen (the Access view's Usage tab, `GET /api/usage` for administrators,
+  `mendari usage` for the operator).
 
 The defaults below hold unless the owner chooses otherwise; the steps that change the hosted
 site (the schedule, 21n) or its firewall (21o) wait for the owner.

@@ -1152,7 +1152,9 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     its tokens and price, both bounded); `AuditStore.usage_ledger` shows a cost only when every
     call was priced.
   - [ ] **21h** Evaluations count against their organization (`eval_jev`, `eval_llm` quotas).
-  - [ ] **21i** `GET /api/usage`, the admins' usage screen and the operator's CLI.
+  - [ ] **21i** `GET /api/usage` (administrators: their organization's ledger over `days`, 1 to
+    366, with totals by provider and purpose, a cost only where every call was priced), the
+    Access view's Usage tab, and `mendari usage --days --org` for the operator.
   - [ ] **21j** Audit checkpoints and incremental verify.
   - [ ] **21k** The signed daily checkpoint (`MENDARI_CHECKPOINT_KEY`).
   - [ ] **21l** Break-glass revocation commands (keys, clients, sessions).

@@ -661,7 +661,10 @@ sets another, at most $1 per 1,000 tokens; an LLM's when its gateway reports one
 $1,000 a call); otherwise it is unknown, never a partial sum and never zero. A call that a
 budget, a quota, the deadline or the request's size stops is never sent, so it is not counted; a
 call sent that then failed, or whose answer was refused, is counted, without a price and without
-tokens. The ledger holds no case data. Providers never write to the database.
+tokens. The ledger holds no case data. Providers never write to the database. An
+organization's administrators see theirs in the dashboard's Access view (**Usage**) and at
+`GET /api/usage?days=30` (1 to 366 local days, with totals by provider and purpose); the operator
+sees every organization's with `mendari usage --db "$DATABASE_URL" --days 30` (`--org` for one).
 
 **A deadline per decision.** A decision's remote calls (Jev, an LLM, the CQL engine) share one
 wall-clock deadline, `MENDARI_DECISION_DEADLINE_S` (whole seconds, 10 to 270; 120 unless set):
