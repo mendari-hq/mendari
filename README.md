@@ -901,7 +901,8 @@ they differ, an exact McNemar test, Holm-adjusted, and the cases that changed.
 `mendari leaderboard` compares provider configurations on the same records and publishes
 the result in `evals/leaderboard.json` and the Decision Card. Configurations whose credentials
 exist only on a deployment (such as Jev through Vercel Connect) run through the deployment's
-budgeted evaluation endpoint, and their reports are merged in with `--report`:
+budgeted evaluation endpoint, and their reports are merged in with `--report`. An `llm` run asks
+the model `LLM_MODEL` names (there is no default model):
 
 <!-- check: skip secrets: calls an LLM and a Vercel deployment with your credentials -->
 ```bash
@@ -1041,7 +1042,7 @@ Ollama, vLLM or llama.cpp to run an open-source model on your own hardware inste
 
 | Variable | Purpose |
 |---|---|
-| `LLM_MODEL` | Default model for `llm` variants (default `anthropic/claude-sonnet-5`; a variant's `model` wins) |
+| `LLM_MODEL` | Model for `llm` variants that pin none (a variant's `model` wins). There is no default: without either, the variant is `not_configured` and its decisions go to a person |
 | `LLM_BASE_URL` | OpenAI-compatible endpoint instead of the AI Gateway, e.g. `http://localhost:11434/v1` |
 | `AI_GATEWAY_API_KEY` | Gateway key for local use (on Vercel, the OIDC token is used) |
 | `LLM_API_KEY` | Key for a non-gateway endpoint, if it needs one |

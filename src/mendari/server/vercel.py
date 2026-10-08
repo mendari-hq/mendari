@@ -39,7 +39,9 @@ Configuration comes from the environment:
   refused.
 - `CRON_SECRET` (16 characters or more): turns on the daily retention purge (`vercel.json`
   crons, `/api/internal/retention`); `MENDARI_RETENTION_DAYS` (default 30).
-- `LLM_MODEL`: default model for `llm` variants (an AI Gateway id, `<vendor>/<model>`).
+- `LLM_MODEL`: the model for `llm` variants that pin none (an AI Gateway id,
+  `<vendor>/<model>`). There is no built-in default: without it they are `not_configured`, and
+  their decisions go to a person.
 - `JEV_API_URL`, `JEV_MODEL`, `JEV_CONNECTOR`: see `mendari.providers.jev`.
 """
 
