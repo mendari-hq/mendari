@@ -98,6 +98,10 @@
   Every variant's config is checked at load against its provider's closed config
   (`providers.config_problems`, published as `docs/spec/provider-configs.schema.json`): such a
   pack is refused for a problem, an owned one warned.
+  - With `MENDARI_PROVIDER_ALLOWED_ORIGINS` set (`providers/http.py`), every Jev, LLM and Vercel
+    Connect request to an origin it does not list is refused before it is opened
+    (`invalid_endpoint`), and an `LLM_BASE_URL` or `JEV_API_URL` off it stops startup. Unset,
+    the endpoints are only the deployment's own variables, as before.
 - **The server** is open by default and binds to localhost. Production sits behind Vercel
   Authentication, and the docker sandbox publishes ports on 127.0.0.1 only.
   - With an OIDC issuer set (`server/auth.py`), every request passes one guard: a signed-in
@@ -117,7 +121,9 @@
   - Plain http is allowed only for loopback and single-label (compose) hosts.
   - Requests stay under the server's base URL, redirects are refused, and responses are capped
     at 5 MB of JSON.
-  - A prefetch template's `{{context.x}}` tokens accept FHIR ids only.
+  - A prefetch template's `{{context.x}}` tokens accept FHIR ids only, and the template is a
+    read or search relative to the server (`core/spec.py` `PREFETCH`): a pack the deployment does
+    not own is refused at load for any other, an owned one warned.
   - Errors never echo the server's body or the token.
 - **SMART on FHIR launches** (`standards/smart.py`, `server/smart_routes.py`) use PKCE S256, a
   single-use `state` and a `nonce`.

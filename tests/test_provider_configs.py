@@ -298,7 +298,8 @@ def test_an_owned_packs_unread_key_warns_and_it_still_serves(
     with caplog.at_level("WARNING", logger="mendari.providers"):
         app = create_app(db_path=tmp_path / "w.db", packs_paths=[SearchPath(served, "local")])
     assert any(
-        f"{PACK_ID}@{owned.version} loads with provider config problems" in record.getMessage()
+        f"{PACK_ID}@{owned.version} loads with problems" in record.getMessage()
+        and owned.warnings[0] in record.getMessage()
         for record in caplog.records
     )
     client = TestClient(app)

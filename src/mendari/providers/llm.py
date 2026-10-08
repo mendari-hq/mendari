@@ -17,7 +17,8 @@ the input, and anything outside it is an `invalid_response`.
 
 Configuration, in order of precedence:
 - model: the variant's `model`, then `LLM_MODEL`, then `anthropic/claude-sonnet-5`;
-- endpoint: `LLM_BASE_URL`, then the AI Gateway;
+- endpoint: `LLM_BASE_URL`, then the AI Gateway; whichever it is must be on
+  `MENDARI_PROVIDER_ALLOWED_ORIGINS` when the deployment sets it (`providers/http.py`);
 - credentials: `AI_GATEWAY_API_KEY`, then the deployment's Vercel OIDC token (gateway only);
   local servers use `LLM_API_KEY` when set and no key otherwise.
 

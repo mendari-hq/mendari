@@ -37,8 +37,10 @@ from mendari.core.spec import (
     PackManifest,
     Priority,
     licensed_systems,
+    prefetch_problems,
     version_key,
 )
+from mendari.core.templates import template_problems
 from mendari.errors import PackValidationError
 
 MANIFEST = "pack.yaml"
@@ -82,8 +84,9 @@ class Pack:
     digested: Digested | None = field(default=None, compare=False, repr=False)
     # Where the pack was found (`core/origin.py`), never what its manifest says.
     origin: Origin = field(default="local", compare=False)
-    # What `load_pack` found wrong with an owned pack's provider configs
-    # (`providers.config_problems`): it loads, and says so (`mendari list`, the startup log,
+    # What `load_pack` found wrong with an owned pack's prefetch and card templates
+    # (`manifest_template_problems`) and provider configs (`providers.config_problems`): it
+    # loads, and says so (`mendari list`, the startup log,
     # /api/health's `pack_warnings`); `mendari validate` refuses it. A pack the deployment does
     # not own is refused at load instead, so it has none.
     warnings: tuple[str, ...] = field(default=(), compare=False)
@@ -247,9 +250,12 @@ def load_pack(
     (`core/input_schema.py` `expansion_problems`).
 
     Every provider variant and composite member is checked against its provider's closed config
-    and its pack files (`providers.config_problems`, without the environment or the network):
-    a pack the deployment does not own is refused for any problem; an owned one loads, with the
-    problems as its `warnings`, and a variant with one fails when it is built, as before."""
+    and its pack files (`providers.config_problems`, without the environment or the network),
+    and its CDS Hooks prefetch and card templates are held to relative reads and searches and
+    bare placeholders (`manifest_template_problems`): a pack the deployment does not own is
+    refused for any problem, and its FHIR mapping and Task text are checked too; an owned one
+    loads, with the problems as its `warnings`, and a variant with one fails when it is built,
+    as before."""
     root = Path(path).resolve()
     links = _outside_links(root)
     if links:
@@ -281,6 +287,14 @@ def load_pack(
         raise PackValidationError(label, _format_errors(error)) from None
     if (problem := _shadow_problem(manifest, origin, digest, root)) is not None:
         raise PackValidationError(manifest.id, [problem])
+    # How the pack is held, and the engine its patterns run on: from where it was found and the
+    # digest hashed above, never from its manifest (`core/origin.py` `bounded`, ADR-0009).
+    bounded = origin_bounded(manifest.id, origin, digest)
+    # Its prefetch and card templates: a pack the deployment does not own is refused for a
+    # problem, an owned one warned (with its config problems, below).
+    held = manifest_template_problems(manifest)
+    if bounded and held:
+        raise PackValidationError(manifest.id, held)
     declared = {
         url
         for use in manifest.code_systems
@@ -315,10 +329,8 @@ def load_pack(
         relative: parse_yaml(_read(root, relative, label, digested), relative, manifest.id)
         for relative in _rules_files(manifest)
     }
-    # The engine its patterns run on: from where it was found and the digest hashed above, never
-    # from its manifest (`core/origin.py` `bounded`, ADR-0009).
-    bounded = origin_bounded(manifest.id, origin, digest)
-    # Compiled as they run, before jsonschema compiles the schema's too.
+    # Compiled as they run (on the engine `bounded` says), before jsonschema compiles the
+    # schema's too.
     refused = _pattern_problems(input_schema, parsed, community=bounded)
     problems = list(refused)
     if bounded:
@@ -364,11 +376,36 @@ def load_pack(
     from mendari.providers import config_problems  # `providers/base.py` imports this module
 
     problems = config_problems(pack, trained=not missing_models_ok)
-    if not problems:
-        return pack
     if bounded:
-        raise PackValidationError(manifest.id, problems)
-    return replace(pack, warnings=tuple(problems))
+        if problems:
+            raise PackValidationError(manifest.id, problems)
+        if manifest.inputs.fhir is not None:
+            # Its FHIR mapping, and its Task text held to bare placeholders, as `mendari
+            # validate` reads them: refused here, before anything renders it.
+            from mendari.standards.fhir import FhirAdapter  # imports this module
+
+            FhirAdapter.for_pack(pack)
+        return pack
+    warnings = held + problems
+    return replace(pack, warnings=tuple(warnings)) if warnings else pack
+
+
+def manifest_template_problems(manifest: PackManifest) -> list[str]:
+    """What a pack's manifest templates are held to beyond their shape (LP-16e): each CDS Hooks
+    prefetch template is a read or search relative to the EHR's FHIR server
+    (`spec.prefetch_problems`), and each card summary uses bare placeholders
+    (`templates.template_problems`; their names are checked with the manifest). `load_pack`
+    refuses a pack the deployment does not own for any and warns an owned one; `mendari
+    validate` refuses both. The FHIR Task text is the mapping's (`standards/fhir.py`)."""
+    hooks = manifest.cds_hooks
+    problems = prefetch_problems(hooks)
+    if hooks is not None and hooks.card is not None:
+        problems += [
+            f"cds_hooks.card.summaries.{key} {problem}"
+            for key, summary in hooks.card.summaries.items()
+            for problem in template_problems(summary, manifest.questions)
+        ]
+    return problems
 
 
 def _shadow_problem(manifest: PackManifest, origin: Origin, digest: str, root: Path) -> str | None:

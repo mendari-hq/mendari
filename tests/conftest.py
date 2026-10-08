@@ -39,16 +39,16 @@ LOCAL_DATASET = ROOT / "datasets" / "local-site-example.jsonl"
 POSTGRES_URL = os.environ.get("MENDARI_TEST_DATABASE_URL", "").strip()
 # A developer's shell may hold a deployment's own systems: its database (Neon's integration
 # exports these), the AI Gateway's key or a Vercel OIDC token (`vercel env pull`), an LLM or Jev
-# endpoint and key, the alert webhook, the registry, the payer. No test may reach them, whatever
-# a module opens at import (the Vercel entrypoint builds its app on DATABASE_URL) or a
-# subprocess inherits: they are gone before anything is collected, and so are the old
-# OPENHEALTH_* names, which `mendari.legacy` would copy back in a subprocess. A test that needs
-# one sets its own.
+# endpoint and key (and the origins they may be at), the alert webhook, the registry, the payer.
+# No test may reach them, whatever a module opens at import (the Vercel entrypoint builds its
+# app on DATABASE_URL) or a subprocess inherits: they are gone before anything is collected, and
+# so are the old OPENHEALTH_* names, which `mendari.legacy` would copy back in a subprocess. A
+# test that needs one sets its own.
 LIVE_SETTINGS = (
     "DATABASE_URL", "DATABASE_URL_UNPOOLED", "AI_GATEWAY_API_KEY", "VERCEL_OIDC_TOKEN",
     "LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL", "JEV_API_URL", "JEV_API_KEY", "JEV_MODEL",
-    "JEV_CONNECTOR", "MENDARI_PROVIDERS", "MENDARI_ALERT_WEBHOOK", "MENDARI_REGISTRY_URL",
-    "MENDARI_ACCOUNTS",
+    "JEV_CONNECTOR", "MENDARI_PROVIDERS", "MENDARI_PROVIDER_ALLOWED_ORIGINS",
+    "MENDARI_ALERT_WEBHOOK", "MENDARI_REGISTRY_URL", "MENDARI_ACCOUNTS",
     "MENDARI_REGISTRY_TOKEN", "MENDARI_REGISTRY_ADMIN_TOKEN", "MENDARI_PAS_PAYER_URL",
     "CRON_SECRET",
 )  # fmt: skip
