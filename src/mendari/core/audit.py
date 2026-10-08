@@ -421,7 +421,21 @@ CREATE UNIQUE INDEX IF NOT EXISTS access_requests_open ON access_requests (user_
 CREATE TABLE IF NOT EXISTS settings (
     name  TEXT PRIMARY KEY,
     value TEXT NOT NULL
-)
+);
+CREATE TABLE IF NOT EXISTS alert_deliveries (
+    id               TEXT PRIMARY KEY,
+    created_at       TEXT NOT NULL,
+    updated_at       TEXT NOT NULL,
+    event            TEXT NOT NULL,
+    org              TEXT,
+    body             TEXT NOT NULL,
+    status           TEXT NOT NULL,
+    attempts         INTEGER NOT NULL,
+    next_attempt_at  TEXT,
+    last_status      INTEGER,
+    last_error       TEXT
+);
+CREATE INDEX IF NOT EXISTS alert_deliveries_due ON alert_deliveries (status, next_attempt_at)
 """
 
 # The tables a read-only store reads (`_read_only_check`); the first two must be there.
@@ -1136,6 +1150,56 @@ class AuditStore:
         if row is None or int(row["count"]) > daily_limit:  # a limit of 0 admits nothing
             return None
         return int(row["count"])
+
+    # -- alert deliveries (mendari.alerts): outside the chain, ids and counts only -------------
+
+    def record_alert(self, delivery: Mapping[str, Any]) -> None:
+        """Record one alert sent to the webhook, as `mendari.alerts.deliver` left it."""
+        columns = (
+            "id", "created_at", "updated_at", "event", "org", "body", "status", "attempts",
+            "next_attempt_at", "last_status", "last_error",
+        )  # fmt: skip
+        with self._db.session(exclusive=False) as db:
+            db.all(
+                f"INSERT INTO alert_deliveries ({', '.join(columns)}) "
+                f"VALUES ({', '.join('?' for _ in columns)})",
+                tuple(delivery[column] for column in columns),
+            )
+
+    def alerts_due(self, now: str, limit: int) -> list[dict[str, Any]]:
+        """The pending alerts whose next try is due at `now` (ISO), oldest first."""
+        with self._db.session(exclusive=False) as db:
+            return db.all(
+                "SELECT id, event, body, attempts FROM alert_deliveries "
+                "WHERE status = 'pending' AND next_attempt_at <= ? "
+                "ORDER BY next_attempt_at LIMIT ?",
+                (now, limit),
+            )
+
+    def update_alert(
+        self,
+        delivery: str,
+        *,
+        status: str,
+        attempts: int,
+        updated_at: str,
+        next_attempt_at: str | None,
+        last_status: int | None,
+        last_error: str | None,
+    ) -> None:
+        with self._db.session(exclusive=False) as db:
+            db.all(
+                "UPDATE alert_deliveries SET status = ?, attempts = ?, updated_at = ?, "
+                "next_attempt_at = ?, last_status = ?, last_error = ? WHERE id = ?",
+                (status, attempts, updated_at, next_attempt_at, last_status, last_error, delivery),
+            )
+
+    def alert_deliveries(self, limit: int = 50) -> list[dict[str, Any]]:
+        """The newest alerts sent, for the operator (and the tests)."""
+        with self._db.session(exclusive=False) as db:
+            return db.all(
+                "SELECT * FROM alert_deliveries ORDER BY created_at DESC LIMIT ?", (limit,)
+            )
 
     def consume_principal(self, principal: str, *, daily_limit: int, cost: int = 1) -> int | None:
         """Count `cost` decisions for `principal` (its opaque id, `Principal.id`) today, all or
