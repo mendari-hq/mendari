@@ -54,9 +54,36 @@ The first release (not yet published).
   (it refused any report from a composite). A version published before this records no
   members, so it refuses such a report with the reason (publish a new version). A shared
   report's error codes must be Mendari's own, a closed set the spec lists (they were checked
-  only as names), and the type checker holds every provider error to that set.
+  only as names), and the type checker holds every provider error to that set. A pack from a
+  registry with a reference pack's id and version but other files is refused at publish, pull
+  and load (it would have been served in the reference pack's place); one cached before is
+  listed under `/api/health` `invalid`, with the directory to remove.
+- **Input schemas bounded in shape:** the input schema of a pack the deployment owns nests at
+  most 32 deep, chains at most 16 `$ref`s, applies at most 1,000 schema objects to one value,
+  refers back to itself only as a recursive list or tree does, and holds no
+  `unevaluatedProperties` or `unevaluatedItems` below another; one beyond these is refused at
+  load. Every shipped pack is well within them (6 deep, 1 `$ref`, 2 schema objects).
+- **Provider configs checked at load:** every variant and composite member, the ones a pack does
+  not use by default too, is checked against its provider type's closed config (any other key,
+  a value out of range, a pack file it cannot run with), published as a JSON Schema
+  (`docs/spec/provider-configs.schema.json`). A community or registry pack with a problem is
+  refused at load; any other pack loads and says so (`mendari list`, the start-up log,
+  `/api/health` `pack_warnings`), and `mendari validate` refuses both. For a community or
+  registry pack, every model variant names the input fields it sends (`state_fields`), the
+  deployment's model is used, `max_tokens` and `timeout_ms` are held to the provider defaults
+  (a lower value stands) and a `reasoning_effort` above `low` is dropped: a registry pack that
+  pinned an LLM model now runs on the deployment's (no shipped pack pins one).
 - **Distribution:** a wheel and an sdist, container images (the engine with every pack, and one
-  per pack), and deployment templates for docker compose and Kubernetes.
+  per pack), and deployment templates for docker compose and Kubernetes. Each image carries its
+  licences in `/licenses`: Mendari's LICENSE and NOTICE, `THIRD_PARTY_NOTICES.md` written from
+  what the image holds (Debian's packages, whose copyright files stay, every Python package, the
+  libraries psycopg-binary bundles, what packages link statically and the Rust crates compiled
+  into them, each with where its source is), the texts the image would otherwise lack, and
+  `SOURCE.md`; its label names Apache-2.0 as Mendari's licence only. A release attaches an SBOM
+  of each finished image, scans its licences, publishes each image's corresponding source
+  beside it (`<tag>-sources`, with the SBOM and every package's source location), and pushes no
+  image that fails; CI runs the same SBOM scan on every change. The image still builds with
+  Docker's classic builder.
 - **The command line:** every error is one line per problem and exit 1, never a traceback
   (`--debug` or `MENDARI_DEBUG=1` shows one); a usage error is one line too, exit 1 (argparse's
   was 2); `--version`. `mendari test` refuses a behaviour test whose `expect` is missing,

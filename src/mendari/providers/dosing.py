@@ -33,8 +33,18 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from mendari.core.pack import Pack
+from mendari.core.spec import Question
 from mendari.errors import PackValidationError
-from mendari.providers.base import Provider, ProviderOutput, fingerprint, text_from
+from mendari.providers.base import (
+    FileConfig,
+    Provider,
+    ProviderOutput,
+    closed_problems,
+    fingerprint,
+    read_problems,
+    text_from,
+)
 
 DECIDED = 0.98  # probability of a determined answer; the rest is shared evenly
 _SENTENCE = re.compile(r"(?<!\d)[.!?;\n]+(?!\d)")  # not inside "2.5 mg"
@@ -126,26 +136,13 @@ class DosingProvider(Provider):
 
     def __init__(self, *args: Any, **kwargs: Any):
         super().__init__(*args, **kwargs)
-        relative = self.config.get("config")
-        if not isinstance(relative, str):
-            raise PackValidationError(self.pack.id, [f"{self.info.slot}: `config` is required"])
-        try:
-            self.table = DosingConfig.model_validate(self.pack.read_yaml(relative))
-        except ValidationError as error:
-            raise PackValidationError(self.pack.id, [f"{relative}: {error}"]) from None
-        if self.pack.bounded:  # its caps (`core/caps.py`; `load_pack` checks them too)
-            from mendari.core.caps import dosing_problems
-
-            problems = dosing_problems(relative, self.table.model_dump())
-            if problems:
-                raise PackValidationError(self.pack.id, problems)
-        if len(self.questions) != 1:
-            raise PackValidationError(self.pack.id, [f"{relative}: answers exactly one question"])
-        ((key, question),) = self.questions.items()
-        if not {"yes", "no", "unknown"} <= set(question.criteria):
-            raise PackValidationError(
-                self.pack.id, [f"{relative}: {key} needs the labels yes, no and unknown"]
-            )
+        table, problems = self._checked(
+            self.pack, self.info.slot, self.config, self.questions, bounded=self.pack.bounded
+        )
+        if table is None:
+            raise PackValidationError(self.pack.id, problems)
+        self.table = table
+        relative = self.config["config"]
         self._patterns = {
             name: re.compile(
                 r"\b(?:" + "|".join(re.escape(a) for a in medicine.names) + r")\b", re.IGNORECASE
@@ -153,6 +150,57 @@ class DosingProvider(Provider):
             for name, medicine in self.table.medicines.items()
         }
         self.info = replace(self.info, model=f"dosing@{fingerprint(self.pack, relative)}")
+
+    @classmethod
+    def config_problems(
+        cls,
+        pack: Pack,
+        where: str,
+        config: Mapping[str, Any],
+        questions: Mapping[str, Question],
+        *,
+        bounded: bool,
+        trained: bool,
+    ) -> list[str]:
+        return (
+            closed_problems(FileConfig, where, config)
+            or cls._checked(pack, where, config, questions, bounded=bounded)[1]
+        )
+
+    @staticmethod
+    def _checked(
+        pack: Pack,
+        where: str,
+        config: Mapping[str, Any],
+        questions: Mapping[str, Question],
+        *,
+        bounded: bool,
+    ) -> tuple[DosingConfig | None, list[str]]:
+        """The dosing table `config` names, read and checked (a pack on the community engine's
+        caps, `core/caps.py`, which `load_pack` checks too; one yes/no/unknown question), or
+        None and why not."""
+        relative = config.get("config")
+        if not isinstance(relative, str):
+            return None, [f"{where}: `config` is required"]
+        data, problems = read_problems(lambda: pack.read_yaml(relative))
+        if problems:
+            return None, problems
+        try:
+            table = DosingConfig.model_validate(data)
+        except ValidationError as error:
+            return None, [f"{relative}: {error}"]
+        if bounded:
+            from mendari.core.caps import dosing_problems
+
+            problems = dosing_problems(relative, table.model_dump())
+            if problems:
+                return None, problems
+        if len(questions) != 1:
+            return None, [f"{relative}: answers exactly one question"]
+        ((key, question),) = questions.items()
+        if not {"yes", "no", "unknown"} <= set(question.criteria):
+            return None, [f"{relative}: {key} needs the labels yes, no and unknown"]
+        return table, []
 
     def answer(self, inputs: Mapping[str, Any]) -> ProviderOutput:
         ((key, question),) = self.questions.items()

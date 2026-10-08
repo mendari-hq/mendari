@@ -336,6 +336,19 @@ as tested; nothing is published before that. [`deploy/`](https://github.com/June
 templates for a site's own infrastructure: docker compose on one server and Kubernetes. Both come
 with Postgres, your identity provider, PHI mode and the daily retention and monitoring jobs.
 
+Mendari's own code is Apache-2.0; an image also holds third-party software under other licences
+(Debian's packages, and the libraries the PostgreSQL driver bundles, some under the GPL or LGPL).
+Each image carries them in `/licenses`: Mendari's `LICENSE` and `NOTICE`, `THIRD_PARTY_NOTICES.md`
+(every component, its version, its licence, where its notices are and where its source is),
+`SOURCE.md` and the texts of what bundles no notice of its own; Debian's copyright files stay in
+`/usr/share/doc`. A release publishes each image's corresponding source beside it, as
+`<image>:<tag>-sources`, with the image's SBOM (SPDX, every package with its source location) in
+its `/sources/sbom/`; the SBOM BuildKit attaches in the image's index lists the same packages and
+licences, without their source locations. `scripts/check_image_licences.py` checks all of it
+(CI's `docker` and `image-sbom` jobs), and the release pushes no image that fails it or whose
+SBOM names a licence that is unknown or not allowed. The image builds with BuildKit or Docker's
+classic builder alike.
+
 ### Docker sandbox
 
 <!-- check: skip docker: needs the Docker sandbox; CI job sandbox-e2e runs it -->
@@ -1131,7 +1144,10 @@ One pack never stops the server. Its `invalid` lists the packs that failed to lo
 error that is not Mendari's by its type alone), which are not served; the packs whose providers
 could not be built (by id), which stay listed, counted in `packs` and offered in CDS Hooks
 discovery, but whose decision and detail requests answer `422`; and the packs whose terminology
-could not be built, which are served without it. Every other pack decides.
+could not be built, which are served without it. Every other pack decides. `pack_warnings` lists,
+by id, the served packs of your own whose provider configs `mendari validate` refuses (a key no
+provider reads, a variant that cannot run): they load and serve what builds, and the start-up log
+says so too; a community or registry pack with such a problem is refused, under `invalid`.
 
 Days and times people see (the dashboard's times and daily volume, daily call counters, "today"
 for criteria and ages, card dates) use `MENDARI_TIMEZONE`, an IANA name defaulting to

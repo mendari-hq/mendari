@@ -21,7 +21,7 @@ from mendari.cli import main
 from mendari.core.decision import Decision
 from mendari.core.pack import Pack, PatternsRefused, load_pack
 from mendari.core.registry import resolve_pack
-from mendari.errors import HubError, PackNotFoundError
+from mendari.errors import HubError, PackNotFoundError, PackValidationError
 from mendari.evals.share import SiteReport
 from mendari.hub import archive, client
 from mendari.hub.client import RegistryClient, pull
@@ -193,16 +193,29 @@ def test_a_registry_cannot_serve_one_version_as_another(tmp_path: Path) -> None:
         pull("../x", hostile)
 
 
-def test_a_pull_the_engine_refuses_leaves_nothing_in_the_cache(tmp_path: Path) -> None:
-    """H3: a signed copy of the referral pack with one changed byte is not the reference pack,
-    so it runs on the engine for packs from a registry, which cannot run its lookahead. The pull
-    refuses it before the rename: no version directory, no verified marker, nothing on the
-    search path."""
+def changed_referral(tmp_path: Path, version: str | None = None) -> Path:
+    """A copy of the referral pack with one more line in its rules, at `version` (its own unless
+    given)."""
     changed = tmp_path / "changed"
     shutil.copytree(REFERRAL_DIR, changed)
     rules = changed / "logic" / "triage_rules.yaml"
     rules.write_text(rules.read_text() + "# one more line\n")
-    registry = HostileRegistry(tmp_path, changed)
+    if version is not None:
+        manifest = changed / "pack.yaml"
+        shipped = load_pack(REFERRAL_DIR).version
+        manifest.write_text(
+            manifest.read_text().replace(f"version: {shipped}", f"version: {version}", 1)
+        )
+    return changed
+
+
+def test_a_pull_the_engine_refuses_leaves_nothing_in_the_cache(tmp_path: Path) -> None:
+    """H3: a signed copy of the referral pack with one changed byte (at a new version: at its own
+    it is a shadow, below) is not the reference pack, so it runs on the engine for packs from a
+    registry, which cannot run its lookahead. The pull refuses it before the rename: no version
+    directory, no verified marker, nothing on the search path."""
+    registry = HostileRegistry(tmp_path, changed_referral(tmp_path, "9.9.9"))
+    assert registry.version == "9.9.9"
     with registry.client() as signed, pytest.raises(PatternsRefused) as refused:
         pull("mendari/referral-router", signed)
     assert any("lookahead" in problem for problem in refused.value.problems)
@@ -211,6 +224,44 @@ def test_a_pull_the_engine_refuses_leaves_nothing_in_the_cache(tmp_path: Path) -
     assert not (cache / "mendari" / "referral-router" / registry.version).exists()
     assert list(cache.rglob(".mendari-verified")) == []
     assert resolve_pack("mendari/referral-router").origin == "maintained"
+
+
+def test_a_pull_of_a_shadow_is_refused_and_nothing_is_cached(tmp_path: Path) -> None:
+    """F: a signed copy of the referral pack with one changed byte at the reference pack's own
+    version would be served in its place. The pull refuses it before the rename, and the
+    reference pack is still the one served."""
+    registry = HostileRegistry(tmp_path, changed_referral(tmp_path))
+    reference = load_pack(REFERRAL_DIR)
+    assert registry.version == reference.version
+    with registry.client() as signed, pytest.raises(PackValidationError) as refused:
+        pull("mendari/referral-router", signed)
+    assert not isinstance(refused.value, PatternsRefused)
+    (problem,) = refused.value.problems
+    assert "never takes a reference pack's place" in problem and "remove" not in problem
+    cache = client.packs_cache()
+    assert not (cache / "mendari" / "referral-router" / reference.version).exists()
+    assert list(cache.rglob(".mendari-verified")) == []
+    served = resolve_pack("mendari/referral-router")
+    assert (served.origin, served.digest) == ("maintained", reference.digest)
+
+
+def test_a_shadow_cached_before_this_release_is_refused_on_the_cache_hit_path(
+    tmp_path: Path,
+) -> None:
+    """One pulled before this release refused it is in the cache, marked verified: the pull's
+    cache hit loads it and refuses it, naming the directory to remove, and the reference pack is
+    served."""
+    registry = HostileRegistry(tmp_path, changed_referral(tmp_path))
+    reference = load_pack(REFERRAL_DIR)
+    cached = client.packs_cache() / "mendari" / "referral-router" / reference.version
+    shutil.copytree(registry.pack.root, cached)
+    (cached / ".mendari-verified").write_text(hashlib.sha256(registry.data).hexdigest() + "\n")
+    with registry.client() as signed, pytest.raises(PackValidationError) as refused:
+        pull("mendari/referral-router", signed)
+    (problem,) = refused.value.problems
+    assert problem.endswith(f"; remove {cached.resolve()} from the cache")
+    served = resolve_pack("mendari/referral-router")
+    assert (served.origin, served.digest) == ("maintained", reference.digest)
 
 
 def test_pulling_a_reference_pack_keeps_the_maintained_engine(

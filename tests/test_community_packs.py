@@ -206,7 +206,8 @@ def test_a_composite_of_local_providers_is_local_and_one_with_a_remote_member_is
     local = _copy(
         tmp_path / "a", "visit-sorter", composite({"type": "rules", "config": "logic/rules.yaml"})
     )
-    remote = _copy(tmp_path / "b", "visit-sorter", composite({"type": "llm"}))
+    member = {"type": "llm", "state_fields": ["message"]}  # it names what it sends (LP-16e)
+    remote = _copy(tmp_path / "b", "visit-sorter", composite(member))
     assert [p.id for p in discover([SearchPath(local.parent, "community")]).packs] == [SORTER_ID]
     found = discover([SearchPath(remote.parent, "community")])
     assert found.packs == []
@@ -555,13 +556,19 @@ def test_a_composite_members_pinned_model_gives_way_too(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("LLM_MODEL", "example/deployment-model")
-    member = {"type": "llm", "model": "example/pinned-model", "max_tokens": 30000}
+    member = {
+        "type": "llm",
+        "model": "example/pinned-model",
+        "max_tokens": 30000,
+        "state_fields": ["message"],
+    }
     rules = {"type": "rules", "config": "logic/rules.yaml"}
     variant = {"type": "cascade", "accept_at": 0.9, "members": {"rules": rules, "llm": member}}
     root = _copy(tmp_path, "visit-sorter", _set(providers__reader__variants__mixed=variant))
-    provider = build_provider(load_pack(root), "reader", "mixed")
+    provider: Any = build_provider(load_pack(root), "reader", "mixed")
     assert provider.info.model is not None
     assert provider.info.model.endswith("llm:example/deployment-model")
+    assert provider.members["llm"].settings.max_tokens == 4096
 
 
 # -- labels on every surface (B3) ---------------------------------------------------------------

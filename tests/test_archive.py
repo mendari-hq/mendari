@@ -73,15 +73,27 @@ def test_extract_needs_an_origin(key: archive.Ed25519PrivateKey, tmp_path: Path)
     assert not (tmp_path / "pack").exists()
 
 
-def test_extract_on_the_hub_engine_refuses_a_changed_reference_pack(
-    key: archive.Ed25519PrivateKey, tmp_path: Path
-) -> None:
-    """One changed byte makes the referral pack a pack the deployment does not own: on RE2 its
-    lookahead cannot run, so the archive does not extract as a pack from a registry."""
+def changed_referral(tmp_path: Path, version: str | None = None) -> Path:
+    """The referral pack with one more line in its rules, at `version` (its own unless given)."""
     root = tmp_path / "changed"
     shutil.copytree(REFERRAL.root, root)
     rules = root / "logic" / "triage_rules.yaml"
     rules.write_text(rules.read_text() + "# one more line\n")
+    if version is not None:
+        manifest = root / "pack.yaml"
+        manifest.write_text(
+            manifest.read_text().replace(f"version: {REFERRAL.version}", f"version: {version}", 1)
+        )
+    return root
+
+
+def test_extract_on_the_hub_engine_refuses_a_changed_reference_pack(
+    key: archive.Ed25519PrivateKey, tmp_path: Path
+) -> None:
+    """One changed byte makes the referral pack a pack the deployment does not own: on RE2 its
+    lookahead cannot run, so the archive (at a new version: at its own it is a shadow, refused
+    first) does not extract as a pack from a registry."""
+    root = changed_referral(tmp_path, "9.9.9")
     changed = load_pack(root)
     verified = archive.verify(archive.build(changed, key), trusted(key))
     with pytest.raises(PatternsRefused) as refused:
@@ -95,12 +107,9 @@ def test_pack_verify_checks_an_archive_as_a_puller_loads_it(
     key: archive.Ed25519PrivateKey, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """`mendari pack verify` loads an archive on the engine a puller runs it on: a signed copy of
-    the referral pack with one changed byte fails, naming the lookahead and why; the reference
-    pack itself passes."""
-    root = tmp_path / "changed"
-    shutil.copytree(REFERRAL.root, root)
-    rules = root / "logic" / "triage_rules.yaml"
-    rules.write_text(rules.read_text() + "# one more line\n")
+    the referral pack with one changed byte (at a new version) fails, naming the lookahead and
+    why; the reference pack itself passes."""
+    root = changed_referral(tmp_path, "9.9.9")
     public = tmp_path / "publisher.pub"
     public.write_bytes(archive.public_pem(key.public_key()))
     changed = tmp_path / "changed.ohpack"
@@ -113,6 +122,22 @@ def test_pack_verify_checks_an_archive_as_a_puller_loads_it(
     reference.write_bytes(archive.build(REFERRAL, key))
     assert main(["pack", "verify", str(reference), "--public-key", str(public)]) == 0
     assert f"OK {REFERRAL.id}@{REFERRAL.version} {REFERRAL.digest}" in capsys.readouterr().out
+
+
+def test_pack_verify_refuses_a_shadow_without_a_traceback(
+    key: archive.Ed25519PrivateKey, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """F: a signed copy of the referral pack with one changed byte at the reference pack's own
+    version would take its place where it is pulled: `mendari pack verify` fails, saying why."""
+    public = tmp_path / "publisher.pub"
+    public.write_bytes(archive.public_pem(key.public_key()))
+    shadow = tmp_path / "shadow.ohpack"
+    shadow.write_bytes(archive.build(load_pack(changed_referral(tmp_path)), key))
+    assert main(["pack", "verify", str(shadow), "--public-key", str(public)]) != 0
+    err = capsys.readouterr().err
+    assert f"{REFERRAL.id}@{REFERRAL.version} has the id and version of a reference pack" in err
+    assert "never takes a reference pack's place" in err and "remove" not in err
+    assert "Traceback" not in err
 
 
 def test_a_changed_file_is_caught(key: archive.Ed25519PrivateKey) -> None:

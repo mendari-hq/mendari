@@ -9,7 +9,7 @@ import math
 import os
 import stat
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import cached_property
 from pathlib import Path
 from typing import Any, NoReturn
@@ -22,6 +22,7 @@ from pydantic import ValidationError
 from mendari.core import input_schema as schema_rules
 from mendari.core import patterns
 from mendari.core.origin import (
+    NOT_OWNED,
     ORIGIN_LABELS,
     RESERVED_NAMESPACES,
     Origin,
@@ -36,6 +37,7 @@ from mendari.core.spec import (
     PackManifest,
     Priority,
     licensed_systems,
+    version_key,
 )
 from mendari.errors import PackValidationError
 
@@ -80,6 +82,11 @@ class Pack:
     digested: Digested | None = field(default=None, compare=False, repr=False)
     # Where the pack was found (`core/origin.py`), never what its manifest says.
     origin: Origin = field(default="local", compare=False)
+    # What `load_pack` found wrong with an owned pack's provider configs
+    # (`providers.config_problems`): it loads, and says so (`mendari list`, the startup log,
+    # /api/health's `pack_warnings`); `mendari validate` refuses it. A pack the deployment does
+    # not own is refused at load instead, so it has none.
+    warnings: tuple[str, ...] = field(default=(), compare=False)
 
     @property
     def id(self) -> str:
@@ -234,7 +241,15 @@ def load_pack(
     trained artifacts (`model_file`, `calibration`) do not exist yet; `origin` is where it was
     found (`core/registry.py` knows). A pack the deployment does not own (`Pack.bounded`: a
     community pack, or one from a registry that is not a reference pack of this release) is
-    checked as it will run: its patterns on RE2, its schema's keywords and its caps."""
+    checked as it will run: its patterns on RE2, its schema's keywords and its caps; and one
+    from a registry never has a reference pack's id and version with other files
+    (`_shadow_problem`). Every other pack's input schema is held to the expansion bounds
+    (`core/input_schema.py` `expansion_problems`).
+
+    Every provider variant and composite member is checked against its provider's closed config
+    and its pack files (`providers.config_problems`, without the environment or the network):
+    a pack the deployment does not own is refused for any problem; an owned one loads, with the
+    problems as its `warnings`, and a variant with one fails when it is built, as before."""
     root = Path(path).resolve()
     links = _outside_links(root)
     if links:
@@ -264,6 +279,8 @@ def load_pack(
         manifest = PackManifest.model_validate(raw)
     except ValidationError as error:
         raise PackValidationError(label, _format_errors(error)) from None
+    if (problem := _shadow_problem(manifest, origin, digest, root)) is not None:
+        raise PackValidationError(manifest.id, [problem])
     declared = {
         url
         for use in manifest.code_systems
@@ -329,8 +346,12 @@ def load_pack(
         problems = _community_caps(root, manifest, input_schema, parsed, label, digested)
         if problems:
             raise PackValidationError(manifest.id, problems)
+    # A pack the deployment owns has no time budget: its schema's shape is bounded instead (one
+    # on the community engine keeps the caps above and the budget, ADR-0009).
+    elif problems := schema_rules.expansion_problems(input_schema):
+        raise PackValidationError(manifest.id, problems)
 
-    return Pack(
+    pack = Pack(
         manifest=manifest,
         root=root,
         digest=digest,
@@ -339,6 +360,60 @@ def load_pack(
         digested=digested,
         origin=origin,
     )
+    # Every variant against its provider's closed config, as `mendari validate` checks it.
+    from mendari.providers import config_problems  # `providers/base.py` imports this module
+
+    problems = config_problems(pack, trained=not missing_models_ok)
+    if not problems:
+        return pack
+    if bounded:
+        raise PackValidationError(manifest.id, problems)
+    return replace(pack, warnings=tuple(problems))
+
+
+def _shadow_problem(manifest: PackManifest, origin: Origin, digest: str, root: Path) -> str | None:
+    """Why a pack of an origin the deployment does not own (`NOT_OWNED`: a registry's, LP-20's
+    store) may not load: it has the id of a reference pack of this release and a version that
+    ties that pack's (`version_key`: `0.4.1-x` and `0.04.1` tie `0.4.1`), but other files (its
+    digest is no reference pack's). It would take the reference pack's place: the search path
+    serves the first of two tying versions, and the registry cache comes before the bundled
+    packs. None for every other pack: an operator's local copy (its choice), a community pack
+    (its ids are `community/`), a copy of a reference pack, and any other version."""
+    if origin not in NOT_OWNED:
+        return None
+    from mendari.core.reference import reference_digests, reference_packs  # imports this module
+
+    if digest in reference_digests():
+        return None
+    wanted = version_key(manifest.version)
+    tying = [
+        reference
+        for reference in reference_packs().get(manifest.id, ())
+        if version_key(reference.version) == wanted
+    ]
+    if not tying:
+        return None
+    bundled, short = f"{manifest.id}@{tying[0].version}", digest[: len("sha256:") + 16]
+    return (
+        f"{manifest.id}@{manifest.version} has the id and version of a reference pack this "
+        f"release bundles ({bundled}) but other files (digest {short}): a pack from a registry "
+        "never takes a reference pack's place. Use the copy this release bundles, or publish it "
+        f"under another version{_cached(root)}"
+    )
+
+
+def _cached(root: Path) -> str:
+    """What a reason adds for a pack in the registry cache, where `mendari pull` puts it
+    (`<namespace>/<name>/<version>`) and pulled it before this release refused it: the directory
+    to remove. Nothing for any other directory (an archive being checked, a pull's staging)."""
+    from mendari.hub.client import packs_cache  # `hub/client.py` imports this module
+
+    try:
+        cache = packs_cache().resolve()
+    except (OSError, RuntimeError):  # no home directory to find the cache in
+        return ""
+    cached = root.is_relative_to(cache) and len(root.relative_to(cache).parts) == 3
+    return f"; remove {root} from the cache" if cached else ""
 
 
 def _community_caps(

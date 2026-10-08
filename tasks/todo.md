@@ -456,30 +456,67 @@ clinical-trial-prescreener, referral-router) are rewritten, with a decision-iden
 rebuild, before a reference version that differs from the installed one is published to a
 registry or copied into the store.
 
-- [ ] **LP-16 build** (ADR-0009), in four PRs:
-  - [ ] **16a** (PR open) The engine for packs the deployment does not own: `Pack.bounded` (a
-    community pack, or a pulled one whose digest, the one `load_pack` hashed, is not a reference
-    pack's of the installed release, `core/reference.py`); `archive.extract(..., origin=)`
-    required, with `hub` from the registry's publish, `mendari pull` (before the rename, so a
-    refused pack is never cached) and `mendari pack verify`; `Decision.from_path` takes its
-    path's origin; `mendari pull` says which engine; ADR-0009, the spec amended in place, the
-    docs, threat model D8 and S15; the a3 probe's pending line replaced by its tests. No pack
-    artifact changes.
+- [ ] **LP-16 build** (ADR-0009), in the PRs below:
+  - [x] **16a** (#185, merged 2026-10-08) The engine for packs the deployment does not own:
+    `Pack.bounded` (a community pack, or a pulled one whose digest, the one `load_pack` hashed, is
+    not a reference pack's of the installed release, `core/reference.py`);
+    `archive.extract(..., origin=)` required, with `hub` from the registry's publish,
+    `mendari pull` (before the rename, so a refused pack is never cached) and
+    `mendari pack verify`; `Decision.from_path` takes its path's origin; `mendari pull` says which
+    engine; ADR-0009, the spec amended in place, the docs, threat model D8 and S15; the a3 probe's
+    pending line replaced by its tests. No pack artifact changes.
   - [x] **16b** (#184, merged 2026-10-08) A wall-clock deadline across one decision's remote
     calls, every pack (`MENDARI_DECISION_DEADLINE_S`, 120 s unless set), recorded as `timeout`;
     an answer still arriving stops at it, the CQL engine's included; threat model D9.
-  - [ ] **16c-1** (PR open) ai-guard's `claim-about-the-record` without its lookahead, spelled
-    out a letter at a time and exact on every input on both engines (`test_lookaround_rewrites`:
-    every shipped input, the ledger, a seeded fuzz on `re` and RE2), ai-guard 0.1.4 and its
-    rebuild; the parity test now skips only the three lookarounds 16c-2 holds.
+  - [x] **16c-1** (#187, merged 2026-10-08) ai-guard's `claim-about-the-record` without its
+    lookahead, spelled out a letter at a time and exact on every input on both engines
+    (`test_lookaround_rewrites`: every shipped input, the ledger, a seeded fuzz on `re` and RE2),
+    ai-guard 0.1.4 and its rebuild; the parity test now skips only the three lookarounds 16c-2
+    holds.
   - [ ] **16c-2** (held for the owner) pregnant, pancreatitis and new-lung-mass: the owner
     chooses between S (a structural `not_followed_by` rules key, a format change) and D (the
     data-identical rewrites, with their fuzz differences and the slowdown on `re` accepted in
     writing). Until then the trial and referral packs cannot publish a version that differs from
     the installed one: a puller refuses it, with the reason.
-  - [ ] Follow-up (16a review): a pulled pack with a bundled pack's id and version but another
-    digest shadows the bundled one, since the cache wins a version tie. It runs bounded, but
-    under the reference pack's name. Refuse it at pull and at load (pre-existing; not in 16a).
+  - [ ] **F** (PR open, with 16f; found in the 16a review) A pack from a registry with a reference
+    pack's id and a version that ties its (`version_key`, now in `core/spec.py`) but another
+    digest took the reference pack's place, since the cache wins a version tie: it ran bounded,
+    under the reference pack's name. Refused at load for origins the deployment does not own
+    (`_shadow_problem`, from `core/reference.py` `reference_packs`), so at publish (422), pull
+    (before the rename), the pull's cache hit, `mendari pack verify` and `Decision.from_path`;
+    one cached before is listed under `invalid` with the directory to remove, and the reference
+    pack is served. Threat model S16; S15's and a3's tests moved to 9.9.9 with their names kept.
+  - [ ] **16d** (#188, PR open) Health does no pack work in the request: every served pack is built at
+    startup and health reads that snapshot; `deployment.recorded` stays on first use, and a pack
+    that fails to build is never rebuilt (conflicts 15, 16, 23).
+  - [ ] **16e-1** (PR open; PR C, after A and B) Closed provider configs checked at load
+    (`providers.config_problems`, each provider's `config_problems`, new `FileConfig` and
+    `NaiveBayesConfig`): refused for packs the deployment does not own, `Pack.warnings` for owned
+    ones (`mendari list` on stderr, the start-up log, health `pack_warnings` past the `read`
+    check), `mendari validate` refuses both. An owned pack's constructors raise only on what they
+    raised on before, so an unread key warns and the pack still serves (conflict 17). The
+    deployment's model, caps on `max_tokens`, `timeout_ms` and effort
+    (`core/origin.py` `deployment_config`, keyed on `Pack.bounded`), `state_fields` on llm and
+    jev variants and members, the parity test (and an exhaustive one-change sweep beneath it),
+    the hypothesis egress test, the generated JSON Schema
+    (`docs/spec/provider-configs.schema.json`, `scripts/provider_config_schema.py --check`);
+    the CQL declaration search made linear, since load now runs it on registry packs
+    (conflicts 17–19, 24, 25).
+  - [ ] **16e-2** (PR D, after C) The provider egress allow-list
+    (`MENDARI_PROVIDER_ALLOWED_ORIGINS`), relative prefetch templates and bare placeholders
+    (conflicts 20, 21).
+  - [ ] **16f** (PR open, with F) Depth and `$ref` bounds for the input schemas of packs the
+    deployment owns (`core/input_schema.py` `expansion_problems`, over `core/schema_graph.py`,
+    the graph moved out of `core/caps.py` with each `$ref` edge marked; the caps count as
+    before): nested at most 32 deep, chains of at most 16 `$ref`s, at most 1,000 schema objects
+    on one value, loops only as a recursive list or tree, and no `unevaluatedProperties` or
+    `unevaluatedItems` below another (conflict 22). The shipped packs, scaffolds and fixtures:
+    6, 1 and 2. Packs it does not own keep B11's caps and budget, unchanged. Threat model D10.
+  - [ ] **16g** (PR E, last) The threat model's "Pack content" part. LP-16 counts as merged for
+    LP-18 and LP-20 when it lands; 16c-2 still waits for the owner.
+
+  **LP-16 rest, in order:** A (F and 16f, this PR); B (16d, beside A); C (16e-1, after A and B);
+  D (16e-2, after C); E (16g, after A to D).
 
   **Conflicts written before building LP-16, and the default each PR follows** (the owner may
   choose otherwise; each default is named by the PR that depends on it):
@@ -531,6 +568,74 @@ registry or copied into the store.
   12. (16a) The sandbox registry seeds from the host checkout into an image built earlier.
      Default: document `docker compose up --build` (README, `docker-compose.yml`).
      `hub_seed.py` is unchanged and stops at the first refusal.
+  13. (F) A pack from a registry with a reference pack's id and a tying version but another
+     digest is refused at load, pull and publish. A deployment that already cached one switches to
+     the bundled pack and lists the cache copy under `invalid`; the registry refuses such a publish
+     with 422. Default: refuse, for origins the deployment does not own only. A copy in
+     `MENDARI_PACKS_PATH` (local) can still shadow, by the operator's choice (conflict 2).
+  14. (F) No rule says a changed reference pack bumps its version (referral 0.1.4, inbox 0.4.0
+     and prior-auth 0.2.0 each changed content without a bump). Default: no new CI check in
+     LP-16. The registry's refusal (conflict 13) forces the bump at publish, and conflict 12
+     already says the sandbox registry must be rebuilt (`--build`).
+  15. (16d) "While a decision on it is running" cannot hold in-process for an owned pack on `re`:
+     `re` holds the GIL (`(a+)+$` on 25 characters stalled a 1 ms ticker for 1,080 ms). Default:
+     the running-decision half is narrowed to packs the deployment does not own; the loaded-pack
+     half holds for every pack.
+  16. (16d) The deployment record. Default A2: build every served pack at startup and record
+     `deployment.recorded` on first use; health never writes. A pack that fails to build is
+     never rebuilt, and its reason is re-raised. Startup costs about 21 ms of CPU, and about 5 to
+     10 s more on the suite (240 `create_app` calls).
+  17. (16e) Requirement 5 validates every variant at load. For owned packs that would refuse packs
+     that load and serve today (an unused broken variant, extra keys nothing reads). Default:
+     refuse packs the deployment does not own; owned packs load with `Pack.warnings` (health
+     `pack_warnings`, the startup log, `mendari list`), and `mendari validate` refuses both. The
+     parity test is strict for packs the deployment does not own and "refused or warned" for
+     owned ones; making owned packs refuse later is a one-line change, for the owner. "Parity"
+     covers provider configs and, for packs the deployment does not own, the FHIR mapping; test
+     inputs and datasets stay validate-only, since they are attestations.
+  18. (16e) The prompt says "caps"; conflict 11 says "chooses". Default: `model` is the
+     deployment's; `max_tokens` and `timeout_ms` are capped at the provider defaults (4096; LLM
+     30 s, Jev 5 s), and a lower pack value is kept; `reasoning_effort` is kept at `none` or `low`
+     and removed if higher. No new settings. Community packs are now capped on timeout and effort
+     too (visit-sorter sets neither). A hub pack's pinned LLM model no longer applies, so its
+     remote answers can change; no shipped or deployed pack pins one.
+  19. (16e) "Remote variants" means llm and jev (`MODEL_TYPES`). CQL is `remote = True` but sends
+     a fixed bundle (`record_fhir.py`) and has no `state_fields`. Default: `state_fields` (at
+     least 1 entry) is required only on llm and jev variants and members of packs the deployment
+     does not own. Fixture changes: visit-sorter and `test_decision_deadline.py`.
+  20. (16e) Egress allow-list. Default: when unset, no new check (endpoints come only from fixed
+     environment names). When set, it is checked at startup for the endpoint variables that are
+     set, and on every outbound provider request, the gateway default and Vercel Connect
+     included (`invalid_endpoint`). CQL stays on the FHIR allow-list.
+  21. (16e) Requirement-5 items not in conflict 11's list: the generated JSON Schema (PR C),
+     relative prefetch and bare placeholders (PR D). Default: refuse packs the deployment does
+     not own, warn owned ones. Their Task-text templates are now checked at load; `fill` is
+     unchanged.
+  22. (16f) Default: the bound applies to owned packs only; packs the deployment does not own keep
+     the caps and the CPU budget ("killed within the budget"), so B11's budget tests are
+     unchanged. Every shipped pack, template and fixture passes, with margins of at least 5x on
+     depth, 16x on the chain and 500x on applications. An operator's local pack beyond the bound
+     stops being served and is listed under `invalid`, as conflict 11's default says. Recursive
+     schemas are allowed only as simple cycles through properties or items; a binary-tree
+     recursion is refused, and so (PR A) is a loop that leads to another loop, since one value
+     would meet the inner one once for each level of the outer. The PR A review found that
+     `unevaluatedProperties` and `unevaluatedItems` validate again every schema below them
+     (jsonschema's `find_evaluated_*_by_schema`), so nested ones multiply the work within every
+     count above (on `{"a": 1}`, one `$defs` of 13 took 7 ms, two 3.5 s, three over 60 s).
+     Default: refuse a schema holding one that leads, through any applicator (a property's or an item's too, which also
+     multiplies), to another holding one, or back to itself; one per path still loads. No shipped
+     pack, scaffold or fixture uses either keyword.
+  23. (16d, recorded only) Health and `admit` share AnyIO's 40-thread pool with the decide
+     routes, which can wait up to `MENDARI_DECISION_DEADLINE_S` (120 s). Default: a residual
+     risk, written in 16g; not in LP-16.
+  24. (16e, recorded only) These still run as packs set them, for packs the deployment does not
+     own: Jev `cost_per_1k_input_tokens_usd` (which sets the recorded `cost_usd`), `batch: false`,
+     `temperature`, `JEV_DEFAULTS` and unscoped `MENDARI_PROVIDERS` settings applying to hub packs
+     by id, and the eval route letting a caller choose any variant of a pack that is not a
+     community pack. Default: a residual risk (16g), for LP-20; changing them would change hub
+     packs' decisions.
+  25. (16e) `hypothesis` is added as a development dependency (`pyproject.toml`, `uv.lock`) and
+     runs with `derandomize=True`, so CI stays deterministic.
 
 **B38, the pilot EHR (owner, 2026-10-07):** Epic, with Oracle Health as the backup, chosen by
 vendor fit while no design partner is on record; the first pilot site's own EHR overrides it.
@@ -539,6 +644,80 @@ URL, `iss` the FHIR base, `aud`, `sub`, `jti` replay) with a test key pair. The 
 Epic's free sandbox when LP-23 starts, from a checklist Claude sends (the APIs the packs read,
 ServiceRequest and Communication included). An Epic shared by several organizations (Community
 Connect) is not supported yet.
+
+**Container images wait until they comply (owner, 2026-10-07):** after a licensing analysis the
+owner received in October 2026, no image goes to GHCR until it carries what the licences of
+everything in it ask, and `release.yml` refuses to push one that fails the checks. Images are
+pushed only by `release.yml`'s `publish-images`, on a release to PyPI (the TestPyPI rehearsal
+pushes none), so the first published images wait on the item below; the PyPI release does not.
+
+- [ ] **Image licence compliance** (#180, draft, branch `claude/image-licence-compliance`; the
+  images wait on it). Every image carries `/licenses`: Mendari's `LICENSE` and `NOTICE`,
+  `SOURCE.md` (where the corresponding source is), `THIRD_PARTY_NOTICES.md` and `inventory.json`
+  written by the build from what the image holds (`scripts/image_notices.py`, run inside the
+  image on its own Python), `third-party.cdx.json` (what an SBOM scanner cannot see by itself)
+  and `third-party/` (texts). `licenses/image/` keeps what the image would otherwise lack:
+  `components.toml` (41 components, each with its version, licence, source, and texts fetched
+  from its upstream at that version: what psycopg-binary 3.3.6 bundles on each architecture, from
+  its wheels' auditwheel SBOMs and its build (libpq 18.6, OpenSSL 3.5.8, OpenLDAP 2.6.14; on
+  amd64 CentOS 7's Cyrus SASL, MIT Kerberos, com_err, keyutils, libselinux and PCRE and
+  manylinux2014's libxcrypt 4.5.2; on arm64 AlmaLinux 8's, with PCRE2, libxcrypt 4.1.1 and
+  OpenSSL 1.1.1k), what cryptography, cffi, PyYAML and google-re2 link statically, the Rust
+  standard library, CPython 3.12.15's incorporated software and pip 25.0.1's 17 vendored
+  packages), `crates.toml` (the 143 crates the Rust packages' own SBOMs list, 75 distinct texts
+  from crates.io, each crate checked against its SBOM's SHA-256), 130 texts with `SHA256SUMS`
+  (`scripts/image_licence_texts.py`). GPL and LGPL components name their exact source pinned by
+  SHA-256 (keyutils' and libxcrypt's SRPMs, libxcrypt 4.5.2 with manylinux's build scripts,
+  psycopg's tag and sdists, certifi, pip, CPython). Debian's `/usr/share/doc/*/copyright` (the
+  base image's slim configuration keeps them; nothing removes them) and
+  `/usr/share/common-licenses` are checked present. The label keeps `licenses=Apache-2.0` with a
+  description naming it Mendari's only and pointing at `/licenses`.
+  `scripts/check_image_licences.py` fails an image with anything uncovered (a package without
+  its copyright file, a bundled library, crate or native package at a version nobody reviewed, a
+  text missing or changed, stale notices, the wrong LICENSE or NOTICE, the label), and scans an
+  SBOM: permissive, or copyleft with its source published, or a reviewed exception (GCC's
+  runtime, libcrypt1 and debian-archive-keyring by their copyright text's hash, xz's notice on
+  the GNU licence documents, distlib's launchers in pip); unknown fails. `release.yml`: BuildKit
+  attaches an SBOM of each finished image (`docker/buildkit-syft-scanner` 1.12.0 by digest), each
+  architecture of each image is checked and its SBOM scanned, the run keeps the SBOMs with each
+  package's source location (90 days), a new `image-sources` job collects every Debian source
+  package at its installed version (deb.debian.org, then the security archive, then
+  snapshot.debian.org; each file checked against its `.dsc`) and the components' sources into a
+  files-only image, and `publish-images` (now after it) pushes it as `<tag>-sources` before
+  each image. CI's `docker` job runs the image check. Measured on the engine image built locally
+  (arm64 native, amd64 under QEMU): both pass, the SBOMs' 330 and 327 packages allowed; the
+  sources are 61 Debian source packages and 13 other files, 345 MB (one 339 MB layer), collected
+  in 12 s. Size (compressed, on disk): arm64 71.8 and 335 MB before, 72.0 and 338 MB after;
+  amd64 69.6 and 303 MB before, 69.8 and 307 MB after (`/licenses` is 3.3 MB).
+  **Not done, for the owner:** attaching the sources to a GitHub release (no release is created
+  today, and it needs `contents: write` on a publishing job, which the workflow safety rules do
+  not allow; the `-sources` tag in the same GHCR repository is the source's place instead);
+  `SOURCE.md`'s fallback ("open an issue in the Mendari repository and the maintainers will send
+  it") commits the maintainers: confirm or name a contact; counsel to confirm the approach
+  (equivalent access from the same place, no separate written offer). Keep each `-sources` tag
+  as long as its image, and make it public with the image's package.
+  **Review (2026-10-08), six findings, all fixed:** `THIRD_PARTY_NOTICES.md` now gives a source
+  for every Python package (PyPI at its version, the component's for psycopg, certifi and pip,
+  the repository for Mendari) and every crate (crates.io), and Debian's section says where each
+  source package is (`inventory.json` gives each one's snapshot.debian.org address); the SBOM's
+  source locations are now read from that inventory, so the two always agree, and a package the
+  SBOM lists that the inventory does not fails the release (`no source location`). The SBOM with
+  source locations is the one in `<tag>-sources` (`/sources/sbom/`): README and SOURCE.md say
+  so, and that BuildKit's attestation has none (pushing the enriched copy as an OCI referrer
+  would add a tool to the publishing job that nothing can exercise before a release). CI's new
+  `image-sbom` job runs the release's SBOM scan on every change, with the release's generator
+  and builder (a test keeps them the same), so a base image bump that renames a Debian licence
+  or changes a reviewed copyright text fails in its own pull request. pip's vendored Requests
+  carries Requests' NOTICE file (Apache-2.0 4(d); none of the other Apache-2.0 components has
+  one upstream). CPython's corresponding source adds the official image's Dockerfile that
+  compiled it (docker-library/python 2a3b794c, 3.12/slim-trixie, pinned by SHA-256; its readline
+  and _gdbm modules link GPL-3.0 libraries), and `base_image` ties that recipe to the
+  `Dockerfile`'s base, so a new base image is reviewed again. The `Dockerfile` writes the
+  notices in a stage of its own instead of `RUN --mount`, so `docker build .` works again with
+  Docker's classic builder (a test keeps BuildKit-only syntax out). Not done: CI does not
+  collect the sources (`image_sources.py`): every run would fetch about 345 MB from Debian's
+  archive, and snapshot.debian.org as pinned versions leave the pool; a scheduled job is the
+  owner's call.
 
 - [ ] **LP-10** Statistics and a per-case ledger behind every number. Split in three PRs:
   - [x] **LP-10a** The statistics, the ledger, the report format and `mendari compare`
@@ -1199,7 +1378,9 @@ build session. A1–A8 come before A9 (making the repository public); A10 and A1
    runs the tests and builds and tests the packages and the six images (amd64 and arm64). When it
    is green, run it again from the same tag with publish **on** and target **`pypi`**, and in the
    run approve the `pypi` deployment and the six `ghcr`
-   deployments. Check after: pypi.org/project/mendari shows 0.1.0
+   deployments (the images wait on the image licence compliance PR, owner's decision
+   2026-10-07; once it is in, each `ghcr` deployment pushes `<tag>-sources`, then the image).
+   Check after: pypi.org/project/mendari shows 0.1.0
    with a wheel and an sdist; in a fresh venv, `pip install mendari` then `mendari test
    mendari/patient-inbox-router` passes; the release job's "The sdist holds only what a source
    build needs" step passed; GitHub → your profile → Packages lists the six `mendari-*`
