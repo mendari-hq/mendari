@@ -1131,7 +1131,10 @@ One pack never stops the server. Its `invalid` lists the packs that failed to lo
 error that is not Mendari's by its type alone), which are not served; the packs whose providers
 could not be built (by id), which stay listed, counted in `packs` and offered in CDS Hooks
 discovery, but whose decision and detail requests answer `422`; and the packs whose terminology
-could not be built, which are served without it. Every other pack decides.
+could not be built, which are served without it. Every other pack decides. `pack_warnings` lists,
+by id, the served packs of your own whose provider configs `mendari validate` refuses (a key no
+provider reads, a variant that cannot run): they load and serve what builds, and the start-up log
+says so too; a community or registry pack with such a problem is refused, under `invalid`.
 
 Days and times people see (the dashboard's times and daily volume, daily call counters, "today"
 for criteria and ages, card dates) use `MENDARI_TIMEZONE`, an IANA name defaulting to

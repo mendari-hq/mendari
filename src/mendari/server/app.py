@@ -629,6 +629,19 @@ def create_app(
         if (slots := slots_without_model(packs[pack_id], running))
     }
     health_unbuilt = {pack_id: str(error) for pack_id, error in unbuildable.items()}
+    # An owned served pack whose provider configs `mendari validate` refuses (`Pack.warnings`): it
+    # loads and serves what builds, and says so once here and in /api/health.
+    health_pack_warnings = {
+        pack_id: list(packs[pack_id].warnings)
+        for pack_id in sorted(packs)
+        if packs[pack_id].warnings
+    }
+    for pack_id, warnings in health_pack_warnings.items():
+        providers_logger.warning(
+            "%s loads with provider config problems (mendari validate refuses it): %s",
+            packs[pack_id].ref,
+            "; ".join(warnings),
+        )
 
     def local_datasets(pack: Pack) -> dict[str, Path]:
         if datasets_dir is None or not datasets_dir.is_dir():
@@ -795,8 +808,9 @@ def create_app(
         Backend Services is on (`backend_services`: its token endpoint, or null).
 
         The packs' state (which provider each runs, the settings skipped, a pack that could not
-        be built) is computed at start-up: health builds no pack and records no deployment
-        (a signed-in caller's session may still be refreshed, as on any route).
+        be built, the provider config problems an owned pack loads with, `pack_warnings`) is
+        computed at start-up: health builds no pack and records no deployment (a signed-in
+        caller's session may still be refreshed, as on any route).
         """
         public = {"status": "ok", "version": __version__, "sign_in": auth.enabled}
         principal = auth.principal(request)  # no credential: no lookup
@@ -808,6 +822,9 @@ def create_app(
             # How many of them come from where: maintained, community, hub, local.
             "packs_by_origin": dict(Counter(pack.shown_origin for pack in packs.values())),
             "invalid": {**found.problems, **terminology_problems, **health_unbuilt},
+            # Served packs that load with provider config problems (`mendari validate` refuses
+            # them; a pack the deployment does not own is refused, under `invalid`).
+            "pack_warnings": health_pack_warnings,
             "storage": store.backend,
             # Calendar days and displayed times use this zone; stored timestamps are UTC.
             "timezone": timezone,

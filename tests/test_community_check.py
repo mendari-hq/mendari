@@ -527,13 +527,22 @@ BLOCK_RULE = {
 }
 
 
+# What a community pack's model variant sends, which it must name (LP-16e: refused at load
+# otherwise, before these rules run).
+SENT = ["message.subject", "message.body"]
+
+
 def _llm_default(m: dict[str, Any]) -> None:
-    m["providers"]["reader"]["variants"]["llm"] = {"type": "llm"}
+    m["providers"]["reader"]["variants"]["llm"] = {"type": "llm", "state_fields": SENT}
     m["providers"]["reader"]["use"] = "llm"
 
 
 def _pinned_model(m: dict[str, Any]) -> None:
-    m["providers"]["reader"]["variants"]["llm"] = {"type": "llm", "model": "example/model"}
+    m["providers"]["reader"]["variants"]["llm"] = {
+        "type": "llm",
+        "model": "example/model",
+        "state_fields": SENT,
+    }
 
 
 @pytest.mark.parametrize(

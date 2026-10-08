@@ -63,6 +63,16 @@ The first release (not yet published).
   refers back to itself only as a recursive list or tree does, and holds no
   `unevaluatedProperties` or `unevaluatedItems` below another; one beyond these is refused at
   load. Every shipped pack is well within them (6 deep, 1 `$ref`, 2 schema objects).
+- **Provider configs checked at load:** every variant and composite member, the ones a pack does
+  not use by default too, is checked against its provider type's closed config (any other key,
+  a value out of range, a pack file it cannot run with), published as a JSON Schema
+  (`docs/spec/provider-configs.schema.json`). A community or registry pack with a problem is
+  refused at load; any other pack loads and says so (`mendari list`, the start-up log,
+  `/api/health` `pack_warnings`), and `mendari validate` refuses both. For a community or
+  registry pack, every model variant names the input fields it sends (`state_fields`), the
+  deployment's model is used, `max_tokens` and `timeout_ms` are held to the provider defaults
+  (a lower value stands) and a `reasoning_effort` above `low` is dropped: a registry pack that
+  pinned an LLM model now runs on the deployment's (no shipped pack pins one).
 - **Distribution:** a wheel and an sdist, container images (the engine with every pack, and one
   per pack), and deployment templates for docker compose and Kubernetes.
 - **The command line:** every error is one line per problem and exit 1, never a traceback

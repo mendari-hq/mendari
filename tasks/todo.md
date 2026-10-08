@@ -489,10 +489,19 @@ registry or copied into the store.
   - [ ] **16d** (#188, PR open) Health does no pack work in the request: every served pack is built at
     startup and health reads that snapshot; `deployment.recorded` stays on first use, and a pack
     that fails to build is never rebuilt (conflicts 15, 16, 23).
-  - [ ] **16e-1** (PR C, after A and B) Closed provider configs checked at load (refused for packs
-    the deployment does not own, warnings for owned ones), the deployment's model, caps on
-    `max_tokens`, `timeout_ms` and effort, `state_fields` on remote variants, the load and
-    validate parity test, the generated JSON Schema (conflicts 17–19, 24, 25).
+  - [ ] **16e-1** (PR open; PR C, after A and B) Closed provider configs checked at load
+    (`providers.config_problems`, each provider's `config_problems`, new `FileConfig` and
+    `NaiveBayesConfig`): refused for packs the deployment does not own, `Pack.warnings` for owned
+    ones (`mendari list` on stderr, the start-up log, health `pack_warnings` past the `read`
+    check), `mendari validate` refuses both. An owned pack's constructors raise only on what they
+    raised on before, so an unread key warns and the pack still serves (conflict 17). The
+    deployment's model, caps on `max_tokens`, `timeout_ms` and effort
+    (`core/origin.py` `deployment_config`, keyed on `Pack.bounded`), `state_fields` on llm and
+    jev variants and members, the parity test (and an exhaustive one-change sweep beneath it),
+    the hypothesis egress test, the generated JSON Schema
+    (`docs/spec/provider-configs.schema.json`, `scripts/provider_config_schema.py --check`);
+    the CQL declaration search made linear, since load now runs it on registry packs
+    (conflicts 17–19, 24, 25).
   - [ ] **16e-2** (PR D, after C) The provider egress allow-list
     (`MENDARI_PROVIDER_ALLOWED_ORIGINS`), relative prefetch templates and bare placeholders
     (conflicts 20, 21).

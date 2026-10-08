@@ -19,6 +19,7 @@ from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any, cast
 
+from mendari.core.spec import Question
 from mendari.errors import ProviderError, ProviderErrorCode
 from mendari.providers.base import Answer, ProviderInfo, ProviderOutput
 from mendari.providers.composite import CompositeConfig, CompositeProvider, all_failed
@@ -32,16 +33,19 @@ class VoteProvider(CompositeProvider):
     type = "vote"
     settings_model = VoteConfig
 
-    def check(self) -> list[str]:
-        settings = cast(VoteConfig, self.settings)
-        weights = settings.weights
+    @classmethod
+    def check(
+        cls, where: str, settings: CompositeConfig, questions: Mapping[str, Question]
+    ) -> list[str]:
+        vote = cast(VoteConfig, settings)
+        weights = vote.weights
         if weights is None:
             return []
         problems = []
-        if set(weights) != set(settings.members):
-            problems.append(f"{self.info.slot}: weights must name exactly the members")
+        if set(weights) != set(vote.members):
+            problems.append(f"{where}: weights must name exactly the members")
         if any(not w > 0 for w in weights.values()):
-            problems.append(f"{self.info.slot}: weights must be positive")
+            problems.append(f"{where}: weights must be positive")
         return problems
 
     def answer(self, inputs: Mapping[str, Any]) -> ProviderOutput:

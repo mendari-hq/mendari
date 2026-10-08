@@ -73,10 +73,18 @@ As built:
   reference pack's place. The registry refuses its publish (`422`), `mendari pull` refuses it
   before it is cached, and one cached before is listed under `/api/health` `invalid`, with the
   directory to remove, while the reference pack is served.
-- **Nothing else changes for a pulled pack.** It is labelled "From a registry", may automate
-  under its own policy, keeps its pinned model and its own BLOCK rules: community policy stays
-  the community packs' (`Pack.community`). Its rules failing on the budget (`time_budget`)
-  never leave AUTO, and a failed primary abstains (`core/policy.py`, unchanged).
+- **Little else changes for a pulled pack.** It is labelled "From a registry", may automate
+  under its own policy and keeps its own BLOCK rules: community policy stays the community
+  packs' (`Pack.community`). Its rules failing on the budget (`time_budget`) never leave AUTO,
+  and a failed primary abstains (`core/policy.py`, unchanged).
+- **Its provider configs, as a community pack's (LP-16e, amending the line above, which said it
+  keeps its pinned model).** Every variant and member is checked at load against its
+  provider's closed config (`providers.config_problems`), and a problem refuses the pack (an
+  owned pack loads with it as a warning). Its model is the deployment's, its `max_tokens` and
+  `timeout_ms` are held to the provider defaults and a `reasoning_effort` above `low` is
+  dropped (`core/origin.py` `deployment_config`), and each model variant must name its
+  `state_fields`. Its remote answers can change where it pinned a model; no shipped or deployed
+  pack pins one.
 - **No setting.** There is no setting that puts a pulled pack on `re`. An operator who trusts a
   pack copies it into `MENDARI_PACKS_PATH`, where it is a local pack: owned, on `re`. A pulled
   pack is removed by deleting its version from the pack cache, or by not pulling it;

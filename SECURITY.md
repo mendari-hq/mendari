@@ -214,7 +214,9 @@ Each bullet is one control; the threat model names the row and the tests behind 
 The Jev adapter gets its key from a Vercel Connect connector (exchanged at runtime with the
 deployment's OIDC identity, cached in memory only) or, locally, from `JEV_API_KEY`. Remote
 providers:
-- send only a pack's declared `state_fields`;
+- send only a pack's declared `state_fields` (a pack the deployment does not own, a community
+  or registry pack, must declare them on every model variant, or it is refused at load; an owned
+  pack that omits them sends the whole input);
 - read their endpoint, model and key from fixed environment variables (`JEV_API_URL`,
   `JEV_MODEL`, `JEV_API_KEY`, `JEV_CONNECTOR`; `LLM_BASE_URL`, `LLM_MODEL`, `AI_GATEWAY_API_KEY`,
   `LLM_API_KEY`), which a pack cannot change;
@@ -397,6 +399,13 @@ applies.
   never reach it, only `community/<name>:slot=variant` runs it on a remote variant (an
   evaluation request through the API included), and its pinned model and `max_tokens` give way
   to the deployment's.
+- **The deployment's model, caps and provider configs** (community and registry packs). The
+  model is the deployment's; `max_tokens` and `timeout_ms` are held to the provider defaults
+  (LLM 4,096 tokens and 30 s, Jev 5 s; a lower value stands) and a `reasoning_effort` above
+  `low` is dropped. Every variant and member is checked at load against its provider's closed
+  config (`docs/spec/provider-configs.schema.json`): a key its provider does not read, or a value
+  it refuses, refuses the pack. An owned pack loads with such problems as warnings (`mendari
+  list`, the start-up log, `/api/health` `pack_warnings`), and `mendari validate` refuses both.
 - **At most 10,000 characters of text** (community and registry packs), alone or together
   (keys too, where its input schema runs patterns on them: `patternProperties`,
   `propertyNames`), and at most 10,000 values

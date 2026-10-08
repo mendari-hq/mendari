@@ -28,6 +28,13 @@ The engine is all a pulled pack shares with a community pack: it is labelled "Fr
 may automate under its policy and may block, as before. Maintained and local packs (an
 operator's own: a copy of a pulled pack in `MENDARI_PACKS_PATH` is one) stay on `re`.
 
+Such a pack's provider configs are refused at load unless every variant and composite member
+passes its provider's closed config (`providers.config_problems`; an owned pack loads with them
+as warnings), and each of its model variants names the input fields it sends (`state_fields`).
+Its model, answer length, timeout and effort are the deployment's (`deployment_config`): the
+model it names is dropped, `max_tokens` and `timeout_ms` are held to `NOT_OWNED_CAPS` (a lower
+value of its own stands), and a `reasoning_effort` above `MAX_NOT_OWNED_EFFORT` is dropped.
+
 The namespaces are the community route's: a community pack uses `community/` and nothing else,
 so it can never claim the id of a pack Mendari maintains. Packs from anywhere else are found as
 they were before community packs existed; one whose id is in `community/` gets the community
@@ -70,9 +77,18 @@ MAX_COMMUNITY_RISK = RiskLevel.CLINICAL_INFORMATION
 # that combine them. A community pack's default variants use only these.
 LOCAL_PROVIDER_TYPES = frozenset({"rules", "criteria", "dosing", "naive_bayes"})
 COMPOSITE_PROVIDER_TYPES = frozenset({"any_of", "cascade", "vote"})
-# Variant keys a community pack may set but the deployment decides: which model a remote
-# provider calls, and how much it may answer.
-DEPLOYMENT_CHOSEN_KEYS = ("model", "max_tokens")
+# Variant keys a pack the deployment does not own (`bounded`) may set but the deployment decides:
+# which model a remote provider calls. Its answer length and timeout are held to the provider
+# defaults below, a lower value of its own kept, and its effort to `MAX_NOT_OWNED_EFFORT`.
+DEPLOYMENT_CHOSEN_KEYS = ("model",)
+NOT_OWNED_CAPS: Mapping[str, Mapping[str, int]] = {
+    "llm": {"max_tokens": 4096, "timeout_ms": 30_000},
+    "jev": {"timeout_ms": 5_000},
+}
+# `reasoning_effort`, lowest first: a value above the most a not-owned pack keeps is dropped, so
+# the model's own default applies.
+EFFORTS = ("none", "low", "medium", "high")
+MAX_NOT_OWNED_EFFORT = "low"
 # What every surface says about where a pack comes from (the API, the dashboard, the Decision
 # Card, CDS Hooks, the docs landing). Set by origin, never by the manifest; neither label claims
 # clinical review, which no pack has had through Mendari.
@@ -263,9 +279,19 @@ def is_local(config: Mapping[str, Any]) -> bool:
 
 
 def deployment_config(config: Mapping[str, Any]) -> dict[str, Any]:
-    """A community pack's provider config without the keys the deployment chooses
-    (`DEPLOYMENT_CHOSEN_KEYS`), in the variant and each composite member."""
+    """The provider config a pack the deployment does not own (`bounded`) runs with, in the
+    variant and each composite member: without the keys the deployment chooses
+    (`DEPLOYMENT_CHOSEN_KEYS`), its `max_tokens` and `timeout_ms` at most `NOT_OWNED_CAPS` (an
+    absent key stays absent), and its `reasoning_effort` kept only up to `MAX_NOT_OWNED_EFFORT`.
+    The pack's own values were checked at load, before this (`providers.config_problems`)."""
     kept = {key: value for key, value in config.items() if key not in DEPLOYMENT_CHOSEN_KEYS}
+    for key, cap in NOT_OWNED_CAPS.get(str(kept.get("type")), {}).items():
+        value = kept.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and value > cap:
+            kept[key] = cap
+    effort = kept.get("reasoning_effort", "none")
+    if effort not in EFFORTS or EFFORTS.index(effort) > EFFORTS.index(MAX_NOT_OWNED_EFFORT):
+        del kept["reasoning_effort"]
     members = kept.get("members")
     if isinstance(members, dict):
         kept["members"] = {
