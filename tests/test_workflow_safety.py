@@ -394,18 +394,27 @@ def test_pack_check_runs_on_every_pull_request() -> None:
     (community,) = [step for step in steps if "community_check.py" in step.get("run", "")]
     # Who made the change reaches the script through `env` only. The author is the pull
     # request's, never `github.actor` (whoever caused the run: the owner updating a fork's branch
-    # would be it), and the branch must be in this repository. Who owns the repository is the
-    # person the base's CODEOWNERS names (the script reads it), never `github.repository_owner`:
-    # since the move to mendari-hq, an organization, which no pull request's author is.
+    # would be it); the branch must be in this repository and the pull request into the default
+    # branch. Who owns the repository is the person the base's CODEOWNERS names (the script
+    # reads it), never `github.repository_owner`: since the move to mendari-hq, an organization,
+    # which no pull request's author is.
     assert community["env"] == {
         "BASE": "${{ github.event.pull_request.base.sha }}",
+        "BASE_REF": "${{ github.event.pull_request.base.ref }}",
+        "DEFAULT_BRANCH": "${{ github.event.repository.default_branch }}",
         "AUTHOR": "${{ github.event.pull_request.user.login }}",
         "HEAD_REPO": "${{ github.event.pull_request.head.repo.full_name }}",
         "REPO": "${{ github.repository }}",
     }
-    for argument in ('--base "$BASE"', '--actor "$AUTHOR"', '--head-repo "$HEAD_REPO"'):
+    for argument in (
+        '--base "$BASE"',
+        '--actor "$AUTHOR"',
+        '--head-repo "$HEAD_REPO"',
+        '--repo "$REPO"',
+        '--base-ref "$BASE_REF"',
+        '--default-branch "$DEFAULT_BRANCH"',
+    ):
         assert argument in community["run"]
-    assert '--repo "$REPO"' in community["run"]
     step = json.dumps(community)
     for unwanted in ("github.actor", "repository_owner", "--owner"):
         assert unwanted not in step, unwanted

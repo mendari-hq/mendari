@@ -1120,16 +1120,23 @@ def test_a_removed_pack_needs_its_tombstone(
 
 
 def test_the_owner_is_the_pull_requests_author_from_this_repository() -> None:
-    is_owner = _script().is_owner
-    repo = "mendari-hq/mendari"
-    assert is_owner("Junebugg1214", "junebugg1214", repo, repo)
-    assert not is_owner("attacker", "Junebugg1214", "attacker/mendari", repo)
+    script = _script()
+    this = "mendari-hq/mendari"
+
+    def is_owner(actor: str, owner: str, head_repo: str, base_ref: str = "main") -> bool:
+        return bool(script.is_owner(actor, owner, head_repo, this, base_ref, "main"))
+
+    assert is_owner("Junebugg1214", "junebugg1214", this)
+    assert not is_owner("attacker", "Junebugg1214", "attacker/mendari")
     # The owner's name on a fork's branch (anyone may push there) is not the owner's change.
-    assert not is_owner("Junebugg1214", "Junebugg1214", "attacker/mendari", repo)
-    assert not is_owner("", "Junebugg1214", "", repo)
-    assert not is_owner("Junebugg1214", "", repo, repo)  # CODEOWNERS names no one
+    assert not is_owner("Junebugg1214", "Junebugg1214", "attacker/mendari")
+    assert not is_owner("", "Junebugg1214", "")
+    assert not is_owner("Junebugg1214", "", this)  # CODEOWNERS names no one
     # A letter of another alphabet that folds onto the owner's (KELVIN SIGN to "k").
-    assert not is_owner("\u212aate", "kate", repo, repo)
+    assert not is_owner("\u212aate", "kate", this)
+    # Into another branch, whose CODEOWNERS anyone who may push writes, or none named.
+    assert not is_owner("Junebugg1214", "Junebugg1214", this, base_ref="Main")
+    assert not is_owner("Junebugg1214", "Junebugg1214", this, base_ref="")
 
 
 def test_the_owner_is_the_one_person_codeowners_names_on_its_star_rule() -> None:
@@ -1147,8 +1154,13 @@ def test_the_owner_is_the_one_person_codeowners_names_on_its_star_rule() -> None
         "* @Junebugg1214 @someone\n",  # several people
         "* @Junebugg1214 # the owner\n",  # anything else on the line
         "* @Junebugg1214\n* @mendari-hq/maintainers\n",  # the last rule names a team
+        "*\xa0@Junebugg1214\n",  # a no-break space is no space to GitHub
     ):
         assert codeowner(text) == "", text
+    assert codeowner("# the owner\r\n* @Junebugg1214\r\n") == "Junebugg1214"
+    # A character some parsers break a line at hides no `*` rule inside another rule's line.
+    for brk in ("\r", "\x0b", "\x0c", "\x1c", "\x85", "\u2028"):
+        assert codeowner(f"* @Junebugg1214\n/docs/x{brk}* @attacker\n") == "Junebugg1214", brk
 
 
 def test_the_owner_is_read_from_the_base_never_the_pull_request(repo: Path) -> None:
@@ -1164,6 +1176,11 @@ def test_the_owner_is_read_from_the_base_never_the_pull_request(repo: Path) -> N
     assert script.repository_owner(repo, "main") == "Junebugg1214"
     (repo / ".github" / "CODEOWNERS").write_text("* @attacker\n* @someone-else\n")  # uncommitted
     assert script.repository_owner(repo, "main") == "Junebugg1214"
+    # A symbolic link is no CODEOWNERS file: `read` would give its target as the text.
+    (repo / ".github" / "CODEOWNERS").unlink()
+    (repo / ".github" / "CODEOWNERS").symlink_to("* @attacker")
+    commit(repo, "a link")
+    assert script.repository_owner(repo, "HEAD") == ""
 
 
 def test_an_organization_as_the_repositorys_owner_decides_nothing(
@@ -1180,20 +1197,28 @@ def test_an_organization_as_the_repositorys_owner_decides_nothing(
     shutil.rmtree(pull_request / "community-packs" / NAME)
     tombstone = {"removed": "2026-10-08", "reason": "unmaintained"}
     write_maintainers(pull_request, [{"id": PACK_ID, "maintainers": ["octocat"], **tombstone}])
+    # The pull request's own CODEOWNERS names its author: the base's still decides.
+    (pull_request / ".github" / "CODEOWNERS").write_text("* @attacker\n")
     commit(pull_request, "remove the pack")
     monkeypatch.setattr(script, "ROOT", pull_request)
     this = ["--head-repo", "mendari-hq/mendari", "--repo", "mendari-hq/mendari"]
+    into = ["--base-ref", "main", "--default-branch", "main"]
 
     def check(*argv: str) -> int:
         monkeypatch.setattr(sys, "argv", ["community_check.py", "--base", "main", *argv])
         return int(script.main())
 
     capsys.readouterr()
-    assert check("--actor", "Junebugg1214", *this) == 0
-    assert check("--actor", "mendari-hq", *this) == 1
-    assert "only the repository's owner removes a community pack" in capsys.readouterr().out
+    assert check("--actor", "Junebugg1214", *this, *into) == 0
+    for actor in ("mendari-hq", "attacker"):
+        assert check("--actor", actor, *this, *into) == 1
+        assert "only the repository's owner removes a community pack" in capsys.readouterr().out
+    # Into a branch other than the default, whose CODEOWNERS anyone who may push writes.
+    other = ["--base-ref", "release", "--default-branch", "main"]
+    assert check("--actor", "Junebugg1214", *this, *other) == 1
+    assert check("--actor", "Junebugg1214", *this) == 1  # no branch named: not the owner's
     with pytest.raises(SystemExit) as refused:
-        check("--actor", "mendari-hq", "--owner", "mendari-hq", *this)
+        check("--actor", "mendari-hq", "--owner", "mendari-hq", *this, *into)
     assert refused.value.code == 2
     assert "unrecognized arguments: --owner mendari-hq" in capsys.readouterr().err
 

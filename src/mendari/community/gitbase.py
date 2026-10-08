@@ -75,6 +75,14 @@ class Base:
             return None
         return _git(self.repo, "cat-file", "blob", f"{self.ref}:{path}")
 
+    def is_file(self, path: str) -> bool:
+        """`path` in the base is a regular file: not a symbolic link (whose target `read` would
+        give as content), a folder or a submodule."""
+        entry = _git(self.repo, "ls-tree", "-z", self.ref, "--", path).split(b"\0")[0]
+        mode, _, rest = entry.partition(b" ")
+        named = rest.partition(b"\t")[2].decode("utf-8", "surrogateescape")
+        return named == path and mode in (b"100644", b"100755")
+
     def files(self, folder: str) -> dict[str, bytes]:
         """Every file under `folder` in the base, by path relative to it (empty: none there).
         A symbolic link is listed with its target as content, as git stores it."""

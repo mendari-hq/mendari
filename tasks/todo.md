@@ -1967,7 +1967,9 @@ The repository moved from `Junebugg1214/mendari` to `mendari-hq/mendari` (still 
   longer remove a community pack or change `community-packs/` with other files (failing closed).
   `scripts/community_check.py` now takes the owner from the `*` rule of `.github/CODEOWNERS`, read
   from the base (a pull request's own copy could name its author), one person only (a team, an
-  email or several people name no owner); `--owner` is gone, and the fork rule stays.
+  email, several people or a symbolic link name no owner), and only for a pull request into the
+  default branch (another branch's CODEOWNERS is anyone's who may push); `--owner` is gone, and
+  the fork rule stays.
 
 ## Done: the rename to Mendari (2026-09-30)
 `openhealth` was taken on PyPI by another project, so OpenHealth Hub became **Mendari**

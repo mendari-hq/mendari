@@ -2,7 +2,8 @@
 """The community-pack half of the `pack-check` job (workflow `packs`): every pull request runs it.
 
     uv run python scripts/community_check.py --base BASE_SHA --actor AUTHOR \\
-        --head-repo OWNER/REPO --repo OWNER/REPO [--summary "$GITHUB_STEP_SUMMARY"]
+        --head-repo OWNER/REPO --repo OWNER/REPO --base-ref BRANCH --default-branch BRANCH \\
+        [--summary "$GITHUB_STEP_SUMMARY"]
 
 - A pull request that changes no community pack (nor `MAINTAINERS.yaml`) passes at once;
   `community-packs/README.md` is documentation.
@@ -10,9 +11,10 @@
   `MAINTAINERS.yaml` aside), fails, unless the repository's owner made it: the pull request's
   author (`--actor`, never whoever caused the run) is the one person the `*` rule of
   `.github/CODEOWNERS` names in the base (never the pull request's own copy, which could name
-  its author), compared as GitHub compares names, ignoring case, and its branch is in this
-  repository (`--head-repo` is `--repo`). A rule naming a team, an email or several people
-  names no owner.
+  its author), compared as GitHub compares names, ignoring case; its branch is in this
+  repository (`--head-repo` is `--repo`); and it is into the default branch (`--base-ref` is
+  `--default-branch`), whose CODEOWNERS changes only with a code owner's approval. A rule
+  naming a team, an email or several people names no owner.
 - A git submodule anywhere in `community-packs/` fails: its files are another repository's,
   which no check here reads.
 - Each changed community pack is checked (`mendari.community.check`), against the base for
@@ -114,9 +116,13 @@ def _emit(line: str | None, markdown: list[str], summary: Path | None) -> None:
 
 
 def codeowner(text: str) -> str:
-    """The one person a CODEOWNERS file names on its last `*` rule (GitHub applies the last rule
-    a path matches), or "" when that rule names a team, an email, several owners or none."""
-    rules = [line.split() for line in text.splitlines() if line.strip()]
+    """The one person a CODEOWNERS file names on its last `*` rule, or "" when that rule names a
+    team, an email, several owners or none. Only a literal `*` rule counts. Lines end at a line
+    feed and words at spaces or tabs only, so no other character that some parser breaks at
+    (a form feed, a lone carriage return, a no-break space) can hide a `*` rule in a line GitHub
+    reads as another rule."""
+    lines = (line.removesuffix("\r").strip(" \t") for line in text.split("\n"))
+    rules = [re.split(r"[ \t]+", line) for line in lines]
     everything = [rule for rule in rules if rule[0] == "*"]
     if not everything or len(everything[-1]) != 2:
         return ""
@@ -125,20 +131,28 @@ def codeowner(text: str) -> str:
 
 
 def repository_owner(repo: Path, base: str) -> str:
-    """The person `.github/CODEOWNERS` names as every file's owner, read from the base: a pull
-    request cannot change it, while its own copy could name its author. "" if none."""
-    text = Base(repo, base).read(CODEOWNERS)
-    return codeowner(text.decode("utf-8", "replace")) if text is not None else ""
+    """The person `.github/CODEOWNERS` names as every file's owner, read from the base (the pull
+    request's own copy could name its author). "" if none, or if it is not a regular file."""
+    commit = Base(repo, base)
+    if not commit.is_file(CODEOWNERS):
+        return ""
+    text = commit.read(CODEOWNERS) or b""
+    return codeowner(text.decode("utf-8", "replace"))
 
 
-def is_owner(actor: str, owner: str, head_repo: str, repo: str) -> bool:
-    """The repository's owner made the pull request: its author is the owner, and its branch is
-    in this repository (not a fork, which anyone may push to the owner's name)."""
+def is_owner(
+    actor: str, owner: str, head_repo: str, repo: str, base_ref: str, default_branch: str
+) -> bool:
+    """The repository's owner made the pull request: its author is the owner; its branch is in
+    this repository (not a fork, which anyone may push to the owner's name); and it is into the
+    default branch, whose CODEOWNERS (where `owner` comes from) changes only with a code owner's
+    approval, while anyone who may push writes another branch's."""
     return (
-        bool(actor and owner and head_repo and repo)
+        bool(actor and owner and head_repo and repo and base_ref)
         and actor.isascii()  # no other alphabet's letter folds onto the owner's name
         and actor.casefold() == owner.casefold()
         and head_repo.casefold() == repo.casefold()
+        and base_ref == default_branch
     )
 
 
@@ -154,10 +168,19 @@ def main() -> int:
         "--head-repo", default="", help="the repository of the pull request's branch"
     )
     parser.add_argument("--repo", default="", help="this repository (owner/name)")
+    parser.add_argument("--base-ref", default="", help="the branch the pull request is into")
+    parser.add_argument("--default-branch", default="", help="this repository's default branch")
     parser.add_argument("--summary", type=Path, help="append Markdown here (the job summary)")
     args = parser.parse_args()
     try:
-        owner = is_owner(args.actor, repository_owner(ROOT, args.base), args.head_repo, args.repo)
+        owner = is_owner(
+            args.actor,
+            repository_owner(ROOT, args.base),
+            args.head_repo,
+            args.repo,
+            args.base_ref,
+            args.default_branch,
+        )
         return run(ROOT, args.base, owner=owner, summary=args.summary)
     except MendariError as error:
         print(f"error: {error}", file=sys.stderr)

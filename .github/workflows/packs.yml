@@ -73,17 +73,21 @@ jobs:
         # Runs even when the maintained packs failed, so the summary shows both. The owner's
         # pull request is one whose author, never `github.actor` (whoever caused this run: the
         # owner updating a fork's branch would be it), is the person the `*` rule of the base's
-        # `.github/CODEOWNERS` names, with a branch in this repository. The script reads that
-        # file from the base itself; `github.repository_owner` is the organization, no person.
+        # `.github/CODEOWNERS` names, with a branch in this repository, into the default branch.
+        # The script reads that file from the base itself; `github.repository_owner` is the
+        # organization, no person.
         if: success() || failure()
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           AUTHOR: ${{ github.event.pull_request.user.login }}
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           REPO: ${{ github.repository }}
         run: >-
           uv run python scripts/community_check.py --base "$BASE" --actor "$AUTHOR"
-          --head-repo "$HEAD_REPO" --repo "$REPO" --summary "$GITHUB_STEP_SUMMARY"
+          --head-repo "$HEAD_REPO" --repo "$REPO" --base-ref "$BASE_REF"
+          --default-branch "$DEFAULT_BRANCH" --summary "$GITHUB_STEP_SUMMARY"
       - if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
