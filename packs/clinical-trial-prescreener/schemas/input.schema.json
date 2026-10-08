@@ -22,7 +22,7 @@
         "additionalProperties": false,
         "required": ["code"],
         "properties": {
-          "code": {"type": "string", "description": "ICD-10-CM or SNOMED CT code"},
+          "code": {"type": "string", "description": "ICD-10-CM code, or a site code listed in logic/criteria.yaml (the local-site example's are fictional)"},
           "text": {"type": "string"},
           "status": {"type": "string"},
           "onset": {"type": "string"}

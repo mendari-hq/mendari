@@ -66,10 +66,11 @@ jobs:
         run: sh scripts/secret_scan.sh
       - run: uv sync --locked && uv run pytest -q
       - run: uv build
-      - name: The sdist holds only what a source build needs; no package holds notes, plans, agent or CI files
+      - name: The sdist holds only what a source build needs; no package holds notes, plans, agent or CI files, or SNOMED CT
         run: |
           uv run python scripts/check_sdist.py dist/mendari-*.tar.gz
           python3 scripts/check_excluded.py dist/mendari-*.tar.gz dist/*.whl
+          uv run python scripts/check_snomed.py dist/mendari-*.tar.gz dist/*.whl
       - name: The wheel installs and works in a clean environment
         run: |
           python3 -m venv /tmp/clean
@@ -77,7 +78,7 @@ jobs:
           /tmp/clean/bin/mendari test mendari/patient-inbox-router
           /tmp/clean/bin/mendari new /tmp/refill-router --id my-clinic/refill-router
           /tmp/clean/bin/mendari test /tmp/refill-router
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: dist
           path: dist/
@@ -140,7 +141,7 @@ jobs:
               --sbom-out "/tmp/sbom/${NAME}-${arch}.spdx.json" \
               --sources-out "/tmp/sbom/${NAME}-${arch}.sources.json"
           done
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: image-${{ matrix.name }}
           path: /tmp/${{ matrix.name }}.tar
@@ -148,7 +149,7 @@ jobs:
       # Each image's SBOM with every package's source location (both architectures) and what its
       # corresponding source is, for the image-sources job: it publishes the SBOMs in the
       # `<tag>-sources` image (BuildKit's attestation in the image's index has no locations).
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: sbom-${{ matrix.name }}
           path: /tmp/sbom/
@@ -180,7 +181,7 @@ jobs:
           python3 scripts/image_sources.py --out /tmp/sources --sboms /tmp/sbom /tmp/sbom/*.sources.json
           docker buildx build --platform linux/amd64,linux/arm64 -f licenses/image/sources.Dockerfile \
             --output "type=oci,dest=/tmp/image-sources.tar" /tmp/sources
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: image-sources
           path: /tmp/image-sources.tar

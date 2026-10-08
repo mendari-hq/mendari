@@ -14,6 +14,7 @@ here, in the order they landed:
   with who and why);
 - 21j, audit checkpoints (`mendari audit checkpoint`, `mendari audit verify
   --since-checkpoint`; the templates run it daily);
+- 21g, the usage ledger (`usage_ledger`, written with each decision and evaluation report);
 - 21k, the signed daily checkpoint (`MENDARI_CHECKPOINT_KEY`, `GET /api/audit/checkpoint`,
   `mendari audit verify --against`; its hosted schedule waits for 21n).
 
