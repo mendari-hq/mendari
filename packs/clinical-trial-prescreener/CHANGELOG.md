@@ -12,14 +12,17 @@ rules, models, data and results did not.
   infarction) in a code system named as fictional,
   `https://mendari.co/fhir/CodeSystem/fictional-conditions`, and so are the codes of the bundled
   local-site example (`datasets/trial-local-site-example.jsonl`), which plays a site that codes
-  conditions in its own system. SNOMED CT's licence terms are a question for counsel (LP-14),
-  and no package carries its codes any more. The study's condition (`fhir/research-study.json`)
-  is ICD-10-CM E11.
-  **The pack now reads real diagnoses only through ICD-10-CM.** Until a site code map exists
-  (LP-23), a diagnosis coded only in SNOMED CT is not found (type 2 diabetes `unknown`, a heart
-  attack or stroke missed): a site that codes in SNOMED CT adds its codes to
-  `logic/criteria.yaml` and `logic/criteria.cql`, as it already adds any code the pack does not
-  list. The known failure modes say so.
+  conditions in its own system. Its strokes, whose text says cerebral infarction, carry `FC203`,
+  so each code's display in the published CodeSystem is what the record says. SNOMED CT's
+  licence terms are a question for counsel (LP-14), and no package carries its codes any more.
+  The study's condition (`fhir/research-study.json`) is ICD-10-CM E11.
+  **The pack now reads real diagnoses only through ICD-10-CM, and through FHIR only from a
+  Condition's first coding** (`code.coding[0]`, as before). Until a site code map exists
+  (LP-23), a diagnosis coded only in SNOMED CT is not found, and neither is one whose first
+  coding is SNOMED CT even when an ICD-10-CM coding follows it, which 0.1.5 found through the
+  SNOMED CT code: type 2 diabetes is `unknown`, a heart attack or stroke is missed. A site that
+  codes in SNOMED CT adds its codes to `logic/criteria.yaml` and `logic/criteria.cql`, as it
+  already adds any code the pack does not list. The known failure modes say so.
 - `code_systems` drops SNOMED CT and declares the fictional conditions and RxNorm (the
   medication codes the pack's data uses; public domain, NLM's acknowledgement in NOTICE).
 - The CQL library is `GlycemiaTwoCriteria` 0.2.0 (its codes changed).

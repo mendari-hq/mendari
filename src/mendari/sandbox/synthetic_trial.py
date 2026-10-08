@@ -47,7 +47,9 @@ CONDITIONS = {
     "FC203": "Cerebral infarction",
 }
 ICD = {"t2d": ["E11.9", "E11.65", "E11.22"], "t1d": ["E10.9"], "mi": ["I21.4"], "stroke": ["I63.9"]}
-LOCAL = {"t2d": ["FC101"], "t1d": ["FC102"], "mi": ["FC201"], "stroke": ["FC202"]}
+# Each local code's display is the condition's TEXT, which a FHIR coding carries as its display
+# (record_fhir): a stroke is written as a cerebral infarction, so its code is FC203.
+LOCAL = {"t2d": ["FC101"], "t1d": ["FC102"], "mi": ["FC201"], "stroke": ["FC203"]}
 TEXT = {
     "t2d": "Type 2 diabetes mellitus",
     "t1d": "Type 1 diabetes mellitus",

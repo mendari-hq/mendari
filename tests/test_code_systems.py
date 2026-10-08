@@ -30,6 +30,7 @@ from mendari.sandbox.fhir_records import REFERRAL, REFERRAL_SYSTEM, REFERRALS
 from mendari.sandbox.synthetic_prior_auth import PROCEDURE_SYSTEM as FICTIONAL_PROCEDURES
 from mendari.sandbox.synthetic_prior_auth import PROCEDURES
 from mendari.sandbox.synthetic_trial import CONDITION_SYSTEM, CONDITIONS
+from mendari.standards import record_fhir
 from mendari.standards.record_fhir import _ICD10_CODE
 from mendari.standards.terminology import sandbox_resources
 
@@ -172,8 +173,9 @@ def test_every_procedure_code_the_prior_auth_pack_or_its_data_uses_is_fictional(
 
 
 def test_nothing_a_package_is_built_from_carries_snomed_ct() -> None:
-    """No SNOMED CT concept id, concept URI, url or OID in src/, packs/ or datasets/ (what the
-    wheel, the sdist and the images carry), but the url or OID where the code must name the
+    """No SNOMED CT concept id (one the repository has used, or, but in the vendored swagger-ui,
+    any other number written as one), concept URI, url or OID in src/, packs/ or datasets/ (what
+    the wheel, the sdist and the images carry), but the url or OID where the code must name the
     system. CI runs the same check on the built wheel and sdist (scripts/check_snomed.py)."""
     check = check_snomed()
     found = []
@@ -190,13 +192,21 @@ def test_nothing_a_package_is_built_from_carries_snomed_ct() -> None:
 def test_the_package_scan_finds_snomed_ct_however_it_is_written(tmp_path: Path) -> None:
     check = check_snomed()
     wheel = tmp_path / "mendari-0.1.0-py3-none-any.whl"
+    shaped = "is written as a SNOMED CT concept id (a concept's partition and check digit); if it "
+    shaped += "is not one, add it to NOT_CONCEPT_IDS in scripts/check_snomed.py with why"
     with zipfile.ZipFile(wheel, "w") as archive:
         archive.writestr("mendari/_datasets/a.jsonl", '{"code": "44054006"}\n')
         archive.writestr("mendari/_packs/b/fhir.json", '{"system": "http:\\/\\/snomed.info\\/sct"}')
         archive.writestr("mendari/c.py", 'OID = "2.16.840.1.113883.6.96"\n')
         archive.writestr("mendari/d.md", "see http://snomed.info/id/3457005 for the concept\n")
         archive.writestr("mendari/core/spec.py", '"http://snomed.info/sct"\n')  # allowed
-        archive.writestr("mendari/e.json", '{"p": 0.3457005, "sha": "a44054006f", "n": 13457005}')
+        archive.writestr("mendari/e.json", '{"p": 0.3457005, "sha": "a44054006f", "n": 134570051}')
+        # Any id, not only the ones the repository has used: diabetes mellitus and hypertension.
+        archive.writestr("mendari/_packs/f/rules.yaml", 'codes: ["E11*", "73211009", "38341003"]')
+        archive.writestr("mendari/g.md", "Coded 3457005. Or 73211008, whose check digit is wrong.")
+        # The vendored code's numbers are not codes, but a known id is found there too.
+        archive.writestr("mendari/dashboard/vendor/h.js", "x=106217008;y=808000;z=22298006")
+        archive.writestr("mendari-0.1.0.dist-info/RECORD", "mendari/i.py,sha256=x,106217008\n")
     found = [line for name, text in check.members(wheel) for line in check.findings(name, text)]
     assert found == [
         "mendari/_datasets/a.jsonl: SNOMED CT concept id 44054006",
@@ -205,12 +215,39 @@ def test_the_package_scan_finds_snomed_ct_however_it_is_written(tmp_path: Path) 
         "mendari/d.md: SNOMED CT concept id 3457005",
         "mendari/d.md: a SNOMED CT concept URI",
         "mendari/d.md: names SNOMED CT (its url, OID or a concept URI)",
+        f"mendari/_packs/f/rules.yaml: 38341003 {shaped}",
+        f"mendari/_packs/f/rules.yaml: 73211009 {shaped}",
+        "mendari/g.md: SNOMED CT concept id 3457005",
+        "mendari/dashboard/vendor/h.js: SNOMED CT concept id 22298006",
     ]
     # An sdist's members sit under its root folder and src/; the allowance follows the module.
     allowed = "mendari-0.1.0/src/mendari/core/spec.py"
     assert check.package_path(allowed) == "mendari/core/spec.py"
     assert check.findings(allowed, '"http://snomed.info/sct"') == []
     assert check.findings("mendari-0.1.0/packs/x/spec.py", '"http://snomed.info/sct"') != []
+    # The sdist's and the tree's packs and datasets are Mendari's own files as well.
+    for name in ("mendari-0.1.0/packs/x/a.yaml", "packs/x/a.yaml", "datasets/a.jsonl"):
+        assert check.findings(name, "73211009") == [f"{name}: 73211009 {shaped}"]
+
+
+def test_a_concept_id_is_told_by_its_partition_and_check_digit() -> None:
+    check = check_snomed()
+    assert all(check.is_concept_id(code) for code in check.CONCEPT_IDS)
+    assert check.is_concept_id("73211009") and check.is_concept_id("38341003")
+    # RxNorm's metformin, a 32-bit limit, a wrong check digit; with a valid check digit, a
+    # description's partition (01), a leading zero, 5 digits and 19.
+    for number in (
+        "860975",
+        "2147483647",
+        "73211008",
+        "12345013",
+        "04405409",
+        "12006",
+        "1111111111111111008",
+    ):
+        assert not check.is_concept_id(number), number
+    for number, why in check.NOT_CONCEPT_IDS.items():
+        assert check.is_concept_id(number) and why, f"{number}: not needed, drop it"
 
 
 def test_the_condition_and_referral_codes_are_fictional_and_complete() -> None:
@@ -251,3 +288,24 @@ def test_the_condition_and_referral_codes_are_fictional_and_complete() -> None:
     published = {r["url"]: {c["code"] for c in r["concept"]} for r in sandbox_resources()}
     assert published[CONDITION_SYSTEM] == set(CONDITIONS)
     assert published[REFERRAL_SYSTEM] == set(REFERRALS)
+
+
+def test_each_local_condition_code_says_what_its_record_says() -> None:
+    """A record's condition text becomes its FHIR coding's display (record_fhir), so each
+    fictional code the local site writes has, in the published CodeSystem, the display its text
+    says: the generator's codes, and every coding of the local-site example as FHIR."""
+    for event, codes in synthetic_trial.LOCAL.items():
+        for code in codes:
+            assert CONDITIONS[code] == synthetic_trial.TEXT[event], (event, code)
+    (published,) = [r for r in sandbox_resources() if r["url"] == CONDITION_SYSTEM]
+    display = {concept["code"]: concept["display"] for concept in published["concept"]}
+    codings = [
+        coding
+        for line in (ROOT / "datasets" / "trial-local-site-example.jsonl").read_text().splitlines()
+        for entry in record_fhir.bundle(json.loads(line)["input"], synthetic_trial.AS_OF)["entry"]
+        if entry["resource"]["resourceType"] == "Condition"
+        for coding in entry["resource"].get("code", {}).get("coding", [])
+        if coding["system"] == CONDITION_SYSTEM
+    ]
+    assert len(codings) >= 150
+    assert [c for c in codings if c.get("display") != display[c["code"]]] == []

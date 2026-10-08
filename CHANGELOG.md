@@ -18,9 +18,10 @@ The first release (not yet published).
   pack needs codes of its own (procedures, a local site's conditions, the code that marks a
   referral) they are fictional, in code systems named as such, and a site maps its own codes.
   So until a site does, the Referral Router matches no real EHR referral through FHIR and the
-  Clinical Trial Prescreener reads real diagnoses only through ICD-10-CM. A check refuses SNOMED
-  CT in the built wheel and sdist (`scripts/check_snomed.py`); NOTICE carries NLM's RxNorm
-  acknowledgement.
+  Clinical Trial Prescreener reads real diagnoses only through ICD-10-CM (through FHIR, only from
+  a Condition's first coding). A check refuses SNOMED CT's url, OID and concept URIs in the
+  built wheel and sdist, and any number written as a SNOMED CT concept id in Mendari's own files
+  there (`scripts/check_snomed.py`); NOTICE carries NLM's RxNorm acknowledgement.
 - **Standards:** a FHIR R4 adapter and CDS Hooks service.
 - **Governance:** a review queue, an append-only hash-chained audit trail on SQLite or Postgres,
   PHI modes (off, hash, encrypt) with key rotation, retention, and an evaluation harness with

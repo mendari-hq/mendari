@@ -63,9 +63,12 @@ card:
     - Criteria are computed only from the codes, units and names listed in
       logic/criteria.yaml. A lab result under another LOINC code, a unit without a declared
       conversion, or a condition under an unlisted code is `unknown` or not found. Conditions
-      are listed in ICD-10-CM only (plus the local-site example's fictional codes), so a
-      diagnosis coded only in SNOMED CT is not found until the site adds its codes. A metformin
-      brand name (such as Glucophage) is not matched, so the patient is wrongly `not_eligible`.
+      are listed in ICD-10-CM only (plus the local-site example's fictional codes), and through
+      FHIR only a Condition's first coding is read. So until the site adds its codes, a
+      diagnosis coded only in SNOMED CT is not found, nor is one whose first coding is SNOMED
+      CT even with an ICD-10-CM coding after it (type 2 diabetes is `unknown`, a heart attack
+      or stroke is missed). A metformin brand name (such as Glucophage) is not matched, so the
+      patient is wrongly `not_eligible`.
       On the bundled local-site example (datasets/trial-local-site-example.jsonl), which has
       both, plus Spanish notes, eligibility is answered wrong far more often than on the
       benchmark (`mendari eval mendari/clinical-trial-prescreener --dataset

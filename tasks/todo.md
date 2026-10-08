@@ -297,19 +297,28 @@ behaviour.
     fictional codes, as CPT was: the trial prescreener's conditions (`FC101` to `FC203`,
     `https://mendari.co/fhir/CodeSystem/fictional-conditions`) in its criteria, CQL, criterion
     text, the generator and `datasets/trial-local-site-example.jsonl` (its ResearchStudy is
-    ICD-10-CM E11), and the referral router's FHIR focus (`FR101`,
-    `.../fictional-referrals`, in the sandbox's referrals and the US Core referral fixtures'
-    category; their SNOMED CT `code` stays for US Core's binding); each system named "not
+    ICD-10-CM E11; the example's strokes, written as cerebral infarction, carry `FC203`, so each
+    coding's display is the published CodeSystem's), and the referral router's FHIR focus
+    (`FR101`, `.../fictional-referrals`, in the sandbox's referrals and the US Core referral
+    fixtures' category; their SNOMED CT `code` stays for US Core's binding); each system named "not
     SNOMED CT", a sandbox CodeSystem for the validator; the converters (record to FHIR, OMOP)
     label the fictional codes with their own system. Trial 0.2.0, referral router 0.2.0, both
     rebuilt: every decision identical with the codes swapped (3,796 decisions and 150 record
     Bundles, case by case). NOTICE moves SNOMED CT to "the source repository also carries" and
     adds NLM's RxNorm acknowledgement. `tests/test_code_systems.py` and `scripts/check_snomed.py`
-    (CI `hub-e2e` and the release build, on the built wheel and sdist): no SNOMED CT concept id,
-    concept URI, url or OID in src/, packs/ or datasets/, but the url in the three modules that
+    (CI `hub-e2e` and the release build, on the built wheel and sdist): no SNOMED CT concept id
+    in src/, packs/ or datasets/ (the nine the repository has used, and any other number
+    written as one: a concept's partition and SNOMED CT's Verhoeff check digit; in the vendored
+    swagger-ui only the nine), no concept URI, and the url or OID only in the three modules that
     must name the system. **Accepted with it:** until a site code map exists (LP-23), the
     referral router matches no real SNOMED-coded referral through FHIR and the trial pack reads
-    real diagnoses only through ICD-10-CM; both cards say so.
+    real diagnoses only through ICD-10-CM; both cards say so. **Wider than the owner's wording
+    (review, 2026-10-08; owner to confirm):** through FHIR the trial pack reads only a
+    Condition's first coding (`code.coding[0]`, unchanged), so a Condition coded first in SNOMED
+    CT and second in ICD-10-CM, which 0.1.5 found through its SNOMED CT code, is not found
+    either: type 2 diabetes `unknown`, a recent heart attack or stroke missed (still
+    HUMAN_REVIEW at risk level 2). The card, both changelogs and README say so, and
+    `tests/test_trial_pack.py` pins the ordering for LP-23.
   **For counsel (not decided here; the owner sends the memo):** whether SNOMED CT codes may stay
   in the repository's tests and fixtures (the US Core fixtures code procedures and referrals in
   it), the scan's own list (`scripts/check_snomed.py`), the notes and the history (earlier
