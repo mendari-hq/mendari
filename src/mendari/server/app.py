@@ -99,7 +99,7 @@ from mendari.server.backend_services import (
     oauth_error,
     throttled,
 )
-from mendari.server.limits import Limiter, RateLimited, client_ip, limit_settings
+from mendari.server.limits import DailyCap, Limiter, RateLimited, client_ip, limit_settings
 from mendari.server.origin import OriginCheck, is_local_host, trusted_origins
 from mendari.server.smart_routes import add_smart_routes, error_page
 from mendari.settings import FhirValidation, applies_to, providers_for
@@ -385,6 +385,7 @@ def create_app(
     body_limit = settings.max_body_bytes()  # likewise
     rate_limits = limit_settings(sign_in=sign_in is not None)  # likewise
     org_limits = settings.org_daily_limits()  # likewise
+    principal_limit = settings.principal_daily_limit()  # likewise
     session_lifetime = sessions.lifetime()  # likewise
     security_log.configure()
     if shared and phi.mode == "off":
@@ -408,6 +409,10 @@ def create_app(
     )
     origins = OriginCheck(open_mode=not auth.enabled, trusted=trusted_origins())  # likewise
     limiter = Limiter(store, rate_limits)
+    # The daily cap per principal (MENDARI_PRINCIPAL_DAILY_LIMIT): sign-in only.
+    cap = DailyCap(store, principal_limit) if principal_limit is not None and auth.enabled else None
+    if principal_limit is not None and cap is None:
+        quota_logger.warning("MENDARI_PRINCIPAL_DAILY_LIMIT is ignored in open mode: no principals")
     budget = (
         CallBudget(
             store,
@@ -809,6 +814,17 @@ def create_app(
                 "idle_minutes": session_lifetime.idle // 60,
                 "max_hours": session_lifetime.absolute // 3600,
             },
+            # The caller's own daily cap (MENDARI_PRINCIPAL_DAILY_LIMIT), with what it used today.
+            **(
+                {
+                    "principal_quota": {
+                        "daily_limit": cap.limit,
+                        "used_today": store.principal_usage(principal.id),
+                    }
+                }
+                if cap is not None and principal.kind != "open"
+                else {}
+            ),
             # The caller's organization only: another's usage is its own business.
             "org_quotas": {
                 "daily_limits": org_limits,
@@ -1827,13 +1843,18 @@ def create_app(
         return refused
 
     def admit(request: Request) -> Response | None:
-        """The sign-in check, then the rate limit (server/limits.py), both before the route:
-        a refused request reads no body, calls no provider and writes nothing to the chain."""
+        """The sign-in check, then the rate limit and the principal's daily cap
+        (server/limits.py), all before the route: a refused request reads no body, calls no
+        provider and writes nothing to the chain."""
         refused = auth.check(request) or notice_refusal(request)
-        if refused is not None or not limiter.on:
+        if refused is not None or not (limiter.on or cap):
             return refused
         permission = auth.permission(request.method, request.url.path)
-        over = limiter.check(request, permission, principal_of(request).id)
+        principal = principal_of(request)
+        over = limiter.check(request, permission, principal.id) if limiter.on else None
+        decides = limiter.classify(request.method, request.url.path, permission) in DailyCap.KINDS
+        if over is None and cap is not None and principal.kind != "open" and decides:
+            over = cap.check(principal.id, principal.org)
         return None if over is None else limited_response(request.url.path, over)
 
     @app.middleware("http")

@@ -20,6 +20,10 @@ costs: no body is read, no provider is called and nothing is chained for a refus
 
 Reads are not limited here (the edge covers floods, and a read writes nothing permanent). An EHR
 launch's decisions count against its `ehr` principal, like anyone's.
+
+**A daily cap per principal** (`MENDARI_PRINCIPAL_DAILY_LIMIT`, off unless set, sign-in only:
+`DailyCap`) counts each request of the `decide` and `guard` classes once, per principal and local
+day, after these limits admit it; over it, `429` until midnight.
 Per-IP keys are used only where no one has signed in yet, and on a person's own two routes in
 memberships mode (`POST /api/auth/organization`, `POST /api/auth/access-requests`), which any
 account that signs in reaches: a hospital sits behind one address,
@@ -55,6 +59,7 @@ from typing import Literal, cast
 
 from fastapi import Request
 
+from mendari.core import clock
 from mendari.core.audit import AuditStore
 from mendari.errors import MendariError
 from mendari.server import security_log
@@ -211,6 +216,59 @@ class RateLimited(MendariError):
         self.limit = limit
         self.retry_after = retry_after
         super().__init__(f"too many requests ({limit}); retry in {retry_after} s")
+
+
+class DailyCapReached(RateLimited):
+    """A principal's requests that decide reached its daily cap (`DailyCap`): refused until
+    local midnight."""
+
+    def __init__(self, limit: int, retry_after: int):
+        self.limit = "principal_daily"
+        self.retry_after = retry_after
+        MendariError.__init__(
+            self,
+            f"this credential's daily limit of {limit} requests that decide is reached; it "
+            f"starts over at midnight (in {retry_after} s)",
+        )
+
+
+class DailyCap:
+    """A cap per principal on the requests that decide, per local calendar day
+    (`MENDARI_PRINCIPAL_DAILY_LIMIT`, ADR-0008), beside its organization's quota: one leaked key,
+    or one runaway integration, cannot spend its organization's day. Counted in the store, so
+    every instance shares it; checked in the guard after the rate limits (a request they refuse
+    never uses the day) and before any body, provider call or chain write. Each request counts
+    once, whatever it decides (a CDS Hooks order hook's draft orders included) and whatever it
+    answers. Refusals are `429` with `Retry-After` (until midnight), logged once a day per
+    principal per instance (`quota.reached`, reason `principal_decisions`)."""
+
+    KINDS = frozenset({"decide", "guard"})  # the limiter's classes of requests that decide
+
+    def __init__(self, store: AuditStore, limit: int):
+        self.store = store
+        self.limit = limit
+        self._logged: tuple[str, set[str]] = ("", set())  # (day, principals logged that day)
+        self._lock = threading.Lock()
+
+    def check(self, principal_id: str, org: str | None) -> DailyCapReached | None:
+        if self.store.consume_principal(principal_id, daily_limit=self.limit) is not None:
+            return None
+        day = clock.today().isoformat()
+        with self._lock:
+            if self._logged[0] != day:
+                self._logged = (day, set())
+            first = principal_id not in self._logged[1]
+            self._logged[1].add(principal_id)
+        if first:
+            security_log.event(
+                "quota.reached",
+                outcome="limited",
+                reason="principal_decisions",
+                actor=principal_id,
+                org=org,
+                count=self.limit,
+            )
+        return DailyCapReached(self.limit, clock.seconds_until_tomorrow())
 
 
 class Limiter:

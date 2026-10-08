@@ -215,6 +215,22 @@ def org_daily_limits() -> dict[str, int]:
     return limits
 
 
+def principal_daily_limit() -> int | None:
+    """$MENDARI_PRINCIPAL_DAILY_LIMIT: how many requests that decide each principal (a person, an
+    API key, a Backend Services client, an EHR launch) may make a local calendar day, beside its
+    organization's quota (ADR-0008). Over it the request is refused (`429`, until midnight)
+    before any work. Unset: no cap. Sign-in only: open mode has no principals."""
+    raw = os.environ.get("MENDARI_PRINCIPAL_DAILY_LIMIT", "").strip()
+    if not raw:
+        return None
+    if not raw.isdigit():
+        raise MendariError(
+            "MENDARI_PRINCIPAL_DAILY_LIMIT must be a non-negative integer: the requests that "
+            "decide each principal may make a day"
+        )
+    return int(raw)
+
+
 def applies_to(key: str, pack_id: str, slots: Collection[str], *, community: bool) -> bool:
     """Whether a provider setting (`slot` or `namespace/name:slot`) names a slot of this pack: an
     unscoped one any non-community pack with that slot, a scoped one only its own pack."""
