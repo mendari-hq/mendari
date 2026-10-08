@@ -10,6 +10,7 @@ import importlib.util
 import json
 import shutil
 import subprocess
+import sys
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from types import ModuleType
@@ -1120,11 +1121,81 @@ def test_a_removed_pack_needs_its_tombstone(
 
 def test_the_owner_is_the_pull_requests_author_from_this_repository() -> None:
     is_owner = _script().is_owner
-    assert is_owner("Junebugg1214", "junebugg1214", "Junebugg1214/mendari", "Junebugg1214/mendari")
-    assert not is_owner("attacker", "Junebugg1214", "attacker/mendari", "Junebugg1214/mendari")
+    repo = "mendari-hq/mendari"
+    assert is_owner("Junebugg1214", "junebugg1214", repo, repo)
+    assert not is_owner("attacker", "Junebugg1214", "attacker/mendari", repo)
     # The owner's name on a fork's branch (anyone may push there) is not the owner's change.
-    assert not is_owner("Junebugg1214", "Junebugg1214", "attacker/mendari", "Junebugg1214/mendari")
-    assert not is_owner("", "Junebugg1214", "", "Junebugg1214/mendari")
+    assert not is_owner("Junebugg1214", "Junebugg1214", "attacker/mendari", repo)
+    assert not is_owner("", "Junebugg1214", "", repo)
+    assert not is_owner("Junebugg1214", "", repo, repo)  # CODEOWNERS names no one
+    # A letter of another alphabet that folds onto the owner's (KELVIN SIGN to "k").
+    assert not is_owner("\u212aate", "kate", repo, repo)
+
+
+def test_the_owner_is_the_one_person_codeowners_names_on_its_star_rule() -> None:
+    codeowner = _script().codeowner
+    assert codeowner((ROOT / ".github" / "CODEOWNERS").read_text()) == "Junebugg1214"
+    assert codeowner("# every file\n*\t@Junebugg1214\n/docs/ @writer\n") == "Junebugg1214"
+    assert codeowner("* @first\n* @second\n") == "second"  # GitHub applies the last rule
+    for text in (
+        "",
+        "# * @Junebugg1214\n",
+        "/community-packs/ @Junebugg1214\n",
+        "*\n",  # no owner
+        "* @mendari-hq/maintainers\n",  # a team
+        "* owner@example.org\n",  # an email
+        "* @Junebugg1214 @someone\n",  # several people
+        "* @Junebugg1214 # the owner\n",  # anything else on the line
+        "* @Junebugg1214\n* @mendari-hq/maintainers\n",  # the last rule names a team
+    ):
+        assert codeowner(text) == "", text
+
+
+def test_the_owner_is_read_from_the_base_never_the_pull_request(repo: Path) -> None:
+    """A pull request's own CODEOWNERS could name its author: the owner is the base's."""
+    script = _script()
+    assert script.repository_owner(repo, "main") == ""  # no CODEOWNERS: no owner
+    (repo / ".github").mkdir()
+    (repo / ".github" / "CODEOWNERS").write_text("* @Junebugg1214\n")
+    commit(repo)
+    git(repo, "branch", "-f", "main")
+    (repo / ".github" / "CODEOWNERS").write_text("* @attacker\n")
+    commit(repo, "name myself the owner")
+    assert script.repository_owner(repo, "main") == "Junebugg1214"
+    (repo / ".github" / "CODEOWNERS").write_text("* @attacker\n* @someone-else\n")  # uncommitted
+    assert script.repository_owner(repo, "main") == "Junebugg1214"
+
+
+def test_an_organization_as_the_repositorys_owner_decides_nothing(
+    pull_request: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Since the move to the mendari-hq organization, `github.repository_owner` names no
+    person, so passing it made no one the owner. The owner is the person the base's
+    CODEOWNERS names, and the script takes no `--owner` a workflow could set to anyone else."""
+    script = _script()
+    (pull_request / ".github").mkdir()
+    (pull_request / ".github" / "CODEOWNERS").write_text("* @Junebugg1214\n")
+    commit(pull_request, "the base: the pack, and the owner named")
+    git(pull_request, "branch", "-f", "main")
+    shutil.rmtree(pull_request / "community-packs" / NAME)
+    tombstone = {"removed": "2026-10-08", "reason": "unmaintained"}
+    write_maintainers(pull_request, [{"id": PACK_ID, "maintainers": ["octocat"], **tombstone}])
+    commit(pull_request, "remove the pack")
+    monkeypatch.setattr(script, "ROOT", pull_request)
+    this = ["--head-repo", "mendari-hq/mendari", "--repo", "mendari-hq/mendari"]
+
+    def check(*argv: str) -> int:
+        monkeypatch.setattr(sys, "argv", ["community_check.py", "--base", "main", *argv])
+        return int(script.main())
+
+    capsys.readouterr()
+    assert check("--actor", "Junebugg1214", *this) == 0
+    assert check("--actor", "mendari-hq", *this) == 1
+    assert "only the repository's owner removes a community pack" in capsys.readouterr().out
+    with pytest.raises(SystemExit) as refused:
+        check("--actor", "mendari-hq", "--owner", "mendari-hq", *this)
+    assert refused.value.code == 2
+    assert "unrecognized arguments: --owner mendari-hq" in capsys.readouterr().err
 
 
 def test_a_pack_added_as_a_git_submodule_fails(

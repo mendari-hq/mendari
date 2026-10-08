@@ -1,15 +1,18 @@
 # SPDX-License-Identifier: Apache-2.0
 """The community-pack half of the `pack-check` job (workflow `packs`): every pull request runs it.
 
-    uv run python scripts/community_check.py --base BASE_SHA --actor AUTHOR --owner NAME \\
+    uv run python scripts/community_check.py --base BASE_SHA --actor AUTHOR \\
         --head-repo OWNER/REPO --repo OWNER/REPO [--summary "$GITHUB_STEP_SUMMARY"]
 
 - A pull request that changes no community pack (nor `MAINTAINERS.yaml`) passes at once;
   `community-packs/README.md` is documentation.
 - One that does, and anything outside one `community-packs/<name>/` folder (its
   `MAINTAINERS.yaml` aside), fails, unless the repository's owner made it: the pull request's
-  author (`--actor`, never whoever caused the run) is `--owner`, compared as GitHub compares
-  names, ignoring case, and its branch is in this repository (`--head-repo` is `--repo`).
+  author (`--actor`, never whoever caused the run) is the one person the `*` rule of
+  `.github/CODEOWNERS` names in the base (never the pull request's own copy, which could name
+  its author), compared as GitHub compares names, ignoring case, and its branch is in this
+  repository (`--head-repo` is `--repo`). A rule naming a team, an email or several people
+  names no owner.
 - A git submodule anywhere in `community-packs/` fails: its files are another repository's,
   which no check here reads.
 - Each changed community pack is checked (`mendari.community.check`), against the base for
@@ -23,6 +26,7 @@ anything fails. Every path comes from `git diff -z` and reaches nothing but `pat
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -33,6 +37,11 @@ from mendari.community import maintainers  # noqa: E402
 from mendari.community.check import check, pack_folders, pr_scope_problems  # noqa: E402
 from mendari.community.gitbase import COMMUNITY_DIR, Base, gitlinks  # noqa: E402
 from mendari.errors import MendariError  # noqa: E402
+
+CODEOWNERS = ".github/CODEOWNERS"
+# One person: a GitHub login (ASCII letters, digits and hyphens), never a team (`@org/team`) or
+# an email.
+PERSON = re.compile(r"@([A-Za-z0-9-]{1,39})")
 
 
 def run(repo: Path, base: str, *, owner: bool, summary: Path | None = None) -> int:
@@ -104,11 +113,30 @@ def _emit(line: str | None, markdown: list[str], summary: Path | None) -> None:
             handle.write("\n".join(markdown) + "\n")
 
 
+def codeowner(text: str) -> str:
+    """The one person a CODEOWNERS file names on its last `*` rule (GitHub applies the last rule
+    a path matches), or "" when that rule names a team, an email, several owners or none."""
+    rules = [line.split() for line in text.splitlines() if line.strip()]
+    everything = [rule for rule in rules if rule[0] == "*"]
+    if not everything or len(everything[-1]) != 2:
+        return ""
+    person = PERSON.fullmatch(everything[-1][1])
+    return person[1] if person else ""
+
+
+def repository_owner(repo: Path, base: str) -> str:
+    """The person `.github/CODEOWNERS` names as every file's owner, read from the base: a pull
+    request cannot change it, while its own copy could name its author. "" if none."""
+    text = Base(repo, base).read(CODEOWNERS)
+    return codeowner(text.decode("utf-8", "replace")) if text is not None else ""
+
+
 def is_owner(actor: str, owner: str, head_repo: str, repo: str) -> bool:
     """The repository's owner made the pull request: its author is the owner, and its branch is
     in this repository (not a fork, which anyone may push to the owner's name)."""
     return (
         bool(actor and owner and head_repo and repo)
+        and actor.isascii()  # no other alphabet's letter folds onto the owner's name
         and actor.casefold() == owner.casefold()
         and head_repo.casefold() == repo.casefold()
     )
@@ -122,15 +150,14 @@ def main() -> int:
     parser.add_argument(
         "--actor", default="", help="the pull request's author (pull_request.user.login)"
     )
-    parser.add_argument("--owner", default="", help="the repository's owner")
     parser.add_argument(
         "--head-repo", default="", help="the repository of the pull request's branch"
     )
     parser.add_argument("--repo", default="", help="this repository (owner/name)")
     parser.add_argument("--summary", type=Path, help="append Markdown here (the job summary)")
     args = parser.parse_args()
-    owner = is_owner(args.actor, args.owner, args.head_repo, args.repo)
     try:
+        owner = is_owner(args.actor, repository_owner(ROOT, args.base), args.head_repo, args.repo)
         return run(ROOT, args.base, owner=owner, summary=args.summary)
     except MendariError as error:
         print(f"error: {error}", file=sys.stderr)

@@ -294,6 +294,7 @@ def test_secrets_never_reach_a_fork_pull_request(path: Path) -> None:
 
 
 def test_every_file_has_a_code_owner() -> None:
+    # One person on the `*` rule: the pack check takes that person for the repository's owner.
     lines = (ROOT / ".github" / "CODEOWNERS").read_text().splitlines()
     rules = [line.split() for line in lines if line.strip() and not line.startswith("#")]
     assert rules[0] == ["*", "@Junebugg1214"]
@@ -391,24 +392,23 @@ def test_pack_check_runs_on_every_pull_request() -> None:
     maintained = next(step for step in steps if "pack_gate.py" in step.get("run", ""))
     assert 'case "$dir" in packs/*)' in maintained["run"]  # community packs go the other way
     (community,) = [step for step in steps if "community_check.py" in step.get("run", "")]
-    # Who made the change and who owns the repository reach the script through `env` only. The
-    # author is the pull request's, never `github.actor` (whoever caused the run: the owner
-    # updating a fork's branch would be it), and the branch must be in this repository.
+    # Who made the change reaches the script through `env` only. The author is the pull
+    # request's, never `github.actor` (whoever caused the run: the owner updating a fork's branch
+    # would be it), and the branch must be in this repository. Who owns the repository is the
+    # person the base's CODEOWNERS names (the script reads it), never `github.repository_owner`:
+    # since the move to mendari-hq, an organization, which no pull request's author is.
     assert community["env"] == {
         "BASE": "${{ github.event.pull_request.base.sha }}",
         "AUTHOR": "${{ github.event.pull_request.user.login }}",
         "HEAD_REPO": "${{ github.event.pull_request.head.repo.full_name }}",
         "REPO": "${{ github.repository }}",
-        "OWNER": "${{ github.repository_owner }}",
     }
-    for argument in (
-        '--actor "$AUTHOR"',
-        '--owner "$OWNER"',
-        '--head-repo "$HEAD_REPO"',
-        '--repo "$REPO"',
-    ):
+    for argument in ('--base "$BASE"', '--actor "$AUTHOR"', '--head-repo "$HEAD_REPO"'):
         assert argument in community["run"]
-    assert "github.actor" not in json.dumps(community)
+    assert '--repo "$REPO"' in community["run"]
+    step = json.dumps(community)
+    for unwanted in ("github.actor", "repository_owner", "--owner"):
+        assert unwanted not in step, unwanted
 
 
 def test_ci_runs_every_community_packs_tests() -> None:
