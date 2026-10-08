@@ -56,8 +56,11 @@ class Backend(ABC):
 
     @abstractmethod
     def ping(self, sql: str, timeout_s: float) -> None:
-        """Run `sql` once, waiting at most about `timeout_s` for a connection, a lock or the
-        answer; raise whatever the database raised. Nothing is created or written."""
+        """Run `sql` once and raise whatever the database raised; nothing is created or
+        written. `timeout_s` bounds what the driver can: SQLite's wait for a lock, Postgres's
+        wait for a pooled connection and the statement's time on the server. A connection that
+        stops answering without closing (a network black hole) is not bounded here: the caller
+        bounds its own wait (`server/readiness.py`)."""
 
     def close(self) -> None:  # noqa: B027 - optional hook
         pass
@@ -265,7 +268,7 @@ class PostgresBackend(Backend):
 
     def ping(self, sql: str, timeout_s: float) -> None:
         # The pool verifies the connection it hands out (`check_connection`); the statement then
-        # has the same bound, so a database that accepts connections but stalls still fails.
+        # has the same bound on the server, so a database that answers but stalls still fails.
         milliseconds = max(1, round(timeout_s * 1000))
         with self._pool.connection(timeout=timeout_s) as connection, connection.transaction():
             connection.execute(f"SET LOCAL statement_timeout = {milliseconds}")

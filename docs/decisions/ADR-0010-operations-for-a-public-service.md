@@ -10,8 +10,8 @@ or its firewall (21o) wait for the owner.
 The hosted platform is to take strangers without the owner watching it (LP-21, amending A13 of
 the vision audit). What it had:
 
-- **Health.** Public `/api/health` answers three static fields and does no database work, so it
-  stays green through a database outage. That is right for liveness, since a restart never fixes
+- **Health.** With sign-in on, anonymous `/api/health` answers three static fields and does no
+  database work, so it stays green through a database outage. That is right for liveness, since a restart never fixes
   a database, but it means nothing outside the deployment can see an outage.
 - **The monitor.** `mendari monitor` posts alerts to a webhook, and the self-hosted templates
   schedule it, but the hosted site does not. The monitor mixes organizations and pack versions,
@@ -35,15 +35,17 @@ Anonymous `/api/health` stays three fields with no database work.
 1. **Readiness (21a).**
    - `GET`/`HEAD /api/health/ready` is public. It answers `200` with `ready` or `degraded`, or
      `503` `unready`, from:
-     - one database read, bounded at about 3 s;
+     - one read of Mendari's own table, waited for about 3.5 s at most;
      - the packs as start-up found them: `degraded` while one did not load or build, `none`
        when no pack is served.
    - The answer holds fixed codes only: no error text, pack ids or counts.
-   - Each instance reads the database at most once every 5 s, whoever asks, keeps the answer
-     (a failure too), and makes callers who arrive during a check wait for it.
-   - Its rate limit (`ready`, 60 a minute with 30 at once, per address) is counted in memory on
-     each instance, so the check and its limit keep answering through an outage. It follows
-     `MENDARI_RATE_LIMITS` like every other class.
+   - Each instance reads the database at most once every 5 s, whoever asks, and keeps the
+     answer (a failure too). The read runs in a thread of its own. One the database never
+     answers (a network black hole, which no driver timeout bounds) holds that thread, and no
+     second read starts until it returns. A caller that comes during a check gets the last
+     answer at once, so readiness holds one request thread at most and never starves liveness.
+   - That cache is its rate limit: the database work is at most one read per instance every
+     5 s, whatever the request rate. There is no per-address limit (below).
    - Kubernetes' readinessProbe uses it, and liveness stays on `/api/health`.
 2. **Status checks (21b).**
    - A checks file covers:
@@ -121,8 +123,9 @@ Anonymous `/api/health` stays three fields with no database work.
     database's idle suspend keeps the database awake.
   - On Vercel, an instance that starts while the database is down fails at import, before any
     route.
-  - The readiness limit is per instance: N instances allow N times its rate. The cache bounds
-    the database work it can cause, not the count of requests.
+  - Readiness has no per-address limit: a flood of it is the edge's (Vercel's firewall, a
+    site's proxy), as for `/api/health`. The cache bounds the database work it can cause, and
+    the bounded check the threads it can hold.
 - **Monitor alerts** stop firing on comparisons that were never comparable, and start firing on
   provider errors, abstentions and latency.
 - **Shared files.** Several steps touch the same files (`server/app.py`, the route inventories,
@@ -133,6 +136,12 @@ Anonymous `/api/health` stays three fields with no database work.
   database work in its anonymous answer.
 - **Counting readiness in the database limiter.** Rejected: an outage would turn every readiness
   request into the limiter's error instead of a `503`.
+- **A per-address readiness limit, counted in memory.** Built first, then removed in review: a
+  `429` fails a probe, and a probe can share its address with other callers (a kubelet behind
+  SNAT, a load balancer's health checker, or any pod naming the kubelet's address in
+  `X-Forwarded-For` inside a trusted proxy range), who could then take a pod out of service.
+- **Waiting for a check in progress.** Rejected: a read the database never answers kept every
+  later caller waiting in a request thread, until liveness had none left (found in review).
 - **A bare `SELECT 1`.** Rejected: it passes on an empty file or another database. The check
   reads the chain's table.
 - **Charging evaluations to the live quotas.** Rejected: an evaluation could then push an

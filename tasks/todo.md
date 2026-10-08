@@ -1109,11 +1109,11 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   workflow (2026-10-08) as fifteen PRs, each safe alone; none changes what a valid pack
   decides, and anonymous `/api/health` stays three fields with no database work:
   - [ ] **21a** (PR open) Readiness, `GET`/`HEAD /api/health/ready`: one read of the chain's
-    table (`AuditStore.ping`, about 3 s at most, creating nothing) per instance every 5 s,
-    whoever asks, a failure kept too; the packs as start-up found them (`ok`, `degraded`,
-    `none`); `503` when unready; fixed codes only. Its limit (`ready`, 60/min:30 per address)
-    is counted in memory on each instance (`Limiter.hit_here`). Kubernetes' readinessProbe uses
-    it; ADR-0010; this entry.
+    table (`AuditStore.ping`, creating nothing) per instance every 5 s, whoever asks, in a
+    thread of its own waited for about 3.5 s, a failure kept too; a read never answered holds
+    that one thread and none starts again until it returns; a caller during a check gets the
+    last answer at once; the packs as start-up found them (`ok`, `degraded`, `none`); `503`
+    when unready; fixed codes only. Kubernetes' readinessProbe uses it; ADR-0010; this entry.
   - [ ] **21b** The status checks file (readiness, the sign-in redirect, a synthetic decide by a
     status organization's decide-only key, the registry, the Hub), `scripts/status_checks.py`
     and a public in-app status view.
@@ -1137,9 +1137,9 @@ pushes none), so the first published images wait on the item below; the PyPI rel
 
   **Defaults each PR follows** (the owner may choose otherwise):
   1. (21a) Readiness says fixed codes and the version only: no pack ids, counts or error text.
-  2. (21a) Its limit is per instance, in memory, following `MENDARI_RATE_LIMITS`'s mode (off
-     in open mode by default, as every class is); a database limiter would turn an outage
-     into its own error.
+  2. (21a) Its rate limit is the cache: one database read per instance every 5 s whatever the
+     request rate, and one request thread at most. No per-address `429`: it would fail a probe
+     sharing its address with other callers (review of 21a).
   3. (21a) `HEAD` on readiness only; `/api/health` keeps `GET`.
   4. (21a) A pack that did not load or build makes readiness `degraded` (`200`); `503` only
      when the database fails or no pack is built.

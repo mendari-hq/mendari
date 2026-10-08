@@ -9,10 +9,11 @@ from __future__ import annotations
 import logging
 import shutil
 import socket
+import sqlite3
 import threading
 import time
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
@@ -61,14 +62,34 @@ def sessions(monkeypatch: pytest.MonkeyPatch) -> list[bool]:
     return opened
 
 
+# How the database goes away under a running server. `empty` and `foreign` open as databases
+# (SQLite answers `SELECT 1` on them): only a read of Mendari's own table tells.
+WAYS = ["garbage", "deleted", "empty", "foreign"]
+
+
 def break_sqlite(path: Path, how: str) -> None:
-    """The database goes away under a running server: its file overwritten, or deleted."""
+    """Its file overwritten with garbage, deleted, emptied, or replaced by another database."""
     for sidecar in (Path(f"{path}-wal"), Path(f"{path}-shm")):
         sidecar.unlink(missing_ok=True)
     if how == "garbage":
         path.write_bytes(b"not a database " * 512)
+    elif how == "empty":
+        path.write_bytes(b"")
+    elif how == "foreign":
+        path.unlink()
+        with closing(sqlite3.connect(path)) as other:
+            other.execute("CREATE TABLE other (x)")
+            other.commit()
     else:
         path.unlink()
+
+
+def drop_schema_tables(target: str) -> None:
+    """The test's own Postgres schema loses Mendari's tables: another database, as it reads."""
+    import psycopg
+
+    with psycopg.connect(target, autocommit=True) as connection:
+        connection.execute("DROP TABLE audit_events CASCADE")
 
 
 class Relay:
@@ -82,6 +103,8 @@ class Relay:
         self.port = self.listener.getsockname()[1]
         self.sockets: list[socket.socket] = []
         self.down = False
+        self.flowing = threading.Event()  # cleared: frozen, bytes held and sockets kept open
+        self.flowing.set()
         self.lock = threading.Lock()
         threading.Thread(target=self._accept, daemon=True).start()
 
@@ -100,10 +123,10 @@ class Relay:
             for source, sink in ((client, server), (server, client)):
                 threading.Thread(target=self._pump, args=(source, sink), daemon=True).start()
 
-    @staticmethod
-    def _pump(source: socket.socket, sink: socket.socket) -> None:
+    def _pump(self, source: socket.socket, sink: socket.socket) -> None:
         try:
             while data := source.recv(65536):
+                self.flowing.wait()
                 sink.sendall(data)
         except OSError:
             pass
@@ -124,8 +147,13 @@ class Relay:
                 end.close()
             self.sockets.clear()
 
+    def freeze(self) -> None:
+        """A network black hole: nothing gets through, and no connection is closed."""
+        self.flowing.clear()
+
     def restore(self) -> None:
         self.down = False
+        self.flowing.set()
 
 
 @contextmanager
@@ -134,8 +162,15 @@ def server_on(db_target: str, tmp_path: Path) -> Iterator[tuple[TestClient, Any]
     if db_target.startswith("postgresql"):
         parts = urlsplit(db_target)
         relay = Relay(parts.hostname or "localhost", parts.port or 5432)
+
+        def break_postgres(how: str) -> None:
+            if how in ("empty", "foreign"):
+                drop_schema_tables(db_target)
+            else:
+                relay.cut()
+
         try:
-            yield TestClient(create_app(db_path=relay.url(db_target))), lambda how: relay.cut()
+            yield TestClient(create_app(db_path=relay.url(db_target))), break_postgres
         finally:
             relay.restore()
         return
@@ -146,7 +181,7 @@ def server_on(db_target: str, tmp_path: Path) -> Iterator[tuple[TestClient, Any]
 # -- the acceptance test -----------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("how", ["garbage", "deleted"])
+@pytest.mark.parametrize("how", WAYS)
 def test_with_the_database_unreachable_the_readiness_route_fails(
     db_target: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, how: str
 ) -> None:
@@ -198,16 +233,69 @@ def test_readiness_reads_the_database_once_per_window_whoever_asks(
     assert len(pings) == 3  # a window that has passed is read again
 
 
-def test_callers_during_a_check_wait_for_it_and_a_failure_is_kept_too() -> None:
+def test_a_read_that_never_returns_is_waited_for_once_and_never_twice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A database that stops answering without closing the connection (a black hole): the
+    check answers unreachable within its bound, and no second read starts while the first one
+    is still out."""
+    monkeypatch.setattr(readiness, "READY_SECONDS", 0.0)
+    monkeypatch.setattr(readiness, "READY_TIMEOUT_S", 0.2)
+    calls: list[float] = []
+    released = threading.Event()
+
+    def black_hole(timeout_s: float) -> None:
+        calls.append(timeout_s)
+        released.wait(10)
+
+    check = Readiness(black_hole, "ok")
+    started = time.monotonic()
+    assert check.answer().status_code == 503
+    assert time.monotonic() - started < 2
+    assert check.answer().body["checks"]["database"] == "unreachable"
+    assert calls == [0.2]  # the stuck read is not joined by another
+    released.set()
+    for _ in range(50):  # the stuck read returns, then the next check reads again
+        if check.answer().status_code == 200:
+            break
+        time.sleep(0.05)
+    assert check.answer().status_code == 200 and len(calls) >= 2
+
+
+def test_callers_during_a_check_get_the_last_answer_at_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     calls: list[float] = []
     release = threading.Event()
 
-    def slow_and_down(timeout_s: float) -> None:
+    def slow(timeout_s: float) -> None:
         calls.append(timeout_s)
-        release.wait(5)
-        raise OSError("down")
+        if len(calls) > 1:
+            release.wait(5)
 
-    check = Readiness(slow_and_down, "ok")
+    check = Readiness(slow, "ok")
+    assert check.answer().status_code == 200  # the first check, quick
+    monkeypatch.setattr(readiness, "READY_SECONDS", 0.0)
+    checking = threading.Thread(target=check.answer)
+    checking.start()
+    while len(calls) < 2:
+        time.sleep(0.01)
+    started = time.monotonic()
+    answers = [check.answer().status_code for _ in range(20)]
+    assert answers == [200] * 20 and time.monotonic() - started < 0.5  # none waited
+    release.set()
+    checking.join(5)
+    assert len(calls) == 2  # one read for all of them
+
+
+def test_callers_of_an_instances_first_check_share_it() -> None:
+    calls: list[float] = []
+
+    def slow(timeout_s: float) -> None:
+        calls.append(timeout_s)
+        time.sleep(0.2)
+
+    check = Readiness(slow, "ok")
     answers: list[int] = []
     threads = [
         threading.Thread(target=lambda: answers.append(check.answer().status_code))
@@ -215,13 +303,79 @@ def test_callers_during_a_check_wait_for_it_and_a_failure_is_kept_too() -> None:
     ]
     for thread in threads:
         thread.start()
-    time.sleep(0.1)
-    release.set()
     for thread in threads:
         thread.join(5)
-    assert calls == [readiness.READY_TIMEOUT_S]  # one check for all eight
-    assert answers == [503] * 8
-    assert check.answer().status_code == 503 and len(calls) == 1  # the failure is kept
+    assert answers == [200] * 8 and len(calls) == 1
+
+
+def test_a_failure_is_kept_for_the_window() -> None:
+    calls: list[float] = []
+
+    def down(timeout_s: float) -> None:
+        calls.append(timeout_s)
+        raise OSError("down")
+
+    check = Readiness(down, "ok")
+    assert [check.answer().status_code for _ in range(5)] == [503] * 5
+    assert len(calls) == 1
+
+
+def test_a_flood_of_readiness_during_a_black_hole_never_starves_liveness(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sixty callers at once, more than the server's forty request threads, while the database
+    swallows the read: each answers within the bound, and liveness keeps answering."""
+    monkeypatch.setattr(readiness, "READY_SECONDS", 0.0)
+    monkeypatch.setattr(readiness, "READY_TIMEOUT_S", 0.3)
+    released = threading.Event()
+
+    def black_hole(self: Any, sql: str, timeout_s: float) -> None:
+        released.wait(30)
+
+    try:
+        with signing_in_with(FakeIdp(), tmp_path, monkeypatch) as client:
+            assert client.get(READY).status_code == 200  # the instance's first check
+            monkeypatch.setattr(db_module.SqliteBackend, "ping", black_hole)
+            answers: list[int] = []
+            flood = [
+                threading.Thread(target=lambda: answers.append(client.get(READY).status_code))
+                for _ in range(60)
+            ]
+            for thread in flood:
+                thread.start()
+            started = time.monotonic()
+            assert client.get("/api/health").status_code == 200
+            assert time.monotonic() - started < 2
+            for thread in flood:
+                thread.join(10)
+            assert len(answers) == 60 and set(answers) <= {200, 503}
+            assert client.get(READY).status_code == 503
+    finally:
+        released.set()
+
+
+@pytest.mark.parametrize("db_target", ["postgres"], indirect=True)
+def test_a_frozen_postgres_is_unreachable_within_the_bound(
+    db_target: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Postgres stops answering with its connections open (a black hole): the pool's own check
+    of a connection has no client-side limit, so readiness bounds its wait itself."""
+    monkeypatch.setattr(readiness, "READY_SECONDS", 0.0)
+    monkeypatch.setattr(readiness, "READY_TIMEOUT_S", 1.0)
+    parts = urlsplit(db_target)
+    relay = Relay(parts.hostname or "localhost", parts.port or 5432)
+    try:
+        client = TestClient(create_app(db_path=relay.url(db_target)))
+        assert client.get(READY).status_code == 200
+        relay.freeze()
+        started = time.monotonic()
+        frozen = client.get(READY)
+        assert frozen.status_code == 503
+        assert frozen.json()["checks"]["database"] == "unreachable"
+        assert time.monotonic() - started < 3
+        assert client.get(READY).status_code == 503  # still out: no second read joins it
+    finally:
+        relay.restore()
 
 
 # -- what it says, and what it never says -----------------------------------------------------
@@ -294,38 +448,3 @@ def test_readiness_is_public_with_sign_in_and_looks_up_no_credential(
         assert junk.status_code == 200  # a public route reads no credential
         assert client.head(READY).status_code == 200
         assert sessions == []
-
-
-# -- the limit ---------------------------------------------------------------------------------
-
-
-def test_readiness_is_limited_per_address_in_memory_through_an_outage(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sessions: list[bool]
-) -> None:
-    monkeypatch.setenv("MENDARI_RATE_LIMITS", "on,ready=2/min")
-    monkeypatch.setattr(readiness, "READY_SECONDS", 0.0)
-    app = create_app(db_path=tmp_path / "a.db")
-    client = TestClient(app, client=("10.0.0.1", 50000))
-    break_sqlite(tmp_path / "a.db", "garbage")
-    sessions.clear()
-    assert [client.get(READY).status_code for _ in range(2)] == [503, 503]
-    over = client.get(READY)
-    assert over.status_code == 429  # refused by the limit, not a 500 from a database limiter
-    assert int(over.headers["retry-after"]) >= 1
-    assert sessions == []  # the limit counted in memory
-    other = TestClient(app, client=("10.0.0.2", 50000))
-    assert other.get(READY).status_code == 503  # another address, its own bucket
-
-
-def test_readiness_is_not_limited_when_limits_are_off(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("MENDARI_RATE_LIMITS", "off,ready=1/min")
-    client = TestClient(create_app(db_path=tmp_path / "a.db"))
-    assert [client.get(READY).status_code for _ in range(3)] == [200, 200, 200]
-
-
-def test_health_shows_the_readiness_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MENDARI_RATE_LIMITS", "on,ready=120/min:60")
-    health = TestClient(create_app(db_path=tmp_path / "a.db")).get("/api/health").json()
-    assert health["rate_limits"]["limits"]["ready"] == "120/min:60"

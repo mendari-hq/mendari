@@ -305,7 +305,8 @@ gates:
               - tests/test_readiness.py::test_liveness_stays_up_through_the_outage_that_readiness_reports
               - tests/test_readiness.py::test_readiness_reads_the_database_once_per_window_whoever_asks
               - tests/test_readiness.py::test_readiness_tells_no_error_text
-              - tests/test_readiness.py::test_readiness_is_limited_per_address_in_memory_through_an_outage
+              - tests/test_readiness.py::test_a_flood_of_readiness_during_a_black_hole_never_starves_liveness
+              - tests/test_readiness.py::test_a_frozen_postgres_is_unreachable_within_the_bound
           - pending: "LP-21b (the status checks file and the status view)"
           - attested: {what: "the provider, its public URL and the checks configured", by: "", date: ""}
       - id: hosted-monitoring

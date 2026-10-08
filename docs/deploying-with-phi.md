@@ -20,25 +20,32 @@ The public sandbox and the project's own Vercel deployment are **synthetic only*
 
 **Health checks and request size.** Two public routes, for two questions:
 
-- *Is the process alive?* `/api/health` answers without a credential with `status`, `version`
-  and `sign_in` only, and does no database work, so it stays `ok` through a database outage. Use
-  it for liveness (the Docker `HEALTHCHECK`, Kubernetes' `livenessProbe`): restarting a server
-  never fixes its database. The settings (PHI mode, packs, providers, the FHIR servers Mendari
-  calls, today's remote calls) are shown to someone signed in, or a key, that may read; in
-  memberships mode today's calls are the operator's (`mendari usage`).
-- *Can it serve decisions now?* `GET` or `HEAD /api/health/ready` reads the database once
-  (bounded at about 3 s) and reports the packs as start-up found them: `200` with `status`
-  `ready`, or `degraded` while a pack did not load or build (signed-in `/api/health` lists it
-  under `invalid`); `503` `unready` when the database does not answer or no pack is served. It
+- *Is the process alive?* With sign-in on, `/api/health` answers without a credential with
+  `status`, `version` and `sign_in` only, and does no database work, so it stays `ok` through a
+  database outage. Use it for liveness (the Docker `HEALTHCHECK`, Kubernetes'
+  `livenessProbe`): restarting a server never fixes its database. The settings (PHI mode,
+  packs, providers, the FHIR servers Mendari calls, today's remote calls) are shown to someone
+  signed in, or a key, that may read; in memberships mode today's calls are the operator's
+  (`mendari usage`). In open mode (no sign-in) every caller gets the settings, which read the
+  database, so there `/api/health` answers `500` while the database is down.
+- *Can it serve decisions now?* `GET` or `HEAD /api/health/ready` reads Mendari's table once
+  and reports the packs as start-up found them: `200` with `status` `ready`, or `degraded` while
+  a pack did not load or build (signed-in `/api/health` lists it under `invalid`); `503`
+  `unready` when the database does not answer within about 3.5 seconds or no pack is served. It
   names fixed codes only (`checks.database`: `ok` or `unreachable`; `checks.packs`: `ok`,
   `degraded` or `none`), never an error's text. Use it for readiness (Kubernetes'
   `readinessProbe`, a load balancer's target health) and for status pages and uptime checks.
-  Each instance reads the database at most once every 5 seconds whoever asks, keeps the
-  answer (a failure too), and limits each address in memory (60 a minute, 30 at once:
-  `ready` below), so it keeps answering through an outage. A check that calls it more often
-  than your database's idle suspend (Neon's default is 5 minutes) keeps the database awake.
-  On Vercel, an instance that starts while the database is down fails before any route runs
-  (the app opens its database at import), so a status page sees an error there, not a `503`.
+  Each instance reads the database at most once every 5 seconds whoever asks and keeps the
+  answer, a failure too. A read the database never answers (a network black hole, its
+  connection left open) holds one thread, and none starts again until it returns; a caller
+  that comes while a check runs gets the last answer at once. So it keeps answering through an
+  outage, and a flood of it never takes the threads liveness needs. There is no per-address
+  limit, which would fail a probe that shares its address with other callers (a kubelet behind
+  SNAT, a load balancer's health checker): floods are your proxy's or firewall's, as for
+  `/api/health`. A check that calls it more often than your database's idle suspend (Neon's
+  default is 5 minutes) keeps the database awake. On Vercel, an instance that starts while the
+  database is down fails before any route runs (the app opens its database at import), so a
+  status page sees an error there, not a `503`.
 
 A request body is 4 MiB at most: raise `MENDARI_MAX_BODY_BYTES` (in
 bytes, 64 KiB or more) if your FHIR Bundles are larger, and give your proxy the same limit
@@ -595,7 +602,6 @@ the token endpoint.
 | The AI guard (an LLM call) | API key, client or person | 60 a minute |
 | Evaluations | caller | 6 an hour |
 | Exports (the audit FHIR export, the feedback export) | caller | 10 an hour |
-| Readiness (`/api/health/ready`), on each instance, in memory, so it needs no database | client address | 60 a minute, 30 at once |
 
 `MENDARI_RATE_LIMITS` is `on` (the default with sign-in), `log` (count and log what would be
 refused, refuse nothing) or `off` (the default in open mode), optionally followed by overrides:
@@ -714,8 +720,8 @@ Send the container's stdout to your log system (Docker's logging driver, your Ku
 collector, journald) and keep it as your policy says; Mendari keeps no log table of its own.
 
 - **One access line per request** to `/api`, `/fhir`, `/cds-services`, `/auth` and `/smart`
-  (`"event":"request"`), refused ones included, not `/api/health` or static files: the method,
-  the route's template (`/api/audit/{decision_id}`, never the path or its query), the status,
+  (`"event":"request"`), refused ones included, not `/api/health`, `/api/health/ready` (probes)
+  or static files: the method, the route's template (`/api/audit/{decision_id}`, never the path or its query), the status,
   the caller (`user:<hash>`, `key:<id>`, `client:<id>`, `open` or `anonymous`), its organization
   and address, and the latency.
 - **Security events**, each with a fixed `reason` code: `auth.signin.ok|refused`,

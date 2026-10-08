@@ -931,20 +931,19 @@ def create_app(
         summary="Readiness: the database answers and the packs loaded",
         responses={503: {"description": "Not ready: the database did not answer, or no pack"}},
     )
-    def ready(request: Request) -> Response:
+    def ready() -> Response:
         """Public, for status pages, uptime checks and readiness probes (`server/readiness.py`),
-        with `GET` or `HEAD`: `status` (`ready`, `degraded` or `unready`), `version` and `checks`: `database` (`ok` or
-        `unreachable`) and `packs` (`ok`; `degraded` while a pack did not load or build, which
-        signed-in `/api/health` lists under `invalid`; `none` when no pack is served). `503`
-        when unready. Fixed codes only: no error text, no pack ids, no counts.
+        with `GET` or `HEAD`: `status` (`ready`, `degraded` or `unready`), `version` and
+        `checks`: `database` (`ok` or `unreachable`) and `packs` (`ok`; `degraded` while a pack
+        did not load or build, which signed-in `/api/health` lists under `invalid`; `none` when
+        no pack is served). `503` when unready. Fixed codes only: no error text, no pack ids,
+        no counts.
 
-        An instance reads the database at most once every few seconds, whoever asks, and limits
-        each address in memory (`429` with `Retry-After`), so the check and its limit keep
-        answering through an outage. Liveness stays `/api/health`, which does no database work.
+        An instance reads the database at most once every 5 s, whoever asks, and waits for the
+        read about 3.5 s at most; a caller that comes while a check runs gets the last answer,
+        so readiness holds one request thread at most, through any outage. Liveness stays
+        `/api/health`, which with sign-in on does no database work for an anonymous caller.
         """
-        over = limiter.hit_here("ready", f"ip:{client_ip(request)}")
-        if over is not None:
-            return limited_response(request.url.path, over)
         answer = readiness.answer()
         return JSONResponse(answer.body, answer.status_code)
 
