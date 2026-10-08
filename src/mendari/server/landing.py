@@ -277,7 +277,8 @@ def _auth(sign_in: bool, token_url: str | None) -> str:
         f"five-minute access token at <code>POST {escape(token_url)}</code>: a "
         "<code>client_credentials</code> grant with an assertion signed RS384 or ES384 "
         "(<code>private_key_jwt</code>), never a client secret. It then sends "
-        "<code>Authorization: Bearer mat_…</code>. "
+        "<code>Authorization: Bearer mat_…</code>. A client keeps its id when its public keys "
+        "are replaced (<code>POST /api/auth/clients/{id}/keys</code>): its tokens stop at once. "
         '<a href="/fhir/.well-known/smart-configuration">The SMART configuration</a> '
         "describes this.</li>"
         if token_url
@@ -295,7 +296,7 @@ def _auth(sign_in: bool, token_url: str | None) -> str:
         "<li><strong>Machines</strong> send <code>Authorization: Bearer ohk_…</code>: an API key "
         "a signed-in administrator creates with <code>POST /api/auth/keys</code>, shown once, "
         "and rotates with <code>POST /api/auth/keys/{id}/rotate</code> (the old key works for an "
-        "overlap, then expires). A "
+        "overlap, then expires), or in the dashboard's Access view. A "
         "key has one role, <code>viewer</code> or <code>service</code>, and expires "
         f"({KEY_DAYS} days unless asked, {KEY_MAX_DAYS} at most). Optional scopes narrow it: "
         "SMART v2 reads such as <code>system/Task.rs</code>, and "

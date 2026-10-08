@@ -21,7 +21,7 @@ from mendari.core import accounts
 from mendari.core.audit import AuditStore
 from mendari.server.app import DASHBOARD_DIR, create_app
 from mendari.server.auth import permission_for
-from tests.conftest import member, security_lines
+from tests.conftest import ROOT, member, security_lines
 
 HTTPS = "https://mendari.test"
 TOKEN = re.compile(r"ohi_[A-Za-z0-9_-]{43}")
@@ -136,6 +136,21 @@ def test_the_developer_landing_lists_the_invite_page_as_public(members: TestClie
     text = members.get("/docs").text
     public = re.search(r'<tr data-permission="public">(.*?)</tr>', text, re.S)
     assert public and "<code>GET /invite</code>" in public[1]
+
+
+def test_the_machine_roles_and_docs_site_in_ui_js_are_the_servers() -> None:
+    """The roles the Access view offers a key or a client (LP-12h) are the server's machine
+    roles, and preset documentation links point at the docs site mkdocs builds."""
+    from mendari.core.audit import MACHINE_ROLES
+
+    ui = (DASHBOARD_DIR / "ui.js").read_text(encoding="utf-8")
+    chosen = re.search(r"MACHINE_ROLES = MEMBERSHIP_ROLES\.filter\(\(r\) => \[([^\]]*)\]", ui)
+    assert chosen is not None
+    assert re.findall(r'"([a-z_]+)"', chosen[1]) == list(MACHINE_ROLES)
+    site = re.search(r'^export const DOCS_SITE = "([^"]+)";$', ui, re.M)
+    mkdocs = (ROOT / "mkdocs.yml").read_text(encoding="utf-8")
+    site_url = re.search(r"^site_url: (\S+)$", mkdocs, re.M)
+    assert site is not None and site_url is not None and site[1] == site_url[1]
 
 
 def test_the_dashboard_role_list_is_the_servers() -> None:

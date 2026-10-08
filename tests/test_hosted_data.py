@@ -421,8 +421,10 @@ def test_no_route_shows_a_stored_case_but_to_a_reader_and_every_read_is_chained(
         f"person:{role}": signed_in(store, role=role)
         for role in ("viewer", "governance", "reviewer", "admin")
     }
+    keys: dict[str, dict[str, Any]] = {}
     for role in ("viewer", "service"):
         key = store.create_api_key(name=f"k-{role}", role=role, org="default", created_by="t")
+        keys[role] = key
         who[f"key:{role}"] = {"authorization": f"Bearer {key['key']}"}
     who["anonymous"] = {}
     admin = who["person:admin"]
@@ -443,6 +445,8 @@ def test_no_route_shows_a_stored_case_but_to_a_reader_and_every_read_is_chained(
         filled = [path.replace("{resource_id}", FIXED_IDS.get(path, "{resource_id}"))]
         if path == "/api/monitoring":
             filled = [f"{path}?pack_id={pack.id}" for pack in (inbox_pack, trial)]
+        if "{key_id}" in path:  # a key's history: one of the keys above
+            filled = [path.replace("{key_id}", keys["service"]["id"])]
         if "{decision_id}" in path or "/Task/{resource_id}" in path:
             filled = [
                 path.replace("{decision_id}", d).replace("{resource_id}", d) for d in decisions

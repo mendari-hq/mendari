@@ -612,3 +612,23 @@ def test_every_kind_is_in_exactly_one_class() -> None:
     assert set().union(*classes[1:]) == NOT_ON_A_DECISION
     assert DECISION_KINDS | set(ADMINISTRATIVE_KINDS) >= BOUND_WHEN_MARKED
     assert set(ADMINISTRATIVE_KINDS.values()) == set(SUBJECT_TABLES)
+
+
+def test_a_subject_s_history_is_its_row_s_organization_s_and_a_deployment_hold_no_one_s(
+    db_target: str,
+) -> None:
+    """`subject_history` (LP-12h) reads `SUBJECT_TABLES` as `verify` does: a hold set for every
+    organization (NULL) is the deployment's, never `default`'s."""
+    with AuditStore(db_target, bind_org=True) as store:
+        mine = store.hold_automation(
+            org=CLINIC, pack_id=None, pack_digest=None, reason="r", set_by="o"
+        )
+        every = store.hold_automation(
+            org=None, pack_id=None, pack_digest=None, reason="r", set_by="o"
+        )
+        assert store.subject_history("hold", mine["id"], CLINIC)["org"] == CLINIC  # type: ignore[index]
+        assert store.subject_history("hold", mine["id"], "clinic-z") is None
+        assert store.subject_history("hold", every["id"], tenancy.DEFAULT_ORG) is None
+        operators = store.subject_history("hold", every["id"], None)  # the command line's
+        assert operators is not None and operators["org"] is None
+        assert [e["event"] for e in operators["events"]] == ["automation.held"]

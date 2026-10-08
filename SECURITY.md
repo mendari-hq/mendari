@@ -126,8 +126,12 @@ Each bullet is one control; the threat model names the row and the tests behind 
   assertion check runs before anything is written, and every failure is the same
   `invalid_client`. A token reads its client's role, scopes, organization and revocation on
   each request, so revoking a client stops its tokens at once. Machines are `viewer` or
-  `service`; no key or token registers a client. Registering and revoking clients are chained.
-  Mendari fetches no client key (no JWKS URLs).
+  `service`; no key or token registers a client. Replacing a client's public keys
+  (`POST /api/auth/clients/{id}/keys`, people only) drops its tokens in the same transaction, and
+  a token issued against the old keys while it ran is refused (each token carries the version of
+  the key set its assertion was checked against). Registering, replacing keys and revoking
+  clients are chained, with keys by id and thumbprint. Mendari fetches no client key (no JWKS
+  URLs).
 - **What a caller without a credential can do.** Public routes cost little and take no lock:
   `/api/health` answers only `status`, `version` and `sign_in` (its settings need a principal
   that may read), `/fhir/metadata` reads its version without the audit chain's lock, and

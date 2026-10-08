@@ -289,10 +289,23 @@ five-minute token (`Authorization: Bearer mat_…`) for what it asked within wha
 registered for, in the organization of the admin who registered it. There is no refresh token,
 no authorization endpoint (no user or patient launch) and no `patient/` or `user/` scope.
 
-- `GET /api/auth/clients` lists clients with their keys' ids and thumbprints; `DELETE
-  /api/auth/clients/{client_id}` revokes one, and its tokens stop working on the next request.
-  Registering and revoking are recorded in the audit chain.
-- To change a client's keys or scopes, register a new client and revoke the old one.
+- `GET /api/auth/clients` lists clients with their keys' ids and thumbprints and when their
+  keys were last replaced; `DELETE /api/auth/clients/{client_id}` revokes one, and its tokens
+  stop working on the next request. Registering, replacing keys and revoking are recorded in the
+  audit chain (keys by id, type and thumbprint, never their material).
+- `POST /api/auth/clients/{client_id}/keys` with `{"jwks": {"keys": [...]}}` replaces a client's
+  public keys whole, checked as at registration: same client id, role and scopes. The tokens it
+  holds stop at once, and a token issued against the old keys while the replacement ran is
+  refused too. There is no overlap: to switch without a gap, replace with the old and new keys,
+  move the client to the new one, then replace with the new one alone. A revoked client is a
+  `409`; another organization's, a `404`. Its daily cap and rate limits carry across.
+- `GET /api/auth/clients/{client_id}/history` (and `GET /api/auth/keys/{key_id}/history` for an
+  API key) reads its audit chain: registered, each replacement, revoked, with who did each.
+- The dashboard's Access view does all of this for an administrator who signed in (the
+  **Clients** tab, beside **API keys**), in claims mode too; it turns a pasted PEM public key
+  into a JWK and refuses the private keys it recognises (a PEM `PRIVATE KEY` block, a JWK with
+  private members, a private key's DER) before anything is sent.
+- To change a client's scopes, register a new client and revoke the old one.
 - The token endpoint takes 60 requests a minute per client address. After 10 failed
   assertions in 10 minutes from one address for one client, that pair gets a `429` until the
   oldest failure has aged out; another client, or the same client from another address, is not
@@ -496,7 +509,17 @@ Move the machine to the new key within the overlap: the security log's `auth.key
 `{"overlap_hours": 0}`, or revoke it (`DELETE /api/auth/keys/{id}`). The chain has both
 (`key.created` with `replaces`, `key.rotated`). If the answer carrying the new key is lost,
 revoke the replacement (`GET /api/auth/keys` lists it as the old key's `replaced_by`) and rotate
-the old key again. Backend Services clients are not rotated this way: register a client with the new JWKS, move the integration, then revoke the old client.
+the old key again. The dashboard's Access view (API keys tab) rotates, revokes and shows a key's
+history too.
+
+*Backend Services clients.* A client keeps its id and replaces its keys
+(`POST /api/auth/clients/{client_id}/keys`, or **Replace keys…** in the Access view's Clients
+tab). There is no overlap, so switch in two replacements: first the old and the new public keys
+(both sign), then move the client to its new private key, then the new public key alone (the old
+one is refused from then). Each replacement drops the client's tokens, so the client asks for a
+new one; the chain has each step (`client.keys_replaced`, with the keys before and after by
+thumbprint and how many tokens were dropped). A leaked private key: replace with the new key
+alone at once, or revoke the client.
 
 **Notes.** A reviewer's or a rater's note, and a payer's answer to a prior authorization (its
 authorization number and disposition), are free text. They are kept in a `notes` table, never in
