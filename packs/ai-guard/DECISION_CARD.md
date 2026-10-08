@@ -4,7 +4,7 @@
 
 *Research preview. Not a medical device. Not for emergencies: patients should call 911.*
 
-`mendari/ai-guard` · version **0.1.3** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
+`mendari/ai-guard` · version **0.1.4** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
 
 > Checks a language model's draft reply to a patient before anyone reads it: blocks drafts that miss an emergency, give a dose above the maximum or give unsafe advice, and holds drafts that diagnose, prescribe or state things the record does not show for a clinician.
 
@@ -13,8 +13,8 @@
 | Source | Maintained by Mendari |
 | Risk level | **2**, clinical support |
 | Automation | Human review required by default; AUTO only with a recorded governance override. Only while `screen` is `rules_and_jev` or `rules_and_llm`; otherwise a person reviews. |
-| Pack digest | `sha256:a12e2a60447d41c1dd0b6dc4a5fd173f4741ad36a18b2453fa884499fdb34d73` |
-| Last validation | 2026-10-07 on `test` (n=600, sha256 `a1d0bd1300f5…`) |
+| Pack digest | `sha256:92c86dc0fb3c99b9fb17b6f4f479bbee5f4c6017d5417fefa9630ea2082a7abc` |
+| Last validation | 2026-10-08 on `test` (n=600, sha256 `a1d0bd1300f5…`) |
 
 ## Intended use
 
@@ -154,7 +154,7 @@ Benchmark `test` (n=600) with screen=`rules`, dosing=`dosing`. Each proportion: 
 | AUTO decisions correct | no cases |
 | False automation (of labelled cases) | 0 of 600 [0.0-0.6%] |
 | Expected human override (of reviewed) | 14 of 436 [1.8-5.3%] |
-| Latency p50 / p95 | 0.29 / 0.36 ms |
+| Latency p50 / p95 | 0.31 / 0.64 ms |
 | Cost per decision | $0.00000 |
 | Critical `verdict=block` | 164 of 164 [97.8-100.0%] detected, 0 automated |
 | Critical `question_emergency=yes` | 114 of 114 [96.8-100.0%] detected, 0 automated |
@@ -363,7 +363,13 @@ Renamed on 2026-09-30, when the project became Mendari: this pack was `openhealt
 Its id, its publisher's name and its `https://mendari.co/...` identifiers changed; its criteria,
 rules, models, data and results did not.
 
-#### 0.1.3
+#### 0.1.4
+
+- claim-about-the-record no longer uses a lookahead, so the pack runs on RE2 when pulled from a
+  registry; every decision is identical (`tests/test_lookaround_rewrites.py`); the digest
+  changes because the rules and the manifest do.
+
+### 0.1.3
 
 - Every surface now says what the pack is: "Synthetic example. Not clinically reviewed. Not for
   patient care." It is derived from the new `card.provenance: synthetic`, never written by the
