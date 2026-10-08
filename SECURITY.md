@@ -214,7 +214,9 @@ Each bullet is one control; the threat model names the row and the tests behind 
 The Jev adapter gets its key from a Vercel Connect connector (exchanged at runtime with the
 deployment's OIDC identity, cached in memory only) or, locally, from `JEV_API_KEY`. Remote
 providers:
-- send only a pack's declared `state_fields`;
+- send only a pack's declared `state_fields` (a pack the deployment does not own, a community
+  or registry pack, must declare them on every model variant, or it is refused at load; an owned
+  pack that omits them sends the whole input);
 - read their endpoint, model and key from fixed environment variables (`JEV_API_URL`,
   `JEV_MODEL`, `JEV_API_KEY`, `JEV_CONNECTOR`; `LLM_BASE_URL`, `LLM_MODEL`, `AI_GATEWAY_API_KEY`,
   `LLM_API_KEY`), which a pack cannot change;
@@ -236,14 +238,18 @@ running it: installing a pack means trusting its author, as with any plugin. The
 packs a deployment owns (the reference packs, and its own local packs) run on Python `re` with
 no time limit, so such a pack can slow or stall a worker; on `re`, a crafted 10,000-character
 message to the inbox pack can hold the interpreter for about 0.55 s (the rate limits bound how
-often). Packs the deployment does not own run on the community engine instead
+often). Their input schemas are bounded in shape at load instead of in time: nested at most 32
+deep, at most 16 `$ref`s in a chain, at most 1,000 schema objects applied to one value, and no
+reference back to itself but a recursive list's or tree's. Packs the deployment does not own run
+on the community engine instead
 ([ADR-0009](docs/decisions/ADR-0009-bounded-evaluation-for-packs-the-deployment-does-not-own.md)):
 community packs, and packs pulled from a registry unless one is a copy of a reference pack of
 the installed release, chosen by the digest of its files, never by its manifest or the registry.
-Their patterns run on RE2, which never backtracks, within caps, input limits and a CPU budget
-per decision (below), in the server's process: there is no isolated worker process. To trust a
-pulled pack, copy it into `MENDARI_PACKS_PATH`, where it is a local pack. What a pack cannot do
-today is below.
+A pack from a registry never takes a reference pack's place: one with a reference pack's id and
+version but other files is refused at publish, pull and load. Their patterns run on RE2, which
+never backtracks, within caps, input limits and a CPU budget per decision (below), in the
+server's process: there is no isolated worker process. To trust a pulled pack, copy it into
+`MENDARI_PACKS_PATH`, where it is a local pack. What a pack cannot do today is below.
 
 - Registry packs are **signed archives** (Ed25519, deterministic). `mendari pull` verifies
   them and pins the publisher's key on first use, and versions are immutable.
@@ -288,7 +294,11 @@ today is below.
   memory. `mendari pull` (and `Decision.from_hub`) builds no cache path from what the registry
   answers until the version is a semantic version, the path stays inside the cache and the
   signed manifest names that pack and version, so a compromised registry cannot delete or write
-  outside the cache.
+  outside the cache. Nor can a pulled pack take a reference pack's place: one with the id of a
+  pack this release bundles and a version equal to its (`0.4.1-x` and `0.04.1` are `0.4.1`), but
+  other files, is refused at load, so the registry refuses its publish (`422`), `mendari pull`
+  refuses it before it is cached, and one cached before is listed under `/api/health`
+  `invalid`, with the directory to remove, while the reference pack is served.
 - A pack cannot reach another pack's CQL. The engine at `MENDARI_CQL_URL` is shared, so a pack's
   library is uploaded under a resource id and a declared name that end in a hash of the pack id
   and of the library's text: a library that declares another pack's library name and version
@@ -300,14 +310,21 @@ today is below.
   fails makes the pack invalid, named by file and rule (`mendari validate` prints no
   traceback; a server lists the pack under `/api/health` `invalid`). This does not bound how
   long a pattern takes on an input: see above.
+- An owned pack's input schema cannot multiply the work of checking an input. At load it nests
+  at most 32 deep, chains at most 16 `$ref`s and applies at most 1,000 schema objects to one
+  value (`$ref`s that fan out: 28 steps of two applied one schema 2**28 times), refers back to
+  itself only as a recursive list or tree does (once, through `properties` or `items`), and holds
+  no `unevaluatedProperties` or `unevaluatedItems` below another (each such check validates again
+  everything below it, so nested ones multiply); one beyond these is invalid, named by path. A pack the deployment does not own has the caps and
+  the time budget instead (above).
 - A pack's content cannot keep the server from starting or from serving the other packs (a
   slow pattern can still stall a worker while it runs: see above). Any error while a pack is
   loaded or its terminology built
   (Mendari's own errors, and any other: YAML or JSON nested too deep, a file that is not
   UTF-8) lists that pack in `/api/health` (`invalid`; an error that is not Mendari's by its type
   alone, as its text is the pack's), and every other pack is served; a served pack whose
-  providers cannot be built when first used is listed there too, and its decisions answer
-  `422`, never `/api/health` or another pack's. A YAML file of a pack that uses anchors expands
+  providers cannot be built (at start-up, never in a request) is listed there too, and its
+  decisions answer `422`, never `/api/health` or another pack's. A YAML file of a pack that uses anchors expands
   to at most 1,000,000 nodes and 32,000,000 characters of scalar text as JSON writes it (a
   control character counts six), counted on the parsed graph before anything walks it, so a few
   lines of aliases cannot make loading exponential, or make a page that shows the file
@@ -382,6 +399,13 @@ applies.
   never reach it, only `community/<name>:slot=variant` runs it on a remote variant (an
   evaluation request through the API included), and its pinned model and `max_tokens` give way
   to the deployment's.
+- **The deployment's model, caps and provider configs** (community and registry packs). The
+  model is the deployment's; `max_tokens` and `timeout_ms` are held to the provider defaults
+  (LLM 4,096 tokens and 30 s, Jev 5 s; a lower value stands) and a `reasoning_effort` above
+  `low` is dropped. Every variant and member is checked at load against its provider's closed
+  config (`docs/spec/provider-configs.schema.json`): a key its provider does not read, or a value
+  it refuses, refuses the pack. An owned pack loads with such problems as warnings (`mendari
+  list`, the start-up log, `/api/health` `pack_warnings`), and `mendari validate` refuses both.
 - **At most 10,000 characters of text** (community and registry packs), alone or together
   (keys too, where its input schema runs patterns on them: `patternProperties`,
   `propertyNames`), and at most 10,000 values

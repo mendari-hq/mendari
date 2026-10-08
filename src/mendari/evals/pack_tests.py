@@ -114,11 +114,18 @@ def _value_problem(manifest: PackManifest, expect: dict[str, Any]) -> str | None
 
 
 def validate_pack(pack: Pack) -> None:
-    """`mendari validate`: every provider variant builds, the FHIR mapping (if any) loads, the
-    behaviour tests' inputs match the input schema, and every declared dataset is one the pack
-    can evaluate (`dataset_problems`); a `PackValidationError` otherwise."""
-    from mendari.providers import build_provider
+    """`mendari validate`: every provider variant passes its closed config
+    (`providers.config_problems`: what `load_pack` warns an owned pack of, `Pack.warnings`, and
+    refuses a pack the deployment does not own for) and builds, the FHIR mapping (if any)
+    loads, the behaviour tests' inputs match the input schema, and every declared dataset is one
+    the pack can evaluate (`dataset_problems`); a `PackValidationError` otherwise."""
+    from mendari.providers import build_provider, config_problems
 
+    # Every variant's problems, each naming it; the trained files are read whatever the pack
+    # was loaded with. Then what only a build finds: the deployment's model settings.
+    problems = config_problems(pack)
+    if problems:
+        raise PackValidationError(pack.id, problems)
     for slot, spec in pack.manifest.providers.items():
         for variant in spec.variants:
             build_provider(pack, slot, variant)

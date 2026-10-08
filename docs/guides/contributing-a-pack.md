@@ -19,7 +19,11 @@ its manifest says:
   send such cases to a person with `HUMAN_REVIEW` and a priority;
 - it decides with **local providers** (rules, criteria, dosing, naive Bayes, or a composite of
   those); a remote model runs only if a deployment names the pack in its settings
-  (`community/<name>:slot=variant`), for decisions and evaluations alike;
+  (`community/<name>:slot=variant`), for decisions and evaluations alike, and each model
+  variant names the input fields it sends (`state_fields`), on the deployment's model, answer
+  length, timeout and effort;
+- every variant, the ones it does not use by default too, sets only the keys its provider type
+  reads (the [provider config schema](../spec/provider-configs.schema.json)) and can run;
 - it keeps only a **hash** of each input (`audit.store_input: hash`);
 - it reads at most **10,000 characters** of text in all (its texts, each and all together, and
   its keys too where its input schema runs patterns on them, with `patternProperties` or

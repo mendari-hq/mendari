@@ -67,11 +67,24 @@ As built:
   engine refuses is never cached nor marked verified) and `mendari pack verify` pass `hub`.
   `Decision.from_path` takes the origin of its path, so a cached pack loaded by its path is
   still a pack from a registry. The registry checks a publish against its own release's
-  reference packs.
-- **Nothing else changes for a pulled pack.** It is labelled "From a registry", may automate
-  under its own policy, keeps its pinned model and its own BLOCK rules: community policy stays
-  the community packs' (`Pack.community`). Its rules failing on the budget (`time_budget`)
-  never leave AUTO, and a failed primary abstains (`core/policy.py`, unchanged).
+  reference packs. On every one of these paths, a pack from a registry with a reference pack's
+  id and a version that ties its (`version_key`) but other files is refused (`core/pack.py`
+  `_shadow_problem`, LP-16 F): the cache wins a version tie, so it would be served in the
+  reference pack's place. The registry refuses its publish (`422`), `mendari pull` refuses it
+  before it is cached, and one cached before is listed under `/api/health` `invalid`, with the
+  directory to remove, while the reference pack is served.
+- **Little else changes for a pulled pack.** It is labelled "From a registry", may automate
+  under its own policy and keeps its own BLOCK rules: community policy stays the community
+  packs' (`Pack.community`). Its rules failing on the budget (`time_budget`) never leave AUTO,
+  and a failed primary abstains (`core/policy.py`, unchanged).
+- **Its provider configs, as a community pack's (LP-16e, amending the line above, which said it
+  keeps its pinned model).** Every variant and member is checked at load against its
+  provider's closed config (`providers.config_problems`), and a problem refuses the pack (an
+  owned pack loads with it as a warning). Its model is the deployment's, its `max_tokens` and
+  `timeout_ms` are held to the provider defaults and a `reasoning_effort` above `low` is
+  dropped (`core/origin.py` `deployment_config`), and each model variant must name its
+  `state_fields`. Its remote answers can change where it pinned a model; no shipped or deployed
+  pack pins one.
 - **No setting.** There is no setting that puts a pulled pack on `re`. An operator who trusts a
   pack copies it into `MENDARI_PACKS_PATH`, where it is a local pack: owned, on `re`. A pulled
   pack is removed by deleting its version from the pack cache, or by not pulling it;

@@ -7,13 +7,28 @@ import hashlib
 import math
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Hashable, Iterator, Mapping
+from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import asdict, dataclass, field
-from typing import Any, ClassVar
+from typing import Any, ClassVar, TypeVar
+
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from mendari.core.pack import Pack
 from mendari.core.spec import Question
-from mendari.errors import ProviderError
+from mendari.errors import PackValidationError, ProviderError
+
+T = TypeVar("T")
+
+
+class FileConfig(BaseModel):
+    """A `rules`, `criteria` or `dosing` variant: its type and the pack file its config is in,
+    and nothing else (`Provider.config_problems`)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    type: str
+    config: str
 
 
 @dataclass(frozen=True)
@@ -92,6 +107,29 @@ class Provider(ABC):
         self.config = dict(config)
         self._budget: Callable[[str], None] | None = None
 
+    @classmethod
+    def config_problems(
+        cls,
+        pack: Pack,
+        where: str,
+        config: Mapping[str, Any],
+        questions: Mapping[str, Question],
+        *,
+        bounded: bool,
+        trained: bool,
+    ) -> list[str]:
+        """Why `config` (a variant's or a composite member's, with its `type`) cannot answer
+        `questions` in `pack`, or nothing: every check that reads neither the environment nor
+        the network, each problem naming `where` (the variant, or the member) or the pack file
+        it is about. Its closed config model refuses any key it does not read. `bounded`: the
+        pack is one the deployment does not own (`Pack.bounded`), held to more. `trained`: the
+        trained files (`model_file`, `calibration`) are read too; `mendari train` loads a pack
+        before it has them. `load_pack` runs it on every variant (`providers.config_problems`:
+        a pack the deployment does not own is refused, an owned one warned) and so does
+        `mendari validate`; each constructor raises on the checks a variant was refused for
+        before (an owned pack's unread key only warns, so it still serves)."""
+        return []
+
     def use_budget(self, acquire: Callable[[str], None]) -> None:
         """Metered providers call `charge()` before each billable call; the runtime wires the
         daily budget in here."""
@@ -140,6 +178,71 @@ class Provider(ABC):
             provider=self.info,
             evidence=evidence,
         )
+
+
+def closed_problems(model: type[BaseModel], where: str, config: Mapping[str, Any]) -> list[str]:
+    """Why `config` is not one its closed config `model` accepts (a key it does not read, a value
+    out of range), or nothing."""
+    try:
+        model.model_validate(config)
+    except ValidationError as error:
+        return [f"{where}: {error}"]
+    return []
+
+
+def read_problems(read: Callable[[], Any]) -> tuple[Any, list[str]]:
+    """(what `read` returns, []), or (None, the problems) when the pack file it reads is missing,
+    unreadable, changed since load or malformed (`Pack.read_*` raise `PackValidationError`)."""
+    try:
+        return read(), []
+    except PackValidationError as error:
+        return None, list(error.problems)
+
+
+# What one `providers.config_problems` call has already worked out about a pack file, by key: a
+# pack's composites often name the same trained model, which is then read and checked once.
+# None outside such a call, so nothing outlives it (a file edited later is read again, and
+# refused).
+_CHECKED: ContextVar[dict[Hashable, Any] | None] = ContextVar("checked", default=None)
+
+
+@contextmanager
+def checking_once() -> Iterator[None]:
+    """Within this block, `once` computes each key's value a single time."""
+    token = _CHECKED.set({})
+    try:
+        yield
+    finally:
+        _CHECKED.reset(token)
+
+
+def once(key: Hashable, compute: Callable[[], T]) -> T:
+    """`compute()`, computed once per key inside `checking_once`, every time outside it."""
+    checked = _CHECKED.get()
+    if checked is None:
+        return compute()
+    if key not in checked:
+        checked[key] = compute()
+    value: T = checked[key]
+    return value
+
+
+def state_fields_problem(kind: str) -> str:
+    """Why a model variant of a pack the deployment does not own is refused without
+    `state_fields`: it would send the whole input."""
+    return (
+        f"a community or registry pack's {kind} variant must name its state_fields: the input "
+        "fields it sends"
+    )
+
+
+def prefixed(where: str, problems: list[str]) -> list[str]:
+    """`problems`, each naming `where` (the variant or member they are about) first: one about a
+    pack file names the file only."""
+    return [
+        problem if problem.startswith((f"{where}: ", f"{where}.")) else f"{where}: {problem}"
+        for problem in problems
+    ]
 
 
 def fingerprint(pack: Pack, relative: str) -> str:
