@@ -218,7 +218,7 @@ async function changeRoles(member) {
 async function removeMember(member) {
   const person = personName(member);
   const org = orgName();
-  const revokes = !member.pending && member.email ? ` Open invitations to ${esc(member.email)} are revoked with it.` : "";
+  const revokes = member.email ? ` Open invitations to ${esc(member.email)} are revoked with it.` : "";
   const removed = await actionDialog({
     title: `Remove ${person} from ${org}?`,
     body: member.you

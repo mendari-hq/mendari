@@ -2958,7 +2958,8 @@ class AuditStore:
     def remove_membership(self, membership_id: str, *, org: str, removed_by: str) -> bool:
         """End a membership of `org` (`membership.removed`); never its last administrator's
         (`accounts.MembershipRefused`, `last_admin`). False for one not in force. The open
-        invitations of `org` made out to that person's recorded address are revoked with it
+        invitations of `org` made out to that person's address (recorded, or the pending
+        membership's) are revoked with it
         (`invitation.revoked`, by `removed_by`), so no link left open earlier (one they could not
         accept while a member) lets them back in; the invitations, keys and clients they made
         stay as they were."""
@@ -2980,21 +2981,23 @@ class AuditStore:
                 "membership.removed",
                 {"id": membership_id, "org": org, "removed_by": removed_by},
             )
-            if row["user_id"] is not None:
-                self._revoke_invitations_to(db, user_id=row["user_id"], org=org, by=removed_by)
+            if row["user_id"] is None:
+                address = row["pending_email"]
+            else:
+                person = db.one("SELECT email FROM users WHERE id = ?", (row["user_id"],))
+                address = None if person is None else person["email"]
+            if address:
+                self._revoke_invitations_to(db, address=address, org=org, by=removed_by)
         return True
 
-    def _revoke_invitations_to(self, db: _Session, *, user_id: str, org: str, by: str) -> None:
-        """Revoke `org`'s open invitations made out to `user_id`'s recorded verified address, in
-        the caller's transaction (`invitation.revoked` each, as `revoke_invitation` chains it).
-        Nothing when they have no address on record."""
-        person = db.one("SELECT email FROM users WHERE id = ?", (user_id,))
-        if person is None or not person["email"]:
-            return
+    def _revoke_invitations_to(self, db: _Session, *, address: str, org: str, by: str) -> None:
+        """Revoke `org`'s open invitations made out to `address` (a person's recorded verified
+        one, or a pending membership's), in the caller's transaction (`invitation.revoked` each,
+        as `revoke_invitation` chains it)."""
         revoked = db.all(
             "UPDATE invitations SET revoked_at = ?, revoked_by = ? WHERE org = ? AND email = ? "
             "AND accepted_at IS NULL AND revoked_at IS NULL RETURNING id, created_at",
-            (_now(), by, org, person["email"]),
+            (_now(), by, org, address),
         )
         for invitation in sorted(revoked, key=lambda r: (r["created_at"], r["id"])):
             self._append(

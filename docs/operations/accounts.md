@@ -134,8 +134,9 @@ Then:
   list who created each key). So do the open invitations a removed or demoted administrator
   made: they stay valid until they are accepted, expire or are revoked (the list of
   invitations names who made each). Removing someone does revoke that organization's open
-  invitations made out to their address (each chained as `invitation.revoked`), so a link left
-  open earlier, one they could not accept while a member, does not let them back in.
+  invitations made out to their address, or to a pending membership's (each chained as
+  `invitation.revoked`), so a link left open earlier, one they could not accept while a member,
+  does not let them back in.
 - Keys, Backend Services clients and EHR registrations of an organization with no record are
   refused.
 - The whole-chain verify, deployment-wide deployment records and some health fields are still
@@ -167,7 +168,7 @@ revoked and made anew. Who made each invitation and membership is named by their
 | `POST /api/auth/invitations/accept` | A person's own: accepts one with its `token`, signed in with the address it names, verified. |
 | `GET /api/auth/members` | Lists the memberships in force: each person's name and address, or the address a pending one waits for. |
 | `PUT /api/auth/members/{id}/roles` | Replaces a membership's roles; they apply at that person's next request. |
-| `DELETE /api/auth/members/{id}` | Ends a membership, and revokes the organization's open invitations made out to that person's address. |
+| `DELETE /api/auth/members/{id}` | Ends a membership, and revokes the organization's open invitations made out to that person's address (a pending one's too). |
 | `GET /api/auth/access-requests` | Lists the open requests to join, with who asked. |
 | `POST /api/auth/access-requests/{id}` | Grants one (`outcome: granted`, with `roles`, `viewer` unless asked) or refuses it. |
 

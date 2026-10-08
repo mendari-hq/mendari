@@ -60,6 +60,7 @@ from mendari.errors import (
     ClientError,
     FhirError,
     FhirStructureError,
+    InvitationRefused,
     MendariError,
     NoteError,
     NoticeNotAcknowledged,
@@ -2034,14 +2035,17 @@ def identified(body: dict[str, Any]) -> dict[str, Any]:
 
 
 def error_response(path: str, status: int, error: MendariError) -> JSONResponse:
-    """`{"error", "detail"}` on Mendari's own API; an OperationOutcome on FHIR routes. A
+    """`{"error", "detail"}` on Mendari's own API (and an invitation refusal's `reason`); an
+    OperationOutcome on FHIR routes. A
     sign-in refusal carries its `WWW-Authenticate` challenge, a `429` its `Retry-After`."""
     asked = error.challenge if isinstance(error, AuthError) else None
     headers = {"WWW-Authenticate": asked} if asked else {}
     headers.update(retry_headers(error))
     if not _FHIR_ROUTE.match(path):
-        body = identified({"error": type(error).__name__, "detail": str(error)})
-        return JSONResponse(body, status, headers=headers)
+        said: dict[str, Any] = {"error": type(error).__name__, "detail": str(error)}
+        if isinstance(error, InvitationRefused):  # which refusal, for the /invite page
+            said["reason"] = error.reason
+        return JSONResponse(identified(said), status, headers=headers)
     if isinstance(error, FhirStructureError):
         return operation_outcome(status, [{"code": "structure", **i} for i in error.issues])
     code = _ISSUE_TYPE.get(status, "processing")

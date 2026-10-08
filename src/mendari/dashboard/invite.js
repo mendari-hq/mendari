@@ -151,7 +151,7 @@ async function accept(me, token) {
     return joined(me, said);
   }
   if (status === 401) return signedOut();
-  if (status === 403 && refusal && String(said.detail).includes("another e-mail address")) {
+  if (status === 403 && refusal && said.reason === "other_address") {
     return show({
       title: "This invitation is for another e-mail address",
       html: `<p>You're signed in as ${esc(me.principal.actor)}. Sign in with the address it was sent to.</p>`,
