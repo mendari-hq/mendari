@@ -190,13 +190,15 @@ MENDARI_SMART_EHRS=https://ehr.example.org/fhir/r4=default:decide   # <FHIR base
   the EHR serves. In memberships mode, register an organization with a record: a launch of one
   without is refused. An organization nobody signs in to fails closed: the decisions are recorded,
   but no reviewer ever sees them. With sign-in on, `mendari smart check` fails such a
-  registration.
+  registration (in memberships mode it warns instead, since a launch needs the organization's
+  record, which it does not read, and fails only an id no record can have).
 - **Register the base exactly as the EHR sends it** in the launch's `iss` (scheme and host in
   any case, a trailing slash ignored, the path as it is), then check it with the deployment's
   settings: `mendari smart check https://ehr.example.org/fhir/r4` prints the registration key,
   whether its origin is allowed and how it is registered (with sign-in on, `fail` when it is
   registered to an organization other than `default` and `MENDARI_OIDC_ORG_CLAIM` is unset;
-  `warn` in open mode), the SMART client
+  `warn` in open mode; in memberships mode `warn`, and `fail` for an id no record can have),
+  the SMART client
   and scopes, and the EHR's discovery, PKCE S256 and keys, each `ok`, `warn` or `fail` (exit 1
   on any `fail`). It
   reads only the EHR's public configuration and keys. Two tenants on one EHR host are two

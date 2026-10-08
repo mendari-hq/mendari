@@ -73,7 +73,8 @@ provider's claims needs nothing to change.
   organization before every route that is not public, a page or a person's own (choosing an
   organization, asking to join), and the guard then acts for nobody.
 - A sign-in records the person only when a membership waits for their verified address, they
-  hold one, or they were recorded before; a request to join answers the same whether or not
-  the organization exists, so it names no organization to whoever asks.
-- A dashboard window sends the organization it shows (`X-Mendari-Org`); a request from a window
-  left on another than the one chosen since is refused (`409`).
+  hold one, or they were recorded before; a request to join answers with the same status and
+  body whether or not the organization exists (its timing differs, and asking one that exists
+  leaves a request its administrators see).
+- A request naming another organization than the one chosen since (`X-Mendari-Org`) is refused
+  (`409`); the dashboard sends the organization a window shows (LP-12e-ii).

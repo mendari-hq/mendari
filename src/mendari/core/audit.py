@@ -2608,12 +2608,15 @@ class AuditStore:
         with self._db.session(exclusive=True) as db:
             row = db.one("SELECT id FROM users WHERE id = ?", (user_id,))
             if row is None:
-                db.all(
-                    "INSERT INTO users (id, issuer, subject, email, name, created_at, "
-                    "last_sign_in_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (user_id, issuer, subject, address, name, now, now),
+                self._insert_user(
+                    db,
+                    user_id=user_id,
+                    issuer=issuer,
+                    subject=subject,
+                    email=address,
+                    name=name,
+                    signed_in=now,
                 )
-                self._append(db, user_id, "user.recorded", {"user": user_id})
             else:
                 db.all(
                     "UPDATE users SET email = ?, name = ?, last_sign_in_at = ? WHERE id = ?",
@@ -2621,6 +2624,29 @@ class AuditStore:
                 )
             user = db.one("SELECT * FROM users WHERE id = ?", (user_id,))
         return dict(user) if user is not None else {}
+
+    def _insert_user(
+        self,
+        db: _Session,
+        *,
+        user_id: str,
+        issuer: str,
+        subject: str,
+        email: str | None,
+        name: str | None,
+        signed_in: str | None,
+    ) -> None:
+        """A person's first record (`user.recorded`), in the caller's exclusive transaction."""
+        try:
+            address = accounts.normalise_email(email) if email else None
+        except ValueError:
+            address = None
+        db.all(
+            "INSERT INTO users (id, issuer, subject, email, name, created_at, last_sign_in_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (user_id, issuer, subject, address, name, _now(), signed_in),
+        )
+        self._append(db, user_id, "user.recorded", {"user": user_id})
 
     def user(self, user_id: str) -> dict[str, Any] | None:
         with self._db.session(exclusive=False) as db:
@@ -3057,13 +3083,20 @@ class AuditStore:
                 user_id=user_id,
             )
 
-    def request_access(self, *, user_id: str, org: str) -> dict[str, Any]:
+    def request_access(
+        self, *, user_id: str, org: str, asker: Mapping[str, Any] | None = None
+    ) -> dict[str, Any]:
         """A person asking to join `org` (`access.requested`); their open request again if they
         asked before. `accounts.AccessRefused` (a `ValueError`) for an organization with no
         record, one they are a member of, or a request past `accounts.OPEN_REQUESTS_MAX` open
-        ones. What is refused is
-        refused before the chain's lock is taken: asking costs everyone else nothing."""
+        ones. What is refused is refused before the chain's lock is taken: asking costs
+        everyone else nothing. `asker` (`issuer`, `subject`, `email`, `name`: who signed in)
+        records the person, in the same transaction as the request, when they have no record
+        yet (`user.recorded`); a record they have is left as it is (signing in keeps it
+        current), so a request never stands without its person."""
         accounts.check_org_id(org)
+        if asker is not None and accounts.person_id(asker["issuer"], asker["subject"]) != user_id:
+            raise ValueError("the asker is not the person asking")
         with self._db.session(exclusive=False) as db:
             found = self._open_request(db, user_id, org)
         if found is not None:
@@ -3072,6 +3105,19 @@ class AuditStore:
             found = self._open_request(db, user_id, org)  # again, under the lock
             if found is not None:
                 return found
+            if (
+                asker is not None
+                and db.one("SELECT id FROM users WHERE id = ?", (user_id,)) is None
+            ):
+                self._insert_user(
+                    db,
+                    user_id=user_id,
+                    issuer=str(asker["issuer"]),
+                    subject=str(asker["subject"]),
+                    email=asker.get("email"),
+                    name=asker.get("name"),
+                    signed_in=None,  # a sign-in keeps this current, not a request
+                )
             request = {
                 "id": secrets.token_hex(8),
                 "user_id": user_id,

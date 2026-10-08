@@ -8,7 +8,9 @@ person's; and claims mode, the default, never reads or writes the records."""
 from __future__ import annotations
 
 import json
+import logging
 import re
+import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -22,7 +24,7 @@ from starlette.routing import Route
 
 from mendari import AuditStore, Decision, Pack
 from mendari.core import tenancy
-from mendari.errors import MendariError, NoOrganization
+from mendari.errors import AuthError, MendariError, NoOrganization
 from mendari.server import auth as auth_module
 from mendari.server import sessions
 from mendari.server.app import create_app
@@ -296,12 +298,22 @@ def test_choosing_needs_a_person_from_this_site(members: TestClient, store: Audi
     )
 
 
-def test_an_ehr_launch_is_no_person_here(members: TestClient, store: AuditStore) -> None:
-    cookie = launched(store)["cookie"]
-    asked = members.post(
-        "/api/auth/organization", json={"org": "default"}, headers={"cookie": cookie}
-    )
-    assert asked.status_code == 401  # the launch cookie is a credential on /api/smart/ only
+def test_an_ehr_launch_is_no_person_here(
+    db_target: str, idp: FakeIdp, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With the SMART launch on and the EHR registered to an organization with a record: the
+    launch opens the dashboard page, and is no credential for choosing an organization."""
+    ehr = "https://ehr.example.org"
+    monkeypatch.setenv("MENDARI_SMART_CLIENT_ID", "mendari-smart")
+    monkeypatch.setenv("MENDARI_FHIR_ALLOWED_SERVERS", ehr)
+    monkeypatch.setenv("MENDARI_SMART_EHRS", f"{ehr}/fhir=clinic-e:view")
+    store = AuditStore(db_target)
+    store.create_organization(org="clinic-e", name="Clinic E", created_by="t")
+    cookie = {"cookie": launched(store)["cookie"]}
+    with memberships_app(db_target, idp, monkeypatch) as client:
+        assert client.get("/", headers=cookie, follow_redirects=False).status_code == 200
+        asked = client.post("/api/auth/organization", json={"org": "clinic-e"}, headers=cookie)
+        assert asked.status_code == 401  # the launch cookie is a credential on /api/smart/
 
 
 def test_choosing_never_extends_the_session(members: TestClient, store: AuditStore) -> None:
@@ -318,6 +330,21 @@ def test_choosing_never_extends_the_session(members: TestClient, store: AuditSto
     assert after is not None and after[0]["org"] == "clinic-b"
     assert after[0]["absolute_at"] == before[0]["absolute_at"]
     assert after[1] <= after[0]["absolute_at"]
+
+
+def test_choosing_near_the_absolute_limit_ends_the_session_there(
+    members: TestClient, store: AuditStore
+) -> None:
+    headers = member(store, org="clinic-a", roles=["viewer"], sub="ada")
+    sid = headers["cookie"].partition("=")[2]
+    row = store.smart_read(sid, MEMBER)
+    assert row is not None
+    soon = int(time.time()) + 60
+    assert store.smart_replace(sid, MEMBER, {**row[0], "absolute_at": soon}, soon)
+    chosen = members.post("/api/auth/organization", json={"org": "clinic-a"}, headers=headers)
+    assert chosen.status_code == 200
+    after = store.smart_read(sid, MEMBER)
+    assert after is not None and after[1] == soon  # never now + idle, past the limit
 
 
 def test_choosing_after_the_session_ended_is_refused(
@@ -515,6 +542,13 @@ def test_no_route_serves_a_principal_of_no_organization(
     assert store.verify()["events"] == before
 
 
+def test_health_tells_any_principal_of_no_organization_only_the_public_fields(
+    as_nobody: TestClient,
+) -> None:
+    """Even one holding every role: the organization decides."""
+    assert set(as_nobody.get("/api/health").json()) == PUBLIC_HEALTH
+
+
 def test_health_tells_a_person_of_no_organization_only_the_public_fields(
     members: TestClient, store: AuditStore
 ) -> None:
@@ -706,3 +740,112 @@ def test_a_member_is_let_through_exactly_as_a_claims_person_of_the_same_role(
         assert attempt(by_records, method, path, nobody)[0] == 200
         assert attempt(by_records, method, path, {})[0] == 401
         assert attempt(by_records, method, path, {"authorization": f"Bearer {key}"})[0] == 403
+
+
+def test_the_access_line_names_the_person_and_no_organization(
+    members: TestClient, store: AuditStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    headers = member(store, org=None, sub="ada")
+    capsys.readouterr()
+    members.post("/api/auth/access-requests", json={"org": "clinic-z"}, headers=headers)
+    [line] = [line for line in logged(capsys) if line["event"] == "request"]
+    assert line["actor"] == person_id(IDP, "ada") and line.get("org") is None
+
+
+# -- rate limits --------------------------------------------------------------------------------
+
+
+def test_a_persons_own_routes_count_as_signing_in_in_memberships_mode_only(
+    tmp_path: Path, db_target: str, idp: FakeIdp, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Memberships mode: choosing and asking, open to any account that signs in, count per
+    address with signing in. Claims mode: the paths are not there, and an administrator's
+    requests to them stay `404`s that count against nothing, as before."""
+    monkeypatch.setenv("MENDARI_RATE_LIMITS", "on,signin=2/min:2")
+    with signing_in_with(idp, tmp_path, monkeypatch) as claims:
+        admin = signed_in(AuditStore(tmp_path / "a.db"), role="admin")
+        answers = [
+            claims.post("/api/auth/organization", json={"org": "clinic-a"}, headers=admin)
+            for _ in range(4)
+        ]
+        assert [a.status_code for a in answers] == [404] * 4
+        assert claims.get("/auth/login", follow_redirects=False).status_code == 302
+    with memberships_app(db_target, idp, monkeypatch) as client:
+        headers = member(AuditStore(db_target), org="clinic-a", roles=["viewer"], sub="ada")
+        answers = [
+            client.post("/api/auth/access-requests", json={"org": "clinic-b"}, headers=headers)
+            for _ in range(4)
+        ]
+        assert 429 in [a.status_code for a in answers]
+
+
+# -- defence in depth -------------------------------------------------------------------------
+
+
+def test_a_route_reached_without_an_organization_is_refused_never_widened(
+    tmp_path: Path,
+) -> None:
+    """Should a principal of no organization ever reach a route that gives the store an
+    organization, it is refused there too; and with sign-in on, a route reached with no
+    principal at all is refused, never served as open mode (every organization)."""
+    assert auth_module.org_of(Principal(kind="key", name="k", id="key:1", actor="key 1")) == (
+        "default"
+    )
+    with pytest.raises(NoOrganization):
+        auth_module.org_of(NOBODY)
+    with pytest.raises(NoOrganization):
+        auth_module.scope_of(NOBODY)
+    assert auth_module.scope_of(auth_module.OPEN) is None
+    request = Request({"type": "http", "method": "GET", "path": "/api/holds", "headers": []})
+    store = AuditStore(tmp_path / "a.db")
+    settings = AuthSettings(IDP, CLIENT, None, "roles", {}, None, None, accounts="memberships")
+    with pytest.raises(AuthError) as unset:
+        Auth(settings, store).acting(request)
+    assert unset.value.status == 401
+    with pytest.raises(AuthError):
+        auth_module.let_through(request)
+    assert Auth(None, store).acting(request) is auth_module.OPEN
+
+
+# -- credentials and settings ------------------------------------------------------------------
+
+
+def test_a_client_of_an_organization_with_no_record_is_refused(
+    db_target: str, idp: FakeIdp, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from jwt.algorithms import RSAAlgorithm
+
+    from mendari.server.backend_services import check_jwks, default_scope
+
+    monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "on")
+    monkeypatch.setenv("MENDARI_PUBLIC_URL", HTTPS)
+    store = AuditStore(db_target)
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    jwks = check_jwks({"keys": [{**json.loads(RSAAlgorithm.to_jwk(key.public_key())), "kid": "k"}]})
+    client = store.register_client(
+        name="c", role="viewer", org="clinic-z", created_by="t", scopes=default_scope("viewer"),
+        jwks=jwks,
+    )  # fmt: skip
+    token, _ = store.issue_token(client["client_id"], default_scope("viewer"), 300)
+    bearer = {"authorization": f"Bearer {token}"}
+    with memberships_app(db_target, idp, monkeypatch) as app:
+        assert app.get("/fhir/Task", headers=bearer).status_code == 401  # what its scope reads
+        store.create_organization(org="clinic-z", name="Clinic Z", created_by="t")
+        assert app.get("/fhir/Task", headers=bearer).status_code == 200
+
+
+def test_ignored_claim_settings_are_named_at_startup(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
+    monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", CLIENT)
+    monkeypatch.setenv("MENDARI_OIDC_ROLE_MAP", "clinicians=admin")
+    monkeypatch.setenv("MENDARI_OIDC_ORG_CLAIM", "org")
+    with caplog.at_level(logging.WARNING, logger="mendari.auth"):
+        auth_settings()  # claims mode: they are its settings
+        assert caplog.records == []
+        monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
+        auth_settings()
+    [warned] = caplog.records
+    assert "MENDARI_OIDC_ROLE_MAP, MENDARI_OIDC_ORG_CLAIM ignored" in warned.getMessage()

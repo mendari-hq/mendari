@@ -184,7 +184,8 @@ CHAINED: dict[Route, tuple[str, ...]] = {
     (ENGINE, "DELETE", "/api/auth/keys/{key_id}"): ("key.revoked",),
     (ENGINE, "POST", "/api/auth/clients"): ("client.registered",),
     (ENGINE, "DELETE", "/api/auth/clients/{client_id}"): ("client.revoked",),
-    (ENGINE, "POST", "/api/auth/access-requests"): ("access.requested",),  # memberships mode
+    # Memberships mode: the request, and the person who asked the first time.
+    (ENGINE, "POST", "/api/auth/access-requests"): ("access.requested", "user.recorded"),
     (ENGINE, "POST", "/api/packs/{namespace}/{name}/evals"): ("eval.recorded",),
 }
 # A GET that writes is not found by its method: these are listed by hand. That every read of a

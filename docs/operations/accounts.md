@@ -71,8 +71,8 @@ mendari access bootstrap --email owner@example.org --db "$DATABASE_URL"
 ```
 
 It creates `default`'s record if it has none, and the membership, pending: it becomes the
-owner's the next time they sign in with that address verified by their identity provider (it
-never picks a person by an address stored from an earlier sign-in). Running it again adds
+owner's at their first sign-in in memberships mode with that address verified by their
+identity provider (it never picks a person by an address stored from an earlier sign-in). Running it again adds
 nothing twice, and it never rewrites a row the deployment already holds.
 
 ## Inviting an organization's first administrator
@@ -81,8 +81,8 @@ nothing twice, and it never rewrites a row the deployment already holds.
 mendari access invite --org clinic-a --email lead@example.org --role admin --db "$DATABASE_URL"
 ```
 
-The link is printed once, on its own line: pass it on yourself. It can be accepted once signing
-in by records ships; until then it waits, and expires on its day. From then on that
+The link is printed once, on its own line: pass it on yourself. It can be accepted once
+invitations ship (LP-12f); until then it waits, and expires on its day. From then on that
 organization's administrators invite their own people.
 
 ## Signing in by records
@@ -91,12 +91,14 @@ organization's administrators invite their own people.
 membership, never from the identity provider's claims. Switching a deployment is the owner's
 decision; in order:
 
-1. `mendari access check` against its database exits 0 (every organization in use has a
+1. `mendari access bootstrap --email <the owner's address>` (it gives `default` its record),
+   and `mendari access org create` for each other organization the preflight names;
+2. `mendari access check` against its database exits 0 (every organization in use has a
    record);
-2. `mendari access bootstrap --email <the owner's address>`;
 3. set `MENDARI_ACCOUNTS=memberships` and redeploy. **Everyone signs in again**, both ways: a
-   session of one mode is no session in the other. Rolling back is unsetting it: the records
-   stay, and claims mode never reads them.
+   session of one mode is no session in the other. The owner's membership binds at their first
+   sign-in then. Rolling back is unsetting it: the records stay, and claims mode never reads
+   them.
 
 Then:
 
@@ -109,9 +111,11 @@ Then:
   they signed in, the person chooses one. With none, they act for **no organization**: never
   `default`. They are refused (`403`, `NoOrganization`) everywhere but the public routes, the
   dashboard page, choosing one of their organizations and asking to join one.
-- Asking to join answers the same whether or not the organization exists, the person is
-  already a member, or they have five requests open: only a request to an organization with a
-  record, from someone not in it, is recorded.
+- Asking to join answers with the same status and body whether or not the organization
+  exists, the person is already a member, or they have five requests open: only a request to
+  an organization with a record, from someone not in it, is recorded, with the person if they
+  have no record yet. Its timing is not the same, and asking an organization that exists
+  leaves a request its administrators see.
 - A membership removed, or its roles changed, applies at the person's next request. Keys and
   clients a removed person created belong to the organization and keep working: revoke them
   too if they should not (`mendari access members` lists who is in it; the Access screen will

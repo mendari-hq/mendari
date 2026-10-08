@@ -584,6 +584,14 @@ class Auth:
     def enabled(self) -> bool:
         return self.settings is not None
 
+    def permission(self, method: str, path: str) -> str:
+        """The permission a request needs here: the route rules' (`permission_for`), except that
+        in claims mode a person's own routes (`person`, not mounted there) read as any route no
+        rule lists, `admin`. The guard, the notice check and the rate limits all ask this, so
+        they never disagree about a request."""
+        permission = permission_for(method, path)
+        return "admin" if permission == PERSON and not self.memberships else permission
+
     def acting(self, request: Request) -> Principal:
         """Who the guard let through to a route that acts for an organization: open mode's
         principal only while sign-in is off. With sign-in on, a route reached without one is a
@@ -835,9 +843,7 @@ class Auth:
 
     def check(self, request: Request) -> Response | None:
         """None when the request may go on; otherwise the response that refuses it."""
-        permission = permission_for(request.method, request.url.path)
-        if permission == PERSON and not self.memberships:
-            permission = "admin"  # claims mode: as any route no rule lists (deny by default)
+        permission = self.permission(request.method, request.url.path)
         if permission == "public" or self.settings is None:
             return None
         principal = self.authenticate(request)
@@ -1315,10 +1321,18 @@ def add_membership_routes(app: FastAPI, auth: Auth) -> None:
         same whether or not that organization exists, you are already a member, or you have too
         many requests open (5): only a request to an organization with a record, from someone
         not a member of it, is recorded (and chained, `access.requested`), once while it is
-        open."""
+        open, with the person who asked if they have no record yet (`user.recorded`). The
+        answer is the same; how long it takes is not: asking an organization that exists leaves
+        a request its administrators see."""
         principal, _, session = member_session(request)
+        asker = {
+            "issuer": session["iss"],
+            "subject": session["sub"],
+            "email": session.get("email"),  # verified at sign-in
+            "name": session.get("name") or session["sub"],
+        }
         try:
-            made = store.request_access(user_id=principal.id, org=body.org)
+            made = store.request_access(user_id=principal.id, org=body.org, asker=asker)
         except accounts.AccessRefused as refused:
             security_log.event(
                 "auth.access.requested",
@@ -1327,12 +1341,6 @@ def add_membership_routes(app: FastAPI, auth: Auth) -> None:
                 actor=principal.id,
             )
         else:
-            store.record_user(  # who asked, for the administrators who answer
-                issuer=str(session["iss"]),
-                subject=str(session["sub"]),
-                email=session.get("email"),
-                name=str(session.get("name") or session["sub"]),
-            )
             security_log.event(
                 "auth.access.requested", actor=principal.id, org=body.org, ids=[str(made["id"])]
             )

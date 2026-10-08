@@ -89,7 +89,6 @@ from mendari.server.auth import (
     credential_in_url_or_form,
     names_a_credential,
     org_of,
-    permission_for,
     read_body,
 )
 from mendari.server.backend_services import (
@@ -630,7 +629,7 @@ def create_app(
     app.state.provider_settings_not_taken = not_taken  # `mendari serve --provider`
 
     def limit_class(method: str, path: str) -> str | None:
-        return limiter.classify(method, path, permission_for(method, path))
+        return limiter.classify(method, path, auth.permission(method, path))
 
     def openapi() -> dict[str, Any]:
         if app.openapi_schema is None:
@@ -646,7 +645,7 @@ def create_app(
                 generated,
                 packs=packs,
                 default_pack=default_pack,
-                permission_for=permission_for if auth.enabled else None,
+                permission_for=auth.permission if auth.enabled else None,
                 token_url=None if backend is None else backend.token_url,
                 limit_for=limit_class if limiter.mode == "on" else None,
                 session_cookie=session_cookie_name(),
@@ -1808,7 +1807,7 @@ def create_app(
         if acknowledgement == "off" or principal.kind != "user":
             return None
         route = (request.method, request.url.path)
-        permission = permission_for(*route)
+        permission = auth.permission(*route)
         minting = request.method == "POST" and permission == notices.MINTING_PERMISSION
         if permission not in notices.GATED and not minting:
             return None
@@ -1833,7 +1832,7 @@ def create_app(
         refused = auth.check(request) or notice_refusal(request)
         if refused is not None or not limiter.on:
             return refused
-        permission = permission_for(request.method, request.url.path)
+        permission = auth.permission(request.method, request.url.path)
         over = limiter.check(request, permission, principal_of(request).id)
         return None if over is None else limited_response(request.url.path, over)
 
@@ -1963,7 +1962,7 @@ def create_app(
         smart_launch=smart_options is not None,
         token_url=None if backend is None else backend.token_url,
         routes=mounted_routes(app),
-        permission_for=permission_for,
+        permission_for=auth.permission,
         cards=None
         if auth.enabled
         else {
