@@ -47,10 +47,18 @@ def test_the_usage_tab_shows_the_organization_s_calls_and_an_unknown_cost(site: 
     expect(page.locator("#admin-body")).not_to_contain_text("777")
 
 
+# The gap between the tab bar and what a tab shows first, in pixels.
+GAP = """() => document.querySelector('#admin-body').firstElementChild.getBoundingClientRect().top
+  - document.querySelector('.tabs').getBoundingClientRect().bottom"""
+
+
 def test_an_organization_without_remote_calls_says_so(site: Site) -> None:
     page = site.window(lead(site))
     access(page, "usage")
     expect(page.locator("#admin-body")).to_contain_text("No remote calls")
+    usage_gap = page.evaluate(GAP)
+    access(page, "keys")
+    assert usage_gap == page.evaluate(GAP) > 0  # as far below the tab bar as the other tabs
 
 
 @pytest.mark.parametrize("scheme", ["light", "dark"])

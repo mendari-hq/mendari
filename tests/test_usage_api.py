@@ -6,7 +6,7 @@ priced; the operator reads every organization's from the command line (`mendari 
 from __future__ import annotations
 
 import json
-from datetime import timedelta
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +21,9 @@ from mendari.server.app import create_app
 from tests.conftest import encrypt_mode, signed_in
 from tests.test_hosted_data import sign_in_env
 
-TODAY = clock.today()
+# The day the tests run on, pinned (`pinned_day`): a run that crosses local midnight still
+# agrees with the server about which days are the last 30.
+DAY = date(2026, 10, 8)
 
 
 def seed(store: AuditStore, *rows: tuple[str, str, str, str, int, int, float]) -> None:
@@ -37,8 +39,13 @@ def seed(store: AuditStore, *rows: tuple[str, str, str, str, int, int, float]) -
             )
 
 
+@pytest.fixture(autouse=True)
+def pinned_day(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(clock, "today", lambda: DAY)
+
+
 def days_ago(n: int) -> str:
-    return (TODAY - timedelta(days=n)).isoformat()
+    return (clock.today() - timedelta(days=n)).isoformat()
 
 
 def seeded(store: AuditStore) -> None:
@@ -110,8 +117,14 @@ def test_the_operator_reads_every_organization_s_ledger(
         return ledger
 
     every = usage()
+    assert (every["since"], every["until"]) == (days_ago(29), days_ago(0))
+    assert len(every["rows"]) == 4  # not the day 40 days ago
     assert {row["org"] for row in every["rows"]} == {"clinic-a", "clinic-b"}
+    by = {(t["provider_type"], t["purpose"]): t for t in every["totals"]}
+    assert by[("jev", "decision")]["calls"] == 22 and by[("llm", "evaluation")]["cost_usd"] is None
     assert {row["org"] for row in usage("--org", "clinic-b")["rows"]} == {"clinic-b"}
+    assert len(usage("--days", "1")["rows"]) == 2
     assert len(usage("--days", "60")["rows"]) == 5
-    assert main(["usage", "--db", str(db), "--days", "0"]) == 1
-    assert "--days is 1 to 366" in capsys.readouterr().err
+    for days in ("0", "367"):
+        assert main(["usage", "--db", str(db), "--days", days]) == 1
+        assert "--days is 1 to 366" in capsys.readouterr().err
