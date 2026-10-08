@@ -27,6 +27,11 @@
   second claim is reported, never served. The origin, never the manifest's `publisher.type`
   (self-declared), sets the label every surface shows: "Maintained by Mendari" or "Community ·
   not clinically reviewed" ([ADR-0007](decisions/ADR-0007-community-packs-by-pull-request.md)).
+  The origin and the digest choose the engine a pack's patterns run on (`Pack.bounded`): a pack
+  the deployment does not own (a community pack, or a pulled one that is not a reference pack of
+  the installed release, `core/reference.py`) runs on RE2 with caps, input limits and a CPU
+  budget per decision; the others on `re`
+  ([ADR-0009](decisions/ADR-0009-bounded-evaluation-for-packs-the-deployment-does-not-own.md)).
 - **Runtime** (`core/decision.py`): binds a pack to concrete provider variants. It validates
   input, collects answers, applies policy and optionally records the result.
 - **Derived questions** (`core/derive.py`): computes decision-table questions from their

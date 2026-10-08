@@ -271,6 +271,10 @@ A community pack also refuses an input whose texts are longer than 10,000 charac
 together, before a pattern runs, and the settings that multiply its patterns' work are capped
 (the limits at the top of this guide).
 
+The same rules apply to a pack pulled from a registry that is not a copy of a reference pack of
+the installed release: RE2, the caps, the schema keywords, the input limits and the time budget
+([ADR-0009](../decisions/ADR-0009-bounded-evaluation-for-packs-the-deployment-does-not-own.md)).
+
 Habits that keep patterns precise and honest:
 
 - Bound every gap: `{0,5}` words, not `*`, e.g.

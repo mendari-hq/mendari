@@ -133,7 +133,7 @@ class DosingProvider(Provider):
             self.table = DosingConfig.model_validate(self.pack.read_yaml(relative))
         except ValidationError as error:
             raise PackValidationError(self.pack.id, [f"{relative}: {error}"]) from None
-        if self.pack.community:  # its caps (`core/caps.py`; `load_pack` checks them too)
+        if self.pack.bounded:  # its caps (`core/caps.py`; `load_pack` checks them too)
             from mendari.core.caps import dosing_problems
 
             problems = dosing_problems(relative, self.table.model_dump())

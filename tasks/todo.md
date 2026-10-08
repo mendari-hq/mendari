@@ -456,6 +456,80 @@ clinical-trial-prescreener, referral-router) are rewritten, with a decision-iden
 rebuild, before a reference version that differs from the installed one is published to a
 registry or copied into the store.
 
+- [ ] **LP-16 build** (ADR-0009), in four PRs:
+  - [ ] **16a** (PR open) The engine for packs the deployment does not own: `Pack.bounded` (a
+    community pack, or a pulled one whose digest, the one `load_pack` hashed, is not a reference
+    pack's of the installed release, `core/reference.py`); `archive.extract(..., origin=)`
+    required, with `hub` from the registry's publish, `mendari pull` (before the rename, so a
+    refused pack is never cached) and `mendari pack verify`; `Decision.from_path` takes its
+    path's origin; `mendari pull` says which engine; ADR-0009, the spec amended in place, the
+    docs, threat model D8 and S15; the a3 probe's pending line replaced by its tests. No pack
+    artifact changes.
+  - [x] **16b** (#184, merged 2026-10-08) A wall-clock deadline across one decision's remote
+    calls, every pack (`MENDARI_DECISION_DEADLINE_S`, 120 s unless set), recorded as `timeout`;
+    an answer still arriving stops at it, the CQL engine's included; threat model D9.
+  - [ ] **16c-1** (after 16a) ai-guard's `claim-about-the-record` without its lookahead, exact
+    on every input on both engines (a decision-identity test), ai-guard 0.1.4 and its rebuild.
+  - [ ] **16c-2** (held for the owner) pregnant, pancreatitis and new-lung-mass: the owner
+    chooses between S (a structural `not_followed_by` rules key, a format change) and D (the
+    data-identical rewrites, with their fuzz differences and the slowdown on `re` accepted in
+    writing). Until then the trial and referral packs cannot publish a version that differs from
+    the installed one: a puller refuses it, with the reason.
+  - [ ] Follow-up (16a review): a pulled pack with a bundled pack's id and version but another
+    digest shadows the bundled one, since the cache wins a version tie. It runs bounded, but
+    under the reference pack's name. Refuse it at pull and at load (pre-existing; not in 16a).
+
+  **Conflicts written before building LP-16, and the default each PR follows** (the owner may
+  choose otherwise; each default is named by the PR that depends on it):
+  1. (16a) Requirement 1 and its first test are narrowed to packs the deployment does not own
+     (owner, #175). Test 1 at 100,000 characters: a pulled pack refuses text over 10,000
+     characters before any pattern runs (BLOCK "input rejected"), so the test asserts the
+     refusal at the decision and linear scaling at the pattern level. Reference and local packs
+     stay on `re`, with no budget.
+  2. (16a) The engine follows the bytes. A pulled pack runs on `re` only when the digest
+     `load_pack` hashed equals one of the installed release's bundled packs'. Metadata, the
+     manifest's `publisher.type` and the registry's recorded digest never choose the engine. A
+     local copy of a pulled pack is owned (`re`), and there is no setting to put a pulled pack
+     on `re`.
+  3. (16a, 16b) Error codes: `time_budget` stays the CPU budget's (requirement 2's
+     `budget_exhausted` is the daily call limit: HTTP 429, FHIR "throttled"). The deadline uses
+     `timeout`. No code is added.
+  4. (16a) The whole B11 engine comes along for a pulled pack, not only the five items the
+     owner named: the input-shape limits (10,000 values, depth 32), the 100-error stop and the
+     short schema reasons, because they share the gate. Run-time reasons stored in the audit
+     keep "a community pack" for community packs and say "a pack from a registry" for pulled
+     ones. Load-time messages become origin-neutral ("a community or registry pack").
+  5. (16a) No policy change. "Then a person decides" is held as: a pulled pack's `time_budget`
+     never leaves AUTO, and a failed primary abstains. A pulled pack's own BLOCK rule that
+     matches on answers from other slots still decides, as for every failure code today. A
+     BLOCK can be the safe direction: ai-guard's `possible-block` means "do not send".
+  6. (16a) ADR-0007, the threat model's residual risks and `SECURITY.md` promised an isolated
+     process; the owner chose no worker process. ADR-0009 records Option A scoped and amends
+     them; ADR-0007 has an "Amended by ADR-0009" status line.
+  7. (16c) Only the ai-guard rewrite is decision-identical on every input. pregnant and
+     pancreatitis lose matches (the unsafe direction) and are 26 times slower on `re`;
+     new-lung-mass differs both ways. Default: 16c-1 (ai-guard) lands; 16c-2 waits for the
+     owner's choice between S and D. Until then the trial and referral packs cannot publish a
+     version that differs from the installed one: a puller refuses it, with the reason.
+  8. (16c-2 if S) A new rules key is a format change (Definition of shipped §8,
+     `notes/vision-audit.md`). Default: not in LP-16.
+  9. (16a) "Pin the dialect in the spec": 0.2 §5 is amended in place, as B11 did. The pack
+     format is unchanged and every pack loads as before.
+  10. (16a, 16b) Gate G3-4: the a3 `pending` probe is replaced by 16a's tests and 16b's
+     (`test_a_deadline_never_automates`); its narrowed `what` holds no pending line. "Fuzzing"
+     in the `what` line keeps no probe of its own.
+  11. (all) Requirements 4–7 and the hypothesis, health, parity and nested-`$ref` tests are not
+     narrowed by the owner and are not in 16a–16c. Default: they ship as 16d–16g: 16d, health
+     does no pack work in the request; 16e, closed provider configs (for packs the deployment
+     does not own, the deployment chooses model, `max_tokens`, `timeout_ms` and effort;
+     `state_fields` is required on remote variants; an egress allow-list); 16f, a depth and
+     `$ref` bound for owned schemas, only if every shipped pack passes, else a new conflict;
+     16g, the threat model's "Pack content" part. LP-16 counts as merged for LP-18 and LP-20
+     only when 16d–16g land too.
+  12. (16a) The sandbox registry seeds from the host checkout into an image built earlier.
+     Default: document `docker compose up --build` (README, `docker-compose.yml`).
+     `hub_seed.py` is unchanged and stops at the first refusal.
+
 **B38, the pilot EHR (owner, 2026-10-07):** Epic, with Oracle Health as the backup, chosen by
 vendor fit while no design partner is on record; the first pilot site's own EHR overrides it.
 LP-23 builds to Epic's published CDS Hooks token (RS384 or ES384, a `jku` equal to an allow-listed
@@ -548,7 +622,7 @@ Connect) is not supported yet.
     resolves its organization through `tenancy.current()` is refused (`NoOrganization`, 403),
     never widened to all of them (None) or to `default`; an empty organization is one, never
     "any", in the key and client store.
-  - [ ] **12c** Decide-scoped credentials list packs and read CDS discovery (ADR-0004).
+  - [x] **12c** (#172, merged 2026-10-07) Decide-scoped credentials list packs and read CDS discovery (ADR-0004).
     **Owner decision (2026-10-07): approved, narrow.** The decide scope implies a read-only
     `discover` permission that reaches only `GET /api/packs` and `GET /cds-services`, each listing
     only the packs the credential may decide with (today every served pack; after LP-20 never
@@ -575,7 +649,7 @@ Connect) is not supported yet.
       (`X-Mendari-Org`, 409); keys, clients and launches of an organization with no record
       refused; `mendari smart check` in memberships mode. Claims mode unchanged (acceptance
       test, and a matrix: a member is let through exactly as a claims person of the role).
-    - [ ] **12e-ii** (PR open) The dashboard: the access page (`access.js`: the request form,
+    - [x] **12e-ii** (#167, merged 2026-10-07) The dashboard: the access page (`access.js`: the request form,
       the chooser whenever a person holds a membership and none is chosen, roles that grant
       nothing), the switcher, every request naming the window's organization, the
       access-ended and window-moved banners, "Use another account"; browser tests.
@@ -617,7 +691,7 @@ Connect) is not supported yet.
   - [ ] **12g** The organization bound into each chained event (memberships mode), checked by
     `verify`; per-organization administrative reader and export; the generated two-organization
     isolation test with its reviewed allow-list.
-    - [ ] **12g-i** (PR open) The binding and its check. A memberships-mode server marks the
+    - [x] **12g-i** (#182, merged 2026-10-08) The binding and its check. A memberships-mode server marks the
       database (`org_bound`, a settings row); every store that opens a marked one, the command
       line's included, names in each event the organization of the row it is about, read in
       the same transaction (`_bound`; the 14 kinds of before only when marked, every other kind
@@ -635,7 +709,7 @@ Connect) is not supported yet.
       `mendari audit export --administrative [--org]`. Memberships mode leaves the deployment's
       views to the operator (decision 5): verify and deployments `404`, health without totals,
       a deployment hold without its reason and setter; the dashboard follows.
-  - [ ] **12h** (PR open) The Access view's API keys and Clients tabs, for people holding
+  - [x] **12h** (#181, merged 2026-10-08) The Access view's API keys and Clients tabs, for people holding
     `keys`, in claims mode too (the people tabs stay memberships-only): a key made from a preset
     (the table drives role, scope and days, what it reaches and its guide) or by hand, its secret
     shown once (the invitation link's dialog), rotate with an overlap, revoke, history; a SMART
@@ -650,13 +724,13 @@ Connect) is not supported yet.
     404 naming no id. Key status worked out by the server; the clients' `keys_replaced_at`; the
     signed-in health's `backend_services`.
   - [ ] **12i** Key presets in one table (API, screen, docs, doc-snippet checks).
-    - [ ] **12i-i** (PR open) The table (`server/presets.py`: rest, fhir, ai-guard, cds-hooks,
+    - [x] **12i-i** (#176, merged 2026-10-08) The table (`server/presets.py`: rest, fhir, ai-guard, cds-hooks,
       da-vinci, outcomes, fhir-reader; the FHIR ones name their types, never `system/*`),
       `preset` on `POST /api/auth/keys` (with the preset's role and no scope; a label stored
       and chained, never read when the key is used), `GET /api/auth/keys/presets` (each one's
       reach computed from the guard's rules), the guide's table, the doc-snippet pass per
       preset. The screen is 12h's.
-  - [ ] **12j** (PR open) A daily cap per principal (`MENDARI_PRINCIPAL_DAILY_LIMIT`, off
+  - [x] **12j** (#168, merged 2026-10-07) A daily cap per principal (`MENDARI_PRINCIPAL_DAILY_LIMIT`, off
     unless set, sign-in only) on the decisions it asks for (one per request that decides, one
     per CDS order hook draft order), per local day, after the rate limits admit them; past it
     `429` with `Retry-After` until midnight, before any work; `/api/health` shows a principal

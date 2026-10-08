@@ -41,6 +41,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from mendari.core.spec import Question, deployment_env_problem
 from mendari.errors import PackValidationError, ProviderError
+from mendari.providers import deadline
 from mendari.providers.base import Provider, ProviderOutput, batch_state, refuse_if_over_quota
 from mendari.providers.batch import batched_answer, unwrap
 from mendari.providers.calibration import rescale
@@ -180,7 +181,9 @@ class LlmProvider(Provider):
             raise TypeError("an LLM batch holds only LLM providers")
         require_secure(self.base_url, "LLM")
         refuse_if_over_quota()  # over quota: no credential fetched, no call
+        deadline.refuse_if_past()  # past the decision's deadline: likewise
         token = self._token()
+        deadline.refuse_if_past()  # a credential fetch can take the rest of it
         self.charge()  # after the credential: a call that cannot be made uses no budget
 
         questions = {key: q for provider in batch for key, q in provider.questions.items()}

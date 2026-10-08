@@ -17,6 +17,17 @@ deployment opts it in to another variant by name (`community/<name>:slot=variant
 hash of its inputs, reads at most `MAX_COMMUNITY_TEXT_CHARS` of text, publishes its FHIR
 terminology under its own url (`community_url`), and is at most risk level 1.
 
+A pack the deployment does not own runs on the community engine (`bounded`, ADR-0009): its
+patterns on RE2 (`core/patterns.py`), its settings capped at load (`core/caps.py`), its schema's
+keywords bounded (`core/input_schema.py`), its inputs held to the limits below and its patterns
+and schema checks to a CPU budget per decision. Those are the community packs, and the packs
+pulled from a registry (`NOT_OWNED`) whose digest, the one `load_pack` hashed, is not that of a
+reference pack of the installed release (`core/reference.py`): a copy of a reference pack keeps
+the maintained engine, and nothing a manifest, a registry or a marker file says chooses it.
+The engine is all a pulled pack shares with a community pack: it is labelled "From a registry",
+may automate under its policy and may block, as before. Maintained and local packs (an
+operator's own: a copy of a pulled pack in `MENDARI_PACKS_PATH` is one) stay on `re`.
+
 The namespaces are the community route's: a community pack uses `community/` and nothing else,
 so it can never claim the id of a pack Mendari maintains. Packs from anywhere else are found as
 they were before community packs existed; one whose id is in `community/` gets the community
@@ -32,6 +43,10 @@ from typing import Any, Literal
 from mendari.core.spec import Outcome, PackManifest, RiskLevel
 
 Origin = Literal["maintained", "community", "hub", "local"]
+# The origins of packs the deployment does not own, besides community packs: they run on the
+# community engine unless they are a reference pack of this release (`bounded`). LP-20 adds
+# `store`.
+NOT_OWNED: frozenset[Origin] = frozenset({"hub"})
 
 COMMUNITY_NAMESPACE = "community"
 # The namespaces of the packs Mendari maintains, which a community pack never claims.
@@ -41,12 +56,12 @@ RESERVED_NAMESPACES: Mapping[str, Origin] = {
 }
 # Where a community pack's FHIR terminology lives: its own url, never one of Mendari's.
 COMMUNITY_URL = "https://mendari.co/packs/community/"
-# The longest text a community pack's patterns run on (on RE2, their time grows with it: the caps
-# in `core/caps.py` are measured on texts this long). A longer one is refused before any pattern
-# runs.
+# The longest text the patterns of a pack on the community engine (`bounded`) run on (on RE2,
+# their time grows with it: the caps in `core/caps.py` are measured on texts this long). A longer
+# one is refused before any pattern runs.
 MAX_COMMUNITY_TEXT_CHARS = 10_000
-# The most values (texts, numbers, objects, lists...) and the deepest nesting a community pack
-# reads in one input: its schema applies its keywords to each value, at every depth.
+# The most values (texts, numbers, objects, lists...) and the deepest nesting such a pack reads in
+# one input: its schema applies its keywords to each value, at every depth.
 MAX_COMMUNITY_VALUES = 10_000
 MAX_COMMUNITY_DEPTH = 32
 COMMUNITY_NAME = re.compile(r"^[a-z0-9][a-z0-9-]*$")
@@ -76,6 +91,25 @@ def is_community(pack_id: str, origin: Origin) -> bool:
     """A community pack: found in `community-packs/`, or named in the `community/` namespace
     wherever it was loaded from (a path on the command line), so its limits always apply."""
     return origin == "community" or pack_id.partition("/")[0] == COMMUNITY_NAMESPACE
+
+
+def bounded(pack_id: str, origin: Origin, digest: str) -> bool:
+    """A pack the deployment does not own, which runs on the community engine (module
+    docstring): a community pack, or a pack of a `NOT_OWNED` origin whose `digest` (the one
+    `load_pack` hashed, never one a manifest or a registry names) is not a reference pack's."""
+    if is_community(pack_id, origin):
+        return True
+    if origin not in NOT_OWNED:
+        return False
+    from mendari.core.reference import reference_digests  # `core/pack.py` imports this module
+
+    return digest not in reference_digests()
+
+
+def bounded_reader(pack_id: str, origin: Origin) -> str:
+    """What a reason says of a pack on the community engine (`bounded`): "a community pack",
+    or "a pack from a registry"."""
+    return "a community pack" if is_community(pack_id, origin) else "a pack from a registry"
 
 
 def shown_origin(pack_id: str, origin: Origin) -> Origin:
@@ -125,20 +159,20 @@ def rule_problems(manifest: PackManifest) -> list[str]:
     ]
 
 
-def shape_problem(value: Any) -> str | None:
-    """Why an input is too large in shape for a community pack, or None: more than
-    `MAX_COMMUNITY_VALUES` values, or nested deeper than `MAX_COMMUNITY_DEPTH` (its schema is
-    applied to every value, and jsonschema recurses into every level). Walked without
-    recursion, stopping at the first one past either limit."""
+def shape_problem(value: Any, reader: str = "a community pack") -> str | None:
+    """Why an input is too large in shape for a pack on the community engine (`reader`, from
+    `bounded_reader`), or None: more than `MAX_COMMUNITY_VALUES` values, or nested deeper than
+    `MAX_COMMUNITY_DEPTH` (its schema is applied to every value, and jsonschema recurses into
+    every level). Walked without recursion, stopping at the first one past either limit."""
     stack: list[tuple[Any, int]] = [(value, 1)]
     count = 0
     while stack:
         item, depth = stack.pop()
         count += 1
         if count > MAX_COMMUNITY_VALUES:
-            return f"more than {MAX_COMMUNITY_VALUES:,} values, the most a community pack reads"
+            return f"more than {MAX_COMMUNITY_VALUES:,} values, the most {reader} reads"
         if depth > MAX_COMMUNITY_DEPTH:
-            return f"nested more than {MAX_COMMUNITY_DEPTH} deep, the most a community pack reads"
+            return f"nested more than {MAX_COMMUNITY_DEPTH} deep, the most {reader} reads"
         if isinstance(item, Mapping):
             stack += [(child, depth + 1) for child in item.values()]
         elif isinstance(item, list | tuple):
@@ -154,9 +188,9 @@ def long_text(
     separator, are: a rule's patterns run on its text fields joined (`providers/base.py`
     `text_from`), and the schema's on every key when it has `patternProperties` or
     `propertyNames` (`caps.patterns_on_keys`, which says `count_keys`), so the whole is held to
-    the length the patterns' work is bounded for (`core/caps.py`). A community pack refuses such
-    an input before any of its patterns runs. Walked without recursion, however deep the
-    input."""
+    the length the patterns' work is bounded for (`core/caps.py`). A pack on the community
+    engine (`bounded`) refuses such an input before any of its patterns runs. Walked without
+    recursion, however deep the input."""
     stack: list[tuple[str, Any]] = [("", value)]
     total = -1  # the first text has no separator before it
     while stack:
