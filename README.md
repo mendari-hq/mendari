@@ -843,8 +843,9 @@ measured this build of the pack with the providers and models that run here, und
 governance (an approval in force here and when it was measured, or neither), and only over
 decisions made since that configuration started; otherwise the view says why, and only the
 checks that need no benchmark run (automated decisions rated wrong, overrides that doubled,
-operational health). Operational health comes from what each decision stored: the share whose
-providers failed, the share that abstained, and how long decisions took (p50, p95, mean).
+operational health). Operational health comes from what each decision stored: the share with a
+provider error recorded, the share that abstained, and how long decisions took (p50, p95,
+mean).
 Accuracy is compared stratum by stratum, as the benchmark measured it: reviewed decisions
 against its reviewed accuracy, automated ones with an outcome recorded downstream against its
 automated accuracy. Alerts fire only on enough evidence:
@@ -855,9 +856,11 @@ automated accuracy. Alerts fire only on enough evidence:
 - an automated decision someone rated wrong (a thumbs-down; ratings never change observed
   accuracy);
 - an override rate that doubled against the week before (20 reviews or more in each);
-- week over week, over 50 decisions or more in each: provider errors on 5% or more of
-  decisions beyond doubt and doubled; abstentions doubled and up 5 points; a p95 latency
-  doubled to 2 s or more.
+- week over week, over 50 decisions or more this week: provider errors on 5% or more of
+  decisions beyond doubt and doubled (on that level alone when the week before had fewer than
+  50, as just after upgrading); with 50 or more the week before too, abstentions doubled and up
+  5 points beyond doubt, and 5% or more of decisions beyond doubt taking twice the week before's
+  p95 and 2 s or more.
 
 For a scheduler (cron, a Kubernetes CronJob), `mendari monitor` checks the newest version of
 each pack (or `--pack`), against its benchmark only for the build and providers a server

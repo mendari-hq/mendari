@@ -32,18 +32,20 @@ every decision of the version.
 - **Confidence drift:** the population stability index (PSI) between the last 7 days' primary
   confidences and the reference's (its calibration bins), in tenths from 0 to 1. It needs a
   comparable reference.
-- **Operational health** (LP-21d), from stored columns: the share of decisions whose providers
-  failed (`decisions.provider_errors`, counted from LP-21d on; older rows are left out), the
-  abstention share, and latency (p50, p95, mean of each decide).
+- **Operational health** (LP-21d), from stored columns: the share of decisions with a provider
+  error recorded (`decisions.provider_errors`, counted from LP-21d on; older rows are left out),
+  the abstention share, and latency (p50, p95, mean of each decide).
 - **Alerts**, each with a minimum amount of evidence:
   - a stratum's accuracy below the reference's by more than the pack's degradation tolerance,
     beyond doubt: even the top of its exact 95% interval is below (20 decisions or more);
   - drift at or above 0.25 (a common threshold for a real shift), over 50 confidences or more;
   - automated decisions that someone rated wrong (a thumbs-down);
   - an override rate that doubled against the week before (20 reviews or more in each);
-  - week over week, over 50 decisions or more: a provider error share of 5% or more beyond
-    doubt that doubled; an abstention share that doubled and rose 5 points beyond doubt; a p95
-    latency that doubled to 2 s or more. These need no benchmark.
+  - week over week, over 50 decisions or more this week: a provider error share of 5% or more
+    beyond doubt that doubled (on its level alone when the week before had fewer than 50
+    counted); with 50 or more the week before too, an abstention share that doubled and rose 5
+    points beyond doubt, and 5% or more of decisions beyond doubt taking twice the week before's
+    p95 and 2 s or more. These need no benchmark.
 """
 
 from __future__ import annotations
@@ -66,13 +68,16 @@ MIN_LABELLED = 20
 MIN_FOR_DRIFT = 50
 MIN_REVIEWED = 20
 DRIFT_ALERT = 0.25
-# Operational health (LP-21d), week over week, each over 50 decisions or more in both weeks: a
-# provider error share at least ERROR_SHARE beyond doubt and doubled; an abstention share doubled
-# and up ABSTAIN_RISE beyond doubt; a p95 latency doubled and at least SLOW_MS.
+# Operational health (LP-21d), week over week, over 50 decisions or more this week: a provider
+# error share at least ERROR_SHARE beyond doubt and doubled (on its level alone when the week
+# before had fewer than 50 counted, as just after upgrading); with 50 or more the week before
+# too, an abstention share doubled and up ABSTAIN_RISE beyond doubt, and a p95 latency past
+# twice the week before's and SLOW_MS beyond doubt (SLOW_SHARE of decisions or more past it).
 MIN_FOR_OPERATIONS = 50
 ERROR_SHARE = 0.05
 ABSTAIN_RISE = 0.05
 SLOW_MS = 2000.0
+SLOW_SHARE = 0.05
 # The days a report may cover: two whole weeks at least, so the week before always exists.
 MIN_DAYS = 14
 MAX_DAYS = 180
@@ -119,6 +124,13 @@ def monitor(
     made = [r for r in last_week if not r["refused"]]
     drift = _psi(bins, made) if bench["comparable"] else None
     recent, before = _summary(last_week), _summary(week_before)
+    # How many of this week's decisions took at least twice the week before's p95 (and SLOW_MS):
+    # the latency alert's evidence, as k of n.
+    if before["latency_ms"]["p95"] is not None:
+        line = max(2 * before["latency_ms"]["p95"], SLOW_MS)
+        took = [float(r["latency_ms"]) for r in made if r["latency_ms"] is not None]
+        recent = {**recent, "slow": figures.of(sum(t >= line for t in took), len(took))}
+        recent["slow_line_ms"] = line
     wrong_auto = sum(1 for r in last_week if r["outcome"] == "AUTO" and r["rated_wrong"])
     return {
         "pack": {"id": pack.id, "version": pack.version, "digest": pack.digest},
@@ -307,12 +319,12 @@ def _operations(recent: Row, before: Row) -> list[dict[str, str]]:
         if now["low"] >= max(2 * share, share + ABSTAIN_RISE):
             message = f"abstained {shown(now)} this week, {shown(then)} the week before"
             alerts.append(_alert("abstention", "medium", message))
-    now_ms, then_ms = recent["latency_ms"], before["latency_ms"]
-    timed = min(now_ms["n"], then_ms["n"]) >= MIN_FOR_OPERATIONS
-    if timed and now_ms["p95"] >= max(2 * then_ms["p95"], SLOW_MS):
+    slow, then_ms = recent.get("slow"), before["latency_ms"]
+    timed = slow is not None and min(slow["n"], then_ms["n"]) >= MIN_FOR_OPERATIONS
+    if timed and slow["low"] >= SLOW_SHARE:  # the p95 is past the line, beyond doubt
         message = (
-            f"95% of decisions within {now_ms['p95'] / 1000:.1f} s this week, "
-            f"{then_ms['p95'] / 1000:.1f} s the week before"
+            f"{shown(slow)} of decisions took {recent['slow_line_ms'] / 1000:.1f} s or more "
+            f"this week (twice the week before's p95 of {then_ms['p95'] / 1000:.1f} s, or 2 s)"
         )
         alerts.append(_alert("latency", "medium", message))
     return alerts

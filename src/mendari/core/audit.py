@@ -440,7 +440,8 @@ _ADDED_COLUMNS = (
     # 1 when the input was refused before any provider ran (Phase 3); NULL on older rows, which
     # fall back to "BLOCK without confidence" (_REFUSED, task_fhir.refused).
     ("decisions", "refused", "INTEGER"),
-    # How many of a decision's questions went unanswered because a provider failed (or a question
+    # How many of a decision's questions have a provider error recorded (`errors`: a provider
+    # failed, or a composite's member did, so the answer is missing or incomplete; or a question
     # they feed), for monitoring's provider error share (LP-21d): a count, outside the chain;
     # NULL on rows from before it, which monitoring leaves out of the share.
     ("decisions", "provider_errors", "INTEGER"),

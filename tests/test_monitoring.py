@@ -680,7 +680,7 @@ def set_rows(store: AuditStore, ids: list[str], **columns: Any) -> None:
         db.all(f"UPDATE decisions SET {sets} WHERE id IN ({marks})", (*columns.values(), *ids))
 
 
-def test_a_decision_stores_how_many_questions_its_providers_left_unanswered(
+def test_a_decision_stores_how_many_questions_had_a_provider_error(
     store: AuditStore, inbox_pack: Pack, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The count beside the record, never in it: the chained record is what it was."""
@@ -705,20 +705,26 @@ def test_a_decision_stores_how_many_questions_its_providers_left_unanswered(
 
 
 def test_operational_health_comes_from_stored_columns(store: AuditStore, inbox_pack: Pack) -> None:
-    ids = reviewed(store, inbox_pack, 10, days_ago=1, final=None)
+    ids = reviewed(store, inbox_pack, 21, days_ago=1, final=None)
     set_rows(store, ids[:3], provider_errors=1)
     set_rows(store, ids[3:5], outcome="ABSTAIN")
     set_rows(store, ids[5:6], provider_errors=None)  # recorded before the count existed
-    for n, decision_id in enumerate(ids):
+    for n, decision_id in enumerate(ids[:20]):
         set_rows(store, [decision_id], latency_ms=100.0 * (n + 1))
+    # A refused input: no provider ran, it decided nothing; never in these figures.
+    set_rows(store, ids[20:], refused=1, outcome="BLOCK", provider_errors=1, latency_ms=99999.0)
     recent = monitor(store, inbox_pack, now=NOW, providers=MEASURED)["last_7_days"]
-    assert recent["figures"]["provider_errors"] == figures.of(3, 9)  # the NULL row left out
-    assert recent["figures"]["abstained"] == figures.of(2, 10)
-    assert recent["latency_ms"] == {"n": 10, "p50": 500.0, "p95": 1000.0, "mean": 550.0}
+    assert recent["figures"]["provider_errors"] == figures.of(3, 19)  # the NULL row left out
+    assert recent["figures"]["abstained"] == figures.of(2, 20)
+    # Nearest rank: the 19th of 20 is the p95 (never simply the largest), the 10th the p50.
+    assert recent["latency_ms"] == {"n": 20, "p50": 1000.0, "p95": 1900.0, "mean": 1050.0}
 
 
-def health(failed: int, abstained: int, p95: float, n: int = 60) -> dict[str, Any]:
-    return {
+def health(
+    failed: int, abstained: int, p95: float, n: int = 60, slow: int | None = None
+) -> dict[str, Any]:
+    """A week's summary; `slow`: this week's decisions past the latency line, as k of n."""
+    week: dict[str, Any] = {
         "decisions": n,
         "confidences": 0,
         "reviewed": 0,
@@ -729,6 +735,9 @@ def health(failed: int, abstained: int, p95: float, n: int = 60) -> dict[str, An
             "abstained": figures.of(abstained, n),
         },
     }
+    if slow is not None:
+        week |= {"slow": figures.of(slow, n), "slow_line_ms": 2400.0}
+    return week
 
 
 def test_provider_errors_alert_once_they_are_frequent_beyond_doubt_and_doubled() -> None:
@@ -745,12 +754,17 @@ def test_provider_errors_alert_once_they_are_frequent_beyond_doubt_and_doubled()
 def test_abstentions_and_latency_alert_against_the_week_before() -> None:
     bench = {"comparable": False, "tolerance": 0.03}
     kinds = lambda now, then: [a["kind"] for a in _alerts(now, then, None, 0, bench)]  # noqa: E731
-    assert kinds(health(0, 20, 500), health(0, 3, 500)) == ["abstention"]
-    assert kinds(health(0, 6, 500), health(0, 3, 500)) == []  # doubled, but within doubt
-    assert kinds(health(0, 0, 3000), health(0, 0, 1200)) == ["latency"]
-    assert kinds(health(0, 0, 1800), health(0, 0, 600)) == []  # tripled, still under 2 s
-    assert kinds(health(0, 0, 3000), health(0, 0, 2000)) == []  # slower, not doubled
-    assert kinds(health(0, 0, 3000, n=40), health(0, 0, 1000)) == []
+    # Abstentions: past both twice the week before and 5 points up, beyond doubt.
+    assert kinds(health(0, 24, 500), health(0, 6, 500)) == ["abstention"]  # 40% against 10%
+    assert kinds(health(0, 15, 500), health(0, 6, 500)) == []  # 25%: doubled, within doubt
+    assert kinds(health(0, 12, 500), health(0, 1, 500)) == ["abstention"]  # 20% against 1.7%
+    assert kinds(health(0, 6, 500), health(0, 1, 500)) == []  # 10%: the 5 points not certain
+    assert kinds(health(0, 24, 500), health(0, 6, 500, n=40)) == []  # too few the week before
+    # Latency: 5% or more of this week's decisions past the line, beyond doubt.
+    assert kinds(health(0, 0, 3000, slow=10), health(0, 0, 1200)) == ["latency"]
+    assert kinds(health(0, 0, 3000, slow=4), health(0, 0, 1200)) == []  # within doubt
+    assert kinds(health(0, 0, 3000, slow=10), health(0, 0, 1200, n=40)) == []
+    assert kinds(health(0, 0, 3000, slow=10, n=40), health(0, 0, 1200)) == []
 
 
 def test_a_rise_in_provider_errors_alerts_from_what_decisions_stored(
@@ -775,3 +789,21 @@ def test_a_command_reading_a_database_without_the_count_is_refused_in_one_line(
         connection.commit()
     assert main(["monitor", "--db", str(db), "--pack", inbox_pack.id]) == 1
     assert "decisions.provider_errors" in capsys.readouterr().err
+
+
+def test_a_steady_timeout_tail_does_not_alert_but_a_real_slowdown_does(
+    store: AuditStore, inbox_pack: Pack
+) -> None:
+    """5% of decisions at a 30 s timeout both weeks is the same service; three times slower is
+    not. (A p95 against a p95 flapped on such a tail: review of LP-21d.)"""
+    before = reviewed(store, inbox_pack, 60, days_ago=9, final=None)
+    now = reviewed(store, inbox_pack, 60, days_ago=2, final=None)
+    for ids in (before, now):
+        set_rows(store, ids, latency_ms=800.0)
+        set_rows(store, ids[:3], latency_ms=30000.0)
+    report = monitor(store, inbox_pack, now=NOW, providers=None)
+    assert [a["kind"] for a in report["alerts"]] == []
+    set_rows(store, now, latency_ms=2400.0)
+    report = monitor(store, inbox_pack, now=NOW, providers=None)
+    (alert,) = report["alerts"]
+    assert alert["kind"] == "latency" and alert["message"].startswith("60 of 60 [")

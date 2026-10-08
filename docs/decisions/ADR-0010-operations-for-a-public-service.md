@@ -68,8 +68,8 @@ Anonymous `/api/health` stays three fields with no database work.
        slot's variant, and its model where the server knows it; a command cannot see a model a
        setting chose), under the same governance (an approval in force or not). Otherwise no
        reference, with a reason, and only the checks that need none run (automated decisions
-       rated wrong, overrides that doubled). A leaderboard row is not a fallback: its rows
-       measure other datasets and versions;
+       rated wrong, overrides that doubled, operational health). A leaderboard row is not a
+       fallback: its rows measure other datasets and versions;
      - accuracy stratum by stratum, as the benchmark measured it: reviewed decisions against
        one minus its expected override rate, automated ones with an outcome against its
        automated accuracy; the whole-set accuracy is shown, never compared;
@@ -80,16 +80,19 @@ Anonymous `/api/health` stays three fields with no database work.
      - whole weekly buckets, 14 to 180 days;
      - an unknown cost shown as unknown.
    - Operational health comes from stored columns (21d), and needs no benchmark:
-     - provider error share, from an additive `decisions.provider_errors` count (the questions a
-       failed provider left unanswered, written beside the record, never in it). Older rows are
-       null and left out;
+     - provider error share, from an additive `decisions.provider_errors` count (the questions
+       with a provider error recorded, answered incompletely or not at all, written beside the
+       record, never in it). Older rows are null and left out;
      - abstention share;
      - latency (p50, p95, mean of each decide).
 
-     Each alerts week over week over 50 decisions or more in each week: provider errors on 5%
-     or more of decisions beyond doubt (the bottom of the interval) and doubled; abstentions
-     doubled and up 5 points beyond doubt; a p95 latency doubled to 2 s or more. The thresholds
-     are module constants (`evals/monitoring.py`), the same everywhere.
+     Each alerts week over week over 50 decisions or more this week: provider errors on 5% or
+     more of decisions beyond doubt (the bottom of the interval) and doubled, or on that level
+     alone when the week before had fewer than 50 counted; with 50 or more the week before too,
+     abstentions doubled and up 5 points beyond doubt, and 5% or more of decisions beyond doubt
+     taking twice the week before's p95 and 2 s or more (a p95 against a p95 flapped on a
+     timeout tail; review of 21d). The thresholds are module constants (`evals/monitoring.py`),
+     the same everywhere.
 4. **Alerts (21e).**
    - `MENDARI_ALERT_FORMAT` chooses `mendari` (the default) or `slack`.
    - An optional `MENDARI_ALERT_SECRET` (at least 32 characters) signs every post:

@@ -718,17 +718,19 @@ logs, at startup, each slot the Jev defaults turn on.
   did (Jev where it measured `naive_bayes`, say), or automates a risk level 2 or 3 pack under an
   approval the benchmark was measured without, gets only those: the benchmark says nothing about
   how that configuration should do. Operational health, from what each decision stored, alerts
-  week over week (50 decisions or more in each week):
+  week over week (50 decisions or more this week):
 
   | Alert | Fires when |
   |---|---|
-  | `provider_errors` | 5% or more of decisions had a provider fail (the bottom of its 95% interval), and that share doubled |
-  | `abstention` | the abstention share doubled and rose 5 points or more (the bottom of its interval) |
-  | `latency` | the 95th percentile of a decision's time doubled, to 2 s or more |
+  | `provider_errors` | 5% or more of decisions had a provider error recorded (the bottom of its 95% interval), and that share doubled against the week before; on that level alone when the week before had fewer than 50 counted (just after upgrading, or a new configuration) |
+  | `abstention` | with 50 or more the week before too: the abstention share doubled and rose 5 points or more (the bottom of its interval) |
+  | `latency` | with 50 or more the week before too: 5% or more of decisions (the bottom of the interval) took twice the week before's p95, and 2 s or more |
 
-  A provider error sends the decision to a person, so these never lower safety; they say the
-  service got worse. Decisions recorded before this count existed are left out of the provider
-  error share. Schedule `mendari monitor --db "$DATABASE_URL"` with
+  A provider error never makes a decision more automatic (policy only lowers automation): it
+  goes to a person, or a rule blocks it. These alerts say the service got worse, not less safe.
+  A provider error is recorded when a provider failed, or a composite's member did (the
+  survivor may still have answered). Decisions recorded before this count existed are left out
+  of the provider error share. Schedule `mendari monitor --db "$DATABASE_URL"` with
   `MENDARI_ALERT_WEBHOOK` (and `--org` for an organization's governance) to be told when a
   pack degrades; it reads which providers ran from the deployment records the server keeps.
 - **Governance:** packs at risk level 2 or 3 automate only after someone with the `governance`

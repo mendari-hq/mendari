@@ -2374,7 +2374,8 @@ def test_monitoring_says_why_the_benchmark_is_not_compared(page: Page) -> None:
         "cost_per_decision": None,
     }
     bench = {**monitoring_report()["benchmark"], "comparable": False, "reason": "other_providers"}
-    report = monitoring_report(benchmark=bench, other_versions={"0.4.0": 1}, weeks=[week])
+    quick = {**week, "latency_ms": {"n": 30, "p50": 1.1, "p95": 1.4, "mean": 1.2}}
+    report = monitoring_report(benchmark=bench, other_versions={"0.4.0": 1}, weeks=[week, quick])
     page.route("**/api/monitoring?*", lambda route: route.fulfill(json=report))
     open_pack(page, INBOX, "monitoring")
     main = page.locator("main")
@@ -2397,6 +2398,7 @@ def test_monitoring_says_why_the_benchmark_is_not_compared(page: Page) -> None:
     expect(row.locator("td").nth(7)).to_contain_text(shown(figures.of(1, 30)))
     expect(row.locator("td").nth(8)).to_contain_text(shown(figures.of(2, 30)))
     expect(row.locator("td").nth(9)).to_have_text("1.5 s")
+    expect(table.locator("tbody tr").nth(1).locator("td").nth(9)).to_have_text("1.4 ms")
 
 
 def test_an_automated_stratum_alert_marks_its_own_stat(page: Page) -> None:

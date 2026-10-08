@@ -31,8 +31,12 @@ const ALERT_TITLES = {
   abstention: "Abstentions rose",
   latency: "Decisions slowed down",
 };
-// A decision's time in seconds, one decimal ("1.2 s"); "n/a" without any.
-const seconds = (ms) => (ms === null || ms === undefined ? "n/a" : `${(ms / 1000).toFixed(1)} s`);
+// A decision's time: in ms under a second ("45 ms", "1.4 ms"), else in seconds ("1.5 s").
+const took = (ms) => {
+  if (ms === null || ms === undefined) return "n/a";
+  if (ms >= 1000) return `${(ms / 1000).toFixed(1)} s`;
+  return ms >= 10 ? `${Math.round(ms)} ms` : `${ms.toFixed(1)} ms`;
+};
 
 views.monitoring = async (main) => {
   const days = Number(storageGet("oh.monitoring.days", "30"));
@@ -148,7 +152,7 @@ function weeksTable(weeks) {
       { key: "refused", label: "Refused inputs", numeric: true, sort: (w) => w.refused, cell: (w) => String(w.refused) },
       { key: "errors", label: "Provider errors", numeric: true, sort: (w) => share(w.figures.provider_errors), cell: (w) => figureHtml(w.figures.provider_errors) },
       { key: "abstained", label: "Abstained", numeric: true, sort: (w) => share(w.figures.abstained), cell: (w) => figureHtml(w.figures.abstained) },
-      { key: "p95", label: "Time (p95)", numeric: true, sort: (w) => w.latency_ms.p95, cell: (w) => seconds(w.latency_ms.p95) },
+      { key: "p95", label: "Time (p95)", numeric: true, sort: (w) => w.latency_ms.p95, cell: (w) => took(w.latency_ms.p95) },
       // Unknown when any decision's cost is: never an average of the known ones.
       { key: "cost", label: "Cost / decision", numeric: true, sort: (w) => w.cost_per_decision, cell: (w) => (w.cost_unknown ? "unknown" : money(w.cost_per_decision)) },
     ],
