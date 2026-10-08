@@ -47,7 +47,7 @@ LICENCE_FILE = re.compile(r"^(LICEN[CS]E|COPYING|COPYRIGHT|NOTICE|UNLICENSE)([-.
 SBOM_PATH = re.compile(
     r"^opt/venv/lib/python[^/]+/site-packages/([^/]+)\.dist-info/sboms/[^/]+\.json$"
 )
-USER_AGENT = "mendari-licence-texts (https://github.com/Junebugg1214/mendari)"
+USER_AGENT = "mendari-licence-texts (https://github.com/mendari-hq/mendari)"
 
 
 def sha256(data: bytes) -> str:

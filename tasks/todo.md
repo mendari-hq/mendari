@@ -410,7 +410,7 @@ behaviour.
     `github-pages` environment) from the strict build, checked for excluded paths and for the
     notice on every page: the docs site now shows the notice (`mendari.notices`, through a
     MkDocs hook and Material's announcement bar; `scripts/check_site_notice.py`, also in CI's
-    `docs` job). `site_url`: `https://junebugg1214.github.io/mendari/`. Nothing published or
+    `docs` job). `site_url`: `https://mendari-hq.github.io/mendari/`. Nothing published or
     deployed. **Owner, open:** the docs URL (GitHub Pages by default; a custom domain is a
     `site_url` change), Pages needs the repository public on the Free plan; the first TestPyPI
     upload waits for the SNOMED CT swap (LP-14, owner's choice 2026-10-07) and a public
@@ -1490,7 +1490,7 @@ build session. A1–A8 come before A9 (making the repository public); A10 and A1
      **Restrict creations**, **Restrict updates**, **Restrict deletions**. Check after: the
      ruleset shows Active with those three rules.
    - pypi.org → Your account → **Publishing** → Add a new pending publisher (GitHub): PyPI
-     project name `mendari`, owner `Junebugg1214`, repository `mendari`, workflow
+     project name `mendari`, owner `mendari-hq`, repository `mendari`, workflow
      `release.yml`, environment `pypi`. Check after: it is listed as a pending publisher, and
      the name `mendari` is still free on PyPI. The same on **test.pypi.org** with environment
      `testpypi`.
@@ -1518,7 +1518,7 @@ build session. A1–A8 come before A9 (making the repository public); A10 and A1
    images (make each public in its package settings if it is private).
 9. **Docs on GitHub Pages** (the deploy workflow is `docs.yml`, LP-15c). Settings → **Pages** →
    Source: **GitHub Actions**; then Actions → **docs** → Run workflow, from `main`. Check after:
-   the site opens at `https://junebugg1214.github.io/mendari/` (mkdocs.yml `site_url`; for a
+   the site opens at `https://mendari-hq.github.io/mendari/` (mkdocs.yml `site_url`; for a
    custom domain, change it and add the domain in Pages), every page shows the notice, then a
    build PR points the README and `mendari new` at it and switches the install line to `pip
    install mendari`.

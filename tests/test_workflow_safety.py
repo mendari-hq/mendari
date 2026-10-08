@@ -293,6 +293,13 @@ def test_secrets_never_reach_a_fork_pull_request(path: Path) -> None:
             assert SAME_REPOSITORY in str(job.get("if", "")), f"{path.name}:{name}"
 
 
+def _code_owner() -> str:
+    """The default code owner (the `*` rule in CODEOWNERS), without the @."""
+    lines = (ROOT / ".github" / "CODEOWNERS").read_text().splitlines()
+    rules = [line.split() for line in lines if line.strip() and not line.startswith("#")]
+    return rules[0][1].removeprefix("@")
+
+
 def test_every_file_has_a_code_owner() -> None:
     lines = (ROOT / ".github" / "CODEOWNERS").read_text().splitlines()
     rules = [line.split() for line in lines if line.strip() and not line.startswith("#")]
@@ -399,7 +406,7 @@ def test_pack_check_runs_on_every_pull_request() -> None:
         "AUTHOR": "${{ github.event.pull_request.user.login }}",
         "HEAD_REPO": "${{ github.event.pull_request.head.repo.full_name }}",
         "REPO": "${{ github.repository }}",
-        "OWNER": "${{ github.repository_owner }}",
+        "OWNER": _code_owner(),
     }
     for argument in (
         '--actor "$AUTHOR"',

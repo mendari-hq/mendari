@@ -1120,11 +1120,11 @@ def test_a_removed_pack_needs_its_tombstone(
 
 def test_the_owner_is_the_pull_requests_author_from_this_repository() -> None:
     is_owner = _script().is_owner
-    assert is_owner("Junebugg1214", "junebugg1214", "Junebugg1214/mendari", "Junebugg1214/mendari")
-    assert not is_owner("attacker", "Junebugg1214", "attacker/mendari", "Junebugg1214/mendari")
+    assert is_owner("Junebugg1214", "junebugg1214", "mendari-hq/mendari", "mendari-hq/mendari")
+    assert not is_owner("attacker", "Junebugg1214", "attacker/mendari", "mendari-hq/mendari")
     # The owner's name on a fork's branch (anyone may push there) is not the owner's change.
-    assert not is_owner("Junebugg1214", "Junebugg1214", "attacker/mendari", "Junebugg1214/mendari")
-    assert not is_owner("", "Junebugg1214", "", "Junebugg1214/mendari")
+    assert not is_owner("Junebugg1214", "Junebugg1214", "attacker/mendari", "mendari-hq/mendari")
+    assert not is_owner("", "Junebugg1214", "", "mendari-hq/mendari")
 
 
 def test_a_pack_added_as_a_git_submodule_fails(
