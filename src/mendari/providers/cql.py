@@ -195,12 +195,21 @@ class CqlProvider(Provider):
                 library = f"{base}/Library/{self.resource_id}"
                 if self._uploaded_to != base:
                     resource = self.library_resource()
-                    http.send_json("PUT", library, resource, timeout=deadline.clamp(TIMEOUT))
+                    http.send_json(
+                        "PUT",
+                        library,
+                        resource,
+                        timeout=deadline.clamp(TIMEOUT),
+                        stop=deadline.past,
+                    )
                     self._uploaded_to = base
                 timeout = deadline.clamp(TIMEOUT)  # each request waits at most what remains
-                result = http.send_json("POST", f"{library}/$evaluate", parameters, timeout=timeout)
+                result = http.send_json(
+                    "POST", f"{library}/$evaluate", parameters, timeout=timeout, stop=deadline.past
+                )
         except FhirError as failure:
-            # Past the deadline, the engine was cut off by it (the clamped timeout).
+            # Past the deadline, the engine was cut off by it (the clamped timeout, or an
+            # answer still arriving).
             code: ProviderErrorCode = "timeout" if deadline.past() else "unavailable"
             raise ProviderError(code, f"the CQL engine: {failure}") from None
         values = _results(result)

@@ -330,6 +330,9 @@ def test_a_slow_response_stops_at_the_deadline() -> None:
 # -- the CQL engine ----------------------------------------------------------------------------
 
 
+FHIR_JSON = "application/fhir+json"
+
+
 def trial_case(trial: Pack) -> dict[str, Any]:
     return dict(load_cases(trial)[0]["input"])
 
@@ -352,32 +355,78 @@ def test_cql_after_the_deadline_records_timeout_without_a_request(
     assert result.outcome is not Outcome.AUTO
 
 
-def test_a_cql_request_waits_at_most_what_remains(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The engine's timeout is clamped to the deadline; cut off by it, the failure is
-    `timeout`. Outside a decision the same failure is `unavailable`, at the usual 10 s."""
-    trial = resolve_pack(TRIAL)
-    monkeypatch.setenv("MENDARI_CQL_URL", CQL_ENGINE)
-    timeouts: list[float] = []
+def cql_engine(monkeypatch: pytest.MonkeyPatch, evaluate: Any) -> list[tuple[str, float]]:
+    """A CQL engine that stores the Library and answers `$evaluate` with `evaluate`; the
+    method and read timeout of each request it was sent."""
+    seen: list[tuple[str, float]] = []
 
-    def slow(request: httpx.Request) -> httpx.Response:
-        timeouts.append(request.extensions["timeout"]["read"])
-        time.sleep(0.3)
-        raise httpx.ReadTimeout("slow", request=request)
+    def answer(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, request.extensions["timeout"]["read"]))
+        if request.method == "PUT":
+            return httpx.Response(
+                200, json={"resourceType": "Library"}, headers={"content-type": FHIR_JSON}
+            )
+        return evaluate(request)
 
-    transport = httpx.MockTransport(slow)
+    transport = httpx.MockTransport(answer)
     monkeypatch.setattr(
         cql_module,
         "GuardedHttp",
         lambda **kw: GuardedHttp(transport=transport, allowed={"https://cql.example.org"}),
     )
+    return seen
+
+
+def test_a_cql_request_waits_at_most_what_remains(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The Library upload and `$evaluate`, the request every decision makes once the Library
+    is there, each wait at most what remains of the deadline; cut off by it, the failure is
+    `timeout`. Outside a decision the same failure is `unavailable`, at the usual 10 s."""
+    trial = resolve_pack(TRIAL)
+    monkeypatch.setenv("MENDARI_CQL_URL", CQL_ENGINE)
+
+    def slow(request: httpx.Request) -> httpx.Response:
+        # As a real engine too slow to answer: the read times out after the timeout it was
+        # given (at once outside a decision, to keep the test quick).
+        waited = request.extensions["timeout"]["read"]
+        time.sleep(waited + 0.05 if waited < 10 else 0)
+        raise httpx.ReadTimeout("slow", request=request)
+
+    seen = cql_engine(monkeypatch, slow)
     provider = build_provider(trial, "structured", "cql")
-    with deadline.decision_deadline(0.2), pytest.raises(ProviderError) as error:
+    with deadline.decision_deadline(0.5), pytest.raises(ProviderError) as error:
         provider.answer(trial_case(trial))
     assert error.value.code == "timeout"
-    assert 0 < timeouts[0] <= 0.2
+    assert [method for method, _ in seen] == ["PUT", "POST"]
+    assert all(0 < waited <= 0.5 for _, waited in seen)
+    seen.clear()
+    with deadline.decision_deadline(0.5), pytest.raises(ProviderError) as error:
+        provider.answer(trial_case(trial))  # the Library is there: `$evaluate` alone
+    assert error.value.code == "timeout"
+    assert [method for method, _ in seen] == ["POST"] and 0 < seen[0][1] <= 0.5
+    seen.clear()
     with pytest.raises(ProviderError) as error:
         provider.answer(trial_case(trial))
-    assert error.value.code == "unavailable" and timeouts[-1] == 10.0
+    assert error.value.code == "unavailable" and seen == [("POST", 10.0)]
+
+
+def test_a_cql_answer_still_arriving_stops_at_the_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An engine that sends its answer a little at a time is cut at the deadline, not after
+    every part has come (each part alone is within the clamped timeout)."""
+    trial = resolve_pack(TRIAL)
+    monkeypatch.setenv("MENDARI_CQL_URL", CQL_ENGINE)
+    cql_engine(
+        monkeypatch,
+        lambda request: httpx.Response(200, stream=Dripping(), headers={"content-type": FHIR_JSON}),
+    )
+    provider = build_provider(trial, "structured", "cql")
+    started = time.monotonic()
+    with deadline.decision_deadline(0.3), pytest.raises(ProviderError) as error:
+        provider.answer(trial_case(trial))
+    took = time.monotonic() - started
+    assert error.value.code == "timeout"
+    assert took < 1.0  # the deadline, one part, and room for a busy runner; not 2.5 s
 
 
 # -- credentials -------------------------------------------------------------------------------
