@@ -629,6 +629,12 @@ Connect) is not supported yet.
       previous release's `verify` passes a bound chain.
   - [ ] **12h** The Access screen; a client's key set replaced; credential history.
   - [ ] **12i** Key presets in one table (API, screen, docs, doc-snippet checks).
+    - [ ] **12i-i** (PR open) The table (`server/presets.py`: rest, fhir, ai-guard, cds-hooks,
+      da-vinci, outcomes, fhir-reader; the FHIR ones name their types, never `system/*`),
+      `preset` on `POST /api/auth/keys` (with the preset's role and no scope; a label stored
+      and chained, never read when the key is used), `GET /api/auth/keys/presets` (each one's
+      reach computed from the guard's rules), the guide's table, the doc-snippet pass per
+      preset. The screen is 12h's.
   - [ ] **12j** (PR open) A daily cap per principal (`MENDARI_PRINCIPAL_DAILY_LIMIT`, off
     unless set, sign-in only) on the decisions it asks for (one per request that decides, one
     per CDS order hook draft order), per local day, after the rate limits admit them; past it

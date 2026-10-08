@@ -293,7 +293,8 @@ CREATE TABLE IF NOT EXISTS api_keys (
     scopes      TEXT,
     expires_at  TEXT,
     revoked_by  TEXT,
-    replaced_by TEXT
+    replaced_by TEXT,
+    preset      TEXT
 );
 CREATE TABLE IF NOT EXISTS capability_versions (
     environment  TEXT NOT NULL,
@@ -440,6 +441,7 @@ _ADDED_COLUMNS = (
     ("api_keys", "expires_at", "TEXT"),
     ("api_keys", "revoked_by", "TEXT"),
     ("api_keys", "replaced_by", "TEXT"),  # a rotated key's replacement (LP-09)
+    ("api_keys", "preset", "TEXT"),  # the integration path it was made for (LP-12i)
     # What a record leaves out beside its kept input, sealed (Phase 4b): each answer's evidence.
     # NULL: none, or a row from before.
     ("decision_inputs", "details", "TEXT"),
@@ -2522,12 +2524,22 @@ class AuditStore:
         created_by: str,
         scopes: str | None = None,
         days: int = KEY_DAYS,
+        preset: str | None = None,
     ) -> dict[str, Any]:
         """A new key for a machine; its secret is in the result and nowhere else. `scopes` (the
-        caller has checked them, server/scopes.py) narrow the role; None keeps the role's."""
+        caller has checked them, server/scopes.py) narrow the role; None keeps the role's.
+        `preset` labels the integration path it was made for (server/presets.py, checked by the
+        caller); a label only: never read when the key is used."""
         with self._db.session(exclusive=True) as db:
             return self._insert_key(
-                db, name=name, role=role, org=org, created_by=created_by, scopes=scopes, days=days
+                db,
+                name=name,
+                role=role,
+                org=org,
+                created_by=created_by,
+                scopes=scopes,
+                days=days,
+                preset=preset,
             )
 
     def _insert_key(
@@ -2541,9 +2553,10 @@ class AuditStore:
         scopes: str | None,
         days: int,
         replaces: str | None = None,
+        preset: str | None = None,
     ) -> dict[str, Any]:
-        """Store a new key (hashed) and chain `key.created` (with `replaces` for a rotation's);
-        the key with its secret, which is nowhere else."""
+        """Store a new key (hashed) and chain `key.created` (with `replaces` for a rotation's,
+        `preset` for one made from a preset); the key with its secret, which is nowhere else."""
         if role not in MACHINE_ROLES:
             raise ValueError(f"a key's role is one of {MACHINE_ROLES}")
         if not 1 <= days <= KEY_MAX_DAYS:
@@ -2559,10 +2572,11 @@ class AuditStore:
             "created_at": _now(),
             "expires_at": _later(timedelta(days=days)),
             **({"replaces": replaces} if replaces else {}),
+            **({"preset": preset} if preset else {}),
         }
         db.all(
             "INSERT INTO api_keys (id, key_sha256, name, role, org, created_by, created_at, "
-            "scopes, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "scopes, expires_at, preset) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 key["id"],
                 _key(secret),
@@ -2573,6 +2587,7 @@ class AuditStore:
                 key["created_at"],
                 scopes,
                 key["expires_at"],
+                preset,
             ),
         )
         self._append(db, f"key:{key['id']}", "key.created", key)
@@ -2607,7 +2622,7 @@ class AuditStore:
         now = _now()
         with self._db.session(exclusive=True) as db:
             row = db.one(
-                "SELECT id, name, role, org, scopes, expires_at, revoked_at, replaced_by "
+                "SELECT id, name, role, org, scopes, expires_at, revoked_at, replaced_by, preset "
                 "FROM api_keys WHERE id = ?",
                 (key_id,),
             )
@@ -2638,6 +2653,7 @@ class AuditStore:
                 scopes=scope,
                 days=days,
                 replaces=key_id,
+                preset=row["preset"],  # its label, and its stored scope: never the table's now
             )
             until = min(str(row["expires_at"]), _later(timedelta(hours=overlap_hours)))
             db.all(
@@ -2661,9 +2677,11 @@ class AuditStore:
         # None is every organization (open mode, the command line); "" is an organization.
         where, params = ("WHERE org = ?", (org,)) if org is not None else ("", ())
         with self._db.session(exclusive=False) as db:
+            # A database from before presets (read as it is): none has one.
+            preset = "preset" if "preset" in db.columns("api_keys") else "NULL AS preset"
             return db.all(
                 "SELECT id, name, role, org, scopes AS scope, created_by, created_at, "
-                "expires_at, revoked_at, revoked_by, replaced_by "
+                f"expires_at, revoked_at, revoked_by, replaced_by, {preset} "
                 f"FROM api_keys {where} ORDER BY created_at",
                 params,
             )

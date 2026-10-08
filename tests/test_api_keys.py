@@ -128,8 +128,10 @@ def test_a_listing_shows_scope_and_expiry_never_the_key(store: AuditStore) -> No
         "revoked_at",
         "revoked_by",
         "replaced_by",
+        "preset",  # the integration path it was made for (LP-12i), if any
     }
     assert (listed["scope"], listed["revoked_by"]) == ("system/Task.rs", "Grace")
+    assert listed["preset"] is None
     assert listed["expires_at"] == made["expires_at"]
     assert made["key"] not in json.dumps(store.api_keys())
     assert len(store.api_keys()) == 2
