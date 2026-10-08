@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// Monitoring: the deployed pack over time against its benchmark: alerts first, then the last
-// 7 days (observed accuracy, overrides, confidence drift, automated decisions rated wrong), then
-// week by week. Computed by the server (evals/monitoring.py) for this organization.
+// Monitoring: the served version of the pack over time, against its benchmark only where that
+// measured this build with the providers that run here: alerts first, then the last 7 days
+// (reviewed accuracy, overrides, confidence drift, automated decisions rated wrong), then week
+// by week. Computed by the server (evals/monitoring.py) for this organization.
 
 import { chartHtml, wireCharts } from "./charts.js";
 import { communityNotice } from "./pack.js";
@@ -12,6 +13,13 @@ import { $, api, emptyState, esc, figureHtml, icon, money, share, shown, stat, s
 const PERIODS = [30, 90, 180];
 // A calendar day of the period ("2026-09-30" -> "Sep 30"); the server counts weeks in UTC days.
 const day = (iso) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+// Why the benchmark is not compared (`benchmark.reason`).
+const NOT_COMPARED = {
+  no_benchmark: "the pack has no benchmark",
+  another_build: "the benchmark measured another build of the pack",
+  other_providers: "the benchmark ran other providers than this deployment",
+  providers_unknown: "which providers run here is not recorded yet",
+};
 const ALERT_TITLES = {
   accuracy: "Accuracy below the benchmark",
   drift: "Confidence drift",
@@ -33,13 +41,17 @@ views.monitoring = async (main) => {
       <select id="monitoring-days">${PERIODS.map((d) => `<option value="${d}" ${d === days ? "selected" : ""}>${d} days</option>`).join("")}</select>
     </div>
     ${alerts(report.alerts)}
+    ${comparedNote(report)}
     <div class="stats-primary">
-      ${stat({ label: "Observed accuracy, 7 days", value: figureHtml(week.figures.accuracy), html: true,
-        foot: `of the labelled decisions · benchmark ${esc(shown(bench.figures.accuracy))}`,
+      ${stat({ label: "Reviewed accuracy, 7 days", value: figureHtml(week.figures.reviewed_accuracy), html: true,
+        foot: bench.comparable
+          ? `recommendations a reviewer kept · benchmark ${esc(shown(bench.figures.reviewed_accuracy))}`
+          : "recommendations a reviewer kept",
         tone: report.alerts.some((a) => a.kind === "accuracy") ? "danger" : "" })}
       ${stat({ label: "Human overrides, 7 days", value: figureHtml(week.figures.overrides), html: true, foot: "of the reviewed decisions" })}
       ${stat({ label: "Confidence drift (PSI)", value: week.drift_psi === null ? "n/a" : week.drift_psi.toFixed(2),
-        foot: "0.25 or more is a real shift", tone: report.alerts.some((a) => a.kind === "drift") ? "warning" : "" })}
+        foot: bench.comparable ? "0.25 or more is a real shift" : "needs a comparable benchmark",
+        tone: report.alerts.some((a) => a.kind === "drift") ? "warning" : "" })}
       ${stat({ label: "Automated, rated wrong", value: String(week.automated_rated_wrong), foot: "last 7 days",
         tone: week.automated_rated_wrong ? "danger" : "" })}
     </div>
@@ -56,6 +68,19 @@ views.monitoring = async (main) => {
   });
 };
 
+// What the view compares: the benchmark, or why not; and the other versions' decisions it leaves
+// out.
+function comparedNote(report) {
+  const bench = report.benchmark;
+  const others = Object.values(report.other_versions ?? {}).reduce((sum, n) => sum + n, 0);
+  const parts = [];
+  if (!bench.comparable) {
+    parts.push(`Not compared with the benchmark: ${esc(NOT_COMPARED[bench.reason] ?? bench.reason)}, so only week-over-week checks run.`);
+  }
+  if (others) parts.push(`${others} decision${others === 1 ? "" : "s"} of other versions of the pack are not counted.`);
+  return parts.length ? `<p class="muted">${parts.join(" ")}</p>` : "";
+}
+
 function alerts(list) {
   if (!list.length) return `<p class="monitor-ok">${icon("check")} No alerts in the last 7 days.</p>`;
   return list.map((a) => `<div class="callout ${a.severity === "high" ? "danger" : "warning"}" role="status">
@@ -71,7 +96,6 @@ function trendChart(report) {
     return `<p class="muted">The trend appears once decisions in two weeks have been reviewed, re-routed downstream or rated.</p>`;
   }
   const label = (i) => (Number.isInteger(i) && weeks[i] ? day(weeks[i].to) : "");
-  const bench = report.benchmark.figures.accuracy;
   return chartHtml({
     id: "monitoring-trend",
     type: "lines",
@@ -80,7 +104,7 @@ function trendChart(report) {
     series: [{ key: "accuracy", label: "Observed accuracy", swatch: "c1" }, { key: "overrides", label: "Overrides", swatch: "c2", dashed: true }],
     directLabels: true,
     legend: [{ swatch: "line c1", label: "Observed accuracy" }, { swatch: "line c2 dashed", label: "Overrides" }],
-    note: `Observed accuracy compares the pack's recommendation with what a person or a downstream system said${bench ? `; the benchmark is ${esc(shown(bench))}` : ""}.`,
+    note: "Observed accuracy compares the pack's recommendation with what a person or a downstream system said.",
     points: weeks.map((w, i) => ({
       x: i, title: `${day(w.from)} to ${day(w.to)}`,
       values: { accuracy: share(w.figures.accuracy), overrides: share(w.figures.overrides) },
@@ -101,7 +125,10 @@ function weeksTable(weeks) {
       { key: "automated", label: "Automated", numeric: true, sort: (w) => share(w.figures.automated), cell: (w) => figureHtml(w.figures.automated) },
       { key: "overrides", label: "Overrides", numeric: true, sort: (w) => share(w.figures.overrides), cell: (w) => figureHtml(w.figures.overrides) },
       { key: "accuracy", label: "Observed accuracy", numeric: true, sort: (w) => share(w.figures.accuracy), cell: (w) => figureHtml(w.figures.accuracy) },
-      { key: "cost", label: "Cost / decision", numeric: true, sort: (w) => w.cost_per_decision, cell: (w) => money(w.cost_per_decision) },
+      { key: "awaiting", label: "Awaiting review", numeric: true, sort: (w) => w.awaiting_review, cell: (w) => String(w.awaiting_review) },
+      { key: "refused", label: "Refused inputs", numeric: true, sort: (w) => w.refused, cell: (w) => String(w.refused) },
+      // Unknown when any decision's cost is: never an average of the known ones.
+      { key: "cost", label: "Cost / decision", numeric: true, sort: (w) => w.cost_per_decision, cell: (w) => (w.cost_unknown ? "unknown" : money(w.cost_per_decision)) },
     ],
   });
 }

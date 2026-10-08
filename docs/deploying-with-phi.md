@@ -680,9 +680,16 @@ logs, at startup, each slot the Jev defaults turn on.
 
 ## 6. Monitoring and governance
 
-- **Monitoring:** the Monitoring view shows accuracy against the benchmark, drift and overrides.
-  Schedule `mendari monitor --db "$DATABASE_URL"` with `MENDARI_ALERT_WEBHOOK` to be told
-  when a pack degrades.
+- **Monitoring:** the Monitoring view shows the served version's accuracy, drift and
+  overrides, week by week. It compares them with the benchmark only when that measured this
+  build of the pack with the providers this deployment runs, and stratum by stratum (reviewed
+  decisions, automated ones); otherwise it says why (`benchmark.reason` in
+  `/api/monitoring`: `no_benchmark`, `another_build`, `other_providers` or
+  `providers_unknown`) and only the week-over-week checks run. A deployment that runs other
+  providers than the benchmark did (Jev where it measured `naive_bayes`, say) gets only those:
+  the benchmark says nothing about how other providers should do. Schedule
+  `mendari monitor --db "$DATABASE_URL"` with `MENDARI_ALERT_WEBHOOK` to be told when a pack
+  degrades; it reads which providers ran from the deployment records the server keeps.
 - **Governance:** packs at risk level 2 or 3 automate only after someone with the `governance`
   role approves that exact version on its Decision Card (a reference such as committee minutes,
   and an expiry). Level 4 never automates.

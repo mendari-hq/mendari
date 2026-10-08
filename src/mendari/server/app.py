@@ -74,6 +74,8 @@ from mendari.errors import (
 from mendari.evals import compare, figures, leaderboard, load_dataset, resolve_dataset
 from mendari.evals.feedback import feedback_dataset
 from mendari.evals.harness import Dataset, evaluation
+from mendari.evals.monitoring import MAX_DAYS as MONITOR_MAX_DAYS
+from mendari.evals.monitoring import MIN_DAYS as MONITOR_MIN_DAYS
 from mendari.evals.monitoring import check_webhook, monitor
 from mendari.evals.pack_tests import load_cases
 from mendari.legacy import current_pack_id
@@ -1098,8 +1100,13 @@ def create_app(
         summary="Monitor a pack over time",
     )
     def monitoring(pack_id: str, days: int = 30) -> dict[str, Any]:
-        """The pack over time for this organisation: weekly series, drift and alerts."""
-        return monitor(store, pack_or_404(pack_id), days=max(7, min(days, 180)))
+        """The served version of the pack over time for this organisation: weekly series, drift
+        and alerts, against its benchmark only when that measured this build with the providers
+        that run here (`benchmark.comparable`, `benchmark.reason` otherwise). `days` is held to
+        14 to 180, in whole weeks."""
+        pack = pack_or_404(pack_id)
+        days = max(MONITOR_MIN_DAYS, min(days, MONITOR_MAX_DAYS))
+        return monitor(store, pack, days=days, providers=health_providers.get(pack.id))
 
     # -- governance ------------------------------------------------------------------------------
 

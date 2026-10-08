@@ -3938,20 +3938,37 @@ class AuditStore:
                 return
             after = page.after
 
-    def decision_rows(self, pack_id: str, since: str) -> list[dict[str, Any]]:
-        """Each decision of a pack since a time (ISO), for monitoring: when, the outcome, the
-        primary confidence, what a person or a downstream system said, and the cost."""
+    def decision_rows(
+        self, pack_id: str, since: str, version: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Each decision of a pack since a time (ISO), of one version if given, for monitoring:
+        when, the outcome, the primary confidence, whether its input was refused, whether it
+        awaits review, what a person or a downstream system said, and the cost."""
         scope, scoped = _scope()
+        versions = ("AND d.pack_version = ? ", (version,)) if version is not None else ("", ())
         with self._db.session(exclusive=False) as db:
             return db.all(
                 "SELECT d.id, d.created_at, d.outcome, d.confidence, d.recommendation, "
-                "d.final_label, d.human_override, d.cost_usd, "
+                f"d.final_label, d.human_override, d.cost_usd, {_REFUSED} AS refused, "
+                "d.review_status, "
                 "(SELECT COUNT(*) FROM feedback f WHERE f.decision_id = d.id "
                 "AND f.superseded_by IS NULL AND f.rating = 'down') AS rated_wrong "
                 f"FROM decisions d WHERE {scope} AND d.pack_id = ? AND d.created_at >= ? "
-                "ORDER BY d.created_at",
+                f"{versions[0]}ORDER BY d.created_at",
+                (*scoped, pack_id, since, *versions[1]),
+            )
+
+    def decision_versions(self, pack_id: str, since: str) -> dict[str, int]:
+        """How many decisions each version of a pack made since a time (ISO), for monitoring,
+        which compares one version's with its benchmark and counts the others apart."""
+        scope, scoped = _scope()
+        with self._db.session(exclusive=False) as db:
+            rows = db.all(
+                "SELECT d.pack_version, COUNT(*) AS n FROM decisions d "
+                f"WHERE {scope} AND d.pack_id = ? AND d.created_at >= ? GROUP BY d.pack_version",
                 (*scoped, pack_id, since),
             )
+        return {str(row["pack_version"]): int(row["n"]) for row in rows}
 
     def pending_reviews(
         self, pack_id: str | None = None, limit: int = 50, *, reader: str | None = None

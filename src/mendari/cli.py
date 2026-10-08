@@ -21,7 +21,7 @@ from mendari.core import clock, tenancy
 from mendari.core.audit import SYSTEM_ID, AuditStore
 from mendari.core.decision import Decision
 from mendari.core.pack import Pack
-from mendari.core.registry import discover, resolve_pack
+from mendari.core.registry import discover, resolve_pack, version_key
 from mendari.errors import MendariError, PackValidationError
 from mendari.sandbox import example_datasets_dir
 from mendari.settings import (
@@ -1313,26 +1313,42 @@ def cmd_keys_register(args: argparse.Namespace) -> int:
 
 
 def cmd_monitor(args: argparse.Namespace) -> int:
-    """For a scheduler: every pack's alerts (for one organization with --org; otherwise all of
-    them together), posted to a webhook when one is set; exit 1 on any."""
+    """For a scheduler: every pack's alerts (the served, newest, version of each; for one
+    organization with --org, otherwise all of them together), posted to a webhook when one is
+    set; exit 1 on any. A benchmark counts only for the build and providers a server recorded
+    running (`deployments`); otherwise the line says why, and only week-over-week checks run."""
     import os
 
     import httpx
 
     from mendari.core import tenancy
-    from mendari.evals.monitoring import check_webhook, monitor
+    from mendari.evals.monitoring import check_webhook, monitor, recorded_providers
 
     webhook = args.webhook or os.environ.get("MENDARI_ALERT_WEBHOOK", "").strip()
     if webhook:
         check_webhook(webhook)  # before any work, so a typo fails at once
-    packs = [resolve_pack(args.pack)] if args.pack else discover().packs
+    if args.pack:
+        packs = [resolve_pack(args.pack)]
+    else:  # the version a server serves of each pack: the newest
+        newest: dict[str, Pack] = {}
+        for pack in discover().packs:
+            if pack.id not in newest or version_key(pack.version) > version_key(
+                newest[pack.id].version
+            ):
+                newest[pack.id] = pack
+        packs = [newest[pack_id] for pack_id in sorted(newest)]
     with _read_store(args.db) as store, tenancy.acting_for(args.org):
         store.require_current("monitor")
-        reports = [monitor(store, pack, days=args.days) for pack in packs]
+        reports = [
+            monitor(store, pack, days=args.days, providers=recorded_providers(store, pack))
+            for pack in packs
+        ]
     alerting = [r for r in reports if r["alerts"]]
     for report in reports:
         status = f"{len(report['alerts'])} alert(s)" if report["alerts"] else "ok"
-        print(f"{report['pack']['id']}: {status}")
+        reason = report["benchmark"]["reason"]
+        compared = "" if reason is None else f" (no comparable benchmark: {reason})"
+        print(f"{report['pack']['id']}: {status}{compared}")
         for alert in report["alerts"]:
             print(f"  [{alert['severity']}] {alert['kind']}: {alert['message']}")
     if webhook and alerting:
@@ -1564,6 +1580,20 @@ def _port(text: str) -> int:
     if not 0 < port < 65536:
         raise argparse.ArgumentTypeError(f"not a port: {port} (1 to 65535)")
     return port
+
+
+def _monitored_days(text: str) -> int:
+    """The days `mendari monitor` covers: two whole weeks to 180 days (argparse names the flag),
+    so the week before the last always exists."""
+    from mendari.evals.monitoring import MAX_DAYS, MIN_DAYS
+
+    try:
+        days = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a number of days: {text!r}") from None
+    if not MIN_DAYS <= days <= MAX_DAYS:
+        raise argparse.ArgumentTypeError(f"{days} days: give {MIN_DAYS} to {MAX_DAYS}")
+    return days
 
 
 def _iso_date(text: str) -> str:
@@ -2094,7 +2124,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--db", default="var/mendari.db", help="SQLite path or postgresql:// URL"
     )
     monitor_cmd.add_argument("--pack", help="one pack (default: every pack)")
-    monitor_cmd.add_argument("--days", type=int, default=30)
+    monitor_cmd.add_argument(
+        "--days", type=_monitored_days, default=30, help="14 to 180, in whole weeks (default 30)"
+    )
     monitor_cmd.add_argument(
         "--org", help="one organization (default: every organization together)"
     )

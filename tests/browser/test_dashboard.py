@@ -476,16 +476,22 @@ def monitoring_week(start: str, end: str, agreed: int, labelled: int, overridden
         "from": start,
         "to": end,
         "decisions": 30,
+        "refused": 0,
         "automated_rate": 24 / 30,
         "reviewed": 6,
+        "awaiting_review": 1,
         "override_rate": overridden / 6,
         "labelled": labelled,
         "observed_accuracy": agreed / labelled if labelled else None,
+        "confidences": 30,
         "cost_per_decision": None,
+        "cost_unknown": 30,
         "figures": {
             "automated": figures.of(24, 30),
             "overrides": figures.of(overridden, 6),
             "accuracy": figures.of(agreed, labelled),
+            "reviewed_accuracy": figures.of(6 - overridden, 6),
+            "automated_accuracy": figures.of(0, 0),
         },
     }
 
@@ -496,9 +502,18 @@ MONITORING = {
     "benchmark": {
         "accuracy": 0.97,
         "n": 600,
+        "reviewed_accuracy": 0.995,
+        "automated_accuracy": None,
         "tolerance": 0.03,
-        "figures": {"accuracy": figures.counted(0.97, 600)},
+        "comparable": True,
+        "reason": None,
+        "figures": {
+            "accuracy": figures.counted(0.97, 600),
+            "reviewed_accuracy": figures.counted(0.995, 598),
+            "automated_accuracy": None,
+        },
     },
+    "other_versions": {},
     "last_7_days": {
         **monitoring_week("2026-09-23", "2026-09-30", 23, 25, 2),
         "drift_psi": 0.1,
@@ -2267,23 +2282,38 @@ def test_monitoring_alerts_lead_the_page(page: Page) -> None:
                 "benchmark": {
                     "accuracy": 0.97,
                     "n": 600,
+                    "reviewed_accuracy": 0.97,
+                    "automated_accuracy": None,
                     "tolerance": 0.03,
-                    "figures": {"accuracy": figures.counted(0.97, 600)},
+                    "comparable": True,
+                    "reason": None,
+                    "figures": {
+                        "accuracy": figures.counted(0.97, 600),
+                        "reviewed_accuracy": figures.counted(0.97, 600),
+                        "automated_accuracy": None,
+                    },
                 },
+                "other_versions": {"0.4.0": 3},
                 "last_7_days": {
                     "decisions": 40,
+                    "refused": 0,
                     "automated_rate": 0.9,
-                    "reviewed": 4,
-                    "override_rate": 0.25,
+                    "reviewed": 30,
+                    "awaiting_review": 0,
+                    "override_rate": 0.2,
                     "labelled": 30,
                     "observed_accuracy": 0.8,
+                    "confidences": 40,
                     "cost_per_decision": 0.0,
+                    "cost_unknown": 0,
                     "drift_psi": 0.31,
                     "automated_rated_wrong": 2,
                     "figures": {
                         "automated": figures.of(36, 40),
-                        "overrides": figures.of(1, 4),
+                        "overrides": figures.of(6, 30),
                         "accuracy": figures.of(24, 30),
+                        "reviewed_accuracy": figures.of(24, 30),
+                        "automated_accuracy": figures.of(0, 0),
                     },
                 },
                 "weeks": [],
@@ -2291,8 +2321,8 @@ def test_monitoring_alerts_lead_the_page(page: Page) -> None:
                     {
                         "kind": "accuracy",
                         "severity": "high",
-                        "message": f"observed accuracy {shown(figures.of(24, 30))} over the "
-                        "last 7 days",
+                        "message": f"reviewed decisions: accuracy {shown(figures.of(24, 30))} "
+                        "over the last 7 days",
                     },
                     {
                         "kind": "drift",
@@ -2305,8 +2335,9 @@ def test_monitoring_alerts_lead_the_page(page: Page) -> None:
     )
     open_pack(page, INBOX, "monitoring")
     expect(page.locator(".callout.danger")).to_contain_text(
-        f"Accuracy below the benchmark: observed accuracy {shown(figures.of(24, 30))}"
+        f"Accuracy below the benchmark: reviewed decisions: accuracy {shown(figures.of(24, 30))}"
     )
+    expect(page.locator("main")).to_contain_text("3 decisions of other versions")
     expect(page.locator(".stats-primary")).to_contain_text(
         f"benchmark {shown(figures.of(582, 600))}"
     )
