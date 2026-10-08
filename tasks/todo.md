@@ -1147,7 +1147,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     never re-run; gate `hosted-monitoring` names its tests and waits for 21n.
   - [ ] **21g** The usage ledger (day, organization, provider type, purpose: calls, tokens,
     cost, unknown as unknown).
-  - [ ] **21h** Evaluations count against their organization: `eval_jev` and `eval_llm` in
+  - [ ] **21h** (#203) Evaluations count against their organization: `eval_jev` and `eval_llm` in
     `MENDARI_ORG_DAILY_LIMITS` (unset: no limit), charged by `CallBudget.for_evaluation`, never
     the decisions' quotas; the quota alert says what an evaluation quota stops.
   - [ ] **21i** `GET /api/usage`, the admins' usage screen and the operator's CLI.
