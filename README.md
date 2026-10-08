@@ -377,15 +377,19 @@ The profile `signin` adds a second engine with sign-in on (port 8001) where the 
 registered to decide for organization `pilot`; CI's `sandbox-e2e` checks that its launches
 decide there, chained as the launcher's `<issuer>|<subject>`. Sign-in never runs PHI mode `off`,
 so this engine runs `encrypt` with two keys of your own, generated once into `.env` (gitignored;
-compose reads it, and a variable set in your shell wins). Keep them: inputs sealed under one pair
-do not open under another. Its database, once protected, never takes `off` again, so to start
-over (new keys, or an older compose file) remove the sandbox's volumes with
-`docker compose --profile signin down -v`.
+compose reads it, and a variable set in your shell wins); the first lines below add each key
+only if `.env` lacks it. Keep them: inputs sealed under one pair do not open under another. Its
+database, once protected, never takes `off` again, so to start over (new keys, or an older
+compose file) remove this engine and its volume alone with
+`docker compose --profile signin rm -sf engine-signin && docker volume rm mendari_mendari-signin-data`
+(`down -v` would also remove the open engine's database and the local registry's packs).
 
 <!-- check: skip docker: needs the Docker sandbox; CI job sandbox-e2e runs it -->
 ```bash
-grep -qs '^MENDARI_PHI_KEY=' .env || for name in MENDARI_PHI_KEY MENDARI_INPUT_HASH_KEY; do
-  echo "$name=$(python3 -c 'import os,base64;print(base64.b64encode(os.urandom(32)).decode())')" >> .env
+[ -n "$(tail -c1 .env 2>/dev/null)" ] && echo >> .env  # give a last line its newline
+for name in MENDARI_PHI_KEY MENDARI_INPUT_HASH_KEY; do
+  grep -qs "^$name=" .env ||
+    echo "$name=$(python3 -c 'import os,base64;print(base64.b64encode(os.urandom(32)).decode())')" >> .env
 done
 docker compose --profile signin up -d --build --wait engine launcher engine-signin
 docker compose exec engine-signin mendari smart check http://launcher/v/r4/fhir

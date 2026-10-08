@@ -86,8 +86,11 @@ services:
       # Generate each once (README, "The profile `signin`"); without them this engine stops,
       # naming the key it lacks:
       #   python3 -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())"
-      # Its database, once protected, never takes `off` again: to start over, `docker compose
-      # --profile signin down -v`.
+      # Its database, once protected, never takes `off` again. To start over, remove this engine
+      # and its volume alone (`down -v` would also remove `mendari-data`, the open engine's
+      # database and the registry's packs):
+      #   docker compose --profile signin rm -sf engine-signin
+      #   docker volume rm mendari_mendari-signin-data
       MENDARI_PHI_MODE: encrypt
       MENDARI_PHI_KEY: ${MENDARI_PHI_KEY:-}
       MENDARI_INPUT_HASH_KEY: ${MENDARI_INPUT_HASH_KEY:-}

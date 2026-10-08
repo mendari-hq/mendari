@@ -186,7 +186,8 @@ behaviour.
   database is opened (`require_protection`). An EHR launch with sign-in off keeps its
   chosen-mode check and warning (not refused yet: a separate decision). The compose sandbox's
   `engine-signin` runs `encrypt`, its two keys read from the shell or the gitignored `.env`
-  (`${VAR:-}`, never committed; generated once, README; `down -v` to start over), checked by
+  (`${VAR:-}`, never committed; generated once, README; to start over, remove that engine and
+  its volume alone), checked by
   hand on Docker (keyless it stops naming the key it lacks; with keys `smart check` and both
   `--expect-org pilot` launches pass). CI's `sandbox-e2e` writes masked throwaway keys to
   `$GITHUB_ENV`; `check_doc_snippets.py` runs its signed-in pass under `encrypt`. Every signed-in
@@ -197,7 +198,11 @@ behaviour.
   2 refusal tests. Gate a5's pending probe is replaced by
   `test_sign_in_refuses_plaintext_whatever_the_database` (SQLite and Postgres),
   `test_the_cli_refuses_sign_in_without_protection` and
-  `test_the_signed_in_templates_choose_a_mode`: a5 now counts as met.
+  `test_the_signed_in_templates_choose_a_mode`: a5 now counts as met. Review (2 low, both
+  fixed): the README's `.env` step now ends a last line left without its newline and adds each
+  key only if missing (it had glued the first key onto that line and, on rerun, added a second
+  hash key, a new epoch); the reset no longer says `down -v`, which also removed
+  `mendari-data` (the open engine's database and the registry's packs).
 - [x] **LP-09** Key rotation (#142, merged 2026-10-07). The PHI key: a ring, `MENDARI_PHI_KEY` seals and
   `MENDARI_PHI_READ_KEYS` (up to 4, checked at startup, never shown) only opens; from the first
   rotation on each token names its key (`v2:<key id>:`; before it, the old format, so a release
