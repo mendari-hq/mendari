@@ -439,6 +439,23 @@ scoreboard and grading, LP-16 for registry-pulled packs (community packs already
 with a CPU budget, #133), LP-18 and LP-19 registry, LP-12 accounts, LP-20 pack store, LP-21
 operations, LP-22 site network, LP-23 EHR pilot.
 
+**LP-16, Option A scoped (owner, 2026-10-07):** packs the deployment does not own run on the B11
+community engine: RE2 for rules and input-schema patterns, the load-time caps, the schema keyword
+allowlist, the 10,000-character input limit and the 1 s per-decision CPU budget (`time_budget`,
+then a person decides). That is registry-pulled packs now and store packs from LP-20; community
+packs already do, so B9 does not wait for LP-16. A pulled pack whose digest equals a reference pack
+in the installed release keeps the maintained engine, so `hub-e2e`, the sandbox registry and
+`mendari pull mendari/referral-router` keep working; the registry checks a publish on the same
+engine (`hub/archive.py` loads it as `local` today). Reference (maintained) packs and
+operator-installed local packs stay on `re`, unchanged, and LP-16's requirement 1, its first test
+and gate G3-4's probe are narrowed to packs the deployment does not own. Accepted with it: on `re`,
+a crafted 10,000-character inbox message can hold Python's lock for about 0.55 s, stalling its
+instance (rate limits bound it). A wall-clock deadline across one decision's providers applies to
+every pack. No worker process (Option B) for now. The four lookaround patterns (ai-guard,
+clinical-trial-prescreener, referral-router) are rewritten, with a decision-identity proof and a
+rebuild, before a reference version that differs from the installed one is published to a
+registry or copied into the store.
+
 **B38, the pilot EHR (owner, 2026-10-07):** Epic, with Oracle Health as the backup, chosen by
 vendor fit while no design partner is on record; the first pilot site's own EHR overrides it.
 LP-23 builds to Epic's published CDS Hooks token (RS384 or ES384, a `jku` equal to an allow-listed
