@@ -105,7 +105,9 @@ decision; in order:
 3. set `MENDARI_ACCOUNTS=memberships` and redeploy. **Everyone signs in again**, both ways: a
    session of one mode is no session in the other. The owner's membership binds at their first
    sign-in then. Rolling back is unsetting it: the records stay, and claims mode never reads
-   them.
+   them. The database stays marked (`org_bound`): from the first start in memberships mode on,
+   each chained event names its organization, after a rollback too, and an instance of the
+   previous deployment still serving names it only once it restarts.
 
 Then:
 
@@ -139,6 +141,12 @@ Then:
   does not let them back in.
 - Keys, Backend Services clients and EHR registrations of an organization with no record are
   refused.
+- `mendari audit verify` also checks each event's organization against the row it is about.
+  `{"ok": false, "broken_at": N, "reason": "organization"}` means that row was moved to
+  another organization, or deleted, after event N was chained: look at the row that event's
+  chain id names (`SELECT decision_id, event, payload FROM audit_events WHERE seq = N`), and
+  restore it from a backup. Keep every row an event names: delete no expired invitation, handled
+  request or organization.
 - The whole-chain verify, deployment-wide deployment records and some health fields are still
   shown to every organization's administrators until LP-12g scopes them: switch the hosted
   site after LP-12g.
