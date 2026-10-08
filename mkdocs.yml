@@ -80,5 +80,6 @@ nav:
       - "ADR-0007: Community packs by pull request": decisions/ADR-0007-community-packs-by-pull-request.md
       - "ADR-0008: Accounts and memberships": decisions/ADR-0008-accounts-and-memberships.md
       - "ADR-0009: Bounded evaluation for packs the deployment does not own": decisions/ADR-0009-bounded-evaluation-for-packs-the-deployment-does-not-own.md
+      - "ADR-0010: Operations for a public service": decisions/ADR-0010-operations-for-a-public-service.md
   - Project:
       - Roadmap: roadmap.md

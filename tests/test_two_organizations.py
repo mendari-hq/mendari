@@ -80,6 +80,8 @@ DEPLOYMENT_WIDE: dict[Route, str] = {
     ("GET", "/docs/reference"): "the API reference page",
     ("GET", "/redoc"): "the reference's other renderer",
     ("GET", "/favicon.ico"): "an icon",
+    ("GET", "/api/health/ready"): "readiness: fixed codes and the version, from a cached read of "
+    "the chain's table and the packs start-up found",
     ("GET", "/invite"): "the invitation page, static: the token stays in the fragment",
     ("GET", "/openapi.json"): "generated from code, settings and the served packs",
     ("GET", "/api/packs"): "the served packs, read from files, never the store",
@@ -1163,6 +1165,7 @@ def reads(world: World, x: Org) -> dict[str, str]:
         (viewer, ("GET", "/api/stats"), "/api/stats", {}),
         (viewer, ("GET", "/api/monitoring"), "/api/monitoring", pack),
         (viewer, ("GET", "/api/health"), "/api/health", {}),
+        (viewer, ("GET", "/api/health/ready"), "/api/health/ready", {}),
         (viewer, ("GET", "/api/auth/me"), "/api/auth/me", {}),
         (admin, ("GET", "/api/health"), "/api/health", {}),
         (viewer, ("GET", "/fhir/Task"), "/fhir/Task", total),

@@ -71,9 +71,15 @@ spec:
           envFrom:
             - configMapRef: {name: mendari-config}
             - secretRef: {name: mendari-secrets}
+          # Readiness reads the database (at most once every 5 s per pod, waited for about
+          # 3.5 s) and the packs: a pod whose database does not answer leaves the Service until
+          # it does. With sign-in on, liveness does no database work, so a database outage
+          # never restarts the pods.
           readinessProbe:
-            httpGet: {path: /api/health, port: 8000}
+            httpGet: {path: /api/health/ready, port: 8000}
             periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
           livenessProbe:
             httpGet: {path: /api/health, port: 8000}
             periodSeconds: 30
