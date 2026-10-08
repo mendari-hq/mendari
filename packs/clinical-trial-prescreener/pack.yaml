@@ -1,6 +1,6 @@
 spec_version: "0.2"
 id: mendari/clinical-trial-prescreener
-version: 0.1.5
+version: 0.2.0
 name: Clinical Trial Prescreener
 summary: >-
   Checks a patient's record against the eligibility criteria of a synthetic type 2 diabetes
@@ -17,16 +17,16 @@ code_systems:
       ICD-10-CM (U.S. National Center for Health Statistics: free to use; adapted from the World
       Health Organization's copyrighted ICD-10, with WHO's authorization, for U.S. government
       purposes)
-  - url: http://snomed.info/sct
-    name: SNOMED CT (SNOMED International)
-    licence_note: >-
-      Using SNOMED CT needs an Affiliate Licence from SNOMED International: free of charge in
-      its member territories (in the United States through the National Library of Medicine's
-      UMLS licence), in low-income countries and for qualifying research; fees apply elsewhere.
-      Whether the reference packs may carry its codes is a question recorded for counsel
-      (tasks/todo.md, LP-14).
+  - url: https://mendari.co/fhir/CodeSystem/fictional-conditions
+    name: >-
+      Mendari fictional condition codes: invented for the synthetic local-site example; not
+      SNOMED CT. A site maps its own codes to these.
   - url: http://loinc.org
     name: LOINC (Regenstrief Institute; the LOINC License, whose notice is in NOTICE)
+  - url: http://www.nlm.nih.gov/research/umls/rxnorm
+    name: >-
+      RxNorm (U.S. National Library of Medicine: its codes and normalized names are in the
+      public domain; NLM's acknowledgement is in NOTICE)
 
 risk:
   level: 2
@@ -62,7 +62,9 @@ card:
   known_failure_modes:
     - Criteria are computed only from the codes, units and names listed in
       logic/criteria.yaml. A lab result under another LOINC code, a unit without a declared
-      conversion, or a condition under an unlisted code is `unknown` or not found. A metformin
+      conversion, or a condition under an unlisted code is `unknown` or not found. Conditions
+      are listed in ICD-10-CM only (plus the local-site example's fictional codes), so a
+      diagnosis coded only in SNOMED CT is not found until the site adds its codes. A metformin
       brand name (such as Glucophage) is not matched, so the patient is wrongly `not_eligible`.
       On the bundled local-site example (datasets/trial-local-site-example.jsonl), which has
       both, plus Spanish notes, eligibility is answered wrong far more often than on the
@@ -121,7 +123,7 @@ questions:
     display: "Type 2 diabetes diagnosis"
     instructions: Does the record contain a coded diagnosis of type 2 diabetes?
     criteria:
-      "yes": Type 2 diabetes is coded (ICD-10 E11 or SNOMED CT 44054006).
+      "yes": Type 2 diabetes is coded (ICD-10-CM E11, or the local-site example's fictional FC101).
       "no": Type 1 diabetes is coded and type 2 diabetes is not.
       unknown: No diabetes diagnosis is coded.
   hba1c_in_range:

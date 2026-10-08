@@ -74,7 +74,7 @@ def test_notes_never_contradict_their_own_labels() -> None:
 def test_the_local_site_differs_the_way_the_card_says() -> None:
     local = synthetic_trial.local_site()
     text = json.dumps([r["input"] for r in local], ensure_ascii=False)
-    for marker in ("mmol/mol", "44054006", "17856-6", "Glucophage"):
+    for marker in ("mmol/mol", "FC101", "17856-6", "Glucophage"):
         assert marker in text
     spanish = sum(r["attributes"]["language"] == "es" for r in local) / len(local)
     assert 0.2 < spanish < 0.4

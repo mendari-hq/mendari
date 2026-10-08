@@ -4,6 +4,25 @@ Renamed on 2026-09-30, when the project became Mendari: this pack was `openhealt
 Its id, its publisher's name and its `https://mendari.co/...` identifiers changed; its criteria,
 rules, models, data and results did not.
 
+## 0.2.0
+
+- No SNOMED CT: the FHIR mapping's `focus_where`, which tells a referral from the other
+  ServiceRequests (lab and imaging orders), matched the SNOMED CT code for a patient referral.
+  It now matches `FR101`, an invented code in a code system named as fictional,
+  `https://mendari.co/fhir/CodeSystem/fictional-referrals`, which the sandbox's synthetic
+  referrals carry. SNOMED CT's licence terms are a question for counsel (LP-14), and no package
+  carries its codes any more.
+  **Through FHIR, the pack now matches no real referral.** Until a site code map exists
+  (LP-23), a referral from a real EHR (CDS Hooks, the SMART launch, `$decide`) is not found
+  and nothing is decided: a site lists the code its EHR marks a referral with in
+  `fhir/mapping.yaml`. Pack inputs sent directly are not affected. The known failure modes say
+  so.
+- `code_systems` drops SNOMED CT and declares the fictional referral codes.
+- Criteria, rules, providers, policy, models and data are unchanged. Every decision is the same
+  as in 0.1.4: the 2,768 data, dataset and behaviour-test cases, and the 300 local-site
+  referrals sent as FHIR (with the fictional code in place of SNOMED CT's), compared case by
+  case. The digest changes.
+
 ## 0.1.4
 
 - `code_systems` declares the systems the pack uses: SNOMED CT, with its licence terms (a pack

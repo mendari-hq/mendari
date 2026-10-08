@@ -14,7 +14,13 @@ The first release (not yet published).
   that may only lower automation.
 - **Five reference packs**, built and evaluated on synthetic data: Patient Inbox Router,
   Clinical Trial Prescreener, Referral Router, Prior Authorization Preflight and AI Guard. None
-  is clinically reviewed or for patient care.
+  is clinically reviewed or for patient care. No package carries CPT or SNOMED CT codes: where a
+  pack needs codes of its own (procedures, a local site's conditions, the code that marks a
+  referral) they are fictional, in code systems named as such, and a site maps its own codes.
+  So until a site does, the Referral Router matches no real EHR referral through FHIR and the
+  Clinical Trial Prescreener reads real diagnoses only through ICD-10-CM. A check refuses SNOMED
+  CT in the built wheel and sdist (`scripts/check_snomed.py`); NOTICE carries NLM's RxNorm
+  acknowledgement.
 - **Standards:** a FHIR R4 adapter and CDS Hooks service.
 - **Governance:** a review queue, an append-only hash-chained audit trail on SQLite or Postgres,
   PHI modes (off, hash, encrypt) with key rotation, retention, and an evaluation harness with

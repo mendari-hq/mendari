@@ -170,8 +170,8 @@ Packs carry clinical content, so where it comes from matters as much as the code
   with the terms, and a pack whose files name one by its url or OID without it does not load
   (spec §3). A bare code names no system, so declaring where your codes come from is yours to
   do. Prefer
-  free systems (ICD-10-CM, LOINC) or a fictional one named as such, as the prior-authorization
-  reference pack does.
+  free systems (ICD-10-CM, LOINC) or a fictional one named as such, as the reference packs do
+  in place of CPT and SNOMED CT (no package carries either).
 - **Say what you used.** The pack template asks for the sources of the criteria and of
   `card.evidence`, and who reviewed the clinical content.
 

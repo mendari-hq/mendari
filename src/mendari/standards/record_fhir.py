@@ -8,7 +8,7 @@ this turns the record into a `collection` Bundle:
 | Record | FHIR |
 |---|---|
 | `patient.age`, `patient.sex` | Patient: `birthDate` (`age` years before screening), `gender` |
-| `conditions[]` | Condition: ICD-10-CM or SNOMED CT code, clinical status, onset |
+| `conditions[]` | Condition: code (`condition_system`), clinical status, onset |
 | `observations[]` | Observation: LOINC code, `valueQuantity`, effective date |
 | `medications[]` | MedicationStatement: RxNorm code and name, status, effective period |
 
@@ -24,9 +24,12 @@ from datetime import date
 from typing import Any
 
 from mendari.providers.criteria import _date, _items
+from mendari.sandbox.synthetic_trial import CONDITION_SYSTEM, CONDITIONS
 
 PATIENT_ID = "record-patient"
 ICD10 = "http://hl7.org/fhir/sid/icd-10-cm"
+# A record's condition code names no system: one shaped like ICD-10-CM is ICD-10-CM, one of the
+# synthetic local site's fictional codes is theirs, and any other is read as a site's SNOMED CT.
 SNOMED = "http://snomed.info/sct"
 LOINC = "http://loinc.org"
 RXNORM = "http://www.nlm.nih.gov/research/umls/rxnorm"
@@ -85,11 +88,18 @@ def _patient(patient: Any, as_of: date) -> dict[str, Any]:
 
 def _coding(code: Any, *, display: Any = None) -> dict[str, Any]:
     text = str(code)
-    system = ICD10 if _ICD10_CODE.match(text) else SNOMED
+    system = condition_system(text)
     coding: dict[str, Any] = {"system": system, "code": text}
     if isinstance(display, str) and display:
         coding["display"] = display
     return coding
+
+
+def condition_system(code: str) -> str:
+    """The code system a record's condition code is read as (see `SNOMED`)."""
+    if _ICD10_CODE.match(code):
+        return ICD10
+    return CONDITION_SYSTEM if code in CONDITIONS else SNOMED
 
 
 def _condition(key: str, item: Mapping[str, Any], subject: dict[str, str]) -> dict[str, Any]:

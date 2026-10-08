@@ -18,8 +18,8 @@ Each question has an ordered list of checks; the first check that applies decide
         default: unknown
       t2d_diagnosis:
         checks:
-          - condition: {codes: ["E11*", "44054006"], then: "yes"}
-          - condition: {codes: ["E10*", "46635009"], then: "no"}
+          - condition: {codes: ["E11*", "FC101"], then: "yes"}
+          - condition: {codes: ["E10*", "FC102"], then: "no"}
         default: unknown
 
 Two more kinds work on any part of the input: `exists` finds an item of a given type in a

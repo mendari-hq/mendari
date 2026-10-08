@@ -35,8 +35,19 @@ NOTES = (
     "note_recent_cv_event",
 )
 
+# The local site codes conditions in its own system: here, condition codes invented for this
+# synthetic example, in a code system named as fictional. Not SNOMED CT or any real code system; a
+# site maps its own codes. Each display is ours. (LP-14: they replaced the SNOMED CT codes.)
+CONDITION_SYSTEM = "https://mendari.co/fhir/CodeSystem/fictional-conditions"
+CONDITIONS = {
+    "FC101": "Type 2 diabetes mellitus",
+    "FC102": "Type 1 diabetes mellitus",
+    "FC201": "Myocardial infarction",
+    "FC202": "Stroke (cerebrovascular accident)",
+    "FC203": "Cerebral infarction",
+}
 ICD = {"t2d": ["E11.9", "E11.65", "E11.22"], "t1d": ["E10.9"], "mi": ["I21.4"], "stroke": ["I63.9"]}
-SNOMED = {"t2d": ["44054006"], "t1d": ["46635009"], "mi": ["22298006"], "stroke": ["230690007"]}
+LOCAL = {"t2d": ["FC101"], "t1d": ["FC102"], "mi": ["FC201"], "stroke": ["FC202"]}
 TEXT = {
     "t2d": "Type 2 diabetes mellitus",
     "t1d": "Type 1 diabetes mellitus",
@@ -212,7 +223,7 @@ def eligibility(truth: dict[str, str]) -> str:
 
 
 def _record(f: Facts, rng: random.Random, record_id: str) -> dict[str, Any]:
-    codes = SNOMED if f.site == "local" else ICD
+    codes = LOCAL if f.site == "local" else ICD
     conditions = []
     if f.diabetes != "none":
         conditions.append(

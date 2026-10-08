@@ -40,9 +40,9 @@
           {
             "coding": [
               {
-                "system": "http://snomed.info/sct",
-                "code": "3457005",
-                "display": "Patient referral"
+                "system": "https://mendari.co/fhir/CodeSystem/fictional-referrals",
+                "code": "FR101",
+                "display": "Specialty referral"
               }
             ]
           }
