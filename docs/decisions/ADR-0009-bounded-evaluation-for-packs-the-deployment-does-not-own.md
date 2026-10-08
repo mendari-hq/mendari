@@ -111,9 +111,10 @@ each decision of a request that makes several has a deadline of its own.
   `hub-e2e`, the sandbox registry and `mendari pull mendari/referral-router` keep working, and
   `mendari pull` says which engine a pulled pack runs on.
 - A reference pack at another version than the installed one (an older release's, or a fork)
-  runs on the community engine: until 16c, the three packs with lookarounds are refused there,
-  with a reason saying why and what to do (use the copy this release bundles, or a version
-  published for this release). A registry and its clients on different releases see this.
+  runs on the community engine: until 16c, the packs with lookarounds are refused there (ai-guard
+  0.1.3 and earlier; the trial and referral packs until 16c-2), with a reason saying why and
+  what to do (use the copy this release bundles, or a version published for this release). A
+  registry and its clients on different releases see this.
 - Forks of the reference packs read at most 10,000 characters of text; the prior-authorization
   and trial schemas allow longer notes on `re`.
 - The sandbox registry seeds from the host checkout into an image built earlier: run

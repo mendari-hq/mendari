@@ -468,8 +468,10 @@ registry or copied into the store.
   - [x] **16b** (#184, merged 2026-10-08) A wall-clock deadline across one decision's remote
     calls, every pack (`MENDARI_DECISION_DEADLINE_S`, 120 s unless set), recorded as `timeout`;
     an answer still arriving stops at it, the CQL engine's included; threat model D9.
-  - [ ] **16c-1** (after 16a) ai-guard's `claim-about-the-record` without its lookahead, exact
-    on every input on both engines (a decision-identity test), ai-guard 0.1.4 and its rebuild.
+  - [ ] **16c-1** (PR open) ai-guard's `claim-about-the-record` without its lookahead, spelled
+    out a letter at a time and exact on every input on both engines (`test_lookaround_rewrites`:
+    every shipped input, the ledger, a seeded fuzz on `re` and RE2), ai-guard 0.1.4 and its
+    rebuild; the parity test now skips only the three lookarounds 16c-2 holds.
   - [ ] **16c-2** (held for the owner) pregnant, pancreatitis and new-lung-mass: the owner
     chooses between S (a structural `not_followed_by` rules key, a format change) and D (the
     data-identical rewrites, with their fuzz differences and the slowdown on `re` accepted in
