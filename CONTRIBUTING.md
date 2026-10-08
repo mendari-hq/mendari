@@ -101,7 +101,9 @@ hand:
   `src/mendari/dashboard/vendor/swagger-ui` or `tests/browser/vendor/axe-core`, and
   `tests/test_vendor.py` fails until the files follow. In that PR, run
   `uv run python scripts/vendor_docs_ui.py` (or name the package: `… axe-core`), read the hosts
-  it lists (a new one deserves a look at the release notes), and commit what it wrote.
+  it lists (a new one deserves a look at the release notes), then rebuild `NOTICE`, which names
+  both packages at the version vendored: `uv run python scripts/build_notice.py` (`--check` says
+  whether it is current; `tests/test_notice_file.py` fails until it is). Commit what they wrote.
 - **Accessibility:** `uv run pytest -m browser` runs axe-core on every dashboard view, an open
   record and the developer pages, in both themes (WCAG 2.0 to 2.2, A and AA). A new view or
   control is checked by adding it there (`tests/browser/test_accessibility.py`).
