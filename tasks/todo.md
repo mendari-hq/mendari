@@ -1108,7 +1108,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
 - [ ] **LP-21** Operations for a public service (ADR-0010, Proposed). Planned by a mapping
   workflow (2026-10-08) as fifteen PRs, each safe alone; none changes what a valid pack
   decides, and anonymous `/api/health` stays three fields with no database work:
-  - [ ] **21a** (PR open) Readiness, `GET`/`HEAD /api/health/ready`: one read of the chain's
+  - [ ] **21a** (#194) Readiness, `GET`/`HEAD /api/health/ready`: one read of the chain's
     table (`AuditStore.ping`, creating nothing) per instance every 5 s, whoever asks, in a
     thread of its own waited for about 3.5 s, a failure kept too; a read never answered holds
     that one thread and none starts again until it returns; a caller during a check gets the
