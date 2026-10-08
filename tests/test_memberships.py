@@ -501,6 +501,8 @@ ORG_ROUTES = [
     ("DELETE", "/api/auth/clients/c1", None),
     ("GET", "/api/audit/verify", None),
     ("GET", "/api/audit/export/fhir", None),
+    ("GET", "/api/audit/administrative", None),
+    ("GET", "/api/audit/administrative/export/fhir", None),
     ("POST", "/api/auth/invitations", {"email": "a@example.org", "roles": ["viewer"]}),
     ("GET", "/api/auth/invitations", None),
     ("DELETE", "/api/auth/invitations/i1", None),
@@ -525,7 +527,8 @@ def test_a_principal_of_no_organization_is_refused_before_every_route_that_takes
     for name in (
         "holds", "hold_automation", "lift_hold", "create_api_key", "api_keys",
         "rotate_api_key", "revoke_api_key", "register_client", "clients", "revoke_client",
-        "verify", "iter_events", "org_usage", "create_invitation", "invitations",
+        "verify", "iter_events", "administrative_events", "iter_administrative_events",
+        "org_usage", "create_invitation", "invitations",
         "revoke_invitation", "members", "set_membership_roles", "remove_membership",
         "open_access_requests", "handle_access_request",
     ):  # fmt: skip
@@ -535,7 +538,7 @@ def test_a_principal_of_no_organization_is_refused_before_every_route_that_takes
         answer = as_nobody.request(method, path, json=body)
         assert refused_for_no_organization(answer), (method, path, answer.status_code)
     lines = logged(capsys)
-    assert not [line for line in lines if line["event"] == "export.audit"]
+    assert not [line for line in lines if line["event"].startswith("export.audit")]
     refusals = [line for line in lines if line["event"] == "auth.permission.refused"]
     assert {line["reason"] for line in refusals} == {"no_organization"}
     accessed = [line for line in lines if line["event"] == "request"]

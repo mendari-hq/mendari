@@ -43,7 +43,8 @@ daily cap, reason `principal_decisions`, once a day per principal per instance),
 `admin.key.created|rotated|revoked` (a rotation names the old key and its
 replacement), `auth.key.replaced_used` (a rotated key used during its overlap, once per instance),
 `admin.client.registered|revoked`, `governance.approved|revoked`, `eval.run`,
-`export.audit|feedback`, `phi.inputs.read` (decision ids and a count) and `error.unhandled`.
+`export.audit|audit.administrative|feedback`, `phi.inputs.read` (decision ids and a count) and
+`error.unhandled`.
 
 **Library loggers** that would log a URL or a connection at INFO (httpx, psycopg's pool: see
 `QUIETED`) keep only warnings: on Vercel the runtime gives the root logger INFO and a handler.

@@ -577,6 +577,7 @@ EXPECTED_CLASSES = {
     ("POST", "/api/packs/{namespace}/{name}/guard"): "guard",
     ("POST", "/api/packs/{namespace}/{name}/evals"): "evaluate",
     ("GET", "/api/audit/export/fhir"): "export",
+    ("GET", "/api/audit/administrative/export/fhir"): "export",
     ("GET", "/api/packs/{namespace}/{name}/feedback/export"): "export",
 }
 
