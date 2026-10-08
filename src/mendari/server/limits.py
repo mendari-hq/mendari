@@ -17,9 +17,13 @@ costs: no body is read, no provider is called and nothing is chained for a refus
 | `guard` | `POST …/guard` (an LLM call) | principal | 60/min |
 | `evaluate` | `POST …/evals` | principal | 6/h |
 | `export` | the audit FHIR export, the feedback export | principal | 10/h |
+| `ready` | `GET`/`HEAD /api/health/ready`, on each instance, in memory | IP | 60/min, 30 |
 
 Reads are not limited here (the edge covers floods, and a read writes nothing permanent). An EHR
-launch's decisions count against its `ehr` principal, like anyone's.
+launch's decisions count against its `ehr` principal, like anyone's. Readiness is the one class
+counted in memory, per instance (`Limiter.hit_here`): it must answer while the database is down,
+so N instances allow N times its rate; each answer it gives costs at most one database read per
+instance every few seconds (server/readiness.py).
 
 **A daily cap per principal** (`MENDARI_PRINCIPAL_DAILY_LIMIT`, off unless set, sign-in only:
 `DailyCap`) counts the decisions each principal asks for, per local day (one per request that
@@ -72,6 +76,8 @@ _RATE = re.compile(r"^(\d+)/(\d*)(s|min|h)(?::(\d+))?$")
 # Every this many takes, an instance purges up to PURGE_BATCH empty buckets.
 PURGE_EVERY = 100
 PURGE_BATCH = 100
+# The most buckets one instance keeps in memory (`Limiter.hit_here`), one per address.
+MAX_HERE = 10_000
 
 
 @dataclass(frozen=True)
@@ -109,6 +115,7 @@ DEFAULT_RATES: dict[str, Rate] = {
     "guard": Rate(60, 60, 60),
     "evaluate": Rate(6, 3600, 6),
     "export": Rate(10, 3600, 10),
+    "ready": Rate(60, 60, 30),
 }
 
 _GUARD = re.compile(r"^/api/packs/[^/]+/[^/]+/guard$")
@@ -301,6 +308,7 @@ class Limiter:
         self.rates = settings.rates
         self._takes = 0
         self._logged: dict[str, int] = {}  # bucket -> until when a refusal is not logged again
+        self._here: dict[str, int] = {}  # `hit_here`'s buckets: bucket -> its tat (ms)
         self._lock = threading.Lock()
 
     @property
@@ -361,6 +369,25 @@ class Limiter:
         wait_ms = self.store.rate_take(bucket, rate.interval_ms, rate.tolerance_ms, now, cost)
         self._maybe_purge(now)
         return None if wait_ms is None else self._refused(kind, bucket, rate, wait_ms, now)
+
+    def hit_here(self, kind: str, key: str) -> RateLimited | None:
+        """Like `hit`, counted on this instance only, in memory, for a route that must answer
+        while the database is down (`ready`): the same mode, rates, refusal and log line."""
+        if self.mode == "off":
+            return None
+        rate = self.rates[kind]
+        bucket = f"{kind}|{key}"
+        now = _now_ms()
+        with self._lock:
+            tat = max(self._here.get(bucket, now), now)
+            wait_ms = tat + rate.interval_ms - rate.tolerance_ms - now
+            if wait_ms <= 0:
+                if len(self._here) >= MAX_HERE:  # forget the buckets that are empty again
+                    self._here = {name: t for name, t in self._here.items() if t > now}
+                    if len(self._here) >= MAX_HERE:
+                        self._here.clear()
+                self._here[bucket] = tat + rate.interval_ms
+        return None if wait_ms <= 0 else self._refused(kind, bucket, rate, wait_ms, now)
 
     def blocked(self, kind: str, key: str) -> RateLimited | None:
         """Whether bucket `kind|key` is over its limit now, without counting (failure counts,

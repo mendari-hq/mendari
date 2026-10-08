@@ -791,6 +791,12 @@ class AuditStore:
     def backend(self) -> str:
         return self._db.kind
 
+    def ping(self, timeout_s: float) -> None:
+        """One read of the chain's table, bounded by `timeout_s` (the readiness route, LP-21):
+        it proves this store's schema answers, where `SELECT 1` would pass on an empty file or
+        another database. Raises whatever the database raised; creates and writes nothing."""
+        self._db.ping("SELECT 1 FROM audit_events LIMIT 1", timeout_s)
+
     def close(self) -> None:
         self._db.close()
 

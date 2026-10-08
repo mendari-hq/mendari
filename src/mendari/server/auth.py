@@ -184,6 +184,9 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
     (method, re.compile(pattern), permission)
     for method, pattern, permission in [
         ("GET", r"^/api/health$", "public"),
+        # Readiness (status pages, uptime checks, probes): its own limit, in memory, checked there.
+        ("GET", r"^/api/health/ready$", "public"),
+        ("HEAD", r"^/api/health/ready$", "public"),
         ("GET", r"^/api/auth/me$", "public"),
         ("POST", r"^/api/auth/(organization|access-requests|invitations/accept)$", PERSON),
         ("*", r"^/auth/", "public"),
