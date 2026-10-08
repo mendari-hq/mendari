@@ -327,7 +327,7 @@ def test_a_launch_alongside_no_access_shows_the_launch(
     assert outside <= {"/api/health"}, outside
 
 
-@pytest.mark.parametrize("width", [1024, 1280])
+@pytest.mark.parametrize("width", [1024, 1280, 1440])
 def test_nothing_shifts_while_a_member_of_several_loads(page: Page, width: int) -> None:
     page.set_viewport_size({"width": width, "height": 900})
     page.add_init_script(LAYOUT_SHIFT)
