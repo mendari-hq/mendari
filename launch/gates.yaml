@@ -203,7 +203,7 @@ gates:
               - tests/test_pack_isolation.py::test_a_billion_laughs_in_a_rules_file_is_refused_in_milliseconds
               - tests/test_pack_isolation.py::test_any_error_loading_one_pack_lists_it_by_type_and_serves_the_others
               - tests/test_community_budget.py::test_a_community_packs_rules_stop_at_the_budget_and_a_person_decides
-          - pending: "LP-16 (time limits and a decision budget for every pack outside the community path)"
+          - pending: "LP-16 (Option A scoped, owner 2026-10-07: the community engine's time limits and decision budget for every pack the deployment does not own)"
       - id: a7-pack-store
         what: "A7: a versioned pack store per organization, with upload checks and promotion signed off by someone other than the author"
         owner: build
