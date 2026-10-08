@@ -630,8 +630,13 @@ made. One request decides at most 50 (or the decide burst, if you set it lower);
 
 **Daily quotas per organization.** `MENDARI_ORG_DAILY_LIMITS=decisions=5000,jev=2000,llm=200`
 caps what each organization uses a day: decisions, and the remote model calls they make. Unset,
-there is none. Evaluations never count against them (they spend the deployment's daily budgets,
-`MENDARI_JEV_DAILY_LIMIT` and `MENDARI_LLM_DAILY_LIMIT`, only). Over a quota a decision is still
+there is none, and each one left out has no limit. An organization's evaluations (run on the
+server) count against their own quotas, `eval_jev` and `eval_llm`
+(`...,eval_jev=500,eval_llm=50`), never the decisions' ones, so an evaluation never sends a live
+decision to review; they also spend the deployment's daily budgets (`MENDARI_JEV_DAILY_LIMIT`,
+`MENDARI_LLM_DAILY_LIMIT`), which live decisions share, so set the evaluation quotas to keep one
+organization's evaluations from spending everyone's day. Over an evaluation quota the
+evaluation's remote calls fail (`quota_exhausted`) and its report shows it. Over a quota a decision is still
 made and recorded, but no provider runs and it goes to the review queue (`ABSTAIN` or
 `HUMAN_REVIEW`, with `quota_exhausted` in its errors), as over a daily budget: a quota never
 makes anything more automatic. The first time an organization reaches a quota each day,
@@ -853,7 +858,7 @@ startup, so a typo never runs with a weaker setting.
 | `MENDARI_DECISION_DEADLINE_S` | 120 (10 to 270, whole seconds) | How long one decision's remote calls may take together; past it they fail with `timeout` and a person decides, while local providers still answer | 4 |
 | `MENDARI_RATE_LIMITS` | `on` with sign-in, `off` without | `on`, `log` or `off`, then overrides (`decide=1200/min:200`) | 4 |
 | `MENDARI_NOTICE_ACKNOWLEDGEMENT` | `required` | `required`: a signed-in person who may decide or review acknowledges the notice (research preview, synthetic data only) once per version when the dashboard opens, chained as `notice.acknowledged`; until then deciding, reviewing, feedback and minting an API key or client are refused (`403`, header `Mendari-Notice-Required`); `off`: a site whose own agreements replace it. Keys, clients, EHR launches and open mode are never asked | 4 |
-| `MENDARI_ORG_DAILY_LIMITS` | unset: none | Per-organization daily quotas: `decisions=…,jev=…,llm=…` | 4 |
+| `MENDARI_ORG_DAILY_LIMITS` | unset: none | Per-organization daily quotas: `decisions=…,jev=…,llm=…`, and its evaluations' calls `eval_jev=…,eval_llm=…` | 4 |
 | `MENDARI_PRINCIPAL_DAILY_LIMIT` | unset: none | Decisions each principal may ask for a day (an order hook's draft orders each); past it `429` until midnight (sign-in only) | 4 |
 | `JEV_API_URL`, `JEV_MODEL`, `JEV_API_KEY` | unset: no Jev | All three set: the inbox, referral and prior-auth packs send their `state_fields` to Jev in every slot `MENDARI_PROVIDERS` chooses nothing for; a model id or an endpoint Jev cannot be called with stops startup | 5 |
 | `MENDARI_PROVIDERS` | unset: each pack's default, or the Jev defaults | The provider variant of each slot it applies to: `slot=variant`, or `<pack>:slot=variant` for one pack | 5 |

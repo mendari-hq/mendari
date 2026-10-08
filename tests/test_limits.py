@@ -612,14 +612,14 @@ def test_costly_routes_have_their_class_reads_none_and_one_call_of_each_passes(
 # -- organization quotas --------------------------------------------------------------------------
 
 
-def test_each_organization_has_its_own_quota_and_evaluations_spend_none(
+def test_each_organization_has_its_own_quota_and_evaluations_spend_their_own(
     store: AuditStore,
 ) -> None:
     reached: list[tuple[str, str, int]] = []
     budget = CallBudget(
         store,
         {"jev": None},
-        org_limits={"decisions": 2, "jev": 1},
+        org_limits={"decisions": 2, "jev": 1, "eval_jev": 1},
         on_quota_reached=lambda *args: reached.append(args),
     )
     with tenancy.acting_for("north"):
@@ -631,14 +631,42 @@ def test_each_organization_has_its_own_quota_and_evaluations_spend_none(
         with pytest.raises(ProviderError, match="quota_exhausted"):
             budget.acquire("jev")
         evaluation = budget.for_evaluation()
-        evaluation.admit_decision()  # no quota: an evaluation is not the organization's work
-        evaluation.acquire("jev")  # counted in the deployment's budget only
+        evaluation.admit_decision()  # an evaluation's case is not one of its decisions
+        evaluation.acquire("jev")  # its own quota, with the deployment's budget
+        with pytest.raises(ProviderError, match="quota_exhausted"):
+            evaluation.acquire("jev")
+        evaluation.acquire("llm")  # no `eval_llm` quota: no limit
     with tenancy.acting_for("south"):
         budget.admit_decision()
-    assert store.org_usage("north") == {"decisions": 2, "jev": 1}
-    assert store.org_usage("south") == {"decisions": 1}
-    assert store.usage("jev") == 2
-    assert reached == [("north", "decisions", 2), ("north", "jev", 1)]  # once each, when reached
+        budget.for_evaluation().acquire("jev")  # its own evaluations, its own quota
+    assert store.org_usage("north") == {"decisions": 2, "jev": 1, "eval_jev": 1}
+    assert store.org_usage("south") == {"decisions": 1, "eval_jev": 1}
+    assert store.usage("jev") == 3
+    assert reached == [
+        ("north", "decisions", 2),
+        ("north", "jev", 1),
+        ("north", "eval_jev", 1),
+        ("south", "eval_jev", 1),
+    ]  # once each, when reached
+
+
+def test_an_evaluation_over_its_quota_never_lowers_a_live_decision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, screened: dict[str, str]
+) -> None:
+    """The organization's evaluations use up their Jev quota: the rest of the evaluation's
+    calls fail (`quota_exhausted`), and its live decisions are automated as before."""
+    monkeypatch.setenv("MENDARI_ORG_DAILY_LIMITS", "decisions=10,jev=10,eval_jev=3")
+    db = str(tmp_path / "quota.db")
+    client = TestClient(create_app(db_path=db, providers=screened))
+    run = client.post(f"/api/packs/{INBOX}/evals", json={"dataset": "test", "limit": 5})
+    assert run.status_code == 200, run.text
+    with AuditStore(db) as store:
+        assert store.org_usage("default") == {"eval_jev": 3}
+    outcomes = [client.post(DECIDE, json=message(ROUTINE)).json() for _ in range(2)]
+    assert [o["outcome"] for o in outcomes] == ["AUTO", "AUTO"]
+    assert all(not o["errors"] for o in outcomes)
+    used = client.get("/api/health").json()["org_quotas"]["used_today"]
+    assert used == {"decisions": 2, "jev": 2, "eval_jev": 3}
 
 
 def test_over_its_quota_a_decision_falls_back_to_human_review_with_one_alert(
@@ -655,7 +683,7 @@ def test_over_its_quota_a_decision_falls_back_to_human_review_with_one_alert(
     monkeypatch.setattr(alerts_module.httpx, "post", post)
     db = str(tmp_path / "quota.db")
     client = TestClient(create_app(db_path=db, providers=screened))
-    # Evaluations run on the deployment's budgets, never the organization's quota.
+    # Evaluations never spend the decisions quota (only `eval_*`, unset here: no limit).
     run = client.post(f"/api/packs/{INBOX}/evals", json={"dataset": "test", "limit": 5})
     assert run.status_code == 200, run.text
     outcomes = [client.post(DECIDE, json=message(ROUTINE)).json() for _ in range(4)]

@@ -1320,7 +1320,8 @@ def create_app(
                     f"deployment names it in its settings ({pack.id}:slot=variant), not "
                     f"{', '.join(refused)}"
                 )
-        # Provider calls count against the daily budgets, never an organization's quotas.
+        # Provider calls count against the daily budgets and the organization's evaluation
+        # quotas (`eval_jev`, `eval_llm`), never its decisions' quotas.
         decision = Decision(
             pack,
             providers={**chosen, **asked},
@@ -2406,10 +2407,12 @@ def quota_alert(alerts: AlertSettings | None, store: AuditStore) -> QuotaReached
         security_log.event("quota.reached", outcome="limited", reason=metric, org=org, count=limit)
         if alerts is None:
             return
-        message = (
-            f"daily {metric} quota of {limit} reached; until midnight, decisions fall back to "
-            "human review"
+        then = (
+            "evaluations make no more of these calls"
+            if metric.startswith("eval_")
+            else "decisions fall back to human review"
         )
+        message = f"daily {metric} quota of {limit} reached; until midnight, {then}"
         deliver(
             alerts,
             event="quota.reached",
