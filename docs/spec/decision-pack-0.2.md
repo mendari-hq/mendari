@@ -393,7 +393,10 @@ them in fixed environment variables (`jev`: `JEV_API_URL`, `JEV_MODEL`, `JEV_API
 `JEV_CONNECTOR`; `llm`: `LLM_BASE_URL`, `LLM_MODEL`, `AI_GATEWAY_API_KEY`, `LLM_API_KEY`;
 `cql`: `MENDARI_CQL_URL`). A variant MUST NOT name the variables a provider reads: a `jev` or
 `llm` variant (or composite member) that sets `api_key_env`, `base_url_env`, `connector_env`, `endpoint_env`,
-`local_key_env` or `model_env` is invalid, whatever the pack's `spec_version`. A variant MAY pin
+`local_key_env` or `model_env` is invalid, whatever the pack's `spec_version`. A deployment MAY
+also list the origins its providers may be called at (in the reference runtime,
+`MENDARI_PROVIDER_ALLOWED_ORIGINS`): a call to any other is not made, and the question fails
+(`invalid_endpoint`). A variant MAY pin
 `model`, and `llm` variants MAY tune their own requests (`timeout_ms`, `max_tokens`,
 `temperature`, `reasoning_effort`).
 
@@ -573,7 +576,12 @@ are de-duplicated by type and id. Only the focus must be unique. The Task's `des
 **Templates.** Task `description` and `performer`, and card `summaries`, are templates:
 `{recommendation}`, `{priority}` and `{<question>}` (that question's label, e.g.
 `{specialty}`) are replaced; an unanswered question reads `unknown`. Any other placeholder is
-refused when the pack loads.
+refused when the pack loads. A placeholder is a bare name: no conversion (`{priority!r}`),
+format spec (`{priority:>9}`), attribute (`{priority.x}`) or index (`{priority[0]}`). A pack the
+deployment does not own (a community pack, or one from a registry that is not a reference pack
+of the release) is invalid with one, its Task text included; any other pack loads with a warning
+for one in its card summaries, its Task text renders as it always did, and `mendari validate`
+refuses both.
 
 A mapping MAY declare `focus_where: {path, in: [...]}` to say which resources of the focus type
 the pack is about, e.g. referrals among ServiceRequests (lab orders are ServiceRequests too):
@@ -585,8 +593,15 @@ focus_where: {path: category[0].coding[0].code, in: ["3457005"]}  # SNOMED CT pa
 
 Other resources of the focus type are ignored.
 
-A pack with `cds_hooks` is exposed as a CDS Hooks 2.0 service (id `namespace.name`). The reference runtime
-requires all declared prefetch keys and never queries the caller's FHIR server. For the order
+A pack with `cds_hooks` is exposed as a CDS Hooks 2.0 service (id `namespace.name`). Each
+`prefetch` template is a read or a search relative to the EHR's FHIR server: `Type/<id>`,
+`Type/{{context.<name>}}` or `Type?<query>` (a resource type, then at most one id or context
+token, then a query with no `/`, `?`, `#`, backslash or whitespace), with no `..` anywhere: no
+absolute URL, `//`, leading `/`, operation (`$everything`) or fragment. A pack the deployment does
+not own is invalid with any other; any other pack loads with a warning, and `mendari validate`
+refuses it. The reference runtime fetches a declared prefetch key the request leaves out only
+from a `fhirServer` the deployment allows (`MENDARI_FHIR_ALLOWED_SERVERS`), and requires it
+otherwise. For the order
 hooks (`order-select`, `order-sign`), the orders come in `context.draftOrders`: every draft order
 that is a focus resource gets its own decision, with the prefetched record, and its own card. A
 draft with none of them returns no cards. A pack MAY word
@@ -705,6 +720,7 @@ of these.
 | No symbolic link out of a directory pack; a self-contained input schema (local references only, no nested `$schema` or `$id`, no `$dynamicAnchor`, no `format: regex`; every spec version) | §3 |
 | Provider configs are closed (the published JSON Schema) and checked at load for every variant: a community or registry pack with a problem is invalid, any other is warned; such a pack's model variants name their `state_fields`, and its model, `max_tokens`, `timeout_ms` and `reasoning_effort` are the deployment's to choose or cap (every spec version) | §5 |
 | An owned pack's input schema nests at most 32 deep, chains at most 16 `$ref`s and applies at most 1,000 schema objects to one value, referring back to itself only as a recursive list or tree, with no `unevaluatedProperties` or `unevaluatedItems` below another; a pack from a registry with a reference pack's id and an equal version is that pack (every spec version) | §3, §5 |
+| A prefetch template is a read or search relative to the EHR's FHIR server, and a wording template's placeholders are bare names: a community or registry pack with one that is not is invalid (its FHIR Task text included), any other is warned of its prefetch and card summaries, and `mendari validate` refuses both (every spec version) | §9 |
 
 To migrate a pack:
 

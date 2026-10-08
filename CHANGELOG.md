@@ -73,6 +73,19 @@ The first release (not yet published).
   deployment's model is used, `max_tokens` and `timeout_ms` are held to the provider defaults
   (a lower value stands) and a `reasoning_effort` above `low` is dropped: a registry pack that
   pinned an LLM model now runs on the deployment's (no shipped pack pins one).
+- **Provider allow-list:** `MENDARI_PROVIDER_ALLOWED_ORIGINS` (comma-separated origins, off
+  unless set) names the only origins Jev, LLM and Vercel Connect requests may reach: any other,
+  the AI Gateway's default included, is refused before it is sent (`invalid_endpoint`, so the
+  decision goes to a person), an `LLM_BASE_URL` or `JEV_API_URL` off the list stops the server at
+  start-up, and signed-in `/api/health` shows it (`provider_allowed_origins`). Unset, nothing
+  changes.
+- **Prefetch and wording templates checked at load:** a CDS Hooks prefetch template is a read or
+  search relative to the EHR's FHIR server (`Type/<id>`, `Type/{{context.<name>}}`,
+  `Type?<query>`), and a card summary's or FHIR Task text's placeholders are bare names (no
+  conversion, format spec, attribute or index). A community or registry pack with one that is
+  not is refused at load, its Task text included; any other pack loads warned of its prefetch
+  and card summaries, its Task text renders as before, and `mendari validate` refuses both. Every
+  shipped template passes, and no pack renders different wording.
 - **Distribution:** a wheel and an sdist, container images (the engine with every pack, and one
   per pack), and deployment templates for docker compose and Kubernetes.
 - **The command line:** every error is one line per problem and exit 1, never a traceback

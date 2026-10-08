@@ -287,6 +287,13 @@ trained for another question), even a variant the pack does not use by default; 
 loads your own pack with it and lists it under `pack_warnings` in `/api/health`, but a registry
 refuses it.
 
+The same holds for a pack's CDS Hooks and FHIR wording. Each `cds_hooks.prefetch` template is a
+read or search relative to the EHR's FHIR server (`Patient/{{context.patientId}}`,
+`Condition?patient={{context.patientId}}`): no absolute URL, `..`, operation (`$everything`) or
+fragment. A card summary or Task text uses bare placeholders (`{specialty}`, never
+`{specialty!r}` or `{specialty:>20}`). `mendari validate` refuses anything else and a registry
+refuses it; your own server lists such a prefetch or card summary under `pack_warnings`.
+
 ## 9. Publish the card
 
 ```bash
