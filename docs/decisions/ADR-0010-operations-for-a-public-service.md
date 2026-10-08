@@ -3,7 +3,8 @@
 ## Status
 Proposed (2026-10-08). Built in steps (LP-21, `tasks/todo.md`): 21a, the readiness route, is
 the first; 21c, the monitor comparing like with like, the second; 21e, alert delivery, the
-third. Each later step amends this record with what it built. The defaults below hold
+third; 21b, the status checks and page, the fourth. Each later step amends this record with
+what it built. The defaults below hold
 unless the owner chooses otherwise; the steps that change the hosted site (the schedule, 21n)
 or its firewall (21o) wait for the owner.
 
