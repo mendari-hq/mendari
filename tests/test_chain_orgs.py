@@ -632,3 +632,65 @@ def test_a_subject_s_history_is_its_row_s_organization_s_and_a_deployment_hold_n
         operators = store.subject_history("hold", every["id"], None)  # the command line's
         assert operators is not None and operators["org"] is None
         assert [e["event"] for e in operators["events"]] == ["automation.held"]
+
+
+def test_mendari_audit_verify_passes_after_membership_invitation_and_key_events(
+    db_target: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """LP-12's acceptance: the operator's `mendari audit verify` on a database a memberships-mode
+    server marked, after the owner's bootstrap, an organization, its memberships (made, bound,
+    changed, removed), invitations (made, accepted, revoked), a request to join, and keys and a
+    client (made, rotated, revoked), each event naming its organization."""
+    from mendari.cli import main
+
+    with AuditStore(db_target, bind_org=True) as store:
+        store.bootstrap(email="owner@example.org", created_by="ops")
+        store.create_organization(org=CLINIC, name="Clinic A", created_by="ops")
+        lead = store.record_user(issuer="https://idp.example.org", subject="lead", email=None,
+                                 name=None)  # fmt: skip
+        member = store.add_membership(
+            org=CLINIC, roles=["admin"], created_by="ops", user_id=lead["id"]
+        )
+        pending = store.add_membership(
+            org=CLINIC, roles=["viewer"], created_by="ops", email="kim@example.org"
+        )
+        store.set_membership_roles(member["id"], ["admin", "reviewer"], org=CLINIC,
+                                   changed_by="ops")  # fmt: skip
+        bound = store.add_membership(
+            org=CLINIC, roles=["viewer"], created_by="ops", email="ann@example.org"
+        )
+        ann = store.record_user(
+            issuer="https://idp.example.org", subject="ann", email="ann@example.org", name=None
+        )
+        assert [m["id"] for m in store.bind_pending(ann["id"], "ann@example.org")] == [bound["id"]]
+        store.remove_membership(pending["id"], org=CLINIC, removed_by="ops")
+        joined = store.create_invitation(
+            org=CLINIC, email="lee@example.org", roles=["viewer"], created_by="ops"
+        )
+        lee = store.record_user(issuer="https://idp.example.org", subject="lee",
+                                email="lee@example.org", name=None)  # fmt: skip
+        store.accept_invitation(joined["token"], user_id=lee["id"],
+                                verified_email="lee@example.org")  # fmt: skip
+        dropped = store.create_invitation(
+            org=CLINIC, email="max@example.org", roles=["viewer"], created_by="ops"
+        )
+        store.revoke_invitation(dropped["id"], org=CLINIC, revoked_by="ops")
+        asker = store.record_user(issuer="https://idp.example.org", subject="asker", email=None,
+                                  name=None)  # fmt: skip
+        store.request_access(user_id=asker["id"], org=CLINIC)
+        key = store.create_api_key(name="k", role="service", org=CLINIC, created_by="ops")
+        store.rotate_api_key(key["id"], rotated_by="ops")
+        store.revoke_api_key(key["id"], revoked_by="ops")
+        client = store.register_client(
+            name="c", role="viewer", org=CLINIC, created_by="ops", scopes="system/Task.rs",
+            jwks=jwks(),
+        )  # fmt: skip
+        store.revoke_client(client["client_id"], revoked_by="ops")
+        kinds = {event["event"] for event in chained(store)}
+    assert {"membership.created", "membership.bound", "membership.roles_changed",
+            "membership.removed", "invitation.created", "invitation.accepted",
+            "invitation.revoked", "access.requested", "key.created", "key.rotated",
+            "key.revoked", "client.registered", "client.revoked"} <= kinds  # fmt: skip
+    capsys.readouterr()
+    assert main(["audit", "verify", "--db", db_target]) == 0
+    assert '"ok": true' in capsys.readouterr().out
