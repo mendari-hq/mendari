@@ -17,8 +17,9 @@ const day = (iso) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-US", { 
 const NOT_COMPARED = {
   no_benchmark: "the pack has no benchmark",
   another_build: "the benchmark measured another build of the pack",
-  other_providers: "the benchmark ran other providers than this deployment",
-  providers_unknown: "which providers run here is not recorded yet",
+  other_providers: "the benchmark ran other providers or models than this deployment",
+  providers_unknown: "which providers and models run here is not known",
+  other_policy: "the benchmark measured the pack under other governance (an approval in force here and not there, or the reverse)",
 };
 const ALERT_TITLES = {
   accuracy: "Accuracy below the benchmark",
@@ -34,7 +35,7 @@ views.monitoring = async (main) => {
   const bench = report.benchmark;
   main.innerHTML = `
     <h1>Monitoring</h1>
-    <p class="muted">${esc(state.detail.manifest.name)} in use, against its benchmark. Alerts need enough evidence to fire.</p>
+    <p class="muted">${esc(state.detail.manifest.name)} in use${bench.comparable ? ", against its benchmark" : ""}. Alerts need enough evidence to fire.</p>
     ${communityNotice(state.detail)}
     <div class="row toolbar">
       <label for="monitoring-days">Period</label>
@@ -47,7 +48,11 @@ views.monitoring = async (main) => {
         foot: bench.comparable
           ? `recommendations a reviewer kept · benchmark ${esc(shown(bench.figures.reviewed_accuracy))}`
           : "recommendations a reviewer kept",
-        tone: report.alerts.some((a) => a.kind === "accuracy") ? "danger" : "" })}
+        tone: alerted(report, "reviewed_accuracy") ? "danger" : "" })}
+      ${bench.comparable && bench.automated_accuracy !== null && bench.figures.automated_accuracy ? stat({
+        label: "Automated accuracy, 7 days", value: figureHtml(week.figures.automated_accuracy), html: true,
+        foot: `outcomes recorded downstream · benchmark ${esc(shown(bench.figures.automated_accuracy))}`,
+        tone: alerted(report, "automated_accuracy") ? "danger" : "" }) : ""}
       ${stat({ label: "Human overrides, 7 days", value: figureHtml(week.figures.overrides), html: true, foot: "of the reviewed decisions" })}
       ${stat({ label: "Confidence drift (PSI)", value: week.drift_psi === null ? "n/a" : week.drift_psi.toFixed(2),
         foot: bench.comparable ? "0.25 or more is a real shift" : "needs a comparable benchmark",
@@ -57,7 +62,7 @@ views.monitoring = async (main) => {
     </div>
     <h2>Week by week</h2>
     ${report.weeks.some((w) => w.decisions) ? `${trendChart(report)}${weeksTable(report.weeks)}` : emptyState({
-      icon: "clock", title: `No decisions in the last ${days} days`,
+      icon: "clock", title: `No decisions${othersOf(report) ? " of this version" : ""} in the last ${days} days`,
       text: "Monitoring fills in as the pack decides and people review, record outcomes or rate its answers.",
       action: { href: "#try", label: "Try it" },
     })}`;
@@ -68,16 +73,24 @@ views.monitoring = async (main) => {
   });
 };
 
+// An accuracy alert of one stratum (`reviewed_accuracy`, `automated_accuracy`).
+const alerted = (report, stratum) => report.alerts.some((a) => a.kind === "accuracy" && a.stratum === stratum);
+const othersOf = (report) => Object.values(report.other_versions ?? {}).reduce((sum, n) => sum + n, 0);
+
 // What the view compares: the benchmark, or why not; and the other versions' decisions it leaves
 // out.
 function comparedNote(report) {
   const bench = report.benchmark;
-  const others = Object.values(report.other_versions ?? {}).reduce((sum, n) => sum + n, 0);
+  const others = othersOf(report);
   const parts = [];
   if (!bench.comparable) {
-    parts.push(`Not compared with the benchmark: ${esc(NOT_COMPARED[bench.reason] ?? bench.reason)}, so only week-over-week checks run.`);
+    parts.push(`Not compared with the benchmark: ${esc(NOT_COMPARED[bench.reason] ?? bench.reason)}. Only the checks that need no benchmark run: automated decisions rated wrong, and overrides that doubled against the week before.`);
   }
-  if (others) parts.push(`${others} decision${others === 1 ? "" : "s"} of other versions of the pack are not counted.`);
+  if (others) {
+    parts.push(others === 1
+      ? "1 decision of another version of the pack is not counted."
+      : `${others} decisions of other versions of the pack are not counted.`);
+  }
   return parts.length ? `<p class="muted">${parts.join(" ")}</p>` : "";
 }
 
@@ -93,7 +106,7 @@ function trendChart(report) {
   const weeks = report.weeks;
   const known = (figure) => share(figure) !== null;
   if (weeks.filter((w) => known(w.figures.accuracy) || known(w.figures.overrides)).length < 2) {
-    return `<p class="muted">The trend appears once decisions in two weeks have been reviewed, re-routed downstream or rated.</p>`;
+    return `<p class="muted">The trend appears once decisions in two weeks have been reviewed or re-routed downstream.</p>`;
   }
   const label = (i) => (Number.isInteger(i) && weeks[i] ? day(weeks[i].to) : "");
   return chartHtml({

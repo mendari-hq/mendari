@@ -4,37 +4,46 @@
 It compares like with like (LP-21). For the last N whole weeks (N is the days asked for, 14 to
 180, divided by 7 and rounded up, so the week before the last always exists), it reads the
 decisions of the **served version** of the pack, for the organization the request acts for.
-Decisions of other versions are only counted, as `other_versions`.
+Decisions of other versions are only counted, as `other_versions`. The last 7 days and the week
+before hold only decisions made since the pack's current configuration (this build and these
+providers) started, by the deployment records (`configuration_since`); the weekly series shows
+every decision of the version.
 
 - **Weekly series:**
   - decisions;
-  - refused inputs, counted apart and left out of every rate;
+  - refused inputs, counted apart and left out of every rate and the cost;
   - the automated share;
   - the human override rate, of reviewed decisions;
-  - observed accuracy: the recommendation against what a person or a downstream system said;
+  - observed accuracy: the recommendation against what a reviewer or a downstream system said;
   - accuracy in each stratum the benchmark measured;
   - how many decisions still await review;
   - the cost per decision, unknown (null) when any decision's cost is unknown.
 - **The reference.** The pack's benchmark counts only when it measured this build of the pack
-  (its digest) with the providers that run here (each slot's variant). Otherwise there is none:
-  `benchmark.comparable` is false, `benchmark.reason` says why, and only the week-over-week
-  checks run. Accuracy is compared stratum by stratum, as the benchmark measured it:
-  - reviewed decisions (a reviewer kept or changed the recommendation) against the benchmark's
-    reviewed accuracy, one minus its expected override rate;
+  (its digest), with the providers that run here (each slot's variant, and its model where the
+  server knows it), under the same governance (an approval in force here, or none, as when it
+  was measured). Otherwise there is none: `benchmark.comparable` is false and `benchmark.reason`
+  says why (`no_benchmark`, `another_build`, `providers_unknown`, `other_providers`,
+  `other_policy`), and only the checks that need no benchmark run: automated decisions rated
+  wrong, and an override rate that doubled. Accuracy is compared stratum by stratum, as the
+  benchmark measured it:
+  - reviewed decisions (sent to a person, who kept or changed the recommendation) against the
+    benchmark's reviewed accuracy, one minus its expected override rate;
   - automated decisions with an outcome recorded downstream against its automated accuracy.
 - **Confidence drift:** the population stability index (PSI) between the last 7 days' primary
   confidences and the reference's (its calibration bins), in tenths from 0 to 1. It needs a
   comparable reference.
 - **Alerts**, each with a minimum amount of evidence:
-  - accuracy in a stratum below the reference's by more than the pack's degradation tolerance;
+  - a stratum's accuracy below the reference's by more than the pack's degradation tolerance,
+    beyond doubt: even the top of its exact 95% interval is below (20 decisions or more);
   - drift at or above 0.25 (a common threshold for a real shift), over 50 confidences or more;
-  - automated decisions that someone rated wrong;
-  - an override rate that doubled against the week before.
+  - automated decisions that someone rated wrong (a thumbs-down);
+  - an override rate that doubled against the week before (20 reviews or more in each).
 """
 
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -54,6 +63,11 @@ DRIFT_ALERT = 0.25
 # The days a report may cover: two whole weeks at least, so the week before always exists.
 MIN_DAYS = 14
 MAX_DAYS = 180
+# A local provider's model is its type and a hash of the pack's files (`rules@661449489daf`):
+# the pack's digest fixes it. Any other model (an LLM's, Jev's, a composite's) is a setting.
+_LOCAL_MODEL = re.compile(r"^[a-z_]+@[0-9a-f]+$")
+# The deployment records read to find the current configuration and what runs.
+_RECORDS = 500
 
 Row = Mapping[str, Any]
 
@@ -65,9 +79,11 @@ def monitor(
     days: int = 30,
     now: datetime | None = None,
     providers: Mapping[str, str] | None = None,
+    models: Mapping[str, str | None] | None = None,
 ) -> dict[str, Any]:
     """`providers` is the variant each of the pack's slots runs here (None: not known, so no
-    benchmark is comparable)."""
+    benchmark is comparable); `models` the model each runs, where known (a server knows its
+    own; a command does not, so a benchmark of a model set by a setting is not comparable)."""
     if not MIN_DAYS <= days <= MAX_DAYS:
         raise MendariError(f"monitoring covers {MIN_DAYS} to {MAX_DAYS} days, not {days}")
     now = now or datetime.now(UTC)
@@ -79,10 +95,13 @@ def monitor(
         for version, count in store.decision_versions(pack.id, since).items()
         if version != pack.version
     }
+    started = _configuration_since(store, pack, providers)
+    current = [r for r in rows if started is None or _when(r) >= started]
     week_ago, two_weeks_ago = now - timedelta(days=7), now - timedelta(days=14)
-    last_week = [r for r in rows if _when(r) >= week_ago]
-    week_before = [r for r in rows if two_weeks_ago <= _when(r) < week_ago]
-    bench = _benchmark(pack, providers)
+    last_week = [r for r in current if _when(r) >= week_ago]
+    week_before = [r for r in current if two_weeks_ago <= _when(r) < week_ago]
+    approved = store.active_approval(pack.id, pack.digest) is not None
+    bench = _benchmark(pack, providers, models, approved=approved)
     bins = bench.pop("bins")  # what drift compares with, not part of the answer
     made = [r for r in last_week if not r["refused"]]
     drift = _psi(bins, made) if bench["comparable"] else None
@@ -93,6 +112,7 @@ def monitor(
         "days": days,
         "benchmark": bench,
         "other_versions": other_versions,
+        "configuration_since": None if started is None else started.isoformat(),
         "last_7_days": {**recent, "drift_psi": drift, "automated_rated_wrong": wrong_auto},
         "weeks": _weekly(rows, now, weeks),
         "alerts": _alerts(recent, before, drift, wrong_auto, bench),
@@ -100,13 +120,18 @@ def monitor(
 
 
 def recorded_providers(store: AuditStore, pack: Pack) -> dict[str, str] | None:
-    """The variant each slot ran, from the newest deployment record of this build of the pack
-    (a server records one when it first serves it), for a command that runs no server: None
-    when no server has recorded this build."""
-    for record in store.deployments(pack.id):
-        if record["pack_digest"] == pack.digest:
-            return {str(slot): str(variant) for slot, variant in record["providers"].items()}
-    return None
+    """The variant each slot runs, from the deployment records of this build of the pack (a
+    server records one when it first serves it, and again when its providers change), for a
+    command that runs no server: the newest record of each environment, when they agree. None
+    when no server recorded this build, or two environments run it on other providers."""
+    newest: dict[str, dict[str, str]] = {}
+    for record in store.deployments(pack.id, limit=_RECORDS, digest=pack.digest):
+        ran = {str(slot): str(variant) for slot, variant in record["providers"].items()}
+        newest.setdefault(str(record["environment"]), ran)
+    running = list(newest.values())
+    if not running or any(ran != running[0] for ran in running):
+        return None
+    return running[0]
 
 
 def check_webhook(url: str) -> None:
@@ -121,47 +146,102 @@ def check_webhook(url: str) -> None:
         raise MendariError("the alert webhook must not carry credentials in its address")
 
 
-def _benchmark(pack: Pack, providers: Mapping[str, str] | None) -> dict[str, Any]:
+def _configuration_since(
+    store: AuditStore, pack: Pack, providers: Mapping[str, str] | None
+) -> datetime | None:
+    """When this build of the pack started running on these providers, by the deployment
+    records (newest first): the oldest of the newest unbroken run of records with this digest
+    and these providers. None when that is not known (no providers, or no such record)."""
+    if providers is None:
+        return None
+    started: datetime | None = None
+    for record in store.deployments(pack.id, limit=_RECORDS):
+        same = record["pack_digest"] == pack.digest and record["providers"] == dict(providers)
+        if same:
+            started = datetime.fromisoformat(str(record["started_at"]))
+        elif started is not None:
+            break  # the run before this configuration
+    return started
+
+
+def _number(value: Any) -> float | None:
+    """A share stated in a benchmark, or None when it is not one (a pack's file is checked for
+    its shape, not each value: what cannot be read is absent, never an error)."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    return float(value) if math.isfinite(value) and 0 <= value <= 1 else None
+
+
+def _counted(rate: float | None, n: Any) -> figures.Figure | None:
+    """A benchmark's share as k of n, or None when it measured none (`counted` gives 0 of 0)."""
+    return None if rate is None else figures.counted(rate, n)
+
+
+def _whole(value: Any) -> int:
+    """A count stated in a benchmark, or 0 when it is not one."""
+    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0
+
+
+def _mapping(value: Any) -> Mapping[str, Any]:
+    return value if isinstance(value, Mapping) else {}
+
+
+def _benchmark(
+    pack: Pack,
+    providers: Mapping[str, str] | None,
+    models: Mapping[str, str | None] | None,
+    *,
+    approved: bool,
+) -> dict[str, Any]:
     """The benchmark as measured (`accuracy`: the primary question over every case), whether it
     is comparable here and why not, and the strata's figures the alerts compare with."""
-    report = benchmark(pack) or {}
-    reference = report.get("questions", {}).get(pack.manifest.policy.primary, {})
-    measured = report.get("decisions") or {}
-    review = measured.get("review") or {}
-    automation = measured.get("automation") or {}
-    expected = review.get("expected_override_rate")
+    report = _mapping(benchmark(pack))
+    reference = _mapping(_mapping(report.get("questions")).get(pack.manifest.policy.primary))
+    measured = _mapping(report.get("decisions"))
+    review = _mapping(measured.get("review"))
+    automation = _mapping(measured.get("automation"))
+    expected = _number(review.get("expected_override_rate"))
     reviewed_accuracy = None if expected is None else 1 - expected
-    ran = {
-        str(slot): str(info.get("variant"))
-        for slot, info in (report.get("providers") or {}).items()
-        if isinstance(info, Mapping)
-    }
+    automated_accuracy = _number(automation.get("accuracy"))
+    ran = {str(slot): _mapping(info) for slot, info in _mapping(report.get("providers")).items()}
+    governed = _mapping(report.get("policy")).get("governance_override") is not None
     if not report:
         reason: str | None = "no_benchmark"
-    elif (report.get("pack") or {}).get("digest") != pack.digest:
+    elif _mapping(report.get("pack")).get("digest") != pack.digest:
         reason = "another_build"
     elif providers is None:
         reason = "providers_unknown"
-    elif ran != dict(providers):
+    elif {slot: info.get("variant") for slot, info in ran.items()} != dict(providers):
         reason = "other_providers"
+    elif models is None and any(
+        not _LOCAL_MODEL.match(str(info.get("model"))) for info in ran.values()
+    ):
+        reason = "providers_unknown"  # a model a setting chose, which a command cannot see
+    elif models is not None and any(
+        info.get("model") != models.get(slot) for slot, info in ran.items()
+    ):
+        reason = "other_providers"
+    elif governed != approved:
+        reason = "other_policy"  # automated under an approval, or measured with one
     else:
         reason = None
+    accuracy = _number(reference.get("accuracy"))
     return {
-        "accuracy": reference.get("accuracy"),
+        "accuracy": accuracy,
         "n": reference.get("n"),
         # The strata the alerts compare with: decisions sent to a person (one minus the expected
         # override rate) and automated decisions.
         "reviewed_accuracy": reviewed_accuracy,
-        "automated_accuracy": automation.get("accuracy"),
+        "automated_accuracy": automated_accuracy,
         "tolerance": pack.manifest.evaluation.degradation_tolerance,
         "comparable": reason is None,
         "reason": reason,
         "figures": {
-            "accuracy": figures.counted(reference.get("accuracy"), reference.get("n")),
-            "reviewed_accuracy": figures.counted(reviewed_accuracy, review.get("n")),
-            "automated_accuracy": figures.counted(automation.get("accuracy"), automation.get("n")),
+            "accuracy": _counted(accuracy, reference.get("n")),
+            "reviewed_accuracy": _counted(reviewed_accuracy, review.get("n")),
+            "automated_accuracy": _counted(automated_accuracy, automation.get("n")),
         },
-        "bins": reference.get("calibration", {}).get("bins", []),
+        "bins": _mapping(reference.get("calibration")).get("bins") or [],
     }
 
 
@@ -177,16 +257,16 @@ def _alerts(
         observed, target = recent["figures"][key], bench[key]
         if target is None or observed["n"] < least:
             continue
-        if observed["k"] / observed["n"] < target - bench["tolerance"]:
-            alerts.append(
-                _alert(
-                    "accuracy",
-                    "high",
-                    f"{which}: accuracy {shown(observed)} over the last 7 days, below the "
-                    f"benchmark's {shown(bench['figures'][key])} by more than "
-                    f"{bench['tolerance'] * 100:.1f} pts",
-                )
+        # Beyond doubt: even the top of the observed share's interval is below the line.
+        if observed["high"] < target - bench["tolerance"]:
+            alert = _alert(
+                "accuracy",
+                "high",
+                f"{which}: accuracy {shown(observed)} over the last 7 days, below the "
+                f"benchmark's {shown(bench['figures'][key])} by more than "
+                f"{bench['tolerance'] * 100:.1f} pts",
             )
+            alerts.append({**alert, "stratum": key})
     if drift is not None and recent["confidences"] >= MIN_FOR_DRIFT and drift >= DRIFT_ALERT:
         message = f"PSI {drift:.2f} against the benchmark's confidences (0.25 or more is a shift)"
         alerts.append(_alert("drift", "medium", message))
@@ -270,12 +350,13 @@ def _weekly(rows: Sequence[Row], now: datetime, weeks: int) -> list[dict[str, An
 def _psi(bins: Sequence[Row], rows: Sequence[Row]) -> float | None:
     """Population stability index of recent confidences against the benchmark's, over tenths."""
     values = [float(r["confidence"]) for r in rows if r["confidence"] is not None]
-    total = sum(int(b.get("n") or 0) for b in bins)
+    usable = [b for b in bins if isinstance(b, Mapping) and _number(b.get("low")) is not None]
+    total = sum(_whole(b.get("n")) for b in usable)
     if not values or not total:
         return None
     expected = [0.0] * 10
-    for b in bins:
-        expected[min(round(float(b["low"]) * 10), 9)] += int(b.get("n") or 0) / total
+    for b in usable:
+        expected[min(round(float(b["low"]) * 10), 9)] += _whole(b.get("n")) / total
     actual = [0.0] * 10
     for value in values:
         actual[min(int(value * 10), 9)] += 1 / len(values)

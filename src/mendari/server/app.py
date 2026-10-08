@@ -629,6 +629,12 @@ def create_app(
         pack_id: {slot: info.variant for slot, info in decision.provider_info.items()}
         for pack_id, decision in built.items()
     }
+    # The model each slot runs (an LLM's or Jev's from its setting): monitoring compares a
+    # benchmark only with the models it measured.
+    running_models = {
+        pack_id: {slot: info.model for slot, info in decision.provider_info.items()}
+        for pack_id, decision in built.items()
+    }
     health_without_model = {
         pack_id: slots
         for pack_id, running in health_providers.items()
@@ -1102,11 +1108,17 @@ def create_app(
     def monitoring(pack_id: str, days: int = 30) -> dict[str, Any]:
         """The served version of the pack over time for this organisation: weekly series, drift
         and alerts, against its benchmark only when that measured this build with the providers
-        that run here (`benchmark.comparable`, `benchmark.reason` otherwise). `days` is held to
-        14 to 180, in whole weeks."""
+        and models that run here, under the same governance (`benchmark.comparable`;
+        `benchmark.reason` otherwise). `days` is held to 14 to 180, in whole weeks."""
         pack = pack_or_404(pack_id)
         days = max(MONITOR_MIN_DAYS, min(days, MONITOR_MAX_DAYS))
-        return monitor(store, pack, days=days, providers=health_providers.get(pack.id))
+        return monitor(
+            store,
+            pack,
+            days=days,
+            providers=health_providers.get(pack.id),
+            models=running_models.get(pack.id),
+        )
 
     # -- governance ------------------------------------------------------------------------------
 

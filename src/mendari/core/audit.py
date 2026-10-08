@@ -2546,13 +2546,21 @@ class AuditStore:
         self._capability_since[environment] = (version, since)
         return since
 
-    def deployments(self, pack_id: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
-        """Newest first. Deployments belong to the server, so every organization sees them."""
-        packs = ("WHERE pack_id = ?", (pack_id,)) if pack_id else ("", ())
+    def deployments(
+        self, pack_id: str | None = None, limit: int = 50, *, digest: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Newest first, of one pack and one build of it if given. Deployments belong to the
+        server, so every organization sees them."""
+        wheres = [
+            (column, value)
+            for column, value in (("pack_id", pack_id), ("pack_digest", digest))
+            if value
+        ]
+        where = ("WHERE " + " AND ".join(f"{column} = ?" for column, _ in wheres)) if wheres else ""
         with self._db.session(exclusive=False) as db:
             rows = db.all(
-                f"SELECT * FROM deployments {packs[0]} ORDER BY started_at DESC LIMIT ?",
-                (*packs[1], limit),
+                f"SELECT * FROM deployments {where} ORDER BY started_at DESC LIMIT ?",
+                (*(value for _, value in wheres), limit),
             )
         return [{**row, "providers": json.loads(row["providers"])} for row in rows]
 

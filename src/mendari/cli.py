@@ -1316,7 +1316,10 @@ def cmd_monitor(args: argparse.Namespace) -> int:
     """For a scheduler: every pack's alerts (the served, newest, version of each; for one
     organization with --org, otherwise all of them together), posted to a webhook when one is
     set; exit 1 on any. A benchmark counts only for the build and providers a server recorded
-    running (`deployments`); otherwise the line says why, and only week-over-week checks run."""
+    running (`deployments`; a model a setting chose is not recorded, so a benchmark of one is not
+    compared), under the organization's governance (`--org`); otherwise the line says why, and
+    only the checks that need no benchmark run (automated decisions rated wrong, overrides that
+    doubled)."""
     import os
 
     import httpx

@@ -835,24 +835,30 @@ affects, chained in the audit log, and can be revoked at once. Level 4 can't be 
 
 **Monitoring.** The dashboard's Monitoring view follows the served version of a pack in use, for
 the organization you act for, in whole weeks (14 to 180 days; other versions' decisions are
-only counted). It shows observed accuracy (from reviews, downstream outcomes and thumbs-downs),
-the human override trend, confidence drift, the automated share, the decisions awaiting review
-and the cost per decision (unknown when any decision's cost is), week by week. Refused inputs
-are counted apart and left out of every rate. The benchmark is compared only when it measured
-this build of the pack with the providers that run here; otherwise the view says why and only
-the week-over-week checks run. Accuracy is compared stratum by stratum, as the benchmark
-measured it: reviewed decisions against its reviewed accuracy, automated ones with an outcome
-recorded downstream against its automated accuracy. Alerts fire only on enough evidence:
+only counted). It shows observed accuracy (from reviews and outcomes recorded downstream), the
+human override trend, confidence drift, the automated share, the decisions awaiting review and
+the cost per decision (unknown when any decision's cost is), week by week. Refused inputs are
+counted apart and left out of every rate and the cost. The benchmark is compared only when it
+measured this build of the pack with the providers and models that run here, under the same
+governance (an approval in force here and when it was measured, or neither), and only over
+decisions made since that configuration started; otherwise the view says why, and only the
+checks that need no benchmark run (automated decisions rated wrong, overrides that doubled).
+Accuracy is compared stratum by stratum, as the benchmark measured it: reviewed decisions
+against its reviewed accuracy, automated ones with an outcome recorded downstream against its
+automated accuracy. Alerts fire only on enough evidence:
 
-- accuracy in a stratum below the benchmark's by more than the pack's tolerance (20 decisions
-  or more);
+- a stratum's accuracy below the benchmark's by more than the pack's tolerance, beyond doubt
+  (even the top of its 95% interval; 20 decisions or more);
 - drift of 0.25 or more (PSI against the benchmark's confidences, over 50 or more);
-- an automated decision rated wrong;
+- an automated decision someone rated wrong (a thumbs-down; ratings never change observed
+  accuracy);
 - an override rate that doubled against the week before (20 reviews or more in each).
 
 For a scheduler (cron, a Kubernetes CronJob), `mendari monitor` checks the newest version of
 each pack (or `--pack`), against its benchmark only for the build and providers a server
-recorded running there. It exits 1 on any alert (or on an
+recorded running there (a model a setting chose is not recorded, so a benchmark of an LLM or
+Jev model is compared by the server's view only) and the governance of `--org`. It exits 1 on
+any alert (or on an
 error, such as a `--db` it cannot read: the line on stderr says which) and
 posts them to `--webhook` / `MENDARI_ALERT_WEBHOOK` (https only; keep the URL as a secret,
 since most carry their token in the path):

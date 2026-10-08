@@ -7,6 +7,7 @@ cost as unknown."""
 from __future__ import annotations
 
 import copy
+import math
 import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -20,10 +21,18 @@ from mendari.cli import main
 from mendari.core import tenancy
 from mendari.core.card import benchmark
 from mendari.core.pack import load_pack
+from mendari.core.registry import resolve_pack
 from mendari.errors import MendariError
 from mendari.evals import figures
 from mendari.evals import monitoring as monitoring_module
-from mendari.evals.monitoring import _alerts, _psi, check_webhook, monitor, recorded_providers
+from mendari.evals.monitoring import (
+    MIN_REVIEWED,
+    _alerts,
+    _psi,
+    check_webhook,
+    monitor,
+    recorded_providers,
+)
 from mendari.server.app import create_app
 from tests.conftest import SCREENED, message
 
@@ -81,9 +90,12 @@ def reviewed(
     return ids
 
 
-def ran_here(store: AuditStore, pack: Pack, providers: dict[str, str]) -> None:
-    """What a server records when it first serves the pack (`deployments`)."""
-    store.record_deployment(
+def ran_here(
+    store: AuditStore, pack: Pack, providers: dict[str, str], *, days_ago: float = 30
+) -> None:
+    """What a server records when it first serves the pack (`deployments`), before it decides
+    anything: here `days_ago`, before the decisions a test seeds."""
+    record = store.record_deployment(
         environment="test",
         release="t",
         pack_id=pack.id,
@@ -91,6 +103,10 @@ def ran_here(store: AuditStore, pack: Pack, providers: dict[str, str]) -> None:
         pack_digest=pack.digest,
         providers=providers,
     )
+    assert record is not None
+    when = (NOW - timedelta(days=days_ago)).isoformat()
+    with store._db.session(exclusive=True) as db:
+        db.all("UPDATE deployments SET started_at = ? WHERE id = ?", (when, record["id"]))
 
 
 # -- the reference: only like with like --------------------------------------------------------
@@ -162,8 +178,146 @@ def test_automated_decisions_are_compared_with_the_benchmarks_automated_accuracy
     assert report["last_7_days"]["figures"]["automated_accuracy"] == figures.of(0, 25)
     assert report["last_7_days"]["figures"]["reviewed_accuracy"] == figures.of(0, 0)
     (alert,) = report["alerts"]
-    assert alert["kind"] == "accuracy"
+    assert (alert["kind"], alert["stratum"]) == ("accuracy", "automated_accuracy")
     assert alert["message"].startswith("automated decisions with an outcome recorded: accuracy")
+
+
+def test_each_stratum_holds_only_its_own_decisions(
+    store: AuditStore, inbox_pack: Pack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Automated decisions with wrong outcomes and reviewed ones a person kept, together: each
+    stratum counts its own, and only the automated one alerts."""
+    seed(store, inbox_pack, 25, days_ago=2, final="billing")
+    reviewed(store, inbox_pack, 25, days_ago=2, final="same")
+    automating = copy.deepcopy(benchmark(inbox_pack))
+    automating["providers"]["safety_screen"]["variant"] = "rules_and_jev"
+    automating["decisions"]["automation"].update(n=100, accuracy=0.95)
+    monkeypatch.setattr(monitoring_module, "benchmark", lambda pack: automating)
+    report = monitor(store, inbox_pack, now=NOW, providers=JEV_SCREEN)
+    shares = report["last_7_days"]["figures"]
+    assert shares["automated_accuracy"] == figures.of(0, 25)
+    assert shares["reviewed_accuracy"] == figures.of(25, 25)
+    assert [a["stratum"] for a in report["alerts"]] == ["automated_accuracy"]
+
+
+def test_an_accuracy_alert_needs_twenty_decisions_and_evidence_beyond_doubt(
+    store: AuditStore, inbox_pack: Pack
+) -> None:
+    ids = reviewed(store, inbox_pack, MIN_REVIEWED - 1, days_ago=2, final="billing")
+    report = monitor(store, inbox_pack, now=NOW, providers=MEASURED)
+    assert report["last_7_days"]["figures"]["reviewed_accuracy"] == figures.of(0, 19)
+    assert report["alerts"] == []  # too few to say
+    reviewed(store, inbox_pack, 1, days_ago=2, final="billing")
+    assert [
+        a["kind"] for a in monitor(store, inbox_pack, now=NOW, providers=MEASURED)["alerts"]
+    ] == ["accuracy"]
+    with store._db.session(exclusive=True) as db:  # 19 of 20 kept: 95%, below 96.5%, in doubt
+        marks = ", ".join("?" for _ in ids)
+        db.all(f"UPDATE decisions SET human_override = 0 WHERE id IN ({marks})", ids)
+    report = monitor(store, inbox_pack, now=NOW, providers=MEASURED)
+    assert report["last_7_days"]["figures"]["reviewed_accuracy"] == figures.of(19, 20)
+    assert report["alerts"] == []
+
+
+def test_a_pack_doing_as_its_benchmark_says_rarely_alerts() -> None:
+    """At each reference pack's own benchmark accuracy, the chance that a week's reviews alert
+    stays under 1% for any count from 20 to 200: the alert needs the interval, not a point."""
+    from mendari.core.registry import discover
+
+    for pack in discover().packs:
+        bench = monitoring_module._benchmark(pack, None, None, approved=False)
+        target, tolerance = bench["reviewed_accuracy"], bench["tolerance"]
+        if target is None:
+            continue
+        for n in range(MIN_REVIEWED, 201):
+            chance = sum(
+                math.comb(n, k) * target**k * (1 - target) ** (n - k)
+                for k in range(n + 1)
+                if figures.of(k, n)["high"] < target - tolerance
+            )
+            assert chance < 0.01, (pack.id, n, chance)
+
+
+def test_a_benchmark_measured_under_other_governance_is_not_a_reference(
+    store: AuditStore, inbox_pack: Pack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An approval lets a risk level 2 or 3 pack automate: a benchmark measured without one
+    says nothing of the decisions it automates (and the reverse)."""
+    trial = resolve_pack("mendari/clinical-trial-prescreener")
+    ran = {slot: info["variant"] for slot, info in benchmark(trial)["providers"].items()}
+    assert monitor(store, trial, now=NOW, providers=ran)["benchmark"]["comparable"] is True
+    store.approve_automation(
+        pack_id=trial.id,
+        pack_digest=trial.digest,
+        risk_level=2,
+        approver="committee",
+        reference="minutes 12",
+        expires_at=(NOW + timedelta(days=30)).isoformat(),
+    )
+    report = monitor(store, trial, now=NOW, providers=ran)
+    assert (report["benchmark"]["comparable"], report["benchmark"]["reason"]) == (
+        False,
+        "other_policy",
+    )
+    with tenancy.acting_for("clinic-b"):  # an approval is its organization's
+        assert monitor(store, trial, now=NOW, providers=ran)["benchmark"]["comparable"] is True
+    governed = copy.deepcopy(benchmark(inbox_pack))
+    governed["policy"]["governance_override"] = {"approved_by": "committee"}
+    monkeypatch.setattr(monitoring_module, "benchmark", lambda pack: governed)
+    report = monitor(store, inbox_pack, now=NOW, providers=MEASURED)
+    assert report["benchmark"]["reason"] == "other_policy"
+
+
+def test_a_model_other_than_the_benchmarks_is_not_a_reference(
+    store: AuditStore, inbox_pack: Pack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    measured = copy.deepcopy(benchmark(inbox_pack))
+    models = {slot: info["model"] for slot, info in measured["providers"].items()}
+    assert monitor(store, inbox_pack, now=NOW, providers=MEASURED, models=models)["benchmark"][
+        "comparable"
+    ]
+    other = {**models, "router": "naive_bayes@000000000000"}
+    report = monitor(store, inbox_pack, now=NOW, providers=MEASURED, models=other)
+    assert report["benchmark"]["reason"] == "other_providers"
+    llm = copy.deepcopy(measured)
+    llm["providers"]["router"] = {"variant": "naive_bayes", "type": "llm", "model": "vendor/a"}
+    monkeypatch.setattr(monitoring_module, "benchmark", lambda pack: llm)
+    report = monitor(store, inbox_pack, now=NOW, providers=MEASURED)  # a command: no models
+    assert report["benchmark"]["reason"] == "providers_unknown"
+    running = {**models, "router": "vendor/b"}
+    report = monitor(store, inbox_pack, now=NOW, providers=MEASURED, models=running)
+    assert report["benchmark"]["reason"] == "other_providers"
+    running = {**models, "router": "vendor/a"}
+    report = monitor(store, inbox_pack, now=NOW, providers=MEASURED, models=running)
+    assert report["benchmark"]["comparable"] is True
+
+
+@pytest.mark.parametrize(
+    "broken",
+    [
+        {"decisions": {"review": {"n": 598, "expected_override_rate": "0.005"}}},
+        {"decisions": {"automation": {"n": 100, "accuracy": "0.95"}}},
+        {"pack": "mendari/patient-inbox-router"},
+        {"providers": ["rules", "naive_bayes"]},
+        {"policy": "none"},
+        {
+            "questions": {
+                "destination": {"accuracy": "high", "calibration": {"bins": ["x", {"low": "a"}]}}
+            }
+        },
+    ],
+)
+def test_a_benchmark_with_values_it_cannot_read_never_breaks_monitoring(
+    store: AuditStore, inbox_pack: Pack, monkeypatch: pytest.MonkeyPatch, broken: dict[str, Any]
+) -> None:
+    seed(store, inbox_pack, 25, days_ago=2, final="billing")
+    report = {**copy.deepcopy(benchmark(inbox_pack)), **broken}
+    if isinstance(report["providers"], dict):  # these providers run: only the values are broken
+        report["providers"]["safety_screen"]["variant"] = "rules_and_jev"
+    monkeypatch.setattr(monitoring_module, "benchmark", lambda pack: report)
+    answer = monitor(store, inbox_pack, now=NOW, providers=JEV_SCREEN)
+    assert answer["last_7_days"]["decisions"] == 25
+    assert [a["kind"] for a in answer["alerts"] if a["kind"] == "accuracy"] == []
 
 
 def test_a_benchmark_that_measured_no_automation_compares_none(
@@ -184,7 +338,13 @@ def test_a_benchmark_that_measured_no_automation_compares_none(
 
 
 def test_rows_from_another_version_are_not_compared(store: AuditStore, inbox_pack: Pack) -> None:
-    reviewed(store, inbox_pack, 25, days_ago=2, final="billing")
+    ids = reviewed(store, inbox_pack, 25, days_ago=2, final="billing")
+    with store._db.session(exclusive=True) as db:
+        marks = ", ".join("?" for _ in ids[:10])
+        db.all(f"UPDATE decisions SET pack_version = '0.0.1' WHERE id IN ({marks})", ids[:10])
+    report = monitor(store, inbox_pack, now=NOW, providers=MEASURED)
+    assert report["other_versions"] == {"0.0.1": 10}  # never the served version's own
+    assert report["last_7_days"]["decisions"] == 15
     with store._db.session(exclusive=True) as db:
         db.all("UPDATE decisions SET pack_version = '0.0.1'")
     report = monitor(store, inbox_pack, now=NOW, providers=MEASURED)
@@ -192,16 +352,45 @@ def test_rows_from_another_version_are_not_compared(store: AuditStore, inbox_pac
     assert report["other_versions"] == {"0.0.1": 25}
 
 
-def test_refusals_count_apart_and_leave_every_rate_and_drift(
+def test_only_decisions_since_the_current_configuration_are_compared(
+    store: AuditStore, inbox_pack: Pack
+) -> None:
+    """The pack ran on Jev until three days ago, then on the benchmark's own providers: the
+    decisions made on Jev are shown week by week, never compared."""
+    ids = reviewed(store, inbox_pack, 25, days_ago=5, final="billing")
+    with store._db.session(exclusive=True) as db:
+        db.all("DELETE FROM deployments")
+    ran_here(store, inbox_pack, JEV_SCREEN)
+    when = (NOW - timedelta(days=6)).isoformat()
+    with store._db.session(exclusive=True) as db:
+        db.all("UPDATE deployments SET started_at = ?", (when,))
+    ran_here(store, inbox_pack, MEASURED)
+    since = NOW - timedelta(days=3)
+    with store._db.session(exclusive=True) as db:
+        db.all(
+            "UPDATE deployments SET started_at = ? WHERE started_at <> ?",
+            (since.isoformat(), when),
+        )
+    report = monitor(store, inbox_pack, now=NOW, providers=MEASURED)
+    assert report["configuration_since"] == since.isoformat()
+    assert report["last_7_days"]["decisions"] == 0 and report["alerts"] == []
+    assert sum(week["decisions"] for week in report["weeks"]) == len(ids)
+
+
+def test_refusals_count_apart_and_leave_every_rate_and_the_cost(
     store: AuditStore, inbox_pack: Pack
 ) -> None:
     ids = seed(store, inbox_pack, 4, days_ago=1)
     with store._db.session(exclusive=True) as db:
         db.all("UPDATE decisions SET refused = 1, outcome = 'BLOCK' WHERE id IN (?, ?)", ids[:2])
+        # As a refusal is stored: no confidence, no provider ran, nothing spent.
+        db.all("UPDATE decisions SET confidence = NULL, cost_usd = 0.0 WHERE refused = 1")
+        db.all("UPDATE decisions SET cost_usd = 0.002 WHERE refused IS NULL OR refused = 0")
     recent = monitor(store, inbox_pack, now=NOW, providers=MEASURED)["last_7_days"]
     assert recent["decisions"] == 4 and recent["refused"] == 2
     assert recent["figures"]["automated"] == figures.of(2, 2)  # of the decisions made
     assert recent["confidences"] == 2
+    assert recent["cost_per_decision"] == pytest.approx(0.002) and recent["cost_unknown"] == 0
 
 
 def test_drift_needs_fifty_confidences_not_fifty_decisions() -> None:
@@ -341,6 +530,29 @@ def test_recorded_providers_are_this_builds_newest(store: AuditStore, inbox_pack
         providers=JEV_SCREEN,
     )
     assert recorded_providers(store, inbox_pack) == MEASURED  # another build's record
+    with store._db.session(exclusive=True) as db:
+        db.all("UPDATE deployments SET started_at = '2020-01-01T00:00:00.000+00:00'")
+    ran_here(store, inbox_pack, JEV_SCREEN)  # the same build, restarted with Jev on
+    assert recorded_providers(store, inbox_pack) == JEV_SCREEN
+    for n in range(60):  # many newer records of another build never hide this one's
+        store.record_deployment(
+            environment="test",
+            release=f"r{n}",
+            pack_id=inbox_pack.id,
+            pack_version="0.0.2",
+            pack_digest="sha256:" + "2" * 64,
+            providers=MEASURED,
+        )
+    assert recorded_providers(store, inbox_pack) == JEV_SCREEN
+    store.record_deployment(
+        environment="preview",
+        release="p1",
+        pack_id=inbox_pack.id,
+        pack_version=inbox_pack.version,
+        pack_digest=inbox_pack.digest,
+        providers=MEASURED,
+    )
+    assert recorded_providers(store, inbox_pack) is None  # two environments disagree
 
 
 def test_the_cli_exits_1_on_alerts_and_posts_them(
@@ -374,11 +586,13 @@ def test_the_cli_exits_1_on_alerts_and_posts_them(
     assert posted[0][1]["alerts"][0]["pack"]["id"] == inbox_pack.id
 
 
+@pytest.mark.parametrize("newest_first", [True, False])
 def test_the_cli_checks_the_newest_version_of_each_pack(
     tmp_path: Path,
     inbox_pack: Pack,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
+    newest_first: bool,
 ) -> None:
     copied = tmp_path / "older"
     shutil.copytree(inbox_pack.root, copied)
@@ -390,12 +604,22 @@ def test_the_cli_checks_the_newest_version_of_each_pack(
     assert older.id == inbox_pack.id and older.version == "0.0.1"
 
     class Found:
-        packs = [inbox_pack, older]
+        packs = [inbox_pack, older] if newest_first else [older, inbox_pack]
+
+    checked: list[str] = []
+    real = monitoring_module.monitor
+
+    def watched(store: AuditStore, pack: Pack, **kwargs: Any) -> dict[str, Any]:
+        checked.append(pack.version)
+        return real(store, pack, **kwargs)
 
     monkeypatch.setattr("mendari.cli.discover", lambda *a, **k: Found())
+    monkeypatch.setattr(monitoring_module, "monitor", watched)
     AuditStore(tmp_path / "a.db").close()
     assert main(["monitor", "--db", str(tmp_path / "a.db")]) == 0
-    assert capsys.readouterr().out.count(f"{inbox_pack.id}:") == 1
+    assert checked == [inbox_pack.version]
+    out = capsys.readouterr().out
+    assert out.count(f"{inbox_pack.id}:") == 1 and "providers_unknown" in out
 
 
 @pytest.mark.parametrize(
