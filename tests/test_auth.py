@@ -419,6 +419,7 @@ def test_every_route_has_the_permission_it_should(tmp_path: Path) -> None:
     assert permission_for("GET", "/api/audit/verify") == "admin"
     assert permission_for("GET", "/api/audit/export/fhir") == "admin"
     assert permission_for("GET", "/api/audit/administrative") == "admin"
+    assert permission_for("GET", "/api/usage") == "admin"  # what the organization spent
     assert permission_for("GET", "/api/audit/administrative/export/fhir") == "admin"
     assert permission_for("GET", "/api/audit/d1") == "read"
     # A person's accountability: no machine role has these (ROLE_PERMISSIONS below).

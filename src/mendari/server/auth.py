@@ -251,6 +251,8 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         # The whole chain, read or exported, and an organization's administrative events (its
         # keys, clients, people, approvals and holds): administrators only.
         ("GET", r"^/api/audit/(verify|export/fhir|administrative(/export/fhir)?)$", "admin"),
+        # The organization's remote calls and their cost (the usage ledger): administrators.
+        ("GET", r"^/api/usage$", "admin"),
         ("POST", r"^/api/governance$", "approve"),
         ("DELETE", r"^/api/governance/[^/]+$", "approve"),
         ("GET", r"^/api/", "read"),

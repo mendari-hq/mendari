@@ -807,10 +807,22 @@ def cmd_audit_export(args: argparse.Namespace) -> int:
 
 def cmd_usage(args: argparse.Namespace) -> int:
     """The deployment's totals, read-only: today's metered calls (Jev, LLM) against this
-    environment's daily limits, the last purge with its counts, and the latest deployment
-    records. In memberships mode the server shows them to no organization (ADR-0008)."""
+    environment's daily limits, the last purge with its counts, the latest deployment records,
+    and the usage ledger (LP-21g) of every organization (or `--org`) over the last `--days`
+    local days, with its totals by provider type and purpose (a cost only where every call was
+    priced). In memberships mode the server shows the deployment's to no organization
+    (ADR-0008); an organization's administrators see their own ledger (`GET /api/usage`)."""
+    from datetime import timedelta
+
+    from mendari.core.audit import usage_totals
+
+    if not 1 <= args.days <= 366:
+        raise MendariError("--days is 1 to 366")
     limits = daily_limits()
+    until = clock.today()
+    since = until - timedelta(days=args.days - 1)
     with _read_store(args.db) as store:
+        rows = store.usage_ledger(args.org, since=since.isoformat(), until=until.isoformat())
         _print_json(
             {
                 "day": clock.today().isoformat(),
@@ -823,6 +835,12 @@ def cmd_usage(args: argparse.Namespace) -> int:
                 },
                 "last_purge": store.last_purge(),
                 "deployments": store.deployments(None, limit=args.deployments),
+                "ledger": {
+                    "since": since.isoformat(),
+                    "until": until.isoformat(),
+                    "rows": rows,
+                    "totals": usage_totals(rows),
+                },
             }
         )
     return 0
@@ -1828,12 +1846,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     usage = sub.add_parser(
         "usage",
-        help="the deployment's totals: today's metered calls, the last purge, its deployments",
+        help="the deployment's totals: today's calls, the usage ledger, the last purge and more",
     )
     usage.add_argument("--db", default="var/mendari.db", help="SQLite path or postgresql:// URL")
     usage.add_argument(
         "--deployments", type=int, default=20, help="how many deployment records (newest first)"
     )
+    usage.add_argument("--days", type=int, default=30, help="the ledger's last days (1-366)")
+    usage.add_argument("--org", help="one organization's ledger (default: every one)")
     usage.set_defaults(handler=cmd_usage)
 
     automation = sub.add_parser(

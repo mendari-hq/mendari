@@ -46,7 +46,13 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from mendari import __version__, guard, notices, settings
 from mendari.alerts import AlertSettings, alert_settings, check_webhook, deliver
 from mendari.core import clock, tenancy
-from mendari.core.audit import ADMINISTRATIVE_KINDS, OFF_DECISION_KINDS, SYSTEM_ID, AuditStore
+from mendari.core.audit import (
+    ADMINISTRATIVE_KINDS,
+    OFF_DECISION_KINDS,
+    SYSTEM_ID,
+    AuditStore,
+    usage_totals,
+)
 from mendari.core.card import benchmark, render_card
 from mendari.core.decision import CallBudget, Decision, QuotaReached
 from mendari.core.origin import is_local
@@ -1441,6 +1447,29 @@ def create_app(
             )
         )
         return StreamingResponse(lines, media_type="application/fhir+ndjson")
+
+    @app.get(
+        "/api/usage",
+        tags=["Evaluation and monitoring"],
+        summary="Your organization's remote calls and their cost",
+    )
+    def usage(request: Request, days: Annotated[int, Query(ge=1, le=366)] = 30) -> dict[str, Any]:
+        """The usage ledger (LP-21g) of your organization over the last `days` local days, today
+        included (1 to 366; 30): its remote model calls (Jev, an LLM) by day, provider type and
+        purpose (`decision` or `evaluation`), with how many were priced, their tokens and their
+        cost, `null` (unknown) unless every call was priced, never a partial sum; and `totals`
+        over those days by provider type and purpose, the same way. In open mode, every
+        organization's rows, each naming its own. Administrators only."""
+        org = scope_of(auth.acting(request))
+        until = clock.today()
+        since = until - timedelta(days=days - 1)
+        rows = store.usage_ledger(org, since=since.isoformat(), until=until.isoformat())
+        return {
+            "since": since.isoformat(),
+            "until": until.isoformat(),
+            "rows": rows,
+            "totals": usage_totals(rows),
+        }
 
     @app.get(
         "/api/audit/administrative",
