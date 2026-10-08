@@ -455,13 +455,13 @@ it). Decisions, reviews and the chain itself stay, and `mendari audit verify` st
 scheduled job never does.
 
 **Checkpoints.** Schedule `mendari audit checkpoint --db "$DATABASE_URL"` daily too, after the
-purge (the `deploy/` templates do). It verifies the chain from its last checkpoint (the whole of it, the first time) and, when
-it holds, records the head as the next checkpoint, one row outside the chain; it migrates the
-database as every command that writes does. `mendari audit verify --since-checkpoint` then reads
-only the events after the last one, and a full `mendari audit verify`, which reads everything,
-also checks that every checkpoint still names its event. A checkpoint is in the same database as
-the chain, so keep a copy of the head somewhere else too, and run a full verification now and
-then.
+purge (the `deploy/` templates do). It verifies the chain from its last checkpoint (the whole of
+it, the first time) and, when it holds, records the head as the next checkpoint, one row outside
+the chain; it migrates the database as every command that writes does. `mendari audit verify
+--since-checkpoint` then reads only the events after the last one, and a full `mendari audit
+verify`, which reads everything, also checks that every checkpoint still names its event. A
+checkpoint is in the same database as the chain, so keep a copy of the head somewhere else too,
+and run a full verification now and then.
 
 On Vercel the schedule is in `vercel.json` (`crons`: daily at 08:00 UTC, 4 am Eastern in summer
 and 3 am in winter). Set `CRON_SECRET` (at least 16 random characters) for Production: Vercel Cron sends it as a bearer token to
