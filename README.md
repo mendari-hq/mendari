@@ -629,7 +629,10 @@ and the landing loads nothing but its own files. Sessions end after 30 minutes i
 and 8 hours at most, behind `__Host-` cookies. A browser request that another site starts
 reaches only public routes and pages, to read. A request
 body is 4 MiB at most (`MENDARI_MAX_BODY_BYTES`; a `413` otherwise), and public routes take no
-lock and do little work for a caller without a credential. With sign-in on, decisions, the AI
+lock and do little work for a caller without a credential. A decision's remote calls share one
+deadline (`MENDARI_DECISION_DEADLINE_S`, 120 s unless set, 10 to 270): past it a call is not
+made, one under way is cut, and the decision records `timeout` and goes to a person, while its
+local providers still answer. With sign-in on, decisions, the AI
 guard, evaluations and exports are rate limited per caller, and sign-in and the token endpoint per
 address, in the database so every instance shares the count (`MENDARI_RATE_LIMITS`; a `429` with
 `Retry-After`); organizations can have daily quotas (`MENDARI_ORG_DAILY_LIMITS`), over which

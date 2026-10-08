@@ -302,6 +302,12 @@ a provider error with one of these stable, audit-safe codes: `budget_exhausted`,
 failed is recorded as `derived_input_unavailable`. No other code is recorded. Error codes MUST
 NOT carry credentials or remote error bodies.
 
+A decision's remote calls share a wall-clock deadline the deployment sets
+(`MENDARI_DECISION_DEADLINE_S`, default 120 s): a call that would start after it is not made,
+and one under way is cut at it (each wait it makes, a retry included, is bounded by what
+remains); either is the provider error `timeout`. Local providers always answer. A pack cannot
+set it.
+
 Variants of a slot are interchangeable implementations of the same contract. Selecting a
 variant (`providers={"router": "jev"}`) MUST NOT change the pack's questions, policy or
 tests.

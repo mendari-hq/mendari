@@ -82,9 +82,17 @@ On `re`, where reference and local packs stay, a crafted 10,000-character inbox 
 hold Python's lock for about 0.55 s, stalling its instance; the rate limits bound how often.
 
 ## Deadline
-A wall-clock deadline across one decision's remote calls applies to every pack: a call that
-would start after it is not made, and one under way is cut at it, each recorded as the provider
-error `timeout`; local providers always answer. Built in 16b (`tasks/todo.md`).
+A wall-clock deadline across one decision's remote calls applies to every pack (built in 16b,
+#184): `MENDARI_DECISION_DEADLINE_S`, whole seconds 10 to 270, 120 unless set, checked at
+startup; a pack cannot set it. It is a context variable on `time.monotonic` that each decision
+sets for itself at its provider loop, never stored on the `Decision` every thread shares. Jev,
+the LLM and the CQL engine check it before they fetch a key or charge a budget, so a call that
+would start after it is not made; under way, each HTTP attempt's timeouts are clamped to what
+remains, no retry is waited past it, an answer still arriving stops at it, and waiting for
+another thread's Vercel Connect key stops at it. Each is the provider error `timeout`, which
+caps AUTO; local providers never look at it. Residuals (threat model D9): `httpx` bounds each
+network step by what remained when it started, so headers sent a little at a time can overrun;
+each decision of a request that makes several has a deadline of its own.
 
 ## Alternatives Considered
 - **Option B: every pack the deployment does not own in a worker process** with memory and

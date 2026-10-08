@@ -21,7 +21,7 @@ import json
 import os
 import posixpath
 import re
-from collections.abc import Collection, Mapping
+from collections.abc import Callable, Collection, Mapping
 from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin, urlsplit, urlunsplit
@@ -100,10 +100,22 @@ class GuardedHttp:
         url: str,
         body: Mapping[str, Any],
         headers: Mapping[str, str] | None = None,
+        *,
+        timeout: float | None = None,
+        stop: Callable[[], bool] | None = None,
     ) -> dict[str, Any]:
-        """A FHIR JSON request (a CQL `$evaluate`, a Library upload); its JSON answer."""
+        """A FHIR JSON request (a CQL `$evaluate`, a Library upload); its JSON answer. A
+        `timeout` (seconds, each step) replaces the client's `TIMEOUT` for this request: what
+        remains of a decision's deadline (`providers/deadline.py`). `stop`, asked before each
+        part of the answer is read, ends an answer still arriving (`FhirError`): the deadline's
+        `past`, so an engine sending a little at a time cannot outlast it."""
         sent = {"content-type": "application/fhir+json", "accept": "application/fhir+json"}
-        return self._send(method, url, headers={**sent, **(headers or {})}, json=dict(body))
+        extra: dict[str, Any] = {} if timeout is None else {"timeout": timeout}
+        if stop is not None:
+            extra["stop"] = stop
+        return self._send(
+            method, url, headers={**sent, **(headers or {})}, json=dict(body), **extra
+        )
 
     def raw(
         self, method: str, url: str, headers: Mapping[str, str] | None = None, **kwargs: Any
@@ -150,12 +162,15 @@ class GuardedHttp:
 
     def _send(self, method: str, url: str, **kwargs: Any) -> dict[str, Any]:
         self.check(url)
+        stop: Callable[[], bool] | None = kwargs.pop("stop", None)
         try:
             with self._client.stream(method, url, **kwargs) as response:
                 if response.is_redirect:
                     raise FhirError(f"the server redirected (HTTP {response.status_code})")
                 body = bytearray()
                 for chunk in response.iter_bytes():
+                    if stop is not None and stop():
+                        raise FhirError("the answer did not arrive in time")
                     body += chunk
                     if len(body) > MAX_BYTES:
                         raise FhirError(f"the response is larger than {MAX_BYTES} bytes")

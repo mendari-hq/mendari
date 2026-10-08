@@ -465,8 +465,9 @@ registry or copied into the store.
     path's origin; `mendari pull` says which engine; ADR-0009, the spec amended in place, the
     docs, threat model D8 and S15; the a3 probe's pending line replaced by its tests. No pack
     artifact changes.
-  - [ ] **16b** (another PR) A wall-clock deadline across one decision's remote calls, every
-    pack, recorded as `timeout`; its test replaces the a3 probe's last pending line.
+  - [x] **16b** (#184, merged 2026-10-08) A wall-clock deadline across one decision's remote
+    calls, every pack (`MENDARI_DECISION_DEADLINE_S`, 120 s unless set), recorded as `timeout`;
+    an answer still arriving stops at it, the CQL engine's included; threat model D9.
   - [ ] **16c-1** (after 16a) ai-guard's `claim-about-the-record` without its lookahead, exact
     on every input on both engines (a decision-identity test), ai-guard 0.1.4 and its rebuild.
   - [ ] **16c-2** (held for the owner) pregnant, pancreatitis and new-lung-mass: the owner
@@ -514,9 +515,9 @@ registry or copied into the store.
      `notes/vision-audit.md`). Default: not in LP-16.
   9. (16a) "Pin the dialect in the spec": 0.2 §5 is amended in place, as B11 did. The pack
      format is unchanged and every pack loads as before.
-  10. (16a) Gate G3-4: 16a replaces the a3 `pending` probe with its tests and leaves one pending
-     line for 16b's deadline (the `what` names it); 16b replaces that line with its test.
-     "Fuzzing" in the `what` line keeps no probe of its own.
+  10. (16a, 16b) Gate G3-4: the a3 `pending` probe is replaced by 16a's tests and 16b's
+     (`test_a_deadline_never_automates`); its narrowed `what` holds no pending line. "Fuzzing"
+     in the `what` line keeps no probe of its own.
   11. (all) Requirements 4–7 and the hypothesis, health, parity and nested-`$ref` tests are not
      narrowed by the owner and are not in 16a–16c. Default: they ship as 16d–16g: 16d, health
      does no pack work in the request; 16e, closed provider configs (for packs the deployment
@@ -690,6 +691,16 @@ Connect) is not supported yet.
   - [ ] **12g** The organization bound into each chained event (memberships mode), checked by
     `verify`; per-organization administrative reader and export; the generated two-organization
     isolation test with its reviewed allow-list.
+    - [ ] **12g-i** (PR open) The binding and its check. A memberships-mode server marks the
+      database (`org_bound`, a settings row); every store that opens a marked one, the command
+      line's included, names in each event the organization of the row it is about, read in
+      the same transaction (`_bound`; the 14 kinds of before only when marked, every other kind
+      but the deployment's always, which `_append_many` enforces). `verify` checks it by kind
+      (`DECISION_KINDS`, `ADMINISTRATIVE_KINDS` with `SUBJECT_TABLES`; a person's, the
+      deployment's and unknown kinds unchecked, so a rollback never fails on a later release's)
+      and answers `"reason": "organization"` at the first event whose row was moved or deleted.
+      The answers of a review and a rating are unchanged (only the chained copy is bound); the
+      previous release's `verify` passes a bound chain.
   - [x] **12h** (#181, merged 2026-10-08) The Access view's API keys and Clients tabs, for people holding
     `keys`, in claims mode too (the people tabs stay memberships-only): a key made from a preset
     (the table drives role, scope and days, what it reaches and its guide) or by hand, its secret
