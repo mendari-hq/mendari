@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Hashable, Iterator, Mapping
 from contextlib import contextmanager
@@ -89,6 +90,75 @@ def refuse_if_over_quota() -> None:
         raise refused
 
 
+# The most one call may report (the usage ledger, LP-21g): above, a figure is not believed. A
+# provider's own parser bounds what it accepts (Jev's MAX_TOKENS, the LLM's); these keep a
+# figure that got through from ever failing a decision's record.
+MAX_CALL_TOKENS = 10_000_000
+MAX_CALL_COST_USD = 1_000.0
+
+
+@dataclass
+class Metered:
+    """One provider type's remote calls: how many were sent (`sending`), how many answered with
+    a price (`priced`), the tokens the answered ones reported, and the cost of the priced ones.
+    A call that failed, whose answer was refused, or whose provider has no price, is counted but
+    not priced, and adds no tokens: its cost is unknown, never zero (the usage ledger,
+    LP-21g)."""
+
+    calls: int = 0
+    priced: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: float = 0.0
+
+    def add(self, other: Metered) -> None:
+        self.calls += other.calls
+        self.priced += other.priced
+        self.input_tokens += other.input_tokens
+        self.output_tokens += other.output_tokens
+        self.cost_usd += other.cost_usd
+
+
+class Meter:
+    """A decision's remote calls by provider type, as its providers make them (`sending`, then
+    `metered` once the call answers). Safe across threads; providers never write anywhere:
+    the decision's record takes it (`AuditStore.record`)."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._types: dict[str, Metered] = {}
+
+    def call(self, provider_type: str) -> None:
+        with self._lock:
+            self._types.setdefault(provider_type, Metered()).calls += 1
+
+    def answered(
+        self, provider_type: str, input_tokens: int, output_tokens: int, cost_usd: float | None
+    ) -> None:
+        if not all(0 <= tokens <= MAX_CALL_TOKENS for tokens in (input_tokens, output_tokens)):
+            input_tokens = output_tokens = 0  # not believed: reported as none
+        if cost_usd is not None and not (
+            math.isfinite(cost_usd) and 0 <= cost_usd <= MAX_CALL_COST_USD
+        ):
+            cost_usd = None  # not believed: unpriced
+        with self._lock:
+            metered = self._types.setdefault(provider_type, Metered())
+            metered.input_tokens += input_tokens
+            metered.output_tokens += output_tokens
+            if cost_usd is not None:
+                metered.priced += 1
+                metered.cost_usd += cost_usd
+
+    def totals(self) -> dict[str, Metered]:
+        with self._lock:
+            return {kind: Metered(**asdict(m)) for kind, m in sorted(self._types.items())}
+
+
+# The decision being made's meter (`Decision.__call__`): None outside one, where calls (a
+# calibration's, say) are counted nowhere.
+METER: ContextVar[Meter | None] = ContextVar("meter", default=None)
+
+
 class Provider(ABC):
     type: ClassVar[str]
     # Remote providers make network calls: they are metered, rate-limited and parallelised.
@@ -136,8 +206,24 @@ class Provider(ABC):
         self._budget = acquire
 
     def charge(self) -> None:
+        """Before each billable call, once it can be made: the daily budget, which may refuse
+        it."""
         if self._budget is not None:
             self._budget(self.info.type)
+
+    def sending(self) -> None:
+        """Right before a charged call is sent: the decision's meter counts it. A call refused
+        before (a budget, a quota, the deadline, a request too large) is never counted."""
+        meter = METER.get()
+        if meter is not None:
+            meter.call(self.info.type)
+
+    def metered(self, input_tokens: int, output_tokens: int, cost_usd: float | None) -> None:
+        """Once a charged call answers: its tokens and its cost (None: not priced), whichever
+        providers of a batch it answered for."""
+        meter = METER.get()
+        if meter is not None:
+            meter.answered(self.info.type, input_tokens, output_tokens, cost_usd)
 
     def preflight(self) -> None:  # noqa: B027 - optional hook
         """Raise ProviderError if the provider cannot be called at all (e.g. not configured).

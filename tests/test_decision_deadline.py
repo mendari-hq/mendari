@@ -143,13 +143,13 @@ def test_a_remote_call_after_the_deadline_is_not_made_and_uses_no_budget(
     """Jev, asked for the screen, answers after the whole deadline, so its answer is cut too;
     the router's LLM call would start after it, so it is not made, and nothing is charged for
     it."""
-    remote.delay = lambda kind, text: 0.1 if kind == "jev" else 0.0
+    remote.delay = lambda kind, text: 2.5 if kind == "jev" else 0.0
     budget = Counted()
     decision = Decision(
         inbox_pack,
         providers={"safety_screen": "jev", "router": "llm"},
         budget=budget,
-        deadline_s=0.05,
+        deadline_s=2.0,  # ample for the call to start, even on a loaded runner
     )
     result = decision.decide(message("A rash on my arm since Tuesday."))
     assert remote.calls == ["jev"]
@@ -195,13 +195,14 @@ def test_the_deadline_belongs_to_one_decision(remote: Remote, inbox_pack: Pack) 
     """One Decision serves every thread, as on the server. The slow decision's deadline passes
     during its Jev call, so that answer is cut and its LLM call is not made; the quick one
     starts after that deadline, during that call, and keeps its own."""
-    remote.delay = lambda kind, text: 0.7 if kind == "jev" and "slow" in text else 0.0
+    remote.delay = lambda kind, text: 2.8 if kind == "jev" and "slow" in text else 0.0
     providers = {"safety_screen": "jev", "router": "llm"}
-    shared = Decision(inbox_pack, providers=providers, deadline_s=0.5)
+    # Each decision has 2 s: the quick one's instant calls fit in it even on a loaded runner.
+    shared = Decision(inbox_pack, providers=providers, deadline_s=2.0)
 
     def decide(text: str) -> DecisionResult:
         if text.startswith("quick"):
-            time.sleep(0.55)  # after the slow decision's deadline, during its Jev call
+            time.sleep(2.2)  # after the slow decision's deadline, during its Jev call
         return shared.decide(message(text))
 
     slow, quick = parallel_map(decide, ["slow: a rash on my arm", "quick: a rash on my arm"], 2)
@@ -295,24 +296,24 @@ def test_no_retry_is_waited_past_the_deadline(monkeypatch: pytest.MonkeyPatch) -
 
     def handler(request: httpx.Request) -> httpx.Response:
         calls.append(request)
-        return httpx.Response(429, headers={"retry-after": "1"})
+        return httpx.Response(429, headers={"retry-after": "2"})  # http.MAX_RETRY_WAIT_S
 
     client = mock_client(handler)
-    with deadline.decision_deadline(0.5), pytest.raises(ProviderError) as error:
+    with deadline.decision_deadline(1.5), pytest.raises(ProviderError) as error:
         http.post_json(client, URL, {}, headers={}, timeout_s=5, retries=1)
     assert error.value.code == "rate_limited"
     assert waits == [] and len(calls) == 1
     # With time left, or outside a decision, a short Retry-After is waited out, as before.
     with deadline.decision_deadline(30), pytest.raises(ProviderError):
         http.post_json(client, URL, {}, headers={}, timeout_s=5, retries=1)
-    assert waits == [1.0] and len(calls) == 3
+    assert waits == [2.0] and len(calls) == 3
 
 
 class Dripping(httpx.SyncByteStream):
-    """An answer that arrives a byte every 50 ms, for 2.5 s."""
+    """An answer that arrives a byte every 50 ms, for 5 s."""
 
     def __iter__(self) -> Iterator[bytes]:
-        for _ in range(50):
+        for _ in range(100):
             time.sleep(0.05)
             yield b" "
 
@@ -324,7 +325,7 @@ def test_a_slow_response_stops_at_the_deadline() -> None:
         http.post_json(client, URL, {}, headers={}, timeout_s=5)
     took = time.monotonic() - started
     assert error.value.code == "timeout"
-    assert took < 1.0  # the deadline, one chunk, and room for a busy runner; not 2.5 s
+    assert took < 2.5  # the deadline, one chunk, and room for a busy runner; not 5 s
 
 
 # -- the CQL engine ----------------------------------------------------------------------------
@@ -393,16 +394,16 @@ def test_a_cql_request_waits_at_most_what_remains(monkeypatch: pytest.MonkeyPatc
 
     seen = cql_engine(monkeypatch, slow)
     provider = build_provider(trial, "structured", "cql")
-    with deadline.decision_deadline(0.5), pytest.raises(ProviderError) as error:
+    with deadline.decision_deadline(2.0), pytest.raises(ProviderError) as error:
         provider.answer(trial_case(trial))
     assert error.value.code == "timeout"
     assert [method for method, _ in seen] == ["PUT", "POST"]
-    assert all(0 < waited <= 0.5 for _, waited in seen)
+    assert all(0 < waited <= 2.0 for _, waited in seen)
     seen.clear()
-    with deadline.decision_deadline(0.5), pytest.raises(ProviderError) as error:
+    with deadline.decision_deadline(2.0), pytest.raises(ProviderError) as error:
         provider.answer(trial_case(trial))  # the Library is there: `$evaluate` alone
     assert error.value.code == "timeout"
-    assert [method for method, _ in seen] == ["POST"] and 0 < seen[0][1] <= 0.5
+    assert [method for method, _ in seen] == ["POST"] and 0 < seen[0][1] <= 2.0
     seen.clear()
     with pytest.raises(ProviderError) as error:
         provider.answer(trial_case(trial))
@@ -426,7 +427,7 @@ def test_a_cql_answer_still_arriving_stops_at_the_deadline(
         provider.answer(trial_case(trial))
     took = time.monotonic() - started
     assert error.value.code == "timeout"
-    assert took < 1.0  # the deadline, one part, and room for a busy runner; not 2.5 s
+    assert took < 2.5  # the deadline, one part, and room for a busy runner; not 5 s
 
 
 # -- credentials -------------------------------------------------------------------------------

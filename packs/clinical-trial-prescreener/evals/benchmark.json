@@ -2,14 +2,14 @@
   "format": "mendari.eval/2",
   "pack": {
     "id": "mendari/clinical-trial-prescreener",
-    "version": "0.1.5",
-    "digest": "sha256:6d7f48eec32a6f84dedfbb5e249dd4c133cd50e9ca9b488f72f86de1ccaa6b49"
+    "version": "0.2.0",
+    "digest": "sha256:aeb3d0dcd0977fdac2b236c32c800f84b68777386d816b456a77f6cdf2544aac"
   },
   "providers": {
     "structured": {
       "variant": "criteria",
       "type": "criteria",
-      "model": "criteria@cdfa245d36d6"
+      "model": "criteria@140989804283"
     },
     "notes": {
       "variant": "rules",
@@ -32,7 +32,7 @@
     "limit": null
   },
   "ledger": {
-    "id": "sha256:26948593e73882768b717901e7f44a08c4974778252b753411d29e57a3cb15eb",
+    "id": "sha256:d06d3c173620db8bd3534dff1a1447de73122b30a5268e9ba2b427b3340a1e39",
     "cases": 300
   },
   "seeds": {
@@ -2050,25 +2050,25 @@
   },
   "models": {
     "age_18_75": {
-      "criteria@cdfa245d36d6": 300
+      "criteria@140989804283": 300
     },
     "t2d_diagnosis": {
-      "criteria@cdfa245d36d6": 300
+      "criteria@140989804283": 300
     },
     "hba1c_in_range": {
-      "criteria@cdfa245d36d6": 300
+      "criteria@140989804283": 300
     },
     "stable_metformin": {
-      "criteria@cdfa245d36d6": 300
+      "criteria@140989804283": 300
     },
     "egfr_30_or_more": {
-      "criteria@cdfa245d36d6": 300
+      "criteria@140989804283": 300
     },
     "no_insulin": {
-      "criteria@cdfa245d36d6": 300
+      "criteria@140989804283": 300
     },
     "no_recent_cv_event": {
-      "criteria@cdfa245d36d6": 300
+      "criteria@140989804283": 300
     },
     "note_pregnancy": {
       "rules@403d03c1d9cf": 300
@@ -2192,15 +2192,15 @@
     }
   ],
   "run": {
-    "id": "bd8c5139-f6dd-4fb0-b241-333c997aa015",
-    "created_at": "2026-10-07T19:29:40+00:00",
+    "id": "b796bb04-04e3-4639-a4e3-6326d11a60a2",
+    "created_at": "2026-10-08T04:01:04+00:00",
     "latency_ms": {
-      "mean": 0.4092651667694251,
-      "p50": 0.39741722866892815,
-      "p95": 0.512000173330307,
-      "max": 0.8474169299006462
+      "mean": 0.652880403213203,
+      "p50": 0.4698331467807293,
+      "p95": 1.3606250286102295,
+      "max": 13.297291938215494
     },
     "engine": "0.1.0"
   },
-  "result_sha256": "sha256:87c1e76e51c7212adef93b9ddd5979fdbab8fd70645d0248866f9896a82f454c"
+  "result_sha256": "sha256:c26c39d762d155bf16cef717cd5b0d2a3e659332a92299d5a86e5527ac9516b8"
 }

@@ -25,10 +25,14 @@ CASE_SYSTEM = "https://mendari.co/fhir/synthetic-case"
 CHANNEL_SYSTEM = "https://mendari.co/fhir/CodeSystem/message-channel"
 CHANNELS = {"portal": "Patient portal", "sms": "Text message (SMS)", "email": "Email"}
 US_CORE = "http://hl7.org/fhir/us/core/StructureDefinition/"
-SNOMED = "http://snomed.info/sct"
 LOINC = "http://loinc.org"
 TERMINOLOGY = "http://terminology.hl7.org/CodeSystem"
-REFERRAL = {"system": SNOMED, "code": "3457005", "display": "Patient referral"}
+# What marks a ServiceRequest as a specialty referral (the Referral Router's FHIR focus): a code
+# invented for this synthetic example, in a code system named as fictional. Not SNOMED CT or any
+# real code system; a site maps its own referral code. (LP-14: it replaced a SNOMED CT code.)
+REFERRAL_SYSTEM = "https://mendari.co/fhir/CodeSystem/fictional-referrals"
+REFERRALS = {"FR101": "Specialty referral"}
+REFERRAL = {"system": REFERRAL_SYSTEM, "code": "FR101", "display": REFERRALS["FR101"]}
 _AGE_FOR_BAND = {"0-17": 8, "18-39": 30, "40-64": 52, "65+": 74}
 _CLINICAL_NOTE = {
     "system": "http://hl7.org/fhir/us/core/CodeSystem/us-core-documentreference-category",

@@ -5,7 +5,7 @@
 //
 // Each definition answers a question with one of its labels: 'yes', 'no' or 'unknown'. Missing,
 // stale or unrecognised data gives 'unknown', never a guess.
-library GlycemiaTwoCriteria version '0.1.0'
+library GlycemiaTwoCriteria version '0.2.0'
 
 using FHIR version '4.0.1'
 
@@ -59,8 +59,8 @@ define "Age 18 To 75":
 // -- t2d_diagnosis ---------------------------------------------------------------------------
 
 define "T2D Diagnosis":
-  if exists ([Condition] C where "Matches"(C.code, {'E11'}, {'44054006'})) then 'yes'
-  else if exists ([Condition] C where "Matches"(C.code, {'E10'}, {'46635009'})) then 'no'
+  if exists ([Condition] C where "Matches"(C.code, {'E11'}, {'FC101'})) then 'yes'
+  else if exists ([Condition] C where "Matches"(C.code, {'E10'}, {'FC102'})) then 'no'
   else 'unknown'
 
 // -- hba1c_in_range: 7.0 to 10.5 % in the last 90 days (IFCC mmol/mol converted to NGSP %) -----
@@ -126,7 +126,7 @@ define "No Insulin":
 
 define "CV Conditions":
   [Condition] C
-    where "Matches"(C.code, {'I21', 'I22', 'I63'}, {'22298006', '230690007', '432504007'})
+    where "Matches"(C.code, {'I21', 'I22', 'I63'}, {'FC201', 'FC202', 'FC203'})
 
 define "Recent CV Event":
   exists (
