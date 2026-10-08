@@ -216,7 +216,7 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         # configuration is mounted only when Backend Services is on (server/backend_services.py).
         ("GET", r"^/fhir/(metadata|OperationDefinition/[^/]+)$", "public"),
         ("GET", r"^/fhir/\.well-known/smart-configuration$", "public"),
-        # The terminology carries the packs' labels and criteria: read, like /api/packs.
+        # The terminology carries the packs' labels and criteria: read, like a pack's detail.
         ("GET", r"^/fhir/(CodeSystem|NamingSystem)/[^/]+$", "read"),
         # Decisions and their audit trail: read, like /api/audit, and never public: without a
         # signed-in organization the store's scope is every organization's rows.

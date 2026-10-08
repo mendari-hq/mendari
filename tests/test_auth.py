@@ -386,7 +386,13 @@ def test_every_route_has_the_permission_it_should(tmp_path: Path) -> None:
         for m, p in routes
         if m in ("POST", "PUT", "PATCH", "DELETE") and (m, p) not in public | searches
     ]
-    assert all(permission_for(m, p) != "read" for m, p in writes), writes
+    # Nothing that writes needs only what every role holds (`read`, `discover`).
+    assert all(permission_for(m, p) not in ("read", "discover") for m, p in writes), writes
+    # `discover` reaches the two lists of packs to decide with, and nothing else.
+    assert {r for r in routes if permission_for(*r) == "discover"} == {
+        ("GET", "/api/packs"),
+        ("GET", "/cds-services"),
+    }
     assert permission_for("POST", "/api/packs/a/b/evals") == "evaluate"
     assert permission_for("POST", "/fhir/$decide") == "decide"
     assert permission_for("GET", "/fhir/CodeSystem/x") == "read"  # pack labels and criteria
@@ -583,8 +589,12 @@ def test_every_route_principal_role_and_scope_gets_what_it_should(
     }
     assert set(ROUTE_SCOPE) <= set(routes)
     assert {r: needed(*r) for r in routes if needed(*r)} == ROUTE_SCOPE
+    lists = {("GET", "/api/packs"), ("GET", "/cds-services")}
     for route, scope in ROUTE_SCOPE.items():  # a scope stands for the route's own permission
-        assert permission_for(*route) in parse(scope).permissions, route
+        implied = (
+            "discover" if route in lists else next(iter(parse(scope).permissions - {"discover"}))
+        )
+        assert permission_for(*route) == implied, route
     assert {role: set(p) for role, p in auth_module.PERMISSIONS.items()} == ROLE_PERMISSIONS
 
     settings = AuthSettings(

@@ -496,7 +496,7 @@ operations, LP-22 site network, LP-23 EHR pilot.
     resolves its organization through `tenancy.current()` is refused (`NoOrganization`, 403),
     never widened to all of them (None) or to `default`; an empty organization is one, never
     "any", in the key and client store.
-  - [ ] **12c** (PR open) Decide-scoped credentials list packs and read CDS discovery (ADR-0004).
+  - [ ] **12c** Decide-scoped credentials list packs and read CDS discovery (ADR-0004).
     **Owner first:** it widens what a decide-scoped key or token reaches in claims mode,
     production included (the pack list and CDS discovery, read-only and deployment-wide), and
     `/api/auth/me` lists a new `discover` permission. The LP-12 prompt asks for it; the owner
