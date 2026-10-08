@@ -336,6 +336,19 @@ as tested; nothing is published before that. [`deploy/`](https://github.com/June
 templates for a site's own infrastructure: docker compose on one server and Kubernetes. Both come
 with Postgres, your identity provider, PHI mode and the daily retention and monitoring jobs.
 
+Mendari's own code is Apache-2.0; an image also holds third-party software under other licences
+(Debian's packages, and the libraries the PostgreSQL driver bundles, some under the GPL or LGPL).
+Each image carries them in `/licenses`: Mendari's `LICENSE` and `NOTICE`, `THIRD_PARTY_NOTICES.md`
+(every component, its version, its licence, where its notices are and where its source is),
+`SOURCE.md` and the texts of what bundles no notice of its own; Debian's copyright files stay in
+`/usr/share/doc`. A release publishes each image's corresponding source beside it, as
+`<image>:<tag>-sources`, with the image's SBOM (SPDX, every package with its source location) in
+its `/sources/sbom/`; the SBOM BuildKit attaches in the image's index lists the same packages and
+licences, without their source locations. `scripts/check_image_licences.py` checks all of it
+(CI's `docker` and `image-sbom` jobs), and the release pushes no image that fails it or whose
+SBOM names a licence that is unknown or not allowed. The image builds with BuildKit or Docker's
+classic builder alike.
+
 ### Docker sandbox
 
 <!-- check: skip docker: needs the Docker sandbox; CI job sandbox-e2e runs it -->

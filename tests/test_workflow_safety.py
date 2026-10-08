@@ -126,7 +126,9 @@ def test_a_release_publishes_only_by_hand_after_its_build_from_a_guarded_environ
     targets = {"publish-pypi": "pypi", "publish-images": "pypi", "publish-testpypi": "testpypi"}
     for name in publishing:
         job = jobs[name]
-        assert set(job["needs"]) == {"build", "images"}, name
+        # Images also wait for their corresponding source (test_images_are_pushed_only_...).
+        extra = {"image-sources"} if name == "publish-images" else set()
+        assert set(job["needs"]) == {"build", "images"} | extra, name
         assert job["if"] == (
             f"inputs.publish && inputs.target == '{targets[name]}' "
             "&& !github.event.repository.private"
@@ -166,6 +168,66 @@ def test_a_release_publishes_only_by_hand_after_its_build_from_a_guarded_environ
     assert 'cmp "$served"' in checked and "--require-hashes" in checked
     assert "mendari test mendari/patient-inbox-router" in checked
     assert "extra-index-url" not in RELEASE.read_text()  # no name on TestPyPI stands in for one
+
+
+def test_images_are_pushed_only_when_they_comply_and_with_their_source_first() -> None:
+    """The owner's decision of 2026-10-07: images wait until they comply. Each image, for each
+    architecture, is checked for its licences, notices and Debian's copyright files, and the SBOM
+    BuildKit attached to it is scanned for its licences; any failure fails the job the publishing
+    job needs. The source is collected from what the checks saw, and pushed before the image."""
+    jobs = _workflow(RELEASE)["jobs"]
+    images = "\n".join(step.get("run", "") for step in jobs["images"]["steps"])
+    assert '--attest "type=sbom,generator=' in images
+    loop = images[images.index("for arch in amd64 arm64") :]
+    for command in (
+        'check_image_licences.py --extract-sbom "/tmp/${NAME}.tar" --arch "$arch"',
+        'check_image_licences.py --image "$image"',
+        '--sbom "/tmp/sbom/${NAME}-${arch}.attestation.json"',
+        '--sources-out "/tmp/sbom/${NAME}-${arch}.sources.json"',
+    ):
+        assert command in loop, command
+    assert not any("continue-on-error" in step or "if" in step for step in jobs["images"]["steps"])
+    uploads = [s["with"] for s in jobs["images"]["steps"] if "upload-artifact" in s.get("uses", "")]
+    assert {
+        "name": "sbom-${{ matrix.name }}",
+        "path": "/tmp/sbom/",
+        "retention-days": 90,
+    } in uploads
+
+    sources = jobs["image-sources"]
+    assert sources["needs"] == "images" and not _writes(sources.get("permissions"))
+    collected = "\n".join(step.get("run", "") for step in sources["steps"])
+    assert (
+        "scripts/image_sources.py --out /tmp/sources --sboms /tmp/sbom /tmp/sbom/*.sources.json"
+        in collected
+    )
+    assert "-f licenses/image/sources.Dockerfile" in collected
+
+    pushed = "\n".join(step.get("run", "") for step in jobs["publish-images"]["steps"])
+    source = pushed.index('"docker://ghcr.io/${OWNER,,}/${NAME}:${TAG}-sources"')
+    image = pushed.index('"docker://ghcr.io/${OWNER,,}/${NAME}:${TAG}"')
+    assert source < image  # never an image without its source beside it
+    assert "oci-archive:/tmp/sources/image-sources.tar" in pushed
+
+
+def test_ci_checks_the_images_licences() -> None:
+    jobs = _workflow(ROOT / ".github" / "workflows" / "ci.yml")["jobs"]
+    runs = "\n".join(step.get("run", "") for step in jobs["docker"]["steps"])
+    assert "python3 scripts/check_image_licences.py --image mendari-engine:ci" in runs
+    # And the SBOM scan, as a release runs it: a base image bump that changes a licence fails in
+    # its own pull request (the generator and builder are release.yml's: test_supply_chain).
+    sbom = jobs["image-sbom"]
+    assert not sbom.get("if") and not _writes(sbom.get("permissions"))
+    assert not any("continue-on-error" in step or "if" in step for step in sbom["steps"])
+    scanned = "\n".join(step.get("run", "") for step in sbom["steps"])
+    for command in (
+        '--attest "type=sbom,generator=',
+        "check_image_licences.py --extract-sbom /tmp/mendari-engine.tar --arch amd64",
+        "check_image_licences.py --image mendari-engine:sbom",
+        "--sbom /tmp/sbom/mendari-engine-amd64.attestation.json",
+        "--sbom-out /tmp/sbom/mendari-engine-amd64.spdx.json",
+    ):
+        assert command in scanned, command
 
 
 def test_the_docs_deploy_by_hand_from_a_strict_checked_build() -> None:

@@ -636,6 +636,80 @@ Epic's free sandbox when LP-23 starts, from a checklist Claude sends (the APIs t
 ServiceRequest and Communication included). An Epic shared by several organizations (Community
 Connect) is not supported yet.
 
+**Container images wait until they comply (owner, 2026-10-07):** after a licensing analysis the
+owner received in October 2026, no image goes to GHCR until it carries what the licences of
+everything in it ask, and `release.yml` refuses to push one that fails the checks. Images are
+pushed only by `release.yml`'s `publish-images`, on a release to PyPI (the TestPyPI rehearsal
+pushes none), so the first published images wait on the item below; the PyPI release does not.
+
+- [ ] **Image licence compliance** (#180, draft, branch `claude/image-licence-compliance`; the
+  images wait on it). Every image carries `/licenses`: Mendari's `LICENSE` and `NOTICE`,
+  `SOURCE.md` (where the corresponding source is), `THIRD_PARTY_NOTICES.md` and `inventory.json`
+  written by the build from what the image holds (`scripts/image_notices.py`, run inside the
+  image on its own Python), `third-party.cdx.json` (what an SBOM scanner cannot see by itself)
+  and `third-party/` (texts). `licenses/image/` keeps what the image would otherwise lack:
+  `components.toml` (41 components, each with its version, licence, source, and texts fetched
+  from its upstream at that version: what psycopg-binary 3.3.6 bundles on each architecture, from
+  its wheels' auditwheel SBOMs and its build (libpq 18.6, OpenSSL 3.5.8, OpenLDAP 2.6.14; on
+  amd64 CentOS 7's Cyrus SASL, MIT Kerberos, com_err, keyutils, libselinux and PCRE and
+  manylinux2014's libxcrypt 4.5.2; on arm64 AlmaLinux 8's, with PCRE2, libxcrypt 4.1.1 and
+  OpenSSL 1.1.1k), what cryptography, cffi, PyYAML and google-re2 link statically, the Rust
+  standard library, CPython 3.12.15's incorporated software and pip 25.0.1's 17 vendored
+  packages), `crates.toml` (the 143 crates the Rust packages' own SBOMs list, 75 distinct texts
+  from crates.io, each crate checked against its SBOM's SHA-256), 130 texts with `SHA256SUMS`
+  (`scripts/image_licence_texts.py`). GPL and LGPL components name their exact source pinned by
+  SHA-256 (keyutils' and libxcrypt's SRPMs, libxcrypt 4.5.2 with manylinux's build scripts,
+  psycopg's tag and sdists, certifi, pip, CPython). Debian's `/usr/share/doc/*/copyright` (the
+  base image's slim configuration keeps them; nothing removes them) and
+  `/usr/share/common-licenses` are checked present. The label keeps `licenses=Apache-2.0` with a
+  description naming it Mendari's only and pointing at `/licenses`.
+  `scripts/check_image_licences.py` fails an image with anything uncovered (a package without
+  its copyright file, a bundled library, crate or native package at a version nobody reviewed, a
+  text missing or changed, stale notices, the wrong LICENSE or NOTICE, the label), and scans an
+  SBOM: permissive, or copyleft with its source published, or a reviewed exception (GCC's
+  runtime, libcrypt1 and debian-archive-keyring by their copyright text's hash, xz's notice on
+  the GNU licence documents, distlib's launchers in pip); unknown fails. `release.yml`: BuildKit
+  attaches an SBOM of each finished image (`docker/buildkit-syft-scanner` 1.12.0 by digest), each
+  architecture of each image is checked and its SBOM scanned, the run keeps the SBOMs with each
+  package's source location (90 days), a new `image-sources` job collects every Debian source
+  package at its installed version (deb.debian.org, then the security archive, then
+  snapshot.debian.org; each file checked against its `.dsc`) and the components' sources into a
+  files-only image, and `publish-images` (now after it) pushes it as `<tag>-sources` before
+  each image. CI's `docker` job runs the image check. Measured on the engine image built locally
+  (arm64 native, amd64 under QEMU): both pass, the SBOMs' 330 and 327 packages allowed; the
+  sources are 61 Debian source packages and 13 other files, 345 MB (one 339 MB layer), collected
+  in 12 s. Size (compressed, on disk): arm64 71.8 and 335 MB before, 72.0 and 338 MB after;
+  amd64 69.6 and 303 MB before, 69.8 and 307 MB after (`/licenses` is 3.3 MB).
+  **Not done, for the owner:** attaching the sources to a GitHub release (no release is created
+  today, and it needs `contents: write` on a publishing job, which the workflow safety rules do
+  not allow; the `-sources` tag in the same GHCR repository is the source's place instead);
+  `SOURCE.md`'s fallback ("open an issue in the Mendari repository and the maintainers will send
+  it") commits the maintainers: confirm or name a contact; counsel to confirm the approach
+  (equivalent access from the same place, no separate written offer). Keep each `-sources` tag
+  as long as its image, and make it public with the image's package.
+  **Review (2026-10-08), six findings, all fixed:** `THIRD_PARTY_NOTICES.md` now gives a source
+  for every Python package (PyPI at its version, the component's for psycopg, certifi and pip,
+  the repository for Mendari) and every crate (crates.io), and Debian's section says where each
+  source package is (`inventory.json` gives each one's snapshot.debian.org address); the SBOM's
+  source locations are now read from that inventory, so the two always agree, and a package the
+  SBOM lists that the inventory does not fails the release (`no source location`). The SBOM with
+  source locations is the one in `<tag>-sources` (`/sources/sbom/`): README and SOURCE.md say
+  so, and that BuildKit's attestation has none (pushing the enriched copy as an OCI referrer
+  would add a tool to the publishing job that nothing can exercise before a release). CI's new
+  `image-sbom` job runs the release's SBOM scan on every change, with the release's generator
+  and builder (a test keeps them the same), so a base image bump that renames a Debian licence
+  or changes a reviewed copyright text fails in its own pull request. pip's vendored Requests
+  carries Requests' NOTICE file (Apache-2.0 4(d); none of the other Apache-2.0 components has
+  one upstream). CPython's corresponding source adds the official image's Dockerfile that
+  compiled it (docker-library/python 2a3b794c, 3.12/slim-trixie, pinned by SHA-256; its readline
+  and _gdbm modules link GPL-3.0 libraries), and `base_image` ties that recipe to the
+  `Dockerfile`'s base, so a new base image is reviewed again. The `Dockerfile` writes the
+  notices in a stage of its own instead of `RUN --mount`, so `docker build .` works again with
+  Docker's classic builder (a test keeps BuildKit-only syntax out). Not done: CI does not
+  collect the sources (`image_sources.py`): every run would fetch about 345 MB from Debian's
+  archive, and snapshot.debian.org as pinned versions leave the pool; a scheduled job is the
+  owner's call.
+
 - [ ] **LP-10** Statistics and a per-case ledger behind every number. Split in three PRs:
   - [x] **LP-10a** The statistics, the ledger, the report format and `mendari compare`
     (#153). `mendari.evals.stats`, pure Python: Clopper-Pearson from the beta quantile (a
@@ -1295,7 +1369,9 @@ build session. A1–A8 come before A9 (making the repository public); A10 and A1
    runs the tests and builds and tests the packages and the six images (amd64 and arm64). When it
    is green, run it again from the same tag with publish **on** and target **`pypi`**, and in the
    run approve the `pypi` deployment and the six `ghcr`
-   deployments. Check after: pypi.org/project/mendari shows 0.1.0
+   deployments (the images wait on the image licence compliance PR, owner's decision
+   2026-10-07; once it is in, each `ghcr` deployment pushes `<tag>-sources`, then the image).
+   Check after: pypi.org/project/mendari shows 0.1.0
    with a wheel and an sdist; in a fresh venv, `pip install mendari` then `mendari test
    mendari/patient-inbox-router` passes; the release job's "The sdist holds only what a source
    build needs" step passed; GitHub → your profile → Packages lists the six `mendari-*`
