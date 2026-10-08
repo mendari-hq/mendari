@@ -968,7 +968,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     per CDS order hook draft order), per local day, after the rate limits admit them; past it
     `429` with `Retry-After` until midnight, before any work; `/api/health` shows a principal
     its own. Its value is the owner's.
-  - [x] **12k** (PR open) Close-out: G2-3's a6-accounts prerequisite and its probes
+  - [x] **12k** (#193) Close-out: G2-3's a6-accounts prerequisite and its probes
     (`launch/gates.yaml`: 20 tests, 130 with their cases, on SQLite, Postgres and in the
     browser); the two acceptance lines that had no test of their own, `mendari audit verify`
     after membership, invitation and key events, and an empty or `default` organization claim
