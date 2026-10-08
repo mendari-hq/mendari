@@ -1121,7 +1121,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     none, the reviewed stratum, refusals apart, whole weeks, unknown cost as unknown).
   - [ ] **21d** Operational health in the monitor: provider error share (an additive
     `decisions.provider_errors` count), abstention share, latency.
-  - [ ] **21e** (PR open) Alert delivery (`mendari.alerts`): `MENDARI_ALERT_FORMAT` (`mendari`
+  - [ ] **21e** (#196) Alert delivery (`mendari.alerts`): `MENDARI_ALERT_FORMAT` (`mendari`
     JSON or `slack`), an HMAC signature (`MENDARI_ALERT_SECRET`: `Mendari-Signature`, with the
     receiver's recipe in the guide, run by the tests), retries (no answer, `408`, `429`, `5xx`)
     and an `alert_deliveries` record (never the URL or the secret); the quota alert one try on
