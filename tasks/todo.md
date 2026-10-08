@@ -470,7 +470,7 @@ everything in it ask, and `release.yml` refuses to push one that fails the check
 pushed only by `release.yml`'s `publish-images`, on a release to PyPI (the TestPyPI rehearsal
 pushes none), so the first published images wait on the item below; the PyPI release does not.
 
-- [ ] **Image licence compliance** (draft PR, branch `claude/image-licence-compliance`; the
+- [ ] **Image licence compliance** (#180, draft, branch `claude/image-licence-compliance`; the
   images wait on it). Every image carries `/licenses`: Mendari's `LICENSE` and `NOTICE`,
   `SOURCE.md` (where the corresponding source is), `THIRD_PARTY_NOTICES.md` and `inventory.json`
   written by the build from what the image holds (`scripts/image_notices.py`, run inside the
