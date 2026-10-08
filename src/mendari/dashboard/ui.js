@@ -359,7 +359,8 @@ export async function whileBusy(button, busyText, task) {
 // holds), Cancel (first, focused) and the `action` button (`danger` for what takes something
 // away). The action runs `run(form)`: its result closes the dialog and is what the promise gives
 // (true for an answer without a body); a refusal is said inside the dialog (nothing under a
-// modal is heard) and leaves it open. Cancel or Escape gives null. Leaving the view closes it.
+// modal is heard) and leaves it open. Cancel or Escape gives null. Leaving the view closes it,
+// unless its request is running (`data-busy`): then it closes with the answer.
 let dialogs = 0;
 
 export function actionDialog({ title, body, action, danger = false, run }) {
@@ -390,9 +391,12 @@ export function actionDialog({ title, body, action, danger = false, run }) {
       dialog.remove();
       resolve(result);
     });
+    // `data-busy` while its request runs: leaving the view leaves it open until the answer, so what
+    // follows the answer (a page reload after changing your own roles) still happens.
     act.addEventListener("click", async () => {
       error.hidden = true;
       busy = true;
+      dialog.dataset.busy = "";
       cancel.disabled = true;
       try {
         const answer = await whileBusy(act, `${action}…`, () => run(form));
@@ -403,6 +407,7 @@ export function actionDialog({ title, body, action, danger = false, run }) {
         error.hidden = false;
       } finally {
         busy = false;
+        delete dialog.dataset.busy;
         cancel.disabled = false;
       }
     });

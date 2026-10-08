@@ -4,9 +4,14 @@
 // tab's sessionStorage. Here: who is signed in, then, on a press only, accepting. Signing in
 // comes back here (`next=/invite`, a literal: never this page's address), and the token waits in
 // the tab. It goes nowhere but the accept request's body: never into the page, an attribute, a
-// URL, a log or another storage, and it is forgotten once the answer is final (joined, not valid,
-// already a member, malformed, or invitations not used here). This page never uses the
-// dashboard's `api()`: that names an organization, and its session banner copies the address.
+// URL, a log or another storage, and it is forgotten once the answer about it is final (joined,
+// not valid, already a member, malformed, or invitations not used here). This page never uses
+// the dashboard's `api()`: that names an organization, and its session banner copies the address.
+//
+// A link opened again in this tab changes only the address's fragment, which loads no new page:
+// invite.html's script takes it the same way and says so ("invite-link"), and the page starts
+// over with it. An answer that arrives for the flow before is dropped, and Accept always sends
+// the token the tab holds when it is pressed.
 
 import { setupTheme } from "./theme.js";
 import { announce, esc, focusHeading, refusalText, roleName, storageSet, whileBusy } from "./ui.js";
@@ -20,14 +25,19 @@ const heading = document.getElementById("invite-title");
 const body = document.getElementById("invite-body");
 const actions = document.getElementById("invite-actions");
 
+let current = 0; // the flow on screen: each start is a new one
+
 setupTheme();
 
 function held() {
   try { return sessionStorage.getItem(TOKEN); } catch { return null; }
 }
 
-function forget() {
-  try { sessionStorage.removeItem(TOKEN); } catch { /* nothing was kept */ }
+// Forgets `token` only: never one a link opened since put in its place.
+function forget(token) {
+  try {
+    if (sessionStorage.getItem(TOKEN) === token) sessionStorage.removeItem(TOKEN);
+  } catch { /* nothing was kept */ }
 }
 
 // Same-origin JSON, never with the dashboard's organization header. Its answer, whatever it is.
@@ -49,6 +59,14 @@ function show({ title, html, buttons = [], alert = false }) {
   actions.replaceChildren(...buttons.map(control));
   focusHeading(heading, { scroll: false });
   announce(`${title}. ${body.textContent.trim()}`, { error: alert });
+}
+
+// While the page finds out who is signed in: nothing to press (a button left from the state before
+// would act on it), and nothing announced or focused yet.
+function opening() {
+  heading.textContent = "Invitation";
+  body.innerHTML = "<p>Opening your invitation…</p>";
+  actions.replaceChildren();
 }
 
 // A button runs `run` (busy while it does); a link goes to `href`. Labels are text, never markup.
@@ -89,30 +107,32 @@ const failed = (detail) => show({
 });
 
 async function start() {
+  const run = ++current;
   const why = document.documentElement.dataset.invite;
   if (why === "unstored") {
     return show({ title: "This browser keeps no data for this site", html: "<p>Allow site data for this site, then open the link again.</p>", alert: true });
   }
-  if (why === "damaged") return damaged();
+  if (why === "damaged") return damaged(); // invite.html dropped the token already
   const token = held();
   if (!token) return show({ title: "No invitation in this tab", html: "<p>Open the link you were sent again, in this tab.</p>" });
+  opening();
   let me;
   try {
     me = await send("/api/auth/me");
   } catch {
-    return failed();
+    return run === current && failed();
   }
+  if (run !== current) return; // another link was opened meanwhile: its flow shows
   if (me.status !== 200 || !me.body) return failed(refusalText(me.body));
   if (me.body.accounts !== "memberships") { // a deployment that changed its mode since the link was made
-    forget();
+    forget(token);
     return show({ title: "Invitations aren't used here", html: "<p>Ask whoever invited you how to sign in to this site.</p>", alert: true });
   }
   if (!me.body.signed_in || me.body.principal?.kind !== "user") return signedOut();
-  return ready(me.body, token);
+  return ready(me.body, run);
 }
 
 function damaged() {
-  forget();
   return show({
     title: "This link is incomplete",
     html: "<p>Copy the whole link, including everything after #, and open it again.</p>",
@@ -128,28 +148,31 @@ function signedOut() {
   });
 }
 
-function ready(me, token) {
+function ready(me, run) {
   const { name, actor } = me.principal;
   return show({
     title: "Accept your invitation",
     html: `<p>Signed in as <b>${esc(name)}</b> (${esc(actor)}). Accepting adds you to the organization it is for, with the roles it gives.</p>`,
-    buttons: [{ label: "Accept invitation", primary: true, run: () => accept(me, token) }, otherAccount()],
+    buttons: [{ label: "Accept invitation", primary: true, run: () => accept(me, run) }, otherAccount()],
   });
 }
 
-async function accept(me, token) {
+async function accept(me, run) {
+  const token = held(); // the one this tab holds now
+  if (!token) return start();
   let answer;
   try {
     answer = await send("/api/auth/invitations/accept", { token });
   } catch {
-    return failed();
+    return run === current && failed();
   }
   const { status, body: said } = answer;
   const refusal = said?.error === "InvitationRefused";
-  if (status === 200) {
-    forget();
-    return joined(me, said);
+  if (status === 200 || status === 422 || (refusal && (status === 404 || status === 409))) {
+    forget(token); // a final answer about this token, whatever is on screen now
   }
+  if (run !== current) return; // another link was opened meanwhile: its flow shows
+  if (status === 200) return joined(me, said, run);
   if (status === 401) return signedOut();
   if (status === 403 && refusal && said.reason === "other_address") {
     return show({
@@ -168,7 +191,6 @@ async function accept(me, token) {
     });
   }
   if (status === 404 && refusal) {
-    forget();
     return show({
       title: "This invitation isn't valid",
       html: "<p>It was used, revoked or has expired. Ask whoever invited you for a new link.</p>",
@@ -176,7 +198,6 @@ async function accept(me, token) {
     });
   }
   if (status === 409 && refusal) {
-    forget();
     return show({
       title: "You're already a member",
       html: "<p>Its administrators change roles.</p>",
@@ -197,7 +218,7 @@ async function accept(me, token) {
   return failed(refusalText(said));
 }
 
-function joined(me, made) {
+function joined(me, made, run) {
   const org = made.name || made.org;
   const roles = (made.roles ?? []).map(roleName).join(", ");
   if (made.selected) {
@@ -207,25 +228,26 @@ function joined(me, made) {
       buttons: [openMendari],
     });
   }
-  const current = me.memberships?.find((m) => m.org === me.principal.org)?.name ?? me.principal.org;
+  const now = me.memberships?.find((m) => m.org === me.principal.org)?.name ?? me.principal.org;
   return show({
     title: `You've joined ${org}`,
-    html: `<p>Your roles: ${esc(roles)}. This browser still works in ${esc(current)}.</p>`,
+    html: `<p>Your roles: ${esc(roles)}. This browser still works in ${esc(now)}.</p>`,
     buttons: [
-      { label: `Switch to ${org}`, primary: true, run: () => switchTo(me, made) },
-      { label: `Stay in ${current}`, href: "/" },
+      { label: `Switch to ${org}`, primary: true, run: () => switchTo(made, run) },
+      { label: `Stay in ${now}`, href: "/" },
     ],
   });
 }
 
 // Act for the organization just joined, in this browser, then open the dashboard there.
-async function switchTo(me, made) {
+async function switchTo(made, run) {
   let answer;
   try {
     answer = await send("/api/auth/organization", { org: made.org });
   } catch {
     answer = null;
   }
+  if (run !== current) return; // another link was opened meanwhile: its flow shows
   if (answer?.status === 200) {
     storageSet(LAST_CHOSEN, made.org);
     location.assign("/");
@@ -239,5 +261,8 @@ async function switchTo(me, made) {
     alert: true,
   });
 }
+
+// invite.html's first script took a link opened again in this tab (a fragment change).
+document.addEventListener("invite-link", () => start());
 
 start();

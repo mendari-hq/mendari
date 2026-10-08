@@ -591,10 +591,11 @@ Connect) is not supported yet.
       people with `keys` in memberships mode, absent otherwise: `views.admin.available()`):
       members with their roles, change and remove with a confirmation, the last-admin refusal
       in words; invite with the link shown once in a dialog (copy, never shown again); the
-      invitations with their status and revoke; grant (with roles) or refuse a request. 26
-      browser tests (18 on a real memberships server, one a real sign-in through another
-      origin that never sees the token; axe in both themes; a phone's width) and 9 for the
-      page's serving. Fixed in 12f-i: a refusal's body names its `reason` (the page read the
+      invitations with their status and revoke; grant (with roles) or refuse a request. 32
+      browser tests as `pytest --collect-only` counts them (25 on a real memberships server, one
+      a real sign-in through another origin that never sees the token, and 7 mocked over the
+      open server; axe in both themes; a phone's width) and 9 for the page's serving.
+      Fixed in 12f-i: a refusal's body names its `reason` (the page read the
       wording), and removing a pending membership revokes the invitations to its address too.
   - [ ] **12g** The organization bound into each chained event (memberships mode), checked by
     `verify`; per-organization administrative reader and export; the generated two-organization

@@ -173,6 +173,18 @@ def accept(page: Page, token: str) -> None:
     page.get_by_role("button", name="Accept invitation").click()
 
 
+def accepts(page: Page) -> list[str]:
+    """The token each accept request from `page` sends, in order."""
+    sent: list[str] = []
+
+    def record(request: Request) -> None:
+        if request.url.endswith("/api/auth/invitations/accept"):
+            sent.append(json.loads(request.post_data or "{}").get("token", ""))
+
+    page.on("request", record)
+    return sent
+
+
 # -- the whole way, as people do it --------------------------------------------------------------
 
 
@@ -294,15 +306,21 @@ def test_a_signed_out_invitee_signs_in_and_the_token_never_leaves_the_page(
             ada.get_by_role("button", name="Sign in").click()
             expect(title(ada)).to_have_text("Accept your invitation")  # back, signed in
             assert ada.url == f"{site.base}/invite"
+            # Back from signing in, before Accept: in no cookie, whoever set it.
+            assert not [c for c in ada.context.cookies() if "ohi_" in json.dumps(c)]
+            assert "ohi_" not in ada.evaluate("document.cookie")
             expect(ada.locator("#invite-body")).to_contain_text("Signed in as Ada")
             ada.get_by_role("button", name="Accept invitation").click()
             expect(title(ada)).to_have_text("You've joined Clinic-A")
             assert kept(ada) is None
+            # Every header each request really sent (cookies and the referrer included), read
+            # while the browser is open.
+            later = sent[1:]  # after the link's own request
+            headed = [r.url for r in later if "ohi_" in json.dumps(r.all_headers())]
     assert len(seen) == 1 and "ohi_" not in seen[0]  # the identity provider saw no token
     assert any(r.url.startswith(endpoint) for r in sent)  # it really went there
-    later = sent[1:]  # after the link's own request
     assert not [r.url for r in later if "ohi_" in r.url]
-    assert not [r.url for r in later if "ohi_" in json.dumps(r.headers)]
+    assert headed == []
     assert not [url for url in navigated[1:] if "ohi_" in url]
     accepted = [r for r in sent if r.url.endswith("/api/auth/invitations/accept")]
     assert [json.loads(r.post_data or "{}") for r in accepted] == [{"token": token}]
@@ -348,6 +366,61 @@ def test_a_wrong_address_offers_another_account_and_keeps_the_link_open(site: Si
     bo.wait_for_url("**/auth/login?account=choose&next=%2Finvite")
     assert ("POST", "/auth/logout") in asked
     assert kept(bo) == made["token"]  # waits in the tab for the right account
+    assert [i["status"] for i in site.store.invitations("clinic-a")] == ["open"]
+
+
+@pytest.mark.parametrize("before", ["damaged", "no invitation", "another address"])
+def test_a_second_link_in_the_same_tab_starts_over_with_it(site: Site, before: str) -> None:
+    """A link opened in a tab already on /invite changes only the fragment, which loads no new
+    page: it leaves the address and its history entry all the same, it replaces the token held,
+    it is the one sent, and the page shows where it stands."""
+    lead(site)
+    sub, email = (
+        ("bo", "bo@example.org") if before == "another address" else ("ada", "ada@example.org")
+    )
+    page = site.window(person(site, sub=sub, email=email))
+    sent = accepts(page)
+    if before == "damaged":
+        page.goto("/invite#ohi_short")
+        expect(title(page)).to_have_text("This link is incomplete")
+    elif before == "no invitation":
+        page.goto("/invite")
+        expect(title(page)).to_have_text("No invitation in this tab")
+    else:
+        accept(page, invited(site)["token"])  # made out to ada; bo is signed in
+        expect(title(page)).to_have_text("This invitation is for another e-mail address")
+    second = invited(site, email=email)
+    page.evaluate("window.sameDocument = true")
+    page.goto(f"/invite#{second['token']}")
+    expect(title(page)).to_have_text("Accept your invitation")
+    assert page.evaluate("window.sameDocument") is True  # no new page loaded
+    assert page.url == f"{site.base}/invite"
+    assert kept(page) == second["token"]
+    page.get_by_role("button", name="Accept invitation").click()
+    expect(title(page)).to_have_text("You've joined Clinic-A")
+    assert sent[-1] == second["token"]
+    assert kept(page) is None
+    page.go_back()  # the entry before holds no token either
+    assert page.evaluate("window.sameDocument") is True and "ohi_" not in page.url
+
+
+@pytest.mark.parametrize("how", ["a new page", "the same page"])
+def test_a_malformed_link_clears_the_token_and_sends_nothing(site: Site, how: str) -> None:
+    lead(site)
+    made = invited(site)
+    page = site.window(person(site))
+    sent = accepts(page)
+    page.goto(f"/invite#{made['token']}")
+    expect(title(page)).to_have_text("Accept your invitation")
+    assert kept(page) == made["token"]
+    if how == "a new page":
+        page.goto("about:blank")  # the tab keeps its sessionStorage
+    page.goto("/invite#ohi_short")
+    expect(title(page)).to_have_text("This link is incomplete")
+    assert kept(page) is None
+    assert page.url == f"{site.base}/invite"
+    expect(page.locator("#invite-actions button")).to_have_count(0)
+    assert sent == []
     assert [i["status"] for i in site.store.invitations("clinic-a")] == ["open"]
 
 
@@ -453,6 +526,7 @@ def test_removing_a_member_asks_first(site: Site) -> None:
     expect(asking).to_contain_text("Open invitations to bo@example.org are revoked with it.")
     asking.get_by_role("button", name="Cancel").click()
     expect(bo).to_have_count(1)
+    assert site.store.membership_in_force(person_id(IDP, "bo"), "clinic-a") is not None
     bo.get_by_role("button", name="Remove bo").click()
     dialog(admin).get_by_role("button", name="Remove").click()
     expect(bo).to_have_count(0)
@@ -484,6 +558,37 @@ def test_the_last_administrator_is_told_plainly(site: Site) -> None:
     dialog(admin).get_by_role("button", name="Cancel").click()
     [held] = site.store.memberships(org="clinic-a", user_id=person_id(IDP, "lead"))
     assert held["roles"] == ["admin"]
+
+
+def test_leaving_while_your_own_roles_change_still_starts_over(site: Site) -> None:
+    """Demoting yourself, then Back to the overview before the answer comes: the dialog waits for
+    it, and the page still starts over (what this window may do changed)."""
+    admin = site.window(lead(site))
+    person(site, sub="bo", email="bo@example.org", org="clinic-a", roles=["admin"])  # signed in
+    admin.goto("/#overview")
+    expect(admin.locator('.nav a[data-view="overview"]')).to_have_class(re.compile("active"))
+    admin.locator('.nav a[data-view="admin"]').click()
+    expect(admin.locator("main h1")).to_have_text("Access")
+    held: list[Route] = []
+    admin.route("**/api/auth/members/*/roles", lambda route: held.append(route))
+    mine = row(admin, "members", "lead@example.org")
+    mine.get_by_role("button", name="Change roles for lead").click()
+    dialog(admin).locator('input[value="admin"]').uncheck()
+    dialog(admin).locator('input[value="viewer"]').check()
+    dialog(admin).get_by_role("button", name="Save roles").click()
+    for _ in range(100):
+        if held:
+            break
+        admin.wait_for_timeout(50)
+    assert held, "the PUT was never sent"
+    admin.go_back()
+    expect(admin.locator('.nav a[data-view="overview"]')).to_have_class(re.compile("active"))
+    expect(dialog(admin)).to_be_visible()  # waiting for its answer
+    with admin.expect_navigation():
+        held[0].continue_()
+    expect(admin.locator('.nav a[data-view="admin"]')).to_be_hidden()  # a viewer now
+    [membership] = site.store.memberships(org="clinic-a", user_id=person_id(IDP, "lead"))
+    assert membership["roles"] == ["viewer"]
 
 
 def test_a_request_to_join_is_granted_with_chosen_roles(site: Site) -> None:
@@ -543,25 +648,40 @@ def test_names_and_addresses_render_as_text(site: Site) -> None:
     marked = "<b>x</b>@example.org"
     invited(site, email=marked)
     made = invited(site)
+
+    def harmless(page: Page) -> None:
+        """Nothing became markup, and nothing ran (an image that fails runs its handler late)."""
+        expect(page.locator("main img, dialog img")).to_have_count(0)
+        page.wait_for_timeout(200)
+        assert page.evaluate("window.pwned") is None
+
+    access(admin, "members")  # one document from here: every tab, each dialog
+    expect(admin.locator("main")).to_contain_text(f"Who can use Clinic {MARKUP}")
     for tab, shown in (("members", f"Bo {MARKUP}"), ("requests", MARKUP), ("invitations", marked)):
-        access(admin, tab)
-        expect(admin.locator("main")).to_contain_text(f"Who can use Clinic {MARKUP}")
+        admin.locator(f'.tabs a[data-tab="{tab}"]').click()
         expect(admin.locator("#admin-body")).to_contain_text(shown)
-        expect(admin.locator("main img")).to_have_count(0)
+        harmless(admin)
     row(admin, "invitations", "<b>x</b>").get_by_role("button").click()  # the invitations tab
     expect(dialog(admin).locator("h2")).to_have_text(f"Revoke the invitation for {marked}?")
+    harmless(admin)
     dialog(admin).get_by_role("button", name="Cancel").click()
-    access(admin, "members")
+    admin.locator('.tabs a[data-tab="members"]').click()
     row(admin, "members", "bo@example.org").get_by_role("button", name="Change roles").click()
     expect(dialog(admin).locator("h2")).to_have_text(f"Roles for Bo {MARKUP}")
-    expect(admin.locator("dialog img")).to_have_count(0)
-    assert admin.evaluate("window.pwned") is None
+    harmless(admin)
+    dialog(admin).get_by_role("button", name="Cancel").click()
+    admin.locator('.tabs a[data-tab="requests"]').click()
+    row(admin, "requests", "dee@example.org").get_by_role("button", name="Grant").click()
+    expect(dialog(admin).locator("h2")).to_have_text(f"Let Dee {MARKUP} join Clinic {MARKUP}")
+    harmless(admin)
 
     ada = site.window(person(site, sub=f"Ada {MARKUP}"), bypass_csp=True)
-    accept(ada, made["token"])
+    ada.goto(f"/invite#{made['token']}")
+    expect(ada.locator("#invite-body")).to_contain_text(f"Signed in as Ada {MARKUP}")
+    harmless(ada)
+    ada.get_by_role("button", name="Accept invitation").click()
     expect(title(ada)).to_have_text(f"You've joined Clinic {MARKUP}")
-    expect(ada.locator("main img")).to_have_count(0)
-    assert ada.evaluate("window.pwned") is None
+    harmless(ada)
 
 
 def test_a_link_is_never_kept_or_logged(site: Site, capsys: pytest.CaptureFixture[str]) -> None:

@@ -54,8 +54,10 @@ views.admin.update = (params) => {
 
 views.admin.available = () => ADMIN_TABS.some((t) => t.shown());
 
-// The link leaves the page with the view: an open dialog (a link shown once among them) closes.
-views.admin.leave = () => document.querySelectorAll("dialog[data-admin]").forEach((d) => d.close());
+// The link leaves the page with the view: an open dialog (a link shown once among them) closes,
+// but one whose request is running (`data-busy`, ui.js actionDialog) closes with its answer, so
+// what follows it (a reload after changing your own roles) still happens.
+views.admin.leave = () => document.querySelectorAll("dialog[data-admin]:not([data-busy])").forEach((d) => d.close());
 
 async function load(tabs) {
   const lists = await Promise.all(tabs.map((t) => t.load()));

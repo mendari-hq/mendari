@@ -7,16 +7,27 @@
   <script>
     // The invitation's token is the link's fragment (/invite#<token>). It leaves the address before
     // anything else on the page loads, and is kept in this tab only (sessionStorage), for
-    // invite.js; never in the page, a URL or another storage. Only a whole token is kept.
+    // invite.js; never in the page, a URL or another storage. Only a whole token is kept. A link
+    // opened again in this tab changes only the fragment (no new page loads): it is taken the same
+    // way, its history entry rewritten first, and invite.js starts over ("invite-link").
     (function () {
-      var link = location.hash.slice(1);
-      if (!link) return;
-      history.replaceState(null, "", location.pathname); // the token leaves the address first
-      var whole = /^ohi_[A-Za-z0-9_-]{43}$/.test(link);
-      try {
-        if (whole) sessionStorage.setItem("oh.invite", link); else sessionStorage.removeItem("oh.invite");
-      } catch (e) { document.documentElement.setAttribute("data-invite", "unstored"); return; }
-      if (!whole) document.documentElement.setAttribute("data-invite", "damaged");
+      function capture() {
+        var link = location.hash.slice(1);
+        if (!link) return false;
+        history.replaceState(null, "", location.pathname); // the token leaves the address first
+        var root = document.documentElement;
+        var whole = /^ohi_[A-Za-z0-9_-]{43}$/.test(link);
+        root.removeAttribute("data-invite");
+        try {
+          if (whole) sessionStorage.setItem("oh.invite", link); else sessionStorage.removeItem("oh.invite");
+        } catch (e) { root.setAttribute("data-invite", "unstored"); return true; }
+        if (!whole) root.setAttribute("data-invite", "damaged");
+        return true;
+      }
+      capture();
+      window.addEventListener("hashchange", function () {
+        if (capture()) document.dispatchEvent(new Event("invite-link"));
+      });
     })();
   </script>
   <meta name="viewport" content="width=device-width, initial-scale=1">

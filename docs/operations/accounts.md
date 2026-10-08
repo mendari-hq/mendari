@@ -153,11 +153,13 @@ organization's invitation, member or request is a `404`.
 
 The Access view has a tab for each list: **Members** (change roles, remove), **Invitations**
 (invite someone, revoke a link) and **Requests to join** (grant with the roles chosen, or
-refuse). Every change asks first, in a dialog that says what it does, and a refusal is said
-there in words (removing or demoting the last administrator who signed in, say). A link it makes
-is shown once, whole (with the deployment's address), in a dialog with a Copy button; closing the
-dialog or leaving the view takes it off the page, and it is never shown again: a lost link is
-revoked and made anew. Who made each invitation and membership is named by their name, "You", or
+refuse). Changing roles, removing a member, revoking a link, and granting or refusing a request
+ask first, in a dialog that says what it does, and a refusal of one is said in that dialog, in
+words (removing or demoting the last administrator who signed in, say). Inviting makes a link at
+once, without asking; a refusal to make one (an address that is not one, say) shows as a message.
+The link is shown once, whole (with the deployment's address), in a dialog with a Copy button;
+closing the dialog or leaving the view takes it off the page, and it is never shown again: a lost
+link is revoked and made anew. Who made each invitation and membership is named by their name, "You", or
 "Former member" for someone removed since.
 
 | Route | Does |
