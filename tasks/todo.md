@@ -521,8 +521,9 @@ operations, LP-22 site network, LP-23 EHR pilot.
       (`X-Mendari-Org`, 409); keys, clients and launches of an organization with no record
       refused; `mendari smart check` in memberships mode. Claims mode unchanged (acceptance
       test, and a matrix: a member is let through exactly as a claims person of the role).
-    - [ ] **12e-ii** The dashboard: the no-access view with the request form, the chooser
-      (whenever a person holds a membership and none is chosen), the switcher, the
+    - [ ] **12e-ii** (PR open) The dashboard: the access page (`access.js`: the request form,
+      the chooser whenever a person holds a membership and none is chosen, roles that grant
+      nothing), the switcher, every request naming the window's organization, the
       access-ended and window-moved banners, "Use another account"; browser tests.
   - [ ] **12f** Invitations and member management (no e-mail sent), in two PRs, so the server
     does not wait on 12e-ii's dashboard files:
@@ -549,7 +550,11 @@ operations, LP-22 site network, LP-23 EHR pilot.
     isolation test with its reviewed allow-list.
   - [ ] **12h** The Access screen; a client's key set replaced; credential history.
   - [ ] **12i** Key presets in one table (API, screen, docs, doc-snippet checks).
-  - [ ] **12j** A daily cap per principal (429, `Retry-After`; off unless configured).
+  - [ ] **12j** (PR open) A daily cap per principal (`MENDARI_PRINCIPAL_DAILY_LIMIT`, off
+    unless set, sign-in only) on the decisions it asks for (one per request that decides, one
+    per CDS order hook draft order), per local day, after the rate limits admit them; past it
+    `429` with `Retry-After` until midnight, before any work; `/api/health` shows a principal
+    its own. Its value is the owner's.
   - [ ] **12k** Close-out: the a6-accounts gate's probes, the README, the ADR's status.
 
   **Conflicts written before building, and the default each PR follows** (the owner may choose

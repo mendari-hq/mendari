@@ -38,7 +38,9 @@ asking to join one, refused as `unknown_organization`, `member` or `open_request
 with its `ehr:<hash>` and, with sign-in on, its organization; or one that does not:
 `state_unknown`, `browser`, `token`, `id_token`, `issuer`, `unregistered`, `user_type` and the
 like, server/smart_routes.py), `ratelimit.hit` (once per bucket until it has room again),
-`quota.reached`, `admin.key.created|rotated|revoked` (a rotation names the old key and its
+`quota.reached` (an organization's quota, with the metric as its reason; or a principal's
+daily cap, reason `principal_decisions`, once a day per principal per instance),
+`admin.key.created|rotated|revoked` (a rotation names the old key and its
 replacement), `auth.key.replaced_used` (a rotated key used during its overlap, once per instance),
 `admin.client.registered|revoked`, `governance.approved|revoked`, `eval.run`,
 `export.audit|feedback`, `phi.inputs.read` (decision ids and a count) and `error.unhandled`.

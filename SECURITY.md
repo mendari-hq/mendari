@@ -152,7 +152,10 @@ Each bullet is one control; the threat model names the row and the tests behind 
   gateway, where a proxy on the host connects from). Signed in, `/api/health` shows the address
   seen on the request and whether `X-Forwarded-For` gave it. Per-organization daily quotas
   (`MENDARI_ORG_DAILY_LIMITS`) count decisions and their remote calls, never evaluations; over
-  one, decisions fall back to human review, and one alert goes to the webhook a day. At the
+  one, decisions fall back to human review, and one alert goes to the webhook a day. A daily
+  cap per principal (`MENDARI_PRINCIPAL_DAILY_LIMIT`, off unless set) counts the decisions it
+  asks for (a CDS Hooks order hook's draft orders each) and refuses its requests past it (`429`
+  until local midnight), so one leaked key cannot spend its organization's day. At the
   edge, one Vercel firewall rule limits `/auth/` and `/smart/` to 120 a minute per IP
   (`deploy/vercel/`), first in log mode for 7 days; there is no per-IP rule on `/api` or
   `/fhir`, since a hospital sends everyone's traffic from one address.

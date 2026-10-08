@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Rate limits and per-organization quotas (server/limits.py, ADR-0005), on SQLite and Postgres.
+"""Rate limits, per-organization quotas and the daily cap per principal (server/limits.py,
+ADR-0005, ADR-0008), on SQLite and Postgres.
 
 `tests/conftest.py` turns limits off for every other test; each test here turns them on. Synthetic
 data only."""
@@ -132,6 +133,8 @@ def test_limits_are_on_with_sign_in_and_off_in_open_mode(monkeypatch: pytest.Mon
         ("MENDARI_ORG_DAILY_LIMITS", "decisions=many", "must look like"),
         ("MENDARI_ORG_DAILY_LIMITS", "tokens=5", "must look like"),
         ("MENDARI_ORG_DAILY_LIMITS", "decisions=5,decisions=6", "at most once"),
+        ("MENDARI_PRINCIPAL_DAILY_LIMIT", "many", "non-negative integer"),
+        ("MENDARI_PRINCIPAL_DAILY_LIMIT", "-1", "non-negative integer"),
     ],
 )
 def test_a_bad_setting_fails_at_startup(
@@ -826,3 +829,267 @@ def test_over_its_quota_an_emergency_still_reaches_a_nurse_at_once(
     over = client.post(DECIDE, json=message(chest)).json()
     assert over["outcome"] == "HUMAN_REVIEW" and over["priority"] == "stat"
     assert over["recommendation"] == "nurse" and over["rule"] == "possible-emergency"
+
+
+# -- the daily cap per principal (MENDARI_PRINCIPAL_DAILY_LIMIT, ADR-0008) ------------------------
+
+
+def capped(monkeypatch: pytest.MonkeyPatch, cap: int, limits: str = "off") -> None:
+    sign_in_on(monkeypatch, limits)
+    monkeypatch.setenv("MENDARI_PRINCIPAL_DAILY_LIMIT", str(cap))
+
+
+def key_id(headers: dict[str, str], db: str) -> str:
+    with AuditStore(db) as store:
+        [key] = [k for k in store.api_keys(None) if not k.get("revoked_at")]
+    return f"key:{key['id']}"
+
+
+def test_the_principal_cap_is_off_unless_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    from mendari import settings
+
+    monkeypatch.delenv("MENDARI_PRINCIPAL_DAILY_LIMIT", raising=False)
+    assert settings.principal_daily_limit() is None
+    monkeypatch.setenv("MENDARI_PRINCIPAL_DAILY_LIMIT", " 0 ")
+    assert settings.principal_daily_limit() == 0  # a cap of 0 admits nothing
+
+
+def test_each_principal_has_its_own_daily_cap_shared_by_every_instance(
+    db_target: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Counted in the database, per principal and local day; reads never count; once reached,
+    `429` until midnight, whichever instance answers."""
+    capped(monkeypatch, 2)
+    first = TestClient(create_app(db_path=db_target))
+    second = TestClient(create_app(db_path=db_target))
+    key = service_key(db_target)
+    assert [
+        instance.post(DECIDE, json=message(ROUTINE), headers=key).status_code
+        for instance in (first, second)
+    ] == [200, 200]
+    assert first.get("/api/audit", headers=key).status_code == 200  # a read: not counted
+    refused = second.post(DECIDE, json=message(ROUTINE), headers=key)
+    waited = assert_retry_after(refused)
+    assert abs(waited - clock.seconds_until_tomorrow()) <= 5
+    body = refused.json()
+    assert body["error"] == "DailyCapReached" and "daily limit of 2" in body["detail"]
+    other = person(db_target, "reviewer", host="testserver")
+    assert first.post(DECIDE, json=message(ROUTINE), headers=other).status_code == 200
+    with AuditStore(db_target) as store:
+        assert store.principal_usage(key_id(key, db_target)) == 2
+
+
+def test_a_capped_request_does_no_work_and_is_logged_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    capped(monkeypatch, 1)
+    db = str(tmp_path / "capped.db")
+    client = TestClient(create_app(db_path=db))
+    key = service_key(db)
+    decided: list[str] = []
+    real = Decision.decide
+
+    def counted(self: Decision, *args: Any, **kwargs: Any) -> Any:
+        decided.append(self.pack.id)
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(Decision, "decide", counted)
+    assert client.post(DECIDE, json=message(ROUTINE), headers=key).status_code == 200
+    with AuditStore(db) as store:
+        before = (len(store.query(limit=500)), store.verify()["events"])
+    capsys.readouterr()
+    for route in (DECIDE, f"/api/packs/{INBOX}/fhir/decide", "/fhir/$decide", DECIDE):
+        assert_retry_after(client.post(route, json=message(ROUTINE), headers=key))
+    assert decided == [INBOX]  # the pack ran once, for the request admitted
+    with AuditStore(db) as store:
+        assert (len(store.query(limit=500)), store.verify()["events"]) == before
+    reached = [
+        line for line in security_lines(capsys.readouterr().out) if line["event"] == "quota.reached"
+    ]
+    assert [(line["reason"], line["actor"], line["count"]) for line in reached] == [
+        ("principal_decisions", key_id(key, db), 1)
+    ]  # once a day per principal, not once per refusal
+
+
+def test_the_cap_answers_in_each_routes_own_shape(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    capped(monkeypatch, 0)
+    db = str(tmp_path / "shape.db")
+    client = TestClient(create_app(db_path=db))
+    key = service_key(db)
+    fhir = client.post("/fhir/$decide", json=message(ROUTINE), headers=key)
+    assert_retry_after(fhir)
+    assert fhir.json()["resourceType"] == "OperationOutcome"
+    hook = client.post(REFERRAL_HOOK, json=order_sign(3), headers=key)
+    assert_retry_after(hook)
+    with AuditStore(db) as store:
+        assert store.principal_usage(key_id(key, db)) == 0  # a cap of 0 writes nothing
+
+
+def test_a_request_the_rate_limit_refuses_never_uses_the_day(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    capped(monkeypatch, 5, limits="on,decide=1/min")
+    db = str(tmp_path / "order.db")
+    client = TestClient(create_app(db_path=db))
+    key = service_key(db)
+    assert client.post(DECIDE, json=message(ROUTINE), headers=key).status_code == 200
+    refused = client.post(DECIDE, json=message(ROUTINE), headers=key)
+    assert_retry_after(refused)
+    assert refused.json()["error"] == "RateLimited"
+    with AuditStore(db) as store:
+        assert store.principal_usage(key_id(key, db)) == 1
+    # An order hook whose other draft orders the rate limit refuses in its route: none either.
+    hooked = str(tmp_path / "order-hook.db")
+    capped(monkeypatch, 5, limits="on,decide=5/h")
+    client = TestClient(create_app(db_path=hooked))
+    key = service_key(hooked)
+    assert client.post(REFERRAL_HOOK, json=order_sign(3), headers=key).status_code == 200
+    assert_retry_after(client.post(REFERRAL_HOOK, json=order_sign(3), headers=key))
+    with AuditStore(hooked) as store:
+        assert store.principal_usage(key_id(key, hooked)) == 3
+
+
+def test_each_draft_order_counts_against_the_cap_all_or_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """As against the organization's quota and the rate limit: one leaked key cannot spend the
+    organization's day through order hooks either."""
+    capped(monkeypatch, 5)
+    db = str(tmp_path / "hook.db")
+    client = TestClient(create_app(db_path=db))
+    key = service_key(db)
+    assert client.post(REFERRAL_HOOK, json=order_sign(3), headers=key).status_code == 200
+    before = decisions_in(db)
+    assert_retry_after(client.post(REFERRAL_HOOK, json=order_sign(3), headers=key))
+    assert decisions_in(db) == before  # refused before any draft order was decided
+    with AuditStore(db) as store:
+        assert store.principal_usage(key_id(key, db)) == 3
+    assert client.post(REFERRAL_HOOK, json=order_sign(2), headers=key).status_code == 200
+    with AuditStore(db) as store:
+        assert store.principal_usage(key_id(key, db)) == 5
+
+
+def test_every_principal_kind_is_capped_on_the_routes_it_decides_on(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A person, an API key (on the AI guard), a Backend Services client (on FHIR) and an EHR
+    launch each have their own cap; a request counts whatever it answers (a launch's empty body
+    is a 422, a bare record on /fhir/$decide a 400: both count)."""
+    capped(monkeypatch, 1)
+    backend_on(monkeypatch)
+    monkeypatch.setenv("MENDARI_SMART_CLIENT_ID", "mendari-app")
+    monkeypatch.setenv("MENDARI_FHIR_ALLOWED_SERVERS", "https://ehr.example.org")
+    monkeypatch.setenv("MENDARI_SMART_EHRS", "https://ehr.example.org/fhir=default:decide")
+    db = str(tmp_path / "kinds.db")
+    client = TestClient(create_app(db_path=db), base_url=PUBLIC_URL)
+    with AuditStore(db) as store:
+        made = store.register_client(
+            name="ehr", role="service", org="default", created_by="t",
+            scopes="https://mendari.co/fhir/scope/decide", jwks=[RSA_KEY.jwk],
+        )  # fmt: skip
+        token, _ = store.issue_token(made["client_id"], "https://mendari.co/fhir/scope/decide", 300)
+        launch = launched(store, host="mendari.test")
+    calls = [
+        ("person", DECIDE, message(ROUTINE), person(db, "reviewer")),
+        (
+            "key",
+            "/api/packs/mendari/ai-guard/guard",
+            {"question": "Headache?", "draft": "Rest and drink water."},
+            service_key(db),
+        ),
+        ("client", "/fhir/$decide", message(ROUTINE), {"authorization": f"Bearer {token}"}),
+        ("launch", "/api/smart/decide", {}, launch),
+    ]
+    for who, path, body, headers in calls:
+        first = client.post(path, json=body, headers=headers)
+        assert first.status_code != 429, (who, first.text)  # counted, whatever it answers
+        assert_retry_after(client.post(path, json=body, headers=headers))
+
+
+def test_only_what_decides_counts_against_the_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every route that needs a permission to decide is counted by the guard, counted by its
+    route (CDS Hooks, per draft order), or does not decide: the notice's acknowledgement (which
+    must stay possible at the cap, or a person could neither review nor give feedback), a PAS
+    submission and a DTR package, both built from decisions made."""
+    from mendari.server.limits import DailyCap
+
+    capped(monkeypatch, 0)
+    backend_on(monkeypatch)
+    monkeypatch.setenv("MENDARI_SMART_CLIENT_ID", "mendari-app")
+    monkeypatch.setenv("MENDARI_FHIR_ALLOWED_SERVERS", "https://ehr.example.org")
+    monkeypatch.setenv("MENDARI_SMART_EHRS", "https://ehr.example.org/fhir=default:decide")
+    app = create_app(db_path=tmp_path / "routes.db")
+    deciding = {
+        (method, route.path)
+        for route in app.routes
+        if isinstance(route, Route)
+        for method in route.methods or ()
+        if permission_for(method, route.path) in ("decide", "launch_decide")
+    }
+    in_route = {("POST", "/cds-services/{service_id}")}
+    not_decisions = {
+        ("POST", "/api/notice/acknowledge"),
+        ("POST", "/api/packs/{namespace}/{name}/pas"),
+        ("POST", "/fhir/Questionnaire/$questionnaire-package"),
+    }
+    counted = {r for r in deciding if DailyCap.counts(r[0], re.sub(r"\{[^}]+\}", "x", r[1]))}
+    assert counted | in_route | not_decisions == deciding
+    assert not counted & (in_route | not_decisions)
+    monkeypatch.setenv("MENDARI_NOTICE_ACKNOWLEDGEMENT", "required")
+    db = str(tmp_path / "notice.db")
+    client = TestClient(create_app(db_path=db))
+    reviewer = person(db, "reviewer", "testserver")
+    assert client.post("/api/notice/acknowledge", json={}, headers=reviewer).status_code == 200
+    assert client.get("/api/health", headers=reviewer).json()["principal_quota"]["used_today"] == 0
+
+
+def test_sixteen_threads_never_count_past_the_cap(db_target: str) -> None:
+    store = AuditStore(db_target)
+    admitted: list[int | None] = []
+
+    def take() -> None:
+        with AuditStore(db_target) as mine:
+            for _ in range(5):
+                admitted.append(mine.consume_principal("key:k1", daily_limit=30, cost=2))
+
+    threads = [threading.Thread(target=take) for _ in range(16)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert len([a for a in admitted if a is not None]) == 15  # 30 / 2, never one more
+    assert store.principal_usage("key:k1") == 30
+
+
+def test_health_shows_the_callers_own_cap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    capped(monkeypatch, 3)
+    db = str(tmp_path / "health-cap.db")
+    client = TestClient(create_app(db_path=db))
+    key = service_key(db)
+    client.post(DECIDE, json=message(ROUTINE), headers=key)
+    assert client.get("/api/health", headers=key).json()["principal_quota"] == {
+        "daily_limit": 3,
+        "used_today": 1,
+    }
+    viewer = person(db, "viewer", "testserver")
+    assert client.get("/api/health", headers=viewer).json()["principal_quota"] == {
+        "daily_limit": 3,
+        "used_today": 0,
+    }
+    monkeypatch.delenv("MENDARI_PRINCIPAL_DAILY_LIMIT")
+    unset = TestClient(create_app(db_path=db))
+    assert "principal_quota" not in unset.get("/api/health", headers=viewer).json()
+
+
+def test_open_mode_has_no_principal_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setenv("MENDARI_PRINCIPAL_DAILY_LIMIT", "0")
+    with caplog.at_level(logging.WARNING, logger="mendari.limits"):
+        client = TestClient(create_app(db_path=tmp_path / "open.db"))
+    assert "ignored in open mode" in caplog.text
+    assert client.post(DECIDE, json=message(ROUTINE)).status_code == 200

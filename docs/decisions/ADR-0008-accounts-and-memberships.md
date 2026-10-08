@@ -79,4 +79,4 @@ provider's claims needs nothing to change.
   body whether or not the organization exists (its timing differs, and asking one that exists
   leaves a request its administrators see).
 - A request naming another organization than the one chosen since (`X-Mendari-Org`) is refused
-  (`409`); the dashboard sends the organization a window shows (LP-12e-ii).
+  (`409`); the dashboard sends the organization a window shows with every request.
