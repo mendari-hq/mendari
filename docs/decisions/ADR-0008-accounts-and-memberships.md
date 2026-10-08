@@ -35,7 +35,8 @@ provider's claims needs nothing to change.
   the inviting admin to pass on. Mendari sends no e-mail. The operator creates organizations
   until self-service.
 - **Every route is filtered by the caller's organization**, with a reviewed allow-list of the
-  deployment-wide routes and the reason each holds no organization data. Each chained event of
+  deployment-wide routes and the reason each holds no organization data
+  (`tests/test_isolation.py`, which calls every mounted route as two organizations). Each chained event of
   an organization names it in its hashed payload (memberships mode; new event kinds always), so
   `verify` can cross-check it against the row it is about; older events are attributed by the
   row they name, never rewritten. Memberships mode, here, is the database's: a

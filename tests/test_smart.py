@@ -62,6 +62,7 @@ class FakeEhr:
         self.signing_key: Any = self.key
         self.algorithm = "RS256"
         self.patient = "ref-p1"
+        self.token_prefix = "access"  # the access tokens it issues: <prefix>-<n>
         self.config_overrides: dict[str, Any] = {}
         self.resources = [e["resource"] for e in FIXTURE["entry"]]
 
@@ -109,7 +110,7 @@ class FakeEhr:
         assert challenge.decode() == code["code_challenge"], "PKCE verifier does not match"
         assert form["redirect_uri"][0] == code["redirect_uri"] == f"{APP}/smart/callback"
         assert form["client_id"][0] == CLIENT
-        access = f"access-{len(self.tokens)}"
+        access = f"{self.token_prefix}-{len(self.tokens)}"
         self.tokens.add(access)
         now = int(time.time())
         claims = {"iss": self.iss, "aud": CLIENT, "exp": now + 300, "iat": now}
