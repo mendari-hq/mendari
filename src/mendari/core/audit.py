@@ -930,24 +930,24 @@ class AuditStore:
             return None
         return int(row["count"])
 
-    def consume_principal(self, principal: str, *, daily_limit: int) -> int | None:
-        """Count one request that decides for `principal` (its opaque id, `Principal.id`) today;
-        the count it reached, or None when its daily cap was already reached (nothing counted).
-        One statement, as `consume_org`: instances never count past the cap together. Not part
-        of the audit chain."""
+    def consume_principal(self, principal: str, *, daily_limit: int, cost: int = 1) -> int | None:
+        """Count `cost` decisions for `principal` (its opaque id, `Principal.id`) today, all or
+        none: the count it reached, or None when they would pass its daily cap (nothing is
+        counted, nor written). One statement, as `consume_org`: instances never count past the
+        cap together. Not part of the audit chain."""
+        if cost > daily_limit:  # a cap of 0 admits nothing, and writes nothing
+            return None
         with self._db.session(exclusive=False) as db:
             row = db.one(
-                "INSERT INTO principal_usage (day, principal, count) VALUES (?, ?, 1) "
-                "ON CONFLICT (day, principal) DO UPDATE SET count = principal_usage.count + 1 "
-                "WHERE principal_usage.count < ? RETURNING count",
-                (clock.today().isoformat(), principal, daily_limit),
+                "INSERT INTO principal_usage (day, principal, count) VALUES (?, ?, ?) "
+                "ON CONFLICT (day, principal) DO UPDATE SET count = principal_usage.count + ? "
+                "WHERE principal_usage.count + ? <= ? RETURNING count",
+                (clock.today().isoformat(), principal, cost, cost, cost, daily_limit),
             )
-        if row is None or int(row["count"]) > daily_limit:  # a cap of 0 admits nothing
-            return None
-        return int(row["count"])
+        return None if row is None else int(row["count"])
 
     def principal_usage(self, principal: str) -> int:
-        """The requests that decide `principal` made today."""
+        """The decisions `principal` asked for today."""
         with self._db.session(exclusive=False) as db:
             row = db.one(
                 "SELECT count FROM principal_usage WHERE day = ? AND principal = ?",

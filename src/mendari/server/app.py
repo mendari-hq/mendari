@@ -1479,18 +1479,24 @@ def create_app(
     def cds_invoke(service_id: str, request: JsonBody, http: Request) -> dict[str, Any]:
         """A CDS Hooks request (context and prefetch) → cards with the decision and its reasons.
         An order hook decides each draft order the pack is about, at most 50 a request: each
-        counts as one decision against the rate limit."""
+        counts as one decision against the rate limit and the principal's daily cap."""
         pack = next((p for p in packs.values() if cds_hooks.service_id(p) == service_id), None)
         if pack is None:
             raise PackNotFoundError(f"no CDS service {service_id!r}")
 
         def charge(decisions: int) -> None:
-            """The guard counted the request as one decision; the rest are counted here, all
-            or none, before any is made (a refusal decides nothing)."""
+            """The guard counted the request as one decision against the rate limit; the rest
+            are counted here, all or none, before any is made (a refusal decides nothing). Then,
+            once the rate limit admits them, all of them against the principal's daily cap."""
+            principal = principal_of(http)
             if decisions > 1 and limiter.on:
-                over = limiter.hit("decide", principal_of(http).id, cost=decisions - 1)
+                over = limiter.hit("decide", principal.id, cost=decisions - 1)
                 if over is not None:
                     raise over
+            if cap is not None and principal.kind != "open":
+                capped = cap.check(principal.id, principal.org, cost=decisions)
+                if capped is not None:
+                    raise capped
 
         return cds_hooks.invoke(decision_for(pack.id), request, most=most_orders, charge=charge)
 
@@ -1852,7 +1858,7 @@ def create_app(
         permission = auth.permission(request.method, request.url.path)
         principal = principal_of(request)
         over = limiter.check(request, permission, principal.id) if limiter.on else None
-        decides = limiter.classify(request.method, request.url.path, permission) in DailyCap.KINDS
+        decides = DailyCap.counts(request.method, request.url.path)
         if over is None and cap is not None and principal.kind != "open" and decides:
             over = cap.check(principal.id, principal.org)
         return None if over is None else limited_response(request.url.path, over)

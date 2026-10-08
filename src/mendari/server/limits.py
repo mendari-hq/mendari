@@ -22,8 +22,9 @@ Reads are not limited here (the edge covers floods, and a read writes nothing pe
 launch's decisions count against its `ehr` principal, like anyone's.
 
 **A daily cap per principal** (`MENDARI_PRINCIPAL_DAILY_LIMIT`, off unless set, sign-in only:
-`DailyCap`) counts each request of the `decide` and `guard` classes once, per principal and local
-day, after these limits admit it; over it, `429` until midnight.
+`DailyCap`) counts the decisions each principal asks for, per local day (one per request that
+decides, one per draft order of a CDS Hooks order hook), after these limits admit them; past it,
+`429` until midnight.
 Per-IP keys are used only where no one has signed in yet, and on a person's own two routes in
 memberships mode (`POST /api/auth/organization`, `POST /api/auth/access-requests`), which any
 account that signs in reaches: a hospital sits behind one address,
@@ -219,30 +220,37 @@ class RateLimited(MendariError):
 
 
 class DailyCapReached(RateLimited):
-    """A principal's requests that decide reached its daily cap (`DailyCap`): refused until
-    local midnight."""
+    """A principal's decisions reached its daily cap (`DailyCap`): refused until local
+    midnight."""
 
     def __init__(self, limit: int, retry_after: int):
         self.limit = "principal_daily"
         self.retry_after = retry_after
         MendariError.__init__(
             self,
-            f"this credential's daily limit of {limit} requests that decide is reached; it "
-            f"starts over at midnight (in {retry_after} s)",
+            f"this credential's daily limit of {limit} decisions is reached; it starts over at "
+            f"midnight (in {retry_after} s)",
         )
 
 
+# The entry points that make decisions: each request one, but a CDS Hooks order hook one per
+# draft order (counted in its route, `DailyCap.charge`). Not what only needs the permission
+# (acknowledging the notice, a PAS submission or a DTR package, built from decisions made).
+_DECIDES = re.compile(
+    r"^/(api/packs/[^/]+/[^/]+/(decide|guard|fhir/decide)|fhir/\$decide|api/smart/decide)$"
+)
+
+
 class DailyCap:
-    """A cap per principal on the requests that decide, per local calendar day
+    """A cap per principal on the decisions it asks for, per local calendar day
     (`MENDARI_PRINCIPAL_DAILY_LIMIT`, ADR-0008), beside its organization's quota: one leaked key,
     or one runaway integration, cannot spend its organization's day. Counted in the store, so
-    every instance shares it; checked in the guard after the rate limits (a request they refuse
-    never uses the day) and before any body, provider call or chain write. Each request counts
-    once, whatever it decides (a CDS Hooks order hook's draft orders included) and whatever it
-    answers. Refusals are `429` with `Retry-After` (until midnight), logged once a day per
-    principal per instance (`quota.reached`, reason `principal_decisions`)."""
-
-    KINDS = frozenset({"decide", "guard"})  # the limiter's classes of requests that decide
+    every instance shares it, after the rate limits admit the request (one they refuse never
+    uses the day) and before any provider call or chain write: in the guard for each request
+    that decides (`counts`), and in the route for a CDS Hooks request, all its draft orders at
+    once (`charge`). Each counts whatever it answers. Refusals are `429` with `Retry-After`
+    (until midnight), logged once a day per principal per instance (`quota.reached`, reason
+    `principal_decisions`)."""
 
     def __init__(self, store: AuditStore, limit: int):
         self.store = store
@@ -250,8 +258,18 @@ class DailyCap:
         self._logged: tuple[str, set[str]] = ("", set())  # (day, principals logged that day)
         self._lock = threading.Lock()
 
-    def check(self, principal_id: str, org: str | None) -> DailyCapReached | None:
-        if self.store.consume_principal(principal_id, daily_limit=self.limit) is not None:
+    @staticmethod
+    def counts(method: str, path: str) -> bool:
+        """Whether the guard counts this request (one decision); a CDS Hooks request is counted
+        in its route, which knows how many it makes."""
+        return method == "POST" and _DECIDES.match(path) is not None
+
+    def check(self, principal_id: str, org: str | None, cost: int = 1) -> DailyCapReached | None:
+        """Count `cost` decisions, all or none; the refusal if they would pass the cap."""
+        if cost <= 0:
+            return None
+        consumed = self.store.consume_principal(principal_id, daily_limit=self.limit, cost=cost)
+        if consumed is not None:
             return None
         day = clock.today().isoformat()
         with self._lock:

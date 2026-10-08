@@ -549,15 +549,17 @@ makes anything more automatic. The first time an organization reaches a quota ea
 Mendari logs it and posts one alert to `MENDARI_ALERT_WEBHOOK` (the organization, the quota and
 its limit; no case data). Quotas start over at local midnight (`MENDARI_TIMEZONE`).
 
-**A daily cap per principal.** `MENDARI_PRINCIPAL_DAILY_LIMIT=1000` caps the requests that
-decide each principal makes a day: a person, an API key, a Backend Services client, an EHR
-launch. Unlike a quota, it refuses: past it the request is answered `429` with `Retry-After`
-(until local midnight) before any work, so one leaked key, or one runaway integration, cannot
-spend its organization's day. Each request counts once, whatever it decides (a CDS Hooks order
-hook's draft orders count once here, each against the quota and the rate limits) and whatever
-it answers; a request the rate limits refuse does not count. Unset, there is none; it needs
-sign-in (open mode has no principals). `/api/health` shows the caller its own cap and what it
-used today, and the first refusal of the day per principal is logged (`quota.reached`, reason
+**A daily cap per principal.** `MENDARI_PRINCIPAL_DAILY_LIMIT=1000` caps the decisions each
+principal asks for a day: a person, an API key, a Backend Services client, an EHR launch. Each
+request that decides counts one, and a CDS Hooks order hook one per draft order, whatever the
+answer; acknowledging the notice, a PAS submission and a DTR package do not count, and neither
+does a request the rate limits refuse. Unlike a quota, it refuses: past it the request is
+answered `429` with `Retry-After` (until local midnight) before any work, so one leaked key, or
+one runaway integration, cannot spend its organization's day. Like a rate limit, the refusal
+covers every message, an emergency included: an integration must send what Mendari refuses to a
+person, as it must for any error. Unset, there is none; it needs sign-in (open mode has no
+principals). `/api/health` shows a principal that may read its own cap and what it used today,
+and each instance logs the first refusal of the day per principal (`quota.reached`, reason
 `principal_decisions`).
 
 **At the edge.** A per-address limit in front of Mendari takes floods before they reach it, on
@@ -681,7 +683,7 @@ startup, so a typo never runs with a weaker setting.
 | `MENDARI_RATE_LIMITS` | `on` with sign-in, `off` without | `on`, `log` or `off`, then overrides (`decide=1200/min:200`) | 4 |
 | `MENDARI_NOTICE_ACKNOWLEDGEMENT` | `required` | `required`: a signed-in person who may decide or review acknowledges the notice (research preview, synthetic data only) once per version when the dashboard opens, chained as `notice.acknowledged`; until then deciding, reviewing, feedback and minting an API key or client are refused (`403`, header `Mendari-Notice-Required`); `off`: a site whose own agreements replace it. Keys, clients, EHR launches and open mode are never asked | 4 |
 | `MENDARI_ORG_DAILY_LIMITS` | unset: none | Per-organization daily quotas: `decisions=…,jev=…,llm=…` | 4 |
-| `MENDARI_PRINCIPAL_DAILY_LIMIT` | unset: none | Requests that decide each principal may make a day; past it `429` until midnight (sign-in only) | 4 |
+| `MENDARI_PRINCIPAL_DAILY_LIMIT` | unset: none | Decisions each principal may ask for a day (an order hook's draft orders each); past it `429` until midnight (sign-in only) | 4 |
 | `JEV_API_URL`, `JEV_MODEL`, `JEV_API_KEY` | unset: no Jev | All three set: the inbox, referral and prior-auth packs send their `state_fields` to Jev in every slot `MENDARI_PROVIDERS` chooses nothing for; a model id or an endpoint Jev cannot be called with stops startup | 5 |
 | `MENDARI_PROVIDERS` | unset: each pack's default, or the Jev defaults | The provider variant of each slot it applies to: `slot=variant`, or `<pack>:slot=variant` for one pack | 5 |
 | `MENDARI_JEV_DAILY_LIMIT`, `MENDARI_LLM_DAILY_LIMIT` | 500 each; `none`: no limit, still counted | The deployment's daily remote calls, evaluations included; the three packs' Jev calls share one budget | 4 |

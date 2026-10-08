@@ -634,8 +634,8 @@ guard, evaluations and exports are rate limited per caller, and sign-in and the 
 address, in the database so every instance shares the count (`MENDARI_RATE_LIMITS`; a `429` with
 `Retry-After`); organizations can have daily quotas (`MENDARI_ORG_DAILY_LIMITS`), over which
 decisions fall back to human review, and each principal (a person, a key, a client, an EHR
-launch) a daily cap on its requests that decide (`MENDARI_PRINCIPAL_DAILY_LIMIT`), over which they
-are refused until midnight (`429`), so one leaked key cannot spend its organization's day. A security log goes to stdout as JSON lines: one access line
+launch) a daily cap on the decisions it asks for (`MENDARI_PRINCIPAL_DAILY_LIMIT`), past which its
+requests are refused until midnight (`429`), so one leaked key cannot spend its organization's day. A security log goes to stdout as JSON lines: one access line
 per API request and the security events (sign-ins and EHR launches, refusals, requests from other sites, rate
 limits, key, client and governance changes, exports, evaluations, input and note reads), from an
 allow-list of fields that has no room for a credential, a query value, a body or case text.
