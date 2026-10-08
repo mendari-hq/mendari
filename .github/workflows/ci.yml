@@ -562,6 +562,10 @@ jobs:
           from importlib.metadata import files
           assert any(str(f).endswith('licenses/NOTICE') for f in files('mendari') or []), 'no NOTICE'
           "
+      # The licence checks a release runs before it pushes an image (but the SBOM's): a bump that
+      # changes what the image bundles fails here first (licenses/image, CONTRIBUTING.md).
+      - name: The image carries every licence and notice, and Debian's copyright files
+        run: python3 scripts/check_image_licences.py --image mendari-engine:ci
       - run: docker run --rm mendari-engine:ci mendari test mendari/patient-inbox-router
       - run: docker run --rm mendari-engine:ci mendari test mendari/clinical-trial-prescreener
       - run: docker run --rm mendari-engine:ci mendari test mendari/referral-router

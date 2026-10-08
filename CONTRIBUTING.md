@@ -107,6 +107,23 @@ hand:
   control is checked by adding it there (`tests/browser/test_accessibility.py`).
 - **Python dependencies:** `uv lock --upgrade-package <name>`, never a bare `uv lock --upgrade`
   in a feature PR. The `Dockerfile` installs `uv.lock` exactly.
+- **What the images bundle** (`licenses/image/`): every image carries the licences and notices
+  of everything in it, and a release pushes none that misses one
+  (`scripts/check_image_licences.py`, in CI's `docker` job and the release). A bump of a package
+  with native code (`components.toml`'s `[native]`: cffi, cryptography, google-re2,
+  psycopg-binary, pydantic-core, PyYAML, rpds-py) fails `tests/test_image_licences.py` until it
+  is reviewed: find what its new wheels bundle or link statically (an auditwheel or cargo SBOM
+  in its `.dist-info/sboms/`, its build's own scripts, the libraries' `.comment` sections),
+  update or add the `[[component]]` entries with their upstream licence texts' URLs and, for
+  GPL or LGPL software, its exact source pinned by SHA-256 (`corresponding_source`); then
+  `uv run python scripts/image_licence_texts.py fetch`, and for a package built from Rust
+  `docker build` one image per architecture and run `... crates <amd64 image> <arm64 image>`.
+  A new base image (CPython or pip) is reviewed the same way. Commit `licenses/image/` whole.
+- **The SBOM generator:** `release.yml` names BuildKit's SBOM generator
+  (`docker/buildkit-syft-scanner`) by digest, by hand like the emulator and builder. A new one
+  may name a licence differently: run its SBOM through `check_image_licences.py` on an image
+  built locally (`docker buildx build --attest type=sbom,generator=… --output type=oci,…`, then
+  `--extract-sbom`) before you bump it.
 
 ## Commands in the docs
 

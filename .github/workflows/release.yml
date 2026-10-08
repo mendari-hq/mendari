@@ -21,7 +21,12 @@ name: release
 # PyPI and TestPyPI use trusted publishing (environments `pypi` and `testpypi`): no API token is
 # stored anywhere. Images, for linux/amd64 and linux/arm64, go to GitHub Container Registry with
 # a release to PyPI (environment `ghcr`): each is built once, tested on both architectures, and
-# pushed exactly as it was tested.
+# pushed exactly as it was tested. An image is pushed only when it complies with the licences of
+# everything in it (the owner's decision of 2026-10-07): BuildKit attaches an SBOM of each
+# finished image, and scripts/check_image_licences.py refuses any image whose licences, notices
+# (/licenses: LICENSE, NOTICE, THIRD_PARTY_NOTICES.md, SOURCE.md; Debian's copyright files) or
+# SBOM licences fail; its corresponding source (Debian's source packages and the GPL and LGPL
+# components' own) is collected and pushed beside it first, as `<tag>-sources`.
 on:
   workflow_dispatch:
     inputs:
@@ -81,8 +86,9 @@ jobs:
   images:
     # The engine with every pack, and one image per pack, each built once from the run's commit
     # (the tagged one the build checked) for linux/amd64 and linux/arm64 into one OCI archive,
-    # then each architecture's image taken from that archive, tested and checked: the
-    # publishing job pushes this very archive.
+    # with BuildKit's SBOM of each finished image attached (its generator pinned by digest), then
+    # each architecture's image taken from that archive, tested and checked: the publishing job
+    # pushes this very archive, SBOMs included.
     needs: build
     runs-on: ubuntu-latest
     strategy:
@@ -110,7 +116,7 @@ jobs:
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
         with:
           driver-opts: image=moby/buildkit:v0.33.1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
-      - name: Build both architectures once, then test and check each (no notes, plans, agent or CI files)
+      - name: Build both architectures once with their SBOMs, then test and check each (no notes, plans, agent or CI files; every licence and notice; the SBOM's licences)
         env:
           NAME: ${{ matrix.name }}
           PACK: ${{ matrix.pack }}
@@ -119,17 +125,64 @@ jobs:
         run: |
           skopeo --version  # copies images between the archive, docker and the registry
           docker buildx build --platform linux/amd64,linux/arm64 --build-arg PACK="$ONLY" \
+            --attest "type=sbom,generator=docker.io/docker/buildkit-syft-scanner:1.12.0@sha256:ae4f3b554449e7e25548e7d8ccc029d17357348e30c6e3df01b92bc93654d6a9" \
             --output "type=oci,dest=/tmp/${NAME}.tar" .
+          mkdir -p /tmp/sbom
           for arch in amd64 arm64; do
             image="${NAME}:${TAG}-${arch}"
             skopeo copy --override-arch "$arch" "oci-archive:/tmp/${NAME}.tar" "docker-daemon:${image}"
             docker run --rm --platform "linux/${arch}" "$image" mendari test "$PACK"
             python3 scripts/check_excluded.py --image "$image"
+            python3 scripts/check_image_licences.py --extract-sbom "/tmp/${NAME}.tar" --arch "$arch" \
+              --out "/tmp/sbom/${NAME}-${arch}.attestation.json"
+            python3 scripts/check_image_licences.py --image "$image" \
+              --sbom "/tmp/sbom/${NAME}-${arch}.attestation.json" \
+              --sbom-out "/tmp/sbom/${NAME}-${arch}.spdx.json" \
+              --sources-out "/tmp/sbom/${NAME}-${arch}.sources.json"
           done
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: image-${{ matrix.name }}
           path: /tmp/${{ matrix.name }}.tar
+          retention-days: 7
+      # The run's copy of each image's SBOM (both architectures, with source locations) and what
+      # its corresponding source is; the image-sources job reads the latter.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: sbom-${{ matrix.name }}
+          path: /tmp/sbom/
+          retention-days: 90
+
+  image-sources:
+    # The corresponding source of every image, collected once for all of them (they share their
+    # base and their packages): each Debian source package at the version installed and every
+    # GPL and LGPL component's own source, each file checked against its SHA-256, with the
+    # images' SBOMs; built into the files-only `<tag>-sources` image the publishing job pushes
+    # beside each image (licenses/image/SOURCE.md, in every image, says so).
+    needs: images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
+        with:
+          driver-opts: image=moby/buildkit:v0.33.1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          pattern: sbom-*
+          path: /tmp/sbom
+          merge-multiple: true
+      - name: Collect every image's corresponding source, then build the sources image
+        run: |
+          python3 scripts/image_sources.py --out /tmp/sources --sboms /tmp/sbom /tmp/sbom/*.sources.json
+          docker buildx build --platform linux/amd64,linux/arm64 -f licenses/image/sources.Dockerfile \
+            --output "type=oci,dest=/tmp/image-sources.tar" /tmp/sources
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: image-sources
+          path: /tmp/image-sources.tar
           retention-days: 7
 
   publish-pypi:
@@ -157,8 +210,9 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33  # v1.14.2
 
   publish-images:
-    # Each image is a deployment the reviewer approves in the run; with a release to PyPI only.
-    needs: [build, images]
+    # Each image is a deployment the reviewer approves in the run; with a release to PyPI only,
+    # and only once every image passed its licence checks and its source was collected.
+    needs: [build, images, image-sources]
     if: inputs.publish && inputs.target == 'pypi' && !github.event.repository.private
     runs-on: ubuntu-latest
     environment: ghcr
@@ -189,18 +243,24 @@ jobs:
         with:
           name: image-${{ matrix.name }}
           path: /tmp/image
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: image-sources
+          path: /tmp/sources
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f  # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Push the tested archive, both architectures
+      - name: Push the image's corresponding source, then the tested archive, both architectures
         env:
           NAME: ${{ matrix.name }}
           OWNER: ${{ github.repository_owner }}
           TAG: ${{ github.ref_name }}
         run: |
-          # skopeo reads the login above (docker's config) and pushes the archive as it is.
+          # skopeo reads the login above (docker's config) and pushes each archive as it is. The
+          # source goes first, so the image is never published without it beside it.
+          skopeo copy --all "oci-archive:/tmp/sources/image-sources.tar" "docker://ghcr.io/${OWNER,,}/${NAME}:${TAG}-sources"
           skopeo copy --all "oci-archive:/tmp/image/${NAME}.tar" "docker://ghcr.io/${OWNER,,}/${NAME}:${TAG}"
 
   publish-testpypi:

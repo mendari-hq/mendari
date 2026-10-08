@@ -126,6 +126,12 @@ gates:
               - tests/test_workflow_safety.py::test_nothing_starts_on_a_tag_push
               - tests/test_workflow_safety.py::test_a_release_publishes_only_by_hand_after_its_build_from_a_guarded_environment
               - tests/test_release_gate.py::test_the_environment_guard_fails_closed
+              # The images carry LICENSE, NOTICE and every third-party notice, and the release
+              # pushes none that does not (owner's decision 2026-10-07, tasks/todo.md).
+              - tests/test_image_licences.py::test_the_dockerfile_writes_licences_and_keeps_debians
+              - tests/test_image_licences.py::test_the_committed_texts_are_the_ones_fetched
+              - tests/test_workflow_safety.py::test_images_are_pushed_only_when_they_comply_and_with_their_source_first
+              - tests/test_workflow_safety.py::test_ci_checks_the_images_licences
       - id: a2-docs-promise
         what: "A2: what the docs promise works (release paths, docs deploy, every documented command checked, one-line errors), and the scaffold and README point at the published docs"
         owner: build

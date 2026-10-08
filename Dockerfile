@@ -32,6 +32,18 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 COPY --from=build /opt/venv /opt/venv
 
+# Licences: Mendari's LICENSE and NOTICE, where the corresponding source is (SOURCE.md), and the
+# notices of every third-party component, written from what this image holds
+# (scripts/image_notices.py: THIRD_PARTY_NOTICES.md, inventory.json, a CycloneDX list of what an
+# SBOM scanner cannot see, and the texts licenses/image keeps for bundled libraries and crates).
+# Debian's own notices stay where the base image keeps them, /usr/share/doc/*/copyright and
+# /usr/share/common-licenses: nothing in this file removes files. scripts/check_image_licences.py
+# checks all of it (CI's docker job, and every image a release builds).
+COPY LICENSE NOTICE licenses/image/SOURCE.md /licenses/
+RUN --mount=type=bind,source=scripts/image_notices.py,target=/tmp/image_notices.py \
+    --mount=type=bind,source=licenses/image,target=/tmp/licences \
+    python3 /tmp/image_notices.py --manifest /tmp/licences --write /licenses
+
 RUN useradd --create-home --uid 10001 mendari && mkdir /data && chown mendari /data
 USER mendari
 WORKDIR /home/mendari
@@ -39,8 +51,9 @@ WORKDIR /home/mendari
 # A per-pack image serves only its pack: docker build --build-arg PACK=mendari/referral-router .
 ARG PACK=""
 ENV MENDARI_PACKS=${PACK}
+# `licenses` names Mendari's own licence only; the description says the rest is under others.
 LABEL org.opencontainers.image.title="Mendari engine" \
-      org.opencontainers.image.description="Decision Packs: REST, FHIR, CDS Hooks, review queue, audit, dashboard" \
+      org.opencontainers.image.description="Decision Packs: REST, FHIR, CDS Hooks, review queue, audit, dashboard. Mendari application code: Apache-2.0. Container includes third-party software under additional licenses. See /licenses and /licenses/THIRD_PARTY_NOTICES.md." \
       org.opencontainers.image.licenses="Apache-2.0"
 
 EXPOSE 8000
