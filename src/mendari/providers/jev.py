@@ -85,7 +85,10 @@ class JevConfig(BaseModel):
     timeout_ms: int = Field(default=5000, ge=100, le=10_000)
     # Minimum necessary: when set, only these input fields are sent to the provider.
     state_fields: list[str] | None = None
-    cost_per_1k_input_tokens_usd: float | None = Field(default=PRICE_PER_1K_INPUT_TOKENS_USD, ge=0)
+    # A price per 1,000 input tokens, $1 at most (finite): the usage ledger sums it (LP-21g).
+    cost_per_1k_input_tokens_usd: float | None = Field(
+        default=PRICE_PER_1K_INPUT_TOKENS_USD, ge=0, le=1.0, allow_inf_nan=False
+    )
     # Share one call with the decision's other Jev questions (union of state_fields).
     batch: bool = True
 
@@ -195,12 +198,13 @@ class JevProvider(Provider):
         deadline.refuse_if_past()  # past the decision's deadline: likewise
         token = resolve_key(key_env=API_KEY_ENV, connector_env=CONNECTOR_ENV)
         deadline.refuse_if_past()  # a credential fetch can take the rest of it
-        self.charge()  # after the credential: a call that cannot be made uses no budget
-
         questions = {key: q for provider in batch for key, q in provider.questions.items()}
         body = request_body(model, batch, questions, inputs)
         if len(json.dumps(body)) > MAX_REQUEST_CHARS:
             raise ProviderError("invalid_input", "request exceeds Jev's size limit")
+        self.charge()  # once it can be made: a call that cannot uses no budget
+        deadline.refuse_if_past()  # the budget's count can take the rest of it
+        self.sending()
 
         raw = self._send(endpoint, token, body)
         effective, answers, usage, problems = parse_response(raw, questions)

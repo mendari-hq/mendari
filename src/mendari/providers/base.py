@@ -90,12 +90,20 @@ def refuse_if_over_quota() -> None:
         raise refused
 
 
+# The most one call may report (the usage ledger, LP-21g): above, a figure is not believed. A
+# provider's own parser bounds what it accepts (Jev's MAX_TOKENS, the LLM's); these keep a
+# figure that got through from ever failing a decision's record.
+MAX_CALL_TOKENS = 10_000_000
+MAX_CALL_COST_USD = 1_000.0
+
+
 @dataclass
 class Metered:
-    """One provider type's remote calls: how many were made (each `charge`), how many reported
-    a price (`priced`), their tokens, and the cost of the priced ones. A call that failed, or
-    whose provider has no price configured, is counted but not priced: its cost is unknown,
-    never zero (the usage ledger, LP-21g)."""
+    """One provider type's remote calls: how many were sent (`sending`), how many answered with
+    a price (`priced`), the tokens the answered ones reported, and the cost of the priced ones.
+    A call that failed, whose answer was refused, or whose provider has no price, is counted but
+    not priced, and adds no tokens: its cost is unknown, never zero (the usage ledger,
+    LP-21g)."""
 
     calls: int = 0
     priced: int = 0
@@ -112,7 +120,7 @@ class Metered:
 
 
 class Meter:
-    """A decision's remote calls by provider type, as its providers make them (`charge`, then
+    """A decision's remote calls by provider type, as its providers make them (`sending`, then
     `metered` once the call answers). Safe across threads; providers never write anywhere:
     the decision's record takes it (`AuditStore.record`)."""
 
@@ -127,6 +135,12 @@ class Meter:
     def answered(
         self, provider_type: str, input_tokens: int, output_tokens: int, cost_usd: float | None
     ) -> None:
+        if not all(0 <= tokens <= MAX_CALL_TOKENS for tokens in (input_tokens, output_tokens)):
+            input_tokens = output_tokens = 0  # not believed: reported as none
+        if cost_usd is not None and not (
+            math.isfinite(cost_usd) and 0 <= cost_usd <= MAX_CALL_COST_USD
+        ):
+            cost_usd = None  # not believed: unpriced
         with self._lock:
             metered = self._types.setdefault(provider_type, Metered())
             metered.input_tokens += input_tokens
@@ -192,10 +206,14 @@ class Provider(ABC):
         self._budget = acquire
 
     def charge(self) -> None:
-        """Before each billable call: the daily budget (which may refuse it), then the
-        decision's meter."""
+        """Before each billable call, once it can be made: the daily budget, which may refuse
+        it."""
         if self._budget is not None:
             self._budget(self.info.type)
+
+    def sending(self) -> None:
+        """Right before a charged call is sent: the decision's meter counts it. A call refused
+        before (a budget, a quota, the deadline, a request too large) is never counted."""
         meter = METER.get()
         if meter is not None:
             meter.call(self.info.type)

@@ -369,8 +369,9 @@ PUBLIC = {
     ("GET", "/redoc"),
     # The status page: static, it reads readiness in the browser.
     ("GET", "/status"),
-    # The scheduled purge: its own bearer secret (CRON_SECRET), checked by the route.
+    # The scheduled purge and monitor: their own bearer secret (CRON_SECRET), checked there.
     ("GET", "/api/internal/retention"),
+    ("GET", "/api/internal/monitor"),
 }
 
 

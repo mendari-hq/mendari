@@ -654,13 +654,14 @@ and each instance logs the first refusal of the day per principal (`quota.reache
 **What was used: the usage ledger.** Each decision's remote model calls (Jev, an LLM) are counted
 in the database in the decision's own transaction, by local day, organization, provider type and
 purpose: `decision`, or `evaluation` for an evaluation run on the server (or `mendari eval
---db`), counted for the organization that ran it. Each row holds the calls, how many of them
-reported a price, their tokens, and the cost of the priced ones. A cost is shown only when every
-call was priced (Jev's published price, unless a variant sets another; an LLM's when its gateway
-reports one); otherwise it is unknown, never a partial sum and never zero. A call that a budget,
-a quota or the deadline stops is never made, so it is not counted; a call made that then failed
-is counted, without a price. The ledger holds no case data. Providers never write to the
-database.
+--db`), counted for the organization that ran it. Each row holds the calls sent, how many of
+them answered with a price, the tokens the answered ones reported, and the cost of the priced
+ones. A cost is shown only when every call was priced (Jev's published price, unless a variant
+sets another, at most $1 per 1,000 tokens; an LLM's when its gateway reports one, believed up to
+$1,000 a call); otherwise it is unknown, never a partial sum and never zero. A call that a
+budget, a quota, the deadline or the request's size stops is never sent, so it is not counted; a
+call sent that then failed, or whose answer was refused, is counted, without a price and without
+tokens. The ledger holds no case data. Providers never write to the database.
 
 **A deadline per decision.** A decision's remote calls (Jev, an LLM, the CQL engine) share one
 wall-clock deadline, `MENDARI_DECISION_DEADLINE_S` (whole seconds, 10 to 270; 120 unless set):
@@ -744,9 +745,23 @@ logs, at startup, each slot the Jev defaults turn on.
   goes to a person, or a rule blocks it. These alerts say the service got worse, not less safe.
   A provider error is recorded when a provider failed, or a composite's member did (the
   survivor may still have answered). Decisions recorded before this count existed are left out
-  of the provider error share. Schedule `mendari monitor --db "$DATABASE_URL"` with
-  `MENDARI_ALERT_WEBHOOK` (and `--org` for an organization's governance) to be told when a
-  pack degrades; it reads which providers ran from the deployment records the server keeps.
+  of the provider error share. Schedule it to be told when a pack degrades:
+  - on a server, `GET /api/internal/monitor` with `Authorization: Bearer $CRON_SECRET` (as the
+    scheduled purge) monitors each organization with decisions in the last 30 days on its own,
+    leaves out the status checks' organization (`MENDARI_STATUS_ORG`), and posts one alert per
+    organization to `MENDARI_ALERT_WEBHOOK`, recorded; it first sends again the alerts still
+    pending, for 60 seconds at most (those left stay due). A Vercel function stops at 300
+    seconds, so it starts no organization after 180, which leaves the last one time for its
+    posts; the rest are counted and an alert names them, and each day's run starts at another
+    organization, so none is left every day. Its answer holds counts only. On Vercel this is a
+    `crons` entry in `vercel.json` (the project's own schedule is the owner's to turn on);
+  - or `mendari monitor --db "$DATABASE_URL" --each-org` (the templates in `deploy/` run it
+    daily), which reads which providers ran from the deployment records the server keeps and
+    records nothing (it opens the database read-only), so it never sends a pending alert
+    again. It exits 0 when every alert it found was posted, 1 on an error (one organization's
+    failure is its own line, and the others still run) or on alerts with no webhook to post
+    them, and 3 when one could not be posted. The Kubernetes job fails on 1 or 3 and is never
+    re-run (a re-run would post every organization's alert again).
 - **Governance:** packs at risk level 2 or 3 automate only after someone with the `governance`
   role approves that exact version on its Decision Card (a reference such as committee minutes,
   and an expiry). Level 4 never automates.
@@ -759,10 +774,13 @@ logs, at startup, each slot the Jev defaults turn on.
   id) and `Mendari-Event`. Without a secret the server warns at startup. A post that gets no
   answer, `408`, `429` or a `5xx` is tried again (any other answer is final): `mendari monitor`
   tries up to three times and exits `3` when its alerts could not be posted (`1` when it found
-  alerts and posted them); the quota alert is tried once on the decision's path. The server
+  alerts and posted them; with `--each-org`, `0`); the quota alert is tried once on the
+  decision's path. The server
   records each alert it sends (`alert_deliveries`: its body, status, tries, last HTTP status and
   an error code; never the URL or the secret), so a failed one stays `pending` for another try,
-  five in all. Until the monitor's schedule exists (LP-21f), nothing sends a pending one again.
+  five in all. Each run of `GET /api/internal/monitor` first sends the due ones again;
+  `mendari monitor` records nothing and sends none again, so a deployment that wants pending
+  alerts tried again schedules the route, with `CRON_SECRET`.
   A receiver checks the signature over the raw body:
 
   <!-- receiver: the recipe tests/test_alerts.py runs -->
@@ -859,7 +877,7 @@ startup, so a typo never runs with a weaker setting.
 | `MENDARI_INPUT_HASH_KEY` | none | 32 bytes, base64, not the PHI key; required under `hash` and `encrypt` | 3 |
 | `MENDARI_PHI_READ_KEYS` | none | Under `encrypt`, up to 4 keys (base64, comma-separated) the deployment opens with but never seals: the previous key during a rotation, or the next one before it becomes current | 3 |
 | `MENDARI_RETENTION_DAYS` | 30 (1 to 36500) | How long kept inputs and notes are kept, by `mendari phi purge` and the scheduled purge | 3 |
-| `CRON_SECRET` | unset: no scheduled purge | At least 16 random characters, no spaces around them: Vercel Cron's bearer token for `/api/internal/retention` (otherwise unused, with a warning: the purge stays off) | 3 |
+| `CRON_SECRET` | unset: no scheduled purge or monitor | At least 16 random characters, no spaces around them: Vercel Cron's bearer token for `/api/internal/retention` and `/api/internal/monitor` (otherwise unused, with a warning: both stay off) | 3 |
 | `MENDARI_MAX_BODY_BYTES` | 4 MiB (64 KiB at least) | The largest request body; a `413` above it | 1 |
 | `MENDARI_DECISION_DEADLINE_S` | 120 (10 to 270, whole seconds) | How long one decision's remote calls may take together; past it they fail with `timeout` and a person decides, while local providers still answer | 4 |
 | `MENDARI_RATE_LIMITS` | `on` with sign-in, `off` without | `on`, `log` or `off`, then overrides (`decide=1200/min:200`) | 4 |
@@ -874,6 +892,7 @@ startup, so a typo never runs with a weaker setting.
 | `MENDARI_ALERT_WEBHOOK` | unset: no alerts posted | Where the monitor's and the quota alerts go (https; keep it as a secret) | 6 |
 | `MENDARI_ALERT_FORMAT` | `mendari` | `mendari` (JSON) or `slack` | 6 |
 | `MENDARI_ALERT_SECRET` | unset: unsigned, with a warning | Signs every alert (`Mendari-Signature`); 32 characters or more | 6 |
+| `MENDARI_STATUS_ORG` | unset | The organization the status checks decide in, which the scheduled monitor leaves out | 6 |
 
 ## 9. Before go-live
 
