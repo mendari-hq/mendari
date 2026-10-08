@@ -398,7 +398,7 @@ def test_health_records_no_deployment(db_target: str, monkeypatch: pytest.Monkey
         rows = store.deployments(None)
         with store._db.session(exclusive=False) as session:
             chained = session.all(
-                "SELECT event FROM audit_events WHERE decision_id LIKE 'deployment:%'"
+                "SELECT event FROM audit_events WHERE decision_id LIKE ?", ("deployment:%",)
             )
     assert [row["pack_id"] for row in rows] == [INBOX]  # the pack used, recorded once
     assert [row["event"] for row in chained] == ["deployment.recorded"]
