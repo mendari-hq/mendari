@@ -75,6 +75,12 @@
         <span class="signed-in-name" id="signed-in-name"></span>
         <button type="button" id="sign-out">Sign out</button>
       </span>
+      <!-- Memberships mode, a person in several organizations: which one this browser acts for. -->
+      <form class="org-picker" id="org-form" hidden>
+        <label class="setting-name" for="org-select">Organization</label>
+        <select id="org-select"></select>
+        <button type="submit">Switch</button>
+      </form>
       <label class="pack-picker">
         <span class="setting-name">Decision Pack</span>
         <select id="pack-select"></select>
@@ -87,12 +93,22 @@
   <div class="session-ended" id="session-ended" hidden>
     Your session ended. <a id="sign-in-again" href="/auth/login">Sign in again.</a>
   </div>
+  <!-- Memberships mode (ui.js): the membership this window acts with ended; or another
+       organization was chosen in another window since this one opened. -->
+  <div class="session-ended" id="access-ended" hidden>
+    Your access to this organization ended. <button type="button" data-reload>Reload</button> to see what you can do now.
+  </div>
+  <div class="session-ended" id="org-changed" hidden>
+    This window shows another organization than the one you chose since. <button type="button" data-reload>Reload it</button>
+  </div>
   <!-- After a 401 from the launch's own routes (ui.js): only the EHR can launch again. -->
   <div class="session-ended" id="launch-ended" hidden>This EHR launch ended. Open Mendari again from the EHR.</div>
   <div class="shell">
     <nav class="nav" aria-label="Sections">
       <!-- Shown after a SMART launch from the EHR (patient.js). -->
       <a href="#patient" data-view="patient" hidden>This patient</a>
+      <!-- Memberships mode: a launch in a browser whose person has chosen no organization yet. -->
+      <a href="#access" data-view="access" hidden>Choose an organization</a>
       <a href="#overview" data-view="overview">Overview</a>
       <a href="#review" data-view="review">Review queue <span class="count" id="review-count"></span></a>
       <a href="#audit" data-view="audit">Audit trail</a>

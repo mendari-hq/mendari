@@ -118,9 +118,9 @@ function holdResolution(card, button, label, reviewer) {
   announce(`${card.dataset.recommendation ? "Override" : "Label"} ${name} sends in ${UNDO_SECONDS} seconds. Press Undo to cancel.`);
 }
 
-// Leaving the queue (another view, another pack) sends what is held; so does closing the page, with
-// keepalive so the request outlives it.
-views.review.leave = () => held.forEach((send) => send());
+// Leaving the queue (another view, another pack, another organization: that one waits for them)
+// sends what is held; so does closing the page, with keepalive so the request outlives it.
+views.review.leave = () => Promise.all([...held.values()].map((send) => send()));
 window.addEventListener("pagehide", () => held.forEach((send) => send({ keepalive: true })));
 
 async function sendResolution(card, label, reviewer, { keepalive = false } = {}) {

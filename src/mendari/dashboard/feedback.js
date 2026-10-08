@@ -5,7 +5,7 @@ import { ratingCell } from "./audit.js";
 import { criteriaTable, derivedPrimary, inputView } from "./pack.js";
 import { render, views } from "./router.js";
 import { TABLES } from "./table.js";
-import { $, api, emptyState, esc, icon, outcomeBadge, packPath, priorityBadge, signedIn, stat, state, storageGet, storageSet, time, toastError, whileBusy } from "./ui.js";
+import { $, api, download, emptyState, esc, icon, outcomeBadge, packPath, priorityBadge, signedIn, stat, state, storageGet, storageSet, time, toastError, whileBusy } from "./ui.js";
 
 views.feedback = async (main) => {
   const rating = storageGet("oh.feedback.rating", "down");
@@ -29,13 +29,19 @@ views.feedback = async (main) => {
         <option value="" ${rating === "" ? "selected" : ""}>All (${f.up + f.down})</option>
       </select>
       <span class="grow"></span>
-      <a class="button" href="${packPath()}/feedback/export?rating=down" download>${icon("download")} Download the wrong cases (JSONL)</a>
+      <a class="button" id="feedback-export" href="${packPath()}/feedback/export?rating=down" download>${icon("download")} Download the wrong cases (JSONL)</a>
     </div>
     ${items.length ? items.map(feedbackCard).join("") : emptyState({
       icon: "message", title: "Nothing rated yet",
       text: "Rate a decision right or wrong in Try it, or in a record of the audit trail.",
       action: { href: "#try", label: "Try a decision" },
     })}`;
+  // Memberships mode: fetched with the window's organization (claims mode: the browser saves it).
+  $("#feedback-export").addEventListener("click", (event) => {
+    if (state.accounts !== "memberships") return;
+    event.preventDefault();
+    download(event.currentTarget.getAttribute("href"));
+  });
   $("#rating-filter").addEventListener("change", (e) => {
     storageSet("oh.feedback.rating", e.target.value);
     render();

@@ -7,8 +7,8 @@ organization from its identity provider's claims needs none of this: it stays as
 (`MENDARI_ACCOUNTS=claims`, the default).
 
 The records are being built in steps (LP-12). This page covers the command line and signing in
-by records (`MENDARI_ACCOUNTS=memberships`); the dashboard's no-access page and organization
-switcher, invitations in the dashboard and the Access screen follow. **Until invitations ship
+by records (`MENDARI_ACCOUNTS=memberships`), with the dashboard's access page and organization
+switcher; invitations in the dashboard and the Access screen follow. **Until invitations ship
 (LP-12f), nobody can accept one**, and a request to join is only listed
 (`mendari access requests`). Claims mode never reads or writes the records.
 
@@ -108,9 +108,14 @@ Then:
   their address, verified by the identity provider, when they hold one, or when they were
   recorded before. Anyone else who signs in leaves no record.
 - With exactly one membership, it is selected at sign-in. With several, or with one given since
-  they signed in, the person chooses one. With none, they act for **no organization**: never
-  `default`. They are refused (`403`, `NoOrganization`) everywhere but the public routes, the
-  dashboard page, choosing one of their organizations and asking to join one.
+  they signed in, the person chooses one: the dashboard shows only that choice until they do
+  (beside an EHR launch's patient, if the browser holds one), and a switcher in the top bar
+  afterwards, with a Switch button (the choice is the browser's; a window left on the
+  organization before says so instead of acting). With none, they act for **no organization**:
+  never `default`. The dashboard then shows who they are signed in as, a form to ask to join an
+  organization by its id, and a way to use another account. They are refused (`403`,
+  `NoOrganization`) everywhere but the public routes, the dashboard page, choosing one of their
+  organizations and asking to join one.
 - Asking to join answers with the same status and body whether or not the organization
   exists, the person is already a member, or they have five requests open: only a request to
   an organization with a record, from someone not in it, is recorded, with the person if they

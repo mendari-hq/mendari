@@ -521,8 +521,9 @@ operations, LP-22 site network, LP-23 EHR pilot.
       (`X-Mendari-Org`, 409); keys, clients and launches of an organization with no record
       refused; `mendari smart check` in memberships mode. Claims mode unchanged (acceptance
       test, and a matrix: a member is let through exactly as a claims person of the role).
-    - [ ] **12e-ii** The dashboard: the no-access view with the request form, the chooser
-      (whenever a person holds a membership and none is chosen), the switcher, the
+    - [ ] **12e-ii** (PR open) The dashboard: the access page (`access.js`: the request form,
+      the chooser whenever a person holds a membership and none is chosen, roles that grant
+      nothing), the switcher, every request naming the window's organization, the
       access-ended and window-moved banners, "Use another account"; browser tests.
   - [ ] **12f** Invitations and member management (no e-mail sent), in two PRs, so the server
     does not wait on 12e-ii's dashboard files:
