@@ -1,11 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 """What code systems the repository's data carries (LP-14). CPT, whose codes the American Medical
 Association licenses, appears in no tracked pack, dataset or fixture: the prior-authorization
-pack's procedure codes, everywhere it or its data uses one, are fictional. Nothing a package is
-built from (src/, packs/, datasets/) carries SNOMED CT: the trial prescreener's condition codes,
-its local-site example's and the referral router's referral code are fictional too, and SNOMED
-CT's url or OID is named only where Mendari's code must name the system (scripts/check_snomed.py,
-which CI also runs on the built wheel and sdist). A licensed system (`LICENSED_CODE_SYSTEMS`)
+pack's procedure codes, everywhere it or its data uses one, are fictional. Nothing a package or
+an image is built from (src/, packs/, datasets/, NOTICE, licenses/image) carries SNOMED CT: the
+trial prescreener's condition codes, its local-site example's and the referral router's referral
+code are fictional too, and SNOMED CT's url or OID is named only where Mendari's code must name
+the system (scripts/check_snomed.py, which CI also runs on the built wheel and sdist). A
+licensed system (`LICENSED_CODE_SYSTEMS`)
 named by its url or OID appears only in a pack that declares it with its licence terms
 (`code_systems`, checked at load) or in a US Core fixture listed here with why. Whether the
 repository's tests may keep SNOMED CT is recorded for counsel (tasks/todo.md, LP-14)."""
@@ -36,7 +37,20 @@ from mendari.standards.terminology import sandbox_resources
 
 ROOT = Path(__file__).resolve().parents[1]
 TREES = ("packs", "community-packs", "datasets", "tests/fixtures")
-SHIPPED = ("src", "packs", "datasets")  # what the wheel, the sdist and the images are built from
+# What the wheel, the sdist and the images are built from: the wheel from src/, packs/ and
+# datasets/; the sdist adds README.md, LICENSE, NOTICE and pyproject.toml; the images copy the
+# same trees and carry /licenses (#180): LICENSE, NOTICE and what the build writes from
+# licenses/image (its SOURCE.md, the components' and crates' licence texts).
+SHIPPED = (
+    "src",
+    "packs",
+    "datasets",
+    "README.md",
+    "LICENSE",
+    "NOTICE",
+    "pyproject.toml",
+    "licenses/image",
+)
 CPT = "http://www.ama-assn.org/go/cpt"
 SNOMED = "http://snomed.info/sct"
 TRIAL = ROOT / "packs" / "clinical-trial-prescreener"
@@ -174,10 +188,11 @@ def test_every_procedure_code_the_prior_auth_pack_or_its_data_uses_is_fictional(
 
 def test_nothing_a_package_is_built_from_carries_snomed_ct() -> None:
     """No SNOMED CT concept id (one the repository has used, or, but in the vendored swagger-ui,
-    any other number written as one), concept URI, url or OID in src/, packs/ or datasets/ (what
-    the wheel, the sdist and the images carry), but the url or OID where the code must name the
-    system. CI runs the same check on the built wheel and sdist (scripts/check_snomed.py)."""
+    any other number written as one), concept URI, url or OID in what the wheel, the sdist and
+    the images carry (`SHIPPED`), but the url or OID where the code must name the system. CI runs
+    the same check on the built wheel and sdist (scripts/check_snomed.py)."""
     check = check_snomed()
+    assert all(tracked((tree,)) for tree in SHIPPED), "a path in SHIPPED has no tracked file"
     found = []
     for path in tracked(SHIPPED):
         if path.is_file():

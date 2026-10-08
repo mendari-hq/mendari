@@ -310,7 +310,8 @@ behaviour.
     in src/, packs/ or datasets/ (the nine the repository has used, and any other number
     written as one: a concept's partition and SNOMED CT's Verhoeff check digit; in the vendored
     swagger-ui only the nine), no concept URI, and the url or OID only in the three modules that
-    must name the system. **Accepted with it:** until a site code map exists (LP-23), the
+    must name the system; the test also scans the sdist's other files and what the images'
+    `/licenses` is written from since #180 (NOTICE, licenses/image). **Accepted with it:** until a site code map exists (LP-23), the
     referral router matches no real SNOMED-coded referral through FHIR and the trial pack reads
     real diagnoses only through ICD-10-CM; both cards say so. **Wider than the owner's wording
     (review, 2026-10-08; owner to confirm):** through FHIR the trial pack reads only a
@@ -328,8 +329,9 @@ behaviour.
   purposes). What the published container images must carry: the Debian base image's GPL and
   LGPL packages, and the LGPL-3.0 PostgreSQL driver: psycopg-binary bundles libpq, OpenSSL 3 and
   1.1.1, libxcrypt and keyutils (LGPL-2.1+), Cyrus SASL and MIT Kerberos (attribution clauses),
-  OpenLDAP, PCRE2 and libselinux, whose licence texts the image does not carry beside psycopg's
-  own, and the image label says only Apache-2.0. Whether the X12 code values in
+  OpenLDAP, PCRE2 and libselinux; since #180 every image carries their licence texts and notices
+  in `/licenses`, with its source pushed beside it, the approach counsel is asked to confirm
+  ("Image licence compliance" below). Whether the X12 code values in
   `src/mendari/standards/pas.py` (shipped) may stay under X12's terms.
   **For the owner (conflict with the build prompt):** LP-14 asks to move a copyleft driver to an optional extra; psycopg is a hard
   dependency because the hosted deployment installs from the lock without extras, so moving it

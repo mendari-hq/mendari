@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """No SNOMED CT content in a package (LP-14). The wheel and the sdist (and the images, which copy
-the same src/, packs/ and datasets/) carry no SNOMED CT concept id, no SNOMED CT concept URI, and
+the same src/, packs/ and datasets/, and carry in /licenses LICENSE, NOTICE and what the build
+writes from licenses/image) carry no SNOMED CT concept id, no SNOMED CT concept URI, and
 SNOMED CT's url or OID only in the modules that must name the system (`NAMES_THE_SYSTEM`, none
 holding a code). A concept id is any id the repository has used (`CONCEPT_IDS`), in any file, and
 in Mendari's own files (src/mendari, the packs, the datasets) any other number written as one:
@@ -12,7 +13,8 @@ carries.
 
     uv run python scripts/check_snomed.py dist/mendari-*.tar.gz dist/*.whl
 
-tests/test_code_systems.py runs the same check on the tracked files the packages are built from.
+tests/test_code_systems.py runs the same check on the tracked files the packages are built from,
+and on those the images' /licenses is written from (licenses/image).
 """
 
 from __future__ import annotations
