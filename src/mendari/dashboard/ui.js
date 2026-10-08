@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Shared helpers: formatting, badges and icons, the API and its refusals, messages, local storage,
-// the app state, the membership roles, focus and busy states, a dialog that asks before a change,
-// and the stat block. Imports nothing: the invitation page (invite.js) uses it too.
+// the app state, the membership and machine roles, links to the docs site, focus and busy states,
+// a dialog that asks before a change, and the stat block. Imports nothing: the invitation page
+// (invite.js) uses it too.
 
 export const $ = (selector, root = document) => root.querySelector(selector);
 
@@ -285,9 +286,11 @@ export function storageSet(key, value) {
 // launch this window is pinned to (dashboard/patient.js), kept when the address loses it.
 // `accounts`: "claims" or "memberships" (`/api/auth/me`); `memberships`: the person's own, in
 // memberships mode; `noAccess`: why they see the access page instead of the sections (access.js).
+// `backendServices`: `{token_endpoint}` when SMART Backend Services is on (`/api/health`, signed
+// in), else null.
 export const state = {
   packs: [], packId: null, detail: null, view: null, smart: null, me: null, launchOnly: false, launchPin: null, phiMode: "off",
-  accounts: "claims", memberships: [], noAccess: null,
+  accounts: "claims", memberships: [], noAccess: null, backendServices: null,
   timezone: DEFAULT_TIMEZONE, timeFormat: timeFormatFor(DEFAULT_TIMEZONE), shortFormat: shortFormatFor(DEFAULT_TIMEZONE),
 };
 
@@ -309,6 +312,28 @@ export const MEMBERSHIP_ROLES = [
 ];
 
 export const roleName = (key) => MEMBERSHIP_ROLES.find((r) => r.key === key)?.label ?? key;
+
+// A machine's roles, the only ones an API key or a Backend Services client holds (core/audit.py
+// MACHINE_ROLES; a test keeps them equal), in the same words.
+export const MACHINE_ROLES = MEMBERSHIP_ROLES.filter((r) => ["viewer", "service"].includes(r.key));
+
+// The documentation site (mkdocs.yml `site_url`; a test keeps them equal).
+export const DOCS_SITE = "https://junebugg1214.github.io/mendari/";
+
+// A page of the docs by its source path under docs/ ("guides/api.md#fhir-in-fhir-out", as the
+// key presets name it) as the site serves it ("…/guides/api/#fhir-in-fhir-out"); null for
+// anything that would leave the site.
+export function docsLink(doc) {
+  if (typeof doc !== "string") return null;
+  const [page, anchor = ""] = doc.split("#", 2);
+  if (!/^[a-z0-9][a-z0-9/_-]*\.md$/i.test(page) || page.includes("..")) return null;
+  const path = page.replace(/(^|\/)index\.md$/, "$1").replace(/\.md$/, "/");
+  const site = new URL(DOCS_SITE);
+  const url = new URL(path, site);
+  if (url.origin !== site.origin || !url.pathname.startsWith(site.pathname) || url.search) return null;
+  url.hash = anchor;
+  return url.href;
+}
 
 export const packPath = () => `/api/packs/${state.packId}`;
 

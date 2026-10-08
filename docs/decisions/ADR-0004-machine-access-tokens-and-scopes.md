@@ -75,4 +75,7 @@ reach the lists as before; an EHR launch does not. `GET /api/auth/me` lists it.
   amplification surface.
 - **Pack-scoped keys, last-used tracking, a new key format.** Deferred until external
   developers use the API. (Rotation with an overlap was added by LP-09, 2026-10:
-  `POST /api/auth/keys/{id}/rotate`.)
+  `POST /api/auth/keys/{id}/rotate`. A Backend Services client's key set is replaced in place by
+  LP-12h, 2026-10: `POST /api/auth/clients/{id}/keys`, same client id, its tokens dropped and a
+  token raced against the old set refused; no overlap, so a switch without a gap is two
+  replacements.)

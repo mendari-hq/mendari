@@ -16,86 +16,43 @@ import threading
 import urllib.parse
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
-from playwright.sync_api import Browser, BrowserContext, Locator, Page, Request, Route, expect
+from playwright.sync_api import Browser, Locator, Page, Request, Route, expect
 
-from mendari.core.audit import AuditStore
 from mendari.server import auth as auth_module
-from mendari.server.app import create_app
 from mendari.server.auth import person_id
 from mendari.standards.fhir_client import GuardedHttp
-from tests.browser.conftest import serving
+from tests.browser.access_site import (
+    Site,
+    access,
+    dialog,
+    lead,
+    memberships,
+    person,
+    row,
+    running,
+)
 from tests.browser.test_access import member_of, pins
 from tests.browser.test_accessibility import violations
 from tests.browser.test_dashboard import INBOX, PHONE, SMALL_TARGETS, open_pack, signed_in_as
-from tests.conftest import member, security_lines
-from tests.test_auth import CLIENT, IDP, FakeIdp
+from tests.conftest import security_lines
+from tests.test_auth import IDP, FakeIdp
 
 pytestmark = pytest.mark.browser
 
 TOKEN = re.compile(r"ohi_[A-Za-z0-9_-]{43}")
 MARKUP = '<img src=x onerror="window.pwned=1">'
 PEOPLE = re.compile(r"^/api/auth/(members|invitations|access-requests)(/|$)")  # a path
+CREDENTIALS = re.compile(r"^/api/auth/(keys|clients)(/|$)")  # a path
 PEOPLE_URL = re.compile(r"/api/auth/(members|invitations|access-requests)(/|\?|$)")
 
 
-# -- a real memberships-mode server --------------------------------------------------------------
-
-
-@dataclass
-class Site:
-    """Mendari in memberships mode at `localhost` (a secure context: its Secure cookies stay), its
-    store, and the browser windows a test opens (closed with it)."""
-
-    base: str
-    store: AuditStore
-    browser: Browser
-    contexts: list[BrowserContext] = field(default_factory=list)
-
-    def window(self, headers: dict[str, str] | None = None, **options: Any) -> Page:
-        """A new browser (context) holding the session in `headers`, if any."""
-        context = self.browser.new_context(base_url=self.base, **options)
-        self.contexts.append(context)
-        if headers:
-            name, _, value = headers["cookie"].partition("=")
-            context.add_cookies(
-                [
-                    {
-                        "name": name,
-                        "value": value,
-                        "url": self.base,
-                        "httpOnly": True,
-                        "secure": True,
-                        "sameSite": "Lax",
-                    }
-                ]
-            )
-        return context.new_page()
-
-
-@contextmanager
-def running(browser: Browser, db: Path) -> Iterator[Site]:
-    """The server, with the environment the caller set (memberships mode and sign-in)."""
-    app = create_app(db_path=db)
-    with AuditStore(db) as store, serving(app) as port:
-        site = Site(f"http://localhost:{port}", store, browser)
-        try:
-            yield site
-        finally:
-            for context in site.contexts:
-                context.close()
-
-
-def memberships(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
-    monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)  # reached only by the real sign-in's test
-    monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", CLIENT)
+# -- a real memberships-mode server (tests/browser/access_site.py) -------------------------------
 
 
 @pytest.fixture
@@ -105,25 +62,6 @@ def site(browser: Browser, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> I
         yield here
 
 
-def lead(site: Site) -> dict[str, str]:
-    """Clinic-A's administrator (Clinic-A's record too, made by the first call)."""
-    return member(
-        site.store, org="clinic-a", roles=["admin"], sub="lead", email="lead@example.org",
-        host="localhost",
-    )  # fmt: skip
-
-
-def person(
-    site: Site,
-    sub: str = "ada",
-    email: str | None = "ada@example.org",
-    org: str | None = None,
-    roles: list[str] | None = None,
-) -> dict[str, str]:
-    """Someone signed in (of no organization unless `org`), their address verified unless None."""
-    return member(site.store, org=org, roles=roles, sub=sub, email=email, host="localhost")
-
-
 def invited(
     site: Site, email: str = "ada@example.org", roles: tuple[str, ...] = ("viewer",)
 ) -> Any:
@@ -131,22 +69,6 @@ def invited(
     return site.store.create_invitation(
         org="clinic-a", email=email, roles=list(roles), created_by=person_id(IDP, "lead")
     )
-
-
-def access(page: Page, tab: str) -> None:
-    """The Access view's `tab`, freshly loaded."""
-    page.goto("about:blank")
-    page.goto(f"/#admin/{tab}")
-    expect(page.locator("main h1")).to_have_text("Access")
-    expect(page.locator(f'.tabs a[data-tab="{tab}"]')).to_have_attribute("aria-current", "page")
-
-
-def row(page: Page, table: str, text: str) -> Locator:
-    return page.locator(f'[data-table="{table}"] tbody tr', has_text=text)
-
-
-def dialog(page: Page) -> Locator:
-    return page.locator("dialog[open]")
 
 
 def title(page: Page) -> Locator:
@@ -817,19 +739,27 @@ def test_the_access_view_is_hidden_from_everyone_but_administrators(page: Page) 
     assert not [path for _, path, _ in seen if PEOPLE.match(path)]
 
 
-@pytest.mark.parametrize("mode", ["claims", "open"])
-def test_claims_and_open_mode_have_no_access_view(page: Page, mode: str) -> None:
-    """An administrator by claims holds `keys` too, and open mode may do anything: neither
-    reaches an organization's people (no memberships mode, no such routes)."""
+def no_access_view(page: Page) -> None:
+    """The section list has no Access link, and `#admin` is the overview, with no list fetched."""
     seen = pins(page)
-    if mode == "claims":
-        signed_in_as(page, "admin")
     open_pack(page, INBOX)
     expect(page.locator('.nav a[data-view="admin"]')).to_be_hidden()
     page.goto(f"/?pack={INBOX}#admin")
     expect(page.locator('.nav a[data-view="overview"]')).to_have_class(re.compile("active"))
     expect(page.locator("#view")).not_to_have_attribute("aria-busy", "true")
-    assert not [path for _, path, _ in seen if PEOPLE.match(path)]
+    assert not [path for _, path, _ in seen if CREDENTIALS.match(path) or PEOPLE.match(path)]
+
+
+def test_open_mode_has_no_access_view(page: Page) -> None:
+    """Open mode may do anything, for every organization: no view acts for all of them (the
+    command line and the API remain). An administrator by claims has one: its keys and clients
+    (tests/browser/test_credentials.py)."""
+    no_access_view(page)
+
+
+def test_a_viewer_by_claims_has_no_access_view(page: Page) -> None:
+    signed_in_as(page, "viewer")
+    no_access_view(page)
 
 
 def test_an_administrator_sees_the_access_view(page: Page) -> None:
@@ -840,7 +770,10 @@ def test_an_administrator_sees_the_access_view(page: Page) -> None:
     link.click()
     expect(page.locator("main h1")).to_have_text("Access")
     expect(page.locator("main")).to_contain_text("Who can use Clinic A and with which roles.")
-    expect(page.locator(".tabs a")).to_have_text(["Members", "Invitations", "Requests to join"])
+    # Backend Services is off on the test server (its health says so): no Clients tab.
+    expect(page.locator(".tabs a")).to_have_text(
+        ["Members", "Invitations", "Requests to join", "API keys"]
+    )
     expect(row(page, "members", "Bo")).to_contain_text("You")  # who added Bo
 
 

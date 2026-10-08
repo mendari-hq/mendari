@@ -239,6 +239,7 @@ NOT_ON_A_DECISION = {
     "key.revoked",
     "client.registered",
     "client.revoked",
+    "client.keys_replaced",  # a client's key set replaced, on the client (LP-12h)
     "notice.acknowledged",
     "automation.held",
     "automation.lifted",

@@ -1366,9 +1366,11 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
         summary="List API keys",
     )
     def list_keys(request: Request) -> list[dict[str, Any]]:
-        """Keys of this organization: name, role, scope, the preset it was made from, who
-        created it and when, when it expires, and when and by whom it was revoked. Never the
-        key."""
+        """Keys of this organization, oldest first: name, role, scope, the preset it was made
+        from, who created it and when, when it expires, its replacement if it was rotated
+        (`replaced_by`), when and by whom it was revoked, and its `status` now: `active`,
+        `replaced` (rotated, still working until its `expires_at`), `expired` or `revoked`.
+        Never the key."""
         return store.api_keys(scope_of(auth.acting(request)))
 
     @app.get(
@@ -1389,6 +1391,24 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
             preset.as_dict(key_reaches(preset.role, preset.scope, routes))
             for preset in presets.PRESETS.values()
         ]
+
+    @app.get(
+        "/api/auth/keys/{key_id}/history",
+        tags=["Sign-in"],
+        summary="An API key's history",
+    )
+    def key_history(request: Request, key_id: str) -> dict[str, Any]:
+        """What happened to this organization's key, from the audit chain (`key:<id>`), oldest
+        first: created (with its role, scope or preset and expiry), rotated (to which key, until
+        when the old one works, the overlap asked) and revoked, each with who did it and when;
+        never the key or its hash. A rotation's new key names the old one (`replaces`), the old
+        one its replacement (`replaced_by`): each has its own history. At most the 200 newest
+        events (`truncated` says if there were more). Unknown or another organization's key:
+        `404`."""
+        found = store.subject_history("key", key_id, scope_of(auth.acting(request)))
+        if found is None:
+            raise AuthError("no such key", 404)
+        return found
 
     @app.post(
         "/api/auth/keys/{key_id}/rotate",

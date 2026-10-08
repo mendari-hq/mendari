@@ -733,7 +733,8 @@ def create_app(
         where), storage, the FHIR validation mode, PHI mode, the input hash's kind and key id,
         which provider answers each pack's questions, today's remote calls, the rate limits
         (where the caller's address is read, and the address seen on this request), the session
-        policy and the organization's daily quotas with what it used today.
+        policy, the organization's daily quotas with what it used today, and whether SMART
+        Backend Services is on (`backend_services`: its token endpoint, or null).
         """
         public = {"status": "ok", "version": __version__, "sign_in": auth.enabled}
         principal = auth.principal(request)  # no credential: no lookup
@@ -768,6 +769,11 @@ def create_app(
             # FHIR servers this deployment may read from (CDS Hooks fetch); empty: none.
             "fhir_allowed_servers": fhir_servers,
             "smart_launch": smart_options is not None,
+            # SMART Backend Services: its token endpoint when it is on (public in discovery
+            # too), None when off. The dashboard's Clients tab is shown only when it is on.
+            "backend_services": (
+                {"token_endpoint": backend.token_url} if backend is not None else None
+            ),
             # The EHRs registered to launch (MENDARI_SMART_EHRS), the caller's organization's
             # only (every one in open mode): base, organization and level.
             "smart_ehrs": [
