@@ -17,7 +17,7 @@ from mendari.server import api_docs, landing, scopes, snippets
 from mendari.server.app import DASHBOARD_DIR, create_app, mounted_routes
 from mendari.server.auth import permission_for
 from mendari.settings import default_providers
-from tests.conftest import calm_jev
+from tests.conftest import calm_jev, encrypt_mode
 from tests.test_backend_services import PUBLIC_URL
 from tests.test_backend_services import on as backend_services_on
 
@@ -28,6 +28,7 @@ _INLINE = re.compile(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", re.S)
 def _sign_in_on(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari-org")
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
 
 
 @pytest.fixture

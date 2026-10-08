@@ -7,14 +7,15 @@ Python examples (`*.py`) as programs (CI jobs `test` and `quickstart`, one step)
 Three passes, each on its own local server (the real app on a free port, with a new SQLite file):
 
 1. **Open mode**: every step of every file, with `MENDARI_KEY` empty.
-2. **Sign-in on** (an identity provider is configured but never called): a `service` key is made
+2. **Sign-in on** (an identity provider is configured but never called), so PHI mode `encrypt`
+   under two keys made for the pass: a `service` key is made
    in the store, as an administrator would make it, and every step runs with it, except the
    steps whose calls the key may not make by the route rules (`server/auth.py`): today the
    whole-trail export, which needs an administrator. A request without the key must be refused,
    so the pass proves sign-in was on.
 3. **Each key preset with a snippet** (`server/presets.py`, LP-12i: `rest`, `fhir` and
-   `ai-guard` today), on one server with sign-in on: a key made from the preset, as an
-   administrator would make it, runs the steps its documentation describes
+   `ai-guard` today), on one server with sign-in on (`encrypt`, as in pass 2): a key made from
+   the preset, as an administrator would make it, runs the steps its documentation describes
    (`Preset.examples`), and only those; a step of the same file it does not run is named. The
    presets no snippet documents are proven by tests/test_key_presets.py.
 
@@ -26,6 +27,7 @@ Jev or LLM calls allowed: the check costs nothing and sends nothing anywhere. Ne
 
 from __future__ import annotations
 
+import base64
 import os
 import shutil
 import socket
@@ -59,6 +61,21 @@ def runnable_with_key(step: snippets.Step) -> bool:
     may = PERMISSIONS[KEY_ROLE] - PEOPLE_ONLY
     needed = {permission_for(method, path) for method, path in step.calls()}
     return all(permission == "public" or permission in may for permission in needed)
+
+
+def _throwaway_key() -> str:
+    """32 random bytes, base64: a PHI key for one pass, never kept."""
+    return base64.b64encode(os.urandom(32)).decode()
+
+
+def _sign_in_on() -> None:
+    """Sign-in on (the identity provider is never called, since nobody signs in), so PHI mode
+    `encrypt`, never `off`, under two keys made for this pass alone."""
+    os.environ["MENDARI_OIDC_ISSUER"] = "https://idp.example.org"
+    os.environ["MENDARI_OIDC_CLIENT_ID"] = "mendari"
+    os.environ["MENDARI_PHI_MODE"] = "encrypt"
+    os.environ["MENDARI_PHI_KEY"] = _throwaway_key()
+    os.environ["MENDARI_INPUT_HASH_KEY"] = _throwaway_key()
 
 
 def _free_port() -> int:
@@ -128,10 +145,8 @@ def run_pass(
     print(f"{name}:")
     os.environ.clear()
     os.environ.update(base_env)
-    if key:  # sign-in on; the identity provider is never called, since nobody signs in
-        os.environ["MENDARI_OIDC_ISSUER"] = "https://idp.example.org"
-        os.environ["MENDARI_OIDC_CLIENT_ID"] = "mendari"
-        os.environ["MENDARI_PHI_MODE"] = "off"  # sign-in needs a chosen mode; synthetic cases
+    if key:
+        _sign_in_on()
     db = work / f"{name.split()[0]}.db"
     secret = ""
     if key:
@@ -165,9 +180,7 @@ def run_presets(work: Path, base_env: dict[str, str], *, show: bool = False) -> 
     print("sign-in on, a key from each preset:")
     os.environ.clear()
     os.environ.update(base_env)
-    os.environ["MENDARI_OIDC_ISSUER"] = "https://idp.example.org"
-    os.environ["MENDARI_OIDC_CLIENT_ID"] = "mendari"
-    os.environ["MENDARI_PHI_MODE"] = "off"
+    _sign_in_on()
     db = work / "presets.db"
     store = AuditStore(db)
     ok = True

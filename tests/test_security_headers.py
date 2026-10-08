@@ -15,6 +15,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from mendari.server.app import SECURITY_HEADERS, VENDOR_DIR, create_app
+from tests.conftest import encrypt_mode
 
 VENDORED = ("swagger-ui-bundle.js", "swagger-ui.css")  # what the reference page loads
 
@@ -48,6 +49,7 @@ def test_the_csp_allows_the_dashboards_inline_scripts_and_nothing_else(client: T
 def test_refusals_carry_the_headers_too(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     refused = TestClient(create_app(db_path=tmp_path / "a.db")).get("/api/audit")
     assert refused.status_code == 401
     assert refused.headers["x-frame-options"] == "DENY"
@@ -67,6 +69,7 @@ def _html_responses(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str
     pages["/smart/callback"] = client.get("/smart/callback")
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     signed = TestClient(create_app(db_path=tmp_path / "b.db"))
     pages["/auth/callback"] = signed.get("/auth/callback")
     monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")

@@ -33,7 +33,7 @@ from mendari.server.auth import ehr_id
 from mendari.server.scopes import DECIDE
 from mendari.standards.fhir_client import FhirClient, GuardedHttp
 from mendari.standards.smart import normalize_base, smart_ehrs
-from tests.conftest import message, security_lines, signed_in
+from tests.conftest import encrypt_mode, message, security_lines, signed_in
 from tests.test_backend_services import RSA_KEY, ask, assertion
 
 EHR = "https://ehr.example.org"
@@ -516,6 +516,8 @@ def signed_site(
     if registered is None:
         monkeypatch.delenv("MENDARI_OIDC_ISSUER")
         monkeypatch.delenv("MENDARI_OIDC_CLIENT_ID")
+    else:
+        encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     transport = routed(*ehrs)
     monkeypatch.setattr(
         smart_routes, "GuardedHttp", functools.partial(GuardedHttp, transport=transport)

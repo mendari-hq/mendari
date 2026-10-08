@@ -22,6 +22,7 @@ import mendari
 from mendari.hub.registry import create_registry_app
 from mendari.sandbox.payer import create_payer_app
 from mendari.server.app import create_app
+from tests.conftest import encrypt_mode
 from tests.test_spdx import COMMENTS, IDENTIFIER, NOT_OURS, VERBATIM
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -276,6 +277,7 @@ def routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> set[Route]:
     on (its most)."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     monkeypatch.setenv("MENDARI_PUBLIC_URL", "https://mendari.test")
     monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "on")
     monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")

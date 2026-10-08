@@ -27,7 +27,7 @@ from mendari.core.audit import ADMINISTRATIVE_KINDS, OFF_DECISION_KINDS
 from mendari.server.app import create_app
 from mendari.standards import audit_fhir, fhir_structure
 from mendari.standards.terminology import Terminology
-from tests.conftest import member, message, signed_in
+from tests.conftest import encrypt_mode, member, message, signed_in
 from tests.test_chain_orgs import jwks
 
 IDP = "https://idp.example.org"
@@ -40,6 +40,7 @@ REPORT = {"created_at": "2026-10-01T00:00:00+00:00", "dataset": {"name": "local"
 def serving(db: str, monkeypatch: pytest.MonkeyPatch, accounts: str) -> TestClient:
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     if accounts == "memberships":
         monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
     return TestClient(create_app(db_path=db), base_url=BASE)

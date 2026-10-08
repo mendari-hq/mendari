@@ -43,7 +43,7 @@ from mendari.server.auth import (
 )
 from mendari.standards.fhir_client import GuardedHttp
 from mendari.standards.smart import Registration
-from tests.conftest import launched, member, message, signed_in
+from tests.conftest import encrypt_mode, encrypted_store, launched, member, message, signed_in
 from tests.test_auth import (
     CLIENT,
     IDP,
@@ -75,6 +75,7 @@ def memberships_app(db: str, idp: FakeIdp, monkeypatch: pytest.MonkeyPatch) -> T
     monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", CLIENT)
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     transport = httpx.MockTransport(idp)
     monkeypatch.setattr(
         auth_module, "GuardedHttp", lambda **kw: GuardedHttp(transport=transport, **kw)
@@ -193,10 +194,10 @@ def test_use_another_account_asks_the_identity_provider_which(
 
 
 def test_the_owners_bootstrap_binds_at_sign_in_and_reads_earlier_decisions(
-    members: TestClient, store: AuditStore, idp: FakeIdp, inbox_pack: Pack
+    members: TestClient, store: AuditStore, idp: FakeIdp, inbox_pack: Pack, db_target: str
 ) -> None:
     inputs = message("Can I get a refill?")
-    store.record(Decision(inbox_pack)(inputs), inputs)
+    encrypted_store(db_target).record(Decision(inbox_pack)(inputs), inputs)
     store.bootstrap(email="owner@example.org", created_by="cli")
     signed = sign_in(members, idp, sub="owner", email="Owner@Example.org", email_verified=True)
     assert signed.status_code == 302
@@ -240,10 +241,10 @@ def test_a_non_ascii_address_signs_in_with_no_organization(
 
 
 def test_a_sign_in_without_a_membership_acts_for_no_organization_never_default(
-    members: TestClient, store: AuditStore, idp: FakeIdp, inbox_pack: Pack
+    members: TestClient, store: AuditStore, idp: FakeIdp, inbox_pack: Pack, db_target: str
 ) -> None:
     inputs = message("Can I get a refill?")
-    store.record(Decision(inbox_pack)(inputs), inputs)
+    encrypted_store(db_target).record(Decision(inbox_pack)(inputs), inputs)
     signed = sign_in(
         members, idp, sub="stranger", email="x@example.org", email_verified=True, roles=["admin"]
     )
@@ -486,6 +487,7 @@ def as_nobody(db_target: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestC
     monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", CLIENT)
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     monkeypatch.setenv("MENDARI_PUBLIC_URL", HTTPS)
     monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "on")
     app = create_app(db_path=db_target)
@@ -749,6 +751,7 @@ def test_a_member_is_let_through_exactly_as_a_claims_person_of_the_same_role(
     mode."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", CLIENT)
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     monkeypatch.setenv("MENDARI_PUBLIC_URL", HTTPS)
     monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "on")
     monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")

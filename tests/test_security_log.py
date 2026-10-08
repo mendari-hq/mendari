@@ -28,7 +28,7 @@ from mendari.server import security_log, smart_routes
 from mendari.server.app import create_app, quota_alert
 from mendari.server.security_log import FIELDS, InternalError
 from mendari.standards.fhir_client import FhirClient, GuardedHttp
-from tests.conftest import HASH_KEY_B64, hosted, message, security_lines, signed_in
+from tests.conftest import HASH_KEY_B64, encrypt_mode, hosted, message, security_lines, signed_in
 from tests.test_auth import FakeIdp, sign_in, signing_in_with
 from tests.test_smart import APP, EHR, REFERRAL, FakeEhr, full_launch, launch
 
@@ -353,6 +353,7 @@ def test_a_rate_limit_is_logged_once_per_bucket_and_a_quota_once_a_day(
 ) -> None:
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     monkeypatch.setenv("MENDARI_RATE_LIMITS", "on,decide=2/min")
     monkeypatch.setenv("MENDARI_ORG_DAILY_LIMITS", "decisions=1")
     monkeypatch.setattr(app_module.httpx, "post", lambda *_, **__: None)
