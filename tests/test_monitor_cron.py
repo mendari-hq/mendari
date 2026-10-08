@@ -441,8 +441,9 @@ def test_a_lost_alert_or_a_failed_organization_never_hides_behind_another(
 
 
 def test_the_kubernetes_job_fails_on_any_failure_and_is_never_run_again(tmp_path: Path) -> None:
-    """Both commands run whatever the other did, and the job fails if either failed; it is
-    never re-run (that would post every organization's alert again)."""
+    """Every command runs whatever the others did (the purge, the checkpoint, the monitor), and
+    the job fails if any failed; it is never re-run (that would post every organization's alert
+    again)."""
     documents = list(yaml.safe_load_all((ROOT / "deploy/kubernetes/mendari.yaml").read_text()))
     (job,) = [d for d in documents if d["kind"] == "CronJob"]
     spec = job["spec"]["jobTemplate"]["spec"]
@@ -452,24 +453,25 @@ def test_the_kubernetes_job_fails_on_any_failure_and_is_never_run_again(tmp_path
     fake = tmp_path / "mendari"
     fake.write_text(
         '#!/bin/sh\necho "$1" >> "$RAN"\n'
-        'if [ "$1" = phi ]; then exit "$PURGE"; fi\nexit "$MONITOR"\n'
+        'case "$1" in phi) exit "$PURGE";; audit) exit "$CHECKPOINT";; esac\nexit "$MONITOR"\n'
     )
     fake.chmod(0o755)
 
-    def job_exit(purge: int, monitor: int) -> tuple[int, list[str]]:
-        ran = tmp_path / f"ran-{purge}-{monitor}"
+    def job_exit(purge: int, checkpoint: int, monitor: int) -> tuple[int, list[str]]:
+        ran = tmp_path / f"ran-{purge}-{checkpoint}-{monitor}"
         env = {
             **os.environ,
             "PATH": f"{tmp_path}:{os.environ['PATH']}",
             "RAN": str(ran),
             "PURGE": str(purge),
+            "CHECKPOINT": str(checkpoint),
             "MONITOR": str(monitor),
             "DATABASE_URL": "postgresql://x",
         }
         done = subprocess.run([shell, flag, line], env=env, check=False)
         return done.returncode, ran.read_text().split()
 
-    assert job_exit(0, 0) == (0, ["phi", "monitor"])
-    for purge, monitor in ((0, 1), (0, 3), (1, 0)):
-        code, ran = job_exit(purge, monitor)
-        assert code != 0 and ran == ["phi", "monitor"], (purge, monitor)
+    assert job_exit(0, 0, 0) == (0, ["phi", "audit", "monitor"])
+    for exits in ((0, 0, 1), (0, 0, 3), (1, 0, 0), (0, 1, 0)):
+        code, ran = job_exit(*exits)
+        assert code != 0 and ran == ["phi", "audit", "monitor"], exits

@@ -1,4 +1,5 @@
-# Mendari on one server: the engine, Postgres, and the scheduled retention and monitoring jobs.
+# Mendari on one server: the engine, Postgres, and the scheduled retention, checkpoint and
+# monitoring jobs.
 #   cp .env.example .env   # then fill it in (see docs/deploying-with-phi.md)
 #   docker compose --env-file .env up -d
 name: mendari-site
@@ -48,6 +49,7 @@ services:
       - >-
         while true; do
         mendari phi purge --db "$$DATABASE_URL";
+        mendari audit checkpoint --db "$$DATABASE_URL";
         mendari monitor --db "$$DATABASE_URL" --each-org || true;
         sleep 86400;
         done

@@ -478,7 +478,19 @@ def cmd_audit_verify(args: argparse.Namespace) -> int:
     # database read-only: it creates, migrates and marks nothing (no key a stray setting holds is
     # recorded as known), and an older database is verified as it is.
     with _read_store(args.db, phi=phi_policy() if args.notes else None) as store:
-        status = store.verify(notes=args.notes)
+        status = store.verify(notes=args.notes, since_checkpoint=args.since_checkpoint)
+    _print_json(status)
+    return 0 if status["ok"] else 1
+
+
+def cmd_audit_checkpoint(args: argparse.Namespace) -> int:
+    """Verify from the last checkpoint and, when the chain holds, record its head as the next
+    one (LP-21j), outside the chain; exit 1 when it is broken (nothing recorded). Opening the
+    database migrates it, as every command that writes does; the checkpoint is the one row
+    written: nothing is marked or chained."""
+    _servers_database(args.db, used=False, tables=_EVERY_RELEASE)  # mistyped: refused
+    with AuditStore(args.db, marks=False) as store:
+        status = store.record_checkpoint()
     _print_json(status)
     return 0 if status["ok"] else 1
 
@@ -1876,12 +1888,23 @@ def build_parser() -> argparse.ArgumentParser:
     )
     verify = audit.add_parser("verify", help="verify the audit hash chain")
     verify.add_argument("--db", default="var/mendari.db", help="SQLite path or postgresql:// URL")
-    verify.add_argument(
+    checked = verify.add_mutually_exclusive_group()
+    checked.add_argument(
         "--notes",
         action="store_true",
         help="also check each kept note against its chained commitment (with $MENDARI_PHI_KEY)",
     )
+    checked.add_argument(
+        "--since-checkpoint",
+        action="store_true",
+        help="only the events after the last checkpoint (mendari audit checkpoint)",
+    )
     verify.set_defaults(handler=cmd_audit_verify)
+    checkpoint = audit.add_parser(
+        "checkpoint", help="verify from the last checkpoint and record the head as the next"
+    )
+    checkpoint.add_argument("--db", required=True, help="the server's database")
+    checkpoint.set_defaults(handler=cmd_audit_checkpoint)
     audit_export = audit.add_parser(
         "export", help="export the audit trail as FHIR NDJSON (AuditEvent, Provenance)"
     )

@@ -1,13 +1,22 @@
 # ADR-0010: Operations for a public service
 
 ## Status
-Proposed (2026-10-08). Built in steps (LP-21, `tasks/todo.md`): 21a, the readiness route, is
-the first; 21c, the monitor comparing like with like, the second; 21e, alert delivery, the
-third; 21b, the status checks and page, the fourth; 21d, operational health in the monitor,
-the fifth; 21f, the monitor cron (`GET /api/internal/monitor` and `mendari monitor
---each-org`, without the hosted schedule), the sixth. Each later step amends this record with
-what it built. The defaults below hold unless the owner chooses otherwise; the steps that
-change the hosted site (the schedule, 21n) or its firewall (21o) wait for the owner.
+Proposed (2026-10-08). Built in steps (LP-21, `tasks/todo.md`); each step adds what it built
+here, in the order they landed:
+- 21a, the readiness route;
+- 21c, the monitor comparing like with like;
+- 21e, alert delivery;
+- 21b, the status checks and page;
+- 21d, operational health in the monitor;
+- 21f, the monitor cron (`GET /api/internal/monitor` and `mendari monitor --each-org`, without
+  the hosted schedule);
+- 21l, the break-glass (`mendari access revoke` and `mendari access end-sessions`, each chained
+  with who and why);
+- 21j, audit checkpoints (`mendari audit checkpoint`, `mendari audit verify
+  --since-checkpoint`; the templates run it daily).
+
+The defaults below hold unless the owner chooses otherwise; the steps that change the hosted
+site (the schedule, 21n) or its firewall (21o) wait for the owner.
 
 ## Context
 The hosted platform is to take strangers without the owner watching it (LP-21, amending A13 of
