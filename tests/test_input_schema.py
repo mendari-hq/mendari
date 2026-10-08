@@ -8,6 +8,7 @@ import http.server
 import json
 import shutil
 import threading
+import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
@@ -203,6 +204,11 @@ LEADS_BACK = (
     "a $ref leads back to a schema holding it on the same value, or more than once; a schema may "
     "refer back to itself only once, through properties or items"
 )
+UNEVALUATED_AGAIN = (
+    "its unevaluatedProperties or unevaluatedItems reaches a schema that holds one too (or itself "
+    "again): jsonschema checks everything below the first again for it, so each one more doubles "
+    "the work; keep at most one on any path, or use additionalProperties or items"
+)
 
 
 def fanning(depth: int, width: int) -> Callable[[dict[str, Any]], None]:
@@ -216,6 +222,12 @@ def fanning(depth: int, width: int) -> Callable[[dict[str, Any]], None]:
         } | {f"t{depth}": {"type": "string"}}
 
     return edit
+
+
+def inbox_copy(base: Path, name: str) -> Path:
+    root = base / name
+    shutil.copytree(INBOX_DIR, root)
+    return root
 
 
 def refused(root: Path) -> list[str]:
@@ -262,6 +274,81 @@ def test_a_ref_cycle_in_place_is_refused_at_load(inbox: Path, tmp_path: Path) ->
     other = tmp_path / "tree"
     shutil.copytree(INBOX_DIR, other)
     assert refused(edit_schema(other, doubling_tree)) == [f"input schema: #/$defs/n: {LEADS_BACK}"]
+
+
+def test_a_binary_tree_recursion_is_refused_at_load(inbox: Path) -> None:
+    """A node whose `left` and `right` are both the node leads back into the loop twice: refused
+    as conflict 22 chose (a loop leads back once), though one value meets the node once."""
+
+    def binary(schema: dict[str, Any]) -> None:
+        node = {"properties": {"left": {"$ref": "#/$defs/n"}, "right": {"$ref": "#/$defs/n"}}}
+        schema["$defs"] = {"n": node}
+        schema["properties"]["tree"] = {"$ref": "#/$defs/n"}
+
+    assert refused(edit_schema(inbox, binary)) == [f"input schema: #/$defs/n: {LEADS_BACK}"]
+
+
+def nested_unevaluated(levels: int, last: dict[str, Any]) -> dict[str, Any]:
+    """`levels` schemas, each anyOf the next and holding `unevaluatedProperties: false`."""
+    inner = last
+    for _ in range(levels):
+        inner = {"anyOf": [inner], "unevaluatedProperties": False}
+    return inner
+
+
+def test_nested_unevaluated_keywords_are_refused_at_load_and_quickly(tmp_path: Path) -> None:
+    """The review's schema: three `$defs`, each 13 `unevaluatedProperties` deep, the last of one
+    a `$ref` to the next. It nests 29 deep, chains 3 `$ref`s and applies 43 schema objects to one
+    value, within every bound, yet to find what is unevaluated jsonschema validates again all
+    that is below each one, so each level multiplies the work (on `{"a": 1}`: one `$defs` took
+    7 ms, two 3.5 s, three over 60 s). It is refused at load, in a few milliseconds; so is one
+    nested through a property."""
+
+    def review(schema: dict[str, Any]) -> None:
+        schema["$defs"] = {
+            f"d{i}": nested_unevaluated(13, {"$ref": f"#/$defs/d{i + 1}"} if i < 2 else {})
+            for i in range(3)
+        }
+        schema["properties"]["note"] = {"$ref": "#/$defs/d0"}
+
+    root = edit_schema(inbox_copy(tmp_path, "review"), review)
+    schema = json.loads((root / "schemas" / "input.schema.json").read_text())
+    counted = input_schema._expansion(_graph(schema))
+    assert not isinstance(counted, str)
+    assert input_schema._nesting(schema) == 29 and counted[:2] == (43, 3)
+    started = time.perf_counter()
+    assert refused(root) == [f"input schema: #/$defs/d0: {UNEVALUATED_AGAIN}"]
+    assert time.perf_counter() - started < 2
+
+    def through_a_property(schema: dict[str, Any]) -> None:
+        inner: dict[str, Any] = {}
+        for _ in range(3):
+            inner = {"anyOf": [{"properties": {"a": inner}}], "unevaluatedProperties": False}
+        schema["properties"]["note"] = inner
+
+    root = edit_schema(inbox_copy(tmp_path, "property"), through_a_property)
+    assert refused(root) == [f"input schema: #/properties/note: {UNEVALUATED_AGAIN}"]
+
+
+def test_one_unevaluated_keyword_on_a_path_still_loads(tmp_path: Path) -> None:
+    """One `unevaluatedProperties` (and another on a path of its own) is checked as before."""
+
+    def once(schema: dict[str, Any]) -> None:
+        schema["properties"]["note"] = {
+            "type": "object",
+            "properties": {"x": {"type": "string"}},
+            "anyOf": [{"properties": {"y": {"type": "integer"}}}],
+            "unevaluatedProperties": False,
+        }
+        schema["properties"]["codes"] = {
+            "prefixItems": [{"type": "string"}],
+            "unevaluatedItems": False,
+        }
+
+    decision = Decision(load_pack(edit_schema(inbox_copy(tmp_path, "once"), once)))
+    assert decision.validate({**message("hi"), "note": {"x": "a", "y": 1}, "codes": ["c"]}) == []
+    assert decision.validate({**message("hi"), "note": {"x": "a", "z": 1}}) != []
+    assert decision.validate({**message("hi"), "codes": ["c", "d"]}) != []
 
 
 def test_a_recursive_schema_that_reaches_another_is_refused_at_load(inbox: Path) -> None:
@@ -377,6 +464,7 @@ def test_every_shipped_schema_is_within_the_expansion_bounds() -> None:
         assert not isinstance(counted, str), path
         applications, chain, _ = counted
         assert input_schema._nesting(schema) <= 6 and chain <= 1 and applications <= 2, path
+        assert not any(node.unevaluated for node in _graph(schema)), path  # none uses either
     for root in sorted(INBOX_DIR.parent.iterdir()):
         if (root / "pack.yaml").is_file():
             assert input_schema.expansion_problems(load_pack(root).input_schema) == [], root.name

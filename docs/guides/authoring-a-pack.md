@@ -35,7 +35,9 @@ is bounded too: it nests at most 32 levels deep, a chain of `$ref`s runs at most
 value is checked against at most 1,000 schema objects (two `$ref`s to a schema that holds two
 more double it at each step), and a schema refers back to itself only as a recursive list or
 tree does, once, through `properties` or `items` (a node that lists its children is fine; one
-whose `left` and `right` are both the node is not). The version is a
+whose `left` and `right` are both the node is not). At most one schema on any path holds
+`unevaluatedProperties` or `unevaluatedItems`: each validates again everything below it, so one
+inside another multiplies the work. The version is a
 semantic version of at most 64 characters, and YAML anchors are fine within reason: a file that
 uses them may expand to at most 1,000,000 nodes and 32,000,000 characters of text (as JSON
 writes it: a control character counts six) once its aliases are counted where they are used. A

@@ -38,7 +38,10 @@ most `MAX_SCHEMA_NESTING` deep, a chain of `$ref`s runs at most `MAX_REF_CHAIN` 
 value of an input is checked against at most `MAX_SCHEMA_APPLICATIONS` schema objects (a `$ref`,
 `allOf`, `anyOf` or `oneOf` that reaches one schema twice doubles it, and twenty-eight such steps
 made one check apply hundreds of millions). A schema may refer back to itself only as a recursive
-list or tree does: once, through `properties` or `items`, so one value meets it once.
+list or tree does: once, through `properties` or `items`, so one value meets it once. And at most
+one schema on any path holds `unevaluatedProperties` or `unevaluatedItems`: to find what is left
+unevaluated, jsonschema validates again every schema below it that applies, so each one more
+below another (on the same value or a property's, an item's) at least doubles the work.
 """
 
 from __future__ import annotations
@@ -134,6 +137,13 @@ def expansion_problems(schema: Any) -> list[str]:
     nodes = _graph(schema)
     if not nodes:
         return found
+    if (where := _unevaluated_again(nodes)) is not None:
+        found.append(
+            f"input schema: {where}: its unevaluatedProperties or unevaluatedItems reaches a "
+            "schema that holds one too (or itself again): jsonschema checks everything below the "
+            "first again for it, so each one more doubles the work; keep at most one on any "
+            "path, or use additionalProperties or items"
+        )
     counted = _expansion(nodes)
     if isinstance(counted, str):
         return [*found, counted]
@@ -164,6 +174,31 @@ def _nesting(schema: Any) -> int:
         children = node.values() if isinstance(node, dict) else node
         stack += [(child, depth + 1) for child in children]
     return deepest
+
+
+def _unevaluated_again(nodes: list[_Node]) -> str | None:
+    """Where a schema holding `unevaluatedProperties` or `unevaluatedItems` leads, through any of
+    its applicators and in one step or more, to a schema holding one (itself included, through a
+    loop); the one nearest the root by the graph's order. None if none does. Every other schema
+    is then validated again by at most one such check, so its work is bounded with the others'
+    (`MAX_SCHEMA_APPLICATIONS`), whatever reaches it."""
+    leads = [False] * len(nodes)  # leads, in one step or more, to a schema that holds one
+    found: list[int] = []
+    for component in _components(nodes):
+        members = set(component)
+        looped = len(component) > 1 or component[0] in nodes[component[0]].edges()
+        onward = looped and any(nodes[i].unevaluated for i in component)
+        onward = onward or any(
+            nodes[j].unevaluated or leads[j]
+            for i in component
+            for j in nodes[i].edges()
+            if j not in members
+        )
+        for i in component:
+            leads[i] = onward
+            if onward and nodes[i].unevaluated:
+                found.append(i)
+    return nodes[min(found)].where if found else None
 
 
 def _descending(node: _Node) -> list[int]:

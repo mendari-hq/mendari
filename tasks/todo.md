@@ -496,12 +496,13 @@ registry or copied into the store.
   - [ ] **16e-2** (PR D, after C) The provider egress allow-list
     (`MENDARI_PROVIDER_ALLOWED_ORIGINS`), relative prefetch templates and bare placeholders
     (conflicts 20, 21).
-  - [ ] **16f** (PR open, with F) Depth and `$ref` bounds for the input schemas of packs the deployment owns
-    (`core/input_schema.py` `expansion_problems`, over `core/schema_graph.py`, the graph moved
-    out of `core/caps.py` with each `$ref` edge marked; the caps count as before): nested at most
-    32 deep, chains of at most 16 `$ref`s, at most 1,000 schema objects on one value, and loops
-    only as a recursive list or tree (conflict 22). The shipped packs, scaffolds and fixtures: 6,
-    1 and 2. Packs it does not own keep B11's caps and budget, unchanged. Threat model D10.
+  - [ ] **16f** (PR open, with F) Depth and `$ref` bounds for the input schemas of packs the
+    deployment owns (`core/input_schema.py` `expansion_problems`, over `core/schema_graph.py`,
+    the graph moved out of `core/caps.py` with each `$ref` edge marked; the caps count as
+    before): nested at most 32 deep, chains of at most 16 `$ref`s, at most 1,000 schema objects
+    on one value, loops only as a recursive list or tree, and no `unevaluatedProperties` or
+    `unevaluatedItems` below another (conflict 22). The shipped packs, scaffolds and fixtures:
+    6, 1 and 2. Packs it does not own keep B11's caps and budget, unchanged. Threat model D10.
   - [ ] **16g** (PR E, last) The threat model's "Pack content" part. LP-16 counts as merged for
     LP-18 and LP-20 when it lands; 16c-2 still waits for the owner.
 
@@ -608,7 +609,13 @@ registry or copied into the store.
      stops being served and is listed under `invalid`, as conflict 11's default says. Recursive
      schemas are allowed only as simple cycles through properties or items; a binary-tree
      recursion is refused, and so (PR A) is a loop that leads to another loop, since one value
-     would meet the inner one once for each level of the outer.
+     would meet the inner one once for each level of the outer. The PR A review found that
+     `unevaluatedProperties` and `unevaluatedItems` validate again every schema below them
+     (jsonschema's `find_evaluated_*_by_schema`), so nested ones multiply the work within every
+     count above (on `{"a": 1}`, one `$defs` of 13 took 7 ms, two 3.5 s, three over 60 s).
+     Default: refuse a schema holding one that leads, through any applicator (a property's or an item's too, which also
+     multiplies), to another holding one, or back to itself; one per path still loads. No shipped
+     pack, scaffold or fixture uses either keyword.
   23. (16d, recorded only) Health and `admit` share AnyIO's 40-thread pool with the decide
      routes, which can wait up to `MENDARI_DECISION_DEADLINE_S` (120 s). Default: a residual
      risk, written in 16g; not in LP-16.

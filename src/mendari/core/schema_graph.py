@@ -49,6 +49,9 @@ class _Node:
     every_item: list[int] = field(default_factory=list)
     # Those of `here` reached by a reference (`$ref`, ...), each as often as it is named.
     refs: list[int] = field(default_factory=list)
+    # It holds `unevaluatedProperties` or `unevaluatedItems`, whose check validates again what
+    # every schema below it on the value applies (jsonschema's `find_evaluated_*_by_schema`).
+    unevaluated: bool = False
 
     def edges(self) -> list[int]:
         return [
@@ -101,6 +104,7 @@ def _graph(schema: Any, weight: Weight = _once) -> list[_Node]:
         pattern = node.get("pattern")
         own = weight(pattern) if isinstance(pattern, str) else 0
         record.runs = own + keyed + 2 * searched
+        record.unevaluated = "unevaluatedProperties" in node or "unevaluatedItems" in node
         for keyword in _REFERENCES:
             reference = node.get(keyword)
             if isinstance(reference, str):

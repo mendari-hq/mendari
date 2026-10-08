@@ -310,9 +310,10 @@ server's process: there is no isolated worker process. To trust a pulled pack, c
   long a pattern takes on an input: see above.
 - An owned pack's input schema cannot multiply the work of checking an input. At load it nests
   at most 32 deep, chains at most 16 `$ref`s and applies at most 1,000 schema objects to one
-  value (`$ref`s that fan out: 28 steps of two applied one schema 2**28 times), and refers back
-  to itself only as a recursive list or tree does (once, through `properties` or `items`); one
-  beyond these is invalid, named by path. A pack the deployment does not own has the caps and
+  value (`$ref`s that fan out: 28 steps of two applied one schema 2**28 times), refers back to
+  itself only as a recursive list or tree does (once, through `properties` or `items`), and holds
+  no `unevaluatedProperties` or `unevaluatedItems` below another (each such check validates again
+  everything below it, so nested ones multiply); one beyond these is invalid, named by path. A pack the deployment does not own has the caps and
   the time budget instead (above).
 - A pack's content cannot keep the server from starting or from serving the other packs (a
   slow pattern can still stall a worker while it runs: see above). Any error while a pack is

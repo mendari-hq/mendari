@@ -59,8 +59,9 @@ The first release (not yet published).
   and load (it would have been served in the reference pack's place); one cached before is
   listed under `/api/health` `invalid`, with the directory to remove.
 - **Input schemas bounded in shape:** the input schema of a pack the deployment owns nests at
-  most 32 deep, chains at most 16 `$ref`s, applies at most 1,000 schema objects to one value and
-  refers back to itself only as a recursive list or tree does; one beyond these is refused at
+  most 32 deep, chains at most 16 `$ref`s, applies at most 1,000 schema objects to one value,
+  refers back to itself only as a recursive list or tree does, and holds no
+  `unevaluatedProperties` or `unevaluatedItems` below another; one beyond these is refused at
   load. Every shipped pack is well within them (6 deep, 1 `$ref`, 2 schema objects).
 - **Distribution:** a wheel and an sdist, container images (the engine with every pack, and one
   per pack), and deployment templates for docker compose and Kubernetes.
