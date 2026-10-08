@@ -925,16 +925,15 @@ def create_app(
             },
         }
 
-    @app.api_route(
+    @app.get(
         "/api/health/ready",
-        methods=["GET", "HEAD"],
         tags=["Service"],
         summary="Readiness: the database answers and the packs loaded",
         responses={503: {"description": "Not ready: the database did not answer, or no pack"}},
     )
     def ready(request: Request) -> Response:
-        """Public, for status pages, uptime checks and readiness probes (`server/readiness.py`):
-        `status` (`ready`, `degraded` or `unready`), `version` and `checks`: `database` (`ok` or
+        """Public, for status pages, uptime checks and readiness probes (`server/readiness.py`),
+        with `GET` or `HEAD`: `status` (`ready`, `degraded` or `unready`), `version` and `checks`: `database` (`ok` or
         `unreachable`) and `packs` (`ok`; `degraded` while a pack did not load or build, which
         signed-in `/api/health` lists under `invalid`; `none` when no pack is served). `503`
         when unready. Fixed codes only: no error text, no pack ids, no counts.
@@ -948,6 +947,10 @@ def create_app(
             return limited_response(request.url.path, over)
         answer = readiness.answer()
         return JSONResponse(answer.body, answer.status_code)
+
+    # `HEAD`, as uptime checks often send it: the same answer without its body (one operation in
+    # the reference, so the two methods never share an operation id).
+    app.add_api_route("/api/health/ready", ready, methods=["HEAD"], include_in_schema=False)
 
     @app.get(
         "/api/providers/jev/models",
