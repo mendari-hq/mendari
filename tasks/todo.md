@@ -1139,8 +1139,11 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     the decision, recorded for `retry_due`; `mendari monitor` exits 3 when its alerts could not
     be posted; threat model S17.
   - [ ] **21f** `GET /api/internal/monitor`, guarded by `CRON_SECRET`, per organization.
-  - [ ] **21g** The usage ledger (day, organization, provider type, purpose: calls, tokens,
-    cost, unknown as unknown).
+  - [ ] **21g** The usage ledger (`usage_ledger`: local day, organization, provider type,
+    purpose `decision` or `evaluation`; calls, priced calls, tokens, the priced calls' cost),
+    written with the decision (or the evaluation's report) in its transaction from each
+    decision's meter (`providers.base.Meter`: `charge` counts a call, `metered` its tokens and
+    price); `AuditStore.usage_ledger` shows a cost only when every call was priced.
   - [ ] **21h** Evaluations count against their organization (`eval_jev`, `eval_llm` quotas).
   - [ ] **21i** `GET /api/usage`, the admins' usage screen and the operator's CLI.
   - [ ] **21j** Audit checkpoints and incremental verify.
