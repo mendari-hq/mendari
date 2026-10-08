@@ -18,7 +18,7 @@ from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 from mendari import __version__
 from mendari.core import clock, tenancy
-from mendari.core.audit import SYSTEM_ID, AuditStore
+from mendari.core.audit import SYSTEM_ID, AuditStore, break_glass_reason
 from mendari.core.decision import Decision
 from mendari.core.pack import Pack
 from mendari.core.registry import discover, resolve_pack, version_key
@@ -581,11 +581,11 @@ def _probe(target: str, tables: tuple[str, ...] = ()) -> tuple[bool, bool]:
 
 
 def _hold_store(target: str | None, *, serving: bool) -> tuple[AuditStore, str]:
-    """The deployment's database for the break-glass, refused when it cannot be the one a server
-    runs on: not given, a SQLite file that does not exist (it would be created, and hold
-    nothing), a database without Mendari's tables (nothing is created in it), and, to set a hold
-    (`serving`), one that holds no decision, deployment or hold. Returns it and its name as
-    shown (no password)."""
+    """The deployment's database for the break-glass (holds, revocations, ending sessions),
+    refused when it cannot be the one a server runs on: not given, a SQLite file that does not
+    exist (it would be created, and hold nothing), a database without Mendari's tables (nothing
+    is created in it), and, to set a hold (`serving`), one that holds no decision, deployment or
+    hold. Returns it and its name as shown (no password)."""
     target = target or os.environ.get("DATABASE_URL", "").strip() or None
     if target is None:
         raise MendariError("give --db (the server's database) or set DATABASE_URL")
@@ -784,6 +784,68 @@ def cmd_access_check(args: argparse.Namespace) -> int:
         print(f"{shown}: no record for {', '.join(missing)}", file=sys.stderr)
         return 1
     print(f"{shown}: every organization in use has a record", file=sys.stderr)
+    return 0
+
+
+def cmd_access_keys(args: argparse.Namespace) -> int:
+    """Every API key (of `--org`) with its status now (read-only): never a secret or its hash."""
+    store, _ = _access_store(args.db, writes=False)
+    _print_json(store.api_keys(args.org))
+    return 0
+
+
+def cmd_access_clients(args: argparse.Namespace) -> int:
+    """Every Backend Services client (of `--org`): its keys' ids and thumbprints (read-only)."""
+    store, _ = _access_store(args.db, writes=False)
+    _print_json(store.clients(args.org))
+    return 0
+
+
+def cmd_access_revoke(args: argparse.Namespace) -> int:
+    """The break-glass for credentials (LP-21l): written straight to the database, for any
+    organization, so it works with the server down. A key or client stops working at once on
+    every instance (each request reads it), and a client's access tokens go with it. Each is
+    chained with who and why (`key.revoked`, `client.revoked`)."""
+    reason = _access_call(lambda: break_glass_reason(args.reason))
+    store, shown = _hold_store(args.db, serving=False)
+    actor = _command_line_actor()
+    revoked: dict[str, list[str]] = {"keys": [], "clients": []}
+    if args.what == "key":
+        if not store.revoke_api_key(args.id, revoked_by=actor, reason=reason):
+            raise MendariError(f"no key {args.id} in force in {shown}")
+        revoked["keys"].append(args.id)
+    elif args.what == "client":
+        if not store.revoke_client(args.id, revoked_by=actor, reason=reason):
+            raise MendariError(f"no client {args.id} in force in {shown}")
+        revoked["clients"].append(args.id)
+    else:  # every key and client of an organization still in force
+        for key in store.api_keys(args.org):
+            if key["status"] in ("active", "replaced") and store.revoke_api_key(
+                key["id"], args.org, revoked_by=actor, reason=reason
+            ):
+                revoked["keys"].append(key["id"])
+        for client in store.clients(args.org):
+            if client["revoked_at"] is None and store.revoke_client(
+                client["client_id"], args.org, revoked_by=actor, reason=reason
+            ):
+                revoked["clients"].append(client["client_id"])
+        if not revoked["keys"] and not revoked["clients"]:
+            raise MendariError(f"no key or client of {args.org} in force in {shown}")
+    _print_json(revoked)
+    print(f"revoked in {shown}", file=sys.stderr)
+    return 0
+
+
+def cmd_access_end_sessions(args: argparse.Namespace) -> int:
+    """The break-glass for sessions (LP-21l): signs out every person (`people`: sessions and
+    sign-ins under way), every EHR launch (`launches`), or both (`all`), on every instance at
+    once. Chained (`sessions.ended`) with the kinds, how many, who and why."""
+    reason = _access_call(lambda: break_glass_reason(args.reason))
+    # A server signs people in before its first decision: any Mendari database, named below.
+    store, shown = _hold_store(args.db, serving=False)
+    ended = store.end_sessions(args.kind, ended_by=_command_line_actor(), reason=reason)
+    _print_json(ended)
+    print(f"ended {ended['ended']} in {shown}", file=sys.stderr)
     return 0
 
 
@@ -1945,6 +2007,35 @@ def build_parser() -> argparse.ArgumentParser:
     )
     check.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
     check.set_defaults(handler=cmd_access_check)
+    for credentials, about, handler in (
+        ("keys", "API keys, with their status (read-only)", cmd_access_keys),
+        ("clients", "Backend Services clients (read-only)", cmd_access_clients),
+    ):
+        listing = access.add_parser(credentials, help=about)
+        listing.add_argument("--org", help="of one organization")
+        listing.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+        listing.set_defaults(handler=handler)
+    revoke = access.add_parser(
+        "revoke", help="break-glass: revoke a key, a client, or all of an organization's"
+    ).add_subparsers(dest="revoke_command", required=True)
+    for what, about in (("key", "an API key"), ("client", "a Backend Services client")):
+        one = revoke.add_parser(what, help=f"{about}, of any organization")
+        one.add_argument("id", help=f"its id (mendari access {what}s)")
+        one.add_argument("--reason", required=True, help="why (chained; at most 200 characters)")
+        one.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+        one.set_defaults(handler=cmd_access_revoke, what=what)
+    every = revoke.add_parser("all", help="every key and client of an organization in force")
+    every.add_argument("--org", required=True)
+    every.add_argument("--reason", required=True, help="why (chained; at most 200 characters)")
+    every.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+    every.set_defaults(handler=cmd_access_revoke, what="all")
+    end = access.add_parser(
+        "end-sessions", help="break-glass: sign out every person, every EHR launch, or both"
+    )
+    end.add_argument("--kind", required=True, choices=["people", "launches", "all"])
+    end.add_argument("--reason", required=True, help="why (chained; at most 200 characters)")
+    end.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+    end.set_defaults(handler=cmd_access_end_sessions)
 
     feedback = sub.add_parser("feedback", help="thumbs up / down feedback").add_subparsers(
         dest="feedback_command", required=True

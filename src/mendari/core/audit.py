@@ -81,6 +81,8 @@ ERASE_REASONS = ("request", "error")
 PURGE_BATCH = 500
 # The chain id a purge's summary is chained under (`retention.purged`): no decision's.
 RETENTION_CHAIN = "retention"
+# The chain id the break-glass ending of sessions is chained under (`sessions.ended`, LP-21l).
+SESSIONS_CHAIN = "sessions"
 # The `settings` row a database is marked with once a store opens it under PHI mode `hash` or
 # `encrypt` (the first such mode): from then on no store under `off` keeps input text in it.
 PROTECTED = "phi_protected"
@@ -162,7 +164,14 @@ ADMINISTRATIVE_KINDS: dict[str, str] = {  # kind -> its subject's prefix (`SUBJE
 PERSON_KINDS = frozenset({NOTICE_EVENT})
 # The deployment's own, no organization's: never bound.
 DEPLOYMENT_KINDS = frozenset(
-    {"deployment.recorded", "input_hash.epoch", "phi.rotated", "retention.purged", "user.recorded"}
+    {
+        "deployment.recorded",
+        "input_hash.epoch",
+        "phi.rotated",
+        "retention.purged",
+        "sessions.ended",
+        "user.recorded",
+    }
 )
 # The kinds chained before LP-12g without their organization. They name it only on a marked
 # database, so an unmarked one's payloads are as they were; every other kind but the deployment's
@@ -500,6 +509,15 @@ SESSION_PURGE_BATCH = 100
 # A person's session in memberships mode (`member`, server/auth.py) is sealed too: its organization
 # and membership are what it may act for.
 SEALED_KINDS = frozenset({"session", "pending", "member"})
+# The session-table kinds the break-glass ends (`end_sessions`), by group: people's sessions
+# (claims mode's `user`, memberships mode's `member`) with the sign-ins under way
+# (`oidc-pending`), and EHR launches' sessions (`session`) with the launches under way
+# (`pending`). Never a claim (`jti`): ending one would let the assertion it refused be replayed.
+SESSION_GROUPS: dict[str, tuple[str, ...]] = {
+    "people": ("member", "oidc-pending", "user"),
+    "launches": ("pending", "session"),
+}
+BREAK_GLASS_REASON = 200  # characters, as a hold's
 
 _PRIORITY_ORDER = (
     "CASE priority WHEN 'stat' THEN 0 WHEN 'asap' THEN 1 WHEN 'urgent' THEN 2 ELSE 3 END"
@@ -508,6 +526,15 @@ _PRIORITY_ORDER = (
 
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="milliseconds")
+
+
+def break_glass_reason(reason: str) -> str:
+    """Why an operator acted from the command line, on one line (`BREAK_GLASS_REASON` at most);
+    a `ValueError` for none or a longer one."""
+    reason = " ".join(reason.split())
+    if not reason or len(reason) > BREAK_GLASS_REASON:
+        raise ValueError(f"give a reason of at most {BREAK_GLASS_REASON} characters")
+    return reason
 
 
 def _org_of(value: Any) -> str:
@@ -2350,6 +2377,35 @@ class AuditStore:
         with self._db.session(exclusive=False) as db:
             db.all("DELETE FROM smart_sessions WHERE key_sha256 = ? AND kind = ?", (row_key, kind))
 
+    def end_sessions(self, group: str, *, ended_by: str, reason: str) -> dict[str, Any]:
+        """The break-glass (`mendari access end-sessions`): delete every row of a group's kinds
+        (`SESSION_GROUPS`, or `all` of them), so the next request with one of their cookies, on
+        any instance, finds none and is signed out (nothing is cached in memory). Chained in the
+        same transaction as `sessions.ended` (the kinds, how many live ones ended, who and why)
+        under `SESSIONS_CHAIN`. Claims (`jti`) are never touched. A member's and a launch's rows
+        are sealed under their cookie, so whose they are cannot be read here: a whole kind."""
+        if group != "all" and group not in SESSION_GROUPS:
+            raise ValueError(f"end the sessions of one of {sorted(SESSION_GROUPS)} or all")
+        why = break_glass_reason(reason)
+        chosen = SESSION_GROUPS.values() if group == "all" else [SESSION_GROUPS[group]]
+        kinds = sorted({kind for kinds in chosen for kind in kinds})
+        marks = ", ".join("?" for _ in kinds)
+        with self._db.session(exclusive=True) as db:
+            gone = db.all(
+                f"DELETE FROM smart_sessions WHERE kind IN ({marks}) RETURNING expires_at",
+                tuple(kinds),
+            )
+            now = int(time.time())
+            ended = {
+                "kinds": kinds,
+                "ended": sum(1 for row in gone if int(row["expires_at"]) > now),
+                "ended_by": ended_by,
+                "ended_at": _now(),
+                "reason": why,
+            }
+            self._append(db, SESSIONS_CHAIN, "sessions.ended", ended)
+        return ended
+
     def smart_claim(self, kind: str, value: str, expires_at: int) -> bool:
         """Claim `value` once until `expires_at` (e.g. an assertion's `jti`): True for the first
         claim, False while that claim lasts; an expired claim can be made again. One statement,
@@ -2837,11 +2893,19 @@ class AuditStore:
         # None is every organization (open mode, the command line); "" is an organization.
         where, params = ("WHERE org = ?", (org,)) if org is not None else ("", ())
         with self._db.session(exclusive=False) as db:
-            # A database from before presets (read as it is): none has one.
-            preset = "preset" if "preset" in db.columns("api_keys") else "NULL AS preset"
+            # An older database, read as it is (`mendari access keys`): what it lacks is NULL
+            # (no scope, no expiry: refused, as `api_key` refuses it), and no table is no key.
+            present = db.columns("api_keys")
+            if not present:
+                return []
+            later = {"scopes": "scope", "expires_at": "expires_at", "revoked_by": "revoked_by",
+                     "replaced_by": "replaced_by", "preset": "preset"}  # fmt: skip
+            columns = ", ".join(
+                f"{name} AS {alias}" if name in present else f"NULL AS {alias}"
+                for name, alias in later.items()
+            )
             rows = db.all(
-                "SELECT id, name, role, org, scopes AS scope, created_by, created_at, "
-                f"expires_at, revoked_at, revoked_by, replaced_by, {preset} "
+                f"SELECT id, name, role, org, created_by, created_at, revoked_at, {columns} "
                 f"FROM api_keys {where} ORDER BY created_at",
                 params,
             )
@@ -2858,13 +2922,19 @@ class AuditStore:
                 (_key(secret), _now()),
             )
 
-    def revoke_api_key(self, key_id: str, org: str | None = None, *, revoked_by: str) -> bool:
-        """Revoke a key of `org` (any, if None); False for an unknown or already revoked one."""
+    def revoke_api_key(
+        self, key_id: str, org: str | None = None, *, revoked_by: str, reason: str | None = None
+    ) -> bool:
+        """Revoke a key of `org` (any, if None); False for an unknown or already revoked one.
+        The break-glass (`mendari access revoke`) chains why too (`reason`)."""
+        why = None if reason is None else break_glass_reason(reason)
         with self._db.session(exclusive=True) as db:
             row = db.one("SELECT org FROM api_keys WHERE id = ? AND revoked_at IS NULL", (key_id,))
             if row is None or (org is not None and row["org"] != org):
                 return False
             revoked = {"id": key_id, "revoked_by": revoked_by, "revoked_at": _now()}
+            if why is not None:
+                revoked["reason"] = why
             db.all(
                 "UPDATE api_keys SET revoked_at = ?, revoked_by = ? WHERE id = ?",
                 (revoked["revoked_at"], revoked_by, key_id),
@@ -2932,6 +3002,8 @@ class AuditStore:
         # None is every organization (open mode, the command line); "" is an organization.
         where, params = ("WHERE org = ?", (org,)) if org is not None else ("", ())
         with self._db.session(exclusive=False) as db:
+            if not db.columns("oauth_clients"):  # an older database, read as it is: none
+                return []
             # A database from before key-set replacement (read as it is): none was replaced.
             replaced = (
                 "keys_replaced_at"
@@ -2962,9 +3034,18 @@ class AuditStore:
             )
         return None if row is None else {**row, "jwks": _jwks(row)}
 
-    def revoke_client(self, client_id: str, org: str | None = None, *, revoked_by: str) -> bool:
+    def revoke_client(
+        self,
+        client_id: str,
+        org: str | None = None,
+        *,
+        revoked_by: str,
+        reason: str | None = None,
+    ) -> bool:
         """Revoke a client of `org` (any, if None) and drop its tokens; False for an unknown or
-        already revoked one. Its tokens stop working at once either way (`access_token`)."""
+        already revoked one. Its tokens stop working at once either way (`access_token`). The
+        break-glass (`mendari access revoke`) chains why too (`reason`)."""
+        why = None if reason is None else break_glass_reason(reason)
         with self._db.session(exclusive=True) as db:
             row = db.one(
                 "SELECT org FROM oauth_clients WHERE client_id = ? AND revoked_at IS NULL",
@@ -2973,6 +3054,8 @@ class AuditStore:
             if row is None or (org is not None and row["org"] != org):
                 return False
             revoked = {"client_id": client_id, "revoked_by": revoked_by, "revoked_at": _now()}
+            if why is not None:
+                revoked["reason"] = why
             db.all(
                 "UPDATE oauth_clients SET revoked_at = ?, revoked_by = ? WHERE client_id = ?",
                 (revoked["revoked_at"], revoked_by, client_id),

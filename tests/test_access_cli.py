@@ -152,9 +152,9 @@ def test_a_protected_database_takes_only_keyed_address_digests(
 def test_the_read_commands_leave_the_database_as_it_was_and_read_an_older_one(
     tmp_path: Path, inbox_pack: Pack, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """`org list`, `members`, `requests` and `check` open the database read-only: no sidecar file,
-    no migration; a database from before these records (or before tenancy's columns) reads as
-    having none, every row `default`'s."""
+    """`org list`, `members`, `requests`, `keys`, `clients` and `check` open the database
+    read-only: no sidecar file, no migration; a database from before these records (or before
+    tenancy's columns) reads as having none, every row `default`'s."""
     folder = tmp_path / "var"
     folder.mkdir()
     db = folder / "mendari.db"
@@ -170,6 +170,8 @@ def test_the_read_commands_leave_the_database_as_it_was_and_read_an_older_one(
         ["access", "org", "list"],
         ["access", "members", "--org", "default"],
         ["access", "requests"],
+        ["access", "keys"],
+        ["access", "clients", "--org", "default"],
     )
     for argv in reads:
         assert main([*argv, "--db", str(db)]) == 0

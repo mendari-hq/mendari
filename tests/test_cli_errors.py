@@ -82,6 +82,12 @@ BROKEN: dict[str, tuple[list[str], dict[str, str]]] = {
     "access members": (["--org", "a", "--db", "{missing_db}"], {}),
     "access requests": (["--db", "{not_db}"], {}),
     "access check": (["--db", "{missing_db}"], {}),
+    "access keys": (["--db", "{missing_db}"], {}),
+    "access clients": (["--org", "a", "--db", "{not_db}"], {}),
+    "access revoke key": (["k-1", "--reason", "leak", "--db", "{not_db}"], {}),
+    "access revoke client": (["c-1", "--reason", "leak", "--db", "{missing_db}"], {}),
+    "access revoke all": (["--org", "a", "--reason", "leak", "--db", "{not_db}"], {}),
+    "access end-sessions": (["--kind", "people", "--reason", "drill", "--db", "{not_db}"], {}),
     "feedback export": (["mendari/ai-guard", "--out", "{out}", "--db", "{missing_db}"], {}),
     "sandbox generate": (
         ["--kind", "inbox", "--pack-dir", "{pack_dir}", "--local-out", "{file}/x.jsonl"],
