@@ -220,6 +220,51 @@ def test_the_image_parser_sees_the_images_it_should() -> None:
     assert _shell_name("$image") == _shell_name("${image}") != _shell_name("${ima}ge")
 
 
+@pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.name)
+def test_every_sbom_generator_is_pinned_by_digest(path: Path) -> None:
+    """BuildKit runs the generator an `--attest type=sbom` names on the finished image; its
+    default is a moving tag."""
+    for script in _scripts(path):
+        if "type=sbom" not in script:
+            continue
+        generators = re.findall(r"type=sbom,generator=([^\s\",]+)", script)
+        assert generators, f"{path.name}: an SBOM attestation without a pinned generator"
+        for image in generators:
+            assert DIGEST_PIN.search(image), f"{path.name}: {image} is not pinned by digest"
+
+
+def test_the_release_attaches_an_sbom_from_a_pinned_generator() -> None:
+    release = ROOT / ".github" / "workflows" / "release.yml"
+    generators = [g for s in _scripts(release) for g in re.findall(r"generator=([^\s\",]+)", s)]
+    assert len(generators) == 1 and generators[0].startswith(
+        "docker.io/docker/buildkit-syft-scanner:"
+    )
+
+
+def _builders(path: Path, job: str) -> list[str]:
+    steps = _workflow(path)["jobs"][job]["steps"]
+    return [
+        s["with"]["driver-opts"]
+        for s in steps
+        if s.get("uses", "").startswith("docker/setup-buildx-action@")
+    ]
+
+
+def test_ci_scans_the_sbom_from_the_releases_generator_and_builder() -> None:
+    """CI's image-sbom job runs the release's SBOM scan on every change; it proves something
+    only while it runs the same generator on the same builder (a bump changes both files)."""
+    workflows = ROOT / ".github" / "workflows"
+    found = {}
+    for name in ("ci.yml", "release.yml"):
+        found[name] = {
+            g for s in _scripts(workflows / name) for g in re.findall(r"generator=([^\s\",]+)", s)
+        }
+    assert len(found["ci.yml"]) == 1 and found["ci.yml"] == found["release.yml"]
+    assert _builders(workflows / "ci.yml", "image-sbom") == _builders(
+        workflows / "release.yml", "images"
+    )
+
+
 @pytest.mark.parametrize("path", COMPOSE_FILES, ids=lambda p: str(p.relative_to(ROOT)))
 def test_every_compose_image_is_pinned_by_digest(path: Path) -> None:
     services = yaml.safe_load(path.read_text())["services"]

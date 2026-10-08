@@ -87,7 +87,16 @@ The first release (not yet published).
   and card summaries, its Task text renders as before, and `mendari validate` refuses both. Every
   shipped template passes, and no pack renders different wording.
 - **Distribution:** a wheel and an sdist, container images (the engine with every pack, and one
-  per pack), and deployment templates for docker compose and Kubernetes.
+  per pack), and deployment templates for docker compose and Kubernetes. Each image carries its
+  licences in `/licenses`: Mendari's LICENSE and NOTICE, `THIRD_PARTY_NOTICES.md` written from
+  what the image holds (Debian's packages, whose copyright files stay, every Python package, the
+  libraries psycopg-binary bundles, what packages link statically and the Rust crates compiled
+  into them, each with where its source is), the texts the image would otherwise lack, and
+  `SOURCE.md`; its label names Apache-2.0 as Mendari's licence only. A release attaches an SBOM
+  of each finished image, scans its licences, publishes each image's corresponding source
+  beside it (`<tag>-sources`, with the SBOM and every package's source location), and pushes no
+  image that fails; CI runs the same SBOM scan on every change. The image still builds with
+  Docker's classic builder.
 - **The command line:** every error is one line per problem and exit 1, never a traceback
   (`--debug` or `MENDARI_DEBUG=1` shows one); a usage error is one line too, exit 1 (argparse's
   was 2); `--version`. `mendari test` refuses a behaviour test whose `expect` is missing,
