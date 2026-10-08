@@ -105,6 +105,7 @@ from mendari.server.backend_services import (
 )
 from mendari.server.limits import DailyCap, Limiter, RateLimited, client_ip, limit_settings
 from mendari.server.origin import OriginCheck, is_local_host, trusted_origins
+from mendari.server.readiness import Readiness, packs_state
 from mendari.server.smart_routes import add_smart_routes, error_page
 from mendari.settings import FhirValidation, applies_to, providers_for
 from mendari.standards import (
@@ -641,6 +642,10 @@ def create_app(
         if (slots := slots_without_model(packs[pack_id], running))
     }
     health_unbuilt = {pack_id: str(error) for pack_id, error in unbuildable.items()}
+    # Every pack that did not load, get its terminology or build: signed-in health lists them,
+    # and readiness says `degraded` while there is one (`none` when no pack is built).
+    health_invalid = {**found.problems, **terminology_problems, **health_unbuilt}
+    readiness = Readiness(store.ping, packs_state(built=len(built), problems=len(health_invalid)))
     # An owned served pack whose provider configs, prefetch or wording templates `mendari validate`
     # refuses (`Pack.warnings`): it loads and serves what builds, and says so once here and in
     # /api/health.
@@ -836,7 +841,7 @@ def create_app(
             "packs": len(packs),
             # How many of them come from where: maintained, community, hub, local.
             "packs_by_origin": dict(Counter(pack.shown_origin for pack in packs.values())),
-            "invalid": {**found.problems, **terminology_problems, **health_unbuilt},
+            "invalid": health_invalid,
             # Served packs that load with problems in their provider configs, prefetch or wording
             # templates (`mendari validate` refuses them; a pack the deployment does not own is
             # refused, under `invalid`).
@@ -927,6 +932,32 @@ def create_app(
                 ),
             },
         }
+
+    @app.get(
+        "/api/health/ready",
+        tags=["Service"],
+        summary="Readiness: the database answers and the packs loaded",
+        responses={503: {"description": "Not ready: the database did not answer, or no pack"}},
+    )
+    def ready() -> Response:
+        """Public, for status pages, uptime checks and readiness probes (`server/readiness.py`),
+        with `GET` or `HEAD`: `status` (`ready`, `degraded` or `unready`), `version` and
+        `checks`: `database` (`ok` or `unreachable`) and `packs` (`ok`; `degraded` while a pack
+        did not load or build, which signed-in `/api/health` lists under `invalid`; `none` when
+        no pack is served). `503` when unready. Fixed codes only: no error text, no pack ids,
+        no counts.
+
+        An instance reads the database at most once every 5 s, whoever asks, and waits for the
+        read about 3.5 s at most; a caller that comes while a check runs gets the last answer,
+        so readiness holds one request thread at most, through any outage. Liveness stays
+        `/api/health`, which with sign-in on does no database work for an anonymous caller.
+        """
+        answer = readiness.answer()
+        return JSONResponse(answer.body, answer.status_code)
+
+    # `HEAD`, as uptime checks often send it: the same answer without its body (one operation in
+    # the reference, so the two methods never share an operation id).
+    app.add_api_route("/api/health/ready", ready, methods=["HEAD"], include_in_schema=False)
 
     @app.get(
         "/api/providers/jev/models",

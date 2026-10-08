@@ -81,6 +81,8 @@ def test_every_line_is_json_with_allowed_keys_and_never_a_secret(
     app.get("/fhir/Task", params={"identifier": QUERY_VALUE})
     app.post("/fhir/Task/_search", data={"status": QUERY_VALUE})
     app.get("/api/health")
+    app.get("/api/health/ready")  # probes, like health: no access line
+    app.head("/api/health/ready")
     app.get("/static/style.css")
     app.get("/")
     app.get("/api/no/such/route", params={"x": QUERY_VALUE})
@@ -90,7 +92,7 @@ def test_every_line_is_json_with_allowed_keys_and_never_a_secret(
     for never in (CASE_TEXT, "Rosalind", QUERY_VALUE, secret, session, "Dr Kim", "kim@example"):
         assert never not in text, never
     access = [(e["method"], e.get("route"), e["status"]) for e in lines if e["event"] == "request"]
-    assert access == [  # one per API request: none for health, static files or the dashboard
+    assert access == [  # one per API request: none for health, readiness, static files, the page
         ("POST", "/api/packs/{namespace}/{name}/decide", 200),
         ("GET", "/api/audit", 200),
         ("GET", "/api/audit/{decision_id}", 200),
