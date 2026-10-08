@@ -22,7 +22,8 @@ uuid4. Every response carries it as `X-Request-Id`, and JSON errors on `/api` as
 a person can quote it and the line be found.
 
 **Access lines** (`event: request`): one per `/api`, `/fhir`, `/cds-services`, `/auth` and
-`/smart` request, refused ones included, but not `/api/health` (probes) or static files.
+`/smart` request, refused ones included, but not `/api/health` and `/api/health/ready`
+(probes) or static files.
 
 **Events**: `auth.signin.ok|refused`, `auth.logout`, `auth.credential.refused` (memberships
 mode adds the reason `no_organization_record`), `auth.permission.refused` (and the reasons
@@ -95,7 +96,7 @@ FIELDS = (
 Outcome = Literal["ok", "refused", "limited", "invalid", "error"]
 REQUEST_ID = re.compile(r"^[A-Za-z0-9._:-]{8,128}$")
 LOGGED_PREFIXES = ("/api/", "/fhir", "/cds-services", "/auth/", "/smart/")
-NOT_LOGGED = frozenset({"/api/health"})
+NOT_LOGGED = frozenset({"/api/health", "/api/health/ready"})
 MAX_IDS = 500  # the largest page a route answers
 MAX_FRAMES = 30
 MAX_TEXT = 200  # any one string value: a reason, an id, a route

@@ -1105,6 +1105,58 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   answer, so it names no organization); recording only people a membership or a request
   concerns (default, as 12e-i does) or everyone who signs in.
 
+- [ ] **LP-21** Operations for a public service (ADR-0010, Proposed). Planned by a mapping
+  workflow (2026-10-08) as fifteen PRs, each safe alone; none changes what a valid pack
+  decides, and anonymous `/api/health` stays three fields with no database work:
+  - [ ] **21a** (#194) Readiness, `GET`/`HEAD /api/health/ready`: one read of the chain's
+    table (`AuditStore.ping`, creating nothing) per instance every 5 s, whoever asks, in a
+    thread of its own waited for about 3.5 s, a failure kept too; a read never answered holds
+    that one thread and none starts again until it returns; a caller during a check gets the
+    last answer at once; the packs as start-up found them (`ok`, `degraded`, `none`); `503`
+    when unready; fixed codes only. Kubernetes' readinessProbe uses it; ADR-0010; this entry.
+  - [ ] **21b** The status checks file (readiness, the sign-in redirect, a synthetic decide by a
+    status organization's decide-only key, the registry, the Hub), `scripts/status_checks.py`
+    and a public in-app status view.
+  - [ ] **21c** The monitor compares like with like (served version, a comparable reference or
+    none, the reviewed stratum, refusals apart, whole weeks, unknown cost as unknown).
+  - [ ] **21d** Operational health in the monitor: provider error share (an additive
+    `decisions.provider_errors` count), abstention share, latency.
+  - [ ] **21e** Alert delivery: `MENDARI_ALERT_FORMAT`, an HMAC signature
+    (`MENDARI_ALERT_SECRET`), retries and an `alert_deliveries` record.
+  - [ ] **21f** `GET /api/internal/monitor`, guarded by `CRON_SECRET`, per organization.
+  - [ ] **21g** The usage ledger (day, organization, provider type, purpose: calls, tokens,
+    cost, unknown as unknown).
+  - [ ] **21h** Evaluations count against their organization (`eval_jev`, `eval_llm` quotas).
+  - [ ] **21i** `GET /api/usage`, the admins' usage screen and the operator's CLI.
+  - [ ] **21j** Audit checkpoints and incremental verify.
+  - [ ] **21k** The signed daily checkpoint (`MENDARI_CHECKPOINT_KEY`).
+  - [ ] **21l** Break-glass revocation commands (keys, clients, sessions).
+  - [ ] **21m** `docs/operations/incident-runbook.md`, backup and restore with a tested verify.
+  - [ ] **21n** The hosted schedule (`vercel.json` crons): **owner's go-ahead before merging**.
+  - [ ] **21o** Firewall enforcement: **owner only**, after the log-only week.
+
+  **Defaults each PR follows** (the owner may choose otherwise):
+  1. (21a) Readiness says fixed codes and the version only: no pack ids, counts or error text.
+  2. (21a) Its rate limit is the cache: one database read per instance every 5 s whatever the
+     request rate, and one request thread at most. No per-address `429`: it would fail a probe
+     sharing its address with other callers (review of 21a).
+  3. (21a) `HEAD` on readiness only; `/api/health` keeps `GET`.
+  4. (21a) A pack that did not load or build makes readiness `degraded` (`200`); `503` only
+     when the database fails or no pack is built.
+  5. (21a) Kubernetes: readinessProbe on readiness (10 s, 3 failures); liveness and the Docker
+     `HEALTHCHECK` stay on `/api/health`.
+  6. (21b) The in-app status view is minimal; the owner's external status page is the one that
+     survives a full outage.
+  7. (21h) Evaluations get their own organization quotas, unset meaning no limit; charging
+     them to the live quotas could push live decisions to review (clinical behaviour).
+  8. (21k) The public checkpoint carries no sequence number or count, and is published only
+     once the owner sets the key.
+
+  **Owner decisions** (none blocks 21a to 21m): the status page provider, its checks and who is
+  paged (B36); the evaluation quota values; the alert format, secret and destination; the
+  checkpoint key and where its public key is published; the hosted schedule (21n); firewall
+  enforcement (21o).
+
 ## Plan: community packs through pull requests (2026-10-04)
 Make the repository public so outside developers can contribute packs by pull request. Plan from
 three research reports on `b00e2809` (public repo, contribution flow, shipping and the bar).

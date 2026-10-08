@@ -1171,7 +1171,12 @@ community), active providers, Jev configuration and today's Jev usage (never sec
 key) sees them; anyone else gets `status`, `version` and `sign_in`, enough for a load balancer.
 On a preview without sign-in `vercel curl` shows everything; with sign-in on, open
 `/api/health` in a browser signed in to the dashboard. The FHIR sandbox (HAPI) stays in local
-`docker compose`.
+`docker compose`. Status pages and uptime checks call `/api/health/ready` instead: public,
+`GET` or `HEAD`, it reads the database (once every 5 seconds per instance at most, waited for
+about 3.5 seconds) and answers `503` while the database does not answer or no pack is served,
+where anonymous `/api/health` stays `ok` with sign-in on (without sign-in every caller gets the
+settings, which read the database, so it fails during an outage too)
+([deploying with PHI](https://github.com/Junebugg1214/mendari/blob/main/docs/deploying-with-phi.md), *Health checks*).
 
 One pack never stops the server. Its `invalid` lists the packs that failed to load (by path; an
 error that is not Mendari's by its type alone), which are not served; the packs whose providers
