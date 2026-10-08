@@ -65,6 +65,21 @@ behaviour.
   the Hub no longer shows them: any publisher token can still submit under any site name.
   Left for LP-22 (with site signatures): counts in, rates out (the registry computing every
   rate), a keyed dataset commitment, one live submission per site.
+  - [x] Follow-up (found in the LP-10c review; #160, #161): a composite slot's evaluation can
+    be shared. Its model goes as recorded (`member:model`, joined by ` + `, or ` → ` for a
+    cascade) and a failed member's error as `member:code`. The registry records each composite's
+    members at publish (`names.members`) and refuses other members, another order, or failed
+    members that are not one composite's that ran; a version published before answers 409.
+    **The closed error code set:** a provider error's code is one of `ProviderErrorCode`
+    (`errors.py`, a `Literal`, so mypy refuses any other): `budget_exhausted`,
+    `credential_unavailable`, `insufficient_credit`, `invalid_endpoint`, `invalid_input`,
+    `invalid_response`, `not_configured`, `provider_unavailable`, `quota_exhausted`,
+    `rate_limited`, `time_budget`, `timeout`, `unavailable`. With `derived_input_unavailable` (a
+    derived question whose inputs failed) they make `FAILURE_CODES`, every code a decision can
+    record, and the only codes a shared report's errors may name, plain or after `member:` (they
+    were checked as names, so `Jane_Doe.chest-pain` was stored). Spec §5 lists them; a test keeps
+    that list equal to `FAILURE_CODES`. A new code goes in the `Literal` and §5 together, and a
+    registry refuses reports carrying it until it runs the release that knows it.
 - [x] **LP-04** The synthetic-example label and display names, as optional 0.2 fields (no
   published engine yet, so no 0.3): `card.provenance` (`synthetic`, `de_identified`,
   `site_records`) and question `display` and `names`. The line every surface shows is derived
