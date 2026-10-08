@@ -4,6 +4,11 @@
 A template may use `{recommendation}`, `{priority}`, and `{<question>}` for any question of the
 pack, which is replaced by that question's label, e.g. "Referral to {specialty} is missing
 information". A question without an answer (its provider failed) reads as "unknown".
+
+A placeholder is a bare name (`template_problems`): no conversion, format spec, attribute or
+index, which would let a template pad a label to any length or reach into what fills it. A pack
+the deployment does not own is refused for one; an owned pack is warned, and `fill` renders its
+templates as it always did.
 """
 
 from __future__ import annotations
@@ -18,6 +23,7 @@ if TYPE_CHECKING:
 
 BUILT_IN = ("recommendation", "priority")
 UNKNOWN = "unknown"  # what a placeholder reads when its question has no answer
+SHOWN_CHARS = 40  # how much of a placeholder a problem shows
 
 
 def unknown_placeholders(template: str, questions: Iterable[str]) -> list[str]:
@@ -28,6 +34,46 @@ def unknown_placeholders(template: str, questions: Iterable[str]) -> list[str]:
     except ValueError:
         return [template]  # unbalanced braces
     return sorted(name for name in names if name not in allowed)
+
+
+def template_problems(template: str, questions: Iterable[str]) -> list[str]:
+    """Why a wording template is not bare, each problem worded to follow where the template is
+    (`cds_hooks.card.summaries.<key> uses ...`); none when it is. Bare: every placeholder is a
+    built-in or a question (`unknown_placeholders`) and only its name, with no conversion
+    (`{priority!r}`), format spec (`{priority:>9}`), attribute (`{priority.x}`) or index
+    (`{priority[0]}`)."""
+    questions = list(questions)
+    unknown = unknown_placeholders(template, questions)
+    try:
+        fields = [
+            (name, conversion, spec)
+            for _, name, spec, conversion in string.Formatter().parse(template)
+            if name is not None
+        ]
+    except ValueError:
+        return [f"uses unknown placeholders {unknown}"]  # unbalanced braces
+    reaching = {name for name, _, _ in fields if "." in name or "[" in name}
+    problems = []
+    if named := [name for name in unknown if name not in reaching]:
+        problems.append(f"uses unknown placeholders {named}")
+    shaped = {
+        _shown(name, conversion, spec)
+        for name, conversion, spec in fields
+        if conversion is not None or spec or name in reaching
+    }
+    problems += [
+        f"uses {shown}: a placeholder is a bare name, with no conversion, format spec, "
+        "attribute or index"
+        for shown in sorted(shaped)
+    ]
+    return problems
+
+
+def _shown(name: str, conversion: str | None, spec: str | None) -> str:
+    """A placeholder as written, at most `SHOWN_CHARS` of it."""
+    text = name + (f"!{conversion}" if conversion else "") + (f":{spec}" if spec else "")
+    text = "{" + text + "}"
+    return text if len(text) <= SHOWN_CHARS else text[: SHOWN_CHARS - 4] + "...}"
 
 
 def fill(template: str, result: DecisionResult, *, recommendation: str) -> str:

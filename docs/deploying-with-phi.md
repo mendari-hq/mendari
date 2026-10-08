@@ -642,6 +642,16 @@ By default, nothing. Each of these is off until you configure it:
 | Alerts | `MENDARI_ALERT_WEBHOOK` | Pack ids and alert messages; an organization's id when it reaches a daily quota (no case data) |
 | Shared evaluation reports | `mendari eval --share` (manual) | Metrics only (`mendari.site-report/1`, checked by the registry): no cases, ids, dataset name, approver or subgroups; `--share-out FILE` writes it to read first |
 
+To hold remote models to the places your agreements cover, set
+`MENDARI_PROVIDER_ALLOWED_ORIGINS` to the origins they may be called at, comma-separated as for
+`MENDARI_FHIR_ALLOWED_SERVERS` (for example `https://models.internal.example.org` for a model
+server on your network; add `https://ai-gateway.vercel.sh` for the AI Gateway, and
+`https://api.vercel.com` for `JEV_CONNECTOR`). A Jev, LLM or Vercel Connect request to any other
+origin is then refused before it is sent (`invalid_endpoint`: the question fails and the decision
+goes to a person), and an `LLM_BASE_URL` or `JEV_API_URL` off the list stops the server at
+start-up. Unset, there is no such list. Signed in, `/api/health` shows it
+(`provider_allowed_origins`).
+
 For PHI, prefer local providers (rules, naive Bayes, criteria, dosing), or a local model server
 (an OpenAI-compatible `base_url` on your network). Use a remote model only under an agreement
 that covers PHI. Setting up Jev sends Jev the inbox messages, the referral reasons (and the

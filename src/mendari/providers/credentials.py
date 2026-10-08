@@ -7,7 +7,9 @@ A provider key is resolved in this order:
 2. A Vercel Connect connector named by another variable, e.g. `JEV_CONNECTOR=jev/my-project`.
    The deployment's Vercel OIDC token is exchanged for the provider key at Vercel's documented
    endpoint `POST https://api.vercel.com/v1/connect/token/{connector}` with subject `app`.
-   Keys are cached in memory until shortly before they expire.
+   Keys are cached in memory until shortly before they expire. When the deployment lists the
+   origins its providers may be called at (`MENDARI_PROVIDER_ALLOWED_ORIGINS`), Vercel's must
+   be one of them, or no key is fetched (`invalid_endpoint`).
 
 Secrets are never logged and never appear in error messages or audit records.
 
@@ -28,6 +30,7 @@ import httpx
 
 from mendari.errors import ProviderError
 from mendari.providers import deadline
+from mendari.providers.http import require_allowed
 
 CONNECT_TOKEN_URL = "https://api.vercel.com/v1/connect/token/{connector}"
 REFRESH_MARGIN_S = 60
@@ -86,8 +89,11 @@ class ConnectorToken:
             self._lock.release()
 
     def _fetch(self) -> tuple[str, float]:
-        timeout = deadline.clamp(FETCH_TIMEOUT_S)  # past the decision's deadline: no fetch
         url = CONNECT_TOKEN_URL.format(connector=quote(self.connector, safe=""))
+        # Off the deployment's provider allow-list, when it has one: no identity token is read
+        # and nothing is opened (`invalid_endpoint`).
+        require_allowed(url, "Vercel Connect")
+        timeout = deadline.clamp(FETCH_TIMEOUT_S)  # past the decision's deadline: no fetch
         headers = {"authorization": f"Bearer {self._oidc()}"}
         client = self._client or httpx.Client(timeout=timeout, follow_redirects=False)
         try:

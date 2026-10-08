@@ -517,7 +517,11 @@ CDS Hooks services fetch the prefetch data an EHR leaves out, using the pack's o
 templates, the request's `fhirServer` and its `fhirAuthorization` token. They do this only when
 that server's origin is listed in `MENDARI_FHIR_ALLOWED_SERVERS` (for example
 `https://ehr.example.org,http://fhir:8080`). The list is empty by default, and every other server
-is refused.
+is refused. A prefetch template is a read or search relative to that server (`Type/<id>`,
+`Type/{{context.patientId}}` or `Type?<query>`): a community or registry pack with any other
+(an absolute URL, `..`, an operation, a fragment) is refused at load, and your own pack is warned.
+Providers that call a model have an allow-list of their own: `MENDARI_PROVIDER_ALLOWED_ORIGINS`
+([LLMs and local models](#llms-and-local-models)).
 
 **SMART on FHIR EHR launch.** Register `https://<mendari>/smart/launch?pack=<pack id>` as
 the app's launch URL and `https://<mendari>/smart/callback` as its redirect URI in the EHR.
@@ -1089,6 +1093,15 @@ vercel env pull .env.local   # a fresh OIDC token for local calls through the ga
 vercel env run -- uv run mendari calibrate <pack> --slot router --variant llm --limit 100
 ```
 
+**Where provider calls may go.** `MENDARI_PROVIDER_ALLOWED_ORIGINS` (comma-separated origins,
+like `MENDARI_FHIR_ALLOWED_SERVERS`) names the only origins Jev, LLM and Vercel Connect requests
+may reach. Unset, nothing changes. Set, a request anywhere else is refused before it is sent
+(`invalid_endpoint`: the question fails, so the decision goes to a person), an `LLM_BASE_URL` or
+`JEV_API_URL` off the list stops the server at start-up, and signed-in `/api/health` shows the
+list (`provider_allowed_origins`). With the AI Gateway (no `LLM_BASE_URL`), list
+`https://ai-gateway.vercel.sh`; with `JEV_CONNECTOR`, list `https://api.vercel.com`. The CQL
+engine stays on `MENDARI_FHIR_ALLOWED_SERVERS`.
+
 ## Deploying to Vercel
 
 The whole engine (API, FHIR endpoints, CDS Hooks, review queue, audit, dashboard) deploys as one
@@ -1145,9 +1158,11 @@ error that is not Mendari's by its type alone), which are not served; the packs 
 could not be built (by id), which stay listed, counted in `packs` and offered in CDS Hooks
 discovery, but whose decision and detail requests answer `422`; and the packs whose terminology
 could not be built, which are served without it. Every other pack decides. `pack_warnings` lists,
-by id, the served packs of your own whose provider configs `mendari validate` refuses (a key no
-provider reads, a variant that cannot run): they load and serve what builds, and the start-up log
-says so too; a community or registry pack with such a problem is refused, under `invalid`.
+by id, the served packs of your own whose provider configs, CDS Hooks prefetch or card summaries
+`mendari validate` refuses (a key no provider reads, a variant that cannot run, a prefetch that
+is not a read or search on the EHR's server, a placeholder that is not a bare name): they load
+and serve what builds, and the start-up log says so too; a community or registry pack with such
+a problem is refused, under `invalid`.
 
 Days and times people see (the dashboard's times and daily volume, daily call counters, "today"
 for criteria and ages, card dates) use `MENDARI_TIMEZONE`, an IANA name defaulting to

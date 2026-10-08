@@ -502,8 +502,16 @@ registry or copied into the store.
     (`docs/spec/provider-configs.schema.json`, `scripts/provider_config_schema.py --check`);
     the CQL declaration search made linear, since load now runs it on registry packs
     (conflicts 17–19, 24, 25).
-  - [ ] **16e-2** (PR D, after C) The provider egress allow-list
-    (`MENDARI_PROVIDER_ALLOWED_ORIGINS`), relative prefetch templates and bare placeholders
+  - [ ] **16e-2** (PR open; PR D, after C) The provider egress allow-list
+    (`MENDARI_PROVIDER_ALLOWED_ORIGINS`, off unless set; `providers/http.py` `require_allowed`
+    in `require_secure`, Jev's model list and Vercel Connect, the AI Gateway's default included;
+    a set `LLM_BASE_URL` or `JEV_API_URL` off it stops startup, `providers.provider_allow_list`;
+    health `provider_allowed_origins` past the `read` check), relative prefetch templates
+    (`core/spec.py` `PREFETCH`, `prefetch_problems`) and bare placeholders
+    (`core/templates.py` `template_problems`): refused for packs the deployment does not own (a
+    not-owned pack's FHIR mapping and Task text now read at load), `Pack.warnings` for owned
+    ones' prefetch and card summaries; an owned pack's Task text keeps the name check where it
+    serves, and `mendari validate` holds every pack's to bare placeholders; `fill` unchanged
     (conflicts 20, 21).
   - [ ] **16f** (PR open, with F) Depth and `$ref` bounds for the input schemas of packs the
     deployment owns (`core/input_schema.py` `expansion_problems`, over `core/schema_graph.py`,
