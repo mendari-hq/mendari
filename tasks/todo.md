@@ -1138,7 +1138,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     and an `alert_deliveries` record (never the URL or the secret); the quota alert one try on
     the decision, recorded for `retry_due`; `mendari monitor` exits 3 when its alerts could not
     be posted; threat model S17.
-  - [ ] **21f** (PR open) `GET /api/internal/monitor`, guarded by `CRON_SECRET` before any
+  - [ ] **21f** (#199) `GET /api/internal/monitor`, guarded by `CRON_SECRET` before any
     database work (`require_cron`, shared with the purge): pending alerts sent again, then each
     organization with decisions on its own (but `MENDARI_STATUS_ORG`), one recorded alert each,
     retries for 60 s, no organization started after 180 s, an alert naming those left, a
