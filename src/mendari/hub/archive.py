@@ -19,7 +19,8 @@ hold while it is read, before the signature is checked: the gzip may expand to a
 and a member is read only once its size fits, so a small archive (a gzip of zeros, sparse
 members that declare gigabytes) never makes the reader hold more than the caps in memory.
 `extract` then checks that every file lands inside the destination, writes the files and checks
-that the pack loads with the digest the manifest names.
+that the pack loads with the digest the manifest names, as the origin its caller names (no
+default: a registry and a puller load it as `hub`, on the engine its pullers run, ADR-0009).
 """
 
 from __future__ import annotations
@@ -41,6 +42,7 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
+from mendari.core.origin import Origin
 from mendari.core.pack import Pack, load_pack
 from mendari.errors import HubError
 
@@ -218,9 +220,11 @@ def verify(archive: bytes, trusted: Mapping[str, Ed25519PublicKey]) -> Verified:
     return Verified(manifest=manifest, files=files, key_id=str(signature["key_id"]), sha256=digest)
 
 
-def extract(verified: Verified, dest: Path) -> Pack:
-    """Write a verified archive's pack to `dest` and load it; its digest, id and version must be
-    the ones the signed manifest names."""
+def extract(verified: Verified, dest: Path, *, origin: Origin) -> Pack:
+    """Write a verified archive's pack to `dest` and load it as `origin` (required, so every
+    caller chooses the engine it is checked on: `hub` for a registry's publish, a pull and
+    `mendari pack verify`); its digest, id and version must be the ones the signed manifest
+    names."""
     dest.mkdir(parents=True, exist_ok=True)
     root = dest.resolve()
     targets = {path: (root / path).resolve() for path in verified.files}
@@ -234,7 +238,7 @@ def extract(verified: Verified, dest: Path) -> Pack:
             target.write_bytes(data)
         except OSError as error:  # a file where a directory goes, a full disk, …
             raise HubError(f"{path}: cannot be written ({type(error).__name__})") from None
-    pack = load_pack(dest)
+    pack = load_pack(dest, origin=origin)
     expected = (
         verified.manifest.get("id"),
         verified.manifest.get("version"),

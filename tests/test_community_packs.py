@@ -279,21 +279,49 @@ def test_a_community_pack_from_a_git_submodule_is_not_served(tmp_path: Path) -> 
 # -- one id, one pack where a community pack takes part (B1) ------------------------------------
 
 
-def test_a_pulled_reference_pack_is_served_as_before(tmp_path: Path) -> None:
-    """README's hub flow: `mendari pull mendari/referral-router`, then
-    `mendari eval mendari/referral-router` uses the newest version, the verified pulled one."""
+def test_a_pulled_copy_at_the_reference_version_is_served_on_the_maintained_engine(
+    tmp_path: Path,
+) -> None:
+    """README's hub flow: `mendari pull mendari/referral-router` caches a copy of the reference
+    pack of this release, which keeps the maintained engine (ADR-0009) and is served from the
+    cache, as before."""
     cache = tmp_path / "cache"
-    pulled = PACKS / "referral-router"
-    _copy(cache / "mendari" / "referral-router", "9.9.9", _set(version="9.9.9"), source=pulled)
+    reference = load_pack(PACKS / "referral-router")
+    _copy(cache / "mendari" / "referral-router", reference.version, source=reference.root)
     paths = [SearchPath(cache, "hub"), SearchPath(PACKS, "maintained")]
     found = discover(paths)
-    versions = sorted(p.version for p in found.packs if p.id == "mendari/referral-router")
-    assert versions == [load_pack(pulled).version, "9.9.9"] and not found.problems
-    assert resolve_pack("mendari/referral-router", paths).version == "9.9.9"
-    assert resolve_pack("mendari/referral-router@9.9.9", paths).origin == "hub"
+    assert not found.problems
+    pulled = resolve_pack(f"mendari/referral-router@{reference.version}", paths)
+    assert (pulled.origin, pulled.bounded, pulled.digest) == ("hub", False, reference.digest)
     client = TestClient(create_app(db_path=tmp_path / "h.db", packs_paths=paths))
     detail = client.get("/api/packs/mendari/referral-router").json()
+    assert detail["manifest"]["version"] == reference.version
+
+
+def test_a_newer_pulled_version_is_served_on_the_community_engine(tmp_path: Path) -> None:
+    """`mendari eval mendari/patient-inbox-router` uses the newest version, the verified pulled
+    one, which is not a reference pack of this release: it runs on the engine for packs from a
+    registry. A newer referral pack cannot (RE2 has no lookahead): it is listed, not served,
+    and the bundled one is served as before."""
+    cache = tmp_path / "cache"
+    for name in ("patient-inbox-router", "referral-router"):
+        source = PACKS / name
+        _copy(cache / "mendari" / name, "9.9.9", _set(version="9.9.9"), source=source)
+    paths = [SearchPath(cache, "hub"), SearchPath(PACKS, "maintained")]
+    found = discover(paths)
+    inbox = resolve_pack("mendari/patient-inbox-router", paths)
+    assert (inbox.version, inbox.origin, inbox.bounded) == ("9.9.9", "hub", True)
+    refused = str((cache / "mendari" / "referral-router" / "9.9.9").resolve())
+    assert "lookahead" in found.problems[refused]
+    assert "not the copy of it in this release" in found.problems[refused]
+    referral = resolve_pack("mendari/referral-router", paths)
+    assert (referral.origin, referral.bounded) == ("maintained", False)
+    assert referral.version == load_pack(PACKS / "referral-router").version
+    client = TestClient(create_app(db_path=tmp_path / "h.db", packs_paths=paths))
+    detail = client.get("/api/packs/mendari/patient-inbox-router").json()
     assert detail["manifest"]["version"] == "9.9.9"
+    detail = client.get("/api/packs/mendari/referral-router").json()
+    assert detail["manifest"]["version"] == referral.version
 
 
 def test_ids_no_community_pack_claims_are_found_as_before(tmp_path: Path) -> None:

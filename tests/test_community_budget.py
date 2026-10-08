@@ -160,7 +160,8 @@ def test_a_community_packs_schema_uses_only_the_keywords_mendari_bounds(
     with pytest.raises(PackValidationError) as error:
         load_pack(sorter(tmp_path, schema=used))
     assert any(
-        f"properties/codes/{keyword}: a community pack's schema may not use {keyword}" in problem
+        f"properties/codes/{keyword}: a community or registry pack's schema may not use {keyword}"
+        in problem
         for problem in error.value.problems
     )
 

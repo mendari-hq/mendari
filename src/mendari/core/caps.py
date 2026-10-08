@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Caps on what multiplies the work of a community pack's patterns (plan B11).
+"""Caps on what multiplies the work of the patterns of a pack on the community engine (plan B11):
+a community pack, or one from a registry that is not a reference pack of this release
+(`Pack.bounded`, ADR-0009). Below, "a community pack" stands for either.
 
 A community pack's patterns run on RE2 (`core/patterns.py`), which never backtracks: a pattern's
 time is the text's length times its compiled size, never more. So the work one decision takes
@@ -38,8 +40,8 @@ the schema had already found wrong is refused). One decision runs a community pa
 patterns and schema for at most the budget plus one step under way (about 3.5 s of CPU at
 worst).
 
-Every other pack is not capped: its patterns run on `re`, and installing it means trusting its
-author (SECURITY.md).
+Every other pack (a reference pack, a pulled copy of one, an operator's local pack) is not
+capped: its patterns run on `re`, and installing it means trusting its author (SECURITY.md).
 """
 
 from __future__ import annotations
@@ -97,13 +99,13 @@ def rules_problems(relative: str, rules: Any) -> list[str]:
     window = _number(rules.get("negation_window"))
     if window is not None and window > MAX_NEGATION_WINDOW:
         problems.append(
-            f"{relative}: negation_window is {window}; a community pack's is at most "
+            f"{relative}: negation_window is {window}; a community or registry pack's is at most "
             f"{MAX_NEGATION_WINDOW} characters (the shipped packs use 30 to 40)"
         )
     cues = rules.get("negation_cues")
     if isinstance(cues, list) and len(cues) > MAX_NEGATION_CUES:
         problems.append(
-            f"{relative}: {len(cues)} negation_cues; a community pack has at most "
+            f"{relative}: {len(cues)} negation_cues; a community or registry pack has at most "
             f"{MAX_NEGATION_CUES} (the shipped packs have 7 to 23)"
         )
     return problems
@@ -204,8 +206,8 @@ def schema_problems(schema: Any, rules_runs: int, rules_size: int = 0) -> list[s
     except SchemaCycle as cycle:
         return [
             f"input schema: {cycle.where}: a $ref leads back to a schema holding it, and "
-            "patterns run there or below it; a community pack's schema may not refer back to "
-            "itself where its patterns run"
+            "patterns run there or below it; a community or registry pack's schema may not refer "
+            "back to itself where its patterns run"
         ]
     if runs > MAX_SCHEMA_RUNS:
         shown = f"{runs:,}" if runs < 10**9 else "more than 1,000,000,000"
@@ -217,16 +219,17 @@ def schema_problems(schema: Any, rules_runs: int, rules_size: int = 0) -> list[s
             else ""
         )
         return [
-            f"input schema: its patterns can run {shown} times on one value; a community pack's "
-            f"schema runs at most {MAX_SCHEMA_RUNS} on any value or key ({tripled}a $ref, allOf, "
-            "anyOf or oneOf that reaches the same pattern more than once multiplies it)"
+            f"input schema: its patterns can run {shown} times on one value; a community or "
+            f"registry pack's schema runs at most {MAX_SCHEMA_RUNS} on any value or key "
+            f"({tripled}a $ref, allOf, anyOf or oneOf that reaches the same pattern more than "
+            "once multiplies it)"
         ]
     if rules_runs + runs > MAX_PACK_PATTERNS:
         return [
             f"the rules run {rules_runs} patterns on each input (each pattern once for each "
             "question it answers and each composite member holding it) and the input schema up "
-            f"to {runs} on one value: {rules_runs + runs} together; a community pack runs at most "
-            f"{MAX_PACK_PATTERNS}"
+            f"to {runs} on one value: {rules_runs + runs} together; a community or registry pack "
+            f"runs at most {MAX_PACK_PATTERNS}"
         ]
     size = schema_runs(schema, schema_size)
     if rules_size + size > MAX_PACK_PATTERN_SIZE:
@@ -234,10 +237,10 @@ def schema_problems(schema: Any, rules_runs: int, rules_size: int = 0) -> list[s
             f"its patterns' size comes to {rules_size + size:,} on each input: the rules' "
             f"{rules_size:,} (each pattern's once for each question it answers and each "
             f"composite member holding it) and the input schema's {size:,} on one value or key; a "
-            f"community pack's comes to at most {MAX_PACK_PATTERN_SIZE:,}, as RE2's time on each "
-            "character grows with it. A pattern's size is the characters, classes and .s it "
-            "holds, each as often as a count repeats it (.{0,999} is 999, \\w+ is 1): use "
-            "smaller counts, or fewer patterns"
+            f"community or registry pack's comes to at most {MAX_PACK_PATTERN_SIZE:,}, as RE2's "
+            "time on each character grows with it. A pattern's size is the characters, classes "
+            "and .s it holds, each as often as a count repeats it (.{0,999} is 999, \\w+ is 1): "
+            "use smaller counts, or fewer patterns"
         ]
     return []
 

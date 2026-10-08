@@ -103,7 +103,9 @@ services:
 
   registry:
     # The pack registry (mendari.hub): push and pull signed packs locally. The admin token is
-    # for this sandbox only; seed it with `scripts/hub_seed.py --registry http://127.0.0.1:8100`.
+    # for this sandbox only; seed it with `scripts/hub_seed.py --registry http://127.0.0.1:8100`
+    # after `docker compose up --build`: the registry checks the checkout's packs against the
+    # reference packs of this image (ADR-0009).
     image: mendari-engine:0.1.0
     depends_on:
       engine:
