@@ -204,7 +204,12 @@ behaviour.
   hash key, a new epoch); the reset no longer says `down -v`, which also removed
   `mendari-data` (the open engine's database and the registry's packs). Rebased on #177, whose
   invitation tests sign in: their helpers in `test_invite_page.py`, `test_notice.py` and
-  `browser/test_invitations.py` gained `encrypt_mode` too.
+  `browser/test_invitations.py` (since moved to `browser/access_site.py`) gained `encrypt_mode`
+  too. Rebased again on main after LP-12g, 12h, 12i, LP-16 and #180: the signed-in tests they
+  added gained `encrypt_mode` (`test_administrative_audit.py`'s server, `test_key_presets.py`'s,
+  `test_chain_orgs.py`'s memberships-mark test, `browser/test_credentials.py`'s claims-mode
+  site), no assertion changed, and `check_doc_snippets.py`'s key-preset pass (LP-12i) signs in
+  under `encrypt` as its signed-in pass does.
 - [x] **LP-09** Key rotation (#142, merged 2026-10-07). The PHI key: a ring, `MENDARI_PHI_KEY` seals and
   `MENDARI_PHI_READ_KEYS` (up to 4, checked at startup, never shown) only opens; from the first
   rotation on each token names its key (`v2:<key id>:`; before it, the old format, so a release

@@ -32,7 +32,7 @@ from mendari.core.audit import (
 from mendari.core.phi import PhiPolicy
 from mendari.server.app import create_app
 from mendari.standards import audit_fhir
-from tests.conftest import message
+from tests.conftest import encrypt_mode, message
 from tests.test_audit_fhir import NOT_ON_A_DECISION, recorded_kinds
 
 KEY = os.urandom(32)
@@ -222,6 +222,7 @@ def test_a_memberships_server_marks_its_database_and_a_claims_one_does_not(
 ) -> None:
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     create_app(db_path=tmp_path / "claims.db")
     with AuditStore(tmp_path / "claims.db") as store:
         assert not store.binds_org
