@@ -1,8 +1,10 @@
 # ADR-0008: Accounts and memberships beside the claims a sign-in carries
 
 ## Status
-Proposed (2026-10-07). Built in steps (LP-12, `tasks/todo.md`); the owner's decisions listed
-there confirm or change the defaults below before this is accepted.
+Proposed (2026-10-07). Built (LP-12, 12a to 12k, 2026-10-08), each default below as
+`tasks/todo.md` records it; accepted once the owner's decisions listed there (the hosted site's
+switch to memberships mode among them) confirm or change those defaults. Gate G2-3's
+prerequisite `a6-accounts` (`launch/gates.yaml`) names the tests that hold it.
 
 ## Context
 A request acts for one organization, taken from the identity provider's claim at sign-in

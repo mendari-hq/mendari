@@ -835,7 +835,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   runs use synthetic sets and throwaway keys. Owner, later: before any real set, generate the two
   keys, keep a copy off the laptop and set them; before contracting labellers, decide how they reach
   the hosted site while Vercel Authentication is on. Hand-written cases only until B20.
-- [ ] **LP-12** Accounts, memberships and invitations (ADR-0008, Proposed). Planned by a mapping
+- [x] **LP-12** Accounts, memberships and invitations (ADR-0008, Proposed; built 2026-10-08, G2-3's a6-accounts prerequisite met). Planned by a mapping
   workflow as eleven PRs, each leaving claims mode exactly as it is:
   - [x] **12a + 12b** (#159) This entry and ADR-0008; tenancy fails closed: for a signed-in
     principal of no organization (`tenancy.acting_for_nobody`), every read and write that
@@ -858,7 +858,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     administrator who has signed in keeps an organization administered; the commands that
     write refuse a protected database without its input-hash key; the preflight counts
     evaluation reports and names an id no record can have (`"recordable": false`).
-  - [ ] **12e** `MENDARI_ACCOUNTS=memberships`, in two PRs.
+  - [x] **12e** `MENDARI_ACCOUNTS=memberships`, in two PRs.
     - [x] **12e-i** (#163, merged 2026-10-07) The server: sign-in by records (the person recorded only when a
       membership waits for their verified address, they hold one, or were recorded before;
       what waits bound; one membership selected), a sealed `member` session holding the
@@ -873,7 +873,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
       the chooser whenever a person holds a membership and none is chosen, roles that grant
       nothing), the switcher, every request naming the window's organization, the
       access-ended and window-moved banners, "Use another account"; browser tests.
-  - [ ] **12f** Invitations and member management (no e-mail sent), in two PRs, so the server
+  - [x] **12f** Invitations and member management (no e-mail sent), in two PRs, so the server
     does not wait on 12e-ii's dashboard files:
     - [x] **12f-i** (#169, merged 2026-10-07) The server, memberships mode only: an administrator's routes
       (people with `keys`, never a key) to invite (`POST /api/auth/invitations`, the link
@@ -908,7 +908,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
       open server; axe in both themes; a phone's width) and 9 for the page's serving.
       Fixed in 12f-i: a refusal's body names its `reason` (the page read the
       wording), and removing a pending membership revokes the invitations to its address too.
-  - [ ] **12g** The organization bound into each chained event (memberships mode), checked by
+  - [x] **12g** The organization bound into each chained event (memberships mode), checked by
     `verify`; per-organization administrative reader and export; the generated two-organization
     isolation test with its reviewed allow-list.
     - [x] **12g-i** (#182, merged 2026-10-08) The binding and its check. A memberships-mode server marks the
@@ -956,7 +956,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     the one registry its verify and organization reader extend); another organization's is a
     404 naming no id. Key status worked out by the server; the clients' `keys_replaced_at`; the
     signed-in health's `backend_services`.
-  - [ ] **12i** Key presets in one table (API, screen, docs, doc-snippet checks).
+  - [x] **12i** Key presets in one table (API, screen, docs, doc-snippet checks).
     - [x] **12i-i** (#176, merged 2026-10-08) The table (`server/presets.py`: rest, fhir, ai-guard, cds-hooks,
       da-vinci, outcomes, fhir-reader; the FHIR ones name their types, never `system/*`),
       `preset` on `POST /api/auth/keys` (with the preset's role and no scope; a label stored
@@ -968,7 +968,12 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     per CDS order hook draft order), per local day, after the rate limits admit them; past it
     `429` with `Retry-After` until midnight, before any work; `/api/health` shows a principal
     its own. Its value is the owner's.
-  - [ ] **12k** Close-out: the a6-accounts gate's probes, the README, the ADR's status.
+  - [x] **12k** (#193) Close-out: G2-3's a6-accounts prerequisite and its probes
+    (`launch/gates.yaml`: 20 tests, 130 with their cases, on SQLite, Postgres and in the
+    browser); the two acceptance lines that had no test of their own, `mendari audit verify`
+    after membership, invitation and key events, and an empty or `default` organization claim
+    placing no one in memberships mode; the README; and ADR-0008's status (built; accepted once
+    the owner's decisions below confirm or change its defaults).
 
   **Conflicts written before building, and the default each PR follows** (the owner may choose
   otherwise; each default is named by the one PR that depends on it):

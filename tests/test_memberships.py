@@ -258,14 +258,20 @@ def test_a_sign_in_without_a_membership_acts_for_no_organization_never_default(
     assert store.user(person_id(IDP, "stranger")) is None  # anyone else leaves no record
 
 
+@pytest.mark.parametrize("claimed", ["clinic-a", "", "default"])
 def test_role_and_org_claims_are_ignored_in_memberships_mode(
-    db_target: str, idp: FakeIdp, monkeypatch: pytest.MonkeyPatch
+    db_target: str, idp: FakeIdp, monkeypatch: pytest.MonkeyPatch, claimed: str
 ) -> None:
+    """An organization claim places no one, whatever it says: an organization with a record,
+    an empty claim, or the literal `default` (the owner's, given its record by the bootstrap).
+    Only a membership does."""
     monkeypatch.setenv("MENDARI_OIDC_ROLE_MAP", "clinicians=admin")
     monkeypatch.setenv("MENDARI_OIDC_ORG_CLAIM", "org")
     with memberships_app(db_target, idp, monkeypatch) as client:
-        AuditStore(db_target).create_organization(org="clinic-a", name="A", created_by="t")
-        sign_in(client, idp, roles=["clinicians"], org="clinic-a")
+        with AuditStore(db_target) as store:
+            store.create_organization(org="clinic-a", name="A", created_by="t")
+            store.bootstrap(email="owner@example.org", created_by="t")  # `default` has a record
+        sign_in(client, idp, roles=["clinicians"], org=claimed)
         principal = me(client)["principal"]
         assert (principal["org"], principal["roles"]) == (None, [])
 
