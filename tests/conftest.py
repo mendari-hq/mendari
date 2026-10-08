@@ -111,9 +111,11 @@ def _no_community_packs(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture(autouse=True)
 def _no_rate_limits(monkeypatch: pytest.MonkeyPatch) -> None:
     """Tests make many requests as one principal: rate limits are off unless a test turns them
-    on (tests/test_limits.py), and no organization has a quota unless a test gives it one."""
+    on (tests/test_limits.py), and no organization has a quota, nor any principal a daily cap,
+    unless a test gives it one."""
     monkeypatch.setenv("MENDARI_RATE_LIMITS", "off")
     monkeypatch.delenv("MENDARI_ORG_DAILY_LIMITS", raising=False)
+    monkeypatch.delenv("MENDARI_PRINCIPAL_DAILY_LIMIT", raising=False)
     monkeypatch.delenv("FORWARDED_ALLOW_IPS", raising=False)
 
 

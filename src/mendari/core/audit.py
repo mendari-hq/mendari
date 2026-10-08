@@ -257,6 +257,12 @@ CREATE TABLE IF NOT EXISTS org_usage (
     count       INTEGER NOT NULL,
     PRIMARY KEY (day, org, metric)
 );
+CREATE TABLE IF NOT EXISTS principal_usage (
+    day         TEXT NOT NULL,
+    principal   TEXT NOT NULL,
+    count       INTEGER NOT NULL,
+    PRIMARY KEY (day, principal)
+);
 CREATE TABLE IF NOT EXISTS notes (
     id          TEXT PRIMARY KEY,
     decision_id TEXT NOT NULL,
@@ -923,6 +929,31 @@ class AuditStore:
         if row is None or int(row["count"]) > daily_limit:  # a limit of 0 admits nothing
             return None
         return int(row["count"])
+
+    def consume_principal(self, principal: str, *, daily_limit: int, cost: int = 1) -> int | None:
+        """Count `cost` decisions for `principal` (its opaque id, `Principal.id`) today, all or
+        none: the count it reached, or None when they would pass its daily cap (nothing is
+        counted, nor written). One statement, as `consume_org`: instances never count past the
+        cap together. Not part of the audit chain."""
+        if cost > daily_limit:  # a cap of 0 admits nothing, and writes nothing
+            return None
+        with self._db.session(exclusive=False) as db:
+            row = db.one(
+                "INSERT INTO principal_usage (day, principal, count) VALUES (?, ?, ?) "
+                "ON CONFLICT (day, principal) DO UPDATE SET count = principal_usage.count + ? "
+                "WHERE principal_usage.count + ? <= ? RETURNING count",
+                (clock.today().isoformat(), principal, cost, cost, cost, daily_limit),
+            )
+        return None if row is None else int(row["count"])
+
+    def principal_usage(self, principal: str) -> int:
+        """The decisions `principal` asked for today."""
+        with self._db.session(exclusive=False) as db:
+            row = db.one(
+                "SELECT count FROM principal_usage WHERE day = ? AND principal = ?",
+                (clock.today().isoformat(), principal),
+            )
+        return int(row["count"]) if row else 0
 
     def org_usage(self, org: str) -> dict[str, int]:
         """What `org` has used today, by metric."""
