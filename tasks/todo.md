@@ -1169,18 +1169,22 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     and an `alert_deliveries` record (never the URL or the secret); the quota alert one try on
     the decision, recorded for `retry_due`; `mendari monitor` exits 3 when its alerts could not
     be posted; threat model S17.
-  - [ ] **21f** (#199) `GET /api/internal/monitor`, guarded by `CRON_SECRET` before any
+  - [x] **21f** (#199, merged 2026-10-08) `GET /api/internal/monitor`, guarded by `CRON_SECRET` before any
     database work (`require_cron`, shared with the purge): pending alerts sent again, then each
     organization with decisions on its own (but `MENDARI_STATUS_ORG`), one recorded alert each,
     retries for 60 s, no organization started after 180 s, an alert naming those left, a
     different first organization each day; `mendari monitor --each-org` (0 when every alert
     was posted, 1 on an error, 3 when one was not); the templates run it, the Kubernetes job
     never re-run; gate `hosted-monitoring` names its tests and waits for 21n.
-  - [ ] **21g** The usage ledger (day, organization, provider type, purpose: calls, tokens,
-    cost, unknown as unknown).
+  - [ ] **21g** (#201) The usage ledger (`usage_ledger`: local day, organization, provider type,
+    purpose `decision` or `evaluation`; calls, priced calls, tokens, the priced calls' cost),
+    written with the decision (or the evaluation's report) in its transaction from each
+    decision's meter (`providers.base.Meter`: `sending` counts a call as it is sent, `metered`
+    its tokens and price, both bounded); `AuditStore.usage_ledger` shows a cost only when every
+    call was priced.
   - [ ] **21h** Evaluations count against their organization (`eval_jev`, `eval_llm` quotas).
   - [ ] **21i** `GET /api/usage`, the admins' usage screen and the operator's CLI.
-  - [ ] **21j** (#202) Audit checkpoints and incremental verify: `audit_checkpoints` (seq, hash, when;
+  - [x] **21j** (#202, merged 2026-10-08) Audit checkpoints and incremental verify: `audit_checkpoints` (seq, hash, when;
     outside the chain), `mendari audit checkpoint` (verify from the last, record the head),
     `mendari audit verify --since-checkpoint`; a full verification checks every checkpoint
     (`reason: checkpoint` for a chain rewritten from before one or cut short of it).
