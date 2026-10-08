@@ -50,6 +50,10 @@ PINNED = {
         "NamingSystem/decision-id": "a3ac1c38e9476b4f",
         "NamingSystem/input-hash": "fb7c0678a0c9fdbf",
         "NamingSystem/decision-pack": "677f5f91c8577ec0",
+        # Added in LP-12g, new urls (no earlier content): the administrative events' codes and
+        # the chain id each is about.
+        "CodeSystem/audit-administrative-event": "31d84d245735dd8b",
+        "NamingSystem/audit-subject": "5804d858d1fb1240",
     }
 }
 
@@ -214,6 +218,7 @@ def test_naming_systems(served: Terminology) -> None:
         "decision-id",
         "input-hash",
         "decision-pack",
+        "audit-subject",
     }
 
 
@@ -259,7 +264,11 @@ def test_no_url_and_version_names_two_contents(packs: dict[str, Pack]) -> None:
 
 def test_fixed_resources_are_pinned_to_the_mendari_version(served: Terminology) -> None:
     fixed = [
-        *(r for r in served.resources if r["id"] in ("decision-outcome", "audit-event")),
+        *(
+            r
+            for r in served.resources
+            if r["id"] in ("decision-outcome", "audit-event", "audit-administrative-event")
+        ),
         *(r for r in served.resources if r["resourceType"] == "NamingSystem"),
         *terminology.sandbox_resources(),
     ]

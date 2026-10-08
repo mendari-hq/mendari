@@ -624,7 +624,7 @@ Connect) is not supported yet.
     resolves its organization through `tenancy.current()` is refused (`NoOrganization`, 403),
     never widened to all of them (None) or to `default`; an empty organization is one, never
     "any", in the key and client store.
-  - [ ] **12c** Decide-scoped credentials list packs and read CDS discovery (ADR-0004).
+  - [x] **12c** (#172, merged 2026-10-07) Decide-scoped credentials list packs and read CDS discovery (ADR-0004).
     **Owner decision (2026-10-07): approved, narrow.** The decide scope implies a read-only
     `discover` permission that reaches only `GET /api/packs` and `GET /cds-services`, each listing
     only the packs the credential may decide with (today every served pack; after LP-20 never
@@ -651,7 +651,7 @@ Connect) is not supported yet.
       (`X-Mendari-Org`, 409); keys, clients and launches of an organization with no record
       refused; `mendari smart check` in memberships mode. Claims mode unchanged (acceptance
       test, and a matrix: a member is let through exactly as a claims person of the role).
-    - [ ] **12e-ii** (PR open) The dashboard: the access page (`access.js`: the request form,
+    - [x] **12e-ii** (#167, merged 2026-10-07) The dashboard: the access page (`access.js`: the request form,
       the chooser whenever a person holds a membership and none is chosen, roles that grant
       nothing), the switcher, every request naming the window's organization, the
       access-ended and window-moved banners, "Use another account"; browser tests.
@@ -693,7 +693,7 @@ Connect) is not supported yet.
   - [ ] **12g** The organization bound into each chained event (memberships mode), checked by
     `verify`; per-organization administrative reader and export; the generated two-organization
     isolation test with its reviewed allow-list.
-    - [ ] **12g-i** (PR open) The binding and its check. A memberships-mode server marks the
+    - [x] **12g-i** (#182, merged 2026-10-08) The binding and its check. A memberships-mode server marks the
       database (`org_bound`, a settings row); every store that opens a marked one, the command
       line's included, names in each event the organization of the row it is about, read in
       the same transaction (`_bound`; the 14 kinds of before only when marked, every other kind
@@ -703,6 +703,14 @@ Connect) is not supported yet.
       and answers `"reason": "organization"` at the first event whose row was moved or deleted.
       The answers of a review and a rating are unchanged (only the chained copy is bound); the
       previous release's `verify` passes a bound chain.
+    - [ ] **12g-ii** (PR open) An organization's administrative events: `GET
+      /api/audit/administrative` (paged by `(subject, hash)`, never `seq`; `kind`, `subject`,
+      `since` / `until` as instants) and its FHIR export (AuditEvents of ids and codes, a new
+      CodeSystem and the `audit-subject` NamingSystem), administrators only, attributed through
+      each row the organization owns (`SUBJECT_TABLES`), fail closed on a payload naming another;
+      `mendari audit export --administrative [--org]`. Memberships mode leaves the deployment's
+      views to the operator (decision 5): verify and deployments `404`, health without totals,
+      a deployment hold without its reason and setter; the dashboard follows.
   - [x] **12h** (#181, merged 2026-10-08) The Access view's API keys and Clients tabs, for people holding
     `keys`, in claims mode too (the people tabs stay memberships-only): a key made from a preset
     (the table drives role, scope and days, what it reaches and its guide) or by hand, its secret
@@ -718,13 +726,13 @@ Connect) is not supported yet.
     404 naming no id. Key status worked out by the server; the clients' `keys_replaced_at`; the
     signed-in health's `backend_services`.
   - [ ] **12i** Key presets in one table (API, screen, docs, doc-snippet checks).
-    - [ ] **12i-i** (PR open) The table (`server/presets.py`: rest, fhir, ai-guard, cds-hooks,
+    - [x] **12i-i** (#176, merged 2026-10-08) The table (`server/presets.py`: rest, fhir, ai-guard, cds-hooks,
       da-vinci, outcomes, fhir-reader; the FHIR ones name their types, never `system/*`),
       `preset` on `POST /api/auth/keys` (with the preset's role and no scope; a label stored
       and chained, never read when the key is used), `GET /api/auth/keys/presets` (each one's
       reach computed from the guard's rules), the guide's table, the doc-snippet pass per
       preset. The screen is 12h's.
-  - [ ] **12j** (PR open) A daily cap per principal (`MENDARI_PRINCIPAL_DAILY_LIMIT`, off
+  - [x] **12j** (#168, merged 2026-10-07) A daily cap per principal (`MENDARI_PRINCIPAL_DAILY_LIMIT`, off
     unless set, sign-in only) on the decisions it asks for (one per request that decides, one
     per CDS order hook draft order), per local day, after the rate limits admit them; past it
     `429` with `Retry-After` until midnight, before any work; `/api/health` shows a principal
@@ -837,6 +845,14 @@ Connect) is not supported yet.
      extends the same store method).
   45. (12h) A new or rotated key's secret is shown once, as the invitation link is (25): only in
      the input's value, cleared when the dialog closes or the view is left.
+  46. (12g-ii) A notice acknowledgement is a person's, across organizations (notices.py), so an
+     organization's administrative list leaves it out; the operator's export has it.
+  47. (12g-ii) In memberships mode the deployment's records (`/api/deployments`, the Decision
+     Card's Deployments section) are the operator's, as accounts.md promised before 12g, and a
+     hold set for every organization shows what it covers and since when, not the operator's
+     reason or name. The owner may serve either to organizations instead.
+  48. (12g-ii) Open mode (a local sandbox, no one signed in) reads every event on no decision,
+     the deployment's own included: there the operator is the only reader.
 
   **Owner decisions** (none blocks a PR; each PR follows the recommended default): switching
   the hosted site to memberships mode, and when; the owner's identity for bootstrap (the

@@ -112,7 +112,9 @@ DEFAULT_RATES: dict[str, Rate] = {
 }
 
 _GUARD = re.compile(r"^/api/packs/[^/]+/[^/]+/guard$")
-_EXPORTS = re.compile(r"^/api/(audit/export/fhir|packs/[^/]+/[^/]+/feedback/export)$")
+_EXPORTS = re.compile(
+    r"^/api/(audit/(administrative/)?export/fhir|packs/[^/]+/[^/]+/feedback/export)$"
+)
 
 
 @dataclass(frozen=True)

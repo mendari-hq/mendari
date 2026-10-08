@@ -17,7 +17,7 @@ from typing import Any, NoReturn
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 from mendari import __version__
-from mendari.core import tenancy
+from mendari.core import clock, tenancy
 from mendari.core.audit import SYSTEM_ID, AuditStore
 from mendari.core.decision import Decision
 from mendari.core.pack import Pack
@@ -773,9 +773,21 @@ def cmd_access_check(args: argparse.Namespace) -> int:
 def cmd_audit_export(args: argparse.Namespace) -> int:
     from mendari.standards import audit_fhir
 
-    with _read_store(args.db) as store:  # an older database is exported as it is
-        events = store.iter_events(pack_id=args.pack, since=args.since, until=args.until)
-        lines = (json.dumps(r, separators=(",", ":")) + "\n" for r in audit_fhir.resources(events))
+    if args.administrative and args.pack:
+        print("--pack is for decisions' events, not --administrative ones", file=sys.stderr)
+        return 2
+    bounds = {"since": args.since, "until": args.until}
+    # An older database is exported as it is. With --org, a decision's events are read acting
+    # for it (the export reads page by page, so for as long as it writes).
+    with _read_store(args.db) as store, contextlib.ExitStack() as acting:
+        if args.administrative:  # one organization's (--org), or every event on no decision
+            events = store.iter_administrative_events(args.org, **bounds)
+            resources = audit_fhir.administrative_resources(events)
+        else:
+            if args.org is not None:
+                acting.enter_context(tenancy.acting_for(args.org))
+            resources = audit_fhir.resources(store.iter_events(pack_id=args.pack, **bounds))
+        lines = (json.dumps(r, separators=(",", ":")) + "\n" for r in resources)
         if not args.out:
             sys.stdout.writelines(lines)
             return 0
@@ -785,6 +797,29 @@ def cmd_audit_export(args: argparse.Namespace) -> int:
                 out.write(line)
                 count += 1
     print(f"{count} resources written to {args.out}", file=sys.stderr)
+    return 0
+
+
+def cmd_usage(args: argparse.Namespace) -> int:
+    """The deployment's totals, read-only: today's metered calls (Jev, LLM) against this
+    environment's daily limits, the last purge with its counts, and the latest deployment
+    records. In memberships mode the server shows them to no organization (ADR-0008)."""
+    limits = daily_limits()
+    with _read_store(args.db) as store:
+        _print_json(
+            {
+                "day": clock.today().isoformat(),
+                **{
+                    provider: {
+                        "calls_today": store.usage(provider),
+                        "daily_limit": limits[provider],
+                    }
+                    for provider in ("jev", "llm")
+                },
+                "last_purge": store.last_purge(),
+                "deployments": store.deployments(None, limit=args.deployments),
+            }
+        )
     return 0
 
 
@@ -1732,10 +1767,29 @@ def build_parser() -> argparse.ArgumentParser:
         "--db", default="var/mendari.db", help="SQLite path or postgresql:// URL"
     )
     audit_export.add_argument("--pack", help="only this pack's decisions (namespace/name)")
+    audit_export.add_argument(
+        "--org", help="only this organization's events (default: every organization's)"
+    )
+    audit_export.add_argument(
+        "--administrative",
+        action="store_true",
+        help="the events on no decision instead: keys, clients, people, approvals, holds, "
+        "reports (with --org, that organization's; without, the deployment's own too)",
+    )
     audit_export.add_argument("--since", help="events at or after this time (ISO 8601, UTC)")
     audit_export.add_argument("--until", help="events before this time (ISO 8601, UTC)")
     audit_export.add_argument("--out", help="write to this file (default: standard output)")
     audit_export.set_defaults(handler=cmd_audit_export)
+
+    usage = sub.add_parser(
+        "usage",
+        help="the deployment's totals: today's metered calls, the last purge, its deployments",
+    )
+    usage.add_argument("--db", default="var/mendari.db", help="SQLite path or postgresql:// URL")
+    usage.add_argument(
+        "--deployments", type=int, default=20, help="how many deployment records (newest first)"
+    )
+    usage.set_defaults(handler=cmd_usage)
 
     automation = sub.add_parser(
         "automation", help="hold or lift automation (works with the server down)"

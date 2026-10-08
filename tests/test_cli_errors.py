@@ -53,6 +53,7 @@ RESOURCES = ("patient", "coverage", "insurer", "requester", "order")
 # command -> (argv after the command, extra environment). Paths are `places` keys in braces.
 BROKEN: dict[str, tuple[list[str], dict[str, str]]] = {
     "list": ([], {"MENDARI_COMMUNITY_PACKS": "maybe"}),
+    "usage": (["--db", "{missing_db}"], {}),
     "validate": (["no/such-pack"], {}),
     "test": (["mendari/patient-inbox-router", "--provider", "routr=llm"], {}),
     "decide": (["mendari/ai-guard", "--input", "{missing}"], {}),
