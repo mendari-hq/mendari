@@ -180,8 +180,8 @@ behaviour.
   CI's `sandbox-e2e` move to `encrypt` with generated keys (locally, once, in the gitignored `.env`).
   An EHR launch with sign-in off keeps its warning (a separate decision). The build PR replaces gate
   a5's pending probe with its tests.
-  **Owner decision (2026-10-07): refuse. Built** (`claude/lp08-refuse-off-with-signin`, draft
-  PR): outside Vercel too, sign-in on (OIDC issuer and client id) with `MENDARI_PHI_MODE` `off`,
+  **Built** (#173, branch
+  `claude/lp08-refuse-off-with-signin`): outside Vercel too, sign-in on (OIDC issuer and client id) with `MENDARI_PHI_MODE` `off`,
   written out or unset, refuses to start in one line, on SQLite and Postgres alike, before the
   database is opened (`require_protection`). An EHR launch with sign-in off keeps its
   chosen-mode check and warning (not refused yet: a separate decision). The compose sandbox's
