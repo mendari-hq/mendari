@@ -300,7 +300,13 @@ gates:
         what: "A public status page with uptime checks on the API, sign-in, decide, the registry and the Hub (B36)"
         owner: owner
         probes:
-          - pending: "LP-21 (a readiness route the checks call)"
+          - tests:
+              - tests/test_readiness.py::test_with_the_database_unreachable_the_readiness_route_fails
+              - tests/test_readiness.py::test_liveness_stays_up_through_the_outage_that_readiness_reports
+              - tests/test_readiness.py::test_readiness_reads_the_database_once_per_window_whoever_asks
+              - tests/test_readiness.py::test_readiness_tells_no_error_text
+              - tests/test_readiness.py::test_readiness_is_limited_per_address_in_memory_through_an_outage
+          - pending: "LP-21b (the status checks file and the status view)"
           - attested: {what: "the provider, its public URL and the checks configured", by: "", date: ""}
       - id: hosted-monitoring
         what: "The monitor scheduled on the hosted deployment, posting alerts to the alert webhook"
