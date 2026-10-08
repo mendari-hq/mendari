@@ -410,6 +410,12 @@ mendari bulk dataset --pack mendari/referral-router --ndjson export/ \
 mendari eval mendari/referral-router --dataset local.jsonl
 ```
 
+The Referral Router tells a referral from other ServiceRequests by the code its FHIR mapping
+lists (`focus_where` in `fhir/mapping.yaml`): `FR101`, the fictional code of its synthetic data,
+since no package carries SNOMED CT. List the code your EHR marks referrals with first (often a
+SNOMED CT code), or no referral is found. The same goes for the Clinical Trial Prescreener's
+condition codes beyond ICD-10-CM (`logic/criteria.yaml`).
+
 The CI job `sandbox-e2e` runs the scripted launch for the inbox and referral packs on every
 change. It also runs `mendari sandbox bulk-check`: an export of the sandbox must evaluate
 exactly like the same cases read from the dataset file.
