@@ -49,8 +49,9 @@ The first release (not yet published).
   variant asks the model it pins, else the deployment's `LLM_MODEL`; the built-in default (one
   vendor's model) is gone, so `--provider x=llm` without `LLM_MODEL` no longer calls it. With
   neither, the variant is `not_configured` before any call or budget use: a decision that needs
-  it goes to a person (HUMAN_REVIEW, never AUTO), and inside `rules_and_llm` the keyword rules
-  still answer. An empty `LLM_MODEL` counts as unset, and `/api/health` reports
+  it goes to a person, never AUTO (HUMAN_REVIEW, or ABSTAIN to the manual fallback when the
+  variant answers the primary question), and inside `rules_and_llm` the keyword rules still
+  answer. An empty `LLM_MODEL` counts as unset, and `/api/health` reports
   `llm.default_model` as null. `mendari calibrate` refuses in one line before it prints or asks
   anything, and `mendari agreement` refuses when a variant it compares, or one of a composite's
   members, cannot be called (the other member alone would have made two variants look equal).

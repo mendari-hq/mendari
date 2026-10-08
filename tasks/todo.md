@@ -520,12 +520,14 @@ Connect) is not supported yet.
     - [x] **10c-ii** (#171) No default model: an `llm` variant asks the model it pins, else
       `LLM_MODEL` (empty is unset), else it is `not_configured`, in `preflight` and wherever a
       request is built, so no request carries no model and nothing is charged. A decision that
-      needs it goes to a person; inside `rules_and_llm` the rules still answer. `mendari
+      needs it goes to a person, never AUTO (HUMAN_REVIEW, or ABSTAIN when the variant answers
+      the primary question); inside `rules_and_llm` the rules still answer. `mendari
       calibrate` refuses in one line before anything else; `mendari agreement` refuses when a
       variant, or a composite's member, cannot be called. Health: `llm.default_model` is null
       when unset. Inbox pack 0.4.2 (a manifest comment named the default; digest only).
       Breaking for the command line and self-hosted servers (CHANGELOG). Owner check done
-      2026-10-07; the PR's Preview health is checked after CI, before merging.
+      2026-10-07; the PR's Preview health is checked after CI, before merging. Review: the
+      README, the authoring guide and the deploy steps say an `llm` variant needs `LLM_MODEL`.
 
 - [ ] **LP-11** Evaluation-set store and blind labelling. Not started.
   **Owner decision (2026-10-07), where hidden sets live:** set content, labels, assignments and the

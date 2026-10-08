@@ -1001,7 +1001,8 @@ Their policies automate only while the screen is the keyword rules plus a model
 routers ask Jev only when naive Bayes is unsure, and keep naive Bayes' answer when Jev cannot
 give one. The Clinical Trial Prescreener and AI Guard are not on the list: at risk
 level 2 automation rests on an approval of the configuration that runs, so name their readers
-yourself (`mendari/clinical-trial-prescreener:notes=jev`, `mendari/ai-guard:screen=rules_and_llm`).
+yourself (`mendari/clinical-trial-prescreener:notes=jev`, `mendari/ai-guard:screen=rules_and_llm`;
+an `llm` reader also needs `LLM_MODEL`, as there is no default model).
 
 - `MENDARI_PROVIDERS` decides every slot it applies to, e.g. `notes=rules` keeps the
   prior-auth notes on site (and its policy then automates nothing). `mendari serve --provider`
@@ -1051,6 +1052,11 @@ Ollama, vLLM or llama.cpp to run an open-source model on your own hardware inste
 As for Jev, these names are fixed, and an `llm` variant that names other variables
 (`base_url_env`, `api_key_env`, `local_key_env`, `model_env`) is refused at load.
 
+A calibration applies only to the model it was fitted on, so fit it on the model the
+deployment asks: the variant's `model`, else the project's `LLM_MODEL` (which `vercel env run`
+passes on). There is no default model; with neither, `mendari calibrate` refuses before it asks
+anything.
+
 <!-- check: skip secrets: needs your Vercel project and its credentials -->
 ```bash
 vercel env pull .env.local   # a fresh OIDC token for local calls through the gateway
@@ -1078,7 +1084,10 @@ FastAPI function: Vercel loads the root `app.py`, which serves `mendari.server.v
    variables. `MENDARI_PROVIDERS` changes any slot, for every pack or scoped to one
    (`mendari/ai-guard:screen=rules_and_llm`); a setting a pack cannot use is skipped and listed
    in `/api/health`. An unscoped setting, or a Jev default, never applies to a community pack:
-   only a setting that names it does.
+   only a setting that names it does. An `llm` setting also needs `LLM_MODEL`
+   ([LLMs](#llms-and-local-models)): there is no default model, and without it the `llm` member
+   fails as `not_configured`, so a `rules_and_llm` slot runs its rules alone and none of its
+   decisions is automated.
 4. Turn on sign-in for Production ([Sign-in for organizations](#sign-in-for-organizations);
    the project uses Google, set for Production only). Until the launch, also set Vercel
    Authentication to protect **all deployments**: previews run without sign-in, and the default

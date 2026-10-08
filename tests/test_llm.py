@@ -321,14 +321,22 @@ def test_a_decision_whose_llm_has_no_model_goes_to_a_person(
 ) -> None:
     """The safety path: an `llm` screen with no model fails as `not_configured`, so the
     decision is never automated; inside `rules_and_llm` the keyword rules still answer, and an
-    emergency they catch still escalates."""
+    emergency they catch still escalates. An `llm` answering the primary question gives no
+    answer, so the decision abstains (the manual fallback), never AUTO."""
     with_model = Decision(inbox_pack, providers={"safety_screen": "rules_and_llm"})
-    assert with_model(message(REFILL)).errors == {}  # the same decision, with LLM_MODEL set
+    automated = with_model(message(REFILL))  # the same decision, with LLM_MODEL set
+    assert automated.errors == {} and automated.outcome.value == "AUTO"
     gateway.clear()
     monkeypatch.delenv("LLM_MODEL")
     alone = Decision(inbox_pack, providers={"safety_screen": "llm"})(message(REFILL))
     assert alone.errors == {"urgency": "not_configured"}
+    # The inbox policy already reviews a screen of `llm` alone; this reason is the failure's.
     assert alone.outcome.value == "HUMAN_REVIEW"
+    assert "provider failure (not_configured); safety checks may be incomplete" in alone.reasons
+    routed = Decision(inbox_pack, providers={"router": "llm"})(message(REFILL))
+    assert routed.errors == {"destination": "not_configured"}
+    assert routed.outcome.value == "ABSTAIN"  # no primary answer: the manual fallback
+    assert routed.reasons == ("no answer for 'destination' (not_configured)",)
     screened = Decision(inbox_pack, providers={"safety_screen": "rules_and_llm"})
     routine = screened(message(REFILL))
     assert routine.answers["urgency"].label == "routine"  # the rules member answered
