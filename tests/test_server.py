@@ -3,15 +3,29 @@ from __future__ import annotations
 
 import json
 import re
+import threading
+import time
+from pathlib import Path
+from typing import Any
 
 import pytest
+import yaml
 from fastapi.testclient import TestClient
 
+from mendari.core import db as db_module
+from mendari.core.audit import AuditStore
+from mendari.core.decision import Decision
+from mendari.core.registry import SearchPath
 from mendari.server.app import DASHBOARD_DIR, create_app
 from tests.conftest import LOCAL_DATASET
+from tests.test_auth import FakeIdp, sign_in, signing_in_with
+from tests.test_community_budget import EMOJI, long_message, slow_rules
+from tests.test_community_caps import sorter
 from tests.test_fhir import BUNDLE
+from tests.test_pack_isolation import PACKS, TRIAL_DIR, _cql_default, _cql_extra_key, _outsider
 
 PACK = "/api/packs/mendari/patient-inbox-router"
+INBOX = "mendari/patient-inbox-router"
 
 
 @pytest.fixture
@@ -310,3 +324,159 @@ def test_the_api_reference_describes_every_operation(client: TestClient) -> None
     decided = client.post(f"{PACK}/fhir/decide", json=bundle).json()
     assert decided["task"]["resourceType"] == "Task"
     assert decided["decision"]["input_issues"] == []  # the example conforms to US Core
+
+
+# -- health does no pack work in the request (LP-16d) ----------------------------------------
+# Every served pack is built at start-up and health reads what start-up found: it builds no
+# Decision, records no deployment and waits on no lock, whatever a pack holds or a decision is
+# doing (a signed-in caller's session may be refreshed, as on any route).
+# A pack's deployment is recorded on its first use instead (tests/test_governance.py).
+HEALTH_BOUND_S = 0.1  # health alone takes milliseconds
+BUSY_HEALTH_BOUND_S = 0.5  # beside a decision spending its whole CPU budget in another thread
+
+
+def decisions_built(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """The pack id of every Decision built from here on (one that fails to build included)."""
+    built: list[str] = []
+    original = Decision.__init__
+
+    def init(self: Decision, pack: Any, **kwargs: Any) -> None:
+        built.append(pack.id)
+        original(self, pack, **kwargs)
+
+    monkeypatch.setattr(Decision, "__init__", init)
+    return built
+
+
+def exclusive_sessions(monkeypatch: pytest.MonkeyPatch) -> list[bool]:
+    """One entry for every exclusive (writing) database session opened from here on."""
+    opened: list[bool] = []
+    for backend in (db_module.SqliteBackend, db_module.PostgresBackend):
+
+        def spy(self: Any, *, exclusive: bool, _original: Any = backend.session) -> Any:
+            if exclusive:
+                opened.append(exclusive)
+            return _original(self, exclusive=exclusive)
+
+        monkeypatch.setattr(backend, "session", spy)
+    return opened
+
+
+def timed_health(client: TestClient) -> float:
+    started = time.perf_counter()
+    health = client.get("/api/health")
+    took = time.perf_counter() - started
+    assert health.status_code == 200 and "providers" in health.json(), health.text
+    return took
+
+
+def test_health_builds_no_pack_in_the_request(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    idp = FakeIdp()
+    with signing_in_with(idp, tmp_path, monkeypatch) as client:
+        sign_in(client, idp, roles=["viewer"])
+        built = decisions_built(monkeypatch)
+        for _ in range(3):
+            health = client.get("/api/health").json()
+            assert health["providers"][INBOX] == {"safety_screen": "rules", "router": "naive_bayes"}
+            assert health["invalid"] == {}
+        assert built == []
+
+
+def test_health_records_no_deployment(db_target: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    client = TestClient(create_app(db_path=db_target))
+    writes = exclusive_sessions(monkeypatch)
+    for _ in range(3):
+        timed_health(client)
+    assert writes == []
+    assert client.get("/api/deployments").json() == []  # nor did start-up record anything
+    message = {"message": {"body": "Can I move my appointment to Friday?"}}
+    for _ in range(2):
+        assert client.post(f"{PACK}/decide", json=message).status_code == 200
+    with AuditStore(db_target) as store:
+        rows = store.deployments(None)
+        with store._db.session(exclusive=False) as session:
+            chained = session.all(
+                "SELECT event FROM audit_events WHERE decision_id LIKE ?", ("deployment:%",)
+            )
+    assert [row["pack_id"] for row in rows] == [INBOX]  # the pack used, recorded once
+    assert [row["event"] for row in chained] == ["deployment.recorded"]
+
+
+def test_health_answers_within_its_bound_with_a_pathological_pack_loaded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An owned pack runs its patterns on `re`, so a decision on this one would hold the
+    interpreter for as long as it backtracks (LP-16 conflict 15); loaded, it costs health
+    nothing, from the first call on."""
+
+    def backtracking(rules: dict[str, Any]) -> None:
+        rules["questions"]["topic"]["labels"]["billing"] = [
+            {"name": "nested", "pattern": "(a+)+$", "weight": 8}
+        ]
+
+    root = sorter(tmp_path, rules=backtracking, pack_id="someone/visit-sorter")
+    paths = [SearchPath(root.parent, "local"), SearchPath(PACKS, "maintained")]
+    client = TestClient(create_app(db_path=tmp_path / "a.db", packs_paths=paths))
+    built = decisions_built(monkeypatch)
+    for _ in range(3):
+        assert timed_health(client) < HEALTH_BOUND_S
+    health = client.get("/api/health").json()
+    assert health["providers"]["someone/visit-sorter"] == {"reader": "rules"}
+    assert health["packs_by_origin"]["local"] == 1
+    assert built == []
+
+
+def test_health_answers_within_its_bound_while_a_registry_packs_decision_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A pack the deployment does not own runs its patterns on RE2, outside the interpreter
+    lock, within a CPU budget per decision: while one decision spends all of it, health keeps
+    answering, and neither builds a Decision."""
+    root = sorter(tmp_path, rules=slow_rules(), schema=long_message, pack_id="someone/visit-sorter")
+    paths = [SearchPath(root.parent, "hub")]
+    client = TestClient(create_app(db_path=tmp_path / "a.db", packs_paths=paths))
+    built = decisions_built(monkeypatch)
+    assert client.get("/api/health").json()["packs_by_origin"] == {"hub": 1}
+    answer: dict[str, Any] = {}
+
+    def decide() -> None:
+        answer["decision"] = client.post(
+            "/api/packs/someone/visit-sorter/decide", json={"message": EMOJI}
+        )
+
+    worker = threading.Thread(target=decide)
+    worker.start()
+    took = []
+    while worker.is_alive():
+        took.append(timed_health(client))
+    worker.join()
+    assert len(took) >= 5, took
+    assert max(took) < BUSY_HEALTH_BOUND_S, took
+    assert built == []
+    decided = answer["decision"]
+    assert decided.status_code == 200, decided.text
+    assert set(decided.json()["errors"].values()) == {"time_budget"}
+    assert decided.json()["outcome"] != "AUTO"
+
+
+def test_an_unbuildable_pack_is_built_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Start-up builds every served pack once; one whose providers cannot be built is never
+    built again: health lists it, and each decision on it answers 422 with the same reason."""
+    outside = tmp_path / "outside"
+    _outsider(outside, _cql_default(_cql_extra_key), source=TRIAL_DIR)
+    pack_id = "outsider/clinical-trial-prescreener"
+    built = decisions_built(monkeypatch)
+    client = TestClient(create_app(db_path=tmp_path / "c.db", packs_paths=[outside, PACKS]))
+    for _ in range(5):
+        invalid = client.get("/api/health").json()["invalid"]
+        assert list(invalid) == [pack_id]
+        assert "Extra inputs are not permitted" in invalid[pack_id]
+    case = yaml.safe_load((TRIAL_DIR / "tests" / "cases.yaml").read_text())[0]
+    refused = [client.post(f"/api/packs/{pack_id}/decide", json=case["input"]) for _ in range(2)]
+    assert [answer.status_code for answer in refused] == [422, 422]
+    reasons = [(answer.json()["error"], answer.json()["detail"]) for answer in refused]
+    assert reasons == [("PackValidationError", invalid[pack_id])] * 2
+    assert sorted(built) == sorted(set(built)) and built.count(pack_id) == 1
+    assert len(built) == 6  # every served pack, once

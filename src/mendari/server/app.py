@@ -343,6 +343,15 @@ def input_reader(request: Request) -> str | None:
     return str(principal.actor)
 
 
+def _again(error: MendariError) -> MendariError:
+    """A new exception of `error`'s type, with its message and attributes. Raising the one
+    stored error on every request would add each request's frames (its input among their
+    locals) to the one traceback kept with it, for as long as the server runs."""
+    fresh = type(error).__new__(type(error), *error.args)
+    fresh.__dict__.update(vars(error))
+    return fresh
+
+
 def _with_figures(report: dict[str, Any]) -> dict[str, Any]:
     """A report as served: with its figures (`mendari.evals.figures`), worked out on every read
     and never stored; null figures for a stored report they cannot be read from."""
@@ -446,7 +455,12 @@ def create_app(
     # Every CodeSystem and NamingSystem the served packs need. A pack whose terminology cannot
     # be built is reported in /api/health (`invalid`) and served without it.
     terms, terminology_problems = Terminology.serving(packs.values())
-    decisions: dict[str, Decision] = {}
+    # Every served pack is built once, at start-up (below), never in a request (LP-16d): `built`
+    # holds its Decision, or `unbuildable` why it could not be built, which each use raises again
+    # and nothing builds again. Its deployment is recorded on its first use (`recorded`).
+    built: dict[str, Decision] = {}
+    unbuildable: dict[str, MendariError] = {}
+    recorded: set[str] = set()
     overrides = dict(providers or {})
 
     def pack_or_404(pack_id: str) -> Pack:
@@ -513,28 +527,37 @@ def create_app(
         level = logging.INFO if phi.mode == "off" else logging.WARNING
         providers_logger.log(level, "Jev is set up; its defaults run %s", ", ".join(sorted(filled)))
 
+    def build(pack: Pack) -> Decision:
+        """The pack bound to the providers the deployment chose for it (at start-up only)."""
+        chosen, skipped = variants_for(pack)
+        if skipped:
+            skipped_settings[pack.id] = skipped
+        try:
+            return Decision(
+                pack,
+                providers=chosen,
+                store=store,
+                budget=budget,
+                fhir_validation=validation,
+                governance_source=approved_override,
+                hold_source=held,
+                deadline_s=deadline_s,
+            )
+        except MendariError:
+            raise
+        except Exception as error:  # the pack's content: named by type, never a 500
+            problem = f"its providers could not be built ({type(error).__name__})"
+            raise PackValidationError(pack.id, [problem]) from None
+
     def decision_for(pack_id: str) -> Decision:
-        if pack_id not in decisions:
-            pack = pack_or_404(pack_id)
-            chosen, skipped = variants_for(pack)
-            if skipped:
-                skipped_settings[pack_id] = skipped
-            try:
-                decision = Decision(
-                    pack,
-                    providers=chosen,
-                    store=store,
-                    budget=budget,
-                    fhir_validation=validation,
-                    governance_source=approved_override,
-                    hold_source=held,
-                    deadline_s=deadline_s,
-                )
-            except MendariError:
-                raise
-            except Exception as error:  # the pack's content: named by type, never a 500
-                problem = f"its providers could not be built ({type(error).__name__})"
-                raise PackValidationError(pack_id, [problem]) from None
+        """A served pack's Decision, built at start-up. Its first use records the deployment, once
+        per process (concurrent first uses: `record_deployment` keeps one row), with no lock
+        /api/health could wait on. A pack that could not be built raises why on every use."""
+        pack = pack_or_404(pack_id)
+        if pack.id in unbuildable:
+            raise _again(unbuildable[pack.id])
+        decision = built[pack.id]
+        if pack.id not in recorded:
             environment, release = settings.deployment_place()
             store.record_deployment(
                 environment=environment,
@@ -544,8 +567,8 @@ def create_app(
                 pack_digest=pack.digest,
                 providers={slot: info.variant for slot, info in decision.provider_info.items()},
             )
-            decisions[pack_id] = decision
-        return decisions[pack_id]
+            recorded.add(pack.id)
+        return decision
 
     def question_labels(pack_id: str, question: str) -> list[str] | None:
         """An installed pack's labels for one of its questions (None: not installed, or no such
@@ -587,6 +610,25 @@ def create_app(
         if approval is None:
             return None
         return GovernanceOverride(approved_by=approval["approver"], reference=approval["reference"])
+
+    # Start-up builds every served pack, so /api/health reads what it found and builds nothing.
+    # A pack whose providers cannot be built is listed there with the packs that did not load;
+    # it never stops the start, nor turns health into an error for every other pack.
+    for pack_id in sorted(packs):
+        try:
+            built[pack_id] = build(packs[pack_id])
+        except MendariError as error:
+            unbuildable[pack_id] = error
+    health_providers = {
+        pack_id: {slot: info.variant for slot, info in decision.provider_info.items()}
+        for pack_id, decision in built.items()
+    }
+    health_without_model = {
+        pack_id: slots
+        for pack_id, running in health_providers.items()
+        if (slots := slots_without_model(packs[pack_id], running))
+    }
+    health_unbuilt = {pack_id: str(error) for pack_id, error in unbuildable.items()}
 
     def local_datasets(pack: Pack) -> dict[str, Path]:
         if datasets_dir is None or not datasets_dir.is_dir():
@@ -751,33 +793,21 @@ def create_app(
         (where the caller's address is read, and the address seen on this request), the session
         policy, the organization's daily quotas with what it used today, and whether SMART
         Backend Services is on (`backend_services`: its token endpoint, or null).
+
+        The packs' state (which provider each runs, the settings skipped, a pack that could not
+        be built) is computed at start-up: health builds no pack and records no deployment
+        (a signed-in caller's session may still be refreshed, as on any route).
         """
         public = {"status": "ok", "version": __version__, "sign_in": auth.enabled}
         principal = auth.principal(request)  # no credential: no lookup
         if principal is None or principal.org is None or not principal.may("read"):
             return public  # a person of no organization (memberships mode) too
-        # A served pack whose providers cannot be built is listed with the packs that did not
-        # load; it never turns this answer into an error for every other pack.
-        providers: dict[str, dict[str, str]] = {}
-        without_model: dict[str, list[str]] = {}
-        unbuilt: dict[str, str] = {}
-        for pack_id in sorted(packs):
-            try:
-                decision = decision_for(pack_id)
-            except MendariError as error:
-                unbuilt[pack_id] = str(error)
-                continue
-            providers[pack_id] = {
-                slot: info.variant for slot, info in decision.provider_info.items()
-            }
-            if slots := slots_without_model(packs[pack_id], providers[pack_id]):
-                without_model[pack_id] = slots
         return {
             **public,
             "packs": len(packs),
             # How many of them come from where: maintained, community, hub, local.
             "packs_by_origin": dict(Counter(pack.shown_origin for pack in packs.values())),
-            "invalid": {**found.problems, **terminology_problems, **unbuilt},
+            "invalid": {**found.problems, **terminology_problems, **health_unbuilt},
             "storage": store.backend,
             # Calendar days and displayed times use this zone; stored timestamps are UTC.
             "timezone": timezone,
@@ -811,9 +841,9 @@ def create_app(
             # How new records' input hashes are made: `hmac-sha256:<key id>` under
             # MENDARI_INPUT_HASH_KEY (required in PHI modes hash and encrypt), else `sha256`.
             "input_hash": phi.hash_kind,
-            "providers": providers,
+            "providers": health_providers,
             # Slots running without a model although their pack offers one (the offline floor).
-            "without_model": without_model,
+            "without_model": health_without_model,
             # Deployment provider settings that name a slot or variant a pack does not have.
             "provider_settings_skipped": skipped_settings,
             # ...and those that apply to no served pack at all (a typo, a pack not served).

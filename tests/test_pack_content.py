@@ -11,6 +11,7 @@ import os
 import shutil
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
@@ -399,7 +400,9 @@ CHANGED = "logic/checklist.yaml: changed since the pack's digest was computed"
 def test_a_file_edited_in_place_after_the_load_is_refused_not_used(tmp_path: Path) -> None:
     """Rewriting logic/checklist.yaml in place (same inode) between load and first use changed
     decisions while they carried the digest computed at load. Every read of a pack file checks
-    its content against the digest's hash of that file."""
+    its content against the digest's hash of that file, so a pack edited after its load is
+    refused when it is built; the server builds every pack at start-up (LP-16d), so a file
+    edited after that is never read, and its decisions stay the digested content's."""
     outside = tmp_path / "outside"
     pack_dir = _outsider(outside, lambda p: None, REFERRAL_DIR)
     pack = load_pack(pack_dir)
@@ -407,12 +410,22 @@ def test_a_file_edited_in_place_after_the_load_is_refused_not_used(tmp_path: Pat
     with pytest.raises(PackValidationError) as raised:
         Decision(pack)
     assert raised.value.problems[0].startswith(CHANGED)
-    # The server: loaded at start, edited before the first request.
+    # The server: built at start, edited before the next request. The edit would change this
+    # case's decision for a pack built from it; the server keeps deciding as it loaded it.
     client = _client(tmp_path, outside)
-    _edit_in_place(pack_dir / "logic" / "checklist.yaml", "within_days: 1", "within_days: 2")
     case = yaml.safe_load((REFERRAL_DIR / "tests" / "cases.yaml").read_text())[0]
-    response = client.post(f"/api/packs/{REFERRAL}/decide", json=case["input"])
-    assert response.status_code == 422 and CHANGED in response.text
+
+    def decided() -> Any:
+        response = client.post(f"/api/packs/{REFERRAL}/decide", json=case["input"])
+        assert response.status_code == 200, response.text
+        body = response.json()
+        return body["outcome"], body["answers"], body["pack"]["digest"]
+
+    before = decided()
+    _edit_in_place(pack_dir / "logic" / "checklist.yaml", "within_days: 1", "within_days: 180")
+    rebuilt = Decision(load_pack(pack_dir)).decide(case["input"]).to_dict()
+    assert (rebuilt["outcome"], rebuilt["answers"]) != before[:2]  # the edit would matter
+    assert decided() == before  # and is not used
     unedited = client.post("/api/packs/mendari/referral-router/decide", json=case["input"])
     assert unedited.status_code == 200
 

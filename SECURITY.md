@@ -321,8 +321,8 @@ server's process: there is no isolated worker process. To trust a pulled pack, c
   (Mendari's own errors, and any other: YAML or JSON nested too deep, a file that is not
   UTF-8) lists that pack in `/api/health` (`invalid`; an error that is not Mendari's by its type
   alone, as its text is the pack's), and every other pack is served; a served pack whose
-  providers cannot be built when first used is listed there too, and its decisions answer
-  `422`, never `/api/health` or another pack's. A YAML file of a pack that uses anchors expands
+  providers cannot be built (at start-up, never in a request) is listed there too, and its
+  decisions answer `422`, never `/api/health` or another pack's. A YAML file of a pack that uses anchors expands
   to at most 1,000,000 nodes and 32,000,000 characters of scalar text as JSON writes it (a
   control character counts six), counted on the parsed graph before anything walks it, so a few
   lines of aliases cannot make loading exponential, or make a page that shows the file
