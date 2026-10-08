@@ -14,14 +14,43 @@ Run Mendari inside your organization's network or an approved cloud account:
 - Postgres (not SQLite) for the audit store.
 
 [`deploy/`](https://github.com/Junebugg1214/mendari/tree/main/deploy) has two templates: docker compose for one server (set `MENDARI_IMAGE`
-in its `.env`, pinned by digest), and Kubernetes. Both include the daily retention and monitoring jobs.
+in its `.env`, pinned by digest), and Kubernetes. Both include the daily retention, checkpoint and monitoring jobs.
 
 The public sandbox and the project's own Vercel deployment are **synthetic only**.
 
-**Health checks and request size.** Probes and load balancers call `/api/health` without a
-credential and get `status`, `version` and `sign_in` only. The settings (PHI mode, packs,
-providers, the FHIR servers Mendari calls, today's remote calls) are shown to someone signed in,
-or a key, that may read. A request body is 4 MiB at most: raise `MENDARI_MAX_BODY_BYTES` (in
+**Health checks and request size.** Two public routes, for two questions:
+
+- *Is the process alive?* With sign-in on, `/api/health` answers without a credential with
+  `status`, `version` and `sign_in` only, and does no database work, so it stays `ok` through a
+  database outage. Use it for liveness (the Docker `HEALTHCHECK`, Kubernetes'
+  `livenessProbe`): restarting a server never fixes its database. The settings (PHI mode,
+  packs, providers, the FHIR servers Mendari calls, today's remote calls) are shown to someone
+  signed in, or a key, that may read; in memberships mode today's calls are the operator's
+  (`mendari usage`). In open mode (no sign-in) every caller gets the settings, which read the
+  database, so there `/api/health` answers `500` while the database is down.
+- *Can it serve decisions now?* `GET` or `HEAD /api/health/ready` reads Mendari's table once
+  and reports the packs as start-up found them: `200` with `status` `ready`, or `degraded` while
+  a pack did not load or build (signed-in `/api/health` lists it under `invalid`); `503`
+  `unready` when the database does not answer within about 3.5 seconds or no pack is served. It
+  names fixed codes only (`checks.database`: `ok` or `unreachable`; `checks.packs`: `ok`,
+  `degraded` or `none`), never an error's text. Use it for readiness (Kubernetes'
+  `readinessProbe`, a load balancer's target health) and for status pages and uptime checks.
+  Each instance reads the database at most once every 5 seconds whoever asks and keeps the
+  answer, a failure too. A read the database never answers (a network black hole, its
+  connection left open) holds one thread, and none starts again until it returns; a caller
+  that comes while a check runs gets the last answer at once. So it keeps answering through an
+  outage, and a flood of it never takes the threads liveness needs. There is no per-address
+  limit, which would fail a probe that shares its address with other callers (a kubelet behind
+  SNAT, a load balancer's health checker): floods are your proxy's or firewall's, as for
+  `/api/health`. A check that calls it more often than your database's idle suspend (Neon's
+  default is 5 minutes) keeps the database awake. On Vercel, an instance that starts while the
+  database is down fails before any route runs (the app opens its database at import), so a
+  status page sees an error there, not a `503`. `/status` shows readiness to people, and
+  [status checks](operations/status-checks.md) lists what an external status page should check
+  (readiness, sign-in, a decision, the registry, the Hub) and how to give its decide check a key
+  of its own.
+
+A request body is 4 MiB at most: raise `MENDARI_MAX_BODY_BYTES` (in
 bytes, 64 KiB or more) if your FHIR Bundles are larger, and give your proxy the same limit
 (nginx's `client_max_body_size`, say). A larger body gets a `413`.
 
@@ -365,10 +394,18 @@ MENDARI_RETENTION_DAYS=90
 server under `off` refuses to start on it, and a command under `off` (`mendari decide --db`, a
 note) refuses to keep input text in it: run it with the deployment's mode and keys.
 
-**Choosing is required.** With sign-in or the EHR launch on (`MENDARI_SMART_CLIENT_ID`: a launch
-fetches the patient's record), the engine refuses to start until `MENDARI_PHI_MODE` is set:
-`encrypt` or `hash` for anything real, `off` written out only for a local sandbox on synthetic
-data (the engine logs a warning). On Vercel (Production and Preview alike; Vercel's entrypoint,
+**Sign-in means `hash` or `encrypt`.** With sign-in on (`MENDARI_OIDC_ISSUER` and
+`MENDARI_OIDC_CLIENT_ID`), the engine refuses to start under `off`, whether written out or left
+unset, on SQLite and Postgres alike: people bring other people's cases, and an input kept in
+plaintext can never be erased without retiring the database (below). `off` is for a local sandbox
+without sign-in. A signed-in sandbox on synthetic data runs `encrypt` with two keys generated for
+it (the compose sandbox's `signin` profile, in the README, reads them from your shell or `.env`).
+
+**Choosing is required for the EHR launch.** With the EHR launch on and sign-in off
+(`MENDARI_SMART_CLIENT_ID`: a launch fetches the patient's record), the engine refuses to start
+until `MENDARI_PHI_MODE` is set: `encrypt` or `hash` for anything real, `off` written out only for
+a local sandbox on synthetic data (the engine logs a warning; this case is not refused yet). On
+Vercel (Production and Preview alike; Vercel's entrypoint,
 the root `app.py`, says so even when the project hides Vercel's system variables) it refuses
 `off` itself: its mode is `encrypt` unless set to `hash`, so set the keys for both environments
 before deploying (an unset key stops it, naming both).
@@ -416,6 +453,15 @@ deletes kept inputs and erases notes older than `MENDARI_RETENTION_DAYS` (30 unl
 it). Decisions, reviews and the chain itself stay, and `mendari audit verify` still passes.
 `--days 0 --yes` deletes and erases everything kept; no setting can ask for that, so a typo in a
 scheduled job never does.
+
+**Checkpoints.** Schedule `mendari audit checkpoint --db "$DATABASE_URL"` daily too, after the
+purge (the `deploy/` templates do). It verifies the chain from its last checkpoint (the whole of
+it, the first time) and, when it holds, records the head as the next checkpoint, one row outside
+the chain; it migrates the database as every command that writes does. `mendari audit verify
+--since-checkpoint` then reads only the events after the last one, and a full `mendari audit
+verify`, which reads everything, also checks that every checkpoint still names its event. A
+checkpoint is in the same database as the chain, so keep a copy of the head somewhere else too,
+and run a full verification now and then.
 
 On Vercel the schedule is in `vercel.json` (`crons`: daily at 08:00 UTC, 4 am Eastern in summer
 and 3 am in winter). Set `CRON_SECRET` (at least 16 random characters) for Production: Vercel Cron sends it as a bearer token to
@@ -614,6 +660,27 @@ principals). `/api/health` shows a principal that may read its own cap and what 
 and each instance logs the first refusal of the day per principal (`quota.reached`, reason
 `principal_decisions`).
 
+**What was used: the usage ledger.** Each decision's remote model calls (Jev, an LLM) are counted
+in the database in the decision's own transaction, by local day, organization, provider type and
+purpose: `decision`, or `evaluation` for an evaluation run on the server (or `mendari eval
+--db`), counted for the organization that ran it. Each row holds the calls sent, how many of
+them answered with a price, the tokens the answered ones reported, and the cost of the priced
+ones. A cost is shown only when every call was priced (Jev's published price, unless a variant
+sets another, at most $1 per 1,000 tokens; an LLM's when its gateway reports one, believed up to
+$1,000 a call); otherwise it is unknown, never a partial sum and never zero. A call that a
+budget, a quota, the deadline or the request's size stops is never sent, so it is not counted; a
+call sent that then failed, or whose answer was refused, is counted, without a price and without
+tokens. The ledger holds no case data. Providers never write to the database.
+
+**A deadline per decision.** A decision's remote calls (Jev, an LLM, the CQL engine) share one
+wall-clock deadline, `MENDARI_DECISION_DEADLINE_S` (whole seconds, 10 to 270; 120 unless set):
+a call that would start after it is not made (no key fetched, no budget used), and one under
+way, its retry included, waits only for what remains. Either is recorded as `timeout`, so the
+decision goes to a person; the local providers still answer, so a keyword safety screen still
+flags a possible emergency. Keep it below your platform's limit on a request, with room for the
+audit write: on Vercel, `maxDuration` is 300 s (`vercel.json`). A request that makes several
+decisions (a CDS Hooks order hook's draft orders) gives each its own deadline.
+
 **At the edge.** A per-address limit in front of Mendari takes floods before they reach it, on
 `/auth/` and `/smart/` only: your proxy (§1), or on Vercel one firewall rule, 120 requests a
 minute per address
@@ -627,8 +694,8 @@ By default, nothing. Each of these is off until you configure it:
 
 | What | Setting | Leaves with it |
 |---|---|---|
-| Jev | Jev's settings (`JEV_API_URL`, `JEV_MODEL` and `JEV_API_KEY`; `JEV_CONNECTOR` works on Vercel only): the inbox, referral and prior-auth packs then run Mendari + Jev in every slot `MENDARI_PROVIDERS` chooses nothing for | The pack's declared `state_fields` only |
-| Other remote models (LLMs through Vercel AI Gateway) | `MENDARI_PROVIDERS` | The pack's declared `state_fields` only |
+| Jev | Jev's settings (`JEV_API_URL`, `JEV_MODEL` and `JEV_API_KEY`; `JEV_CONNECTOR` works on Vercel only): the inbox, referral and prior-auth packs then run Mendari + Jev in every slot `MENDARI_PROVIDERS` chooses nothing for | The pack's declared `state_fields` only (a pack you own that declares none sends the whole input; a community or registry pack must declare them) |
+| Other remote models (LLMs through Vercel AI Gateway) | `MENDARI_PROVIDERS` | The pack's declared `state_fields` only (as for Jev) |
 | Reading your FHIR server (CDS Hooks fetch, SMART, Bulk) | `MENDARI_FHIR_ALLOWED_SERVERS` | Nothing leaves; Mendari reads from servers you list |
 | Alerts | `MENDARI_ALERT_WEBHOOK` | Pack ids and alert messages; an organization's id when it reaches a daily quota (no case data) |
 | Shared evaluation reports | `mendari eval --share` (manual) | Metrics only (`mendari.site-report/1`, checked by the registry): no cases, ids, dataset name, approver or subgroups; `--share-out FILE` writes it to read first |
@@ -654,6 +721,16 @@ with no review action code when it is unset or empty. The compose sandbox sets a
 its synthetic requests except the service type: its synthetic orders carry none, and they are not
 all one kind of service, so each request there gives its own (`service_type`).
 
+To hold remote models to the places your agreements cover, set
+`MENDARI_PROVIDER_ALLOWED_ORIGINS` to the origins they may be called at, comma-separated as for
+`MENDARI_FHIR_ALLOWED_SERVERS` (for example `https://models.internal.example.org` for a model
+server on your network; add `https://ai-gateway.vercel.sh` for the AI Gateway, and
+`https://api.vercel.com` for `JEV_CONNECTOR`). A Jev, LLM or Vercel Connect request to any other
+origin is then refused before it is sent (`invalid_endpoint`: the question fails and the decision
+goes to a person), and an `LLM_BASE_URL` or `JEV_API_URL` off the list stops the server at
+start-up. Unset, there is no such list. Signed in, `/api/health` shows it
+(`provider_allowed_origins`).
+
 For PHI, prefer local providers (rules, naive Bayes, criteria, dosing), or a local model server
 (an OpenAI-compatible `base_url` on your network). Use a remote model only under an agreement
 that covers PHI. Setting up Jev sends Jev the inbox messages, the referral reasons (and the
@@ -668,17 +745,90 @@ Unless the screen (or the notes) is the keyword rules plus a model (`rules_and_j
 releases nothing: every case goes to a person, and each decision's reasons say what is missing.
 Signed in, `/api/health` shows which variant each slot runs (`providers`), whether the Jev
 defaults are on (`jev.defaults`) and the slots that run no model at all (`without_model`); that
-Jev actually answers shows in `jev.calls_today` and in the decisions' errors. The server also
+Jev actually answers shows in `jev.calls_today` (in memberships mode, `mendari usage`) and in
+the decisions' errors. The server also
 logs, at startup, each slot the Jev defaults turn on.
 
 ## 6. Monitoring and governance
 
-- **Monitoring:** the Monitoring view shows accuracy against the benchmark, drift and overrides.
-  Schedule `mendari monitor --db "$DATABASE_URL"` with `MENDARI_ALERT_WEBHOOK` to be told
-  when a pack degrades.
+- **Monitoring:** the Monitoring view shows the served version's accuracy, drift and
+  overrides, week by week. It compares them with the benchmark only when that measured this
+  build of the pack with the providers and models this deployment runs, under the same
+  governance (an approval in force or not), over the decisions made since that configuration
+  started, and stratum by stratum (reviewed decisions, automated ones); otherwise it says why
+  (`benchmark.reason` in `/api/monitoring`: `no_benchmark`, `another_build`,
+  `other_providers`, `providers_unknown` or `other_policy`), and only the checks that need no
+  benchmark run: automated decisions rated wrong, overrides that doubled against the week
+  before, and operational health. A deployment that runs other providers than the benchmark
+  did (Jev where it measured `naive_bayes`, say), or automates a risk level 2 or 3 pack under an
+  approval the benchmark was measured without, gets only those: the benchmark says nothing about
+  how that configuration should do. Operational health, from what each decision stored, alerts
+  week over week (50 decisions or more this week):
+
+  | Alert | Fires when |
+  |---|---|
+  | `provider_errors` | 5% or more of decisions had a provider error recorded (the bottom of its 95% interval), and that share doubled against the week before; on that level alone when the week before had fewer than 50 counted (just after upgrading, or a new configuration) |
+  | `abstention` | with 50 or more the week before too: the abstention share doubled and rose 5 points or more (the bottom of its interval) |
+  | `latency` | with 50 or more the week before too: 5% or more of decisions (the bottom of the interval) took twice the week before's p95, and 2 s or more |
+
+  A provider error never makes a decision more automatic (policy only lowers automation): it
+  goes to a person, or a rule blocks it. These alerts say the service got worse, not less safe.
+  A provider error is recorded when a provider failed, or a composite's member did (the
+  survivor may still have answered). Decisions recorded before this count existed are left out
+  of the provider error share. Schedule it to be told when a pack degrades:
+  - on a server, `GET /api/internal/monitor` with `Authorization: Bearer $CRON_SECRET` (as the
+    scheduled purge) monitors each organization with decisions in the last 30 days on its own,
+    leaves out the status checks' organization (`MENDARI_STATUS_ORG`), and posts one alert per
+    organization to `MENDARI_ALERT_WEBHOOK`, recorded; it first sends again the alerts still
+    pending, for 60 seconds at most (those left stay due). A Vercel function stops at 300
+    seconds, so it starts no organization after 180, which leaves the last one time for its
+    posts; the rest are counted and an alert names them, and each day's run starts at another
+    organization, so none is left every day. Its answer holds counts only. On Vercel this is a
+    `crons` entry in `vercel.json` (the project's own schedule is the owner's to turn on);
+  - or `mendari monitor --db "$DATABASE_URL" --each-org` (the templates in `deploy/` run it
+    daily), which reads which providers ran from the deployment records the server keeps and
+    records nothing (it opens the database read-only), so it never sends a pending alert
+    again. It exits 0 when every alert it found was posted, 1 on an error (one organization's
+    failure is its own line, and the others still run) or on alerts with no webhook to post
+    them, and 3 when one could not be posted. The Kubernetes job fails on 1 or 3 and is never
+    re-run (a re-run would post every organization's alert again).
 - **Governance:** packs at risk level 2 or 3 automate only after someone with the `governance`
   role approves that exact version on its Decision Card (a reference such as committee minutes,
   and an expiry). Level 4 never automates.
+- **Alerts** (`MENDARI_ALERT_WEBHOOK`): the monitor's alerts and the quota alert are posted
+  there as JSON (`MENDARI_ALERT_FORMAT=mendari`, the default: `source`, `delivery`, `event`,
+  `organization`, `alerts`) or as a Slack message (`slack`: `{"text": ...}`). Each carries ids,
+  counts and Mendari's own messages, never case text. Set `MENDARI_ALERT_SECRET` (32 random
+  characters or more, `openssl rand -hex 32`) and every post is signed:
+  `Mendari-Signature: t=<unix seconds>,v1=<HMAC-SHA256>`, with `Mendari-Delivery` (the alert's
+  id) and `Mendari-Event`. Without a secret the server warns at startup. A post that gets no
+  answer, `408`, `429` or a `5xx` is tried again (any other answer is final): `mendari monitor`
+  tries up to three times and exits `3` when its alerts could not be posted (`1` when it found
+  alerts and posted them; with `--each-org`, `0`); the quota alert is tried once on the
+  decision's path. The server
+  records each alert it sends (`alert_deliveries`: its body, status, tries, last HTTP status and
+  an error code; never the URL or the secret), so a failed one stays `pending` for another try,
+  five in all. Each run of `GET /api/internal/monitor` first sends the due ones again;
+  `mendari monitor` records nothing and sends none again, so a deployment that wants pending
+  alerts tried again schedules the route, with `CRON_SECRET`.
+  A receiver checks the signature over the raw body:
+
+  <!-- receiver: the recipe tests/test_alerts.py runs -->
+  ```python
+  import hashlib
+  import hmac
+  import time
+
+
+  def is_mendari(secret: str, header: str, body: bytes, now: float | None = None) -> bool:
+      """True when `header` (Mendari-Signature) signs `body` with `secret`, within 5 minutes."""
+      fields = dict(part.split("=", 1) for part in header.split(","))
+      sent = int(fields["t"])
+      if abs((now or time.time()) - sent) > 300:
+          return False  # an old post, replayed
+      expected = hmac.new(secret.encode(), f"{sent}.".encode() + body, hashlib.sha256)
+      return hmac.compare_digest(expected.hexdigest(), fields["v1"])
+  ```
 
 ## 7. Logs
 
@@ -687,8 +837,8 @@ Send the container's stdout to your log system (Docker's logging driver, your Ku
 collector, journald) and keep it as your policy says; Mendari keeps no log table of its own.
 
 - **One access line per request** to `/api`, `/fhir`, `/cds-services`, `/auth` and `/smart`
-  (`"event":"request"`), refused ones included, not `/api/health` or static files: the method,
-  the route's template (`/api/audit/{decision_id}`, never the path or its query), the status,
+  (`"event":"request"`), refused ones included, not `/api/health`, `/api/health/ready` (probes)
+  or static files: the method, the route's template (`/api/audit/{decision_id}`, never the path or its query), the status,
   the caller (`user:<hash>`, `key:<id>`, `client:<id>`, `open` or `anonymous`), its organization
   and address, and the latency.
 - **Security events**, each with a fixed `reason` code: `auth.signin.ok|refused`,
@@ -752,13 +902,14 @@ startup, so a typo never runs with a weaker setting.
 | `MENDARI_SMART_CLIENT_ID` | unset: no EHR launch | The SMART app's client id at the EHR; turns the launch on | 2 |
 | `MENDARI_SMART_EHRS` | none: with sign-in on, every launch refused | The EHRs that may launch: `<FHIR base>=<org>:view` or `:decide`, comma-separated; `<org>` is one your people sign in to (`default` without `MENDARI_OIDC_ORG_CLAIM`); read at startup | 2 |
 | `MENDARI_SMART_SCOPES` | `launch openid fhirUser patient/*.rs` | What a launch asks the EHR for; with sign-in on it must keep `openid fhirUser`, and `offline_access` refuses every launch | 2 |
-| `MENDARI_PHI_MODE` | `encrypt` on Vercel; elsewhere `off` without sign-in or the EHR launch, and with either none (required) | `hash` or `encrypt` for real patient data; Vercel refuses `off`, and so does a database once kept under `hash` or `encrypt` | 3 |
+| `MENDARI_PHI_MODE` | `encrypt` on Vercel; elsewhere `off` without sign-in or the EHR launch, and with either none (required) | `hash` or `encrypt` for real patient data; Vercel refuses `off`, so does sign-in anywhere, and so does a database once kept under `hash` or `encrypt` | 3 |
 | `MENDARI_PHI_KEY` | none | 32 bytes, base64; seals inputs, evidence and notes under `encrypt` | 3 |
 | `MENDARI_INPUT_HASH_KEY` | none | 32 bytes, base64, not the PHI key; required under `hash` and `encrypt` | 3 |
 | `MENDARI_PHI_READ_KEYS` | none | Under `encrypt`, up to 4 keys (base64, comma-separated) the deployment opens with but never seals: the previous key during a rotation, or the next one before it becomes current | 3 |
 | `MENDARI_RETENTION_DAYS` | 30 (1 to 36500) | How long kept inputs and notes are kept, by `mendari phi purge` and the scheduled purge | 3 |
-| `CRON_SECRET` | unset: no scheduled purge | At least 16 random characters, no spaces around them: Vercel Cron's bearer token for `/api/internal/retention` (otherwise unused, with a warning: the purge stays off) | 3 |
+| `CRON_SECRET` | unset: no scheduled purge or monitor | At least 16 random characters, no spaces around them: Vercel Cron's bearer token for `/api/internal/retention` and `/api/internal/monitor` (otherwise unused, with a warning: both stay off) | 3 |
 | `MENDARI_MAX_BODY_BYTES` | 4 MiB (64 KiB at least) | The largest request body; a `413` above it | 1 |
+| `MENDARI_DECISION_DEADLINE_S` | 120 (10 to 270, whole seconds) | How long one decision's remote calls may take together; past it they fail with `timeout` and a person decides, while local providers still answer | 4 |
 | `MENDARI_RATE_LIMITS` | `on` with sign-in, `off` without | `on`, `log` or `off`, then overrides (`decide=1200/min:200`) | 4 |
 | `MENDARI_NOTICE_ACKNOWLEDGEMENT` | `required` | `required`: a signed-in person who may decide or review acknowledges the notice (research preview, synthetic data only) once per version when the dashboard opens, chained as `notice.acknowledged`; until then deciding, reviewing, feedback and minting an API key or client are refused (`403`, header `Mendari-Notice-Required`); `off`: a site whose own agreements replace it. Keys, clients, EHR launches and open mode are never asked | 4 |
 | `MENDARI_ORG_DAILY_LIMITS` | unset: none | Per-organization daily quotas: `decisions=…,jev=…,llm=…` | 4 |
@@ -768,6 +919,10 @@ startup, so a typo never runs with a weaker setting.
 | `MENDARI_JEV_DAILY_LIMIT`, `MENDARI_LLM_DAILY_LIMIT` | 500 each; `none`: no limit, still counted | The deployment's daily remote calls, evaluations included; the three packs' Jev calls share one budget | 4 |
 | `mendari serve --proxy-headers` | on | Read the client address from `X-Forwarded-For` | 1 |
 | `--forwarded-allow-ips`, `FORWARDED_ALLOW_IPS` | `127.0.0.1` (the compose template: its gateway, `172.30.0.1`) | The proxies trusted for `X-Forwarded-For`, as the engine sees them | 1 |
+| `MENDARI_ALERT_WEBHOOK` | unset: no alerts posted | Where the monitor's and the quota alerts go (https; keep it as a secret) | 6 |
+| `MENDARI_ALERT_FORMAT` | `mendari` | `mendari` (JSON) or `slack` | 6 |
+| `MENDARI_ALERT_SECRET` | unset: unsigned, with a warning | Signs every alert (`Mendari-Signature`); 32 characters or more | 6 |
+| `MENDARI_STATUS_ORG` | unset | The organization the status checks decide in, which the scheduled monitor leaves out | 6 |
 
 ## 9. Before go-live
 
@@ -831,7 +986,8 @@ reads of PHI, then operations. Keep the answers with your go-live record.
 - [ ] The security log reaches your log system: a refused request (a wrong key) appears there as
       an `auth.credential.refused` line and a `request` line with the `X-Request-Id` the
       response carried, and no line holds a key, a query value or case text.
-- [ ] Retention and monitoring are scheduled; `mendari audit verify` passes.
+- [ ] Retention, monitoring and `mendari audit checkpoint` are scheduled (§3, *Checkpoints*);
+      `mendari audit verify` passes.
 
 For the project's own public deployment (synthetic data, Vercel), the owner's launch adds, in
 order:

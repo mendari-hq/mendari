@@ -4,11 +4,24 @@
 Remote error bodies are never surfaced (they can echo inputs or credentials); a failure is
 one of `rate_limited`, `credential_unavailable`, `insufficient_credit`,
 `provider_unavailable`, `timeout` or `invalid_response`.
+
+Inside a decision, every attempt waits at most what remains of its deadline
+(`providers/deadline.py`): its timeout is clamped to it, no retry is waited past it, and a
+response read in chunks stops at it (`timeout`).
+
+A deployment may also list the origins its remote providers may be called at
+(`MENDARI_PROVIDER_ALLOWED_ORIGINS`, comma-separated, read as `MENDARI_FHIR_ALLOWED_SERVERS` is).
+Unset, nothing more is checked than before: every endpoint comes only from the deployment's own
+variables (`core/spec.py` `DEPLOYMENT_ENV_KEYS`). Set, a request to any other origin (the AI
+Gateway's default, Jev's model list and Vercel Connect included) is refused before a connection
+is opened (`invalid_endpoint`), and a server whose `LLM_BASE_URL` or `JEV_API_URL` names one
+does not start (`providers.provider_allow_list`). The CQL engine stays on the FHIR allow-list.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 from collections.abc import Mapping
@@ -17,13 +30,24 @@ from urllib.parse import urlparse
 
 import httpx
 
-from mendari.errors import ProviderError, ProviderErrorCode
+from mendari.errors import MendariError, ProviderError, ProviderErrorCode
+from mendari.providers import deadline
+from mendari.standards.fhir_client import allowed_servers, origin_of
 
 MAX_RESPONSE_BYTES = 65_536
 _LOCAL_HOST = re.compile(r"^(localhost|127\.0\.0\.1|\[::1\]|::1)$")
+ALLOWED_ORIGINS_ENV = "MENDARI_PROVIDER_ALLOWED_ORIGINS"
 
 
 def require_secure(endpoint: str, service: str) -> None:
+    """https, or plain http to this machine only (local model servers), and, when the
+    deployment lists the origins its providers may be called at, one of them
+    (`require_allowed`)."""
+    require_https(endpoint, service)
+    require_allowed(endpoint, service)
+
+
+def require_https(endpoint: str, service: str) -> None:
     """https, or plain http to this machine only (local model servers)."""
     parsed = urlparse(endpoint)
     if parsed.scheme == "https" or (
@@ -33,6 +57,38 @@ def require_secure(endpoint: str, service: str) -> None:
     raise ProviderError(
         "invalid_endpoint", f"{service} endpoints must use https (http only for localhost)"
     )
+
+
+def allowed_origins() -> frozenset[str] | None:
+    """The origins remote providers may be called at (`MENDARI_PROVIDER_ALLOWED_ORIGINS`), or
+    None when it is unset or blank: no allow-list, as before. A value that is not a list of
+    origins is a `MendariError` naming the variable; one that lists none allows none."""
+    if not os.environ.get(ALLOWED_ORIGINS_ENV, "").strip():
+        return None
+    return allowed_servers(ALLOWED_ORIGINS_ENV)
+
+
+def require_allowed(url: str, service: str) -> None:
+    """Nothing when the deployment lists no origins, or lists `url`'s; `invalid_endpoint`
+    otherwise, before any credential is read or connection opened. A malformed list, which
+    stops a server at start-up, refuses every call (a command reads it only when it calls)."""
+    try:
+        allowed = allowed_origins()
+    except MendariError:
+        raise ProviderError("invalid_endpoint", f"{ALLOWED_ORIGINS_ENV} is malformed") from None
+    if allowed is not None and origin_of(url) not in allowed:
+        problem = f"{service} endpoint is not on this deployment's provider allow-list"
+        raise ProviderError("invalid_endpoint", problem)
+
+
+def require_listed(variable: str, allowed: frozenset[str]) -> None:
+    """At start-up: a `MendariError` naming `variable`, an endpoint variable of the deployment,
+    when it is set and its origin is not in `allowed`. Its value is never shown."""
+    value = os.environ.get(variable, "").strip()
+    if value and origin_of(value) not in allowed:
+        raise MendariError(
+            f"{variable} is not on {ALLOWED_ORIGINS_ENV}: list its origin there, or unset it"
+        )
 
 
 def is_local(endpoint: str) -> bool:
@@ -53,9 +109,13 @@ def post_json(
 
     `retries` extra attempts are made after `429 Too Many Requests` or `529 Overloaded`, after
     the server's `Retry-After` when it is short, else a brief exponential backoff. A longer
-    `Retry-After` is not waited out: a decision fails safely instead of stalling.
+    `Retry-After` is not waited out: a decision fails safely instead of stalling. Nor is one
+    that would end at or after the decision's deadline, whose remaining time also bounds each
+    attempt's timeout (`timeout` once it has passed). Off the deployment's provider allow-list,
+    when it has one, nothing is opened (`invalid_endpoint`; each caller checks before its key).
     """
-    timeout = httpx.Timeout(timeout_s)
+    require_allowed(endpoint, "Provider")
+    timeout = httpx.Timeout(deadline.clamp(timeout_s))  # past the deadline: nothing is opened
     own = client is None
     session = client or httpx.Client(timeout=timeout, follow_redirects=False)
     try:
@@ -64,9 +124,15 @@ def post_json(
                 return _post_once(session, endpoint, body, headers, timeout, max_bytes)
             except _Retryable as retry:
                 delay = retry.delay if retry.delay is not None else BACKOFF_S * 2**attempt
-                if attempt == retries or delay > MAX_RETRY_WAIT_S:
+                left = deadline.remaining()
+                if (
+                    attempt == retries
+                    or delay > MAX_RETRY_WAIT_S
+                    or (left is not None and delay >= left)
+                ):
                     raise retry.error from None
                 _sleep(delay)
+                timeout = httpx.Timeout(deadline.clamp(timeout_s))
         raise AssertionError("unreachable")  # pragma: no cover
     finally:
         if own:
@@ -117,6 +183,7 @@ def _post_once(
                 raise ProviderError("provider_unavailable", f"HTTP {status}")
             chunks, size = [], 0
             for chunk in response.iter_bytes():
+                deadline.refuse_if_past()  # a slow answer stops at the decision's deadline
                 size += len(chunk)
                 if size > max_bytes:
                     raise ProviderError("invalid_response", "response too large")

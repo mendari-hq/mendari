@@ -29,7 +29,7 @@ from mendari.server.auth import (
     permission_for,
 )
 from mendari.server.scopes import parse
-from tests.conftest import ROOT, message, signed_in
+from tests.conftest import ROOT, encrypt_mode, message, signed_in
 from tests.test_auth import attempt, expected
 
 IDP = "https://idp.example.org"
@@ -43,6 +43,7 @@ def served(db_target: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[Te
     """Sign-in on (the identity provider is never called) on SQLite or Postgres."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     with TestClient(create_app(db_path=db_target), base_url="https://mendari.test") as client:
         yield client, db_target
 

@@ -808,7 +808,8 @@ dialog.confirm .error { color: var(--color-danger); font-weight: var(--weight-me
 /* 5. Views -------------------------------------------------------------------------------------- */
 
 /* The invitation page (/invite, invite.html): one panel under the top bar, no section list. */
-.invite-page main { max-width: 40rem; margin: var(--space-7) auto; padding: 0 var(--space-4); }
+.invite-page main,
+.status-page main { max-width: 40rem; margin: var(--space-7) auto; padding: 0 var(--space-4); }
 
 /* Review queue: grouped by priority; a stat card opens with a solid banner, the one place red is
    solid, so it is seen first. The recommendation is the primary action. */

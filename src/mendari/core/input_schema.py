@@ -18,17 +18,30 @@ The whole document is searched, not only keyword positions: a `$ref` can make an
 a schema; each object once, by identity. The validator (`validator`) also has a registry that
 retrieves nothing, so a reference can never leave the document even if a check were missed.
 
-A community pack's schema patterns run on RE2, like its rules (`core/patterns.py`): its
-validator's `pattern`, `patternProperties` and `additionalProperties` (and so `propertyNames`,
-which checks keys with the same keywords) search with RE2, and every other pack's validator is
-jsonschema's own, unchanged. Its validator also checks the decision's time budget each time it
-applies a schema (`patterns.check_time`), so a schema whose keywords apply many times over
-(`$ref`s that fan out, a subschema on many items) stops at the budget; it is built without the
-root's `$schema` (which may only name 2020-12), so jsonschema never swaps it for its own. And a
-community pack's schema uses only keywords whose work stays within the budget, `$ref` only to
-its own `$defs` (`community_problems`): jsonschema works some others out on its own, outside any
-check (`unevaluatedProperties`, `unevaluatedItems`, `contains`), or compares every pair of items
-at once (`uniqueItems`).
+The schema patterns of a pack on the community engine (a pack the deployment does not own: a
+community pack, or one from a registry that is not a reference pack of this release,
+`Pack.bounded`) run on RE2, like its rules (`core/patterns.py`): its validator's `pattern`,
+`patternProperties` and `additionalProperties` (and so `propertyNames`, which checks keys with
+the same keywords) search with RE2, and every other pack's validator is jsonschema's own,
+unchanged. Its validator also checks the decision's time budget each time it applies a schema
+(`patterns.check_time`), so a schema whose keywords apply many times over (`$ref`s that fan out,
+a subschema on many items) stops at the budget; it is built without the root's `$schema` (which
+may only name 2020-12), so jsonschema never swaps it for its own. And such a pack's schema uses
+only keywords whose work stays within the budget, `$ref` only to its own `$defs`
+(`community_problems`): jsonschema works some others out on its own, outside any check
+(`unevaluatedProperties`, `unevaluatedItems`, `contains`), or compares every pair of items at
+once (`uniqueItems`).
+
+Every other pack's schema (a pack the deployment owns: a reference pack, an operator's local
+one) has no budget, so its shape is bounded at load instead (`expansion_problems`): it nests at
+most `MAX_SCHEMA_NESTING` deep, a chain of `$ref`s runs at most `MAX_REF_CHAIN` long, and one
+value of an input is checked against at most `MAX_SCHEMA_APPLICATIONS` schema objects (a `$ref`,
+`allOf`, `anyOf` or `oneOf` that reaches one schema twice doubles it, and twenty-eight such steps
+made one check apply hundreds of millions). A schema may refer back to itself only as a recursive
+list or tree does: once, through `properties` or `items`, so one value meets it once. And at most
+one schema on any path holds `unevaluatedProperties` or `unevaluatedItems`: to find what is left
+unevaluated, jsonschema validates again every schema below it that applies, so each one more
+below another (on the same value or a property's, an item's) at least doubles the work.
 """
 
 from __future__ import annotations
@@ -43,9 +56,17 @@ from referencing import Registry
 from referencing.jsonschema import DRAFT202012
 
 from mendari.core import patterns
+from mendari.core.schema_graph import _components, _graph, _Node
 
 DIALECT = "https://json-schema.org/draft/2020-12/schema"
 _REFERENCES = ("$ref", "$dynamicRef", "$recursiveRef")
+# The bounds on the input schema of a pack the deployment owns (`expansion_problems`). The shipped
+# packs' schemas nest at most 6 deep, chain at most 1 `$ref`, and apply at most 2 schema objects
+# to one value (`tests/test_input_schema.py`).
+MAX_SCHEMA_NESTING = 32  # objects and lists inside each other, in the document
+MAX_REF_CHAIN = 16  # `$ref`s one after another on any path through the schema
+MAX_SCHEMA_APPLICATIONS = 1_000  # schema objects applied to one value of an input
+_COUNTED = 10**9  # counts stop here: past it, a message says "more than 1,000,000,000"
 
 
 def problems(schema: Any) -> list[str]:
@@ -101,6 +122,200 @@ def problems(schema: Any) -> list[str]:
             if not isinstance(target, dict | bool):  # `#/required/0`: a string, not a schema
                 found.append(f"input schema: {here}: {reference!r} is not a schema")
     return sorted(found)
+
+
+def expansion_problems(schema: Any) -> list[str]:
+    """Why the input schema of a pack the deployment owns would multiply the work of checking an
+    input, or could not be checked (module docstring); [] if it is within the bounds. The schema
+    has passed `problems` and jsonschema's own check. Counted without recursion, over the graph
+    of its schema objects (`core/schema_graph.py`), each once: `schema_runs`' count in
+    `core/caps.py`, with every schema object counting one where it applies."""
+    found = []
+    depth = _nesting(schema)
+    if depth > MAX_SCHEMA_NESTING:
+        found.append(f"input schema: nested {depth} levels deep (at most {MAX_SCHEMA_NESTING})")
+    nodes = _graph(schema)
+    if not nodes:
+        return found
+    if (where := _unevaluated_again(nodes)) is not None:
+        found.append(
+            f"input schema: {where}: its unevaluatedProperties or unevaluatedItems reaches a "
+            "schema that holds one too (or itself again): jsonschema checks everything below the "
+            "first again for it, so each one more doubles the work; keep at most one on any "
+            "path, or use additionalProperties or items"
+        )
+    counted = _expansion(nodes)
+    if isinstance(counted, str):
+        return [*found, counted]
+    applications, chain, start = counted
+    if chain > MAX_REF_CHAIN:
+        found.append(f"input schema: {start}: a chain of {chain} $refs (at most {MAX_REF_CHAIN})")
+    if applications > MAX_SCHEMA_APPLICATIONS:
+        shown = f"{applications:,}" if applications <= _COUNTED else "more than 1,000,000,000"
+        found.append(
+            f"input schema: one value can be checked against {shown} schemas (at most "
+            f"{MAX_SCHEMA_APPLICATIONS:,}): a $ref, allOf, anyOf or oneOf that reaches the same "
+            "schema more than once multiplies it"
+        )
+    return found
+
+
+def _nesting(schema: Any) -> int:
+    """How deep objects and lists sit inside each other in the document (an object alone is 1)."""
+    deepest = 0
+    stack: list[tuple[Any, int]] = [(schema, 1)]
+    seen: set[int] = set()  # by identity: a shared node is walked once
+    while stack:
+        node, depth = stack.pop()
+        if not isinstance(node, dict | list) or id(node) in seen:
+            continue
+        seen.add(id(node))
+        deepest = max(deepest, depth)
+        children = node.values() if isinstance(node, dict) else node
+        stack += [(child, depth + 1) for child in children]
+    return deepest
+
+
+def _unevaluated_again(nodes: list[_Node]) -> str | None:
+    """Where a schema holding `unevaluatedProperties` or `unevaluatedItems` leads, through any of
+    its applicators and in one step or more, to a schema holding one (itself included, through a
+    loop); the one nearest the root by the graph's order. None if none does. Every other schema
+    is then validated again by at most one such check, so its work is bounded with the others'
+    (`MAX_SCHEMA_APPLICATIONS`), whatever reaches it."""
+    leads = [False] * len(nodes)  # leads, in one step or more, to a schema that holds one
+    found: list[int] = []
+    for component in _components(nodes):
+        members = set(component)
+        looped = len(component) > 1 or component[0] in nodes[component[0]].edges()
+        onward = looped and any(nodes[i].unevaluated for i in component)
+        onward = onward or any(
+            nodes[j].unevaluated or leads[j]
+            for i in component
+            for j in nodes[i].edges()
+            if j not in members
+        )
+        for i in component:
+            leads[i] = onward
+            if onward and nodes[i].unevaluated:
+                found.append(i)
+    return nodes[min(found)].where if found else None
+
+
+def _descending(node: _Node) -> list[int]:
+    """Where a schema object's applicators lead below its value: to a property's or an item's."""
+    return [*node.one_property, *node.every_property, *node.one_item, *node.every_item]
+
+
+def _expansion(nodes: list[_Node]) -> tuple[int, int, str] | str:
+    """The most schema objects applied to one value, the longest chain of `$ref`s and where it
+    starts; or the problem with a reference that leads back. Each strongly connected component
+    after every one it leads to (`_components`), as `schema_runs` counts patterns: at each
+    place, every schema applied there (`here`), and on any one value below it (`below`); a
+    schema reached twice counts twice.
+
+    A component that leads back to itself is allowed only as a recursive list or tree is: each
+    of its schemas leads back into it exactly once, and the loop passes through a property or
+    an item. Then each of them applies at most once to one value (one turn of the loop ends a
+    level down), and on a value below, besides the loop's own schemas, each schema it leads out
+    to counts once for each level its schemas reach down (`reach`). A loop that leads to another
+    loop is refused: one value would meet the inner one once for each level of the outer."""
+    count = len(nodes)
+    here, below, chain = [0] * count, [0] * count, [0] * count
+    reach: list[int | None] = [0] * count  # how many levels down it applies; None: no end
+    looped = [False] * count
+
+    def total(j: int) -> int:
+        return max(here[j], below[j])
+
+    def deepest(node: _Node, outside: set[int]) -> int | None:
+        """How many levels down the schemas `node` leads to (but those in `outside`) apply: the
+        deepest of theirs, one more below a property or an item; None if one has no end."""
+        levels = 0
+        for down, targets in ((0, [*node.here, *node.keys]), (1, _descending(node))):
+            for j in targets:
+                if j in outside:
+                    continue
+                level = reach[j]
+                if level is None:
+                    return None
+                levels = max(levels, level + down)
+        return levels
+
+    for component in _components(nodes):
+        first = nodes[component[0]]
+        if len(component) == 1 and component[0] not in first.edges():
+            (i,) = component
+            node = nodes[i]
+            here[i] = min(1 + sum(here[j] for j in [*node.here, *node.keys]), _COUNTED + 1)
+            on_property = max((total(j) for j in node.one_property), default=0) + sum(
+                total(j) for j in node.every_property
+            )
+            on_item = max((total(j) for j in node.one_item), default=0) + sum(
+                total(j) for j in node.every_item
+            )
+            below[i] = min(
+                sum(below[j] for j in node.here) + max(on_property, on_item), _COUNTED + 1
+            )
+            reach[i] = deepest(node, set())
+            chain[i] = max(
+                [chain[j] for j in node.edges()] + [1 + chain[j] for j in node.refs], default=0
+            )
+            continue
+        members = set(component)
+        where = nodes[min(component)].where
+        inward = [[j for j in nodes[i].edges() if j in members] for i in component]
+        down = any(j in members for i in component for j in _descending(nodes[i]))
+        if any(len(edges) != 1 for edges in inward) or not down:
+            return (
+                f"input schema: {where}: a $ref leads back to a schema holding it on the same "
+                "value, or more than once; a schema may refer back to itself only once, through "
+                "properties or items"
+            )
+        outward = [j for i in component for j in nodes[i].edges() if j not in members]
+        if any(reach[j] is None for j in outward):
+            return (
+                f"input schema: {where}: a schema that refers back to itself leads to another "
+                "that does: the deeper the input, the more schemas one value is checked against"
+            )
+        on_value = len(component)
+        under = 0
+        for i in component:
+            node = nodes[i]
+            on_value += sum(here[j] for j in [*node.here, *node.keys] if j not in members)
+            on_property = max(
+                (total(j) for j in node.one_property if j not in members), default=0
+            ) + sum(total(j) for j in node.every_property if j not in members)
+            on_item = max((total(j) for j in node.one_item if j not in members), default=0) + sum(
+                total(j) for j in node.every_item if j not in members
+            )
+            levels = deepest(node, members)
+            same = sum(below[j] for j in node.here if j not in members)
+            under += (levels or 0) * (same + max(on_property, on_item))
+        refs_inside = sum(1 for i in component for j in nodes[i].refs if j in members)
+        leaving = max(
+            [chain[j] for j in outward]
+            + [1 + chain[j] for i in component for j in nodes[i].refs if j not in members],
+            default=0,
+        )
+        for i in component:
+            here[i] = min(on_value, _COUNTED + 1)
+            below[i] = min(on_value + under, _COUNTED + 1)
+            reach[i] = None
+            chain[i] = refs_inside + leaving
+            looped[i] = True
+    return max(here[0], below[0]), chain[0], _chain_start(nodes, chain, looped)
+
+
+def _chain_start(nodes: list[_Node], chain: list[int], looped: list[bool]) -> str:
+    """Where the longest chain of `$ref`s from the root takes its first `$ref` (or enters a loop
+    of references): the schema object whose `$ref` begins it."""
+    v = 0
+    while chain[v] and not looped[v]:
+        node = nodes[v]
+        if any(1 + chain[j] == chain[v] for j in node.refs):
+            break
+        v = next(j for j in node.edges() if chain[j] == chain[v])
+    return nodes[v].where
 
 
 # A community pack's input schema uses only keywords whose work Mendari bounds
@@ -185,7 +400,8 @@ _UNBOUNDED = frozenset(
 
 
 def community_problems(schema: Any) -> list[str]:
-    """Why a community pack's input schema cannot run as a community pack's must; [] if it can.
+    """Why the input schema of a pack on the community engine (`Pack.bounded`: a community pack,
+    or one from a registry) cannot run as such a pack's must; [] if it can.
     It uses only the keywords above (and `x-...` annotations): jsonschema's others either walk
     the schema on their own, outside the time budget (`unevaluatedProperties`,
     `unevaluatedItems`, `contains`), compare every pair of items at once (`uniqueItems`), or
@@ -224,7 +440,8 @@ def community_problems(schema: Any) -> list[str]:
 
 
 def _keyword_problem(key: str, value: Any, path: str, defs: set[str]) -> str | None:
-    """Why a community pack's schema may not hold `key: value` at `path`, or None."""
+    """Why the schema of a pack on the community engine may not hold `key: value` at `path`, or
+    None."""
     if key.startswith("x-"):
         return None  # an annotation of the pack's own
     if key not in _DATA | _SCHEMA | _SCHEMA_MAPS | _SCHEMA_LISTS:
@@ -234,7 +451,7 @@ def _keyword_problem(key: str, value: Any, path: str, defs: set[str]) -> str | N
             if key in _UNBOUNDED
             else "not one of the keywords the guide lists"
         )
-        return f"a community pack's schema may not use {key}, {why}: {instead}"
+        return f"a community or registry pack's schema may not use {key}, {why}: {instead}"
     if key == "$defs" and path:
         return "only the root may hold $defs"
     if key == "$ref" and not (
@@ -265,8 +482,8 @@ def validator(
     schema: dict[str, Any], *, formats: bool = True, community: bool = False
 ) -> Validator:
     """A Draft 2020-12 validator for a pack's input schema (one `problems` passed) whose
-    registry retrieves nothing; `formats` checks `format` too. A community pack's runs its
-    patterns on RE2 (module docstring)."""
+    registry retrieves nothing; `formats` checks `format` too. With `community` (a pack on the
+    community engine, `Pack.bounded`), it runs its patterns on RE2 (module docstring)."""
     cls = _Re2Validator if community else Draft202012Validator
     checker = cls.FORMAT_CHECKER if formats else None
     if community and isinstance(schema, dict):  # never swapped for jsonschema's own (above)

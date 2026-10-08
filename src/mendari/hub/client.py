@@ -5,7 +5,9 @@
 1. the archive's SHA-256 is the one the registry recorded;
 2. every file matches the signed manifest;
 3. the signature is by a key of the pack's namespace;
-4. the extracted pack loads with the signed digest.
+4. the extracted pack loads with the signed digest, as a pack from a registry: on the community
+   engine (RE2, the caps, the input limits and a CPU budget per decision) unless it is a copy of
+   a reference pack of this release (ADR-0009). A pack that does not load there is not cached.
 
 Nothing the registry answers chooses where a pack is written: the namespace, name and version
 must be a pack id and a semantic version before any cache path is built, the path must stay
@@ -218,7 +220,8 @@ def pull(ref: str, client: RegistryClient, *, accept_new_key: bool = False) -> P
     target.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=target.parent) as scratch:
         staged = Path(scratch) / "pack"
-        pack = archive.extract(verified, staged)
+        # On the engine it will run on: a pack it refuses is never cached, nor marked verified.
+        pack = archive.extract(verified, staged, origin="hub")
         (staged / _MARKER).write_text(verified.sha256 + "\n")
         if target.exists():
             shutil.rmtree(target)

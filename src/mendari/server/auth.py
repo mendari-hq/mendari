@@ -184,6 +184,9 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
     (method, re.compile(pattern), permission)
     for method, pattern, permission in [
         ("GET", r"^/api/health$", "public"),
+        # Readiness (status pages, uptime checks, probes): one cached, bounded read per instance.
+        ("GET", r"^/api/health/ready$", "public"),
+        ("HEAD", r"^/api/health/ready$", "public"),
         ("GET", r"^/api/auth/me$", "public"),
         ("POST", r"^/api/auth/(organization|access-requests|invitations/accept)$", PERSON),
         ("*", r"^/auth/", "public"),
@@ -203,10 +206,14 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         # never a redirect, so a signed-out browser never carries the token in the link's
         # fragment on to the identity provider (a redirect keeps it, RFC 9110 §10.2.2).
         ("GET", r"^/invite$", "public"),
+        # The status page (static; it reads readiness in the browser).
+        ("GET", r"^/status$", "public"),
         ("GET", r"^/docs/reference$", "page"),  # a signed-out browser is sent to sign in
         ("GET", r"^/openapi\.json$", "read"),
         # The scheduled purge (Vercel Cron): its own bearer secret, CRON_SECRET, checked there.
         ("GET", r"^/api/internal/retention$", "public"),
+        # The scheduled monitor (LP-21f): the same secret, checked there.
+        ("GET", r"^/api/internal/monitor$", "public"),
         ("GET", r"^/api/notice$", "read"),
         ("GET", r"^/api/holds$", "read"),
         ("POST", r"^/api/holds$", "approve"),
@@ -243,8 +250,9 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         ("*", r"^/api/auth/(members|invitations)(/|$)", "keys"),
         ("GET", r"^/api/auth/access-requests$", "keys"),
         ("POST", r"^/api/auth/access-requests/[^/]+$", "keys"),
-        # The whole chain, read or exported: administrators only.
-        ("GET", r"^/api/audit/(verify|export/fhir)$", "admin"),
+        # The whole chain, read or exported, and an organization's administrative events (its
+        # keys, clients, people, approvals and holds): administrators only.
+        ("GET", r"^/api/audit/(verify|export/fhir|administrative(/export/fhir)?)$", "admin"),
         ("POST", r"^/api/governance$", "approve"),
         ("DELETE", r"^/api/governance/[^/]+$", "approve"),
         ("GET", r"^/api/", "read"),

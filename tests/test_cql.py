@@ -25,6 +25,7 @@ from mendari.errors import PackValidationError, ProviderError
 from mendari.evals.agreement import agreement, pack_cases
 from mendari.providers import build_provider
 from mendari.providers import cql as cql_module
+from mendari.sandbox.synthetic_trial import CONDITION_SYSTEM
 from mendari.standards import record_fhir
 from mendari.standards.fhir_client import GuardedHttp
 
@@ -205,6 +206,7 @@ def test_the_record_becomes_fhir_without_inventing_anything() -> None:
         "conditions": [
             {"code": "E11.9", "text": "Type 2 diabetes", "status": "active", "onset": "2019"},
             {"code": "22298006", "status": "historical"},
+            {"code": "FC201", "text": "Myocardial infarction"},
         ],
         "observations": [
             {"code": "4548-4", "value": 8.1, "unit": "%", "date": "2026-09-01"},
@@ -222,7 +224,12 @@ def test_the_record_becomes_fhir_without_inventing_anything() -> None:
     }
     assert by_id["condition-0"]["code"]["coding"][0]["system"] == record_fhir.ICD10
     assert by_id["condition-0"]["onsetDateTime"] == "2019-07-01"  # mid-year, as `criteria` reads it
+    # A code neither ICD-10-CM nor fictional is read as a site's SNOMED CT; the local-site
+    # example's fictional codes keep their own system.
     assert by_id["condition-1"]["code"]["coding"][0]["system"] == record_fhir.SNOMED
+    assert by_id["condition-2"]["code"]["coding"] == [
+        {"system": CONDITION_SYSTEM, "code": "FC201", "display": "Myocardial infarction"}
+    ]
     assert "clinicalStatus" not in by_id["condition-1"]  # not a FHIR clinical status
     assert by_id["observation-0"]["valueQuantity"] == {"value": 8.1, "unit": "%"}
     assert "effectiveDateTime" not in by_id["observation-1"]
@@ -289,13 +296,13 @@ def _outside_trial(root: Path, header: str) -> Pack:
     manifest["id"] = "outsider/evil-trial"
     (pack / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     library = pack / "logic" / "criteria.cql"
-    text = library.read_text().replace("library GlycemiaTwoCriteria version '0.1.0'", header)
+    text = library.read_text().replace("library GlycemiaTwoCriteria version '0.2.0'", header)
     library.write_text(text + "\n// EVIL\n")
     return load_pack(pack)
 
 
 @pytest.mark.parametrize("first", ["shipped", "outsider"])
-@pytest.mark.parametrize("version", ["0.1.0", "6.6.6"])
+@pytest.mark.parametrize("version", ["0.2.0", "6.6.6"])
 def test_a_pack_cannot_replace_or_shadow_another_packs_library_on_the_engine(
     trial: Pack, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, first: str, version: str
 ) -> None:
@@ -320,7 +327,7 @@ def test_a_pack_cannot_replace_or_shadow_another_packs_library_on_the_engine(
     assert resource["name"].startswith("GlycemiaTwoCriteria_")
     assert resource["url"].endswith(f"/Library/{resource['name']}")
     evidence = shipped_cql.answer(record).answers["age_18_75"].evidence
-    assert evidence == ("CQL GlycemiaTwoCriteria 0.1.0: Age 18 To 75 = no",)  # as declared
+    assert evidence == ("CQL GlycemiaTwoCriteria 0.2.0: Age 18 To 75 = no",)  # as declared
 
 
 @pytest.mark.parametrize(
@@ -368,3 +375,36 @@ def test_finding_the_declaration_is_linear() -> None:
         started = time.perf_counter()
         assert cql_module.library_declaration(source) is None
         assert time.perf_counter() - started < 0.05
+
+
+# Libraries of blank lines: `^\s*library` (MULTILINE) ran from each line's start to the end of the
+# text, so the search was quadratic (160,000 blank lines took 21 s). Load runs it on every pack
+# now (LP-16e), a registry's at publish and pull too.
+BLANK_LIBRARIES = ["\n" * 100_000, "library\n" + "\n" * 100_000]
+
+
+def test_finding_the_header_is_linear() -> None:
+    for source in BLANK_LIBRARIES:
+        started = time.perf_counter()
+        assert cql_module._HEADER.search(source) is None
+        assert time.perf_counter() - started < 0.05
+
+
+def test_a_library_of_blank_lines_is_checked_at_load_in_linear_time(tmp_path: Path) -> None:
+    """The load-time check (`CqlProvider.config_problems`, as for a pack from a registry) on a
+    library of blank lines: refused for having no declaration, at once."""
+    for number, source in enumerate(BLANK_LIBRARIES):
+        root = tmp_path / str(number)
+        shutil.copytree(resolve_pack(TRIAL).root, root)
+        (root / "logic" / "criteria.cql").write_text(source)
+        pack = load_pack(root)  # owned: loads, and warns
+        assert any("needs a `library Name version" in w for w in pack.warnings)
+        slot = pack.manifest.providers["structured"]
+        config = {"type": "cql", **(slot.variants["cql"].model_extra or {})}
+        questions = {key: pack.manifest.questions[key] for key in slot.answers}
+        started = time.perf_counter()
+        problems = cql_module.CqlProvider.config_problems(
+            pack, "structured", config, questions, bounded=True, trained=True
+        )
+        assert time.perf_counter() - started < 0.05
+        assert problems == ["logic/criteria.cql: needs a `library Name version '...'` declaration"]

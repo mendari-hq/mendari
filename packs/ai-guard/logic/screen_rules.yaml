@@ -108,6 +108,11 @@ questions:
     default_score: 2.0
     labels:
       unknown:
+        # The last alternative is "keep taking your" and a word other than medicine(s),
+        # medication(s), meds or pill(s), spelled out letter by letter without a lookahead (so it
+        # runs on RE2 too): it matches as soon as the word leaves all of those (any other
+        # character, or \Z: the end of the text), and after a whole one only if another word
+        # character follows.
         - name: claim-about-the-record
-          pattern: "your (latest|last|recent)[^.;!?\\n]{0,30}(test|tests|results?|level|panel|a1c)|your (a1c|potassium|kidney function|cholesterol)[^.;!?\\n]{0,30}(was|were|showed)|your chart lists|keep taking your (?!(medicines?|medications?|meds|pills?)\\b)\\w+"
+          pattern: "your (latest|last|recent)[^.;!?\\n]{0,30}(test|tests|results?|level|panel|a1c)|your (a1c|potassium|kidney function|cholesterol)[^.;!?\\n]{0,30}(was|were|showed)|your chart lists|keep taking your (?:[^\\Wmp]|m(?:[^e]|\\Z|e(?:[^d]|\\Z|d(?:[^is]|\\Z|i(?:[^c]|\\Z|c(?:[^ai]|\\Z|a(?:[^t]|\\Z|t(?:[^i]|\\Z|i(?:[^o]|\\Z|o(?:[^n]|\\Z|n(?:[^\\Ws]|s\\w)))))|i(?:[^n]|\\Z|n(?:[^e]|\\Z|e(?:[^\\Ws]|s\\w)))))|s\\w)))|p(?:[^i]|\\Z|i(?:[^l]|\\Z|l(?:[^l]|\\Z|l(?:[^\\Ws]|s\\w)))))"
           weight: 2.5

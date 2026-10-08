@@ -27,6 +27,14 @@
   second claim is reported, never served. The origin, never the manifest's `publisher.type`
   (self-declared), sets the label every surface shows: "Maintained by Mendari" or "Community ·
   not clinically reviewed" ([ADR-0007](decisions/ADR-0007-community-packs-by-pull-request.md)).
+  The origin and the digest choose the engine a pack's patterns run on (`Pack.bounded`): a pack
+  the deployment does not own (a community pack, or a pulled one that is not a reference pack of
+  the installed release, `core/reference.py`) runs on RE2 with caps, input limits and a CPU
+  budget per decision; the others on `re`, their input schemas bounded in shape at load
+  (`core/input_schema.py`, over `core/schema_graph.py`)
+  ([ADR-0009](decisions/ADR-0009-bounded-evaluation-for-packs-the-deployment-does-not-own.md)).
+  A pulled pack never takes a reference pack's place: one with its id and version but other
+  files is refused.
 - **Runtime** (`core/decision.py`): binds a pack to concrete provider variants. It validates
   input, collects answers, applies policy and optionally records the result.
 - **Derived questions** (`core/derive.py`): computes decision-table questions from their
@@ -84,7 +92,16 @@
   deployment's OIDC token. LLM prompts carry the input as JSON data under a system prompt that
   forbids following it, and the response schema is fixed by the pack. Their responses are validated strictly and bounded in size. A batched
   call sends the union of its variants' `state_fields`; a variant that must not share its
-  state sets `batch: false`.
+  state sets `batch: false`. An owned pack's variant without `state_fields` sends the whole
+  input; a pack the deployment does not own (community, registry) must name them, and runs on
+  the deployment's model with its `max_tokens`, `timeout_ms` and `reasoning_effort` capped.
+  Every variant's config is checked at load against its provider's closed config
+  (`providers.config_problems`, published as `docs/spec/provider-configs.schema.json`): such a
+  pack is refused for a problem, an owned one warned.
+  - With `MENDARI_PROVIDER_ALLOWED_ORIGINS` set (`providers/http.py`), every Jev, LLM and Vercel
+    Connect request to an origin it does not list is refused before it is opened
+    (`invalid_endpoint`), and an `LLM_BASE_URL` or `JEV_API_URL` off it stops startup. Unset,
+    the endpoints are only the deployment's own variables, as before.
 - **The server** is open by default and binds to localhost. Production sits behind Vercel
   Authentication, and the docker sandbox publishes ports on 127.0.0.1 only.
   - With an OIDC issuer set (`server/auth.py`), every request passes one guard: a signed-in
@@ -104,7 +121,9 @@
   - Plain http is allowed only for loopback and single-label (compose) hosts.
   - Requests stay under the server's base URL, redirects are refused, and responses are capped
     at 5 MB of JSON.
-  - A prefetch template's `{{context.x}}` tokens accept FHIR ids only.
+  - A prefetch template's `{{context.x}}` tokens accept FHIR ids only, and the template is a
+    read or search relative to the server (`core/spec.py` `PREFETCH`): a pack the deployment does
+    not own is refused at load for any other, an owned one warned.
   - Errors never echo the server's body or the token.
 - **SMART on FHIR launches** (`standards/smart.py`, `server/smart_routes.py`) use PKCE S256, a
   single-use `state` and a `nonce`.

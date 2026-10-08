@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """Hosted data protection (LP-08): nothing kept that cannot be protected or erased.
 
-- The hosted site (`VERCEL`) runs `encrypt` unless told `hash`, and refuses `off`; elsewhere,
-  with sign-in or the EHR launch on, the mode is chosen, never defaulted (core/phi.py); and a
-  database once kept under `hash` or `encrypt` never takes plaintext again.
+- The hosted site (`VERCEL`) runs `encrypt` unless told `hash`, and refuses `off`; elsewhere
+  sign-in refuses `off` too, set or unset, and the EHR launch without sign-in needs a chosen
+  mode (core/phi.py); and a database once kept under `hash` or `encrypt` never takes plaintext
+  again.
 - A decision recorded under `off` keeps its input inside its chained record. Once the mode is
   `hash` or `encrypt`, that input (and its answers' evidence) is shown only to a reader, and the
   read is chained, as a sealed one is; the audit list never carries it.
@@ -14,6 +15,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
@@ -27,6 +29,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from mendari import AuditStore, Decision, Pack, load_pack
+from mendari import cli as cli_module
 from mendari.cli import main
 from mendari.core import audit as audit_module
 from mendari.core.decision import DecisionResult
@@ -105,34 +108,78 @@ def test_the_hosted_site_refuses_plaintext_and_runs_encrypt_by_default(
     assert health["phi_mode"] == "hash"
 
 
-def test_sign_in_needs_a_chosen_mode(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+def test_sign_in_refuses_plaintext_whatever_the_database(
+    db_target: str,
+    inbox_pack: Pack,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
+    """Outside Vercel too, sign-in never starts under `off`, written out or left unset, with or
+    without the EHR launch, on SQLite and Postgres alike (LP-08, the owner's choice of
+    2026-10-07): people bring other people's cases, and an input kept in plaintext is never
+    erased. Even a database only `off` has kept (an open sandbox's) is refused, before it is
+    opened; `hash` or `encrypt` starts on it, without the plaintext warning."""
+    Decision(inbox_pack, store=AuditStore(db_target, phi=policy("off")))(message("refill please"))
     sign_in_env(monkeypatch)
-    monkeypatch.delenv("MENDARI_PHI_MODE")
-    with pytest.raises(MendariError, match="Sign-in or the EHR launch is on, so choose"):
-        create_app(db_path=tmp_path / "a.db")
-    monkeypatch.setenv("MENDARI_PHI_MODE", "off")  # written out: a local synthetic sandbox
-    with caplog.at_level(logging.WARNING, logger="mendari.phi"):
-        create_app(db_path=tmp_path / "a.db")
-    assert "inputs are kept in plaintext" in caplog.text
-    caplog.clear()
-    encrypt_mode(monkeypatch)
-    with caplog.at_level(logging.WARNING, logger="mendari.phi"):
-        create_app(db_path=tmp_path / "a.db")
-    assert "plaintext" not in caplog.text
+    for chosen, launch in ((None, False), ("off", False), (" Off ", False), ("off", True)):
+        if chosen is None:
+            monkeypatch.delenv("MENDARI_PHI_MODE")
+        else:
+            monkeypatch.setenv("MENDARI_PHI_MODE", chosen)
+        if launch:
+            monkeypatch.setenv("MENDARI_SMART_CLIENT_ID", "mendari")
+        with pytest.raises(MendariError) as refused:
+            create_app(db_path=db_target)
+        assert str(refused.value) == (
+            "Sign-in is on, so inputs must be protected: set MENDARI_PHI_MODE=encrypt (with "
+            "MENDARI_PHI_KEY and MENDARI_INPUT_HASH_KEY) or hash (with MENDARI_INPUT_HASH_KEY); "
+            "off is for a local sandbox without sign-in (docs/deploying-with-phi.md)."
+        )
+    assert AuditStore(db_target, phi=policy("off")).protected is None  # refused before opening
+    for protect in ("hash", "encrypt"):
+        encrypt_mode(monkeypatch)
+        if protect == "hash":
+            monkeypatch.setenv("MENDARI_PHI_MODE", "hash")
+            monkeypatch.delenv("MENDARI_PHI_KEY")
+        with caplog.at_level(logging.WARNING, logger="mendari.phi"):
+            health = TestClient(create_app(db_path=db_target)).get("/api/health").json()
+        assert health["sign_in"] is True  # it started, with sign-in on
+        assert "plaintext" not in caplog.text
+    assert AuditStore(db_target, phi=policy("off")).protected == "hash"  # the first mode stays
+
+
+def test_the_cli_refuses_sign_in_without_protection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`mendari serve` refuses at startup, in one line, before it listens."""
+    sign_in_env(monkeypatch)
+
+    def listened(*args: object, **kwargs: object) -> None:
+        raise AssertionError("the server started")
+
+    monkeypatch.setattr(cli_module, "_run_server", listened)
+    assert main(["serve", "--db", str(tmp_path / "a.db")]) == 1
+    err = capsys.readouterr().err
+    assert "Sign-in is on, so inputs must be protected" in err
+    assert len(err.strip().splitlines()) == 1 and "Traceback" not in err
+    assert not (tmp_path / "a.db").exists()
 
 
 def test_an_ehr_launch_needs_a_chosen_mode_without_sign_in_too(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """A launch fetches the patient's record from the EHR: real cases, whoever signs in."""
+    """A launch fetches the patient's record from the EHR: real cases, whoever signs in. Without
+    sign-in, `off` written out still starts, with a warning (refusing it is a later decision)."""
     monkeypatch.setenv("MENDARI_SMART_CLIENT_ID", "mendari")
     monkeypatch.delenv("MENDARI_PHI_MODE")
-    with pytest.raises(MendariError, match="Sign-in or the EHR launch is on, so choose"):
+    with pytest.raises(MendariError, match="The EHR launch is on, so choose"):
         create_app(db_path=tmp_path / "a.db")
-    monkeypatch.setenv("MENDARI_PHI_MODE", "off")
-    assert TestClient(create_app(db_path=tmp_path / "a.db")).get("/api/health").status_code == 200
+    monkeypatch.setenv("MENDARI_PHI_MODE", "off")  # written out: a local synthetic sandbox
+    with caplog.at_level(logging.WARNING, logger="mendari.phi"):
+        assert (
+            TestClient(create_app(db_path=tmp_path / "a.db")).get("/api/health").status_code == 200
+        )
+    assert "the EHR launch is on and PHI mode is off: inputs are kept in plaintext" in caplog.text
 
 
 def test_vercels_entrypoint_is_hosted_even_without_its_system_variables(tmp_path: Path) -> None:
@@ -201,13 +248,72 @@ def test_the_refusal_comes_before_any_provider_and_sees_a_later_mark(
 
 
 def test_the_signed_in_templates_choose_a_mode() -> None:
+    """Every template with sign-in on runs `encrypt`; the compose sandbox's signed-in engine
+    reads its keys from the shell or `.env` (never committed, never `${VAR:?}`, which would stop
+    a plain `docker compose up` too). Only the open sandbox, with the EHR launch, runs `off`."""
     compose = (ROOT / "docker-compose.yml").read_text()
     engine = compose[compose.index("  engine:") : compose.index("  engine-signin:")]
     signin = compose[compose.index("  engine-signin:") : compose.index("  payer:")]
-    for service in (engine, signin):  # an EHR launch, then sign-in: synthetic sandboxes
-        assert 'MENDARI_PHI_MODE: "off"' in service
+    assert "MENDARI_OIDC_ISSUER" not in engine and 'MENDARI_PHI_MODE: "off"' in engine
+    assert "MENDARI_OIDC_ISSUER" in signin and "MENDARI_PHI_MODE: encrypt" in signin
+    assert "MENDARI_PHI_KEY: ${MENDARI_PHI_KEY:-}" in signin
+    assert "MENDARI_INPUT_HASH_KEY: ${MENDARI_INPUT_HASH_KEY:-}" in signin
+    assert '"off"' not in signin and ":?" not in compose
+    assert ".env" in (ROOT / ".gitignore").read_text().splitlines()
     assert "MENDARI_PHI_MODE=encrypt" in (ROOT / "deploy/onprem/.env.example").read_text()
     assert "MENDARI_PHI_MODE: encrypt" in (ROOT / "deploy/kubernetes/mendari.yaml").read_text()
+    snippets = (ROOT / "scripts/check_doc_snippets.py").read_text()
+    assert '"MENDARI_PHI_MODE"] = "encrypt"' in snippets and '= "off"' not in snippets
+
+
+def readme_key_step() -> str:
+    """The README's one-time step that writes the signed-in sandbox's keys into `.env`."""
+    lines = (ROOT / "README.md").read_text().splitlines()
+    start = next(i for i, line in enumerate(lines) if line.startswith('[ -n "$(tail -c1 .env'))
+    end = lines.index("done", start)
+    return "\n".join(lines[start : end + 1]) + "\n"
+
+
+@pytest.mark.parametrize(
+    "before",
+    [
+        "",
+        "JEV_MODEL=jev-1",
+        "JEV_MODEL=jev-1\n",
+        "MENDARI_PHI_KEY=kept\n",
+        "MENDARI_INPUT_HASH_KEY=kept",
+    ],
+)
+def test_the_sandbox_key_step_adds_each_missing_key_once(tmp_path: Path, before: str) -> None:
+    """Rerun, the README's step changes nothing; it never glues a key onto a last line left
+    without its newline, and adds only the key `.env` lacks (a second hash key would be a new
+    input-hash epoch)."""
+    env_file = tmp_path / ".env"
+    if before:
+        env_file.write_text(before)
+    step = readme_key_step()
+    for _ in range(2):
+        subprocess.run(["bash", "-c", step], cwd=tmp_path, check=True)
+    text = env_file.read_text()
+    kept, lines = before.splitlines(), text.splitlines()
+    assert text.endswith("\n") and lines[: len(kept)] == kept  # what was there, untouched
+    keys = {"MENDARI_PHI_KEY", "MENDARI_INPUT_HASH_KEY"}
+    names = [line.split("=", 1)[0] for line in lines]
+    assert sorted(names) == sorted({line.split("=", 1)[0] for line in kept} | keys)
+    for line in lines[len(kept) :]:
+        assert len(base64.b64decode(line.split("=", 1)[1], validate=True)) == 32
+
+
+def test_the_signed_in_sandbox_resets_alone() -> None:
+    """Starting the signed-in sandbox over removes its engine and volume only: `down -v` would
+    also remove `mendari-data`, the open engine's database and the registry's packs. The volume's
+    name follows the compose project's."""
+    compose = (ROOT / "docker-compose.yml").read_text()
+    assert "\nname: mendari\n" in compose and "  mendari-signin-data:\n" in compose
+    for text in (compose, (ROOT / "README.md").read_text()):
+        assert "rm -sf engine-signin" in text
+        assert "docker volume rm mendari_mendari-signin-data" in text
+        assert "--profile signin down -v" not in text
 
 
 # -- decisions recorded under `off`, read under `encrypt` ------------------------------------
@@ -363,6 +469,7 @@ READERS = {"person:reviewer", "person:admin"}  # who may read inputs (`read_inpu
 # Read routes the sweep below leaves out, and why: neither serves a stored case.
 NOT_SWEPT = {
     "/api/internal/retention": "the scheduled purge: its own tests, with its secret",
+    "/api/internal/monitor": "the scheduled monitor: its own tests (test_monitor_cron.py)",
     "/api/providers/jev/models": "Jev's model list: needs Jev set up",
 }
 # Ids for the routes that read one fixed resource.

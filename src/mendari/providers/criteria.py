@@ -18,8 +18,8 @@ Each question has an ordered list of checks; the first check that applies decide
         default: unknown
       t2d_diagnosis:
         checks:
-          - condition: {codes: ["E11*", "44054006"], then: "yes"}
-          - condition: {codes: ["E10*", "46635009"], then: "no"}
+          - condition: {codes: ["E11*", "FC101"], then: "yes"}
+          - condition: {codes: ["E10*", "FC102"], then: "no"}
         default: unknown
 
 Two more kinds work on any part of the input: `exists` finds an item of a given type in a
@@ -65,8 +65,18 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from mendari.core import clock
+from mendari.core.pack import Pack
+from mendari.core.spec import Question
 from mendari.errors import PackValidationError
-from mendari.providers.base import Provider, ProviderOutput, fingerprint, get_path
+from mendari.providers.base import (
+    FileConfig,
+    Provider,
+    ProviderOutput,
+    closed_problems,
+    fingerprint,
+    get_path,
+    read_problems,
+)
 
 Label = str  # a label of the question; checked when the pack loads
 DECIDED = 0.98  # probability given to a determined answer; the rest is shared evenly
@@ -184,27 +194,56 @@ class CriteriaProvider(Provider):
 
     def __init__(self, *args: Any, **kwargs: Any):
         super().__init__(*args, **kwargs)
-        relative = self.config.get("config")
+        criteria, problems = self._checked(self.pack, self.info.slot, self.config, self.questions)
+        if criteria is None:
+            raise PackValidationError(self.pack.id, problems)
+        self.criteria = criteria
+        relative = self.config["config"]
+        self.info = replace(self.info, model=f"criteria@{fingerprint(self.pack, relative)}")
+
+    @classmethod
+    def config_problems(
+        cls,
+        pack: Pack,
+        where: str,
+        config: Mapping[str, Any],
+        questions: Mapping[str, Question],
+        *,
+        bounded: bool,
+        trained: bool,
+    ) -> list[str]:
+        return (
+            closed_problems(FileConfig, where, config)
+            or cls._checked(pack, where, config, questions)[1]
+        )
+
+    @staticmethod
+    def _checked(
+        pack: Pack, where: str, config: Mapping[str, Any], questions: Mapping[str, Question]
+    ) -> tuple[CriteriaConfig | None, list[str]]:
+        """The criteria file `config` names, read and checked (its questions are exactly the
+        slot's, and each answers only their labels), or None and why not."""
+        relative = config.get("config")
         if not isinstance(relative, str):
-            raise PackValidationError(self.pack.id, [f"{self.info.slot}: `config` is required"])
+            return None, [f"{where}: `config` is required"]
+        data, problems = read_problems(lambda: pack.read_yaml(relative))
+        if problems:
+            return None, problems
         try:
-            self.criteria = CriteriaConfig.model_validate(self.pack.read_yaml(relative))
+            criteria = CriteriaConfig.model_validate(data)
         except ValidationError as error:
-            raise PackValidationError(self.pack.id, [f"{relative}: {error}"]) from None
-        problems = []
-        if set(self.criteria.questions) != set(self.questions):
+            return None, [f"{relative}: {error}"]
+        if set(criteria.questions) != set(questions):
             problems.append(f"{relative}: must define exactly the slot's questions")
-        for key, spec in self.criteria.questions.items():
-            question = self.questions.get(key)
+        for key, spec in criteria.questions.items():
+            question = questions.get(key)
             if question is None:
                 continue
             used = {spec.default}.union(*(_labels(check) for check in spec.checks))
             missing = sorted(used - set(question.criteria))
             if missing:
                 problems.append(f"{relative}: {key} answers {missing}, not labels of the question")
-        if problems:
-            raise PackValidationError(self.pack.id, problems)
-        self.info = replace(self.info, model=f"criteria@{fingerprint(self.pack, relative)}")
+        return (None, problems) if problems else (criteria, [])
 
     def answer(self, inputs: Mapping[str, Any]) -> ProviderOutput:
         as_of = _date(get_path(inputs, self.criteria.as_of)) or clock.today()

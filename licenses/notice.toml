@@ -50,11 +50,14 @@ Committee and is available at no cost under the license at http://loinc.org/lice
 registered United States trademark of Regenstrief Institute, Inc."""
 
 [[material]]
-name = "SNOMED CT"
-where = "SNOMED CT codes in synthetic examples (packs/clinical-trial-prescreener, packs/referral-router, datasets/trial-local-site-example.jsonl, src/mendari/sandbox), each pack declaring it with its terms"
-licence = "SNOMED International's licence terms"
+name = "RxNorm"
+where = "RxNorm codes in the Clinical Trial Prescreener's synthetic data and tests (packs/clinical-trial-prescreener)"
+licence = "public domain (U.S. National Library of Medicine: RxNorm's normalized names and codes)"
 distributed = true
-notice = "SNOMED and SNOMED CT are registered trademarks of SNOMED International."
+# The acknowledgement NLM's RxNorm terms of service ask a product using RxNorm data to carry.
+notice = """This product uses publicly available data courtesy of the U.S. National Library of Medicine
+(NLM), National Institutes of Health, Department of Health and Human Services; NLM is not
+responsible for the product and does not endorse or recommend this or any other product."""
 
 [[material]]
 name = "ICD-10-CM"
@@ -76,6 +79,15 @@ where = "the urls naming the X12 code systems Da Vinci PAS uses (https://codesys
 licence = "the names as HL7's Da Vinci PAS guide gives them (CC0 1.0); X12's code values, which a site supplies, are under X12's terms"
 distributed = true
 notice = "X12 is a registered trademark of X12."
+
+# No package carries SNOMED CT (LP-14): the reference packs, their data and the sandbox use
+# fictional codes instead, and tests/test_code_systems.py and scripts/check_snomed.py keep it so.
+[[material]]
+name = "SNOMED CT"
+where = "SNOMED CT codes in test inputs and tests (tests/: the US Core fixtures code procedures and referrals in SNOMED CT), the scan that keeps them out of the packages (scripts/check_snomed.py), and the project's notes and history"
+licence = "SNOMED International's licence terms"
+distributed = false
+notice = "SNOMED and SNOMED CT are registered trademarks of SNOMED International."
 
 [[material]]
 name = "axe-core"

@@ -26,7 +26,7 @@ from mendari.server import auth as auth_module
 from mendari.server import sessions, smart_routes
 from mendari.server.app import create_app
 from mendari.standards.fhir_client import FhirClient, GuardedHttp
-from tests.conftest import signed_in
+from tests.conftest import encrypt_mode, signed_in
 from tests.test_auth import IDP, FakeIdp, sign_in
 from tests.test_security_log import logged
 from tests.test_smart import APP, CLIENT, EHR, ISS, REFERRAL, FakeEhr, full_launch, launch
@@ -327,6 +327,7 @@ def test_sign_in_sessions_are_untouched(db_target: str, monkeypatch: pytest.Monk
     idp = FakeIdp()
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari-org")
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     monkeypatch.setenv("MENDARI_OIDC_ROLE_MAP", "clinicians=reviewer")
     transport = httpx.MockTransport(idp)
     monkeypatch.setattr(

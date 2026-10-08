@@ -27,7 +27,7 @@ jobs:
     env:
       MENDARI_TEST_DATABASE_URL: postgresql://postgres:mendari-test@localhost:5432/mendari_test
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
@@ -69,7 +69,7 @@ jobs:
         options: >-
           --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
@@ -94,7 +94,7 @@ jobs:
     # Derived pack artifacts (synthetic data, trained model) must be reproducible from source.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
@@ -119,14 +119,14 @@ jobs:
     # hl7.org outage only matters on a cold cache.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
         with:
           version: "0.12.22"
           python-version: "3.12"
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: var/fhir-packages/fhir.schema.json.zip
           key: fhir-r4-schema-2230406893b4cf002a4ee1e5e2bbeca22ac5d2d4931b3e9ef7b9594bbc376a01
@@ -145,18 +145,18 @@ jobs:
       VALIDATOR_VERSION: "6.10.4"
       VALIDATOR_SHA256: 1106b9d58f9e363e47bea7c4fc065841e5fc91fe9d062775c3bfdd212bd653cc
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
         with:
           version: "0.12.22"
           python-version: "3.12"
-      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3  # v4.9.1
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6  # v6.0.1
         with:
           distribution: temurin
           java-version: "21"
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: |
             var/validator/validator_cli.jar
@@ -199,9 +199,17 @@ jobs:
     # in that organization, chained as the launcher's `<issuer>|<subject>`.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+      - name: Throwaway PHI keys for the signed-in engine (sign-in never runs `off`)
+        # Masked, and in $GITHUB_ENV so every later compose call interpolates the same keys.
+        run: |
+          for name in MENDARI_PHI_KEY MENDARI_INPUT_HASH_KEY; do
+            key=$(python3 -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())")
+            echo "::add-mask::$key"
+            echo "$name=$key" >> "$GITHUB_ENV"
+          done
       - run: docker compose --profile signin up -d --build --wait engine launcher engine-signin
       - name: Wait until the workflow has seeded both packs
         run: |
@@ -252,7 +260,7 @@ jobs:
       MENDARI_REGISTRY_ADMIN_TOKEN: ci-only-admin-token
       REGISTRY_URL: http://127.0.0.1:8100
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
@@ -295,7 +303,7 @@ jobs:
     env:
       MENDARI_REGISTRY_ADMIN_TOKEN: ci-only-admin-token
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
@@ -311,11 +319,13 @@ jobs:
       - name: Build the sdist, then the wheel from it; the sdist holds only the build inputs
         # PyPI files can never be replaced: notes, agent and CI configuration, deploy templates
         # and the websites must not reach a release (scripts/check_sdist.py), nor notes, plans,
-        # agent or CI files at any depth in either package (scripts/check_excluded.py).
+        # agent or CI files at any depth in either package (scripts/check_excluded.py), nor
+        # SNOMED CT content (scripts/check_snomed.py, LP-14).
         run: |
           uv build --out-dir /tmp/dist
           uv run python scripts/check_sdist.py /tmp/dist/mendari-*.tar.gz
           python3 scripts/check_excluded.py /tmp/dist/mendari-*.tar.gz /tmp/dist/*.whl
+          uv run python scripts/check_snomed.py /tmp/dist/mendari-*.tar.gz /tmp/dist/*.whl
       - name: A clean virtual environment installs mendari, pulls a pack and tests it
         env:
           HOME: /tmp/clean-home
@@ -323,7 +333,11 @@ jobs:
         run: |
           python3 -m venv /tmp/clean
           /tmp/clean/bin/pip install --quiet /tmp/dist/*.whl
-          /tmp/clean/bin/mendari pull mendari/referral-router
+          /tmp/clean/bin/mendari pull mendari/referral-router > /tmp/pull.txt
+          cat /tmp/pull.txt
+          # The wheel's bundled pack is the checkout's: the pulled copy keeps the maintained
+          # engine (ADR-0009), which the referral pack's lookahead needs.
+          grep -q "a copy of the reference pack in this release" /tmp/pull.txt
           version=$(sed -n 's/^version: //p' packs/referral-router/pack.yaml)
           test -f "/tmp/clean-home/.cache/mendari/packs/mendari/referral-router/$version/pack.yaml"
           /tmp/clean/bin/mendari test mendari/referral-router
@@ -346,7 +360,7 @@ jobs:
       MENDARI_CQL_URL: http://127.0.0.1:58090/fhir
       MENDARI_FHIR_ALLOWED_SERVERS: http://127.0.0.1:58090
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
@@ -374,7 +388,7 @@ jobs:
     # high risks fail (scripts/zap_check.py).
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
@@ -439,7 +453,7 @@ jobs:
     # narrowly and with the reason, in .gitleaks.toml. A finding is revoked and rotated, then removed.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0
@@ -454,7 +468,7 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0
@@ -469,7 +483,7 @@ jobs:
     # link, anchor or page left out of the navigation.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
@@ -490,7 +504,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25  # the quickstart itself is held to 10
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
@@ -529,7 +543,7 @@ jobs:
       MENDARI_PHI_MODE: encrypt
       MENDARI_PUBLIC_URL: http://127.0.0.1:8000
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
@@ -551,7 +565,7 @@ jobs:
   docker:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
       - run: docker build -t mendari-engine:ci .
@@ -562,6 +576,10 @@ jobs:
           from importlib.metadata import files
           assert any(str(f).endswith('licenses/NOTICE') for f in files('mendari') or []), 'no NOTICE'
           "
+      # The licence checks a release runs before it pushes an image (the SBOM's in image-sbom): a
+      # bump that changes what the image bundles fails here first (licenses/image, CONTRIBUTING.md).
+      - name: The image carries every licence and notice, and Debian's copyright files
+        run: python3 scripts/check_image_licences.py --image mendari-engine:ci
       - run: docker run --rm mendari-engine:ci mendari test mendari/patient-inbox-router
       - run: docker run --rm mendari-engine:ci mendari test mendari/clinical-trial-prescreener
       - run: docker run --rm mendari-engine:ci mendari test mendari/referral-router
@@ -577,3 +595,32 @@ jobs:
           assert [p['id'] for p in packs] == ['mendari/referral-router'], packs
           print('serves', packs[0]['id'])
           "
+
+  image-sbom:
+    # The SBOM scan a release runs before it pushes an image, on every change: BuildKit's SBOM of
+    # the finished engine image (linux/amd64), from the generator and builder release.yml pins (a
+    # test keeps them the same), scanned for its licences, and each package's source location
+    # found. A base image bump that renames a Debian licence, or changes a copyright text a
+    # reviewed exception names, fails in its own pull request instead of first in a release.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
+        with:
+          driver-opts: image=moby/buildkit:v0.33.1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
+      - name: Build the engine image with its SBOM, then check the image and scan the SBOM, as a release does
+        run: |
+          skopeo --version
+          docker buildx build --platform linux/amd64 \
+            --attest "type=sbom,generator=docker.io/docker/buildkit-syft-scanner:1.12.0@sha256:ae4f3b554449e7e25548e7d8ccc029d17357348e30c6e3df01b92bc93654d6a9" \
+            --output "type=oci,dest=/tmp/mendari-engine.tar" .
+          skopeo copy --override-arch amd64 "oci-archive:/tmp/mendari-engine.tar" "docker-daemon:mendari-engine:sbom"
+          mkdir -p /tmp/sbom
+          python3 scripts/check_image_licences.py --extract-sbom /tmp/mendari-engine.tar --arch amd64 \
+            --out /tmp/sbom/mendari-engine-amd64.attestation.json
+          python3 scripts/check_image_licences.py --image mendari-engine:sbom \
+            --sbom /tmp/sbom/mendari-engine-amd64.attestation.json \
+            --sbom-out /tmp/sbom/mendari-engine-amd64.spdx.json \
+            --sources-out /tmp/sbom/mendari-engine-amd64.sources.json

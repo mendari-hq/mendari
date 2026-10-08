@@ -180,6 +180,36 @@ behaviour.
   CI's `sandbox-e2e` move to `encrypt` with generated keys (locally, once, in the gitignored `.env`).
   An EHR launch with sign-in off keeps its warning (a separate decision). The build PR replaces gate
   a5's pending probe with its tests.
+  **Built** (#173, branch
+  `claude/lp08-refuse-off-with-signin`): outside Vercel too, sign-in on (OIDC issuer and client id) with `MENDARI_PHI_MODE` `off`,
+  written out or unset, refuses to start in one line, on SQLite and Postgres alike, before the
+  database is opened (`require_protection`). An EHR launch with sign-in off keeps its
+  chosen-mode check and warning (not refused yet: a separate decision). The compose sandbox's
+  `engine-signin` runs `encrypt`, its two keys read from the shell or the gitignored `.env`
+  (`${VAR:-}`, never committed; generated once, README; to start over, remove that engine and
+  its volume alone), checked by
+  hand on Docker (keyless it stops naming the key it lacks; with keys `smart check` and both
+  `--expect-org pilot` launches pass). CI's `sandbox-e2e` writes masked throwaway keys to
+  `$GITHUB_ENV`; `check_doc_snippets.py` runs its signed-in pass under `encrypt`. Every signed-in
+  test runs `encrypt_mode` (the refusal alone failed 239 SQLite cases): 22 test files, 17
+  fixtures and helpers and 11 tests gained the call, 6 tests changed their assertions or setup
+  (a reviewer's read now chains `input.read` after an outcome; a decision recorded beside a
+  signed-in server goes through `encrypted_store`; health says `encrypt`), 1 test was replaced by
+  2 refusal tests. Gate a5's pending probe is replaced by
+  `test_sign_in_refuses_plaintext_whatever_the_database` (SQLite and Postgres),
+  `test_the_cli_refuses_sign_in_without_protection` and
+  `test_the_signed_in_templates_choose_a_mode`: a5 now counts as met. Review (2 low, both
+  fixed): the README's `.env` step now ends a last line left without its newline and adds each
+  key only if missing (it had glued the first key onto that line and, on rerun, added a second
+  hash key, a new epoch); the reset no longer says `down -v`, which also removed
+  `mendari-data` (the open engine's database and the registry's packs). Rebased on #177, whose
+  invitation tests sign in: their helpers in `test_invite_page.py`, `test_notice.py` and
+  `browser/test_invitations.py` (since moved to `browser/access_site.py`) gained `encrypt_mode`
+  too. Rebased again on main after LP-12g, 12h, 12i, LP-16 and #180: the signed-in tests they
+  added gained `encrypt_mode` (`test_administrative_audit.py`'s server, `test_key_presets.py`'s,
+  `test_chain_orgs.py`'s memberships-mark test, `browser/test_credentials.py`'s claims-mode
+  site), no assertion changed, and `check_doc_snippets.py`'s key-preset pass (LP-12i) signs in
+  under `encrypt` as its signed-in pass does.
 - [x] **LP-09** Key rotation (#142, merged 2026-10-07). The PHI key: a ring, `MENDARI_PHI_KEY` seals and
   `MENDARI_PHI_READ_KEYS` (up to 4, checked at startup, never shown) only opens; from the first
   rotation on each token names its key (`v2:<key id>:`; before it, the old format, so a release
@@ -262,17 +292,48 @@ behaviour.
   trial pack reads real diagnoses through ICD-10-CM only. Counsel is asked in parallel (the owner
   sends the memo) about what stays: the repository's tests, fixtures, docs and history; ICD-10-CM;
   the images (the Debian base and psycopg-binary); the X12 values in `standards/pas.py`.
-  **For counsel (background):** whether SNOMED CT codes may stay in two reference packs,
-  four US Core test fixtures, `datasets/trial-local-site-example.jsonl` (bare codes, shipped in
-  the wheel), the sandbox generators (`src/mendari/sandbox`) and the docs' examples; SNOMED CT
-  needs an Affiliate Licence, free in member territories, low-income countries and qualifying
-  research, paid elsewhere; replacing them means changing two packs' codes, and the US Core
-  fixtures code procedures and referrals in SNOMED CT. What ICD-10-CM's terms need (free to use
-  from NCHS, adapted from WHO's copyrighted ICD-10 for U.S. government purposes). What
-  distributing the LGPL-3.0 PostgreSQL driver inside the published container images requires:
-  psycopg-binary bundles libpq, OpenSSL 3 and 1.1.1, libxcrypt and keyutils (LGPL-2.1+), Cyrus
-  SASL and MIT Kerberos (attribution clauses), OpenLDAP, PCRE2 and libselinux, whose licence
-  texts the image does not carry beside psycopg's own, and the image label says only Apache-2.0.
+  - [x] **SNOMED CT swapped out of every package** (owner's choice 2026-10-07, #174, open): the
+    six SNOMED CT codes in the wheel, the sdist and the images are replaced one for one by
+    fictional codes, as CPT was: the trial prescreener's conditions (`FC101` to `FC203`,
+    `https://mendari.co/fhir/CodeSystem/fictional-conditions`) in its criteria, CQL, criterion
+    text, the generator and `datasets/trial-local-site-example.jsonl` (its ResearchStudy is
+    ICD-10-CM E11; the example's strokes, written as cerebral infarction, carry `FC203`, so each
+    coding's display is the published CodeSystem's), and the referral router's FHIR focus
+    (`FR101`, `.../fictional-referrals`, in the sandbox's referrals and the US Core referral
+    fixtures' category; their SNOMED CT `code` stays for US Core's binding); each system named "not
+    SNOMED CT", a sandbox CodeSystem for the validator; the converters (record to FHIR, OMOP)
+    label the fictional codes with their own system. Trial 0.2.0, referral router 0.2.0, both
+    rebuilt: every decision identical with the codes swapped (3,796 decisions and 150 record
+    Bundles, case by case). NOTICE moves SNOMED CT to "the source repository also carries" and
+    adds NLM's RxNorm acknowledgement. `tests/test_code_systems.py` and `scripts/check_snomed.py`
+    (CI `hub-e2e` and the release build, on the built wheel and sdist): no SNOMED CT concept id
+    in src/, packs/ or datasets/ (the nine the repository has used, and any other number
+    written as one: a concept's partition and SNOMED CT's Verhoeff check digit; in the vendored
+    swagger-ui only the nine), no concept URI, and the url or OID only in the three modules that
+    must name the system; the test also scans the sdist's other files and what the images'
+    `/licenses` is written from since #180 (NOTICE, licenses/image). **Accepted with it:** until a site code map exists (LP-23), the
+    referral router matches no real SNOMED-coded referral through FHIR and the trial pack reads
+    real diagnoses only through ICD-10-CM; both cards say so. **Wider than the owner's wording
+    (review, 2026-10-08; the owner confirmed it the same day, in chat: merge as is, LP-23's
+    system-aware code selector fixes it):** through FHIR the trial pack reads only a
+    Condition's first coding (`code.coding[0]`, unchanged), so a Condition coded first in SNOMED
+    CT and second in ICD-10-CM, which 0.1.5 found through its SNOMED CT code, is not found
+    either: type 2 diabetes `unknown`, a recent heart attack or stroke missed (still
+    HUMAN_REVIEW at risk level 2). The card, both changelogs and README say so, and
+    `tests/test_trial_pack.py` pins the ordering for LP-23.
+  **For counsel (not decided here; the owner sends the memo):** whether SNOMED CT codes may stay
+  in the repository's tests and fixtures (the US Core fixtures code procedures and referrals in
+  it), the scan's own list (`scripts/check_snomed.py`), the notes and the history (earlier
+  commits carry the old packs and dataset); SNOMED CT needs an Affiliate Licence, free in member
+  territories, low-income countries and qualifying research, paid elsewhere. What ICD-10-CM's
+  terms need (free to use from NCHS, adapted from WHO's copyrighted ICD-10 for U.S. government
+  purposes). What the published container images must carry: the Debian base image's GPL and
+  LGPL packages, and the LGPL-3.0 PostgreSQL driver: psycopg-binary bundles libpq, OpenSSL 3 and
+  1.1.1, libxcrypt and keyutils (LGPL-2.1+), Cyrus SASL and MIT Kerberos (attribution clauses),
+  OpenLDAP, PCRE2 and libselinux; since #180 every image carries their licence texts and notices
+  in `/licenses`, with its source pushed beside it, the approach counsel is asked to confirm
+  ("Image licence compliance" below). Whether the X12 code values in
+  `src/mendari/standards/pas.py` (shipped) may stay under X12's terms.
   **For the owner (conflict with the build prompt):** LP-14 asks to move a copyleft driver to an optional extra; psycopg is a hard
   dependency because the hosted deployment installs from the lock without extras, so moving it
   would change how production installs. Kept as is, with a named exception; say if you want the
@@ -422,7 +483,7 @@ behaviour.
     `docs` job). `site_url`: `https://junebugg1214.github.io/mendari/`. Nothing published or
     deployed. **Owner, open:** the docs URL (GitHub Pages by default; a custom domain is a
     `site_url` change), Pages needs the repository public on the Free plan; the first TestPyPI
-    upload waits for the SNOMED CT swap (LP-14, owner's choice 2026-10-07) and a public
+    upload no longer waits on SNOMED CT (swapped out of the packages, LP-14) but needs a public
     repository (`release.yml` publishes to TestPyPI only from one); the `testpypi` environment and
     TestPyPI's pending publisher (owner steps 7 and 8). **Review** (two lenses, each finding
     checked by a skeptic): 2 medium, fixed: the rehearsal at `0.1.0rc1` failed the release's
@@ -445,9 +506,10 @@ behaviour.
   G2-3 1 of 8, G3-4 0 of 7, G4-5 0 of 6, G5-6 0 of 6. Read against the audited `e55ed48c`,
   every prerequisite is unmet, the audit's 0 of each (each has a pending probe, an empty
   attestation, a missing NOTICE or runbook, or tests that did not exist yet); worked out by
-  hand, as the script itself stops there with exit 2, naming the test files it lacks. A5 waits
+  hand, as the script itself stops there with exit 2, naming the test files it lacks. A5 waited
   on LP-08's open owner question (an explicit `MENDARI_PHI_MODE=off` with sign-in starts with a
-  warning outside Vercel, where A5 step 1 asks for a refusal). New evidence tests: the notice's
+  warning outside Vercel, where A5 step 1 asks for a refusal; since closed: the refusal, LP-08
+  above). New evidence tests: the notice's
   three clauses, the acknowledgement required by default (the notice tests now run on the
   default), axe on the acknowledgement dialog, the label on every dashboard view of every
   reference pack and its words, CONTRIBUTING's sign-off and the Contributor Covenant 2.1. `tests/test_shipped.py`: the Definition of
@@ -495,6 +557,195 @@ clinical-trial-prescreener, referral-router) are rewritten, with a decision-iden
 rebuild, before a reference version that differs from the installed one is published to a
 registry or copied into the store.
 
+- [ ] **LP-16 build** (ADR-0009), in the PRs below:
+  - [x] **16a** (#185, merged 2026-10-08) The engine for packs the deployment does not own:
+    `Pack.bounded` (a community pack, or a pulled one whose digest, the one `load_pack` hashed, is
+    not a reference pack's of the installed release, `core/reference.py`);
+    `archive.extract(..., origin=)` required, with `hub` from the registry's publish,
+    `mendari pull` (before the rename, so a refused pack is never cached) and
+    `mendari pack verify`; `Decision.from_path` takes its path's origin; `mendari pull` says which
+    engine; ADR-0009, the spec amended in place, the docs, threat model D8 and S15; the a3 probe's
+    pending line replaced by its tests. No pack artifact changes.
+  - [x] **16b** (#184, merged 2026-10-08) A wall-clock deadline across one decision's remote
+    calls, every pack (`MENDARI_DECISION_DEADLINE_S`, 120 s unless set), recorded as `timeout`;
+    an answer still arriving stops at it, the CQL engine's included; threat model D9.
+  - [x] **16c-1** (#187, merged 2026-10-08) ai-guard's `claim-about-the-record` without its
+    lookahead, spelled out a letter at a time and exact on every input on both engines
+    (`test_lookaround_rewrites`: every shipped input, the ledger, a seeded fuzz on `re` and RE2),
+    ai-guard 0.1.4 and its rebuild; the parity test now skips only the three lookarounds 16c-2
+    holds.
+  - [ ] **16c-2** (held for the owner) pregnant, pancreatitis and new-lung-mass: the owner
+    chooses between S (a structural `not_followed_by` rules key, a format change) and D (the
+    data-identical rewrites, with their fuzz differences and the slowdown on `re` accepted in
+    writing). Until then the trial and referral packs cannot publish a version that differs from
+    the installed one: a puller refuses it, with the reason.
+  - [ ] **F** (PR open, with 16f; found in the 16a review) A pack from a registry with a reference
+    pack's id and a version that ties its (`version_key`, now in `core/spec.py`) but another
+    digest took the reference pack's place, since the cache wins a version tie: it ran bounded,
+    under the reference pack's name. Refused at load for origins the deployment does not own
+    (`_shadow_problem`, from `core/reference.py` `reference_packs`), so at publish (422), pull
+    (before the rename), the pull's cache hit, `mendari pack verify` and `Decision.from_path`;
+    one cached before is listed under `invalid` with the directory to remove, and the reference
+    pack is served. Threat model S16; S15's and a3's tests moved to 9.9.9 with their names kept.
+  - [ ] **16d** (#188, PR open) Health does no pack work in the request: every served pack is built at
+    startup and health reads that snapshot; `deployment.recorded` stays on first use, and a pack
+    that fails to build is never rebuilt (conflicts 15, 16, 23).
+  - [ ] **16e-1** (PR open; PR C, after A and B) Closed provider configs checked at load
+    (`providers.config_problems`, each provider's `config_problems`, new `FileConfig` and
+    `NaiveBayesConfig`): refused for packs the deployment does not own, `Pack.warnings` for owned
+    ones (`mendari list` on stderr, the start-up log, health `pack_warnings` past the `read`
+    check), `mendari validate` refuses both. An owned pack's constructors raise only on what they
+    raised on before, so an unread key warns and the pack still serves (conflict 17). The
+    deployment's model, caps on `max_tokens`, `timeout_ms` and effort
+    (`core/origin.py` `deployment_config`, keyed on `Pack.bounded`), `state_fields` on llm and
+    jev variants and members, the parity test (and an exhaustive one-change sweep beneath it),
+    the hypothesis egress test, the generated JSON Schema
+    (`docs/spec/provider-configs.schema.json`, `scripts/provider_config_schema.py --check`);
+    the CQL declaration search made linear, since load now runs it on registry packs
+    (conflicts 17–19, 24, 25).
+  - [ ] **16e-2** (PR open; PR D, after C) The provider egress allow-list
+    (`MENDARI_PROVIDER_ALLOWED_ORIGINS`, off unless set; `providers/http.py` `require_allowed`
+    in `require_secure`, Jev's model list and Vercel Connect, the AI Gateway's default included;
+    a set `LLM_BASE_URL` or `JEV_API_URL` off it stops startup, `providers.provider_allow_list`;
+    health `provider_allowed_origins` past the `read` check), relative prefetch templates
+    (`core/spec.py` `PREFETCH`, `prefetch_problems`) and bare placeholders
+    (`core/templates.py` `template_problems`): refused for packs the deployment does not own (a
+    not-owned pack's FHIR mapping and Task text now read at load), `Pack.warnings` for owned
+    ones' prefetch and card summaries; an owned pack's Task text keeps the name check where it
+    serves, and `mendari validate` holds every pack's to bare placeholders; `fill` unchanged
+    (conflicts 20, 21).
+  - [ ] **16f** (PR open, with F) Depth and `$ref` bounds for the input schemas of packs the
+    deployment owns (`core/input_schema.py` `expansion_problems`, over `core/schema_graph.py`,
+    the graph moved out of `core/caps.py` with each `$ref` edge marked; the caps count as
+    before): nested at most 32 deep, chains of at most 16 `$ref`s, at most 1,000 schema objects
+    on one value, loops only as a recursive list or tree, and no `unevaluatedProperties` or
+    `unevaluatedItems` below another (conflict 22). The shipped packs, scaffolds and fixtures:
+    6, 1 and 2. Packs it does not own keep B11's caps and budget, unchanged. Threat model D10.
+  - [ ] **16g** (PR E, last) The threat model's "Pack content" part. LP-16 counts as merged for
+    LP-18 and LP-20 when it lands; 16c-2 still waits for the owner.
+
+  **LP-16 rest, in order:** A (F and 16f, this PR); B (16d, beside A); C (16e-1, after A and B);
+  D (16e-2, after C); E (16g, after A to D).
+
+  **Conflicts written before building LP-16, and the default each PR follows** (the owner may
+  choose otherwise; each default is named by the PR that depends on it):
+  1. (16a) Requirement 1 and its first test are narrowed to packs the deployment does not own
+     (owner, #175). Test 1 at 100,000 characters: a pulled pack refuses text over 10,000
+     characters before any pattern runs (BLOCK "input rejected"), so the test asserts the
+     refusal at the decision and linear scaling at the pattern level. Reference and local packs
+     stay on `re`, with no budget.
+  2. (16a) The engine follows the bytes. A pulled pack runs on `re` only when the digest
+     `load_pack` hashed equals one of the installed release's bundled packs'. Metadata, the
+     manifest's `publisher.type` and the registry's recorded digest never choose the engine. A
+     local copy of a pulled pack is owned (`re`), and there is no setting to put a pulled pack
+     on `re`.
+  3. (16a, 16b) Error codes: `time_budget` stays the CPU budget's (requirement 2's
+     `budget_exhausted` is the daily call limit: HTTP 429, FHIR "throttled"). The deadline uses
+     `timeout`. No code is added.
+  4. (16a) The whole B11 engine comes along for a pulled pack, not only the five items the
+     owner named: the input-shape limits (10,000 values, depth 32), the 100-error stop and the
+     short schema reasons, because they share the gate. Run-time reasons stored in the audit
+     keep "a community pack" for community packs and say "a pack from a registry" for pulled
+     ones. Load-time messages become origin-neutral ("a community or registry pack").
+  5. (16a) No policy change. "Then a person decides" is held as: a pulled pack's `time_budget`
+     never leaves AUTO, and a failed primary abstains. A pulled pack's own BLOCK rule that
+     matches on answers from other slots still decides, as for every failure code today. A
+     BLOCK can be the safe direction: ai-guard's `possible-block` means "do not send".
+  6. (16a) ADR-0007, the threat model's residual risks and `SECURITY.md` promised an isolated
+     process; the owner chose no worker process. ADR-0009 records Option A scoped and amends
+     them; ADR-0007 has an "Amended by ADR-0009" status line.
+  7. (16c) Only the ai-guard rewrite is decision-identical on every input. pregnant and
+     pancreatitis lose matches (the unsafe direction) and are 26 times slower on `re`;
+     new-lung-mass differs both ways. Default: 16c-1 (ai-guard) lands; 16c-2 waits for the
+     owner's choice between S and D. Until then the trial and referral packs cannot publish a
+     version that differs from the installed one: a puller refuses it, with the reason.
+  8. (16c-2 if S) A new rules key is a format change (Definition of shipped §8,
+     `notes/vision-audit.md`). Default: not in LP-16.
+  9. (16a) "Pin the dialect in the spec": 0.2 §5 is amended in place, as B11 did. The pack
+     format is unchanged and every pack loads as before.
+  10. (16a, 16b) Gate G3-4: the a3 `pending` probe is replaced by 16a's tests and 16b's
+     (`test_a_deadline_never_automates`); its narrowed `what` holds no pending line. "Fuzzing"
+     in the `what` line keeps no probe of its own.
+  11. (all) Requirements 4–7 and the hypothesis, health, parity and nested-`$ref` tests are not
+     narrowed by the owner and are not in 16a–16c. Default: they ship as 16d–16g: 16d, health
+     does no pack work in the request; 16e, closed provider configs (for packs the deployment
+     does not own, the deployment chooses model, `max_tokens`, `timeout_ms` and effort;
+     `state_fields` is required on remote variants; an egress allow-list); 16f, a depth and
+     `$ref` bound for owned schemas, only if every shipped pack passes, else a new conflict;
+     16g, the threat model's "Pack content" part. LP-16 counts as merged for LP-18 and LP-20
+     only when 16d–16g land too.
+  12. (16a) The sandbox registry seeds from the host checkout into an image built earlier.
+     Default: document `docker compose up --build` (README, `docker-compose.yml`).
+     `hub_seed.py` is unchanged and stops at the first refusal.
+  13. (F) A pack from a registry with a reference pack's id and a tying version but another
+     digest is refused at load, pull and publish. A deployment that already cached one switches to
+     the bundled pack and lists the cache copy under `invalid`; the registry refuses such a publish
+     with 422. Default: refuse, for origins the deployment does not own only. A copy in
+     `MENDARI_PACKS_PATH` (local) can still shadow, by the operator's choice (conflict 2).
+  14. (F) No rule says a changed reference pack bumps its version (referral 0.1.4, inbox 0.4.0
+     and prior-auth 0.2.0 each changed content without a bump). Default: no new CI check in
+     LP-16. The registry's refusal (conflict 13) forces the bump at publish, and conflict 12
+     already says the sandbox registry must be rebuilt (`--build`).
+  15. (16d) "While a decision on it is running" cannot hold in-process for an owned pack on `re`:
+     `re` holds the GIL (`(a+)+$` on 25 characters stalled a 1 ms ticker for 1,080 ms). Default:
+     the running-decision half is narrowed to packs the deployment does not own; the loaded-pack
+     half holds for every pack.
+  16. (16d) The deployment record. Default A2: build every served pack at startup and record
+     `deployment.recorded` on first use; health never writes. A pack that fails to build is
+     never rebuilt, and its reason is re-raised. Startup costs about 21 ms of CPU, and about 5 to
+     10 s more on the suite (240 `create_app` calls).
+  17. (16e) Requirement 5 validates every variant at load. For owned packs that would refuse packs
+     that load and serve today (an unused broken variant, extra keys nothing reads). Default:
+     refuse packs the deployment does not own; owned packs load with `Pack.warnings` (health
+     `pack_warnings`, the startup log, `mendari list`), and `mendari validate` refuses both. The
+     parity test is strict for packs the deployment does not own and "refused or warned" for
+     owned ones; making owned packs refuse later is a one-line change, for the owner. "Parity"
+     covers provider configs and, for packs the deployment does not own, the FHIR mapping; test
+     inputs and datasets stay validate-only, since they are attestations.
+  18. (16e) The prompt says "caps"; conflict 11 says "chooses". Default: `model` is the
+     deployment's; `max_tokens` and `timeout_ms` are capped at the provider defaults (4096; LLM
+     30 s, Jev 5 s), and a lower pack value is kept; `reasoning_effort` is kept at `none` or `low`
+     and removed if higher. No new settings. Community packs are now capped on timeout and effort
+     too (visit-sorter sets neither). A hub pack's pinned LLM model no longer applies, so its
+     remote answers can change; no shipped or deployed pack pins one.
+  19. (16e) "Remote variants" means llm and jev (`MODEL_TYPES`). CQL is `remote = True` but sends
+     a fixed bundle (`record_fhir.py`) and has no `state_fields`. Default: `state_fields` (at
+     least 1 entry) is required only on llm and jev variants and members of packs the deployment
+     does not own. Fixture changes: visit-sorter and `test_decision_deadline.py`.
+  20. (16e) Egress allow-list. Default: when unset, no new check (endpoints come only from fixed
+     environment names). When set, it is checked at startup for the endpoint variables that are
+     set, and on every outbound provider request, the gateway default and Vercel Connect
+     included (`invalid_endpoint`). CQL stays on the FHIR allow-list.
+  21. (16e) Requirement-5 items not in conflict 11's list: the generated JSON Schema (PR C),
+     relative prefetch and bare placeholders (PR D). Default: refuse packs the deployment does
+     not own, warn owned ones. Their Task-text templates are now checked at load; `fill` is
+     unchanged.
+  22. (16f) Default: the bound applies to owned packs only; packs the deployment does not own keep
+     the caps and the CPU budget ("killed within the budget"), so B11's budget tests are
+     unchanged. Every shipped pack, template and fixture passes, with margins of at least 5x on
+     depth, 16x on the chain and 500x on applications. An operator's local pack beyond the bound
+     stops being served and is listed under `invalid`, as conflict 11's default says. Recursive
+     schemas are allowed only as simple cycles through properties or items; a binary-tree
+     recursion is refused, and so (PR A) is a loop that leads to another loop, since one value
+     would meet the inner one once for each level of the outer. The PR A review found that
+     `unevaluatedProperties` and `unevaluatedItems` validate again every schema below them
+     (jsonschema's `find_evaluated_*_by_schema`), so nested ones multiply the work within every
+     count above (on `{"a": 1}`, one `$defs` of 13 took 7 ms, two 3.5 s, three over 60 s).
+     Default: refuse a schema holding one that leads, through any applicator (a property's or an item's too, which also
+     multiplies), to another holding one, or back to itself; one per path still loads. No shipped
+     pack, scaffold or fixture uses either keyword.
+  23. (16d, recorded only) Health and `admit` share AnyIO's 40-thread pool with the decide
+     routes, which can wait up to `MENDARI_DECISION_DEADLINE_S` (120 s). Default: a residual
+     risk, written in 16g; not in LP-16.
+  24. (16e, recorded only) These still run as packs set them, for packs the deployment does not
+     own: Jev `cost_per_1k_input_tokens_usd` (which sets the recorded `cost_usd`), `batch: false`,
+     `temperature`, `JEV_DEFAULTS` and unscoped `MENDARI_PROVIDERS` settings applying to hub packs
+     by id, and the eval route letting a caller choose any variant of a pack that is not a
+     community pack. Default: a residual risk (16g), for LP-20; changing them would change hub
+     packs' decisions.
+  25. (16e) `hypothesis` is added as a development dependency (`pyproject.toml`, `uv.lock`) and
+     runs with `derandomize=True`, so CI stays deterministic.
+
 **B38, the pilot EHR (owner, 2026-10-07):** Epic, with Oracle Health as the backup, chosen by
 vendor fit while no design partner is on record; the first pilot site's own EHR overrides it.
 LP-23 builds to Epic's published CDS Hooks token (RS384 or ES384, a `jku` equal to an allow-listed
@@ -502,6 +753,80 @@ URL, `iss` the FHIR base, `aud`, `sub`, `jti` replay) with a test key pair. The 
 Epic's free sandbox when LP-23 starts, from a checklist Claude sends (the APIs the packs read,
 ServiceRequest and Communication included). An Epic shared by several organizations (Community
 Connect) is not supported yet.
+
+**Container images wait until they comply (owner, 2026-10-07):** after a licensing analysis the
+owner received in October 2026, no image goes to GHCR until it carries what the licences of
+everything in it ask, and `release.yml` refuses to push one that fails the checks. Images are
+pushed only by `release.yml`'s `publish-images`, on a release to PyPI (the TestPyPI rehearsal
+pushes none), so the first published images wait on the item below; the PyPI release does not.
+
+- [ ] **Image licence compliance** (#180, draft, branch `claude/image-licence-compliance`; the
+  images wait on it). Every image carries `/licenses`: Mendari's `LICENSE` and `NOTICE`,
+  `SOURCE.md` (where the corresponding source is), `THIRD_PARTY_NOTICES.md` and `inventory.json`
+  written by the build from what the image holds (`scripts/image_notices.py`, run inside the
+  image on its own Python), `third-party.cdx.json` (what an SBOM scanner cannot see by itself)
+  and `third-party/` (texts). `licenses/image/` keeps what the image would otherwise lack:
+  `components.toml` (41 components, each with its version, licence, source, and texts fetched
+  from its upstream at that version: what psycopg-binary 3.3.6 bundles on each architecture, from
+  its wheels' auditwheel SBOMs and its build (libpq 18.6, OpenSSL 3.5.8, OpenLDAP 2.6.14; on
+  amd64 CentOS 7's Cyrus SASL, MIT Kerberos, com_err, keyutils, libselinux and PCRE and
+  manylinux2014's libxcrypt 4.5.2; on arm64 AlmaLinux 8's, with PCRE2, libxcrypt 4.1.1 and
+  OpenSSL 1.1.1k), what cryptography, cffi, PyYAML and google-re2 link statically, the Rust
+  standard library, CPython 3.12.15's incorporated software and pip 25.0.1's 17 vendored
+  packages), `crates.toml` (the 143 crates the Rust packages' own SBOMs list, 75 distinct texts
+  from crates.io, each crate checked against its SBOM's SHA-256), 130 texts with `SHA256SUMS`
+  (`scripts/image_licence_texts.py`). GPL and LGPL components name their exact source pinned by
+  SHA-256 (keyutils' and libxcrypt's SRPMs, libxcrypt 4.5.2 with manylinux's build scripts,
+  psycopg's tag and sdists, certifi, pip, CPython). Debian's `/usr/share/doc/*/copyright` (the
+  base image's slim configuration keeps them; nothing removes them) and
+  `/usr/share/common-licenses` are checked present. The label keeps `licenses=Apache-2.0` with a
+  description naming it Mendari's only and pointing at `/licenses`.
+  `scripts/check_image_licences.py` fails an image with anything uncovered (a package without
+  its copyright file, a bundled library, crate or native package at a version nobody reviewed, a
+  text missing or changed, stale notices, the wrong LICENSE or NOTICE, the label), and scans an
+  SBOM: permissive, or copyleft with its source published, or a reviewed exception (GCC's
+  runtime, libcrypt1 and debian-archive-keyring by their copyright text's hash, xz's notice on
+  the GNU licence documents, distlib's launchers in pip); unknown fails. `release.yml`: BuildKit
+  attaches an SBOM of each finished image (`docker/buildkit-syft-scanner` 1.12.0 by digest), each
+  architecture of each image is checked and its SBOM scanned, the run keeps the SBOMs with each
+  package's source location (90 days), a new `image-sources` job collects every Debian source
+  package at its installed version (deb.debian.org, then the security archive, then
+  snapshot.debian.org; each file checked against its `.dsc`) and the components' sources into a
+  files-only image, and `publish-images` (now after it) pushes it as `<tag>-sources` before
+  each image. CI's `docker` job runs the image check. Measured on the engine image built locally
+  (arm64 native, amd64 under QEMU): both pass, the SBOMs' 330 and 327 packages allowed; the
+  sources are 61 Debian source packages and 13 other files, 345 MB (one 339 MB layer), collected
+  in 12 s. Size (compressed, on disk): arm64 71.8 and 335 MB before, 72.0 and 338 MB after;
+  amd64 69.6 and 303 MB before, 69.8 and 307 MB after (`/licenses` is 3.3 MB).
+  **Not done, for the owner:** attaching the sources to a GitHub release (no release is created
+  today, and it needs `contents: write` on a publishing job, which the workflow safety rules do
+  not allow; the `-sources` tag in the same GHCR repository is the source's place instead);
+  `SOURCE.md`'s fallback ("open an issue in the Mendari repository and the maintainers will send
+  it") commits the maintainers: confirm or name a contact; counsel to confirm the approach
+  (equivalent access from the same place, no separate written offer). Keep each `-sources` tag
+  as long as its image, and make it public with the image's package.
+  **Review (2026-10-08), six findings, all fixed:** `THIRD_PARTY_NOTICES.md` now gives a source
+  for every Python package (PyPI at its version, the component's for psycopg, certifi and pip,
+  the repository for Mendari) and every crate (crates.io), and Debian's section says where each
+  source package is (`inventory.json` gives each one's snapshot.debian.org address); the SBOM's
+  source locations are now read from that inventory, so the two always agree, and a package the
+  SBOM lists that the inventory does not fails the release (`no source location`). The SBOM with
+  source locations is the one in `<tag>-sources` (`/sources/sbom/`): README and SOURCE.md say
+  so, and that BuildKit's attestation has none (pushing the enriched copy as an OCI referrer
+  would add a tool to the publishing job that nothing can exercise before a release). CI's new
+  `image-sbom` job runs the release's SBOM scan on every change, with the release's generator
+  and builder (a test keeps them the same), so a base image bump that renames a Debian licence
+  or changes a reviewed copyright text fails in its own pull request. pip's vendored Requests
+  carries Requests' NOTICE file (Apache-2.0 4(d); none of the other Apache-2.0 components has
+  one upstream). CPython's corresponding source adds the official image's Dockerfile that
+  compiled it (docker-library/python 2a3b794c, 3.12/slim-trixie, pinned by SHA-256; its readline
+  and _gdbm modules link GPL-3.0 libraries), and `base_image` ties that recipe to the
+  `Dockerfile`'s base, so a new base image is reviewed again. The `Dockerfile` writes the
+  notices in a stage of its own instead of `RUN --mount`, so `docker build .` works again with
+  Docker's classic builder (a test keeps BuildKit-only syntax out). Not done: CI does not
+  collect the sources (`image_sources.py`): every run would fetch about 345 MB from Debian's
+  archive, and snapshot.debian.org as pinned versions leave the pool; a scheduled job is the
+  owner's call.
 
 - [ ] **LP-10** Statistics and a per-case ledger behind every number. Split in three PRs:
   - [x] **LP-10a** The statistics, the ledger, the report format and `mendari compare`
@@ -580,14 +905,14 @@ Connect) is not supported yet.
   runs use synthetic sets and throwaway keys. Owner, later: before any real set, generate the two
   keys, keep a copy off the laptop and set them; before contracting labellers, decide how they reach
   the hosted site while Vercel Authentication is on. Hand-written cases only until B20.
-- [ ] **LP-12** Accounts, memberships and invitations (ADR-0008, Proposed). Planned by a mapping
+- [x] **LP-12** Accounts, memberships and invitations (ADR-0008, Proposed; built 2026-10-08, G2-3's a6-accounts prerequisite met). Planned by a mapping
   workflow as eleven PRs, each leaving claims mode exactly as it is:
   - [x] **12a + 12b** (#159) This entry and ADR-0008; tenancy fails closed: for a signed-in
     principal of no organization (`tenancy.acting_for_nobody`), every read and write that
     resolves its organization through `tenancy.current()` is refused (`NoOrganization`, 403),
     never widened to all of them (None) or to `default`; an empty organization is one, never
     "any", in the key and client store.
-  - [ ] **12c** Decide-scoped credentials list packs and read CDS discovery (ADR-0004).
+  - [x] **12c** (#172, merged 2026-10-07) Decide-scoped credentials list packs and read CDS discovery (ADR-0004).
     **Owner decision (2026-10-07): approved, narrow.** The decide scope implies a read-only
     `discover` permission that reaches only `GET /api/packs` and `GET /cds-services`, each listing
     only the packs the credential may decide with (today every served pack; after LP-20 never
@@ -603,7 +928,7 @@ Connect) is not supported yet.
     administrator who has signed in keeps an organization administered; the commands that
     write refuse a protected database without its input-hash key; the preflight counts
     evaluation reports and names an id no record can have (`"recordable": false`).
-  - [ ] **12e** `MENDARI_ACCOUNTS=memberships`, in two PRs.
+  - [x] **12e** `MENDARI_ACCOUNTS=memberships`, in two PRs.
     - [x] **12e-i** (#163, merged 2026-10-07) The server: sign-in by records (the person recorded only when a
       membership waits for their verified address, they hold one, or were recorded before;
       what waits bound; one membership selected), a sealed `member` session holding the
@@ -614,11 +939,11 @@ Connect) is not supported yet.
       (`X-Mendari-Org`, 409); keys, clients and launches of an organization with no record
       refused; `mendari smart check` in memberships mode. Claims mode unchanged (acceptance
       test, and a matrix: a member is let through exactly as a claims person of the role).
-    - [ ] **12e-ii** (PR open) The dashboard: the access page (`access.js`: the request form,
+    - [x] **12e-ii** (#167, merged 2026-10-07) The dashboard: the access page (`access.js`: the request form,
       the chooser whenever a person holds a membership and none is chosen, roles that grant
       nothing), the switcher, every request naming the window's organization, the
       access-ended and window-moved banners, "Use another account"; browser tests.
-  - [ ] **12f** Invitations and member management (no e-mail sent), in two PRs, so the server
+  - [x] **12f** Invitations and member management (no e-mail sent), in two PRs, so the server
     does not wait on 12e-ii's dashboard files:
     - [x] **12f-i** (#169, merged 2026-10-07) The server, memberships mode only: an administrator's routes
       (people with `keys`, never a key) to invite (`POST /api/auth/invitations`, the link
@@ -653,10 +978,41 @@ Connect) is not supported yet.
       open server; axe in both themes; a phone's width) and 9 for the page's serving.
       Fixed in 12f-i: a refusal's body names its `reason` (the page read the
       wording), and removing a pending membership revokes the invitations to its address too.
-  - [ ] **12g** The organization bound into each chained event (memberships mode), checked by
+  - [x] **12g** The organization bound into each chained event (memberships mode), checked by
     `verify`; per-organization administrative reader and export; the generated two-organization
     isolation test with its reviewed allow-list.
-  - [ ] **12h** (PR open) The Access view's API keys and Clients tabs, for people holding
+    - [x] **12g-i** (#182, merged 2026-10-08) The binding and its check. A memberships-mode server marks the
+      database (`org_bound`, a settings row); every store that opens a marked one, the command
+      line's included, names in each event the organization of the row it is about, read in
+      the same transaction (`_bound`; the 14 kinds of before only when marked, every other kind
+      but the deployment's always, which `_append_many` enforces). `verify` checks it by kind
+      (`DECISION_KINDS`, `ADMINISTRATIVE_KINDS` with `SUBJECT_TABLES`; a person's, the
+      deployment's and unknown kinds unchecked, so a rollback never fails on a later release's)
+      and answers `"reason": "organization"` at the first event whose row was moved or deleted.
+      The answers of a review and a rating are unchanged (only the chained copy is bound); the
+      previous release's `verify` passes a bound chain.
+    - [x] **12g-ii** (#183, merged 2026-10-08) An organization's administrative events: `GET
+      /api/audit/administrative` (paged by `(subject, hash)`, never `seq`; `kind`, `subject`,
+      `since` / `until` as instants) and its FHIR export (AuditEvents of ids and codes, a new
+      CodeSystem and the `audit-subject` NamingSystem), administrators only, attributed through
+      each row the organization owns (`SUBJECT_TABLES`), fail closed on a payload naming another;
+      `mendari audit export --administrative [--org]`. Memberships mode leaves the deployment's
+      views to the operator (decision 5): verify and deployments `404`, health without totals,
+      a deployment hold without its reason and setter; the dashboard follows.
+    - [x] **12g-iii** (#186, merged 2026-10-08) The isolation test (`tests/test_two_organizations.py`): two organizations,
+      each with people of every role, API keys, Backend Services clients signed with its own key
+      and an EHR launch from its own tenant, seed through the API with a marker in every free
+      text; then every mounted route is called with the other's live ids (refused as an unknown
+      id is, nothing written) and with its own (served). Every answer is scanned for the other's
+      markers, ids, secrets and event hashes (echoes and the reviewed `FIELDS` taken out); reads
+      answer the same before and after the other works; every event chained is the caller's;
+      no signed-in call reads as every organization (probes on tenancy and on the store); a
+      route nothing calls and the allow-list (`DEPLOYMENT_WIDE`) does not name fails it. From
+      phase 2 every call also names the other organization in its query and body; a person of
+      both acts as the membership chosen; an automated decision runs on beside the other's hold;
+      every page is read. Both account modes, SQLite and Postgres; each of nineteen isolation
+      mutants fails it.
+  - [x] **12h** (#181, merged 2026-10-08) The Access view's API keys and Clients tabs, for people holding
     `keys`, in claims mode too (the people tabs stay memberships-only): a key made from a preset
     (the table drives role, scope and days, what it reaches and its guide) or by hand, its secret
     shown once (the invitation link's dialog), rotate with an overlap, revoke, history; a SMART
@@ -670,19 +1026,24 @@ Connect) is not supported yet.
     the one registry its verify and organization reader extend); another organization's is a
     404 naming no id. Key status worked out by the server; the clients' `keys_replaced_at`; the
     signed-in health's `backend_services`.
-  - [ ] **12i** Key presets in one table (API, screen, docs, doc-snippet checks).
-    - [ ] **12i-i** (PR open) The table (`server/presets.py`: rest, fhir, ai-guard, cds-hooks,
+  - [x] **12i** Key presets in one table (API, screen, docs, doc-snippet checks).
+    - [x] **12i-i** (#176, merged 2026-10-08) The table (`server/presets.py`: rest, fhir, ai-guard, cds-hooks,
       da-vinci, outcomes, fhir-reader; the FHIR ones name their types, never `system/*`),
       `preset` on `POST /api/auth/keys` (with the preset's role and no scope; a label stored
       and chained, never read when the key is used), `GET /api/auth/keys/presets` (each one's
       reach computed from the guard's rules), the guide's table, the doc-snippet pass per
       preset. The screen is 12h's.
-  - [ ] **12j** (PR open) A daily cap per principal (`MENDARI_PRINCIPAL_DAILY_LIMIT`, off
+  - [x] **12j** (#168, merged 2026-10-07) A daily cap per principal (`MENDARI_PRINCIPAL_DAILY_LIMIT`, off
     unless set, sign-in only) on the decisions it asks for (one per request that decides, one
     per CDS order hook draft order), per local day, after the rate limits admit them; past it
     `429` with `Retry-After` until midnight, before any work; `/api/health` shows a principal
     its own. Its value is the owner's.
-  - [ ] **12k** Close-out: the a6-accounts gate's probes, the README, the ADR's status.
+  - [x] **12k** (#193) Close-out: G2-3's a6-accounts prerequisite and its probes
+    (`launch/gates.yaml`: 20 tests, 130 with their cases, on SQLite, Postgres and in the
+    browser); the two acceptance lines that had no test of their own, `mendari audit verify`
+    after membership, invitation and key events, and an empty or `default` organization claim
+    placing no one in memberships mode; the README; and ADR-0008's status (built; accepted once
+    the owner's decisions below confirm or change its defaults).
 
   **Conflicts written before building, and the default each PR follows** (the owner may choose
   otherwise; each default is named by the one PR that depends on it):
@@ -790,6 +1151,14 @@ Connect) is not supported yet.
      extends the same store method).
   45. (12h) A new or rotated key's secret is shown once, as the invitation link is (25): only in
      the input's value, cleared when the dialog closes or the view is left.
+  46. (12g-ii) A notice acknowledgement is a person's, across organizations (notices.py), so an
+     organization's administrative list leaves it out; the operator's export has it.
+  47. (12g-ii) In memberships mode the deployment's records (`/api/deployments`, the Decision
+     Card's Deployments section) are the operator's, as accounts.md promised before 12g, and a
+     hold set for every organization shows what it covers and since when, not the operator's
+     reason or name. The owner may serve either to organizations instead.
+  48. (12g-ii) Open mode (a local sandbox, no one signed in) reads every event on no decision,
+     the deployment's own included: there the operator is the only reader.
 
   **Owner decisions** (none blocks a PR; each PR follows the recommended default): switching
   the hosted site to memberships mode, and when; the owner's identity for bootstrap (the
@@ -805,6 +1174,97 @@ Connect) is not supported yet.
   fields); whether asking to join an unknown organization should say so (default: the same
   answer, so it names no organization); recording only people a membership or a request
   concerns (default, as 12e-i does) or everyone who signs in.
+
+- [ ] **LP-21** Operations for a public service (ADR-0010, Proposed). Planned by a mapping
+  workflow (2026-10-08) as fifteen PRs, each safe alone; none changes what a valid pack
+  decides, and anonymous `/api/health` stays three fields with no database work:
+  - [x] **21a** (#194, merged 2026-10-08) Readiness, `GET`/`HEAD /api/health/ready`: one read of the chain's
+    table (`AuditStore.ping`, creating nothing) per instance every 5 s, whoever asks, in a
+    thread of its own waited for about 3.5 s, a failure kept too; a read never answered holds
+    that one thread and none starts again until it returns; a caller during a check gets the
+    last answer at once; the packs as start-up found them (`ok`, `degraded`, `none`); `503`
+    when unready; fixed codes only. Kubernetes' readinessProbe uses it; ADR-0010; this entry.
+  - [x] **21b** (#197, merged 2026-10-08) The status checks file (`deploy/status/checks.yaml`: readiness, the
+    sign-in redirect, a synthetic decide on AI Guard (local rules, even with Jev set up) by a
+    decide-only key in a status organization of its own, the registry, the Hub),
+    `scripts/status_checks.py`, `docs/operations/status-checks.md` and `/status`, a public
+    static page that reads readiness in the browser.
+  - [x] **21c** (#195, merged 2026-10-08) The monitor compares like with like: the served version (others
+    counted apart) since its current configuration started; the benchmark only for this build,
+    these providers and models, and this governance (`benchmark.reason` otherwise:
+    `no_benchmark`, `another_build`, `providers_unknown`, `other_providers`, `other_policy`);
+    accuracy stratum by stratum (reviewed, automated), alerting only beyond doubt; refusals
+    apart; drift over 50 confidences; whole weeks, 14 to 180 days; awaiting review counted; an
+    unknown cost unknown. The CLI checks each pack's newest version. The view, README, guide and
+    spec say so.
+  - [x] **21d** (#198, merged 2026-10-08) Operational health in the monitor: provider error share (an additive
+    `decisions.provider_errors` count, written beside the record; NULL on older rows, left
+    out), abstention share and latency (p50, p95, mean), with week-over-week alerts
+    (`provider_errors`, `abstention`, `latency`) over 50 decisions or more, needing no
+    benchmark; the view's weekly table shows them.
+  - [x] **21e** (#196, merged 2026-10-08) Alert delivery (`mendari.alerts`): `MENDARI_ALERT_FORMAT` (`mendari`
+    JSON or `slack`), an HMAC signature (`MENDARI_ALERT_SECRET`: `Mendari-Signature`, with the
+    receiver's recipe in the guide, run by the tests), retries (no answer, `408`, `429`, `5xx`)
+    and an `alert_deliveries` record (never the URL or the secret); the quota alert one try on
+    the decision, recorded for `retry_due`; `mendari monitor` exits 3 when its alerts could not
+    be posted; threat model S17.
+  - [x] **21f** (#199, merged 2026-10-08) `GET /api/internal/monitor`, guarded by `CRON_SECRET` before any
+    database work (`require_cron`, shared with the purge): pending alerts sent again, then each
+    organization with decisions on its own (but `MENDARI_STATUS_ORG`), one recorded alert each,
+    retries for 60 s, no organization started after 180 s, an alert naming those left, a
+    different first organization each day; `mendari monitor --each-org` (0 when every alert
+    was posted, 1 on an error, 3 when one was not); the templates run it, the Kubernetes job
+    never re-run; gate `hosted-monitoring` names its tests and waits for 21n.
+  - [ ] **21g** (#201) The usage ledger (`usage_ledger`: local day, organization, provider type,
+    purpose `decision` or `evaluation`; calls, priced calls, tokens, the priced calls' cost),
+    written with the decision (or the evaluation's report) in its transaction from each
+    decision's meter (`providers.base.Meter`: `sending` counts a call as it is sent, `metered`
+    its tokens and price, both bounded); `AuditStore.usage_ledger` shows a cost only when every
+    call was priced.
+  - [ ] **21h** Evaluations count against their organization (`eval_jev`, `eval_llm` quotas).
+  - [ ] **21i** `GET /api/usage`, the admins' usage screen and the operator's CLI.
+  - [x] **21j** (#202, merged 2026-10-08) Audit checkpoints and incremental verify: `audit_checkpoints` (seq, hash, when;
+    outside the chain), `mendari audit checkpoint` (verify from the last, record the head),
+    `mendari audit verify --since-checkpoint`; a full verification checks every checkpoint
+    (`reason: checkpoint` for a chain rewritten from before one or cut short of it).
+  - [ ] **21k** The signed daily checkpoint (`MENDARI_CHECKPOINT_KEY`).
+  - [x] **21l** (#200, merged 2026-10-08) Break-glass revocation commands: `mendari access keys|clients` (read-only),
+    `mendari access revoke key|client <id>` and `revoke all --org` (each still in force), and
+    `mendari access end-sessions --kind people|launches|all` (never the assertion claims),
+    straight to the database for any organization, each with a reason chained
+    (`key.revoked`, `client.revoked`, the deployment's `sessions.ended`);
+    `docs/operations/revoking-access.md`; the hold page's table names the command line.
+  - [ ] **21m** `docs/operations/incident-runbook.md`, backup and restore with a tested verify.
+  - [ ] **21n** The hosted schedule (`vercel.json` crons): **owner's go-ahead before merging**.
+  - [ ] **21o** Firewall enforcement: **owner only**, after the log-only week.
+
+  **Defaults each PR follows** (the owner may choose otherwise):
+  1. (21a) Readiness says fixed codes and the version only: no pack ids, counts or error text.
+  2. (21a) Its rate limit is the cache: one database read per instance every 5 s whatever the
+     request rate, and one request thread at most. No per-address `429`: it would fail a probe
+     sharing its address with other callers (review of 21a).
+  3. (21a) `HEAD` on readiness only; `/api/health` keeps `GET`.
+  4. (21a) A pack that did not load or build makes readiness `degraded` (`200`); `503` only
+     when the database fails or no pack is built.
+  5. (21a) Kubernetes: readinessProbe on readiness (10 s, 3 failures); liveness and the Docker
+     `HEALTHCHECK` stay on `/api/health`.
+  6. (21b) The in-app status view is minimal; the owner's external status page is the one that
+     survives a full outage.
+  7. (21c) No leaderboard fallback: a benchmark that is not comparable leaves no reference.
+     The hosted site runs Jev where the reference packs' benchmarks measured `naive_bayes` and
+     rules, so it gets no accuracy or drift alerts against them until a benchmark measures
+     its configuration; the view and `mendari monitor` say why.
+  8. (21c) A governance approval in force is part of the configuration: a benchmark measured
+     without one is not compared with a pack automating under one (`other_policy`).
+  9. (21h) Evaluations get their own organization quotas, unset meaning no limit; charging
+     them to the live quotas could push live decisions to review (clinical behaviour).
+  10. (21k) The public checkpoint carries no sequence number or count, and is published only
+     once the owner sets the key.
+
+  **Owner decisions** (none blocks 21a to 21m): the status page provider, its checks and who is
+  paged (B36); the evaluation quota values; the alert format, secret and destination; the
+  checkpoint key and where its public key is published; the hosted schedule (21n); firewall
+  enforcement (21o).
 
 ## Plan: community packs through pull requests (2026-10-04)
 Make the repository public so outside developers can contribute packs by pull request. Plan from
@@ -909,7 +1369,8 @@ B6/B7 → B8 → B9 → B10).
   Built: `packs.yml` job `pack-check`; `scripts/changed_packs.py` covers `community-packs/`;
   `scripts/community_check.py` (scope, each changed pack, a removed pack's tombstone).
   "Owner" is the pull request's author (`pull_request.user.login`, never `github.actor`) equal to
-  `github.repository_owner`, from a branch of this repository. Review fixes: only the owner
+  `github.repository_owner` (since the move to mendari-hq, the person the base's CODEOWNERS
+  names: see that section), from a branch of this repository. Review fixes: only the owner
   removes a pack; a git submodule under `community-packs/` fails; an update is gated on the
   base's benchmark dataset too; composite members' models are retrained; no BLOCK rule, no
   Mendari name, FHIR systems under the pack's own url.
@@ -1108,8 +1569,10 @@ build session. A1–A8 come before A9 (making the repository public); A10 and A1
      `release.yml`, environment `pypi`. Check after: it is listed as a pending publisher, and
      the name `mendari` is still free on PyPI. The same on **test.pypi.org** with environment
      `testpypi`.
-8. **Release 0.1.0.** First a rehearsal on TestPyPI, after the SNOMED CT swap merges (LP-14: the
-   wheel carries those codes until then; owner's choice 2026-10-07): a build PR sets the version to `0.1.0rc1` everywhere it is
+8. **Release 0.1.0.** First a rehearsal on TestPyPI, once the repository is public (`release.yml`
+   publishes to TestPyPI only from a public one; going public publishes the tests' SNOMED CT
+   codes and the history, LP-13 and LP-14's counsel item; the packages carry none since the
+   SNOMED CT swap): a build PR sets the version to `0.1.0rc1` everywhere it is
    written (`tests/test_release_gate.py` lists them; `CHANGELOG.md`'s `## 0.1.0` section serves
    it) and pins the rc's fixed FHIR resources, which carry the version (`PINNED` in
    `tests/test_terminology.py`; its failure prints the entry), then tag it
@@ -1123,7 +1586,9 @@ build session. A1–A8 come before A9 (making the repository public); A10 and A1
    runs the tests and builds and tests the packages and the six images (amd64 and arm64). When it
    is green, run it again from the same tag with publish **on** and target **`pypi`**, and in the
    run approve the `pypi` deployment and the six `ghcr`
-   deployments. Check after: pypi.org/project/mendari shows 0.1.0
+   deployments (the images wait on the image licence compliance PR, owner's decision
+   2026-10-07; once it is in, each `ghcr` deployment pushes `<tag>-sources`, then the image).
+   Check after: pypi.org/project/mendari shows 0.1.0
    with a wheel and an sdist; in a fresh venv, `pip install mendari` then `mendari test
    mendari/patient-inbox-router` passes; the release job's "The sdist holds only what a source
    build needs" step passed; GitHub → your profile → Packages lists the six `mendari-*`
@@ -1570,6 +2035,17 @@ Sign-in: Google, the owner as the only admin.
 - [x] Docs: `deploying-with-phi.md` (Google), the audit's Phase 1 status
 - [x] Production: the owner's Google OAuth client; settings for Production only; preview's
   effective configuration equal to production's before merge; sign-in verified after deploy
+
+## Done: the move to the mendari-hq organization (2026-10-08)
+The repository moved from `Junebugg1214/mendari` to `mendari-hq/mendari` (still private).
+- [x] Follow-up PR (#212): packs.yml passes `github.repository_owner` as the owner. Since the move
+  that is the organization, which no pull request's author is, so the owner's pull requests could
+  no longer remove a community pack or change `community-packs/` with other files (failing closed).
+  `scripts/community_check.py` now takes the owner from the `*` rule of `.github/CODEOWNERS`, read
+  from the base (a pull request's own copy could name its author), one person only (a team, an
+  email, several people or a symbolic link name no owner), and only for a pull request into the
+  default branch (another branch's CODEOWNERS is anyone's who may push); `--owner` is gone, and the
+  fork rule stays.
 
 ## Done: the rename to Mendari (2026-09-30)
 `openhealth` was taken on PyPI by another project, so OpenHealth Hub became **Mendari**

@@ -47,6 +47,7 @@ Rating = Literal["up", "down"]
 
 if TYPE_CHECKING:
     from mendari.core.decision import DecisionResult
+    from mendari.providers.base import Metered
 
 GENESIS = "0" * 64
 # The events that create or change a decision's result. Each makes a new version of the
@@ -81,6 +82,10 @@ ERASE_REASONS = ("request", "error")
 PURGE_BATCH = 500
 # The chain id a purge's summary is chained under (`retention.purged`): no decision's.
 RETENTION_CHAIN = "retention"
+# What the usage ledger counts remote calls for (LP-21g): live decisions, and evaluations.
+USAGE_PURPOSES = ("decision", "evaluation")
+# The chain id the break-glass ending of sessions is chained under (`sessions.ended`, LP-21l).
+SESSIONS_CHAIN = "sessions"
 # The `settings` row a database is marked with once a store opens it under PHI mode `hash` or
 # `encrypt` (the first such mode): from then on no store under `off` keeps input text in it.
 PROTECTED = "phi_protected"
@@ -100,6 +105,90 @@ ROTATE_BATCH = 200  # values a rotation re-seals per batch (one chained event ea
 CHECK_FAILURES_SHOWN = 50
 # Rows per insert when chaining several events at once (`_append_many`): a page is at most 500.
 _APPEND_BATCH = 500
+# The organization in the chain (LP-12g, ADR-0008). A database a memberships-mode server opened
+# is marked (`ORG_BOUND`, a `settings` row, never removed): from then on every store that opens
+# it, the command line's and a claims-mode server's included, names in each event the
+# organization of the row it is about (`_bound`), and `verify` checks that name against the row.
+ORG_BOUND = "org_bound"
+# Each kind of event by what it is about. On a decision: the kinds the FHIR export reads
+# (standards/audit_fhir.py `_EVENTS`), whose organization is the decision's.
+DECISION_KINDS = frozenset(
+    {
+        "decision.created",
+        "review.resolved",
+        "outcome.recorded",
+        "feedback.recorded",
+        "pas.submitted",
+        "input.read",
+        "input.purged",
+        "input.erased",
+        "note.erased",
+    }
+)
+# On a row of its own, under `<prefix>:<id>`: the table, its id column, and the row's
+# organization as SQL, mapped as `_org_of` maps it (NULL is `default`), except a hold's: NULL is
+# the deployment's, a hold set for every organization.
+_ROW_ORG = f"COALESCE(org, '{tenancy.DEFAULT_ORG}')"
+SUBJECT_TABLES: dict[str, tuple[str, str, str]] = {
+    "key": ("api_keys", "id", _ROW_ORG),
+    "client": ("oauth_clients", "client_id", _ROW_ORG),
+    "governance": ("governance_approvals", "id", _ROW_ORG),
+    "hold": ("automation_holds", "id", "org"),
+    "eval": ("eval_reports", "id", _ROW_ORG),
+    "org": ("organizations", "id", "id"),  # an organization is its own
+    "membership": ("memberships", "id", _ROW_ORG),
+    "invitation": ("invitations", "id", _ROW_ORG),
+    "access": ("access_requests", "id", _ROW_ORG),
+}
+ADMINISTRATIVE_KINDS: dict[str, str] = {  # kind -> its subject's prefix (`SUBJECT_TABLES`)
+    "key.created": "key",
+    "key.rotated": "key",
+    "key.revoked": "key",
+    "client.registered": "client",
+    "client.revoked": "client",
+    "client.keys_replaced": "client",  # a client's JWK Set replaced (LP-12h)
+    "governance.approved": "governance",
+    "governance.revoked": "governance",
+    "automation.held": "hold",
+    "automation.lifted": "hold",
+    "eval.recorded": "eval",
+    "organization.created": "org",
+    "membership.created": "membership",
+    "membership.roles_changed": "membership",
+    "membership.removed": "membership",
+    "membership.bound": "membership",
+    "invitation.created": "invitation",
+    "invitation.accepted": "invitation",
+    "invitation.revoked": "invitation",
+    "access.requested": "access",
+    "access.handled": "access",
+}
+# A person's, across organizations: the organization they acted for is in the payload, no row.
+PERSON_KINDS = frozenset({NOTICE_EVENT})
+# The deployment's own, no organization's: never bound.
+DEPLOYMENT_KINDS = frozenset(
+    {
+        "deployment.recorded",
+        "input_hash.epoch",
+        "phi.rotated",
+        "retention.purged",
+        "sessions.ended",
+        "user.recorded",
+    }
+)
+# The kinds chained before LP-12g without their organization. They name it only on a marked
+# database, so an unmarked one's payloads are as they were; every other kind but the deployment's
+# names it always.
+BOUND_WHEN_MARKED = frozenset(
+    {
+        *DECISION_KINDS,
+        "governance.revoked",
+        "automation.lifted",
+        "key.rotated",
+        "key.revoked",
+        "client.revoked",
+    }
+)
 
 _TABLES = """
 CREATE TABLE IF NOT EXISTS decisions (
@@ -120,7 +209,8 @@ CREATE TABLE IF NOT EXISTS decisions (
     reviewer        TEXT,
     resolved_at     TEXT,
     org             TEXT,
-    refused         INTEGER
+    refused         INTEGER,
+    provider_errors INTEGER
 );
 CREATE INDEX IF NOT EXISTS decisions_queue ON decisions (review_status, priority, created_at);
 CREATE INDEX IF NOT EXISTS decisions_pack ON decisions (pack_id, created_at);
@@ -274,6 +364,18 @@ CREATE TABLE IF NOT EXISTS principal_usage (
     count       INTEGER NOT NULL,
     PRIMARY KEY (day, principal)
 );
+CREATE TABLE IF NOT EXISTS usage_ledger (
+    day            TEXT NOT NULL,
+    org            TEXT NOT NULL,
+    provider_type  TEXT NOT NULL,
+    purpose        TEXT NOT NULL,
+    calls          INTEGER NOT NULL,
+    priced_calls   INTEGER NOT NULL,
+    input_tokens   BIGINT NOT NULL,
+    output_tokens  BIGINT NOT NULL,
+    cost_usd       {real} NOT NULL,
+    PRIMARY KEY (day, org, provider_type, purpose)
+);
 CREATE TABLE IF NOT EXISTS notes (
     id          TEXT PRIMARY KEY,
     decision_id TEXT NOT NULL,
@@ -344,6 +446,25 @@ CREATE UNIQUE INDEX IF NOT EXISTS access_requests_open ON access_requests (user_
 CREATE TABLE IF NOT EXISTS settings (
     name  TEXT PRIMARY KEY,
     value TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS alert_deliveries (
+    id               TEXT PRIMARY KEY,
+    created_at       TEXT NOT NULL,
+    updated_at       TEXT NOT NULL,
+    event            TEXT NOT NULL,
+    org              TEXT,
+    body             TEXT NOT NULL,
+    status           TEXT NOT NULL,
+    attempts         INTEGER NOT NULL,
+    next_attempt_at  TEXT,
+    last_status      INTEGER,
+    last_error       TEXT
+);
+CREATE INDEX IF NOT EXISTS alert_deliveries_due ON alert_deliveries (status, next_attempt_at);
+CREATE TABLE IF NOT EXISTS audit_checkpoints (
+    seq         BIGINT PRIMARY KEY,
+    hash        TEXT NOT NULL,
+    created_at  TEXT NOT NULL
 )
 """
 
@@ -362,6 +483,11 @@ _ADDED_COLUMNS = (
     # 1 when the input was refused before any provider ran (Phase 3); NULL on older rows, which
     # fall back to "BLOCK without confidence" (_REFUSED, task_fhir.refused).
     ("decisions", "refused", "INTEGER"),
+    # How many of a decision's questions have a provider error recorded (`errors`: a provider
+    # failed, or a composite's member did, so the answer is missing or incomplete; or a question
+    # they feed), for monitoring's provider error share (LP-21d): a count, outside the chain;
+    # NULL on rows from before it, which monitoring leaves out of the share.
+    ("decisions", "provider_errors", "INTEGER"),
     # Scoped keys that expire (Phase 4, ADR-0004): NULL scopes is a key with its role's
     # permissions; a NULL expiry is set once at startup (_expire_legacy_keys).
     ("api_keys", "scopes", "TEXT"),
@@ -388,15 +514,6 @@ KEY_MAX_DAYS = 365
 KEY_OVERLAP_HOURS = 24
 KEY_MAX_OVERLAP_HOURS = 168
 LEGACY_KEY_DAYS = 30
-# Chain ids that are not a decision's, by prefix (`key:<id>`), as the row each one names: its
-# table, its id column and the SQL expression of its organization. Their events are attributed
-# through that row (ADR-0008), never through a payload alone (`subject_history`). LP-12g extends
-# the map (governance, hold, eval, org, membership, invitation, access) and builds its verify
-# and its per-organization reader on it.
-SUBJECT_TABLES: dict[str, tuple[str, str, str]] = {
-    "key": ("api_keys", "id", "org"),
-    "client": ("oauth_clients", "client_id", "org"),
-}
 # A subject's history is its newest events, this many at most (a key's chain holds 2 or 3).
 HISTORY_LIMIT = 200
 # Expired session-table rows one put deletes (smart_put).
@@ -407,6 +524,15 @@ SESSION_PURGE_BATCH = 100
 # A person's session in memberships mode (`member`, server/auth.py) is sealed too: its organization
 # and membership are what it may act for.
 SEALED_KINDS = frozenset({"session", "pending", "member"})
+# The session-table kinds the break-glass ends (`end_sessions`), by group: people's sessions
+# (claims mode's `user`, memberships mode's `member`) with the sign-ins under way
+# (`oidc-pending`), and EHR launches' sessions (`session`) with the launches under way
+# (`pending`). Never a claim (`jti`): ending one would let the assertion it refused be replayed.
+SESSION_GROUPS: dict[str, tuple[str, ...]] = {
+    "people": ("member", "oidc-pending", "user"),
+    "launches": ("pending", "session"),
+}
+BREAK_GLASS_REASON = 200  # characters, as a hold's
 
 _PRIORITY_ORDER = (
     "CASE priority WHEN 'stat' THEN 0 WHEN 'asap' THEN 1 WHEN 'urgent' THEN 2 ELSE 3 END"
@@ -415,6 +541,125 @@ _PRIORITY_ORDER = (
 
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="milliseconds")
+
+
+def _add_usage(db: _Session, org: str, purpose: str, usage: Mapping[str, Metered]) -> None:
+    """Add remote calls (`providers.base.Metered` by provider type) to today's usage ledger
+    rows of `org` and `purpose`, in the caller's transaction: providers never write."""
+    if purpose not in USAGE_PURPOSES:
+        raise ValueError(f"a usage purpose is one of {USAGE_PURPOSES}")
+    day = clock.today().isoformat()
+    for provider_type, metered in sorted(usage.items()):
+        if not metered.calls:
+            continue
+        db.all(
+            "INSERT INTO usage_ledger (day, org, provider_type, purpose, calls, priced_calls, "
+            "input_tokens, output_tokens, cost_usd) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT (day, org, provider_type, purpose) DO UPDATE SET "
+            "calls = usage_ledger.calls + excluded.calls, "
+            "priced_calls = usage_ledger.priced_calls + excluded.priced_calls, "
+            "input_tokens = usage_ledger.input_tokens + excluded.input_tokens, "
+            "output_tokens = usage_ledger.output_tokens + excluded.output_tokens, "
+            "cost_usd = usage_ledger.cost_usd + excluded.cost_usd",
+            (
+                day,
+                org,
+                provider_type,
+                purpose,
+                metered.calls,
+                metered.priced,
+                metered.input_tokens,
+                metered.output_tokens,
+                metered.cost_usd,
+            ),
+        )
+
+
+def break_glass_reason(reason: str) -> str:
+    """Why an operator acted from the command line, on one line (`BREAK_GLASS_REASON` at most);
+    a `ValueError` for none or a longer one."""
+    reason = " ".join(reason.split())
+    if not reason or len(reason) > BREAK_GLASS_REASON:
+        raise ValueError(f"give a reason of at most {BREAK_GLASS_REASON} characters")
+    return reason
+
+
+def _org_of(value: Any) -> str:
+    """A row's organization: NULL is `default` (rows from before tenancy). Never `value or
+    DEFAULT_ORG`: "" is an organization (core/tenancy.py). As `_ROW_ORG` maps it in SQL."""
+    return tenancy.DEFAULT_ORG if value is None else str(value)
+
+
+_NO_ROW = object()  # a subject `verify` did not find (a hold's organization may be None)
+
+
+def _subject_orgs(db: _Session) -> dict[str, Any]:
+    """Each administrative row's organization (`SUBJECT_TABLES`), by its chain id, from the
+    tables this database has (an older one, read as it is, may lack some)."""
+    found: dict[str, Any] = {}
+    for prefix, (table, column, org) in SUBJECT_TABLES.items():
+        present = db.columns(table)
+        if column not in present or (org != column and "org" not in present):
+            continue
+        for row in db.all(f"SELECT {column} AS id, {org} AS org FROM {table}"):
+            found[f"{prefix}:{row['id']}"] = row["org"]
+    return found
+
+
+def _attributed(
+    event: Mapping[str, Any], owners: Mapping[str, str] | None, subjects: Mapping[str, Any]
+) -> bool:
+    """Whether an event names its row's organization, if it names one (`verify`). By kind: on a
+    decision, the decision's (`owners`; None for an older database without organizations);
+    an administrative kind, its subject's, which must be there. The deployment's kinds, a
+    person's (`PERSON_KINDS`) and kinds a later release added have no row to check, so a
+    rollback never fails on them."""
+    payload = json.loads(event["payload"])
+    if not isinstance(payload, dict) or "org" not in payload:
+        return True
+    kind, chain_id = event["event"], str(event["decision_id"])
+    if kind in DECISION_KINDS:
+        return owners is None or owners.get(chain_id, _NO_ROW) == payload["org"]
+    prefix = ADMINISTRATIVE_KINDS.get(kind)
+    if prefix is None:
+        return True
+    return chain_id.startswith(f"{prefix}:") and subjects.get(chain_id, _NO_ROW) == payload["org"]
+
+
+# Every kind on no decision: what the administrative list reads without an organization.
+OFF_DECISION_KINDS = (*ADMINISTRATIVE_KINDS, *sorted(PERSON_KINDS), *sorted(DEPLOYMENT_KINDS))
+
+
+def _administrative(
+    db: _Session, org: str | None, subject: str | None
+) -> tuple[str, str, list[Any]] | None:
+    """What `administrative_events` reads (`FROM`, a `WHERE` condition and its parameters):
+    for an organization, the events of each row it owns, one indexed lookup per row; for none,
+    every event on no decision. None: `subject` names nothing here."""
+    if org is None:
+        kinds = ", ".join("?" for _ in OFF_DECISION_KINDS)
+        where, params = f"e.event IN ({kinds})", list(OFF_DECISION_KINDS)
+        if subject is not None:
+            where, params = f"{where} AND e.decision_id = ?", [*params, subject]
+        return "audit_events e", where, params
+    prefix, _, row_id = (subject or "").partition(":")
+    parts, params = [], []
+    for name, (table, column, expression) in SUBJECT_TABLES.items():
+        if subject is not None and name != prefix:
+            continue
+        present = db.columns(table)
+        if column not in present or (expression != column and "org" not in present):
+            continue  # an older database, read as it is, lacks it
+        one = f" AND {column} = ?" if subject is not None else ""
+        parts.append(
+            f"SELECT '{name}:' || {column} AS subject, {expression} AS org FROM {table} "
+            f"WHERE {expression} = ?{one}"
+        )
+        params += [org, row_id] if subject is not None else [org]
+    if not parts:
+        return None
+    union = " UNION ALL ".join(parts)
+    return f"({union}) s JOIN audit_events e ON e.decision_id = s.subject", "1 = 1", params
 
 
 def _mark(db: _Session, name: str, value: str) -> None:
@@ -482,6 +727,7 @@ class AuditStore:
         phi: PhiPolicy | None = None,
         marks: bool = True,
         read_only: bool = False,
+        bind_org: bool = False,
     ):
         """`target` is a SQLite path (or ":memory:") or a postgres:// / postgresql:// URL.
 
@@ -491,7 +737,9 @@ class AuditStore:
         a read-only tool passes False and only reads the marks. `read_only` opens an existing
         Mendari database and writes nothing to it, not even a mark or a migration
         (`core/db.py`); a database written by an older Mendari is read as it is
-        (`unmigrated`, `require_current`).
+        (`unmigrated`, `require_current`). `bind_org` (a memberships-mode server, with `marks`)
+        marks the database so each event names its organization (`ORG_BOUND`); a store that
+        finds the mark binds whatever it was opened with (`binds_org`).
         """
         self.phi = phi or PhiPolicy()
         self.read_only = read_only
@@ -512,7 +760,10 @@ class AuditStore:
         # environment -> (the CapabilityStatement version served, since when): capability_since
         self._capability_since: dict[str, tuple[str, str]] = {}
         self._hash_epoch: str | None = None  # the hash key id this process last recorded under
-        self.protected = self._protected(marks)
+        # Whether events name their organization: the `ORG_BOUND` mark as this store found it
+        # when it opened, fixed from then on (a store opened before the mark binds once it is
+        # opened again), so each write reads one answer.
+        self.protected, self.binds_org = self._protected(marks, bind_org=bind_org)
 
     def _read_only_check(self) -> list[str]:
         """A read-only store's target is a Mendari database: its chain and decisions tables are
@@ -542,14 +793,15 @@ class AuditStore:
                 "then run this again (`mendari audit verify` reads it as it is)"
             )
 
-    def _protected(self, marks: bool = True) -> str | None:
+    def _protected(self, marks: bool = True, *, bind_org: bool = False) -> tuple[str | None, bool]:
         """The PHI mode that first protected this database (`hash` or `encrypt`), marking it now
         (with `marks`) if this store's mode is one; None while only mode `off` has opened it. A
         store under `encrypt` also marks each key it holds as known, and, with read keys (a
         rotation under way), that tokens name their key from now on; every store that finds that
-        mark seals so."""
+        mark seals so. Likewise `bind_org` marks that events name their organization
+        (`ORG_BOUND`); the second value is whether the database is so marked."""
         if "settings" in self.unmigrated:
-            return None  # an older database, read as it is: nothing marked it
+            return None, False  # an older database, read as it is: nothing marked it
         with self._db.session(exclusive=False) as db:
             if marks and self.phi.mode != "off":
                 _mark(db, PROTECTED, self.phi.mode)
@@ -558,16 +810,26 @@ class AuditStore:
                     _mark(db, KNOWN + known, _now())
                 if self.phi.read_keys:
                     _mark(db, PHI_TOKENS_V2, "1")
+            if marks and bind_org:
+                _mark(db, ORG_BOUND, _now())
             found = {
                 row["name"]: str(row["value"])
                 for row in db.all(
-                    "SELECT name, value FROM settings WHERE name IN (?, ?)",
-                    (PROTECTED, PHI_TOKENS_V2),
+                    "SELECT name, value FROM settings WHERE name IN (?, ?, ?)",
+                    (PROTECTED, PHI_TOKENS_V2, ORG_BOUND),
                 )
             }
         if PHI_TOKENS_V2 in found and not self.phi.tag_tokens:
             self.phi = replace(self.phi, tag_tokens=True)
-        return found.get(PROTECTED)
+        return found.get(PROTECTED), ORG_BOUND in found
+
+    def _bound(self, kind: str, payload: Mapping[str, Any], org: str | None) -> dict[str, Any]:
+        """A payload as chained: with the organization of the row it is about (`org`, which the
+        caller read in the same transaction, mapped by `_org_of`), unless it is one of the kinds
+        an unmarked database chains as before (`BOUND_WHEN_MARKED`)."""
+        if kind in BOUND_WHEN_MARKED and not self.binds_org:
+            return dict(payload)
+        return {**payload, "org": org}
 
     def ready_to_keep(self) -> None:
         """Whether this store may keep what a decision brings: not under `off` in a protected
@@ -616,7 +878,7 @@ class AuditStore:
         if self.phi.mode != "off":
             return
         if self.protected is None:
-            self.protected = self._protected()
+            self.protected = self._protected()[0]
         if self.protected:
             raise MendariError(
                 f"This database is protected (first kept under PHI mode {self.protected}): run "
@@ -627,6 +889,12 @@ class AuditStore:
     @property
     def backend(self) -> str:
         return self._db.kind
+
+    def ping(self, timeout_s: float) -> None:
+        """One read of the chain's table, bounded by `timeout_s` (the readiness route, LP-21):
+        it proves this store's schema answers, where `SELECT 1` would pass on an empty file or
+        another database. Raises whatever the database raised; creates and writes nothing."""
+        self._db.ping("SELECT 1 FROM audit_events LIMIT 1", timeout_s)
 
     def close(self) -> None:
         self._db.close()
@@ -660,6 +928,7 @@ class AuditStore:
         record["input"] = dict(inputs) if in_record else None
         evidence = {} if in_record else _take_evidence(record)
         status = "pending" if result.outcome.value in _REVIEWABLE else "not_required"
+        org = tenancy.current() or tenancy.DEFAULT_ORG  # the row's, and its events' when bound
         with self._db.session(exclusive=True) as db:
             if keep and self.phi.mode == "encrypt":
                 self._refuse_retired(db)
@@ -667,7 +936,8 @@ class AuditStore:
             db.all(
                 "INSERT INTO decisions (id, created_at, pack_id, pack_version, outcome, "
                 "recommendation, priority, confidence, latency_ms, cost_usd, record, "
-                "review_status, org, refused) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "review_status, org, refused, provider_errors) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     result.id,
                     result.created_at,
@@ -681,15 +951,19 @@ class AuditStore:
                     result.cost_usd,
                     _canonical(record),
                     status,
-                    tenancy.current() or tenancy.DEFAULT_ORG,
+                    org,
                     int(result.rejected),
+                    len(result.errors),
                 ),
             )
             created: dict[str, Any] = {"record_sha256": _sha(record)}
             requester = tenancy.requester()
             if requester is not None:  # sign-in on: who asked; never in open mode
                 created["requested_by"] = requester
-            self._append(db, result.id, "decision.created", created)
+            self._append(
+                db, result.id, "decision.created", self._bound("decision.created", created, org)
+            )
+            _add_usage(db, org, "decision", result.usage)
             if keep and self.phi.mode == "encrypt":  # apart from the chained record
                 details = {"evidence": evidence}
                 db.all(
@@ -752,7 +1026,8 @@ class AuditStore:
                 "note": None,
                 "note_ref": self._keep_note(db, decision_id, "review.resolved", note),
             }
-            self._append(db, decision_id, "review.resolved", payload)
+            chained = self._bound("review.resolved", payload, _org_of(row["org"]))
+            self._append(db, decision_id, "review.resolved", chained)
         return {"id": decision_id, "resolved_at": resolved_at, **payload, "note": note}
 
     def record_outcome(
@@ -777,7 +1052,8 @@ class AuditStore:
         with self._db.session(exclusive=True) as db:
             scope, scoped = _scope()
             row = db.one(
-                f"SELECT review_status, pack_id, record FROM decisions d WHERE id = ? AND {scope}",
+                f"SELECT review_status, pack_id, record, org FROM decisions d "
+                f"WHERE id = ? AND {scope}",
                 (decision_id, *scoped),
             )
             if row is None:
@@ -787,7 +1063,8 @@ class AuditStore:
             _check_label(row["pack_id"], json.loads(row["record"]), final_label, labels)
             db.all("UPDATE decisions SET final_label = ? WHERE id = ?", (final_label, decision_id))
             payload = {"final_label": final_label, "source": source, "recorded_by": recorded_by}
-            self._append(db, decision_id, "outcome.recorded", payload)
+            chained = self._bound("outcome.recorded", payload, _org_of(row["org"]))
+            self._append(db, decision_id, "outcome.recorded", chained)
 
     def record_event(
         self,
@@ -798,17 +1075,20 @@ class AuditStore:
         note: str | None = None,
     ) -> None:
         """A follow-up on a decision (e.g. `pas.submitted`), chained after its other events, with
-        its free text (the payer's words) kept as a note (`note_ref`)."""
+        its free text (the payer's words) kept as a note (`note_ref`). The store names the
+        decision's organization itself (`_bound`), so a payload naming one is refused."""
+        if "org" in payload:
+            raise ValueError("an event's organization is its decision's: the store names it")
         note = self._may_keep(note)
         with self._db.session(exclusive=True) as db:
             scope, scoped = _scope()
             row = db.one(
-                f"SELECT id FROM decisions d WHERE id = ? AND {scope}", (decision_id, *scoped)
+                f"SELECT id, org FROM decisions d WHERE id = ? AND {scope}", (decision_id, *scoped)
             )
             if row is None:
                 raise ReviewError(f"unknown decision {decision_id}")
             chained = {**payload, "note_ref": self._keep_note(db, decision_id, event, note)}
-            self._append(db, decision_id, event, chained)
+            self._append(db, decision_id, event, self._bound(event, chained, _org_of(row["org"])))
 
     def record_feedback(
         self,
@@ -838,7 +1118,7 @@ class AuditStore:
         with self._db.session(exclusive=True) as db:
             scope, scoped = _scope()
             row = db.one(
-                f"SELECT pack_id, record FROM decisions d WHERE id = ? AND {scope}",
+                f"SELECT pack_id, record, org FROM decisions d WHERE id = ? AND {scope}",
                 (decision_id, *scoped),
             )
             if row is None:
@@ -882,7 +1162,8 @@ class AuditStore:
                 "expected": answer,
                 "replaces": previous["id"] if previous else None,
             }
-            self._append(db, decision_id, "feedback.recorded", payload)
+            chained = self._bound("feedback.recorded", payload, _org_of(row["org"]))
+            self._append(db, decision_id, "feedback.recorded", chained)
         return {
             "id": feedback_id,
             "decision_id": decision_id,
@@ -891,10 +1172,17 @@ class AuditStore:
             "note": note,
         }
 
-    def save_report(self, report: Mapping[str, Any], *, ledger: bytes | None = None) -> None:
+    def save_report(
+        self,
+        report: Mapping[str, Any],
+        *,
+        ledger: bytes | None = None,
+        usage: Mapping[str, Metered] | None = None,
+    ) -> None:
         """Keep an evaluation report, and the ledger its result is computed from, for the
         organization; chained as `eval.recorded` with ids and hashes only (which report, result
-        and ledger, of which pack digest and dataset)."""
+        and ledger, of which pack digest and dataset). The run's remote calls (`usage`) go to
+        the usage ledger in the same transaction, as the organization's evaluations."""
         from mendari.evals.result import normalize
 
         run = normalize(report)["run"]
@@ -923,6 +1211,38 @@ class AuditStore:
                 ),
             )
             self._append(db, f"eval:{run['id']}", "eval.recorded", recorded)
+            _add_usage(db, org, "evaluation", usage or {})
+
+    def usage_ledger(
+        self, org: str | None = None, *, since: str | None = None, until: str | None = None
+    ) -> list[dict[str, Any]]:
+        """The usage ledger (LP-21g): remote calls by day, organization, provider type and
+        purpose (`USAGE_PURPOSES`), of `org` if given (None: every organization), from `since`
+        to `until` (local calendar days, ISO dates, both included). Each row has its calls, the
+        calls that were priced, their tokens, and `cost_usd`: the cost, or None (unknown)
+        unless every call was priced, never a partial sum. A database from before the ledger
+        has none."""
+        where, params = ["1 = 1"], []
+        for clause, value in (("org = ?", org), ("day >= ?", since), ("day <= ?", until)):
+            if value is not None:
+                where.append(clause)
+                params.append(value)
+        with self._db.session(exclusive=False) as db:
+            if not db.columns("usage_ledger"):
+                return []
+            rows = db.all(
+                "SELECT day, org, provider_type, purpose, calls, priced_calls, input_tokens, "
+                f"output_tokens, cost_usd FROM usage_ledger WHERE {' AND '.join(where)} "
+                "ORDER BY day, org, provider_type, purpose",
+                tuple(params),
+            )
+        return [
+            {
+                **{key: value for key, value in row.items() if key != "cost_usd"},
+                "cost_usd": row["cost_usd"] if row["priced_calls"] == row["calls"] else None,
+            }
+            for row in rows
+        ]
 
     def consume(self, provider: str, *, daily_limit: int | None) -> None:
         """Count one call to a metered provider; raise `budget_exhausted` past the daily limit
@@ -957,6 +1277,56 @@ class AuditStore:
         if row is None or int(row["count"]) > daily_limit:  # a limit of 0 admits nothing
             return None
         return int(row["count"])
+
+    # -- alert deliveries (mendari.alerts): outside the chain, ids and counts only -------------
+
+    def record_alert(self, delivery: Mapping[str, Any]) -> None:
+        """Record one alert sent to the webhook, as `mendari.alerts.deliver` left it."""
+        columns = (
+            "id", "created_at", "updated_at", "event", "org", "body", "status", "attempts",
+            "next_attempt_at", "last_status", "last_error",
+        )  # fmt: skip
+        with self._db.session(exclusive=False) as db:
+            db.all(
+                f"INSERT INTO alert_deliveries ({', '.join(columns)}) "
+                f"VALUES ({', '.join('?' for _ in columns)})",
+                tuple(delivery[column] for column in columns),
+            )
+
+    def alerts_due(self, now: str, limit: int) -> list[dict[str, Any]]:
+        """The pending alerts whose next try is due at `now` (ISO), oldest first."""
+        with self._db.session(exclusive=False) as db:
+            return db.all(
+                "SELECT id, event, body, attempts FROM alert_deliveries "
+                "WHERE status = 'pending' AND next_attempt_at <= ? "
+                "ORDER BY next_attempt_at LIMIT ?",
+                (now, limit),
+            )
+
+    def update_alert(
+        self,
+        delivery: str,
+        *,
+        status: str,
+        attempts: int,
+        updated_at: str,
+        next_attempt_at: str | None,
+        last_status: int | None,
+        last_error: str | None,
+    ) -> None:
+        with self._db.session(exclusive=False) as db:
+            db.all(
+                "UPDATE alert_deliveries SET status = ?, attempts = ?, updated_at = ?, "
+                "next_attempt_at = ?, last_status = ?, last_error = ? WHERE id = ?",
+                (status, attempts, updated_at, next_attempt_at, last_status, last_error, delivery),
+            )
+
+    def alert_deliveries(self, limit: int = 50) -> list[dict[str, Any]]:
+        """The newest alerts sent, for the operator (and the tests)."""
+        with self._db.session(exclusive=False) as db:
+            return db.all(
+                "SELECT * FROM alert_deliveries ORDER BY created_at DESC LIMIT ?", (limit,)
+            )
 
     def consume_principal(self, principal: str, *, daily_limit: int, cost: int = 1) -> int | None:
         """Count `cost` decisions for `principal` (its opaque id, `Principal.id`) today, all or
@@ -1059,9 +1429,17 @@ class AuditStore:
         the chain N `_append`s would write, with one read of its head and one insert (per
         `_APPEND_BATCH` rows), so 2 round trips under the lock instead of 2N. Each row's
         `prev_hash` is the row before's `hash`, so `verify()` holds only if `seq` follows the
-        insert's order, as an identity column does. The events, as `_events_of` gives them."""
+        insert's order, as an identity column does. The events, as `_events_of` gives them.
+
+        Every kind but the deployment's names its organization (`_bound`), the kinds chained
+        before LP-12g only on a marked database: a writer that forgets is refused here, before
+        anything is chained, so a new kind cannot leave it out."""
         if not entries:
             return []
+        if event not in DEPLOYMENT_KINDS and (self.binds_org or event not in BOUND_WHEN_MARKED):
+            for _, payload in entries:
+                if not (isinstance(payload, Mapping) and "org" in payload):
+                    raise ValueError(f"a {event} event names its organization: chain it bound")
         last = db.one("SELECT hash FROM audit_events ORDER BY seq DESC LIMIT 1")
         prev = last["hash"] if last else GENESIS
         rows = []
@@ -1177,7 +1555,11 @@ class AuditStore:
         if not SYSTEM_ID.fullmatch(erased_by):
             raise NoteError("who erases is an identifier, such as an email address")
         with self._db.session(exclusive=True) as db:
-            row = db.one("SELECT decision_id, sealed FROM notes WHERE id = ?", (note_id,))
+            row = db.one(
+                "SELECT n.decision_id, n.sealed, d.org FROM notes n "
+                "LEFT JOIN decisions d ON d.id = n.decision_id WHERE n.id = ?",
+                (note_id,),
+            )
             if row is None or row["sealed"] is None:
                 raise NoteError(f"no note {note_id} to erase")
             erased_at = _now()
@@ -1186,7 +1568,8 @@ class AuditStore:
                 (erased_at, erased_by, note_id),
             )
             payload = {"note_id": note_id, "reason": reason, "erased_by": erased_by}
-            self._append(db, row["decision_id"], "note.erased", payload)
+            chained = self._bound("note.erased", payload, _org_of(row["org"]))
+            self._append(db, row["decision_id"], "note.erased", chained)
         return {**payload, "decision_id": row["decision_id"], "erased_at": erased_at}
 
     def purge_notes(self, older_than_days: int) -> int:
@@ -1198,8 +1581,10 @@ class AuditStore:
         while True:
             with self._db.session(exclusive=True) as db:
                 doomed = db.all(
-                    "SELECT id, decision_id FROM notes WHERE created_at < ? AND sealed IS NOT NULL "
-                    "ORDER BY created_at, id LIMIT ?",
+                    "SELECT n.id, n.decision_id, d.org FROM notes n "
+                    "LEFT JOIN decisions d ON d.id = n.decision_id "
+                    "WHERE n.created_at < ? AND n.sealed IS NOT NULL "
+                    "ORDER BY n.created_at, n.id LIMIT ?",
                     (cutoff, PURGE_BATCH),
                 )
                 if not doomed:
@@ -1211,7 +1596,13 @@ class AuditStore:
                     (_now(), *(row["id"] for row in doomed)),
                 )
                 erased = [
-                    (row["decision_id"], {"note_id": row["id"], **retention}) for row in doomed
+                    (
+                        row["decision_id"],
+                        self._bound(
+                            "note.erased", {"note_id": row["id"], **retention}, _org_of(row["org"])
+                        ),
+                    )
+                    for row in doomed
                 ]
                 self._append_many(db, "note.erased", erased)
             total += len(doomed)
@@ -1346,6 +1737,18 @@ class AuditStore:
                 for decision_id, named in reads.items()
             ]
             with self._db.session(exclusive=True) as db:
+                if self.binds_org:
+                    marks = ", ".join("?" for _ in reads)
+                    orgs = {
+                        row["id"]: _org_of(row["org"])
+                        for row in db.all(
+                            f"SELECT id, org FROM decisions WHERE id IN ({marks})", list(reads)
+                        )
+                    }
+                    entries = [
+                        (decision_id, self._bound("input.read", payload, orgs.get(decision_id)))
+                        for decision_id, payload in entries
+                    ]
                 chained = self._append_many(db, "input.read", entries)
         for item in items:
             decision_id = str(item[id_key])
@@ -1431,11 +1834,17 @@ class AuditStore:
                 (erased_at, erased_by, decision_id),
             )
             who = {"reason": reason, "erased_by": erased_by}
+            org = _org_of(item["org"])
             self._append_many(
-                db, "note.erased", [(decision_id, {"note_id": note, **who}) for note in notes]
+                db,
+                "note.erased",
+                [
+                    (decision_id, self._bound("note.erased", {"note_id": note, **who}, org))
+                    for note in notes
+                ],
             )
             if kept is not None:
-                self._append(db, decision_id, "input.erased", who)
+                self._append(db, decision_id, "input.erased", self._bound("input.erased", who, org))
         return {
             "decision_id": decision_id,
             "input": kept is not None,
@@ -1481,19 +1890,28 @@ class AuditStore:
         total = 0
         while True:
             with self._db.session(exclusive=True) as db:
-                doomed = [
-                    row["decision_id"]
-                    for row in db.all(
-                        "SELECT decision_id FROM decision_inputs WHERE created_at < ? "
-                        "ORDER BY created_at, decision_id LIMIT ?",
-                        (cutoff, PURGE_BATCH),
-                    )
-                ]
+                rows = db.all(
+                    "SELECT i.decision_id, d.org FROM decision_inputs i "
+                    "LEFT JOIN decisions d ON d.id = i.decision_id WHERE i.created_at < ? "
+                    "ORDER BY i.created_at, i.decision_id LIMIT ?",
+                    (cutoff, PURGE_BATCH),
+                )
+                doomed = [row["decision_id"] for row in rows]
                 if not doomed:
                     return total
                 marks = ", ".join("?" for _ in doomed)
                 db.all(f"DELETE FROM decision_inputs WHERE decision_id IN ({marks})", doomed)
-                self._append_many(db, "input.purged", [(d, purged) for d in doomed])
+                self._append_many(
+                    db,
+                    "input.purged",
+                    [
+                        (
+                            row["decision_id"],
+                            self._bound("input.purged", purged, _org_of(row["org"])),
+                        )
+                        for row in rows
+                    ],
+                )
             total += len(doomed)
 
     # -- key rotation (LP-09) -------------------------------------------------------------
@@ -2046,6 +2464,35 @@ class AuditStore:
         with self._db.session(exclusive=False) as db:
             db.all("DELETE FROM smart_sessions WHERE key_sha256 = ? AND kind = ?", (row_key, kind))
 
+    def end_sessions(self, group: str, *, ended_by: str, reason: str) -> dict[str, Any]:
+        """The break-glass (`mendari access end-sessions`): delete every row of a group's kinds
+        (`SESSION_GROUPS`, or `all` of them), so the next request with one of their cookies, on
+        any instance, finds none and is signed out (nothing is cached in memory). Chained in the
+        same transaction as `sessions.ended` (the kinds, how many live ones ended, who and why)
+        under `SESSIONS_CHAIN`. Claims (`jti`) are never touched. A member's and a launch's rows
+        are sealed under their cookie, so whose they are cannot be read here: a whole kind."""
+        if group != "all" and group not in SESSION_GROUPS:
+            raise ValueError(f"end the sessions of one of {sorted(SESSION_GROUPS)} or all")
+        why = break_glass_reason(reason)
+        chosen = SESSION_GROUPS.values() if group == "all" else [SESSION_GROUPS[group]]
+        kinds = sorted({kind for kinds in chosen for kind in kinds})
+        marks = ", ".join("?" for _ in kinds)
+        with self._db.session(exclusive=True) as db:
+            gone = db.all(
+                f"DELETE FROM smart_sessions WHERE kind IN ({marks}) RETURNING expires_at",
+                tuple(kinds),
+            )
+            now = int(time.time())
+            ended = {
+                "kinds": kinds,
+                "ended": sum(1 for row in gone if int(row["expires_at"]) > now),
+                "ended_by": ended_by,
+                "ended_at": _now(),
+                "reason": why,
+            }
+            self._append(db, SESSIONS_CHAIN, "sessions.ended", ended)
+        return ended
+
     def smart_claim(self, kind: str, value: str, expires_at: int) -> bool:
         """Claim `value` once until `expires_at` (e.g. an assertion's `jti`): True for the first
         claim, False while that claim lasts; an expired claim can be made again. One statement,
@@ -2172,7 +2619,7 @@ class AuditStore:
         scope = "" if org is None else " AND org = ?"
         with self._db.session(exclusive=True) as db:
             row = db.one(
-                f"SELECT id FROM automation_holds WHERE id = ? AND lifted_at IS NULL{scope}",
+                f"SELECT id, org FROM automation_holds WHERE id = ? AND lifted_at IS NULL{scope}",
                 (hold_id,) if org is None else (hold_id, org),
             )
             if row is None:
@@ -2182,7 +2629,8 @@ class AuditStore:
                 "UPDATE automation_holds SET lifted_by = ?, lifted_at = ? WHERE id = ?",
                 (lifted["lifted_by"], lifted["lifted_at"], hold_id),
             )
-            self._append(db, f"hold:{hold_id}", "automation.lifted", lifted)
+            chained = self._bound("automation.lifted", lifted, row["org"])  # NULL: every one's
+            self._append(db, f"hold:{hold_id}", "automation.lifted", chained)
         return True
 
     def holds(self, org: str | None = None, *, everyone: bool = False) -> list[dict[str, Any]]:
@@ -2220,7 +2668,9 @@ class AuditStore:
                 "UPDATE governance_approvals SET revoked_at = ?, revoked_by = ? WHERE id = ?",
                 (_now(), revoked_by, approval_id),
             )
-            payload = {"id": approval_id, "revoked_by": revoked_by}
+            payload = self._bound(
+                "governance.revoked", {"id": approval_id, "revoked_by": revoked_by}, org
+            )
             self._append(db, f"governance:{approval_id}", "governance.revoked", payload)
         return True
 
@@ -2322,15 +2772,44 @@ class AuditStore:
         self._capability_since[environment] = (version, since)
         return since
 
-    def deployments(self, pack_id: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
-        """Newest first. Deployments belong to the server, so every organization sees them."""
-        packs = ("WHERE pack_id = ?", (pack_id,)) if pack_id else ("", ())
+    def deployments(
+        self, pack_id: str | None = None, limit: int = 50, *, digest: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Newest first, of one pack and one build of it if given. Deployments belong to the
+        server, so every organization sees them."""
+        wheres = [
+            (column, value)
+            for column, value in (("pack_id", pack_id), ("pack_digest", digest))
+            if value
+        ]
+        where = ("WHERE " + " AND ".join(f"{column} = ?" for column, _ in wheres)) if wheres else ""
         with self._db.session(exclusive=False) as db:
             rows = db.all(
-                f"SELECT * FROM deployments {packs[0]} ORDER BY started_at DESC LIMIT ?",
-                (*packs[1], limit),
+                f"SELECT * FROM deployments {where} ORDER BY started_at DESC LIMIT ?",
+                (*(value for _, value in wheres), limit),
             )
         return [{**row, "providers": json.loads(row["providers"])} for row in rows]
+
+    def configuration_started(
+        self, pack_id: str, digest: str, providers: Mapping[str, str], limit: int = 500
+    ) -> str | None:
+        """When this build of a pack started running on these providers (slot -> variant), by
+        the deployment records: the oldest of the newest unbroken run of records with this
+        digest and these providers, newest first across environments; None without one. A time
+        only, for monitoring (which compares decisions made since): never a record."""
+        with self._db.session(exclusive=False) as db:
+            rows = db.all(
+                "SELECT pack_digest, providers, started_at FROM deployments WHERE pack_id = ? "
+                "ORDER BY started_at DESC LIMIT ?",
+                (pack_id, limit),
+            )
+        started = None
+        for row in rows:
+            if row["pack_digest"] == digest and json.loads(row["providers"]) == dict(providers):
+                started = str(row["started_at"])
+            elif started is not None:
+                break  # the run before this configuration
+        return started
 
     # -- API keys (server/auth.py) --------------------------------------------------------------
     # Stored as SHA-256 (the secret is in the creation's answer and nowhere else), with a role
@@ -2491,7 +2970,8 @@ class AuditStore:
                 "expires_at_before": row["expires_at"],
                 "overlap_hours": overlap_hours,
             }
-            self._append(db, f"key:{key_id}", "key.rotated", rotated)
+            chained = self._bound("key.rotated", rotated, _org_of(row["org"]))
+            self._append(db, f"key:{key_id}", "key.rotated", chained)
         return {**new, "replaces": {"id": key_id, "expires_at": until}}
 
     def api_keys(self, org: str | None = None) -> list[dict[str, Any]]:
@@ -2500,11 +2980,19 @@ class AuditStore:
         # None is every organization (open mode, the command line); "" is an organization.
         where, params = ("WHERE org = ?", (org,)) if org is not None else ("", ())
         with self._db.session(exclusive=False) as db:
-            # A database from before presets (read as it is): none has one.
-            preset = "preset" if "preset" in db.columns("api_keys") else "NULL AS preset"
+            # An older database, read as it is (`mendari access keys`): what it lacks is NULL
+            # (no scope, no expiry: refused, as `api_key` refuses it), and no table is no key.
+            present = db.columns("api_keys")
+            if not present:
+                return []
+            later = {"scopes": "scope", "expires_at": "expires_at", "revoked_by": "revoked_by",
+                     "replaced_by": "replaced_by", "preset": "preset"}  # fmt: skip
+            columns = ", ".join(
+                f"{name} AS {alias}" if name in present else f"NULL AS {alias}"
+                for name, alias in later.items()
+            )
             rows = db.all(
-                "SELECT id, name, role, org, scopes AS scope, created_by, created_at, "
-                f"expires_at, revoked_at, revoked_by, replaced_by, {preset} "
+                f"SELECT id, name, role, org, created_by, created_at, revoked_at, {columns} "
                 f"FROM api_keys {where} ORDER BY created_at",
                 params,
             )
@@ -2521,18 +3009,25 @@ class AuditStore:
                 (_key(secret), _now()),
             )
 
-    def revoke_api_key(self, key_id: str, org: str | None = None, *, revoked_by: str) -> bool:
-        """Revoke a key of `org` (any, if None); False for an unknown or already revoked one."""
+    def revoke_api_key(
+        self, key_id: str, org: str | None = None, *, revoked_by: str, reason: str | None = None
+    ) -> bool:
+        """Revoke a key of `org` (any, if None); False for an unknown or already revoked one.
+        The break-glass (`mendari access revoke`) chains why too (`reason`)."""
+        why = None if reason is None else break_glass_reason(reason)
         with self._db.session(exclusive=True) as db:
             row = db.one("SELECT org FROM api_keys WHERE id = ? AND revoked_at IS NULL", (key_id,))
             if row is None or (org is not None and row["org"] != org):
                 return False
             revoked = {"id": key_id, "revoked_by": revoked_by, "revoked_at": _now()}
+            if why is not None:
+                revoked["reason"] = why
             db.all(
                 "UPDATE api_keys SET revoked_at = ?, revoked_by = ? WHERE id = ?",
                 (revoked["revoked_at"], revoked_by, key_id),
             )
-            self._append(db, f"key:{key_id}", "key.revoked", revoked)
+            chained = self._bound("key.revoked", revoked, _org_of(row["org"]))
+            self._append(db, f"key:{key_id}", "key.revoked", chained)
         return True
 
     # -- SMART Backend Services: clients and access tokens (ADR-0004) -------------------------
@@ -2594,6 +3089,8 @@ class AuditStore:
         # None is every organization (open mode, the command line); "" is an organization.
         where, params = ("WHERE org = ?", (org,)) if org is not None else ("", ())
         with self._db.session(exclusive=False) as db:
+            if not db.columns("oauth_clients"):  # an older database, read as it is: none
+                return []
             # A database from before key-set replacement (read as it is): none was replaced.
             replaced = (
                 "keys_replaced_at"
@@ -2624,9 +3121,18 @@ class AuditStore:
             )
         return None if row is None else {**row, "jwks": _jwks(row)}
 
-    def revoke_client(self, client_id: str, org: str | None = None, *, revoked_by: str) -> bool:
+    def revoke_client(
+        self,
+        client_id: str,
+        org: str | None = None,
+        *,
+        revoked_by: str,
+        reason: str | None = None,
+    ) -> bool:
         """Revoke a client of `org` (any, if None) and drop its tokens; False for an unknown or
-        already revoked one. Its tokens stop working at once either way (`access_token`)."""
+        already revoked one. Its tokens stop working at once either way (`access_token`). The
+        break-glass (`mendari access revoke`) chains why too (`reason`)."""
+        why = None if reason is None else break_glass_reason(reason)
         with self._db.session(exclusive=True) as db:
             row = db.one(
                 "SELECT org FROM oauth_clients WHERE client_id = ? AND revoked_at IS NULL",
@@ -2635,12 +3141,15 @@ class AuditStore:
             if row is None or (org is not None and row["org"] != org):
                 return False
             revoked = {"client_id": client_id, "revoked_by": revoked_by, "revoked_at": _now()}
+            if why is not None:
+                revoked["reason"] = why
             db.all(
                 "UPDATE oauth_clients SET revoked_at = ?, revoked_by = ? WHERE client_id = ?",
                 (revoked["revoked_at"], revoked_by, client_id),
             )
             db.all("DELETE FROM oauth_tokens WHERE client_id = ?", (client_id,))
-            self._append(db, f"client:{client_id}", "client.revoked", revoked)
+            chained = self._bound("client.revoked", revoked, _org_of(row["org"]))
+            self._append(db, f"client:{client_id}", "client.revoked", chained)
         return True
 
     def replace_client_keys(
@@ -2741,7 +3250,9 @@ class AuditStore:
             )
             if row is None:
                 return None
-            owner = _org_of(row["org"])
+            # As `SUBJECT_TABLES` maps it: NULL is `default`, but a hold's NULL is the
+            # deployment's (every organization's), no one organization's.
+            owner = row["org"]
             if org is not None and owner != org:
                 return None
             rows = db.all(
@@ -2752,7 +3263,7 @@ class AuditStore:
         events = []
         for found in reversed(rows[:HISTORY_LIMIT]):
             payload = json.loads(found["payload"])
-            if "org" in payload and _org_of(payload["org"]) != owner:
+            if "org" in payload and payload["org"] != owner:
                 continue  # never shown here; LP-12g's verify reports such an event
             events.append({"event": found["event"], "at": found["created_at"], "payload": payload})
         return {
@@ -3619,20 +4130,139 @@ class AuditStore:
             yield from page
             after = page[-1]["seq"]
 
-    def decision_rows(self, pack_id: str, since: str) -> list[dict[str, Any]]:
-        """Each decision of a pack since a time (ISO), for monitoring: when, the outcome, the
-        primary confidence, what a person or a downstream system said, and the cost."""
+    # -- an organization's administrative events (LP-12g, ADR-0008) ----------------------------
+    # The events of the rows an organization owns (`SUBJECT_TABLES`: its keys, clients,
+    # approvals, holds, evaluation reports, record, memberships, invitations and requests to
+    # join), attributed by the row, never by a range of chain ids. Without an organization (the
+    # operator's command line), every event on no decision, the deployment's own included.
+
+    def administrative_events(
+        self,
+        org: str | None,
+        *,
+        after: tuple[str, str] | None = None,
+        kinds: Sequence[str] = (),
+        subject: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        limit: int = 100,
+    ) -> Page:
+        """One page of administrative events in chain order, each `{subject, event, payload,
+        created_at, hash}`: never `seq` or `prev_hash`, as an event's place in the deployment's
+        one chain is not the organization's. `after` is the `(subject, hash)` of the last item
+        of the page before; one that is not an event of this list is a `ValueError`, the same
+        whatever is wrong with it, so a cursor cannot ask about another organization's events.
+        `kinds` and `subject` (a chain id: `key:<id>`) narrow the list; `since` / `until` bound
+        `created_at` (the stored format). An event whose payload names another organization
+        than its row's is left out (`verify` reports it)."""
+        if limit < 1:
+            return Page()
+        with self._db.session(exclusive=False) as db:
+            listed = _administrative(db, org, subject)
+            if listed is None:  # no such subject here (or no table of its kind)
+                if after is not None:
+                    raise ValueError("not a cursor of this list")
+                return Page()
+            source, where, params = listed
+            if after is not None:
+                found = db.one(
+                    f"SELECT e.seq FROM {source} WHERE {where} AND e.decision_id = ? "
+                    "AND e.hash = ?",
+                    (*params, *after),
+                )
+                if found is None:
+                    raise ValueError("not a cursor of this list")
+            clauses, values = [where, "e.seq > ?"], [*params, found["seq"] if after else 0]
+            if kinds:
+                clauses.append(f"e.event IN ({', '.join('?' for _ in kinds)})")
+                values += kinds
+            for clause, value in (("e.created_at >= ?", since), ("e.created_at < ?", until)):
+                if value is not None:
+                    clauses.append(clause)
+                    values.append(value)
+            rows = db.all(
+                "SELECT e.decision_id, e.event, e.payload, e.created_at, e.hash, "
+                f"{'s.org' if org is not None else 'NULL'} AS org FROM {source} "
+                f"WHERE {' AND '.join(clauses)} ORDER BY e.seq LIMIT ?",
+                (*values, limit + 1),
+            )
+        page = rows[:limit]
+        items = []
+        for row in page:
+            payload = json.loads(row["payload"])
+            named = isinstance(payload, dict) and "org" in payload
+            if org is not None and named and payload["org"] != row["org"]:
+                continue  # fail closed: not its row's organization's
+            items.append(
+                {
+                    "subject": row["decision_id"],
+                    "event": row["event"],
+                    "payload": payload,
+                    "created_at": row["created_at"],
+                    "hash": row["hash"],
+                }
+            )
+        more = len(rows) > limit
+        return Page(
+            rows=items,
+            after=(str(page[-1]["decision_id"]), str(page[-1]["hash"])) if more else None,
+        )
+
+    def iter_administrative_events(
+        self, org: str | None, **filters: Any
+    ) -> Iterator[dict[str, Any]]:
+        """Every event `administrative_events` lists, page by page (an export)."""
+        after: tuple[str, str] | None = None
+        while True:
+            page = self.administrative_events(org, after=after, limit=500, **filters)
+            yield from page.rows
+            if page.after is None:
+                return
+            after = page.after
+
+    def decision_rows(
+        self, pack_id: str, since: str, version: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Each decision of a pack since a time (ISO), of one version if given, for monitoring:
+        when, the outcome, the primary confidence, whether its input was refused, whether it
+        awaits review, what a person or a downstream system said, and the cost."""
         scope, scoped = _scope()
+        versions = ("AND d.pack_version = ? ", (version,)) if version is not None else ("", ())
         with self._db.session(exclusive=False) as db:
             return db.all(
                 "SELECT d.id, d.created_at, d.outcome, d.confidence, d.recommendation, "
-                "d.final_label, d.human_override, d.cost_usd, "
+                f"d.final_label, d.human_override, d.cost_usd, {_REFUSED} AS refused, "
+                "d.review_status, d.latency_ms, d.provider_errors, "
                 "(SELECT COUNT(*) FROM feedback f WHERE f.decision_id = d.id "
                 "AND f.superseded_by IS NULL AND f.rating = 'down') AS rated_wrong "
                 f"FROM decisions d WHERE {scope} AND d.pack_id = ? AND d.created_at >= ? "
-                "ORDER BY d.created_at",
+                f"{versions[0]}ORDER BY d.created_at",
+                (*scoped, pack_id, since, *versions[1]),
+            )
+
+    def organizations_since(self, since: str) -> list[str]:
+        """Every organization that made a decision since a time (ISO), `default` for rows with
+        none: the monitor's schedule runs once for each (LP-21f). Deployment-wide: an
+        operator's read, never an organization's route's."""
+        with self._db.session(exclusive=False) as db:
+            rows = db.all(
+                "SELECT DISTINCT COALESCE(org, ?) AS org FROM decisions WHERE created_at >= ? "
+                "ORDER BY 1",
+                (tenancy.DEFAULT_ORG, since),
+            )
+        return [str(row["org"]) for row in rows]
+
+    def decision_versions(self, pack_id: str, since: str) -> dict[str, int]:
+        """How many decisions each version of a pack made since a time (ISO), for monitoring,
+        which compares one version's with its benchmark and counts the others apart."""
+        scope, scoped = _scope()
+        with self._db.session(exclusive=False) as db:
+            rows = db.all(
+                "SELECT d.pack_version, COUNT(*) AS n FROM decisions d "
+                f"WHERE {scope} AND d.pack_id = ? AND d.created_at >= ? GROUP BY d.pack_version",
                 (*scoped, pack_id, since),
             )
+        return {str(row["pack_version"]): int(row["n"]) for row in rows}
 
     def pending_reviews(
         self, pack_id: str | None = None, limit: int = 50, *, reader: str | None = None
@@ -3762,40 +4392,129 @@ class AuditStore:
             )
         return [json.loads(row["report"]) for row in rows]
 
-    def verify(self, *, notes: bool = False) -> dict[str, Any]:
-        """Recompute the hash chain and each decision record's digest. With `notes` (`mendari
-        audit verify --notes`), also each kept note against the commitment its event chained:
-        a note changed, moved to another decision, or missing without a chained `note.erased`
-        breaks verification at that event (`_check_notes`)."""
+    def verify(self, *, notes: bool = False, since_checkpoint: bool = False) -> dict[str, Any]:
+        """Recompute the hash chain and each decision record's digest, and check that an event
+        naming an organization names its row's (`_attributed`): a row moved to another
+        organization, or gone, breaks verification at the first such event, with
+        `reason: "organization"`. Each recorded checkpoint (`audit_checkpoints`, LP-21j) must
+        still name its event: a chain rewritten from before one, or cut short of it, breaks
+        verification there, with `reason: "checkpoint"`. With `notes` (`mendari audit verify
+        --notes`), also each kept note against the commitment its event chained: a note
+        changed, moved to another decision, or missing without a chained `note.erased` breaks
+        verification at that event (`_check_notes`).
+
+        With `since_checkpoint`, only what came after the last checkpoint: its event must still
+        be the one it recorded, and each later event is checked as above (`events` counts
+        those; `checkpoint` says when it was recorded). What came before is not read again: a
+        full verification covers it. Without a checkpoint it is a full one."""
+        if notes and since_checkpoint:
+            raise ValueError("notes are checked by a full verification only")
+        return self._verify(notes=notes, since_checkpoint=since_checkpoint)[0]
+
+    def record_checkpoint(self) -> dict[str, Any]:
+        """Verify from the last checkpoint (from the start without one) and, when the chain
+        holds, record its head as the next checkpoint (LP-21j): a row outside the chain, which
+        later verifications start from, and every full one checks. The verification, with the
+        checkpoint recorded (`recorded`: None when the chain is broken or has nothing new)."""
+        status, last = self._verify(notes=False, since_checkpoint=True)
+        previous = status.get("checkpoint")
+        recorded = None
+        if status["ok"] and last is not None and (previous is None or last != _at(previous)):
+            recorded = {"seq": last["seq"], "hash": last["hash"], "created_at": _now()}
+            with self._db.session(exclusive=False) as db:
+                db.all(
+                    "INSERT INTO audit_checkpoints (seq, hash, created_at) VALUES (?, ?, ?) "
+                    "ON CONFLICT (seq) DO NOTHING",
+                    (recorded["seq"], recorded["hash"], recorded["created_at"]),
+                )
+        return {**status, "recorded": recorded}
+
+    def checkpoints(self) -> list[dict[str, Any]]:
+        """Every recorded checkpoint, oldest first (none in a database from before them)."""
         with self._db.session(exclusive=False) as db:
-            events = db.all("SELECT * FROM audit_events ORDER BY seq")
-            records = {
-                row["id"]: json.loads(row["record"])
-                for row in db.all("SELECT id, record FROM decisions")
-            }
+            return _checkpoints(db)
+
+    def _verify(
+        self, *, notes: bool, since_checkpoint: bool
+    ) -> tuple[dict[str, Any], dict[str, Any] | None]:
+        """`verify`, and the last event checked (`seq`, `hash`; None for none)."""
+        with self._db.session(exclusive=False) as db:
+            recorded = _checkpoints(db)
+            start = recorded[-1] if since_checkpoint and recorded else None
+            # Events first, then rows: a row is written with its first event and never deleted
+            # or moved, so every row an event read here names is in what is read after.
+            if start is None:
+                events = db.all("SELECT * FROM audit_events ORDER BY seq")
+            else:
+                events = db.all(
+                    "SELECT * FROM audit_events WHERE seq >= ? ORDER BY seq", (start["seq"],)
+                )
+            with_org = "decisions.org" not in self.unmigrated
+            columns = f"id, record{', org' if with_org else ''}"
+            if start is None:
+                decided = db.all(f"SELECT {columns} FROM decisions")
+            else:  # the decisions the events read name, and no others
+                named = sorted({str(event["decision_id"]) for event in events})
+                decided = []
+                for at in range(0, len(named), _VERIFY_BATCH):
+                    batch = named[at : at + _VERIFY_BATCH]
+                    marks = ", ".join("?" for _ in batch)
+                    decided += db.all(
+                        f"SELECT {columns} FROM decisions WHERE id IN ({marks})", tuple(batch)
+                    )
+            records = {row["id"]: json.loads(row["record"]) for row in decided}
+            owners = {row["id"]: _org_of(row["org"]) for row in decided} if with_org else None
+            subjects = _subject_orgs(db)
             # An older database read as it is may have no notes table: nothing kept to check.
             has_notes = notes and "notes" not in self.unmigrated
             kept = db.all("SELECT id, decision_id, event, sealed FROM notes") if has_notes else []
         prev = GENESIS
+        if start is not None:
+            first = events[0] if events else None
+            if first is None or first["seq"] != start["seq"] or first["hash"] != start["hash"]:
+                cut = {"ok": False, "events": 0, "broken_at": start["seq"]}
+                return {**cut, "reason": "checkpoint"}, None
+            prev, events = start["hash"], events[1:]
+        expected = {row["seq"]: row["hash"] for row in recorded} if start is None else {}
         for event in events:
-            expected = _chain_hash(
+            chained = _chain_hash(
                 prev, event["decision_id"], event["event"], event["payload"], event["created_at"]
             )
-            if event["prev_hash"] != prev or event["hash"] != expected:
-                return {"ok": False, "events": len(events), "broken_at": event["seq"]}
+            if event["prev_hash"] != prev or event["hash"] != chained:
+                return {"ok": False, "events": len(events), "broken_at": event["seq"]}, None
+            if expected.pop(event["seq"], event["hash"]) != event["hash"]:
+                moved = {"ok": False, "events": len(events), "broken_at": event["seq"]}
+                return {**moved, "reason": "checkpoint"}, None
             if event["event"] == "decision.created":
                 record = records.get(event["decision_id"])
                 if record is None or json.loads(event["payload"])["record_sha256"] != _sha(record):
-                    return {"ok": False, "events": len(events), "broken_at": event["seq"]}
+                    return {"ok": False, "events": len(events), "broken_at": event["seq"]}, None
+            if '"org":' in event["payload"] and not _attributed(event, owners, subjects):
+                return {
+                    "ok": False,
+                    "events": len(events),
+                    "broken_at": event["seq"],
+                    "reason": "organization",
+                }, None
             prev = event["hash"]
+        if expected:  # a checkpoint's event is gone: the chain was cut short of it
+            cut = {"ok": False, "events": len(events), "broken_at": min(expected)}
+            return {**cut, "reason": "checkpoint"}, None
+        last = (
+            {"seq": events[-1]["seq"], "hash": events[-1]["hash"]}
+            if events
+            else (None if start is None else {"seq": start["seq"], "hash": start["hash"]})
+        )
+        since = {} if start is None else {"checkpoint": start}
         if not notes:
-            return {"ok": True, "events": len(events), "head": prev}
+            return {"ok": True, "events": len(events), "head": prev, **since}, last
         broken, counts, unopenable = self._check_notes(events, {row["id"]: row for row in kept})
         if broken is not None:
-            return {"ok": False, "events": len(events), "broken_at": broken, "notes": counts}
+            return {"ok": False, "events": len(events), "broken_at": broken, "notes": counts}, None
         if unopenable:  # the chain holds; these notes cannot be checked with this ring
-            return {"ok": False, "events": len(events), "notes": counts, "unopenable": unopenable}
-        return {"ok": True, "events": len(events), "head": prev, "notes": counts}
+            status = {"ok": False, "events": len(events), "notes": counts}
+            return {**status, "unopenable": unopenable}, None
+        return {"ok": True, "events": len(events), "head": prev, "notes": counts}, last
 
     def _check_notes(
         self, events: list[dict[str, Any]], kept: Mapping[str, Mapping[str, Any]]
@@ -4060,12 +4779,6 @@ def _key_status(row: Mapping[str, Any], now: str) -> str:
     return "replaced" if row["replaced_by"] else "active"
 
 
-def _org_of(value: Any) -> str:
-    """A stored organization column as an organization: NULL is the default one. Never
-    `value or DEFAULT_ORG`: "" is an organization of its own."""
-    return tenancy.DEFAULT_ORG if value is None else str(value)
-
-
 def _invitation_status(row: Any, now: str) -> str:
     """An invitation's status at `now` (a `_now()` text): accepted, revoked, expired or open."""
     if row["accepted_at"] is not None:
@@ -4269,6 +4982,22 @@ def _show_own_note(
         item["note"] = item["note"] if reader else None
         return
     item["note_status"], item["note"] = views.get(str(item["id"]), (None, None))
+
+
+# Decisions a verification from a checkpoint reads per query (`_verify`).
+_VERIFY_BATCH = 500
+
+
+def _at(checkpoint: Mapping[str, Any]) -> dict[str, Any]:
+    """A checkpoint's place in the chain: its event's `seq` and `hash`."""
+    return {"seq": checkpoint["seq"], "hash": checkpoint["hash"]}
+
+
+def _checkpoints(db: _Session) -> list[dict[str, Any]]:
+    """The recorded checkpoints, oldest first (none in a database from before them)."""
+    if not db.columns("audit_checkpoints"):
+        return []
+    return db.all("SELECT seq, hash, created_at FROM audit_checkpoints ORDER BY seq")
 
 
 def _chain_hash(prev: str, decision_id: str, event: str, payload: str, created_at: str) -> str:

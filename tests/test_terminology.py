@@ -47,9 +47,17 @@ PINNED = {
         "CodeSystem/message-channel": "0c3b329c01cfcc58",
         # Added in LP-14, a new url (no earlier content): the prior-auth pack's fictional codes.
         "CodeSystem/fictional-procedures": "b3c2e5361a6b9ea7",
+        # Added in LP-14's SNOMED CT swap, new urls too: the trial prescreener's and the referral
+        # router's fictional codes.
+        "CodeSystem/fictional-conditions": "2f0ec1f007434d56",
+        "CodeSystem/fictional-referrals": "491fe1f31f0f3df5",
         "NamingSystem/decision-id": "a3ac1c38e9476b4f",
         "NamingSystem/input-hash": "fb7c0678a0c9fdbf",
         "NamingSystem/decision-pack": "677f5f91c8577ec0",
+        # Added in LP-12g, new urls (no earlier content): the administrative events' codes and
+        # the chain id each is about. Moved in LP-21l, before 0.1.0's release: `sessions.ended`.
+        "CodeSystem/audit-administrative-event": "ab45885dd559bc62",
+        "NamingSystem/audit-subject": "5804d858d1fb1240",
     }
 }
 
@@ -214,6 +222,7 @@ def test_naming_systems(served: Terminology) -> None:
         "decision-id",
         "input-hash",
         "decision-pack",
+        "audit-subject",
     }
 
 
@@ -259,7 +268,11 @@ def test_no_url_and_version_names_two_contents(packs: dict[str, Pack]) -> None:
 
 def test_fixed_resources_are_pinned_to_the_mendari_version(served: Terminology) -> None:
     fixed = [
-        *(r for r in served.resources if r["id"] in ("decision-outcome", "audit-event")),
+        *(
+            r
+            for r in served.resources
+            if r["id"] in ("decision-outcome", "audit-event", "audit-administrative-event")
+        ),
         *(r for r in served.resources if r["resourceType"] == "NamingSystem"),
         *terminology.sandbox_resources(),
     ]
@@ -281,7 +294,8 @@ def test_every_resource_is_well_formed(served: Terminology) -> None:
         assert resource["text"]["div"].startswith('<div xmlns="http://www.w3.org/1999/xhtml">')
         if resource["resourceType"] == "CodeSystem":
             assert resource["caseSensitive"] is True
-            sandbox = ("sandbox", "message-channel", "fictional-procedures")
+            fictional = ("fictional-procedures", "fictional-conditions", "fictional-referrals")
+            sandbox = ("sandbox", "message-channel", *fictional)
             assert resource["experimental"] is (resource["id"] in sandbox)
             for concept in resource["concept"]:
                 assert f"<td>{concept['code']}</td>" in resource["text"]["div"]

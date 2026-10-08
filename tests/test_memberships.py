@@ -43,7 +43,7 @@ from mendari.server.auth import (
 )
 from mendari.standards.fhir_client import GuardedHttp
 from mendari.standards.smart import Registration
-from tests.conftest import launched, member, message, signed_in
+from tests.conftest import encrypt_mode, encrypted_store, launched, member, message, signed_in
 from tests.test_auth import (
     CLIENT,
     IDP,
@@ -75,6 +75,7 @@ def memberships_app(db: str, idp: FakeIdp, monkeypatch: pytest.MonkeyPatch) -> T
     monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", CLIENT)
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     transport = httpx.MockTransport(idp)
     monkeypatch.setattr(
         auth_module, "GuardedHttp", lambda **kw: GuardedHttp(transport=transport, **kw)
@@ -193,10 +194,10 @@ def test_use_another_account_asks_the_identity_provider_which(
 
 
 def test_the_owners_bootstrap_binds_at_sign_in_and_reads_earlier_decisions(
-    members: TestClient, store: AuditStore, idp: FakeIdp, inbox_pack: Pack
+    members: TestClient, store: AuditStore, idp: FakeIdp, inbox_pack: Pack, db_target: str
 ) -> None:
     inputs = message("Can I get a refill?")
-    store.record(Decision(inbox_pack)(inputs), inputs)
+    encrypted_store(db_target).record(Decision(inbox_pack)(inputs), inputs)
     store.bootstrap(email="owner@example.org", created_by="cli")
     signed = sign_in(members, idp, sub="owner", email="Owner@Example.org", email_verified=True)
     assert signed.status_code == 302
@@ -240,10 +241,10 @@ def test_a_non_ascii_address_signs_in_with_no_organization(
 
 
 def test_a_sign_in_without_a_membership_acts_for_no_organization_never_default(
-    members: TestClient, store: AuditStore, idp: FakeIdp, inbox_pack: Pack
+    members: TestClient, store: AuditStore, idp: FakeIdp, inbox_pack: Pack, db_target: str
 ) -> None:
     inputs = message("Can I get a refill?")
-    store.record(Decision(inbox_pack)(inputs), inputs)
+    encrypted_store(db_target).record(Decision(inbox_pack)(inputs), inputs)
     signed = sign_in(
         members, idp, sub="stranger", email="x@example.org", email_verified=True, roles=["admin"]
     )
@@ -257,14 +258,20 @@ def test_a_sign_in_without_a_membership_acts_for_no_organization_never_default(
     assert store.user(person_id(IDP, "stranger")) is None  # anyone else leaves no record
 
 
+@pytest.mark.parametrize("claimed", ["clinic-a", "", "default"])
 def test_role_and_org_claims_are_ignored_in_memberships_mode(
-    db_target: str, idp: FakeIdp, monkeypatch: pytest.MonkeyPatch
+    db_target: str, idp: FakeIdp, monkeypatch: pytest.MonkeyPatch, claimed: str
 ) -> None:
+    """An organization claim places no one, whatever it says: an organization with a record,
+    an empty claim, or the literal `default` (the owner's, given its record by the bootstrap).
+    Only a membership does."""
     monkeypatch.setenv("MENDARI_OIDC_ROLE_MAP", "clinicians=admin")
     monkeypatch.setenv("MENDARI_OIDC_ORG_CLAIM", "org")
     with memberships_app(db_target, idp, monkeypatch) as client:
-        AuditStore(db_target).create_organization(org="clinic-a", name="A", created_by="t")
-        sign_in(client, idp, roles=["clinicians"], org="clinic-a")
+        with AuditStore(db_target) as store:
+            store.create_organization(org="clinic-a", name="A", created_by="t")
+            store.bootstrap(email="owner@example.org", created_by="t")  # `default` has a record
+        sign_in(client, idp, roles=["clinicians"], org=claimed)
         principal = me(client)["principal"]
         assert (principal["org"], principal["roles"]) == (None, [])
 
@@ -480,6 +487,7 @@ def as_nobody(db_target: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestC
     monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", CLIENT)
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     monkeypatch.setenv("MENDARI_PUBLIC_URL", HTTPS)
     monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "on")
     app = create_app(db_path=db_target)
@@ -504,6 +512,8 @@ ORG_ROUTES: list[tuple[str, str, dict[str, Any] | None]] = [
     ("POST", "/api/auth/clients/c1/keys", {"jwks": {"keys": []}}),
     ("GET", "/api/audit/verify", None),
     ("GET", "/api/audit/export/fhir", None),
+    ("GET", "/api/audit/administrative", None),
+    ("GET", "/api/audit/administrative/export/fhir", None),
     ("POST", "/api/auth/invitations", {"email": "a@example.org", "roles": ["viewer"]}),
     ("GET", "/api/auth/invitations", None),
     ("DELETE", "/api/auth/invitations/i1", None),
@@ -528,7 +538,8 @@ def test_a_principal_of_no_organization_is_refused_before_every_route_that_takes
     for name in (
         "holds", "hold_automation", "lift_hold", "create_api_key", "api_keys",
         "rotate_api_key", "revoke_api_key", "register_client", "clients", "revoke_client",
-        "verify", "iter_events", "org_usage", "create_invitation", "invitations",
+        "verify", "iter_events", "administrative_events", "iter_administrative_events",
+        "org_usage", "create_invitation", "invitations",
         "revoke_invitation", "members", "set_membership_roles", "remove_membership",
         "open_access_requests", "handle_access_request", "subject_history",
         "replace_client_keys",
@@ -539,7 +550,7 @@ def test_a_principal_of_no_organization_is_refused_before_every_route_that_takes
         answer = as_nobody.request(method, path, json=body)
         assert refused_for_no_organization(answer), (method, path, answer.status_code)
     lines = logged(capsys)
-    assert not [line for line in lines if line["event"] == "export.audit"]
+    assert not [line for line in lines if line["event"].startswith("export.audit")]
     refusals = [line for line in lines if line["event"] == "auth.permission.refused"]
     assert {line["reason"] for line in refusals} == {"no_organization"}
     accessed = [line for line in lines if line["event"] == "request"]
@@ -740,6 +751,7 @@ def test_a_member_is_let_through_exactly_as_a_claims_person_of_the_same_role(
     mode."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", CLIENT)
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     monkeypatch.setenv("MENDARI_PUBLIC_URL", HTTPS)
     monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "on")
     monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")

@@ -35,7 +35,7 @@ from mendari.server.backend_services import check_jwks, default_scope
 from mendari.server.scopes import DECIDE, OUTCOME, needed, parse, parse_lenient
 from mendari.standards.fhir_client import GuardedHttp
 from mendari.standards.smart import Registration
-from tests.conftest import launched, message, run_async, signed_in, without_request_id
+from tests.conftest import encrypt_mode, launched, message, run_async, signed_in, without_request_id
 
 IDP = "https://idp.example.org"
 REALM = 'Bearer realm="mendari"'
@@ -123,6 +123,7 @@ def signing_in_with(
     """A server whose sign-in uses `idp` (the role settings come from the test's environment)."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", CLIENT)
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     transport = httpx.MockTransport(idp)
     monkeypatch.setattr(
         auth_module, "GuardedHttp", lambda **kw: GuardedHttp(transport=transport, **kw)
@@ -347,6 +348,10 @@ BACKEND_PUBLIC = {("GET", "/fhir/.well-known/smart-configuration"), ("POST", "/a
 _KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 PUBLIC = {
     ("GET", "/api/health"),
+    # Readiness, for status pages, uptime checks and probes (HEAD as many send it): one cached,
+    # bounded database read per instance whoever asks.
+    ("GET", "/api/health/ready"),
+    ("HEAD", "/api/health/ready"),
     ("GET", "/api/auth/me"),
     ("GET", "/favicon.ico"),
     ("GET", "/auth/login"),
@@ -362,8 +367,11 @@ PUBLIC = {
     # The developer landing (static), and a redirect from ReDoc's old address to the reference.
     ("GET", "/docs"),
     ("GET", "/redoc"),
-    # The scheduled purge: its own bearer secret (CRON_SECRET), checked by the route.
+    # The status page: static, it reads readiness in the browser.
+    ("GET", "/status"),
+    # The scheduled purge and monitor: their own bearer secret (CRON_SECRET), checked there.
     ("GET", "/api/internal/retention"),
+    ("GET", "/api/internal/monitor"),
 }
 
 
@@ -411,6 +419,8 @@ def test_every_route_has_the_permission_it_should(tmp_path: Path) -> None:
     assert permission_for("GET", "/api/auth/clients/c1") == "keys"
     assert permission_for("GET", "/api/audit/verify") == "admin"
     assert permission_for("GET", "/api/audit/export/fhir") == "admin"
+    assert permission_for("GET", "/api/audit/administrative") == "admin"
+    assert permission_for("GET", "/api/audit/administrative/export/fhir") == "admin"
     assert permission_for("GET", "/api/audit/d1") == "read"
     # A person's accountability: no machine role has these (ROLE_PERMISSIONS below).
     assert permission_for("POST", "/api/review/d1") == "review"
@@ -572,6 +582,7 @@ def test_every_route_principal_role_and_scope_gets_what_it_should(
     routes, and nothing else with its cookie."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", CLIENT)
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     monkeypatch.setenv("MENDARI_PUBLIC_URL", "https://mendari.test")
     monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "on")
     app = create_app(db_path=tmp_path / "routes.db")
@@ -1192,11 +1203,16 @@ def test_an_outcome_is_recorded_for_whoever_sends_it(app: TestClient, idp: FakeI
     assert recorded.json()["recorded_by"] == key_id
     sign_in(app, idp, name="Nurse Kim", roles=["clinicians"])
     events = app.get(f"/api/audit/{decided.json()['id']}").json()["events"]
-    assert events[-1]["payload"]["recorded_by"] == key_id
+    assert outcomes(events)[-1]["recorded_by"] == key_id  # the reviewer's read chains after it
     assert "Dr Somebody Else" not in json.dumps(events)
     app.post(f"/api/audit/{decided.json()['id']}/outcome", json=outcome)
     events = app.get(f"/api/audit/{decided.json()['id']}").json()["events"]
-    assert events[-1]["payload"]["recorded_by"] == f"{IDP}|u1"  # no verified email
+    assert outcomes(events)[-1]["recorded_by"] == f"{IDP}|u1"  # no verified email
+
+
+def outcomes(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The payloads of a decision's `outcome.recorded` events, in chain order."""
+    return [e["payload"] for e in events if e["event"] == "outcome.recorded"]
 
 
 def test_the_api_reference_says_keys_are_managed_by_people(app: TestClient, idp: FakeIdp) -> None:

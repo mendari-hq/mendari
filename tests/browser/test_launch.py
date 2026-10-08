@@ -23,6 +23,7 @@ from mendari.server import smart_routes
 from mendari.server.app import create_app
 from mendari.standards.fhir_client import FhirClient, GuardedHttp
 from tests.browser.conftest import serving
+from tests.conftest import encrypt_mode
 
 pytestmark = pytest.mark.browser
 
@@ -81,6 +82,7 @@ def site(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[str,
         ehr.config_overrides = {"authorization_endpoint": f"{authorize}/auth/authorize"}
         monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")  # never reached
         monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
+        encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
         monkeypatch.setenv("MENDARI_SMART_CLIENT_ID", fake.CLIENT)
         monkeypatch.setenv("MENDARI_FHIR_ALLOWED_SERVERS", f"{fake.EHR},{authorize}")
         monkeypatch.setenv("MENDARI_SMART_EHRS", f"{fake.ISS}=default:decide")

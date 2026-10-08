@@ -255,10 +255,12 @@ def test_every_shipped_benchmark_can_be_shared(pack_id: str) -> None:
 def _composite_report(tmp_path: Path) -> tuple[Pack, dict[str, Any]]:
     """The inbox pack with its router a cascade of its two local variants (naive Bayes, then
     rules) and its shipped any_of screen (rules and Jev), evaluated where Jev is not set up:
-    Jev fails without a call."""
+    Jev fails without a call. At a new version: changed at its own, a registry refuses it (it
+    would take the reference pack's place)."""
     root = tmp_path / "pack"
     shutil.copytree(INBOX_DIR, root)
     manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    manifest["version"] = "9.9.9"
     variants = manifest["providers"]["router"]["variants"]
     variants["nb_then_rules"] = {
         "type": "cascade",

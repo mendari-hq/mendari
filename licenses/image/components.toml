@@ -1,0 +1,711 @@
+# Third-party software in the container images whose licence and copyright notices are not
+# already in the image beside it: what psycopg-binary bundles in psycopg_binary.libs, what other
+# packages link statically, CPython's incorporated software and pip's vendored packages (both from
+# the base image). Debian's packages carry theirs (/usr/share/doc/<package>/copyright) and every
+# other Python package its own (*.dist-info/licenses); the Rust crates compiled into packages are
+# in crates.toml. The image build (scripts/image_notices.py) copies the texts of the components
+# an image holds into /licenses/third-party/ and lists everything in THIRD_PARTY_NOTICES.md;
+# scripts/check_image_licences.py fails an image that holds anything this file does not cover.
+#
+# Each [[component]]:
+#   id, name, version, licence   the licence as an SPDX expression (the packager's statement for
+#                                an RPM; the texts are what binds)
+#   in                           the packages that carry it, at the version reviewed
+#   arch                         the image architectures it is in (both when absent)
+#   libs                         the files in psycopg_binary.libs that are it (auditwheel's names)
+#   purl                         how the carrying package's own SBOM names it, when it does
+#   how, source                  how it was built, and where its source is
+#   texts                        its licence and notices from its upstream project at that version:
+#                                a file at `url`, or `member` of the archive at `url`, or some
+#                                `lines` of it (a notice in a source file's header); fetched by
+#                                scripts/image_licence_texts.py fetch into texts/<id>/<file>
+#   corresponding_source         for GPL and LGPL software (and CPython, whose readline and _gdbm
+#                                modules link GNU Readline and GDBM): the exact source, and the
+#                                scripts that built it, pinned by sha256, that the release
+#                                publishes beside the image (scripts/image_sources.py)
+#
+# How the versions were found (2026-10-08): psycopg-binary 3.3.6's wheels carry an auditwheel SBOM
+# of the system libraries grafted into them (the RPMs below); libpq, OpenSSL 3 and OpenLDAP are
+# built from source by psycopg's tools/ci/build_libpq.sh at its 3.3.6 tag (LIBPQ_VERSION 18.6 and
+# OPENSSL_VERSION 3.5.8 in its packages-bin.yml; OpenLDAP 2.6.14 in the script). On x86_64,
+# libcrypt is libxcrypt 4.5.2 as the manylinux2014 image builds it: cibuildwheel 4.2.0 pins
+# manylinux2014_x86_64 2026.08.04-1, built from pypa/manylinux 829db794 (LIBXCRYPT_VERSION).
+# The other packages' bundled libraries come from their own builds: cffi 2.1.1's CI (libffi),
+# PyYAML 6.0.3's (libyaml), google-re2's MODULE.bazel at RE2 2025-11-05 (Abseil, pybind11),
+# cryptography's own SBOM (OpenSSL), and each Rust library's .comment section (rustc).
+
+# The packages with native code, at the version whose build was reviewed for what it bundles. A new
+# version, or a new package with native code, fails the image check until it is reviewed here.
+[native]
+cffi = "2.1.1"               # libffi 3.4.6, linked statically
+cryptography = "50.0.1"      # OpenSSL 4.0.2 and Rust crates (its SBOMs), statically; Rust 1.98.0's std
+google-re2 = "1.1.20251105"  # RE2 2025-11-05, Abseil 20250512.1, pybind11 2.13.6, statically
+psycopg-binary = "3.3.6"     # the libraries in psycopg_binary.libs, below, per architecture
+pydantic-core = "2.46.5"     # Rust crates (its SBOM), statically; Rust 1.98.0's std
+pyyaml = "6.0.3"             # libyaml 0.2.5, statically
+rpds-py = "2026.6.3"         # Rust crates (its SBOM), statically; Rust 1.96.0's std
+
+# -- psycopg-binary 3.3.6: built from source by psycopg's build, on both architectures ----------
+
+[[component]]
+id = "libpq-18.6"
+name = "PostgreSQL libpq"
+version = "18.6"
+licence = "PostgreSQL"
+in = [{ dist = "psycopg-binary", version = "3.3.6" }]
+libs = ["libpq-*.so.5.*"]
+purl = "pkg:generic/postgresql@18.6"
+how = "built from source by psycopg's tools/ci/build_libpq.sh (3.3.6), which changes two defaults: GSSAPI encryption off, and the socket directory /var/run/postgresql"
+source = "https://ftp.postgresql.org/pub/source/v18.6/postgresql-18.6.tar.bz2"
+texts = [
+  { file = "COPYRIGHT", url = "https://raw.githubusercontent.com/postgres/postgres/REL_18_6/COPYRIGHT" },
+]
+
+[[component]]
+id = "openssl-3.5.8"
+name = "OpenSSL"
+version = "3.5.8"
+licence = "Apache-2.0"
+in = [{ dist = "psycopg-binary", version = "3.3.6" }]
+libs = ["libssl-*.so.3", "libcrypto-*.so.3"]
+purl = "pkg:generic/openssl@3.5.8"
+how = "built from source by psycopg's tools/ci/build_libpq.sh (3.3.6)"
+source = "https://github.com/openssl/openssl/releases/download/openssl-3.5.8/openssl-3.5.8.tar.gz"
+texts = [
+  { file = "LICENSE.txt", url = "https://raw.githubusercontent.com/openssl/openssl/openssl-3.5.8/LICENSE.txt" },
+]
+
+[[component]]
+id = "openldap-2.6.14"
+name = "OpenLDAP (libldap, liblber)"
+version = "2.6.14"
+licence = "OLDAP-2.8"
+in = [{ dist = "psycopg-binary", version = "3.3.6" }]
+libs = ["libldap-*.so.2.*", "liblber-*.so.2.*"]
+purl = "pkg:generic/openldap@2.6.14"
+how = "built from source by psycopg's tools/ci/build_libpq.sh (3.3.6)"
+source = "https://www.openldap.org/software/download/OpenLDAP/openldap-release/openldap-2.6.14.tgz"
+texts = [
+  { file = "LICENSE", url = "https://git.openldap.org/openldap/openldap/-/raw/OPENLDAP_REL_ENG_2_6_14/LICENSE" },
+  { file = "COPYRIGHT", url = "https://git.openldap.org/openldap/openldap/-/raw/OPENLDAP_REL_ENG_2_6_14/COPYRIGHT" },
+]
+
+# -- psycopg-binary 3.3.6 on linux/amd64: manylinux2014 (CentOS 7) ------------------------------
+
+[[component]]
+id = "libxcrypt-4.5.2"
+name = "libxcrypt (libcrypt.so.1, glibc-compatible)"
+version = "4.5.2"
+licence = "LGPL-2.1-or-later AND BSD-3-Clause AND BSD-2-Clause AND 0BSD AND LicenseRef-public-domain"
+in = [{ dist = "psycopg-binary", version = "3.3.6" }]
+arch = ["amd64"]
+libs = ["libcrypt-*.so.1"]
+purl = "pkg:generic/libxcrypt@4.5.2"
+how = "built by the manylinux2014 image (pypa/manylinux 829db794, docker/build_scripts/install-libxcrypt.sh), which strips the XCRYPT_ symbol versions for glibc compatibility"
+source = "https://github.com/besser82/libxcrypt/releases/download/v4.5.2/libxcrypt-4.5.2.tar.xz"
+texts = [
+  { file = "LICENSING", url = "https://raw.githubusercontent.com/besser82/libxcrypt/v4.5.2/LICENSING" },
+  { file = "COPYING.LIB", url = "https://raw.githubusercontent.com/besser82/libxcrypt/v4.5.2/COPYING.LIB" },
+]
+corresponding_source = [
+  { file = "libxcrypt-4.5.2.tar.xz", url = "https://github.com/besser82/libxcrypt/releases/download/v4.5.2/libxcrypt-4.5.2.tar.xz", sha256 = "71513a31c01a428bccd5367a32fd95f115d6dac50fb5b60c779d5c7942aec071" },
+  { file = "manylinux-829db794-install-libxcrypt.sh", url = "https://raw.githubusercontent.com/pypa/manylinux/829db79451608b5a2e5121475105b0e15efc688b/docker/build_scripts/install-libxcrypt.sh", sha256 = "2a1e4846c84b32c02e6ebf93b3b8dc0837f67ed5a0b89be1c9200ae5d2f8dde8" },
+  { file = "manylinux-829db794-build_utils.sh", url = "https://raw.githubusercontent.com/pypa/manylinux/829db79451608b5a2e5121475105b0e15efc688b/docker/build_scripts/build_utils.sh", sha256 = "8d1a9b3bad070ac388e28063ec777b479d5fbaaeb08a0a8de812013471f5082b" },
+]
+
+[[component]]
+id = "cyrus-sasl-2.1.26-24.el7_9"
+name = "Cyrus SASL (libsasl2)"
+version = "2.1.26-24.el7_9"
+licence = "BSD-Attribution-HPND-disclaimer"
+in = [{ dist = "psycopg-binary", version = "3.3.6" }]
+arch = ["amd64"]
+libs = ["libsasl2-*.so.3.*"]
+purl = "pkg:rpm/centos/cyrus-sasl-lib@2.1.26-24.el7_9"
+how = "CentOS 7's cyrus-sasl-lib, grafted by auditwheel"
+source = "https://vault.centos.org/7.9.2009/updates/Source/SPackages/cyrus-sasl-2.1.26-24.el7_9.src.rpm"
+texts = [
+  { file = "COPYING", url = "https://raw.githubusercontent.com/cyrusimap/cyrus-sasl/cyrus-sasl-2.1.26/COPYING" },
+]
+
+[[component]]
+id = "krb5-1.15.1-55.el7_9"
+name = "MIT Kerberos (libgssapi_krb5, libkrb5, libk5crypto, libkrb5support)"
+version = "1.15.1-55.el7_9"
+licence = "MIT"
+in = [{ dist = "psycopg-binary", version = "3.3.6" }]
+arch = ["amd64"]
+libs = ["libgssapi_krb5-*.so.2.*", "libkrb5-*.so.3.*", "libk5crypto-*.so.3.*", "libkrb5support-*.so.0.*"]
+purl = "pkg:rpm/centos/krb5-libs@1.15.1-55.el7_9"
+how = "CentOS 7's krb5-libs, grafted by auditwheel; its NOTICE lists the other licences of its parts"
+source = "https://vault.centos.org/7.9.2009/updates/Source/SPackages/krb5-1.15.1-55.el7_9.src.rpm"
+texts = [
+  { file = "NOTICE", url = "https://raw.githubusercontent.com/krb5/krb5/krb5-1.15.1-final/NOTICE" },
+]
+
+[[component]]
+id = "libcom_err-1.42.9-19.el7"
+name = "com_err (libcom_err, from e2fsprogs)"
+version = "1.42.9-19.el7"
+licence = "MIT"
+in = [{ dist = "psycopg-binary", version = "3.3.6" }]
+arch = ["amd64"]
+libs = ["libcom_err-*.so.2.*"]
+purl = "pkg:rpm/centos/libcom_err@1.42.9-19.el7"
+how = "CentOS 7's libcom_err, grafted by auditwheel; its notice is in its sources' headers (e2fsprogs' COPYING says so)"
+source = "https://vault.centos.org/7.9.2009/os/Source/SPackages/e2fsprogs-1.42.9-19.el7.src.rpm"
+texts = [
+  { file = "com_err.c-header", url = "https://raw.githubusercontent.com/tytso/e2fsprogs/v1.42.9/lib/et/com_err.c", lines = "1-12" },
+]
+
+[[component]]
+id = "keyutils-1.5.8-3.el7"
+name = "keyutils (libkeyutils)"
+version = "1.5.8-3.el7"
+licence = "LGPL-2.1-or-later"
+in = [{ dist = "psycopg-binary", version = "3.3.6" }]
+arch = ["amd64"]
+libs = ["libkeyutils-*.so.1.*"]
+purl = "pkg:rpm/centos/keyutils-libs@1.5.8-3.el7"
+how = "CentOS 7's keyutils-libs, grafted by auditwheel"
+source = "https://vault.centos.org/7.9.2009/os/Source/SPackages/keyutils-1.5.8-3.el7.src.rpm"
+texts = [
+  { file = "LICENCE.LGPL", url = "https://git.kernel.org/pub/scm/linux/kernel/git/dhowells/keyutils.git/plain/LICENCE.LGPL?h=v1.5.8" },
+]
+corresponding_source = [
+  { file = "keyutils-1.5.8-3.el7.src.rpm", url = "https://vault.centos.org/7.9.2009/os/Source/SPackages/keyutils-1.5.8-3.el7.src.rpm", sha256 = "eff16e16f707fd28436afe4cf7b7c2e34b9f827e7f6beacf3c6eecbf74e9f850" },
+]
+
+[[component]]
+id = "libselinux-2.5-15.el7"
+name = "libselinux"
+version = "2.5-15.el7"
+licence = "LicenseRef-public-domain"
+in = [{ dist = "psycopg-binary", version = "3.3.6" }]
+arch = ["amd64"]
+libs = ["libselinux-*.so.1"]
+purl = "pkg:rpm/centos/libselinux@2.5-15.el7"
+how = "CentOS 7's libselinux, grafted by auditwheel"
+source = "https://vault.centos.org/7.9.2009/os/Source/SPackages/libselinux-2.5-15.el7.src.rpm"
+texts = [
+  { file = "LICENSE", url = "https://raw.githubusercontent.com/SELinuxProject/selinux/libselinux-2.5/libselinux/LICENSE" },
+]
+
+[[component]]
+id = "pcre-8.32-17.el7"
+name = "PCRE (libpcre)"
+version = "8.32-17.el7"
+licence = "BSD-3-Clause"
+in = [{ dist = "psycopg-binary", version = "3.3.6" }]
+arch = ["amd64"]
+libs = ["libpcre-*.so.1.*"]
+purl = "pkg:rpm/centos/pcre@8.32-17.el7"
+how = "CentOS 7's pcre, grafted by auditwheel (libselinux needs it)"
+source = "https://vault.centos.org/7.9.2009/os/Source/SPackages/pcre-8.32-17.el7.src.rpm"
+texts = [
+  { file = "LICENCE", url = "https://ftp.exim.org/pub/pcre/pcre-8.32.tar.bz2", archive_sha256 = "a913fb9bd058ef380a2d91847c3c23fcf98e92dc3b47cd08a53c021c5cde0f55", member = "pcre-8.32/LICENCE" },
+]
+
+# -- psycopg-binary 3.3.6 on linux/arm64: manylinux_2_28 (AlmaLinux 8) ---------------------------
+
+[[component]]
+id = "cyrus-sasl-2.1.27-6.el8_5"
+name = "Cyrus SASL (libsasl2)"
+version = "2.1.27-6.el8_5"
+licence = "BSD-Attribution-HPND-disclaimer"
+in = [{ dist = "psycopg-binary", version = "3.3.6" }]
+arch = ["arm64"]
+libs = ["libsasl2-*.so.3.*"]
+purl = "pkg:rpm/almalinux/cyrus-sasl-lib@2.1.27-6.el8_5"
+how = "AlmaLinux 8's cyrus-sasl-lib, grafted by auditwheel"
+source = "https://repo.almalinux.org/vault/8.10/BaseOS/Source/Packages/cyrus-sasl-2.1.27-6.el8_5.src.rpm"
+texts = [
+  { file = "COPYING", url = "https://raw.githubusercontent.com/cyrusimap/cyrus-sasl/cyrus-sasl-2.1.27/COPYING" },
+]
+
+[[component]]
+id = "krb5-1.18.2-34.el8_10"
+name = "MIT Kerberos (libgssapi_krb5, libkrb5, libk5crypto, libkrb5support)"
+version = "1.18.2-34.el8_10"
+licence = "MIT"
+in = [{ dist = "psycopg-binary", version = "3.3.6" }]
+arch = ["arm64"]
+libs = ["libgssapi_krb5-*.so.2.*", "libkrb5-*.so.3.*", "libk5crypto-*.so.3.*", "libkrb5support-*.so.0.*"]
+purl = "pkg:rpm/almalinux/krb5-libs@1.18.2-34.el8_10"
+how = "AlmaLinux 8's krb5-libs, grafted by auditwheel; its NOTICE lists the other licences of its parts"
+source = "https://repo.almalinux.org/vault/8.10/BaseOS/Source/Packages/krb5-1.18.2-34.el8_10.src.rpm"
+texts = [
+  { file = "NOTICE", url = "https://raw.githubusercontent.com/krb5/krb5/krb5-1.18.2-final/NOTICE" },
+]
+
+[[component]]
+id = "libcom_err-1.45.6-7.el8_10"
+name = "com_err (libcom_err, from e2fsprogs)"
+version = "1.45.6-7.el8_10"
+licence = "MIT"
+in = [{ dist = "psycopg-binary", version = "3.3.6" }]
+arch = ["arm64"]
+libs = ["libcom_err-*.so.2.*"]
+purl = "pkg:rpm/almalinux/libcom_err@1.45.6-7.el8_10"
+how = "AlmaLinux 8's libcom_err, grafted by auditwheel; its notice is in its sources' headers (e2fsprogs' NOTICE says so)"
+source = "https://repo.almalinux.org/vault/8.10/BaseOS/Source/Packages/e2fsprogs-1.45.6-7.el8_10.src.rpm"
+texts = [
+  { file = "com_err.c-header", url = "https://raw.githubusercontent.com/tytso/e2fsprogs/v1.45.6/lib/et/com_err.c", lines = "1-12" },
+]
+
+[[component]]
+id = "keyutils-1.5.10-9.el8"
+name = "keyutils (libkeyutils)"
+version = "1.5.10-9.el8"
+licence = "LGPL-2.1-or-later"
+in = [{ dist = "psycopg-binary", version = "3.3.6" }]
+arch = ["arm64"]
+libs = ["libkeyutils-*.so.1.*"]
+purl = "pkg:rpm/almalinux/keyutils-libs@1.5.10-9.el8"
+how = "AlmaLinux 8's keyutils-libs, grafted by auditwheel"
+source = "https://repo.almalinux.org/vault/8.10/BaseOS/Source/Packages/keyutils-1.5.10-9.el8.src.rpm"
+texts = [
+  { file = "LICENCE.LGPL", url = "https://git.kernel.org/pub/scm/linux/kernel/git/dhowells/keyutils.git/plain/LICENCE.LGPL?h=v1.5.10" },
+]
+corresponding_source = [
+  { file = "keyutils-1.5.10-9.el8.src.rpm", url = "https://repo.almalinux.org/vault/8.10/BaseOS/Source/Packages/keyutils-1.5.10-9.el8.src.rpm", sha256 = "13fec652f642858757755b64195189abef7c0ff8025e9807ddba467e4ad8fbb6" },
+]
+
+[[component]]
+id = "libselinux-2.9-11.el8_10"
+name = "libselinux"
+version = "2.9-11.el8_10"
+licence = "LicenseRef-public-domain"
+in = [{ dist = "psycopg-binary", version = "3.3.6" }]
+arch = ["arm64"]
+libs = ["libselinux-*.so.1"]
+purl = "pkg:rpm/almalinux/libselinux@2.9-11.el8_10"
+how = "AlmaLinux 8's libselinux, grafted by auditwheel"
+source = "https://repo.almalinux.org/vault/8.10/BaseOS/Source/Packages/libselinux-2.9-11.el8_10.src.rpm"
+texts = [
+  { file = "LICENSE", url = "https://raw.githubusercontent.com/SELinuxProject/selinux/libselinux-2.9/libselinux/LICENSE" },
+]
+
+[[component]]
+id = "pcre2-10.32-3.el8_6"
+name = "PCRE2 (libpcre2-8)"
+version = "10.32-3.el8_6"
+licence = "BSD-3-Clause"
+in = [{ dist = "psycopg-binary", version = "3.3.6" }]
+arch = ["arm64"]
+libs = ["libpcre2-8-*.so.0.*"]
+purl = "pkg:rpm/almalinux/pcre2@10.32-3.el8_6"
+how = "AlmaLinux 8's pcre2, grafted by auditwheel (libselinux needs it)"
+source = "https://repo.almalinux.org/vault/8.10/BaseOS/Source/Packages/pcre2-10.32-3.el8_6.src.rpm"
+texts = [
+  { file = "LICENCE", url = "https://raw.githubusercontent.com/PCRE2Project/pcre2/pcre2-10.32/LICENCE" },
+]
+
+[[component]]
+id = "libxcrypt-4.1.1-6.el8"
+name = "libxcrypt (libcrypt.so.1)"
+version = "4.1.1-6.el8"
+licence = "LGPL-2.1-or-later AND BSD-3-Clause AND BSD-2-Clause AND 0BSD AND LicenseRef-public-domain"
+in = [{ dist = "psycopg-binary", version = "3.3.6" }]
+arch = ["arm64"]
+libs = ["libcrypt-*.so.1.*"]
+purl = "pkg:rpm/almalinux/libxcrypt@4.1.1-6.el8"
+how = "AlmaLinux 8's libxcrypt, grafted by auditwheel"
+source = "https://repo.almalinux.org/vault/8.10/BaseOS/Source/Packages/libxcrypt-4.1.1-6.el8.src.rpm"
+texts = [
+  { file = "LICENSING", url = "https://raw.githubusercontent.com/besser82/libxcrypt/v4.1.1/LICENSING" },
+  { file = "COPYING.LIB", url = "https://raw.githubusercontent.com/besser82/libxcrypt/v4.1.1/COPYING.LIB" },
+]
+corresponding_source = [
+  { file = "libxcrypt-4.1.1-6.el8.src.rpm", url = "https://repo.almalinux.org/vault/8.10/BaseOS/Source/Packages/libxcrypt-4.1.1-6.el8.src.rpm", sha256 = "3c492b21903329f611e7945134ed851beb2f8a38a2909109fb94c5fa20ae08bb" },
+]
+
+[[component]]
+id = "openssl-1.1.1k-17.el8_6"
+name = "OpenSSL 1.1.1 (libcrypto.so.1.1, which Kerberos uses)"
+version = "1.1.1k-17.el8_6"
+licence = "OpenSSL"
+in = [{ dist = "psycopg-binary", version = "3.3.6" }]
+arch = ["arm64"]
+libs = ["libcrypto-*.so.1.1.1k"]
+purl = "pkg:rpm/almalinux/openssl-libs@1.1.1k-17.el8_6"
+how = "AlmaLinux 8's openssl-libs, grafted by auditwheel"
+source = "https://repo.almalinux.org/vault/8.10/BaseOS/Source/Packages/openssl-1.1.1k-17.el8_6.src.rpm"
+texts = [
+  { file = "LICENSE", url = "https://raw.githubusercontent.com/openssl/openssl/OpenSSL_1_1_1k/LICENSE" },
+]
+
+# -- psycopg itself: LGPL-3.0, its own licence text is in each package's dist-info -----------------
+
+[[component]]
+id = "psycopg-source"
+name = "psycopg (psycopg, psycopg-binary's C implementation, psycopg-pool)"
+version = "3.3.6"
+licence = "LGPL-3.0-only"
+in = [{ dist = "psycopg-binary", version = "3.3.6" }, { dist = "psycopg", version = "3.3.6" }, { dist = "psycopg-pool", version = "3.3.3" }]
+purl = "pkg:pypi/psycopg@3.3.6"
+how = "psycopg-binary is psycopg_c built by psycopg's CI (cibuildwheel 4.2.0) with the libraries above; LGPL-3.0 incorporates the GPL-3.0 text: /usr/share/common-licenses/GPL-3"
+source = "https://github.com/psycopg/psycopg/tree/3.3.6"
+corresponding_source = [
+  { file = "psycopg-3.3.6-repository.tar.gz", url = "https://github.com/psycopg/psycopg/archive/refs/tags/3.3.6.tar.gz", sha256 = "bfa3560402b8f8ac2bf9408c6354b5c8c951d64871629a14526f942361560836" },
+  { file = "psycopg_c-3.3.6.tar.gz", url = "https://files.pythonhosted.org/packages/58/53/bf15aa48cd6f0ad0039b9f48681d2e76e8564d413af47b13fab50dd03555/psycopg_c-3.3.6.tar.gz", sha256 = "29c568426ad61c1b702c7d73505c43ca2c9fc5d97a8431d8d9049e731e319ff8" },
+  { file = "psycopg-3.3.6.tar.gz", url = "https://files.pythonhosted.org/packages/76/26/3ea4ca5eaea1c0debcdf7ee7c1613fbe721dc27a03c461c0817ffd8a0601/psycopg-3.3.6.tar.gz", sha256 = "c081f2250df751a943036e42db6df4571c66cd0aabe8291a7a506512b12007d2" },
+  { file = "psycopg_pool-3.3.3.tar.gz", url = "https://files.pythonhosted.org/packages/74/5e/c0664b968b102ff68b811d999c728546c48d5c1eec03e3bbaf88c0cb4472/psycopg_pool-3.3.3.tar.gz", sha256 = "df87b5d9d0ad7db37f6cdad4fa8ce113d250f5997f6db38e9a99192fb67f9e1d" },
+]
+
+[[component]]
+id = "certifi-source"
+name = "certifi (Mozilla's CA bundle)"
+version = "2026.7.22"
+licence = "MPL-2.0"
+in = [{ dist = "certifi", version = "2026.7.22" }]
+purl = "pkg:pypi/certifi@2026.7.22"
+how = "installed unmodified; its source files are the installed ones, and its sdist is published beside the image too"
+source = "https://pypi.org/project/certifi/2026.7.22/"
+corresponding_source = [
+  { file = "certifi-2026.7.22.tar.gz", url = "https://files.pythonhosted.org/packages/a3/c2/24167ea9858356b47a87a50d39908bfdb72ceeefe0041586e704e5376b3a/certifi-2026.7.22.tar.gz", sha256 = "741e2c3b351ddf169a738da9f2c048608ff7f2c5cc02f1ebc6b118bb090d5d55" },
+]
+
+# -- linked statically into other packages -----------------------------------------------------
+
+[[component]]
+id = "cryptography-openssl-4.0.2"
+name = "OpenSSL (in cryptography's Rust extension)"
+version = "4.0.2"
+licence = "Apache-2.0"
+in = [{ dist = "cryptography", version = "50.0.1" }]
+purl = "pkg:generic/openssl@4.0.2"
+how = "linked statically into cryptography/hazmat/bindings/_rust.abi3.so (cryptography's SBOM, sboms/sbom.json)"
+source = "https://github.com/openssl/openssl/releases/download/openssl-4.0.2/openssl-4.0.2.tar.gz"
+texts = [
+  { file = "LICENSE.txt", url = "https://raw.githubusercontent.com/openssl/openssl/openssl-4.0.2/LICENSE.txt" },
+]
+
+[[component]]
+id = "rust-std-1.98.0"
+name = "The Rust standard library"
+version = "1.98.0"
+licence = "MIT OR Apache-2.0"
+in = [{ dist = "cryptography", version = "50.0.1" }, { dist = "pydantic-core", version = "2.46.5" }]
+purl = "pkg:generic/rust-std@1.98.0"
+how = "linked statically into each package's Rust extension (rustc 1.98.0, its .comment section)"
+source = "https://static.rust-lang.org/dist/rustc-1.98.0-src.tar.xz"
+texts = [
+  { file = "COPYRIGHT", url = "https://raw.githubusercontent.com/rust-lang/rust/1.98.0/COPYRIGHT" },
+  { file = "LICENSE-MIT", url = "https://raw.githubusercontent.com/rust-lang/rust/1.98.0/LICENSE-MIT" },
+  { file = "LICENSE-APACHE", url = "https://raw.githubusercontent.com/rust-lang/rust/1.98.0/LICENSE-APACHE" },
+]
+
+[[component]]
+id = "rust-std-1.96.0"
+name = "The Rust standard library"
+version = "1.96.0"
+licence = "MIT OR Apache-2.0"
+in = [{ dist = "rpds-py", version = "2026.6.3" }]
+purl = "pkg:generic/rust-std@1.96.0"
+how = "linked statically into rpds-py's extension (rustc 1.96.0, its .comment section)"
+source = "https://static.rust-lang.org/dist/rustc-1.96.0-src.tar.xz"
+texts = [
+  { file = "COPYRIGHT", url = "https://raw.githubusercontent.com/rust-lang/rust/1.96.0/COPYRIGHT" },
+  { file = "LICENSE-MIT", url = "https://raw.githubusercontent.com/rust-lang/rust/1.96.0/LICENSE-MIT" },
+  { file = "LICENSE-APACHE", url = "https://raw.githubusercontent.com/rust-lang/rust/1.96.0/LICENSE-APACHE" },
+]
+
+[[component]]
+id = "libffi-3.4.6"
+name = "libffi (in cffi's extension)"
+version = "3.4.6"
+licence = "MIT"
+in = [{ dist = "cffi", version = "2.1.1" }]
+purl = "pkg:generic/libffi@3.4.6"
+how = "linked statically into _cffi_backend (cffi 2.1.1's CI builds libffi 3.4.6 with --enable-shared=no)"
+source = "https://github.com/libffi/libffi/archive/v3.4.6.tar.gz"
+texts = [
+  { file = "LICENSE", url = "https://raw.githubusercontent.com/libffi/libffi/v3.4.6/LICENSE" },
+]
+
+[[component]]
+id = "libyaml-0.2.5"
+name = "LibYAML (in PyYAML's extension)"
+version = "0.2.5"
+licence = "MIT"
+in = [{ dist = "pyyaml", version = "6.0.3" }]
+purl = "pkg:generic/libyaml@0.2.5"
+how = "linked statically into yaml/_yaml (PyYAML 6.0.3's CI builds LibYAML 0.2.5)"
+source = "https://github.com/yaml/libyaml/archive/refs/tags/0.2.5.tar.gz"
+texts = [
+  { file = "License", url = "https://raw.githubusercontent.com/yaml/libyaml/0.2.5/License" },
+]
+
+[[component]]
+id = "re2-2025-11-05"
+name = "RE2 (in google-re2's extension)"
+version = "2025-11-05"
+licence = "BSD-3-Clause"
+in = [{ dist = "google-re2", version = "1.1.20251105" }]
+purl = "pkg:generic/re2@2025-11-05"
+how = "compiled into re2/_re2 (google-re2 is built from RE2's own repository with Bazel)"
+source = "https://github.com/google/re2/archive/refs/tags/2025-11-05.tar.gz"
+texts = [
+  { file = "LICENSE", url = "https://raw.githubusercontent.com/google/re2/2025-11-05/LICENSE" },
+]
+
+[[component]]
+id = "abseil-20250512.1"
+name = "Abseil C++ (in google-re2's extension)"
+version = "20250512.1"
+licence = "Apache-2.0"
+in = [{ dist = "google-re2", version = "1.1.20251105" }]
+purl = "pkg:generic/abseil-cpp@20250512.1"
+how = "linked statically into re2/_re2 (RE2 2025-11-05's MODULE.bazel)"
+source = "https://github.com/abseil/abseil-cpp/archive/refs/tags/20250512.1.tar.gz"
+texts = [
+  { file = "LICENSE", url = "https://raw.githubusercontent.com/abseil/abseil-cpp/20250512.1/LICENSE" },
+]
+
+[[component]]
+id = "pybind11-2.13.6"
+name = "pybind11 (in google-re2's extension)"
+version = "2.13.6"
+licence = "BSD-3-Clause"
+in = [{ dist = "google-re2", version = "1.1.20251105" }]
+purl = "pkg:generic/pybind11@2.13.6"
+how = "compiled into re2/_re2 (RE2 2025-11-05's MODULE.bazel)"
+source = "https://github.com/pybind/pybind11/archive/refs/tags/v2.13.6.tar.gz"
+texts = [
+  { file = "LICENSE", url = "https://raw.githubusercontent.com/pybind/pybind11/v2.13.6/LICENSE" },
+]
+
+# -- the base image's CPython and pip ----------------------------------------------------------
+
+[[component]]
+id = "cpython-3.12.15"
+name = "CPython"
+version = "3.12.15"
+licence = "PSF-2.0"
+in = [{ dist = "cpython", version = "3.12.15" }]
+purl = "pkg:generic/python@3.12.15"
+how = "the base image's Python, built from source by the official image's Dockerfile (docker-library/python at the commit the base image's index names in its org.opencontainers.image.revision annotation, 3.12/slim-trixie); its licence is /usr/local/lib/python3.12/LICENSE.txt, and the software it incorporates (expat, libmpdec, HACL* and others) is noticed in license.rst here"
+source = "https://www.python.org/ftp/python/3.12.15/Python-3.12.15.tar.xz"
+# The base image this recipe built (the Dockerfile's FROM; a test keeps them the same): a new
+# base image is reviewed again, its recipe pinned anew (CONTRIBUTING.md).
+base_image = "python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016"
+texts = [
+  { file = "license.rst", url = "https://raw.githubusercontent.com/python/cpython/v3.12.15/Doc/license.rst" },
+]
+# The readline and _gdbm modules link GNU Readline and GDBM (GPL-3.0): the source of the modules,
+# and the script that compiled them (configure's options), are published beside the image.
+corresponding_source = [
+  { file = "Python-3.12.15.tar.xz", url = "https://www.python.org/ftp/python/3.12.15/Python-3.12.15.tar.xz", sha256 = "c2c4321961fab0fb999d66e0cecf521c2ab3994c7992873ea99e306c1094fd5a" },
+  { file = "docker-library-python-2a3b794c-3.12-slim-trixie.Dockerfile", url = "https://raw.githubusercontent.com/docker-library/python/2a3b794c223ab067d122719541cdd54a068732a5/3.12/slim-trixie/Dockerfile", sha256 = "db36efba269b9ace6b432e5d842549cd9f345c38bb4f9ae5617d26dde485047e" },
+]
+
+# pip 25.0.1 (the base image's, and ensurepip's copy of it) vendors these packages without their
+# licence files; each text is pip's copy at its 25.0.1 tag. pip's sdist is their source.
+[[component]]
+id = "pip-25.0.1-source"
+name = "pip"
+version = "25.0.1"
+licence = "MIT"
+in = [{ dist = "pip", version = "25.0.1" }]
+purl = "pkg:pypi/pip@25.0.1"
+how = "the base image's pip; its sdist holds the vendored packages below, certifi (MPL-2.0) included"
+source = "https://pypi.org/project/pip/25.0.1/"
+corresponding_source = [
+  { file = "pip-25.0.1.tar.gz", url = "https://files.pythonhosted.org/packages/70/53/b309b4a497b09655cb7e07088966881a57d082f48ac3cb54ea729fd2c6cf/pip-25.0.1.tar.gz", sha256 = "88f96547ea48b940a3a385494e181e29fb8637898f88d88737c5049780f196ea" },
+]
+
+[[component]]
+id = "pip-vendored-cachecontrol"
+name = "CacheControl (vendored in pip)"
+version = "0.14.1"
+licence = "Apache-2.0"
+in = [{ dist = "pip", version = "25.0.1" }]
+purl = "pkg:pypi/cachecontrol@0.14.1"
+source = "https://pypi.org/project/CacheControl/0.14.1/"
+texts = [{ file = "LICENSE.txt", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/cachecontrol/LICENSE.txt" }]
+
+[[component]]
+id = "pip-vendored-certifi"
+name = "certifi (vendored in pip)"
+version = "2024.8.30"
+licence = "MPL-2.0"
+in = [{ dist = "pip", version = "25.0.1" }]
+purl = "pkg:pypi/certifi@2024.8.30"
+how = "vendored in pip; MPL-2.0 asks for its source, which is pip's sdist"
+source = "https://pypi.org/project/certifi/2024.8.30/"
+texts = [{ file = "LICENSE", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/certifi/LICENSE" }]
+corresponding_source = [
+  { file = "pip-25.0.1.tar.gz", url = "https://files.pythonhosted.org/packages/70/53/b309b4a497b09655cb7e07088966881a57d082f48ac3cb54ea729fd2c6cf/pip-25.0.1.tar.gz", sha256 = "88f96547ea48b940a3a385494e181e29fb8637898f88d88737c5049780f196ea" },
+]
+
+[[component]]
+id = "pip-vendored-distlib"
+name = "distlib (vendored in pip, with its Windows launchers)"
+version = "0.3.9"
+licence = "PSF-2.0"
+in = [{ dist = "pip", version = "25.0.1" }]
+purl = "pkg:pypi/distlib@0.3.9"
+source = "https://pypi.org/project/distlib/0.3.9/"
+texts = [{ file = "LICENSE.txt", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/distlib/LICENSE.txt" }]
+
+[[component]]
+id = "pip-vendored-distro"
+name = "distro (vendored in pip)"
+version = "1.9.0"
+licence = "Apache-2.0"
+in = [{ dist = "pip", version = "25.0.1" }]
+purl = "pkg:pypi/distro@1.9.0"
+source = "https://pypi.org/project/distro/1.9.0/"
+texts = [{ file = "LICENSE", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/distro/LICENSE" }]
+
+[[component]]
+id = "pip-vendored-idna"
+name = "idna (vendored in pip)"
+version = "3.10"
+licence = "BSD-3-Clause"
+in = [{ dist = "pip", version = "25.0.1" }]
+purl = "pkg:pypi/idna@3.10"
+source = "https://pypi.org/project/idna/3.10/"
+texts = [{ file = "LICENSE.md", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/idna/LICENSE.md" }]
+
+[[component]]
+id = "pip-vendored-msgpack"
+name = "msgpack (vendored in pip)"
+version = "1.1.0"
+licence = "Apache-2.0"
+in = [{ dist = "pip", version = "25.0.1" }]
+purl = "pkg:pypi/msgpack@1.1.0"
+source = "https://pypi.org/project/msgpack/1.1.0/"
+texts = [{ file = "COPYING", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/msgpack/COPYING" }]
+
+[[component]]
+id = "pip-vendored-packaging"
+name = "packaging (vendored in pip)"
+version = "24.2"
+licence = "Apache-2.0 OR BSD-2-Clause"
+in = [{ dist = "pip", version = "25.0.1" }]
+purl = "pkg:pypi/packaging@24.2"
+source = "https://pypi.org/project/packaging/24.2/"
+texts = [
+  { file = "LICENSE", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/packaging/LICENSE" },
+  { file = "LICENSE.APACHE", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/packaging/LICENSE.APACHE" },
+  { file = "LICENSE.BSD", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/packaging/LICENSE.BSD" },
+]
+
+[[component]]
+id = "pip-vendored-platformdirs"
+name = "platformdirs (vendored in pip)"
+version = "4.3.6"
+licence = "MIT"
+in = [{ dist = "pip", version = "25.0.1" }]
+purl = "pkg:pypi/platformdirs@4.3.6"
+source = "https://pypi.org/project/platformdirs/4.3.6/"
+texts = [{ file = "LICENSE", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/platformdirs/LICENSE" }]
+
+[[component]]
+id = "pip-vendored-pygments"
+name = "Pygments (vendored in pip)"
+version = "2.18.0"
+licence = "BSD-2-Clause"
+in = [{ dist = "pip", version = "25.0.1" }]
+purl = "pkg:pypi/pygments@2.18.0"
+source = "https://pypi.org/project/Pygments/2.18.0/"
+texts = [{ file = "LICENSE", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/pygments/LICENSE" }]
+
+[[component]]
+id = "pip-vendored-pyproject-hooks"
+name = "pyproject-hooks (vendored in pip)"
+version = "1.2.0"
+licence = "MIT"
+in = [{ dist = "pip", version = "25.0.1" }]
+purl = "pkg:pypi/pyproject-hooks@1.2.0"
+source = "https://pypi.org/project/pyproject-hooks/1.2.0/"
+texts = [{ file = "LICENSE", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/pyproject_hooks/LICENSE" }]
+
+[[component]]
+id = "pip-vendored-requests"
+name = "Requests (vendored in pip)"
+version = "2.32.3"
+licence = "Apache-2.0"
+in = [{ dist = "pip", version = "25.0.1" }]
+purl = "pkg:pypi/requests@2.32.3"
+source = "https://pypi.org/project/requests/2.32.3/"
+how = "vendored in pip without its NOTICE file, which Apache-2.0 asks to carry: here from Requests' own v2.32.3 tag"
+texts = [
+  { file = "LICENSE", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/requests/LICENSE" },
+  { file = "NOTICE", url = "https://raw.githubusercontent.com/psf/requests/v2.32.3/NOTICE" },
+]
+
+[[component]]
+id = "pip-vendored-resolvelib"
+name = "resolvelib (vendored in pip)"
+version = "1.0.1"
+licence = "ISC"
+in = [{ dist = "pip", version = "25.0.1" }]
+purl = "pkg:pypi/resolvelib@1.0.1"
+source = "https://pypi.org/project/resolvelib/1.0.1/"
+texts = [{ file = "LICENSE", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/resolvelib/LICENSE" }]
+
+[[component]]
+id = "pip-vendored-rich"
+name = "Rich (vendored in pip)"
+version = "13.9.4"
+licence = "MIT"
+in = [{ dist = "pip", version = "25.0.1" }]
+purl = "pkg:pypi/rich@13.9.4"
+source = "https://pypi.org/project/rich/13.9.4/"
+texts = [{ file = "LICENSE", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/rich/LICENSE" }]
+
+[[component]]
+id = "pip-vendored-setuptools"
+name = "setuptools' pkg_resources (vendored in pip)"
+version = "70.3.0"
+licence = "MIT"
+in = [{ dist = "pip", version = "25.0.1" }]
+purl = "pkg:pypi/setuptools@70.3.0"
+source = "https://pypi.org/project/setuptools/70.3.0/"
+texts = [{ file = "LICENSE", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/pkg_resources/LICENSE" }]
+
+[[component]]
+id = "pip-vendored-tomli"
+name = "tomli (vendored in pip)"
+version = "2.2.1"
+licence = "MIT"
+in = [{ dist = "pip", version = "25.0.1" }]
+purl = "pkg:pypi/tomli@2.2.1"
+source = "https://pypi.org/project/tomli/2.2.1/"
+texts = [
+  { file = "LICENSE", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/tomli/LICENSE" },
+  { file = "LICENSE-HEADER", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/tomli/LICENSE-HEADER" },
+]
+
+[[component]]
+id = "pip-vendored-truststore"
+name = "truststore (vendored in pip)"
+version = "0.10.0"
+licence = "MIT"
+in = [{ dist = "pip", version = "25.0.1" }]
+purl = "pkg:pypi/truststore@0.10.0"
+source = "https://pypi.org/project/truststore/0.10.0/"
+texts = [{ file = "LICENSE", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/truststore/LICENSE" }]
+
+[[component]]
+id = "pip-vendored-typing-extensions"
+name = "typing_extensions (vendored in pip)"
+version = "4.12.2"
+licence = "PSF-2.0"
+in = [{ dist = "pip", version = "25.0.1" }]
+purl = "pkg:pypi/typing-extensions@4.12.2"
+source = "https://pypi.org/project/typing-extensions/4.12.2/"
+texts = [{ file = "LICENSE", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/typing_extensions.LICENSE" }]
+
+[[component]]
+id = "pip-vendored-urllib3"
+name = "urllib3 (vendored in pip)"
+version = "1.26.20"
+licence = "MIT"
+in = [{ dist = "pip", version = "25.0.1" }]
+purl = "pkg:pypi/urllib3@1.26.20"
+source = "https://pypi.org/project/urllib3/1.26.20/"
+texts = [{ file = "LICENSE.txt", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/urllib3/LICENSE.txt" }]

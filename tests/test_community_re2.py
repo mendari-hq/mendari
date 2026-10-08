@@ -29,6 +29,7 @@ from mendari.core.registry import SearchPath, discover
 from mendari.errors import PackValidationError
 from mendari.providers.rules import RulesProvider
 from tests.conftest import ROOT
+from tests.test_lookaround_rewrites import ORIGINALS
 
 SORTER = ROOT / "tests" / "fixtures" / "community-packs" / "visit-sorter"
 RULES = "logic/rules.yaml"
@@ -189,7 +190,10 @@ def test_a_pattern_re2_cannot_run_makes_a_community_pack_invalid(
         load_pack(root, origin="community")
     (problem,) = raised.value.problems
     assert problem.startswith(f"{RULES}: questions.topic.labels.billing[0] (p0): uses {says}")
-    assert "RE2 (the engine a community pack's patterns run on) does not have: " in problem
+    assert (
+        "RE2 (the engine community packs and packs from a registry run on) does not have: "
+        in problem
+    )
     root = community_pack(tmp_path / "schema", schema={"pattern": pattern})
     with pytest.raises(PackValidationError) as raised:
         load_pack(root, origin="community")
@@ -483,17 +487,33 @@ def strings(value: Any) -> list[str]:
 
 def test_every_maintained_pattern_means_the_same_on_re2() -> None:
     """The maintained packs stay on `re`; their patterns, rewritten for RE2, find the same
-    first match in every text of their datasets (and match themselves where they did)."""
+    first match in every text of their datasets (and match themselves where they did). Every
+    one runs on RE2 but the lookarounds not rewritten yet (an original of
+    tests/test_lookaround_rewrites.py still in its rule), and those are exactly the three that
+    16c-2 holds for the owner: a new lookaround in a reference pack fails here."""
+    lookarounds = {(key[0], text): key for key, text in ORIGINALS.items()}
     cases = maintained_cases()
-    differ, compared = [], 0
+    differ, refused, skipped, compared = [], [], set(), 0
     for pack_id, where, flags, (pattern, *texts) in cases:
-        expected = re.compile(pattern, flags)
-        if patterns.problem(pattern, flags, community=True):
-            continue  # a lookaround: maintained packs may use them
+        original = lookarounds.get((pack_id, pattern))
+        if original and where.startswith(f"{original[1]}: ") and where.endswith(f"({original[2]})"):
+            skipped.add(original)
+            continue
+        problem = patterns.problem(pattern, flags, community=True)
+        if problem:
+            refused.append((pack_id, where, problem))
+            continue
         compared += 1
+        expected = re.compile(pattern, flags)
         found = patterns.compile(pattern, flags, community=True)
         for text in texts:
             a, b = expected.search(text), found.search(text)
             if (a and a.start()) != (b and b.start()):
                 differ.append((pack_id, where, text[:60]))
-    assert compared > 50 and differ == []
+    assert refused == [] and differ == []
+    assert skipped == {
+        ("mendari/clinical-trial-prescreener", "logic/note_rules.yaml", "pregnant"),
+        ("mendari/clinical-trial-prescreener", "logic/note_rules.yaml", "pancreatitis"),
+        ("mendari/referral-router", "logic/triage_rules.yaml", "new-lung-mass"),
+    }
+    assert compared == len(cases) - len(skipped) > 100

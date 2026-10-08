@@ -153,6 +153,13 @@ def is_version(text: object) -> TypeGuard[str]:
     return isinstance(text, str) and len(text) <= MAX_VERSION_CHARS and bool(_SEMVER.match(text))
 
 
+def version_key(version: str) -> tuple[tuple[int, str], ...]:
+    """Orders versions by their numbers, as integers would, without converting them: `int()`
+    refuses more than 4,300 digits, and a version string comes from a pack or a registry."""
+    parts = (part.lstrip("0") for part in re.findall(r"\d+", version.split("-")[0]))
+    return tuple((len(part), part) for part in parts)
+
+
 # Variant keys that once named the environment variables a remote provider reads its endpoint,
 # model or key from. Those variables are the deployment's (spec section 5), so a pack that sets
 # one is invalid, whatever its spec version: it could send any process secret anywhere.
@@ -616,6 +623,39 @@ class CdsHooksConfig(_Strict):
     coverage_information: dict[str, CoverageInformation] = {}
     # DTR: `$questionnaire-package` serves a questionnaire of the documentation the payer asks for.
     questionnaire: QuestionnaireConfig | None = None
+
+
+# A CDS Hooks prefetch template (`cds_hooks.prefetch`): a read (`Type/id`, `Type/{{context.x}}`)
+# or a search (`Type?query`) relative to the EHR's FHIR server, and nothing else. Its query holds
+# no `/`, `?`, `#`, backslash, whitespace or control character, and `prefetch_problems` refuses
+# `..` anywhere.
+PREFETCH = re.compile(
+    r"^[A-Z][A-Za-z]{0,63}(/(\{\{context\.[A-Za-z][A-Za-z0-9]*\}\}|[A-Za-z0-9.-]{1,64}))?"
+    r"(\?[^/?#\s\\\x00-\x1f\x7f]*)?$"
+)
+_PREFETCH_SHOWN = 60  # how much of a refused template a problem shows
+
+
+def prefetch_problems(hooks: CdsHooksConfig | None) -> list[str]:
+    """Each prefetch template that is not a relative read or search on the EHR's FHIR server
+    (`PREFETCH`): an absolute URL, `//` or a leading `/`, `.` or `..`, an operation
+    (`$everything`), a fragment (`#`), whitespace. `core/pack.py` refuses a pack the deployment
+    does not own for one at load, and warns of one in an owned pack; the shipped packs' all
+    pass."""
+    if hooks is None:
+        return []
+    problems = []
+    for key, template in sorted(hooks.prefetch.items()):
+        segments = template.partition("?")[0].split("/")
+        if PREFETCH.fullmatch(template) and ".." not in template and "." not in segments:
+            continue
+        shown = template if len(template) <= _PREFETCH_SHOWN else template[:_PREFETCH_SHOWN] + "..."
+        problems.append(
+            f"cds_hooks.prefetch.{key} {shown!r} is not a read or search relative to the EHR's "
+            "FHIR server (`Type/<id>`, `Type/{{context.<name>}}` or `Type?<query>`, with no "
+            "`..`, `$` operation, `#` or whitespace)"
+        )
+    return problems
 
 
 class PackManifest(_Strict):

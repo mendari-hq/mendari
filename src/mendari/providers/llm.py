@@ -17,7 +17,8 @@ the input, and anything outside it is an `invalid_response`.
 
 Configuration, in order of precedence:
 - model: the variant's `model`, then `LLM_MODEL`, then `anthropic/claude-sonnet-5`;
-- endpoint: `LLM_BASE_URL`, then the AI Gateway;
+- endpoint: `LLM_BASE_URL`, then the AI Gateway; whichever it is must be on
+  `MENDARI_PROVIDER_ALLOWED_ORIGINS` when the deployment sets it (`providers/http.py`);
 - credentials: `AI_GATEWAY_API_KEY`, then the deployment's Vercel OIDC token (gateway only);
   local servers use `LLM_API_KEY` when set and no key otherwise.
 
@@ -39,9 +40,20 @@ from urllib.parse import urlparse
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from mendari.core.pack import Pack
 from mendari.core.spec import Question, deployment_env_problem
 from mendari.errors import PackValidationError, ProviderError
-from mendari.providers.base import Provider, ProviderOutput, batch_state, refuse_if_over_quota
+from mendari.providers import deadline
+from mendari.providers.base import (
+    MAX_CALL_COST_USD,
+    MAX_CALL_TOKENS,
+    Provider,
+    ProviderOutput,
+    batch_state,
+    read_problems,
+    refuse_if_over_quota,
+    state_fields_problem,
+)
 from mendari.providers.batch import batched_answer, unwrap
 from mendari.providers.calibration import rescale
 from mendari.providers.credentials import vercel_oidc_token
@@ -99,18 +111,12 @@ class LlmProvider(Provider):
 
     def __init__(self, *args: Any, client: httpx.Client | None = None, **kwargs: Any):
         super().__init__(*args, **kwargs)
-        settings = {k: v for k, v in self.config.items() if k != "type"}
-        problem = deployment_env_problem(self.config)  # also checked at load (core/spec.py)
-        if problem is not None:
-            raise PackValidationError(self.pack.id, [f"{self.info.slot}: {problem}"])
-        try:
-            self.settings = LlmConfig.model_validate(settings)
-        except ValidationError as error:
-            raise PackValidationError(self.pack.id, [f"{self.info.slot}: {error}"]) from None
-        if not 1 <= len(self.questions) <= MAX_QUESTIONS:
-            raise PackValidationError(
-                self.pack.id, [f"{self.info.slot}: 1-{MAX_QUESTIONS} questions per LLM call"]
-            )
+        settings, problems = self._settings(
+            self.info.slot, self.config, self.questions, bounded=self.pack.bounded
+        )
+        if settings is None:
+            raise PackValidationError(self.pack.id, problems)
+        self.settings = settings
         self._client = client
         model = self.settings.model or os.environ.get(MODEL_ENV, "").strip() or DEFAULT_MODEL
         if not re.match(MODEL_PATTERN, model):
@@ -137,6 +143,52 @@ class LlmProvider(Provider):
             for q, t in temperatures.items()
             if q in self.questions and isinstance(t, int | float) and t > 0
         }
+
+    @classmethod
+    def config_problems(
+        cls,
+        pack: Pack,
+        where: str,
+        config: Mapping[str, Any],
+        questions: Mapping[str, Question],
+        *,
+        bounded: bool,
+        trained: bool,
+    ) -> list[str]:
+        settings, problems = cls._settings(where, config, questions, bounded=bounded)
+        calibration = settings.calibration if settings is not None else None
+        if calibration is None or not trained:
+            return problems
+        # The calibration file's shape, whichever model it was fitted on: the model that runs
+        # can be the deployment's (`LLM_MODEL`), and at build a file fitted on another is unused.
+        data, problems = read_problems(lambda: pack.read_json(calibration))
+        if problems:
+            return problems
+        if not isinstance(data, dict) or data.get("format") != CALIBRATION_FORMAT:
+            return [f"{where}: not a calibration file"]
+        if not isinstance(data.get("temperatures", {}), dict):
+            return [f"{where}: the calibration file's temperatures are not a mapping"]
+        return []
+
+    @staticmethod
+    def _settings(
+        where: str, config: Mapping[str, Any], questions: Mapping[str, Question], *, bounded: bool
+    ) -> tuple[LlmConfig | None, list[str]]:
+        """The variant's settings (its closed config, `LlmConfig`), or None and why not: it names
+        no environment variable (also checked at load, `core/spec.py`), asks 1 to `MAX_QUESTIONS`
+        questions, and, in a pack the deployment does not own, names its `state_fields`."""
+        problem = deployment_env_problem(dict(config))
+        if problem is not None:
+            return None, [f"{where}: {problem}"]
+        try:
+            settings = LlmConfig.model_validate({k: v for k, v in config.items() if k != "type"})
+        except ValidationError as error:
+            return None, [f"{where}: {error}"]
+        if not 1 <= len(questions) <= MAX_QUESTIONS:
+            return None, [f"{where}: 1-{MAX_QUESTIONS} questions per LLM call"]
+        if bounded and not settings.state_fields:
+            return None, [f"{where}: {state_fields_problem(LlmProvider.type)}"]
+        return settings, []
 
     @property
     def base_url(self) -> str:
@@ -180,14 +232,17 @@ class LlmProvider(Provider):
             raise TypeError("an LLM batch holds only LLM providers")
         require_secure(self.base_url, "LLM")
         refuse_if_over_quota()  # over quota: no credential fetched, no call
+        deadline.refuse_if_past()  # past the decision's deadline: likewise
         token = self._token()
-        self.charge()  # after the credential: a call that cannot be made uses no budget
-
+        deadline.refuse_if_past()  # a credential fetch can take the rest of it
         questions = {key: q for provider in batch for key, q in provider.questions.items()}
         state = batch_state(inputs, [provider.settings.state_fields for provider in batch])
         body = self.request_body(questions, state)
         if len(json.dumps(body)) > MAX_REQUEST_CHARS:
             raise ProviderError("invalid_input", "request exceeds the size limit")
+        self.charge()  # once it can be made: a call that cannot uses no budget
+        deadline.refuse_if_past()  # the budget's count can take the rest of it
+        self.sending()
         headers = {"authorization": f"Bearer {token}"} if token else {}
         raw = post_json(
             self._client,
@@ -198,6 +253,7 @@ class LlmProvider(Provider):
             retries=1,
         )
         distributions, usage, problems = parse_response(raw, questions)
+        self.metered(usage["input_tokens"], usage["output_tokens"], usage["cost_usd"])
         failed = {p for p in batch if any(key in problems for key in p.questions)}
         # The call's usage and cost are reported once, by the first provider that answered.
         lead = next((p for p in batch if p not in failed), None)
@@ -356,8 +412,14 @@ def parse_response(
         isinstance(t, int) and not isinstance(t, bool) and t >= 0 for t in (tokens_in, tokens_out)
     ):
         raise invalid("usage is malformed")
+    if tokens_in + tokens_out > MAX_CALL_TOKENS:
+        raise invalid("usage is out of range")
     cost = usage.get("cost")  # reported by the AI Gateway; absent on most local servers
-    cost_usd = float(cost) if isinstance(cost, int | float) and _nonnegative(cost) else None
+    cost_usd = (
+        float(cost)
+        if isinstance(cost, int | float) and _nonnegative(cost) and cost <= MAX_CALL_COST_USD
+        else None  # no price, or none to believe: unknown
+    )
     usage_out = {"input_tokens": tokens_in, "output_tokens": tokens_out, "cost_usd": cost_usd}
     return distributions, usage_out, problems
 

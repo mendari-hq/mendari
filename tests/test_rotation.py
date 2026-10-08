@@ -33,7 +33,14 @@ from mendari.core.phi import LEGACY, PhiPolicy, key_id, phi_policy, token_key
 from mendari.errors import AuthError, MendariError
 from mendari.server.app import create_app, mounted_routes
 from mendari.server.auth import permission_for
-from tests.conftest import HASH_KEY_B64, INPUT_HASH_KEY, message, security_lines, signed_in
+from tests.conftest import (
+    HASH_KEY_B64,
+    INPUT_HASH_KEY,
+    encrypt_mode,
+    message,
+    security_lines,
+    signed_in,
+)
 
 OLD, NEW, OTHER = os.urandom(32), os.urandom(32), os.urandom(32)
 SECRET = "my neighbour Rosalind Q. Example has chest pain"
@@ -505,6 +512,7 @@ def admin_app(
 ) -> tuple[TestClient, AuditStore, dict[str, str]]:
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     client = TestClient(create_app(db_path=tmp_path / "a.db"), base_url="https://mendari.test")
     store = AuditStore(tmp_path / "a.db")
     return client, store, signed_in(store, role="admin")
@@ -573,6 +581,7 @@ def test_every_post_that_mints_a_credential_waits_for_the_notice(
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
     monkeypatch.setenv("MENDARI_PUBLIC_URL", "https://mendari.test")
     monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "on")  # clients' routes too
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     app = create_app(db_path=tmp_path / "a.db")
     minting = sorted(
         path

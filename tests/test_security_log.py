@@ -22,13 +22,15 @@ import pytest
 from fastapi.testclient import TestClient
 
 from mendari import AuditStore
+from mendari import alerts as alerts_module
+from mendari.alerts import AlertSettings
 from mendari.core.decision import Decision
 from mendari.server import app as app_module
 from mendari.server import security_log, smart_routes
 from mendari.server.app import create_app, quota_alert
 from mendari.server.security_log import FIELDS, InternalError
 from mendari.standards.fhir_client import FhirClient, GuardedHttp
-from tests.conftest import HASH_KEY_B64, hosted, message, security_lines, signed_in
+from tests.conftest import HASH_KEY_B64, encrypt_mode, hosted, message, security_lines, signed_in
 from tests.test_auth import FakeIdp, sign_in, signing_in_with
 from tests.test_smart import APP, EHR, REFERRAL, FakeEhr, full_launch, launch
 
@@ -81,6 +83,8 @@ def test_every_line_is_json_with_allowed_keys_and_never_a_secret(
     app.get("/fhir/Task", params={"identifier": QUERY_VALUE})
     app.post("/fhir/Task/_search", data={"status": QUERY_VALUE})
     app.get("/api/health")
+    app.get("/api/health/ready")  # probes, like health: no access line
+    app.head("/api/health/ready")
     app.get("/static/style.css")
     app.get("/")
     app.get("/api/no/such/route", params={"x": QUERY_VALUE})
@@ -90,7 +94,7 @@ def test_every_line_is_json_with_allowed_keys_and_never_a_secret(
     for never in (CASE_TEXT, "Rosalind", QUERY_VALUE, secret, session, "Dr Kim", "kim@example"):
         assert never not in text, never
     access = [(e["method"], e.get("route"), e["status"]) for e in lines if e["event"] == "request"]
-    assert access == [  # one per API request: none for health, static files or the dashboard
+    assert access == [  # one per API request: none for health, readiness, static files, the page
         ("POST", "/api/packs/{namespace}/{name}/decide", 200),
         ("GET", "/api/audit", 200),
         ("GET", "/api/audit/{decision_id}", 200),
@@ -287,6 +291,12 @@ def test_changes_exports_evaluations_and_input_reads_are_logged_with_ids(
     run = {"dataset": "test", "limit": 3}
     assert client.post(f"/api/packs/{INBOX}/evals", json=run, headers=admin).status_code == 200
     client.get("/api/audit/export/fhir", params={"pack_id": QUERY_VALUE}, headers=admin)
+    administrative = client.get(
+        "/api/audit/administrative/export/fhir",
+        params={"since": "2026-01-01T00:00:00Z"},
+        headers=admin,
+    )
+    assert administrative.status_code == 200, administrative.text
     client.get(f"/api/packs/{INBOX}/feedback/export", headers=admin)
     for url in (f"/api/audit/{decided['id']}", "/api/review", "/api/feedback"):
         assert CASE_TEXT in client.get(url, headers=admin).text
@@ -301,6 +311,7 @@ def test_changes_exports_evaluations_and_input_reads_are_logged_with_ids(
         ("governance.revoked", [approval["id"]], None),
         ("eval.run", [INBOX], 3),
         ("export.audit", None, None),
+        ("export.audit.administrative", None, None),
         ("export.feedback", [INBOX], 1),
         ("phi.inputs.read", one, 1),
         ("phi.inputs.read", one, 1),
@@ -346,9 +357,10 @@ def test_a_rate_limit_is_logged_once_per_bucket_and_a_quota_once_a_day(
 ) -> None:
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     monkeypatch.setenv("MENDARI_RATE_LIMITS", "on,decide=2/min")
     monkeypatch.setenv("MENDARI_ORG_DAILY_LIMITS", "decisions=1")
-    monkeypatch.setattr(app_module.httpx, "post", lambda *_, **__: None)
+    monkeypatch.setattr(alerts_module.httpx, "post", lambda *_, **__: None)
     db = tmp_path / "a.db"
     client = TestClient(create_app(db_path=db))
     key_id, machine = key(db)
@@ -486,9 +498,10 @@ def test_no_library_logs_a_url_when_the_host_logs_info(
         with httpx.Client(transport=answered) as client:
             return client.post(url, **options)
 
-    monkeypatch.setattr(app_module.httpx, "post", post)
+    monkeypatch.setattr(alerts_module.httpx, "post", post)
     webhook = "https://hooks.example.org/services/T000/B000/WebhookSecretToken"
-    quota_alert(webhook)("default", "decisions", 5)
+    with AuditStore(tmp_path / "b.db") as store:
+        quota_alert(AlertSettings(webhook), store)("default", "decisions", 5)
     with FhirClient(EHR, allowed={EHR}, transport=answered) as fhir:
         fhir.read("Patient/pt-secret")
     logging.getLogger("httpx").warning("a warning still shows")

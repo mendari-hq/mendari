@@ -16,6 +16,8 @@ Deployment configuration (none of it lives in the pack):
 - `JEV_MODEL`: the model id (required unless the pack variant pins `model`).
 - `JEV_API_KEY` for local use, or `JEV_CONNECTOR` (e.g. `jev/my-project`) to obtain the key
   from a Vercel Connect connector. Keys never reach logs, errors or audit records.
+- `MENDARI_PROVIDER_ALLOWED_ORIGINS`, when set: `JEV_API_URL`'s origin (and Vercel Connect's,
+  with a connector) must be on it (`providers/http.py`).
 
 These variable names are fixed; a pack that tries to name other variables is refused at load.
 """
@@ -34,18 +36,28 @@ from urllib.parse import urlparse
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from mendari.core.pack import Pack
 from mendari.core.spec import Question, deployment_env_problem
 from mendari.errors import MendariError, PackValidationError, ProviderError
+from mendari.providers import deadline
 from mendari.providers.base import (
     Answer,
     Provider,
     ProviderOutput,
     batch_state,
     refuse_if_over_quota,
+    state_fields_problem,
 )
 from mendari.providers.batch import batched_answer, unwrap
 from mendari.providers.credentials import key_source, resolve_key
-from mendari.providers.http import post_json, require_secure
+from mendari.providers.http import (
+    allowed_origins,
+    post_json,
+    require_allowed,
+    require_https,
+    require_listed,
+    require_secure,
+)
 
 MODEL_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}$"
 # Published limits (docs.typesafe.ai/api and /models): 2-255 options per Choice (as in the
@@ -73,7 +85,10 @@ class JevConfig(BaseModel):
     timeout_ms: int = Field(default=5000, ge=100, le=10_000)
     # Minimum necessary: when set, only these input fields are sent to the provider.
     state_fields: list[str] | None = None
-    cost_per_1k_input_tokens_usd: float | None = Field(default=PRICE_PER_1K_INPUT_TOKENS_USD, ge=0)
+    # A price per 1,000 input tokens, $1 at most (finite): the usage ledger sums it (LP-21g).
+    cost_per_1k_input_tokens_usd: float | None = Field(
+        default=PRICE_PER_1K_INPUT_TOKENS_USD, ge=0, le=1.0, allow_inf_nan=False
+    )
     # Share one call with the decision's other Jev questions (union of state_fields).
     batch: bool = True
 
@@ -85,27 +100,12 @@ class JevProvider(Provider):
 
     def __init__(self, *args: Any, client: httpx.Client | None = None, **kwargs: Any):
         super().__init__(*args, **kwargs)
-        settings = {k: v for k, v in self.config.items() if k != "type"}
-        problem = deployment_env_problem(self.config)  # also checked at load (core/spec.py)
-        if problem is not None:
-            raise PackValidationError(self.pack.id, [f"{self.info.slot}: {problem}"])
-        try:
-            self.settings = JevConfig.model_validate(settings)
-        except ValidationError as error:
-            raise PackValidationError(self.pack.id, [f"{self.info.slot}: {error}"]) from None
-        if not 1 <= len(self.questions) <= MAX_QUESTIONS:
-            raise PackValidationError(
-                self.pack.id,
-                [f"{self.info.slot}: 1-{MAX_QUESTIONS} questions per Jev variant"],
-            )
-        too_many = [
-            key
-            for key, question in self.questions.items()
-            if question.type == "score" and len(question.labels) > MAX_SCORE_LEVELS
-        ]
-        if too_many:
-            problem = f"{self.info.slot}: Jev scores have at most {MAX_SCORE_LEVELS} levels"
-            raise PackValidationError(self.pack.id, [f"{problem}: {too_many}"])
+        settings, problems = self._settings(
+            self.info.slot, self.config, self.questions, bounded=self.pack.bounded
+        )
+        if settings is None:
+            raise PackValidationError(self.pack.id, problems)
+        self.settings = settings
         self._client = client
         # The deployment's JEV_MODEL wins over a model pinned in the pack.
         model = os.environ.get(MODEL_ENV, "").strip() or self.settings.model
@@ -113,6 +113,48 @@ class JevProvider(Provider):
             raise PackValidationError(self.pack.id, [f"{MODEL_ENV}: invalid model id"])
         self.model = model
         self.info = replace(self.info, model=model)
+
+    @classmethod
+    def config_problems(
+        cls,
+        pack: Pack,
+        where: str,
+        config: Mapping[str, Any],
+        questions: Mapping[str, Question],
+        *,
+        bounded: bool,
+        trained: bool,
+    ) -> list[str]:
+        return cls._settings(where, config, questions, bounded=bounded)[1]
+
+    @staticmethod
+    def _settings(
+        where: str, config: Mapping[str, Any], questions: Mapping[str, Question], *, bounded: bool
+    ) -> tuple[JevConfig | None, list[str]]:
+        """The variant's settings (its closed config, `JevConfig`), or None and why not: it names
+        no environment variable (also checked at load, `core/spec.py`), asks 1 to
+        `MAX_QUESTIONS` questions with scores of at most `MAX_SCORE_LEVELS` levels, and, in a
+        pack the deployment does not own, names its `state_fields`."""
+        problem = deployment_env_problem(dict(config))
+        if problem is not None:
+            return None, [f"{where}: {problem}"]
+        try:
+            settings = JevConfig.model_validate({k: v for k, v in config.items() if k != "type"})
+        except ValidationError as error:
+            return None, [f"{where}: {error}"]
+        if not 1 <= len(questions) <= MAX_QUESTIONS:
+            return None, [f"{where}: 1-{MAX_QUESTIONS} questions per Jev variant"]
+        too_many = [
+            key
+            for key, question in questions.items()
+            if question.type == "score" and len(question.labels) > MAX_SCORE_LEVELS
+        ]
+        if too_many:
+            problem = f"{where}: Jev scores have at most {MAX_SCORE_LEVELS} levels"
+            return None, [f"{problem}: {too_many}"]
+        if bounded and not settings.state_fields:
+            return None, [f"{where}: {state_fields_problem(JevProvider.type)}"]
+        return settings, []
 
     def preflight(self) -> None:
         self._configured()
@@ -153,19 +195,27 @@ class JevProvider(Provider):
             raise TypeError("a Jev batch holds only Jev providers")
         model, endpoint = self._configured()
         refuse_if_over_quota()  # over quota: no credential fetched, no call
+        deadline.refuse_if_past()  # past the decision's deadline: likewise
         token = resolve_key(key_env=API_KEY_ENV, connector_env=CONNECTOR_ENV)
-        self.charge()  # after the credential: a call that cannot be made uses no budget
-
+        deadline.refuse_if_past()  # a credential fetch can take the rest of it
         questions = {key: q for provider in batch for key, q in provider.questions.items()}
         body = request_body(model, batch, questions, inputs)
         if len(json.dumps(body)) > MAX_REQUEST_CHARS:
             raise ProviderError("invalid_input", "request exceeds Jev's size limit")
+        self.charge()  # once it can be made: a call that cannot uses no budget
+        deadline.refuse_if_past()  # the budget's count can take the rest of it
+        self.sending()
 
         raw = self._send(endpoint, token, body)
         effective, answers, usage, problems = parse_response(raw, questions)
         failed = {p for p in batch if any(key in problems for key in p.questions)}
         first = next((p for p in batch if p not in failed), None)
         price = self.settings.cost_per_1k_input_tokens_usd  # output tokens are free
+        self.metered(
+            usage["input_tokens"],
+            usage["output_tokens"],
+            None if price is None else usage["input_tokens"] / 1000 * price,
+        )
         extra: dict[str, Any] = {"requested_model": model, "effective_model": effective}
         if len(batch) > 1:
             extra["batch"] = [f"{p.info.slot}/{p.info.variant}" for p in batch]
@@ -214,7 +264,8 @@ class JevProvider(Provider):
 
 def deployment_configured() -> bool:
     """Whether this deployment has Jev set up: an endpoint, a model and a key or connector. Set
-    up with a model id or an endpoint Jev could never be called with is an error (at startup)."""
+    up with a model id or an endpoint Jev could never be called with (not https, or off the
+    provider allow-list when the deployment has one) is an error (at startup)."""
     endpoint = os.environ.get(ENDPOINT_ENV, "").strip()
     model = os.environ.get(MODEL_ENV, "").strip()
     if not (endpoint and model and key_source(key_env=API_KEY_ENV, connector_env=CONNECTOR_ENV)):
@@ -222,9 +273,12 @@ def deployment_configured() -> bool:
     if not re.match(MODEL_PATTERN, model):
         raise MendariError(f"{MODEL_ENV} is not a Jev model id")
     try:
-        _require_secure(endpoint)
+        require_https(endpoint, "Jev")
     except ProviderError:
         raise MendariError(f"{ENDPOINT_ENV} must use https (http only for localhost)") from None
+    allowed = allowed_origins()  # a malformed list is a MendariError naming it
+    if allowed is not None:
+        require_listed(ENDPOINT_ENV, allowed)
     return True
 
 
@@ -239,6 +293,7 @@ def list_models(*, timeout_s: float = 10.0) -> list[dict[str, Any]]:
     _require_secure(endpoint)
     parsed = urlparse(endpoint)
     url = f"{parsed.scheme}://{parsed.netloc}/v1/models"
+    require_allowed(url, "Jev")  # the endpoint's origin, as the request spells it
     token = resolve_key(key_env=API_KEY_ENV, connector_env=CONNECTOR_ENV)
     try:
         with httpx.Client(timeout=timeout_s, follow_redirects=False) as client:

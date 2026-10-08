@@ -14,6 +14,8 @@ Configuration comes from the environment:
   limit). `MENDARI_ORG_DAILY_LIMITS`: per-organization daily quotas
   (`decisions=5000,jev=2000,llm=200`; unset: none). `MENDARI_PRINCIPAL_DAILY_LIMIT`: a daily
   cap on the decisions each principal asks for (unset: none).
+- `MENDARI_DECISION_DEADLINE_S`: how long one decision's remote calls may take together
+  (whole seconds, 10 to 270; default 120), within `maxDuration` (300 s, `vercel.json`).
 - `MENDARI_RATE_LIMITS`: `on` (the default with sign-in), `log` or `off`, then overrides
   (`server/limits.py`). The client address is Vercel's `X-Forwarded-For`.
 - `MENDARI_NOTICE_ACKNOWLEDGEMENT`: `required` (the default) or `off`: whether a signed-in
@@ -38,7 +40,11 @@ Configuration comes from the environment:
   here is `encrypt` unless `MENDARI_PHI_MODE=hash` (which needs only the hash key); `off` is
   refused.
 - `CRON_SECRET` (16 characters or more): turns on the daily retention purge (`vercel.json`
-  crons, `/api/internal/retention`); `MENDARI_RETENTION_DAYS` (default 30).
+  crons, `/api/internal/retention`); `MENDARI_RETENTION_DAYS` (default 30). The scheduled
+  monitor (`/api/internal/monitor`) answers the same secret, once a `crons` entry names it;
+  `MENDARI_STATUS_ORG` is the organization it leaves out (the status checks').
+- `MENDARI_ALERT_WEBHOOK` (where quota alerts go), `MENDARI_ALERT_FORMAT` (`mendari` or
+  `slack`) and `MENDARI_ALERT_SECRET` (32 characters or more: signs every alert).
 - `LLM_MODEL`: default model for `llm` variants (an AI Gateway id, `<vendor>/<model>`).
 - `JEV_API_URL`, `JEV_MODEL`, `JEV_CONNECTOR`: see `mendari.providers.jev`.
 """

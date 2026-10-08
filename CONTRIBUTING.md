@@ -101,12 +101,37 @@ hand:
   `src/mendari/dashboard/vendor/swagger-ui` or `tests/browser/vendor/axe-core`, and
   `tests/test_vendor.py` fails until the files follow. In that PR, run
   `uv run python scripts/vendor_docs_ui.py` (or name the package: `… axe-core`), read the hosts
-  it lists (a new one deserves a look at the release notes), and commit what it wrote.
+  it lists (a new one deserves a look at the release notes), then rebuild `NOTICE`, which names
+  both packages at the version vendored: `uv run python scripts/build_notice.py` (`--check` says
+  whether it is current; `tests/test_notice_file.py` fails until it is). Commit what they wrote.
 - **Accessibility:** `uv run pytest -m browser` runs axe-core on every dashboard view, an open
   record and the developer pages, in both themes (WCAG 2.0 to 2.2, A and AA). A new view or
   control is checked by adding it there (`tests/browser/test_accessibility.py`).
 - **Python dependencies:** `uv lock --upgrade-package <name>`, never a bare `uv lock --upgrade`
   in a feature PR. The `Dockerfile` installs `uv.lock` exactly.
+- **What the images bundle** (`licenses/image/`): every image carries the licences and notices
+  of everything in it, and a release pushes none that misses one
+  (`scripts/check_image_licences.py`, in CI's `docker` job and the release). A bump of a package
+  with native code (`components.toml`'s `[native]`: cffi, cryptography, google-re2,
+  psycopg-binary, pydantic-core, PyYAML, rpds-py) fails `tests/test_image_licences.py` until it
+  is reviewed: find what its new wheels bundle or link statically (an auditwheel or cargo SBOM
+  in its `.dist-info/sboms/`, its build's own scripts, the libraries' `.comment` sections),
+  update or add the `[[component]]` entries with their upstream licence texts' URLs and, for
+  GPL or LGPL software, its exact source pinned by SHA-256 (`corresponding_source`); then
+  `uv run python scripts/image_licence_texts.py fetch`, and for a package built from Rust
+  `docker build` one image per architecture and run `... crates <amd64 image> <arm64 image>`.
+  A new base image (CPython or pip) is reviewed the same way, and CPython's build recipe pinned
+  anew: the base image's index names the `docker-library/python` commit that built it
+  (`docker buildx imagetools inspect --raw python:3.12-slim@sha256:…`, annotation
+  `org.opencontainers.image.revision`); set the CPython component's `base_image` and its
+  Dockerfile's URL and SHA-256 (`tests/test_image_licences.py` fails until they match the
+  `Dockerfile`). Commit `licenses/image/` whole.
+- **The SBOM generator:** `release.yml` names BuildKit's SBOM generator
+  (`docker/buildkit-syft-scanner`) by digest, by hand like the emulator and builder, and CI's
+  `image-sbom` job runs the release's SBOM scan with the same generator and builder on every
+  change (a test keeps the two files the same). A base image bump that names a licence
+  differently fails there; so does a new generator, so bump it in both files in one pull
+  request.
 
 ## Commands in the docs
 
@@ -147,8 +172,8 @@ Packs carry clinical content, so where it comes from matters as much as the code
   with the terms, and a pack whose files name one by its url or OID without it does not load
   (spec §3). A bare code names no system, so declaring where your codes come from is yours to
   do. Prefer
-  free systems (ICD-10-CM, LOINC) or a fictional one named as such, as the prior-authorization
-  reference pack does.
+  free systems (ICD-10-CM, LOINC) or a fictional one named as such, as the reference packs do
+  in place of CPT and SNOMED CT (no package carries either).
 - **Say what you used.** The pack template asks for the sources of the criteria and of
   `card.evidence`, and who reviewed the clinical content.
 

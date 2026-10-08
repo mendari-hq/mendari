@@ -1,8 +1,10 @@
 # ADR-0008: Accounts and memberships beside the claims a sign-in carries
 
 ## Status
-Proposed (2026-10-07). Built in steps (LP-12, `tasks/todo.md`); the owner's decisions listed
-there confirm or change the defaults below before this is accepted.
+Proposed (2026-10-07). Built (LP-12, 12a to 12k, 2026-10-08), each default below as
+`tasks/todo.md` records it; accepted once the owner's decisions listed there (the hosted site's
+switch to memberships mode among them) confirm or change those defaults. Gate G2-3's
+prerequisite `a6-accounts` (`launch/gates.yaml`) names the tests that hold it.
 
 ## Context
 A request acts for one organization, taken from the identity provider's claim at sign-in
@@ -35,11 +37,15 @@ provider's claims needs nothing to change.
   the inviting admin to pass on. Mendari sends no e-mail. The operator creates organizations
   until self-service.
 - **Every route is filtered by the caller's organization**, with a reviewed allow-list of the
-  deployment-wide routes and the reason each holds no organization data. Each chained event of
+  deployment-wide routes and the reason each holds no organization data
+  (`tests/test_two_organizations.py`, which calls every mounted route as two organizations). Each chained event of
   an organization names it in its hashed payload (memberships mode; new event kinds always), so
   `verify` can cross-check it against the row it is about; older events are attributed by the
-  row they name, never rewritten. The kinds that already carry it keep it in both modes. Each organization gets a reader and an export of its own
-  administrative events.
+  row they name, never rewritten. Memberships mode, here, is the database's: a
+  memberships-mode server marks it (`org_bound`), and every store that opens it afterwards (the
+  command line's, a claims-mode server's after a rollback) names the organization too. The
+  kinds that already carry it keep it in both modes. Each organization gets a reader and an
+  export of its own administrative events.
 - **Reserved roles.** `pack_author` and `labeller` may be held on a membership and grant nothing
   until LP-20 and LP-11 give them permissions; `grading` is held by no person (LP-11: a machine
   role only). None of them joins the claims-mode roles, whose sign-in and role map stay as
@@ -63,7 +69,13 @@ provider's claims needs nothing to change.
   says so. Additive, claims-visible changes (new routes, the Access screen, presets, the cap
   off by default) count as "behaves as before".
 - The operator, by default the command line only, is the one who sees the whole chain verified,
-  deployment-wide totals and holds set for the whole deployment.
+  deployment-wide totals and holds set for the whole deployment. In memberships mode
+  `/api/audit/verify` and `/api/deployments` answer `404`, `/api/health` leaves out the
+  deployment's call totals and purge counts, and a deployment hold shows only what it covers
+  and since when. An organization reads and exports its own administrative events
+  (`/api/audit/administrative`), attributed through each row it owns, without `seq` or
+  another organization's or the deployment's events; a person's notice acknowledgement is not
+  one organization's.
 - Switching the hosted site to memberships mode, the owner's bootstrap, and the cap's value are
   the owner's, after a preflight (`mendari access check`) against the production database.
 - Memberships mode keeps its sessions apart (a sealed `member` row; claims mode's are `user`
@@ -80,3 +92,17 @@ provider's claims needs nothing to change.
   leaves a request its administrators see).
 - A request naming another organization than the one chosen since (`X-Mendari-Org`) is refused
   (`409`); the dashboard sends the organization a window shows with every request.
+- `verify` answers `"reason": "organization"` at the first event whose organization is not its
+  row's: a row moved to another organization, or deleted. So every row an event names is
+  permanent: an expired invitation, a handled request or an organization that leaves keeps its
+  rows. That holds in claims mode too for the rows whose events already named their
+  organization (keys, clients, automation approvals, holds, evaluation reports): moving one to
+  another organization by SQL breaks `verify`, so a re-attribution (an organization in use that
+  no record can have) must be a chained event of its own.
+- Events chained before the mark name no organization, so `verify` cannot tell where their row
+  belonged: a row moved by SQL while none of its events named its organization goes unnoticed,
+  and its later events name the organization it was moved to (threat model T1).
+- An instance of the previous deployment still serving while memberships mode is switched on
+  read the mark when it started, so until it stops its events of the kinds of before name no
+  organization; `verify` and the organization's reader attribute those by their row. After a
+  rollback to claims mode, events keep naming organizations.

@@ -38,8 +38,15 @@ from mendari.core.origin import COMMUNITY_LABEL
 from mendari.core.pack import Pack
 from mendari.core.spec import Outcome
 from mendari.errors import MendariError
-from mendari.sandbox.fhir_records import CHANNEL_SYSTEM, CHANNELS, SANDBOX_TAG
+from mendari.sandbox.fhir_records import (
+    CHANNEL_SYSTEM,
+    CHANNELS,
+    REFERRAL_SYSTEM,
+    REFERRALS,
+    SANDBOX_TAG,
+)
 from mendari.sandbox.synthetic_prior_auth import PROCEDURE_SYSTEM, PROCEDURES
+from mendari.sandbox.synthetic_trial import CONDITION_SYSTEM, CONDITIONS
 from mendari.standards import audit_fhir, davinci
 from mendari.standards.fhir import (
     DECISION_ID_SYSTEM,
@@ -95,6 +102,15 @@ NAMING_SYSTEMS = (
         "`hmac-sha256:`, the key's id (16 hex digits), `:` and 64 hex digits: an HMAC-SHA256 "
         "only that deployment can recompute. Without a key it is `sha256:` and 64 hex digits, "
         "the plain SHA-256 of the input's canonical JSON.",
+    ),
+    (
+        "audit-subject",
+        audit_fhir.SUBJECT_SYSTEM,
+        "Mendari audit subject",
+        "What an administrative AuditEvent is about, by its chain id: a kind of record and "
+        "its id, joined by a colon (`key:`, `client:`, `governance:`, `hold:`, `eval:`, "
+        "`org:`, `membership:`, `invitation:` or `access:`, then the id), or one of the "
+        "deployment's own chain ids.",
     ),
     (
         "decision-pack",
@@ -169,6 +185,7 @@ def resources(packs: Iterable[Pack]) -> list[dict[str, Any]]:
     found = [
         _outcomes(),
         _audit_events(),
+        _administrative_events(),
         _decision_packs(served),
         *_performers(served),
         *(system for pack in served for system in _questions(pack)),
@@ -180,8 +197,10 @@ def resources(packs: Iterable[Pack]) -> list[dict[str, Any]]:
 
 def sandbox_resources() -> list[dict[str, Any]]:
     """The sandbox's own systems, experimental and never served: its synthetic-data tag, its
-    Communications' message channel and the Prior Authorization Preflight's fictional procedure
-    codes. CI loads them so the sandbox and Da Vinci samples validate."""
+    Communications' message channel, and the fictional codes of the reference packs' synthetic
+    data (the Prior Authorization Preflight's procedures, the Clinical Trial Prescreener's
+    local-site conditions, the Referral Router's referral). CI loads them so the sandbox and
+    Da Vinci samples validate."""
     return [
         _code_system(
             SANDBOX_TAG["system"],
@@ -209,6 +228,26 @@ def sandbox_resources() -> list[dict[str, Any]]:
             "CPT or any real code system; never for billing. A site maps its own codes.",
             __version__,
             [_concept(code, shown) for code, shown in PROCEDURES.items()],
+            experimental=True,
+        ),
+        _code_system(
+            CONDITION_SYSTEM,
+            "fictional-conditions",
+            "Mendari fictional condition codes",
+            "Condition codes invented for the Clinical Trial Prescreener's synthetic local-site "
+            "data. Not SNOMED CT or any real code system. A site maps its own codes.",
+            __version__,
+            [_concept(code, shown) for code, shown in CONDITIONS.items()],
+            experimental=True,
+        ),
+        _code_system(
+            REFERRAL_SYSTEM,
+            "fictional-referrals",
+            "Mendari fictional referral codes",
+            "The code that marks a synthetic specialty referral for the Referral Router. Not "
+            "SNOMED CT or any real code system. A site maps its own referral code.",
+            __version__,
+            [_concept(code, shown) for code, shown in REFERRALS.items()],
             experimental=True,
         ),
     ]
@@ -248,6 +287,28 @@ def _audit_events() -> dict[str, Any]:
         "audit-event",
         "Mendari audit event",
         "The events of a decision's hash-chained audit trail, as AuditEvent.subtype.",
+        __version__,
+        concepts,
+    )
+
+
+def _administrative_events() -> dict[str, Any]:
+    concepts = [
+        _concept(
+            event,
+            shown,
+            f"{shown}: chained in Mendari's audit trail on no decision, exported as an "
+            f"AuditEvent with action {action} ({_ACTIONS[action]}).",
+        )
+        for event, (action, shown, _) in audit_fhir._ADMINISTRATIVE.items()
+    ]
+    return _code_system(
+        audit_fhir.ADMINISTRATIVE_SYSTEM,
+        "audit-administrative-event",
+        "Mendari administrative audit event",
+        "The events of Mendari's audit trail that are on no decision (an organization's keys, "
+        "clients, people, approvals, holds and reports, and the deployment's own), as "
+        "AuditEvent.subtype.",
         __version__,
         concepts,
     )

@@ -43,12 +43,20 @@ Paths under `src/mendari/` are given without that prefix.
 3. **Engine → outside servers:** FHIR servers, the CQL engine, the identity provider, the payer
    and alert webhooks, all through one outbound client with an allow-list.
 4. **Engine → model providers:** Jev, and LLMs through a gateway. Only a pack's declared
-   `state_fields` leave.
+   `state_fields` leave; an owned pack that declares none sends the whole input, and a pack the
+   deployment does not own must declare them (refused at load otherwise). For such a pack the
+   model is the deployment's and its answer length, timeout and effort are capped
+   (`core/origin.py` `deployment_config`). With `MENDARI_PROVIDER_ALLOWED_ORIGINS` set, these
+   calls (and Vercel Connect's key exchange) reach only the origins it lists
+   (`providers/http.py`).
 5. **Registry ↔ clients:** signed pack archives.
 6. **Engine ↔ database.**
 
 Who can call what: with sign-in on, every route has a permission (`auth._RULES`), anything
 unlisted needs `admin`, and a few routes are public: `/api/health` (three fields),
+`/api/health/ready` (a status and two fixed codes, from one bounded database read per instance
+every few seconds, whoever asks),
+`/status` (a static page that reads readiness in the browser),
 `/api/auth/me`, `/auth/*` (sign-in, callback, logout, the token endpoint), `/smart/*` (the
 SMART launch and its callback), `GET /api/smart/session` and `POST /api/smart/logout`, static files, `/docs` (the developer landing of Phase 5:
 built once at startup from settings and the example scripts, the same for every request, listing

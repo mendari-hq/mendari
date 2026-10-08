@@ -33,7 +33,7 @@ from mendari.server.auth import ehr_id
 from mendari.server.scopes import DECIDE
 from mendari.standards.fhir_client import FhirClient, GuardedHttp
 from mendari.standards.smart import normalize_base, smart_ehrs
-from tests.conftest import message, security_lines, signed_in
+from tests.conftest import encrypt_mode, message, security_lines, signed_in
 from tests.test_backend_services import RSA_KEY, ask, assertion
 
 EHR = "https://ehr.example.org"
@@ -62,6 +62,7 @@ class FakeEhr:
         self.signing_key: Any = self.key
         self.algorithm = "RS256"
         self.patient = "ref-p1"
+        self.token_prefix = "access"  # the access tokens it issues: <prefix>-<n>
         self.config_overrides: dict[str, Any] = {}
         self.resources = [e["resource"] for e in FIXTURE["entry"]]
 
@@ -109,7 +110,7 @@ class FakeEhr:
         assert challenge.decode() == code["code_challenge"], "PKCE verifier does not match"
         assert form["redirect_uri"][0] == code["redirect_uri"] == f"{APP}/smart/callback"
         assert form["client_id"][0] == CLIENT
-        access = f"access-{len(self.tokens)}"
+        access = f"{self.token_prefix}-{len(self.tokens)}"
         self.tokens.add(access)
         now = int(time.time())
         claims = {"iss": self.iss, "aud": CLIENT, "exp": now + 300, "iat": now}
@@ -515,6 +516,8 @@ def signed_site(
     if registered is None:
         monkeypatch.delenv("MENDARI_OIDC_ISSUER")
         monkeypatch.delenv("MENDARI_OIDC_CLIENT_ID")
+    else:
+        encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     transport = routed(*ehrs)
     monkeypatch.setattr(
         smart_routes, "GuardedHttp", functools.partial(GuardedHttp, transport=transport)

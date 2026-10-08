@@ -212,11 +212,26 @@ Then, in the folder the server ran in, verify the audit chain of the database it
 mendari audit verify --db var/mendari.db
 ```
 
+A long chain is quicker to check from a checkpoint. `mendari audit checkpoint` verifies the chain
+from its last checkpoint (from the start, the first time) and, when it holds, records its head as
+the next one, in a row outside the chain. `--since-checkpoint` then reads only the events after
+it. A full `mendari audit verify` also checks that every checkpoint still names its event, so a
+chain rewritten from before one, or cut short of it, fails there (`reason: checkpoint`). A
+checkpoint lives in the same database, so someone who can rewrite the chain can rewrite it too:
+keep a copy of the head somewhere else as well. Run it daily, beside retention:
+
+<!-- check: run server-db -->
+```bash
+mendari audit checkpoint --db var/mendari.db
+mendari audit verify --db var/mendari.db --since-checkpoint
+```
+
 **Errors and exit codes.** A command that cannot do what was asked prints one line per problem
 (`error: ...`, naming the file, the field or the flag, and what to do) and exits 1, never a
 traceback; `--debug` on any command (or `MENDARI_DEBUG=1`; `0` or `off` keeps it off) shows the
 full traceback instead. Exit 1 is also a failed check (a failing behaviour test, a broken chain,
-`monitor`'s alerts); `eval --fail-on-degradation` exits 2 on a regression; Ctrl-C exits 130 (a
+`monitor`'s alerts); `eval --fail-on-degradation` exits 2 on a regression; `monitor` exits 3
+when its alerts could not be posted; Ctrl-C exits 130 (a
 parallel `eval` stops sending the rest of the dataset); a closed pipe (`| head`) exits 141, with
 no error line.
 
@@ -228,8 +243,8 @@ no tests; `mendari validate` also reads every dataset the pack declares. A `--pr
 reported in `/api/health` as `provider_settings_unused`).
 
 **Read-only commands.** `audit verify`, `audit export`, `feedback export`, `monitor` and
-`access check` (with `access org list`, `members` and `requests`) open the server's database
-read-only: they never create, migrate or write it, and a `--db` that does not
+`access check` (with `access org list`, `members`, `requests`, `keys` and `clients`) open the
+server's database read-only: they never create, migrate or write it, and a `--db` that does not
 exist is an error, never a new empty database that "verifies".
 
 ### REST API
@@ -334,7 +349,20 @@ pinned by digest. `--build-arg PACK=mendari/referral-router` builds one that ser
 and linux/arm64 (workflow `release`, which only a maintainer starts, never a tag push), exactly
 as tested; nothing is published before that. [`deploy/`](https://github.com/Junebugg1214/mendari/tree/main/deploy) has
 templates for a site's own infrastructure: docker compose on one server and Kubernetes. Both come
-with Postgres, your identity provider, PHI mode and the daily retention and monitoring jobs.
+with Postgres, your identity provider, PHI mode and the daily retention, checkpoint and monitoring jobs.
+
+Mendari's own code is Apache-2.0; an image also holds third-party software under other licences
+(Debian's packages, and the libraries the PostgreSQL driver bundles, some under the GPL or LGPL).
+Each image carries them in `/licenses`: Mendari's `LICENSE` and `NOTICE`, `THIRD_PARTY_NOTICES.md`
+(every component, its version, its licence, where its notices are and where its source is),
+`SOURCE.md` and the texts of what bundles no notice of its own; Debian's copyright files stay in
+`/usr/share/doc`. A release publishes each image's corresponding source beside it, as
+`<image>:<tag>-sources`, with the image's SBOM (SPDX, every package with its source location) in
+its `/sources/sbom/`; the SBOM BuildKit attaches in the image's index lists the same packages and
+licences, without their source locations. `scripts/check_image_licences.py` checks all of it
+(CI's `docker` and `image-sbom` jobs), and the release pushes no image that fails it or whose
+SBOM names a licence that is unknown or not allowed. The image builds with BuildKit or Docker's
+classic builder alike.
 
 ### Docker sandbox
 
@@ -362,10 +390,22 @@ docker compose exec engine mendari sandbox smart-launch --pack mendari/referral-
 
 The profile `signin` adds a second engine with sign-in on (port 8001) where the launcher is
 registered to decide for organization `pilot`; CI's `sandbox-e2e` checks that its launches
-decide there, chained as the launcher's `<issuer>|<subject>`:
+decide there, chained as the launcher's `<issuer>|<subject>`. Sign-in never runs PHI mode `off`,
+so this engine runs `encrypt` with two keys of your own, generated once into `.env` (gitignored;
+compose reads it, and a variable set in your shell wins); the first lines below add each key
+only if `.env` lacks it. Keep them: inputs sealed under one pair do not open under another. Its
+database, once protected, never takes `off` again, so to start over (new keys, or an older
+compose file) remove this engine and its volume alone with
+`docker compose --profile signin rm -sf engine-signin && docker volume rm mendari_mendari-signin-data`
+(`down -v` would also remove the open engine's database and the local registry's packs).
 
 <!-- check: skip docker: needs the Docker sandbox; CI job sandbox-e2e runs it -->
 ```bash
+[ -n "$(tail -c1 .env 2>/dev/null)" ] && echo >> .env  # give a last line its newline
+for name in MENDARI_PHI_KEY MENDARI_INPUT_HASH_KEY; do
+  grep -qs "^$name=" .env ||
+    echo "$name=$(python3 -c 'import os,base64;print(base64.b64encode(os.urandom(32)).decode())')" >> .env
+done
 docker compose --profile signin up -d --build --wait engine launcher engine-signin
 docker compose exec engine-signin mendari smart check http://launcher/v/r4/fhir
 docker compose exec engine-signin mendari sandbox smart-launch --pack mendari/referral-router \
@@ -384,6 +424,14 @@ mendari bulk dataset --pack mendari/referral-router --ndjson export/ \
   --labels chart-review.jsonl --key-system https://site.example/mrn --out local.jsonl
 mendari eval mendari/referral-router --dataset local.jsonl
 ```
+
+The Referral Router tells a referral from other ServiceRequests by the code its FHIR mapping
+lists (`focus_where` in `fhir/mapping.yaml`): `FR101`, the fictional code of its synthetic data,
+since no package carries SNOMED CT. List the code your EHR marks referrals with first (often a
+SNOMED CT code), or no referral is found. The same goes for the Clinical Trial Prescreener's
+condition codes beyond ICD-10-CM (`logic/criteria.yaml`). Its mapping reads a Condition's first
+coding only, so a Condition coded first in SNOMED CT is not found even when an ICD-10-CM coding
+follows.
 
 The CI job `sandbox-e2e` runs the scripted launch for the inbox and referral packs on every
 change. It also runs `mendari sandbox bulk-check`: an export of the sandbox must evaluate
@@ -504,7 +552,11 @@ CDS Hooks services fetch the prefetch data an EHR leaves out, using the pack's o
 templates, the request's `fhirServer` and its `fhirAuthorization` token. They do this only when
 that server's origin is listed in `MENDARI_FHIR_ALLOWED_SERVERS` (for example
 `https://ehr.example.org,http://fhir:8080`). The list is empty by default, and every other server
-is refused.
+is refused. A prefetch template is a read or search relative to that server (`Type/<id>`,
+`Type/{{context.patientId}}` or `Type?<query>`): a community or registry pack with any other
+(an absolute URL, `..`, an operation, a fragment) is refused at load, and your own pack is warned.
+Providers that call a model have an allow-list of their own: `MENDARI_PROVIDER_ALLOWED_ORIGINS`
+([LLMs and local models](#llms-and-local-models)).
 
 **SMART on FHIR EHR launch.** Register `https://<mendari>/smart/launch?pack=<pack id>` as
 the app's launch URL and `https://<mendari>/smart/callback` as its redirect URI in the EHR.
@@ -640,7 +692,10 @@ and the landing loads nothing but its own files. Sessions end after 30 minutes i
 and 8 hours at most, behind `__Host-` cookies. A browser request that another site starts
 reaches only public routes and pages, to read. A request
 body is 4 MiB at most (`MENDARI_MAX_BODY_BYTES`; a `413` otherwise), and public routes take no
-lock and do little work for a caller without a credential. With sign-in on, decisions, the AI
+lock and do little work for a caller without a credential. A decision's remote calls share one
+deadline (`MENDARI_DECISION_DEADLINE_S`, 120 s unless set, 10 to 270): past it a call is not
+made, one under way is cut, and the decision records `timeout` and goes to a person, while its
+local providers still answer. With sign-in on, decisions, the AI
 guard, evaluations and exports are rate limited per caller, and sign-in and the token endpoint per
 address, in the database so every instance shares the count (`MENDARI_RATE_LIMITS`; a `429` with
 `Retry-After`); organizations can have daily quotas (`MENDARI_ORG_DAILY_LIMITS`), over which
@@ -684,12 +739,17 @@ mendari eval mendari/referral-router --dataset local.jsonl --share "My site"
   Nothing an archive or a registry says chooses where a file is written: archive names are plain
   paths inside the pack, an archive is read with size caps checked as it expands, and the cache
   path is built only from a valid id and version that the signed manifest names.
-- **Trust.** Installing a pack means trusting its author, as with any plugin: its patterns run
-  on Python `re` with no time limit, so a pack can slow or stall a worker (a community pack's
-  run on RE2, which never backtracks). What a pack cannot do
-  (choose secrets or endpoints, reach outside its folder, stop the server, reach another pack's
-  CQL) is in [SECURITY.md](https://github.com/Junebugg1214/mendari/blob/main/SECURITY.md#pack-supply-chain). Packs from others will run isolated
-  once uploads or a public registry exist.
+- **Trust.** A pulled pack runs on the engine for packs the deployment does not own, as a
+  community pack's patterns do: RE2, which never backtracks, within caps, 10,000 characters of
+  input and a CPU budget per decision, after which a person decides. A copy of a reference pack
+  of this release keeps the maintained engine (`mendari pull` says which), chosen by the digest
+  of its files, never by its manifest or the registry
+  ([ADR-0009](https://github.com/Junebugg1214/mendari/blob/main/docs/decisions/ADR-0009-bounded-evaluation-for-packs-the-deployment-does-not-own.md)).
+  The packs you own (the reference packs, and your own in `MENDARI_PACKS_PATH`, where a copy of
+  a pulled pack you trust goes) run on Python `re` with no time limit: installing one means
+  trusting its author, as with any plugin. What a pack cannot do (choose secrets or endpoints,
+  reach outside its folder, stop the server, reach another pack's CQL) is in
+  [SECURITY.md](https://github.com/Junebugg1214/mendari/blob/main/SECURITY.md#pack-supply-chain).
 - **The registry** (`mendari registry serve`) has namespaces with a publisher type
   (community, verified, institutional) that its admins set after verification. `--share` sends
   a site's metrics, never its cases or their ids, in a closed format the registry checks
@@ -698,6 +758,9 @@ mendari eval mendari/referral-router --dataset local.jsonl --share "My site"
   does not show site reports until sites sign what they share.
 
 The docker sandbox runs a registry on port 8100 (`scripts/hub_seed.py` publishes the five packs).
+Run `docker compose up --build` before `hub_seed.py`: the registry checks each pack against the
+reference packs of its own image, so with an image built from an older checkout, a pack that
+changed since is checked on RE2, and one whose patterns RE2 cannot run is refused.
 
 ## Sign-in for organizations
 
@@ -785,7 +848,13 @@ and each organization's administrators invite and manage their own people in the
 Access view (beside its keys and clients) or through the API; an invitation's link opens
 `/invite`, where the person signs in and accepts it
 ([the runbook](https://github.com/Junebugg1214/mendari/blob/main/docs/operations/accounts.md),
-which also says how to switch a deployment).
+which also says how to switch a deployment). Once a deployment runs in memberships mode, every
+chained event of an organization names it (the deployment's own events name none), and
+`mendari audit verify` checks it against the row the event is about; each organization's administrators read and export their own administrative events
+(`/api/audit/administrative`), and what is the whole deployment's (the chain's verification,
+the deployment records, today's call totals) is the operator's, from the command line
+(`mendari audit verify`, `mendari usage`). A test calls every route as two organizations and
+fails on any answer that shows one the other's data (`tests/test_two_organizations.py`).
 
 A link or form on another site cannot act with a signed-in browser, or sign it out: such a
 request reaches only public routes and pages, with GET or HEAD (a `403` otherwise). If a proxy serves Mendari under a
@@ -798,25 +867,53 @@ from the Decision Card, with a reference such as committee minutes and an expiry
 exact pack version: a new digest needs a new approval. It is written into every decision it
 affects, chained in the audit log, and can be revoked at once. Level 4 can't be approved.
 
-**Monitoring.** The dashboard's Monitoring view follows a pack in use, for the organization you
-act for. It shows observed accuracy against the benchmark (from reviews, downstream outcomes and
-thumbs-downs), the human override trend, confidence drift (PSI against the benchmark's
-confidences), the automated share and cost per decision, week by week. Alerts fire only on
-enough evidence:
+**Monitoring.** The dashboard's Monitoring view follows the served version of a pack in use, for
+the organization you act for, in whole weeks (14 to 180 days; other versions' decisions are
+only counted). It shows observed accuracy (from reviews and outcomes recorded downstream), the
+human override trend, confidence drift, the automated share, the decisions awaiting review and
+the cost per decision (unknown when any decision's cost is), week by week. Refused inputs are
+counted apart and left out of every rate and the cost. The benchmark is compared only when it
+measured this build of the pack with the providers and models that run here, under the same
+governance (an approval in force here and when it was measured, or neither), and only over
+decisions made since that configuration started; otherwise the view says why, and only the
+checks that need no benchmark run (automated decisions rated wrong, overrides that doubled,
+operational health). Operational health comes from what each decision stored: the share with a
+provider error recorded, the share that abstained, and how long decisions took (p50, p95,
+mean).
+Accuracy is compared stratum by stratum, as the benchmark measured it: reviewed decisions
+against its reviewed accuracy, automated ones with an outcome recorded downstream against its
+automated accuracy. Alerts fire only on enough evidence:
 
-- accuracy below the benchmark by more than the pack's tolerance;
-- drift of 0.25 or more;
-- an automated decision rated wrong;
-- an override rate that doubled.
+- a stratum's accuracy below the benchmark's by more than the pack's tolerance, beyond doubt
+  (even the top of its 95% interval; 20 decisions or more);
+- drift of 0.25 or more (PSI against the benchmark's confidences, over 50 or more);
+- an automated decision someone rated wrong (a thumbs-down; ratings never change observed
+  accuracy);
+- an override rate that doubled against the week before (20 reviews or more in each);
+- week over week, over 50 decisions or more this week: provider errors on 5% or more of
+  decisions beyond doubt and doubled (on that level alone when the week before had fewer than
+  50, as just after upgrading); with 50 or more the week before too, abstentions doubled and up
+  5 points beyond doubt, and 5% or more of decisions beyond doubt taking twice the week before's
+  p95 and 2 s or more.
 
-For a scheduler (cron, a Kubernetes CronJob), `mendari monitor` exits 1 on any alert (or on an
-error, such as a `--db` it cannot read: the line on stderr says which) and
+For a scheduler (cron, a Kubernetes CronJob), `mendari monitor` checks the newest version of
+each pack (or `--pack`), against its benchmark only for the build and providers a server
+recorded running there (a model a setting chose is not recorded, so a benchmark of an LLM or
+Jev model is compared by the server's view only) and the governance of `--org`. With
+`--each-org` it checks each organization with decisions on its own, but the status checks'
+(`MENDARI_STATUS_ORG`), and posts one alert per organization; a server does the same at
+`GET /api/internal/monitor` with its `CRON_SECRET`. It exits 1 on any alert (or on an
+error, such as a `--db` it cannot read: the line on stderr says which; with `--each-org`, 0
+when every alert was posted, and 1 on an error or on alerts with nowhere to post them) and
 posts them to `--webhook` / `MENDARI_ALERT_WEBHOOK` (https only; keep the URL as a secret,
-since most carry their token in the path):
+since most carry their token in the path), as JSON or a Slack message
+(`MENDARI_ALERT_FORMAT`), signed with `MENDARI_ALERT_SECRET`, tried up to three times (no
+answer, `408`, `429` and `5xx` are tried again); it exits 3 when they could not be posted
+([deploying with PHI](https://github.com/Junebugg1214/mendari/blob/main/docs/deploying-with-phi.md), *Alerts*):
 
 <!-- check: skip placeholder: posts alerts to a webhook you supply -->
 ```bash
-mendari monitor --db "$DATABASE_URL" --org clinic-a --webhook https://alerts.example.org/hook
+mendari monitor --db "$DATABASE_URL" --each-org --webhook https://alerts.example.org/hook
 ```
 
 **PHI mode.** `MENDARI_PHI_MODE=hash` keeps no input at all, only its hash.
@@ -828,8 +925,10 @@ hash becomes an HMAC (`hmac-sha256:<key id>:<hex>`) that guessing cannot match, 
 refuses to start without it. In both, the chained record keeps no evidence values (sealed with
 the input under `encrypt`) and names a resource in an input issue by type and position
 (`Patient (entry 2)`), not by its id; the caller's own answer is unchanged.
-Off Vercel, with sign-in or the EHR launch on, the engine refuses to start until a mode is
-chosen; on Vercel the mode is `encrypt` unless set to `hash`, and `off` is refused. A database
+With sign-in on, the engine refuses to start under `off` (set or left unset), on SQLite and
+Postgres alike: `off` is for a local sandbox without sign-in. Off Vercel, with only the EHR launch
+on, it refuses to start until a mode is chosen (`off` written out starts, with a warning); on
+Vercel the mode is `encrypt` unless set to `hash`, and `off` is refused. A database
 once kept under `hash` or `encrypt` never takes plaintext again. `mendari phi purge` applies `MENDARI_RETENTION_DAYS` (default 30) without breaking the
 chain; on Vercel a daily cron runs it once `CRON_SECRET` is set, and `mendari phi erase` erases
 one decision's kept input on request. The PHI key rotates without losing anything
@@ -1036,8 +1135,8 @@ yourself (`mendari/clinical-trial-prescreener:notes=jev`, `mendari/ai-guard:scre
   runs (`providers`), and which slots run no model at all although their pack offers one
   (`without_model`); the dashboard's overview says so too. A screen with a model but without the
   rules (`safety_screen=jev`) is not listed, but it does not meet `automation_requires` either:
-  each decision's reasons name what is missing. That Jev answers shows in `jev.calls_today` and
-  in the decisions' errors.
+  each decision's reasons name what is missing. That Jev answers shows in `jev.calls_today` (in
+  memberships mode, `mendari usage`) and in the decisions' errors.
 - Upgrading a deployment that already had Jev set up for some slots: it now also runs Jev in
   the slots above that its settings leave. Name a slot to keep it as it was.
 
@@ -1075,6 +1174,15 @@ As for Jev, these names are fixed, and an `llm` variant that names other variabl
 vercel env pull .env.local   # a fresh OIDC token for local calls through the gateway
 vercel env run -- uv run mendari calibrate <pack> --slot router --variant llm --limit 100
 ```
+
+**Where provider calls may go.** `MENDARI_PROVIDER_ALLOWED_ORIGINS` (comma-separated origins,
+like `MENDARI_FHIR_ALLOWED_SERVERS`) names the only origins Jev, LLM and Vercel Connect requests
+may reach. Unset, nothing changes. Set, a request anywhere else is refused before it is sent
+(`invalid_endpoint`: the question fails, so the decision goes to a person), an `LLM_BASE_URL` or
+`JEV_API_URL` off the list stops the server at start-up, and signed-in `/api/health` shows the
+list (`provider_allowed_origins`). With the AI Gateway (no `LLM_BASE_URL`), list
+`https://ai-gateway.vercel.sh`; with `JEV_CONNECTOR`, list `https://api.vercel.com`. The CQL
+engine stays on `MENDARI_FHIR_ALLOWED_SERVERS`.
 
 ## Deploying to Vercel
 
@@ -1125,13 +1233,23 @@ community), active providers, Jev configuration and today's Jev usage (never sec
 key) sees them; anyone else gets `status`, `version` and `sign_in`, enough for a load balancer.
 On a preview without sign-in `vercel curl` shows everything; with sign-in on, open
 `/api/health` in a browser signed in to the dashboard. The FHIR sandbox (HAPI) stays in local
-`docker compose`.
+`docker compose`. Status pages and uptime checks call `/api/health/ready` instead: public,
+`GET` or `HEAD`, it reads the database (once every 5 seconds per instance at most, waited for
+about 3.5 seconds) and answers `503` while the database does not answer or no pack is served,
+where anonymous `/api/health` stays `ok` with sign-in on (without sign-in every caller gets the
+settings, which read the database, so it fails during an outage too)
+([deploying with PHI](https://github.com/Junebugg1214/mendari/blob/main/docs/deploying-with-phi.md), *Health checks*).
 
 One pack never stops the server. Its `invalid` lists the packs that failed to load (by path; an
 error that is not Mendari's by its type alone), which are not served; the packs whose providers
 could not be built (by id), which stay listed, counted in `packs` and offered in CDS Hooks
 discovery, but whose decision and detail requests answer `422`; and the packs whose terminology
-could not be built, which are served without it. Every other pack decides.
+could not be built, which are served without it. Every other pack decides. `pack_warnings` lists,
+by id, the served packs of your own whose provider configs, CDS Hooks prefetch or card summaries
+`mendari validate` refuses (a key no provider reads, a variant that cannot run, a prefetch that
+is not a read or search on the EHR's server, a placeholder that is not a bare name): they load
+and serve what builds, and the start-up log says so too; a community or registry pack with such
+a problem is refused, under `invalid`.
 
 Days and times people see (the dashboard's times and daily volume, daily call counters, "today"
 for criteria and ages, card dates) use `MENDARI_TIMEZONE`, an IANA name defaulting to
@@ -1142,8 +1260,10 @@ is enabled, so preview traffic appears in the production audit trail. With previ
 each preview gets a `preview/<git branch>` database branch. The Vercel-managed integration only
 deletes it when Vercel deletes the deployment (months later), and a full branch limit makes
 previews fail with "Resource provisioning failed". The `neon-preview-cleanup` workflow deletes
-the branch when its pull request closes; it needs a project-scoped Neon API key as the
-`NEON_API_KEY` repository secret and the Neon project id as the `NEON_PROJECT_ID` variable.
+every preview branch whose Git branch has no open pull request and is gone or had one, when a
+pull request closes and every six hours (or by hand, with a dry run); it needs a project-scoped
+Neon API key as the `NEON_API_KEY` repository secret and the Neon project id as the
+`NEON_PROJECT_ID` variable.
 
 ## Project layout
 

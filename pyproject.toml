@@ -48,6 +48,8 @@ dev = [
     # tests/test_stats.py checks mendari.evals.stats against them; never runtime dependencies.
     "scipy>=1.15",
     "statsmodels>=0.14",
+    # Generated packs in tests/test_provider_configs.py (LP-16), derandomized so CI is repeatable.
+    "hypothesis>=6.100",
 ]
 docs = [
     "mkdocs==1.6.1",

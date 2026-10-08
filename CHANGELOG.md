@@ -14,7 +14,14 @@ The first release (not yet published).
   that may only lower automation.
 - **Five reference packs**, built and evaluated on synthetic data: Patient Inbox Router,
   Clinical Trial Prescreener, Referral Router, Prior Authorization Preflight and AI Guard. None
-  is clinically reviewed or for patient care.
+  is clinically reviewed or for patient care. No package carries CPT or SNOMED CT codes: where a
+  pack needs codes of its own (procedures, a local site's conditions, the code that marks a
+  referral) they are fictional, in code systems named as such, and a site maps its own codes.
+  So until a site does, the Referral Router matches no real EHR referral through FHIR and the
+  Clinical Trial Prescreener reads real diagnoses only through ICD-10-CM (through FHIR, only from
+  a Condition's first coding). A check refuses SNOMED CT's url, OID and concept URIs in the
+  built wheel and sdist, and any number written as a SNOMED CT concept id in Mendari's own files
+  there (`scripts/check_snomed.py`); NOTICE carries NLM's RxNorm acknowledgement.
 - **Standards:** a FHIR R4 adapter and CDS Hooks service.
 - **Da Vinci PAS: X12 codes are the site's (breaking).** Mendari ships no X12 code value (X12's
   code lists are under X12's terms; the owner's decision of 2026-10-07, LP-14). A PAS request no
@@ -60,7 +67,11 @@ The first release (not yet published).
   record, `$decide`, the ledger and the report's `models`. Earlier `llm` and `vote` runs name
   the configured model there.
 - **Dashboard** and REST API; sign-in through an organization's OpenID Connect provider; API
-  keys by role.
+  keys by role. With sign-in on, the engine refuses to start under PHI mode `off`, set or left
+  unset, everywhere (it warned outside Vercel): `off` is for a local sandbox without sign-in.
+  The compose sandbox's signed-in engine (profile `signin`) runs `encrypt` with two keys you
+  generate once into `.env` (README); an EHR launch without sign-in still starts under `off`
+  written out, with a warning.
 - **Hub:** a pack registry and its client (`mendari pull`, `mendari search`), and community
   packs. A site can share an evaluation of a composite provider (`any_of`, `cascade`, `vote`):
   its model lists each member's and a failed member's error names the member, as the
@@ -68,9 +79,49 @@ The first release (not yet published).
   (it refused any report from a composite). A version published before this records no
   members, so it refuses such a report with the reason (publish a new version). A shared
   report's error codes must be Mendari's own, a closed set the spec lists (they were checked
-  only as names), and the type checker holds every provider error to that set.
+  only as names), and the type checker holds every provider error to that set. A pack from a
+  registry with a reference pack's id and version but other files is refused at publish, pull
+  and load (it would have been served in the reference pack's place); one cached before is
+  listed under `/api/health` `invalid`, with the directory to remove.
+- **Input schemas bounded in shape:** the input schema of a pack the deployment owns nests at
+  most 32 deep, chains at most 16 `$ref`s, applies at most 1,000 schema objects to one value,
+  refers back to itself only as a recursive list or tree does, and holds no
+  `unevaluatedProperties` or `unevaluatedItems` below another; one beyond these is refused at
+  load. Every shipped pack is well within them (6 deep, 1 `$ref`, 2 schema objects).
+- **Provider configs checked at load:** every variant and composite member, the ones a pack does
+  not use by default too, is checked against its provider type's closed config (any other key,
+  a value out of range, a pack file it cannot run with), published as a JSON Schema
+  (`docs/spec/provider-configs.schema.json`). A community or registry pack with a problem is
+  refused at load; any other pack loads and says so (`mendari list`, the start-up log,
+  `/api/health` `pack_warnings`), and `mendari validate` refuses both. For a community or
+  registry pack, every model variant names the input fields it sends (`state_fields`), the
+  deployment's model is used, `max_tokens` and `timeout_ms` are held to the provider defaults
+  (a lower value stands) and a `reasoning_effort` above `low` is dropped: a registry pack that
+  pinned an LLM model now runs on the deployment's (no shipped pack pins one).
+- **Provider allow-list:** `MENDARI_PROVIDER_ALLOWED_ORIGINS` (comma-separated origins, off
+  unless set) names the only origins Jev, LLM and Vercel Connect requests may reach: any other,
+  the AI Gateway's default included, is refused before it is sent (`invalid_endpoint`, so the
+  decision goes to a person), an `LLM_BASE_URL` or `JEV_API_URL` off the list stops the server at
+  start-up, and signed-in `/api/health` shows it (`provider_allowed_origins`). Unset, nothing
+  changes.
+- **Prefetch and wording templates checked at load:** a CDS Hooks prefetch template is a read or
+  search relative to the EHR's FHIR server (`Type/<id>`, `Type/{{context.<name>}}`,
+  `Type?<query>`), and a card summary's or FHIR Task text's placeholders are bare names (no
+  conversion, format spec, attribute or index). A community or registry pack with one that is
+  not is refused at load, its Task text included; any other pack loads warned of its prefetch
+  and card summaries, its Task text renders as before, and `mendari validate` refuses both. Every
+  shipped template passes, and no pack renders different wording.
 - **Distribution:** a wheel and an sdist, container images (the engine with every pack, and one
-  per pack), and deployment templates for docker compose and Kubernetes.
+  per pack), and deployment templates for docker compose and Kubernetes. Each image carries its
+  licences in `/licenses`: Mendari's LICENSE and NOTICE, `THIRD_PARTY_NOTICES.md` written from
+  what the image holds (Debian's packages, whose copyright files stay, every Python package, the
+  libraries psycopg-binary bundles, what packages link statically and the Rust crates compiled
+  into them, each with where its source is), the texts the image would otherwise lack, and
+  `SOURCE.md`; its label names Apache-2.0 as Mendari's licence only. A release attaches an SBOM
+  of each finished image, scans its licences, publishes each image's corresponding source
+  beside it (`<tag>-sources`, with the SBOM and every package's source location), and pushes no
+  image that fails; CI runs the same SBOM scan on every change. The image still builds with
+  Docker's classic builder.
 - **The command line:** every error is one line per problem and exit 1, never a traceback
   (`--debug` or `MENDARI_DEBUG=1` shows one); a usage error is one line too, exit 1 (argparse's
   was 2); `--version`. `mendari test` refuses a behaviour test whose `expect` is missing,

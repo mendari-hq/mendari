@@ -32,9 +32,10 @@ providers:
     variants:
       rules: {type: rules, config: logic/rules.yaml}
       # Never the default: a community pack decides with local providers unless the owner opts
-      # it in with `community/visit-sorter:reader=llm`. Its pinned model and max_tokens are
-      # ignored; the deployment's are used.
-      llm: {type: llm, model: example/pinned-model, max_tokens: 30000}
+      # it in with `community/visit-sorter:reader=llm`. Its pinned model is ignored (the
+      # deployment's is used) and its max_tokens held to the deployment's cap; it sends only
+      # the fields it names.
+      llm: {type: llm, model: example/pinned-model, max_tokens: 30000, state_fields: [message]}
 policy:
   primary: topic
   thresholds: {auto: 0.9, review: 0.4}

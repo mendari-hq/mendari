@@ -22,7 +22,7 @@ from mendari.errors import MendariError
 from mendari.server import sessions
 from mendari.server.app import create_app
 from mendari.server.auth import safe_next
-from tests.conftest import signed_in
+from tests.conftest import encrypt_mode, signed_in
 from tests.test_auth import IDP, FakeIdp, sign_in, signing_in_with
 
 HTTPS = "https://mendari.test"
@@ -53,6 +53,7 @@ def server(db_target: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClie
     """Sign-in on (no identity provider is reached), on a host that uses `__Host-` names."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari-org")
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     with TestClient(create_app(db_path=db_target), base_url=HTTPS) as client:
         yield client
 

@@ -222,10 +222,10 @@ def _cql_extra_key(pack: Path) -> None:
 def test_a_pack_whose_providers_cannot_be_built_never_fails_health(
     tmp_path: Path, change: Callable[[Path], None], problem: str
 ) -> None:
-    """T9: providers are built when a pack is first used (main's lazy start), and /api/health
-    built every served pack's; one pack whose default `cql` variant could not be built made
-    /api/health a 422 or a 500 for every reader. It is listed under `invalid` now, its decisions
-    answer 422 naming the problem, and every other pack is reported and decides."""
+    """T9: /api/health built every served pack's providers, and one pack whose default `cql`
+    variant could not be built made it a 422 or a 500 for every reader. Providers are built at
+    start-up now (LP-16d), and health reads that: such a pack is listed under `invalid`, its
+    decisions answer 422 naming the problem, and every other pack is reported and decides."""
     outside = tmp_path / "outside"
     _outsider(outside, _cql_default(change), source=TRIAL_DIR)
     client = TestClient(create_app(db_path=tmp_path / "c.db", packs_paths=[outside, PACKS]))

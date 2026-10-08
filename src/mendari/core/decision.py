@@ -19,11 +19,16 @@ from jsonschema import ValidationError
 
 from mendari.core import input_schema, tenancy
 from mendari.core.derive import complete_answers, explain
-from mendari.core.origin import MAX_COMMUNITY_TEXT_CHARS, long_text, shape_problem
+from mendari.core.origin import (
+    MAX_COMMUNITY_TEXT_CHARS,
+    bounded_reader,
+    long_text,
+    shape_problem,
+)
 from mendari.core.pack import Pack, load_pack
 from mendari.core.patterns import OutOfTime, budget_active, check_time, search, time_budget
 from mendari.core.policy import GovernanceOverride, PolicyResult, apply_policy
-from mendari.core.registry import resolve_pack
+from mendari.core.registry import origin_of, resolve_pack
 from mendari.core.spec import Outcome, Priority
 from mendari.errors import (
     FhirStructureError,
@@ -33,9 +38,10 @@ from mendari.errors import (
     ProviderError,
 )
 from mendari.providers import Answer, Provider, ProviderInfo, build_provider
-from mendari.providers.base import OVER_QUOTA
+from mendari.providers.base import METER, OVER_QUOTA, Meter, Metered
 from mendari.providers.batch import batching
-from mendari.settings import FhirValidation
+from mendari.providers.deadline import decision_deadline
+from mendari.settings import FhirValidation, decision_deadline_s
 
 if TYPE_CHECKING:
     from mendari.core.audit import AuditStore
@@ -76,6 +82,9 @@ class DecisionResult:
     # How the stored record names each resource an input issue names (`us_core.record_labels`):
     # "Patient (entry 2)" for "Patient/MRN4821937". In memory only, like `rejected`.
     labels: Mapping[str, str] = field(default_factory=dict, compare=False)
+    # Its remote calls by provider type (`providers.base.Meter`), for the usage ledger
+    # (`AuditStore.record`). In memory only, like `rejected`.
+    usage: Mapping[str, Metered] = field(default_factory=dict, compare=False)
 
     @property
     def confidence(self) -> float | None:
@@ -199,9 +208,13 @@ class Decision:
         store: AuditStore | None = None,
         budget: CallBudget | None = None,
         fhir_validation: FhirValidation = "warn",
+        deadline_s: float | None = None,
     ):
         """`governance` fixes an override for every decision; `governance_source` looks one up
-        for each decision instead (a deployment's recorded approvals, per organization)."""
+        for each decision instead (a deployment's recorded approvals, per organization).
+        `deadline_s` is how long each decision's remote calls may take together (default: the
+        deployment's `MENDARI_DECISION_DEADLINE_S`, `providers/deadline.py`); each decision
+        starts its own clock, which is never kept here (one Decision serves every thread)."""
         overrides = dict(providers or {})
         unknown = set(overrides) - set(pack.manifest.providers)
         if unknown:
@@ -214,6 +227,7 @@ class Decision:
         self.store = store
         self.budget = budget
         self.fhir_validation = fhir_validation
+        self.deadline_s = deadline_s if deadline_s is not None else decision_deadline_s()
         self.providers: dict[str, Provider] = {
             slot: build_provider(pack, slot, overrides.get(slot))
             for slot in pack.manifest.providers
@@ -221,11 +235,12 @@ class Decision:
         if budget is not None:
             for provider in self.providers.values():
                 provider.use_budget(budget.acquire)
-        self._validator = input_schema.validator(pack.input_schema, community=pack.community)
-        # A community pack's input keys count toward its text only where its schema runs
-        # patterns on them; otherwise each is held to the length alone (`origin.long_text`).
+        # A pack the deployment does not own runs on the community engine (`Pack.bounded`).
+        self._validator = input_schema.validator(pack.input_schema, community=pack.bounded)
+        # Its input keys count toward its text only where its schema runs patterns on them;
+        # otherwise each is held to the length alone (`origin.long_text`).
         self._count_keys = False
-        if pack.community:  # its caps, imported only for one
+        if pack.bounded:  # its caps, imported only for one
             from mendari.core.caps import patterns_on_keys
 
             self._count_keys = patterns_on_keys(pack.input_schema)
@@ -251,7 +266,9 @@ class Decision:
 
     @classmethod
     def from_path(cls, path: str | Path, **kwargs: Any) -> Decision:
-        return cls(load_pack(path), **kwargs)
+        """The pack at `path`, with the origin of where it is (`core/registry.py` `origin_of`): a
+        pulled pack in the registry cache is one, and runs on its engine."""
+        return cls(load_pack(path, origin=origin_of(path)), **kwargs)
 
     @property
     def is_remote(self) -> bool:
@@ -269,26 +286,28 @@ class Decision:
         and which rule of the schema, never the value: jsonschema's own messages quote the
         input, and reasons are stored in the audit trail and copied into the FHIR Task.
 
-        A community pack's check holds to its input limits (`origin.shape_problem`) and to a
-        time budget: the decision's, or one of its own when called alone (`mendari omop`). It
-        checks the budget after each error and stops at `MAX_SCHEMA_ERRORS`. Inside a decision,
-        a budget spent before any error is found raises `OutOfTime` (the decision abstains);
+        The check of a pack on the community engine (`Pack.bounded`: a community pack, or one
+        from a registry) holds to its input limits (`origin.shape_problem`) and to a time
+        budget: the decision's, or one of its own when called alone (`mendari omop`). It checks
+        the budget after each error and stops at `MAX_SCHEMA_ERRORS`. Inside a decision, a
+        budget spent before any error is found raises `OutOfTime` (the decision abstains);
         alone, it is a reason."""
-        community = self.pack.community
-        if community and (shape := shape_problem(inputs)) is not None:
+        bounded = self.pack.bounded
+        reader = bounded_reader(self.pack.id, self.pack.origin)
+        if bounded and (shape := shape_problem(inputs, reader)) is not None:
             return [f"(root): {shape}"]
-        if community and (too_long := long_text(inputs, count_keys=self._count_keys)):
+        if bounded and (too_long := long_text(inputs, count_keys=self._count_keys)):
             return [
-                f"{too_long}: longer than {MAX_COMMUNITY_TEXT_CHARS:,} characters, the most a "
-                "community pack reads"
+                f"{too_long}: longer than {MAX_COMMUNITY_TEXT_CHARS:,} characters, the most "
+                f"{reader} reads"
             ]
-        alone = community and not budget_active()
+        alone = bounded and not budget_active()
         with time_budget() if alone else nullcontext():
             found: list[Any] = []
             try:
                 for error in self._validator.iter_errors(inputs):
                     found.append(error)
-                    if community:
+                    if bounded:
                         check_time()
                         if len(found) >= MAX_SCHEMA_ERRORS:
                             break
@@ -304,12 +323,12 @@ class Decision:
                         "number too large, or the schema refers to itself without end"
                     ]
             errors = sorted(found, key=lambda e: list(map(str, e.path)))
-            if not community:  # as it always was
+            if not bounded:  # as it always was
                 return [f"{_where(error.path)}: {_schema_rule(error)}" for error in errors[:10]]
             reasons: list[str] = []
             for error in errors:
                 try:
-                    rule = _schema_rule(error, community)
+                    rule = _schema_rule(error, bounded)
                 except OutOfTime:  # wording it would search the schema's patterns again
                     rule = "does not meet the schema"
                 reason = f"{_where(error.path)}: {rule}"
@@ -338,35 +357,38 @@ class Decision:
         failures: dict[str, str] = {}
         tokens_in = tokens_out = 0
         cost: float | None = 0.0
+        meter = Meter()  # its remote calls, as they are made
 
         governance = self.governance
         if governance is None and self.governance_source is not None:
             governance = self.governance_source(self.pack)
         over_quota: ProviderError | None = None
-        stopped: ProviderError | None = None  # a community pack's schema check used the budget
+        stopped: ProviderError | None = None  # a bounded pack's schema check used the budget
         if self.budget is not None:
             try:
                 self.budget.admit_decision()
             except ProviderError as error:
                 over_quota = error  # every provider fails with it, so nothing automates
-        # A community pack's patterns share one time budget in this decision (`core/patterns.py`):
-        # past it its schema check or its rules stop, and the decision abstains, for a person.
-        with time_budget() if self.pack.community else nullcontext():
-            community = self.pack.community
-            shape = shape_problem(inputs) if community else None
+        # The patterns of a pack on the community engine (`Pack.bounded`: a community pack, or
+        # one from a registry) share one time budget in this decision (`core/patterns.py`): past
+        # it its schema check or its rules stop, and the decision abstains, for a person.
+        bounded = self.pack.bounded
+        with time_budget() if bounded else nullcontext():
+            reader = bounded_reader(self.pack.id, self.pack.origin)
+            shape = shape_problem(inputs, reader) if bounded else None
             too_long = (
                 long_text(inputs, count_keys=self._count_keys)
-                if community and shape is None
+                if bounded and shape is None
                 else None
             )
             if shape is not None:
                 schema_problems = [f"(root): {shape}"]  # before the schema runs on every value
             elif too_long is not None:
-                # Before the schema's patterns run too: a community pack's patterns run on
-                # texts this long, no longer (`core/origin.py`; its caps are measured on it).
+                # Before the schema's patterns run too: its patterns run on texts this long, no
+                # longer (`core/origin.py`; its caps are measured on it).
                 schema_problems = [
-                    f"{too_long}: longer than {MAX_COMMUNITY_TEXT_CHARS:,} characters, the most a "
-                    "community pack reads"
+                    f"{too_long}: longer than {MAX_COMMUNITY_TEXT_CHARS:,} characters, the most "
+                    f"{reader} reads"
                 ]
             else:
                 try:
@@ -386,8 +408,11 @@ class Decision:
                 )
             else:
                 over = OVER_QUOTA.set(over_quota)  # remote calls fail with it; local ones run
+                metering = METER.set(meter)
                 try:
-                    with batching(self.providers.values()):
+                    # The deadline's clock starts here, for this decision's remote calls only:
+                    # past it they fail with `timeout`, and local providers still answer.
+                    with decision_deadline(self.deadline_s), batching(self.providers.values()):
                         for slot, provider in self.providers.items():
                             try:
                                 if stopped is not None:
@@ -405,6 +430,7 @@ class Decision:
                             if cost is not None:
                                 cost = None if output.cost_usd is None else cost + output.cost_usd
                 finally:
+                    METER.reset(metering)
                     OVER_QUOTA.reset(over)
                 complete_answers(manifest, answers, failures)
                 variants = {slot: info.variant for slot, info in self.provider_info.items()}
@@ -453,6 +479,7 @@ class Decision:
             rejected=bool(problems),
             schema_problems=tuple(schema_problems),
             labels=dict(labels or {}),
+            usage=meter.totals(),
         )
         if self.store is not None:
             self.store.record(result, inputs, store_input=manifest.audit.store_input)
@@ -521,16 +548,16 @@ def _short(name: str, limit: int = 40) -> str:
     return name if len(name) <= limit else name[: limit - 1] + "…"
 
 
-def _schema_rule(error: ValidationError, community: bool = False) -> str:
+def _schema_rule(error: ValidationError, bounded: bool = False) -> str:
     """What the schema requires, in words built from the schema alone (`validator_value` is the
-    pack's own schema), never from the instance. A community pack's patterns run on RE2
-    (`core/patterns.py`)."""
+    pack's own schema), never from the instance. The patterns of a pack on the community engine
+    (`bounded`) run on RE2 (`core/patterns.py`)."""
     keyword, expected = error.validator, error.validator_value
     present = error.instance if isinstance(error.instance, Mapping) else {}
     if keyword == "required":
         names = expected if isinstance(expected, list) else []
         missing = [str(name) for name in names if name not in present]
-        if not community:  # as it always was
+        if not bounded:  # as it always was
             return f"{', '.join(missing) or 'a field'} is required"
         more = f" and {len(missing) - 5} more" if len(missing) > 5 else ""
         return f"{', '.join(map(_short, missing[:5])) or 'a field'}{more} is required"
@@ -563,7 +590,7 @@ def _schema_rule(error: ValidationError, community: bool = False) -> str:
             str(key)
             for key in present
             if key not in allowed
-            and not any(search(p, str(key), community=community) for p in patterns)
+            and not any(search(p, str(key), community=bounded) for p in patterns)
         ]
         named = [key for key in extra if _KEY.match(key)]
         unnamed = len(extra) - len(named)

@@ -121,6 +121,13 @@ who can reach the server can call every operation, and the `Authorization` heade
 --8<-- "auth.sh"
 ```
 
+An organization's administrators read the chained events of what it owns (its keys, clients,
+people, automation approvals and holds, evaluation reports) at `GET /api/audit/administrative`,
+oldest first and paged (`next` is the following page's `after`; `kind`, `subject` such as
+`key:<id>`, and `since` / `until` as instants with their offset narrow it), and export them as
+FHIR AuditEvents of ids and codes at `GET /api/audit/administrative/export/fhir`. A decision's
+own trail is `GET /api/audit/{id}`.
+
 What each call needs (public, `read`, `decide`, an administrator, …) comes from the server's route
 rules; a running server's `/docs` lists every call with it. Setting up sign-in, roles and keys is
 in [Deploying with real patient data](../deploying-with-phi.md).

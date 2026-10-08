@@ -105,7 +105,11 @@ decision; in order:
 3. set `MENDARI_ACCOUNTS=memberships` and redeploy. **Everyone signs in again**, both ways: a
    session of one mode is no session in the other. The owner's membership binds at their first
    sign-in then. Rolling back is unsetting it: the records stay, and claims mode never reads
-   them.
+   them. The database stays marked (`org_bound`): from the first start in memberships mode on,
+   each chained event of an organization (a decision's, or one about a key, client, approval,
+   hold, report, organization, membership, invitation or request) names it, after a rollback
+   too; the deployment's own events (`deployment.recorded`, `user.recorded`) name none. An
+   instance of the previous deployment still serving names it only once it restarts.
 
 Then:
 
@@ -139,9 +143,44 @@ Then:
   does not let them back in.
 - Keys, Backend Services clients and EHR registrations of an organization with no record are
   refused.
-- The whole-chain verify, deployment-wide deployment records and some health fields are still
-  shown to every organization's administrators until LP-12g scopes them: switch the hosted
-  site after LP-12g.
+- `mendari audit verify` also checks each event's organization against the row it is about.
+  `{"ok": false, "broken_at": N, "reason": "organization"}` means that row was moved to
+  another organization, or deleted, after event N was chained: look at the row that event's
+  chain id names (`SELECT decision_id, event, payload FROM audit_events WHERE seq = N`), and
+  restore it from a backup. Keep every row an event names: delete no expired invitation, handled
+  request or organization.
+- What is the whole deployment's is the operator's, from the command line (owner decision 5):
+  `GET /api/audit/verify` and `GET /api/deployments` answer `404`; `/api/health` leaves out
+  today's Jev and LLM calls and the last purge's counts (it keeps when and by what); and a
+  hold set from the command line for every organization shows in `/api/holds` as what it
+  covers and since when, without the operator's reason or name. The operator reads them with
+  `mendari audit verify`, `mendari automation list` and `mendari usage` (today's calls against
+  their limits, the last purge with its counts, the deployment records), each with `--db`.
+  Claims mode shows them as before.
+
+## An organization's audit
+
+Its administrators read the chained events of what it owns, its keys, clients, record,
+memberships, invitations, requests to join, automation approvals and holds, and evaluation
+reports, at `GET /api/audit/administrative` (paged, oldest first; `kind`, `subject`, `since`,
+`until`), and export them as FHIR AuditEvents of ids and codes at
+`GET /api/audit/administrative/export/fhir` (a key's or client's name, a hold's reason and an
+approval's reference stay out). Each event is attributed through the row it is about, never
+by its chain id alone; neither shows its number in the deployment's chain (`seq`), another
+organization's events or the deployment's own. Each event's hash is shown, as `mendari audit
+verify` checks it; what that lets an organization infer about the chain around its own events
+is in the threat model (I4). A person's acknowledgement of the notice is
+theirs, across organizations, not one organization's, so it is not listed.
+
+The operator exports the same, for one organization or for the whole deployment (its own
+events included: key rotations, purges, deployments, sign-in records), from the command line:
+
+```bash
+mendari audit export --administrative --org clinic-a --db "$DATABASE_URL" --out clinic-a.ndjson
+mendari audit export --administrative --db "$DATABASE_URL" --out deployment.ndjson
+```
+
+`--org` alone exports that organization's decisions' trail.
 
 ## Managing an organization's people
 

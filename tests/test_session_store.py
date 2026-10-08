@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 from mendari.core import audit
 from mendari.core.audit import AuditStore
 from mendari.server.app import create_app
+from tests.conftest import encrypt_mode
 
 IDP = "https://idp.example.org"
 LATER = 600
@@ -28,6 +29,7 @@ def signed_in(db_target: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestC
     """A server with sign-in on (nothing here reaches the identity provider)."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari-org")
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     with TestClient(create_app(db_path=db_target), base_url="https://mendari.test") as client:
         yield client
 

@@ -22,12 +22,12 @@ from fastapi.testclient import TestClient
 from starlette.routing import Route
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
+from mendari import alerts as alerts_module
 from mendari import cli
 from mendari.core import clock, tenancy
 from mendari.core.audit import AuditStore
 from mendari.core.decision import CallBudget, Decision
 from mendari.errors import MendariError, ProviderError
-from mendari.server import app as app_module
 from mendari.server import auth as auth_module
 from mendari.server.app import create_app, error_response
 from mendari.server.auth import permission_for
@@ -41,6 +41,7 @@ from mendari.server.limits import (
 from mendari.standards.fhir_client import GuardedHttp
 from tests.conftest import (
     ROOT,
+    encrypt_mode,
     hosted,
     launched,
     message,
@@ -68,6 +69,7 @@ NO_STORE = "no-store"
 def sign_in_on(monkeypatch: pytest.MonkeyPatch, limits: str) -> None:
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari-org")
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     monkeypatch.setenv("MENDARI_RATE_LIMITS", limits)
 
 
@@ -577,6 +579,7 @@ EXPECTED_CLASSES = {
     ("POST", "/api/packs/{namespace}/{name}/guard"): "guard",
     ("POST", "/api/packs/{namespace}/{name}/evals"): "evaluate",
     ("GET", "/api/audit/export/fhir"): "export",
+    ("GET", "/api/audit/administrative/export/fhir"): "export",
     ("GET", "/api/packs/{namespace}/{name}/feedback/export"): "export",
 }
 
@@ -646,10 +649,10 @@ def test_over_its_quota_a_decision_falls_back_to_human_review_with_one_alert(
     posted: list[dict[str, Any]] = []
 
     def post(url: str, **kwargs: Any) -> httpx.Response:
-        posted.append({"url": url, **kwargs})
+        posted.append({"url": url, **kwargs, "json": json.loads(kwargs["content"])})
         return httpx.Response(204, request=httpx.Request("POST", url))
 
-    monkeypatch.setattr(app_module.httpx, "post", post)
+    monkeypatch.setattr(alerts_module.httpx, "post", post)
     db = str(tmp_path / "quota.db")
     client = TestClient(create_app(db_path=db, providers=screened))
     # Evaluations run on the deployment's budgets, never the organization's quota.
@@ -692,11 +695,14 @@ def test_a_quota_alert_that_fails_never_fails_the_decision(
     def down(url: str, **_: Any) -> httpx.Response:
         raise httpx.ConnectError("down")
 
-    monkeypatch.setattr(app_module.httpx, "post", down)
+    monkeypatch.setattr(alerts_module.httpx, "post", down)
     client = TestClient(create_app(db_path=tmp_path / "down.db", providers=screened))
-    with caplog.at_level(logging.WARNING, logger="mendari.limits"):
+    with caplog.at_level(logging.WARNING, logger="mendari.alerts"):
         assert client.post(DECIDE, json=message(ROUTINE)).json()["outcome"] == "AUTO"
-    assert "webhook failed (ConnectError)" in caplog.text
+    assert "an alert to the webhook failed (ConnectError)" in caplog.text
+    with AuditStore(tmp_path / "down.db") as store:
+        (sent,) = store.alert_deliveries()
+    assert (sent["status"], sent["attempts"], sent["last_error"]) == ("pending", 1, "ConnectError")
 
 
 # -- health and serving ---------------------------------------------------------------------------

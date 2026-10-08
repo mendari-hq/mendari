@@ -8,7 +8,9 @@
   archive only if:
   - its signature verifies with one of the namespace's keys;
   - its manifest names this pack and version;
-  - it extracts to a pack that loads with the signed digest;
+  - it extracts to a pack that loads with the signed digest, on the engine its pullers run
+    (`origin="hub"`: RE2, the caps and the schema keyword list unless it is a reference pack of
+    the registry's own release, ADR-0009);
   - that version does not exist yet.
 
   Versions are immutable.
@@ -227,7 +229,8 @@ class RegistryStore:
             raise HubError("the archive is not this pack and version")
         with tempfile.TemporaryDirectory() as scratch:
             try:
-                pack = archive.extract(verified, Path(scratch) / "pack")
+                # Checked on the engine its pullers run, against this release's reference packs.
+                pack = archive.extract(verified, Path(scratch) / "pack", origin="hub")
                 metadata = describe(pack, verified)
             except HubError:
                 raise
