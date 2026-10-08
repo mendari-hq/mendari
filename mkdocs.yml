@@ -61,6 +61,7 @@ nav:
       - Using the API: guides/api.md
       - Deploying with real patient data: deploying-with-phi.md
       - Holding automation: operations/automation-hold.md
+      - Revoking access: operations/revoking-access.md
       - Organizations and memberships: operations/accounts.md
   - Reference:
       - Decision Pack spec 0.2: spec/decision-pack-0.2.md

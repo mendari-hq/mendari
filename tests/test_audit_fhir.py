@@ -244,6 +244,7 @@ NOT_ON_A_DECISION = {
     "automation.held",
     "automation.lifted",
     "retention.purged",  # a purge's summary (`RETENTION_CHAIN`); each deletion is on its decision
+    "sessions.ended",  # the break-glass signing everyone out (`SESSIONS_CHAIN`, LP-21l)
     "key.rotated",  # an API key's rotation, on the key (LP-09)
     # People, organizations and memberships (LP-12d): on their own chain ids, never a decision.
     "user.recorded",
