@@ -926,7 +926,8 @@ reads of PHI, then operations. Keep the answers with your go-live record.
 - [ ] The security log reaches your log system: a refused request (a wrong key) appears there as
       an `auth.credential.refused` line and a `request` line with the `X-Request-Id` the
       response carried, and no line holds a key, a query value or case text.
-- [ ] Retention and monitoring are scheduled; `mendari audit verify` passes.
+- [ ] Retention, monitoring and `mendari audit checkpoint` are scheduled; `mendari audit verify`
+      passes.
 
 For the project's own public deployment (synthetic data, Vercel), the owner's launch adds, in
 order:

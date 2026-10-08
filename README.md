@@ -212,6 +212,20 @@ Then, in the folder the server ran in, verify the audit chain of the database it
 mendari audit verify --db var/mendari.db
 ```
 
+A long chain is quicker to check from a checkpoint. `mendari audit checkpoint` verifies the chain
+from its last checkpoint (from the start, the first time) and, when it holds, records its head as
+the next one, in a row outside the chain. `--since-checkpoint` then reads only the events after
+it. A full `mendari audit verify` also checks that every checkpoint still names its event, so a
+chain rewritten from before one, or cut short of it, fails there (`reason: checkpoint`). A
+checkpoint lives in the same database, so someone who can rewrite the chain can rewrite it too:
+keep a copy of the head somewhere else as well. Run it daily, beside retention:
+
+<!-- check: run server-db -->
+```bash
+mendari audit checkpoint --db var/mendari.db
+mendari audit verify --db var/mendari.db --since-checkpoint
+```
+
 **Errors and exit codes.** A command that cannot do what was asked prints one line per problem
 (`error: ...`, naming the file, the field or the flag, and what to do) and exits 1, never a
 traceback; `--debug` on any command (or `MENDARI_DEBUG=1`; `0` or `off` keeps it off) shows the

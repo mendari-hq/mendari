@@ -67,6 +67,7 @@ BROKEN: dict[str, tuple[list[str], dict[str, str]]] = {
     "schema": (["no/such-pack"], {}),
     "serve": (["--db", "{not_db}"], {}),
     "audit verify": (["--db", "{missing_db}"], {}),
+    "audit checkpoint": (["--db", "{not_db}"], {}),
     "audit export": (["--db", "{missing_db}"], {}),
     "automation hold": (["--all-orgs", "--reason", "drill", "--db", "{not_db}"], {}),
     "automation lift": (["h-1", "--db", "{not_db}"], {}),
