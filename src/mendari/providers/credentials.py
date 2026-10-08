@@ -27,10 +27,12 @@ from urllib.parse import quote
 import httpx
 
 from mendari.errors import ProviderError
+from mendari.providers import deadline
 
 CONNECT_TOKEN_URL = "https://api.vercel.com/v1/connect/token/{connector}"
 REFRESH_MARGIN_S = 60
 DEFAULT_TTL_S = 300
+FETCH_TIMEOUT_S = 10.0
 
 
 def vercel_oidc_token() -> str:
@@ -71,20 +73,30 @@ class ConnectorToken:
         self._expires_at = 0.0
 
     def get(self) -> str:
-        with self._lock:
+        """The key, fetched when it is missing or about to expire. Inside a decision, waiting
+        for another thread's fetch, and the fetch itself, stop at its deadline (`timeout`)."""
+        left = deadline.remaining()
+        if not self._lock.acquire(timeout=-1 if left is None else max(left, 0.0)):
+            raise ProviderError("timeout", "the decision's deadline passed waiting for a key")
+        try:
             if not self._token or self._clock() >= self._expires_at - REFRESH_MARGIN_S:
                 self._token, self._expires_at = self._fetch()
             return self._token
+        finally:
+            self._lock.release()
 
     def _fetch(self) -> tuple[str, float]:
+        timeout = deadline.clamp(FETCH_TIMEOUT_S)  # past the decision's deadline: no fetch
         url = CONNECT_TOKEN_URL.format(connector=quote(self.connector, safe=""))
         headers = {"authorization": f"Bearer {self._oidc()}"}
-        client = self._client or httpx.Client(timeout=10, follow_redirects=False)
+        client = self._client or httpx.Client(timeout=timeout, follow_redirects=False)
         try:
             response = client.post(url, json={"subject": {"type": "app"}}, headers=headers)
         except httpx.HTTPError as error:
+            cut = isinstance(error, httpx.TimeoutException) and deadline.past()
             raise ProviderError(
-                "credential_unavailable", f"Vercel Connect unreachable ({type(error).__name__})"
+                "timeout" if cut else "credential_unavailable",
+                f"Vercel Connect unreachable ({type(error).__name__})",
             ) from None
         finally:
             if self._client is None:

@@ -33,11 +33,12 @@ from mendari.core.origin import (
     performer_problem,
 )
 from mendari.core.pack import MANIFEST, Pack, load_pack
+from mendari.core.reference import BUNDLED_DIRS, bundled_dir
 from mendari.errors import MendariError, PackNotFoundError
 from mendari.settings import community_packs_enabled
 
 _PACKAGE_DIR = Path(__file__).resolve().parents[1]
-_BUNDLED_DIRS = (_PACKAGE_DIR / "_packs", _PACKAGE_DIR.parents[1] / "packs")
+_BUNDLED_DIRS = BUNDLED_DIRS  # `core/reference.py`; `community/check.py` reads this name
 _COMMUNITY_DIR = _PACKAGE_DIR.parents[1] / "community-packs"
 MAX_DEPTH = 4  # `pack.yaml` at most this many path parts below a search directory
 
@@ -66,10 +67,9 @@ def search_paths() -> list[SearchPath]:
 
     if packs_cache().is_dir():
         paths.append(SearchPath(packs_cache(), "hub"))
-    for bundled in _BUNDLED_DIRS:
-        if bundled.is_dir():
-            paths.append(SearchPath(bundled, "maintained"))
-            break
+    bundled = bundled_dir()
+    if bundled is not None:
+        paths.append(SearchPath(bundled, "maintained"))
     if community and _COMMUNITY_DIR.is_dir():
         paths.append(SearchPath(_COMMUNITY_DIR, "community"))
     return paths

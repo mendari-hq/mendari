@@ -189,7 +189,10 @@ def test_a_pattern_re2_cannot_run_makes_a_community_pack_invalid(
         load_pack(root, origin="community")
     (problem,) = raised.value.problems
     assert problem.startswith(f"{RULES}: questions.topic.labels.billing[0] (p0): uses {says}")
-    assert "RE2 (the engine a community pack's patterns run on) does not have: " in problem
+    assert (
+        "RE2 (the engine community packs and packs from a registry run on) does not have: "
+        in problem
+    )
     root = community_pack(tmp_path / "schema", schema={"pattern": pattern})
     with pytest.raises(PackValidationError) as raised:
         load_pack(root, origin="community")

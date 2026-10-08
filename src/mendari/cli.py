@@ -1202,7 +1202,7 @@ def cmd_pack_verify(args: argparse.Namespace) -> int:
     public = archive.load_public_key(Path(args.public_key).read_bytes())
     verified = archive.verify(Path(args.archive).read_bytes(), {archive.key_id(public): public})
     with tempfile.TemporaryDirectory() as scratch:
-        pack = archive.extract(verified, Path(scratch))
+        pack = archive.extract(verified, Path(scratch), origin="hub")  # as a puller loads it
         print(f"OK {pack.id}@{pack.version} {pack.digest} signed by {verified.key_id}")
     return 0
 
@@ -1262,6 +1262,10 @@ def cmd_pull(args: argparse.Namespace) -> int:
     with _registry_client(args) as registry:
         pack = pull(args.ref, registry, accept_new_key=args.accept_new_key)
     print(f"{pack.id}@{pack.version} {pack.digest}\n  verified and cached in {pack.root}")
+    if pack.bounded:
+        print("  runs on the engine for packs from a registry (RE2, a 1 s CPU budget per decision)")
+    else:
+        print("  runs on the maintained engine: a copy of the reference pack in this release")
     return 0
 
 

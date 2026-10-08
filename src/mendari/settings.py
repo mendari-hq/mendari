@@ -18,6 +18,11 @@ DEFAULT_MAX_BODY_BYTES = 4 * 1024 * 1024
 MIN_MAX_BODY_BYTES = 64 * 1024
 DEFAULT_RETENTION_DAYS = 30
 MAX_RETENTION_DAYS = 36500  # a century: anything longer is a typo, and overflows a date
+# An LLM call at its 30 s default with one retry takes about 62 s; Vercel stops a function at
+# `maxDuration` (300 s, vercel.json), and the longest deadline leaves 30 s for the audit write.
+DEFAULT_DECISION_DEADLINE_S = 120
+MIN_DECISION_DEADLINE_S = 10
+MAX_DECISION_DEADLINE_S = 270
 FhirValidation = Literal["off", "warn", "enforce"]
 
 
@@ -83,6 +88,23 @@ def max_body_bytes() -> int:
             f"MENDARI_MAX_BODY_BYTES must be a number of bytes, {MIN_MAX_BODY_BYTES} or more"
         )
     return int(raw)
+
+
+def decision_deadline_s() -> float:
+    """How long one decision's remote calls may take together ($MENDARI_DECISION_DEADLINE_S,
+    whole seconds, 10 to 270; default 120): a call that would start after it is not made, and
+    one under way waits at most what remains, either one the provider error `timeout`
+    (`providers/deadline.py`). Local providers always answer. A pack cannot set it."""
+    raw = os.environ.get("MENDARI_DECISION_DEADLINE_S", "").strip()
+    if not raw:
+        return float(DEFAULT_DECISION_DEADLINE_S)
+    whole = raw.isascii() and raw.isdigit()  # `isdigit` alone takes "²", which `int` refuses
+    if not whole or not MIN_DECISION_DEADLINE_S <= int(raw) <= MAX_DECISION_DEADLINE_S:
+        raise MendariError(
+            "MENDARI_DECISION_DEADLINE_S must be a whole number of seconds, "
+            f"{MIN_DECISION_DEADLINE_S} to {MAX_DECISION_DEADLINE_S}"
+        )
+    return float(raw)
 
 
 def retention_days() -> int:

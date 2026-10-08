@@ -172,7 +172,13 @@ included). Keep them simple:
 `re` has no time limit, and a pattern that can match the same text in many ways, such as
 `(a+)+$`, can take seconds on a short message and hold the worker that runs it. (A community
 pack's patterns run on RE2, which never backtracks: see
-[Contributing a community pack](contributing-a-pack.md#patterns-run-on-re2).)
+[Contributing a community pack](contributing-a-pack.md#patterns-run-on-re2).) So do the
+patterns of a pack you publish to a registry, once someone pulls it: a pulled pack runs on the
+same engine, with the same limits (the caps, 10,000 characters of input and a one-second budget
+per decision), unless it is a copy of a reference pack of the puller's release
+([ADR-0009](../decisions/ADR-0009-bounded-evaluation-for-packs-the-deployment-does-not-own.md)).
+Check yours before you publish: `mendari pack verify` loads an archive as a puller will, and the
+registry refuses a publish whose patterns RE2 cannot run.
 
 Rules are the floor, not the ceiling. The same pack can switch to a language model, to Jev, to a
 CQL library your organization already has, or to computed criteria for dates and lab values.
