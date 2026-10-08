@@ -70,7 +70,7 @@ server is open, as before (production sits behind Vercel Authentication). When c
 
 | Role | May |
 |---|---|
-| viewer (people and machines) | read |
+| viewer (people and machines) | read (every role also holds `discover`: the lists of packs) |
 | reviewer | read (inputs too, under PHI mode), decide, review, record outcomes, give feedback |
 | service (machines) | read, decide, record outcomes |
 | governance | read, approve automation |
@@ -126,14 +126,18 @@ REALM = "mendari"
 KEY_PREFIX = "ohk_"
 TOKEN_PREFIX = "mat_"  # SMART Backend Services access tokens (ADR-0004)
 ROLES = ("viewer", "reviewer", "service", "governance", "admin")
+# `discover` (every role; never an EHR launch): the lists of the packs a principal may decide
+# with, `GET /api/packs` and `GET /cds-services`, which a decide-scoped credential also reaches
+# (server/scopes.py, ADR-0004 as amended).
 PERMISSIONS: dict[str, frozenset[str]] = {
-    "viewer": frozenset({"read"}),
-    "reviewer": frozenset({"read", "read_input", "decide", "review", "outcome"}),
-    "service": frozenset({"read", "decide", "outcome"}),
-    "governance": frozenset({"read", "approve"}),
+    "viewer": frozenset({"read", "discover"}),
+    "reviewer": frozenset({"read", "discover", "read_input", "decide", "review", "outcome"}),
+    "service": frozenset({"read", "discover", "decide", "outcome"}),
+    "governance": frozenset({"read", "discover", "approve"}),
     "admin": frozenset(
         {
             "read",
+            "discover",
             "read_input",
             "decide",
             "review",
@@ -221,7 +225,8 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         # Search, also as POST (a form body keeps the criteria out of URLs): a read.
         ("GET", r"^/fhir/(Task|AuditEvent|Provenance|CodeSystem)$", "read"),
         ("POST", r"^/fhir/(Task|AuditEvent|Provenance|CodeSystem)/_search$", "read"),
-        ("GET", r"^/cds-services$", "read"),
+        # The lists of packs to decide with: every role, and a decide-scoped key or token.
+        ("GET", r"^/(api/packs|cds-services)$", "discover"),
         ("POST", r"^/api/packs/[^/]+/[^/]+/evals$", "evaluate"),
         ("POST", r"^/api/review/[^/]+$", "review"),
         ("POST", r"^/api/audit/[^/]+/feedback$", "review"),

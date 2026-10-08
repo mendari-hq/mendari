@@ -200,7 +200,8 @@ def test_with_sign_in_on_the_statement_names_no_pack(
     assert "mendari/" not in shown and "@0." not in shown
     decide = next(o for o in every["rest"][0]["operation"] if o["name"] == "decide")
     for said in (decide["documentation"], every["text"]["div"]):
-        assert "for signed-in callers, the packs GET /api/packs lists whose" in said
+        assert "for signed-in callers, the packs GET /api/packs lists (as it does for a " in said
+        assert "decide-scoped credential) whose GET /api/packs/" in said
     definition = TestClient(create_app(db_path=tmp_path / "c.db")).get(
         "/fhir/OperationDefinition/decide"
     )

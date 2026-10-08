@@ -162,7 +162,7 @@ def test_signing_in_starts_a_session_with_the_mapped_role(app: TestClient, idp: 
         "kind": "user",
         "name": "Nurse Kim",
         "roles": ["reviewer"],
-        "permissions": ["decide", "outcome", "read", "read_input", "review"],
+        "permissions": ["decide", "discover", "outcome", "read", "read_input", "review"],
         "org": "default",
         "actor": f"{IDP}|u1",  # no verified email: the subject, qualified by its issuer
     }
@@ -425,13 +425,14 @@ def test_every_route_has_the_permission_it_should(tmp_path: Path) -> None:
 # -- the matrix: route x principal kind x role x scope (ADR-0004) -------------------------------
 
 # What each role may do (server/auth.py PERMISSIONS), written out as the oracle.
-ROLE_PERMISSIONS = {
-    "viewer": {"read"},
-    "reviewer": {"read", "read_input", "decide", "review", "outcome"},
-    "service": {"read", "decide", "outcome"},
-    "governance": {"read", "approve"},
+ROLE_PERMISSIONS = {  # every role also lists the packs (`discover`, ADR-0004 as amended)
+    "viewer": {"read", "discover"},
+    "reviewer": {"read", "discover", "read_input", "decide", "review", "outcome"},
+    "service": {"read", "discover", "decide", "outcome"},
+    "governance": {"read", "discover", "approve"},
     "admin": {
         "read",
+        "discover",
         "read_input",
         "decide",
         "review",
@@ -461,6 +462,9 @@ ROUTE_SCOPE = {
     ("POST", "/fhir/$decide"): DECIDE,
     ("POST", "/fhir/Questionnaire/$questionnaire-package"): DECIDE,
     ("POST", "/api/audit/{decision_id}/outcome"): OUTCOME,
+    # Deciding implies listing the packs to decide with (`discover`, ADR-0004 as amended).
+    ("GET", "/api/packs"): DECIDE,
+    ("GET", "/cds-services"): DECIDE,
 }
 SCOPED_KEYS = [
     ("viewer", "system/*.rs"),
@@ -580,7 +584,7 @@ def test_every_route_principal_role_and_scope_gets_what_it_should(
     assert set(ROUTE_SCOPE) <= set(routes)
     assert {r: needed(*r) for r in routes if needed(*r)} == ROUTE_SCOPE
     for route, scope in ROUTE_SCOPE.items():  # a scope stands for the route's own permission
-        assert permission_for(*route) == next(iter(parse(scope).permissions)), route
+        assert permission_for(*route) in parse(scope).permissions, route
     assert {role: set(p) for role, p in auth_module.PERMISSIONS.items()} == ROLE_PERMISSIONS
 
     settings = AuthSettings(
@@ -1267,7 +1271,8 @@ def test_a_scoped_key_reaches_only_what_its_scopes_name(app: TestClient, idp: Fa
         ("GET", "/api/audit", None),  # no scope reaches Mendari's own reads
         ("GET", f"/api/audit/{decided.json()['id']}", None),
         ("GET", "/openapi.json", None),
-        ("GET", "/cds-services", None),
+        ("GET", f"/api/packs/{INBOX}", None),  # a pack's detail: not a list to decide from
+        ("GET", f"/api/packs/{INBOX}/examples", None),
     ):
         refused = app.request(
             method, path, json={"final_label": "x", "source": "ehr"}, headers=machine
@@ -1278,10 +1283,14 @@ def test_a_scoped_key_reaches_only_what_its_scopes_name(app: TestClient, idp: Fa
         assert "scopes do not cover" in refused.text
     page = app.get("/", headers=machine, follow_redirects=False)
     assert page.status_code == 403  # not even the dashboard page
+    # Deciding finds what to decide with: the lists of packs and of CDS services (only).
+    packs = app.get("/api/packs", headers=machine)
+    assert packs.status_code == 200 and INBOX in {p["id"] for p in packs.json()}
+    assert app.get("/cds-services", headers=machine).status_code == 200
     me = app.get("/api/auth/me", headers=machine).json()["principal"]
     assert me["kind"] == "key" and me["roles"] == ["service"]
     assert me["scope"] == f"{DECIDE} system/Task.r"
-    assert me["permissions"] == ["decide", "read"]  # the role's, narrowed: no outcome
+    assert me["permissions"] == ["decide", "discover", "read"]  # the role's, narrowed
     assert me["expires_at"] == made.json()["expires_at"]
 
 
@@ -1305,7 +1314,7 @@ def test_an_unscoped_key_keeps_its_role(app: TestClient, idp: FakeIdp) -> None:
     machine = {"authorization": f"Bearer {key_for(app, idp)}"}
     assert app.get("/api/audit", headers=machine).status_code == 200
     me = app.get("/api/auth/me", headers=machine).json()["principal"]
-    assert me["scope"] is None and me["permissions"] == ["decide", "outcome", "read"]
+    assert me["scope"] is None and me["permissions"] == ["decide", "discover", "outcome", "read"]
 
 
 def test_keys_list_scope_expiry_and_who_revoked_them_never_the_key(

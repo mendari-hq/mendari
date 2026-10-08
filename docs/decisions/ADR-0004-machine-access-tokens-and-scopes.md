@@ -46,7 +46,19 @@ per-provider handling.
   the session cookie. The credential's prefix decides whether it is a key (`ohk_`) or a token
   (`mat_`), and anything else is refused. Credentials are never accepted in a URL or a form.
 
+## Amendment (2026-10-07, LP-12c): deciding implies discovering
+Approved by the owner, in its narrow form ("usable packs only"). The decide scope implies a
+read-only `discover` permission, with no scope URI of its own. It reaches exactly two routes,
+`GET /api/packs` and `GET /cds-services`, and each lists only the packs the credential may decide
+with: today every pack this deployment serves, with the summary people see of each (its id,
+name, version and the like); once packs belong to organizations (LP-20), never another
+organization's. A pack's detail, its examples and datasets, `/openapi.json` and the audit stay
+closed to a scoped credential. Every role holds `discover`, so people and unscoped credentials
+reach the lists as before; an EHR launch does not. `GET /api/auth/me` lists it.
+
 ## Consequences
+- An EHR or integration engine that uses one decide-scoped key or token for discovery and
+  invocation is no longer refused on discovery; EHR-signed CDS Hooks JWTs come with LP-23.
 - An EHR or DTR client can use SMART Backend Services against Mendari once the deployment turns it
   on, and Mendari's own Bulk client (`standards/bulk.py`) can test the whole exchange end to end.
 - Until the owner lifts Vercel Authentication, nothing external reaches the token endpoint. It is

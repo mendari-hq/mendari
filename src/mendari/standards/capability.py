@@ -192,8 +192,8 @@ def capability_statement(
     `since(version)`: when that version went live here (`AuditStore.capability_since`).
 
     It needs no credential. With sign-in on it names no pack (which packs run here is for
-    signed-in callers, as in /api/health and /api/packs); the operations it offers are still
-    the ones the served packs use."""
+    signed-in callers and decide-scoped credentials, as in /api/health and /api/packs); the
+    operations it offers are still the ones the served packs use."""
     mounted = set(routes)
     offered = [
         c
@@ -339,8 +339,9 @@ def _packs_sentence(packs: list[str] | None, lead: str) -> str:
     """The packs with FHIR input served here, or (None) where they are not public."""
     if packs is None:
         return (
-            f"{lead}: for signed-in callers, the packs GET /api/packs lists whose "
-            "GET /api/packs/{namespace}/{name} has manifest.inputs.fhir."
+            f"{lead}: for signed-in callers, the packs GET /api/packs lists (as it does for a "
+            "decide-scoped credential) whose GET /api/packs/{namespace}/{name} has "
+            "manifest.inputs.fhir."
         )
     return f"{lead}: {', '.join(packs) or 'none'}."
 
