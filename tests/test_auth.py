@@ -372,6 +372,9 @@ PUBLIC = {
     # The scheduled purge and monitor: their own bearer secret (CRON_SECRET), checked there.
     ("GET", "/api/internal/retention"),
     ("GET", "/api/internal/monitor"),
+    ("GET", "/api/internal/checkpoint"),
+    # The signed daily checkpoint (LP-21k): a hash and a day, published.
+    ("GET", "/api/audit/checkpoint"),
 }
 
 

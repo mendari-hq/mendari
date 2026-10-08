@@ -463,6 +463,26 @@ verify`, which reads everything, also checks that every checkpoint still names i
 checkpoint is in the same database as the chain, so keep a copy of the head somewhere else too,
 and run a full verification now and then.
 
+**The signed checkpoint.** Set `MENDARI_CHECKPOINT_KEY` (32 random bytes in base64,
+`openssl rand -base64 32`; an Ed25519 key's seed) and each day's first checkpoint is also signed:
+a statement `{format, date, head, key_id, signature}` that the chain's head was that hash on that
+local day, with no position and no count. The server publishes the newest at
+`GET /api/audit/checkpoint`, public, with the key's public half; publish the public key somewhere
+of your own too, and keep the statements (anyone can). Later, `mendari audit verify --against
+<statement.json> --public-key <key>` checks the signature, then the whole chain, and fails
+(`reason: statement`) if the chain no longer holds that head: rewritten from before it, or cut
+short of it, whatever the database itself says (`--against` reads the route's answer as it is
+saved, or the statement alone). On a server the scheduled route `GET /api/internal/checkpoint`
+(with `CRON_SECRET`) records and signs, as the command does. A chain that does not verify
+records and signs nothing and goes to `MENDARI_ALERT_WEBHOOK` (`audit.broken`); so does a day's
+stored statement that is not this key's for that day (someone with the database put it there),
+which is never published. On Vercel nothing calls that route until a `crons` entry names it,
+which is the owner's to add (the hosted schedule); until then run `mendari audit checkpoint`
+with the key. Keep the key as a secret: whoever holds it can sign a statement for any head. To
+rotate it, set the new one and run the checkpoint: it signs the day's statement anew, and only
+statements the current key signed are published, so keep the old public key published too, for
+the statements it signed.
+
 On Vercel the schedule is in `vercel.json` (`crons`: daily at 08:00 UTC, 4 am Eastern in summer
 and 3 am in winter). Set `CRON_SECRET` (at least 16 random characters) for Production: Vercel Cron sends it as a bearer token to
 `/api/internal/retention`, which purges as the command does and answers `401` to anything
@@ -874,7 +894,8 @@ startup, so a typo never runs with a weaker setting.
 | `MENDARI_INPUT_HASH_KEY` | none | 32 bytes, base64, not the PHI key; required under `hash` and `encrypt` | 3 |
 | `MENDARI_PHI_READ_KEYS` | none | Under `encrypt`, up to 4 keys (base64, comma-separated) the deployment opens with but never seals: the previous key during a rotation, or the next one before it becomes current | 3 |
 | `MENDARI_RETENTION_DAYS` | 30 (1 to 36500) | How long kept inputs and notes are kept, by `mendari phi purge` and the scheduled purge | 3 |
-| `CRON_SECRET` | unset: no scheduled purge or monitor | At least 16 random characters, no spaces around them: Vercel Cron's bearer token for `/api/internal/retention` and `/api/internal/monitor` (otherwise unused, with a warning: both stay off) | 3 |
+| `CRON_SECRET` | unset: no scheduled purge, checkpoint or monitor | At least 16 random characters, no spaces around them: Vercel Cron's bearer token for `/api/internal/retention`, `/api/internal/checkpoint` and `/api/internal/monitor` (otherwise unused, with a warning: they stay off) | 3 |
+| `MENDARI_CHECKPOINT_KEY` | unset: nothing signed or published | 32 random bytes in base64, the Ed25519 key that signs the daily checkpoint (`GET /api/audit/checkpoint`); a malformed one stops the server | 3 |
 | `MENDARI_MAX_BODY_BYTES` | 4 MiB (64 KiB at least) | The largest request body; a `413` above it | 1 |
 | `MENDARI_DECISION_DEADLINE_S` | 120 (10 to 270, whole seconds) | How long one decision's remote calls may take together; past it they fail with `timeout` and a person decides, while local providers still answer | 4 |
 | `MENDARI_RATE_LIMITS` | `on` with sign-in, `off` without | `on`, `log` or `off`, then overrides (`decide=1200/min:200`) | 4 |

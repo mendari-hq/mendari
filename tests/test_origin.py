@@ -72,6 +72,8 @@ NAVIGABLE = {
     # request another site starts cannot carry (it is answered 401, or 404 without the secret).
     "/api/internal/retention",
     "/api/internal/monitor",  # the scheduled monitor: the same secret
+    "/api/internal/checkpoint",  # the scheduled checkpoint: the same secret
+    "/api/audit/checkpoint",  # the signed checkpoint: public, a hash and a day
 }
 
 # (name, headers): how a request can arrive, besides its credential.

@@ -13,7 +13,9 @@ here, in the order they landed:
 - 21l, the break-glass (`mendari access revoke` and `mendari access end-sessions`, each chained
   with who and why);
 - 21j, audit checkpoints (`mendari audit checkpoint`, `mendari audit verify
-  --since-checkpoint`; the templates run it daily).
+  --since-checkpoint`; the templates run it daily);
+- 21k, the signed daily checkpoint (`MENDARI_CHECKPOINT_KEY`, `GET /api/audit/checkpoint`,
+  `mendari audit verify --against`; its hosted schedule waits for 21n).
 
 The defaults below hold unless the owner chooses otherwise; the steps that change the hosted
 site (the schedule, 21n) or its firewall (21o) wait for the owner.

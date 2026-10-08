@@ -12,6 +12,7 @@ import hashlib
 import hmac
 import json
 import logging
+import math
 import os
 import re
 import time
@@ -45,9 +46,10 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from mendari import __version__, guard, notices, settings
 from mendari.alerts import AlertSettings, alert_settings, check_webhook, deliver, retry_due
-from mendari.core import clock, tenancy
+from mendari.core import checkpoint, clock, tenancy
 from mendari.core.audit import ADMINISTRATIVE_KINDS, OFF_DECISION_KINDS, SYSTEM_ID, AuditStore
 from mendari.core.card import benchmark, render_card
+from mendari.core.checkpoint import checkpoint_key, key_id, public_text
 from mendari.core.decision import CallBudget, Decision, QuotaReached
 from mendari.core.origin import is_local
 from mendari.core.pack import Pack
@@ -322,6 +324,8 @@ QUOTA_ALERT_TIMEOUT_S = 5.0
 # of 10 s, 10 s of waits between them) and the alert naming those left, which an alert says
 # were not reached. Each day starts at another organization, so none is left every day.
 MONITOR_RETRY_SECONDS = 60.0
+# How long one instance reuses the newest signed checkpoint it read (`/api/audit/checkpoint`).
+CHECKPOINT_SECONDS = 60.0
 MONITOR_SECONDS = 180.0
 MONITOR_NAMED = 20  # organizations the alert of those not reached names (ids), at most
 
@@ -427,6 +431,7 @@ def create_app(
             "so use synthetic data only (docs/deploying-with-phi.md)"
         )
     alerts = alert_settings()  # likewise: its format and signing secret
+    checkpoint_signer = checkpoint_key()  # likewise: a malformed MENDARI_CHECKPOINT_KEY stops it
     if org_limits and alerts is not None:
         check_webhook(alerts.webhook)  # likewise: a quota's alert must be able to leave
     # Memberships mode marks the database: from then on each event names its organization,
@@ -1418,6 +1423,46 @@ def create_app(
         )
         return store.withhold_inputs(listed)
 
+    # Before `/api/audit/{decision_id}`, which would take its name for a decision's id.
+
+    @app.get(
+        "/api/audit/checkpoint",
+        tags=["Audit"],
+        summary="The signed daily checkpoint",
+        responses={404: {"description": "No key is set here, or nothing is signed yet"}},
+    )
+    def signed_checkpoint() -> dict[str, Any]:
+        """The newest signed daily checkpoint (LP-21k): the audit chain's head on a day, signed
+        with this deployment's Ed25519 key, and that key's public half. Keep a copy of this
+        answer anywhere: `mendari audit verify --against <copy> --public-key <key>` later shows
+        whether the chain was rewritten from before it. Take the public key from where the operator
+        publishes it, not only from here. Public: a hash and a day, never a position or a
+        count. Only a statement this key signed for the day it is filed under, up to today, is
+        published. Not found until the operator sets the key and a statement is signed with it."""
+        if checkpoint_signer is None:
+            raise HTTPException(404, "no checkpoint is signed here: no key is set")
+        public = checkpoint_signer.public_key()
+        now = time.monotonic()
+        if now - published["at"] > CHECKPOINT_SECONDS:
+            rows = store.statements(until=clock.today().isoformat())
+            found = next(
+                (
+                    row["statement"]
+                    for row in rows
+                    if checkpoint.problem(row["statement"], public) is None
+                    and row["statement"]["date"] == row["day"]
+                ),
+                None,
+            )
+            published.update(at=now, statement=found)
+        if published["statement"] is None:
+            raise HTTPException(404, "no checkpoint is signed with this key yet")
+        return {
+            "statement": published["statement"],
+            "public_key": public_text(public),
+            "key_id": key_id(public),
+        }
+
     @app.get(
         "/api/audit/verify",
         tags=["Audit"],
@@ -1586,6 +1631,63 @@ def create_app(
         if not hmac.compare_digest(given.encode(), f"Bearer {cron_secret}".encode()):
             security_log.event(f"{job}.refused", outcome="refused", reason="secret")
             raise HTTPException(401, "this route is for a scheduled job")
+
+    # The newest signed statement, reused on one instance for CHECKPOINT_SECONDS (the route that
+    # publishes it is public); the scheduled checkpoint clears it when it signs.
+    published: dict[str, Any] = {"at": -math.inf, "statement": None}
+
+    @app.get("/api/internal/checkpoint", include_in_schema=False)
+    def scheduled_checkpoint(request: Request) -> dict[str, Any]:
+        """The scheduled checkpoint (LP-21j, LP-21k): verifies the chain from its last
+        checkpoint and, when it holds, records the head as the next one and, with
+        MENDARI_CHECKPOINT_KEY, signs the day's statement (published at
+        `/api/audit/checkpoint`). A chain that does not verify records and signs nothing: it is
+        logged (`audit.chain.broken`) and alerted to MENDARI_ALERT_WEBHOOK (`audit.broken`,
+        recorded), the operator's, with no position or count. So is a day's stored statement
+        that is not this key's for today (someone with the database put it there), which is
+        never published as signed. The answer says only whether it held and what was recorded
+        and signed. `Authorization: Bearer $CRON_SECRET` only, as the purge."""
+        require_cron(request, "checkpoint")
+        status = store.record_checkpoint(signer=checkpoint_signer)
+        refused = status.get("statement_refused")
+        if status["ok"]:
+            published["at"] = -math.inf  # read anew on this instance
+        if status["ok"] and refused is None:
+            security_log.event("audit.checkpoint", outcome="ok")
+        else:
+            reason = "statement" if status["ok"] else str(status.get("reason", "chain"))
+            security_log.event("audit.chain.broken", outcome="error", reason=reason)
+            webhook = alerts
+            if webhook is not None:
+                try:
+                    check_webhook(webhook.webhook)
+                except MendariError:
+                    monitor_logger.warning("the alert webhook is not usable: no alert is posted")
+                    webhook = None
+            if webhook is not None:
+                message = (
+                    "the audit chain does not verify from its last checkpoint: run "
+                    "`mendari audit verify` and follow the incident runbook"
+                    if not status["ok"]
+                    else "the day's stored checkpoint statement is not one this deployment's key "
+                    "signed for today: someone with the database changed it; follow the "
+                    "incident runbook"
+                )
+                deliver(
+                    webhook,
+                    event="audit.broken",
+                    org=None,
+                    alerts=[{"severity": "critical", "kind": "audit_broken", "message": message}],
+                    lines=[f"[critical] audit_broken: {message}"],
+                    attempts=3,
+                    timeout=10,
+                    store=store,
+                )
+        return {
+            "ok": status["ok"] and refused is None,
+            "recorded": status["recorded"] is not None,
+            "signed": status.get("signed") is not None,
+        }
 
     @app.get("/api/internal/retention", include_in_schema=False)
     def scheduled_retention(request: Request) -> dict[str, Any]:
