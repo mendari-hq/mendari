@@ -158,13 +158,39 @@ Give each key the least it needs:
   `system/NamingSystem.r`, or `system/*.rs`); deciding, at every entry point (`$decide`, CDS
   Hooks, DTR, PAS and the REST routes), needs `https://mendari.co/fhir/scope/decide`, and
   recording an outcome `https://mendari.co/fhir/scope/outcome`. An EHR that only calls CDS
-  Hooks services needs `{"role": "service", "scope": "https://mendari.co/fhir/scope/decide"}`.
+  Hooks services needs `{"role": "service", "preset": "cds-hooks"}` (below).
   Deciding implies finding what to decide with: a decide-scoped key also reads the two lists of
   the packs it may decide with, `GET /api/packs` and the CDS Hooks discovery list
   (`GET /cds-services`), and nothing else under `/api` (ADR-0004 as amended). For any other
   read, sign in, or use an unscoped key.
 - **Expiry**: `days`, 90 unless asked, 365 at most. Rotate a key before it expires
   (`POST /api/auth/keys/{id}/rotate`, section 3): `GET /api/auth/keys` shows when each does.
+- **Presets**: one per documented integration path, so a key gets what its path needs and no
+  more. Send `preset` with the preset's `role`, and no `scope`: the key gets the preset's scope
+  and, unless you send `days`, its expiry. `GET /api/auth/keys/presets` lists them with every
+  route a key made from each reaches on your deployment (several reach the same routes: every
+  decision entry point needs the one decide scope, so the name says what the key is for, not a
+  boundary; `rest` is the whole `service` role, as no scope reaches Mendari's own audit reads).
+  The preset is a label on the key: what the key may do is its role and scope as created, so a
+  later release that changes a preset never changes a key you hold.
+
+<!-- presets:start (generated from src/mendari/server/presets.py; a test keeps it equal) -->
+| Preset | For | Role | Scope | Calls |
+|---|---|---|---|---|
+| `rest` | REST API | `service` | none: the role's own | `GET /api/packs`<br>`POST /api/packs/{namespace}/{name}/decide`<br>`GET /api/audit/{decision_id}` |
+| `fhir` | FHIR in, FHIR out | `service` | `https://mendari.co/fhir/scope/decide system/AuditEvent.rs system/Provenance.rs system/Task.rs` | `POST /fhir/$decide`<br>`GET /fhir/Task`<br>`GET /fhir/Task/{resource_id}`<br>`GET /fhir/Task/{resource_id}/_history/{version_id}`<br>`GET /fhir/AuditEvent`<br>`GET /fhir/Provenance` |
+| `ai-guard` | AI Guard | `service` | `https://mendari.co/fhir/scope/decide` | `POST /api/packs/{namespace}/{name}/guard` |
+| `cds-hooks` | CDS Hooks | `service` | `https://mendari.co/fhir/scope/decide` | `GET /cds-services`<br>`POST /cds-services/{service_id}` |
+| `da-vinci` | Da Vinci CRD, DTR and PAS | `service` | `https://mendari.co/fhir/scope/decide` | `POST /cds-services/{service_id}`<br>`POST /fhir/Questionnaire/$questionnaire-package`<br>`POST /api/packs/{namespace}/{name}/pas` |
+| `outcomes` | Outcomes | `service` | `https://mendari.co/fhir/scope/outcome` | `POST /api/audit/{decision_id}/outcome` |
+| `fhir-reader` | FHIR reader | `viewer` | `system/AuditEvent.rs system/Provenance.rs system/Task.rs` | `GET /fhir/Task`<br>`GET /fhir/Task/{resource_id}`<br>`GET /fhir/AuditEvent`<br>`GET /fhir/Provenance` |
+<!-- presets:end -->
+
+```bash
+curl -sS -X POST "$MENDARI/api/auth/keys" -H "Cookie: <your session>" \
+  -H 'content-type: application/json' \
+  -d '{"name": "EHR CDS Hooks", "role": "service", "preset": "cds-hooks"}'
+```
 
 Creating, rotating and revoking a key are recorded in the audit chain (who, when, the role,
 scope and expiry; never the key).
