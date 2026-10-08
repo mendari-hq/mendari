@@ -9,7 +9,7 @@ release's `verify` still passes a bound chain. On SQLite and Postgres (`db_targe
 
 from __future__ import annotations
 
-import ast
+import hashlib
 import json
 import os
 from collections.abc import Callable, Iterator
@@ -32,8 +32,8 @@ from mendari.core.audit import (
 from mendari.core.phi import PhiPolicy
 from mendari.server.app import create_app
 from mendari.standards import audit_fhir
-from tests.conftest import ROOT, message
-from tests.test_audit_fhir import NOT_ON_A_DECISION
+from tests.conftest import message
+from tests.test_audit_fhir import NOT_ON_A_DECISION, recorded_kinds
 
 KEY = os.urandom(32)
 URGENT = "Crushing chest pain and my left arm is numb"  # HUMAN_REVIEW: waits for a reviewer
@@ -321,12 +321,18 @@ def test_every_subject_table_is_checked() -> None:
 
 
 @pytest.mark.parametrize("change", ["moved", "removed"])
-@pytest.mark.parametrize("subject", sorted(SUBJECTS))
+@pytest.mark.parametrize(
+    ("subject", "marked"),
+    [(subject, True) for subject in sorted(SUBJECTS)]
+    # Claims mode (unmarked): every kind but a decision's named its organization already.
+    + [(subject, False) for subject in sorted(SUBJECTS) if subject != "decisions"],
+)
 def test_verify_finds_a_row_moved_to_another_organization_or_removed(
-    db_target: str, inbox_pack: Pack, subject: str, change: str
+    db_target: str, inbox_pack: Pack, subject: str, change: str, marked: bool
 ) -> None:
     table, column, make = SUBJECTS[subject]
-    with keeping(db_target, bind_org=True) as store:
+    with keeping(db_target, bind_org=marked) as store:
+        assert store.binds_org is marked
         with tenancy.acting_for(CLINIC):
             store.create_organization(org=CLINIC, name="Clinic A", created_by="t")
             chain_id = make(store, inbox_pack)
@@ -369,25 +375,163 @@ def test_an_unbound_older_decision_moved_by_sql_still_verifies(
         assert store.verify()["ok"]
 
 
+LATER = (
+    "review.resolved",
+    "outcome.recorded",
+    "feedback.recorded",
+    "pas.submitted",
+    "input.read",
+    "input.purged",
+    "input.erased",
+    "note.erased",
+)
+
+
+@pytest.mark.parametrize("kind", LATER)
+def test_verify_finds_a_decision_moved_after_a_bound_later_event(
+    db_target: str, inbox_pack: Pack, kind: str
+) -> None:
+    """The upgrade path: a decision made before the mark, whose first event names no
+    organization, is checked from its first event after it, of each kind on a decision."""
+    with keeping(db_target) as store, tenancy.acting_for(CLINIC):  # before the mark
+        decision_id = Decision(inbox_pack, store=store)(message(URGENT)).id
+        if kind == "outcome.recorded":
+            store.resolve_review(decision_id, final_label="nurse", reviewer="rn-1")
+        if kind == "note.erased":  # its only bound event: the note's erasure
+            rated = store.record_feedback(decision_id, rating="down", note="a note")
+    writes: dict[str, Callable[[AuditStore], object]] = {
+        "review.resolved": lambda s: s.resolve_review(
+            decision_id, final_label="nurse", reviewer="rn-1"
+        ),
+        "outcome.recorded": lambda s: s.record_outcome(
+            decision_id, final_label="nurse", source="ehr", recorded_by="ehr-feed"
+        ),
+        "feedback.recorded": lambda s: s.record_feedback(decision_id, rating="up"),
+        "pas.submitted": lambda s: s.record_event(
+            decision_id, "pas.submitted", {"outcome": "queued"}
+        ),
+        "input.read": lambda s: s.get(decision_id, reader="rn-7"),
+        "input.purged": lambda s: s.purge(0, source="command"),
+        "input.erased": lambda s: s.erase_input(decision_id, erased_by="dpo", reason="request"),
+        "note.erased": lambda s: s.erase_note(rated["id"], erased_by="dpo", reason="request"),
+    }
+    with keeping(db_target, bind_org=True) as store:
+        with tenancy.acting_for(CLINIC):
+            writes[kind](store)
+        assert store.verify()["ok"]
+        first = next(
+            e for e in chained(store) if e["decision_id"] == decision_id and "org" in e["payload"]
+        )
+        assert (first["event"], first["payload"]["org"]) == (kind, CLINIC)
+        tamper(store, "UPDATE decisions SET org = 'clinic-z' WHERE id = ?", (decision_id,))
+        result = store.verify()
+    assert result == {
+        "ok": False,
+        "events": result["events"],
+        "broken_at": first["seq"],
+        "reason": "organization",
+    }
+
+
+def test_a_store_opened_before_the_mark_chains_as_before_until_it_is_opened_again(
+    db_target: str, inbox_pack: Pack
+) -> None:
+    """A store reads the mark when it opens: one serving while another marks the database (a
+    deployment's previous instance) keeps chaining the kinds of before unbound, even where
+    mode `off` reads the database's marks again, so a write never finds the mark half-read."""
+    with AuditStore(db_target, phi=PhiPolicy(mode="off")) as warm:
+        decision_id = Decision(inbox_pack, store=warm)(message(URGENT)).id
+        with AuditStore(db_target, bind_org=True) as marking:
+            assert marking.binds_org
+        warm.refuse_plaintext()  # under `off`, reads the PHI marks again
+        assert not warm.binds_org
+        warm.resolve_review(decision_id, final_label="nurse", reviewer="rn-1", note="a note")
+        assert "org" not in chained(warm)[-1]["payload"]
+        assert warm.verify()["ok"]
+    with AuditStore(db_target, phi=PhiPolicy(mode="off")) as reopened:
+        assert reopened.binds_org
+
+
+def test_a_decision_from_before_tenancy_is_bound_as_default(
+    db_target: str, inbox_pack: Pack
+) -> None:
+    """decisions.org is NULL on rows from before v0.6: every writer binds it as `verify` reads
+    it, `default` (`_org_of`), never None."""
+    with keeping(db_target) as store:
+        first = Decision(inbox_pack, store=store)(message(URGENT)).id
+        Decision(inbox_pack, store=store)(message(URGENT))
+        tamper(store, "UPDATE decisions SET org = NULL")
+    with keeping(db_target, bind_org=True) as store, acting(tenancy.DEFAULT_ORG):
+        store.resolve_review(first, final_label="nurse", reviewer="rn-1", note="a note")
+        rating = store.record_feedback(first, rating="down", reporter="rn-2", note="a note")
+        store.record_outcome(first, final_label="nurse", source="ehr", recorded_by="ehr-feed")
+        store.record_event(first, "pas.submitted", {"outcome": "queued"})
+        store.get(first, reader="rn-7")  # `input.read`
+        store.erase_note(rating["id"], erased_by="dpo", reason="request")
+        store.erase_input(first, erased_by="dpo", reason="request")
+        store.purge(0, source="command")  # `input.purged` (the second), `note.erased`
+        events = chained(store)
+        assert store.verify()["ok"]
+    bound = [e for e in events if e["event"] in DECISION_KINDS - {"decision.created"}]
+    assert {e["event"] for e in bound} == DECISION_KINDS - {"decision.created"}
+    assert {e["payload"]["org"] for e in bound} == {tenancy.DEFAULT_ORG}
+
+
+def test_the_empty_organization_is_bound_as_itself(db_target: str) -> None:
+    """ "" is an organization (core/tenancy.py): bound as it is, never as `default`."""
+    with keeping(db_target, bind_org=True) as store:
+        key = store.create_api_key(name="k", role="service", org="", created_by="ops")
+        store.rotate_api_key(key["id"], rotated_by="ops")
+        store.revoke_api_key(key["id"], revoked_by="ops")
+        events = chained(store)
+        assert store.verify()["ok"]
+    assert {e["payload"]["org"] for e in events if e["event"].startswith("key.")} == {""}
+
+
+def test_a_batch_over_several_organizations_names_each_row_s_own(
+    db_target: str, inbox_pack: Pack
+) -> None:
+    """The scheduled purge acts for no organization, so one batch spans them all: each
+    `input.purged` and `note.erased` names its own decision's organization, as does each
+    `input.read` of a read over several."""
+    with keeping(db_target, bind_org=True) as store:
+        owners: dict[str, str] = {}
+        for org in (CLINIC, "clinic-b"):
+            with tenancy.acting_for(org):
+                owners[Decision(inbox_pack, store=store)(message(URGENT)).id] = org
+        store.pending_reviews(reader="rn-7")  # `input.read`, both in one batch
+        for decision_id, org in owners.items():
+            with tenancy.acting_for(org):
+                store.resolve_review(decision_id, final_label="nurse", reviewer="rn-1", note="n")
+        store.purge(0, source="schedule")  # `input.purged`, `note.erased`: both in one batch
+        batched = [
+            e for e in chained(store) if e["event"] in {"input.read", "input.purged", "note.erased"}
+        ]
+        assert store.verify()["ok"]
+    assert len(batched) == 6
+    assert all(e["payload"]["org"] == owners[e["decision_id"]] for e in batched), batched
+
+
 def previous_verify(store: AuditStore) -> bool:
-    """`verify` as the release before LP-12g had it: the hashes and each record's digest."""
+    """`verify` as the release before LP-12g had it: the hashes and each record's digest. Its
+    formulas are copied here, not imported, so a change to the hashing fails this test."""
     with store._db.session(exclusive=False) as db:
         events = db.all("SELECT * FROM audit_events ORDER BY seq")
         records = {
             row["id"]: json.loads(row["record"])
             for row in db.all("SELECT id, record FROM decisions")
         }
-    prev = audit_module.GENESIS
+    prev = "0" * 64
     for event in events:
-        expected = audit_module._chain_hash(
-            prev, event["decision_id"], event["event"], event["payload"], event["created_at"]
-        )
+        fields = (prev, event["decision_id"], event["event"], event["payload"], event["created_at"])
+        expected = hashlib.sha256("\x1f".join(fields).encode()).hexdigest()
         if event["prev_hash"] != prev or event["hash"] != expected:
             return False
         if event["event"] == "decision.created":
             record = records.get(event["decision_id"])
             digest = json.loads(event["payload"])["record_sha256"]
-            if record is None or digest != audit_module._sha(record):
+            canonical = json.dumps(record, sort_keys=True, separators=(",", ":"), default=str)
+            if record is None or digest != hashlib.sha256(canonical.encode()).hexdigest():
                 return False
         prev = event["hash"]
     return True
@@ -458,24 +602,6 @@ def test_a_writer_that_leaves_out_the_organization_is_refused(db_target: str) ->
         ):
             marked._append(db, "key:k1", "key.revoked", {"id": "k1"})
         assert len(chained(marked)) == 2
-
-
-def recorded_kinds() -> set[str]:
-    """Every event kind the code chains, by its literal at each call (test_audit_fhir.py)."""
-    recorded: set[str] = set()
-    for path in (ROOT / "src" / "mendari").rglob("*.py"):
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
-                continue
-            position = {"_append": 2, "_append_many": 1, "record_event": 1}.get(node.func.attr)
-            if position is None or len(node.args) <= position:
-                continue
-            event = node.args[position]
-            if isinstance(event, ast.Name) and event.id == "event":
-                continue  # `record_event` passing its caller's literal on
-            assert isinstance(event, ast.Constant), f"{path}: an event name that is not a literal"
-            recorded.add(str(event.value))
-    return recorded
 
 
 def test_every_kind_is_in_exactly_one_class() -> None:

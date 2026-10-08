@@ -612,8 +612,10 @@ class AuditStore:
         # environment -> (the CapabilityStatement version served, since when): capability_since
         self._capability_since: dict[str, tuple[str, str]] = {}
         self._hash_epoch: str | None = None  # the hash key id this process last recorded under
-        self.binds_org = False  # set by `_protected`, from the database's `ORG_BOUND` mark
-        self.protected = self._protected(marks, bind_org=bind_org)
+        # Whether events name their organization: the `ORG_BOUND` mark as this store found it
+        # when it opened, fixed from then on (a store opened before the mark binds once it is
+        # opened again), so each write reads one answer.
+        self.protected, self.binds_org = self._protected(marks, bind_org=bind_org)
 
     def _read_only_check(self) -> list[str]:
         """A read-only store's target is a Mendari database: its chain and decisions tables are
@@ -643,15 +645,15 @@ class AuditStore:
                 "then run this again (`mendari audit verify` reads it as it is)"
             )
 
-    def _protected(self, marks: bool = True, *, bind_org: bool = False) -> str | None:
+    def _protected(self, marks: bool = True, *, bind_org: bool = False) -> tuple[str | None, bool]:
         """The PHI mode that first protected this database (`hash` or `encrypt`), marking it now
         (with `marks`) if this store's mode is one; None while only mode `off` has opened it. A
         store under `encrypt` also marks each key it holds as known, and, with read keys (a
         rotation under way), that tokens name their key from now on; every store that finds that
         mark seals so. Likewise `bind_org` marks that events name their organization
-        (`ORG_BOUND`), and every store that finds that mark binds (`binds_org`)."""
+        (`ORG_BOUND`); the second value is whether the database is so marked."""
         if "settings" in self.unmigrated:
-            return None  # an older database, read as it is: nothing marked it
+            return None, False  # an older database, read as it is: nothing marked it
         with self._db.session(exclusive=False) as db:
             if marks and self.phi.mode != "off":
                 _mark(db, PROTECTED, self.phi.mode)
@@ -671,8 +673,7 @@ class AuditStore:
             }
         if PHI_TOKENS_V2 in found and not self.phi.tag_tokens:
             self.phi = replace(self.phi, tag_tokens=True)
-        self.binds_org = self.binds_org or ORG_BOUND in found
-        return found.get(PROTECTED)
+        return found.get(PROTECTED), ORG_BOUND in found
 
     def _bound(self, kind: str, payload: Mapping[str, Any], org: str | None) -> dict[str, Any]:
         """A payload as chained: with the organization of the row it is about (`org`, which the
@@ -729,7 +730,7 @@ class AuditStore:
         if self.phi.mode != "off":
             return
         if self.protected is None:
-            self.protected = self._protected()
+            self.protected = self._protected()[0]
         if self.protected:
             raise MendariError(
                 f"This database is protected (first kept under PHI mode {self.protected}): run "

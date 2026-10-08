@@ -262,23 +262,41 @@ NOT_ON_A_DECISION = {
 }
 
 
-def test_every_event_the_code_records_has_an_audit_event_code() -> None:
-    """The audit-event CodeSystem (standards/terminology.py) is generated from `_EVENTS`, so an
-    event recorded on a decision but missing there would be exported with an undefined code."""
+def recorded_kinds() -> set[str]:
+    """Every event kind the code chains, by its literal at each call, by position or as
+    `event=`. Only `_append` (to `_append_many`) and `record_event` (to `_append`) pass their
+    caller's on; any other call without a literal fails here."""
     recorded: set[str] = set()
+    passing_on = {("_append", "_append_many"), ("record_event", "_append")}
     for path in (ROOT / "src" / "mendari").rglob("*.py"):
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        within = {  # each node's innermost function (`ast.walk` gives outer ones first)
+            node: function.name
+            for function in ast.walk(tree)
+            if isinstance(function, ast.FunctionDef | ast.AsyncFunctionDef)
+            for node in ast.walk(function)
+        }
+        for node in ast.walk(tree):
             if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
                 continue
             position = {"_append": 2, "_append_many": 1, "record_event": 1}.get(node.func.attr)
-            if position is None or len(node.args) <= position:
+            if position is None:
                 continue
-            event = node.args[position]
+            named = [keyword.value for keyword in node.keywords if keyword.arg == "event"]
+            event = node.args[position] if len(node.args) > position else next(iter(named), None)
+            where = f"{path}:{node.lineno}"
             if isinstance(event, ast.Name) and event.id == "event":
-                continue  # `record_event` passing its caller's literal on
-            assert isinstance(event, ast.Constant), f"{path}: an event name that is not a literal"
+                assert (within.get(node), node.func.attr) in passing_on, f"{where}: passed on"
+                continue
+            assert isinstance(event, ast.Constant), f"{where}: an event name that is not a literal"
             recorded.add(str(event.value))
-    assert recorded - NOT_ON_A_DECISION == set(audit_fhir._EVENTS)
+    return recorded
+
+
+def test_every_event_the_code_records_has_an_audit_event_code() -> None:
+    """The audit-event CodeSystem (standards/terminology.py) is generated from `_EVENTS`, so an
+    event recorded on a decision but missing there would be exported with an undefined code."""
+    assert recorded_kinds() - NOT_ON_A_DECISION == set(audit_fhir._EVENTS)
 
 
 def test_audit_entries_are_immutable_versions_narrated_from_codes(

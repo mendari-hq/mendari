@@ -106,8 +106,10 @@ decision; in order:
    session of one mode is no session in the other. The owner's membership binds at their first
    sign-in then. Rolling back is unsetting it: the records stay, and claims mode never reads
    them. The database stays marked (`org_bound`): from the first start in memberships mode on,
-   each chained event names its organization, after a rollback too, and an instance of the
-   previous deployment still serving names it only once it restarts.
+   each chained event of an organization (a decision's, or one about a key, client, approval,
+   hold, report, organization, membership, invitation or request) names it, after a rollback
+   too; the deployment's own events (`deployment.recorded`, `user.recorded`) name none. An
+   instance of the previous deployment still serving names it only once it restarts.
 
 Then:
 

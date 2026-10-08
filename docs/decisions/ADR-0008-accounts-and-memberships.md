@@ -91,8 +91,8 @@ provider's claims needs nothing to change.
   another organization by SQL breaks `verify`, so a re-attribution (an organization in use that
   no record can have) must be a chained event of its own.
 - Events chained before the mark name no organization, so `verify` cannot tell where their row
-  belonged: a row moved by SQL whose events all predate the mark goes unnoticed (threat model
-  T1).
+  belonged: a row moved by SQL while none of its events named its organization goes unnoticed,
+  and its later events name the organization it was moved to (threat model T1).
 - An instance of the previous deployment still serving while memberships mode is switched on
   read the mark when it started, so until it stops its events of the kinds of before name no
   organization; `verify` and the organization's reader attribute those by their row. After a
