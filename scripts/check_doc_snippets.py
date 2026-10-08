@@ -12,6 +12,10 @@ Two passes, each on its own local server (the real app on a free port, with a ne
    steps whose calls the key may not make by the route rules (`server/auth.py`): today the
    whole-trail export, which needs an administrator. A request without the key must be refused,
    so the pass proves sign-in was on.
+3. **Each key preset** (`server/presets.py`, LP-12i), on one server with sign-in on: a key made
+   from the preset, as an administrator would make it, runs the steps the preset's
+   documentation describes (`Preset.examples`), and only those: each documented integration
+   key works as the docs say.
 
 Each file runs under `bash -euo pipefail`, and every curl in it uses `--fail-with-body`, so a
 refusal or an error fails the run with the server's answer printed. The server runs the packs'
@@ -40,7 +44,7 @@ import uvicorn
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # doc_blocks, a script beside this one
 
 from mendari.core.audit import AuditStore
-from mendari.server import security_log, snippets
+from mendari.server import presets, security_log, snippets
 from mendari.server.app import create_app
 from mendari.server.auth import DEFAULT_ORG, PEOPLE_ONLY, PERMISSIONS, permission_for
 
@@ -155,6 +159,42 @@ def run_pass(
     return ok
 
 
+def run_presets(work: Path, base_env: dict[str, str], *, show: bool = False) -> bool:
+    """Each preset's documented steps with a key made from it; False if a step failed."""
+    print("sign-in on, a key from each preset:")
+    os.environ.clear()
+    os.environ.update(base_env)
+    os.environ["MENDARI_OIDC_ISSUER"] = "https://idp.example.org"
+    os.environ["MENDARI_OIDC_CLIENT_ID"] = "mendari"
+    os.environ["MENDARI_PHI_MODE"] = "off"
+    db = work / "presets.db"
+    store = AuditStore(db)
+    ok = True
+    with _server(db, show=show) as base:
+        for preset in presets.PRESETS.values():
+            if not preset.examples:
+                continue
+            made = store.create_api_key(
+                name=f"doc-snippets {preset.id}",
+                role=preset.role,
+                org=DEFAULT_ORG,
+                created_by="check_doc_snippets",
+                scopes=preset.scope,
+                preset=preset.id,
+            )
+            env = {**base_env, "MENDARI": base, "MENDARI_KEY": made["key"]}
+            for file in snippets.FILES:
+                chosen = [s for s in snippets.load(file) if f"{file}/{s.name}" in preset.examples]
+                if not chosen:
+                    continue
+                if _run(file, chosen, env, work, show=show):
+                    names = ", ".join(step.name for step in chosen)
+                    print(f"  ok   {preset.id} ({preset.role}): {file}.sh {names}")
+                else:
+                    ok = False
+    return ok
+
+
 def run_server_db(db: Path, work: Path, base_env: dict[str, str], *, show: bool = False) -> bool:
     """The docs' blocks marked `run server-db` (`scripts/doc_blocks.py`), run as documented in a
     folder where `var/mendari.db` and `$DATABASE_URL` are the database a server wrote."""
@@ -232,6 +272,7 @@ def main(show: bool = False) -> int:
                     base_env=base_env,
                     show=show,
                 ),
+                run_presets(work, base_env, show=show),
                 run_python(base_env, show=show),
             ]
     finally:
