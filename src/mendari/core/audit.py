@@ -197,7 +197,8 @@ CREATE TABLE IF NOT EXISTS decisions (
     reviewer        TEXT,
     resolved_at     TEXT,
     org             TEXT,
-    refused         INTEGER
+    refused         INTEGER,
+    provider_errors INTEGER
 );
 CREATE INDEX IF NOT EXISTS decisions_queue ON decisions (review_status, priority, created_at);
 CREATE INDEX IF NOT EXISTS decisions_pack ON decisions (pack_id, created_at);
@@ -453,6 +454,11 @@ _ADDED_COLUMNS = (
     # 1 when the input was refused before any provider ran (Phase 3); NULL on older rows, which
     # fall back to "BLOCK without confidence" (_REFUSED, task_fhir.refused).
     ("decisions", "refused", "INTEGER"),
+    # How many of a decision's questions have a provider error recorded (`errors`: a provider
+    # failed, or a composite's member did, so the answer is missing or incomplete; or a question
+    # they feed), for monitoring's provider error share (LP-21d): a count, outside the chain;
+    # NULL on rows from before it, which monitoring leaves out of the share.
+    ("decisions", "provider_errors", "INTEGER"),
     # Scoped keys that expire (Phase 4, ADR-0004): NULL scopes is a key with its role's
     # permissions; a NULL expiry is set once at startup (_expire_legacy_keys).
     ("api_keys", "scopes", "TEXT"),
@@ -851,7 +857,8 @@ class AuditStore:
             db.all(
                 "INSERT INTO decisions (id, created_at, pack_id, pack_version, outcome, "
                 "recommendation, priority, confidence, latency_ms, cost_usd, record, "
-                "review_status, org, refused) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "review_status, org, refused, provider_errors) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     result.id,
                     result.created_at,
@@ -867,6 +874,7 @@ class AuditStore:
                     status,
                     org,
                     int(result.rejected),
+                    len(result.errors),
                 ),
             )
             created: dict[str, Any] = {"record_sha256": _sha(record)}
@@ -4049,7 +4057,7 @@ class AuditStore:
             return db.all(
                 "SELECT d.id, d.created_at, d.outcome, d.confidence, d.recommendation, "
                 f"d.final_label, d.human_override, d.cost_usd, {_REFUSED} AS refused, "
-                "d.review_status, "
+                "d.review_status, d.latency_ms, d.provider_errors, "
                 "(SELECT COUNT(*) FROM feedback f WHERE f.decision_id = d.id "
                 "AND f.superseded_by IS NULL AND f.rating = 'down') AS rated_wrong "
                 f"FROM decisions d WHERE {scope} AND d.pack_id = ? AND d.created_at >= ? "

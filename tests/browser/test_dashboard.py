@@ -486,12 +486,15 @@ def monitoring_week(start: str, end: str, agreed: int, labelled: int, overridden
         "confidences": 30,
         "cost_per_decision": None,
         "cost_unknown": 30,
+        "latency_ms": {"n": 30, "p50": 120.0, "p95": 1460.0, "mean": 300.0},
         "figures": {
             "automated": figures.of(24, 30),
             "overrides": figures.of(overridden, 6),
             "accuracy": figures.of(agreed, labelled),
             "reviewed_accuracy": figures.of(6 - overridden, 6),
             "automated_accuracy": figures.of(0, 0),
+            "provider_errors": figures.of(1, 30),
+            "abstained": figures.of(2, 30),
         },
     }
 
@@ -2306,6 +2309,7 @@ def monitoring_report(**changes: Any) -> dict[str, Any]:
             "confidences": 40,
             "cost_per_decision": 0.0,
             "cost_unknown": 0,
+            "latency_ms": {"n": 40, "p50": 110.0, "p95": 900.0, "mean": 200.0},
             "drift_psi": 0.31,
             "automated_rated_wrong": 2,
             "figures": {
@@ -2314,6 +2318,8 @@ def monitoring_report(**changes: Any) -> dict[str, Any]:
                 "accuracy": figures.of(24, 30),
                 "reviewed_accuracy": figures.of(20, 30),
                 "automated_accuracy": figures.of(0, 0),
+                "provider_errors": figures.of(0, 40),
+                "abstained": figures.of(0, 40),
             },
         },
         "weeks": [],
@@ -2368,7 +2374,8 @@ def test_monitoring_says_why_the_benchmark_is_not_compared(page: Page) -> None:
         "cost_per_decision": None,
     }
     bench = {**monitoring_report()["benchmark"], "comparable": False, "reason": "other_providers"}
-    report = monitoring_report(benchmark=bench, other_versions={"0.4.0": 1}, weeks=[week])
+    quick = {**week, "latency_ms": {"n": 30, "p50": 1.1, "p95": 1.4, "mean": 1.2}}
+    report = monitoring_report(benchmark=bench, other_versions={"0.4.0": 1}, weeks=[week, quick])
     page.route("**/api/monitoring?*", lambda route: route.fulfill(json=report))
     open_pack(page, INBOX, "monitoring")
     main = page.locator("main")
@@ -2387,6 +2394,11 @@ def test_monitoring_says_why_the_benchmark_is_not_compared(page: Page) -> None:
     expect(row).to_contain_text("unknown")
     expect(row.locator("td").nth(5)).to_have_text("3")
     expect(row.locator("td").nth(6)).to_have_text("2")
+    expect(table.locator("thead")).to_contain_text("Provider errors")
+    expect(row.locator("td").nth(7)).to_contain_text(shown(figures.of(1, 30)))
+    expect(row.locator("td").nth(8)).to_contain_text(shown(figures.of(2, 30)))
+    expect(row.locator("td").nth(9)).to_have_text("1.5 s")
+    expect(table.locator("tbody tr").nth(1).locator("td").nth(9)).to_have_text("1.4 ms")
 
 
 def test_an_automated_stratum_alert_marks_its_own_stat(page: Page) -> None:
