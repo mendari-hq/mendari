@@ -30,8 +30,9 @@ import yaml
 from mendari.standards import pas
 
 ROOT = Path(__file__).resolve().parents[1]
-SHIPPED_TREES = ("src", "packs", "datasets")
-SHIPPED_FILES = ("README.md", "NOTICE")
+# The image also takes its licence notices, built by scripts/image_notices.py (Dockerfile).
+SHIPPED_TREES = ("src", "packs", "datasets", "licenses/image")
+SHIPPED_FILES = ("README.md", "NOTICE", "scripts/image_notices.py")
 X12_SYSTEMS = "https://codesystem.x12.org"
 # The X12 values Mendari filled in, gave as examples or answered with before the decision: the
 # request and certification types, the service type in the command's help, the Coverage's code
@@ -199,7 +200,8 @@ def scan(root: Path = ROOT) -> dict[str, list[str]]:
 
 def test_the_scan_covers_what_the_packages_take() -> None:
     """The sdist takes these, the wheel src/mendari with packs/ and datasets/, and the image
-    copies the same: a new top-level path in a package is scanned only once it is listed here."""
+    copies the same and its licence notices: a new path in a package is scanned only once it is
+    listed here (or is inside a listed tree)."""
     project = tomllib.loads((ROOT / "pyproject.toml").read_text())
     build = project["tool"]["hatch"]["build"]["targets"]
     scanned = {f"/{name}" for name in (*SHIPPED_TREES, *SHIPPED_FILES)}
@@ -207,7 +209,9 @@ def test_the_scan_covers_what_the_packages_take() -> None:
     assert set(build["wheel"]["force-include"]) <= set(SHIPPED_TREES)
     copied = re.findall(r"^COPY (?!--from)(.+) \S+$", (ROOT / "Dockerfile").read_text(), re.M)
     taken = {part for line in copied for part in line.split()}
-    assert taken - {name.strip("/") for name in scanned} == {"pyproject.toml", "uv.lock", "LICENSE"}
+    names = {name.strip("/") for name in scanned}
+    unscanned = {path for path in taken if not any(path.startswith(f"{n}/") for n in names)}
+    assert unscanned - names == {"pyproject.toml", "uv.lock", "LICENSE"}
     assert len(shipped()) > 100
 
 
