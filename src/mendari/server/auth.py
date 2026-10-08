@@ -26,10 +26,13 @@ server is open, as before (production sits behind Vercel Authentication). When c
   who they are and the organization and membership they chose, never roles: each request
   reads that membership as it is then, so a removed membership or changed roles apply at the
   next request. Without one in force they act for no organization (never `default`): they may
-  choose one of theirs (`POST /api/auth/organization`) or ask to join one
-  (`POST /api/auth/access-requests`), and are refused (`NoOrganization`, 403) before every
-  other route but the public ones and the pages. Keys, clients and EHR launches of an
-  organization with no record are refused. Switching mode, either way, signs everyone out.
+  choose one of theirs (`POST /api/auth/organization`), ask to join one
+  (`POST /api/auth/access-requests`), or accept an invitation made for their verified address
+  (`POST /api/auth/invitations/accept`), and are refused (`NoOrganization`, 403) before every
+  other route but the public ones and the pages. An organization's administrators (people,
+  `keys`) invite, list and revoke invitations, change roles, remove members and handle
+  requests to join. Keys, clients and EHR launches of an organization with no record are
+  refused. Switching mode, either way, signs everyone out.
 - **Who the audit chain names** (`Principal.actor`, permanent): a person by their verified email,
   else by the identity provider's subject qualified by its issuer (`<issuer>|<subject>`); a key
   as `key <id>`, a client as `client <id>`.
@@ -61,8 +64,9 @@ server is open, as before (production sits behind Vercel Authentication). When c
   Backend Services is on); anything else is refused. A credential is never accepted in a URL or
   a form (`access_token`).
 - **Every route has a permission**, and anything not listed needs `admin` (deny by default).
-  Managing keys and clients (`keys`) is for people who signed in, never for a key or token,
-  whatever its role: a stolen credential must not mint one that outlives it.
+  Managing keys, clients and (memberships mode) an organization's members and invitations
+  (`keys`) is for people who signed in, never for a key or token, whatever its role: a stolen
+  credential must not mint one that outlives it, nor a membership.
 
 | Role | May |
 |---|---|
@@ -70,9 +74,9 @@ server is open, as before (production sits behind Vercel Authentication). When c
 | reviewer | read (inputs too, under PHI mode), decide, review, record outcomes, give feedback |
 | service (machines) | read, decide, record outcomes |
 | governance | read, approve automation |
-| admin | everything, including evaluations, exports and (people only) API keys |
+| admin | everything: evaluations, exports and (people only) API keys, members and invitations |
 | an EHR launch (`ehr`, not a role) | `launch`; registered to decide, also `launch_decide` |
-| a person, memberships mode, any organization or none | `person`: choose one, ask to join |
+| any person, memberships mode | `person`: choose one, ask to join, accept an invitation |
 """
 
 from __future__ import annotations
@@ -105,6 +109,7 @@ from mendari.core.audit import (
 from mendari.errors import (
     AuthError,
     FhirError,
+    InvitationRefused,
     MendariError,
     NoOrganization,
     OrganizationChanged,
@@ -140,7 +145,8 @@ PERMISSIONS: dict[str, frozenset[str]] = {
         }
     ),
 }
-# Permissions only a person who signed in holds, whatever a key's (or a token's) role says.
+# Permissions only a person who signed in holds, whatever a key's (or a token's) role says:
+# managing keys, clients, members and invitations.
 PEOPLE_ONLY = frozenset({"keys"})
 # What an EHR launch may do, by its EHR's registered level; no other principal holds these (the
 # mirror of PEOPLE_ONLY), and an EHR launch holds nothing else.
@@ -155,21 +161,27 @@ OUT_OF_SCOPE = "this credential's scopes do not cover this request"
 DEFAULT_ORG = "default"
 ACCOUNTS_MODES = ("claims", "memberships")  # MENDARI_ACCOUNTS (ADR-0008)
 MEMBER = "member"  # a person's session row in memberships mode (sealed; `user` in claims mode)
-# A person in memberships mode, with or without an organization: what choosing one and asking to
-# join need. In claims mode these routes are not mounted, and the rule reads as `admin`.
+# A person in memberships mode, with or without an organization: what choosing one, asking to
+# join and accepting an invitation need. In claims mode these routes are not mounted, and the
+# rule reads as `admin`.
 PERSON = "person"
 # The organization a dashboard window shows, sent with each of its requests in memberships mode:
 # a request from a window left on another organization than the one chosen since is refused.
 ORG_PIN = "x-mendari-org"
 auth_logger = logging.getLogger("mendari.auth")
 
+# Memberships mode's own paths: a person's own routes and an organization's people. Not mounted
+# in claims mode, where they read as any route no rule lists, `admin` (`Auth.permission`).
+_MEMBERSHIPS_ONLY = re.compile(
+    r"^/api/auth/(organization|access-requests|invitations|members)(/|$)"
+)
 # (method, path pattern) -> permission, first match wins; unlisted routes need "admin".
 _RULES: list[tuple[str, re.Pattern[str], str]] = [
     (method, re.compile(pattern), permission)
     for method, pattern, permission in [
         ("GET", r"^/api/health$", "public"),
         ("GET", r"^/api/auth/me$", "public"),
-        ("POST", r"^/api/auth/(organization|access-requests)$", PERSON),
+        ("POST", r"^/api/auth/(organization|access-requests|invitations/accept)$", PERSON),
         ("*", r"^/auth/", "public"),
         # The EHR launch and its callback; the launch's context (`{"active": false}` without
         # one) and ending it. The launch's own routes need an EHR launch (`ehr` principals).
@@ -217,6 +229,11 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         ("POST", r"^/api/audit/[^/]+/erase$", "admin"),  # a kept input, on request
         ("GET", r"^/api/packs/[^/]+/[^/]+/feedback/export$", "admin"),  # case inputs, in bulk
         ("*", r"^/api/auth/(keys|clients)", "keys"),
+        # Memberships mode: an organization's people, managed by its administrators (people
+        # only). Before the reads below: these lists hold e-mail addresses.
+        ("*", r"^/api/auth/(members|invitations)(/|$)", "keys"),
+        ("GET", r"^/api/auth/access-requests$", "keys"),
+        ("POST", r"^/api/auth/access-requests/[^/]+$", "keys"),
         # The whole chain, read or exported: administrators only.
         ("GET", r"^/api/audit/(verify|export/fhir)$", "admin"),
         ("POST", r"^/api/governance$", "approve"),
@@ -556,6 +573,72 @@ class OrganizationRequest(BaseModel):
         return accounts.check_org_id(value)
 
 
+def _roles_field(**default: Any) -> Any:
+    """The roles a membership may be given: the server's, and `pack_author` and `labeller`
+    (which grant nothing yet), never `grading`. Each model checks them (`accounts.check_roles`:
+    sorted, each once, a 422 otherwise)."""
+    return Field(
+        **default,
+        min_length=1,
+        max_length=len(accounts.MEMBERSHIP_ROLES),
+        description="Roles: viewer, reviewer, service, governance, admin, and pack_author or "
+        "labeller (reserved: they grant nothing yet). Never grading.",
+    )
+
+
+class InvitationRequest(BaseModel):
+    email: str = Field(
+        min_length=3,
+        max_length=254,
+        description="The address it is for: whoever signs in with it, verified by their "
+        "identity provider, may accept it.",
+    )
+    roles: list[str] = _roles_field()
+    days: int = Field(
+        default=accounts.INVITE_DAYS,
+        ge=1,
+        le=accounts.INVITE_MAX_DAYS,
+        description="Days until it expires.",
+    )
+
+    @field_validator("email")
+    @classmethod
+    def _an_address(cls, value: str) -> str:
+        return accounts.normalise_email(value)
+
+    @field_validator("roles")
+    @classmethod
+    def _membership_roles(cls, value: list[str]) -> list[str]:
+        return accounts.check_roles(value)
+
+
+class InvitationAcceptRequest(BaseModel):
+    # `ohi_` and `secrets.token_urlsafe(32)`, which is always 43 characters.
+    token: str = Field(
+        pattern=r"^ohi_[A-Za-z0-9_-]{43}$",
+        description="The invitation's token, from its link's fragment (`/invite#<token>`).",
+    )
+
+
+class RolesRequest(BaseModel):
+    roles: list[str] = _roles_field()
+
+    @field_validator("roles")
+    @classmethod
+    def _membership_roles(cls, value: list[str]) -> list[str]:
+        return accounts.check_roles(value)
+
+
+class AccessDecision(BaseModel):
+    outcome: Literal["granted", "refused"]
+    roles: list[str] = _roles_field(default_factory=lambda: ["viewer"])  # when granted
+
+    @field_validator("roles")
+    @classmethod
+    def _membership_roles(cls, value: list[str]) -> list[str]:
+        return accounts.check_roles(value)
+
+
 class Auth:
     """Resolves the principal of a request and guards every route."""
 
@@ -586,11 +669,14 @@ class Auth:
 
     def permission(self, method: str, path: str) -> str:
         """The permission a request needs here: the route rules' (`permission_for`), except that
-        in claims mode a person's own routes (`person`, not mounted there) read as any route no
-        rule lists, `admin`. The guard, the notice check and the rate limits all ask this, so
-        they never disagree about a request."""
+        in claims mode memberships mode's own routes (a person's own, `person`, and an
+        organization's people, `keys`: none mounted there) read as any route no rule lists,
+        `admin`. The guard, the notice check and the rate limits all ask this, so they never
+        disagree about a request."""
         permission = permission_for(method, path)
-        return "admin" if permission == PERSON and not self.memberships else permission
+        if not self.memberships and (permission == PERSON or _MEMBERSHIPS_ONLY.match(path)):
+            return "admin"
+        return permission
 
     def acting(self, request: Request) -> Principal:
         """Who the guard let through to a route that acts for an organization: open mode's
@@ -1270,8 +1356,12 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
 
 
 def add_membership_routes(app: FastAPI, auth: Auth) -> None:
-    """Memberships mode's routes for a person, with or without an organization (`person`):
-    choosing one of theirs, and asking to join one. Not mounted in claims mode."""
+    """Memberships mode's routes: a person's own, with or without an organization (`person`:
+    choosing one of theirs, asking to join one, accepting an invitation), and an organization's
+    people, managed by its administrators (`keys`: people only). The administrators' routes act
+    on the organization the guard let them through for (`org_of`), never one a body or a path
+    names, and the chain names who acted by their id (`user:<hash>`), never their address. Not
+    mounted in claims mode."""
     store = auth.store
 
     def member_session(request: Request) -> tuple[Principal, str, dict[str, Any]]:
@@ -1281,6 +1371,36 @@ def add_membership_routes(app: FastAPI, auth: Auth) -> None:
         if principal.kind != "user" or session is None or sid is None:
             raise AuthError("sign in first", 401, challenge=challenge())
         return principal, sid, session
+
+    def asker_of(session: Mapping[str, Any]) -> dict[str, Any]:
+        """Who signed in, from their session: what records them when they have no record."""
+        return {
+            "issuer": session["iss"],
+            "subject": session["sub"],
+            "email": session.get("email"),  # verified at sign-in
+            "name": session.get("name") or session["sub"],
+        }
+
+    def select(sid: str, session: Mapping[str, Any], org: str, membership_id: str) -> bool:
+        """Act for `org`'s `membership_id` from now on, in this browser; the session's time
+        limits stay as they were. False when the session has ended since."""
+        until = int(time.time()) + auth.lifetime.idle
+        absolute = session.get("absolute_at")
+        if isinstance(absolute, int):
+            until = min(until, absolute)
+        chosen = {**session, "org": org, "membership": membership_id}
+        return store.smart_replace(sid, MEMBER, chosen, until)
+
+    def organization_name(org: str) -> str:
+        record = store.organization(org)
+        return org if record is None else str(record["name"])
+
+    def refusal(error: accounts.MembershipRefused) -> AuthError:
+        """A membership change the store refused, as its answer: unknown, another
+        organization's or ended (`404`), or one that would leave the organization without an
+        administrator, or make someone a member twice (`409`)."""
+        status = {"no_membership": 404, "last_admin": 409, "member": 409}[error.reason]
+        return AuthError(str(error), status)
 
     @app.post(
         "/api/auth/organization",
@@ -1297,18 +1417,10 @@ def add_membership_routes(app: FastAPI, auth: Auth) -> None:
         if found is None:
             _refused_permission(principal, "not_a_member")
             raise AuthError("you hold no membership of that organization in force", 403)
-        now = int(time.time())
-        absolute = session.get("absolute_at")
-        until = now + auth.lifetime.idle
-        if isinstance(absolute, int):
-            until = min(until, absolute)
-        chosen = {**session, "org": body.org, "membership": found["id"]}
-        if not store.smart_replace(sid, MEMBER, chosen, until):  # ended since: sign in again
+        if not select(sid, session, body.org, found["id"]):  # ended since: sign in again
             raise AuthError("your session has ended: sign in again", 401, challenge=challenge())
         security_log.event("auth.organization.selected", actor=principal.id, org=body.org)
-        record = store.organization(body.org)
-        name = body.org if record is None else str(record["name"])
-        return {"org": body.org, "name": name, "roles": found["roles"]}
+        return {"org": body.org, "name": organization_name(body.org), "roles": found["roles"]}
 
     @app.post(
         "/api/auth/access-requests",
@@ -1325,14 +1437,8 @@ def add_membership_routes(app: FastAPI, auth: Auth) -> None:
         answer is the same; how long it takes is not: asking an organization that exists leaves
         a request its administrators see."""
         principal, _, session = member_session(request)
-        asker = {
-            "issuer": session["iss"],
-            "subject": session["sub"],
-            "email": session.get("email"),  # verified at sign-in
-            "name": session.get("name") or session["sub"],
-        }
         try:
-            made = store.request_access(user_id=principal.id, org=body.org, asker=asker)
+            made = store.request_access(user_id=principal.id, org=body.org, asker=asker_of(session))
         except accounts.AccessRefused as refused:
             security_log.event(
                 "auth.access.requested",
@@ -1345,3 +1451,230 @@ def add_membership_routes(app: FastAPI, auth: Auth) -> None:
                 "auth.access.requested", actor=principal.id, org=body.org, ids=[str(made["id"])]
             )
         return JSONResponse({"org": body.org, "requested": True}, status_code=202)
+
+    @app.post(
+        "/api/auth/invitations/accept",
+        tags=["Sign-in"],
+        summary="Accept an invitation",
+    )
+    def accept_invitation(request: Request, body: InvitationAcceptRequest) -> dict[str, Any]:
+        """Memberships mode: join the organization an invitation is for, with its roles. The
+        `token` is the link's fragment (`/invite#<token>`). It is accepted once, before it
+        expires, by a person who signed in with the address it names, verified by their identity
+        provider (`403` otherwise; unverified or another address, which leaves it open). Unknown,
+        used, revoked and expired are one answer (`404`); already a member of its organization:
+        `409`, and it stays open (roles change only by an administrator). Recorded in the audit
+        chain (`invitation.accepted`, `membership.created`, the person when they have no record
+        yet, and their open request to join it, closed: `access.handled`). `selected`: whether
+        this browser now acts for it, which it does only when it acted for no organization;
+        otherwise choose it (`POST /api/auth/organization`)."""
+        principal, sid, session = member_session(request)
+        try:
+            found = store.accept_invitation(
+                body.token,
+                user_id=principal.id,
+                verified_email=session.get("email"),
+                asker=asker_of(session),
+            )
+        except InvitationRefused as refused:
+            # No organization: a bad link learns none from the log either.
+            security_log.event(
+                "auth.invitation.accepted",
+                outcome="refused",
+                reason=refused.reason,
+                actor=principal.id,
+            )
+            raise
+        # Accepted, for good: a session that ended since is answered, not refused (the link is
+        # used, and asking again would be a 404).
+        selected = principal.org is None and select(sid, session, found["org"], found["id"])
+        security_log.event(
+            "auth.invitation.accepted", actor=principal.id, org=found["org"], ids=[found["id"]]
+        )
+        return {
+            "org": found["org"],
+            "name": organization_name(found["org"]),
+            "roles": found["roles"],
+            "selected": selected,
+        }
+
+    @app.post(
+        "/api/auth/invitations",
+        status_code=201,
+        tags=["Sign-in"],
+        summary="Invite someone to your organization",
+    )
+    def create_invitation(request: Request, body: InvitationRequest) -> dict[str, Any]:
+        """Memberships mode: an invitation to this organization with `roles`, for whoever signs
+        in with `email` verified, valid for `days` (7 unless asked, 30 at most). Mendari sends no
+        e-mail: pass the `link` on yourself. Its token is in this response only (in `link`, a
+        path on this site to put after its address), stored hashed. `grading` is never given,
+        and `pack_author` and `labeller` grant nothing yet. Recorded in the audit chain
+        (`invitation.created`, with a digest of the address)."""
+        principal = auth.acting(request)
+        made = store.create_invitation(
+            org=org_of(principal),
+            email=body.email,
+            roles=body.roles,
+            created_by=principal.id,
+            days=body.days,
+        )
+        token = made.pop("token")
+        security_log.event(
+            "admin.invitation.created", actor=principal.id, org=principal.org, ids=[made["id"]]
+        )
+        # Relative, never built from the request's Host: an address someone else chose would
+        # end up in a link an administrator sends on.
+        return {**made, "status": "open", "link": f"/invite#{token}"}
+
+    @app.get(
+        "/api/auth/invitations",
+        tags=["Sign-in"],
+        summary="List invitations",
+    )
+    def list_invitations(request: Request) -> list[dict[str, Any]]:
+        """Memberships mode: this organization's invitations, newest first: the address, roles,
+        who made it and when, when it expires, when and by whom it was accepted or revoked, and
+        its `status` (`open`, `accepted`, `revoked` or `expired`). Never a token."""
+        return store.invitations(org_of(auth.acting(request)))
+
+    @app.delete(
+        "/api/auth/invitations/{invitation_id}",
+        status_code=204,
+        tags=["Sign-in"],
+        summary="Revoke an invitation",
+    )
+    def revoke_invitation(request: Request, invitation_id: str) -> Response:
+        """Memberships mode: revoke an open invitation of this organization (expired ones too);
+        its link is refused from now on. Unknown, another organization's, accepted or already
+        revoked: `404`. Recorded in the audit chain (`invitation.revoked`)."""
+        principal = auth.acting(request)
+        if not store.revoke_invitation(
+            invitation_id, org=org_of(principal), revoked_by=principal.id
+        ):
+            raise AuthError("no open invitation", 404)
+        security_log.event(
+            "admin.invitation.revoked", actor=principal.id, org=principal.org, ids=[invitation_id]
+        )
+        return Response(status_code=204)
+
+    @app.get(
+        "/api/auth/members",
+        tags=["Sign-in"],
+        summary="List your organization's members",
+    )
+    def list_members(request: Request) -> list[dict[str, Any]]:
+        """Memberships mode: this organization's memberships in force, oldest first: each
+        person's name and verified address, or, `pending`, the address a membership waits for
+        (bound at that address's next sign-in, verified), with its roles, who gave it and when.
+        `you`: the caller's own."""
+        principal = auth.acting(request)
+        return [
+            {**membership, "you": membership["user_id"] == principal.id}
+            for membership in store.members(org_of(principal))
+        ]
+
+    @app.put(
+        "/api/auth/members/{membership_id}/roles",
+        tags=["Sign-in"],
+        summary="Change a member's roles",
+    )
+    def change_roles(request: Request, membership_id: str, body: RolesRequest) -> dict[str, Any]:
+        """Memberships mode: replace a membership's roles; they apply at that person's next
+        request. Never leaves the organization without an administrator who signed in (`409`);
+        unknown, another organization's or ended: `404`. Recorded in the audit chain
+        (`membership.roles_changed`, with the roles before)."""
+        principal = auth.acting(request)
+        try:
+            changed = store.set_membership_roles(
+                membership_id, body.roles, org=org_of(principal), changed_by=principal.id
+            )
+        except accounts.MembershipRefused as refused:
+            raise refusal(refused) from None
+        security_log.event(
+            "admin.membership.roles_changed",
+            actor=principal.id,
+            org=principal.org,
+            ids=[membership_id],
+        )
+        return changed
+
+    @app.delete(
+        "/api/auth/members/{membership_id}",
+        status_code=204,
+        tags=["Sign-in"],
+        summary="Remove a member",
+    )
+    def remove_member(request: Request, membership_id: str) -> Response:
+        """Memberships mode: end a membership; that person acts for no organization (or chooses
+        another of theirs) from their next request. This organization's open invitations made out
+        to their address are revoked with it, so no link left open earlier lets them back in.
+        The invitations, keys and clients they made stay as they were: revoke them too if they
+        should not. Never the last administrator who signed in (`409`); unknown, another
+        organization's or ended: `404`. Recorded in the audit chain (`membership.removed`, and
+        `invitation.revoked` for each one revoked)."""
+        principal = auth.acting(request)
+        try:
+            removed = store.remove_membership(
+                membership_id, org=org_of(principal), removed_by=principal.id
+            )
+        except accounts.MembershipRefused as refused:
+            raise refusal(refused) from None
+        if not removed:
+            raise AuthError("no such membership", 404)
+        security_log.event(
+            "admin.membership.removed", actor=principal.id, org=principal.org, ids=[membership_id]
+        )
+        return Response(status_code=204)
+
+    @app.get(
+        "/api/auth/access-requests",
+        tags=["Sign-in"],
+        summary="List requests to join",
+    )
+    def list_access_requests(request: Request) -> list[dict[str, Any]]:
+        """Memberships mode: the open requests to join this organization, oldest first, each
+        with the name and verified address of the person who asked (none when their identity
+        provider verified none)."""
+        return store.open_access_requests(org_of(auth.acting(request)))
+
+    @app.post(
+        "/api/auth/access-requests/{request_id}",
+        tags=["Sign-in"],
+        summary="Grant or refuse a request to join",
+    )
+    def handle_access_request(
+        request: Request, request_id: str, body: AccessDecision
+    ) -> dict[str, Any]:
+        """Memberships mode: grant an open request to join this organization (a membership with
+        `roles`, `viewer` unless asked) or refuse it. Unknown, handled or another
+        organization's: `404` (a request closes by itself when its person joins another way).
+        Granting one left open from before that, of someone who is a member already: `409`,
+        and it stays open (refuse it to close it). Recorded in the audit chain
+        (`access.handled`, and `membership.created` when granted)."""
+        principal = auth.acting(request)
+        org = org_of(principal)
+        try:
+            handled = store.handle_access_request(
+                request_id,
+                org=org,
+                outcome=body.outcome,
+                handled_by=principal.id,
+                roles=body.roles,
+            )
+        except accounts.MembershipRefused as refused:
+            if refused.reason != "member":
+                raise
+            raise AuthError(
+                f"already a member of {org!r}: refuse the request to close it", 409
+            ) from None
+        if handled is None:
+            raise AuthError("no open request", 404)
+        membership = handled["membership"]
+        security_log.event(
+            "admin.access.granted" if body.outcome == "granted" else "admin.access.refused",
+            actor=principal.id,
+            org=org,
+            ids=[request_id, *([membership["id"]] if membership else [])],
+        )
+        return handled

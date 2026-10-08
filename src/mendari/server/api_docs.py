@@ -34,7 +34,11 @@ TAGS = [
     {"name": "Audit", "description": "The hash-chained audit trail of every decision."},
     {"name": "Evaluation and monitoring", "description": "Evaluations, drift, deployments."},
     {"name": "Governance", "description": "Approvals for higher-risk packs to automate."},
-    {"name": "Sign-in", "description": "Who is calling, and API keys for machines."},
+    {
+        "name": "Sign-in",
+        "description": "Who is calling, API keys for machines, and (memberships mode) members "
+        "and invitations.",
+    },
     {"name": "SMART on FHIR", "description": "Mendari launched as a SMART app from an EHR."},
     {"name": "Service", "description": "Health and settings of this deployment."},
 ]
@@ -119,7 +123,8 @@ def description(
         "(`access_token` is a `400`). Refusals carry `WWW-Authenticate` (RFC 6750), except a "
         "signed-in person's who has not acknowledged the notice (`GET /api/notice`): a `403` "
         "with `Mendari-Notice-Required` on routes that take data in. `/api` "
-        "answers are `Cache-Control: no-store`. Only a signed-in person manages keys, never a key. "
+        "answers are `Cache-Control: no-store`. Only a signed-in person manages keys, members and "
+        "invitations, never a key. "
         "A clinician an EHR launches (from an EHR registered here, `smartLaunch`) reaches only "
         "the launch's own routes: `GET /api/smart/patient` and `/focus`, and, registered to "
         "decide, `POST /api/smart/decide`." + (_backend_services(token_url) if token_url else "")

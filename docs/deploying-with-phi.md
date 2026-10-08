@@ -81,9 +81,10 @@ test users listed there can sign in at all, which is a second gate.
 
 **Organizations as records instead of claims.** `MENDARI_ACCOUNTS=memberships` (the default
 is `claims`, everything above) gives each person the organization and roles of their
-membership, managed with `mendari access`; the role and organization claims are then ignored,
-and someone with no membership acts for no organization. Switch only after `mendari access
-check` passes and the owner is bootstrapped: [the runbook](operations/accounts.md).
+membership, managed with `mendari access` and by each organization's administrators; the role
+and organization claims are then ignored, and someone with no membership acts for no
+organization. Switch only after `mendari access check` passes and the owner is bootstrapped:
+[the runbook](operations/accounts.md).
 
 **Sessions.** A person's session ends after 30 minutes without a request and 8 hours after
 signing in, whichever comes first, and when the browser closes (the cookie has no expiry of its
@@ -620,9 +621,15 @@ collector, journald) and keep it as your policy says; Mendari keeps no log table
   and address, and the latency.
 - **Security events**, each with a fixed `reason` code: `auth.signin.ok|refused`,
   `auth.logout`, `auth.credential.refused`, `auth.permission.refused`, `auth.origin.refused`
-  (a request another site started, §2), `smart.launch.ok|refused` (an EHR launch that started
-  a session, or did not: `state_unknown`, `browser`, `token`, `id_token`, `issuer`, `pack`,
-  `ehr_error` and the like), `auth.token.issued|refused`, `ratelimit.hit` (once per bucket until it has room
+  (a request another site started, §2), in memberships mode `auth.organization.selected` (a
+  person choosing one of their organizations), `auth.access.requested` (asking to join one,
+  refused as `unknown_organization`, `member` or `open_requests`), `auth.invitation.accepted`
+  (accepting an invitation, refused as `unverified`, `invalid`, `other_address` or `member`,
+  with no organization) and `admin.invitation.created|revoked`,
+  `admin.membership.roles_changed|removed` and `admin.access.granted|refused` (an
+  organization's administrators managing its people), `smart.launch.ok|refused` (an EHR
+  launch that started a session, or did not: `state_unknown`, `browser`, `token`, `id_token`,
+  `issuer`, `pack`, `ehr_error` and the like), `auth.token.issued|refused`, `ratelimit.hit` (once per bucket until it has room
   again), `quota.reached`, `admin.key.created|revoked`, `admin.client.registered|revoked`,
   `governance.approved|revoked`, `admin.key.rotated`, `auth.key.replaced_used` (a rotated key
   still in use during its overlap, once per instance), `eval.run`, `export.audit|feedback`,

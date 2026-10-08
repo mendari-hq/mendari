@@ -527,10 +527,22 @@ operations, LP-22 site network, LP-23 EHR pilot.
       access-ended and window-moved banners, "Use another account"; browser tests.
   - [ ] **12f** Invitations and member management (no e-mail sent), in two PRs, so the server
     does not wait on 12e-ii's dashboard files:
-    - [ ] **12f-i** The server: an administrator's routes to invite (the link shown once),
-      list and revoke invitations, list members, change roles, remove a member, and handle
-      access requests; a signed-in person's route to accept an invitation made for their
-      verified address. Built on 12d's store methods.
+    - [ ] **12f-i** (PR open) The server, memberships mode only: an administrator's routes
+      (people with `keys`, never a key) to invite (`POST /api/auth/invitations`, the link
+      `/invite#<token>` shown once, relative, never built from `Host`), list and revoke
+      invitations (each with its `status`), list members, replace a member's roles
+      (`PUT …/members/{id}/roles`), remove a member, and grant or refuse a request to join; a
+      person's own third route, `POST /api/auth/invitations/accept` (the token in the body,
+      the `signin` limit, the session moved to the new organization only when it acts for
+      none). Every call acts on the caller's organization only; the chain names the
+      administrator by id. Fixed in 12d's store: a first-time invitee is recorded in the same
+      transaction (it was a 500); `now` is read under the lock and the accept is a conditional
+      update (six concurrent accepts make one membership, both databases); a person's open
+      request closes (`joined`, chained) when they join any other way. In claims mode the new
+      paths read `admin`, as 12e-i's do. The other session's 12f critique found the last three.
+      Found in review: removing a member revokes the organization's open invitations made out
+      to their address (one refused as `member` stayed open, and let them straight back in);
+      the administrators' security-log lines are pinned by a test.
     - [ ] **12f-ii** The dashboard: the members and invitations views, the `/invite` page;
       the browser test of the whole flow (an expired link and a wrong address included).
   - [ ] **12g** The organization bound into each chained event (memberships mode), checked by
@@ -562,6 +574,27 @@ operations, LP-22 site network, LP-23 EHR pilot.
      credential lists packs and reads CDS discovery, and `/api/auth/me` lists `discover`.
   7. The claims-mode no-role page stays as it is.
   8. Additive claims-visible changes count as "claims mode behaves as before".
+  9. (12f-i) The chain names the acting administrator by id (`user:…`), never by address: the
+     key routes chain `principal.actor`, the person's verified e-mail; the LP-12 events hold ids
+     and digests only. The key routes are unchanged.
+  10. (12f-i) In claims mode, `GET /api/auth/{members,invitations,access-requests}` read
+     `admin` (a viewer gets 403 "may not admin", an admin 404) where they read `read` (404 to
+     a viewer): deny by default on paths that serve nothing in claims mode.
+  11. (12f-i) Accepting an invitation to an organization one is already a member of is refused
+     (409), nothing written and the link left open; 12d used it up and kept the roles. Roles
+     change only through an administrator. The other choice: add the invitation's roles.
+  12. (12f-i) `default`'s administrators may invite, like any organization's.
+  13. (12f-i) The notice gate covers inviting and handling requests (a `keys` POST is
+     "minting": giving someone access is); accepting is not gated, the new member acknowledges
+     before deciding.
+  14. (12f-i) Removing or demoting an administrator does not revoke the invitations they made
+     (their keys keep working too): they stay valid until revoked, and the list names who made
+     each. The other choice: revoke them in the same transaction.
+  15. (12f-i) `/invite#<token>` has no page until 12f-ii; nobody follows it before then (the
+     hosted site stays in claims mode until after 12g). 12f-ii serves `/invite` as a public,
+     static page, or drops the fragment before sending a signed-out browser to sign in: a
+     redirect keeps the fragment (RFC 9110 §10.2.2) and would carry the token to the identity
+     provider.
 
   **Owner decisions** (none blocks a PR; each PR follows the recommended default): switching
   the hosted site to memberships mode, and when; the owner's identity for bootstrap (the

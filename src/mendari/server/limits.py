@@ -25,9 +25,10 @@ launch's decisions count against its `ehr` principal, like anyone's.
 `DailyCap`) counts the decisions each principal asks for, per local day (one per request that
 decides, one per draft order of a CDS Hooks order hook), after these limits admit them; past it,
 `429` until midnight.
-Per-IP keys are used only where no one has signed in yet, and on a person's own two routes in
-memberships mode (`POST /api/auth/organization`, `POST /api/auth/access-requests`), which any
-account that signs in reaches: a hospital sits behind one address,
+Per-IP keys are used only where no one has signed in yet, and on a person's own three routes in
+memberships mode (`POST /api/auth/organization`, `POST /api/auth/access-requests`,
+`POST /api/auth/invitations/accept`), which any account that signs in reaches: a hospital sits
+behind one address,
 so sign-in allows at least what the edge does (120 a minute per address) and a site behind one
 egress address raises it (`signin=600/min:240`). A CDS Hooks order hook decides each draft
 order (at most 50, or the `decide` burst if smaller): the guard counts the request as one
@@ -320,8 +321,9 @@ class Limiter:
         if method == "GET" and path in ("/auth/login", "/smart/launch"):
             return "signin"
         if method == "POST" and permission == "person":
-            # Memberships mode: choosing an organization, asking to join; open to any account
-            # that signs in, so counted per address as signing in is.
+            # Memberships mode: choosing an organization, asking to join, accepting an
+            # invitation; open to any account that signs in, so counted per address as signing
+            # in is.
             return "signin"
         if method == "POST" and path == "/auth/token":
             return "token"

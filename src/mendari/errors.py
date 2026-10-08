@@ -157,6 +157,17 @@ class OrganizationChanged(AuthError):
         super().__init__(message, 409)
 
 
+class InvitationRefused(AuthError):
+    """An invitation not accepted (memberships mode, LP-12f), with the fixed `reason` the
+    security log gives it: `unverified` (403), `invalid` (404: unknown, used, revoked or expired,
+    one answer), `other_address` (403, it stays open) or `member` (409, already a member of its
+    organization: it stays open)."""
+
+    def __init__(self, message: str, status: int, reason: str):
+        self.reason = reason
+        super().__init__(message, status)
+
+
 class ScopeError(MendariError):
     """A scope that Mendari does not grant: unknown, for something not served (a write, a
     resource type, a granular or patient scope), or beyond the credential's role (a `422`)."""

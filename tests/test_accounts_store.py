@@ -7,13 +7,15 @@ without an administrator; no membership holds `grading`."""
 from __future__ import annotations
 
 import json
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import pytest
 
 from mendari import AuditStore, Decision, Pack
 from mendari.core import accounts
-from mendari.errors import AuthError
+from mendari.errors import AuthError, InvitationRefused
 from tests.conftest import message
 
 IDP = "https://idp.example.org"
@@ -91,10 +93,13 @@ def test_an_invitation_is_single_use_expiring_and_for_its_verified_address(
     made = store.create_invitation(
         org="clinic-a", email="Ada@Example.org", roles=["reviewer"], created_by="cli"
     )
-    with pytest.raises(AuthError, match="another e-mail address"):
+    with pytest.raises(AuthError, match="another e-mail address") as other:
         store.accept_invitation(made["token"], user_id=bo["id"], verified_email="bo@example.org")
-    with pytest.raises(AuthError, match="verified"):
+    assert isinstance(other.value, InvitationRefused)
+    assert (other.value.status, other.value.reason) == (403, "other_address")
+    with pytest.raises(InvitationRefused, match="verified") as unverified:
         store.accept_invitation(made["token"], user_id=ada["id"], verified_email=None)
+    assert (unverified.value.status, unverified.value.reason) == (403, "unverified")
     joined = store.accept_invitation(
         made["token"], user_id=ada["id"], verified_email="ADA@example.org"
     )
@@ -103,6 +108,17 @@ def test_an_invitation_is_single_use_expiring_and_for_its_verified_address(
         ada["id"],
         ["reviewer"],
     )
+    again = store.create_invitation(
+        org="clinic-a", email="ada@example.org", roles=["admin"], created_by="cli"
+    )
+    events = store.verify()["events"]
+    with pytest.raises(InvitationRefused, match="already a member") as member:
+        store.accept_invitation(again["token"], user_id=ada["id"], verified_email="ada@example.org")
+    assert (member.value.status, member.value.reason) == (409, "member")
+    assert store.verify()["events"] == events  # nothing written: it stays open, roles as they were
+    [still] = [i for i in store.invitations("clinic-a") if i["id"] == again["id"]]
+    assert still["status"] == "open"
+    assert store.memberships(org="clinic-a", user_id=ada["id"])[0]["roles"] == ["reviewer"]
     revoked = store.create_invitation(
         org="clinic-a", email="cy@example.org", roles=["viewer"], created_by="cli"
     )
@@ -117,15 +133,234 @@ def test_an_invitation_is_single_use_expiring_and_for_its_verified_address(
         )
     cy = person(store, "cy", "cy@example.org")
     for token in (made["token"], revoked["token"], expired["token"], "ohi_unknown"):
-        with pytest.raises(AuthError, match="not valid") as refused:
+        with pytest.raises(InvitationRefused, match="not valid") as refused:
             store.accept_invitation(token, user_id=cy["id"], verified_email="cy@example.org")
-        assert refused.value.status == 404  # one answer: used, revoked, expired or unknown
+        # One answer: used, revoked, expired or unknown.
+        assert (refused.value.status, refused.value.reason) == (404, "invalid")
+    assert {i["id"]: i["status"] for i in store.invitations("clinic-a")} == {
+        made["id"]: "accepted",
+        again["id"]: "open",
+        revoked["id"]: "revoked",
+        expired["id"]: "expired",
+    }
     with pytest.raises(ValueError):
         store.create_invitation(
             org="clinic-a", email="cy@example.org", roles=["viewer"], created_by="cli", days=31
         )
     tables = ("invitations", "memberships", "users", "organizations", "audit_events")
     assert made["token"] not in dump(store, *tables)  # its hash only
+
+
+def test_accepting_with_an_asker_records_the_person_only_on_success(store: AuditStore) -> None:
+    """Who signed in is recorded with the membership, after every check and in the same
+    transaction: a link that is not valid, or not theirs, records no one."""
+    store.create_organization(org="clinic-a", name="Clinic A", created_by="cli")
+    made = store.create_invitation(
+        org="clinic-a", email="ada@example.org", roles=["viewer"], created_by="cli"
+    )
+    ada = accounts.person_id(IDP, "ada")
+    asker = {"issuer": IDP, "subject": "ada", "email": "ada@example.org", "name": "Ada"}
+    before = store.verify()["events"]
+    for token, address in (("ohi_unknown", "ada@example.org"), (made["token"], "bo@example.org")):
+        with pytest.raises(InvitationRefused):
+            store.accept_invitation(token, user_id=ada, verified_email=address, asker=asker)
+    with pytest.raises(ValueError, match="not the person"):
+        store.accept_invitation(
+            made["token"],
+            user_id=accounts.person_id(IDP, "bo"),
+            verified_email="ada@example.org",
+            asker=asker,
+        )
+    with pytest.raises(ValueError, match="no such person"):  # no asker, no record: nothing kept
+        store.accept_invitation(made["token"], user_id=ada, verified_email="ada@example.org")
+    assert store.user(ada) is None and store.verify()["events"] == before
+    joined = store.accept_invitation(
+        made["token"], user_id=ada, verified_email="ada@example.org", asker=asker
+    )
+    assert (joined["user_id"], joined["created_by"]) == (ada, f"invitation:{made['id']}")
+    user = store.user(ada)
+    assert user is not None
+    assert (user["email"], user["name"], user["last_sign_in_at"]) == (
+        "ada@example.org",
+        "Ada",
+        None,
+    )
+    assert store.verify()["events"] == before + 3  # the person, the acceptance, the membership
+    assert store.verify()["ok"]
+
+
+def test_refusals_carry_their_reason(store: AuditStore) -> None:
+    """A membership change the store refuses says why (`MembershipRefused`, a `ValueError`, so
+    the command line's one-line error still reads it), with the messages as they were."""
+    store.create_organization(org="clinic-a", name="Clinic A", created_by="cli")
+    ada = person(store, "ada", "ada@example.org")
+    admin = store.add_membership(
+        org="clinic-a", roles=["admin"], created_by="cli", user_id=ada["id"]
+    )
+    with pytest.raises(accounts.MembershipRefused, match="already a member of 'clinic-a'") as twice:
+        store.add_membership(org="clinic-a", roles=["viewer"], created_by="cli", user_id=ada["id"])
+    assert twice.value.reason == "member"
+    with pytest.raises(accounts.MembershipRefused, match="without an administrator") as last:
+        store.set_membership_roles(admin["id"], ["viewer"], org="clinic-a", changed_by="cli")
+    assert last.value.reason == "last_admin"
+    with pytest.raises(accounts.MembershipRefused, match="without an administrator") as removed:
+        store.remove_membership(admin["id"], org="clinic-a", removed_by="cli")
+    assert removed.value.reason == "last_admin"
+    with pytest.raises(accounts.MembershipRefused, match="no such membership") as elsewhere:
+        store.set_membership_roles(admin["id"], ["viewer"], org="clinic-b", changed_by="cli")
+    assert elsewhere.value.reason == "no_membership" and isinstance(elsewhere.value, ValueError)
+    bo = person(store, "bo", "bo@example.org")
+    asked = store.request_access(user_id=bo["id"], org="clinic-a")
+    store.add_membership(org="clinic-a", roles=["viewer"], created_by="cli", user_id=bo["id"])
+    with store._db.session(exclusive=True) as db:  # left open, as a release before this one did
+        db.all(
+            "UPDATE access_requests SET handled_at = NULL, outcome = NULL WHERE id = ?",
+            (asked["id"],),
+        )
+    with pytest.raises(accounts.MembershipRefused, match="already a member") as granted:
+        store.handle_access_request(
+            asked["id"], org="clinic-a", outcome="granted", handled_by="cli"
+        )
+    assert granted.value.reason == "member"
+    assert [r["id"] for r in store.open_access_requests("clinic-a")] == [asked["id"]]  # still open
+
+
+def test_removing_a_member_revokes_the_invitations_made_out_to_them(store: AuditStore) -> None:
+    """An invitation they could not accept while a member (`member`, it stays open) never lets
+    them back in once removed: the organization's open invitations to their recorded address
+    are revoked with the membership, by whoever removed it. Others' invitations, another
+    organization's, and the ones they made stay as they were."""
+    for org in ("clinic-a", "clinic-b"):
+        store.create_organization(org=org, name=org, created_by="cli")
+    lead = person(store, "lead", "lead@example.org")
+    store.add_membership(org="clinic-a", roles=["admin"], created_by="cli", user_id=lead["id"])
+    bo = person(store, "bo", "bo@example.org")
+    held = store.add_membership(
+        org="clinic-a", roles=["viewer"], created_by="cli", user_id=bo["id"]
+    )
+
+    def invitation(org: str, email: str, created_by: str = lead["id"]) -> dict[str, Any]:
+        return store.create_invitation(org=org, email=email, roles=["admin"], created_by=created_by)
+
+    left_open = invitation("clinic-a", "bo@example.org")
+    with pytest.raises(InvitationRefused) as member:
+        store.accept_invitation(
+            left_open["token"], user_id=bo["id"], verified_email="bo@example.org"
+        )
+    assert member.value.reason == "member"
+    untouched = [
+        invitation("clinic-b", "bo@example.org"),  # another organization's
+        invitation("clinic-a", "cy@example.org"),  # another address
+        invitation("clinic-a", "dee@example.org", created_by=bo["id"]),  # one they made
+    ]
+    with store._db.session(exclusive=False) as db:
+        before = len(db.all("SELECT seq FROM audit_events"))
+    assert store.remove_membership(held["id"], org="clinic-a", removed_by=lead["id"]) is True
+    with store._db.session(exclusive=False) as db:
+        rows = db.all("SELECT event, payload FROM audit_events ORDER BY seq")[before:]
+    assert [(r["event"], json.loads(r["payload"])) for r in rows] == [
+        ("membership.removed", {"id": held["id"], "org": "clinic-a", "removed_by": lead["id"]}),
+        (
+            "invitation.revoked",
+            {"id": left_open["id"], "org": "clinic-a", "revoked_by": lead["id"]},
+        ),
+    ]
+    status = {
+        i["id"]: (i["status"], i["revoked_by"])
+        for org in ("clinic-a", "clinic-b")
+        for i in store.invitations(org)
+    }
+    assert status[left_open["id"]] == ("revoked", lead["id"])
+    assert [status[i["id"]] for i in untouched] == [("open", None)] * 3
+    with pytest.raises(InvitationRefused) as gone:
+        store.accept_invitation(
+            left_open["token"], user_id=bo["id"], verified_email="bo@example.org"
+        )
+    assert (gone.value.status, gone.value.reason) == (404, "invalid")
+    assert store.membership_in_force(bo["id"], "clinic-a") is None
+    # A pending membership, or a person with no address on record: nothing to revoke.
+    pending = store.add_membership(
+        org="clinic-a", roles=["viewer"], created_by="cli", email="cy@example.org"
+    )
+    kim = person(store, "kim", None)
+    unaddressed = store.add_membership(
+        org="clinic-a", roles=["viewer"], created_by="cli", user_id=kim["id"]
+    )
+    for removed in (pending, unaddressed):
+        assert store.remove_membership(removed["id"], org="clinic-a", removed_by=lead["id"])
+    assert status == {
+        i["id"]: (i["status"], i["revoked_by"])
+        for org in ("clinic-a", "clinic-b")
+        for i in store.invitations(org)
+    }
+    assert store.verify()["ok"]
+
+
+def test_a_request_closes_when_its_person_joins_another_way(store: AuditStore) -> None:
+    """Accepting an invitation, a membership given to them, or one bound at sign-in closes the
+    person's open request to that organization in the same transaction (`access.handled`,
+    outcome `joined`, handled by the membership): it no longer counts against their open
+    requests, and no administrator grants it into a conflict."""
+    orgs = ("clinic-a", "clinic-b", "clinic-c")
+    for org in orgs:
+        store.create_organization(org=org, name=org, created_by="cli")
+    ada = person(store, "ada", "ada@example.org")
+    asked = {org: store.request_access(user_id=ada["id"], org=org)["id"] for org in orgs}
+    made = store.create_invitation(
+        org="clinic-a", email="ada@example.org", roles=["viewer"], created_by="cli"
+    )
+    invited = store.accept_invitation(
+        made["token"], user_id=ada["id"], verified_email="ada@example.org"
+    )
+    given = store.add_membership(
+        org="clinic-b", roles=["viewer"], created_by="cli", user_id=ada["id"]
+    )
+    store.add_membership(
+        org="clinic-c", roles=["viewer"], created_by="cli", email="ada@example.org"
+    )
+    [bound] = store.bind_pending(ada["id"], "ada@example.org")
+    by_org = {"clinic-a": invited, "clinic-b": given, "clinic-c": bound}
+    expected = {(asked[org], "joined", f"membership:{m['id']}") for org, m in by_org.items()}
+    with store._db.session(exclusive=False) as db:
+        closed = db.all("SELECT * FROM access_requests WHERE handled_at IS NOT NULL")
+        chained = db.all("SELECT payload FROM audit_events WHERE event = 'access.handled'")
+    assert {(r["id"], r["outcome"], r["handled_by"]) for r in closed} == expected
+    payloads = [json.loads(r["payload"]) for r in chained]
+    assert {(p["id"], p["outcome"], p["handled_by"]) for p in payloads} == expected
+    assert len(payloads) == 3
+    assert store.access_requests() == []  # none counts against Ada's open requests any more
+    assert store.verify()["ok"]
+
+
+def test_two_accepts_of_one_link_make_one_membership(store: AuditStore, db_target: str) -> None:
+    """Instances accepting one link at once, through their own connections (accounts with the
+    same verified address, say): one joins, the others get the one answer for a used link, and
+    the chain holds one acceptance."""
+    store.create_organization(org="clinic-a", name="Clinic A", created_by="cli")
+    made = store.create_invitation(
+        org="clinic-a", email="ada@example.org", roles=["viewer"], created_by="cli"
+    )
+    people = [person(store, f"ada-{n}", "ada@example.org")["id"] for n in range(6)]
+    start = threading.Barrier(len(people))
+
+    def accept(user_id: str) -> str:
+        with AuditStore(db_target) as other:
+            start.wait()
+            try:
+                other.accept_invitation(
+                    made["token"], user_id=user_id, verified_email="ada@example.org"
+                )
+            except InvitationRefused as refused:
+                return refused.reason
+            return "joined"
+
+    with ThreadPoolExecutor(len(people)) as pool:
+        answers = sorted(pool.map(accept, people))
+    assert answers == ["invalid"] * (len(people) - 1) + ["joined"]
+    with store._db.session(exclusive=False) as db:
+        accepted = db.all("SELECT seq FROM audit_events WHERE event = 'invitation.accepted'")
+    assert len(accepted) == 1 and len(store.memberships(org="clinic-a")) == 1
+    assert store.verify()["ok"]
 
 
 def test_roles_grading_is_never_held_and_an_organization_keeps_an_admin(

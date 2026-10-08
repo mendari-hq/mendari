@@ -53,6 +53,17 @@ class AccessRefused(ValueError):
         super().__init__(message)
 
 
+class MembershipRefused(ValueError):
+    """A membership change that is not made, with its fixed `reason`: `no_membership` (unknown,
+    another organization's or ended), `last_admin` (it would leave the organization without an
+    administrator who signed in) or `member` (the person, or the pending address, is already a
+    member)."""
+
+    def __init__(self, message: str, reason: str):
+        self.reason = reason
+        super().__init__(message)
+
+
 def person_id(issuer: str, subject: str) -> str:
     """A signed-in person's id (`Principal.id`): their subject at their identity provider, which
     is stable and unique only together with the issuer, hashed so it names nobody."""

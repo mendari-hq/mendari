@@ -743,7 +743,7 @@ Every route has a permission, and anything unlisted needs admin:
 | reviewer | also decide (Try it), resolve reviews, record outcomes, give feedback |
 | service | an integration: read, decide, record outcomes |
 | governance | read, approve automation |
-| admin | everything: evaluations, exports, chain verification; with a signed-in person, API keys and clients |
+| admin | everything: evaluations, exports, chain verification; with a signed-in person, API keys, clients, members and invitations |
 
 With sign-in on, reviews, ratings, approvals and outcomes are recorded for whoever is signed in,
 each new decision names who asked for it (`requested_by`, the requestor in the FHIR exports),
@@ -760,9 +760,11 @@ above) takes each person's organization and roles from records instead of claims
 organization is a record, and a person holds a membership of it with a set of roles, read on
 every request ([ADR-0008](https://github.com/Junebugg1214/mendari/blob/main/docs/decisions/ADR-0008-accounts-and-memberships.md)).
 The role and organization claims are ignored. A person with no membership acts for no
-organization, never `default`: they may ask to join one, and nothing else. The operator
-manages organizations with `mendari access` ([the runbook](https://github.com/Junebugg1214/mendari/blob/main/docs/operations/accounts.md)),
-which also says how to switch a deployment.
+organization, never `default`: they may ask to join one or accept an invitation made for their
+verified address, and nothing else. The operator manages organizations with `mendari access`,
+and each organization's administrators invite and manage their own people through the API
+([the runbook](https://github.com/Junebugg1214/mendari/blob/main/docs/operations/accounts.md),
+which also says how to switch a deployment).
 
 A link or form on another site cannot act with a signed-in browser, or sign it out: such a
 request reaches only public routes and pages, with GET or HEAD (a `403` otherwise). If a proxy serves Mendari under a
