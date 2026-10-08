@@ -296,7 +296,7 @@ behaviour.
   SNOMED CT codes left out of the record), all fixed.
   **X12 (owner, 2026-10-07): code values out of the packages; a site supplies them as settings.**
   After a licensing analysis the owner received in October 2026 (not a legal opinion). Built on
-  `claude/lp14-x12-settings` (draft PR): nothing in src/, packs/, datasets/, README or NOTICE
+  `claude/lp14-x12-settings` (#179, draft): nothing in src/, packs/, datasets/, README or NOTICE
   carries an X12 code value; the code-system urls (names, from HL7's CC0 PAS guide) stay.
   Inventory of what shipped: the request type and certification type `request_bundle` filled in,
   the Coverage's code for self and the payer's and requester's entity codes `pas.py` filled in,
