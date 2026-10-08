@@ -102,6 +102,7 @@ def remote(monkeypatch: pytest.MonkeyPatch) -> Remote:
     monkeypatch.setenv("JEV_API_KEY", "test-key")
     monkeypatch.delenv("JEV_CONNECTOR", raising=False)
     monkeypatch.setenv("AI_GATEWAY_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_MODEL", "openai/gpt-oss-120b")  # no built-in default model (LP-10c-ii)
     fake = Remote()
     jev_init, llm_init = JevProvider.__init__, LlmProvider.__init__
 
