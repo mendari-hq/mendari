@@ -54,7 +54,15 @@ The first release (not yet published).
   (it refused any report from a composite). A version published before this records no
   members, so it refuses such a report with the reason (publish a new version). A shared
   report's error codes must be Mendari's own, a closed set the spec lists (they were checked
-  only as names), and the type checker holds every provider error to that set.
+  only as names), and the type checker holds every provider error to that set. A pack from a
+  registry with a reference pack's id and version but other files is refused at publish, pull
+  and load (it would have been served in the reference pack's place); one cached before is
+  listed under `/api/health` `invalid`, with the directory to remove.
+- **Input schemas bounded in shape:** the input schema of a pack the deployment owns nests at
+  most 32 deep, chains at most 16 `$ref`s, applies at most 1,000 schema objects to one value,
+  refers back to itself only as a recursive list or tree does, and holds no
+  `unevaluatedProperties` or `unevaluatedItems` below another; one beyond these is refused at
+  load. Every shipped pack is well within them (6 deep, 1 `$ref`, 2 schema objects).
 - **Distribution:** a wheel and an sdist, container images (the engine with every pack, and one
   per pack), and deployment templates for docker compose and Kubernetes.
 - **The command line:** every error is one line per problem and exit 1, never a traceback

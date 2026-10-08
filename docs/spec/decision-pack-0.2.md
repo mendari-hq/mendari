@@ -143,6 +143,19 @@ Validation rules (all MUST hold):
   only; it holds no `$dynamicAnchor` and no `format: "regex"`. These keys are looked for in the
   whole document, since a `$ref` can make any object in it a schema. Inputs are checked with a
   validator that retrieves nothing, so checking an input never fetches a URL or reads a file.
+- The input schema of a pack the deployment owns (a reference pack, or an operator's local pack;
+  one it does not own has the caps and the time budget of §5 instead) is bounded in shape: its
+  document nests objects and lists at most 32 deep; no path through it, following its
+  applicators, holds more than 16 `$ref`s; and it applies at most 1,000 schema objects to one
+  value of an input, a schema reached twice (two `$ref`s to it, an `allOf` listing two that
+  reach it) counted twice. A schema MAY refer back to itself only as a recursive list or tree
+  does: each schema of the loop leads back into it exactly once, the loop passes through a
+  keyword that applies to a property or an item (`properties`, `items` and the like), and it
+  leads to no other loop. A schema that applies itself to the same value, a node that applies
+  its child twice and a binary tree (`left` and `right` both the node) are invalid. A schema
+  holding `unevaluatedProperties` or `unevaluatedItems` MUST NOT lead, through any applicator, to
+  another schema holding one, nor back to itself: to find what is unevaluated, a validator checks
+  again every schema below it, so each one more below another multiplies the work.
 
 ## 4. Questions
 
@@ -370,7 +383,10 @@ alone or together, or that holds more than 10,000 values or is nested more than 
 any pattern runs, and its patterns and schema checks share a time budget of one second of CPU
 per decision: past it the decision abstains with the error `time_budget`, for a person (an input
 the schema had already found wrong is refused). Which engine a pack runs on is never read from
-its manifest; the pack format is the same for every pack.
+its manifest; the pack format is the same for every pack. A pack from a registry whose id is that
+of a reference pack in the installed release, and whose version is equal to that pack's as
+versions are ordered (by their numbers: `0.4.1-x` and `0.04.1` equal `0.4.1`), MUST be that
+pack (its digest): any other is invalid, since it would be served in the reference pack's place.
 
 A remote provider's endpoint, model and credentials belong to the deployment, which supplies
 them in fixed environment variables (`jev`: `JEV_API_URL`, `JEV_MODEL`, `JEV_API_KEY`,
@@ -672,6 +688,7 @@ of these.
 | Every behaviour test is a mapping with an `input` mapping, an optional text `name` and an optional `expect` mapping, and is JSON: no date, binary, set, lone surrogate or non-finite number (every spec version) | §10 |
 | No lone surrogate, `!!binary`, `!!set`, `!!omap` or `!!pairs` in a pack's YAML, no lone surrogate or non-finite number in its JSON; a file is used only with the content its digest hashed (every spec version) | §3 |
 | No symbolic link out of a directory pack; a self-contained input schema (local references only, no nested `$schema` or `$id`, no `$dynamicAnchor`, no `format: regex`; every spec version) | §3 |
+| An owned pack's input schema nests at most 32 deep, chains at most 16 `$ref`s and applies at most 1,000 schema objects to one value, referring back to itself only as a recursive list or tree, with no `unevaluatedProperties` or `unevaluatedItems` below another; a pack from a registry with a reference pack's id and an equal version is that pack (every spec version) | §3, §5 |
 
 To migrate a pack:
 
