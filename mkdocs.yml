@@ -62,6 +62,7 @@ nav:
       - Deploying with real patient data: deploying-with-phi.md
       - Holding automation: operations/automation-hold.md
       - Organizations and memberships: operations/accounts.md
+      - Status checks: operations/status-checks.md
   - Reference:
       - Decision Pack spec 0.2: spec/decision-pack-0.2.md
       - Evaluation reports and ledgers: spec/evaluation-reports.md

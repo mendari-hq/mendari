@@ -367,6 +367,8 @@ PUBLIC = {
     # The developer landing (static), and a redirect from ReDoc's old address to the reference.
     ("GET", "/docs"),
     ("GET", "/redoc"),
+    # The status page: static, it reads readiness in the browser.
+    ("GET", "/status"),
     # The scheduled purge: its own bearer secret (CRON_SECRET), checked by the route.
     ("GET", "/api/internal/retention"),
 }

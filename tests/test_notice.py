@@ -36,7 +36,7 @@ def test_every_page_and_the_openapi_description_carry_the_notice(
     open_client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     stamped = f'<p class="preview-notice" role="note">{notices.NOTICE}</p>'
-    for page in ("/", "/docs", "/docs/reference"):
+    for page in ("/", "/docs", "/docs/reference", "/status"):
         assert stamped in open_client.get(page).text, page
     # The invitation page, served in memberships mode only.
     monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")

@@ -45,7 +45,10 @@ The public sandbox and the project's own Vercel deployment are **synthetic only*
   `/api/health`. A check that calls it more often than your database's idle suspend (Neon's
   default is 5 minutes) keeps the database awake. On Vercel, an instance that starts while the
   database is down fails before any route runs (the app opens its database at import), so a
-  status page sees an error there, not a `503`.
+  status page sees an error there, not a `503`. `/status` shows readiness to people, and
+  [status checks](operations/status-checks.md) lists what an external status page should check
+  (readiness, sign-in, a decision, the registry, the Hub) and how to give its decide check a key
+  of its own.
 
 A request body is 4 MiB at most: raise `MENDARI_MAX_BODY_BYTES` (in
 bytes, 64 KiB or more) if your FHIR Bundles are larger, and give your proxy the same limit

@@ -2187,6 +2187,17 @@ def create_app(
             headers = {"cache-control": "no-store", "content-security-policy": invite_csp}
             return HTMLResponse(invite_page, headers=headers)
 
+    # The status page (LP-21b): public and static, the same for everyone; it reads readiness
+    # (`/api/health/ready`) in the browser, so serving it does no database work. Its own policy
+    # allows its inline scripts (the theme, the import map) and no inline style.
+    status_page = versioned_page("status.html")
+    status_csp = content_security_policy(status_page, inline_styles=False)
+
+    @app.get("/status", include_in_schema=False)
+    def status_view() -> HTMLResponse:
+        headers = {"cache-control": "no-cache", "content-security-policy": status_csp}
+        return HTMLResponse(status_page, headers=headers)
+
     # Bookmarks and links to FastAPI's ReDoc page, which is gone.
     @app.get("/redoc", include_in_schema=False)
     def to_api_reference() -> RedirectResponse:

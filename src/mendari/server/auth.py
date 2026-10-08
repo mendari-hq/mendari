@@ -206,6 +206,8 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         # never a redirect, so a signed-out browser never carries the token in the link's
         # fragment on to the identity provider (a redirect keeps it, RFC 9110 §10.2.2).
         ("GET", r"^/invite$", "public"),
+        # The status page (static; it reads readiness in the browser).
+        ("GET", r"^/status$", "public"),
         ("GET", r"^/docs/reference$", "page"),  # a signed-out browser is sent to sign in
         ("GET", r"^/openapi\.json$", "read"),
         # The scheduled purge (Vercel Cron): its own bearer secret, CRON_SECRET, checked there.
