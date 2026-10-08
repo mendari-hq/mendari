@@ -7,9 +7,10 @@ operator's status page checks, for a first look before setting it up, or a job o
         [--registry https://registry.example.org] [--hub https://hub.example.org]
 
 One line per check: `ok`, `failed` and why, or `skipped` and why (a base URL not given, a key not
-set, sign-in off). Exit 1 when any check failed. The decide check's key comes from the
-environment variable the file names (`STATUS_DECIDE_KEY`), never an argument; nothing printed
-holds a key, a body, a cookie or a header's value.
+set, sign-in off or not known). Exit 1 when any check failed. Give `--api` the deployment's
+public address (`MENDARI_PUBLIC_URL`): sign-in elsewhere first moves there. The decide check's
+key comes from the environment variable the file names (`STATUS_DECIDE_KEY`), never an
+argument; nothing printed holds a key, a body, a cookie or a header's value.
 """
 
 from __future__ import annotations
@@ -64,8 +65,9 @@ def run(
         if not root:
             results.append(Result(name, "skipped", f"no --{base} given"))
             continue
-        if check.get("only_with_sign_in") and sign_in is False:
-            results.append(Result(name, "skipped", "sign-in is off here"))
+        if check.get("only_with_sign_in") and sign_in is not True:
+            why = "sign-in is off here" if sign_in is False else "/api/health did not say"
+            results.append(Result(name, "skipped", why))
             continue
         headers = {}
         if "key_from" in request:
@@ -113,6 +115,8 @@ def _problem(answer: httpx.Response, expect: Mapping[str, Any], root: str) -> st
         there = urlsplit(location)
         if not there.netloc or (there.scheme, there.netloc) == (here.scheme, here.netloc):
             return "the redirect stays here: it does not reach the identity provider"
+        if there.path == "/auth/login":  # Mendari's own move to its public address
+            return "the redirect goes to another of Mendari's addresses: give --api that one"
     if "json_has" in expect:
         try:
             body = answer.json()

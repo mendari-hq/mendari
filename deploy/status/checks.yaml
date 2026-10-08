@@ -5,7 +5,9 @@
 # {api}, {registry} and {hub} are your base URLs. A check whose base is not given is skipped.
 # The decide check's key is read from the environment variable it names, never from this file:
 # a key of its own, decide-only, in an organization of its own, so its decisions are told apart
-# from anyone's and spend no one's quota.
+# from anyone's (each waits in that organization's review queue). It decides with AI Guard,
+# which runs local rules even where Jev is set up, so it spends no model calls unless your
+# provider settings name a model for AI Guard.
 interval_seconds: 300
 checks:
   - name: readiness
@@ -23,9 +25,11 @@ checks:
     what: a synthetic decision on a reference pack, by the status organization's key
     request:
       method: POST
-      url: "{api}/api/packs/mendari/patient-inbox-router/decide"
+      url: "{api}/api/packs/mendari/ai-guard/decide"
       key_from: STATUS_DECIDE_KEY
-      json: {message: {body: "Status check: can you confirm my appointment on Friday?"}}
+      json:
+        question: "Status check: is the clinic open on Friday?"
+        draft: "Yes, the clinic is open on Friday from 9 to 5."
     expect: {status: [200], json_has: outcome}
 
   - name: registry

@@ -97,12 +97,14 @@ def test_a_check_is_skipped_without_its_base_its_key_or_sign_in(tmp_path: Path) 
 
 def test_a_redirect_that_stays_here_or_an_answer_without_an_outcome_fails() -> None:
     checks = script()
+    expect = {"status": [302], "location_leaves": "https://site.test"}
     here = httpx.Response(302, headers={"location": "https://site.test/auth/error"})
-    assert checks._problem(
-        here, {"status": [302], "location_leaves": "https://site.test"}, "https://site.test"
+    assert checks._problem(here, expect, "https://site.test")
+    moved = httpx.Response(302, headers={"location": "https://public.test/auth/login?next=%2F"})
+    assert checks._problem(moved, expect, "https://site.test") == (
+        "the redirect goes to another of Mendari's addresses: give --api that one"
     )
     away = httpx.Response(302, headers={"location": "https://idp.test/authorize?x=1"})
-    expect = {"status": [302], "location_leaves": "https://site.test"}
     assert checks._problem(away, expect, "https://site.test") is None
     empty = httpx.Response(200, json={"id": "d1"})
     assert checks._problem(empty, {"status": [200], "json_has": "outcome"}, "https://x") == (
@@ -111,6 +113,19 @@ def test_a_redirect_that_stays_here_or_an_answer_without_an_outcome_fails() -> N
     down = elsewhere(503)
     results = checks.run(checks.load(), {"registry": "https://r.test"}, lambda base: down, {})
     assert outcomes(results)["registry"] == "failed"
+
+
+def test_sign_in_is_skipped_when_health_does_not_say(tmp_path: Path) -> None:
+    """Open mode in an outage: /api/health reads the database there and fails, so whether
+    sign-in is on is not known; the check says so rather than failing."""
+    checks = script()
+    app = create_app(db_path=tmp_path / "a.db")
+    break_sqlite(tmp_path / "a.db", "garbage")
+    site = TestClient(app, raise_server_exceptions=False)
+    results = checks.run(checks.load(), {"api": str(site.base_url)}, lambda base: site, {})
+    found = {r.name: (r.outcome, r.detail) for r in results}
+    assert found["sign-in"] == ("skipped", "/api/health did not say")
+    assert found["readiness"][0] == "failed"
 
 
 def test_the_command_prints_one_line_a_check_and_exits_1_on_a_failure(
@@ -144,10 +159,15 @@ def test_the_status_page_is_public_static_and_does_no_database_work(
             opened.append(exclusive)
             return real(self, exclusive=exclusive)
 
-        monkeypatch.setattr(db_module.SqliteBackend, "session", spy)
+        def pinged(self: Any, sql: str, timeout_s: float) -> None:
+            opened.append(False)
+
+        for backend in (db_module.SqliteBackend, db_module.PostgresBackend):
+            monkeypatch.setattr(backend, "session", spy)
+            monkeypatch.setattr(backend, "ping", pinged)
         page = site.get("/status")
         assert page.status_code == 200 and "text/html" in page.headers["content-type"]
-        assert opened == []  # nothing read: the browser asks readiness itself
+        assert opened == []  # nothing read, not even readiness: the browser asks for it
         assert "/static/status.js?v=" in page.text  # stamped, like every page's modules
         policy = page.headers["content-security-policy"]
         assert "'unsafe-inline'" not in policy and page.headers["cache-control"] == "no-cache"

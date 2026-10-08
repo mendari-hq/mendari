@@ -20,7 +20,7 @@ lists them; set each up in the provider as an HTTP check:
 |---|---|---|---|
 | Readiness | `GET /api/health/ready` | `200` | The database answers and the packs loaded. `503` when not. |
 | Sign-in | `GET /auth/login?next=%2F`, redirects not followed | `302` to the identity provider (another host) | Sign-in works. Only with sign-in on. |
-| Decide | `POST /api/packs/mendari/patient-inbox-router/decide` with the status key and the file's message | `200` with an `outcome` | A decision is made and recorded, end to end. |
+| Decide | `POST /api/packs/mendari/ai-guard/decide` with the status key and the file's case | `200` with an `outcome` | A decision is made and recorded, end to end. |
 | Registry | `GET <registry>/v1/health` | `200` | Packs can be published and pulled. |
 | Hub | `GET <hub>/` | `200` | The Hub's site loads. |
 
@@ -39,22 +39,39 @@ means the compute never sleeps.
 
 Each sign-in check spends one of its address's sign-in requests (300 a minute, 120 at once, in
 Mendari; 120 a minute per address on `/auth/` at Vercel's firewall), and the decide check one of
-its key's decisions. At five minutes apart neither comes close.
+its key's decisions. At five minutes apart neither comes close. Point the sign-in check at the
+deployment's public address (`MENDARI_PUBLIC_URL`): on any other, Mendari first moves the
+browser there, and that move is not the identity provider answering (the script says so).
 
 ## The status key
 
 The decide check needs a key of its own, and nothing more. Its decisions are real: they are
-recorded and chained. So give the key:
+recorded and chained, and each waits in its organization's review queue (AI Guard sends every
+case to a person until an approval says otherwise). So give the key:
 
-- **its own organization**, so its decisions are never mixed with anyone's in the review queue,
-  monitoring, usage or quotas. Something like `status`, and nothing else in it;
+- **its own organization**, so its decisions never reach anyone else's review queue, quotas or
+  monitoring view. Something like `status`, and nothing else in it. Two things still count it
+  with everyone: `mendari monitor` without `--org` (all organizations together; the scheduled
+  monitor, LP-21f, leaves the status organization out), and the deployment's daily call budgets;
 - **the decide scope only**: `role` `service` with `scope`
   `https://mendari.co/fhir/scope/decide`. It can then decide and list the packs, and nothing
   else.
 
-The decide check sends a fixed synthetic message to the inbox router, which runs local providers
-by default, so the check spends no model calls. If your deployment runs the inbox on Jev or an
-LLM, each check spends one call of the daily budget.
+The check sends a fixed synthetic case to AI Guard, which runs its local rules even where Jev is
+set up, so it spends no model calls. (The inbox router would not do: with Jev set up it asks Jev,
+and every check would spend a call of the daily Jev budget all organizations share, 288 a day
+from one region at five minutes apart.) If your provider settings name a model for one of AI
+Guard's slots, each check spends a call of that budget too.
+
+**One organization.** In claims mode without an organization claim (`MENDARI_OIDC_ORG_CLAIM`
+unset, as with Google sign-in), every person and key belongs to `default`: there is no second
+organization to give the key. Leave `STATUS_DECIDE_KEY` unset there (the check is skipped)
+until the deployment has an organization claim or runs in memberships mode.
+
+**Expiry.** A key expires after 90 days unless you ask for longer (`"days"`, at most 365), and
+the decide check fails from then on. Ask for 365 and replace it before then:
+`POST /api/auth/keys/{key_id}/rotate` (with `"days": 365`) gives a new key, and the old one
+keeps working for 24 hours, time to give the provider the new one.
 
 In memberships mode ([Organizations and memberships](accounts.md)):
 
@@ -63,9 +80,9 @@ In memberships mode ([Organizations and memberships](accounts.md)):
    `mendari access invite --org status --email <your address> --role admin`.
 3. Accept the invitation, choose the `status` organization, and create the key in the Access
    view, or with `POST /api/auth/keys`:
-   `{"name": "status checks", "role": "service", "scope": "https://mendari.co/fhir/scope/decide"}`.
+   `{"name": "status checks", "role": "service", "scope": "https://mendari.co/fhir/scope/decide", "days": 365}`.
 
-In claims mode, the organization is the one the identity provider's claim names. An
+In claims mode with an organization claim, the organization is the one the claim names. An
 administrator whose claim names the status organization creates the key the same way.
 
 Give the key to the status provider as a secret header, `Authorization: Bearer <key>`, never in

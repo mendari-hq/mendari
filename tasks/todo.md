@@ -1115,8 +1115,8 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     last answer at once; the packs as start-up found them (`ok`, `degraded`, `none`); `503`
     when unready; fixed codes only. Kubernetes' readinessProbe uses it; ADR-0010; this entry.
   - [ ] **21b** (PR open) The status checks file (`deploy/status/checks.yaml`: readiness, the
-    sign-in redirect, a synthetic decide by a decide-only key in a status organization of its
-    own, the registry, the Hub), `scripts/status_checks.py`, `docs/operations/status-checks.md`
+    sign-in redirect, a synthetic decide on AI Guard (local rules, even with Jev set up) by a
+    decide-only key in a status organization of its own, the registry, the Hub), `scripts/status_checks.py`, `docs/operations/status-checks.md`
     and `/status`, a public static page that reads readiness in the browser.
   - [ ] **21c** The monitor compares like with like (served version, a comparable reference or
     none, the reviewed stratum, refusals apart, whole weeks, unknown cost as unknown).

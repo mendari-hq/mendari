@@ -52,8 +52,11 @@ Anonymous `/api/health` stays three fields with no database work.
      described in `docs/operations/status-checks.md`) covers:
      - readiness;
      - the sign-in redirect, which must reach the identity provider (another host);
-     - a synthetic decide on the inbox router (local providers by default), by a decide-only
-       key in an organization of its own, read from `STATUS_DECIDE_KEY`, never the file;
+     - a synthetic decide on AI Guard, which runs local rules even where Jev is set up (the
+       inbox would spend a call of the deployment's shared Jev budget at every check), by a
+       decide-only key in an organization of its own, read from `STATUS_DECIDE_KEY`, never the
+       file; on a deployment with one organization (claims mode without an organization
+       claim) the check waits until there is a second;
      - the registry's health;
      - the Hub's page.
    - A minimal public in-app status view, `/status`: static, reading readiness in the browser
