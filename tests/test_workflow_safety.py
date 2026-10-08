@@ -29,8 +29,8 @@ WORKFLOWS = sorted((ROOT / ".github" / "workflows").glob("*.yml"))
 UNSAFE_TRIGGERS = {"pull_request_target", "workflow_run", "issue_comment", "pull_request_review"}
 ALLOWED_TRIGGERS = {"push", "pull_request", "workflow_dispatch", "schedule"}
 # A schedule runs the default branch's own workflow and code, no one's input: only the weekly scan
-# of every ref uses one.
-SCHEDULED = {"secrets.yml"}
+# of every ref and the sweep of Neon preview branches no pull request needs use one.
+SCHEDULED = {"secrets.yml", "neon-preview-cleanup.yml"}
 # The only write permissions, each on a job that publishes from its own environment in a
 # workflow only a manual dispatch starts: the release workflow's publishing jobs (GUARDED below:
 # their environments must have reviewers) and the docs deploy (`github-pages`, which allows only
@@ -294,6 +294,7 @@ def test_secrets_never_reach_a_fork_pull_request(path: Path) -> None:
 
 
 def test_every_file_has_a_code_owner() -> None:
+    # One person on the `*` rule: the pack check takes that person for the repository's owner.
     lines = (ROOT / ".github" / "CODEOWNERS").read_text().splitlines()
     rules = [line.split() for line in lines if line.strip() and not line.startswith("#")]
     assert rules[0] == ["*", "@Junebugg1214"]
@@ -391,24 +392,32 @@ def test_pack_check_runs_on_every_pull_request() -> None:
     maintained = next(step for step in steps if "pack_gate.py" in step.get("run", ""))
     assert 'case "$dir" in packs/*)' in maintained["run"]  # community packs go the other way
     (community,) = [step for step in steps if "community_check.py" in step.get("run", "")]
-    # Who made the change and who owns the repository reach the script through `env` only. The
-    # author is the pull request's, never `github.actor` (whoever caused the run: the owner
-    # updating a fork's branch would be it), and the branch must be in this repository.
+    # Who made the change reaches the script through `env` only. The author is the pull
+    # request's, never `github.actor` (whoever caused the run: the owner updating a fork's branch
+    # would be it); the branch must be in this repository and the pull request into the default
+    # branch. Who owns the repository is the person the base's CODEOWNERS names (the script
+    # reads it), never `github.repository_owner`: since the move to mendari-hq, an organization,
+    # which no pull request's author is.
     assert community["env"] == {
         "BASE": "${{ github.event.pull_request.base.sha }}",
+        "BASE_REF": "${{ github.event.pull_request.base.ref }}",
+        "DEFAULT_BRANCH": "${{ github.event.repository.default_branch }}",
         "AUTHOR": "${{ github.event.pull_request.user.login }}",
         "HEAD_REPO": "${{ github.event.pull_request.head.repo.full_name }}",
         "REPO": "${{ github.repository }}",
-        "OWNER": "${{ github.repository_owner }}",
     }
     for argument in (
+        '--base "$BASE"',
         '--actor "$AUTHOR"',
-        '--owner "$OWNER"',
         '--head-repo "$HEAD_REPO"',
         '--repo "$REPO"',
+        '--base-ref "$BASE_REF"',
+        '--default-branch "$DEFAULT_BRANCH"',
     ):
         assert argument in community["run"]
-    assert "github.actor" not in json.dumps(community)
+    step = json.dumps(community)
+    for unwanted in ("github.actor", "repository_owner", "--owner"):
+        assert unwanted not in step, unwanted
 
 
 def test_ci_runs_every_community_packs_tests() -> None:

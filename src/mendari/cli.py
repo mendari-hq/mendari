@@ -18,10 +18,10 @@ from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 from mendari import __version__
 from mendari.core import clock, tenancy
-from mendari.core.audit import SYSTEM_ID, AuditStore
+from mendari.core.audit import SYSTEM_ID, AuditStore, break_glass_reason
 from mendari.core.decision import Decision
 from mendari.core.pack import Pack
-from mendari.core.registry import discover, resolve_pack
+from mendari.core.registry import discover, resolve_pack, version_key
 from mendari.errors import MendariError, PackValidationError
 from mendari.sandbox import example_datasets_dir
 from mendari.settings import (
@@ -215,7 +215,7 @@ def cmd_eval(args: argparse.Namespace) -> int:
             print("note: --out is not a file, so no ledger is written beside it", file=sys.stderr)
         out.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     if args.db:
-        AuditStore(args.db).save_report(report, ledger=run.ledger.dumps())
+        AuditStore(args.db).save_report(report, ledger=run.ledger.dumps(), usage=run.usage)
     if args.share_out:
         from mendari.evals.share import shareable
 
@@ -479,7 +479,19 @@ def cmd_audit_verify(args: argparse.Namespace) -> int:
     # database read-only: it creates, migrates and marks nothing (no key a stray setting holds is
     # recorded as known), and an older database is verified as it is.
     with _read_store(args.db, phi=phi_policy() if args.notes else None) as store:
-        status = store.verify(notes=args.notes)
+        status = store.verify(notes=args.notes, since_checkpoint=args.since_checkpoint)
+    _print_json(status)
+    return 0 if status["ok"] else 1
+
+
+def cmd_audit_checkpoint(args: argparse.Namespace) -> int:
+    """Verify from the last checkpoint and, when the chain holds, record its head as the next
+    one (LP-21j), outside the chain; exit 1 when it is broken (nothing recorded). Opening the
+    database migrates it, as every command that writes does; the checkpoint is the one row
+    written: nothing is marked or chained."""
+    _servers_database(args.db, used=False, tables=_EVERY_RELEASE)  # mistyped: refused
+    with AuditStore(args.db, marks=False) as store:
+        status = store.record_checkpoint()
     _print_json(status)
     return 0 if status["ok"] else 1
 
@@ -570,11 +582,11 @@ def _probe(target: str, tables: tuple[str, ...] = ()) -> tuple[bool, bool]:
 
 
 def _hold_store(target: str | None, *, serving: bool) -> tuple[AuditStore, str]:
-    """The deployment's database for the break-glass, refused when it cannot be the one a server
-    runs on: not given, a SQLite file that does not exist (it would be created, and hold
-    nothing), a database without Mendari's tables (nothing is created in it), and, to set a hold
-    (`serving`), one that holds no decision, deployment or hold. Returns it and its name as
-    shown (no password)."""
+    """The deployment's database for the break-glass (holds, revocations, ending sessions),
+    refused when it cannot be the one a server runs on: not given, a SQLite file that does not
+    exist (it would be created, and hold nothing), a database without Mendari's tables (nothing
+    is created in it), and, to set a hold (`serving`), one that holds no decision, deployment or
+    hold. Returns it and its name as shown (no password)."""
     target = target or os.environ.get("DATABASE_URL", "").strip() or None
     if target is None:
         raise MendariError("give --db (the server's database) or set DATABASE_URL")
@@ -773,6 +785,68 @@ def cmd_access_check(args: argparse.Namespace) -> int:
         print(f"{shown}: no record for {', '.join(missing)}", file=sys.stderr)
         return 1
     print(f"{shown}: every organization in use has a record", file=sys.stderr)
+    return 0
+
+
+def cmd_access_keys(args: argparse.Namespace) -> int:
+    """Every API key (of `--org`) with its status now (read-only): never a secret or its hash."""
+    store, _ = _access_store(args.db, writes=False)
+    _print_json(store.api_keys(args.org))
+    return 0
+
+
+def cmd_access_clients(args: argparse.Namespace) -> int:
+    """Every Backend Services client (of `--org`): its keys' ids and thumbprints (read-only)."""
+    store, _ = _access_store(args.db, writes=False)
+    _print_json(store.clients(args.org))
+    return 0
+
+
+def cmd_access_revoke(args: argparse.Namespace) -> int:
+    """The break-glass for credentials (LP-21l): written straight to the database, for any
+    organization, so it works with the server down. A key or client stops working at once on
+    every instance (each request reads it), and a client's access tokens go with it. Each is
+    chained with who and why (`key.revoked`, `client.revoked`)."""
+    reason = _access_call(lambda: break_glass_reason(args.reason))
+    store, shown = _hold_store(args.db, serving=False)
+    actor = _command_line_actor()
+    revoked: dict[str, list[str]] = {"keys": [], "clients": []}
+    if args.what == "key":
+        if not store.revoke_api_key(args.id, revoked_by=actor, reason=reason):
+            raise MendariError(f"no key {args.id} in force in {shown}")
+        revoked["keys"].append(args.id)
+    elif args.what == "client":
+        if not store.revoke_client(args.id, revoked_by=actor, reason=reason):
+            raise MendariError(f"no client {args.id} in force in {shown}")
+        revoked["clients"].append(args.id)
+    else:  # every key and client of an organization still in force
+        for key in store.api_keys(args.org):
+            if key["status"] in ("active", "replaced") and store.revoke_api_key(
+                key["id"], args.org, revoked_by=actor, reason=reason
+            ):
+                revoked["keys"].append(key["id"])
+        for client in store.clients(args.org):
+            if client["revoked_at"] is None and store.revoke_client(
+                client["client_id"], args.org, revoked_by=actor, reason=reason
+            ):
+                revoked["clients"].append(client["client_id"])
+        if not revoked["keys"] and not revoked["clients"]:
+            raise MendariError(f"no key or client of {args.org} in force in {shown}")
+    _print_json(revoked)
+    print(f"revoked in {shown}", file=sys.stderr)
+    return 0
+
+
+def cmd_access_end_sessions(args: argparse.Namespace) -> int:
+    """The break-glass for sessions (LP-21l): signs out every person (`people`: sessions and
+    sign-ins under way), every EHR launch (`launches`), or both (`all`), on every instance at
+    once. Chained (`sessions.ended`) with the kinds, how many, who and why."""
+    reason = _access_call(lambda: break_glass_reason(args.reason))
+    # A server signs people in before its first decision: any Mendari database, named below.
+    store, shown = _hold_store(args.db, serving=False)
+    ended = store.end_sessions(args.kind, ended_by=_command_line_actor(), reason=reason)
+    _print_json(ended)
+    print(f"ended {ended['ended']} in {shown}", file=sys.stderr)
     return 0
 
 
@@ -1314,39 +1388,80 @@ def cmd_keys_register(args: argparse.Namespace) -> int:
 
 
 def cmd_monitor(args: argparse.Namespace) -> int:
-    """For a scheduler: every pack's alerts (for one organization with --org; otherwise all of
-    them together), posted to a webhook when one is set; exit 1 on any."""
-    import os
-
-    import httpx
-
+    """For a scheduler: every pack's alerts (the served, newest, version of each), for one
+    organization with --org, each organization on its own with --each-org (but the status
+    organization, MENDARI_STATUS_ORG), otherwise all of them together; posted to a webhook when
+    one is set (`mendari.alerts`: in its format, signed with its secret, tried up to three
+    times), one alert per organization; exit 1 on any alert, 3 when any could not be posted.
+    With --each-org (a scheduled job) an alert posted is the job done: exit 0 when every alert
+    found was posted (or none was found); 1 when alerts were found with no webhook to post them,
+    or one organization's monitoring failed (the others still run, its line says why); 3 when
+    any could not be posted, whatever else happened.
+    Nothing is recorded: the database is opened read-only. A benchmark counts only for the
+    build and providers a server recorded running (`deployments`; a model a setting chose is
+    not recorded, so a benchmark of one is not compared), under the organization's governance;
+    otherwise the line says why, and only the checks that need no benchmark run (automated
+    decisions rated wrong, overrides that doubled, provider errors, abstentions and latency)."""
+    from mendari.alerts import alert_settings, check_webhook
     from mendari.core import tenancy
-    from mendari.evals.monitoring import check_webhook, monitor
+    from mendari.evals.monitoring import monitor, organizations, post_alerts, recorded_providers
+    from mendari.settings import status_org
 
-    webhook = args.webhook or os.environ.get("MENDARI_ALERT_WEBHOOK", "").strip()
-    if webhook:
-        check_webhook(webhook)  # before any work, so a typo fails at once
-    packs = [resolve_pack(args.pack)] if args.pack else discover().packs
-    with _read_store(args.db) as store, tenancy.acting_for(args.org):
+    alerts = alert_settings(args.webhook)  # before any work, so a typo fails at once
+    if alerts is not None:
+        check_webhook(alerts.webhook)
+    skip = status_org() if args.each_org else None  # likewise
+    if args.pack:
+        packs = [resolve_pack(args.pack)]
+    else:  # the version a server serves of each pack: the newest
+        newest: dict[str, Pack] = {}
+        for pack in discover().packs:
+            if pack.id not in newest or version_key(pack.version) > version_key(
+                newest[pack.id].version
+            ):
+                newest[pack.id] = pack
+        packs = [newest[pack_id] for pack_id in sorted(newest)]
+    found_alerts = undelivered = failed = False
+    with _read_store(args.db) as store:
         store.require_current("monitor")
-        reports = [monitor(store, pack, days=args.days) for pack in packs]
-    alerting = [r for r in reports if r["alerts"]]
-    for report in reports:
-        status = f"{len(report['alerts'])} alert(s)" if report["alerts"] else "ok"
-        print(f"{report['pack']['id']}: {status}")
-        for alert in report["alerts"]:
-            print(f"  [{alert['severity']}] {alert['kind']}: {alert['message']}")
-    if webhook and alerting:
-        body = {
-            "source": "mendari",
-            "organization": args.org,
-            "alerts": [{"pack": r["pack"], "alerts": r["alerts"]} for r in alerting],
-        }
-        try:
-            httpx.post(webhook, json=body, timeout=10, follow_redirects=False).raise_for_status()
-        except httpx.HTTPError as error:
-            raise MendariError(f"the alert webhook failed ({type(error).__name__})") from None
-    return 1 if alerting else 0
+        orgs = organizations(store, days=args.days, skip=skip) if args.each_org else [args.org]
+        for org in orgs:
+            try:
+                with tenancy.acting_for(org):
+                    reports = [
+                        monitor(
+                            store, pack, days=args.days, providers=recorded_providers(store, pack)
+                        )
+                        for pack in packs
+                    ]
+            except Exception as error:
+                debug = os.environ.get("MENDARI_DEBUG", "").strip().lower() in _DEBUG_ON
+                if not args.each_org or getattr(args, "debug", False) or debug:
+                    raise
+                # One organization's failure never hides another's alerts, posted or not.
+                for line in _problem_lines(error):
+                    print(f"error: {org}: {line}", file=sys.stderr)
+                failed = True
+                continue
+            where = f"{org}: " if args.each_org else ""
+            for report in reports:
+                status = f"{len(report['alerts'])} alert(s)" if report["alerts"] else "ok"
+                reason = report["benchmark"]["reason"]
+                compared = "" if reason is None else f" (no comparable benchmark: {reason})"
+                print(f"{where}{report['pack']['id']}: {status}{compared}")
+                for alert in report["alerts"]:
+                    print(f"  [{alert['severity']}] {alert['kind']}: {alert['message']}")
+            if not any(report["alerts"] for report in reports):
+                continue
+            found_alerts = True
+            if alerts is not None and not post_alerts(alerts, org, reports, attempts=3):
+                undelivered = True  # the warning above says why (its code), never the URL
+    if undelivered:
+        print("error: the alerts could not be posted to the webhook", file=sys.stderr)
+        return 3
+    if args.each_org:
+        return 1 if failed or (found_alerts and alerts is None) else 0
+    return 1 if found_alerts else 0
 
 
 def cmd_phi_purge(args: argparse.Namespace) -> int:
@@ -1567,6 +1682,20 @@ def _port(text: str) -> int:
     return port
 
 
+def _monitored_days(text: str) -> int:
+    """The days `mendari monitor` covers: two whole weeks to 180 days (argparse names the flag),
+    so the week before the last always exists."""
+    from mendari.evals.monitoring import MAX_DAYS, MIN_DAYS
+
+    try:
+        days = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a number of days: {text!r}") from None
+    if not MIN_DAYS <= days <= MAX_DAYS:
+        raise argparse.ArgumentTypeError(f"{days} days: give {MIN_DAYS} to {MAX_DAYS}")
+    return days
+
+
 def _iso_date(text: str) -> str:
     """A date as YYYY-MM-DD, checked before any work starts (argparse names the flag)."""
     try:
@@ -1760,12 +1889,23 @@ def build_parser() -> argparse.ArgumentParser:
     )
     verify = audit.add_parser("verify", help="verify the audit hash chain")
     verify.add_argument("--db", default="var/mendari.db", help="SQLite path or postgresql:// URL")
-    verify.add_argument(
+    checked = verify.add_mutually_exclusive_group()
+    checked.add_argument(
         "--notes",
         action="store_true",
         help="also check each kept note against its chained commitment (with $MENDARI_PHI_KEY)",
     )
+    checked.add_argument(
+        "--since-checkpoint",
+        action="store_true",
+        help="only the events after the last checkpoint (mendari audit checkpoint)",
+    )
     verify.set_defaults(handler=cmd_audit_verify)
+    checkpoint = audit.add_parser(
+        "checkpoint", help="verify from the last checkpoint and record the head as the next"
+    )
+    checkpoint.add_argument("--db", required=True, help="the server's database")
+    checkpoint.set_defaults(handler=cmd_audit_checkpoint)
     audit_export = audit.add_parser(
         "export", help="export the audit trail as FHIR NDJSON (AuditEvent, Provenance)"
     )
@@ -1868,6 +2008,35 @@ def build_parser() -> argparse.ArgumentParser:
     )
     check.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
     check.set_defaults(handler=cmd_access_check)
+    for credentials, about, handler in (
+        ("keys", "API keys, with their status (read-only)", cmd_access_keys),
+        ("clients", "Backend Services clients (read-only)", cmd_access_clients),
+    ):
+        listing = access.add_parser(credentials, help=about)
+        listing.add_argument("--org", help="of one organization")
+        listing.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+        listing.set_defaults(handler=handler)
+    revoke = access.add_parser(
+        "revoke", help="break-glass: revoke a key, a client, or all of an organization's"
+    ).add_subparsers(dest="revoke_command", required=True)
+    for what, about in (("key", "an API key"), ("client", "a Backend Services client")):
+        one = revoke.add_parser(what, help=f"{about}, of any organization")
+        one.add_argument("id", help=f"its id (mendari access {what}s)")
+        one.add_argument("--reason", required=True, help="why (chained; at most 200 characters)")
+        one.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+        one.set_defaults(handler=cmd_access_revoke, what=what)
+    every = revoke.add_parser("all", help="every key and client of an organization in force")
+    every.add_argument("--org", required=True)
+    every.add_argument("--reason", required=True, help="why (chained; at most 200 characters)")
+    every.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+    every.set_defaults(handler=cmd_access_revoke, what="all")
+    end = access.add_parser(
+        "end-sessions", help="break-glass: sign out every person, every EHR launch, or both"
+    )
+    end.add_argument("--kind", required=True, choices=["people", "launches", "all"])
+    end.add_argument("--reason", required=True, help="why (chained; at most 200 characters)")
+    end.add_argument("--db", help="the server's database (default: $DATABASE_URL)")
+    end.set_defaults(handler=cmd_access_end_sessions)
 
     feedback = sub.add_parser("feedback", help="thumbs up / down feedback").add_subparsers(
         dest="feedback_command", required=True
@@ -2095,9 +2264,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--db", default="var/mendari.db", help="SQLite path or postgresql:// URL"
     )
     monitor_cmd.add_argument("--pack", help="one pack (default: every pack)")
-    monitor_cmd.add_argument("--days", type=int, default=30)
     monitor_cmd.add_argument(
-        "--org", help="one organization (default: every organization together)"
+        "--days", type=_monitored_days, default=30, help="14 to 180, in whole weeks (default 30)"
+    )
+    orgs = monitor_cmd.add_mutually_exclusive_group()
+    orgs.add_argument("--org", help="one organization (default: every organization together)")
+    orgs.add_argument(
+        "--each-org",
+        action="store_true",
+        help="each organization with decisions on its own, one alert each (but MENDARI_STATUS_ORG)",
     )
     monitor_cmd.add_argument("--webhook", help="post alerts here (default: $MENDARI_ALERT_WEBHOOK)")
     monitor_cmd.set_defaults(handler=cmd_monitor)

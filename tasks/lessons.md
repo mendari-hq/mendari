@@ -740,3 +740,49 @@ After any commit that follows the last full run, run the repository-wide checks 
 
 ### Verification
 Before pushing a review-fix commit, the command log shows those four files passing.
+
+## 2026-10-08 - process
+
+### What happened
+LP-12g-iii (#186) wrote its new test module to `tests/test_isolation.py`, a path that already
+held #151's tests that the suite reaches no live system the developer's shell names. The write
+replaced that file; the review read the new file only, and the PR merged with those three tests
+gone. Found while closing out LP-12, from a stale-looking reference in `tasks/todo.md`; restored
+the same day, and the new module renamed `tests/test_two_organizations.py`.
+
+### Root cause
+A new file was written without checking the path was free, and the diff's "modified" status
+for what was meant to be a new file was not read.
+
+### Rule
+Before writing a new file, check the path does not exist (`git ls-files <path>`, or `ls`). In a
+PR that adds a module, `git diff --stat main...HEAD` must show it as new (`create mode`), never
+as a rewrite of an existing one.
+
+### Verification
+The PR's diff stat (or `git diff --name-status main...HEAD`) lists each new module with `A`.
+
+## 2026-10-08 - process
+
+### What happened
+Neon reached its 10-branch limit again despite the 2026-09-28 cleanup workflow, and new
+previews (#209, #211, #213) got no database branch. Three branches had escaped it: GitHub never
+started one PR's cleanup run (a billing failure, 10-06), a preview that finished building after
+its 62-second merge recreated a deleted branch, and a branch pushed without a pull request never
+had a close to trigger it. Meanwhile 24 cleanup runs were red only because the branch had never
+been created (Dependabot's, or a preview refused at the limit), which hid the real failures.
+
+### Root cause
+The workflow deleted one branch, named by the pull request that just closed, once. Anything that
+happened outside that one event was never looked at again, and "not found" counted as a failure.
+
+### Rule
+Clean up by sweeping the whole state, not by reacting to one event: the workflow
+(`scripts/neon_preview_cleanup.py`) deletes every `preview/*` branch whose Git branch has no
+open pull request and is gone or had one, on each close and every six hours. A branch already
+gone is success.
+
+### Verification
+`gh run list --workflow neon-preview-cleanup.yml --limit 5` is green, and a dry run
+(`gh workflow run neon-preview-cleanup.yml -f dry_run=true`) lists nothing to delete while
+Neon holds only `main` and the branches of open pull requests.

@@ -350,6 +350,7 @@ _ADMINISTRATIVE: dict[str, tuple[str, str, dict[str, str] | None]] = {
     "user.recorded": ("C", "Person recorded", {}),
     "deployment.recorded": ("C", "Deployment recorded", None),
     "retention.purged": ("D", "Retention purge", None),
+    "sessions.ended": ("D", "Sessions ended", {}),
     "phi.rotated": ("U", "PHI key rotation batch", _CONFIGURATION),
     "input_hash.epoch": ("C", "Input hash key epoch", _CONFIGURATION),
 }
@@ -364,6 +365,7 @@ _ACTORS = (
     "changed_by",
     "removed_by",
     "handled_by",
+    "ended_by",
     "actor",
     "user",
 )
@@ -408,6 +410,8 @@ _ADMINISTRATIVE_DETAILS = (
     "details",
     "notes",
     "source",
+    "kinds",
+    "ended",
 )
 
 

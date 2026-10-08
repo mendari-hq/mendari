@@ -476,16 +476,25 @@ def monitoring_week(start: str, end: str, agreed: int, labelled: int, overridden
         "from": start,
         "to": end,
         "decisions": 30,
+        "refused": 0,
         "automated_rate": 24 / 30,
         "reviewed": 6,
+        "awaiting_review": 1,
         "override_rate": overridden / 6,
         "labelled": labelled,
         "observed_accuracy": agreed / labelled if labelled else None,
+        "confidences": 30,
         "cost_per_decision": None,
+        "cost_unknown": 30,
+        "latency_ms": {"n": 30, "p50": 120.0, "p95": 1460.0, "mean": 300.0},
         "figures": {
             "automated": figures.of(24, 30),
             "overrides": figures.of(overridden, 6),
             "accuracy": figures.of(agreed, labelled),
+            "reviewed_accuracy": figures.of(6 - overridden, 6),
+            "automated_accuracy": figures.of(0, 0),
+            "provider_errors": figures.of(1, 30),
+            "abstained": figures.of(2, 30),
         },
     }
 
@@ -496,9 +505,18 @@ MONITORING = {
     "benchmark": {
         "accuracy": 0.97,
         "n": 600,
+        "reviewed_accuracy": 0.995,
+        "automated_accuracy": None,
         "tolerance": 0.03,
-        "figures": {"accuracy": figures.counted(0.97, 600)},
+        "comparable": True,
+        "reason": None,
+        "figures": {
+            "accuracy": figures.counted(0.97, 600),
+            "reviewed_accuracy": figures.counted(0.995, 598),
+            "automated_accuracy": None,
+        },
     },
+    "other_versions": {},
     "last_7_days": {
         **monitoring_week("2026-09-23", "2026-09-30", 23, 25, 2),
         "drift_psi": 0.1,
@@ -2257,62 +2275,164 @@ def test_monitoring_draws_the_weekly_trend(page: Page) -> None:
     expect(rows.nth(1)).to_contain_text("no cases")  # a week with nothing labelled
 
 
+def monitoring_report(**changes: Any) -> dict[str, Any]:
+    """A /api/monitoring answer whose reviewed and whole-set figures differ, so the view shows
+    which it compares."""
+    report: dict[str, Any] = {
+        "pack": {"id": INBOX},
+        "days": 30,
+        "benchmark": {
+            "accuracy": 0.97,
+            "n": 600,
+            "reviewed_accuracy": 0.995,
+            "automated_accuracy": None,
+            "tolerance": 0.03,
+            "comparable": True,
+            "reason": None,
+            "figures": {
+                "accuracy": figures.counted(0.97, 600),
+                "reviewed_accuracy": figures.counted(0.995, 598),
+                "automated_accuracy": None,
+            },
+        },
+        "other_versions": {"0.4.0": 3},
+        "configuration_since": None,
+        "last_7_days": {
+            "decisions": 40,
+            "refused": 0,
+            "automated_rate": 0.9,
+            "reviewed": 30,
+            "awaiting_review": 0,
+            "override_rate": 10 / 30,
+            "labelled": 30,
+            "observed_accuracy": 0.8,
+            "confidences": 40,
+            "cost_per_decision": 0.0,
+            "cost_unknown": 0,
+            "latency_ms": {"n": 40, "p50": 110.0, "p95": 900.0, "mean": 200.0},
+            "drift_psi": 0.31,
+            "automated_rated_wrong": 2,
+            "figures": {
+                "automated": figures.of(36, 40),
+                "overrides": figures.of(10, 30),
+                "accuracy": figures.of(24, 30),
+                "reviewed_accuracy": figures.of(20, 30),
+                "automated_accuracy": figures.of(0, 0),
+                "provider_errors": figures.of(0, 40),
+                "abstained": figures.of(0, 40),
+            },
+        },
+        "weeks": [],
+        "alerts": [],
+    }
+    for key, value in changes.items():
+        report[key] = value
+    return report
+
+
 def test_monitoring_alerts_lead_the_page(page: Page) -> None:
-    page.route(
-        "**/api/monitoring?*",
-        lambda route: route.fulfill(
-            json={
-                "pack": {"id": INBOX},
-                "days": 30,
-                "benchmark": {
-                    "accuracy": 0.97,
-                    "n": 600,
-                    "tolerance": 0.03,
-                    "figures": {"accuracy": figures.counted(0.97, 600)},
-                },
-                "last_7_days": {
-                    "decisions": 40,
-                    "automated_rate": 0.9,
-                    "reviewed": 4,
-                    "override_rate": 0.25,
-                    "labelled": 30,
-                    "observed_accuracy": 0.8,
-                    "cost_per_decision": 0.0,
-                    "drift_psi": 0.31,
-                    "automated_rated_wrong": 2,
-                    "figures": {
-                        "automated": figures.of(36, 40),
-                        "overrides": figures.of(1, 4),
-                        "accuracy": figures.of(24, 30),
-                    },
-                },
-                "weeks": [],
-                "alerts": [
-                    {
-                        "kind": "accuracy",
-                        "severity": "high",
-                        "message": f"observed accuracy {shown(figures.of(24, 30))} over the "
-                        "last 7 days",
-                    },
-                    {
-                        "kind": "drift",
-                        "severity": "medium",
-                        "message": "PSI 0.31 against the benchmark's confidences",
-                    },
-                ],
-            }
-        ),
+    report = monitoring_report(
+        alerts=[
+            {
+                "kind": "accuracy",
+                "stratum": "reviewed_accuracy",
+                "severity": "high",
+                "message": f"reviewed decisions: accuracy {shown(figures.of(20, 30))} "
+                "over the last 7 days",
+            },
+            {
+                "kind": "drift",
+                "severity": "medium",
+                "message": "PSI 0.31 against the benchmark's confidences",
+            },
+        ]
     )
+    page.route("**/api/monitoring?*", lambda route: route.fulfill(json=report))
     open_pack(page, INBOX, "monitoring")
     expect(page.locator(".callout.danger")).to_contain_text(
-        f"Accuracy below the benchmark: observed accuracy {shown(figures.of(24, 30))}"
+        f"Accuracy below the benchmark: reviewed decisions: accuracy {shown(figures.of(20, 30))}"
     )
-    expect(page.locator(".stats-primary")).to_contain_text(
-        f"benchmark {shown(figures.of(582, 600))}"
-    )
+    expect(page.locator("main")).to_contain_text("against its benchmark")
+    expect(page.locator("main")).to_contain_text("3 decisions of other versions of the pack are")
+    reviewed = page.locator(".stats-primary .stat").first
+    expect(reviewed).to_contain_text(shown(figures.of(20, 30)))  # the stratum, not the whole set
+    expect(reviewed).to_contain_text(f"benchmark {shown(figures.counted(0.995, 598))}")
+    expect(page.locator(".stats-primary")).not_to_contain_text(shown(figures.counted(0.97, 600)))
     expect(page.locator(".callout.warning")).to_contain_text("Confidence drift: PSI 0.31")
     expect(page.locator(".stat.tone-danger")).to_have_count(2)
-    expect(page.get_by_role("heading", name="No decisions in the last 30 days")).to_be_visible()
+    expect(
+        page.get_by_role("heading", name="No decisions of this version in the last 30 days")
+    ).to_be_visible()
+
+
+def test_monitoring_says_why_the_benchmark_is_not_compared(page: Page) -> None:
+    week = {
+        **monitoring_week("2026-09-23", "2026-09-30", 23, 25, 2),
+        "awaiting_review": 3,
+        "refused": 2,
+        "cost_unknown": 1,
+        "cost_per_decision": None,
+    }
+    bench = {**monitoring_report()["benchmark"], "comparable": False, "reason": "other_providers"}
+    quick = {**week, "latency_ms": {"n": 30, "p50": 1.1, "p95": 1.4, "mean": 1.2}}
+    report = monitoring_report(benchmark=bench, other_versions={"0.4.0": 1}, weeks=[week, quick])
+    page.route("**/api/monitoring?*", lambda route: route.fulfill(json=report))
+    open_pack(page, INBOX, "monitoring")
+    main = page.locator("main")
+    expect(main).to_contain_text(
+        "Not compared with the benchmark: the benchmark ran other providers or models than this "
+        "deployment. Only the checks that need no benchmark run"
+    )
+    expect(main).to_contain_text("1 decision of another version of the pack is not counted.")
+    expect(main).not_to_contain_text("against its benchmark")
+    expect(page.locator(".stats-primary .stat").first).not_to_contain_text("benchmark")
+    expect(page.locator(".stats-primary")).to_contain_text("needs a comparable benchmark")
+    table = page.locator('[data-table="monitoring-weeks"]')
+    expect(table.locator("thead")).to_contain_text("Awaiting review")
+    expect(table.locator("thead")).to_contain_text("Refused inputs")
+    row = table.locator("tbody tr").first
+    expect(row).to_contain_text("unknown")
+    expect(row.locator("td").nth(5)).to_have_text("3")
+    expect(row.locator("td").nth(6)).to_have_text("2")
+    expect(table.locator("thead")).to_contain_text("Provider errors")
+    expect(row.locator("td").nth(7)).to_contain_text(shown(figures.of(1, 30)))
+    expect(row.locator("td").nth(8)).to_contain_text(shown(figures.of(2, 30)))
+    expect(row.locator("td").nth(9)).to_have_text("1.5 s")
+    expect(table.locator("tbody tr").nth(1).locator("td").nth(9)).to_have_text("1.4 ms")
+
+
+def test_an_automated_stratum_alert_marks_its_own_stat(page: Page) -> None:
+    bench = monitoring_report()["benchmark"]
+    bench = {
+        **bench,
+        "automated_accuracy": 0.95,
+        "figures": {**bench["figures"], "automated_accuracy": figures.counted(0.95, 100)},
+    }
+    week = monitoring_report()["last_7_days"]
+    week = {
+        **week,
+        "figures": {
+            **week["figures"],
+            "reviewed_accuracy": figures.of(30, 30),
+            "automated_accuracy": figures.of(0, 25),
+        },
+    }
+    alert = {
+        "kind": "accuracy",
+        "stratum": "automated_accuracy",
+        "severity": "high",
+        "message": "automated decisions with an outcome recorded: accuracy 0 of 25",
+    }
+    report = monitoring_report(benchmark=bench, last_7_days=week, alerts=[alert])
+    page.route("**/api/monitoring?*", lambda route: route.fulfill(json=report))
+    open_pack(page, INBOX, "monitoring")
+    stats = page.locator(".stats-primary .stat")
+    expect(stats).to_have_count(5)
+    expect(stats.first).not_to_have_class(re.compile(r"tone-danger"))
+    automated = stats.nth(1)
+    expect(automated).to_contain_text("Automated accuracy, 7 days")
+    expect(automated).to_contain_text(f"benchmark {shown(figures.counted(0.95, 100))}")
+    expect(automated).to_have_class(re.compile(r"tone-danger"))
 
 
 def test_an_input_kept_encrypted_says_who_can_read_it(page: Page, live_server: str) -> None:

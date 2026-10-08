@@ -68,6 +68,28 @@ def test_the_screening_date_can_be_given(db_target: str) -> None:
     assert [m["status"] for m in later["medications"]] == ["active", "stopped"]
 
 
+def test_each_condition_is_written_in_its_codes_vocabulary(tmp_path: Path) -> None:
+    """ICD-10-CM, the local-site example's fictional codes, and any other code as SNOMED."""
+    fictional = {"code": "FC101", "text": "Type 2 diabetes mellitus"}
+    record = {**RECORD, "conditions": [*RECORD["conditions"], fictional]}
+    db = omop.open_database(str(tmp_path / "cdm.db"), create=True)
+    try:
+        omop.write(db, [("case-1", record)])
+        with db.session(exclusive=False) as s:
+            rows = s.all(
+                "SELECT concept_code, vocabulary_id FROM concept WHERE domain_id = ?", ["Condition"]
+            )
+        [(_, back)] = list(omop.read(db))
+    finally:
+        db.close()
+    assert {(row["concept_code"], row["vocabulary_id"]) for row in rows} == {
+        ("E11.9", "ICD10CM"),
+        ("22298006", "SNOMED"),
+        ("FC101", "Mendari fictional"),
+    }
+    assert back["conditions"] == record["conditions"]
+
+
 def test_reading_creates_nothing_and_needs_a_screening_date(tmp_path: Path) -> None:
     empty = omop.open_database(str(tmp_path / "empty.db"))
     with empty.session(exclusive=False) as s:

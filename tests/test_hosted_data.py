@@ -469,6 +469,7 @@ READERS = {"person:reviewer", "person:admin"}  # who may read inputs (`read_inpu
 # Read routes the sweep below leaves out, and why: neither serves a stored case.
 NOT_SWEPT = {
     "/api/internal/retention": "the scheduled purge: its own tests, with its secret",
+    "/api/internal/monitor": "the scheduled monitor: its own tests (test_monitor_cron.py)",
     "/api/providers/jev/models": "Jev's model list: needs Jev set up",
 }
 # Ids for the routes that read one fixed resource.

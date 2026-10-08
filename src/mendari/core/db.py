@@ -10,6 +10,10 @@ other: an IMMEDIATE transaction on SQLite, the advisory lock on Postgres.
 `audit export`, `feedback export`, `monitor`): no file or folder is created, no schema written,
 nothing migrated, no journal mode changed, and the connection itself refuses writes (SQLite
 `mode=ro`; Postgres `READ ONLY` transactions). A target that does not exist is an error.
+
+`ping` runs one statement to tell whether the database answers now (the readiness route,
+LP-21), waiting a bounded time and creating nothing: a SQLite file deleted under a running
+server stays missing.
 """
 
 from __future__ import annotations
@@ -49,6 +53,14 @@ class Backend(ABC):
     def session(self, *, exclusive: bool) -> Any:
         """Context manager yielding a Session. Exclusive sessions are transactions serialised
         with every other exclusive session (required for hash-chain appends)."""
+
+    @abstractmethod
+    def ping(self, sql: str, timeout_s: float) -> None:
+        """Run `sql` once and raise whatever the database raised; nothing is created or
+        written. `timeout_s` bounds what the driver can: SQLite's wait for a lock, Postgres's
+        wait for a pooled connection and the statement's time on the server. A connection that
+        stops answering without closing (a network black hole) is not bounded here: the caller
+        bounds its own wait (`server/readiness.py`)."""
 
     def close(self) -> None:  # noqa: B027 - optional hook
         pass
@@ -138,6 +150,25 @@ class SqliteBackend(Backend):
                 connection.execute("ROLLBACK")
                 raise
             connection.execute("COMMIT")
+
+    def ping(self, sql: str, timeout_s: float) -> None:
+        if self._memory is not None:
+            if not self._lock.acquire(timeout=timeout_s):
+                raise TimeoutError("the in-memory database stayed busy")
+            try:
+                self._memory.execute(sql).fetchall()
+            finally:
+                self._lock.release()
+            return
+        # `mode=rw` (or `ro`) opens the file only if it is there: a plain connect would create an
+        # empty database in its place.
+        mode = "ro" if self.read_only else "rw"
+        uri = f"{Path(self.path).resolve().as_uri()}?mode={mode}"
+        connection = sqlite3.connect(uri, uri=True, timeout=timeout_s, isolation_level=None)
+        try:
+            connection.execute(sql).fetchall()
+        finally:
+            connection.close()
 
     def close(self) -> None:
         if self._memory is not None:
@@ -234,6 +265,14 @@ class PostgresBackend(Backend):
             if exclusive:
                 connection.execute("SELECT pg_advisory_xact_lock(%s)", (self.lock_key,))
             yield PostgresSession(connection)
+
+    def ping(self, sql: str, timeout_s: float) -> None:
+        # The pool verifies the connection it hands out (`check_connection`); the statement then
+        # has the same bound on the server, so a database that answers but stalls still fails.
+        milliseconds = max(1, round(timeout_s * 1000))
+        with self._pool.connection(timeout=timeout_s) as connection, connection.transaction():
+            connection.execute(f"SET LOCAL statement_timeout = {milliseconds}")
+            connection.execute(sql.replace("?", "%s"))
 
     def close(self) -> None:
         self._pool.close()

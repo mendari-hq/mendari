@@ -1,0 +1,53 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="referrer" content="no-referrer">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="robots" content="noindex">
+  <title>Status · Mendari</title>
+  <link rel="icon" href="/favicon.ico" sizes="48x48">
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <script>
+    // Resolve the theme before the stylesheet paints anything, so there is never a flash of the
+    // wrong theme: the saved choice (System / Light / Dark), else the system setting. theme.js
+    // keeps it in sync afterwards.
+    (function () {
+      var choice = "system";
+      try { choice = localStorage.getItem("oh.theme") || "system"; } catch (e) { /* private mode */ }
+      var dark = choice === "dark" || (choice !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+      document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+    })();
+  </script>
+  <link rel="stylesheet" href="/static/style.css">
+  <!-- The server fills the import map with the modules status.js reaches, each content-stamped. -->
+  <script type="importmap"></script>
+</head>
+<!-- The status page (server/app.py): public and static, the same for everyone. It reads this
+     deployment's readiness (/api/health/ready) every 30 seconds and shows it; it does no
+     database work itself. A page served by the deployment it reports on goes down with it: the
+     operator's own status page (docs/operations/status-checks.md) is the one that survives a
+     whole outage. -->
+<body class="status-page">
+  <header class="topbar">
+    <div class="brand">
+      <!-- The favicon's mark, drawn in the theme's accent. -->
+      <svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7"/><path d="M16 6.5 25.5 16 16 25.5 6.5 16Z"/></svg>
+      <span>Mendari</span>
+    </div>
+  </header>
+  <!-- mendari:notice -->
+  <main id="main" tabindex="-1">
+    <section class="panel" aria-labelledby="status-title">
+      <h1 id="status-title">Status</h1>
+      <div id="status-body" aria-live="polite">
+        <p>Checking…</p>
+        <noscript><p>This page needs JavaScript to check the service. Its readiness is at <a href="/api/health/ready">/api/health/ready</a>.</p></noscript>
+      </div>
+    </section>
+  </main>
+  <script type="module" src="/static/status.js"></script>
+</body>
+</html>

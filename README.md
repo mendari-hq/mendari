@@ -212,11 +212,26 @@ Then, in the folder the server ran in, verify the audit chain of the database it
 mendari audit verify --db var/mendari.db
 ```
 
+A long chain is quicker to check from a checkpoint. `mendari audit checkpoint` verifies the chain
+from its last checkpoint (from the start, the first time) and, when it holds, records its head as
+the next one, in a row outside the chain. `--since-checkpoint` then reads only the events after
+it. A full `mendari audit verify` also checks that every checkpoint still names its event, so a
+chain rewritten from before one, or cut short of it, fails there (`reason: checkpoint`). A
+checkpoint lives in the same database, so someone who can rewrite the chain can rewrite it too:
+keep a copy of the head somewhere else as well. Run it daily, beside retention:
+
+<!-- check: run server-db -->
+```bash
+mendari audit checkpoint --db var/mendari.db
+mendari audit verify --db var/mendari.db --since-checkpoint
+```
+
 **Errors and exit codes.** A command that cannot do what was asked prints one line per problem
 (`error: ...`, naming the file, the field or the flag, and what to do) and exits 1, never a
 traceback; `--debug` on any command (or `MENDARI_DEBUG=1`; `0` or `off` keeps it off) shows the
 full traceback instead. Exit 1 is also a failed check (a failing behaviour test, a broken chain,
-`monitor`'s alerts); `eval --fail-on-degradation` exits 2 on a regression; Ctrl-C exits 130 (a
+`monitor`'s alerts); `eval --fail-on-degradation` exits 2 on a regression; `monitor` exits 3
+when its alerts could not be posted; Ctrl-C exits 130 (a
 parallel `eval` stops sending the rest of the dataset); a closed pipe (`| head`) exits 141, with
 no error line.
 
@@ -228,8 +243,8 @@ no tests; `mendari validate` also reads every dataset the pack declares. A `--pr
 reported in `/api/health` as `provider_settings_unused`).
 
 **Read-only commands.** `audit verify`, `audit export`, `feedback export`, `monitor` and
-`access check` (with `access org list`, `members` and `requests`) open the server's database
-read-only: they never create, migrate or write it, and a `--db` that does not
+`access check` (with `access org list`, `members`, `requests`, `keys` and `clients`) open the
+server's database read-only: they never create, migrate or write it, and a `--db` that does not
 exist is an error, never a new empty database that "verifies".
 
 ### REST API
@@ -334,7 +349,7 @@ pinned by digest. `--build-arg PACK=mendari/referral-router` builds one that ser
 and linux/arm64 (workflow `release`, which only a maintainer starts, never a tag push), exactly
 as tested; nothing is published before that. [`deploy/`](https://github.com/Junebugg1214/mendari/tree/main/deploy) has
 templates for a site's own infrastructure: docker compose on one server and Kubernetes. Both come
-with Postgres, your identity provider, PHI mode and the daily retention and monitoring jobs.
+with Postgres, your identity provider, PHI mode and the daily retention, checkpoint and monitoring jobs.
 
 Mendari's own code is Apache-2.0; an image also holds third-party software under other licences
 (Debian's packages, and the libraries the PostgreSQL driver bundles, some under the GPL or LGPL).
@@ -409,6 +424,14 @@ mendari bulk dataset --pack mendari/referral-router --ndjson export/ \
   --labels chart-review.jsonl --key-system https://site.example/mrn --out local.jsonl
 mendari eval mendari/referral-router --dataset local.jsonl
 ```
+
+The Referral Router tells a referral from other ServiceRequests by the code its FHIR mapping
+lists (`focus_where` in `fhir/mapping.yaml`): `FR101`, the fictional code of its synthetic data,
+since no package carries SNOMED CT. List the code your EHR marks referrals with first (often a
+SNOMED CT code), or no referral is found. The same goes for the Clinical Trial Prescreener's
+condition codes beyond ICD-10-CM (`logic/criteria.yaml`). Its mapping reads a Condition's first
+coding only, so a Condition coded first in SNOMED CT is not found even when an ICD-10-CM coding
+follows.
 
 The CI job `sandbox-e2e` runs the scripted launch for the inbox and referral packs on every
 change. It also runs `mendari sandbox bulk-check`: an export of the sandbox must evaluate
@@ -814,7 +837,13 @@ and each organization's administrators invite and manage their own people in the
 Access view (beside its keys and clients) or through the API; an invitation's link opens
 `/invite`, where the person signs in and accepts it
 ([the runbook](https://github.com/Junebugg1214/mendari/blob/main/docs/operations/accounts.md),
-which also says how to switch a deployment).
+which also says how to switch a deployment). Once a deployment runs in memberships mode, every
+chained event of an organization names it (the deployment's own events name none), and
+`mendari audit verify` checks it against the row the event is about; each organization's administrators read and export their own administrative events
+(`/api/audit/administrative`), and what is the whole deployment's (the chain's verification,
+the deployment records, today's call totals) is the operator's, from the command line
+(`mendari audit verify`, `mendari usage`). A test calls every route as two organizations and
+fails on any answer that shows one the other's data (`tests/test_two_organizations.py`).
 
 A link or form on another site cannot act with a signed-in browser, or sign it out: such a
 request reaches only public routes and pages, with GET or HEAD (a `403` otherwise). If a proxy serves Mendari under a
@@ -827,25 +856,53 @@ from the Decision Card, with a reference such as committee minutes and an expiry
 exact pack version: a new digest needs a new approval. It is written into every decision it
 affects, chained in the audit log, and can be revoked at once. Level 4 can't be approved.
 
-**Monitoring.** The dashboard's Monitoring view follows a pack in use, for the organization you
-act for. It shows observed accuracy against the benchmark (from reviews, downstream outcomes and
-thumbs-downs), the human override trend, confidence drift (PSI against the benchmark's
-confidences), the automated share and cost per decision, week by week. Alerts fire only on
-enough evidence:
+**Monitoring.** The dashboard's Monitoring view follows the served version of a pack in use, for
+the organization you act for, in whole weeks (14 to 180 days; other versions' decisions are
+only counted). It shows observed accuracy (from reviews and outcomes recorded downstream), the
+human override trend, confidence drift, the automated share, the decisions awaiting review and
+the cost per decision (unknown when any decision's cost is), week by week. Refused inputs are
+counted apart and left out of every rate and the cost. The benchmark is compared only when it
+measured this build of the pack with the providers and models that run here, under the same
+governance (an approval in force here and when it was measured, or neither), and only over
+decisions made since that configuration started; otherwise the view says why, and only the
+checks that need no benchmark run (automated decisions rated wrong, overrides that doubled,
+operational health). Operational health comes from what each decision stored: the share with a
+provider error recorded, the share that abstained, and how long decisions took (p50, p95,
+mean).
+Accuracy is compared stratum by stratum, as the benchmark measured it: reviewed decisions
+against its reviewed accuracy, automated ones with an outcome recorded downstream against its
+automated accuracy. Alerts fire only on enough evidence:
 
-- accuracy below the benchmark by more than the pack's tolerance;
-- drift of 0.25 or more;
-- an automated decision rated wrong;
-- an override rate that doubled.
+- a stratum's accuracy below the benchmark's by more than the pack's tolerance, beyond doubt
+  (even the top of its 95% interval; 20 decisions or more);
+- drift of 0.25 or more (PSI against the benchmark's confidences, over 50 or more);
+- an automated decision someone rated wrong (a thumbs-down; ratings never change observed
+  accuracy);
+- an override rate that doubled against the week before (20 reviews or more in each);
+- week over week, over 50 decisions or more this week: provider errors on 5% or more of
+  decisions beyond doubt and doubled (on that level alone when the week before had fewer than
+  50, as just after upgrading); with 50 or more the week before too, abstentions doubled and up
+  5 points beyond doubt, and 5% or more of decisions beyond doubt taking twice the week before's
+  p95 and 2 s or more.
 
-For a scheduler (cron, a Kubernetes CronJob), `mendari monitor` exits 1 on any alert (or on an
-error, such as a `--db` it cannot read: the line on stderr says which) and
+For a scheduler (cron, a Kubernetes CronJob), `mendari monitor` checks the newest version of
+each pack (or `--pack`), against its benchmark only for the build and providers a server
+recorded running there (a model a setting chose is not recorded, so a benchmark of an LLM or
+Jev model is compared by the server's view only) and the governance of `--org`. With
+`--each-org` it checks each organization with decisions on its own, but the status checks'
+(`MENDARI_STATUS_ORG`), and posts one alert per organization; a server does the same at
+`GET /api/internal/monitor` with its `CRON_SECRET`. It exits 1 on any alert (or on an
+error, such as a `--db` it cannot read: the line on stderr says which; with `--each-org`, 0
+when every alert was posted, and 1 on an error or on alerts with nowhere to post them) and
 posts them to `--webhook` / `MENDARI_ALERT_WEBHOOK` (https only; keep the URL as a secret,
-since most carry their token in the path):
+since most carry their token in the path), as JSON or a Slack message
+(`MENDARI_ALERT_FORMAT`), signed with `MENDARI_ALERT_SECRET`, tried up to three times (no
+answer, `408`, `429` and `5xx` are tried again); it exits 3 when they could not be posted
+([deploying with PHI](https://github.com/Junebugg1214/mendari/blob/main/docs/deploying-with-phi.md), *Alerts*):
 
 <!-- check: skip placeholder: posts alerts to a webhook you supply -->
 ```bash
-mendari monitor --db "$DATABASE_URL" --org clinic-a --webhook https://alerts.example.org/hook
+mendari monitor --db "$DATABASE_URL" --each-org --webhook https://alerts.example.org/hook
 ```
 
 **PHI mode.** `MENDARI_PHI_MODE=hash` keeps no input at all, only its hash.
@@ -1175,7 +1232,12 @@ community), active providers, Jev configuration and today's Jev usage (never sec
 key) sees them; anyone else gets `status`, `version` and `sign_in`, enough for a load balancer.
 On a preview without sign-in `vercel curl` shows everything; with sign-in on, open
 `/api/health` in a browser signed in to the dashboard. The FHIR sandbox (HAPI) stays in local
-`docker compose`.
+`docker compose`. Status pages and uptime checks call `/api/health/ready` instead: public,
+`GET` or `HEAD`, it reads the database (once every 5 seconds per instance at most, waited for
+about 3.5 seconds) and answers `503` while the database does not answer or no pack is served,
+where anonymous `/api/health` stays `ok` with sign-in on (without sign-in every caller gets the
+settings, which read the database, so it fails during an outage too)
+([deploying with PHI](https://github.com/Junebugg1214/mendari/blob/main/docs/deploying-with-phi.md), *Health checks*).
 
 One pack never stops the server. Its `invalid` lists the packs that failed to load (by path; an
 error that is not Mendari's by its type alone), which are not served; the packs whose providers
@@ -1197,8 +1259,10 @@ is enabled, so preview traffic appears in the production audit trail. With previ
 each preview gets a `preview/<git branch>` database branch. The Vercel-managed integration only
 deletes it when Vercel deletes the deployment (months later), and a full branch limit makes
 previews fail with "Resource provisioning failed". The `neon-preview-cleanup` workflow deletes
-the branch when its pull request closes; it needs a project-scoped Neon API key as the
-`NEON_API_KEY` repository secret and the Neon project id as the `NEON_PROJECT_ID` variable.
+every preview branch whose Git branch has no open pull request and is gone or had one, when a
+pull request closes and every six hours (or by hand, with a dry run); it needs a project-scoped
+Neon API key as the `NEON_API_KEY` repository secret and the Neon project id as the
+`NEON_PROJECT_ID` variable.
 
 ## Project layout
 

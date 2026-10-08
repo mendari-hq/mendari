@@ -348,6 +348,10 @@ BACKEND_PUBLIC = {("GET", "/fhir/.well-known/smart-configuration"), ("POST", "/a
 _KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 PUBLIC = {
     ("GET", "/api/health"),
+    # Readiness, for status pages, uptime checks and probes (HEAD as many send it): one cached,
+    # bounded database read per instance whoever asks.
+    ("GET", "/api/health/ready"),
+    ("HEAD", "/api/health/ready"),
     ("GET", "/api/auth/me"),
     ("GET", "/favicon.ico"),
     ("GET", "/auth/login"),
@@ -363,8 +367,11 @@ PUBLIC = {
     # The developer landing (static), and a redirect from ReDoc's old address to the reference.
     ("GET", "/docs"),
     ("GET", "/redoc"),
-    # The scheduled purge: its own bearer secret (CRON_SECRET), checked by the route.
+    # The status page: static, it reads readiness in the browser.
+    ("GET", "/status"),
+    # The scheduled purge and monitor: their own bearer secret (CRON_SECRET), checked there.
     ("GET", "/api/internal/retention"),
+    ("GET", "/api/internal/monitor"),
 }
 
 

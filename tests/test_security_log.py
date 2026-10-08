@@ -22,6 +22,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from mendari import AuditStore
+from mendari import alerts as alerts_module
+from mendari.alerts import AlertSettings
 from mendari.core.decision import Decision
 from mendari.server import app as app_module
 from mendari.server import security_log, smart_routes
@@ -81,6 +83,8 @@ def test_every_line_is_json_with_allowed_keys_and_never_a_secret(
     app.get("/fhir/Task", params={"identifier": QUERY_VALUE})
     app.post("/fhir/Task/_search", data={"status": QUERY_VALUE})
     app.get("/api/health")
+    app.get("/api/health/ready")  # probes, like health: no access line
+    app.head("/api/health/ready")
     app.get("/static/style.css")
     app.get("/")
     app.get("/api/no/such/route", params={"x": QUERY_VALUE})
@@ -90,7 +94,7 @@ def test_every_line_is_json_with_allowed_keys_and_never_a_secret(
     for never in (CASE_TEXT, "Rosalind", QUERY_VALUE, secret, session, "Dr Kim", "kim@example"):
         assert never not in text, never
     access = [(e["method"], e.get("route"), e["status"]) for e in lines if e["event"] == "request"]
-    assert access == [  # one per API request: none for health, static files or the dashboard
+    assert access == [  # one per API request: none for health, readiness, static files, the page
         ("POST", "/api/packs/{namespace}/{name}/decide", 200),
         ("GET", "/api/audit", 200),
         ("GET", "/api/audit/{decision_id}", 200),
@@ -356,7 +360,7 @@ def test_a_rate_limit_is_logged_once_per_bucket_and_a_quota_once_a_day(
     encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     monkeypatch.setenv("MENDARI_RATE_LIMITS", "on,decide=2/min")
     monkeypatch.setenv("MENDARI_ORG_DAILY_LIMITS", "decisions=1")
-    monkeypatch.setattr(app_module.httpx, "post", lambda *_, **__: None)
+    monkeypatch.setattr(alerts_module.httpx, "post", lambda *_, **__: None)
     db = tmp_path / "a.db"
     client = TestClient(create_app(db_path=db))
     key_id, machine = key(db)
@@ -494,9 +498,10 @@ def test_no_library_logs_a_url_when_the_host_logs_info(
         with httpx.Client(transport=answered) as client:
             return client.post(url, **options)
 
-    monkeypatch.setattr(app_module.httpx, "post", post)
+    monkeypatch.setattr(alerts_module.httpx, "post", post)
     webhook = "https://hooks.example.org/services/T000/B000/WebhookSecretToken"
-    quota_alert(webhook)("default", "decisions", 5)
+    with AuditStore(tmp_path / "b.db") as store:
+        quota_alert(AlertSettings(webhook), store)("default", "decisions", 5)
     with FhirClient(EHR, allowed={EHR}, transport=answered) as fhir:
         fhir.read("Patient/pt-secret")
     logging.getLogger("httpx").warning("a warning still shows")

@@ -61,6 +61,8 @@ NAVIGABLE = {
     "/smart/launch",
     "/smart/callback",
     "/api/health",
+    "/api/health/ready",  # status pages and probes: two fixed codes, from a cached read
+    "/status",  # the status page, static
     "/api/auth/me",
     "/api/smart/session",
     "/fhir/metadata",
@@ -69,6 +71,7 @@ NAVIGABLE = {
     # The scheduled purge: public to the guard, its own bearer secret to the route, which a
     # request another site starts cannot carry (it is answered 401, or 404 without the secret).
     "/api/internal/retention",
+    "/api/internal/monitor",  # the scheduled monitor: the same secret
 }
 
 # (name, headers): how a request can arrive, besides its credential.
@@ -88,6 +91,10 @@ KINDS: list[tuple[str, dict[str, str]]] = [
 ]
 
 
+# HEAD reads as GET does (readiness serves it, for uptime checks).
+SAFE = ("GET", "HEAD")
+
+
 def expected(kind: str, method: str, path: str) -> bool:
     """Whether a request of this kind with a Mendari cookie and no `Authorization` passes."""
     if kind in ("same-origin", "own host, no metadata", "public URL, no metadata"):
@@ -95,8 +102,8 @@ def expected(kind: str, method: str, path: str) -> bool:
     if kind in ("trusted alias, no metadata", "not a browser"):
         return True
     if kind == "address bar":
-        return method == "GET"
-    return method == "GET" and path in NAVIGABLE  # another site's (or an unknown) request
+        return method in SAFE
+    return method in SAFE and path in NAVIGABLE  # another site's (or an unknown) request
 
 
 def concrete(path: str) -> str:
@@ -173,7 +180,8 @@ def test_another_sites_requests_reach_exactly_the_public_routes_and_pages(
     check = OriginCheck(open_mode=False, trusted=frozenset())
     cross = {**COOKIE, "sec-fetch-site": "cross-site"}
     reached = {(m, p) for m, p in routes if passes(check, m, p, cross)}
-    assert reached == {("GET", path) for path in NAVIGABLE}
+    assert {p for m, p in reached if m == "GET"} == NAVIGABLE
+    assert reached == {(m, p) for m, p in routes if m in SAFE and p in NAVIGABLE}
     # HEAD reads like GET; the old cookie name and `__Host-` both count as Mendari's.
     assert passes(check, "HEAD", "/", cross)
     assert not passes(check, "HEAD", "/api/review", cross)
@@ -222,7 +230,7 @@ def test_a_refused_request_never_reaches_the_store_a_body_or_a_handler(
     monkeypatch.setattr(SpyStore, "watching", True)
     cross = {**cookie, "sec-fetch-site": "cross-site", "content-type": "application/json"}
     for method, path in mounted_routes(app):
-        if method == "GET" and path in NAVIGABLE:
+        if method in SAFE and path in NAVIGABLE:
             continue
         refused = client.request(method, concrete(path), headers=cross, content=b"{}")
         assert refused.status_code == 403, (method, path)

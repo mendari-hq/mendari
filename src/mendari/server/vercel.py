@@ -40,7 +40,11 @@ Configuration comes from the environment:
   here is `encrypt` unless `MENDARI_PHI_MODE=hash` (which needs only the hash key); `off` is
   refused.
 - `CRON_SECRET` (16 characters or more): turns on the daily retention purge (`vercel.json`
-  crons, `/api/internal/retention`); `MENDARI_RETENTION_DAYS` (default 30).
+  crons, `/api/internal/retention`); `MENDARI_RETENTION_DAYS` (default 30). The scheduled
+  monitor (`/api/internal/monitor`) answers the same secret, once a `crons` entry names it;
+  `MENDARI_STATUS_ORG` is the organization it leaves out (the status checks').
+- `MENDARI_ALERT_WEBHOOK` (where quota alerts go), `MENDARI_ALERT_FORMAT` (`mendari` or
+  `slack`) and `MENDARI_ALERT_SECRET` (32 characters or more: signs every alert).
 - `LLM_MODEL`: the model for `llm` variants that pin none (an AI Gateway id,
   `<vendor>/<model>`). There is no built-in default: without it they are `not_configured`, and
   their decisions go to a person.
