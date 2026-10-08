@@ -454,6 +454,15 @@ it). Decisions, reviews and the chain itself stay, and `mendari audit verify` st
 `--days 0 --yes` deletes and erases everything kept; no setting can ask for that, so a typo in a
 scheduled job never does.
 
+**Checkpoints.** Schedule `mendari audit checkpoint --db "$DATABASE_URL"` daily too, after the
+purge. It verifies the chain from its last checkpoint (the whole of it, the first time) and, when
+it holds, records the head as the next checkpoint, one row outside the chain; it migrates the
+database as every command that writes does. `mendari audit verify --since-checkpoint` then reads
+only the events after the last one, and a full `mendari audit verify`, which reads everything,
+also checks that every checkpoint still names its event. A checkpoint is in the same database as
+the chain, so keep a copy of the head somewhere else too, and run a full verification now and
+then.
+
 On Vercel the schedule is in `vercel.json` (`crons`: daily at 08:00 UTC, 4 am Eastern in summer
 and 3 am in winter). Set `CRON_SECRET` (at least 16 random characters) for Production: Vercel Cron sends it as a bearer token to
 `/api/internal/retention`, which purges as the command does and answers `401` to anything
@@ -926,8 +935,8 @@ reads of PHI, then operations. Keep the answers with your go-live record.
 - [ ] The security log reaches your log system: a refused request (a wrong key) appears there as
       an `auth.credential.refused` line and a `request` line with the `X-Request-Id` the
       response carried, and no line holds a key, a query value or case text.
-- [ ] Retention, monitoring and `mendari audit checkpoint` are scheduled; `mendari audit verify`
-      passes.
+- [ ] Retention, monitoring and `mendari audit checkpoint` are scheduled (§3, *Checkpoints*);
+      `mendari audit verify` passes.
 
 For the project's own public deployment (synthetic data, Vercel), the owner's launch adds, in
 order:

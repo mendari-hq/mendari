@@ -73,6 +73,13 @@ def test_a_checkpoint_is_the_verified_head_and_later_checks_start_from_it(
             recorded["seq"],
             second["recorded"]["seq"],
         ]
+        latest = store.checkpoints()[-1]  # from now on, every check starts at the newest
+        assert latest == second["recorded"]
+        since = store.verify(since_checkpoint=True)
+        assert since["checkpoint"] == latest and since["events"] == 0
+        again = store.record_checkpoint()
+        assert again["recorded"] is None and again["events"] == 0
+        assert len(store.checkpoints()) == 2
         assert store.verify()["ok"]  # a full verification checks both
 
 
