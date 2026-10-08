@@ -202,7 +202,9 @@ behaviour.
   fixed): the README's `.env` step now ends a last line left without its newline and adds each
   key only if missing (it had glued the first key onto that line and, on rerun, added a second
   hash key, a new epoch); the reset no longer says `down -v`, which also removed
-  `mendari-data` (the open engine's database and the registry's packs).
+  `mendari-data` (the open engine's database and the registry's packs). Rebased on #177, whose
+  invitation tests sign in: their helpers in `test_invite_page.py`, `test_notice.py` and
+  `browser/test_invitations.py` gained `encrypt_mode` too.
 - [x] **LP-09** Key rotation (#142, merged 2026-10-07). The PHI key: a ring, `MENDARI_PHI_KEY` seals and
   `MENDARI_PHI_READ_KEYS` (up to 4, checked at startup, never shown) only opens; from the first
   rotation on each token names its key (`v2:<key id>:`; before it, the old format, so a release

@@ -42,6 +42,7 @@ def test_every_page_and_the_openapi_description_carry_the_notice(
     monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     members = TestClient(create_app(db_path=tmp_path / "members.db"))
     assert stamped in members.get("/invite").text
     # The page a failed EHR launch or sign-in lands on.
