@@ -786,8 +786,8 @@ Access view (beside its keys and clients) or through the API; an invitation's li
 `/invite`, where the person signs in and accepts it
 ([the runbook](https://github.com/Junebugg1214/mendari/blob/main/docs/operations/accounts.md),
 which also says how to switch a deployment). Once a deployment runs in memberships mode, every
-chained event names the organization of the row it is about, and `mendari audit verify` checks
-it; each organization's administrators read and export their own administrative events
+chained event of an organization names it (the deployment's own events name none), and
+`mendari audit verify` checks it against the row the event is about; each organization's administrators read and export their own administrative events
 (`/api/audit/administrative`), and what is the whole deployment's (the chain's verification,
 the deployment records, today's call totals) is the operator's, from the command line
 (`mendari audit verify`, `mendari usage`). A test calls every route as two organizations and

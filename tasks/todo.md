@@ -617,7 +617,7 @@ Connect) is not supported yet.
   runs use synthetic sets and throwaway keys. Owner, later: before any real set, generate the two
   keys, keep a copy off the laptop and set them; before contracting labellers, decide how they reach
   the hosted site while Vercel Authentication is on. Hand-written cases only until B20.
-- [x] **LP-12** Accounts, memberships and invitations (ADR-0008, Proposed; built 2026-10-08, the a6-accounts gate met). Planned by a mapping
+- [x] **LP-12** Accounts, memberships and invitations (ADR-0008, Proposed; built 2026-10-08, G2-3's a6-accounts prerequisite met). Planned by a mapping
   workflow as eleven PRs, each leaving claims mode exactly as it is:
   - [x] **12a + 12b** (#159) This entry and ADR-0008; tenancy fails closed: for a signed-in
     principal of no organization (`tenancy.acting_for_nobody`), every read and write that
@@ -750,11 +750,12 @@ Connect) is not supported yet.
     per CDS order hook draft order), per local day, after the rate limits admit them; past it
     `429` with `Retry-After` until midnight, before any work; `/api/health` shows a principal
     its own. Its value is the owner's.
-  - [x] **12k** (PR open) Close-out: the a6-accounts gate's probes (`launch/gates.yaml`: 18
-    tests, 123 with their cases, met on SQLite, Postgres and in the browser), `mendari audit
-    verify` after membership, invitation and key events (the last acceptance line without a
-    test), the README, and ADR-0008's status (built; accepted once the owner's decisions below
-    confirm or change its defaults).
+  - [x] **12k** (PR open) Close-out: G2-3's a6-accounts prerequisite and its probes
+    (`launch/gates.yaml`: 20 tests, 130 with their cases, on SQLite, Postgres and in the
+    browser); the two acceptance lines that had no test of their own, `mendari audit verify`
+    after membership, invitation and key events, and an empty or `default` organization claim
+    placing no one in memberships mode; the README; and ADR-0008's status (built; accepted once
+    the owner's decisions below confirm or change its defaults).
 
   **Conflicts written before building, and the default each PR follows** (the owner may choose
   otherwise; each default is named by the one PR that depends on it):

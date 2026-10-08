@@ -685,12 +685,14 @@ def test_mendari_audit_verify_passes_after_membership_invitation_and_key_events(
             name="c", role="viewer", org=CLINIC, created_by="ops", scopes="system/Task.rs",
             jwks=jwks(),
         )  # fmt: skip
+        store.replace_client_keys(client["client_id"], CLINIC, replaced_by="ops", jwks=jwks())
         store.revoke_client(client["client_id"], revoked_by="ops")
         kinds = {event["event"] for event in chained(store)}
     assert {"membership.created", "membership.bound", "membership.roles_changed",
             "membership.removed", "invitation.created", "invitation.accepted",
             "invitation.revoked", "access.requested", "key.created", "key.rotated",
-            "key.revoked", "client.registered", "client.revoked"} <= kinds  # fmt: skip
+            "key.revoked", "client.registered", "client.keys_replaced",
+            "client.revoked"} <= kinds  # fmt: skip
     capsys.readouterr()
     assert main(["audit", "verify", "--db", db_target]) == 0
     assert '"ok": true' in capsys.readouterr().out

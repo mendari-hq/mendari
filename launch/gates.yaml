@@ -184,6 +184,8 @@ gates:
               - tests/browser/test_credentials.py::test_a_key_is_made_from_each_kind_of_preset
               - tests/browser/test_credentials.py::test_rotating_shows_the_new_key_once_and_when_the_old_one_stops
               - tests/test_key_presets.py::test_a_key_from_each_preset_gets_past_the_guard_on_its_calls_and_nothing_more
+              - tests/test_key_presets.py::test_the_documented_calls_answer_with_the_presets_keys
+              - tests/test_key_presets.py::test_the_guide_shows_the_table_as_it_is
               - tests/test_chain_orgs.py::test_mendari_audit_verify_passes_after_membership_invitation_and_key_events
               - tests/test_chain_orgs.py::test_verify_finds_a_row_moved_to_another_organization_or_removed
               - tests/test_administrative_audit.py::test_an_organization_reads_only_its_own_administrative_events
