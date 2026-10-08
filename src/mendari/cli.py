@@ -1315,7 +1315,8 @@ def cmd_keys_register(args: argparse.Namespace) -> int:
 def cmd_monitor(args: argparse.Namespace) -> int:
     """For a scheduler: every pack's alerts (for one organization with --org; otherwise all of
     them together), posted to a webhook when one is set (`mendari.alerts`: in its format, signed
-    with its secret, tried three times); exit 1 on any alert, 3 when they could not be posted.
+    with its secret, tried up to three times); exit 1 on any alert, 3 when they could not be
+    posted.
     Nothing is recorded: the database is opened read-only."""
     from mendari.alerts import alert_settings, check_webhook, deliver
     from mendari.core import tenancy
@@ -1349,8 +1350,8 @@ def cmd_monitor(args: argparse.Namespace) -> int:
             attempts=3,
             timeout=10,
         )
-        if not posted:
-            print("error: the alert webhook failed after 3 tries", file=sys.stderr)
+        if not posted:  # the warning above says why (its code), never the URL
+            print("error: the alerts could not be posted to the webhook", file=sys.stderr)
             return 3
     return 1 if alerting else 0
 

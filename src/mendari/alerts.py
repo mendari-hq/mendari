@@ -24,7 +24,8 @@ redirect is never followed.
 its body (ids and counts, as sent), its status (`delivered`; `pending` while another try is due;
 `failed` once a final answer came or MAX_ATTEMPTS were made), its attempts, the last HTTP status
 and a fixed error code (`http_<status>`, or the error's type). `retry_due` sends the pending
-ones again (the monitor's schedule, LP-21f). The URL and the secret are never stored.
+ones again; the monitor's schedule (LP-21f, not yet built) is what will call it. The URL and the
+secret are never stored.
 """
 
 from __future__ import annotations
@@ -92,8 +93,13 @@ def alert_settings(webhook: str | None = None) -> AlertSettings | None:
 
 
 def check_webhook(url: str) -> None:
-    """Alerts may leave only over https (or http to this machine or a compose service), and
-    never with credentials in the address."""
+    """Alerts may leave only over https (or http to this machine or a compose service), never
+    with credentials in the address, and only to an address the client can parse (a mistyped
+    port fails here, never when an alert is due). The URL is never repeated: it holds a token."""
+    try:
+        httpx.URL(url)
+    except httpx.InvalidURL:
+        raise MendariError("the alert webhook is not a valid URL") from None
     parts = urlsplit(url)
     host = parts.hostname or ""
     local = host in ("localhost", "127.0.0.1") or (bool(host) and "." not in host)
@@ -157,7 +163,7 @@ def deliver(
         if tried > 1:
             _sleep(RETRY_DELAYS[min(tried - 2, len(RETRY_DELAYS) - 1)])
         status, error = _post(settings, delivery, event, body, timeout)
-        if error is None or not _again(status):
+        if error is None or not _again(status, error):
             break
     if error is not None:
         alerts_logger.warning("an alert to the webhook failed (%s), delivery %s", error, delivery)
@@ -214,22 +220,25 @@ def _post(
         response = httpx.post(
             settings.webhook, content=body, headers=headers, timeout=timeout, follow_redirects=False
         )
-    except httpx.HTTPError as failure:
+    except (httpx.HTTPError, httpx.InvalidURL) as failure:
         return None, type(failure).__name__
     if 200 <= response.status_code < 300:
         return response.status_code, None
     return response.status_code, f"http_{response.status_code}"
 
 
-def _again(status: int | None) -> bool:
-    """Whether an answer is worth another try: none at all, a timeout, too many, a 5xx."""
+def _again(status: int | None, error: str | None) -> bool:
+    """Whether a try is worth another: no answer (but an address the client cannot parse, which
+    no try fixes), a timeout, too many, a 5xx."""
+    if error == "InvalidURL":
+        return False
     return status is None or status in (408, 429) or status >= 500
 
 
 def _outcome(status: int | None, error: str | None, tried: int, now: datetime) -> dict[str, Any]:
     if error is None:
         state, due = "delivered", None
-    elif _again(status) and tried < MAX_ATTEMPTS:
+    elif _again(status, error) and tried < MAX_ATTEMPTS:
         state, due = "pending", (now + RETRY_AFTER).isoformat()
     else:
         state, due = "failed", None

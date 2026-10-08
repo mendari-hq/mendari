@@ -18,7 +18,15 @@ from fastapi.testclient import TestClient
 
 from mendari import AuditStore, Decision, Pack
 from mendari import alerts as alerts_module
-from mendari.alerts import AlertSettings, alert_settings, deliver, render, retry_due, signature
+from mendari.alerts import (
+    AlertSettings,
+    alert_settings,
+    check_webhook,
+    deliver,
+    render,
+    retry_due,
+    signature,
+)
 from mendari.cli import main
 from mendari.errors import MendariError
 from mendari.server.app import create_app
@@ -287,10 +295,78 @@ def test_monitor_exit_codes_tell_alerts_from_a_failed_delivery(
     monkeypatch.setattr(alerts_module.httpx, "post", down)
     assert main(args) == 3  # alerts found, and not delivered
     assert len(down.sent) == 3 and no_waiting == [2.0, 8.0]
-    assert "the alert webhook failed after 3 tries" in capsys.readouterr().err
+    assert "the alerts could not be posted to the webhook" in capsys.readouterr().err
     up = Webhook(204)
     monkeypatch.setattr(alerts_module.httpx, "post", up)
     assert main(args) == 1  # alerts found and delivered
     body = json.loads(up.sent[0]["content"])
     assert body["event"] == "monitor.alerts"
     assert body["alerts"][0]["alerts"][0]["kind"] == "automated_wrong"
+
+
+# -- what the review found (LP-21e) -----------------------------------------------------------
+
+
+def test_a_webhook_the_client_cannot_parse_fails_at_startup_never_on_a_decision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, store: AuditStore
+) -> None:
+    """A mistyped port passes a look at the scheme and host; the client refuses it. It is
+    refused at startup, and an alert that meets one anyway is recorded, never raised."""
+    typo = "https://hooks.example.org:8x/services/T000/B000/WebhookSecretToken"
+    with pytest.raises(MendariError, match="not a valid URL") as refused:
+        check_webhook(typo)
+    assert "WebhookSecretToken" not in str(refused.value)
+    monkeypatch.setenv("MENDARI_ORG_DAILY_LIMITS", "decisions=1")
+    monkeypatch.setenv("MENDARI_ALERT_WEBHOOK", typo)
+    with pytest.raises(MendariError, match="not a valid URL"):
+        create_app(db_path=tmp_path / "a.db")
+    assert not deliver(AlertSettings(typo), **one(), attempts=1, timeout=5, store=store)
+    (sent,) = store.alert_deliveries()
+    assert (sent["status"], sent["last_error"]) == ("failed", "InvalidURL")
+
+
+def test_the_format_setting_reaches_what_is_posted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    inbox_pack: Pack,
+    screened: dict[str, str],
+    no_waiting: list[float],
+) -> None:
+    db = tmp_path / "a.db"
+    with AuditStore(db) as store:
+        decided = Decision(inbox_pack, providers=SCREENED, store=store)(message(ROUTINE))
+        expected = {"question": "destination", "label": "billing"}
+        store.record_feedback(decided.id, rating="down", expected=expected)
+    hook = Webhook(204)
+    monkeypatch.setattr(alerts_module.httpx, "post", hook)
+    monkeypatch.setenv("MENDARI_ALERT_FORMAT", "slack")
+    args = ["monitor", "--db", str(db), "--pack", inbox_pack.id, "--webhook", HOOK]
+    assert main(args) == 1
+    posted = json.loads(hook.sent[0]["content"])
+    assert set(posted) == {"text"} and "automated_wrong" in posted["text"]
+
+
+def test_a_pending_alert_sent_again_is_delivered_with_its_id_and_a_fresh_signature(
+    store: AuditStore, monkeypatch: pytest.MonkeyPatch, no_waiting: list[float]
+) -> None:
+    settings = AlertSettings(HOOK, secret=SECRET)
+    monkeypatch.setattr(alerts_module.httpx, "post", Webhook(503))
+    assert not deliver(settings, **one(), attempts=1, timeout=5, store=store)
+    (pending,) = store.alert_deliveries()
+    past = (datetime.now(UTC) - timedelta(minutes=1)).isoformat()
+    with store._db.session(exclusive=True) as db:
+        db.all("UPDATE alert_deliveries SET next_attempt_at = ?", (past,))
+    up = Webhook(204)
+    monkeypatch.setattr(alerts_module.httpx, "post", up)
+    assert retry_due(store, settings) == {"delivered": 1, "pending": 0, "failed": 0}
+    (sent,) = up.sent
+    assert sent["headers"]["mendari-delivery"] == pending["id"]
+    assert sent["headers"]["mendari-event"] == "monitor.alerts"
+    assert recipe()(SECRET, sent["headers"]["mendari-signature"], sent["content"])
+    (delivered,) = store.alert_deliveries()
+    assert (delivered["status"], delivered["attempts"], delivered["last_status"]) == (
+        "delivered",
+        2,
+        204,
+    )
+    assert delivered["next_attempt_at"] is None and delivered["last_error"] is None

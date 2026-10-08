@@ -2333,9 +2333,10 @@ def quota_alert(alerts: AlertSettings | None, store: AuditStore) -> QuotaReached
     """What happens the first time an organization reaches a daily quota (once a day, whichever
     instance counts that call): a `quota.reached` line in the security log (the limit as its
     `count`) and, with `MENDARI_ALERT_WEBHOOK`, one alert (`mendari.alerts`) with the
-    organization, the metric and the limit (no case data), recorded. One try of 5 s at most on
-    the decision's path; one that fails is tried again by the schedule (`retry_due`). Never
-    fails the decision: a webhook that is down delays the alert, not the request."""
+    organization, the metric and the limit (no case data), recorded. One try on the decision's
+    path (its timeout QUOTA_ALERT_TIMEOUT_S); one that fails stays `pending` for `retry_due`
+    (the monitor's schedule, LP-21f). Never fails the decision: a webhook that is down delays
+    the alert, not the request."""
 
     def alert(org: str, metric: str, limit: int) -> None:
         security_log.event("quota.reached", outcome="limited", reason=metric, org=org, count=limit)

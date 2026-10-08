@@ -693,11 +693,13 @@ logs, at startup, each slot the Jev defaults turn on.
   characters or more, `openssl rand -hex 32`) and every post is signed:
   `Mendari-Signature: t=<unix seconds>,v1=<HMAC-SHA256>`, with `Mendari-Delivery` (the alert's
   id) and `Mendari-Event`. Without a secret the server warns at startup. A post that gets no
-  answer, `408`, `429` or a `5xx` is tried again: the monitor three times (`mendari monitor`
-  exits `3` when all fail, `1` when it found alerts), the quota alert once on the decision's
-  path, then again from the schedule, five tries in all. The server records each alert it sends
-  (`alert_deliveries`: its body, status, tries, last HTTP status and an error code; never the
-  URL or the secret). A receiver checks the signature over the raw body:
+  answer, `408`, `429` or a `5xx` is tried again (any other answer is final): `mendari monitor`
+  tries up to three times and exits `3` when its alerts could not be posted (`1` when it found
+  alerts and posted them); the quota alert is tried once on the decision's path. The server
+  records each alert it sends (`alert_deliveries`: its body, status, tries, last HTTP status and
+  an error code; never the URL or the secret), so a failed one stays `pending` for another try,
+  five in all. Until the monitor's schedule exists (LP-21f), nothing sends a pending one again.
+  A receiver checks the signature over the raw body:
 
   <!-- receiver: the recipe tests/test_alerts.py runs -->
   ```python
