@@ -229,8 +229,8 @@ no tests; `mendari validate` also reads every dataset the pack declares. A `--pr
 reported in `/api/health` as `provider_settings_unused`).
 
 **Read-only commands.** `audit verify`, `audit export`, `feedback export`, `monitor` and
-`access check` (with `access org list`, `members` and `requests`) open the server's database
-read-only: they never create, migrate or write it, and a `--db` that does not
+`access check` (with `access org list`, `members`, `requests`, `keys` and `clients`) open the
+server's database read-only: they never create, migrate or write it, and a `--db` that does not
 exist is an error, never a new empty database that "verifies".
 
 ### REST API

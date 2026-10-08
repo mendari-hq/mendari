@@ -51,8 +51,8 @@ PINNED = {
         "NamingSystem/input-hash": "fb7c0678a0c9fdbf",
         "NamingSystem/decision-pack": "677f5f91c8577ec0",
         # Added in LP-12g, new urls (no earlier content): the administrative events' codes and
-        # the chain id each is about.
-        "CodeSystem/audit-administrative-event": "31d84d245735dd8b",
+        # the chain id each is about. Moved in LP-21l, before 0.1.0's release: `sessions.ended`.
+        "CodeSystem/audit-administrative-event": "ab45885dd559bc62",
         "NamingSystem/audit-subject": "5804d858d1fb1240",
     }
 }
