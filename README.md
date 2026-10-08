@@ -1241,8 +1241,10 @@ is enabled, so preview traffic appears in the production audit trail. With previ
 each preview gets a `preview/<git branch>` database branch. The Vercel-managed integration only
 deletes it when Vercel deletes the deployment (months later), and a full branch limit makes
 previews fail with "Resource provisioning failed". The `neon-preview-cleanup` workflow deletes
-the branch when its pull request closes; it needs a project-scoped Neon API key as the
-`NEON_API_KEY` repository secret and the Neon project id as the `NEON_PROJECT_ID` variable.
+every preview branch whose Git branch has no open pull request and is gone or had one, when a
+pull request closes and every six hours (or by hand, with a dry run); it needs a project-scoped
+Neon API key as the `NEON_API_KEY` repository secret and the Neon project id as the
+`NEON_PROJECT_ID` variable.
 
 ## Project layout
 

@@ -29,8 +29,8 @@ WORKFLOWS = sorted((ROOT / ".github" / "workflows").glob("*.yml"))
 UNSAFE_TRIGGERS = {"pull_request_target", "workflow_run", "issue_comment", "pull_request_review"}
 ALLOWED_TRIGGERS = {"push", "pull_request", "workflow_dispatch", "schedule"}
 # A schedule runs the default branch's own workflow and code, no one's input: only the weekly scan
-# of every ref uses one.
-SCHEDULED = {"secrets.yml"}
+# of every ref and the sweep of Neon preview branches no pull request needs use one.
+SCHEDULED = {"secrets.yml", "neon-preview-cleanup.yml"}
 # The only write permissions, each on a job that publishes from its own environment in a
 # workflow only a manual dispatch starts: the release workflow's publishing jobs (GUARDED below:
 # their environments must have reviewers) and the docs deploy (`github-pages`, which allows only

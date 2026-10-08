@@ -1,35 +1,55 @@
-name: Clean up Neon preview branch
+name: Clean up Neon preview branches
 
 # The Vercel-managed Neon integration creates a database branch `preview/<git branch>` for every
 # preview deployment, but deletes it only when Vercel deletes the deployment (months later), so
-# branches pile up against the Neon plan's branch limit and previews start failing. Delete the
-# branch as soon as its pull request is merged or closed.
+# branches pile up against the Neon plan's branch limit (10, main included) and previews fail
+# with "Resource provisioning failed". scripts/neon_preview_cleanup.py deletes every preview
+# branch whose Git branch has no open pull request and is gone or had one. It runs when a pull
+# request closes, and every six hours for what a close misses: a preview that finished building
+# after the merge (and so recreated its branch), a run GitHub never started, a branch pushed
+# without a pull request.
 on:
   pull_request:
     types: [closed]
+  schedule:
+    - cron: "41 */6 * * *"  # every six hours
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: List what would be deleted, delete nothing
+        type: boolean
+        default: false
 
 permissions: {}
 
+concurrency:
+  group: neon-preview-cleanup
+
 jobs:
-  delete-preview-branch:
-    if: vars.NEON_PROJECT_ID != '' && github.event.pull_request.head.repo.full_name == github.repository
+  delete-preview-branches:
+    # A fork's pull request, or one Dependabot closes, runs without the repository's secrets.
+    if: >-
+      vars.NEON_PROJECT_ID != '' && (github.event_name != 'pull_request' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'dependabot[bot]'))
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read  # the Git branches
+      pull-requests: read  # which branches have, or had, a pull request
     steps:
-      - name: Check the branch name
-        id: name
-        env:
-          HEAD_REF: ${{ github.head_ref }}
-        run: |
-          # The action puts the name into a shell command, so only plain names are passed on.
-          if [[ "$HEAD_REF" =~ ^[A-Za-z0-9._/-]+$ ]]; then
-            echo "branch=preview/$HEAD_REF" >> "$GITHUB_OUTPUT"
-          else
-            echo "::warning::Unusual branch name; not deleting a Neon branch for it."
-          fi
-      - name: Delete the Neon preview branch
-        if: steps.name.outputs.branch != ''
-        uses: neondatabase/delete-branch-action@4468d825d5a88ef4012f1705a82f02ec3072f776  # v3.2.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
-          project_id: ${{ vars.NEON_PROJECT_ID }}
-          branch: ${{ steps.name.outputs.branch }}
-          api_key: ${{ secrets.NEON_API_KEY }}
+          persist-credentials: false
+          ref: ${{ github.event.repository.default_branch }}  # main's script, never a pull request's
+          sparse-checkout: scripts/neon_preview_cleanup.py
+          sparse-checkout-cone-mode: false
+      - name: Delete the preview branches no pull request needs
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+          GITHUB_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          if [ "$DRY_RUN" = true ]; then set -- --dry-run; fi
+          python3 scripts/neon_preview_cleanup.py "$@"

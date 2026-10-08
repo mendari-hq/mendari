@@ -761,3 +761,28 @@ as a rewrite of an existing one.
 
 ### Verification
 The PR's diff stat (or `git diff --name-status main...HEAD`) lists each new module with `A`.
+
+## 2026-10-08 - process
+
+### What happened
+Neon reached its 10-branch limit again despite the 2026-09-28 cleanup workflow, and new
+previews (#209, #211, #213) got no database branch. Three branches had escaped it: GitHub never
+started one PR's cleanup run (a billing failure, 10-06), a preview that finished building after
+its 62-second merge recreated a deleted branch, and a branch pushed without a pull request never
+had a close to trigger it. Meanwhile 24 cleanup runs were red only because the branch had never
+been created (Dependabot's, or a preview refused at the limit), which hid the real failures.
+
+### Root cause
+The workflow deleted one branch, named by the pull request that just closed, once. Anything that
+happened outside that one event was never looked at again, and "not found" counted as a failure.
+
+### Rule
+Clean up by sweeping the whole state, not by reacting to one event: the workflow
+(`scripts/neon_preview_cleanup.py`) deletes every `preview/*` branch whose Git branch has no
+open pull request and is gone or had one, on each close and every six hours. A branch already
+gone is success.
+
+### Verification
+`gh run list --workflow neon-preview-cleanup.yml --limit 5` is green, and a dry run
+(`gh workflow run neon-preview-cleanup.yml -f dry_run=true`) lists nothing to delete while
+Neon holds only `main` and the branches of open pull requests.
