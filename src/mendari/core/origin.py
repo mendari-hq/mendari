@@ -47,6 +47,8 @@ import re
 from collections.abc import Mapping
 from typing import Any, Literal
 
+from pydantic import TypeAdapter, ValidationError
+
 from mendari.core.spec import Outcome, PackManifest, RiskLevel
 
 Origin = Literal["maintained", "community", "hub", "local"]
@@ -286,9 +288,8 @@ def deployment_config(config: Mapping[str, Any]) -> dict[str, Any]:
     The pack's own values were checked at load, before this (`providers.config_problems`)."""
     kept = {key: value for key, value in config.items() if key not in DEPLOYMENT_CHOSEN_KEYS}
     for key, cap in NOT_OWNED_CAPS.get(str(kept.get("type")), {}).items():
-        value = kept.get(key)
-        if isinstance(value, int) and not isinstance(value, bool) and value > cap:
-            kept[key] = cap
+        if key in kept and (number := _config_int(kept[key])) is not None:
+            kept[key] = min(number, cap)
     effort = kept.get("reasoning_effort", "none")
     if effort not in EFFORTS or EFFORTS.index(effort) > EFFORTS.index(MAX_NOT_OWNED_EFFORT):
         del kept["reasoning_effort"]
@@ -299,3 +300,19 @@ def deployment_config(config: Mapping[str, Any]) -> dict[str, Any]:
             for name, member in members.items()
         }
     return kept
+
+
+_INT = TypeAdapter(int)
+
+
+def _config_int(value: Any) -> int | None:
+    """`value` as a provider's config model reads an integer setting: pydantic's lax mode, so
+    `"32000"`, `32000.0` and `"32000.0"` are 32000, as `LlmConfig` and `JevConfig` read them
+    (a cap compares that, never the text). None for what the models refuse (a bool, `32000.5`,
+    `"x"`): `load_pack` refused a pack with one, so nothing runs with it."""
+    if isinstance(value, bool):
+        return None
+    try:
+        return _INT.validate_python(value)
+    except ValidationError:
+        return None

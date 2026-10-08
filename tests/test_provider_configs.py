@@ -427,6 +427,50 @@ def test_a_registry_packs_answer_length_timeout_and_effort_are_capped(
     for effort, kept_effort in (("none", True), ("low", True), ("medium", False), (None, False)):
         held = deployment_config({"type": "llm", "reasoning_effort": effort})
         assert ("reasoning_effort" in held) is kept_effort, effort
+    # Numbers written as text ("120000") or whole floats (120000.0): capped all the same.
+    for written in (str, float):
+        capped_however_written(make, written)
+
+
+def capped_however_written(make: Callable[..., Path], written: Callable[[int], Any]) -> None:
+    """The config models read `"32000"` and `32000.0` as 32000 (pydantic's lax mode), so a pack
+    from a registry that writes its numbers so loads, and is held to the caps all the same, as
+    a variant and as a composite's member; the cap compares the number the model reads, never
+    the text. An owned pack's number written so builds as before."""
+    llm = {
+        "type": "llm",
+        "max_tokens": written(32000),
+        "timeout_ms": written(120_000),
+        "state_fields": SENT,
+    }
+    jev = {"type": "jev", "timeout_ms": written(10_000), "state_fields": SENT}
+    composite = {"type": "vote", "members": {"rules": RULES, "llm": llm, "jev": jev}}
+    root = make({"llm": llm, "jev": jev, "both": composite})
+    hub, owned = load_pack(root, origin="hub"), load_pack(root)
+    assert hub.bounded and hub.warnings == () and owned.warnings == ()
+
+    def built(pack: Pack, variant: str) -> dict[str, Any]:
+        provider: Any = build_provider(pack, "reader", variant)
+        providers = provider.members if variant == "both" else {variant: provider}
+        return {
+            name: (getattr(p.settings, "max_tokens", None), p.settings.timeout_ms)
+            for name, p in providers.items()
+            if name != "rules"
+        }
+
+    capped = {"llm": (4096, 30_000), "jev": (None, 5_000)}
+    assert built(hub, "llm") == {"llm": capped["llm"]}
+    assert built(hub, "jev") == {"jev": capped["jev"]}
+    assert built(hub, "both") == capped
+    assert built(owned, "llm") == {"llm": (32000, 120_000)}
+    assert built(owned, "jev") == {"jev": (None, 10_000)}
+    assert built(owned, "both") == {"llm": (32000, 120_000), "jev": (None, 10_000)}
+    # A lower number written so is the model's number; what the model refuses is left as it is
+    # (`load_pack` refused a pack with it).
+    assert deployment_config({"type": "llm", "max_tokens": written(1000)})["max_tokens"] == 1000
+    for refused_value in (True, "x", 1000.5, [1000]):
+        held = deployment_config({"type": "jev", "timeout_ms": refused_value})
+        assert held["timeout_ms"] == refused_value
 
 
 def test_a_registry_packs_invalid_values_are_reported_before_the_deployment_chooses(
@@ -547,7 +591,7 @@ URLS = ("https://evil.test/v1", "https://llm.test.evil.test/v1", "http://127.0.0
 MODELS = ("https://evil.test/v1", "example/m", "evil.test:443", "m:latest", "bad model", "")
 ENV_NAMES = ("PACK_SAFETY_URL", "PACK_SAFETY_KEY", "LLM_API_KEY", "JEV_API_KEY")
 ENV_KEYS = sorted({key for keys in DEPLOYMENT_ENV_KEYS.values() for key in keys})
-ODD: tuple[Any, ...] = (None, True, -1, 0.5, "x", [], {}, ["message"], {"topic": 1})
+ODD: tuple[Any, ...] = (None, True, -1, 0.5, "x", [], {}, ["message"], {"topic": 1}, "64", 64.0)
 TYPICAL: dict[str, tuple[Any, ...]] = {
     **dict.fromkeys(("config", "library", "model_file", "calibration"), FILES),
     "model": MODELS,
@@ -556,7 +600,12 @@ TYPICAL: dict[str, tuple[Any, ...]] = {
         ("state_fields", "text_fields"), (["message"], [], ["x"], ["message", "x"], "message")
     ),
     **dict.fromkeys(
-        ("timeout_ms", "max_tokens"), (0, 64, 999, 1000, 4096, 5000, 10_000, 30_000, 120_000, 10**8)
+        ("timeout_ms", "max_tokens"),
+        (
+            *(0, 64, 999, 1000, 4096, 5000, 10_000, 30_000, 120_000, 10**8),
+            # As text, or as whole floats: the config models read them as numbers (lax mode).
+            *("120000", 120000.0, "32000", 32000.0, "10000", 10000.0, "1000"),
+        ),
     ),
     **dict.fromkeys(("accept_at", "temperature"), (0, 0.5, 1, 2, 3)),
     "reasoning_effort": ("none", "low", "medium", "high", "extreme"),
@@ -626,19 +675,35 @@ GENERATED = settings(
 )
 
 
-def builds(pack: Pack, config: dict[str, Any]) -> bool:
-    """Whether `config` builds as `build_provider` builds it in `pack` (with the deployment's
-    keys for a pack it does not own). Any exception is a config that does not build."""
+def builds(pack: Pack, config: dict[str, Any]) -> Provider | None:
+    """`config` built as `build_provider` builds it in `pack` (with the deployment's keys for a
+    pack it does not own), or None: any exception is a config that does not build."""
     kind = config["type"]
     slot = slot_of(kind)
     questions = {q: pack.manifest.questions[q] for q in pack.manifest.providers[slot].answers}
     info = ProviderInfo(slot=slot, variant="g", type=kind)
     try:
-        PROVIDER_TYPES[kind](
+        return PROVIDER_TYPES[kind](
             pack, info, questions, deployment_config(config) if pack.bounded else config
         )
     except Exception:
-        return False
+        return None
+
+
+def held_to_the_deployments(provider: Provider) -> bool:
+    """Whether every model leaf of a provider built for a pack the deployment does not own runs
+    on the deployment's model, within the caps (`NOT_OWNED_CAPS`) and an effort of `low` or
+    less."""
+    for leaf in provider.leaves():
+        settings: Any = getattr(leaf, "settings", None)
+        if leaf.type not in MODEL_TYPES:
+            continue
+        if settings.model is not None:
+            return False
+        if any(getattr(settings, key) > cap for key, cap in NOT_OWNED_CAPS[leaf.type].items()):
+            return False
+        if getattr(settings, "reasoning_effort", None) not in (None, "none", "low"):
+            return False
     return True
 
 
@@ -658,7 +723,8 @@ def test_every_config_a_provider_refuses_is_a_problem_at_load(
     """What parity rests on, over every config one change away from a valid one, of every type
     and as a composite's member: one that cannot be built (the environment cleared) is one
     `Provider.config_problems` finds a problem with, in a pack the deployment owns or not, and
-    the check itself never raises."""
+    the check itself never raises. One that builds for a pack the deployment does not own runs
+    on its model, within its caps, however the pack wrote its numbers."""
     root = write(template, tmp_path / "pack", manifest())
     packs = (load_pack(root), load_pack(root, origin="hub"))
     assert [pack.bounded for pack in packs] == [False, True]
@@ -678,9 +744,11 @@ def test_every_config_a_provider_refuses_is_a_problem_at_load(
             problems = PROVIDER_TYPES[config["type"]].config_problems(
                 pack, "w", config, questions, bounded=pack.bounded, trained=True
             )
-            built = builds(pack, config)
-            assert built or problems, (pack.origin, config)
-            seen["refused" if not built else "warned only" if problems else "built"] += 1
+            provider = builds(pack, config)
+            assert provider is not None or problems, (pack.origin, config)
+            if provider is not None and pack.bounded:
+                assert held_to_the_deployments(provider), config
+            seen["refused" if provider is None else "warned only" if problems else "built"] += 1
     assert len(configs) > 5_000 and min(seen.values()) >= 100, seen
 
 
