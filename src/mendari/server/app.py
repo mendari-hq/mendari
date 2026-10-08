@@ -438,6 +438,20 @@ def create_app(
     cap = DailyCap(store, principal_limit) if principal_limit is not None and auth.enabled else None
     if principal_limit is not None and cap is None:
         quota_logger.warning("MENDARI_PRINCIPAL_DAILY_LIMIT is ignored in open mode: no principals")
+    for provider_type, limit in (budget_limits or {}).items():
+        # Evaluations share the deployment's budget with live decisions (LP-21h): one
+        # organization's evaluation quota as large spends every organization's day.
+        quota = org_limits.get(f"eval_{provider_type}")
+        if limit is not None and quota is not None and quota >= limit:
+            quota_logger.warning(
+                "eval_%s=%d in MENDARI_ORG_DAILY_LIMITS is not below the deployment's daily %s "
+                "budget (%d): one organization's evaluations can use it all, and live decisions "
+                "then go to people until midnight",
+                provider_type,
+                quota,
+                provider_type,
+                limit,
+            )
     budget = (
         CallBudget(
             store,

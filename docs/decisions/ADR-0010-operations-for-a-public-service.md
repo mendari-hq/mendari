@@ -126,8 +126,11 @@ Anonymous `/api/health` stays three fields with no database work.
    - A cost is shown as unknown unless every call was priced.
    - Rows are written in the decision's own transaction; providers never write to the database.
    - Evaluations count against the organization that runs them through their own quotas
-     (`eval_jev`, `eval_llm`), unset meaning no limit, so no live decision is lowered by an
-     evaluation.
+     (`eval_jev`, `eval_llm`; 21h), unset meaning no limit, never the decisions' quotas, so no
+     live decision is lowered through its organization's quotas by an evaluation. Evaluations
+     still spend the deployment's daily budgets, which live decisions share: the evaluation
+     quotas are to be set below them (a startup warning when one is not). Whether evaluations
+     get a deployment budget of their own is the owner's.
    - Admins see their own organization's usage on a usage screen. The operator sees the whole
      deployment from the command line.
 7. **Checkpoints (21j, 21k).**

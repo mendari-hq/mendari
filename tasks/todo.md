@@ -1176,7 +1176,9 @@ pushes none), so the first published images wait on the item below; the PyPI rel
      once the owner sets the key.
 
   **Owner decisions** (none blocks 21a to 21m): the status page provider, its checks and who is
-  paged (B36); the evaluation quota values; the alert format, secret and destination; the
+  paged (B36); the evaluation quota values, and whether evaluations get a deployment budget of
+  their own (today they share `MENDARI_JEV_DAILY_LIMIT` and `MENDARI_LLM_DAILY_LIMIT` with live
+  decisions); the alert format, secret and destination; the
   checkpoint key and where its public key is published; the hosted schedule (21n); firewall
   enforcement (21o).
 

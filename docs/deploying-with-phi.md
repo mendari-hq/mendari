@@ -632,10 +632,11 @@ made. One request decides at most 50 (or the decide burst, if you set it lower);
 caps what each organization uses a day: decisions, and the remote model calls they make. Unset,
 there is none, and each one left out has no limit. An organization's evaluations (run on the
 server) count against their own quotas, `eval_jev` and `eval_llm`
-(`...,eval_jev=500,eval_llm=50`), never the decisions' ones, so an evaluation never sends a live
-decision to review; they also spend the deployment's daily budgets (`MENDARI_JEV_DAILY_LIMIT`,
-`MENDARI_LLM_DAILY_LIMIT`), which live decisions share, so set the evaluation quotas to keep one
-organization's evaluations from spending everyone's day. Over an evaluation quota the
+(`...,eval_jev=100,eval_llm=20`), never the decisions' ones. They still spend the deployment's
+daily budgets (`MENDARI_JEV_DAILY_LIMIT`, `MENDARI_LLM_DAILY_LIMIT`), which live decisions share:
+once those run out, every organization's live decisions go to people (`budget_exhausted`) until
+midnight. So set each evaluation quota well below them (the server warns at startup when one is
+not), and the quotas of all organizations together below them too. Over an evaluation quota the
 evaluation's remote calls fail (`quota_exhausted`) and its report shows it. Over a quota a decision is still
 made and recorded, but no provider runs and it goes to the review queue (`ABSTAIN` or
 `HUMAN_REVIEW`, with `quota_exhausted` in its errors), as over a daily budget: a quota never

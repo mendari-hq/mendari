@@ -23,13 +23,14 @@ from starlette.routing import Route
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from mendari import alerts as alerts_module
-from mendari import cli
+from mendari import cli, settings
+from mendari.alerts import AlertSettings
 from mendari.core import clock, tenancy
 from mendari.core.audit import AuditStore
 from mendari.core.decision import CallBudget, Decision
 from mendari.errors import MendariError, ProviderError
 from mendari.server import auth as auth_module
-from mendari.server.app import create_app, error_response
+from mendari.server.app import create_app, error_response, quota_alert
 from mendari.server.auth import permission_for
 from mendari.server.limits import (
     DEFAULT_RATES,
@@ -135,6 +136,10 @@ def test_limits_are_on_with_sign_in_and_off_in_open_mode(monkeypatch: pytest.Mon
         ("MENDARI_ORG_DAILY_LIMITS", "decisions=many", "must look like"),
         ("MENDARI_ORG_DAILY_LIMITS", "tokens=5", "must look like"),
         ("MENDARI_ORG_DAILY_LIMITS", "decisions=5,decisions=6", "at most once"),
+        ("MENDARI_ORG_DAILY_LIMITS", "eval_decisions=5", "must look like"),
+        ("MENDARI_ORG_DAILY_LIMITS", "eval_LLM=50", "must look like"),
+        ("MENDARI_ORG_DAILY_LIMITS", "eval_jev=5,eval_jev=6", "at most once"),
+        ("MENDARI_ORG_DAILY_LIMITS", "eval_llm=-1", "must look like"),
         ("MENDARI_PRINCIPAL_DAILY_LIMIT", "many", "non-negative integer"),
         ("MENDARI_PRINCIPAL_DAILY_LIMIT", "-1", "non-negative integer"),
     ],
@@ -648,6 +653,39 @@ def test_each_organization_has_its_own_quota_and_evaluations_spend_their_own(
         ("north", "eval_jev", 1),
         ("south", "eval_jev", 1),
     ]  # once each, when reached
+
+
+def test_every_quota_is_read_and_an_evaluation_s_large_quota_is_warned_about(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setenv("MENDARI_ORG_DAILY_LIMITS", "decisions=5,jev=4,llm=3,eval_jev=2,eval_llm=1")
+    assert settings.org_daily_limits() == {
+        "decisions": 5, "jev": 4, "llm": 3, "eval_jev": 2, "eval_llm": 1,
+    }  # fmt: skip
+    monkeypatch.setenv("MENDARI_ORG_DAILY_LIMITS", "eval_jev=500,eval_llm=10")
+    with caplog.at_level(logging.WARNING, logger="mendari.limits"):
+        create_app(db_path=tmp_path / "a.db", budget_limits={"jev": 500, "llm": 200})
+    assert "eval_jev=500 in MENDARI_ORG_DAILY_LIMITS is not below" in caplog.text
+    assert "eval_llm" not in caplog.text  # 10 of 200: fine
+
+
+def test_the_quota_alert_says_what_an_evaluation_quota_stops(
+    store: AuditStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    posted: list[dict[str, Any]] = []
+
+    def post(url: str, **kwargs: Any) -> httpx.Response:
+        posted.append(json.loads(kwargs["content"]))
+        return httpx.Response(204, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(alerts_module.httpx, "post", post)
+    alert = quota_alert(AlertSettings("https://alerts.example.org/hook"), store)
+    alert("north", "eval_jev", 3)
+    alert("north", "decisions", 5)
+    evaluation, decisions = (sent["alerts"][0]["message"] for sent in posted)
+    assert "evaluations make no more of these calls" in evaluation
+    assert "human review" not in evaluation
+    assert "decisions fall back to human review" in decisions
 
 
 def test_an_evaluation_over_its_quota_never_lowers_a_live_decision(

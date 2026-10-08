@@ -222,12 +222,12 @@ ORG_METRICS = ("decisions", "jev", "llm", "eval_jev", "eval_llm")
 
 def org_daily_limits() -> dict[str, int]:
     """$MENDARI_ORG_DAILY_LIMITS: what each organization may use a day, e.g.
-    `decisions=5000,jev=2000,llm=200,eval_jev=500,eval_llm=50` (decisions, the remote calls
+    `decisions=5000,jev=2000,llm=200,eval_jev=100,eval_llm=20` (decisions, the remote calls
     they make by provider type, and the remote calls its evaluations make: an evaluation counts
-    only against `eval_*`, so it never sends a live decision to review). Unset: no
-    per-organization quota (each one left out: no limit). Over a decision's quota a decision
-    falls back to human review, as over a provider's daily budget; over an evaluation's, the
-    evaluation's remote calls fail."""
+    against `eval_*`, never its decisions' quotas, and still spends the deployment's daily
+    budgets, which live decisions share). Unset: no per-organization quota (each one left out:
+    no limit). Over a decision's quota a decision falls back to human review, as over a
+    provider's daily budget; over an evaluation's, the evaluation's remote calls fail."""
     limits: dict[str, int] = {}
     for item in os.environ.get("MENDARI_ORG_DAILY_LIMITS", "").split(","):
         if not item.strip():

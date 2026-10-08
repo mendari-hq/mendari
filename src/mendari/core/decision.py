@@ -182,9 +182,11 @@ class CallBudget:
             self._charge_org("decisions")
 
     def for_evaluation(self) -> CallBudget:
-        """The budget an evaluation spends (LP-21h): the deployment's daily budgets, and its
-        organization's evaluation quotas (`eval_jev`, `eval_llm`; unset: no limit), never the
-        quotas of its decisions, so an evaluation never sends a live decision to review."""
+        """The budget an evaluation spends (LP-21h): its organization's evaluation quotas
+        (`eval_jev`, `eval_llm`; unset: no limit), never the quotas of its decisions, which an
+        evaluation never uses up; and the deployment's daily budgets, which live decisions
+        share: once those run out, every organization's live decisions go to people
+        (`budget_exhausted`) until midnight, so keep the evaluation quotas below them."""
         return CallBudget(
             self.store,
             self.limits,
