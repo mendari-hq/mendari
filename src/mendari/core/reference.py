@@ -3,11 +3,12 @@
 
 A pack pulled from a registry runs on the engine for packs the deployment does not own (RE2,
 the caps, the input limits and a CPU budget per decision: `core/origin.py` `bounded`), unless
-its digest, the one `load_pack` hashed from its files, is the digest of one of these. Equal
-digests mean equal behaviour files (`pack.yaml`, `logic/`, `data/`, `models/`, `schemas/`,
-`tests/`): what a pack decides with is read only from the files its digest covers
-(`Pack.read_bytes`). So a copy of a reference pack keeps the maintained engine wherever it was
-pulled from, and one changed byte puts it on the other (ADR-0009).
+its digest, the one `load_pack` hashed from its files, is the digest of one of these. The digest
+covers every file in the pack except those under its `evals/`, any `DECISION_CARD.md`, and
+hidden entries and `__pycache__` at any depth (`pack_digest`), and what a pack decides with is
+read only from the files its digest covers (`Pack.read_bytes`): equal digests mean equal
+behaviour. So a copy of a reference pack keeps the maintained engine wherever it was pulled
+from, and one changed byte puts it on the other (ADR-0009).
 """
 
 from __future__ import annotations

@@ -29,12 +29,12 @@ from mendari.core.reference import bundled_dir, reference_digests
 from mendari.core.registry import SearchPath, discover, resolve_pack
 from mendari.core.spec import Outcome
 from mendari.errors import PackValidationError
-from mendari.evals.pack_tests import input_problems, load_cases
+from mendari.evals.pack_tests import _run, input_problems, load_cases
 from mendari.hub.client import packs_cache
 from mendari.providers import build_provider
 from mendari.server.app import create_app
 from tests.conftest import INBOX_DIR, ROOT, cpu_time
-from tests.test_community_budget import BOUND_S, EMOJI, long_message, slow_rules
+from tests.test_community_budget import BOUND_S, EMOJI, fan_out, long_message, slow_rules
 from tests.test_community_caps import sorter
 
 PACKS = INBOX_DIR.parent
@@ -244,6 +244,143 @@ def test_a_registry_packs_rules_stop_at_the_budget_and_a_person_decides(tmp_path
     assert set(result.errors.values()) == {"time_budget"}
     assert result.outcome in (Outcome.ABSTAIN, Outcome.HUMAN_REVIEW)
     assert result.outcome is not Outcome.AUTO
+
+
+def nested_input(depth: int) -> dict[str, Any]:
+    """An inbox input whose deepest value is `depth` levels down (the input itself is 1)."""
+    deep: Any = 0
+    for _ in range(depth - 2):
+        deep = {"n": deep}
+    return {"message": {"body": "hi"}, "patient": deep}
+
+
+def test_a_registry_pack_refuses_an_input_too_large_before_its_schema_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """At decide, as a community pack does: more than 10,000 values, nesting past 32 or texts
+    past 10,000 characters are refused, in the registry pack's words, before its schema check
+    (`Decision.validate`) runs. Called alone (`mendari omop`), its check holds to them too."""
+    root = copied(tmp_path, "patient-inbox-router", version="9.9.9")
+    hub = Decision(load_pack(root, origin="hub"))
+    values = {"message": {"body": "hi"}, "patient": {"tags": [0] * 11_000}}
+    long = {"message": {"body": "x" * 10_000, "subject": "y"}}
+    expected = {
+        "values": "(root): more than 10,000 values, the most a pack from a registry reads",
+        "depth": "(root): nested more than 32 deep, the most a pack from a registry reads",
+        "long": "the input's texts together: longer than 10,000 characters, the most a pack from "
+        "a registry reads",
+    }
+    given = {"values": values, "depth": nested_input(33), "long": long}
+    for name, inputs in given.items():
+        assert hub.validate(inputs) == [expected[name]], name
+    with monkeypatch.context() as patched:
+        patched.setattr(Decision, "validate", lambda *_: pytest.fail("the schema check ran"))
+        for name, inputs in given.items():
+            result = hub.decide(inputs)
+            assert result.outcome is Outcome.BLOCK, name
+            assert result.reasons == (f"input rejected: {expected[name]}",), name
+    within = hub.decide(nested_input(32))  # one level less: the schema decides
+    assert not any("deep" in reason for reason in within.reasons)
+    local = Decision(load_pack(copied(tmp_path / "local", "patient-inbox-router"), origin="local"))
+    assert not any("the most" in reason for reason in local.decide(values).reasons)
+
+
+def test_a_registry_packs_typo_corrections_never_lengthen_its_text_past_the_length(
+    tmp_path: Path,
+) -> None:
+    """As a community pack's: a correction that would make a text longer than 10,000 characters
+    is not made, and correcting stops at the budget. A local copy corrects all, with no
+    budget."""
+
+    def tolerant(rules: dict[str, Any]) -> None:
+        rules["typo_tolerance"] = {"min_length": 4}
+
+    hub = outside_sorter(tmp_path / "hub", rules=tolerant)
+    local = load_pack(sorter(tmp_path / "local", rules=tolerant, pack_id="someone/visit-sorter"))
+    assert hub.bounded and not local.bounded
+    text = "invoce " * 1_428  # 9,996 characters
+    reader: Any = build_provider(hub, "reader")
+    capped, fixes = reader._normalize(text)
+    assert len(capped) <= 10_000 and fixes and "invoce" in capped
+    owned: Any = build_provider(local, "reader")
+    full, all_fixes = owned._normalize(text)
+    assert len(full) == 9_996 + 1_428 and len(all_fixes) == 1_428
+    with patterns.time_budget(0):
+        sum(range(100_000))  # a little CPU: the budget is spent
+        with pytest.raises(patterns.OutOfTime):
+            reader._normalize(text)
+        assert owned._normalize(text)[0] == full
+
+
+def test_a_registry_packs_schema_errors_stop_at_100_with_short_reasons(tmp_path: Path) -> None:
+    """As a community pack's: its schema check stops collecting at 100 errors, and its reasons
+    are short (a `required` names five fields and how many more). A local copy lists what it
+    always listed."""
+
+    def schema(found: dict[str, Any]) -> None:
+        found["properties"]["xs"] = {"type": "array", "items": {"type": "integer"}}
+        found["properties"]["meta"] = {"type": "object", "required": [f"n{i}" for i in range(9)]}
+
+    hub = Decision(outside_sorter(tmp_path / "hub", schema=schema))
+    root = sorter(tmp_path / "local", schema=schema, pack_id="someone/visit-sorter")
+    local = Decision(load_pack(root))
+    assert hub.pack.bounded and not local.pack.bounded
+
+    class Counting:
+        def __init__(self, inner: Any) -> None:
+            self.inner, self.pulled = inner, 0
+
+        def iter_errors(self, value: Any) -> Any:
+            for error in self.inner.iter_errors(value):
+                self.pulled += 1
+                yield error
+
+    for decision, pulled in ((hub, 100), (local, 150)):
+        counting = Counting(decision._validator)
+        decision._validator = counting  # type: ignore[assignment]
+        found = decision.validate({"message": "my bill", "xs": ["a"] * 150})
+        assert counting.pulled == pulled and len(found) == 10
+    short = hub.decide({"message": "my bill", "meta": {}}).reasons
+    assert short == ("input rejected: meta: n0, n1, n2, n3, n4 and 4 more is required",)
+    listed = local.decide({"message": "my bill", "meta": {}}).reasons
+    assert listed[0] == f"input rejected: meta: {', '.join(f'n{i}' for i in range(9))} is required"
+    assert len(listed) == 9  # one per missing name, as before
+
+
+def test_mendari_test_stops_a_registry_pack_at_the_budget(tmp_path: Path) -> None:
+    """`mendari test` holds a registry pack to the budget as a decision does: checking its test
+    inputs against a schema whose keywords fan out stops, and a case its rules run out of time
+    on says why, in the registry pack's words. Checked alone (`mendari omop`), the schema check
+    stops too."""
+
+    def noted(schema: dict[str, Any]) -> None:
+        schema["properties"]["note"] = {"type": "string", "$ref": "#/$defs/t0"}
+        schema["$defs"] = fan_out(22)
+
+    root = sorter(tmp_path / "schema", schema=noted, pack_id="someone/visit-sorter")
+    cases = root / "tests" / "cases.yaml"
+    cases.write_text(
+        cases.read_text() + '- name: noted\n  input: {message: "my bill", note: x}\n'
+        "  expect: {recommendation: billing}\n"
+    )
+    hub = load_pack(root, origin="hub")
+    with cpu_time() as spent:
+        found = input_problems(hub)
+    assert spent() < BOUND_S
+    assert any("checking its input against the schema stopped" in problem for problem in found)
+    # Checked alone, outside a decision (`mendari omop`), its schema check has a budget too.
+    with cpu_time() as spent:
+        alone = Decision(hub).validate({"message": "my bill", "note": "x"})
+    assert spent() < BOUND_S
+    assert len(alone) == 1 and alone[0].startswith("(root): checking it against the schema stopped")
+    slow = outside_sorter(tmp_path / "rules", rules=slow_rules(), schema=long_message)
+    case = {"name": "slow", "input": {"message": EMOJI}, "expect": {"recommendation": "billing"}}
+    failures = _run(Decision(slow), case).failures
+    assert any("time_budget" in failure for failure in failures)
+    assert any(
+        "ran out of the 1 s time budget a pack from a registry has in each decision" in failure
+        for failure in failures
+    )
 
 
 def test_a_registry_packs_schema_uses_only_the_keywords_mendari_bounds(tmp_path: Path) -> None:

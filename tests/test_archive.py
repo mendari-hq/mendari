@@ -91,6 +91,30 @@ def test_extract_on_the_hub_engine_refuses_a_changed_reference_pack(
     assert pack.digest == changed.digest and not pack.bounded
 
 
+def test_pack_verify_checks_an_archive_as_a_puller_loads_it(
+    key: archive.Ed25519PrivateKey, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`mendari pack verify` loads an archive on the engine a puller runs it on: a signed copy of
+    the referral pack with one changed byte fails, naming the lookahead and why; the reference
+    pack itself passes."""
+    root = tmp_path / "changed"
+    shutil.copytree(REFERRAL.root, root)
+    rules = root / "logic" / "triage_rules.yaml"
+    rules.write_text(rules.read_text() + "# one more line\n")
+    public = tmp_path / "publisher.pub"
+    public.write_bytes(archive.public_pem(key.public_key()))
+    changed = tmp_path / "changed.ohpack"
+    changed.write_bytes(archive.build(load_pack(root), key))
+    assert main(["pack", "verify", str(changed), "--public-key", str(public)]) != 0
+    err = capsys.readouterr().err
+    assert "lookahead" in err and "not the copy of it in this release" in err
+    assert "Traceback" not in err
+    reference = tmp_path / "reference.ohpack"
+    reference.write_bytes(archive.build(REFERRAL, key))
+    assert main(["pack", "verify", str(reference), "--public-key", str(public)]) == 0
+    assert f"OK {REFERRAL.id}@{REFERRAL.version} {REFERRAL.digest}" in capsys.readouterr().out
+
+
 def test_a_changed_file_is_caught(key: archive.Ed25519PrivateKey) -> None:
     entries = members(archive.build(REFERRAL, key))
     entries = [(n, d + b"#" if n == "pack/pack.yaml" else d) for n, d in entries]

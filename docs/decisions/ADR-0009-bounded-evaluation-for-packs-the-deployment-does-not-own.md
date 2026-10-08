@@ -55,12 +55,13 @@ As built:
   load-time messages name both ("a community or registry pack").
 - **The engine follows the bytes.** Only the digest `load_pack` hashed from the files it then
   reads chooses the engine: never the manifest (its `id`, `version` or `publisher.type`), the
-  digest a registry recorded, nor the `.mendari-verified` marker. The digest covers
-  `pack.yaml`, `logic/`, `data/`, `models/`, `schemas/` and `tests/`; what it leaves out
-  (`evals/`, `DECISION_CARD.md`, hidden files, `__pycache__`) is never read on the decide path
-  (`Pack.read_bytes` reads only files the digest hashed, and only the bytes it hashed). So equal
-  digests mean equal behaviour, and one changed byte puts a copy of a reference pack on the
-  community engine.
+  digest a registry recorded, nor the `.mendari-verified` marker. The digest covers every file
+  in the pack except those under its `evals/`, any `DECISION_CARD.md`, and hidden entries and
+  `__pycache__` at any depth (`pack.yaml`, `policy.yaml`, `logic/`, `fhir/`, `data/`, `models/`,
+  `schemas/`, `tests/` and any other file are in it); what it leaves out is never read on the
+  decide path (`Pack.read_bytes` reads only files the digest hashed, and only the bytes it
+  hashed). So equal digests mean equal behaviour, and one changed byte puts a copy of a
+  reference pack on the community engine.
 - **Every load path.** `archive.extract` takes the origin as a required keyword: the registry's
   publish, `mendari pull` (before the staged copy is renamed into the cache, so a pack the
   engine refuses is never cached nor marked verified) and `mendari pack verify` pass `hub`.
@@ -72,7 +73,9 @@ As built:
   the community packs' (`Pack.community`). Its rules failing on the budget (`time_budget`)
   never leave AUTO, and a failed primary abstains (`core/policy.py`, unchanged).
 - **No setting.** There is no setting that puts a pulled pack on `re`. An operator who trusts a
-  pack copies it into `MENDARI_PACKS_PATH`, where it is a local pack: owned, on `re`.
+  pack copies it into `MENDARI_PACKS_PATH`, where it is a local pack: owned, on `re`. A pulled
+  pack is removed by deleting its version from the pack cache, or by not pulling it;
+  `MENDARI_COMMUNITY_PACKS` and reverting a merge reach community packs only.
 
 ## Accepted residual
 On `re`, where reference and local packs stay, a crafted 10,000-character inbox message can

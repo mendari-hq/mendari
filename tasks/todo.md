@@ -474,6 +474,9 @@ registry or copied into the store.
     data-identical rewrites, with their fuzz differences and the slowdown on `re` accepted in
     writing). Until then the trial and referral packs cannot publish a version that differs from
     the installed one: a puller refuses it, with the reason.
+  - [ ] Follow-up (16a review): a pulled pack with a bundled pack's id and version but another
+    digest shadows the bundled one, since the cache wins a version tie. It runs bounded, but
+    under the reference pack's name. Refuse it at pull and at load (pre-existing; not in 16a).
 
   **Conflicts written before building LP-16, and the default each PR follows** (the owner may
   choose otherwise; each default is named by the PR that depends on it):
