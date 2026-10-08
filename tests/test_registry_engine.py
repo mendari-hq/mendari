@@ -172,7 +172,7 @@ def test_a_registry_copy_decides_the_shipped_inputs_as_the_reference_does(
 
 
 def test_a_pulled_copy_of_a_reference_pack_keeps_the_maintained_engine(tmp_path: Path) -> None:
-    """Every reference pack, the three with lookarounds included, copied as a pull caches it
+    """Every reference pack, the two with lookarounds included, copied as a pull caches it
     (with what the digest leaves out: an attestation and a hidden file), is the reference pack
     of this release: it loads from the registry cache on the maintained engine."""
 

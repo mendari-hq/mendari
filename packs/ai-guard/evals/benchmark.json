@@ -2,14 +2,14 @@
   "format": "mendari.eval/2",
   "pack": {
     "id": "mendari/ai-guard",
-    "version": "0.1.3",
-    "digest": "sha256:a12e2a60447d41c1dd0b6dc4a5fd173f4741ad36a18b2453fa884499fdb34d73"
+    "version": "0.1.4",
+    "digest": "sha256:92c86dc0fb3c99b9fb17b6f4f479bbee5f4c6017d5417fefa9630ea2082a7abc"
   },
   "providers": {
     "screen": {
       "variant": "rules",
       "type": "rules",
-      "model": "rules@e7bbb96d7b88"
+      "model": "rules@e01b603adb4f"
     },
     "dosing": {
       "variant": "dosing",
@@ -32,7 +32,7 @@
     "limit": null
   },
   "ledger": {
-    "id": "sha256:af197d2ab8e428c6889f1764da60e73a890db2e86f5382df5a66c68dd02bfde6",
+    "id": "sha256:06dea2494ffe9d58575676c377648fa1e1f7ef1dd18490dfe29ce3d3bfe678cb",
     "cases": 600
   },
   "seeds": {
@@ -1404,19 +1404,19 @@
   },
   "models": {
     "question_emergency": {
-      "rules@e7bbb96d7b88": 600
+      "rules@e01b603adb4f": 600
     },
     "draft_escalates": {
-      "rules@e7bbb96d7b88": 600
+      "rules@e01b603adb4f": 600
     },
     "unsafe_advice": {
-      "rules@e7bbb96d7b88": 600
+      "rules@e01b603adb4f": 600
     },
     "out_of_scope": {
-      "rules@e7bbb96d7b88": 600
+      "rules@e01b603adb4f": 600
     },
     "unsupported_claim": {
-      "rules@e7bbb96d7b88": 600
+      "rules@e01b603adb4f": 600
     },
     "dose_exceeds_limit": {
       "dosing@83acbdf3fa50": 600
@@ -1750,15 +1750,15 @@
     }
   ],
   "run": {
-    "id": "50fad0a1-46e8-4971-b650-cc3eec895101",
-    "created_at": "2026-10-07T19:29:51+00:00",
+    "id": "04af516b-36a2-48d0-b9a0-e54fbcf3764b",
+    "created_at": "2026-10-08T08:20:46+00:00",
     "latency_ms": {
-      "mean": 0.30969577220578987,
-      "p50": 0.28854236006736755,
-      "p95": 0.3566248342394829,
-      "max": 7.796249818056822
+      "mean": 0.3624246222898364,
+      "p50": 0.3054998815059662,
+      "p95": 0.6395420059561729,
+      "max": 7.595791947096586
     },
     "engine": "0.1.0"
   },
-  "result_sha256": "sha256:baf11e3f70c916d913ed3d40caa989c24ab1cef0ebb88be9f6c277e72f6d1cfb"
+  "result_sha256": "sha256:c35fa2c3dc2764e823399e73d1cfc9662188bf6bf27090cfb1eb6677da13fc9a"
 }

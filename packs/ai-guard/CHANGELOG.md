@@ -4,6 +4,12 @@ Renamed on 2026-09-30, when the project became Mendari: this pack was `openhealt
 Its id, its publisher's name and its `https://mendari.co/...` identifiers changed; its criteria,
 rules, models, data and results did not.
 
+## 0.1.4
+
+- claim-about-the-record no longer uses a lookahead, so the pack runs on RE2 when pulled from a
+  registry; every decision is identical (`tests/test_lookaround_rewrites.py`); the digest
+  changes because the rules and the manifest do.
+
 ## 0.1.3
 
 - Every surface now says what the pack is: "Synthetic example. Not clinically reviewed. Not for
