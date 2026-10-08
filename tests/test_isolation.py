@@ -28,7 +28,7 @@ from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import parse_qs, quote, urlsplit
 
 import pytest
 from fastapi.testclient import TestClient
@@ -50,15 +50,16 @@ from mendari.server.auth import person_id
 from mendari.server.backend_services import ASSERTION_TYPE
 from mendari.standards.fhir_client import FhirClient, GuardedHttp
 from mendari.standards.search import encode_cursor
-from tests.conftest import encrypt_mode, member, message, signed_in
+from tests.conftest import calm_jev, encrypt_mode, member, message, signed_in
 from tests.test_ai_guard_pack import SAFE
 from tests.test_backend_services import Signer, assertion, bearer
 from tests.test_davinci import COMPLETE, PA, package_request, request
+from tests.test_hold import REFILL
 from tests.test_memberships import token_of
 from tests.test_pas import COVERAGE, INSURER, PATIENT, REQUESTER
 from tests.test_prior_auth_pack import _order
 from tests.test_smart import CLIENT as SMART_CLIENT
-from tests.test_smart import DECIDE_BODY, TENANTS, FakeEhr, full_launch, routed, tenant
+from tests.test_smart import DECIDE_BODY, REFERRAL, TENANTS, FakeEhr, routed, tenant
 
 APP = "https://mendari.test"
 IDP = "https://idp.example.org"
@@ -98,8 +99,8 @@ DEPLOYMENT_WIDE: dict[Route, str] = {
     ("GET", "/api/notice"): "the notice and whether the caller acknowledged it",
     ("POST", "/api/notice/acknowledge"): "a person's own acknowledgement, across organizations",
     ("GET", "/api/smart/session"): "the launch's own session (the browser's cookie)",
-    ("GET", "/smart/launch"): "the launch flow (called by every launch here)",
-    ("GET", "/smart/callback"): "the launch flow (called by every launch here)",
+    ("GET", "/smart/launch"): "the launch flow: called and scanned in each organization's seed",
+    ("GET", "/smart/callback"): "the launch flow: called and scanned in each organization's seed",
     ("GET", "/api/providers/jev/models"): "the deployment's Jev account. Not called (needs Jev)",
     ("GET", "/api/internal/retention"): "the operator's cron (CRON_SECRET), across every "
     "organization. Not called: tests/test_hosted_data.py",
@@ -115,6 +116,8 @@ FIELDS = {
     "often another organization's, never its content (owner decision O1, threat model I4)",
     "verify": "claims mode only: the whole chain's verification (head, events) is unchanged "
     "there; in memberships mode it is the operator's (404)",
+    "calls_today": "claims mode only: health's count of the deployment's remote calls today "
+    "(Jev, LLM), which every organization's decisions move; the operator's in memberships mode",
 }
 # The routes memberships mode adds; claims mode mounts none of them.
 MEMBERSHIPS_ONLY: set[Route] = {
@@ -199,6 +202,9 @@ class World:
     chained: list[tuple[str, Route, int, int]] = field(default_factory=list)  # (org, route, after)
     signed_in: bool = False  # a credentialed call is under way (the probes read it)
     probed: list[str] = field(default_factory=list)
+    # From phase 2 on, every call to /api/ names the other organization in its query and body
+    # (`org`): no route may honour it (critique item 10).
+    pinned: bool = False
 
     def head(self) -> int:
         """The chain's last `seq` (0: empty)."""
@@ -223,9 +229,15 @@ class World:
         """`who` calls `url` (the route `route` exercises) for `org`; the answer is recorded for
         the scan, with every value the caller sent (`sent`, the URL, query, form and body)."""
         start = self.head()
+        sending = dict(options)
+        if self.pinned and url.startswith("/api/") and not url.startswith("/api/packs/"):
+            name = self.other(org).name  # never in `sent`: an answer echoing it is a leak
+            sending["params"] = {"org": name, **(options.get("params") or {})}
+            if isinstance(options.get("json"), dict):
+                sending["json"] = {"org": name, **options["json"]}
         self.signed_in = True
         try:
-            answer = who.request(route[0], url, follow_redirects=False, **options)
+            answer = who.request(route[0], url, follow_redirects=False, **sending)
         finally:
             self.signed_in = False
         self.chained.append((org.name, route, start, self.head()))
@@ -267,6 +279,8 @@ def client_of(app: Any, headers: Mapping[str, str] | None = None) -> TestClient:
 # the deployment's holds too), and the deployment-wide reads; each with the modes and the reason
 # it may run during a signed-in call without an organization.
 EXPLICIT = (
+    "access_requests",
+    "hold_automation",
     "api_keys",
     "clients",
     "lift_hold",
@@ -326,6 +340,14 @@ def probing(world: World, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
         return real_holds(self, org, everyone=everyone)
 
     monkeypatch.setattr(AuditStore, "holds", holds)
+    real_memberships = AuditStore.memberships
+
+    def memberships(self: AuditStore, *, org: str | None = None, user_id: str | None = None) -> Any:
+        if world.signed_in and org is None and user_id is None:
+            world.probed.append("memberships for every organization")
+        return real_memberships(self, org=org, user_id=user_id)
+
+    monkeypatch.setattr(AuditStore, "memberships", memberships)
 
     def deployment(name: str) -> Callable[..., Any]:
         method = getattr(AuditStore, name)
@@ -362,6 +384,9 @@ def world(
     monkeypatch.setenv("MENDARI_ACCOUNTS", accounts)
     monkeypatch.setenv("MENDARI_NOTICE_ACKNOWLEDGEMENT", "required")
     monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "on")
+    # Each organization's quota, and each principal's cap, counted (health shows them).
+    monkeypatch.setenv("MENDARI_ORG_DAILY_LIMITS", "decisions=100000")
+    monkeypatch.setenv("MENDARI_PRINCIPAL_DAILY_LIMIT", "100000")
     monkeypatch.setenv("MENDARI_PUBLIC_URL", APP)
     monkeypatch.setenv("MENDARI_SMART_CLIENT_ID", SMART_CLIENT)
     monkeypatch.setenv("MENDARI_FHIR_ALLOWED_SERVERS", TENANTS)
@@ -369,6 +394,15 @@ def world(
         "MENDARI_SMART_EHRS", ",".join(f"{issuer_of(org)}={org}:decide" for org in ORGS)
     )
     ehrs = {org: tenant(issuer_of(org)) for org in ORGS}
+    for name, ehr in ehrs.items():  # alike (the same ids), but its own tokens and patient's name
+        marker = name.removeprefix("clinic-")
+        ehr.token_prefix = f"access-{marker}"
+        ehr.resources = [
+            {**r, "name": [{"family": f"Synthetic {marker}", "given": ["Pat"]}]}
+            if r["resourceType"] == "Patient"
+            else r
+            for r in ehr.resources
+        ]
     transport = routed(*ehrs.values())
     monkeypatch.setattr(
         smart_routes, "GuardedHttp", functools.partial(GuardedHttp, transport=transport)
@@ -388,8 +422,11 @@ def world(
         )
         for org in ORGS
     }
-    app = create_app(db_path=db_target)
+    # Providers that automate the inbox (a calm Jev), so a hold's effect shows; each hold set
+    # here clears the server's look-up of holds at once.
+    app = create_app(db_path=db_target, providers=calm_jev(monkeypatch))
     with AuditStore(db_target) as store:
+        store.purge(30, source="command")  # a last purge, with its counts, for health
         world = World(app, store, accounts, orgs)
         with probing(world, monkeypatch):
             for org in orgs.values():
@@ -468,9 +505,26 @@ def seed(world: World, org: Org) -> None:
             org.tokens[name] = client_of(world.app, bearer(answer.json()["access_token"]))
     # An EHR launch, from this organization's own EHR tenant.
     org.launch = client_of(world.app)
-    launched = full_launch(org.launch, org.ehr)
-    assert launched.status_code == 302, launched.text
-    world.exercised |= {("GET", "/smart/launch"), ("GET", "/smart/callback")}
+    started = world.call(
+        org,
+        org.launch,
+        ("GET", "/smart/launch"),
+        "/smart/launch",
+        params={"iss": org.ehr.iss, "launch": "xyz", "pack": REFERRAL},
+        expect=302,
+    )
+    location = started.headers["location"]
+    world.call(
+        org,
+        org.launch,
+        ("GET", "/smart/callback"),
+        "/smart/callback",
+        params={
+            "code": org.ehr.authorize(location),
+            "state": parse_qs(urlsplit(location).query)["state"][0],
+        },
+        expect=302,
+    )
     session = org.launch.get("/api/smart/session").json()
     org.launch_id = str(session["launch_id"])
     # Decisions: pending (a review's), routine (an outcome's), spare (an erasure's); FHIR, the
@@ -753,8 +807,10 @@ def refusals(world: World, x: Org, o: Org) -> None:
             json={"final_label": "nurse", "reviewer": "x"},
         )
     # Read as FHIR (a person and a client): two of theirs, the first and the last made.
+    own = x.one("decision")
+    own_seq = first_seq(world.store, own)
     for decision in (o.ids["decision"][0], o.ids["decision"][-1]):
-        for who in (viewer, x.tokens["viewer"]):
+        for who in (viewer, x.tokens["viewer"], x.tokens["service"]):
             refused(
                 who, ("GET", "/fhir/Task/{resource_id}"), f"/fhir/Task/{decision}", decision, 404
             )
@@ -780,6 +836,17 @@ def refusals(world: World, x: Org, o: Org) -> None:
                 decision,
                 404,
             )
+            # An event needs both halves of its id: one's own decision with their seq (and
+            # theirs with one's own seq) names nothing.
+            for kind, mark in (("AuditEvent", ""), ("Provenance", "p")):
+                for mixed in (f"{own}-{mark}{seq}", f"{decision}-{mark}{own_seq}"):
+                    refused(
+                        who,
+                        ("GET", f"/fhir/{kind}/{{resource_id}}"),
+                        f"/fhir/{kind}/{mixed}",
+                        mixed,
+                        404,
+                    )
             for route, url, params in (
                 (("GET", "/fhir/Task"), "/fhir/Task", {"_id": decision}),
                 (("GET", "/fhir/Task"), "/fhir/Task", {"identifier": decision}),
@@ -789,7 +856,7 @@ def refusals(world: World, x: Org, o: Org) -> None:
                 found = world.call(
                     x, who, route, url, params={**params, "_total": "accurate"}, expect=200
                 ).json()
-                assert matched(found) == 0, (url, params)
+                assert matched(found) == 0 and found.get("total") == 0, (url, params)
             for path in (
                 "/fhir/Task/_search",
                 "/fhir/AuditEvent/_search",
@@ -809,7 +876,44 @@ def refusals(world: World, x: Org, o: Org) -> None:
                     data={key: value, "_total": "accurate"},
                     expect=200,
                 ).json()
-                assert matched(found) == 0, (path, value)
+                assert matched(found) == 0 and found.get("total") == 0, (path, value)
+            # Theirs beside one's own, in one criterion: one's own only.
+            both = world.call(
+                x,
+                who,
+                ("GET", "/fhir/Task"),
+                "/fhir/Task",
+                params={"_id": f"{own},{decision}", "_total": "accurate"},
+                sent=(decision,),
+                expect=200,
+            ).json()
+            assert (matched(both), both.get("total")) == (1, 1), both
+    # Their next page, followed by this organization's viewer: its own resources only.
+    for kind in ("Task", "AuditEvent", "Provenance"):
+        theirs = world.call(
+            o,
+            o.people["viewer"],
+            ("GET", f"/fhir/{kind}"),
+            f"/fhir/{kind}",
+            params={"_count": 1},
+            expect=200,
+        ).json()
+        following = [link["url"] for link in theirs.get("link", []) if link["relation"] == "next"]
+        assert following, kind
+        target = urlsplit(following[0])
+        cursor = dict(parse_qs(target.query)).get("cursor", [""])[0]
+        replayed = world.call(
+            x,
+            viewer,
+            ("GET", f"/fhir/{kind}"),
+            f"{target.path}?{target.query}",
+            sent=(cursor,),
+            expect=(200, 400),
+        ).json()
+        owned = tuple(x.ids["decision"])
+        for entry in replayed.get("entry", []):
+            if entry.get("search", {}).get("mode") == "match":
+                assert entry["resource"]["id"].startswith(owned), (kind, entry["resource"]["id"])
     pas = {
         "decision_id": o.one("prior"),
         "patient": PATIENT,
@@ -880,17 +984,25 @@ def refusals(world: World, x: Org, o: Org) -> None:
             client_id,
             404,
         )
-        # Their client's id, asserted with this organization's own key: no token.
+        # Their client's id, asserted with this organization's own key (under its own kid, and
+        # under theirs, which is no secret: refused by the signature itself), or this one's
+        # valid assertion with a form client_id naming theirs: no token.
         before = written(world.store)
-        world.call(
-            x,
-            client_of(world.app),
-            ("POST", "/auth/token"),
-            "/auth/token",
-            data=token_form(x.signer, client_id),
-            expect=401,
-            sent=(client_id,),
-        )
+        posing = Signer(x.signer.alg, o.signer.kid, x.signer.private)
+        for form in (
+            token_form(x.signer, client_id),
+            token_form(posing, client_id),
+            {**token_form(x.signer, x.one("client")), "client_id": client_id},
+        ):
+            world.call(
+                x,
+                client_of(world.app),
+                ("POST", "/auth/token"),
+                "/auth/token",
+                data=form,
+                expect=401,
+                sent=(client_id,),
+            )
         assert written(world.store) == before
     for hold in o.ids["hold"]:
         refused(
@@ -943,11 +1055,7 @@ def refusals(world: World, x: Org, o: Org) -> None:
         (("GET", "/api/smart/patient"), "/api/smart/patient", {}),
         (("POST", "/api/smart/decide"), "/api/smart/decide", {"json": DECIDE_BODY}),
     ):
-        before = written(world.store)
-        world.call(
-            x, x.launch, route, url, expect=409, headers=pinned, sent=(o.launch_id,), **options
-        )
-        assert written(world.store) == before
+        refused(x.launch, route, url, o.launch_id, 409, headers=pinned, **options)
     if world.accounts == "memberships":
         refused_people(world, x, o, refused)
 
@@ -998,17 +1106,17 @@ def refused_people(world: World, x: Org, o: Org, refused: Callable[..., Any]) ->
         expect=403,
     )
     assert written(world.store) == before
-    # Acting for the other: neither chosen nor pinned.
-    world.call(
-        x,
+    # Acting for the other: neither chosen nor pinned, as for an organization that is not.
+    refused(
         admin,
         ("POST", "/api/auth/organization"),
         "/api/auth/organization",
+        o.name,
+        403,
         json={"org": o.name},
-        expect=403,
     )
-    world.call(
-        x, admin, ("GET", "/api/holds"), "/api/holds", headers={"x-mendari-org": o.name}, expect=409
+    refused(
+        admin, ("GET", "/api/holds"), "/api/holds", o.name, 409, headers={"x-mendari-org": o.name}
     )
 
 
@@ -1031,24 +1139,38 @@ def matched(bundle: Mapping[str, Any]) -> int:
 
 
 def reads(world: World, x: Org) -> dict[str, str]:
-    """`x`'s reads that open no input, as its viewer and its administrator: what the other's work
-    must not change (the differential). The answers by URL, request ids taken out."""
+    """`x`'s reads that open no input, as its viewer and its administrator, bare and in the
+    shapes the dashboard sends, every page of each: what the other's work must not change (the
+    differential). The answers by URL, steadied (`steady`)."""
     viewer, admin = x.people["viewer"], x.people["admin"]
     pack = {"pack_id": INBOX}
+    total = {"_total": "accurate", "_count": 3}
     asked: list[tuple[TestClient, Route, str, dict[str, Any]]] = [
         (viewer, ("GET", "/api/audit"), "/api/audit", pack),
+        (viewer, ("GET", "/api/audit"), "/api/audit", {}),
+        (viewer, ("GET", "/api/audit"), "/api/audit", {**pack, "outcome": "HUMAN_REVIEW"}),
+        (viewer, ("GET", "/api/audit"), "/api/audit", {**pack, "limit": 2, "offset": 2}),
         (viewer, ("GET", "/api/review"), "/api/review", pack),
+        (viewer, ("GET", "/api/review"), "/api/review", {}),
         (viewer, ("GET", "/api/feedback"), "/api/feedback", {}),
+        (viewer, ("GET", "/api/feedback"), "/api/feedback", {**pack, "rating": "down"}),
         (viewer, ("GET", "/api/holds"), "/api/holds", {}),
         (viewer, ("GET", "/api/governance"), "/api/governance", {}),
+        (viewer, ("GET", "/api/governance"), "/api/governance", {"pack_id": GUARD}),
         (viewer, ("GET", "/api/evals"), "/api/evals", {}),
+        (viewer, ("GET", "/api/evals"), "/api/evals", pack),
         (viewer, ("GET", "/api/stats"), "/api/stats", pack),
+        (viewer, ("GET", "/api/stats"), "/api/stats", {}),
         (viewer, ("GET", "/api/monitoring"), "/api/monitoring", pack),
-        (viewer, ("GET", "/fhir/Task"), "/fhir/Task", {"_total": "accurate"}),
-        (viewer, ("GET", "/fhir/AuditEvent"), "/fhir/AuditEvent", {"_total": "accurate"}),
-        (viewer, ("GET", "/fhir/Provenance"), "/fhir/Provenance", {"_total": "accurate"}),
+        (viewer, ("GET", "/api/health"), "/api/health", {}),
+        (viewer, ("GET", "/api/auth/me"), "/api/auth/me", {}),
+        (admin, ("GET", "/api/health"), "/api/health", {}),
+        (viewer, ("GET", "/fhir/Task"), "/fhir/Task", total),
+        (viewer, ("GET", "/fhir/AuditEvent"), "/fhir/AuditEvent", total),
+        (viewer, ("GET", "/fhir/Provenance"), "/fhir/Provenance", total),
         (admin, ("GET", "/api/audit/export/fhir"), "/api/audit/export/fhir", {}),
-        (admin, ("GET", "/api/audit/administrative"), "/api/audit/administrative", {}),
+        (admin, ("GET", "/api/audit/export/fhir"), "/api/audit/export/fhir", pack),
+        (admin, ("GET", "/api/audit/administrative"), "/api/audit/administrative", {"limit": 4}),
         (
             admin,
             ("GET", "/api/audit/administrative/export/fhir"),
@@ -1063,15 +1185,40 @@ def reads(world: World, x: Org) -> dict[str, str]:
             asked.append((admin, ("GET", path), path, {}))
     answers = {}
     for who, route, url, params in asked:
+        key = f"{id(who)}{url}?{json.dumps(params)}"
         answer = world.call(x, who, route, url, params=params, expect=200)
-        answers[f"{url}?{json.dumps(params)}"] = steady(answer.text)
+        answers[key] = steady(answer.text)
+        for page in range(2, 100):  # every following page, scanned and compared too
+            following = next_page(route, answer, params)
+            if following is None:
+                break
+            url_next, params_next = following
+            answer = world.call(x, who, route, url_next, params=params_next, expect=200)
+            answers[f"{key}#{page}"] = steady(answer.text)
     return answers
+
+
+def next_page(route: Route, answer: Any, params: dict[str, Any]) -> tuple[str, dict] | None:
+    """The request for the page after `answer` (a FHIR searchset's `next` link, or the
+    administrative list's `next`), or None."""
+    if route[1].startswith("/fhir/"):
+        links = [
+            link["url"] for link in answer.json().get("link", []) if link["relation"] == "next"
+        ]
+        if not links:
+            return None
+        target = urlsplit(links[0])
+        return f"{target.path}?{target.query}", {}
+    if route == ("GET", "/api/audit/administrative") and answer.json().get("next"):
+        return route[1], {**params, "after": answer.json()["next"]}
+    return None
 
 
 def steady(text: str) -> str:
     """An answer without what differs between two identical reads: request ids, and a search
     Bundle's own time and id."""
     text = re.sub(r'"request_id":\s*"[^"]*"', "", text)
+    text = re.sub(r'"calls_today":\s*\d+', "", text)  # FIELDS["calls_today"]
     text = re.sub(r'"timestamp":\s*"[^"]*"', "", text)
     return re.sub(r'"resourceType":"Bundle","id":"[^"]*"', '"resourceType":"Bundle"', text)
 
@@ -1083,9 +1230,11 @@ def served(world: World, x: Org) -> None:
     service, governance = x.keys["service"], x.people["governance"]
     reads(world, x)
     for decision in x.ids["decision"]:
-        world.call(
-            x, reviewer, ("GET", "/api/audit/{decision_id}"), f"/api/audit/{decision}", expect=200
-        )
+        # Each principal phase 1 refuses is served its own, so no refusal there is one for all.
+        for who in (reviewer, admin, viewer, x.keys["viewer"]):
+            world.call(
+                x, who, ("GET", "/api/audit/{decision_id}"), f"/api/audit/{decision}", expect=200
+            )
         world.call(
             x,
             viewer,
@@ -1094,7 +1243,7 @@ def served(world: World, x: Org) -> None:
             expect=200,
         )
         seq = first_seq(world.store, decision)
-        for who in (viewer, x.tokens["viewer"]):
+        for who in (viewer, x.tokens["viewer"], x.tokens["service"]):
             world.call(
                 x, who, ("GET", "/fhir/Task/{resource_id}"), f"/fhir/Task/{decision}", expect=200
             )
@@ -1125,8 +1274,9 @@ def served(world: World, x: Org) -> None:
             ("/fhir/Provenance/_search", "target"),
         ):
             value = decision if key == "_id" else f"Task/{decision}"
-            found = world.call(x, viewer, ("POST", path), path, data={key: value}, expect=200)
-            assert matched(found.json()) >= 1, (path, value)
+            for who in (viewer, x.tokens["viewer"], x.tokens["service"]):
+                found = world.call(x, who, ("POST", path), path, data={key: value}, expect=200)
+                assert matched(found.json()) >= 1, (path, value)
     for key_id in x.ids["key"]:
         world.call(
             x,
@@ -1160,7 +1310,14 @@ def served(world: World, x: Org) -> None:
     )
     for who in (viewer, admin):
         world.call(x, who, ("GET", "/api/auth/me"), "/api/auth/me", expect=200)
-        world.call(x, who, ("GET", "/api/health"), "/api/health", expect=200)
+        health = world.call(x, who, ("GET", "/api/health"), "/api/health", expect=200).json()
+        # The last purge's counts are every organization's: the operator's in memberships mode.
+        counts = {"inputs", "notes"} & set(health["last_purge"])
+        assert counts == (set() if world.accounts == "memberships" else {"inputs", "notes"})
+        # Its quota counts its own decisions, and no one else's.
+        with world.store._db.session(exclusive=False) as db:
+            row = db.one("SELECT COUNT(*) AS n FROM decisions WHERE org = ?", (x.name,))
+        assert health["org_quotas"]["used_today"] == {"decisions": int(row["n"])}, health
     world.call(
         x,
         admin,
@@ -1405,8 +1562,11 @@ def test_every_route_called_as_two_organizations_shows_neither_the_others_data(
     alpha, bravo = (world.orgs[org] for org in ORGS)
     for x in (alpha, bravo):
         refusals(world, x, world.other(x))
+    world.pinned = True  # from here on, every own call also names the other organization
     for x in (alpha, bravo):
         served(world, x)
+    if world.accounts == "memberships":
+        both(world, alpha, bravo)
     # The differential: an organization's reads are the same before and after the other works.
     before = {x.name: reads(world, x) for x in (alpha, bravo)}
     for x in (alpha, bravo):
@@ -1422,31 +1582,117 @@ def test_every_route_called_as_two_organizations_shows_neither_the_others_data(
 
 
 def again(world: World, x: Org) -> None:
-    """A second round of `x`'s work: a decision, a key, a hold."""
-    world.call(
-        x,
-        x.keys["service"],
-        ("POST", "/api/packs/{namespace}/{name}/decide"),
-        f"/api/packs/{INBOX}/decide",
-        json=message(f"Second visit {x.marker}"),
-        expect=200,
-    )
-    world.call(
-        x,
-        x.people["admin"],
-        ("POST", "/api/auth/keys"),
-        "/api/auth/keys",
-        json={"name": f"again {x.marker}", "role": "viewer"},
-        expect=201,
-    )
-    world.call(
+    """A second round of `x`'s work, one write of every kind an answer counts: an automated
+    decision, then a hold of the inbox and a decision it holds (citing it, while the other's
+    automation runs on); a review, an outcome and a rating; an approval, an evaluation, a key and
+    a client; in memberships mode an invitation and a request to join."""
+    decide, url = ("POST", "/api/packs/{namespace}/{name}/decide"), f"/api/packs/{INBOX}/decide"
+    service, reviewer = x.keys["service"], x.people["reviewer"]
+    free = world.call(x, service, decide, url, json=message(f"{REFILL} {x.marker}"), expect=200)
+    assert free.json()["outcome"] == "AUTO", free.json()["reasons"]  # no one else's hold here
+    x.made("decision", free.json()["id"])
+    hold = world.call(
         x,
         x.people["governance"],
         ("POST", "/api/holds"),
         "/api/holds",
         json={"pack_id": INBOX, "reason": f"again {x.marker}"},
         expect=201,
+    ).json()
+    x.made("hold", hold["id"])
+    held = world.call(x, service, decide, url, json=message(f"{REFILL} {x.marker}"), expect=200)
+    assert held.json()["outcome"] == "HUMAN_REVIEW"
+    assert f"automation is on hold: hold {hold['id']}" in held.json()["reasons"]
+    x.made("decision", held.json()["id"])
+    world.call(
+        x,
+        reviewer,
+        ("POST", "/api/review/{decision_id}"),
+        f"/api/review/{held.json()['id']}",
+        json={"final_label": "nurse", "reviewer": "x", "note": f"again {x.marker}"},
+        expect=200,
     )
+    world.call(
+        x,
+        service,
+        ("POST", "/api/audit/{decision_id}/outcome"),
+        f"/api/audit/{held.json()['id']}/outcome",
+        json={"final_label": "nurse", "source": "ehr"},
+        expect=200,
+    )
+    rated = world.call(
+        x,
+        reviewer,
+        ("POST", "/api/audit/{decision_id}/feedback"),
+        f"/api/audit/{free.json()['id']}/feedback",
+        json={"rating": "down", "note": f"again {x.marker}"},
+        expect=200,
+    ).json()
+    x.made("feedback", rated["id"])
+    approval = world.call(
+        x,
+        x.people["governance"],
+        ("POST", "/api/governance"),
+        "/api/governance",
+        json={"pack_id": GUARD, "reference": f"again {x.marker}", "days": 30},
+        expect=201,
+    ).json()
+    x.made("approval", approval["id"])
+    run = world.call(
+        x,
+        x.people["admin"],
+        ("POST", "/api/packs/{namespace}/{name}/evals"),
+        f"/api/packs/{INBOX}/evals",
+        json={"dataset": "test", "limit": 1},
+        expect=200,
+    ).json()
+    x.made("run", run["run"]["id"])
+    key = world.call(
+        x,
+        x.people["admin"],
+        ("POST", "/api/auth/keys"),
+        "/api/auth/keys",
+        json={"name": f"again {x.marker}", "role": "viewer"},
+        expect=201,
+    ).json()
+    x.made("key", key["id"])
+    client = world.call(
+        x,
+        x.people["admin"],
+        ("POST", "/api/auth/clients"),
+        "/api/auth/clients",
+        json={"name": f"again {x.marker}", "role": "viewer", "jwks": {"keys": [x.signer.jwk]}},
+        expect=201,
+    ).json()
+    x.made("client", client["client_id"])
+    if world.accounts == "memberships":
+        invited = world.call(
+            x,
+            x.people["admin"],
+            ("POST", "/api/auth/invitations"),
+            "/api/auth/invitations",
+            json={"email": f"again@{x.marker}.example.org", "roles": ["viewer"]},
+            expect=201,
+        ).json()
+        x.made("invitation", invited["id"])
+        asker = client_of(
+            world.app,
+            member(
+                world.store,
+                org=None,
+                sub=f"again-{x.marker}",
+                email=f"again@{x.marker}.example.org",
+            ),
+        )
+        x.made("person", person_id(IDP, f"again-{x.marker}"))
+        world.call(
+            x,
+            asker,
+            ("POST", "/api/auth/access-requests"),
+            "/api/auth/access-requests",
+            json={"org": x.name},
+            expect=202,
+        )
 
 
 # -- the checks ------------------------------------------------------------------------------------
@@ -1459,6 +1705,9 @@ def secrets_of(world: World, org: Org) -> set[str]:
     for client in (*org.keys.values(), *org.tokens.values()):
         found.add(client.headers["authorization"].removeprefix("Bearer "))
     found |= {org.launch_id, org.name}
+    record = world.store.organization(org.name)
+    if record is not None:  # its display name, as an organization's record holds it
+        found.add(str(record["name"]))
     with world.store._db.session(exclusive=False) as db:
         decided = [
             row["id"] for row in db.all("SELECT id FROM decisions WHERE org = ?", (org.name,))
@@ -1511,9 +1760,9 @@ def scan(world: World) -> None:
     hidden = {name: secrets_of(world, org) for name, org in world.orgs.items()}
     for exchange in world.exchanges:
         other = world.other(world.orgs[exchange.org])
-        text = visible(exchange)
+        text = visible(exchange).lower()  # a display name ("Clinic-Zqbravo") is caught too
         assert other.marker not in text, (exchange.org, exchange.route, text[:300])
-        shown = sorted(value for value in hidden[other.name] if value in text)
+        shown = sorted(value for value in hidden[other.name] if value.lower() in text)
         assert shown == [], (exchange.org, exchange.route, shown)
 
 
@@ -1558,3 +1807,61 @@ def covered(world: World) -> None:
         assert not mounted & MEMBERSHIPS_ONLY
     else:
         assert mounted >= MEMBERSHIPS_ONLY
+
+
+def both(world: World, a: Org, b: Org) -> None:
+    """Memberships mode: one person, a viewer of `a` acting for it and an administrator of `b`.
+    Acting for `a`, they have `a`'s roles and see `a`'s data only; a window still showing `b` is
+    refused; choosing `b` gives `b`'s roles, and a window still showing `a` is then refused.
+    Their identity names neither organization (`both@shared.example.org`), and their membership
+    list, in /api/auth/me, is theirs: it is read here, not scanned."""
+    member(world.store, org=b.name, roles=["admin"], sub="both", email="both@shared.example.org")
+    who = client_of(
+        world.app,
+        member(
+            world.store, org=a.name, roles=["viewer"], sub="both", email="both@shared.example.org"
+        ),
+    )
+    shown = who.get("/api/auth/me").json()
+    assert (shown["principal"]["org"], shown["principal"]["roles"]) == (a.name, ["viewer"])
+    assert sorted(m["org"] for m in shown["memberships"]) == sorted((a.name, b.name))
+    world.call(a, who, ("GET", "/api/auth/keys"), "/api/auth/keys", expect=403)  # a's roles
+    for url, params in (("/api/audit", {"pack_id": INBOX}), ("/api/holds", {}),
+                        ("/api/feedback", {}), ("/api/evals", {})):  # fmt: skip
+        world.call(a, who, ("GET", url), url, params=params, expect=200)
+    before = written(world.store)
+    world.call(
+        a,
+        who,
+        ("POST", "/api/holds"),
+        "/api/holds",
+        json={"reason": "x"},
+        headers={"x-mendari-org": b.name},
+        expect=409,
+    )
+    assert written(world.store) == before
+    world.call(
+        b,
+        who,
+        ("POST", "/api/auth/organization"),
+        "/api/auth/organization",
+        json={"org": b.name},
+        expect=200,
+    )
+    world.call(b, who, ("GET", "/api/auth/keys"), "/api/auth/keys", expect=200)  # b's roles now
+    world.call(
+        b, who, ("GET", "/api/holds"), "/api/holds", headers={"x-mendari-org": a.name}, expect=409
+    )
+
+
+def test_every_store_method_that_may_read_every_organization_is_probed() -> None:
+    """A store method whose organization may be None (every organization) is wrapped by the
+    probes, so a new one fails here until it is."""
+    found = {
+        name
+        for name, method in inspect.getmembers(AuditStore, inspect.isfunction)
+        if not name.startswith("_")
+        and (parameter := inspect.signature(method).parameters.get("org")) is not None
+        and "None" in str(parameter.annotation)
+    }
+    assert found == {*EXPLICIT, "holds", "memberships"}

@@ -643,8 +643,11 @@ Connect) is not supported yet.
       markers, ids, secrets and event hashes (echoes and the reviewed `FIELDS` taken out); reads
       answer the same before and after the other works; every event chained is the caller's;
       no signed-in call reads as every organization (probes on tenancy and on the store); a
-      route nothing calls and the allow-list (`DEPLOYMENT_WIDE`) does not name fails it. Both
-      account modes, SQLite and Postgres; each of eleven isolation mutants fails it.
+      route nothing calls and the allow-list (`DEPLOYMENT_WIDE`) does not name fails it. From
+      phase 2 every call also names the other organization in its query and body; a person of
+      both acts as the membership chosen; an automated decision runs on beside the other's hold;
+      every page is read. Both account modes, SQLite and Postgres; each of nineteen isolation
+      mutants fails it.
   - [ ] **12h** (PR open) The Access view's API keys and Clients tabs, for people holding
     `keys`, in claims mode too (the people tabs stay memberships-only): a key made from a preset
     (the table drives role, scope and days, what it reaches and its guide) or by hand, its secret
