@@ -77,7 +77,7 @@ from mendari.evals.harness import Dataset, evaluation
 from mendari.evals.monitoring import check_webhook, monitor
 from mendari.evals.pack_tests import load_cases
 from mendari.legacy import current_pack_id
-from mendari.providers import jev, llm, slots_without_model
+from mendari.providers import jev, llm, provider_allow_list, slots_without_model
 from mendari.providers.credentials import key_source
 from mendari.server import api_docs, landing, security_log, sessions
 from mendari.server.auth import (
@@ -375,6 +375,9 @@ def create_app(
     timezone = clock.zone().key  # an invalid MENDARI_TIMEZONE fails here, at startup
     validation = fhir_validation or settings.fhir_validation()  # likewise
     fhir_servers = sorted(allowed_servers())  # likewise
+    # The origins remote providers may be called at (None: no list): a malformed list, or an
+    # LLM or Jev endpoint the deployment set that it leaves out, fails here, at startup.
+    provider_origins = provider_allow_list()
     smart_options = smart_settings()
     # The EHRs whose launches are principals: only a malformed value, or a base off the FHIR
     # allow-list, fails here; every other SMART check refuses a launch, never the server.
@@ -629,8 +632,9 @@ def create_app(
         if (slots := slots_without_model(packs[pack_id], running))
     }
     health_unbuilt = {pack_id: str(error) for pack_id, error in unbuildable.items()}
-    # An owned served pack whose provider configs `mendari validate` refuses (`Pack.warnings`): it
-    # loads and serves what builds, and says so once here and in /api/health.
+    # An owned served pack whose provider configs, prefetch or wording templates `mendari validate`
+    # refuses (`Pack.warnings`): it loads and serves what builds, and says so once here and in
+    # /api/health.
     health_pack_warnings = {
         pack_id: list(packs[pack_id].warnings)
         for pack_id in sorted(packs)
@@ -638,7 +642,8 @@ def create_app(
     }
     for pack_id, warnings in health_pack_warnings.items():
         providers_logger.warning(
-            "%s loads with provider config problems (mendari validate refuses it): %s",
+            "%s loads with problems (provider configs, prefetch or wording templates) that "
+            "mendari validate refuses: %s",
             packs[pack_id].ref,
             "; ".join(warnings),
         )
@@ -800,15 +805,16 @@ def create_app(
         """Public, for load balancers: `status`, `version` and `sign_in`, and nothing else
         without a credential (no database work either). A principal that may `read` (everyone
         in open mode) also gets the deployment's settings: packs (and how many come from
-        where), storage, the FHIR validation mode, PHI mode, the input hash's kind and key id,
-        which provider answers each pack's questions, today's remote calls (in memberships
-        mode the operator's, `mendari usage`, as the last purge's counts are), the rate limits
-        (where the caller's address is read, and the address seen on this request), the session
-        policy, the organization's daily quotas with what it used today, and whether SMART
-        Backend Services is on (`backend_services`: its token endpoint, or null).
+        where), storage, the FHIR validation mode, the FHIR and provider allow-lists, PHI mode,
+        the input hash's kind and key id, which provider answers each pack's questions, today's
+        remote calls (in memberships mode the operator's, `mendari usage`, as the last purge's
+        counts are), the rate limits (where the caller's address is read, and the address seen
+        on this request), the session policy, the organization's daily quotas with what it used
+        today, and whether SMART Backend Services is on (`backend_services`: its token endpoint,
+        or null).
 
         The packs' state (which provider each runs, the settings skipped, a pack that could not
-        be built, the provider config problems an owned pack loads with, `pack_warnings`) is
+        be built, the problems an owned pack loads with, `pack_warnings`) is
         computed at start-up: health builds no pack and records no deployment (a signed-in
         caller's session may still be refreshed, as on any route).
         """
@@ -822,8 +828,9 @@ def create_app(
             # How many of them come from where: maintained, community, hub, local.
             "packs_by_origin": dict(Counter(pack.shown_origin for pack in packs.values())),
             "invalid": {**found.problems, **terminology_problems, **health_unbuilt},
-            # Served packs that load with provider config problems (`mendari validate` refuses
-            # them; a pack the deployment does not own is refused, under `invalid`).
+            # Served packs that load with problems in their provider configs, prefetch or wording
+            # templates (`mendari validate` refuses them; a pack the deployment does not own is
+            # refused, under `invalid`).
             "pack_warnings": health_pack_warnings,
             "storage": store.backend,
             # Calendar days and displayed times use this zone; stored timestamps are UTC.
@@ -831,6 +838,9 @@ def create_app(
             "fhir_validation": validation,
             # FHIR servers this deployment may read from (CDS Hooks fetch); empty: none.
             "fhir_allowed_servers": fhir_servers,
+            # The origins remote providers (Jev, LLMs, Vercel Connect) may be called at
+            # (MENDARI_PROVIDER_ALLOWED_ORIGINS), read at start-up; null: no list is set.
+            "provider_allowed_origins": provider_origins,
             "smart_launch": smart_options is not None,
             # SMART Backend Services: its token endpoint when it is on (public in discovery
             # too), None when off. The dashboard's Clients tab is shown only when it is on.

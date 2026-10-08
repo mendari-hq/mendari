@@ -10,7 +10,7 @@ from typing import Any
 from mendari.core import input_schema
 from mendari.core.decision import Decision
 from mendari.core.origin import bounded_reader, shape_problem
-from mendari.core.pack import Pack, not_json
+from mendari.core.pack import Pack, manifest_template_problems, not_json
 from mendari.core.patterns import COMMUNITY_TIME_BUDGET_S, OutOfTime, time_budget
 from mendari.core.spec import Outcome, PackManifest, Priority
 from mendari.errors import PackValidationError
@@ -114,16 +114,19 @@ def _value_problem(manifest: PackManifest, expect: dict[str, Any]) -> str | None
 
 
 def validate_pack(pack: Pack) -> None:
-    """`mendari validate`: every provider variant passes its closed config
-    (`providers.config_problems`: what `load_pack` warns an owned pack of, `Pack.warnings`, and
-    refuses a pack the deployment does not own for) and builds, the FHIR mapping (if any)
-    loads, the behaviour tests' inputs match the input schema, and every declared dataset is one
-    the pack can evaluate (`dataset_problems`); a `PackValidationError` otherwise."""
+    """`mendari validate`: the CDS Hooks prefetch and card templates are relative reads and
+    searches and bare placeholders (`manifest_template_problems`), every provider variant passes
+    its closed config (`providers.config_problems`; both are what `load_pack` warns an owned
+    pack of, `Pack.warnings`, and refuses a pack the deployment does not own for) and builds,
+    the FHIR mapping (if any) loads and its Task text uses bare placeholders, the behaviour
+    tests' inputs match the input schema, and every declared dataset is one the pack can
+    evaluate (`dataset_problems`); a `PackValidationError` otherwise."""
     from mendari.providers import build_provider, config_problems
 
-    # Every variant's problems, each naming it; the trained files are read whatever the pack
-    # was loaded with. Then what only a build finds: the deployment's model settings.
-    problems = config_problems(pack)
+    # Every template's and variant's problems, each naming it; the trained files are read
+    # whatever the pack was loaded with. Then what only a build finds: the deployment's model
+    # settings.
+    problems = manifest_template_problems(pack.manifest) + config_problems(pack)
     if problems:
         raise PackValidationError(pack.id, problems)
     for slot, spec in pack.manifest.providers.items():
@@ -132,7 +135,9 @@ def validate_pack(pack: Pack) -> None:
     if pack.manifest.inputs.fhir:
         from mendari.standards.fhir import FhirAdapter
 
-        FhirAdapter.for_pack(pack)  # parse and check the mapping, not only that it exists
+        # Parse and check the mapping, not only that it exists; its Task text bare, whoever
+        # owns the pack.
+        FhirAdapter.for_pack(pack, bare=True)
     problems = input_problems(pack) + dataset_problems(pack)
     if problems:
         raise PackValidationError(pack.id, problems)

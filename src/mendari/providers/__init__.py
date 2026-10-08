@@ -26,7 +26,10 @@ from mendari.providers.cascade import CascadeConfig, CascadeProvider
 from mendari.providers.cql import CqlConfig, CqlProvider
 from mendari.providers.criteria import CriteriaProvider
 from mendari.providers.dosing import DosingProvider
+from mendari.providers.http import allowed_origins, require_listed
+from mendari.providers.jev import ENDPOINT_ENV as JEV_ENDPOINT_ENV
 from mendari.providers.jev import JevConfig, JevProvider
+from mendari.providers.llm import BASE_URL_ENV as LLM_BASE_URL_ENV
 from mendari.providers.llm import LlmConfig, LlmProvider
 from mendari.providers.naive_bayes import NaiveBayesConfig, NaiveBayesProvider
 from mendari.providers.rules import RulesProvider
@@ -68,8 +71,12 @@ PROVIDER_CONFIG_MODELS: Mapping[str, type[BaseModel]] = {
 }
 # Where the generated JSON Schema of those configs is published (`config_json_schema`).
 CONFIG_SCHEMA_ID = "https://mendari.co/spec/provider-configs.schema.json"
+# The deployment's variables that name a remote provider's endpoint: when it lists the origins
+# its providers may be called at, each one it sets must be on that list (`provider_allow_list`).
+ENDPOINT_ENVS = (LLM_BASE_URL_ENV, JEV_ENDPOINT_ENV)
 
 __all__ = [
+    "ENDPOINT_ENVS",
     "MODEL_TYPES",
     "PROVIDER_CONFIG_MODELS",
     "PROVIDER_TYPES",
@@ -80,9 +87,25 @@ __all__ = [
     "build_provider",
     "config_json_schema",
     "config_problems",
+    "provider_allow_list",
     "slots_without_model",
     "uses_model",
 ]
+
+
+def provider_allow_list() -> list[str] | None:
+    """At start-up: the origins the deployment's remote providers may be called at
+    (`MENDARI_PROVIDER_ALLOWED_ORIGINS`, `providers/http.py`), sorted, or None when it is unset
+    or blank (no allow-list, as before). A malformed list, or an endpoint variable the
+    deployment set (`ENDPOINT_ENVS`) whose origin it leaves out, is a `MendariError` naming the
+    variable. The AI Gateway's default and Vercel Connect are checked when called: an unused
+    one stops nothing."""
+    allowed = allowed_origins()
+    if allowed is None:
+        return None
+    for variable in ENDPOINT_ENVS:
+        require_listed(variable, allowed)
+    return sorted(allowed)
 
 
 def config_problems(pack: Pack, *, trained: bool = True) -> list[str]:

@@ -221,6 +221,9 @@ providers:
   `JEV_MODEL`, `JEV_API_KEY`, `JEV_CONNECTOR`; `LLM_BASE_URL`, `LLM_MODEL`, `AI_GATEWAY_API_KEY`,
   `LLM_API_KEY`), which a pack cannot change;
 - require HTTPS (plain HTTP only for localhost);
+- reach only the origins on `MENDARI_PROVIDER_ALLOWED_ORIGINS` when a deployment sets it (the AI
+  Gateway's default and Vercel Connect included): any other request is refused before it is
+  opened (`invalid_endpoint`), and an `LLM_BASE_URL` or `JEV_API_URL` off the list stops startup;
 - refuse redirects and cap response size;
 - share one wall-clock deadline per decision, the CQL engine included
   (`MENDARI_DECISION_DEADLINE_S`, 120 s unless set): past it a call is not made, one under way
