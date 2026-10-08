@@ -200,7 +200,9 @@ def test_dashboard_is_served(client: TestClient) -> None:
     assert found
     stamped = json.loads(found[1])["imports"]
     modules = sorted(
-        p.name for p in DASHBOARD_DIR.glob("*.js") if p.name not in ("docs.js", "invite.js")
+        p.name
+        for p in DASHBOARD_DIR.glob("*.js")
+        if p.name not in ("docs.js", "invite.js", "status.js")
     )
     assert sorted(stamped) == [f"/static/{name}" for name in modules]
     for url in stamped.values():

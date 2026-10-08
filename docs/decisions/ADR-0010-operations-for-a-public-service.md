@@ -48,16 +48,19 @@ Anonymous `/api/health` stays three fields with no database work.
      5 s, whatever the request rate. There is no per-address limit (below).
    - Kubernetes' readinessProbe uses it, and liveness stays on `/api/health`.
 2. **Status checks (21b).**
-   - A checks file covers:
+   - A checks file (`deploy/status/checks.yaml`, run by `scripts/status_checks.py` and
+     described in `docs/operations/status-checks.md`) covers:
      - readiness;
-     - the sign-in redirect, which must reach the identity provider;
-     - a synthetic decide on a reference pack with local providers, by a decide-only key in its
-       own status organization (`MENDARI_STATUS_ORG`);
+     - the sign-in redirect, which must reach the identity provider (another host);
+     - a synthetic decide on the inbox router (local providers by default), by a decide-only
+       key in an organization of its own, read from `STATUS_DECIDE_KEY`, never the file;
      - the registry's health;
      - the Hub's page.
-   - A minimal public in-app status view reads readiness. The owner's external status page is
-     the one that survives a full outage.
-   - There is no dry-run decide mode.
+   - A minimal public in-app status view, `/status`: static, reading readiness in the browser
+     every 30 seconds, so serving it does no database work. The owner's external status page
+     is the one that survives a full outage.
+   - There is no dry-run decide mode: the status organization keeps its decisions apart. The
+     setting that will leave it out of monitoring comes with the monitor's schedule (21f).
 3. **The monitor (21c, 21d).**
    - It compares like with like:
      - only the served pack version;
