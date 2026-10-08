@@ -67,7 +67,8 @@ def slug(heading: str) -> str:
 
 
 def test_each_preset_is_a_machine_key_the_role_allows_with_a_page_that_says_so() -> None:
-    routes = presets.served(create_app(db_path=":memory:").routes)
+    with TestClient(create_app(db_path=":memory:")) as client:  # its store closed after
+        routes = presets.served(client.app.routes)  # type: ignore[attr-defined]
     for preset in presets.PRESETS.values():
         assert presets.ID.fullmatch(preset.id), preset.id
         assert preset.role in MACHINE_ROLES, preset.id
@@ -106,7 +107,8 @@ def test_the_guide_shows_the_table_as_it_is() -> None:
 
 
 def test_the_api_names_every_preset() -> None:
-    schema = create_app(db_path=":memory:").openapi()["components"]["schemas"]["KeyRequest"]
+    with TestClient(create_app(db_path=":memory:")) as client:  # its store closed after
+        schema = client.get("/openapi.json").json()["components"]["schemas"]["KeyRequest"]
     assert schema["properties"]["preset"]["enum"] == [*presets.PRESETS, None]
     assert schema["required"] == ["name", "role"]  # as before: a preset never makes role optional
 
