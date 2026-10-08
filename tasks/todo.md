@@ -1108,7 +1108,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
 - [ ] **LP-21** Operations for a public service (ADR-0010, Proposed). Planned by a mapping
   workflow (2026-10-08) as fifteen PRs, each safe alone; none changes what a valid pack
   decides, and anonymous `/api/health` stays three fields with no database work:
-  - [ ] **21a** (#194) Readiness, `GET`/`HEAD /api/health/ready`: one read of the chain's
+  - [x] **21a** (#194, merged 2026-10-08) Readiness, `GET`/`HEAD /api/health/ready`: one read of the chain's
     table (`AuditStore.ping`, creating nothing) per instance every 5 s, whoever asks, in a
     thread of its own waited for about 3.5 s, a failure kept too; a read never answered holds
     that one thread and none starts again until it returns; a caller during a check gets the
@@ -1116,10 +1116,17 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     when unready; fixed codes only. Kubernetes' readinessProbe uses it; ADR-0010; this entry.
   - [ ] **21b** (PR open) The status checks file (`deploy/status/checks.yaml`: readiness, the
     sign-in redirect, a synthetic decide on AI Guard (local rules, even with Jev set up) by a
-    decide-only key in a status organization of its own, the registry, the Hub), `scripts/status_checks.py`, `docs/operations/status-checks.md`
-    and `/status`, a public static page that reads readiness in the browser.
-  - [ ] **21c** The monitor compares like with like (served version, a comparable reference or
-    none, the reviewed stratum, refusals apart, whole weeks, unknown cost as unknown).
+    decide-only key in a status organization of its own, the registry, the Hub),
+    `scripts/status_checks.py`, `docs/operations/status-checks.md` and `/status`, a public
+    static page that reads readiness in the browser.
+  - [x] **21c** (#195, merged 2026-10-08) The monitor compares like with like: the served version (others
+    counted apart) since its current configuration started; the benchmark only for this build,
+    these providers and models, and this governance (`benchmark.reason` otherwise:
+    `no_benchmark`, `another_build`, `providers_unknown`, `other_providers`, `other_policy`);
+    accuracy stratum by stratum (reviewed, automated), alerting only beyond doubt; refusals
+    apart; drift over 50 confidences; whole weeks, 14 to 180 days; awaiting review counted; an
+    unknown cost unknown. The CLI checks each pack's newest version. The view, README, guide and
+    spec say so.
   - [ ] **21d** Operational health in the monitor: provider error share (an additive
     `decisions.provider_errors` count), abstention share, latency.
   - [ ] **21e** Alert delivery: `MENDARI_ALERT_FORMAT`, an HMAC signature
@@ -1148,9 +1155,15 @@ pushes none), so the first published images wait on the item below; the PyPI rel
      `HEALTHCHECK` stay on `/api/health`.
   6. (21b) The in-app status view is minimal; the owner's external status page is the one that
      survives a full outage.
-  7. (21h) Evaluations get their own organization quotas, unset meaning no limit; charging
+  7. (21c) No leaderboard fallback: a benchmark that is not comparable leaves no reference.
+     The hosted site runs Jev where the reference packs' benchmarks measured `naive_bayes` and
+     rules, so it gets no accuracy or drift alerts against them until a benchmark measures
+     its configuration; the view and `mendari monitor` say why.
+  8. (21c) A governance approval in force is part of the configuration: a benchmark measured
+     without one is not compared with a pack automating under one (`other_policy`).
+  9. (21h) Evaluations get their own organization quotas, unset meaning no limit; charging
      them to the live quotas could push live decisions to review (clinical behaviour).
-  8. (21k) The public checkpoint carries no sequence number or count, and is published only
+  10. (21k) The public checkpoint carries no sequence number or count, and is published only
      once the owner sets the key.
 
   **Owner decisions** (none blocks 21a to 21m): the status page provider, its checks and who is
