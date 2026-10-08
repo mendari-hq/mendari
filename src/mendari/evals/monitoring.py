@@ -149,19 +149,12 @@ def check_webhook(url: str) -> None:
 def _configuration_since(
     store: AuditStore, pack: Pack, providers: Mapping[str, str] | None
 ) -> datetime | None:
-    """When this build of the pack started running on these providers, by the deployment
-    records (newest first): the oldest of the newest unbroken run of records with this digest
-    and these providers. None when that is not known (no providers, or no such record)."""
+    """When this build of the pack started running on these providers (the deployment records,
+    `AuditStore.configuration_started`); None when that is not known (no providers, no record)."""
     if providers is None:
         return None
-    started: datetime | None = None
-    for record in store.deployments(pack.id, limit=_RECORDS):
-        same = record["pack_digest"] == pack.digest and record["providers"] == dict(providers)
-        if same:
-            started = datetime.fromisoformat(str(record["started_at"]))
-        elif started is not None:
-            break  # the run before this configuration
-    return started
+    started = store.configuration_started(pack.id, pack.digest, providers, limit=_RECORDS)
+    return None if started is None else datetime.fromisoformat(started)
 
 
 def _number(value: Any) -> float | None:

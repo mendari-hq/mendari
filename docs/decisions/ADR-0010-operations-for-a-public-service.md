@@ -2,7 +2,8 @@
 
 ## Status
 Proposed (2026-10-08). Built in steps (LP-21, `tasks/todo.md`): 21a, the readiness route, is
-the first. Each later step amends this record with what it built. The defaults below hold
+the first; 21c, the monitor comparing like with like, the second. Each later step amends this
+record with what it built. The defaults below hold
 unless the owner chooses otherwise; the steps that change the hosted site (the schedule, 21n)
 or its firewall (21o) wait for the owner.
 
@@ -59,13 +60,24 @@ Anonymous `/api/health` stays three fields with no database work.
      the one that survives a full outage.
    - There is no dry-run decide mode.
 3. **The monitor (21c, 21d).**
-   - It compares like with like:
-     - only the served pack version;
-     - a benchmark only when its digest and providers match the deployment's, otherwise a
-       leaderboard row with the same version and providers, otherwise week over week only;
-     - accuracy on the reviewed stratum only;
-     - refused decisions apart;
-     - whole weekly buckets;
+   - It compares like with like (21c):
+     - only the served pack version, other versions' decisions counted apart;
+     - only decisions made since the current configuration (this build and these providers)
+       started, by the deployment records;
+     - the benchmark only when it measured this build (its digest), with these providers (each
+       slot's variant, and its model where the server knows it; a command cannot see a model a
+       setting chose), under the same governance (an approval in force or not). Otherwise no
+       reference, with a reason, and only the checks that need none run (automated decisions
+       rated wrong, overrides that doubled). A leaderboard row is not a fallback: its rows
+       measure other datasets and versions;
+     - accuracy stratum by stratum, as the benchmark measured it: reviewed decisions against
+       one minus its expected override rate, automated ones with an outcome against its
+       automated accuracy; the whole-set accuracy is shown, never compared;
+     - an alert only beyond doubt: the top of the observed share's exact 95% interval below
+       the reference minus the pack's tolerance, so a pack doing as its benchmark says alerts
+       in under 1% of weeks;
+     - refused decisions apart from every rate and the cost; drift over 50 confidences;
+     - whole weekly buckets, 14 to 180 days;
      - an unknown cost shown as unknown.
    - Operational health comes from stored columns:
      - abstention share;

@@ -298,6 +298,11 @@ DEPLOYMENT_READS = {
     "verify": ("claims", "the whole chain's verification: unchanged in claims mode"),
     "usage": ("claims", "today's calls in health: unchanged in claims mode"),
     "deployments": ("claims", "the deployment records: unchanged in claims mode"),
+    "configuration_started": (
+        "claims memberships",
+        "monitoring: when this build and these providers started, a time that filters the "
+        "organization's own decisions (shown in claims mode only), never a record",
+    ),
     "last_purge": ("claims memberships", "the last purge in health (its counts claims-only)"),
 }
 

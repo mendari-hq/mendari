@@ -2570,6 +2570,27 @@ class AuditStore:
             )
         return [{**row, "providers": json.loads(row["providers"])} for row in rows]
 
+    def configuration_started(
+        self, pack_id: str, digest: str, providers: Mapping[str, str], limit: int = 500
+    ) -> str | None:
+        """When this build of a pack started running on these providers (slot -> variant), by
+        the deployment records: the oldest of the newest unbroken run of records with this
+        digest and these providers, newest first across environments; None without one. A time
+        only, for monitoring (which compares decisions made since): never a record."""
+        with self._db.session(exclusive=False) as db:
+            rows = db.all(
+                "SELECT pack_digest, providers, started_at FROM deployments WHERE pack_id = ? "
+                "ORDER BY started_at DESC LIMIT ?",
+                (pack_id, limit),
+            )
+        started = None
+        for row in rows:
+            if row["pack_digest"] == digest and json.loads(row["providers"]) == dict(providers):
+                started = str(row["started_at"])
+            elif started is not None:
+                break  # the run before this configuration
+        return started
+
     # -- API keys (server/auth.py) --------------------------------------------------------------
     # Stored as SHA-256 (the secret is in the creation's answer and nowhere else), with a role
     # (viewer or service), optional scopes (server/scopes.py), an expiry and, once revoked, who

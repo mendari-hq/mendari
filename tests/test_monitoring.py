@@ -90,6 +90,13 @@ def reviewed(
     return ids
 
 
+def measured_by(pack: Pack) -> dict[str, Any]:
+    """A copy of the pack's benchmark, to change."""
+    report = benchmark(pack)
+    assert report is not None
+    return copy.deepcopy(report)
+
+
 def ran_here(
     store: AuditStore, pack: Pack, providers: dict[str, str], *, days_ago: float = 30
 ) -> None:
@@ -153,7 +160,7 @@ def test_a_benchmark_for_other_providers_or_another_build_is_not_a_reference(
         assert report["benchmark"]["comparable"] is False
         assert report["benchmark"]["reason"] == reason
         assert report["alerts"] == [] and report["last_7_days"]["drift_psi"] is None
-    other = copy.deepcopy(benchmark(inbox_pack))
+    other = measured_by(inbox_pack)
     other["pack"]["digest"] = "sha256:" + "0" * 64
     monkeypatch.setattr(monitoring_module, "benchmark", lambda pack: other)
     report = monitor(store, inbox_pack, now=NOW, providers=MEASURED)
@@ -169,7 +176,7 @@ def test_automated_decisions_are_compared_with_the_benchmarks_automated_accuracy
     """Outcomes recorded downstream for automated decisions are their own stratum: against a
     benchmark that measured these providers automating, at 95 of 100."""
     seed(store, inbox_pack, 25, days_ago=2, final="billing")
-    automating = copy.deepcopy(benchmark(inbox_pack))
+    automating = measured_by(inbox_pack)
     automating["providers"]["safety_screen"]["variant"] = "rules_and_jev"
     automating["decisions"]["automation"].update(n=100, accuracy=0.95)
     monkeypatch.setattr(monitoring_module, "benchmark", lambda pack: automating)
@@ -189,7 +196,7 @@ def test_each_stratum_holds_only_its_own_decisions(
     stratum counts its own, and only the automated one alerts."""
     seed(store, inbox_pack, 25, days_ago=2, final="billing")
     reviewed(store, inbox_pack, 25, days_ago=2, final="same")
-    automating = copy.deepcopy(benchmark(inbox_pack))
+    automating = measured_by(inbox_pack)
     automating["providers"]["safety_screen"]["variant"] = "rules_and_jev"
     automating["decisions"]["automation"].update(n=100, accuracy=0.95)
     monkeypatch.setattr(monitoring_module, "benchmark", lambda pack: automating)
@@ -244,7 +251,7 @@ def test_a_benchmark_measured_under_other_governance_is_not_a_reference(
     """An approval lets a risk level 2 or 3 pack automate: a benchmark measured without one
     says nothing of the decisions it automates (and the reverse)."""
     trial = resolve_pack("mendari/clinical-trial-prescreener")
-    ran = {slot: info["variant"] for slot, info in benchmark(trial)["providers"].items()}
+    ran = {slot: info["variant"] for slot, info in measured_by(trial)["providers"].items()}
     assert monitor(store, trial, now=NOW, providers=ran)["benchmark"]["comparable"] is True
     store.approve_automation(
         pack_id=trial.id,
@@ -261,7 +268,7 @@ def test_a_benchmark_measured_under_other_governance_is_not_a_reference(
     )
     with tenancy.acting_for("clinic-b"):  # an approval is its organization's
         assert monitor(store, trial, now=NOW, providers=ran)["benchmark"]["comparable"] is True
-    governed = copy.deepcopy(benchmark(inbox_pack))
+    governed = measured_by(inbox_pack)
     governed["policy"]["governance_override"] = {"approved_by": "committee"}
     monkeypatch.setattr(monitoring_module, "benchmark", lambda pack: governed)
     report = monitor(store, inbox_pack, now=NOW, providers=MEASURED)
@@ -271,7 +278,7 @@ def test_a_benchmark_measured_under_other_governance_is_not_a_reference(
 def test_a_model_other_than_the_benchmarks_is_not_a_reference(
     store: AuditStore, inbox_pack: Pack, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    measured = copy.deepcopy(benchmark(inbox_pack))
+    measured = measured_by(inbox_pack)
     models = {slot: info["model"] for slot, info in measured["providers"].items()}
     assert monitor(store, inbox_pack, now=NOW, providers=MEASURED, models=models)["benchmark"][
         "comparable"
@@ -311,7 +318,7 @@ def test_a_benchmark_with_values_it_cannot_read_never_breaks_monitoring(
     store: AuditStore, inbox_pack: Pack, monkeypatch: pytest.MonkeyPatch, broken: dict[str, Any]
 ) -> None:
     seed(store, inbox_pack, 25, days_ago=2, final="billing")
-    report = {**copy.deepcopy(benchmark(inbox_pack)), **broken}
+    report = {**measured_by(inbox_pack), **broken}
     if isinstance(report["providers"], dict):  # these providers run: only the values are broken
         report["providers"]["safety_screen"]["variant"] = "rules_and_jev"
     monkeypatch.setattr(monitoring_module, "benchmark", lambda pack: report)
@@ -326,7 +333,7 @@ def test_a_benchmark_that_measured_no_automation_compares_none(
     """The inbox's benchmark automated nothing: its automated accuracy is unknown, so outcomes of
     automated decisions are shown and never compared (they were, with its whole-set accuracy)."""
     seed(store, inbox_pack, 25, days_ago=2, final="billing")
-    measured = copy.deepcopy(benchmark(inbox_pack))
+    measured = measured_by(inbox_pack)
     measured["providers"]["safety_screen"]["variant"] = "rules_and_jev"
     monkeypatch.setattr(monitoring_module, "benchmark", lambda pack: measured)
     report = monitor(store, inbox_pack, now=NOW, providers=JEV_SCREEN)

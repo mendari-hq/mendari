@@ -1143,13 +1143,16 @@ def create_app(
         `benchmark.reason` otherwise). `days` is held to 14 to 180, in whole weeks."""
         pack = pack_or_404(pack_id)
         days = max(MONITOR_MIN_DAYS, min(days, MONITOR_MAX_DAYS))
-        return monitor(
+        report = monitor(
             store,
             pack,
             days=days,
             providers=health_providers.get(pack.id),
             models=running_models.get(pack.id),
         )
+        if auth.memberships:  # when the deployment changed is the operator's (ADR-0008)
+            report["configuration_since"] = None
+        return report
 
     # -- governance ------------------------------------------------------------------------------
 
