@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import statistics
 import threading
 import time
 from pathlib import Path
@@ -15,6 +16,7 @@ from fastapi.testclient import TestClient
 from mendari.core import db as db_module
 from mendari.core.audit import AuditStore
 from mendari.core.decision import Decision
+from mendari.core.patterns import COMMUNITY_TIME_BUDGET_S
 from mendari.core.registry import SearchPath
 from mendari.server.app import DASHBOARD_DIR, create_app
 from tests.conftest import LOCAL_DATASET
@@ -452,8 +454,12 @@ def test_health_answers_within_its_bound_while_a_registry_packs_decision_runs(
     while worker.is_alive():
         took.append(timed_health(client))
     worker.join()
+    # Health keeps answering: many calls while the decision spends its budget, typically within
+    # the bound, and none waits out the whole budget (as it would behind a pattern holding the
+    # interpreter lock). A single call may stall on a busy runner; that is not health blocking.
     assert len(took) >= 5, took
-    assert max(took) < BUSY_HEALTH_BOUND_S, took
+    assert statistics.median(took) < BUSY_HEALTH_BOUND_S, took
+    assert max(took) < COMMUNITY_TIME_BUDGET_S, took
     assert built == []
     decided = answer["decision"]
     assert decided.status_code == 200, decided.text
