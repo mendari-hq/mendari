@@ -45,6 +45,8 @@ from mendari.core.spec import Question, deployment_env_problem
 from mendari.errors import PackValidationError, ProviderError
 from mendari.providers import deadline
 from mendari.providers.base import (
+    MAX_CALL_COST_USD,
+    MAX_CALL_TOKENS,
     Provider,
     ProviderOutput,
     batch_state,
@@ -233,13 +235,14 @@ class LlmProvider(Provider):
         deadline.refuse_if_past()  # past the decision's deadline: likewise
         token = self._token()
         deadline.refuse_if_past()  # a credential fetch can take the rest of it
-        self.charge()  # after the credential: a call that cannot be made uses no budget
-
         questions = {key: q for provider in batch for key, q in provider.questions.items()}
         state = batch_state(inputs, [provider.settings.state_fields for provider in batch])
         body = self.request_body(questions, state)
         if len(json.dumps(body)) > MAX_REQUEST_CHARS:
             raise ProviderError("invalid_input", "request exceeds the size limit")
+        self.charge()  # once it can be made: a call that cannot uses no budget
+        deadline.refuse_if_past()  # the budget's count can take the rest of it
+        self.sending()
         headers = {"authorization": f"Bearer {token}"} if token else {}
         raw = post_json(
             self._client,
@@ -409,8 +412,14 @@ def parse_response(
         isinstance(t, int) and not isinstance(t, bool) and t >= 0 for t in (tokens_in, tokens_out)
     ):
         raise invalid("usage is malformed")
+    if tokens_in + tokens_out > MAX_CALL_TOKENS:
+        raise invalid("usage is out of range")
     cost = usage.get("cost")  # reported by the AI Gateway; absent on most local servers
-    cost_usd = float(cost) if isinstance(cost, int | float) and _nonnegative(cost) else None
+    cost_usd = (
+        float(cost)
+        if isinstance(cost, int | float) and _nonnegative(cost) and cost <= MAX_CALL_COST_USD
+        else None  # no price, or none to believe: unknown
+    )
     usage_out = {"input_tokens": tokens_in, "output_tokens": tokens_out, "cost_usd": cost_usd}
     return distributions, usage_out, problems
 

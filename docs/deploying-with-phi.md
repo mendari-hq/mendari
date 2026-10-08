@@ -654,13 +654,14 @@ and each instance logs the first refusal of the day per principal (`quota.reache
 **What was used: the usage ledger.** Each decision's remote model calls (Jev, an LLM) are counted
 in the database in the decision's own transaction, by local day, organization, provider type and
 purpose: `decision`, or `evaluation` for an evaluation run on the server (or `mendari eval
---db`), counted for the organization that ran it. Each row holds the calls, how many of them
-reported a price, their tokens, and the cost of the priced ones. A cost is shown only when every
-call was priced (Jev's published price, unless a variant sets another; an LLM's when its gateway
-reports one); otherwise it is unknown, never a partial sum and never zero. A call that a budget,
-a quota or the deadline stops is never made, so it is not counted; a call made that then failed
-is counted, without a price. The ledger holds no case data. Providers never write to the
-database.
+--db`), counted for the organization that ran it. Each row holds the calls sent, how many of
+them answered with a price, the tokens the answered ones reported, and the cost of the priced
+ones. A cost is shown only when every call was priced (Jev's published price, unless a variant
+sets another, at most $1 per 1,000 tokens; an LLM's when its gateway reports one, believed up to
+$1,000 a call); otherwise it is unknown, never a partial sum and never zero. A call that a
+budget, a quota, the deadline or the request's size stops is never sent, so it is not counted; a
+call sent that then failed, or whose answer was refused, is counted, without a price and without
+tokens. The ledger holds no case data. Providers never write to the database.
 
 **A deadline per decision.** A decision's remote calls (Jev, an LLM, the CQL engine) share one
 wall-clock deadline, `MENDARI_DECISION_DEADLINE_S` (whole seconds, 10 to 270; 120 unless set):

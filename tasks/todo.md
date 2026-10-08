@@ -1142,8 +1142,9 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   - [ ] **21g** The usage ledger (`usage_ledger`: local day, organization, provider type,
     purpose `decision` or `evaluation`; calls, priced calls, tokens, the priced calls' cost),
     written with the decision (or the evaluation's report) in its transaction from each
-    decision's meter (`providers.base.Meter`: `charge` counts a call, `metered` its tokens and
-    price); `AuditStore.usage_ledger` shows a cost only when every call was priced.
+    decision's meter (`providers.base.Meter`: `sending` counts a call as it is sent, `metered`
+    its tokens and price, both bounded); `AuditStore.usage_ledger` shows a cost only when every
+    call was priced.
   - [ ] **21h** Evaluations count against their organization (`eval_jev`, `eval_llm` quotas).
   - [ ] **21i** `GET /api/usage`, the admins' usage screen and the operator's CLI.
   - [ ] **21j** Audit checkpoints and incremental verify.
