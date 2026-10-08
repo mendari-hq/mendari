@@ -243,8 +243,9 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         ("*", r"^/api/auth/(members|invitations)(/|$)", "keys"),
         ("GET", r"^/api/auth/access-requests$", "keys"),
         ("POST", r"^/api/auth/access-requests/[^/]+$", "keys"),
-        # The whole chain, read or exported: administrators only.
-        ("GET", r"^/api/audit/(verify|export/fhir)$", "admin"),
+        # The whole chain, read or exported, and an organization's administrative events (its
+        # keys, clients, people, approvals and holds): administrators only.
+        ("GET", r"^/api/audit/(verify|export/fhir|administrative(/export/fhir)?)$", "admin"),
         ("POST", r"^/api/governance$", "approve"),
         ("DELETE", r"^/api/governance/[^/]+$", "approve"),
         ("GET", r"^/api/", "read"),

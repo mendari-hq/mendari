@@ -1036,8 +1036,8 @@ yourself (`mendari/clinical-trial-prescreener:notes=jev`, `mendari/ai-guard:scre
   runs (`providers`), and which slots run no model at all although their pack offers one
   (`without_model`); the dashboard's overview says so too. A screen with a model but without the
   rules (`safety_screen=jev`) is not listed, but it does not meet `automation_requires` either:
-  each decision's reasons name what is missing. That Jev answers shows in `jev.calls_today` and
-  in the decisions' errors.
+  each decision's reasons name what is missing. That Jev answers shows in `jev.calls_today` (in
+  memberships mode, `mendari usage`) and in the decisions' errors.
 - Upgrading a deployment that already had Jev set up for some slots: it now also runs Jev in
   the slots above that its settings leave. Name a slot to keep it as it was.
 

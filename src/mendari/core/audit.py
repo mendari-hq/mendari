@@ -527,6 +527,42 @@ def _attributed(
     return chain_id.startswith(f"{prefix}:") and subjects.get(chain_id, _NO_ROW) == payload["org"]
 
 
+# Every kind on no decision: what the administrative list reads without an organization.
+OFF_DECISION_KINDS = (*ADMINISTRATIVE_KINDS, *sorted(PERSON_KINDS), *sorted(DEPLOYMENT_KINDS))
+
+
+def _administrative(
+    db: _Session, org: str | None, subject: str | None
+) -> tuple[str, str, list[Any]] | None:
+    """What `administrative_events` reads (`FROM`, a `WHERE` condition and its parameters):
+    for an organization, the events of each row it owns, one indexed lookup per row; for none,
+    every event on no decision. None: `subject` names nothing here."""
+    if org is None:
+        kinds = ", ".join("?" for _ in OFF_DECISION_KINDS)
+        where, params = f"e.event IN ({kinds})", list(OFF_DECISION_KINDS)
+        if subject is not None:
+            where, params = f"{where} AND e.decision_id = ?", [*params, subject]
+        return "audit_events e", where, params
+    prefix, _, row_id = (subject or "").partition(":")
+    parts, params = [], []
+    for name, (table, column, expression) in SUBJECT_TABLES.items():
+        if subject is not None and name != prefix:
+            continue
+        present = db.columns(table)
+        if column not in present or (expression != column and "org" not in present):
+            continue  # an older database, read as it is, lacks it
+        one = f" AND {column} = ?" if subject is not None else ""
+        parts.append(
+            f"SELECT '{name}:' || {column} AS subject, {expression} AS org FROM {table} "
+            f"WHERE {expression} = ?{one}"
+        )
+        params += [org, row_id] if subject is not None else [org]
+    if not parts:
+        return None
+    union = " UNION ALL ".join(parts)
+    return f"({union}) s JOIN audit_events e ON e.decision_id = s.subject", "1 = 1", params
+
+
 def _mark(db: _Session, name: str, value: str) -> None:
     """Set a `settings` row unless it is set: the first value stays."""
     db.all(
@@ -3811,6 +3847,96 @@ class AuditStore:
         while page := self.events(**filters, after_seq=after):
             yield from page
             after = page[-1]["seq"]
+
+    # -- an organization's administrative events (LP-12g, ADR-0008) ----------------------------
+    # The events of the rows an organization owns (`SUBJECT_TABLES`: its keys, clients,
+    # approvals, holds, evaluation reports, record, memberships, invitations and requests to
+    # join), attributed by the row, never by a range of chain ids. Without an organization (the
+    # operator's command line), every event on no decision, the deployment's own included.
+
+    def administrative_events(
+        self,
+        org: str | None,
+        *,
+        after: tuple[str, str] | None = None,
+        kinds: Sequence[str] = (),
+        subject: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        limit: int = 100,
+    ) -> Page:
+        """One page of administrative events in chain order, each `{subject, event, payload,
+        created_at, hash}`: never `seq` or `prev_hash`, as an event's place in the deployment's
+        one chain is not the organization's. `after` is the `(subject, hash)` of the last item
+        of the page before; one that is not an event of this list is a `ValueError`, the same
+        whatever is wrong with it, so a cursor cannot ask about another organization's events.
+        `kinds` and `subject` (a chain id: `key:<id>`) narrow the list; `since` / `until` bound
+        `created_at` (the stored format). An event whose payload names another organization
+        than its row's is left out (`verify` reports it)."""
+        if limit < 1:
+            return Page()
+        with self._db.session(exclusive=False) as db:
+            listed = _administrative(db, org, subject)
+            if listed is None:  # no such subject here (or no table of its kind)
+                if after is not None:
+                    raise ValueError("not a cursor of this list")
+                return Page()
+            source, where, params = listed
+            if after is not None:
+                found = db.one(
+                    f"SELECT e.seq FROM {source} WHERE {where} AND e.decision_id = ? "
+                    "AND e.hash = ?",
+                    (*params, *after),
+                )
+                if found is None:
+                    raise ValueError("not a cursor of this list")
+            clauses, values = [where, "e.seq > ?"], [*params, found["seq"] if after else 0]
+            if kinds:
+                clauses.append(f"e.event IN ({', '.join('?' for _ in kinds)})")
+                values += kinds
+            for clause, value in (("e.created_at >= ?", since), ("e.created_at < ?", until)):
+                if value is not None:
+                    clauses.append(clause)
+                    values.append(value)
+            rows = db.all(
+                "SELECT e.decision_id, e.event, e.payload, e.created_at, e.hash, "
+                f"{'s.org' if org is not None else 'NULL'} AS org FROM {source} "
+                f"WHERE {' AND '.join(clauses)} ORDER BY e.seq LIMIT ?",
+                (*values, limit + 1),
+            )
+        page = rows[:limit]
+        items = []
+        for row in page:
+            payload = json.loads(row["payload"])
+            named = isinstance(payload, dict) and "org" in payload
+            if org is not None and named and payload["org"] != row["org"]:
+                continue  # fail closed: not its row's organization's
+            items.append(
+                {
+                    "subject": row["decision_id"],
+                    "event": row["event"],
+                    "payload": payload,
+                    "created_at": row["created_at"],
+                    "hash": row["hash"],
+                }
+            )
+        more = len(rows) > limit
+        return Page(
+            rows=items,
+            after=(str(page[-1]["decision_id"]), str(page[-1]["hash"])) if more else None,
+        )
+
+    def iter_administrative_events(
+        self, org: str | None, **filters: Any
+    ) -> Iterator[dict[str, Any]]:
+        """Every event `administrative_events` lists, page by page (an export)."""
+        after: tuple[str, str] | None = None
+        while True:
+            page = self.administrative_events(org, after=after, limit=500, **filters)
+            yield from page.rows
+            if page.after is None:
+                return
+            after = page.after
 
     def decision_rows(self, pack_id: str, since: str) -> list[dict[str, Any]]:
         """Each decision of a pack since a time (ISO), for monitoring: when, the outcome, the

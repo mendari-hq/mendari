@@ -66,7 +66,13 @@ provider's claims needs nothing to change.
   says so. Additive, claims-visible changes (new routes, the Access screen, presets, the cap
   off by default) count as "behaves as before".
 - The operator, by default the command line only, is the one who sees the whole chain verified,
-  deployment-wide totals and holds set for the whole deployment.
+  deployment-wide totals and holds set for the whole deployment. In memberships mode
+  `/api/audit/verify` and `/api/deployments` answer `404`, `/api/health` leaves out the
+  deployment's call totals and purge counts, and a deployment hold shows only what it covers
+  and since when. An organization reads and exports its own administrative events
+  (`/api/audit/administrative`), attributed through each row it owns, without `seq` or
+  another organization's or the deployment's events; a person's notice acknowledgement is not
+  one organization's.
 - Switching the hosted site to memberships mode, the owner's bootstrap, and the cap's value are
   the owner's, after a preflight (`mendari access check`) against the production database.
 - Memberships mode keeps its sessions apart (a sealed `member` row; claims mode's are `user`

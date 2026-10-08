@@ -25,7 +25,7 @@ from typing import Annotated, Any, Literal
 from urllib.parse import parse_qsl, urlsplit
 
 import httpx
-from fastapi import Body, FastAPI, HTTPException, Request
+from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import (
@@ -46,7 +46,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from mendari import __version__, guard, notices, settings
 from mendari.core import clock, tenancy
-from mendari.core.audit import SYSTEM_ID, AuditStore
+from mendari.core.audit import ADMINISTRATIVE_KINDS, OFF_DECISION_KINDS, SYSTEM_ID, AuditStore
 from mendari.core.card import benchmark, render_card
 from mendari.core.decision import CallBudget, Decision, QuotaReached
 from mendari.core.origin import is_local
@@ -91,6 +91,7 @@ from mendari.server.auth import (
     names_a_credential,
     org_of,
     read_body,
+    scope_of,
 )
 from mendari.server.backend_services import (
     DISCOVERY_PATH,
@@ -115,8 +116,9 @@ from mendari.standards import (
 )
 from mendari.standards.fhir_client import GuardedHttp, allowed_servers
 from mendari.standards.pas import PasError
-from mendari.standards.search import SPECS, SearchError, handling, searchset
+from mendari.standards.search import SPECS, SearchError, encode_cursor, handling, searchset
 from mendari.standards.search import parse as parse_search
+from mendari.standards.search import stored as stored_instant
 from mendari.standards.smart import smart_ehrs, smart_settings
 from mendari.standards.terminology import Terminology
 
@@ -723,6 +725,17 @@ def create_app(
 
     # -- packs -------------------------------------------------------------------------------
 
+    def deployment_total(name: str, total: Callable[[], Any]) -> dict[str, Any]:
+        """A total over every organization, in health: the operator's in memberships mode."""
+        return {} if auth.memberships else {name: total()}
+
+    def purged(last: dict[str, Any] | None) -> dict[str, Any] | None:
+        """The last purge as health shows it: in memberships mode when and by what, not how
+        many inputs and notes, which are every organization's."""
+        if last is None or not auth.memberships:
+            return last
+        return {key: value for key, value in last.items() if key not in ("inputs", "notes")}
+
     @app.get(
         "/api/health",
         tags=["Service"],
@@ -733,7 +746,8 @@ def create_app(
         without a credential (no database work either). A principal that may `read` (everyone
         in open mode) also gets the deployment's settings: packs (and how many come from
         where), storage, the FHIR validation mode, PHI mode, the input hash's kind and key id,
-        which provider answers each pack's questions, today's remote calls, the rate limits
+        which provider answers each pack's questions, today's remote calls (in memberships
+        mode the operator's, `mendari usage`, as the last purge's counts are), the rate limits
         (where the caller's address is read, and the address seen on this request), the session
         policy, the organization's daily quotas with what it used today, and whether SMART
         Backend Services is on (`backend_services`: its token endpoint, or null).
@@ -791,7 +805,9 @@ def create_app(
             # by `mendari phi purge` or, with CRON_SECRET set, the scheduled purge.
             "retention_days": retention_days,
             "retention_scheduled": bool(cron_secret),
-            "last_purge": store.last_purge(),  # when, how many, and by what; None: never
+            # When, how many, and by what (None: never); in memberships mode not how many, a
+            # total of every organization's (the operator's, ADR-0008).
+            "last_purge": purged(store.last_purge()),
             # How new records' input hashes are made: `hmac-sha256:<key id>` under
             # MENDARI_INPUT_HASH_KEY (required in PHI modes hash and encrypt), else `sha256`.
             "input_hash": phi.hash_kind,
@@ -808,12 +824,12 @@ def create_app(
                 "credentials": key_source(key_env=jev.API_KEY_ENV, connector_env=jev.CONNECTOR_ENV),
                 "endpoint_configured": bool(os.environ.get(jev.ENDPOINT_ENV, "").strip()),
                 "model": os.environ.get(jev.MODEL_ENV, "").strip() or None,
-                "calls_today": store.usage("jev"),
+                **deployment_total("calls_today", lambda: store.usage("jev")),
                 "daily_limit": (budget_limits or {}).get("jev"),
             },
             "llm": {
                 **llm.deployment_info(),
-                "calls_today": store.usage("llm"),
+                **deployment_total("calls_today", lambda: store.usage("llm")),
                 "daily_limit": (budget_limits or {}).get("llm"),
             },
             "rate_limits": limiter.describe(request),
@@ -1035,7 +1051,10 @@ def create_app(
         summary="List deployments",
     )
     def deployments(pack_id: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
-        """Which pack version runs where, with which providers, since when (newest first)."""
+        """Which pack version runs where, with which providers, since when (newest first). In
+        memberships mode the deployment's records are the operator's: `404` (ADR-0008)."""
+        if auth.memberships:
+            raise HTTPException(404, "the deployment's records are its operator's")
         if pack_id is not None:
             decision_for(pack_or_404(pack_id).id)  # this server's own row is recorded first
         return store.deployments(pack_id, limit=min(limit, 200))
@@ -1102,8 +1121,13 @@ def create_app(
     @app.get("/api/holds", tags=["Governance"], summary="Automation holds in force")
     def list_holds(request: Request) -> list[dict[str, Any]]:
         """The automation holds in force for your organization: its own and the deployment's
-        (set from the command line). While one covers a decision, AUTO becomes HUMAN_REVIEW."""
-        return store.holds(org_of(auth.acting(request)))
+        (set from the command line). While one covers a decision, AUTO becomes HUMAN_REVIEW.
+        In memberships mode a hold of the deployment's shows what it covers and since when, not
+        the operator's reason or name (ADR-0008)."""
+        held = store.holds(org_of(auth.acting(request)))
+        if not auth.memberships:
+            return held
+        return [hold if hold["org"] is not None else operators_hold(hold) for hold in held]
 
     @app.post(
         "/api/holds",
@@ -1276,7 +1300,11 @@ def create_app(
         summary="Verify the audit chain",
     )
     def verify() -> dict[str, Any]:
-        """Recompute the hash chain over every event; `ok: false` means the trail was altered."""
+        """Recompute the hash chain over every event; `ok: false` means the trail was altered.
+        In memberships mode the whole chain is the operator's, verified from the command line
+        (`mendari audit verify`): `404` here (ADR-0008)."""
+        if auth.memberships:
+            raise HTTPException(404, OPERATORS_CHAIN)
         return store.verify()
 
     @app.get(
@@ -1297,6 +1325,74 @@ def create_app(
             json.dumps(resource, separators=(",", ":")) + "\n"
             for resource in audit_fhir.resources(
                 store.iter_events(pack_id=pack_id, since=since, until=until)
+            )
+        )
+        return StreamingResponse(lines, media_type="application/fhir+ndjson")
+
+    @app.get(
+        "/api/audit/administrative",
+        tags=["Audit"],
+        summary="Your organization's administrative events",
+    )
+    def administrative_events(
+        request: Request,
+        kind: Annotated[list[str] | None, Query()] = None,
+        subject: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        after: str | None = None,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        """The chained events of what your organization owns, oldest first: its keys, clients,
+        automation approvals and holds, evaluation reports, its record, memberships,
+        invitations and requests to join (ADR-0008). Each is `{subject, event, payload,
+        created_at, hash}`: the event's chain id, its kind, what was chained, when, and its
+        hash, which `mendari audit verify` checks. Never its place in the deployment's chain,
+        nor another organization's events, nor the deployment's own (the operator's).
+
+        `kind` (repeatable) and `subject` (a chain id, `key:<id>`) narrow it; `since` and
+        `until` are instants with their offset; `limit` is 1 to 500 (100). `next`, when there is
+        more, is the `after` of the next page."""
+        org = scope_of(auth.acting(request))
+        try:
+            page = store.administrative_events(
+                org,
+                after=administrative_cursor(after),
+                kinds=administrative_kinds(kind, org),
+                subject=chain_subject(subject),
+                since=instant("since", since),
+                until=instant("until", until),
+                limit=min(max(limit, 1), 500),
+            )
+        except ValueError as error:  # a cursor of no event of this list, whatever the reason
+            raise HTTPException(400, str(error)) from None
+        following = None
+        if page.after is not None:
+            following = encode_cursor(dict(zip(("subject", "hash"), page.after, strict=True)))
+        return {"items": page.rows, "next": following}
+
+    @app.get(
+        "/api/audit/administrative/export/fhir",
+        tags=["FHIR and CDS Hooks"],
+        summary="Export your organization's administrative events as FHIR",
+    )
+    def export_administrative_fhir(
+        request: Request,
+        kind: Annotated[list[str] | None, Query()] = None,
+        since: str | None = None,
+        until: str | None = None,
+    ) -> StreamingResponse:
+        """Your organization's administrative events as FHIR NDJSON AuditEvents, ids and codes
+        only (never a key's or client's name, a hold's reason or an approval's reference),
+        streamed in chain order; `kind`, `since` and `until` as for the list."""
+        org = scope_of(auth.acting(request))  # resolved before the stream starts
+        kinds = administrative_kinds(kind, org)
+        bounds = {"since": instant("since", since), "until": instant("until", until)}
+        log_event(request, "export.audit.administrative")  # its filters are query values
+        lines = (
+            json.dumps(resource, separators=(",", ":")) + "\n"
+            for resource in audit_fhir.administrative_resources(
+                store.iter_administrative_events(org, kinds=kinds, **bounds)
             )
         )
         return StreamingResponse(lines, media_type="application/fhir+ndjson")
@@ -2102,6 +2198,75 @@ def limited_response(path: str, error: RateLimited) -> Response:
         page.headers.update(retry_headers(error))
         return page
     return error_response(path, 429, error)
+
+
+# What a memberships-mode server answers for the whole chain's verification (ADR-0008).
+OPERATORS_CHAIN = (
+    "the whole audit chain is the operator's: `mendari audit verify` on the server's database; "
+    "your organization's own events are at /api/audit/administrative"
+)
+_HASH = re.compile(r"[0-9a-f]{64}")
+
+
+def administrative_cursor(text: str | None) -> tuple[str, str] | None:
+    """An `after` of the administrative list (`{subject, hash}`, as `encode_cursor` wrote it),
+    or a `400`, the same for anything else, as the store answers one not of the list."""
+    if text is None:
+        return None
+    key = None
+    if len(text) <= 1000:  # one of this list's is a few hundred characters
+        try:
+            key = json.loads(base64.urlsafe_b64decode(text + "=" * (-len(text) % 4)))
+        except (ValueError, RecursionError):  # binascii and Unicode errors are ValueErrors
+            key = None
+    if not (
+        isinstance(key, dict)
+        and set(key) == {"subject", "hash"}
+        and isinstance(key["subject"], str)
+        and 0 < len(key["subject"]) <= 200
+        and isinstance(key["hash"], str)
+        and _HASH.fullmatch(key["hash"])
+    ):
+        raise HTTPException(400, "not a cursor of this list")
+    return key["subject"], key["hash"]
+
+
+def administrative_kinds(asked: list[str] | None, org: str | None) -> list[str]:
+    """The kinds asked for (`kind`), each one the list holds: an organization's
+    (`ADMINISTRATIVE_KINDS`), or, in open mode, every kind on no decision; else a `400`."""
+    known = set(ADMINISTRATIVE_KINDS) if org is not None else set(OFF_DECISION_KINDS)
+    unknown = sorted(set(asked or ()) - known)
+    if unknown:
+        raise HTTPException(400, f"not an administrative event kind: {', '.join(unknown)}")
+    return list(dict.fromkeys(asked or ()))
+
+
+def chain_subject(subject: str | None) -> str | None:
+    """A `subject` query value: a chain id of at most 200 printable characters, else a `400`."""
+    if subject is not None and not (0 < len(subject) <= 200 and subject.isprintable()):
+        raise HTTPException(400, "subject is a chain id, such as key:<id>")
+    return subject
+
+
+def instant(name: str, value: str | None) -> str | None:
+    """A `since` / `until` query value as stored (UTC, to the millisecond), or a `400`: an
+    instant with its offset, never a bare date or a local time."""
+    if value is None:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+        if parsed.tzinfo is not None:
+            return stored_instant(parsed)
+    except (ValueError, OverflowError):  # not an instant, or past datetime's range in UTC
+        pass
+    raise HTTPException(400, f"{name} is an instant with its offset: 2026-10-01T00:00:00Z")
+
+
+def operators_hold(hold: Mapping[str, Any]) -> dict[str, Any]:
+    """A hold of the deployment's (set from the command line, for every organization) as an
+    organization sees it in memberships mode: what it covers and since when; the operator's
+    reason and name are the operator's (ADR-0008)."""
+    return {key: hold[key] for key in ("id", "org", "pack_id", "pack_digest", "set_at")}
 
 
 def quota_alert(webhook: str | None) -> QuotaReached:
