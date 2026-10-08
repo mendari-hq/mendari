@@ -349,7 +349,7 @@ pinned by digest. `--build-arg PACK=mendari/referral-router` builds one that ser
 and linux/arm64 (workflow `release`, which only a maintainer starts, never a tag push), exactly
 as tested; nothing is published before that. [`deploy/`](https://github.com/Junebugg1214/mendari/tree/main/deploy) has
 templates for a site's own infrastructure: docker compose on one server and Kubernetes. Both come
-with Postgres, your identity provider, PHI mode and the daily retention and monitoring jobs.
+with Postgres, your identity provider, PHI mode and the daily retention, checkpoint and monitoring jobs.
 
 Mendari's own code is Apache-2.0; an image also holds third-party software under other licences
 (Debian's packages, and the libraries the PostgreSQL driver bundles, some under the GPL or LGPL).

@@ -14,7 +14,7 @@ Run Mendari inside your organization's network or an approved cloud account:
 - Postgres (not SQLite) for the audit store.
 
 [`deploy/`](https://github.com/Junebugg1214/mendari/tree/main/deploy) has two templates: docker compose for one server (set `MENDARI_IMAGE`
-in its `.env`, pinned by digest), and Kubernetes. Both include the daily retention and monitoring jobs.
+in its `.env`, pinned by digest), and Kubernetes. Both include the daily retention, checkpoint and monitoring jobs.
 
 The public sandbox and the project's own Vercel deployment are **synthetic only**.
 
@@ -455,7 +455,7 @@ it). Decisions, reviews and the chain itself stay, and `mendari audit verify` st
 scheduled job never does.
 
 **Checkpoints.** Schedule `mendari audit checkpoint --db "$DATABASE_URL"` daily too, after the
-purge. It verifies the chain from its last checkpoint (the whole of it, the first time) and, when
+purge (the `deploy/` templates do). It verifies the chain from its last checkpoint (the whole of it, the first time) and, when
 it holds, records the head as the next checkpoint, one row outside the chain; it migrates the
 database as every command that writes does. `mendari audit verify --since-checkpoint` then reads
 only the events after the last one, and a full `mendari audit verify`, which reads everything,
