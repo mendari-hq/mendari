@@ -1047,6 +1047,44 @@ def test_only_what_decides_counts_against_the_cap(
     assert client.get("/api/health", headers=reviewer).json()["principal_quota"]["used_today"] == 0
 
 
+def test_a_clients_daily_cap_survives_a_key_set_replacement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Replacing a client's keys (LP-12h) keeps its id, so its day's count carries across: a new
+    key set is no way around the cap (a rotated API key, a new key, starts its own)."""
+    from tests.test_backend_services import EC_KEY
+
+    capped(monkeypatch, 1)
+    backend_on(monkeypatch)
+    db = str(tmp_path / "replaced.db")
+    client = TestClient(create_app(db_path=db), base_url=PUBLIC_URL)
+    decide_scope = "https://mendari.co/fhir/scope/decide"
+    with AuditStore(db) as store:
+        made = store.register_client(
+            name="ehr", role="service", org="default", created_by="t", scopes=decide_scope,
+            jwks=[RSA_KEY.jwk],
+        )  # fmt: skip
+    client_id = made["client_id"]
+
+    def deciding(signer: Any) -> dict[str, str]:
+        answer = ask(client, assertion(signer, client_id), decide_scope)
+        assert answer.status_code == 200, answer.text
+        return {"authorization": f"Bearer {answer.json()['access_token']}"}
+
+    first = client.post("/fhir/$decide", json=message(ROUTINE), headers=deciding(RSA_KEY))
+    assert first.status_code != 429
+    body = {"jwks": {"keys": [EC_KEY.jwk]}}
+    replaced = client.post(
+        f"/api/auth/clients/{client_id}/keys", json=body, headers=person(db, host="mendari.test")
+    )
+    assert replaced.status_code == 200, replaced.text
+    assert_retry_after(
+        client.post("/fhir/$decide", json=message(ROUTINE), headers=deciding(EC_KEY))
+    )
+    with AuditStore(db) as store:
+        assert store.principal_usage(f"client:{client_id}") == 1
+
+
 def test_sixteen_threads_never_count_past_the_cap(db_target: str) -> None:
     store = AuditStore(db_target)
     admitted: list[int | None] = []

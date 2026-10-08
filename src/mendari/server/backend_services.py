@@ -7,8 +7,10 @@ sign-in configured and `MENDARI_PUBLIC_URL` set; otherwise the server refuses to
 - **Clients** are registered by a signed-in person with the `keys` permission
   (`POST /api/auth/clients`; never by a key or a token): one organization, a machine's role
   (`viewer` or `service`), the scopes it may be granted (`server/scopes.py`, parsed strictly)
-  and a public JWK Set by value. Mendari fetches nothing on a client's behalf. Registering and
-  revoking are chained (`client:<id>`).
+  and a public JWK Set by value. Mendari fetches nothing on a client's behalf. The same people
+  replace a client's key set whole (`POST /api/auth/clients/{id}/keys`: same id, role and
+  scopes; its tokens are dropped) and read its history (`GET /api/auth/clients/{id}/history`).
+  Registering, replacing keys and revoking are chained (`client:<id>`).
 - **`POST /auth/token`** takes a `client_credentials` grant with a `private_key_jwt` client
   assertion (RFC 7523, SMART's client-confidential-asymmetric), checked in this order, each step
   before anything that costs more: the form; the assertion's header (`RS384` or `ES384`; only
@@ -21,9 +23,11 @@ sign-in configured and `MENDARI_PUBLIC_URL` set; otherwise the server refuses to
   (and only once the client is known) in the security log (`auth.token.refused`,
   `server/security_log.py`), never with the assertion or a library's message.
 - **Access tokens** are opaque (`mat_…`), live five minutes, and are stored as SHA-256 with the
-  client, the scope granted (what was asked, within what the client registered) and the expiry.
-  Each request reads the client's role, scopes, organization and revocation afresh (one join in
-  `AuditStore.access_token`), and acts in the client's organization.
+  client, the scope granted (what was asked, within what the client registered), the expiry and
+  the version of the key set the assertion was checked against. Each request reads the client's
+  role, scopes, organization, revocation and key-set version afresh (one join in
+  `AuditStore.access_token`), and acts in the client's organization: a token issued against a
+  key set replaced since is refused, even one issued while the replacement ran.
 - **Discovery** is `GET /fhir/.well-known/smart-configuration`, mounted only when on.
 - **Rate limits** (`server/limits.py`, with sign-in): 60 token requests a minute per address,
   counted before the body is read, and 10 failed assertions in 10 minutes per address and
@@ -210,6 +214,13 @@ def default_scope(role: str) -> str:
     """A client registered without scopes may be granted everything its role can use."""
     usable = [s for s in scopes.supported() if scopes.ACTIONS.get(s, "read") in PERMISSIONS[role]]
     return scopes.parse(" ".join(usable), permissions=PERMISSIONS[role]).scope
+
+
+class ClientKeysRequest(BaseModel):
+    jwks: dict[str, Any] = Field(
+        description='The client\'s new public JWK Set (`{"keys": [...]}`), as at registration: '
+        "it replaces the old one whole."
+    )
 
 
 class ClientRequest(BaseModel):
@@ -422,7 +433,11 @@ def exchange(
     if not granted.scope:
         security_log.event("auth.token.refused", outcome="refused", reason="scope", actor=actor)
         raise OAuthError("invalid_scope")
-    token, _ = store.issue_token(client_id, granted.scope, TOKEN_SECONDS)
+    # The version of the key set the assertion was checked against (read with the keys, one
+    # row): a replacement between that read and this insert leaves the token refused.
+    token, _ = store.issue_token(
+        client_id, granted.scope, TOKEN_SECONDS, keys_version=int(client["keys_version"])
+    )
     security_log.event("auth.token.issued", actor=actor, org=str(client["org"]))
     return {
         "access_token": token,
@@ -535,6 +550,47 @@ def add_backend_routes(
         """Clients of this organization: name, role, scope, their keys' ids and thumbprints,
         who registered each and when, and when and by whom it was revoked."""
         return store.clients(scope_of(let_through(request)))
+
+    @app.get(
+        "/api/auth/clients/{client_id}/history",
+        tags=["Sign-in"],
+        summary="A SMART Backend Services client's history",
+    )
+    def client_history(request: Request, client_id: str) -> dict[str, Any]:
+        """What happened to this organization's client, from the audit chain (`client:<id>`),
+        oldest first: registered, each key set replaced (the keys before and after, by id, type
+        and thumbprint, and how many tokens were dropped) and revoked, each with who did it and
+        when; never a key's material. At most the 200 newest events (`truncated` says if there
+        were more). Unknown or another organization's client: `404`."""
+        found = store.subject_history("client", client_id, scope_of(let_through(request)))
+        if found is None:
+            raise AuthError("no such client", 404)
+        return found
+
+    @app.post(
+        "/api/auth/clients/{client_id}/keys",
+        tags=["Sign-in"],
+        summary="Replace a SMART Backend Services client's keys",
+    )
+    def replace_client_keys(
+        request: Request, client_id: str, body: ClientKeysRequest
+    ) -> dict[str, Any]:
+        """Replace a client's public JWK Set whole (checked as at registration): same client id,
+        role and scopes. The tokens it holds stop at once, and assertions signed with a key not
+        in the new set are refused. There is no overlap: to switch without a gap, send the old
+        and new keys, move the client to the new one, then send the new one alone (each step
+        drops its tokens). Recorded in the audit chain (keys' ids and thumbprints, the tokens
+        dropped). Unknown or another organization's client: `404`; revoked: `409`; a key
+        refused: `422` naming it."""
+        principal = let_through(request)
+        keys = check_jwks(body.jwks)
+        replaced = store.replace_client_keys(
+            client_id, scope_of(principal), replaced_by=principal.actor, jwks=keys
+        )
+        security_log.event(
+            "admin.client.keys_replaced", actor=principal.id, org=principal.org, ids=[client_id]
+        )
+        return replaced
 
     @app.delete(
         "/api/auth/clients/{client_id}",

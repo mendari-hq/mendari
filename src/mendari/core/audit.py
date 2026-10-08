@@ -243,13 +243,16 @@ CREATE TABLE IF NOT EXISTS oauth_clients (
     created_by  TEXT NOT NULL,
     created_at  TEXT NOT NULL,
     revoked_at  TEXT,
-    revoked_by  TEXT
+    revoked_by  TEXT,
+    keys_version      INTEGER,
+    keys_replaced_at  TEXT
 );
 CREATE TABLE IF NOT EXISTS oauth_tokens (
     token_sha256  TEXT PRIMARY KEY,
     client_id     TEXT NOT NULL,
     scope         TEXT NOT NULL,
-    expires_at    INTEGER NOT NULL
+    expires_at    INTEGER NOT NULL,
+    keys_version  INTEGER
 );
 CREATE INDEX IF NOT EXISTS oauth_tokens_expiry ON oauth_tokens (expires_at);
 CREATE TABLE IF NOT EXISTS rate_limits (
@@ -366,6 +369,11 @@ _ADDED_COLUMNS = (
     ("api_keys", "revoked_by", "TEXT"),
     ("api_keys", "replaced_by", "TEXT"),  # a rotated key's replacement (LP-09)
     ("api_keys", "preset", "TEXT"),  # the integration path it was made for (LP-12i)
+    # A client's key set replaced (LP-12h): its version (NULL is 0), bumped on each replacement,
+    # and when; a token carries the version its assertion was checked against.
+    ("oauth_clients", "keys_version", "INTEGER"),
+    ("oauth_clients", "keys_replaced_at", "TEXT"),
+    ("oauth_tokens", "keys_version", "INTEGER"),
     # What a record leaves out beside its kept input, sealed (Phase 4b): each answer's evidence.
     # NULL: none, or a row from before.
     ("decision_inputs", "details", "TEXT"),
@@ -380,6 +388,17 @@ KEY_MAX_DAYS = 365
 KEY_OVERLAP_HOURS = 24
 KEY_MAX_OVERLAP_HOURS = 168
 LEGACY_KEY_DAYS = 30
+# Chain ids that are not a decision's, by prefix (`key:<id>`), as the row each one names: its
+# table, its id column and the SQL expression of its organization. Their events are attributed
+# through that row (ADR-0008), never through a payload alone (`subject_history`). LP-12g extends
+# the map (governance, hold, eval, org, membership, invitation, access) and builds its verify
+# and its per-organization reader on it.
+SUBJECT_TABLES: dict[str, tuple[str, str, str]] = {
+    "key": ("api_keys", "id", "org"),
+    "client": ("oauth_clients", "client_id", "org"),
+}
+# A subject's history is its newest events, this many at most (a key's chain holds 2 or 3).
+HISTORY_LIMIT = 200
 # Expired session-table rows one put deletes (smart_put).
 SESSION_PURGE_BATCH = 100
 # Session-table kinds sealed under the secret that names the row (core/session_seal.py,
@@ -2476,18 +2495,21 @@ class AuditStore:
         return {**new, "replaces": {"id": key_id, "expires_at": until}}
 
     def api_keys(self, org: str | None = None) -> list[dict[str, Any]]:
-        """Every key (of `org`, if given), oldest first; never the secret or its hash."""
+        """Every key (of `org`, if given), oldest first, with its `status` now (`_key_status`);
+        never the secret or its hash."""
         # None is every organization (open mode, the command line); "" is an organization.
         where, params = ("WHERE org = ?", (org,)) if org is not None else ("", ())
         with self._db.session(exclusive=False) as db:
             # A database from before presets (read as it is): none has one.
             preset = "preset" if "preset" in db.columns("api_keys") else "NULL AS preset"
-            return db.all(
+            rows = db.all(
                 "SELECT id, name, role, org, scopes AS scope, created_by, created_at, "
                 f"expires_at, revoked_at, revoked_by, replaced_by, {preset} "
                 f"FROM api_keys {where} ORDER BY created_at",
                 params,
             )
+        now = _now()
+        return [{**row, "status": _key_status(row, now)} for row in rows]
 
     def api_key(self, secret: str) -> dict[str, Any] | None:
         """The key a secret belongs to, unless it was revoked or has expired (one query; a key
@@ -2516,10 +2538,12 @@ class AuditStore:
     # -- SMART Backend Services: clients and access tokens (ADR-0004) -------------------------
     # A client is a machine (viewer or service) of one organization, with the scopes it may be
     # granted and a public JWK Set registered by value (server/backend_services.py checks both).
-    # Registering and revoking are chained under "client:<id>", with the keys' ids and RFC 7638
-    # thumbprints. An access token is stored as SHA-256 with its client, the scope it was granted
-    # and its expiry, nothing else: each lookup joins the client, so a change to its role,
-    # scopes or organization, or its revocation, applies to its tokens at once.
+    # Registering, replacing its key set (LP-12h) and revoking are chained under "client:<id>",
+    # with the keys' ids and RFC 7638 thumbprints. An access token is stored as SHA-256 with its
+    # client, the scope it was granted, its expiry and the version of the client's key set its
+    # assertion was checked against, nothing else: each lookup joins the client, so a change to
+    # its role, scopes or organization, its revocation, or a replaced key set (`keys_version`),
+    # applies to its tokens at once.
 
     def register_client(
         self,
@@ -2565,13 +2589,20 @@ class AuditStore:
         return client
 
     def clients(self, org: str | None = None) -> list[dict[str, Any]]:
-        """Every client (of `org`, if given), oldest first, with its keys' ids and thumbprints."""
+        """Every client (of `org`, if given), oldest first, with its keys' ids and thumbprints
+        and when its key set was last replaced (`keys_replaced_at`, None if never)."""
         # None is every organization (open mode, the command line); "" is an organization.
         where, params = ("WHERE org = ?", (org,)) if org is not None else ("", ())
         with self._db.session(exclusive=False) as db:
+            # A database from before key-set replacement (read as it is): none was replaced.
+            replaced = (
+                "keys_replaced_at"
+                if "keys_replaced_at" in db.columns("oauth_clients")
+                else "NULL AS keys_replaced_at"
+            )
             rows = db.all(
                 "SELECT client_id, name, role, org, scopes AS scope, jwks, created_by, "
-                f"created_at, revoked_at, revoked_by FROM oauth_clients {where} "
+                f"created_at, revoked_at, revoked_by, {replaced} FROM oauth_clients {where} "
                 "ORDER BY created_at",
                 params,
             )
@@ -2581,10 +2612,13 @@ class AuditStore:
         ]
 
     def client(self, client_id: str) -> dict[str, Any] | None:
-        """A client that is not revoked, with its public keys; None otherwise."""
+        """A client that is not revoked, with its public keys and their `keys_version`, read
+        together (one row): a token issued after checking an assertion against these keys
+        carries that version (`issue_token`). None otherwise."""
         with self._db.session(exclusive=False) as db:
             row = db.one(
-                "SELECT client_id, name, role, org, scopes AS scope, jwks FROM oauth_clients "
+                "SELECT client_id, name, role, org, scopes AS scope, jwks, "
+                "COALESCE(keys_version, 0) AS keys_version FROM oauth_clients "
                 "WHERE client_id = ? AND revoked_at IS NULL",
                 (client_id,),
             )
@@ -2609,32 +2643,124 @@ class AuditStore:
             self._append(db, f"client:{client_id}", "client.revoked", revoked)
         return True
 
-    def issue_token(self, client_id: str, scope: str, seconds: int) -> tuple[str, int]:
+    def replace_client_keys(
+        self,
+        client_id: str,
+        org: str | None = None,
+        *,
+        replaced_by: str,
+        jwks: Sequence[Mapping[str, Any]],
+    ) -> dict[str, Any]:
+        """Replace the public keys of a client of `org` (any, if None) whole, keeping its id,
+        role and scopes; `jwks` was checked by the caller (`check_jwks`). Its tokens are dropped
+        in the same transaction, and a token issued meanwhile against the old keys is refused
+        (`keys_version`, compared by `access_token`). No overlap: a switch without a gap is two
+        replacements (old and new keys, then the new alone). Chained `client.keys_replaced`
+        (ids, types and thumbprints, never a key's material), with the organization.
+
+        Refused: an unknown client or another organization's (404); a revoked one (409)."""
+        if not jwks:
+            raise ValueError("a client keeps at least one key")
+        now = _now()
+        with self._db.session(exclusive=True) as db:
+            row = db.one(
+                "SELECT org, revoked_at, jwks FROM oauth_clients WHERE client_id = ?",
+                (client_id,),
+            )
+            if row is None or (org is not None and row["org"] != org):
+                raise AuthError("no such client", 404)
+            if row["revoked_at"] is not None:
+                raise AuthError("this client is revoked: register a new one", 409)
+            db.all(
+                "UPDATE oauth_clients SET jwks = ?, "
+                "keys_version = COALESCE(keys_version, 0) + 1, keys_replaced_at = ? "
+                "WHERE client_id = ?",
+                (_canonical({"keys": list(jwks)}), now, client_id),
+            )
+            dropped = db.all(
+                "DELETE FROM oauth_tokens WHERE client_id = ? RETURNING token_sha256",
+                (client_id,),
+            )
+            replaced = {
+                "client_id": client_id,
+                "org": row["org"],  # always, in both modes (conflict 3)
+                "keys_before": _key_summary(_jwks(row)),
+                "keys": _key_summary(jwks),
+                "replaced_by": replaced_by,
+                "replaced_at": now,
+                "tokens_dropped": len(dropped),
+            }
+            self._append(db, f"client:{client_id}", "client.keys_replaced", replaced)
+        return replaced
+
+    def issue_token(
+        self, client_id: str, scope: str, seconds: int, keys_version: int = 0
+    ) -> tuple[str, int]:
         """A new access token for a client (already authenticated) and the scope it was granted;
-        the secret and its expiry (Unix time). Stored hashed; expired tokens are purged."""
+        the secret and its expiry (Unix time). Stored hashed, with `keys_version`: the version
+        of the client's key set its assertion was checked against (`client`), so a token issued
+        while that set was being replaced is refused (`access_token`). Expired tokens are
+        purged."""
         secret = "mat_" + secrets.token_urlsafe(32)
         now = int(time.time())
         expires_at = now + seconds
         with self._db.session(exclusive=False) as db:
             db.all("DELETE FROM oauth_tokens WHERE expires_at <= ?", (now,))
             db.all(
-                "INSERT INTO oauth_tokens (token_sha256, client_id, scope, expires_at) "
-                "VALUES (?, ?, ?, ?)",
-                (_key(secret), client_id, scope, expires_at),
+                "INSERT INTO oauth_tokens (token_sha256, client_id, scope, expires_at, "
+                "keys_version) VALUES (?, ?, ?, ?, ?)",
+                (_key(secret), client_id, scope, expires_at, keys_version),
             )
         return secret, expires_at
 
     def access_token(self, secret: str) -> dict[str, Any] | None:
         """What an access token stands for, read from its client now (one join): None for an
-        unknown or expired token, or one whose client was revoked."""
+        unknown or expired token, one whose client was revoked, or one issued against a key set
+        the client's has replaced since."""
         with self._db.session(exclusive=False) as db:
             return db.one(
                 "SELECT c.client_id, c.name, c.role, c.org, c.scopes AS registered, t.scope, "
                 "t.expires_at FROM oauth_tokens t JOIN oauth_clients c "
                 "ON c.client_id = t.client_id WHERE t.token_sha256 = ? AND t.expires_at > ? "
-                "AND c.revoked_at IS NULL",
+                "AND c.revoked_at IS NULL "
+                "AND COALESCE(t.keys_version, 0) = COALESCE(c.keys_version, 0)",
                 (_key(secret), int(time.time())),
             )
+
+    def subject_history(self, kind: str, subject_id: str, org: str | None) -> dict[str, Any] | None:
+        """`<kind>:<subject_id>`'s chained events, oldest first (the newest `HISTORY_LIMIT`,
+        `truncated` if there were more), if its row is `org`'s (any, if None: open mode, the
+        command line); None for an unknown row or another organization's. Each event is
+        attributed through the row it names (ADR-0008), and one whose payload names another
+        organization than the row's is left out (fail closed). Never `seq` or hashes."""
+        table, id_column, org_expression = SUBJECT_TABLES[kind]
+        with self._db.session(exclusive=False) as db:
+            row = db.one(
+                f"SELECT {org_expression} AS org FROM {table} WHERE {id_column} = ?",
+                (subject_id,),
+            )
+            if row is None:
+                return None
+            owner = _org_of(row["org"])
+            if org is not None and owner != org:
+                return None
+            rows = db.all(
+                "SELECT event, payload, created_at FROM audit_events WHERE decision_id = ? "
+                "ORDER BY seq DESC LIMIT ?",
+                (f"{kind}:{subject_id}", HISTORY_LIMIT + 1),
+            )
+        events = []
+        for found in reversed(rows[:HISTORY_LIMIT]):
+            payload = json.loads(found["payload"])
+            if "org" in payload and _org_of(payload["org"]) != owner:
+                continue  # never shown here; LP-12g's verify reports such an event
+            events.append({"event": found["event"], "at": found["created_at"], "payload": payload})
+        return {
+            "subject": f"{kind}:{subject_id}",
+            "org": owner,
+            "events": events,
+            "truncated": len(rows) > HISTORY_LIMIT,
+        }
 
     # -- people, organizations and memberships (LP-12, ADR-0008) --------------------------------
     # Memberships mode reads these; claims mode never does. Each write chains an event of ids and
@@ -3921,6 +4047,23 @@ def _membership(row: Any) -> dict[str, Any]:
     data = dict(row)
     data["roles"] = json.loads(data["roles"])
     return data
+
+
+def _key_status(row: Mapping[str, Any], now: str) -> str:
+    """An API key's status at `now` (a `_now()` text), as `api_key` refuses it: revoked;
+    expired (no expiry is refused too, `_expire_legacy_keys`); replaced (rotated, in its
+    overlap); else active."""
+    if row["revoked_at"] is not None:
+        return "revoked"
+    if not row["expires_at"] or row["expires_at"] <= now:
+        return "expired"
+    return "replaced" if row["replaced_by"] else "active"
+
+
+def _org_of(value: Any) -> str:
+    """A stored organization column as an organization: NULL is the default one. Never
+    `value or DEFAULT_ORG`: "" is an organization of its own."""
+    return tenancy.DEFAULT_ORG if value is None else str(value)
 
 
 def _invitation_status(row: Any, now: str) -> str:

@@ -30,6 +30,7 @@ async function boot() {
   watchEdges($(".nav"));
   const health = await api("/api/health").catch(() => null);
   state.phiMode = health?.phi_mode ?? "off";
+  state.backendServices = health?.backend_services ?? null; // the Access view's Clients tab
   try {
     state.timeFormat = timeFormatFor(health?.timezone ?? DEFAULT_TIMEZONE);
     state.shortFormat = shortFormatFor(health?.timezone ?? DEFAULT_TIMEZONE);
@@ -169,7 +170,8 @@ function showOrganization() {
   });
 }
 
-// An organization's administrators: who may use it, and how (admin.js). Memberships mode only.
+// An administrator who signed in, in either accounts mode: their organization's API keys and
+// Backend Services clients and, in memberships mode, its people (admin.js). Never in open mode.
 function showAdministration() {
   $('.nav a[data-view="admin"]').hidden = state.launchOnly || Boolean(state.noAccess) || !views.admin.available();
 }

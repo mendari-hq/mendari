@@ -119,8 +119,10 @@ def description(
         'reaches only what its scopes name (a `403` with `error="insufficient_scope"` and the '
         "scope needed otherwise). A key for a documented integration path can be made from a preset"
         " instead (`preset` in `POST /api/auth/keys`; `GET /api/auth/keys/presets` lists them, with"
-        " what each reaches here). Each operation below names the permission and the scope it "
-        "needs. An `Authorization` header decides alone: a credential in it that is not valid is a "
+        " what each reaches here). A key's history, from the audit chain, is"
+        " `GET /api/auth/keys/{key_id}/history`. Each operation below names the permission and"
+        " the scope it needs. An `Authorization` header decides alone: a credential in it that is"
+        " not valid is a "
         "`401`, even with a session cookie. Credentials are never accepted in a URL or a form "
         "(`access_token` is a `400`). Refusals carry `WWW-Authenticate` (RFC 6750), except a "
         "signed-in person's who has not acknowledged the notice (`GET /api/notice`): a `403` with "
@@ -217,7 +219,11 @@ def _backend_services(token_url: str) -> str:
         "ahead, a `jti` used once) and `scope`. The token (`Authorization: Bearer mat_…`) gets "
         "what was asked within what the client registered, reaches only the routes its scopes "
         "name, and acts in the client's organization; revoking the client stops its tokens at "
-        "once. `GET /fhir/.well-known/smart-configuration` describes this. There is no "
+        "once. Replacing its public keys (`POST /api/auth/clients/{client_id}/keys`: the same "
+        "client id, role and scopes) stops them too, and a token issued against the old keys "
+        "while it ran is refused; there is no overlap, so a switch without a gap is two "
+        "replacements (old and new keys, then the new alone). "
+        "`GET /fhir/.well-known/smart-configuration` describes this. There is no "
         "authorization endpoint and no refresh token."
     )
 

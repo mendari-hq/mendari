@@ -184,7 +184,10 @@ def test_it_is_off_unless_turned_on(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     )
     security = http.get("/fhir/metadata").json()["rest"][0]["security"]
     assert "service" not in security and "not a SMART on FHIR" in security["description"]
-    assert "/api/auth/clients" not in {r.path for r in http.app.routes}  # type: ignore[attr-defined]
+    paths = {r.path for r in http.app.routes}  # type: ignore[attr-defined]
+    assert "/api/auth/clients" not in paths
+    assert "/api/auth/clients/{client_id}/history" not in paths
+    assert "/api/auth/clients/{client_id}/keys" not in paths
 
 
 @pytest.mark.parametrize(
@@ -318,13 +321,21 @@ def test_clients_are_managed_by_people_with_the_keys_permission_only(
             ("POST", "/api/auth/clients"),
             ("GET", "/api/auth/clients"),
             ("DELETE", f"/api/auth/clients/{client_id}"),
+            ("GET", f"/api/auth/clients/{client_id}/history"),
+            ("POST", f"/api/auth/clients/{client_id}/keys"),
         ):
             refused = server.http.request(method, path, json=body, headers=headers)
             assert refused.status_code == 403, (headers, method)
     assert server.http.post("/api/auth/clients", json=body).status_code == 401
+    assert server.http.get(f"/api/auth/clients/{client_id}/history").status_code == 401
+    assert server.http.post(f"/api/auth/clients/{client_id}/keys", json=body).status_code == 401
     other = server.person(org="clinic-b")  # an admin of another organization
     assert server.http.delete(f"/api/auth/clients/{client_id}", headers=other).status_code == 404
     assert server.http.get("/api/auth/clients", headers=other).json() == []
+    history = server.http.get(f"/api/auth/clients/{client_id}/history", headers=other)
+    assert history.status_code == 404
+    replaced = server.http.post(f"/api/auth/clients/{client_id}/keys", json=body, headers=other)
+    assert replaced.status_code == 404
 
 
 def jwk(signer: Signer, **changes: Any) -> dict[str, Any]:
@@ -417,7 +428,7 @@ def test_a_client_gets_a_five_minute_token_and_reads_with_it(
     with AuditStore(server.db) as store, store._db.session(exclusive=False) as session:
         stored = session.all("SELECT * FROM oauth_tokens")
     assert body["access_token"] not in json.dumps(stored)  # stored as SHA-256
-    assert set(stored[0]) == {"token_sha256", "client_id", "scope", "expires_at"}
+    assert set(stored[0]) == {"token_sha256", "client_id", "scope", "expires_at", "keys_version"}
 
 
 def refusals(client_id: str) -> list[tuple[str, str]]:
@@ -693,6 +704,235 @@ def test_the_store_registers_machines_only(store: AuditStore) -> None:
     assert store.client(made["client_id"]) is None
 
 
+# -- replacing a client's key set, and its history (LP-12h) ---------------------------------
+
+
+def replace(
+    server: Server, client_id: str, *keys: Signer, headers: dict[str, str] | None = None
+) -> Any:
+    body = {"jwks": {"keys": [k.jwk for k in keys]}}
+    return server.http.post(
+        f"/api/auth/clients/{client_id}/keys", json=body, headers=headers or server.person()
+    )
+
+
+def client_chain(db: str, client_id: str) -> list[dict[str, Any]]:
+    with AuditStore(db) as store, store._db.session(exclusive=False) as session:
+        rows = session.all(
+            "SELECT event, payload FROM audit_events WHERE decision_id = ? ORDER BY seq",
+            (f"client:{client_id}",),
+        )
+    return [{"event": row["event"], **json.loads(row["payload"])} for row in rows]
+
+
+def reads(server: Server, token: str) -> int:
+    return int(server.http.get("/fhir/Task", headers=bearer(token)).status_code)
+
+
+def test_replacing_a_clients_key_set_keeps_its_id_and_drops_its_tokens(
+    server: Server, capsys: pytest.CaptureFixture[str]
+) -> None:
+    client_id = server.register(keys=(RSA_KEY,))
+    old_token = server.token(client_id)
+    assert reads(server, old_token) == 200
+    capsys.readouterr()
+    answer = replace(server, client_id, EC_KEY)
+    assert answer.status_code == 200, answer.text
+    replaced = answer.json()
+    assert replaced["client_id"] == client_id and replaced["org"] == "default"
+    assert [(k["kid"], k["kty"]) for k in replaced["keys"]] == [("ec-1", "EC")]
+    assert [(k["kid"], k["kty"]) for k in replaced["keys_before"]] == [("rsa-1", "RSA")]
+    assert replaced["replaced_by"] == "admin@default.example.org"
+    assert replaced["tokens_dropped"] == 1
+    [listed] = server.http.get("/api/auth/clients", headers=server.person()).json()
+    assert listed["client_id"] == client_id and listed["keys"] == replaced["keys"]
+    assert listed["keys_replaced_at"] == replaced["replaced_at"]
+    assert (listed["role"], listed["scope"]) == ("service", default_scope("service"))
+    assert reads(server, old_token) == 401  # its tokens stop at once
+    refused = ask(server.http, assertion(RSA_KEY, client_id))
+    assert (refused.status_code, refused.json()) == (401, INVALID_CLIENT)
+    new_token = server.token(client_id, signer=EC_KEY)
+    assert reads(server, new_token) == 200  # issued against the new set: it works
+    logged = [e for e in security_lines(capsys.readouterr().out) if e["event"].startswith("admin.")]
+    assert [(e["event"], e["ids"]) for e in logged] == [("admin.client.keys_replaced", [client_id])]
+    chain = client_chain(server.db, client_id)
+    assert [e["event"] for e in chain] == ["client.registered", "client.keys_replaced"]
+    assert chain[1]["org"] == "default" and chain[1]["tokens_dropped"] == 1
+    assert chain[1]["keys_before"] == chain[0]["keys"] and chain[1]["keys"] == replaced["keys"]
+    chained = json.dumps(chain)
+    assert RSA_KEY.jwk["n"] not in chained and EC_KEY.jwk["x"] not in chained
+    assert '"n"' not in chained and '"x"' not in chained and '"y"' not in chained
+    assert old_token not in chained and new_token not in chained
+    with AuditStore(server.db) as store:
+        assert store.verify()["ok"] is True
+
+
+def test_a_token_verified_against_the_old_key_set_is_refused_after_a_replacement(
+    store: AuditStore,
+) -> None:
+    """The race `keys_version` closes: a token request reads the client's keys and checks the
+    assertion with them; the keys are replaced (its tokens dropped); then the token is
+    inserted. It carries the version it was checked against, and is refused."""
+    made = store.register_client(
+        name="x", role="viewer", org="default", created_by="t", scopes="system/*.rs",
+        jwks=check_jwks({"keys": [RSA_KEY.jwk]}),
+    )  # fmt: skip
+    client_id = made["client_id"]
+    checked = store.client(client_id)
+    assert checked is not None and checked["keys_version"] == 0
+    store.replace_client_keys(
+        client_id, "default", replaced_by="t", jwks=check_jwks({"keys": [EC_KEY.jwk]})
+    )
+    raced, _ = store.issue_token(
+        client_id, "system/*.rs", 300, keys_version=checked["keys_version"]
+    )
+    assert store.access_token(raced) is None
+    now = store.client(client_id)
+    assert now is not None and now["keys_version"] == 1 and now["jwks"][0]["kid"] == "ec-1"
+    fresh, _ = store.issue_token(client_id, "system/*.rs", 300, keys_version=now["keys_version"])
+    assert store.access_token(fresh) is not None
+
+
+def test_a_token_raced_against_a_replacement_at_the_endpoint_is_refused(
+    server: Server, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The same race through the token endpoint: the keys are replaced after the assertion was
+    checked (here, while its `jti` is claimed) and before the token is stored."""
+    client_id = server.register(keys=(RSA_KEY,))
+    claim = AuditStore.smart_claim
+    raced: list[str] = []
+
+    def replaced_meanwhile(self: AuditStore, kind: str, key: str, until: int) -> bool:
+        claimed = claim(self, kind, key, until)
+        if kind == "jti" and not raced:
+            raced.append(key)
+            with AuditStore(server.db) as other:
+                other.replace_client_keys(
+                    client_id, replaced_by="t", jwks=check_jwks({"keys": [EC_KEY.jwk]})
+                )
+        return claimed
+
+    monkeypatch.setattr(AuditStore, "smart_claim", replaced_meanwhile)
+    answer = ask(server.http, assertion(RSA_KEY, client_id))
+    assert answer.status_code == 200 and raced  # checked against the old keys, then issued
+    assert reads(server, answer.json()["access_token"]) == 401
+    assert reads(server, server.token(client_id, signer=EC_KEY)) == 200
+
+
+def test_what_a_key_set_replacement_refuses(server: Server) -> None:
+    from tests.test_auth import legacy_key
+
+    client_id = server.register(keys=(RSA_KEY,))
+    gone = server.register(keys=(RSA_KEY,))
+    assert (
+        server.http.delete(f"/api/auth/clients/{gone}", headers=server.person()).status_code == 204
+    )
+    server.token(client_id)
+    admin_key = bearer(legacy_key(server.db, "admin"))
+
+    def state() -> Any:
+        with AuditStore(server.db) as store, store._db.session(exclusive=False) as session:
+            clients = session.all(
+                "SELECT client_id, jwks, keys_version, keys_replaced_at FROM oauth_clients "
+                "ORDER BY client_id"
+            )
+            tokens = session.all("SELECT token_sha256 FROM oauth_tokens ORDER BY token_sha256")
+            return clients, tokens, store.verify()["events"]
+
+    before = state()
+    eleven = [jwk(EC_KEY, kid=f"k{n}") for n in range(11)]
+    for why, target, body, headers, status in (
+        ("unknown", "0" * 24, None, None, 404),
+        ("another organization's", client_id, None, server.person(org="clinic-b"), 404),
+        ("revoked", gone, None, None, 409),
+        ("a private key", client_id, [private_jwk(EC_KEY)], None, 422),
+        ("eleven keys", client_id, eleven, None, 422),
+        ("no keys", client_id, [], None, 422),
+        ("a key", client_id, None, admin_key, 403),
+        ("anonymous", client_id, None, {}, 401),
+    ):
+        sent = {"jwks": {"keys": body if body is not None else [EC_KEY.jwk]}}
+        refused = server.http.post(
+            f"/api/auth/clients/{target}/keys",
+            json=sent,
+            headers=server.person() if headers is None else headers,
+        )
+        assert refused.status_code == status, (why, refused.text)
+        assert target not in refused.text, why  # no id echoed
+        assert private_jwk(EC_KEY)["d"] not in refused.text, why
+    assert state() == before  # nothing written, nothing dropped
+
+
+def test_a_gapless_switch_is_two_replacements(server: Server) -> None:
+    """Old and new keys, then the new alone; twice in a row, by the documented steps, with
+    tokens taken between them (lessons: a lifecycle operation, run twice)."""
+    client_id = server.register(keys=(RSA_KEY,))
+    for old, new in ((RSA_KEY, EC_KEY), (EC_KEY, RSA_KEY)):
+        held = server.token(client_id, signer=old)
+        assert replace(server, client_id, old, new).status_code == 200
+        assert reads(server, held) == 401  # each step drops its tokens
+        both = [server.token(client_id, signer=signer) for signer in (old, new)]
+        assert [reads(server, token) for token in both] == [200, 200]
+        assert replace(server, client_id, new).status_code == 200
+        refused = ask(server.http, assertion(old, client_id))
+        assert (refused.status_code, refused.json()) == (401, INVALID_CLIENT)
+        assert reads(server, server.token(client_id, signer=new)) == 200
+    with AuditStore(server.db) as store:
+        current = store.client(client_id)
+        assert current is not None and current["keys_version"] == 4
+        assert store.verify()["ok"] is True
+    events = [e["event"] for e in client_chain(server.db, client_id)]
+    assert events == ["client.registered", *["client.keys_replaced"] * 4]
+
+
+def test_a_clients_history_is_its_chain_in_order_and_its_organizations_only(
+    server: Server,
+) -> None:
+    a = server.register(org="clinic-a", keys=(RSA_KEY,))
+    admin_a, admin_b = server.person(org="clinic-a"), server.person(org="clinic-b")
+    assert replace(server, a, EC_KEY, headers=admin_a).status_code == 200
+    assert server.http.delete(f"/api/auth/clients/{a}", headers=admin_a).status_code == 204
+    found = server.http.get(f"/api/auth/clients/{a}/history", headers=admin_a)
+    assert found.status_code == 200
+    history = found.json()
+    assert (history["subject"], history["org"], history["truncated"]) == (
+        f"client:{a}",
+        "clinic-a",
+        False,
+    )
+    assert [e["event"] for e in history["events"]] == [
+        "client.registered",
+        "client.keys_replaced",
+        "client.revoked",
+    ]
+    assert all(set(e) == {"event", "at", "payload"} for e in history["events"])
+    assert [e["at"] for e in history["events"]] == sorted(e["at"] for e in history["events"])
+    assert history["events"][1]["payload"]["replaced_by"] == "admin@clinic-a.example.org"
+    assert "hash" not in found.text and "seq" not in found.text
+    before = client_chain(server.db, a)
+    for path, method, body in (
+        (f"/api/auth/clients/{a}/history", "GET", None),
+        (f"/api/auth/clients/{a}/keys", "POST", {"jwks": {"keys": [RSA_KEY.jwk]}}),
+        (f"/api/auth/clients/{'0' * 24}/history", "GET", None),
+    ):
+        refused = server.http.request(method, path, json=body, headers=admin_b)
+        assert refused.status_code == 404, path
+        assert refused.json()["detail"] == "no such client"  # the same for unknown and another's
+    assert client_chain(server.db, a) == before
+
+
+def test_health_says_whether_backend_services_is_on(
+    server: Server, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    health = server.http.get("/api/health", headers=server.person()).json()
+    assert health["backend_services"] == {"token_endpoint": TOKEN_URL}
+    assert "backend_services" not in server.http.get("/api/health").json()  # signed out
+    monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "off")
+    off = TestClient(create_app(db_path=server.db), base_url=PUBLIC_URL)
+    assert off.get("/api/health", headers=server.person()).json()["backend_services"] is None
+    assert "backend_services" not in off.get("/api/health").json()
+
+
 def test_refusals_are_logged_by_client_id_only(
     server: Server, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -792,6 +1032,8 @@ def test_the_api_reference_describes_the_token_flow(server: Server) -> None:
     assert stats["security"] == [{"apiKey": []}, {"session": []}]
     assert "a scoped key or an access token may not call this" in stats["description"]
     assert paths["/api/auth/clients"]["post"]["security"] == [{"session": []}]
+    assert paths["/api/auth/clients/{client_id}/keys"]["post"]["security"] == [{"session": []}]
+    assert paths["/api/auth/clients/{client_id}/history"]["get"]["security"] == [{"session": []}]
     assert paths["/auth/token"]["post"]["security"] == []
     assert paths[DISCOVERY_PATH]["get"]["security"] == []
     form = paths["/auth/token"]["post"]["requestBody"]["content"]
