@@ -60,8 +60,8 @@ _OFF_ORIGIN = re.compile(r"^\s*(?:[a-z][a-z0-9+.-]*:|//|\\\\)", re.I)
 
 def _html_responses(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     """Every kind of HTML Mendari answers with: the dashboard, the developer landing, the API
-    reference (also reached from ReDoc's old address), and the error page of a failed sign-in or
-    SMART launch."""
+    reference (also reached from ReDoc's old address), the error page of a failed sign-in or
+    SMART launch, and, in memberships mode, the invitation page."""
     client = TestClient(create_app(db_path=tmp_path / "a.db"))
     pages = {path: client.get(path) for path in ("/", "/docs/reference", "/docs", "/redoc")}
     pages["/smart/callback"] = client.get("/smart/callback")
@@ -69,6 +69,9 @@ def _html_responses(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
     signed = TestClient(create_app(db_path=tmp_path / "b.db"))
     pages["/auth/callback"] = signed.get("/auth/callback")
+    monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
+    members = TestClient(create_app(db_path=tmp_path / "c.db"))
+    pages["/invite"] = members.get("/invite")
     return pages
 
 

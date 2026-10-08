@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// Shared helpers: formatting, badges and icons, the API, messages, local storage, the app state,
-// focus and busy states, and the stat block.
+// Shared helpers: formatting, badges and icons, the API and its refusals, messages, local storage,
+// the app state, the membership roles, focus and busy states, a dialog that asks before a change,
+// and the stat block. Imports nothing: the invitation page (invite.js) uses it too.
 
 export const $ = (selector, root = document) => root.querySelector(selector);
 
@@ -158,8 +159,16 @@ function refusal(path, response, body) {
   if (response.status === 401 && path.startsWith("/api/smart/")) throw launchEnded();
   if (response.status === 409 && path.startsWith("/api/smart/")) throw launchReplaced();
   if (response.status === 401 && signedIn()) throw sessionEnded();
-  if (!response.ok) throw new Error((body && (body.detail || body.error)) || response.statusText);
+  // Anything else: its words, with its status and error code for a view that tells refusals apart.
+  if (!response.ok) {
+    throw Object.assign(new Error(refusalText(body) || response.statusText), { status: response.status, code: body?.error ?? null });
+  }
 }
+
+// A refusal's words: FastAPI's 422 lists its problems ({loc, msg}); everything else has a detail.
+export const refusalText = (body) => (Array.isArray(body?.detail)
+  ? body.detail.map((d) => String(d?.msg ?? "").replace(/^Value error, /, "")).join("; ")
+  : body?.detail || body?.error || "");
 
 // Memberships mode: a file to save, fetched so it carries the window's organization as every other
 // request does (a link cannot send a header), and refused, saying so, once that organization is
@@ -287,6 +296,20 @@ export const state = {
 export const may = (permission) => !state.me || state.me.permissions.includes(permission);
 export const signedIn = () => Boolean(state.me && state.me.kind !== "open");
 
+// The roles a membership may hold (core/accounts.py MEMBERSHIP_ROLES; a test keeps them equal), in
+// plain words. A machine's own role is never one of them, and is never offered here.
+export const MEMBERSHIP_ROLES = [
+  { key: "viewer", label: "Viewer", text: "reads decisions and the audit trail" },
+  { key: "reviewer", label: "Reviewer", text: "decides and reviews cases" },
+  { key: "service", label: "Service", text: "decides and records outcomes, for a system" },
+  { key: "governance", label: "Governance", text: "approves packs and holds automation" },
+  { key: "admin", label: "Administrator", text: "everything, and manages people" },
+  { key: "pack_author", label: "Pack author", reserved: true },
+  { key: "labeller", label: "Labeller", reserved: true },
+];
+
+export const roleName = (key) => MEMBERSHIP_ROLES.find((r) => r.key === key)?.label ?? key;
+
 export const packPath = () => `/api/packs/${state.packId}`;
 
 // A pack chosen while another was still loading wins: the older answer is dropped when it arrives.
@@ -330,6 +353,61 @@ export async function whileBusy(button, busyText, task) {
     button.removeAttribute("aria-busy");
     button.innerHTML = content;
   }
+}
+
+// A change asked about first, in a modal: `title` (text), `body` (trusted HTML: escape what it
+// holds), Cancel (first, focused) and the `action` button (`danger` for what takes something
+// away). The action runs `run(form)`: its result closes the dialog and is what the promise gives
+// (true for an answer without a body); a refusal is said inside the dialog (nothing under a
+// modal is heard) and leaves it open. Cancel or Escape gives null. Leaving the view closes it.
+let dialogs = 0;
+
+export function actionDialog({ title, body, action, danger = false, run }) {
+  return new Promise((resolve) => {
+    const id = `action-dialog-${++dialogs}`;
+    const dialog = document.createElement("dialog");
+    dialog.className = "confirm";
+    dialog.dataset.admin = "";
+    dialog.setAttribute("aria-labelledby", `${id}-title`);
+    dialog.innerHTML = `<form method="dialog">
+      <h2 id="${id}-title">${esc(title)}</h2>
+      ${body}
+      <p class="error" role="alert" hidden></p>
+      <div class="row mt-4"><span class="grow"></span>
+        <button value="cancel" autofocus>Cancel</button>
+        <button type="button" class="${danger ? "danger" : "primary"}" data-act>${esc(action)}</button>
+      </div>
+    </form>`;
+    document.body.append(dialog);
+    const form = dialog.querySelector("form");
+    const error = dialog.querySelector(".error");
+    const act = dialog.querySelector("[data-act]");
+    const cancel = dialog.querySelector('button[value="cancel"]');
+    let busy = false;
+    let result = null;
+    dialog.addEventListener("cancel", (event) => { if (busy) event.preventDefault(); }); // not mid-request
+    dialog.addEventListener("close", () => {
+      dialog.remove();
+      resolve(result);
+    });
+    act.addEventListener("click", async () => {
+      error.hidden = true;
+      busy = true;
+      cancel.disabled = true;
+      try {
+        const answer = await whileBusy(act, `${action}…`, () => run(form));
+        result = answer ?? true;
+        dialog.close();
+      } catch (failure) {
+        error.textContent = failure.message;
+        error.hidden = false;
+      } finally {
+        busy = false;
+        cancel.disabled = false;
+      }
+    });
+    dialog.showModal();
+  });
 }
 
 // Which pack, how risky, and what is deployed, in words; the exact identifiers stay one line below

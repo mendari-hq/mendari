@@ -1,0 +1,71 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="referrer" content="no-referrer">
+  <script>
+    // The invitation's token is the link's fragment (/invite#<token>). It leaves the address before
+    // anything else on the page loads, and is kept in this tab only (sessionStorage), for
+    // invite.js; never in the page, a URL or another storage. Only a whole token is kept.
+    (function () {
+      var link = location.hash.slice(1);
+      if (!link) return;
+      history.replaceState(null, "", location.pathname); // the token leaves the address first
+      var whole = /^ohi_[A-Za-z0-9_-]{43}$/.test(link);
+      try {
+        if (whole) sessionStorage.setItem("oh.invite", link); else sessionStorage.removeItem("oh.invite");
+      } catch (e) { document.documentElement.setAttribute("data-invite", "unstored"); return; }
+      if (!whole) document.documentElement.setAttribute("data-invite", "damaged");
+    })();
+  </script>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="robots" content="noindex">
+  <title>Invitation · Mendari</title>
+  <link rel="icon" href="/favicon.ico" sizes="48x48">
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <script>
+    // Resolve the theme before the stylesheet paints anything, so there is never a flash of the
+    // wrong theme: the saved choice (System / Light / Dark), else the system setting. theme.js
+    // keeps it in sync afterwards.
+    (function () {
+      var choice = "system";
+      try { choice = localStorage.getItem("oh.theme") || "system"; } catch (e) { /* private mode */ }
+      var dark = choice === "dark" || (choice !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+      document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+    })();
+  </script>
+  <link rel="stylesheet" href="/static/style.css">
+  <!-- The server fills the import map with the modules invite.js reaches, each content-stamped. -->
+  <script type="importmap"></script>
+</head>
+<!-- The invitation page (memberships mode only: server/app.py). Public and static, never a
+     redirect (server/auth.py), so a signed-out browser never carries the link's fragment to the
+     identity provider; accepting is a button press. invite.js does the rest. -->
+<body class="invite-page">
+  <header class="topbar">
+    <div class="brand">
+      <!-- The favicon's mark, drawn in the theme's accent. -->
+      <svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7"/><path d="M16 6.5 25.5 16 16 25.5 6.5 16Z"/></svg>
+      <span>Mendari</span>
+      <span class="badge tag">sandbox<span class="tag-detail"> · synthetic data only</span></span>
+    </div>
+  </header>
+  <!-- mendari:notice -->
+  <main id="main" tabindex="-1">
+    <section class="panel invite-panel" aria-labelledby="invite-title">
+      <h1 id="invite-title">Invitation</h1>
+      <div id="invite-body">
+        <p>Opening your invitation…</p>
+        <noscript><p>This page needs JavaScript to accept an invitation. Turn it on, then open the link again.</p></noscript>
+      </div>
+      <div class="row mt-4" id="invite-actions"></div>
+    </section>
+  </main>
+  <!-- Screen readers hear each step (ui.js announce): politely, refusals at once. -->
+  <div id="announce-status" class="sr-only" role="status" aria-live="polite"></div>
+  <div id="announce-alert" class="sr-only" role="alert"></div>
+  <script type="module" src="/static/invite.js"></script>
+</body>
+</html>

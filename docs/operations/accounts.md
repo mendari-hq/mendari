@@ -8,10 +8,10 @@ organization from its identity provider's claims needs none of this: it stays as
 
 The records are being built in steps (LP-12). This page covers the command line, signing in by
 records (`MENDARI_ACCOUNTS=memberships`) with the dashboard's access page and organization
-switcher, and how an organization's administrators invite and manage their people through the
-API. The invitation page (`/invite`, which a link opens) and invitations and requests in the
-dashboard follow (LP-12f-ii), and the Access screen after that (LP-12h). Claims mode never
-reads or writes the records.
+switcher, how an organization's administrators invite and manage their people in the
+dashboard's Access view or through the API, and the invitation page (`/invite`) a link opens.
+Keys and clients join the Access view later (LP-12h). Claims mode never reads or writes the
+records.
 
 ## The rules
 
@@ -86,9 +86,11 @@ nothing twice, and it never rewrites a row the deployment already holds.
 mendari access invite --org clinic-a --email lead@example.org --role admin --db "$DATABASE_URL"
 ```
 
-The link is printed once, on its own line: pass it on yourself. It waits until it is accepted,
-revoked or expires on its day. From then on that organization's administrators invite their own
-people.
+The link is printed once, on its own line, as `<the deployment's address>/invite#<token>`: put the
+deployment's public address before it (`MENDARI_PUBLIC_URL` when it has one, the address people
+sign in at), and pass it on yourself. A link on another of its names loses its token when
+signing in moves the browser to the public address. It waits until it is accepted, revoked or
+expires on its day. From then on that organization's administrators invite their own people.
 
 ## Signing in by records
 
@@ -143,13 +145,23 @@ Then:
 ## Managing an organization's people
 
 In memberships mode an organization's administrators (the `admin` role, a person who signed in;
-never an API key, whatever its role) manage its people through the API, under `/api/auth/`. Each
-acts on the organization the administrator acts for, never one a request names: another
+never an API key, whatever its role) manage its people through the API, under `/api/auth/`, or
+in the dashboard's Access view (`#admin`, "Access" in the section list, shown to them only).
+Each acts on the organization the administrator acts for, never one a request names: another
 organization's invitation, member or request is a `404`.
+
+The Access view has a tab for each list: **Members** (change roles, remove), **Invitations**
+(invite someone, revoke a link) and **Requests to join** (grant with the roles chosen, or
+refuse). Every change asks first, in a dialog that says what it does, and a refusal is said
+there in words (removing or demoting the last administrator who signed in, say). A link it makes
+is shown once, whole (with the deployment's address), in a dialog with a Copy button; closing the
+dialog or leaving the view takes it off the page, and it is never shown again: a lost link is
+revoked and made anew. Who made each invitation and membership is named by their name, "You", or
+"Former member" for someone removed since.
 
 | Route | Does |
 |---|---|
-| `POST /api/auth/invitations` | Invites an address (`email`) with `roles`, valid `days` (7, at most 30). The answer holds the `link` (`/invite#<token>`: put the deployment's address before it), once. |
+| `POST /api/auth/invitations` | Invites an address (`email`) with `roles`, valid `days` (7, at most 30). The answer holds the `link` (`/invite#<token>`: put the deployment's address before it; the dashboard shows the whole URL), once. |
 | `GET /api/auth/invitations` | Lists them, newest first, with their `status`: `open`, `accepted`, `revoked` or `expired`. Never a token. |
 | `DELETE /api/auth/invitations/{id}` | Revokes an open (or expired) one. |
 | `POST /api/auth/invitations/accept` | A person's own: accepts one with its `token`, signed in with the address it names, verified. |
@@ -178,6 +190,32 @@ organization's invitation, member or request is a `404`.
   acknowledgement as creating a key does; accepting an invitation does not.
 - On the command line `mendari access members` and `mendari access requests` only read:
   changing roles, removing members and handling requests are done through these routes.
+
+## The invitation page (`/invite`)
+
+A link opens `/invite`, a static page served in memberships mode only (open and claims mode
+answer `404`). It is public and never a redirect, so a browser that is not signed in never
+carries the link on to the identity provider. What it does:
+
+- **The token stays in the tab.** The page's first script takes the token from the link's
+  fragment (the part after `#`, which a browser never sends to a server), clears it from the
+  address before anything else loads, and keeps it in that tab's session storage only. It is
+  forgotten once the answer is final: joined, not valid, already a member.
+- **Signed out:** a Sign in button. Sign in with the address the invitation was sent to: the
+  browser comes back to `/invite`, in the same tab, and the invitation is still there.
+- **Signed in:** who you are signed in as, and Accept invitation. Nothing is accepted until it
+  is pressed, so a link scanner or a preview that opens the page uses nothing up.
+- **Joined:** with your roles, and a way into the dashboard. Someone who already acts for another
+  organization in this browser is offered to switch to the new one, or to stay.
+- **Another address:** the invitation is for another one; Use another account signs out and asks
+  the identity provider which account (the invitation waits in the tab, and stays open).
+- **Not verified:** the identity provider did not verify the address; sign in with an account
+  whose provider does.
+- **Not valid:** used, revoked or expired, one answer: ask whoever invited you for a new link.
+- **Already a member:** roles change only by the organization's administrators.
+- **Open the link on the deployment's public address** (`MENDARI_PUBLIC_URL`). Session storage
+  belongs to one address: if signing in moves the browser to another, the page there says there
+  is no invitation in this tab, and the link opened again there works.
 
 ## Reading what is there
 

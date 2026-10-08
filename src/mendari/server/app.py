@@ -1952,6 +1952,19 @@ def create_app(
         headers = {"cache-control": "no-cache", "content-security-policy": reference_csp}
         return HTMLResponse(reference, headers=headers)
 
+    # The invitation page, memberships mode only (open and claims mode: 404): public and static,
+    # never a redirect (auth.py `_RULES`). Its own policy allows its own inline scripts (the one
+    # that takes the token out of the address before anything loads, the theme, the import map)
+    # and no inline style; never stored, as it holds a token for a moment.
+    if auth.memberships:
+        invite_page = versioned_page("invite.html")
+        invite_csp = content_security_policy(invite_page, inline_styles=False)
+
+        @app.get("/invite", include_in_schema=False)
+        def invitation_page() -> HTMLResponse:
+            headers = {"cache-control": "no-store", "content-security-policy": invite_csp}
+            return HTMLResponse(invite_page, headers=headers)
+
     # Bookmarks and links to FastAPI's ReDoc page, which is gone.
     @app.get("/redoc", include_in_schema=False)
     def to_api_reference() -> RedirectResponse:
