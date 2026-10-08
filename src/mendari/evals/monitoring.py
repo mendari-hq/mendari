@@ -56,7 +56,11 @@ from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from mendari.alerts import check_webhook  # noqa: F401 - where it was, for its callers
+from mendari.alerts import (
+    AlertSettings,
+    check_webhook,  # noqa: F401 - where it was, for its callers
+    deliver,
+)
 from mendari.core.audit import AuditStore
 from mendari.core.card import benchmark
 from mendari.core.pack import Pack
@@ -142,6 +146,45 @@ def monitor(
         "weeks": _weekly(rows, now, weeks),
         "alerts": _alerts(recent, before, drift, wrong_auto, bench),
     }
+
+
+def organizations(
+    store: AuditStore, *, days: int = 30, now: datetime | None = None, skip: str | None = None
+) -> list[str]:
+    """The organizations the monitor runs for, each on its own (LP-21f): every one with a
+    decision in the window, but `skip` (the status organization, whose decisions are
+    synthetic)."""
+    now = now or datetime.now(UTC)
+    since = (now - timedelta(days=7 * math.ceil(days / 7))).isoformat()
+    return [org for org in store.organizations_since(since) if org != skip]
+
+
+def post_alerts(
+    settings: AlertSettings,
+    org: str | None,
+    reports: Sequence[Mapping[str, Any]],
+    *,
+    attempts: int,
+    store: AuditStore | None = None,
+) -> bool:
+    """The alerts of one organization's reports (all organizations together when `org` is
+    None), as one alert to the webhook (`mendari.alerts`): whether it was delivered."""
+    alerting = [report for report in reports if report["alerts"]]
+    lines = [
+        f"{report['pack']['id']}: [{alert['severity']}] {alert['kind']}: {alert['message']}"
+        for report in alerting
+        for alert in report["alerts"]
+    ]
+    return deliver(
+        settings,
+        event="monitor.alerts",
+        org=org,
+        alerts=[{"pack": report["pack"], "alerts": report["alerts"]} for report in alerting],
+        lines=lines,
+        attempts=attempts,
+        timeout=10,
+        store=store,
+    )
 
 
 def recorded_providers(store: AuditStore, pack: Pack) -> dict[str, str] | None:

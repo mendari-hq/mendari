@@ -33,7 +33,8 @@ services:
       - "127.0.0.1:8000:8000"  # put your TLS reverse proxy in front
 
   jobs:
-    # Daily: delete kept inputs past retention, then check every pack for drift and degradation.
+    # Daily: delete kept inputs past retention, then check every pack for drift and degradation,
+    # each organization on its own (a failed post prints its error; the loop goes on).
     image: ${MENDARI_IMAGE:?set MENDARI_IMAGE in .env}
     depends_on:
       postgres:
@@ -47,7 +48,7 @@ services:
       - >-
         while true; do
         mendari phi purge --db "$$DATABASE_URL";
-        mendari monitor --db "$$DATABASE_URL" || true;
+        mendari monitor --db "$$DATABASE_URL" --each-org || true;
         sleep 86400;
         done
     healthcheck:

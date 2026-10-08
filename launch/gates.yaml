@@ -315,7 +315,11 @@ gates:
         what: "The monitor scheduled on the hosted deployment, posting alerts to the alert webhook"
         owner: build
         probes:
-          - pending: "LP-21"
+          - tests:
+              - tests/test_monitor_cron.py::test_the_cron_route_alerts_on_a_seeded_degradation
+              - tests/test_monitor_cron.py::test_the_cron_route_refuses_a_request_without_its_secret
+              - tests/test_monitor_cron.py::test_alerts_never_mix_organizations
+          - pending: "LP-21n (the hosted schedule in vercel.json, with the owner's go-ahead)"
       - id: incident-runbook
         what: "An incident runbook: severity, who is paged, holding automation, revoking access, notifying users, restore with a chain check"
         owner: build

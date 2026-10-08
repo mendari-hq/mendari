@@ -122,6 +122,23 @@ def retention_days() -> int:
     return int(raw)
 
 
+def status_org() -> str | None:
+    """The organization the status checks decide in ($MENDARI_STATUS_ORG; unset: none), which
+    the monitor's schedule leaves out: its decisions are synthetic (docs/operations/
+    status-checks.md). An id no organization could have fails at startup."""
+    from mendari.core.accounts import is_org_id
+
+    raw = os.environ.get("MENDARI_STATUS_ORG", "").strip()
+    if not raw:
+        return None
+    if not is_org_id(raw):
+        raise MendariError(
+            "MENDARI_STATUS_ORG must be an organization's id: lower-case letters, digits and "
+            "hyphens"
+        )
+    return raw
+
+
 def database_target() -> str:
     """The hosted server's database (`mendari.server.vercel`): $DATABASE_URL, required on
     Vercel; elsewhere `var/mendari.db`."""
