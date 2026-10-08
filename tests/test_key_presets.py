@@ -131,14 +131,14 @@ def test_a_key_from_each_preset_gets_past_the_guard_on_its_calls_and_nothing_mor
         guard = Auth(settings, store)
         passed = {r for r in routes if attempt(guard, *r, headers)[0] == 200}
     oracle = {r for r in routes if expected("key", preset.role, preset.scope, *r)[0] == 200}
-    pages = {r for r in routes if permission_for(*r) in ("public", "page")}
-    assert passed - pages == oracle - pages == set(key_reaches(preset.role, preset.scope, routes))
+    public = {r for r in routes if permission_for(*r) == "public"}
+    assert passed - public == oracle - public == set(key_reaches(preset.role, preset.scope, routes))
     assert set(preset.calls) <= passed  # every documented call
 
 
 def test_the_documented_calls_answer_with_the_presets_keys(served: tuple[TestClient, str]) -> None:
-    """End to end, on synthetic data: each path's key makes its documented calls (the payer
-    side of PAS, and DTR after a CRD decision, are covered by their own tests)."""
+    """End to end, on synthetic data: each path's key makes its documented calls, and answers
+    as the docs say (a PAS request is built, not submitted: the payer's side is test_pas's)."""
     client, db = served
     keys = {
         name: {"authorization": f"Bearer {make(client, db, name).json()['key']}"}
@@ -169,10 +169,46 @@ def test_the_documented_calls_answer_with_the_presets_keys(served: tuple[TestCli
     from tests.test_limits import order_sign
 
     assert client.post(HOOK, json=order_sign(1), headers=hooks).status_code == 200
-    outcome = {"final_label": "nurse", "source": "ehr"}
+    outcome = {"final_label": "medical_assistant", "source": "ehr"}
+    waiting = client.post(f"/api/audit/{decision}/outcome", json=outcome, headers=keys["outcomes"])
+    assert (
+        waiting.status_code == 409
+    )  # past the guard: a decision waiting for review takes it first
+    review = {"final_label": "medical_assistant", "reviewer": "admin@default.example.org"}
+    assert client.post(f"/api/review/{decision}", json=review, headers=admin(db)).status_code == 200
     recorded = client.post(f"/api/audit/{decision}/outcome", json=outcome, headers=keys["outcomes"])
-    # Past the guard: a decision waiting for review takes its review first (409), as documented.
-    assert recorded.status_code not in (401, 403), recorded.text
+    assert recorded.status_code == 200, recorded.text
+    # Da Vinci: coverage requirements by CDS Hooks, the DTR package, the PAS request built.
+    from tests.test_davinci import COMPLETE, PA, package_request, request
+    from tests.test_pas import COVERAGE, INSURER, PATIENT, REQUESTER
+    from tests.test_prior_auth_pack import _order
+
+    davinci = keys["da-vinci"]
+    signed = client.post(
+        f"/cds-services/{PA.replace('/', '.')}",
+        json=request("acme", COMPLETE, _order("mri", "FX101")),
+        headers=davinci,
+    )
+    assert signed.status_code == 200, signed.text
+    order = signed.json()["systemActions"][0]["resource"]
+    package = package_request({"name": "order", "resource": order})
+    dtr = client.post("/fhir/Questionnaire/$questionnaire-package", json=package, headers=davinci)
+    assert dtr.status_code == 200, dtr.text
+    built = client.post(
+        f"/api/packs/{PA}/pas",
+        json={
+            "decision_id": signed.json()["cards"][0]["extension"]["mendari.decision_id"],
+            "patient": PATIENT,
+            "coverage": COVERAGE,
+            "insurer": INSURER,
+            "requester": REQUESTER,
+            "order": _order("mri", "FX101"),
+            "service_type": "62",
+            "place_of_service": "22",
+        },
+        headers=davinci,
+    )
+    assert built.status_code == 200 and built.json()["submitted"] is None, built.text
     reader = keys["fhir-reader"]
     assert client.get("/fhir/Task", headers=reader).status_code == 200
     assert (

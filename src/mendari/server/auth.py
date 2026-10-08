@@ -397,8 +397,9 @@ def key_reaches(
     role: str, scope: str | None, routes: Iterable[tuple[str, str]]
 ) -> list[tuple[str, str]]:
     """The routes a key of `role` and `scope` gets past the guard on (`Auth.check`): its role's
-    permission (people-only ones never), and, scoped, the scope each route needs. Public routes
-    and pages aside: they need no key."""
+    permission (people-only ones never), and, scoped, the scope each route needs; the pages
+    (static HTML for browsers) too, unscoped (a scope names none). Public routes aside: they
+    need no key."""
     grant = None if scope is None else scopes.parse(scope)
     key = Principal(
         kind="key", name="preset", roles=frozenset({role}), grant=grant, id="key:-", actor="-"
@@ -406,7 +407,13 @@ def key_reaches(
     reached = []
     for method, path in routes:
         permission = permission_for(method, path)
-        if permission in ("public", "page") or not key.may(permission):
+        if permission == "public":
+            continue
+        if permission == "page":
+            if grant is None:
+                reached.append((method, path))
+            continue
+        if not key.may(permission):
             continue
         if grant is not None:
             needed = scopes.needed(method, path)
@@ -1369,8 +1376,9 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
         """One preset per documented integration path: its role, its scope (null: the role's
         own), its default expiry and the bounds a key's has, the calls its documentation
         describes, every route a key made from it reaches here (computed from the route rules,
-        never written by hand), and the docs page (relative to the docs site). Create a key
-        from one with `POST /api/auth/keys` and `preset`."""
+        never written by hand), and its documentation: the page's source path under docs/ (the
+        site serves it without `.md`) with the heading's anchor. Create a key from one with
+        `POST /api/auth/keys` and `preset`."""
         auth.acting(request)
         routes = presets.served(request.app.routes)
         return [

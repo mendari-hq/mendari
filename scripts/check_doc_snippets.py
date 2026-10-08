@@ -4,7 +4,7 @@ Python examples (`*.py`) as programs (CI jobs `test` and `quickstart`, one step)
 
     uv run python scripts/check_doc_snippets.py           # --show: print what each file printed
 
-Two passes, each on its own local server (the real app on a free port, with a new SQLite file):
+Three passes, each on its own local server (the real app on a free port, with a new SQLite file):
 
 1. **Open mode**: every step of every file, with `MENDARI_KEY` empty.
 2. **Sign-in on** (an identity provider is configured but never called): a `service` key is made
@@ -12,10 +12,11 @@ Two passes, each on its own local server (the real app on a free port, with a ne
    steps whose calls the key may not make by the route rules (`server/auth.py`): today the
    whole-trail export, which needs an administrator. A request without the key must be refused,
    so the pass proves sign-in was on.
-3. **Each key preset** (`server/presets.py`, LP-12i), on one server with sign-in on: a key made
-   from the preset, as an administrator would make it, runs the steps the preset's
-   documentation describes (`Preset.examples`), and only those: each documented integration
-   key works as the docs say.
+3. **Each key preset with a snippet** (`server/presets.py`, LP-12i: `rest`, `fhir` and
+   `ai-guard` today), on one server with sign-in on: a key made from the preset, as an
+   administrator would make it, runs the steps its documentation describes
+   (`Preset.examples`), and only those; a step of the same file it does not run is named. The
+   presets no snippet documents are proven by tests/test_key_presets.py.
 
 Each file runs under `bash -euo pipefail`, and every curl in it uses `--fail-with-body`, so a
 refusal or an error fails the run with the server's answer printed. The server runs the packs'
@@ -173,6 +174,7 @@ def run_presets(work: Path, base_env: dict[str, str], *, show: bool = False) -> 
     with _server(db, show=show) as base:
         for preset in presets.PRESETS.values():
             if not preset.examples:
+                print(f"  skip {preset.id}: no snippet documents its path (tests do)")
                 continue
             made = store.create_api_key(
                 name=f"doc-snippets {preset.id}",
@@ -184,9 +186,13 @@ def run_presets(work: Path, base_env: dict[str, str], *, show: bool = False) -> 
             )
             env = {**base_env, "MENDARI": base, "MENDARI_KEY": made["key"]}
             for file in snippets.FILES:
-                chosen = [s for s in snippets.load(file) if f"{file}/{s.name}" in preset.examples]
+                steps = snippets.load(file)
+                chosen = [s for s in steps if f"{file}/{s.name}" in preset.examples]
                 if not chosen:
                     continue
+                for step in steps:
+                    if step not in chosen:
+                        print(f"  skip {preset.id}: {file}.sh {step.name} ({step.title})")
                 if _run(file, chosen, env, work, show=show):
                     names = ", ".join(step.name for step in chosen)
                     print(f"  ok   {preset.id} ({preset.role}): {file}.sh {names}")

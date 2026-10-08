@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Key presets: one per documented integration path, in one table that drives the API
 (`POST /api/auth/keys` with `preset`, `GET /api/auth/keys/presets`), the docs (the deployment
-guide's table and the /docs landing) and the doc-snippet checks (LP-12i, ADR-0008).
+guide's table, which is the only documentation of the Da Vinci and outcomes paths' keys) and the
+doc-snippet checks (LP-12i, ADR-0008).
 
 A preset is a label and a recipe: the role and scope a key for that path needs, and its default
 expiry. What a key may do is its role and scope as created, read on every request; the label is
@@ -43,7 +44,9 @@ class Preset:
     role: str  # one of MACHINE_ROLES
     scope: str | None  # canonical text (`scopes.parse(...).scope`); None: the role's own
     calls: tuple[Route, ...]  # the entry points its documentation describes
-    doc: str  # docs-relative path and anchor, as the docs site publishes it
+    # The documentation page's source path under docs/ (a .md file, which the site serves at
+    # the same path without `.md`, as `guides/api/`) and its heading's anchor.
+    doc: str
     examples: tuple[str, ...] = field(default=())  # snippet steps ("file/step") CI runs with it
     days: int = KEY_DAYS
 
@@ -83,8 +86,9 @@ _ALL = [
     Preset(
         id="fhir",
         title="FHIR in, FHIR out",
-        purpose="Decide with FHIR `$decide`, then read the decision as a Task and its trail as "
-        "AuditEvent and Provenance.",
+        purpose="Decide with FHIR `$decide`, then read the decision as a Task and its trail by "
+        "the AuditEvent and Provenance searches (the trail as one Bundle, `trail` in the "
+        "guide's script, reads Mendari's own API: a `rest` key).",
         role="service",
         scope=f"{DECIDE} {_TRAIL_READS}",
         calls=(
@@ -163,7 +167,7 @@ PRESETS: dict[str, Preset] = {preset.id: preset for preset in _ALL}
 
 def served(routes: Iterable[Any]) -> list[Route]:
     """Every route an app serves, by method (HEAD aside): what a preset's reach is computed
-    over, the same for the API, the landing and the tests."""
+    over, the same for the API and the tests."""
     return sorted(
         {
             (method, route.path)
