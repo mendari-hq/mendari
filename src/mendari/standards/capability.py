@@ -192,8 +192,8 @@ def capability_statement(
     `since(version)`: when that version went live here (`AuditStore.capability_since`).
 
     It needs no credential. With sign-in on it names no pack (which packs run here is for
-    signed-in callers, as in /api/health and /api/packs); the operations it offers are still
-    the ones the served packs use."""
+    signed-in callers, as in /api/health and /api/packs, whose list a decide-scoped credential
+    also reads); the operations it offers are still the ones the served packs use."""
     mounted = set(routes)
     offered = [
         c

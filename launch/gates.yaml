@@ -161,7 +161,7 @@ gates:
               - tests/test_rotation.py::test_a_new_input_hash_key_starts_an_epoch
               - tests/test_rotation.py::test_a_rotated_key_overlaps_then_expires
               - tests/test_rotation.py::test_admins_rotate_keys_through_the_api
-          - pending: "the owner's answer to LP-08's open question (tasks/todo.md): outside Vercel, an explicit MENDARI_PHI_MODE=off with sign-in on starts with a warning, where A5 step 1 asks for a refusal; a build PR refuses it, or the owner accepts the warning and this line goes. The hosted keys and CRON_SECRET are the owner's"
+          - pending: "LP-08's refusal (the owner chose refuse, 2026-10-07, tasks/todo.md): outside Vercel, an explicit MENDARI_PHI_MODE=off with sign-in on refuses to start; the build PR's tests replace this line. The hosted keys and CRON_SECRET are the owner's"
       - id: a6-accounts
         what: "A6: accounts, organizations as records, memberships, invitations, self-service keys without a redeploy"
         owner: build
@@ -292,7 +292,7 @@ gates:
         what: "A12: EHR pilot readiness (EHR-signed CDS Hooks tokens, selectionBehavior, a feedback endpoint, mappings for real EHR data)"
         owner: build
         probes:
-          - pending: "LP-23, after LP-12, and the owner's choice of EHR vendor (B38)"
+          - pending: "LP-23, after LP-12 (B38 chosen 2026-10-07: Epic, backup Oracle Health; the owner's sandbox sign-up when LP-23 starts)"
       - id: clinician-review
         what: "Each reference pack reviewed by a clinician of the right kind (B21.1-B21.5)"
         owner: owner

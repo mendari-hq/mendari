@@ -725,7 +725,8 @@ shown once, stored hashed, revocable, and rotated with an overlap
 by default, 365 at most), and can be narrowed with **scopes**: SMART's `system/Task.rs`,
 `system/AuditEvent.rs`, `system/Provenance.rs`, `system/CodeSystem.rs`, `system/NamingSystem.r`
 or `system/*.rs` for FHIR reads, and `https://mendari.co/fhir/scope/decide` and
-`.../outcome` for deciding and recording outcomes. A scope only narrows a role.
+`.../outcome` for deciding and recording outcomes; deciding also lists the packs to decide with
+(`GET /api/packs`, `GET /cds-services`). A scope only narrows a role.
 
 Machines that speak **SMART Backend Services** (EHRs, integration engines, Da Vinci clients) can
 get five-minute tokens instead, when a deployment turns it on (`MENDARI_BACKEND_SERVICES=on`;

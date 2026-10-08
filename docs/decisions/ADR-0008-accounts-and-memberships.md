@@ -47,8 +47,8 @@ provider's claims needs nothing to change.
 - **Credentials.** One Access screen for API keys and Backend Services clients (create, scope,
   rotate, revoke, history). Rotating a client replaces its key set. Key presets, one per
   documented integration path, live in one table that drives the API, the screen and the docs.
-  A decide-scoped credential may list packs and read CDS Hooks discovery, deployment-wide,
-  read-only lists (an extension of ADR-0004). A daily cap per principal sits beside the
+  A decide-scoped credential may read the read-only lists of the packs it may decide with
+  (`GET /api/packs`, `GET /cds-services`; ADR-0004 as amended, LP-12c). A daily cap per principal sits beside the
   per-organization quota and answers 429 with `Retry-After`; it is off unless configured.
 
 ## Alternatives rejected
