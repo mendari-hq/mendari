@@ -24,8 +24,8 @@ redirect is never followed.
 its body (ids and counts, as sent), its status (`delivered`; `pending` while another try is due;
 `failed` once a final answer came or MAX_ATTEMPTS were made), its attempts, the last HTTP status
 and a fixed error code (`http_<status>`, or the error's type). `retry_due` sends the pending
-ones again; the monitor's schedule (LP-21f, not yet built) is what will call it. The URL and the
-secret are never stored.
+ones again: the scheduled monitor (`GET /api/internal/monitor`, LP-21f) calls it first, and
+`mendari monitor`, which records nothing, does not. The URL and the secret are never stored.
 """
 
 from __future__ import annotations
@@ -185,13 +185,23 @@ def deliver(
 
 
 def retry_due(
-    store: AuditStore, settings: AlertSettings, *, timeout: float = 10.0, limit: int = 50
+    store: AuditStore,
+    settings: AlertSettings,
+    *,
+    timeout: float = 10.0,
+    limit: int = 50,
+    deadline: float | None = None,
 ) -> dict[str, int]:
     """Send again each `pending` alert whose next try is due, once each, as it was rendered;
-    how many were delivered and how many are still to come or failed for good."""
+    how many were delivered, how many are still to come or failed for good, and how many were
+    left for the next run (`deferred`): none is started once `deadline` (a `time.monotonic()`
+    value) has passed, and those left stay due."""
     now = datetime.now(UTC)
-    counts = {"delivered": 0, "pending": 0, "failed": 0}
+    counts = {"delivered": 0, "pending": 0, "failed": 0, "deferred": 0}
     for row in store.alerts_due(now.isoformat(), limit):
+        if deadline is not None and time.monotonic() >= deadline:
+            counts["deferred"] += 1
+            continue
         status, error = _post(settings, row["id"], row["event"], row["body"].encode(), timeout)
         tried = int(row["attempts"]) + 1
         outcome = _outcome(status, error, tried, now)
