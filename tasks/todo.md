@@ -175,8 +175,11 @@ behaviour.
   (negative controls fail it). Reviews: the adversarial review (2 medium, 5 low), a focused check (5
   low), a check of the spec additions (1 medium: a command run off Vercel fell back to `off` on the
   hosted database, fixed by the protected mark; 3 low) and a check of that fix (3 low), all fixed.
-  Owner question still open: refuse an explicit `off` with sign-in on outside Vercel too (the
-  compose sign-in sandbox relies on it)?
+  **Owner decision (2026-10-07): refuse.** Outside Vercel too, sign-in on with `MENDARI_PHI_MODE`
+  `off` (or unset) stops at startup, on SQLite and Postgres alike; the compose sign-in sandbox and
+  CI's `sandbox-e2e` move to `encrypt` with generated keys (locally, once, in the gitignored `.env`).
+  An EHR launch with sign-in off keeps its warning (a separate decision). The build PR replaces gate
+  a5's pending probe with its tests.
 - [x] **LP-09** Key rotation (#142, merged 2026-10-07). The PHI key: a ring, `MENDARI_PHI_KEY` seals and
   `MENDARI_PHI_READ_KEYS` (up to 4, checked at startup, never shown) only opens; from the first
   rotation on each token names its key (`v2:<key id>:`; before it, the old format, so a release
@@ -251,7 +254,15 @@ behaviour.
   libvips LGPL, caniuse-lite CC-BY-4.0). `tests/test_code_systems.py`: no CPT in any tracked pack,
   dataset or fixture; a licensed system only where declared or in four US Core fixtures allowed
   with why. NOTICE drops CPT.
-  **For counsel (not decided here):** whether SNOMED CT codes may stay in two reference packs,
+  **Owner decision (2026-10-07): swap.** The SNOMED CT codes in everything that ships (the trial
+  prescreener and the referral router, `datasets/trial-local-site-example.jsonl`, the generators
+  and converters) are replaced by fictional codes, as CPT was, in one build PR: both packs bumped
+  and rebuilt, the wheel and sdist scanned for SNOMED CT, an RxNorm line in NOTICE. Accepted with
+  it: until LP-23's site code map, the referral router matches no real SNOMED-coded referral and the
+  trial pack reads real diagnoses through ICD-10-CM only. Counsel is asked in parallel (the owner
+  sends the memo) about what stays: the repository's tests, fixtures, docs and history; ICD-10-CM;
+  the images (the Debian base and psycopg-binary); the X12 values in `standards/pas.py`.
+  **For counsel (background):** whether SNOMED CT codes may stay in two reference packs,
   four US Core test fixtures, `datasets/trial-local-site-example.jsonl` (bare codes, shipped in
   the wheel), the sandbox generators (`src/mendari/sandbox`) and the docs' examples; SNOMED CT
   needs an Affiliate Licence, free in member territories, low-income countries and qualifying
@@ -372,7 +383,8 @@ behaviour.
     `docs` job). `site_url`: `https://junebugg1214.github.io/mendari/`. Nothing published or
     deployed. **Owner, open:** the docs URL (GitHub Pages by default; a custom domain is a
     `site_url` change), Pages needs the repository public on the Free plan; the first TestPyPI
-    upload waits for counsel's SNOMED CT answer (LP-14); the `testpypi` environment and
+    upload waits for the SNOMED CT swap (LP-14, owner's choice 2026-10-07) and a public
+    repository (`release.yml` publishes to TestPyPI only from one); the `testpypi` environment and
     TestPyPI's pending publisher (owner steps 7 and 8). **Review** (two lenses, each finding
     checked by a skeptic): 2 medium, fixed: the rehearsal at `0.1.0rc1` failed the release's
     own suite (the changelog test wanted an rc section; a full run at `0.1.0rc1` now fails only
@@ -426,6 +438,14 @@ behaviour.
 scoreboard and grading, LP-16 for registry-pulled packs (community packs already run on RE2
 with a CPU budget, #133), LP-18 and LP-19 registry, LP-12 accounts, LP-20 pack store, LP-21
 operations, LP-22 site network, LP-23 EHR pilot.
+
+**B38, the pilot EHR (owner, 2026-10-07):** Epic, with Oracle Health as the backup, chosen by
+vendor fit while no design partner is on record; the first pilot site's own EHR overrides it.
+LP-23 builds to Epic's published CDS Hooks token (RS384 or ES384, a `jku` equal to an allow-listed
+URL, `iss` the FHIR base, `aud`, `sub`, `jti` replay) with a test key pair. The owner signs up for
+Epic's free sandbox when LP-23 starts, from a checklist Claude sends (the APIs the packs read,
+ServiceRequest and Communication included). An Epic shared by several organizations (Community
+Connect) is not supported yet.
 
 - [ ] **LP-10** Statistics and a per-case ledger behind every number. Split in three PRs:
   - [x] **LP-10a** The statistics, the ledger, the report format and `mendari compare`
@@ -481,14 +501,29 @@ operations, LP-22 site network, LP-23 EHR pilot.
       its model. No format bump: the spec already defined `models` as the models that answered;
       earlier `llm`/`vote` runs named the configured one (CHANGELOG).
     - [ ] **10c-ii** Removing `DEFAULT_MODEL`, owner-gated as below.
-    **Owner first:** no default configuration uses an LLM, but an `llm` slot chosen through
-    `MENDARI_PROVIDERS` without `LLM_MODEL` would start sending every case to a person. The last
-    tracked hosted setting (removed 2026-10-04) had `mendari/ai-guard:screen=rules_and_llm`:
-    check Vercel's `LLM_MODEL` for Production and Preview before that part merges.
+    **Owner check done (2026-10-07):** the removal goes ahead. Without a model an `llm` slot fails
+    as `not_configured` (a person decides); `mendari calibrate` and the agreement run refuse up
+    front instead of sending no model. The PR reads Preview's health before it merges.
 
-- [ ] **LP-11** Evaluation-set store and blind labelling. **Owner first:** where hidden-set
-  content, labels and keys live (outside this repository, every pack directory and every pack
-  digest); the build prompt says to stop until this file records it. Not started.
+- [ ] **LP-11** Evaluation-set store and blind labelling. Not started.
+  **Owner decision (2026-10-07), where hidden sets live:** set content, labels, assignments and the
+  hidden-case index live only in the hosted engine's own database (locally, a developer's SQLite or
+  Postgres with synthetic sets), in tables prefixed `evalset_`; never in this repository, a pack
+  directory, a shipped fixture or a pack digest. Every case input, label and attribute is sealed
+  (AES-256-GCM, bound to kind, set id and case id) under `MENDARI_EVALSET_KEY`, a ring with
+  `MENDARI_EVALSET_READ_KEYS` rotated as in LP-09 (its own rotate command and read-only check).
+  `MENDARI_EVALSET_INDEX_KEY` keys only the LP-20 hidden-case index and the chained case-id hashes;
+  label values are chained as salted commitments (as notes are), never under the index key, so that
+  key alone recovers no label. Both keys differ from each other and from every PHI key, are set by
+  the owner as Secret for the hosted production environment only (preview database copies then hold
+  only ciphertext), and the feature stays off without them. The freeze commitment is a salted hash
+  chained at freeze; a signature, if any, waits for LP-17's grading-key decision. `audit verify`
+  checks sealed rows against their chained hashes. The backup is a sealed export (ciphertext only).
+  Roles: the reserved `labeller` and `grading` (`core/accounts.py`). The key holder can decrypt
+  offline, so "only the grading role reads active sets" is a rule the software enforces. CI and local
+  runs use synthetic sets and throwaway keys. Owner, later: before any real set, generate the two
+  keys, keep a copy off the laptop and set them; before contracting labellers, decide how they reach
+  the hosted site while Vercel Authentication is on. Hand-written cases only until B20.
 - [ ] **LP-12** Accounts, memberships and invitations (ADR-0008, Proposed). Planned by a mapping
   workflow as eleven PRs, each leaving claims mode exactly as it is:
   - [x] **12a + 12b** (#159) This entry and ADR-0008; tenancy fails closed: for a signed-in
@@ -497,10 +532,12 @@ operations, LP-22 site network, LP-23 EHR pilot.
     never widened to all of them (None) or to `default`; an empty organization is one, never
     "any", in the key and client store.
   - [ ] **12c** Decide-scoped credentials list packs and read CDS discovery (ADR-0004).
-    **Owner first:** it widens what a decide-scoped key or token reaches in claims mode,
-    production included (the pack list and CDS discovery, read-only and deployment-wide), and
-    `/api/auth/me` lists a new `discover` permission. The LP-12 prompt asks for it; the owner
-    approves the ADR-0004 extension before it is built.
+    **Owner decision (2026-10-07): approved, narrow.** The decide scope implies a read-only
+    `discover` permission that reaches only `GET /api/packs` and `GET /cds-services`, each listing
+    only the packs the credential may decide with (today every served pack; after LP-20 never
+    another organization's). Pack detail, examples, datasets, the OpenAPI document and audit stay
+    closed to scoped credentials; every role holds `discover`, an EHR launch does not; no new scope
+    URI. The 12c PR adds the ADR-0004 amendment and ADR-0008's matching wording.
   - [x] **12d** (#162) User, organization, membership, invitation and request records, each
     write chaining ids and digests only; the operator's `mendari access` commands
     (organizations, bootstrap, invite, members, requests, and the read-only preflight
@@ -554,7 +591,8 @@ operations, LP-22 site network, LP-23 EHR pilot.
   5. Deployment-wide views (whole-chain verify, totals, deployment-wide holds) are the
      operator's: by default the command line only.
   6. The discovery fix (12c) changes claims mode too, production included: a decide-scoped
-     credential lists packs and reads CDS discovery, and `/api/auth/me` lists `discover`.
+     credential lists packs and reads CDS discovery, and `/api/auth/me` lists `discover`
+     (approved by the owner 2026-10-07, narrow: see 12c).
   7. The claims-mode no-role page stays as it is.
   8. Additive claims-visible changes count as "claims mode behaves as before".
 
@@ -875,8 +913,8 @@ build session. A1–A8 come before A9 (making the repository public); A10 and A1
      `release.yml`, environment `pypi`. Check after: it is listed as a pending publisher, and
      the name `mendari` is still free on PyPI. The same on **test.pypi.org** with environment
      `testpypi`.
-8. **Release 0.1.0.** First a rehearsal on TestPyPI, after counsel's answer on SNOMED CT (LP-14:
-   the wheel carries those codes): a build PR sets the version to `0.1.0rc1` everywhere it is
+8. **Release 0.1.0.** First a rehearsal on TestPyPI, after the SNOMED CT swap merges (LP-14: the
+   wheel carries those codes until then; owner's choice 2026-10-07): a build PR sets the version to `0.1.0rc1` everywhere it is
    written (`tests/test_release_gate.py` lists them; `CHANGELOG.md`'s `## 0.1.0` section serves
    it) and pins the rc's fixed FHIR resources, which carry the version (`PINNED` in
    `tests/test_terminology.py`; its failure prints the entry), then tag it
