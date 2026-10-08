@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -66,8 +67,12 @@ def slug(heading: str) -> str:
 # -- the table --------------------------------------------------------------------------------
 
 
-def test_each_preset_is_a_machine_key_the_role_allows_with_a_page_that_says_so() -> None:
-    routes = presets.served(create_app(db_path=":memory:").routes)
+def test_each_preset_is_a_machine_key_the_role_allows_with_a_page_that_says_so(
+    tmp_path: Path,
+) -> None:
+    # A file, not ":memory:": nothing closes an app's store, and a file's connections close
+    # after each session.
+    routes = presets.served(create_app(db_path=tmp_path / "routes.db").routes)
     for preset in presets.PRESETS.values():
         assert presets.ID.fullmatch(preset.id), preset.id
         assert preset.role in MACHINE_ROLES, preset.id
@@ -105,8 +110,9 @@ def test_the_guide_shows_the_table_as_it_is() -> None:
     assert shown.strip() == presets.markdown(), "re-render the table: presets.markdown()"
 
 
-def test_the_api_names_every_preset() -> None:
-    schema = create_app(db_path=":memory:").openapi()["components"]["schemas"]["KeyRequest"]
+def test_the_api_names_every_preset(tmp_path: Path) -> None:
+    client = TestClient(create_app(db_path=tmp_path / "schema.db"))
+    schema = client.get("/openapi.json").json()["components"]["schemas"]["KeyRequest"]
     assert schema["properties"]["preset"]["enum"] == [*presets.PRESETS, None]
     assert schema["required"] == ["name", "role"]  # as before: a preset never makes role optional
 
