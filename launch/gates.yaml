@@ -194,7 +194,7 @@ gates:
     name: "Stage 3 to 4: scoreboards and pack store"
     prerequisites:
       - id: a3-pack-safety
-        what: "A3: a pack from an outside author is safe to run (time limits on every pattern, a decision budget, fuzzing; done for community packs, #133)"
+        what: "A3: a pack from an outside author is safe to run (RE2, caps, input limits and a CPU budget per decision for every pack the deployment does not own: community packs #133, registry packs LP-16; a decision deadline)"
         owner: build
         probes:
           - tests:
@@ -204,7 +204,12 @@ gates:
               - tests/test_pack_isolation.py::test_any_error_loading_one_pack_lists_it_by_type_and_serves_the_others
               - tests/test_community_budget.py::test_a_community_packs_rules_stop_at_the_budget_and_a_person_decides
               - tests/test_decision_deadline.py::test_a_deadline_never_automates
-          - pending: "LP-16 (Option A scoped, owner 2026-10-07: the community engine's time limits and decision budget for every pack the deployment does not own)"
+          - tests:
+              - tests/test_registry_engine.py::test_a_pack_from_a_registry_runs_on_the_community_engine
+              - tests/test_registry_engine.py::test_a_registry_packs_rules_stop_at_the_budget_and_a_person_decides
+              - tests/test_registry_engine.py::test_the_engine_follows_the_bytes_not_the_manifest
+              - tests/test_registry.py::test_a_publish_is_checked_on_the_engine_its_pullers_run
+              - tests/test_hub_client.py::test_a_pull_the_engine_refuses_leaves_nothing_in_the_cache
       - id: a7-pack-store
         what: "A7: a versioned pack store per organization, with upload checks and promotion signed off by someone other than the author"
         owner: build

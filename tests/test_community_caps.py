@@ -147,8 +147,8 @@ def test_a_community_packs_negation_window_is_at_most_200_characters(
     100 negatable patterns took 24 s. A number written as a string is read as one too."""
     root = sorter(tmp_path, rules=lambda r: r.update(negation_cues=["no"], negation_window=window))
     assert refused(root) == [
-        f"{RULES}: negation_window is {int(window)}; a community pack's is at most 200 characters "
-        "(the shipped packs use 30 to 40)"
+        f"{RULES}: negation_window is {int(window)}; a community or registry pack's is at most "
+        "200 characters (the shipped packs use 30 to 40)"
     ]
 
 
@@ -163,8 +163,8 @@ def test_a_community_pack_has_at_most_50_negation_cues(tmp_path: Path) -> None:
     cues = [f"cue{i}" for i in range(51)]
     root = sorter(tmp_path, rules=lambda r: r.update(negation_cues=cues))
     assert refused(root) == [
-        f"{RULES}: 51 negation_cues; a community pack has at most 50 (the shipped packs have 7 "
-        "to 23)"
+        f"{RULES}: 51 negation_cues; a community or registry pack has at most 50 (the shipped "
+        "packs have 7 to 23)"
     ]
 
 
@@ -210,9 +210,9 @@ def test_the_doubling_schema_from_the_finding_is_refused(tmp_path: Path) -> None
     assert caps.schema_runs(schema) == 64
     root = sorter(tmp_path, schema=lambda s: s.update(schema))
     assert refused(root) == [
-        "input schema: its patterns can run 64 times on one value; a community pack's schema "
-        "runs at most 50 on any value or key (a $ref, allOf, anyOf or oneOf that reaches the same "
-        "pattern more than once multiplies it)"
+        "input schema: its patterns can run 64 times on one value; a community or registry "
+        "pack's schema runs at most 50 on any value or key (a $ref, allOf, anyOf or oneOf that "
+        "reaches the same pattern more than once multiplies it)"
     ]
 
 
@@ -231,8 +231,9 @@ def test_the_cap_message_names_patternproperties_with_additionalproperties(
 
     (problem,) = refused(sorter(tmp_path, schema=schema))
     assert problem == (
-        "input schema: its patterns can run 60 times on one value; a community pack's schema "
-        "runs at most 50 on any value or key (each patternProperties pattern counts three times "
+        "input schema: its patterns can run 60 times on one value; a community or registry "
+        "pack's schema runs at most 50 on any value or key (each patternProperties pattern "
+        "counts three times "
         "where additionalProperties is also set (on each key, then again as additionalProperties "
         "searches them and for its error message), and a $ref, allOf, anyOf or oneOf that "
         "reaches the same pattern more than once multiplies it)"
@@ -342,7 +343,7 @@ def test_a_reference_cycle_that_reaches_a_pattern_is_refused(schema: Any) -> Non
     (problem,) = caps.schema_problems(schema, rules_runs=0)
     assert problem.startswith("input schema: ") and problem.endswith(
         ": a $ref leads back to a schema holding it, and patterns run there or below it; a "
-        "community pack's schema may not refer back to itself where its patterns run"
+        "community or registry pack's schema may not refer back to itself where its patterns run"
     )
 
 
@@ -378,7 +379,7 @@ def test_the_rules_and_the_schema_run_at_most_max_pack_patterns_together(tmp_pat
     assert problems == [
         "the rules run 520 patterns on each input (each pattern once for each question it "
         "answers and each composite member holding it) and the input schema up to 0 on one "
-        f"value: 520 together; a community pack runs at most {MAX_PACK_PATTERNS}"
+        f"value: 520 together; a community or registry pack runs at most {MAX_PACK_PATTERNS}"
     ]
 
 
@@ -428,10 +429,10 @@ def test_patterns_whose_sizes_come_to_more_than_3000_are_refused(tmp_path: Path)
     assert refused(root) == [
         "its patterns' size comes to 4,029 on each input: the rules' 4,029 (each pattern's once "
         "for each question it answers and each composite member holding it) and the input "
-        "schema's 0 on one value or key; a community pack's comes to at most 3,000, as RE2's "
-        "time on each character grows with it. A pattern's size is the characters, classes and "
-        ".s it holds, each as often as a count repeats it (.{0,999} is 999, \\w+ is 1): use "
-        "smaller counts, or fewer patterns"
+        "schema's 0 on one value or key; a community or registry pack's comes to at most 3,000, "
+        "as RE2's time on each character grows with it. A pattern's size is the characters, "
+        "classes and .s it holds, each as often as a count repeats it (.{0,999} is 999, \\w+ "
+        "is 1): use smaller counts, or fewer patterns"
     ]
     one = sorter(
         tmp_path / "one", rules=lambda r: r["questions"]["topic"]["labels"].update(billing=gaps[:1])

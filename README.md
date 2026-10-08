@@ -676,12 +676,17 @@ mendari eval mendari/referral-router --dataset local.jsonl --share "My site"
   Nothing an archive or a registry says chooses where a file is written: archive names are plain
   paths inside the pack, an archive is read with size caps checked as it expands, and the cache
   path is built only from a valid id and version that the signed manifest names.
-- **Trust.** Installing a pack means trusting its author, as with any plugin: its patterns run
-  on Python `re` with no time limit, so a pack can slow or stall a worker (a community pack's
-  run on RE2, which never backtracks). What a pack cannot do
-  (choose secrets or endpoints, reach outside its folder, stop the server, reach another pack's
-  CQL) is in [SECURITY.md](https://github.com/Junebugg1214/mendari/blob/main/SECURITY.md#pack-supply-chain). Packs from others will run isolated
-  once uploads or a public registry exist.
+- **Trust.** A pulled pack runs on the engine for packs the deployment does not own, as a
+  community pack's patterns do: RE2, which never backtracks, within caps, 10,000 characters of
+  input and a CPU budget per decision, after which a person decides. A copy of a reference pack
+  of this release keeps the maintained engine (`mendari pull` says which), chosen by the digest
+  of its files, never by its manifest or the registry
+  ([ADR-0009](https://github.com/Junebugg1214/mendari/blob/main/docs/decisions/ADR-0009-bounded-evaluation-for-packs-the-deployment-does-not-own.md)).
+  The packs you own (the reference packs, and your own in `MENDARI_PACKS_PATH`, where a copy of
+  a pulled pack you trust goes) run on Python `re` with no time limit: installing one means
+  trusting its author, as with any plugin. What a pack cannot do (choose secrets or endpoints,
+  reach outside its folder, stop the server, reach another pack's CQL) is in
+  [SECURITY.md](https://github.com/Junebugg1214/mendari/blob/main/SECURITY.md#pack-supply-chain).
 - **The registry** (`mendari registry serve`) has namespaces with a publisher type
   (community, verified, institutional) that its admins set after verification. `--share` sends
   a site's metrics, never its cases or their ids, in a closed format the registry checks
@@ -690,6 +695,9 @@ mendari eval mendari/referral-router --dataset local.jsonl --share "My site"
   does not show site reports until sites sign what they share.
 
 The docker sandbox runs a registry on port 8100 (`scripts/hub_seed.py` publishes the five packs).
+Run `docker compose up --build` before `hub_seed.py`: the registry checks each pack against the
+reference packs of its own image, so with an image built from an older checkout, a pack that
+changed since is checked on RE2, and one whose patterns RE2 cannot run is refused.
 
 ## Sign-in for organizations
 

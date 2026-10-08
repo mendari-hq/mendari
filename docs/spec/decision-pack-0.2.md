@@ -343,11 +343,13 @@ run as `re` runs them (rules patterns with case ignored). Each MUST compile and 
 characters, and a pack MUST hold at most 500 of them; the runtime compiles every one at load, so
 a pack with an invalid one is invalid, named by file and rule. `re` has no time limit: a pattern that backtracks (`(a+)+$`)
 can take seconds or longer on a crafted input: a pack's patterns are code its author wrote, and
-installing a pack means trusting its author. A community pack's patterns (id `community/...`)
-are written the same way but run on RE2, which never backtracks, rewritten to mean what they
-mean in `re` (what still differs is listed in `core/re2_syntax.py`); a community pack holding a
-pattern RE2 cannot run (a lookahead or lookbehind, a back reference, a conditional or atomic
-group, a possessive quantifier, or one too large once compiled) is invalid, and so is an input
+installing a pack means trusting its author. The patterns of a pack the deployment does not own
+(a community pack, id `community/...`, or one pulled from a registry whose digest is not that of
+a reference pack in the installed release) are written the same way but run on RE2, which never
+backtracks, rewritten to mean what they mean in `re` (what still differs is listed in
+`core/re2_syntax.py`); such a pack holding a pattern RE2 cannot run (a lookahead or lookbehind,
+a back reference, a conditional or atomic group, a possessive quantifier, or one too large once
+compiled) is invalid, and so is an input
 schema that uses a keyword outside those whose work Mendari bounds (the contributor's guide
 lists them: `unevaluatedProperties` or `unevaluatedItems`, which jsonschema works out on its own
 and with `re`, `contains`, `uniqueItems` and the like are refused; `$ref` names one of the
@@ -363,9 +365,12 @@ refers back to itself where patterns run, more than 500 patterns run by its rule
 one value together, or those same runs coming to a size of more than 3,000 together, a pattern's
 size being the characters, classes and `.`s it holds, each as often as a count repeats it
 (`a{1,50}` is 50, `\w+` is 1, alternatives added together): RE2's time on each character grows
-with it. At run time a community pack's patterns and schema checks share a time budget of one
-second of CPU per decision: past it the decision abstains with the error `time_budget`, for a
-person (an input the schema had already found wrong is refused).
+with it. At run time such a pack refuses an input whose texts are longer than 10,000 characters,
+alone or together, or that holds more than 10,000 values or is nested more than 32 deep, before
+any pattern runs, and its patterns and schema checks share a time budget of one second of CPU
+per decision: past it the decision abstains with the error `time_budget`, for a person (an input
+the schema had already found wrong is refused). Which engine a pack runs on is never read from
+its manifest; the pack format is the same for every pack.
 
 A remote provider's endpoint, model and credentials belong to the deployment, which supplies
 them in fixed environment variables (`jev`: `JEV_API_URL`, `JEV_MODEL`, `JEV_API_KEY`,

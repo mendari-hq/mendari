@@ -8,6 +8,7 @@ import gzip
 import hashlib
 import io
 import json
+import shutil
 import tarfile
 import tracemalloc
 import zlib
@@ -16,6 +17,7 @@ from pathlib import Path
 import pytest
 
 from mendari.cli import main
+from mendari.core.pack import PatternsRefused, load_pack
 from mendari.core.registry import resolve_pack
 from mendari.errors import HubError
 from mendari.hub import archive
@@ -58,8 +60,59 @@ def test_an_archive_verifies_and_extracts_to_the_same_pack(
     verified = archive.verify(archive.build(REFERRAL, key), trusted(key))
     assert verified.manifest["id"] == "mendari/referral-router"
     assert "DECISION_CARD.md" in verified.files  # attestations are signed too
-    pack = archive.extract(verified, tmp_path / "pack")
+    pack = archive.extract(verified, tmp_path / "pack", origin="hub")
     assert (pack.id, pack.version, pack.digest) == (REFERRAL.id, REFERRAL.version, REFERRAL.digest)
+    assert pack.origin == "hub" and not pack.bounded  # the reference pack of this release
+
+
+def test_extract_needs_an_origin(key: archive.Ed25519PrivateKey, tmp_path: Path) -> None:
+    """No default: every caller names the engine an archive is checked on (LP-16, ADR-0009)."""
+    verified = archive.verify(archive.build(REFERRAL, key), trusted(key))
+    with pytest.raises(TypeError, match="origin"):
+        archive.extract(verified, tmp_path / "pack")  # type: ignore[call-arg]
+    assert not (tmp_path / "pack").exists()
+
+
+def test_extract_on_the_hub_engine_refuses_a_changed_reference_pack(
+    key: archive.Ed25519PrivateKey, tmp_path: Path
+) -> None:
+    """One changed byte makes the referral pack a pack the deployment does not own: on RE2 its
+    lookahead cannot run, so the archive does not extract as a pack from a registry."""
+    root = tmp_path / "changed"
+    shutil.copytree(REFERRAL.root, root)
+    rules = root / "logic" / "triage_rules.yaml"
+    rules.write_text(rules.read_text() + "# one more line\n")
+    changed = load_pack(root)
+    verified = archive.verify(archive.build(changed, key), trusted(key))
+    with pytest.raises(PatternsRefused) as refused:
+        archive.extract(verified, tmp_path / "pack", origin="hub")
+    assert any("lookahead" in problem for problem in refused.value.problems)
+    pack = archive.extract(verified, tmp_path / "local", origin="local")  # an operator's own
+    assert pack.digest == changed.digest and not pack.bounded
+
+
+def test_pack_verify_checks_an_archive_as_a_puller_loads_it(
+    key: archive.Ed25519PrivateKey, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`mendari pack verify` loads an archive on the engine a puller runs it on: a signed copy of
+    the referral pack with one changed byte fails, naming the lookahead and why; the reference
+    pack itself passes."""
+    root = tmp_path / "changed"
+    shutil.copytree(REFERRAL.root, root)
+    rules = root / "logic" / "triage_rules.yaml"
+    rules.write_text(rules.read_text() + "# one more line\n")
+    public = tmp_path / "publisher.pub"
+    public.write_bytes(archive.public_pem(key.public_key()))
+    changed = tmp_path / "changed.ohpack"
+    changed.write_bytes(archive.build(load_pack(root), key))
+    assert main(["pack", "verify", str(changed), "--public-key", str(public)]) != 0
+    err = capsys.readouterr().err
+    assert "lookahead" in err and "not the copy of it in this release" in err
+    assert "Traceback" not in err
+    reference = tmp_path / "reference.ohpack"
+    reference.write_bytes(archive.build(REFERRAL, key))
+    assert main(["pack", "verify", str(reference), "--public-key", str(public)]) == 0
+    assert f"OK {REFERRAL.id}@{REFERRAL.version} {REFERRAL.digest}" in capsys.readouterr().out
 
 
 def test_a_changed_file_is_caught(key: archive.Ed25519PrivateKey) -> None:
@@ -175,7 +228,7 @@ def test_a_file_extract_cannot_write_is_a_hub_error(
     files = {**good.files, "A": b"x", "A/x.yaml": b"y"}
     odd = archive.Verified(good.manifest, files, good.key_id, good.sha256)
     with pytest.raises(HubError, match=r"A/x\.yaml: cannot be written \("):
-        archive.extract(odd, tmp_path / "pack")
+        archive.extract(odd, tmp_path / "pack", origin="hub")
 
 
 @pytest.mark.parametrize("name", ["pack/{outside}", "pack/a//b", "pack/./x", "pack/x/"])
@@ -200,7 +253,7 @@ def test_extract_writes_nothing_outside_the_destination(
     files = {**good.files, path.format(outside=outside.as_posix()): b"x"}
     evil = archive.Verified(good.manifest, files, good.key_id, good.sha256)
     with pytest.raises(HubError, match="not a path inside the pack"):
-        archive.extract(evil, tmp_path / "dest" / "pack")
+        archive.extract(evil, tmp_path / "dest" / "pack", origin="hub")
     assert not outside.exists() and not (tmp_path / "dest" / "escape.txt").exists()
     assert not (tmp_path / "dest" / "pack" / "pack.yaml").exists()  # checked before any write
 

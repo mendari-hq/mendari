@@ -232,11 +232,18 @@ webhooks.
 ## Pack supply chain
 
 Packs contain behaviour: patterns, models, CQL and policies. Review a pack like code before
-running it: installing a pack means trusting its author, as with any plugin. Pack patterns run
-on Python `re` with no time limit, so a pack can slow or stall a worker (a community pack's run
-on RE2, which never backtracks: below). Packs from others will
-run isolated once uploads or a public registry exist (an isolated process with memory and time
-limits, designed with that feature). What a pack cannot do today is below.
+running it: installing a pack means trusting its author, as with any plugin. The patterns of the
+packs a deployment owns (the reference packs, and its own local packs) run on Python `re` with
+no time limit, so such a pack can slow or stall a worker; on `re`, a crafted 10,000-character
+message to the inbox pack can hold the interpreter for about 0.55 s (the rate limits bound how
+often). Packs the deployment does not own run on the community engine instead
+([ADR-0009](docs/decisions/ADR-0009-bounded-evaluation-for-packs-the-deployment-does-not-own.md)):
+community packs, and packs pulled from a registry unless one is a copy of a reference pack of
+the installed release, chosen by the digest of its files, never by its manifest or the registry.
+Their patterns run on RE2, which never backtracks, within caps, input limits and a CPU budget
+per decision (below), in the server's process: there is no isolated worker process. To trust a
+pulled pack, copy it into `MENDARI_PACKS_PATH`, where it is a local pack. What a pack cannot do
+today is below.
 
 - Registry packs are **signed archives** (Ed25519, deterministic). `mendari pull` verifies
   them and pins the publisher's key on first use, and versions are immutable.
@@ -348,7 +355,13 @@ Outside developers contribute packs by pull request, into `community-packs/<name
 `community/<name>` ([ADR-0007](docs/decisions/ADR-0007-community-packs-by-pull-request.md); the
 contributor's guide is [`docs/guides/contributing-a-pack.md`](docs/guides/contributing-a-pack.md)).
 They are not clinically reviewed, so the runtime limits what they can do, whatever their
-manifest says (threat model S13, T5, I12, D8, E10):
+manifest says (threat model S13, T5, I12, D8, E10). Two of these limits, the input limits and
+the patterns on RE2 with their caps and budget, also hold every pack pulled from a registry
+that is not a copy of a reference pack of the installed release
+([ADR-0009](docs/decisions/ADR-0009-bounded-evaluation-for-packs-the-deployment-does-not-own.md),
+threat model D8 and S15): they are the limits of community and registry packs. The others are
+the community packs' alone: a pulled pack is labelled "From a registry", and its own policy
+applies.
 
 - **Served only where a deployment turns them on** (`MENDARI_COMMUNITY_PACKS=on`, default off,
   one switch for all of them), and never shipped in the Python package or the images.
@@ -369,11 +382,13 @@ manifest says (threat model S13, T5, I12, D8, E10):
   never reach it, only `community/<name>:slot=variant` runs it on a remote variant (an
   evaluation request through the API included), and its pinned model and `max_tokens` give way
   to the deployment's.
-- **At most 10,000 characters of text**, alone or together (keys too, where its input schema
-  runs patterns on them: `patternProperties`, `propertyNames`), and at most 10,000 values
+- **At most 10,000 characters of text** (community and registry packs), alone or together
+  (keys too, where its input schema runs patterns on them: `patternProperties`,
+  `propertyNames`), and at most 10,000 values
   nested at most 32 deep: a larger input is refused before any pattern or schema check runs.
-- **Patterns on RE2.** Its patterns (rules and input schema) run on RE2 (`google-re2`), which
-  never backtracks, so no pattern can backtrack for seconds: their time grows with the text's
+- **Patterns on RE2** (community and registry packs). Its patterns (rules and input schema)
+  run on RE2 (`google-re2`), which never backtracks, so no pattern can backtrack for seconds:
+  their time grows with the text's
   length times the pattern's size, held to RE2's 8 MiB a pattern. A pattern RE2
   cannot run (a lookaround, a back reference, a conditional or atomic group, a possessive
   quantifier) makes the pack invalid at load. The settings that multiply that work are capped

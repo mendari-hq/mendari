@@ -4,6 +4,9 @@
 Accepted (2026-10-04). The code, checks and docs are built; the GitHub settings (labels, the DCO
 app, `pack-check` and DCO as required checks, the code-owner ruleset) and turning community
 packs on for the hosted platform are the owner's steps (`tasks/todo.md`, B8 and B9).
+Amended by [ADR-0009](ADR-0009-bounded-evaluation-for-packs-the-deployment-does-not-own.md)
+(2026-10-07): packs from others run on the community engine in the server's process, not in an
+isolated one.
 
 ## Context
 The repository is going public so outside developers can contribute Decision Packs. Until now
@@ -120,3 +123,6 @@ The owner decided (2026-10-04):
   isolation: each pack's rules in their own process with time and memory limits (or a regex
   engine with timeouts), so untrusted content never runs in the server's process. Until then
   the pull request is the only way in, and the owner reads everything that is merged.
+  (Amended by ADR-0009: a pack pulled from a registry, and from LP-20 one from the store, runs
+  on the community engine, RE2 with the caps, the input limits and a CPU budget per decision,
+  in the server's process; no worker process for now.)

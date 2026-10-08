@@ -323,7 +323,11 @@ jobs:
         run: |
           python3 -m venv /tmp/clean
           /tmp/clean/bin/pip install --quiet /tmp/dist/*.whl
-          /tmp/clean/bin/mendari pull mendari/referral-router
+          /tmp/clean/bin/mendari pull mendari/referral-router > /tmp/pull.txt
+          cat /tmp/pull.txt
+          # The wheel's bundled pack is the checkout's: the pulled copy keeps the maintained
+          # engine (ADR-0009), which the referral pack's lookahead needs.
+          grep -q "a copy of the reference pack in this release" /tmp/pull.txt
           version=$(sed -n 's/^version: //p' packs/referral-router/pack.yaml)
           test -f "/tmp/clean-home/.cache/mendari/packs/mendari/referral-router/$version/pack.yaml"
           /tmp/clean/bin/mendari test mendari/referral-router

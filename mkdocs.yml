@@ -79,5 +79,6 @@ nav:
       - "ADR-0006: An EHR launch is a principal": decisions/ADR-0006-an-ehr-launch-is-a-principal.md
       - "ADR-0007: Community packs by pull request": decisions/ADR-0007-community-packs-by-pull-request.md
       - "ADR-0008: Accounts and memberships": decisions/ADR-0008-accounts-and-memberships.md
+      - "ADR-0009: Bounded evaluation for packs the deployment does not own": decisions/ADR-0009-bounded-evaluation-for-packs-the-deployment-does-not-own.md
   - Project:
       - Roadmap: roadmap.md

@@ -18,17 +18,19 @@ The whole document is searched, not only keyword positions: a `$ref` can make an
 a schema; each object once, by identity. The validator (`validator`) also has a registry that
 retrieves nothing, so a reference can never leave the document even if a check were missed.
 
-A community pack's schema patterns run on RE2, like its rules (`core/patterns.py`): its
-validator's `pattern`, `patternProperties` and `additionalProperties` (and so `propertyNames`,
-which checks keys with the same keywords) search with RE2, and every other pack's validator is
-jsonschema's own, unchanged. Its validator also checks the decision's time budget each time it
-applies a schema (`patterns.check_time`), so a schema whose keywords apply many times over
-(`$ref`s that fan out, a subschema on many items) stops at the budget; it is built without the
-root's `$schema` (which may only name 2020-12), so jsonschema never swaps it for its own. And a
-community pack's schema uses only keywords whose work stays within the budget, `$ref` only to
-its own `$defs` (`community_problems`): jsonschema works some others out on its own, outside any
-check (`unevaluatedProperties`, `unevaluatedItems`, `contains`), or compares every pair of items
-at once (`uniqueItems`).
+The schema patterns of a pack on the community engine (a pack the deployment does not own: a
+community pack, or one from a registry that is not a reference pack of this release,
+`Pack.bounded`) run on RE2, like its rules (`core/patterns.py`): its validator's `pattern`,
+`patternProperties` and `additionalProperties` (and so `propertyNames`, which checks keys with
+the same keywords) search with RE2, and every other pack's validator is jsonschema's own,
+unchanged. Its validator also checks the decision's time budget each time it applies a schema
+(`patterns.check_time`), so a schema whose keywords apply many times over (`$ref`s that fan out,
+a subschema on many items) stops at the budget; it is built without the root's `$schema` (which
+may only name 2020-12), so jsonschema never swaps it for its own. And such a pack's schema uses
+only keywords whose work stays within the budget, `$ref` only to its own `$defs`
+(`community_problems`): jsonschema works some others out on its own, outside any check
+(`unevaluatedProperties`, `unevaluatedItems`, `contains`), or compares every pair of items at
+once (`uniqueItems`).
 """
 
 from __future__ import annotations
@@ -185,7 +187,8 @@ _UNBOUNDED = frozenset(
 
 
 def community_problems(schema: Any) -> list[str]:
-    """Why a community pack's input schema cannot run as a community pack's must; [] if it can.
+    """Why the input schema of a pack on the community engine (`Pack.bounded`: a community pack,
+    or one from a registry) cannot run as such a pack's must; [] if it can.
     It uses only the keywords above (and `x-...` annotations): jsonschema's others either walk
     the schema on their own, outside the time budget (`unevaluatedProperties`,
     `unevaluatedItems`, `contains`), compare every pair of items at once (`uniqueItems`), or
@@ -224,7 +227,8 @@ def community_problems(schema: Any) -> list[str]:
 
 
 def _keyword_problem(key: str, value: Any, path: str, defs: set[str]) -> str | None:
-    """Why a community pack's schema may not hold `key: value` at `path`, or None."""
+    """Why the schema of a pack on the community engine may not hold `key: value` at `path`, or
+    None."""
     if key.startswith("x-"):
         return None  # an annotation of the pack's own
     if key not in _DATA | _SCHEMA | _SCHEMA_MAPS | _SCHEMA_LISTS:
@@ -234,7 +238,7 @@ def _keyword_problem(key: str, value: Any, path: str, defs: set[str]) -> str | N
             if key in _UNBOUNDED
             else "not one of the keywords the guide lists"
         )
-        return f"a community pack's schema may not use {key}, {why}: {instead}"
+        return f"a community or registry pack's schema may not use {key}, {why}: {instead}"
     if key == "$defs" and path:
         return "only the root may hold $defs"
     if key == "$ref" and not (
@@ -265,8 +269,8 @@ def validator(
     schema: dict[str, Any], *, formats: bool = True, community: bool = False
 ) -> Validator:
     """A Draft 2020-12 validator for a pack's input schema (one `problems` passed) whose
-    registry retrieves nothing; `formats` checks `format` too. A community pack's runs its
-    patterns on RE2 (module docstring)."""
+    registry retrieves nothing; `formats` checks `format` too. With `community` (a pack on the
+    community engine, `Pack.bounded`), it runs its patterns on RE2 (module docstring)."""
     cls = _Re2Validator if community else Draft202012Validator
     checker = cls.FORMAT_CHECKER if formats else None
     if community and isinstance(schema, dict):  # never swapped for jsonschema's own (above)

@@ -21,7 +21,14 @@ from pydantic import ValidationError
 
 from mendari.core import input_schema as schema_rules
 from mendari.core import patterns
-from mendari.core.origin import ORIGIN_LABELS, Origin, is_community, shown_origin
+from mendari.core.origin import (
+    ORIGIN_LABELS,
+    RESERVED_NAMESPACES,
+    Origin,
+    is_community,
+    shown_origin,
+)
+from mendari.core.origin import bounded as origin_bounded
 from mendari.core.spec import (
     LICENSED_CODE_SYSTEMS,
     LICENSED_HINTS,
@@ -83,6 +90,13 @@ class Pack:
         """A community pack: it never automates, and decides with local providers unless the
         deployment opts it in by name (`core/origin.py`)."""
         return is_community(self.id, self.origin)
+
+    @property
+    def bounded(self) -> bool:
+        """A pack the deployment does not own, on the community engine: RE2, the caps, the
+        input limits and a CPU budget per decision (`core/origin.py` `bounded`, ADR-0009). Read
+        from where the pack was found and the digest `load_pack` hashed, never its manifest."""
+        return origin_bounded(self.id, self.origin, self.digest)
 
     @property
     def shown_origin(self) -> Origin:
@@ -218,7 +232,9 @@ def load_pack(
 ) -> Pack:
     """Load and validate a pack. `missing_models_ok` lets `mendari train` load a pack whose
     trained artifacts (`model_file`, `calibration`) do not exist yet; `origin` is where it was
-    found (`core/registry.py` knows)."""
+    found (`core/registry.py` knows). A pack the deployment does not own (`Pack.bounded`: a
+    community pack, or one from a registry that is not a reference pack of this release) is
+    checked as it will run: its patterns on RE2, its schema's keywords and its caps."""
     root = Path(path).resolve()
     links = _outside_links(root)
     if links:
@@ -282,13 +298,23 @@ def load_pack(
         relative: parse_yaml(_read(root, relative, label, digested), relative, manifest.id)
         for relative in _rules_files(manifest)
     }
-    community = is_community(manifest.id, origin)
+    # The engine its patterns run on: from where it was found and the digest hashed above, never
+    # from its manifest (`core/origin.py` `bounded`, ADR-0009).
+    bounded = origin_bounded(manifest.id, origin, digest)
     # Compiled as they run, before jsonschema compiles the schema's too.
-    refused = _pattern_problems(input_schema, parsed, community=community)
+    refused = _pattern_problems(input_schema, parsed, community=bounded)
     problems = list(refused)
-    if community:
+    if bounded:
         problems += schema_rules.community_problems(input_schema)
     if refused:
+        namespace = manifest.id.partition("/")[0]
+        if bounded and not is_community(manifest.id, origin) and namespace in RESERVED_NAMESPACES:
+            problems.append(
+                f"{manifest.id}@{manifest.version} is not the copy of it in this release, so it "
+                "runs on the engine for packs from a registry, which cannot run the patterns "
+                "above: use the copy this release bundles, or a version published for this "
+                "release"
+            )
         raise PatternsRefused(manifest.id, problems, refused)
     if problems:
         raise PackValidationError(manifest.id, problems)
@@ -299,7 +325,7 @@ def load_pack(
     except (OverflowError, RecursionError, TypeError, ValueError) as error:
         problem = f"input schema: not a schema the validator can read ({type(error).__name__})"
         raise PackValidationError(manifest.id, [problem]) from None
-    if community:
+    if bounded:
         problems = _community_caps(root, manifest, input_schema, parsed, label, digested)
         if problems:
             raise PackValidationError(manifest.id, problems)
@@ -323,9 +349,9 @@ def _community_caps(
     label: str,
     digested: Digested,
 ) -> list[str]:
-    """What multiplies a community pack's pattern work past its caps (`core/caps.py`): its rules
-    and dosing configs, its input schema, and the patterns they run together. The caps are
-    imported only for a community pack."""
+    """What multiplies the pattern work of a pack on the community engine (`Pack.bounded`) past
+    its caps (`core/caps.py`): its rules and dosing configs, its input schema, and the patterns
+    they run together. The caps are imported only for such a pack."""
     from mendari.core import caps
 
     problems = [
@@ -457,9 +483,9 @@ def _authored_patterns(input_schema: Any, rules: dict[str, Any]) -> list[tuple[s
 def _pattern_problems(
     input_schema: Any, rules: dict[str, Any], *, community: bool = False
 ) -> list[str]:
-    """Every pack-authored pattern compiled as it will run (`core/patterns.py`: a community
-    pack's on RE2), after counting them, so a pack over the cap is refused before any is
-    compiled."""
+    """Every pack-authored pattern compiled as it will run (`core/patterns.py`: on RE2 for a
+    pack on the community engine, `community`), after counting them, so a pack over the cap is
+    refused before any is compiled."""
     found = _authored_patterns(input_schema, rules)
     if len(found) > patterns.MAX_PACK_PATTERNS:
         return [
