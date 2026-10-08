@@ -2616,15 +2616,44 @@ class AuditStore:
         self._capability_since[environment] = (version, since)
         return since
 
-    def deployments(self, pack_id: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
-        """Newest first. Deployments belong to the server, so every organization sees them."""
-        packs = ("WHERE pack_id = ?", (pack_id,)) if pack_id else ("", ())
+    def deployments(
+        self, pack_id: str | None = None, limit: int = 50, *, digest: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Newest first, of one pack and one build of it if given. Deployments belong to the
+        server, so every organization sees them."""
+        wheres = [
+            (column, value)
+            for column, value in (("pack_id", pack_id), ("pack_digest", digest))
+            if value
+        ]
+        where = ("WHERE " + " AND ".join(f"{column} = ?" for column, _ in wheres)) if wheres else ""
         with self._db.session(exclusive=False) as db:
             rows = db.all(
-                f"SELECT * FROM deployments {packs[0]} ORDER BY started_at DESC LIMIT ?",
-                (*packs[1], limit),
+                f"SELECT * FROM deployments {where} ORDER BY started_at DESC LIMIT ?",
+                (*(value for _, value in wheres), limit),
             )
         return [{**row, "providers": json.loads(row["providers"])} for row in rows]
+
+    def configuration_started(
+        self, pack_id: str, digest: str, providers: Mapping[str, str], limit: int = 500
+    ) -> str | None:
+        """When this build of a pack started running on these providers (slot -> variant), by
+        the deployment records: the oldest of the newest unbroken run of records with this
+        digest and these providers, newest first across environments; None without one. A time
+        only, for monitoring (which compares decisions made since): never a record."""
+        with self._db.session(exclusive=False) as db:
+            rows = db.all(
+                "SELECT pack_digest, providers, started_at FROM deployments WHERE pack_id = ? "
+                "ORDER BY started_at DESC LIMIT ?",
+                (pack_id, limit),
+            )
+        started = None
+        for row in rows:
+            if row["pack_digest"] == digest and json.loads(row["providers"]) == dict(providers):
+                started = str(row["started_at"])
+            elif started is not None:
+                break  # the run before this configuration
+        return started
 
     # -- API keys (server/auth.py) --------------------------------------------------------------
     # Stored as SHA-256 (the secret is in the creation's answer and nowhere else), with a role
@@ -4008,20 +4037,37 @@ class AuditStore:
                 return
             after = page.after
 
-    def decision_rows(self, pack_id: str, since: str) -> list[dict[str, Any]]:
-        """Each decision of a pack since a time (ISO), for monitoring: when, the outcome, the
-        primary confidence, what a person or a downstream system said, and the cost."""
+    def decision_rows(
+        self, pack_id: str, since: str, version: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Each decision of a pack since a time (ISO), of one version if given, for monitoring:
+        when, the outcome, the primary confidence, whether its input was refused, whether it
+        awaits review, what a person or a downstream system said, and the cost."""
         scope, scoped = _scope()
+        versions = ("AND d.pack_version = ? ", (version,)) if version is not None else ("", ())
         with self._db.session(exclusive=False) as db:
             return db.all(
                 "SELECT d.id, d.created_at, d.outcome, d.confidence, d.recommendation, "
-                "d.final_label, d.human_override, d.cost_usd, "
+                f"d.final_label, d.human_override, d.cost_usd, {_REFUSED} AS refused, "
+                "d.review_status, "
                 "(SELECT COUNT(*) FROM feedback f WHERE f.decision_id = d.id "
                 "AND f.superseded_by IS NULL AND f.rating = 'down') AS rated_wrong "
                 f"FROM decisions d WHERE {scope} AND d.pack_id = ? AND d.created_at >= ? "
-                "ORDER BY d.created_at",
+                f"{versions[0]}ORDER BY d.created_at",
+                (*scoped, pack_id, since, *versions[1]),
+            )
+
+    def decision_versions(self, pack_id: str, since: str) -> dict[str, int]:
+        """How many decisions each version of a pack made since a time (ISO), for monitoring,
+        which compares one version's with its benchmark and counts the others apart."""
+        scope, scoped = _scope()
+        with self._db.session(exclusive=False) as db:
+            rows = db.all(
+                "SELECT d.pack_version, COUNT(*) AS n FROM decisions d "
+                f"WHERE {scope} AND d.pack_id = ? AND d.created_at >= ? GROUP BY d.pack_version",
                 (*scoped, pack_id, since),
             )
+        return {str(row["pack_version"]): int(row["n"]) for row in rows}
 
     def pending_reviews(
         self, pack_id: str | None = None, limit: int = 50, *, reader: str | None = None

@@ -74,6 +74,8 @@ from mendari.errors import (
 from mendari.evals import compare, figures, leaderboard, load_dataset, resolve_dataset
 from mendari.evals.feedback import feedback_dataset
 from mendari.evals.harness import Dataset, evaluation
+from mendari.evals.monitoring import MAX_DAYS as MONITOR_MAX_DAYS
+from mendari.evals.monitoring import MIN_DAYS as MONITOR_MIN_DAYS
 from mendari.evals.monitoring import monitor
 from mendari.evals.pack_tests import load_cases
 from mendari.legacy import current_pack_id
@@ -630,6 +632,12 @@ def create_app(
         pack_id: {slot: info.variant for slot, info in decision.provider_info.items()}
         for pack_id, decision in built.items()
     }
+    # The model each slot runs (an LLM's or Jev's from its setting): monitoring compares a
+    # benchmark only with the models it measured.
+    running_models = {
+        pack_id: {slot: info.model for slot, info in decision.provider_info.items()}
+        for pack_id, decision in built.items()
+    }
     health_without_model = {
         pack_id: slots
         for pack_id, running in health_providers.items()
@@ -1131,8 +1139,22 @@ def create_app(
         summary="Monitor a pack over time",
     )
     def monitoring(pack_id: str, days: int = 30) -> dict[str, Any]:
-        """The pack over time for this organisation: weekly series, drift and alerts."""
-        return monitor(store, pack_or_404(pack_id), days=max(7, min(days, 180)))
+        """The served version of the pack over time for this organisation: weekly series, drift
+        and alerts, against its benchmark only when that measured this build with the providers
+        and models that run here, under the same governance (`benchmark.comparable`;
+        `benchmark.reason` otherwise). `days` is held to 14 to 180, in whole weeks."""
+        pack = pack_or_404(pack_id)
+        days = max(MONITOR_MIN_DAYS, min(days, MONITOR_MAX_DAYS))
+        report = monitor(
+            store,
+            pack,
+            days=days,
+            providers=health_providers.get(pack.id),
+            models=running_models.get(pack.id),
+        )
+        if auth.memberships:  # when the deployment changed is the operator's (ADR-0008)
+            report["configuration_since"] = None
+        return report
 
     # -- governance ------------------------------------------------------------------------------
 
