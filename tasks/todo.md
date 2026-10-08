@@ -292,7 +292,7 @@ behaviour.
   trial pack reads real diagnoses through ICD-10-CM only. Counsel is asked in parallel (the owner
   sends the memo) about what stays: the repository's tests, fixtures, docs and history; ICD-10-CM;
   the images (the Debian base and psycopg-binary); the X12 values in `standards/pas.py`.
-  - [x] **SNOMED CT swapped out of every package** (owner's choice 2026-10-07, PR #TBD): the
+  - [x] **SNOMED CT swapped out of every package** (owner's choice 2026-10-07, #174, open): the
     six SNOMED CT codes in the wheel, the sdist and the images are replaced one for one by
     fictional codes, as CPT was: the trial prescreener's conditions (`FC101` to `FC203`,
     `https://mendari.co/fhir/CodeSystem/fictional-conditions`) in its criteria, CQL, criterion
