@@ -1318,6 +1318,10 @@ def cmd_monitor(args: argparse.Namespace) -> int:
     organization, MENDARI_STATUS_ORG), otherwise all of them together; posted to a webhook when
     one is set (`mendari.alerts`: in its format, signed with its secret, tried up to three
     times), one alert per organization; exit 1 on any alert, 3 when any could not be posted.
+    With --each-org (a scheduled job) an alert posted is the job done: exit 0 when every alert
+    found was posted (or none was found); 1 when alerts were found with no webhook to post them,
+    or one organization's monitoring failed (the others still run, its line says why); 3 when
+    any could not be posted, whatever else happened.
     Nothing is recorded: the database is opened read-only. A benchmark counts only for the
     build and providers a server recorded running (`deployments`; a model a setting chose is
     not recorded, so a benchmark of one is not compared), under the organization's governance;
@@ -1342,16 +1346,28 @@ def cmd_monitor(args: argparse.Namespace) -> int:
             ):
                 newest[pack.id] = pack
         packs = [newest[pack_id] for pack_id in sorted(newest)]
-    found_alerts = undelivered = False
+    found_alerts = undelivered = failed = False
     with _read_store(args.db) as store:
         store.require_current("monitor")
         orgs = organizations(store, days=args.days, skip=skip) if args.each_org else [args.org]
         for org in orgs:
-            with tenancy.acting_for(org):
-                reports = [
-                    monitor(store, pack, days=args.days, providers=recorded_providers(store, pack))
-                    for pack in packs
-                ]
+            try:
+                with tenancy.acting_for(org):
+                    reports = [
+                        monitor(
+                            store, pack, days=args.days, providers=recorded_providers(store, pack)
+                        )
+                        for pack in packs
+                    ]
+            except Exception as error:
+                debug = os.environ.get("MENDARI_DEBUG", "").strip().lower() in _DEBUG_ON
+                if not args.each_org or getattr(args, "debug", False) or debug:
+                    raise
+                # One organization's failure never hides another's alerts, posted or not.
+                for line in _problem_lines(error):
+                    print(f"error: {org}: {line}", file=sys.stderr)
+                failed = True
+                continue
             where = f"{org}: " if args.each_org else ""
             for report in reports:
                 status = f"{len(report['alerts'])} alert(s)" if report["alerts"] else "ok"
@@ -1368,6 +1384,8 @@ def cmd_monitor(args: argparse.Namespace) -> int:
     if undelivered:
         print("error: the alerts could not be posted to the webhook", file=sys.stderr)
         return 3
+    if args.each_org:
+        return 1 if failed or (found_alerts and alerts is None) else 0
     return 1 if found_alerts else 0
 
 

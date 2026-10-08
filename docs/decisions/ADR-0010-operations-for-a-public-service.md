@@ -3,10 +3,11 @@
 ## Status
 Proposed (2026-10-08). Built in steps (LP-21, `tasks/todo.md`): 21a, the readiness route, is
 the first; 21c, the monitor comparing like with like, the second; 21e, alert delivery, the
-third; 21b, the status checks and page, the fourth. Each later step amends this record with
-what it built. The defaults below hold
-unless the owner chooses otherwise; the steps that change the hosted site (the schedule, 21n)
-or its firewall (21o) wait for the owner.
+third; 21b, the status checks and page, the fourth; 21f, the monitor cron
+(`GET /api/internal/monitor` and `mendari monitor --each-org`, without the hosted schedule), the
+fifth. Each later step amends this record with what it built. The defaults below hold unless
+the owner chooses otherwise; the steps that change the hosted site (the schedule, 21n) or its
+firewall (21o) wait for the owner.
 
 ## Context
 The hosted platform is to take strangers without the owner watching it (LP-21, amending A13 of
@@ -103,19 +104,23 @@ Anonymous `/api/health` stays three fields with no database work.
      once on the decision's path (5 s), never failing the decision.
    - The server records every alert in `alert_deliveries` (its body, status, tries, last
      status, an error code; never the URL or the secret). A failed one stays `pending` for
-     `retry_due`, five tries in all, which the monitor's schedule (21f) calls.
+     `retry_due`, five tries in all, which the scheduled monitor's route (21f) calls.
 5. **The monitor cron (21f).**
    - `GET /api/internal/monitor` is guarded by `CRON_SECRET` before any database work, as the
      retention route is.
-   - It first sends again the alerts still pending (`retry_due`), then monitors each
-     organization with decisions in the last 30 days under its own tenancy, skipping the status
-     organization (`MENDARI_STATUS_ORG`), and sends one recorded alert per organization that
-     has alerts. It starts no organization after 240 s (the function stops at 300 s); the ones
-     left are counted and an alert says so. A webhook it cannot use is logged and nothing is
-     posted, never a failed start: the hosted site sets CRON_SECRET already.
+   - It first sends again the alerts still pending (`retry_due`, for 60 s at most), then
+     monitors each organization with decisions in the last 30 days under its own tenancy,
+     skipping the status organization (`MENDARI_STATUS_ORG`), and sends one recorded alert per
+     organization that has alerts. The function stops at 300 s, so it starts no organization
+     after 180 s, leaving the last one time for its posts; the ones left are counted and an
+     alert names them, and each day starts at another organization, so none is left every day.
+     A webhook it cannot use is logged and nothing is posted, never a failed start: the hosted
+     site sets CRON_SECRET already.
    - `mendari monitor --each-org` does the same from the command line (read-only, recording
-     nothing); the templates run it daily, and Kubernetes fails the job only when alerts could
-     not be posted (exit 3).
+     nothing, so it never sends a pending alert again). It exits 0 when every alert was posted,
+     1 on an error (an organization that fails does not stop the others) or on alerts with no
+     webhook, 3 when one could not be posted. The templates run it daily; the Kubernetes job
+     fails on 1 or 3 and is never re-run, which would post every alert again.
    - The hosted schedule (21n) changes the hosted site on deploy, so it merges only with the
      owner's go-ahead.
 6. **Usage (21g to 21i).**

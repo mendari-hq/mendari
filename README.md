@@ -862,7 +862,8 @@ Jev model is compared by the server's view only) and the governance of `--org`. 
 `--each-org` it checks each organization with decisions on its own, but the status checks'
 (`MENDARI_STATUS_ORG`), and posts one alert per organization; a server does the same at
 `GET /api/internal/monitor` with its `CRON_SECRET`. It exits 1 on any alert (or on an
-error, such as a `--db` it cannot read: the line on stderr says which) and
+error, such as a `--db` it cannot read: the line on stderr says which; with `--each-org`, 0
+when every alert was posted, and 1 on an error or on alerts with nowhere to post them) and
 posts them to `--webhook` / `MENDARI_ALERT_WEBHOOK` (https only; keep the URL as a secret,
 since most carry their token in the path), as JSON or a Slack message
 (`MENDARI_ALERT_FORMAT`), signed with `MENDARI_ALERT_SECRET`, tried up to three times (no

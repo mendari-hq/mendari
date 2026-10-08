@@ -312,13 +312,18 @@ def shown_to_reader(item: Mapping[str, Any]) -> bool:
 
 # How long a decision's look-up of automation holds is reused on one instance.
 HOLD_SECONDS = 5.0
-# The scheduled purge's bearer secret (CRON_SECRET, as Vercel Cron sends it): its least length.
+# The scheduled jobs' bearer secret (CRON_SECRET, as Vercel Cron sends it): its least length.
 MIN_CRON_SECRET = 16
 # The longest a quota's alert holds the decision that reached the quota: one try.
 QUOTA_ALERT_TIMEOUT_S = 5.0
-# The scheduled monitor starts no organization after this many seconds (the function's
-# `maxDuration` is 300 s, vercel.json): the rest wait for the next run, and an alert says so.
-MONITOR_SECONDS = 240.0
+# The scheduled monitor's time (the function's `maxDuration` is 300 s, vercel.json). It sends
+# pending alerts again for at most MONITOR_RETRY_SECONDS, then starts no organization after
+# MONITOR_SECONDS: the last one started keeps time for its monitoring, its alert (three tries
+# of 10 s, 10 s of waits between them) and the alert naming those left, which an alert says
+# were not reached. Each day starts at another organization, so none is left every day.
+MONITOR_RETRY_SECONDS = 60.0
+MONITOR_SECONDS = 180.0
+MONITOR_NAMED = 20  # organizations the alert of those not reached names (ids), at most
 
 
 class EraseRequest(BaseModel):
@@ -399,12 +404,13 @@ def create_app(
     require_protection(phi, sign_in=sign_in is not None, launch=launch)
     retention_days = settings.retention_days()  # likewise
     status_org = settings.status_org()  # likewise
-    cron_secret = os.environ.get("CRON_SECRET", "")  # the scheduled purge's credential
+    cron_secret = os.environ.get("CRON_SECRET", "")  # the scheduled jobs' credential
     if cron_secret and (len(cron_secret) < MIN_CRON_SECRET or cron_secret != cron_secret.strip()):
-        # An optional job never stops the server: the purge stays off, and health says so.
+        # An optional job never stops the server: the jobs stay off, and health says so.
         phi_logger.warning(
-            "CRON_SECRET is not used, so the scheduled purge is off: it needs at least %d random "
-            "characters, with no spaces around them (Vercel Cron sends it as it is stored)",
+            "CRON_SECRET is not used, so the scheduled purge and monitor are off: it needs at "
+            "least %d random characters, with no spaces around them (Vercel Cron sends it as it "
+            "is stored)",
             MIN_CRON_SECRET,
         )
         cron_secret = ""
@@ -1595,12 +1601,14 @@ def create_app(
     @app.get("/api/internal/monitor", include_in_schema=False)
     def scheduled_monitor(request: Request) -> dict[str, Any]:
         """The scheduled monitor (LP-21f): first the alerts still pending sent again
-        (`retry_due`), then each organization with a decision in the last 30 days, on its own,
-        but the status organization (`MENDARI_STATUS_ORG`): every served pack's report
-        (`evals/monitoring.py`), and one alert for the organization when any report alerts,
-        recorded. An organization is never started once MONITOR_SECONDS have passed (the
-        function's limit is 300 s): the ones left are counted, and an alert says so. The answer
-        holds counts only. `Authorization: Bearer $CRON_SECRET` only, as the purge."""
+        (`retry_due`, for MONITOR_RETRY_SECONDS at most), then each organization with a
+        decision in the last 30 days, on its own, but the status organization
+        (`MENDARI_STATUS_ORG`): every served pack's report (`evals/monitoring.py`), and one
+        alert for the organization when any report alerts, recorded. The organizations are
+        taken in order from a different one each day, and none is started once
+        MONITOR_SECONDS have passed (the function's limit is 300 s): the ones left are counted,
+        and an alert names them. The answer holds counts only. `Authorization: Bearer
+        $CRON_SECRET` only, as the purge."""
         require_cron(request, "monitor")
         started = time.monotonic()
         webhook = alerts
@@ -1612,12 +1620,16 @@ def create_app(
                 webhook = None
         counts = {"organizations": 0, "alerting": 0, "delivered": 0, "not_delivered": 0}
         retried = (
-            retry_due(store, webhook)
+            retry_due(store, webhook, deadline=started + MONITOR_RETRY_SECONDS)
             if webhook is not None
-            else {"delivered": 0, "pending": 0, "failed": 0}
+            else {"delivered": 0, "pending": 0, "failed": 0, "deferred": 0}
         )
         left: list[str] = []
-        for org in monitored_organizations(store, skip=status_org):
+        orgs = monitored_organizations(store, skip=status_org)
+        if orgs:  # today's first: tomorrow's run starts at the next one
+            first = clock.today().toordinal() % len(orgs)
+            orgs = orgs[first:] + orgs[:first]
+        for org in orgs:
             if time.monotonic() - started > MONITOR_SECONDS:
                 left.append(org)
                 continue
@@ -1640,9 +1652,11 @@ def create_app(
             posted = post_alerts(webhook, org, reports, attempts=3, store=store)
             counts["delivered" if posted else "not_delivered"] += 1
         if left and webhook is not None:
+            named = ", ".join(left[:MONITOR_NAMED])
+            more = f" and {len(left) - MONITOR_NAMED} more" if len(left) > MONITOR_NAMED else ""
             message = (
                 f"{len(left)} organization(s) not monitored: the schedule ran out of time "
-                f"after {counts['organizations']}"
+                f"after {counts['organizations']} ({named}{more})"
             )
             incomplete = {"severity": "warning", "kind": "monitor_incomplete", "message": message}
             deliver(
