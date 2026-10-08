@@ -100,9 +100,10 @@ NAMING_SYSTEMS = (
         "audit-subject",
         audit_fhir.SUBJECT_SYSTEM,
         "Mendari audit subject",
-        "What an administrative AuditEvent is about, by its chain id: `<kind>:<id>` (`key:`, "
-        "`client:`, `governance:`, `hold:`, `eval:`, `org:`, `membership:`, `invitation:`, "
-        "`access:`), or one of the deployment's own chain ids.",
+        "What an administrative AuditEvent is about, by its chain id: a kind of record and "
+        "its id, joined by a colon (`key:`, `client:`, `governance:`, `hold:`, `eval:`, "
+        "`org:`, `membership:`, `invitation:` or `access:`, then the id), or one of the "
+        "deployment's own chain ids.",
     ),
     (
         "decision-pack",
