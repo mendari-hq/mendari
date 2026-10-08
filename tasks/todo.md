@@ -711,7 +711,7 @@ Connect) is not supported yet.
       `mendari audit export --administrative [--org]`. Memberships mode leaves the deployment's
       views to the operator (decision 5): verify and deployments `404`, health without totals,
       a deployment hold without its reason and setter; the dashboard follows.
-    - [x] **12g-iii** (#186, merged 2026-10-08) The isolation test (`tests/test_isolation.py`): two organizations,
+    - [x] **12g-iii** (#186, merged 2026-10-08) The isolation test (`tests/test_two_organizations.py`): two organizations,
       each with people of every role, API keys, Backend Services clients signed with its own key
       and an EHR launch from its own tenant, seed through the API with a marker in every free
       text; then every mounted route is called with the other's live ids (refused as an unknown

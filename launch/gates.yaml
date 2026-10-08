@@ -172,8 +172,8 @@ gates:
           # audit verify` after membership, invitation and key events; claims mode as before;
           # and the Access screen, the binding, the per-organization audit and the daily cap.
           - tests:
-              - tests/test_isolation.py::test_every_route_called_as_two_organizations_shows_neither_the_others_data
-              - tests/test_isolation.py::test_every_store_method_that_may_read_every_organization_is_probed
+              - tests/test_two_organizations.py::test_every_route_called_as_two_organizations_shows_neither_the_others_data
+              - tests/test_two_organizations.py::test_every_store_method_that_may_read_every_organization_is_probed
               - tests/test_memberships.py::test_a_sign_in_without_a_membership_acts_for_no_organization_never_default
               - tests/test_memberships.py::test_role_and_org_claims_are_ignored_in_memberships_mode
               - tests/test_memberships.py::test_a_principal_of_no_organization_is_refused_before_every_route_that_takes_one

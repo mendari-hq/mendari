@@ -791,7 +791,7 @@ it; each organization's administrators read and export their own administrative 
 (`/api/audit/administrative`), and what is the whole deployment's (the chain's verification,
 the deployment records, today's call totals) is the operator's, from the command line
 (`mendari audit verify`, `mendari usage`). A test calls every route as two organizations and
-fails on any answer that shows one the other's data (`tests/test_isolation.py`).
+fails on any answer that shows one the other's data (`tests/test_two_organizations.py`).
 
 A link or form on another site cannot act with a signed-in browser, or sign it out: such a
 request reaches only public routes and pages, with GET or HEAD (a `403` otherwise). If a proxy serves Mendari under a

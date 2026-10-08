@@ -740,3 +740,24 @@ After any commit that follows the last full run, run the repository-wide checks 
 
 ### Verification
 Before pushing a review-fix commit, the command log shows those four files passing.
+
+## 2026-10-08 - process
+
+### What happened
+LP-12g-iii (#186) wrote its new test module to `tests/test_isolation.py`, a path that already
+held #151's tests that the suite reaches no live system the developer's shell names. The write
+replaced that file; the review read the new file only, and the PR merged with those three tests
+gone. Found while closing out LP-12, from a stale-looking reference in `tasks/todo.md`; restored
+the same day, and the new module renamed `tests/test_two_organizations.py`.
+
+### Root cause
+A new file was written without checking the path was free, and the diff's "modified" status
+for what was meant to be a new file was not read.
+
+### Rule
+Before writing a new file, check the path does not exist (`git ls-files <path>`, or `ls`). In a
+PR that adds a module, `git diff --stat main...HEAD` must show it as new (`create mode`), never
+as a rewrite of an existing one.
+
+### Verification
+The PR's diff stat (or `git diff --name-status main...HEAD`) lists each new module with `A`.
