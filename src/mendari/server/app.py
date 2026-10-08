@@ -44,7 +44,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from mendari import __version__, guard, notices, settings
-from mendari.alerts import AlertSettings, alert_settings, check_webhook, deliver
+from mendari.alerts import AlertSettings, alert_settings, check_webhook, deliver, retry_due
 from mendari.core import clock, tenancy
 from mendari.core.audit import ADMINISTRATIVE_KINDS, OFF_DECISION_KINDS, SYSTEM_ID, AuditStore
 from mendari.core.card import benchmark, render_card
@@ -76,7 +76,8 @@ from mendari.evals.feedback import feedback_dataset
 from mendari.evals.harness import Dataset, evaluation
 from mendari.evals.monitoring import MAX_DAYS as MONITOR_MAX_DAYS
 from mendari.evals.monitoring import MIN_DAYS as MONITOR_MIN_DAYS
-from mendari.evals.monitoring import monitor
+from mendari.evals.monitoring import monitor, post_alerts
+from mendari.evals.monitoring import organizations as monitored_organizations
 from mendari.evals.pack_tests import load_cases
 from mendari.legacy import current_pack_id
 from mendari.providers import jev, llm, provider_allow_list, slots_without_model
@@ -311,10 +312,18 @@ def shown_to_reader(item: Mapping[str, Any]) -> bool:
 
 # How long a decision's look-up of automation holds is reused on one instance.
 HOLD_SECONDS = 5.0
-# The scheduled purge's bearer secret (CRON_SECRET, as Vercel Cron sends it): its least length.
+# The scheduled jobs' bearer secret (CRON_SECRET, as Vercel Cron sends it): its least length.
 MIN_CRON_SECRET = 16
 # The longest a quota's alert holds the decision that reached the quota: one try.
 QUOTA_ALERT_TIMEOUT_S = 5.0
+# The scheduled monitor's time (the function's `maxDuration` is 300 s, vercel.json). It sends
+# pending alerts again for at most MONITOR_RETRY_SECONDS, then starts no organization after
+# MONITOR_SECONDS: the last one started keeps time for its monitoring, its alert (three tries
+# of 10 s, 10 s of waits between them) and the alert naming those left, which an alert says
+# were not reached. Each day starts at another organization, so none is left every day.
+MONITOR_RETRY_SECONDS = 60.0
+MONITOR_SECONDS = 180.0
+MONITOR_NAMED = 20  # organizations the alert of those not reached names (ids), at most
 
 
 class EraseRequest(BaseModel):
@@ -394,12 +403,14 @@ def create_app(
     # and plaintext where it must not be: never with sign-in, never on the hosted site
     require_protection(phi, sign_in=sign_in is not None, launch=launch)
     retention_days = settings.retention_days()  # likewise
-    cron_secret = os.environ.get("CRON_SECRET", "")  # the scheduled purge's credential
+    status_org = settings.status_org()  # likewise
+    cron_secret = os.environ.get("CRON_SECRET", "")  # the scheduled jobs' credential
     if cron_secret and (len(cron_secret) < MIN_CRON_SECRET or cron_secret != cron_secret.strip()):
-        # An optional job never stops the server: the purge stays off, and health says so.
+        # An optional job never stops the server: the jobs stay off, and health says so.
         phi_logger.warning(
-            "CRON_SECRET is not used, so the scheduled purge is off: it needs at least %d random "
-            "characters, with no spaces around them (Vercel Cron sends it as it is stored)",
+            "CRON_SECRET is not used, so the scheduled purge and monitor are off: it needs at "
+            "least %d random characters, with no spaces around them (Vercel Cron sends it as it "
+            "is stored)",
             MIN_CRON_SECRET,
         )
         cron_secret = ""
@@ -1565,21 +1576,101 @@ def create_app(
         log_event(request, "input.erased", ids=[decision_id], reason=body.reason)
         return erased
 
+    def require_cron(request: Request, job: str) -> None:
+        """A scheduled job's route answers only `Authorization: Bearer $CRON_SECRET`, before any
+        database work: without CRON_SECRET set it is not found; a wrong secret (a session or a
+        key included) is `401`, logged as `<job>.refused`."""
+        if not cron_secret:
+            raise HTTPException(404, "Not Found")
+        given = request.headers.get("authorization", "")
+        if not hmac.compare_digest(given.encode(), f"Bearer {cron_secret}".encode()):
+            security_log.event(f"{job}.refused", outcome="refused", reason="secret")
+            raise HTTPException(401, "this route is for a scheduled job")
+
     @app.get("/api/internal/retention", include_in_schema=False)
     def scheduled_retention(request: Request) -> dict[str, Any]:
         """The scheduled purge (Vercel Cron, `vercel.json`): deletes kept inputs and erases
         notes older than MENDARI_RETENTION_DAYS in batches, as `mendari phi purge` does, and
         chains a summary (`retention.purged`). Only with `Authorization: Bearer $CRON_SECRET`;
         without CRON_SECRET set it is not found."""
-        if not cron_secret:
-            raise HTTPException(404, "Not Found")
-        given = request.headers.get("authorization", "")
-        if not hmac.compare_digest(given.encode(), f"Bearer {cron_secret}".encode()):
-            security_log.event("retention.refused", outcome="refused", reason="secret")
-            raise HTTPException(401, "this route is for the scheduled purge")
+        require_cron(request, "retention")
         summary = store.purge(retention_days, source="schedule")
         security_log.event("retention.purged", count=summary["inputs"] + summary["notes"])
         return summary
+
+    @app.get("/api/internal/monitor", include_in_schema=False)
+    def scheduled_monitor(request: Request) -> dict[str, Any]:
+        """The scheduled monitor (LP-21f): first the alerts still pending sent again
+        (`retry_due`, for MONITOR_RETRY_SECONDS at most), then each organization with a
+        decision in the last 30 days, on its own, but the status organization
+        (`MENDARI_STATUS_ORG`): every served pack's report (`evals/monitoring.py`), and one
+        alert for the organization when any report alerts, recorded. The organizations are
+        taken in order from a different one each day, and none is started once
+        MONITOR_SECONDS have passed (the function's limit is 300 s): the ones left are counted,
+        and an alert names them. The answer holds counts only. `Authorization: Bearer
+        $CRON_SECRET` only, as the purge."""
+        require_cron(request, "monitor")
+        started = time.monotonic()
+        webhook = alerts
+        if webhook is not None:
+            try:
+                check_webhook(webhook.webhook)
+            except MendariError:
+                monitor_logger.warning("the alert webhook is not usable: no alert is posted")
+                webhook = None
+        counts = {"organizations": 0, "alerting": 0, "delivered": 0, "not_delivered": 0}
+        retried = (
+            retry_due(store, webhook, deadline=started + MONITOR_RETRY_SECONDS)
+            if webhook is not None
+            else {"delivered": 0, "pending": 0, "failed": 0, "deferred": 0}
+        )
+        left: list[str] = []
+        orgs = monitored_organizations(store, skip=status_org)
+        if orgs:  # today's first: tomorrow's run starts at the next one
+            first = clock.today().toordinal() % len(orgs)
+            orgs = orgs[first:] + orgs[:first]
+        for org in orgs:
+            if time.monotonic() - started > MONITOR_SECONDS:
+                left.append(org)
+                continue
+            counts["organizations"] += 1
+            with tenancy.acting_for(org):
+                reports = [
+                    monitor(
+                        store,
+                        pack,
+                        providers=health_providers.get(pack.id),
+                        models=running_models.get(pack.id),
+                    )
+                    for pack in packs.values()
+                ]
+            if not any(report["alerts"] for report in reports):
+                continue
+            counts["alerting"] += 1
+            if webhook is None:
+                continue
+            posted = post_alerts(webhook, org, reports, attempts=3, store=store)
+            counts["delivered" if posted else "not_delivered"] += 1
+        if left and webhook is not None:
+            named = ", ".join(left[:MONITOR_NAMED])
+            more = f" and {len(left) - MONITOR_NAMED} more" if len(left) > MONITOR_NAMED else ""
+            message = (
+                f"{len(left)} organization(s) not monitored: the schedule ran out of time "
+                f"after {counts['organizations']} ({named}{more})"
+            )
+            incomplete = {"severity": "warning", "kind": "monitor_incomplete", "message": message}
+            deliver(
+                webhook,
+                event="monitor.incomplete",
+                org=None,
+                alerts=[incomplete],
+                lines=[f"[warning] monitor_incomplete: {message}"],
+                attempts=1,
+                timeout=10,
+                store=store,
+            )
+        security_log.event("monitor.ran", count=counts["organizations"])
+        return {**counts, "not_reached": len(left), "retried": retried}
 
     @app.post(
         "/api/audit/{decision_id}/outcome",
@@ -2288,6 +2379,7 @@ def error_response(path: str, status: int, error: MendariError) -> JSONResponse:
 
 quota_logger = logging.getLogger("mendari.limits")
 phi_logger = logging.getLogger("mendari.phi")
+monitor_logger = logging.getLogger("mendari.monitor")
 providers_logger = logging.getLogger("mendari.providers")
 
 

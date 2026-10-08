@@ -211,17 +211,18 @@ def test_a_pending_alert_is_sent_again_until_it_is_delivered_or_gives_up(
         with store._db.session(exclusive=True) as db:
             db.all("UPDATE alert_deliveries SET next_attempt_at = ?", (past,))
 
-    assert retry_due(store, settings) == {"delivered": 0, "pending": 0, "failed": 0}  # not due
+    nothing = {"delivered": 0, "pending": 0, "failed": 0, "deferred": 0}
+    assert retry_due(store, settings) == nothing  # not due
     for tries in (2, 3, 4):
         due_now()
-        assert retry_due(store, settings) == {"delivered": 0, "pending": 1, "failed": 0}
+        assert retry_due(store, settings) == {**nothing, "pending": 1}
         assert store.alert_deliveries()[0]["attempts"] == tries
     due_now()
-    assert retry_due(store, settings) == {"delivered": 0, "pending": 0, "failed": 1}
+    assert retry_due(store, settings) == {**nothing, "failed": 1}
     (sent,) = store.alert_deliveries()
     assert (sent["status"], sent["attempts"]) == ("failed", alerts_module.MAX_ATTEMPTS)
     due_now()
-    assert retry_due(store, settings) == {"delivered": 0, "pending": 0, "failed": 0}
+    assert retry_due(store, settings) == nothing
     bodies = {entry["content"] for entry in down.sent}
     assert len(bodies) == 1  # the same alert each time, signed afresh
     signed = [entry["headers"]["mendari-signature"] for entry in down.sent]
@@ -358,7 +359,7 @@ def test_a_pending_alert_sent_again_is_delivered_with_its_id_and_a_fresh_signatu
         db.all("UPDATE alert_deliveries SET next_attempt_at = ?", (past,))
     up = Webhook(204)
     monkeypatch.setattr(alerts_module.httpx, "post", up)
-    assert retry_due(store, settings) == {"delivered": 1, "pending": 0, "failed": 0}
+    assert retry_due(store, settings) == {"delivered": 1, "pending": 0, "failed": 0, "deferred": 0}
     (sent,) = up.sent
     assert sent["headers"]["mendari-delivery"] == pending["id"]
     assert sent["headers"]["mendari-event"] == "monitor.alerts"
