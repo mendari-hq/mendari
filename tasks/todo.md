@@ -1965,7 +1965,7 @@ old name redirects, and the repository id, which Vercel's link keeps, is unchang
 - [x] Links to the repository, the security contact (`SECURITY.md`, `security.txt`), the docs
   site (`https://mendari-hq.github.io/mendari/`, mkdocs.yml `site_url`) and the image names
   (`ghcr.io/mendari-hq/…`: `release.yml` pushes to `github.repository_owner`, owner's choice)
-  name the organization; nothing published, tagged or dispatched
+  name the organization; nothing published, tagged or dispatched (#211)
 - [x] Kept: `@Junebugg1214` as the code owner and maintainer (a person; the organization has no
   teams); dated records in `notes/` (old links redirect)
 - [ ] Follow-up PR: `packs.yml` passes `github.repository_owner` (now the organization) as
