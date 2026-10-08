@@ -7,7 +7,7 @@
   "status": "active",
   "primaryPurposeType": {"coding": [{"system": "http://terminology.hl7.org/CodeSystem/research-study-prim-purp-type", "code": "treatment"}]},
   "phase": {"coding": [{"system": "http://terminology.hl7.org/CodeSystem/research-study-phase", "code": "phase-3"}]},
-  "condition": [{"coding": [{"system": "http://snomed.info/sct", "code": "44054006", "display": "Diabetes mellitus type 2"}]}],
+  "condition": [{"coding": [{"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "E11", "display": "Type 2 diabetes mellitus"}], "text": "Type 2 diabetes mellitus"}],
   "description": "A synthetic study written for the Mendari Clinical Trial Prescreener reference pack. It is not a real protocol and its criteria were not written or reviewed by a clinician.",
   "enrollment": [{"reference": "#eligibility"}],
   "contained": [

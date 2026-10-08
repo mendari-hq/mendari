@@ -14,6 +14,7 @@ here, in the order they landed:
   with who and why);
 - 21j, audit checkpoints (`mendari audit checkpoint`, `mendari audit verify
   --since-checkpoint`; the templates run it daily);
+- 21g, the usage ledger (`usage_ledger`, written with each decision and evaluation report);
 - 21h, evaluations' own quotas (`eval_jev`, `eval_llm` in `MENDARI_ORG_DAILY_LIMITS`, charged by
   `CallBudget.for_evaluation`, never the decisions' quotas).
 

@@ -215,7 +215,7 @@ def cmd_eval(args: argparse.Namespace) -> int:
             print("note: --out is not a file, so no ledger is written beside it", file=sys.stderr)
         out.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     if args.db:
-        AuditStore(args.db).save_report(report, ledger=run.ledger.dumps())
+        AuditStore(args.db).save_report(report, ledger=run.ledger.dumps(), usage=run.usage)
     if args.share_out:
         from mendari.evals.share import shareable
 
