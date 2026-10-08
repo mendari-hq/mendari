@@ -100,10 +100,17 @@ class GuardedHttp:
         url: str,
         body: Mapping[str, Any],
         headers: Mapping[str, str] | None = None,
+        *,
+        timeout: float | None = None,
     ) -> dict[str, Any]:
-        """A FHIR JSON request (a CQL `$evaluate`, a Library upload); its JSON answer."""
+        """A FHIR JSON request (a CQL `$evaluate`, a Library upload); its JSON answer. A
+        `timeout` (seconds, each step) replaces the client's `TIMEOUT` for this request: what
+        remains of a decision's deadline (`providers/deadline.py`)."""
         sent = {"content-type": "application/fhir+json", "accept": "application/fhir+json"}
-        return self._send(method, url, headers={**sent, **(headers or {})}, json=dict(body))
+        extra: dict[str, Any] = {} if timeout is None else {"timeout": timeout}
+        return self._send(
+            method, url, headers={**sent, **(headers or {})}, json=dict(body), **extra
+        )
 
     def raw(
         self, method: str, url: str, headers: Mapping[str, str] | None = None, **kwargs: Any

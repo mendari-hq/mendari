@@ -4,6 +4,10 @@
 Remote error bodies are never surfaced (they can echo inputs or credentials); a failure is
 one of `rate_limited`, `credential_unavailable`, `insufficient_credit`,
 `provider_unavailable`, `timeout` or `invalid_response`.
+
+Inside a decision, every attempt waits at most what remains of its deadline
+(`providers/deadline.py`): its timeout is clamped to it, no retry is waited past it, and a
+response read in chunks stops at it (`timeout`).
 """
 
 from __future__ import annotations
@@ -18,6 +22,7 @@ from urllib.parse import urlparse
 import httpx
 
 from mendari.errors import ProviderError, ProviderErrorCode
+from mendari.providers import deadline
 
 MAX_RESPONSE_BYTES = 65_536
 _LOCAL_HOST = re.compile(r"^(localhost|127\.0\.0\.1|\[::1\]|::1)$")
@@ -53,9 +58,11 @@ def post_json(
 
     `retries` extra attempts are made after `429 Too Many Requests` or `529 Overloaded`, after
     the server's `Retry-After` when it is short, else a brief exponential backoff. A longer
-    `Retry-After` is not waited out: a decision fails safely instead of stalling.
+    `Retry-After` is not waited out: a decision fails safely instead of stalling. Nor is one
+    that would end at or after the decision's deadline, whose remaining time also bounds each
+    attempt's timeout (`timeout` once it has passed).
     """
-    timeout = httpx.Timeout(timeout_s)
+    timeout = httpx.Timeout(deadline.clamp(timeout_s))  # past the deadline: nothing is opened
     own = client is None
     session = client or httpx.Client(timeout=timeout, follow_redirects=False)
     try:
@@ -64,9 +71,15 @@ def post_json(
                 return _post_once(session, endpoint, body, headers, timeout, max_bytes)
             except _Retryable as retry:
                 delay = retry.delay if retry.delay is not None else BACKOFF_S * 2**attempt
-                if attempt == retries or delay > MAX_RETRY_WAIT_S:
+                left = deadline.remaining()
+                if (
+                    attempt == retries
+                    or delay > MAX_RETRY_WAIT_S
+                    or (left is not None and delay >= left)
+                ):
                     raise retry.error from None
                 _sleep(delay)
+                timeout = httpx.Timeout(deadline.clamp(timeout_s))
         raise AssertionError("unreachable")  # pragma: no cover
     finally:
         if own:
@@ -117,6 +130,7 @@ def _post_once(
                 raise ProviderError("provider_unavailable", f"HTTP {status}")
             chunks, size = [], 0
             for chunk in response.iter_bytes():
+                deadline.refuse_if_past()  # a slow answer stops at the decision's deadline
                 size += len(chunk)
                 if size > max_bytes:
                     raise ProviderError("invalid_response", "response too large")

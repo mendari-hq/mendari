@@ -219,7 +219,10 @@ providers:
   `JEV_MODEL`, `JEV_API_KEY`, `JEV_CONNECTOR`; `LLM_BASE_URL`, `LLM_MODEL`, `AI_GATEWAY_API_KEY`,
   `LLM_API_KEY`), which a pack cannot change;
 - require HTTPS (plain HTTP only for localhost);
-- refuse redirects and cap response size.
+- refuse redirects and cap response size;
+- share one wall-clock deadline per decision, the CQL engine included
+  (`MENDARI_DECISION_DEADLINE_S`, 120 s unless set): past it a call is not made, one under way
+  is cut, and the decision records `timeout` and goes to a person; local providers still answer.
 
 Credentials and provider error bodies never reach audit records or error messages. The same
 outbound guard (allow-listed origins, no redirects, timeouts, size caps) covers every other
