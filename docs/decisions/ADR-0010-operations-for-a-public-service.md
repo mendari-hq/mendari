@@ -12,6 +12,8 @@ here, in the order they landed:
   the hosted schedule);
 - 21l, the break-glass (`mendari access revoke` and `mendari access end-sessions`, each chained
   with who and why);
+- 21j, audit checkpoints (`mendari audit checkpoint`, `mendari audit verify
+  --since-checkpoint`; the templates run it daily);
 - 21h, evaluations' own quotas (`eval_jev`, `eval_llm` in `MENDARI_ORG_DAILY_LIMITS`, charged by
   `CallBudget.for_evaluation`, never the decisions' quotas).
 

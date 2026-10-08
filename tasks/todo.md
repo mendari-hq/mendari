@@ -1151,7 +1151,10 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     `MENDARI_ORG_DAILY_LIMITS` (unset: no limit), charged by `CallBudget.for_evaluation`, never
     the decisions' quotas; the quota alert says what an evaluation quota stops.
   - [ ] **21i** `GET /api/usage`, the admins' usage screen and the operator's CLI.
-  - [ ] **21j** Audit checkpoints and incremental verify.
+  - [x] **21j** (#202, merged 2026-10-08) Audit checkpoints and incremental verify: `audit_checkpoints` (seq, hash, when;
+    outside the chain), `mendari audit checkpoint` (verify from the last, record the head),
+    `mendari audit verify --since-checkpoint`; a full verification checks every checkpoint
+    (`reason: checkpoint` for a chain rewritten from before one or cut short of it).
   - [ ] **21k** The signed daily checkpoint (`MENDARI_CHECKPOINT_KEY`).
   - [x] **21l** (#200, merged 2026-10-08) Break-glass revocation commands: `mendari access keys|clients` (read-only),
     `mendari access revoke key|client <id>` and `revoke all --org` (each still in force), and

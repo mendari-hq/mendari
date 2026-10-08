@@ -14,7 +14,7 @@ Run Mendari inside your organization's network or an approved cloud account:
 - Postgres (not SQLite) for the audit store.
 
 [`deploy/`](https://github.com/Junebugg1214/mendari/tree/main/deploy) has two templates: docker compose for one server (set `MENDARI_IMAGE`
-in its `.env`, pinned by digest), and Kubernetes. Both include the daily retention and monitoring jobs.
+in its `.env`, pinned by digest), and Kubernetes. Both include the daily retention, checkpoint and monitoring jobs.
 
 The public sandbox and the project's own Vercel deployment are **synthetic only**.
 
@@ -453,6 +453,15 @@ deletes kept inputs and erases notes older than `MENDARI_RETENTION_DAYS` (30 unl
 it). Decisions, reviews and the chain itself stay, and `mendari audit verify` still passes.
 `--days 0 --yes` deletes and erases everything kept; no setting can ask for that, so a typo in a
 scheduled job never does.
+
+**Checkpoints.** Schedule `mendari audit checkpoint --db "$DATABASE_URL"` daily too, after the
+purge (the `deploy/` templates do). It verifies the chain from its last checkpoint (the whole of
+it, the first time) and, when it holds, records the head as the next checkpoint, one row outside
+the chain; it migrates the database as every command that writes does. `mendari audit verify
+--since-checkpoint` then reads only the events after the last one, and a full `mendari audit
+verify`, which reads everything, also checks that every checkpoint still names its event. A
+checkpoint is in the same database as the chain, so keep a copy of the head somewhere else too,
+and run a full verification now and then.
 
 On Vercel the schedule is in `vercel.json` (`crons`: daily at 08:00 UTC, 4 am Eastern in summer
 and 3 am in winter). Set `CRON_SECRET` (at least 16 random characters) for Production: Vercel Cron sends it as a bearer token to
@@ -950,7 +959,8 @@ reads of PHI, then operations. Keep the answers with your go-live record.
 - [ ] The security log reaches your log system: a refused request (a wrong key) appears there as
       an `auth.credential.refused` line and a `request` line with the `X-Request-Id` the
       response carried, and no line holds a key, a query value or case text.
-- [ ] Retention and monitoring are scheduled; `mendari audit verify` passes.
+- [ ] Retention, monitoring and `mendari audit checkpoint` are scheduled (§3, *Checkpoints*);
+      `mendari audit verify` passes.
 
 For the project's own public deployment (synthetic data, Vercel), the owner's launch adds, in
 order:
