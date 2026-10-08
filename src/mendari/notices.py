@@ -35,7 +35,8 @@ EVENT = "notice.acknowledged"
 # The permissions whose routes take data in from a person: refused until they acknowledge.
 GATED = frozenset({"decide", "review"})
 # Minting a credential a person could then decide with, unasked: every POST the `keys`
-# permission guards (creating or rotating an API key, registering a client).
+# permission guards (creating or rotating an API key, registering a client) and, in memberships
+# mode, inviting someone and handling a request to join (giving someone access).
 MINTING_PERMISSION = "keys"
 
 Mode = Literal["required", "off"]

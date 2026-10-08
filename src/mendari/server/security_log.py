@@ -29,6 +29,10 @@ mode adds the reason `no_organization_record`), `auth.permission.refused` (and t
 `no_organization`, `org_changed` and `not_a_member`), `auth.organization.selected` and
 `auth.access.requested` (memberships mode: a person choosing one of their organizations, and
 asking to join one, refused as `unknown_organization`, `member` or `open_requests`),
+`auth.invitation.accepted` (memberships mode, refused as `unverified`, `invalid`,
+`other_address` or `member`, with no organization),
+`admin.invitation.created|revoked`, `admin.membership.roles_changed|removed` and
+`admin.access.granted|refused` (an organization's administrators managing its people),
 `auth.origin.refused` (another site's request, server/origin.py),
 `auth.token.issued|refused`, `smart.launch.ok|refused` (an EHR launch that starts a session,
 with its `ehr:<hash>` and, with sign-in on, its organization; or one that does not:

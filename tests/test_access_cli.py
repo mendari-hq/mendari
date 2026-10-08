@@ -104,7 +104,12 @@ def test_without_a_database_the_commands_say_how_to_give_one(
 
 def test_the_account_tests_use_reserved_addresses_only() -> None:
     """No real address in a test or fixture (RFC 2606/6761 domains only)."""
-    for name in ("test_accounts_store.py", "test_access_cli.py", "test_tenancy.py"):
+    for name in (
+        "test_accounts_store.py",
+        "test_access_cli.py",
+        "test_tenancy.py",
+        "test_memberships.py",
+    ):
         text = (ROOT / "tests" / name).read_text()
         for address in re.findall(r"[\w.+-]+@[\w.-]+\.\w+", text):
             reserved = r"@(example\.(org|com|net)|[\w.-]+\.test)$"

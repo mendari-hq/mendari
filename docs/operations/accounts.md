@@ -6,11 +6,11 @@ organizations and memberships, each holding a set of roles. A deployment that ru
 organization from its identity provider's claims needs none of this: it stays as it is
 (`MENDARI_ACCOUNTS=claims`, the default).
 
-The records are being built in steps (LP-12). This page covers the command line and signing in
-by records (`MENDARI_ACCOUNTS=memberships`); the dashboard's no-access page and organization
-switcher, invitations in the dashboard and the Access screen follow. **Until invitations ship
-(LP-12f), nobody can accept one**, and a request to join is only listed
-(`mendari access requests`). Claims mode never reads or writes the records.
+The records are being built in steps (LP-12). This page covers the command line, signing in by
+records (`MENDARI_ACCOUNTS=memberships`), and how an organization's administrators invite and
+manage their people through the API. The invitation page (`/invite`, which a link opens) and
+invitations and requests in the dashboard follow (LP-12f-ii), and the Access screen after that
+(LP-12h). Claims mode never reads or writes the records.
 
 ## The rules
 
@@ -28,10 +28,14 @@ switcher, invitations in the dashboard and the Access screen follow. **Until inv
   membership, not yet taken up, does not count).
 - An invitation is a link, valid once, for 7 days by default (at most 30), for whoever signs in
   with the address it names, verified by their identity provider. **Mendari sends no e-mail**:
-  the link is shown once to whoever made it, who passes it on.
+  the link is shown once to whoever made it, who passes it on. The operator invites from the
+  command line; an organization's administrators (people who signed in, never a key) invite to
+  their own organization, `default`'s included.
 - Every change appends a chained event of ids and digests (`organization.created`,
-  `membership.created`, `invitation.created`, `invitation.accepted`, `access.requested`, ...);
-  `mendari audit verify` covers them.
+  `membership.created`, `membership.roles_changed`, `membership.removed`,
+  `invitation.created`, `invitation.revoked`, `invitation.accepted`, `access.requested`,
+  `access.handled`, ...); `mendari audit verify` covers them. An administrator is named there
+  by their id (`user:<hash>`), never their address.
 
 ## Before switching a deployment to memberships mode
 
@@ -81,9 +85,9 @@ nothing twice, and it never rewrites a row the deployment already holds.
 mendari access invite --org clinic-a --email lead@example.org --role admin --db "$DATABASE_URL"
 ```
 
-The link is printed once, on its own line: pass it on yourself. It can be accepted once
-invitations ship (LP-12f); until then it waits, and expires on its day. From then on that
-organization's administrators invite their own people.
+The link is printed once, on its own line: pass it on yourself. It waits until it is accepted,
+revoked or expires on its day. From then on that organization's administrators invite their own
+people.
 
 ## Signing in by records
 
@@ -110,7 +114,8 @@ Then:
 - With exactly one membership, it is selected at sign-in. With several, or with one given since
   they signed in, the person chooses one. With none, they act for **no organization**: never
   `default`. They are refused (`403`, `NoOrganization`) everywhere but the public routes, the
-  dashboard page, choosing one of their organizations and asking to join one.
+  dashboard page, choosing one of their organizations, asking to join one and accepting an
+  invitation.
 - Asking to join answers with the same status and body whether or not the organization
   exists, the person is already a member, or they have five requests open: only a request to
   an organization with a record, from someone not in it, is recorded, with the person if they
@@ -119,12 +124,55 @@ Then:
 - A membership removed, or its roles changed, applies at the person's next request. Keys and
   clients a removed person created belong to the organization and keep working: revoke them
   too if they should not (`mendari access members` lists who is in it; the Access screen will
-  list who created each key).
+  list who created each key). So do the open invitations a removed or demoted administrator
+  made: they stay valid until they are accepted, expire or are revoked (the list of
+  invitations names who made each). Removing someone does revoke that organization's open
+  invitations made out to their address (each chained as `invitation.revoked`), so a link left
+  open earlier, one they could not accept while a member, does not let them back in.
 - Keys, Backend Services clients and EHR registrations of an organization with no record are
   refused.
 - The whole-chain verify, deployment-wide deployment records and some health fields are still
   shown to every organization's administrators until LP-12g scopes them: switch the hosted
   site after LP-12g.
+
+## Managing an organization's people
+
+In memberships mode an organization's administrators (the `admin` role, a person who signed in;
+never an API key, whatever its role) manage its people through the API, under `/api/auth/`. Each
+acts on the organization the administrator acts for, never one a request names: another
+organization's invitation, member or request is a `404`.
+
+| Route | Does |
+|---|---|
+| `POST /api/auth/invitations` | Invites an address (`email`) with `roles`, valid `days` (7, at most 30). The answer holds the `link` (`/invite#<token>`: put the deployment's address before it), once. |
+| `GET /api/auth/invitations` | Lists them, newest first, with their `status`: `open`, `accepted`, `revoked` or `expired`. Never a token. |
+| `DELETE /api/auth/invitations/{id}` | Revokes an open (or expired) one. |
+| `POST /api/auth/invitations/accept` | A person's own: accepts one with its `token`, signed in with the address it names, verified. |
+| `GET /api/auth/members` | Lists the memberships in force: each person's name and address, or the address a pending one waits for. |
+| `PUT /api/auth/members/{id}/roles` | Replaces a membership's roles; they apply at that person's next request. |
+| `DELETE /api/auth/members/{id}` | Ends a membership, and revokes the organization's open invitations made out to that person's address. |
+| `GET /api/auth/access-requests` | Lists the open requests to join, with who asked. |
+| `POST /api/auth/access-requests/{id}` | Grants one (`outcome: granted`, with `roles`, `viewer` unless asked) or refuses it. |
+
+- **The link is shown once.** Only its digest is kept. Unknown, used, revoked and expired links
+  get one answer (`404`); someone signed in with another address, or without a verified one, is
+  refused (`403`) and the invitation stays open.
+- **Accepting while already a member** of that organization is refused (`409`), and the
+  invitation stays open for an administrator to revoke: roles change only by
+  `PUT /api/auth/members/{id}/roles`. A person who acted for no organization acts for the new
+  one at once; one who acted for another keeps it, and chooses the new one when they want it.
+- **An organization keeps an administrator who signed in.** Removing or demoting the last one,
+  yourself included, is a `409`; a pending administrator's membership does not count.
+- **A request closes by itself** when its person joins another way (accepting an invitation, a
+  membership given or bound at sign-in): it is chained as handled, outcome `joined`, and no
+  longer counts against their five open requests. Granting one left open from before this,
+  of someone who is a member already, is a `409`: refuse it to close it.
+- `grading` is never given (`422`), and `pack_author` and `labeller` may be given but grant
+  nothing yet.
+- Inviting and handling a request to join give someone access, so they wait for the notice
+  acknowledgement as creating a key does; accepting an invitation does not.
+- On the command line `mendari access members` and `mendari access requests` only read:
+  changing roles, removing members and handling requests are done through these routes.
 
 ## Reading what is there
 

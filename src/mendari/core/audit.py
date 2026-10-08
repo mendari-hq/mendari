@@ -34,7 +34,14 @@ from mendari.core.phi import LEGACY, NOTE_AAD, PhiPolicy, key_id, token_key
 from mendari.core.query import Atom, Page, Query, Within
 from mendari.core.session_seal import SealError, seal, unseal
 from mendari.core.spec import Outcome
-from mendari.errors import AuthError, MendariError, NoteError, ProviderError, ReviewError
+from mendari.errors import (
+    AuthError,
+    InvitationRefused,
+    MendariError,
+    NoteError,
+    ProviderError,
+    ReviewError,
+)
 
 Rating = Literal["up", "down"]
 
@@ -2751,6 +2758,31 @@ class AuditStore:
             for r in rows
         ]
 
+    def members(self, org: str) -> list[dict[str, Any]]:
+        """`org`'s memberships in force, oldest first, each with its person's name and verified
+        address (or, pending, the address it waits for: `pending`), for its administrators."""
+        with self._db.session(exclusive=False) as db:
+            rows = db.all(
+                "SELECT m.id, m.user_id, m.roles, m.created_by, m.created_at, u.name, "
+                "COALESCE(u.email, m.pending_email) AS email FROM memberships m "
+                "LEFT JOIN users u ON u.id = m.user_id "
+                "WHERE m.org = ? AND m.removed_at IS NULL ORDER BY m.created_at, m.id",
+                (org,),
+            )
+        return [
+            {
+                "id": r["id"],
+                "user_id": r["user_id"],
+                "name": r["name"],
+                "email": r["email"],
+                "pending": r["user_id"] is None,
+                "roles": json.loads(r["roles"]),
+                "created_by": r["created_by"],
+                "created_at": r["created_at"],
+            }
+            for r in rows
+        ]
+
     def pending_for(self, email: str) -> bool:
         """Whether a membership waits for whoever signs in with `email` verified."""
         address = accounts.normalise_email(email)
@@ -2810,7 +2842,7 @@ class AuditStore:
                 (org, address),
             )
         if taken is not None:
-            raise ValueError(f"already a member of {org!r}")
+            raise accounts.MembershipRefused(f"already a member of {org!r}", "member")
         membership = {
             "id": secrets.token_hex(8),
             "org": org,
@@ -2844,13 +2876,35 @@ class AuditStore:
             "membership.created",
             {"id": membership["id"], "org": org, **who, "roles": chosen, "created_by": created_by},
         )
+        if user_id is not None:
+            self._settle_requests(db, user_id=user_id, org=org, membership_id=str(membership["id"]))
         return membership
+
+    def _settle_requests(self, db: _Session, *, user_id: str, org: str, membership_id: str) -> None:
+        """`user_id`'s open request to join `org`, closed in the caller's transaction now that
+        they hold a membership of it some other way (`access.handled`, outcome `joined`, handled
+        by that membership): no administrator is left to grant it into a conflict, and it no
+        longer counts against the person's open requests."""
+        settled = db.all(
+            "UPDATE access_requests SET handled_at = ?, handled_by = ?, outcome = ? "
+            "WHERE user_id = ? AND org = ? AND handled_at IS NULL RETURNING id",
+            (_now(), f"membership:{membership_id}", "joined", user_id, org),
+        )
+        for row in settled:
+            self._append(
+                db,
+                f"access:{row['id']}",
+                "access.handled",
+                {"id": row["id"], "org": org, "outcome": "joined",
+                 "handled_by": f"membership:{membership_id}"},
+            )  # fmt: skip
 
     def set_membership_roles(
         self, membership_id: str, roles: Sequence[str], *, org: str, changed_by: str
     ) -> dict[str, Any]:
         """Change a membership of `org`'s roles (`membership.roles_changed`); never leaving
-        `org` without an administrator."""
+        `org` without an administrator. `accounts.MembershipRefused` (a `ValueError`) for one not
+        in force (`no_membership`) or the last administrator's (`last_admin`)."""
         chosen = accounts.check_roles(roles)
         with self._db.session(exclusive=True) as db:
             row = self._membership_row(db, membership_id, org)
@@ -2871,8 +2925,12 @@ class AuditStore:
         return _membership(changed)
 
     def remove_membership(self, membership_id: str, *, org: str, removed_by: str) -> bool:
-        """End a membership of `org` (`membership.removed`); never its last administrator's.
-        False for one not in force."""
+        """End a membership of `org` (`membership.removed`); never its last administrator's
+        (`accounts.MembershipRefused`, `last_admin`). False for one not in force. The open
+        invitations of `org` made out to that person's recorded address are revoked with it
+        (`invitation.revoked`, by `removed_by`), so no link left open earlier (one they could not
+        accept while a member) lets them back in; the invitations, keys and clients they made
+        stay as they were."""
         with self._db.session(exclusive=True) as db:
             try:
                 row = self._membership_row(db, membership_id, org)
@@ -2891,7 +2949,29 @@ class AuditStore:
                 "membership.removed",
                 {"id": membership_id, "org": org, "removed_by": removed_by},
             )
+            if row["user_id"] is not None:
+                self._revoke_invitations_to(db, user_id=row["user_id"], org=org, by=removed_by)
         return True
+
+    def _revoke_invitations_to(self, db: _Session, *, user_id: str, org: str, by: str) -> None:
+        """Revoke `org`'s open invitations made out to `user_id`'s recorded verified address, in
+        the caller's transaction (`invitation.revoked` each, as `revoke_invitation` chains it).
+        Nothing when they have no address on record."""
+        person = db.one("SELECT email FROM users WHERE id = ?", (user_id,))
+        if person is None or not person["email"]:
+            return
+        revoked = db.all(
+            "UPDATE invitations SET revoked_at = ?, revoked_by = ? WHERE org = ? AND email = ? "
+            "AND accepted_at IS NULL AND revoked_at IS NULL RETURNING id, created_at",
+            (_now(), by, org, person["email"]),
+        )
+        for invitation in sorted(revoked, key=lambda r: (r["created_at"], r["id"])):
+            self._append(
+                db,
+                f"invitation:{invitation['id']}",
+                "invitation.revoked",
+                {"id": invitation["id"], "org": org, "revoked_by": by},
+            )
 
     def _membership_row(self, db: _Session, membership_id: str, org: str) -> Any:
         row = db.one(
@@ -2899,7 +2979,7 @@ class AuditStore:
             (membership_id, org),
         )
         if row is None:
-            raise ValueError("no such membership")
+            raise accounts.MembershipRefused("no such membership", "no_membership")
         return row
 
     def _keep_an_admin(self, db: _Session, org: str, leaving: Any) -> None:
@@ -2914,11 +2994,14 @@ class AuditStore:
             (org, leaving["id"]),
         )
         if not any(accounts.ADMIN in json.loads(r["roles"]) for r in others):
-            raise ValueError(f"{org!r} would be left without an administrator")
+            raise accounts.MembershipRefused(
+                f"{org!r} would be left without an administrator", "last_admin"
+            )
 
     def bind_pending(self, user_id: str, email: str) -> list[dict[str, Any]]:
         """The pending memberships for `email` (verified by the identity provider at this
-        sign-in) made `user_id`'s (`membership.bound`); one where they are already a member
+        sign-in) made `user_id`'s (`membership.bound`, and their open request to join that
+        organization, if any, closed: `access.handled`); one where they are already a member
         stays pending."""
         address = accounts.normalise_email(email)
         bound: list[dict[str, Any]] = []
@@ -2947,6 +3030,7 @@ class AuditStore:
                     "membership.bound",
                     {"id": row["id"], "org": row["org"], "user": user_id},
                 )
+                self._settle_requests(db, user_id=user_id, org=row["org"], membership_id=row["id"])
                 bound.append(
                     _membership(db.one("SELECT * FROM memberships WHERE id = ?", (row["id"],)))
                 )
@@ -3006,7 +3090,9 @@ class AuditStore:
         return {**invitation, "token": token}
 
     def invitations(self, org: str) -> list[dict[str, Any]]:
-        """`org`'s invitations, newest first; never their tokens."""
+        """`org`'s invitations, newest first, each with its `status` (`open`, `accepted`,
+        `revoked` or `expired`); never their tokens or their digests."""
+        now = _now()
         with self._db.session(exclusive=False) as db:
             rows = db.all(
                 "SELECT id, org, email, roles, created_by, created_at, expires_at, accepted_at, "
@@ -3014,7 +3100,10 @@ class AuditStore:
                 "ORDER BY created_at DESC, id",
                 (org,),
             )
-        return [{**dict(r), "roles": json.loads(r["roles"])} for r in rows]
+        return [
+            {**dict(r), "roles": json.loads(r["roles"]), "status": _invitation_status(r, now)}
+            for r in rows
+        ]
 
     def revoke_invitation(self, invitation_id: str, *, org: str, revoked_by: str) -> bool:
         """Revoke an open invitation of `org` (`invitation.revoked`); False otherwise."""
@@ -3039,42 +3128,82 @@ class AuditStore:
         return True
 
     def accept_invitation(
-        self, token: str, *, user_id: str, verified_email: str | None
+        self,
+        token: str,
+        *,
+        user_id: str,
+        verified_email: str | None,
+        asker: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Accept an invitation as the signed-in `user_id`, whose identity provider verified
         `verified_email`: once, before it expires, and only for the address it was made for
-        (`invitation.accepted`, then `membership.created` unless already a member). Unknown,
-        used, revoked and expired are one answer; another address keeps it open."""
+        (`invitation.accepted`, then `membership.created`). `InvitationRefused`, with its
+        reason: no verified address (`unverified`); unknown, used, revoked and expired are one
+        answer (`invalid`); another address (`other_address`) and someone already a member of
+        its organization (`member`) leave it open, and nothing is written. `asker` (`issuer`,
+        `subject`, `email`, `name`: who signed in) records the person, after every check and in
+        the same transaction, when they have no record yet (`user.recorded`), as asking to join
+        does."""
+        if asker is not None and accounts.person_id(asker["issuer"], asker["subject"]) != user_id:
+            raise ValueError("the asker is not the person accepting")
         if not verified_email:
-            raise AuthError("sign in with the e-mail address the invitation is for, verified", 403)
+            raise InvitationRefused(
+                "sign in with the e-mail address the invitation is for, verified", 403, "unverified"
+            )
         address = accounts.normalise_email(verified_email)
-        now = _now()
         with self._db.session(exclusive=True) as db:
+            now = _now()  # under the lock: expiry as of this transaction
             row = db.one(
                 "SELECT * FROM invitations WHERE token_sha256 = ? AND accepted_at IS NULL "
                 "AND revoked_at IS NULL AND expires_at > ?",
                 (_key(token), now),
             )
             if row is None:
-                raise AuthError("this invitation is not valid: ask for a new one", 404)
+                raise InvitationRefused(
+                    "this invitation is not valid: ask for a new one", 404, "invalid"
+                )
             if row["email"] != address:
-                raise AuthError("this invitation is for another e-mail address", 403)
-            db.all(
-                "UPDATE invitations SET accepted_at = ?, accepted_by = ? WHERE id = ?",
-                (now, user_id, row["id"]),
+                raise InvitationRefused(
+                    "this invitation is for another e-mail address", 403, "other_address"
+                )
+            if db.one(
+                "SELECT id FROM memberships WHERE org = ? AND user_id = ? AND removed_at IS NULL",
+                (row["org"], user_id),
+            ):
+                raise InvitationRefused(
+                    "you are already a member of this organization: ask its administrators to "
+                    "change your roles",
+                    409,
+                    "member",
+                )
+            if (
+                asker is not None
+                and db.one("SELECT id FROM users WHERE id = ?", (user_id,)) is None
+            ):
+                self._insert_user(
+                    db,
+                    user_id=user_id,
+                    issuer=str(asker["issuer"]),
+                    subject=str(asker["subject"]),
+                    email=asker.get("email"),
+                    name=asker.get("name"),
+                    signed_in=None,  # a sign-in keeps this current, not an invitation
+                )
+            taken = db.all(
+                "UPDATE invitations SET accepted_at = ?, accepted_by = ? WHERE id = ? "
+                "AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > ? RETURNING id",
+                (now, user_id, row["id"], now),
             )
+            if not taken:  # accepted or revoked since it was read: never twice, on any backend
+                raise InvitationRefused(
+                    "this invitation is not valid: ask for a new one", 404, "invalid"
+                )
             self._append(
                 db,
                 f"invitation:{row['id']}",
                 "invitation.accepted",
                 {"id": row["id"], "org": row["org"], "user": user_id},
             )
-            member = db.one(
-                "SELECT * FROM memberships WHERE org = ? AND user_id = ? AND removed_at IS NULL",
-                (row["org"], user_id),
-            )
-            if member is not None:
-                return _membership(member)
             return self._insert_membership(
                 db,
                 org=row["org"],
@@ -3174,6 +3303,18 @@ class AuditStore:
             )
         return [dict(r) for r in rows]
 
+    def open_access_requests(self, org: str) -> list[dict[str, Any]]:
+        """`org`'s open requests to join, oldest first, each with the name and verified address
+        of the person who asked, for its administrators."""
+        with self._db.session(exclusive=False) as db:
+            rows = db.all(
+                "SELECT r.id, r.user_id, r.created_at, u.name, u.email FROM access_requests r "
+                "LEFT JOIN users u ON u.id = r.user_id "
+                "WHERE r.org = ? AND r.handled_at IS NULL ORDER BY r.created_at, r.id",
+                (org,),
+            )
+        return [dict(r) for r in rows]
+
     def handle_access_request(
         self,
         request_id: str,
@@ -3184,7 +3325,10 @@ class AuditStore:
         roles: Sequence[str] = ("viewer",),
     ) -> dict[str, Any] | None:
         """Grant (a membership with `roles`) or refuse an open request to `org`
-        (`access.handled`); None for one not open."""
+        (`access.handled`); None for one not open. A request closes by itself when its person
+        joins another way (`_settle_requests`); granting one whose person is a member anyway (a
+        request left open before that) is refused (`accounts.MembershipRefused`, `member`), and
+        the request stays open."""
         if outcome not in ("granted", "refused"):
             raise ValueError("an access request is granted or refused")
         with self._db.session(exclusive=True) as db:
@@ -3194,11 +3338,6 @@ class AuditStore:
             )
             if row is None:
                 return None
-            membership = None
-            if outcome == "granted":
-                membership = self._insert_membership(
-                    db, org=org, roles=roles, created_by=handled_by, user_id=row["user_id"]
-                )
             db.all(
                 "UPDATE access_requests SET handled_at = ?, handled_by = ?, outcome = ? "
                 "WHERE id = ?",
@@ -3210,6 +3349,11 @@ class AuditStore:
                 "access.handled",
                 {"id": request_id, "org": org, "outcome": outcome, "handled_by": handled_by},
             )
+            membership = None
+            if outcome == "granted":  # after: it is no longer open for the membership to close
+                membership = self._insert_membership(
+                    db, org=org, roles=roles, created_by=handled_by, user_id=row["user_id"]
+                )
         return {"id": request_id, "outcome": outcome, "membership": membership}
 
     def bootstrap(self, *, email: str, created_by: str) -> dict[str, Any]:
@@ -3725,6 +3869,15 @@ def _membership(row: Any) -> dict[str, Any]:
     data = dict(row)
     data["roles"] = json.loads(data["roles"])
     return data
+
+
+def _invitation_status(row: Any, now: str) -> str:
+    """An invitation's status at `now` (a `_now()` text): accepted, revoked, expired or open."""
+    if row["accepted_at"] is not None:
+        return "accepted"
+    if row["revoked_at"] is not None:
+        return "revoked"
+    return "expired" if row["expires_at"] <= now else "open"
 
 
 def _key(secret: str) -> str:

@@ -186,6 +186,26 @@ CHAINED: dict[Route, tuple[str, ...]] = {
     (ENGINE, "DELETE", "/api/auth/clients/{client_id}"): ("client.revoked",),
     # Memberships mode: the request, and the person who asked the first time.
     (ENGINE, "POST", "/api/auth/access-requests"): ("access.requested", "user.recorded"),
+    # Memberships mode: an organization's administrators managing its people; accepting an
+    # invitation, with the person who accepts the first time and their open request to join
+    # that organization, closed.
+    (ENGINE, "POST", "/api/auth/invitations"): ("invitation.created",),
+    (ENGINE, "DELETE", "/api/auth/invitations/{invitation_id}"): ("invitation.revoked",),
+    (ENGINE, "POST", "/api/auth/invitations/accept"): (
+        "invitation.accepted",
+        "membership.created",
+        "user.recorded",
+        "access.handled",
+    ),
+    (ENGINE, "PUT", "/api/auth/members/{membership_id}/roles"): ("membership.roles_changed",),
+    (ENGINE, "DELETE", "/api/auth/members/{membership_id}"): (
+        "membership.removed",
+        "invitation.revoked",
+    ),
+    (ENGINE, "POST", "/api/auth/access-requests/{request_id}"): (
+        "access.handled",
+        "membership.created",
+    ),
     (ENGINE, "POST", "/api/packs/{namespace}/{name}/evals"): ("eval.recorded",),
 }
 # A GET that writes is not found by its method: these are listed by hand. That every read of a
@@ -194,8 +214,9 @@ CHAINED: dict[Route, tuple[str, ...]] = {
 # use on a deployment chains `deployment.recorded` on whichever route meets it.
 CHAINED_READS: dict[Route, tuple[str, ...]] = {
     (ENGINE, "GET", "/api/internal/retention"): ("input.purged", "note.erased", "retention.purged"),
-    # Memberships mode: the person recorded, what waited for their verified address bound.
-    (ENGINE, "GET", "/auth/callback"): ("user.recorded", "membership.bound"),
+    # Memberships mode: the person recorded, what waited for their verified address bound (and
+    # their open request to join that organization, if any, closed).
+    (ENGINE, "GET", "/auth/callback"): ("user.recorded", "membership.bound", "access.handled"),
     (ENGINE, "GET", "/api/audit/{decision_id}"): ("input.read",),  # encrypt mode, a reader
     (ENGINE, "GET", "/api/review"): ("input.read",),
     (ENGINE, "GET", "/api/feedback"): ("input.read",),

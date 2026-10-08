@@ -71,7 +71,9 @@ provider's claims needs nothing to change.
   membership chosen, never roles: each request reads that membership, so a removal or a change
   of roles applies at the next request. One check in the guard refuses a principal of no
   organization before every route that is not public, a page or a person's own (choosing an
-  organization, asking to join), and the guard then acts for nobody.
+  organization, asking to join, accepting an invitation), and the guard then acts for nobody.
+- Accepting an invitation to an organization one is already a member of is refused (`409`), and
+  the link stays open: roles change only by an administrator (LP-12f).
 - A sign-in records the person only when a membership waits for their verified address, they
   hold one, or they were recorded before; a request to join answers with the same status and
   body whether or not the organization exists (its timing differs, and asking one that exists
