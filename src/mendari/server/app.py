@@ -24,7 +24,6 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 from urllib.parse import parse_qsl, urlsplit
 
-import httpx
 from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
@@ -45,6 +44,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from mendari import __version__, guard, notices, settings
+from mendari.alerts import AlertSettings, alert_settings, check_webhook, deliver
 from mendari.core import clock, tenancy
 from mendari.core.audit import ADMINISTRATIVE_KINDS, OFF_DECISION_KINDS, SYSTEM_ID, AuditStore
 from mendari.core.card import benchmark, render_card
@@ -74,7 +74,7 @@ from mendari.errors import (
 from mendari.evals import compare, figures, leaderboard, load_dataset, resolve_dataset
 from mendari.evals.feedback import feedback_dataset
 from mendari.evals.harness import Dataset, evaluation
-from mendari.evals.monitoring import check_webhook, monitor
+from mendari.evals.monitoring import monitor
 from mendari.evals.pack_tests import load_cases
 from mendari.legacy import current_pack_id
 from mendari.providers import jev, llm, provider_allow_list, slots_without_model
@@ -310,6 +310,8 @@ def shown_to_reader(item: Mapping[str, Any]) -> bool:
 HOLD_SECONDS = 5.0
 # The scheduled purge's bearer secret (CRON_SECRET, as Vercel Cron sends it): its least length.
 MIN_CRON_SECRET = 16
+# The longest a quota's alert holds the decision that reached the quota: one try.
+QUOTA_ALERT_TIMEOUT_S = 5.0
 
 
 class EraseRequest(BaseModel):
@@ -410,9 +412,9 @@ def create_app(
             "the EHR launch is on and PHI mode is off: inputs are kept in plaintext, "
             "so use synthetic data only (docs/deploying-with-phi.md)"
         )
-    webhook = os.environ.get("MENDARI_ALERT_WEBHOOK", "").strip()
-    if org_limits and webhook:
-        check_webhook(webhook)  # likewise: a quota's alert must be able to leave
+    alerts = alert_settings()  # likewise: its format and signing secret
+    if org_limits and alerts is not None:
+        check_webhook(alerts.webhook)  # likewise: a quota's alert must be able to leave
     # Memberships mode marks the database: from then on each event names its organization,
     # whichever mode or command opens it (LP-12g, ADR-0008).
     bind_org = sign_in is not None and sign_in.accounts == "memberships"
@@ -438,7 +440,7 @@ def create_app(
             store,
             budget_limits or {},
             org_limits=org_limits,
-            on_quota_reached=quota_alert(webhook or None),
+            on_quota_reached=quota_alert(alerts, store),
         )
         if budget_limits or org_limits
         else None
@@ -2327,33 +2329,32 @@ def operators_hold(hold: Mapping[str, Any]) -> dict[str, Any]:
     return {key: hold[key] for key in ("id", "org", "pack_id", "pack_digest", "set_at")}
 
 
-def quota_alert(webhook: str | None) -> QuotaReached:
+def quota_alert(alerts: AlertSettings | None, store: AuditStore) -> QuotaReached:
     """What happens the first time an organization reaches a daily quota (once a day, whichever
     instance counts that call): a `quota.reached` line in the security log (the limit as its
-    `count`) and, with `MENDARI_ALERT_WEBHOOK`, one post
-    with the organization, the metric and the limit (no case data). Never fails the decision:
-    a webhook that is down loses the alert, not the request."""
+    `count`) and, with `MENDARI_ALERT_WEBHOOK`, one alert (`mendari.alerts`) with the
+    organization, the metric and the limit (no case data), recorded. One try of 5 s at most on
+    the decision's path; one that fails is tried again by the schedule (`retry_due`). Never
+    fails the decision: a webhook that is down delays the alert, not the request."""
 
     def alert(org: str, metric: str, limit: int) -> None:
         security_log.event("quota.reached", outcome="limited", reason=metric, org=org, count=limit)
-        if webhook is None:
+        if alerts is None:
             return
-        body = {
-            "source": "mendari",
-            "organization": org,
-            "alerts": [
-                {
-                    "severity": "warning",
-                    "kind": "quota_reached",
-                    "message": f"daily {metric} quota of {limit} reached; until midnight, "
-                    "decisions fall back to human review",
-                }
-            ],
-        }
-        try:
-            httpx.post(webhook, json=body, timeout=5, follow_redirects=False).raise_for_status()
-        except httpx.HTTPError as failure:
-            quota_logger.warning("the quota alert webhook failed (%s)", type(failure).__name__)
+        message = (
+            f"daily {metric} quota of {limit} reached; until midnight, decisions fall back to "
+            "human review"
+        )
+        deliver(
+            alerts,
+            event="quota.reached",
+            org=org,
+            alerts=[{"severity": "warning", "kind": "quota_reached", "message": message}],
+            lines=[f"[warning] quota_reached: {message}"],
+            attempts=1,
+            timeout=QUOTA_ALERT_TIMEOUT_S,
+            store=store,
+        )
 
     return alert
 

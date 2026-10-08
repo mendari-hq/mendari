@@ -1314,17 +1314,16 @@ def cmd_keys_register(args: argparse.Namespace) -> int:
 
 def cmd_monitor(args: argparse.Namespace) -> int:
     """For a scheduler: every pack's alerts (for one organization with --org; otherwise all of
-    them together), posted to a webhook when one is set; exit 1 on any."""
-    import os
-
-    import httpx
-
+    them together), posted to a webhook when one is set (`mendari.alerts`: in its format, signed
+    with its secret, tried three times); exit 1 on any alert, 3 when they could not be posted.
+    Nothing is recorded: the database is opened read-only."""
+    from mendari.alerts import alert_settings, check_webhook, deliver
     from mendari.core import tenancy
-    from mendari.evals.monitoring import check_webhook, monitor
+    from mendari.evals.monitoring import monitor
 
-    webhook = args.webhook or os.environ.get("MENDARI_ALERT_WEBHOOK", "").strip()
-    if webhook:
-        check_webhook(webhook)  # before any work, so a typo fails at once
+    alerts = alert_settings(args.webhook)  # before any work, so a typo fails at once
+    if alerts is not None:
+        check_webhook(alerts.webhook)
     packs = [resolve_pack(args.pack)] if args.pack else discover().packs
     with _read_store(args.db) as store, tenancy.acting_for(args.org):
         store.require_current("monitor")
@@ -1335,16 +1334,24 @@ def cmd_monitor(args: argparse.Namespace) -> int:
         print(f"{report['pack']['id']}: {status}")
         for alert in report["alerts"]:
             print(f"  [{alert['severity']}] {alert['kind']}: {alert['message']}")
-    if webhook and alerting:
-        body = {
-            "source": "mendari",
-            "organization": args.org,
-            "alerts": [{"pack": r["pack"], "alerts": r["alerts"]} for r in alerting],
-        }
-        try:
-            httpx.post(webhook, json=body, timeout=10, follow_redirects=False).raise_for_status()
-        except httpx.HTTPError as error:
-            raise MendariError(f"the alert webhook failed ({type(error).__name__})") from None
+    if alerts is not None and alerting:
+        lines = [
+            f"{report['pack']['id']}: [{alert['severity']}] {alert['kind']}: {alert['message']}"
+            for report in alerting
+            for alert in report["alerts"]
+        ]
+        posted = deliver(
+            alerts,
+            event="monitor.alerts",
+            org=args.org,
+            alerts=[{"pack": r["pack"], "alerts": r["alerts"]} for r in alerting],
+            lines=lines,
+            attempts=3,
+            timeout=10,
+        )
+        if not posted:
+            print("error: the alert webhook failed after 3 tries", file=sys.stderr)
+            return 3
     return 1 if alerting else 0
 
 

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -139,11 +140,10 @@ def test_the_cli_exits_1_on_alerts_and_posts_them(
     posted: list[Any] = []
 
     class Response:
-        def raise_for_status(self) -> None:
-            return None
+        status_code = 204
 
     def post(url: str, **kwargs: Any) -> Response:
-        posted.append((url, kwargs["json"]))
+        posted.append((url, json.loads(kwargs["content"])))
         return Response()
 
     monkeypatch.setattr("httpx.post", post)

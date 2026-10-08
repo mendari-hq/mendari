@@ -686,6 +686,35 @@ logs, at startup, each slot the Jev defaults turn on.
 - **Governance:** packs at risk level 2 or 3 automate only after someone with the `governance`
   role approves that exact version on its Decision Card (a reference such as committee minutes,
   and an expiry). Level 4 never automates.
+- **Alerts** (`MENDARI_ALERT_WEBHOOK`): the monitor's alerts and the quota alert are posted
+  there as JSON (`MENDARI_ALERT_FORMAT=mendari`, the default: `source`, `delivery`, `event`,
+  `organization`, `alerts`) or as a Slack message (`slack`: `{"text": ...}`). Each carries ids,
+  counts and Mendari's own messages, never case text. Set `MENDARI_ALERT_SECRET` (32 random
+  characters or more, `openssl rand -hex 32`) and every post is signed:
+  `Mendari-Signature: t=<unix seconds>,v1=<HMAC-SHA256>`, with `Mendari-Delivery` (the alert's
+  id) and `Mendari-Event`. Without a secret the server warns at startup. A post that gets no
+  answer, `408`, `429` or a `5xx` is tried again: the monitor three times (`mendari monitor`
+  exits `3` when all fail, `1` when it found alerts), the quota alert once on the decision's
+  path, then again from the schedule, five tries in all. The server records each alert it sends
+  (`alert_deliveries`: its body, status, tries, last HTTP status and an error code; never the
+  URL or the secret). A receiver checks the signature over the raw body:
+
+  <!-- receiver: the recipe tests/test_alerts.py runs -->
+  ```python
+  import hashlib
+  import hmac
+  import time
+
+
+  def is_mendari(secret: str, header: str, body: bytes, now: float | None = None) -> bool:
+      """True when `header` (Mendari-Signature) signs `body` with `secret`, within 5 minutes."""
+      fields = dict(part.split("=", 1) for part in header.split(","))
+      sent = int(fields["t"])
+      if abs((now or time.time()) - sent) > 300:
+          return False  # an old post, replayed
+      expected = hmac.new(secret.encode(), f"{sent}.".encode() + body, hashlib.sha256)
+      return hmac.compare_digest(expected.hexdigest(), fields["v1"])
+  ```
 
 ## 7. Logs
 
@@ -776,6 +805,9 @@ startup, so a typo never runs with a weaker setting.
 | `MENDARI_JEV_DAILY_LIMIT`, `MENDARI_LLM_DAILY_LIMIT` | 500 each; `none`: no limit, still counted | The deployment's daily remote calls, evaluations included; the three packs' Jev calls share one budget | 4 |
 | `mendari serve --proxy-headers` | on | Read the client address from `X-Forwarded-For` | 1 |
 | `--forwarded-allow-ips`, `FORWARDED_ALLOW_IPS` | `127.0.0.1` (the compose template: its gateway, `172.30.0.1`) | The proxies trusted for `X-Forwarded-For`, as the engine sees them | 1 |
+| `MENDARI_ALERT_WEBHOOK` | unset: no alerts posted | Where the monitor's and the quota alerts go (https; keep it as a secret) | 6 |
+| `MENDARI_ALERT_FORMAT` | `mendari` | `mendari` (JSON) or `slack` | 6 |
+| `MENDARI_ALERT_SECRET` | unset: unsigned, with a warning | Signs every alert (`Mendari-Signature`); 32 characters or more | 6 |
 
 ## 9. Before go-live
 

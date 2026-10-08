@@ -21,12 +21,11 @@ import math
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from urllib.parse import urlsplit
 
+from mendari.alerts import check_webhook  # noqa: F401 - where it was, for its callers
 from mendari.core.audit import AuditStore
 from mendari.core.card import benchmark
 from mendari.core.pack import Pack
-from mendari.errors import MendariError
 from mendari.evals import figures
 from mendari.evals.render import shown
 
@@ -65,18 +64,6 @@ def monitor(
         "weeks": _weekly(rows, now, days),
         "alerts": _alerts(recent, before, drift, wrong_auto, bench),
     }
-
-
-def check_webhook(url: str) -> None:
-    """Alerts may leave only over https (or http to this machine or a compose service), and
-    never with credentials in the address."""
-    parts = urlsplit(url)
-    host = parts.hostname or ""
-    local = host in ("localhost", "127.0.0.1") or (bool(host) and "." not in host)
-    if parts.scheme != "https" and not (parts.scheme == "http" and local):
-        raise MendariError("the alert webhook must use https")
-    if parts.username or parts.password:
-        raise MendariError("the alert webhook must not carry credentials in its address")
 
 
 def _alerts(
