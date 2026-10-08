@@ -320,16 +320,19 @@ behaviour.
   and the image, so NOTICE names the files and not the values. **Open, for X12's written
   answer:** the values the repository still carries as test and sandbox configuration
   (`tests/test_pas.py`, `tests/test_notes.py`, `tests/test_x12_values.py`,
-  `scripts/davinci_sample.py`, `docker-compose.yml`), listed here, and quoted in
-  `notes/vision-audit-evidence.md`: request type HS (1525), certification type I (1322), service
-  type 62 (1365), relationship 18 (1069), entity codes PR and 1P (98), review actions A1 and A3
-  (306), all without their descriptions, plus A4 in the scan's list of former values. NOTICE's
-  repository section names each of these files, this one included.
+  `tests/test_key_presets.py`, `scripts/davinci_sample.py`, `docker-compose.yml`), listed here,
+  and quoted in `notes/vision-audit-evidence.md`: request type HS (1525), certification type I
+  (1322), service type 62 (1365), relationship 18 (1069), entity codes PR and 1P (98), review
+  actions A1 and A3 (306), all without their descriptions, plus A4 in the scan's list of former
+  values. NOTICE's repository section names each of these files, this one included.
   Adversarial review (3 lows), all fixed: the PHI guide said the compose sandbox sets every PAS
   setting, but it sets no service type (its synthetic orders carry none and are not one kind of
   service, so each request gives it; the guide and README now say so, and no value was added);
   NOTICE's inventory left out this file; and the compose payer's `:-A1` turned an empty variable
   into A1, so its no-code answer could not be tried (now `-A1`: only an unset variable defaults).
+  Rebased on main after LP-12i-i (#176): its preset test built a PAS request relying on the
+  request and certification types Mendari used to fill in; it now gives them with the request,
+  and NOTICE lists the file (it also gives a service type).
 
 - [x] **LP-15** What the docs promise, and the local loop. Split in three PRs (recommended):
   - [x] **LP-15a** The local loop (#147, merged 2026-10-07). One top-level error handler for every `mendari`
