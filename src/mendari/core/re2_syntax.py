@@ -1,8 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
-r"""A community pack's patterns, written in Python's `re` syntax, rewritten for RE2.
+r"""The patterns of a pack on the community engine, written in Python's `re` syntax, rewritten
+for RE2.
 
 A pack author writes `re` patterns (the spec, the guide and every maintained pack use them).
-A community pack's patterns run on RE2 (`core/patterns.py`), which never backtracks.
+The patterns of a pack the deployment does not own (a community pack, or one from a registry
+that is not a reference pack of this release: `Pack.bounded`) run on RE2 (`core/patterns.py`),
+which never backtracks.
 `translate` parses a pattern the way `re` does (`re._parser`, the same parse `re.compile`
 makes) and writes out an RE2 pattern that matches the same text, spelling out what `re` means
 where RE2 would read the same characters differently:
@@ -363,8 +366,8 @@ class _Writer:
             if name == "ASSERT_NOT" and av[0] < 0:  # a negative lookbehind
                 instead = _NOT_AFTER
             raise Unsupported(
-                f"uses {_REFUSED[name]}, which RE2 (the engine a community pack's patterns "
-                f"run on) does not have: {instead} ({_GUIDE})"
+                f"uses {_REFUSED[name]}, which RE2 (the engine community packs and packs from a "
+                f"registry run on) does not have: {instead} ({_GUIDE})"
             )
         if name in _SINGLE:
             return self._single(item, flags, lead, trail)

@@ -25,7 +25,7 @@ from typing import Annotated, Any, Literal
 from urllib.parse import parse_qsl, urlsplit
 
 import httpx
-from fastapi import Body, FastAPI, HTTPException, Request
+from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import (
@@ -46,7 +46,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from mendari import __version__, guard, notices, settings
 from mendari.core import clock, tenancy
-from mendari.core.audit import SYSTEM_ID, AuditStore
+from mendari.core.audit import ADMINISTRATIVE_KINDS, OFF_DECISION_KINDS, SYSTEM_ID, AuditStore
 from mendari.core.card import benchmark, render_card
 from mendari.core.decision import CallBudget, Decision, QuotaReached
 from mendari.core.origin import is_local
@@ -60,6 +60,7 @@ from mendari.errors import (
     ClientError,
     FhirError,
     FhirStructureError,
+    InvitationRefused,
     MendariError,
     NoteError,
     NoticeNotAcknowledged,
@@ -90,6 +91,7 @@ from mendari.server.auth import (
     names_a_credential,
     org_of,
     read_body,
+    scope_of,
 )
 from mendari.server.backend_services import (
     DISCOVERY_PATH,
@@ -114,8 +116,9 @@ from mendari.standards import (
 )
 from mendari.standards.fhir_client import GuardedHttp, allowed_servers
 from mendari.standards.pas import PasError
-from mendari.standards.search import SPECS, SearchError, handling, searchset
+from mendari.standards.search import SPECS, SearchError, encode_cursor, handling, searchset
 from mendari.standards.search import parse as parse_search
+from mendari.standards.search import stored as stored_instant
 from mendari.standards.smart import smart_ehrs, smart_settings
 from mendari.standards.terminology import Terminology
 
@@ -340,6 +343,15 @@ def input_reader(request: Request) -> str | None:
     return str(principal.actor)
 
 
+def _again(error: MendariError) -> MendariError:
+    """A new exception of `error`'s type, with its message and attributes. Raising the one
+    stored error on every request would add each request's frames (its input among their
+    locals) to the one traceback kept with it, for as long as the server runs."""
+    fresh = type(error).__new__(type(error), *error.args)
+    fresh.__dict__.update(vars(error))
+    return fresh
+
+
 def _with_figures(report: dict[str, Any]) -> dict[str, Any]:
     """A report as served: with its figures (`mendari.evals.figures`), worked out on every read
     and never stored; null figures for a stored report they cannot be read from."""
@@ -383,6 +395,7 @@ def create_app(
         )
         cron_secret = ""
     body_limit = settings.max_body_bytes()  # likewise
+    deadline_s = settings.decision_deadline_s()  # likewise
     rate_limits = limit_settings(sign_in=sign_in is not None)  # likewise
     org_limits = settings.org_daily_limits()  # likewise
     principal_limit = settings.principal_daily_limit()  # likewise
@@ -396,7 +409,10 @@ def create_app(
     webhook = os.environ.get("MENDARI_ALERT_WEBHOOK", "").strip()
     if org_limits and webhook:
         check_webhook(webhook)  # likewise: a quota's alert must be able to leave
-    store = AuditStore(db_path, migrate_url=migrate_url, phi=phi)
+    # Memberships mode marks the database: from then on each event names its organization,
+    # whichever mode or command opens it (LP-12g, ADR-0008).
+    bind_org = sign_in is not None and sign_in.accounts == "memberships"
+    store = AuditStore(db_path, migrate_url=migrate_url, phi=phi, bind_org=bind_org)
     store.ready_to_keep()  # never `off` on a protected database, nor a retired PHI key
     acknowledgement = notices.mode()  # read once; a bad value fails at startup
     acknowledged: set[str] = set()  # chain ids found acknowledged: an acknowledgement stays
@@ -439,7 +455,12 @@ def create_app(
     # Every CodeSystem and NamingSystem the served packs need. A pack whose terminology cannot
     # be built is reported in /api/health (`invalid`) and served without it.
     terms, terminology_problems = Terminology.serving(packs.values())
-    decisions: dict[str, Decision] = {}
+    # Every served pack is built once, at start-up (below), never in a request (LP-16d): `built`
+    # holds its Decision, or `unbuildable` why it could not be built, which each use raises again
+    # and nothing builds again. Its deployment is recorded on its first use (`recorded`).
+    built: dict[str, Decision] = {}
+    unbuildable: dict[str, MendariError] = {}
+    recorded: set[str] = set()
     overrides = dict(providers or {})
 
     def pack_or_404(pack_id: str) -> Pack:
@@ -506,27 +527,37 @@ def create_app(
         level = logging.INFO if phi.mode == "off" else logging.WARNING
         providers_logger.log(level, "Jev is set up; its defaults run %s", ", ".join(sorted(filled)))
 
+    def build(pack: Pack) -> Decision:
+        """The pack bound to the providers the deployment chose for it (at start-up only)."""
+        chosen, skipped = variants_for(pack)
+        if skipped:
+            skipped_settings[pack.id] = skipped
+        try:
+            return Decision(
+                pack,
+                providers=chosen,
+                store=store,
+                budget=budget,
+                fhir_validation=validation,
+                governance_source=approved_override,
+                hold_source=held,
+                deadline_s=deadline_s,
+            )
+        except MendariError:
+            raise
+        except Exception as error:  # the pack's content: named by type, never a 500
+            problem = f"its providers could not be built ({type(error).__name__})"
+            raise PackValidationError(pack.id, [problem]) from None
+
     def decision_for(pack_id: str) -> Decision:
-        if pack_id not in decisions:
-            pack = pack_or_404(pack_id)
-            chosen, skipped = variants_for(pack)
-            if skipped:
-                skipped_settings[pack_id] = skipped
-            try:
-                decision = Decision(
-                    pack,
-                    providers=chosen,
-                    store=store,
-                    budget=budget,
-                    fhir_validation=validation,
-                    governance_source=approved_override,
-                    hold_source=held,
-                )
-            except MendariError:
-                raise
-            except Exception as error:  # the pack's content: named by type, never a 500
-                problem = f"its providers could not be built ({type(error).__name__})"
-                raise PackValidationError(pack_id, [problem]) from None
+        """A served pack's Decision, built at start-up. Its first use records the deployment, once
+        per process (concurrent first uses: `record_deployment` keeps one row), with no lock
+        /api/health could wait on. A pack that could not be built raises why on every use."""
+        pack = pack_or_404(pack_id)
+        if pack.id in unbuildable:
+            raise _again(unbuildable[pack.id])
+        decision = built[pack.id]
+        if pack.id not in recorded:
             environment, release = settings.deployment_place()
             store.record_deployment(
                 environment=environment,
@@ -536,8 +567,8 @@ def create_app(
                 pack_digest=pack.digest,
                 providers={slot: info.variant for slot, info in decision.provider_info.items()},
             )
-            decisions[pack_id] = decision
-        return decisions[pack_id]
+            recorded.add(pack.id)
+        return decision
 
     def question_labels(pack_id: str, question: str) -> list[str] | None:
         """An installed pack's labels for one of its questions (None: not installed, or no such
@@ -579,6 +610,38 @@ def create_app(
         if approval is None:
             return None
         return GovernanceOverride(approved_by=approval["approver"], reference=approval["reference"])
+
+    # Start-up builds every served pack, so /api/health reads what it found and builds nothing.
+    # A pack whose providers cannot be built is listed there with the packs that did not load;
+    # it never stops the start, nor turns health into an error for every other pack.
+    for pack_id in sorted(packs):
+        try:
+            built[pack_id] = build(packs[pack_id])
+        except MendariError as error:
+            unbuildable[pack_id] = error
+    health_providers = {
+        pack_id: {slot: info.variant for slot, info in decision.provider_info.items()}
+        for pack_id, decision in built.items()
+    }
+    health_without_model = {
+        pack_id: slots
+        for pack_id, running in health_providers.items()
+        if (slots := slots_without_model(packs[pack_id], running))
+    }
+    health_unbuilt = {pack_id: str(error) for pack_id, error in unbuildable.items()}
+    # An owned served pack whose provider configs `mendari validate` refuses (`Pack.warnings`): it
+    # loads and serves what builds, and says so once here and in /api/health.
+    health_pack_warnings = {
+        pack_id: list(packs[pack_id].warnings)
+        for pack_id in sorted(packs)
+        if packs[pack_id].warnings
+    }
+    for pack_id, warnings in health_pack_warnings.items():
+        providers_logger.warning(
+            "%s loads with provider config problems (mendari validate refuses it): %s",
+            packs[pack_id].ref,
+            "; ".join(warnings),
+        )
 
     def local_datasets(pack: Pack) -> dict[str, Path]:
         if datasets_dir is None or not datasets_dir.is_dir():
@@ -717,6 +780,17 @@ def create_app(
 
     # -- packs -------------------------------------------------------------------------------
 
+    def deployment_total(name: str, total: Callable[[], Any]) -> dict[str, Any]:
+        """A total over every organization, in health: the operator's in memberships mode."""
+        return {} if auth.memberships else {name: total()}
+
+    def purged(last: dict[str, Any] | None) -> dict[str, Any] | None:
+        """The last purge as health shows it: in memberships mode when and by what, not how
+        many inputs and notes, which are every organization's."""
+        if last is None or not auth.memberships:
+            return last
+        return {key: value for key, value in last.items() if key not in ("inputs", "notes")}
+
     @app.get(
         "/api/health",
         tags=["Service"],
@@ -727,36 +801,30 @@ def create_app(
         without a credential (no database work either). A principal that may `read` (everyone
         in open mode) also gets the deployment's settings: packs (and how many come from
         where), storage, the FHIR validation mode, PHI mode, the input hash's kind and key id,
-        which provider answers each pack's questions, today's remote calls, the rate limits
+        which provider answers each pack's questions, today's remote calls (in memberships
+        mode the operator's, `mendari usage`, as the last purge's counts are), the rate limits
         (where the caller's address is read, and the address seen on this request), the session
-        policy and the organization's daily quotas with what it used today.
+        policy, the organization's daily quotas with what it used today, and whether SMART
+        Backend Services is on (`backend_services`: its token endpoint, or null).
+
+        The packs' state (which provider each runs, the settings skipped, a pack that could not
+        be built, the provider config problems an owned pack loads with, `pack_warnings`) is
+        computed at start-up: health builds no pack and records no deployment (a signed-in
+        caller's session may still be refreshed, as on any route).
         """
         public = {"status": "ok", "version": __version__, "sign_in": auth.enabled}
         principal = auth.principal(request)  # no credential: no lookup
         if principal is None or principal.org is None or not principal.may("read"):
             return public  # a person of no organization (memberships mode) too
-        # A served pack whose providers cannot be built is listed with the packs that did not
-        # load; it never turns this answer into an error for every other pack.
-        providers: dict[str, dict[str, str]] = {}
-        without_model: dict[str, list[str]] = {}
-        unbuilt: dict[str, str] = {}
-        for pack_id in sorted(packs):
-            try:
-                decision = decision_for(pack_id)
-            except MendariError as error:
-                unbuilt[pack_id] = str(error)
-                continue
-            providers[pack_id] = {
-                slot: info.variant for slot, info in decision.provider_info.items()
-            }
-            if slots := slots_without_model(packs[pack_id], providers[pack_id]):
-                without_model[pack_id] = slots
         return {
             **public,
             "packs": len(packs),
             # How many of them come from where: maintained, community, hub, local.
             "packs_by_origin": dict(Counter(pack.shown_origin for pack in packs.values())),
-            "invalid": {**found.problems, **terminology_problems, **unbuilt},
+            "invalid": {**found.problems, **terminology_problems, **health_unbuilt},
+            # Served packs that load with provider config problems (`mendari validate` refuses
+            # them; a pack the deployment does not own is refused, under `invalid`).
+            "pack_warnings": health_pack_warnings,
             "storage": store.backend,
             # Calendar days and displayed times use this zone; stored timestamps are UTC.
             "timezone": timezone,
@@ -764,6 +832,11 @@ def create_app(
             # FHIR servers this deployment may read from (CDS Hooks fetch); empty: none.
             "fhir_allowed_servers": fhir_servers,
             "smart_launch": smart_options is not None,
+            # SMART Backend Services: its token endpoint when it is on (public in discovery
+            # too), None when off. The dashboard's Clients tab is shown only when it is on.
+            "backend_services": (
+                {"token_endpoint": backend.token_url} if backend is not None else None
+            ),
             # The EHRs registered to launch (MENDARI_SMART_EHRS), the caller's organization's
             # only (every one in open mode): base, organization and level.
             "smart_ehrs": [
@@ -779,13 +852,15 @@ def create_app(
             # by `mendari phi purge` or, with CRON_SECRET set, the scheduled purge.
             "retention_days": retention_days,
             "retention_scheduled": bool(cron_secret),
-            "last_purge": store.last_purge(),  # when, how many, and by what; None: never
+            # When, how many, and by what (None: never); in memberships mode not how many, a
+            # total of every organization's (the operator's, ADR-0008).
+            "last_purge": purged(store.last_purge()),
             # How new records' input hashes are made: `hmac-sha256:<key id>` under
             # MENDARI_INPUT_HASH_KEY (required in PHI modes hash and encrypt), else `sha256`.
             "input_hash": phi.hash_kind,
-            "providers": providers,
+            "providers": health_providers,
             # Slots running without a model although their pack offers one (the offline floor).
-            "without_model": without_model,
+            "without_model": health_without_model,
             # Deployment provider settings that name a slot or variant a pack does not have.
             "provider_settings_skipped": skipped_settings,
             # ...and those that apply to no served pack at all (a typo, a pack not served).
@@ -796,12 +871,12 @@ def create_app(
                 "credentials": key_source(key_env=jev.API_KEY_ENV, connector_env=jev.CONNECTOR_ENV),
                 "endpoint_configured": bool(os.environ.get(jev.ENDPOINT_ENV, "").strip()),
                 "model": os.environ.get(jev.MODEL_ENV, "").strip() or None,
-                "calls_today": store.usage("jev"),
+                **deployment_total("calls_today", lambda: store.usage("jev")),
                 "daily_limit": (budget_limits or {}).get("jev"),
             },
             "llm": {
                 **llm.deployment_info(),
-                "calls_today": store.usage("llm"),
+                **deployment_total("calls_today", lambda: store.usage("llm")),
                 "daily_limit": (budget_limits or {}).get("llm"),
             },
             "rate_limits": limiter.describe(request),
@@ -1023,7 +1098,10 @@ def create_app(
         summary="List deployments",
     )
     def deployments(pack_id: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
-        """Which pack version runs where, with which providers, since when (newest first)."""
+        """Which pack version runs where, with which providers, since when (newest first). In
+        memberships mode the deployment's records are the operator's: `404` (ADR-0008)."""
+        if auth.memberships:
+            raise HTTPException(404, "the deployment's records are its operator's")
         if pack_id is not None:
             decision_for(pack_or_404(pack_id).id)  # this server's own row is recorded first
         return store.deployments(pack_id, limit=min(limit, 200))
@@ -1090,8 +1168,13 @@ def create_app(
     @app.get("/api/holds", tags=["Governance"], summary="Automation holds in force")
     def list_holds(request: Request) -> list[dict[str, Any]]:
         """The automation holds in force for your organization: its own and the deployment's
-        (set from the command line). While one covers a decision, AUTO becomes HUMAN_REVIEW."""
-        return store.holds(org_of(auth.acting(request)))
+        (set from the command line). While one covers a decision, AUTO becomes HUMAN_REVIEW.
+        In memberships mode a hold of the deployment's shows what it covers and since when, not
+        the operator's reason or name (ADR-0008)."""
+        held = store.holds(org_of(auth.acting(request)))
+        if not auth.memberships:
+            return held
+        return [hold if hold["org"] is not None else operators_hold(hold) for hold in held]
 
     @app.post(
         "/api/holds",
@@ -1176,6 +1259,7 @@ def create_app(
             pack,
             providers={**chosen, **asked},
             budget=None if budget is None else budget.for_evaluation(),
+            deadline_s=deadline_s,  # each of its decisions has the deployment's deadline
         )
         dataset = dataset_for(pack, request.dataset)
         if decision.is_remote:
@@ -1263,7 +1347,11 @@ def create_app(
         summary="Verify the audit chain",
     )
     def verify() -> dict[str, Any]:
-        """Recompute the hash chain over every event; `ok: false` means the trail was altered."""
+        """Recompute the hash chain over every event; `ok: false` means the trail was altered.
+        In memberships mode the whole chain is the operator's, verified from the command line
+        (`mendari audit verify`): `404` here (ADR-0008)."""
+        if auth.memberships:
+            raise HTTPException(404, OPERATORS_CHAIN)
         return store.verify()
 
     @app.get(
@@ -1284,6 +1372,74 @@ def create_app(
             json.dumps(resource, separators=(",", ":")) + "\n"
             for resource in audit_fhir.resources(
                 store.iter_events(pack_id=pack_id, since=since, until=until)
+            )
+        )
+        return StreamingResponse(lines, media_type="application/fhir+ndjson")
+
+    @app.get(
+        "/api/audit/administrative",
+        tags=["Audit"],
+        summary="Your organization's administrative events",
+    )
+    def administrative_events(
+        request: Request,
+        kind: Annotated[list[str] | None, Query()] = None,
+        subject: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        after: str | None = None,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        """The chained events of what your organization owns, oldest first: its keys, clients,
+        automation approvals and holds, evaluation reports, its record, memberships,
+        invitations and requests to join (ADR-0008). Each is `{subject, event, payload,
+        created_at, hash}`: the event's chain id, its kind, what was chained, when, and its
+        hash, which `mendari audit verify` checks. Never its place in the deployment's chain,
+        nor another organization's events, nor the deployment's own (the operator's).
+
+        `kind` (repeatable) and `subject` (a chain id, `key:<id>`) narrow it; `since` and
+        `until` are instants with their offset; `limit` is 1 to 500 (100). `next`, when there is
+        more, is the `after` of the next page."""
+        org = scope_of(auth.acting(request))
+        try:
+            page = store.administrative_events(
+                org,
+                after=administrative_cursor(after),
+                kinds=administrative_kinds(kind, org),
+                subject=chain_subject(subject),
+                since=instant("since", since),
+                until=instant("until", until),
+                limit=min(max(limit, 1), 500),
+            )
+        except ValueError as error:  # a cursor of no event of this list, whatever the reason
+            raise HTTPException(400, str(error)) from None
+        following = None
+        if page.after is not None:
+            following = encode_cursor(dict(zip(("subject", "hash"), page.after, strict=True)))
+        return {"items": page.rows, "next": following}
+
+    @app.get(
+        "/api/audit/administrative/export/fhir",
+        tags=["FHIR and CDS Hooks"],
+        summary="Export your organization's administrative events as FHIR",
+    )
+    def export_administrative_fhir(
+        request: Request,
+        kind: Annotated[list[str] | None, Query()] = None,
+        since: str | None = None,
+        until: str | None = None,
+    ) -> StreamingResponse:
+        """Your organization's administrative events as FHIR NDJSON AuditEvents, ids and codes
+        only (never a key's or client's name, a hold's reason or an approval's reference),
+        streamed in chain order; `kind`, `since` and `until` as for the list."""
+        org = scope_of(auth.acting(request))  # resolved before the stream starts
+        kinds = administrative_kinds(kind, org)
+        bounds = {"since": instant("since", since), "until": instant("until", until)}
+        log_event(request, "export.audit.administrative")  # its filters are query values
+        lines = (
+            json.dumps(resource, separators=(",", ":")) + "\n"
+            for resource in audit_fhir.administrative_resources(
+                store.iter_administrative_events(org, kinds=kinds, **bounds)
             )
         )
         return StreamingResponse(lines, media_type="application/fhir+ndjson")
@@ -1952,6 +2108,19 @@ def create_app(
         headers = {"cache-control": "no-cache", "content-security-policy": reference_csp}
         return HTMLResponse(reference, headers=headers)
 
+    # The invitation page, memberships mode only (open and claims mode: 404): public and static,
+    # never a redirect (auth.py `_RULES`). Its own policy allows its own inline scripts (the one
+    # that takes the token out of the address before anything loads, the theme, the import map)
+    # and no inline style; never stored, as it holds a token for a moment.
+    if auth.memberships:
+        invite_page = versioned_page("invite.html")
+        invite_csp = content_security_policy(invite_page, inline_styles=False)
+
+        @app.get("/invite", include_in_schema=False)
+        def invitation_page() -> HTMLResponse:
+            headers = {"cache-control": "no-store", "content-security-policy": invite_csp}
+            return HTMLResponse(invite_page, headers=headers)
+
     # Bookmarks and links to FastAPI's ReDoc page, which is gone.
     @app.get("/redoc", include_in_schema=False)
     def to_api_reference() -> RedirectResponse:
@@ -2021,14 +2190,17 @@ def identified(body: dict[str, Any]) -> dict[str, Any]:
 
 
 def error_response(path: str, status: int, error: MendariError) -> JSONResponse:
-    """`{"error", "detail"}` on Mendari's own API; an OperationOutcome on FHIR routes. A
+    """`{"error", "detail"}` on Mendari's own API (and an invitation refusal's `reason`); an
+    OperationOutcome on FHIR routes. A
     sign-in refusal carries its `WWW-Authenticate` challenge, a `429` its `Retry-After`."""
     asked = error.challenge if isinstance(error, AuthError) else None
     headers = {"WWW-Authenticate": asked} if asked else {}
     headers.update(retry_headers(error))
     if not _FHIR_ROUTE.match(path):
-        body = identified({"error": type(error).__name__, "detail": str(error)})
-        return JSONResponse(body, status, headers=headers)
+        said: dict[str, Any] = {"error": type(error).__name__, "detail": str(error)}
+        if isinstance(error, InvitationRefused):  # which refusal, for the /invite page
+            said["reason"] = error.reason
+        return JSONResponse(identified(said), status, headers=headers)
     if isinstance(error, FhirStructureError):
         return operation_outcome(status, [{"code": "structure", **i} for i in error.issues])
     code = _ISSUE_TYPE.get(status, "processing")
@@ -2073,6 +2245,75 @@ def limited_response(path: str, error: RateLimited) -> Response:
         page.headers.update(retry_headers(error))
         return page
     return error_response(path, 429, error)
+
+
+# What a memberships-mode server answers for the whole chain's verification (ADR-0008).
+OPERATORS_CHAIN = (
+    "the whole audit chain is the operator's: `mendari audit verify` on the server's database; "
+    "your organization's own events are at /api/audit/administrative"
+)
+_HASH = re.compile(r"[0-9a-f]{64}")
+
+
+def administrative_cursor(text: str | None) -> tuple[str, str] | None:
+    """An `after` of the administrative list (`{subject, hash}`, as `encode_cursor` wrote it),
+    or a `400`, the same for anything else, as the store answers one not of the list."""
+    if text is None:
+        return None
+    key = None
+    if len(text) <= 1000:  # one of this list's is a few hundred characters
+        try:
+            key = json.loads(base64.urlsafe_b64decode(text + "=" * (-len(text) % 4)))
+        except (ValueError, RecursionError):  # binascii and Unicode errors are ValueErrors
+            key = None
+    if not (
+        isinstance(key, dict)
+        and set(key) == {"subject", "hash"}
+        and isinstance(key["subject"], str)
+        and 0 < len(key["subject"]) <= 200
+        and isinstance(key["hash"], str)
+        and _HASH.fullmatch(key["hash"])
+    ):
+        raise HTTPException(400, "not a cursor of this list")
+    return key["subject"], key["hash"]
+
+
+def administrative_kinds(asked: list[str] | None, org: str | None) -> list[str]:
+    """The kinds asked for (`kind`), each one the list holds: an organization's
+    (`ADMINISTRATIVE_KINDS`), or, in open mode, every kind on no decision; else a `400`."""
+    known = set(ADMINISTRATIVE_KINDS) if org is not None else set(OFF_DECISION_KINDS)
+    unknown = sorted(set(asked or ()) - known)
+    if unknown:
+        raise HTTPException(400, f"not an administrative event kind: {', '.join(unknown)}")
+    return list(dict.fromkeys(asked or ()))
+
+
+def chain_subject(subject: str | None) -> str | None:
+    """A `subject` query value: a chain id of at most 200 printable characters, else a `400`."""
+    if subject is not None and not (0 < len(subject) <= 200 and subject.isprintable()):
+        raise HTTPException(400, "subject is a chain id, such as key:<id>")
+    return subject
+
+
+def instant(name: str, value: str | None) -> str | None:
+    """A `since` / `until` query value as stored (UTC, to the millisecond), or a `400`: an
+    instant with its offset, never a bare date or a local time."""
+    if value is None:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+        if parsed.tzinfo is not None:
+            return stored_instant(parsed)
+    except (ValueError, OverflowError):  # not an instant, or past datetime's range in UTC
+        pass
+    raise HTTPException(400, f"{name} is an instant with its offset: 2026-10-01T00:00:00Z")
+
+
+def operators_hold(hold: Mapping[str, Any]) -> dict[str, Any]:
+    """A hold of the deployment's (set from the command line, for every organization) as an
+    organization sees it in memberships mode: what it covers and since when; the operator's
+    reason and name are the operator's (ADR-0008)."""
+    return {key: hold[key] for key in ("id", "org", "pack_id", "pack_digest", "set_at")}
 
 
 def quota_alert(webhook: str | None) -> QuotaReached:

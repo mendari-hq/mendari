@@ -26,7 +26,7 @@ from mendari.evals.pack_tests import load_cases
 from mendari.server.api_docs import MAX_EXAMPLE_BYTES
 from mendari.server.app import create_app
 from mendari.standards import terminology as terminology_module
-from tests.conftest import INBOX_DIR
+from tests.conftest import INBOX_DIR, cpu_time
 
 PACKS = INBOX_DIR.parent
 TRIAL_DIR = PACKS / "clinical-trial-prescreener"
@@ -222,10 +222,10 @@ def _cql_extra_key(pack: Path) -> None:
 def test_a_pack_whose_providers_cannot_be_built_never_fails_health(
     tmp_path: Path, change: Callable[[Path], None], problem: str
 ) -> None:
-    """T9: providers are built when a pack is first used (main's lazy start), and /api/health
-    built every served pack's; one pack whose default `cql` variant could not be built made
-    /api/health a 422 or a 500 for every reader. It is listed under `invalid` now, its decisions
-    answer 422 naming the problem, and every other pack is reported and decides."""
+    """T9: /api/health built every served pack's providers, and one pack whose default `cql`
+    variant could not be built made it a 422 or a 500 for every reader. Providers are built at
+    start-up now (LP-16d), and health reads that: such a pack is listed under `invalid`, its
+    decisions answer 422 naming the problem, and every other pack is reported and decides."""
     outside = tmp_path / "outside"
     _outsider(outside, _cql_default(change), source=TRIAL_DIR)
     client = TestClient(create_app(db_path=tmp_path / "c.db", packs_paths=[outside, PACKS]))
@@ -300,10 +300,12 @@ def test_a_billion_laughs_in_a_rules_file_is_refused_in_milliseconds(tmp_path: P
     root = tmp_path / "pack"
     shutil.copytree(INBOX_DIR, root)
     _append("logic/red_flags.yaml", laughs(8, "{pattern: x}"))(root)
-    started = time.process_time()
-    with pytest.raises(PackValidationError, match=r"logic/red_flags\.yaml: expands to more than"):
+    with (
+        cpu_time() as spent,
+        pytest.raises(PackValidationError, match=r"logic/red_flags\.yaml: expands to more than"),
+    ):
         load_pack(root)
-    assert time.process_time() - started < 0.5
+    assert spent() < 0.5
 
 
 def test_anchors_within_the_cap_still_load(tmp_path: Path) -> None:
@@ -356,10 +358,12 @@ def test_a_long_scalar_aliased_through_lists_is_refused_by_its_expanded_text(
     that). Scalar text is counted too now, at most `MAX_YAML_CHARS` once aliases are expanded."""
     path = tmp_path / "cases.yaml"
     path.write_text(long_text_laughs(3, 100_000))  # 300 KB holding 10**8 characters
-    started = time.process_time()
-    with pytest.raises(PackValidationError, match="expands to more than 32,000,000 characters"):
+    with (
+        cpu_time() as spent,
+        pytest.raises(PackValidationError, match="expands to more than 32,000,000 characters"),
+    ):
         load_yaml(path, "tests/cases.yaml", "x")
-    assert time.process_time() - started < 0.5
+    assert spent() < 0.5
     within = tmp_path / "within.yaml"
     within.write_text(long_text_laughs(2, 1_000))  # 100,000 characters
     assert len(load_yaml(within, "within.yaml", "x")["x_lists"]["l2"]) == 10

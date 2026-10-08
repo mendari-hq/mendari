@@ -8,10 +8,10 @@ organization from its identity provider's claims needs none of this: it stays as
 
 The records are being built in steps (LP-12). This page covers the command line, signing in by
 records (`MENDARI_ACCOUNTS=memberships`) with the dashboard's access page and organization
-switcher, and how an organization's administrators invite and manage their people through the
-API. The invitation page (`/invite`, which a link opens) and invitations and requests in the
-dashboard follow (LP-12f-ii), and the Access screen after that (LP-12h). Claims mode never
-reads or writes the records.
+switcher, how an organization's administrators invite and manage their people in the
+dashboard's Access view or through the API, and the invitation page (`/invite`) a link opens.
+The same Access view holds an organization's API keys and Backend Services clients, in claims
+mode too (for an administrator who signed in). Claims mode never reads or writes the records.
 
 ## The rules
 
@@ -86,9 +86,11 @@ nothing twice, and it never rewrites a row the deployment already holds.
 mendari access invite --org clinic-a --email lead@example.org --role admin --db "$DATABASE_URL"
 ```
 
-The link is printed once, on its own line: pass it on yourself. It waits until it is accepted,
-revoked or expires on its day. From then on that organization's administrators invite their own
-people.
+The link is printed once, on its own line, as `<the deployment's address>/invite#<token>`: put the
+deployment's public address before it (`MENDARI_PUBLIC_URL` when it has one, the address people
+sign in at), and pass it on yourself. A link on another of its names loses its token when
+signing in moves the browser to the public address. It waits until it is accepted, revoked or
+expires on its day. From then on that organization's administrators invite their own people.
 
 ## Signing in by records
 
@@ -103,7 +105,11 @@ decision; in order:
 3. set `MENDARI_ACCOUNTS=memberships` and redeploy. **Everyone signs in again**, both ways: a
    session of one mode is no session in the other. The owner's membership binds at their first
    sign-in then. Rolling back is unsetting it: the records stay, and claims mode never reads
-   them.
+   them. The database stays marked (`org_bound`): from the first start in memberships mode on,
+   each chained event of an organization (a decision's, or one about a key, client, approval,
+   hold, report, organization, membership, invitation or request) names it, after a rollback
+   too; the deployment's own events (`deployment.recorded`, `user.recorded`) name none. An
+   instance of the previous deployment still serving names it only once it restarts.
 
 Then:
 
@@ -128,34 +134,101 @@ Then:
   leaves a request its administrators see.
 - A membership removed, or its roles changed, applies at the person's next request. Keys and
   clients a removed person created belong to the organization and keep working: revoke them
-  too if they should not (`mendari access members` lists who is in it; the Access screen will
-  list who created each key). So do the open invitations a removed or demoted administrator
+  too if they should not (`mendari access members` lists who is in it; the Access view's API
+  keys and Clients tabs list who created each). So do the open invitations a removed or demoted administrator
   made: they stay valid until they are accepted, expire or are revoked (the list of
   invitations names who made each). Removing someone does revoke that organization's open
-  invitations made out to their address (each chained as `invitation.revoked`), so a link left
-  open earlier, one they could not accept while a member, does not let them back in.
+  invitations made out to their address, or to a pending membership's (each chained as
+  `invitation.revoked`), so a link left open earlier, one they could not accept while a member,
+  does not let them back in.
 - Keys, Backend Services clients and EHR registrations of an organization with no record are
   refused.
-- The whole-chain verify, deployment-wide deployment records and some health fields are still
-  shown to every organization's administrators until LP-12g scopes them: switch the hosted
-  site after LP-12g.
+- `mendari audit verify` also checks each event's organization against the row it is about.
+  `{"ok": false, "broken_at": N, "reason": "organization"}` means that row was moved to
+  another organization, or deleted, after event N was chained: look at the row that event's
+  chain id names (`SELECT decision_id, event, payload FROM audit_events WHERE seq = N`), and
+  restore it from a backup. Keep every row an event names: delete no expired invitation, handled
+  request or organization.
+- What is the whole deployment's is the operator's, from the command line (owner decision 5):
+  `GET /api/audit/verify` and `GET /api/deployments` answer `404`; `/api/health` leaves out
+  today's Jev and LLM calls and the last purge's counts (it keeps when and by what); and a
+  hold set from the command line for every organization shows in `/api/holds` as what it
+  covers and since when, without the operator's reason or name. The operator reads them with
+  `mendari audit verify`, `mendari automation list` and `mendari usage` (today's calls against
+  their limits, the last purge with its counts, the deployment records), each with `--db`.
+  Claims mode shows them as before.
+
+## An organization's audit
+
+Its administrators read the chained events of what it owns, its keys, clients, record,
+memberships, invitations, requests to join, automation approvals and holds, and evaluation
+reports, at `GET /api/audit/administrative` (paged, oldest first; `kind`, `subject`, `since`,
+`until`), and export them as FHIR AuditEvents of ids and codes at
+`GET /api/audit/administrative/export/fhir` (a key's or client's name, a hold's reason and an
+approval's reference stay out). Each event is attributed through the row it is about, never
+by its chain id alone; neither shows its number in the deployment's chain (`seq`), another
+organization's events or the deployment's own. Each event's hash is shown, as `mendari audit
+verify` checks it; what that lets an organization infer about the chain around its own events
+is in the threat model (I4). A person's acknowledgement of the notice is
+theirs, across organizations, not one organization's, so it is not listed.
+
+The operator exports the same, for one organization or for the whole deployment (its own
+events included: key rotations, purges, deployments, sign-in records), from the command line:
+
+```bash
+mendari audit export --administrative --org clinic-a --db "$DATABASE_URL" --out clinic-a.ndjson
+mendari audit export --administrative --db "$DATABASE_URL" --out deployment.ndjson
+```
+
+`--org` alone exports that organization's decisions' trail.
 
 ## Managing an organization's people
 
 In memberships mode an organization's administrators (the `admin` role, a person who signed in;
-never an API key, whatever its role) manage its people through the API, under `/api/auth/`. Each
-acts on the organization the administrator acts for, never one a request names: another
+never an API key, whatever its role) manage its people through the API, under `/api/auth/`, or
+in the dashboard's Access view (`#admin`, "Access" in the section list, shown to them only).
+Each acts on the organization the administrator acts for, never one a request names: another
 organization's invitation, member or request is a `404`.
+
+The Access view has a tab for each list: **Members** (change roles, remove), **Invitations**
+(invite someone, revoke a link) and **Requests to join** (grant with the roles chosen, or
+refuse), then **API keys** and, with SMART Backend Services on, **Clients**. The last two are
+also an administrator's in claims mode, where they are the only tabs; open mode has no Access
+view (the command line and the API remain). Changing roles, removing a member, revoking a link, and granting or refusing a request
+ask first, in a dialog that says what it does, and a refusal of one is said in that dialog, in
+words (removing or demoting the last administrator who signed in, say). Inviting makes a link at
+once, without asking; a refusal to make one (an address that is not one, say) shows as a message.
+The link is shown once, whole (with the deployment's address), in a dialog with a Copy button;
+closing the dialog or leaving the view takes it off the page, and it is never shown again: a lost
+link is revoked and made anew. Who made each invitation and membership is named by their name, "You", or
+"Former member" for someone removed since.
+
+**API keys** are made from a preset (what the key is for: its role, scope and expiry, the routes
+it reaches and a link to the guide that uses it) or by hand (a role and an optional scope). A
+new key is shown once, as an invitation link is; rotating one (with the hours the old key keeps
+working) shows the new one once and says when the old one stops. Revoking asks first. **Clients**
+are registered with a preset's scope or one chosen by hand, and their public keys: a JWK Set, a
+JWK, or a PEM public key, which the page turns into a JWK (its `kid` the key's RFC 7638
+thumbprint). The page refuses the private keys it recognises before anything is sent, and clears
+them from the page: a PEM `PRIVATE KEY` block, JSON holding a JWK with private or symmetric
+members (as a set, an array or a lone JWK), and a private key's DER in base64, bare or under a
+`PUBLIC KEY` header. Treat a key refused that way as exposed. Text it cannot read as a public key
+is not sent either; what it sends, the server checks again, and it refuses any private or
+symmetric member by name. **Replace keys…** replaces a client's key set (its tokens stop at
+once); revoking asks first. Each key and client has a **History**: its audit chain events, oldest
+first, with who did each (a rotated key's history links to its replacement's). Who made a key or
+client is "You", a member's name, or what the chain recorded (an e-mail address or
+`issuer|subject`).
 
 | Route | Does |
 |---|---|
-| `POST /api/auth/invitations` | Invites an address (`email`) with `roles`, valid `days` (7, at most 30). The answer holds the `link` (`/invite#<token>`: put the deployment's address before it), once. |
+| `POST /api/auth/invitations` | Invites an address (`email`) with `roles`, valid `days` (7, at most 30). The answer holds the `link` (`/invite#<token>`: put the deployment's address before it; the dashboard shows the whole URL), once. |
 | `GET /api/auth/invitations` | Lists them, newest first, with their `status`: `open`, `accepted`, `revoked` or `expired`. Never a token. |
 | `DELETE /api/auth/invitations/{id}` | Revokes an open (or expired) one. |
 | `POST /api/auth/invitations/accept` | A person's own: accepts one with its `token`, signed in with the address it names, verified. |
 | `GET /api/auth/members` | Lists the memberships in force: each person's name and address, or the address a pending one waits for. |
 | `PUT /api/auth/members/{id}/roles` | Replaces a membership's roles; they apply at that person's next request. |
-| `DELETE /api/auth/members/{id}` | Ends a membership, and revokes the organization's open invitations made out to that person's address. |
+| `DELETE /api/auth/members/{id}` | Ends a membership, and revokes the organization's open invitations made out to that person's address (a pending one's too). |
 | `GET /api/auth/access-requests` | Lists the open requests to join, with who asked. |
 | `POST /api/auth/access-requests/{id}` | Grants one (`outcome: granted`, with `roles`, `viewer` unless asked) or refuses it. |
 
@@ -178,6 +251,32 @@ organization's invitation, member or request is a `404`.
   acknowledgement as creating a key does; accepting an invitation does not.
 - On the command line `mendari access members` and `mendari access requests` only read:
   changing roles, removing members and handling requests are done through these routes.
+
+## The invitation page (`/invite`)
+
+A link opens `/invite`, a static page served in memberships mode only (open and claims mode
+answer `404`). It is public and never a redirect, so a browser that is not signed in never
+carries the link on to the identity provider. What it does:
+
+- **The token stays in the tab.** The page's first script takes the token from the link's
+  fragment (the part after `#`, which a browser never sends to a server), clears it from the
+  address before anything else loads, and keeps it in that tab's session storage only. It is
+  forgotten once the answer is final: joined, not valid, already a member.
+- **Signed out:** a Sign in button. Sign in with the address the invitation was sent to: the
+  browser comes back to `/invite`, in the same tab, and the invitation is still there.
+- **Signed in:** who you are signed in as, and Accept invitation. Nothing is accepted until it
+  is pressed, so a link scanner or a preview that opens the page uses nothing up.
+- **Joined:** with your roles, and a way into the dashboard. Someone who already acts for another
+  organization in this browser is offered to switch to the new one, or to stay.
+- **Another address:** the invitation is for another one; Use another account signs out and asks
+  the identity provider which account (the invitation waits in the tab, and stays open).
+- **Not verified:** the identity provider did not verify the address; sign in with an account
+  whose provider does.
+- **Not valid:** used, revoked or expired, one answer: ask whoever invited you for a new link.
+- **Already a member:** roles change only by the organization's administrators.
+- **Open the link on the deployment's public address** (`MENDARI_PUBLIC_URL`). Session storage
+  belongs to one address: if signing in moves the browser to another, the page there says there
+  is no invitation in this tab, and the link opened again there works.
 
 ## Reading what is there
 

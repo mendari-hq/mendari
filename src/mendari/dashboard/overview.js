@@ -9,8 +9,9 @@ import { $, api, emptyState, esc, figureHtml, icon, may, money, num, OUTCOMES, o
 views.overview = async (main) => {
   const [stats, chain, holds] = await Promise.all([
     api(`/api/stats?pack_id=${encodeURIComponent(state.packId)}`),
-    // Verifying the chain reads every event: administrators only (the server says the same).
-    may("admin") ? api("/api/audit/verify") : null,
+    // Verifying the chain reads every event: administrators only (the server says the same),
+    // and in memberships mode the operator's alone (ADR-0008).
+    may("admin") && state.accounts !== "memberships" ? api("/api/audit/verify") : null,
     api("/api/holds").catch(() => []),
   ]);
   const d = state.detail;

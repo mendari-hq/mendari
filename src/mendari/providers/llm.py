@@ -41,9 +41,18 @@ from urllib.parse import urlparse
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from mendari.core.pack import Pack
 from mendari.core.spec import Question, deployment_env_problem
 from mendari.errors import PackValidationError, ProviderError
-from mendari.providers.base import Provider, ProviderOutput, batch_state, refuse_if_over_quota
+from mendari.providers import deadline
+from mendari.providers.base import (
+    Provider,
+    ProviderOutput,
+    batch_state,
+    read_problems,
+    refuse_if_over_quota,
+    state_fields_problem,
+)
 from mendari.providers.batch import batched_answer, unwrap
 from mendari.providers.calibration import rescale
 from mendari.providers.credentials import vercel_oidc_token
@@ -100,18 +109,12 @@ class LlmProvider(Provider):
 
     def __init__(self, *args: Any, client: httpx.Client | None = None, **kwargs: Any):
         super().__init__(*args, **kwargs)
-        settings = {k: v for k, v in self.config.items() if k != "type"}
-        problem = deployment_env_problem(self.config)  # also checked at load (core/spec.py)
-        if problem is not None:
-            raise PackValidationError(self.pack.id, [f"{self.info.slot}: {problem}"])
-        try:
-            self.settings = LlmConfig.model_validate(settings)
-        except ValidationError as error:
-            raise PackValidationError(self.pack.id, [f"{self.info.slot}: {error}"]) from None
-        if not 1 <= len(self.questions) <= MAX_QUESTIONS:
-            raise PackValidationError(
-                self.pack.id, [f"{self.info.slot}: 1-{MAX_QUESTIONS} questions per LLM call"]
-            )
+        settings, problems = self._settings(
+            self.info.slot, self.config, self.questions, bounded=self.pack.bounded
+        )
+        if settings is None:
+            raise PackValidationError(self.pack.id, problems)
+        self.settings = settings
         self._client = client
         # No default model: with none here, the provider is built, but never called.
         model = self.settings.model or os.environ.get(MODEL_ENV, "").strip() or None
@@ -139,6 +142,52 @@ class LlmProvider(Provider):
             for q, t in temperatures.items()
             if q in self.questions and isinstance(t, int | float) and t > 0
         }
+
+    @classmethod
+    def config_problems(
+        cls,
+        pack: Pack,
+        where: str,
+        config: Mapping[str, Any],
+        questions: Mapping[str, Question],
+        *,
+        bounded: bool,
+        trained: bool,
+    ) -> list[str]:
+        settings, problems = cls._settings(where, config, questions, bounded=bounded)
+        calibration = settings.calibration if settings is not None else None
+        if calibration is None or not trained:
+            return problems
+        # The calibration file's shape, whichever model it was fitted on: the model that runs
+        # can be the deployment's (`LLM_MODEL`), and at build a file fitted on another is unused.
+        data, problems = read_problems(lambda: pack.read_json(calibration))
+        if problems:
+            return problems
+        if not isinstance(data, dict) or data.get("format") != CALIBRATION_FORMAT:
+            return [f"{where}: not a calibration file"]
+        if not isinstance(data.get("temperatures", {}), dict):
+            return [f"{where}: the calibration file's temperatures are not a mapping"]
+        return []
+
+    @staticmethod
+    def _settings(
+        where: str, config: Mapping[str, Any], questions: Mapping[str, Question], *, bounded: bool
+    ) -> tuple[LlmConfig | None, list[str]]:
+        """The variant's settings (its closed config, `LlmConfig`), or None and why not: it names
+        no environment variable (also checked at load, `core/spec.py`), asks 1 to `MAX_QUESTIONS`
+        questions, and, in a pack the deployment does not own, names its `state_fields`."""
+        problem = deployment_env_problem(dict(config))
+        if problem is not None:
+            return None, [f"{where}: {problem}"]
+        try:
+            settings = LlmConfig.model_validate({k: v for k, v in config.items() if k != "type"})
+        except ValidationError as error:
+            return None, [f"{where}: {error}"]
+        if not 1 <= len(questions) <= MAX_QUESTIONS:
+            return None, [f"{where}: 1-{MAX_QUESTIONS} questions per LLM call"]
+        if bounded and not settings.state_fields:
+            return None, [f"{where}: {state_fields_problem(LlmProvider.type)}"]
+        return settings, []
 
     @property
     def base_url(self) -> str:
@@ -190,7 +239,9 @@ class LlmProvider(Provider):
         model = self.configured_model()  # a caller that skipped preflight never sends no model
         require_secure(self.base_url, "LLM")
         refuse_if_over_quota()  # over quota: no credential fetched, no call
+        deadline.refuse_if_past()  # past the decision's deadline: likewise
         token = self._token()
+        deadline.refuse_if_past()  # a credential fetch can take the rest of it
         self.charge()  # after the credential: a call that cannot be made uses no budget
 
         questions = {key: q for provider in batch for key, q in provider.questions.items()}

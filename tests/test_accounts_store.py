@@ -278,9 +278,13 @@ def test_removing_a_member_revokes_the_invitations_made_out_to_them(store: Audit
         )
     assert (gone.value.status, gone.value.reason) == (404, "invalid")
     assert store.membership_in_force(bo["id"], "clinic-a") is None
-    # A pending membership, or a person with no address on record: nothing to revoke.
+    # A pending membership revokes the invitations to its address too; a person with no address
+    # on record revokes nothing.
     pending = store.add_membership(
-        org="clinic-a", roles=["viewer"], created_by="cli", email="cy@example.org"
+        org="clinic-a", roles=["viewer"], created_by="cli", email="eve@example.org"
+    )
+    to_eve = store.create_invitation(
+        org="clinic-a", email="eve@example.org", roles=["admin"], created_by=lead["id"]
     )
     kim = person(store, "kim", None)
     unaddressed = store.add_membership(
@@ -288,11 +292,13 @@ def test_removing_a_member_revokes_the_invitations_made_out_to_them(store: Audit
     )
     for removed in (pending, unaddressed):
         assert store.remove_membership(removed["id"], org="clinic-a", removed_by=lead["id"])
-    assert status == {
+    after = {
         i["id"]: (i["status"], i["revoked_by"])
         for org in ("clinic-a", "clinic-b")
         for i in store.invitations(org)
     }
+    assert after.pop(to_eve["id"]) == ("revoked", lead["id"])
+    assert after == status
     assert store.verify()["ok"]
 
 

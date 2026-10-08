@@ -20,7 +20,6 @@ newest is served).
 from __future__ import annotations
 
 import os
-import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,11 +32,13 @@ from mendari.core.origin import (
     performer_problem,
 )
 from mendari.core.pack import MANIFEST, Pack, load_pack
+from mendari.core.reference import BUNDLED_DIRS, bundled_dir
+from mendari.core.spec import version_key  # also imported from here (the server, the hub)
 from mendari.errors import MendariError, PackNotFoundError
 from mendari.settings import community_packs_enabled
 
 _PACKAGE_DIR = Path(__file__).resolve().parents[1]
-_BUNDLED_DIRS = (_PACKAGE_DIR / "_packs", _PACKAGE_DIR.parents[1] / "packs")
+_BUNDLED_DIRS = BUNDLED_DIRS  # `core/reference.py`; `community/check.py` reads this name
 _COMMUNITY_DIR = _PACKAGE_DIR.parents[1] / "community-packs"
 MAX_DEPTH = 4  # `pack.yaml` at most this many path parts below a search directory
 
@@ -66,10 +67,9 @@ def search_paths() -> list[SearchPath]:
 
     if packs_cache().is_dir():
         paths.append(SearchPath(packs_cache(), "hub"))
-    for bundled in _BUNDLED_DIRS:
-        if bundled.is_dir():
-            paths.append(SearchPath(bundled, "maintained"))
-            break
+    bundled = bundled_dir()
+    if bundled is not None:
+        paths.append(SearchPath(bundled, "maintained"))
     if community and _COMMUNITY_DIR.is_dir():
         paths.append(SearchPath(_COMMUNITY_DIR, "community"))
     return paths
@@ -220,10 +220,3 @@ def resolve_pack(
             f"no pack {ref!r} on the search path ({', '.join(where) or 'empty'})"
         )
     return max(matches, key=lambda pack: version_key(pack.version))
-
-
-def version_key(version: str) -> tuple[tuple[int, str], ...]:
-    """Orders versions by their numbers, as integers would, without converting them: `int()`
-    refuses more than 4,300 digits, and a version string comes from a pack or a registry."""
-    parts = (part.lstrip("0") for part in re.findall(r"\d+", version.split("-")[0]))
-    return tuple((len(part), part) for part in parts)

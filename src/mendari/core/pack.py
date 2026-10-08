@@ -9,7 +9,7 @@ import math
 import os
 import stat
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import cached_property
 from pathlib import Path
 from typing import Any, NoReturn
@@ -21,7 +21,15 @@ from pydantic import ValidationError
 
 from mendari.core import input_schema as schema_rules
 from mendari.core import patterns
-from mendari.core.origin import ORIGIN_LABELS, Origin, is_community, shown_origin
+from mendari.core.origin import (
+    NOT_OWNED,
+    ORIGIN_LABELS,
+    RESERVED_NAMESPACES,
+    Origin,
+    is_community,
+    shown_origin,
+)
+from mendari.core.origin import bounded as origin_bounded
 from mendari.core.spec import (
     LICENSED_CODE_SYSTEMS,
     LICENSED_HINTS,
@@ -29,6 +37,7 @@ from mendari.core.spec import (
     PackManifest,
     Priority,
     licensed_systems,
+    version_key,
 )
 from mendari.errors import PackValidationError
 
@@ -73,6 +82,11 @@ class Pack:
     digested: Digested | None = field(default=None, compare=False, repr=False)
     # Where the pack was found (`core/origin.py`), never what its manifest says.
     origin: Origin = field(default="local", compare=False)
+    # What `load_pack` found wrong with an owned pack's provider configs
+    # (`providers.config_problems`): it loads, and says so (`mendari list`, the startup log,
+    # /api/health's `pack_warnings`); `mendari validate` refuses it. A pack the deployment does
+    # not own is refused at load instead, so it has none.
+    warnings: tuple[str, ...] = field(default=(), compare=False)
 
     @property
     def id(self) -> str:
@@ -83,6 +97,13 @@ class Pack:
         """A community pack: it never automates, and decides with local providers unless the
         deployment opts it in by name (`core/origin.py`)."""
         return is_community(self.id, self.origin)
+
+    @property
+    def bounded(self) -> bool:
+        """A pack the deployment does not own, on the community engine: RE2, the caps, the
+        input limits and a CPU budget per decision (`core/origin.py` `bounded`, ADR-0009). Read
+        from where the pack was found and the digest `load_pack` hashed, never its manifest."""
+        return origin_bounded(self.id, self.origin, self.digest)
 
     @property
     def shown_origin(self) -> Origin:
@@ -218,7 +239,17 @@ def load_pack(
 ) -> Pack:
     """Load and validate a pack. `missing_models_ok` lets `mendari train` load a pack whose
     trained artifacts (`model_file`, `calibration`) do not exist yet; `origin` is where it was
-    found (`core/registry.py` knows)."""
+    found (`core/registry.py` knows). A pack the deployment does not own (`Pack.bounded`: a
+    community pack, or one from a registry that is not a reference pack of this release) is
+    checked as it will run: its patterns on RE2, its schema's keywords and its caps; and one
+    from a registry never has a reference pack's id and version with other files
+    (`_shadow_problem`). Every other pack's input schema is held to the expansion bounds
+    (`core/input_schema.py` `expansion_problems`).
+
+    Every provider variant and composite member is checked against its provider's closed config
+    and its pack files (`providers.config_problems`, without the environment or the network):
+    a pack the deployment does not own is refused for any problem; an owned one loads, with the
+    problems as its `warnings`, and a variant with one fails when it is built, as before."""
     root = Path(path).resolve()
     links = _outside_links(root)
     if links:
@@ -248,6 +279,8 @@ def load_pack(
         manifest = PackManifest.model_validate(raw)
     except ValidationError as error:
         raise PackValidationError(label, _format_errors(error)) from None
+    if (problem := _shadow_problem(manifest, origin, digest, root)) is not None:
+        raise PackValidationError(manifest.id, [problem])
     declared = {
         url
         for use in manifest.code_systems
@@ -282,13 +315,23 @@ def load_pack(
         relative: parse_yaml(_read(root, relative, label, digested), relative, manifest.id)
         for relative in _rules_files(manifest)
     }
-    community = is_community(manifest.id, origin)
+    # The engine its patterns run on: from where it was found and the digest hashed above, never
+    # from its manifest (`core/origin.py` `bounded`, ADR-0009).
+    bounded = origin_bounded(manifest.id, origin, digest)
     # Compiled as they run, before jsonschema compiles the schema's too.
-    refused = _pattern_problems(input_schema, parsed, community=community)
+    refused = _pattern_problems(input_schema, parsed, community=bounded)
     problems = list(refused)
-    if community:
+    if bounded:
         problems += schema_rules.community_problems(input_schema)
     if refused:
+        namespace = manifest.id.partition("/")[0]
+        if bounded and not is_community(manifest.id, origin) and namespace in RESERVED_NAMESPACES:
+            problems.append(
+                f"{manifest.id}@{manifest.version} is not the copy of it in this release, so it "
+                "runs on the engine for packs from a registry, which cannot run the patterns "
+                "above: use the copy this release bundles, or a version published for this "
+                "release"
+            )
         raise PatternsRefused(manifest.id, problems, refused)
     if problems:
         raise PackValidationError(manifest.id, problems)
@@ -299,12 +342,16 @@ def load_pack(
     except (OverflowError, RecursionError, TypeError, ValueError) as error:
         problem = f"input schema: not a schema the validator can read ({type(error).__name__})"
         raise PackValidationError(manifest.id, [problem]) from None
-    if community:
+    if bounded:
         problems = _community_caps(root, manifest, input_schema, parsed, label, digested)
         if problems:
             raise PackValidationError(manifest.id, problems)
+    # A pack the deployment owns has no time budget: its schema's shape is bounded instead (one
+    # on the community engine keeps the caps above and the budget, ADR-0009).
+    elif problems := schema_rules.expansion_problems(input_schema):
+        raise PackValidationError(manifest.id, problems)
 
-    return Pack(
+    pack = Pack(
         manifest=manifest,
         root=root,
         digest=digest,
@@ -313,6 +360,60 @@ def load_pack(
         digested=digested,
         origin=origin,
     )
+    # Every variant against its provider's closed config, as `mendari validate` checks it.
+    from mendari.providers import config_problems  # `providers/base.py` imports this module
+
+    problems = config_problems(pack, trained=not missing_models_ok)
+    if not problems:
+        return pack
+    if bounded:
+        raise PackValidationError(manifest.id, problems)
+    return replace(pack, warnings=tuple(problems))
+
+
+def _shadow_problem(manifest: PackManifest, origin: Origin, digest: str, root: Path) -> str | None:
+    """Why a pack of an origin the deployment does not own (`NOT_OWNED`: a registry's, LP-20's
+    store) may not load: it has the id of a reference pack of this release and a version that
+    ties that pack's (`version_key`: `0.4.1-x` and `0.04.1` tie `0.4.1`), but other files (its
+    digest is no reference pack's). It would take the reference pack's place: the search path
+    serves the first of two tying versions, and the registry cache comes before the bundled
+    packs. None for every other pack: an operator's local copy (its choice), a community pack
+    (its ids are `community/`), a copy of a reference pack, and any other version."""
+    if origin not in NOT_OWNED:
+        return None
+    from mendari.core.reference import reference_digests, reference_packs  # imports this module
+
+    if digest in reference_digests():
+        return None
+    wanted = version_key(manifest.version)
+    tying = [
+        reference
+        for reference in reference_packs().get(manifest.id, ())
+        if version_key(reference.version) == wanted
+    ]
+    if not tying:
+        return None
+    bundled, short = f"{manifest.id}@{tying[0].version}", digest[: len("sha256:") + 16]
+    return (
+        f"{manifest.id}@{manifest.version} has the id and version of a reference pack this "
+        f"release bundles ({bundled}) but other files (digest {short}): a pack from a registry "
+        "never takes a reference pack's place. Use the copy this release bundles, or publish it "
+        f"under another version{_cached(root)}"
+    )
+
+
+def _cached(root: Path) -> str:
+    """What a reason adds for a pack in the registry cache, where `mendari pull` puts it
+    (`<namespace>/<name>/<version>`) and pulled it before this release refused it: the directory
+    to remove. Nothing for any other directory (an archive being checked, a pull's staging)."""
+    from mendari.hub.client import packs_cache  # `hub/client.py` imports this module
+
+    try:
+        cache = packs_cache().resolve()
+    except (OSError, RuntimeError):  # no home directory to find the cache in
+        return ""
+    cached = root.is_relative_to(cache) and len(root.relative_to(cache).parts) == 3
+    return f"; remove {root} from the cache" if cached else ""
 
 
 def _community_caps(
@@ -323,9 +424,9 @@ def _community_caps(
     label: str,
     digested: Digested,
 ) -> list[str]:
-    """What multiplies a community pack's pattern work past its caps (`core/caps.py`): its rules
-    and dosing configs, its input schema, and the patterns they run together. The caps are
-    imported only for a community pack."""
+    """What multiplies the pattern work of a pack on the community engine (`Pack.bounded`) past
+    its caps (`core/caps.py`): its rules and dosing configs, its input schema, and the patterns
+    they run together. The caps are imported only for such a pack."""
     from mendari.core import caps
 
     problems = [
@@ -457,9 +558,9 @@ def _authored_patterns(input_schema: Any, rules: dict[str, Any]) -> list[tuple[s
 def _pattern_problems(
     input_schema: Any, rules: dict[str, Any], *, community: bool = False
 ) -> list[str]:
-    """Every pack-authored pattern compiled as it will run (`core/patterns.py`: a community
-    pack's on RE2), after counting them, so a pack over the cap is refused before any is
-    compiled."""
+    """Every pack-authored pattern compiled as it will run (`core/patterns.py`: on RE2 for a
+    pack on the community engine, `community`), after counting them, so a pack over the cap is
+    refused before any is compiled."""
     found = _authored_patterns(input_schema, rules)
     if len(found) > patterns.MAX_PACK_PATTERNS:
         return [

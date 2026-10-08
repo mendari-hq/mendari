@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import gc
 import json
 import os
 import secrets
@@ -11,6 +12,7 @@ import time
 import uuid
 from collections.abc import Callable, Coroutine, Iterator
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TypeVar
@@ -67,7 +69,7 @@ CORE = {
     "test_dosing.py", "test_providers.py", "test_guard.py", "test_inbox_pack.py",
     "test_referral_pack.py", "test_trial_pack.py", "test_prior_auth_pack.py",
     "test_ai_guard_pack.py", "test_policy.py", "test_safety_invariant.py", "test_governance.py",
-    "test_hold.py", "test_gate.py", "test_audit.py", "test_evals.py",
+    "test_hold.py", "test_gate.py", "test_audit.py", "test_evals.py", "test_registry_engine.py",
 }  # fmt: skip
 
 
@@ -331,6 +333,26 @@ def run_async(coroutine: Coroutine[Any, Any, T]) -> T:
     to start there."""
     with ThreadPoolExecutor(max_workers=1) as pool:
         return pool.submit(asyncio.run, coroutine).result()
+
+
+@contextmanager
+def cpu_time() -> Iterator[Callable[[], float]]:
+    """The processor time this thread spends in the block, as `spent()`, for a budget on
+    single-threaded work (loading a pack, as core/patterns.py budgets a pattern: by
+    `time.thread_time`). Not the process's: other threads' time (a server or pool an earlier
+    test left running) is not this work's, nor is collecting the garbage of earlier tests, so
+    the collector runs before and is off during it."""
+    gc.collect()
+    collecting = gc.isenabled()
+    gc.disable()
+    started = time.thread_time()
+    ended: float | None = None
+    try:
+        yield lambda: (time.thread_time() if ended is None else ended) - started
+    finally:
+        ended = time.thread_time()
+        if collecting:
+            gc.enable()
 
 
 def security_lines(stdout: str) -> list[dict[str, Any]]:

@@ -67,7 +67,9 @@ function automationText(d, governance) {
 }
 
 // Where this pack runs: one row each time its version, providers or release changed somewhere.
+// In memberships mode they are the deployment operator's (null: not served, ADR-0008).
 function deploymentsSection(rows) {
+  if (rows === null) return `<p class="prose muted">Kept by the deployment's operator: where and how this pack runs is recorded on the server, not shown to each organization.</p>`;
   if (!rows.length) return `<p class="prose muted">Not recorded yet: a server records itself the first time it uses the pack.</p>`;
   const providers = (map) => Object.entries(map).map(([slot, variant]) => `<code>${esc(slot)}</code> ${esc(variant)}`).join(", ");
   return `<div class="panel table-wrap"><table>
@@ -99,7 +101,9 @@ views.card = async (main, params) => {
   const p = m.policy;
   const query = `pack_id=${encodeURIComponent(state.packId)}`;
   const [governance, deployments, holds] = await Promise.all([
-    api(`/api/governance?${query}`), api(`/api/deployments?${query}`), api("/api/holds"),
+    api(`/api/governance?${query}`),
+    state.accounts === "memberships" ? null : api(`/api/deployments?${query}`),
+    api("/api/holds"),
   ]);
   const list = (items) => `<ul>${items.map((u) => `<li>${esc(u)}</li>`).join("")}</ul>`;
   main.innerHTML = `
@@ -251,9 +255,13 @@ function wireApproval(main) {
 // organization and is lifted there.
 function holdSection(holds, d) {
   const covering = holdsFor(holds, d);
+  // A hold of the deployment's comes without its reason and setter in memberships mode: the
+  // operator's (ADR-0008).
+  const why = (h) => (h.reason === undefined
+    ? `set by the deployment's operator, ${esc(time(h.set_at))}.`
+    : `${esc(h.reason)}. Set by ${esc(h.set_by)}, ${esc(time(h.set_at))}.`);
   const listed = covering.map((h) => `<div class="callout danger"><b>Automation on hold</b>
-      (${h.pack_id ? "this pack" : "every pack"}${h.org ? "" : ", every organization"}): ${esc(h.reason)}.
-      Set by ${esc(h.set_by)}, ${esc(time(h.set_at))}.
+      (${h.pack_id ? "this pack" : "every pack"}${h.org ? "" : ", every organization"}): ${why(h)}
       ${may("approve") && h.org ? `<button type="button" data-lift="${esc(h.id)}">Lift</button>` : ""}</div>`).join("");
   const form = may("approve") ? `<form class="approve-form" id="hold-form">
       <label for="hold-reason">Reason</label>

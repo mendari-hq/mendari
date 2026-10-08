@@ -126,6 +126,14 @@ gates:
               - tests/test_workflow_safety.py::test_nothing_starts_on_a_tag_push
               - tests/test_workflow_safety.py::test_a_release_publishes_only_by_hand_after_its_build_from_a_guarded_environment
               - tests/test_release_gate.py::test_the_environment_guard_fails_closed
+              # The images carry LICENSE, NOTICE and every third-party notice, and the release
+              # pushes none that does not (owner's decision 2026-10-07, tasks/todo.md).
+              - tests/test_image_licences.py::test_the_dockerfile_writes_licences_and_keeps_debians
+              - tests/test_image_licences.py::test_the_committed_texts_are_the_ones_fetched
+              - tests/test_workflow_safety.py::test_images_are_pushed_only_when_they_comply_and_with_their_source_first
+              - tests/test_workflow_safety.py::test_ci_checks_the_images_licences
+              - tests/test_supply_chain.py::test_ci_scans_the_sbom_from_the_releases_generator_and_builder
+              - tests/test_image_licences.py::test_written_notices_pass_the_check_until_something_changes
       - id: a2-docs-promise
         what: "A2: what the docs promise works (release paths, docs deploy, every documented command checked, one-line errors), and the scaffold and README point at the published docs"
         owner: build
@@ -194,7 +202,7 @@ gates:
     name: "Stage 3 to 4: scoreboards and pack store"
     prerequisites:
       - id: a3-pack-safety
-        what: "A3: a pack from an outside author is safe to run (time limits on every pattern, a decision budget, fuzzing; done for community packs, #133)"
+        what: "A3: a pack from an outside author is safe to run (RE2, caps, input limits and a CPU budget per decision for every pack the deployment does not own: community packs #133, registry packs LP-16; a decision deadline)"
         owner: build
         probes:
           - tests:
@@ -203,7 +211,18 @@ gates:
               - tests/test_pack_isolation.py::test_a_billion_laughs_in_a_rules_file_is_refused_in_milliseconds
               - tests/test_pack_isolation.py::test_any_error_loading_one_pack_lists_it_by_type_and_serves_the_others
               - tests/test_community_budget.py::test_a_community_packs_rules_stop_at_the_budget_and_a_person_decides
-          - pending: "LP-16 (Option A scoped, owner 2026-10-07: the community engine's time limits and decision budget for every pack the deployment does not own)"
+              - tests/test_decision_deadline.py::test_a_deadline_never_automates
+          - tests:
+              - tests/test_registry_engine.py::test_a_pack_from_a_registry_runs_on_the_community_engine
+              - tests/test_registry_engine.py::test_a_registry_packs_rules_stop_at_the_budget_and_a_person_decides
+              - tests/test_registry_engine.py::test_the_engine_follows_the_bytes_not_the_manifest
+              - tests/test_registry.py::test_a_publish_is_checked_on_the_engine_its_pullers_run
+              - tests/test_hub_client.py::test_a_pull_the_engine_refuses_leaves_nothing_in_the_cache
+              - tests/test_registry_engine.py::test_a_pulled_pack_never_takes_a_reference_packs_name_and_version
+              - tests/test_input_schema.py::test_a_nested_ref_schema_is_refused_at_load
+              - tests/test_server.py::test_health_answers_within_its_bound_while_a_registry_packs_decision_runs
+              - tests/test_provider_configs.py::test_load_and_validate_agree_on_provider_configs
+              - tests/test_provider_configs.py::test_a_generated_pack_only_reaches_the_deployments_endpoints_with_its_credentials
       - id: a7-pack-store
         what: "A7: a versioned pack store per organization, with upload checks and promotion signed off by someone other than the author"
         owner: build

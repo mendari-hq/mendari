@@ -95,7 +95,7 @@ from urllib.parse import quote, urlencode, urlsplit
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 
 from mendari.core import accounts, tenancy
 from mendari.core.audit import (
@@ -115,7 +115,7 @@ from mendari.errors import (
     OrganizationChanged,
     ScopeError,
 )
-from mendari.server import scopes, security_log, sessions
+from mendari.server import presets, scopes, security_log, sessions
 from mendari.server.scopes import Grant
 from mendari.standards import oidc, smart
 from mendari.standards.fhir_client import GuardedHttp, allowed_servers
@@ -199,6 +199,10 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         # The developer landing (static, the same for every deployment of a release) and a
         # redirect from ReDoc's old address to the reference.
         ("GET", r"^/(docs|redoc)$", "public"),
+        # The invitation page (memberships mode; not mounted otherwise): public and static,
+        # never a redirect, so a signed-out browser never carries the token in the link's
+        # fragment on to the identity provider (a redirect keeps it, RFC 9110 §10.2.2).
+        ("GET", r"^/invite$", "public"),
         ("GET", r"^/docs/reference$", "page"),  # a signed-out browser is sent to sign in
         ("GET", r"^/openapi\.json$", "read"),
         # The scheduled purge (Vercel Cron): its own bearer secret, CRON_SECRET, checked there.
@@ -239,8 +243,9 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         ("*", r"^/api/auth/(members|invitations)(/|$)", "keys"),
         ("GET", r"^/api/auth/access-requests$", "keys"),
         ("POST", r"^/api/auth/access-requests/[^/]+$", "keys"),
-        # The whole chain, read or exported: administrators only.
-        ("GET", r"^/api/audit/(verify|export/fhir)$", "admin"),
+        # The whole chain, read or exported, and an organization's administrative events (its
+        # keys, clients, people, approvals and holds): administrators only.
+        ("GET", r"^/api/audit/(verify|export/fhir|administrative(/export/fhir)?)$", "admin"),
         ("POST", r"^/api/governance$", "approve"),
         ("DELETE", r"^/api/governance/[^/]+$", "approve"),
         ("GET", r"^/api/", "read"),
@@ -391,6 +396,36 @@ class Launch:
 OPEN = Principal(
     kind="open", name="open mode", roles=frozenset({"admin"}), id="open", actor="open mode"
 )
+
+
+def key_reaches(
+    role: str, scope: str | None, routes: Iterable[tuple[str, str]]
+) -> list[tuple[str, str]]:
+    """The routes a key of `role` and `scope` gets past the guard on (`Auth.check`): its role's
+    permission (people-only ones never), and, scoped, the scope each route needs; the pages
+    (static HTML for browsers) too, unscoped (a scope names none). Public routes aside: they
+    need no key."""
+    grant = None if scope is None else scopes.parse(scope)
+    key = Principal(
+        kind="key", name="preset", roles=frozenset({role}), grant=grant, id="key:-", actor="-"
+    )
+    reached = []
+    for method, path in routes:
+        permission = permission_for(method, path)
+        if permission == "public":
+            continue
+        if permission == "page":
+            if grant is None:
+                reached.append((method, path))
+            continue
+        if not key.may(permission):
+            continue
+        if grant is not None:
+            needed = scopes.needed(method, path)
+            if needed is None or not grant.covers(needed):
+                continue
+        reached.append((method, path))
+    return reached
 
 
 def org_of(principal: Principal) -> str:
@@ -544,7 +579,30 @@ class KeyRequest(BaseModel):
         "(`system/Task.rs`, `system/*.rs`, …) and Mendari's decide and outcome URIs. Left out, "
         "the key has its role's permissions.",
     )
+    preset: str | None = Field(
+        default=None,
+        max_length=40,
+        json_schema_extra={"enum": [*presets.PRESETS, None]},
+        description="A documented integration path the key is for (`GET /api/auth/keys/presets`): "
+        "its scope, with `role` the preset's and no `scope` sent; `days` defaults to the "
+        "preset's. A label only: what the key may do is its role and scope as created.",
+    )
     days: int = Field(default=KEY_DAYS, ge=1, le=KEY_MAX_DAYS, description="Days until it expires.")
+
+    @field_validator("preset")
+    @classmethod
+    def _a_preset_for_this_role(cls, value: str | None, info: ValidationInfo) -> str | None:
+        if value is None:
+            return None
+        chosen = presets.PRESETS.get(value)
+        if chosen is None:
+            raise ValueError(f"no such preset: one of {', '.join(presets.PRESETS)}")
+        if info.data.get("scope") is not None:
+            raise ValueError("send a scope or a preset, not both")
+        role = info.data.get("role")
+        if role is not None and role != chosen.role:
+            raise ValueError(f"the {value} preset is a {chosen.role} key: send role {chosen.role}")
+        return value
 
 
 class RotateKeyRequest(BaseModel):
@@ -1277,10 +1335,17 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
         `system/*.rs`, `https://mendari.co/fhir/scope/decide`, …; a scope Mendari does not grant,
         or one the role cannot use, is a `422` naming it), expiring after `days` (90 unless
         asked, 365 at most). The key is in this response only; it is stored hashed. Creating it
-        is recorded in the audit chain, without the key."""
+        is recorded in the audit chain, without the key. Or name a `preset`
+        (`GET /api/auth/keys/presets`): its scope and default expiry, for the role it names."""
         principal = auth.acting(request)
         scope = None
-        if body.scope is not None:
+        days = body.days
+        if body.preset is not None:
+            chosen = presets.PRESETS[body.preset]
+            if chosen.scope is not None:
+                scope = scopes.parse(chosen.scope, permissions=PERMISSIONS[body.role]).scope
+            days = body.days if "days" in body.model_fields_set else chosen.days
+        elif body.scope is not None:
             scope = scopes.parse(body.scope, permissions=PERMISSIONS[body.role]).scope
         key = store.create_api_key(
             name=body.name,
@@ -1288,7 +1353,8 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
             org=org_of(principal),
             created_by=principal.actor,
             scopes=scope,
-            days=body.days,
+            days=days,
+            preset=body.preset,
         )
         security_log.event(
             "admin.key.created", actor=principal.id, org=principal.org, ids=[str(key["id"])]
@@ -1301,9 +1367,49 @@ def add_auth_routes(app: FastAPI, auth: Auth) -> None:
         summary="List API keys",
     )
     def list_keys(request: Request) -> list[dict[str, Any]]:
-        """Keys of this organization: name, role, scope, who created it and when, when it
-        expires, and when and by whom it was revoked. Never the key."""
+        """Keys of this organization, oldest first: name, role, scope, the preset it was made
+        from, who created it and when, when it expires, its replacement if it was rotated
+        (`replaced_by`), when and by whom it was revoked, and its `status` now: `active`,
+        `replaced` (rotated, still working until its `expires_at`), `expired` or `revoked`.
+        Never the key."""
         return store.api_keys(scope_of(auth.acting(request)))
+
+    @app.get(
+        "/api/auth/keys/presets",
+        tags=["Sign-in"],
+        summary="Key presets",
+    )
+    def key_presets(request: Request) -> list[dict[str, Any]]:
+        """One preset per documented integration path: its role, its scope (null: the role's
+        own), its default expiry and the bounds a key's has, the calls its documentation
+        describes, every route a key made from it reaches here (computed from the route rules,
+        never written by hand), and its documentation: the page's source path under docs/ (the
+        site serves it without `.md`) with the heading's anchor. Create a key from one with
+        `POST /api/auth/keys` and `preset`."""
+        auth.acting(request)
+        routes = presets.served(request.app.routes)
+        return [
+            preset.as_dict(key_reaches(preset.role, preset.scope, routes))
+            for preset in presets.PRESETS.values()
+        ]
+
+    @app.get(
+        "/api/auth/keys/{key_id}/history",
+        tags=["Sign-in"],
+        summary="An API key's history",
+    )
+    def key_history(request: Request, key_id: str) -> dict[str, Any]:
+        """What happened to this organization's key, from the audit chain (`key:<id>`), oldest
+        first: created (with its role, scope or preset and expiry), rotated (to which key, until
+        when the old one works, the overlap asked) and revoked, each with who did it and when;
+        never the key or its hash. A rotation's new key names the old one (`replaces`), the old
+        one its replacement (`replaced_by`): each has its own history. At most the 200 newest
+        events (`truncated` says if there were more). Unknown or another organization's key:
+        `404`."""
+        found = store.subject_history("key", key_id, scope_of(auth.acting(request)))
+        if found is None:
+            raise AuthError("no such key", 404)
+        return found
 
     @app.post(
         "/api/auth/keys/{key_id}/rotate",

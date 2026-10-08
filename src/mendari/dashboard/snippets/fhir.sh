@@ -41,7 +41,7 @@ curl -sS --fail-with-body "$MENDARI/fhir/AuditEvent?entity=Task/$id" \
 curl -sS --fail-with-body "$MENDARI/fhir/Provenance?target=Task/$id" \
   -H "Authorization: Bearer $MENDARI_KEY" | jq '[.entry[].resource.id]'
 
-# step: trail — One decision's audit trail as a FHIR Bundle
+# step: trail — One decision's audit trail as a FHIR Bundle (Mendari's own API: an unscoped service key)
 curl -sS --fail-with-body "$MENDARI/api/audit/$id/fhir" -H "Authorization: Bearer $MENDARI_KEY" \
   | jq '[.entry[].resource.resourceType]'
 

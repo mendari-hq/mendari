@@ -46,7 +46,7 @@ Clinical/EHR data (FHIR R4, CDS Hooks, REST)
 | Evaluation harness | [`src/mendari/evals/`](https://github.com/Junebugg1214/mendari/tree/main/src/mendari/evals) |
 | Audit trail | SQLite or Postgres, append-only hash-chained events, `mendari audit verify` |
 | Synthetic healthcare dataset | [`src/mendari/sandbox/synthetic_inbox.py`](https://github.com/Junebugg1214/mendari/blob/main/src/mendari/sandbox/synthetic_inbox.py), [`synthetic_trial.py`](https://github.com/Junebugg1214/mendari/blob/main/src/mendari/sandbox/synthetic_trial.py), [`synthetic_referral.py`](https://github.com/Junebugg1214/mendari/blob/main/src/mendari/sandbox/synthetic_referral.py), [`synthetic_prior_auth.py`](https://github.com/Junebugg1214/mendari/blob/main/src/mendari/sandbox/synthetic_prior_auth.py), [`synthetic_guard.py`](https://github.com/Junebugg1214/mendari/blob/main/src/mendari/sandbox/synthetic_guard.py) |
-| Dashboard | `mendari serve` → http://127.0.0.1:8000: every pack on the search path. Overview, a review queue by priority, the audit trail with each record in a drawer, evaluations (provider leaderboard, benchmark report with charts, runs on your datasets), feedback with the right answer, the Decision Card, and Try it (a form for every pack, generated from its input schema for record packs, starting from the pack's behaviour tests, with the JSON one click away). Light and dark themes; times in the deployment's time zone (US Eastern by default). |
+| Dashboard | `mendari serve` → http://127.0.0.1:8000: every pack on the search path. Overview, a review queue by priority, the audit trail with each record in a drawer, evaluations (provider leaderboard, benchmark report with charts, runs on your datasets), feedback with the right answer, the Decision Card, and Try it (a form for every pack, generated from its input schema for record packs, starting from the pack's behaviour tests, with the JSON one click away). In memberships mode, an organization's administrators also get Access (members, invitations, requests to join), and an invitation link opens its own page (`/invite`). Light and dark themes; times in the deployment's time zone (US Eastern by default). |
 
 The five reference packs are examples built on synthetic data, and each says so on every surface
 (its Decision Card, the dashboard, CDS Hooks cards, the registry):
@@ -335,6 +335,19 @@ and linux/arm64 (workflow `release`, which only a maintainer starts, never a tag
 as tested; nothing is published before that. [`deploy/`](https://github.com/Junebugg1214/mendari/tree/main/deploy) has
 templates for a site's own infrastructure: docker compose on one server and Kubernetes. Both come
 with Postgres, your identity provider, PHI mode and the daily retention and monitoring jobs.
+
+Mendari's own code is Apache-2.0; an image also holds third-party software under other licences
+(Debian's packages, and the libraries the PostgreSQL driver bundles, some under the GPL or LGPL).
+Each image carries them in `/licenses`: Mendari's `LICENSE` and `NOTICE`, `THIRD_PARTY_NOTICES.md`
+(every component, its version, its licence, where its notices are and where its source is),
+`SOURCE.md` and the texts of what bundles no notice of its own; Debian's copyright files stay in
+`/usr/share/doc`. A release publishes each image's corresponding source beside it, as
+`<image>:<tag>-sources`, with the image's SBOM (SPDX, every package with its source location) in
+its `/sources/sbom/`; the SBOM BuildKit attaches in the image's index lists the same packages and
+licences, without their source locations. `scripts/check_image_licences.py` checks all of it
+(CI's `docker` and `image-sbom` jobs), and the release pushes no image that fails it or whose
+SBOM names a licence that is unknown or not allowed. The image builds with BuildKit or Docker's
+classic builder alike.
 
 ### Docker sandbox
 
@@ -629,7 +642,10 @@ and the landing loads nothing but its own files. Sessions end after 30 minutes i
 and 8 hours at most, behind `__Host-` cookies. A browser request that another site starts
 reaches only public routes and pages, to read. A request
 body is 4 MiB at most (`MENDARI_MAX_BODY_BYTES`; a `413` otherwise), and public routes take no
-lock and do little work for a caller without a credential. With sign-in on, decisions, the AI
+lock and do little work for a caller without a credential. A decision's remote calls share one
+deadline (`MENDARI_DECISION_DEADLINE_S`, 120 s unless set, 10 to 270): past it a call is not
+made, one under way is cut, and the decision records `timeout` and goes to a person, while its
+local providers still answer. With sign-in on, decisions, the AI
 guard, evaluations and exports are rate limited per caller, and sign-in and the token endpoint per
 address, in the database so every instance shares the count (`MENDARI_RATE_LIMITS`; a `429` with
 `Retry-After`); organizations can have daily quotas (`MENDARI_ORG_DAILY_LIMITS`), over which
@@ -673,12 +689,17 @@ mendari eval mendari/referral-router --dataset local.jsonl --share "My site"
   Nothing an archive or a registry says chooses where a file is written: archive names are plain
   paths inside the pack, an archive is read with size caps checked as it expands, and the cache
   path is built only from a valid id and version that the signed manifest names.
-- **Trust.** Installing a pack means trusting its author, as with any plugin: its patterns run
-  on Python `re` with no time limit, so a pack can slow or stall a worker (a community pack's
-  run on RE2, which never backtracks). What a pack cannot do
-  (choose secrets or endpoints, reach outside its folder, stop the server, reach another pack's
-  CQL) is in [SECURITY.md](https://github.com/Junebugg1214/mendari/blob/main/SECURITY.md#pack-supply-chain). Packs from others will run isolated
-  once uploads or a public registry exist.
+- **Trust.** A pulled pack runs on the engine for packs the deployment does not own, as a
+  community pack's patterns do: RE2, which never backtracks, within caps, 10,000 characters of
+  input and a CPU budget per decision, after which a person decides. A copy of a reference pack
+  of this release keeps the maintained engine (`mendari pull` says which), chosen by the digest
+  of its files, never by its manifest or the registry
+  ([ADR-0009](https://github.com/Junebugg1214/mendari/blob/main/docs/decisions/ADR-0009-bounded-evaluation-for-packs-the-deployment-does-not-own.md)).
+  The packs you own (the reference packs, and your own in `MENDARI_PACKS_PATH`, where a copy of
+  a pulled pack you trust goes) run on Python `re` with no time limit: installing one means
+  trusting its author, as with any plugin. What a pack cannot do (choose secrets or endpoints,
+  reach outside its folder, stop the server, reach another pack's CQL) is in
+  [SECURITY.md](https://github.com/Junebugg1214/mendari/blob/main/SECURITY.md#pack-supply-chain).
 - **The registry** (`mendari registry serve`) has namespaces with a publisher type
   (community, verified, institutional) that its admins set after verification. `--share` sends
   a site's metrics, never its cases or their ids, in a closed format the registry checks
@@ -687,6 +708,9 @@ mendari eval mendari/referral-router --dataset local.jsonl --share "My site"
   does not show site reports until sites sign what they share.
 
 The docker sandbox runs a registry on port 8100 (`scripts/hub_seed.py` publishes the five packs).
+Run `docker compose up --build` before `hub_seed.py`: the registry checks each pack against the
+reference packs of its own image, so with an image built from an older checkout, a pack that
+changed since is checked on RE2, and one whose patterns RE2 cannot run is refused.
 
 ## Sign-in for organizations
 
@@ -726,13 +750,20 @@ by default, 365 at most), and can be narrowed with **scopes**: SMART's `system/T
 `system/AuditEvent.rs`, `system/Provenance.rs`, `system/CodeSystem.rs`, `system/NamingSystem.r`
 or `system/*.rs` for FHIR reads, and `https://mendari.co/fhir/scope/decide` and
 `.../outcome` for deciding and recording outcomes; deciding also lists the packs to decide with
-(`GET /api/packs`, `GET /cds-services`). A scope only narrows a role.
+(`GET /api/packs`, `GET /cds-services`). A scope only narrows a role. Each documented integration
+path has a key preset with the role and scope it needs (`"preset": "cds-hooks"`, …;
+`GET /api/auth/keys/presets`). The dashboard's **Access** view does the same for an admin who
+signed in: it makes a key from a preset and shows it once, rotates and revokes keys, and shows
+each one's history (`GET /api/auth/keys/{id}/history`).
 
 Machines that speak **SMART Backend Services** (EHRs, integration engines, Da Vinci clients) can
 get five-minute tokens instead, when a deployment turns it on (`MENDARI_BACKEND_SERVICES=on`;
 it needs sign-in and `MENDARI_PUBLIC_URL`). An admin registers the client's public keys
 (`POST /api/auth/clients`); the client signs an assertion (RS384 or ES384) and exchanges it at
-`POST /auth/token`; `/fhir/.well-known/smart-configuration` describes it. See
+`POST /auth/token`; `/fhir/.well-known/smart-configuration` describes it. A client's public keys
+are replaced in place (`POST /api/auth/clients/{id}/keys`: same id, its tokens dropped), also
+from the Access view's Clients tab, which takes a PEM public key and refuses the private keys it
+recognises before sending anything. See
 [ADR-0004](https://github.com/Junebugg1214/mendari/blob/main/docs/decisions/ADR-0004-machine-access-tokens-and-scopes.md) and
 [deploying with real patient data](https://github.com/Junebugg1214/mendari/blob/main/docs/deploying-with-phi.md).
 
@@ -763,7 +794,9 @@ every request ([ADR-0008](https://github.com/Junebugg1214/mendari/blob/main/docs
 The role and organization claims are ignored. A person with no membership acts for no
 organization, never `default`: they may ask to join one or accept an invitation made for their
 verified address, and nothing else. The operator manages organizations with `mendari access`,
-and each organization's administrators invite and manage their own people through the API
+and each organization's administrators invite and manage their own people in the dashboard's
+Access view (beside its keys and clients) or through the API; an invitation's link opens
+`/invite`, where the person signs in and accepts it
 ([the runbook](https://github.com/Junebugg1214/mendari/blob/main/docs/operations/accounts.md),
 which also says how to switch a deployment).
 
@@ -1018,8 +1051,8 @@ an `llm` reader also needs `LLM_MODEL`, as there is no default model).
   runs (`providers`), and which slots run no model at all although their pack offers one
   (`without_model`); the dashboard's overview says so too. A screen with a model but without the
   rules (`safety_screen=jev`) is not listed, but it does not meet `automation_requires` either:
-  each decision's reasons name what is missing. That Jev answers shows in `jev.calls_today` and
-  in the decisions' errors.
+  each decision's reasons name what is missing. That Jev answers shows in `jev.calls_today` (in
+  memberships mode, `mendari usage`) and in the decisions' errors.
 - Upgrading a deployment that already had Jev set up for some slots: it now also runs Jev in
   the slots above that its settings leave. Name a slot to keep it as it was.
 
@@ -1121,7 +1154,10 @@ One pack never stops the server. Its `invalid` lists the packs that failed to lo
 error that is not Mendari's by its type alone), which are not served; the packs whose providers
 could not be built (by id), which stay listed, counted in `packs` and offered in CDS Hooks
 discovery, but whose decision and detail requests answer `422`; and the packs whose terminology
-could not be built, which are served without it. Every other pack decides.
+could not be built, which are served without it. Every other pack decides. `pack_warnings` lists,
+by id, the served packs of your own whose provider configs `mendari validate` refuses (a key no
+provider reads, a variant that cannot run): they load and serve what builds, and the start-up log
+says so too; a community or registry pack with such a problem is refused, under `invalid`.
 
 Days and times people see (the dashboard's times and daily volume, daily call counters, "today"
 for criteria and ages, card dates) use `MENDARI_TIMEZONE`, an IANA name defaulting to

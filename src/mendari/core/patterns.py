@@ -9,33 +9,38 @@ will run, at most `MAX_PATTERN_CHARS` long, and a pack holds at most `MAX_PACK_P
 bad one is a `PackValidationError` naming the pack, the file and the rule, never a traceback in
 `mendari validate` or an error answer from `/api/health`.
 
-One engine choice, `compile` (and `search`), runs every one of them:
+One engine choice, `compile` (and `search`), runs every one of them. Its keyword `community`
+names the B11 community engine, which runs the packs the deployment does not own
+(`Pack.bounded`, `core/origin.py`, ADR-0009):
 
-- **A community pack's** (`Pack.community`) run on RE2 (`google-re2`), which never backtracks:
-  its time grows with the text's length times the pattern's compiled size, never
-  exponentially, so no pattern can stall a worker the way `(a+)+$` stalls `re`. Each is
-  rewritten for RE2 to mean what `re` means (`core/re2_syntax.py`, which lists the
+- **A pack the deployment does not own** (a community pack, or one pulled from a registry whose
+  digest is not a reference pack's of this release) has its patterns run on RE2 (`google-re2`),
+  which never backtracks: its time grows with the text's length times the pattern's compiled
+  size, never exponentially, so no pattern can stall a worker the way `(a+)+$` stalls `re`.
+  Each is rewritten for RE2 to mean what `re` means (`core/re2_syntax.py`, which lists the
   differences that remain); one RE2 cannot run (a lookaround, a back reference) or cannot
   compile (too large once compiled) makes the pack invalid, saying what to write instead.
-- **Every other pack's** run on `re`, exactly as they always have. `re` has no time limit, and
-  checking a pattern at load cannot tell how long it will take on an input: a pattern like
-  `(a+)+$` backtracks for seconds on a few dozen characters. Installing such a pack means
-  trusting its author, as with any plugin (SECURITY.md).
+- **Every other pack's** (the reference packs, a pulled copy of one included, and an operator's
+  local packs) run on `re`, exactly as they always have. `re` has no time limit, and checking a
+  pattern at load cannot tell how long it will take on an input: a pattern like `(a+)+$`
+  backtracks for seconds on a few dozen characters. Installing such a pack means trusting its
+  author, as with any plugin (SECURITY.md).
 
 Mendari's own patterns (dosing, CQL headers, the rules provider's scope, word and negation
 patterns) are not pack content and stay on `re`. RE2 and the rewriting are imported only when a
-community pack's pattern is compiled, so a deployment without one never loads them.
+pattern of a pack on the community engine is compiled, so a deployment without one never loads
+them.
 
-A community pack's patterns, and its input schema's checks, share one time budget per decision
-(`time_budget`, set by `Decision.decide`), counted in the CPU time of the decision's own thread
-(`time.thread_time`): waiting for a model or for another request costs it nothing, so the same
-input decides the same way on a busy server. RE2's time is linear and the caps bound how many
-patterns run and how large they are (`core/caps.py`), but a crafted pack within every cap can
-still take seconds on adversarial text. Each search, each match a search yields, each step of
-the rules provider's own loops over a text, each schema applied and each error a schema check
-finds (`check_time`) checks the budget, and raises `OutOfTime` once it is spent: the pack's
-rules, or its schema check, stop there and the decision abstains, for a person (an input the
-schema had already found wrong is refused). A decision runs a community pack's
+The patterns of a pack on the community engine, and its input schema's checks, share one time
+budget per decision (`time_budget`, set by `Decision.decide`), counted in the CPU time of the
+decision's own thread (`time.thread_time`): waiting for a model or for another request costs it
+nothing, so the same input decides the same way on a busy server. RE2's time is linear and the
+caps bound how many patterns run and how large they are (`core/caps.py`), but a crafted pack
+within every cap can still take seconds on adversarial text. Each search, each match a search
+yields, each step of the rules provider's own loops over a text, each schema applied and each
+error a schema check finds (`check_time`) checks the budget, and raises `OutOfTime` once it is
+spent: the pack's rules, or its schema check, stop there and the decision abstains, for a person
+(an input the schema had already found wrong is refused). A decision runs such a pack's
 patterns and schema for at most the budget plus one step already under way: one search can
 take about 2.5 s on 10,000 characters of emoji against the largest pattern RE2 compiles, so
 about 3.5 s of CPU at worst.
@@ -163,8 +168,9 @@ def _re2(text: str, flags: int) -> _Re2Pattern:
 
 
 def compile(text: str, flags: int = 0, *, community: bool = False) -> Matcher:
-    """A pack's pattern compiled for the engine its pack's patterns run on (module docstring).
-    For a pack that is not a community pack, this is `re.compile(text, flags)`."""
+    """A pack's pattern compiled for the engine its pack's patterns run on (module docstring):
+    `community` for a pack on the community engine (`Pack.bounded`); for any other pack, this is
+    `re.compile(text, flags)`."""
     if community:
         return _re2(text, flags)
     return re.compile(text, flags)
@@ -178,8 +184,8 @@ def search(pattern: str, text: str, *, community: bool = False) -> bool:
 
 
 def problem(text: str, flags: int = 0, *, community: bool = False) -> str | None:
-    """Why `text` may not be a pack pattern compiled with `flags`, or None. A community pack's
-    must also run on RE2."""
+    """Why `text` may not be a pack pattern compiled with `flags`, or None. A pattern of a pack
+    on the community engine (`community`, `Pack.bounded`) must also run on RE2."""
     if len(text) > MAX_PATTERN_CHARS:
         return f"longer than {MAX_PATTERN_CHARS} characters"
     with warnings.catch_warnings():  # a FutureWarning is not a reason to refuse a pattern
@@ -205,20 +211,24 @@ def problem(text: str, flags: int = 0, *, community: bool = False) -> str | None
     return None
 
 
+# What a load-time message says RE2 is: it names no origin, as the same check refuses a pattern of
+# a community pack and of one from a registry.
+_RE2_ENGINE = "the engine community packs and packs from a registry run on"
+
+
 def _re2_problem(message: str) -> str:
     """What RE2 refused, in words a pack author can act on."""
     if "repetition" in message:
         return (
-            "repeats nested inside each other multiply past 1,000, the most RE2 (the engine a "
-            "community pack's patterns run on) allows (e.g. (?:a{1,50}){1,50}): use smaller "
-            "counts"
+            f"repeats nested inside each other multiply past 1,000, the most RE2 ({_RE2_ENGINE}) "
+            "allows (e.g. (?:a{1,50}){1,50}): use smaller counts"
         )
     if "too large" in message:
         return (
-            "too large for RE2 (the engine a community pack's patterns run on) once compiled: "
-            "use smaller counts and classes, or split it into several rules"
+            f"too large for RE2 ({_RE2_ENGINE}) once compiled: use smaller counts and classes, or "
+            "split it into several rules"
         )
-    return "RE2 (the engine a community pack's patterns run on) cannot compile it"
+    return f"RE2 ({_RE2_ENGINE}) cannot compile it"
 
 
 def rules_patterns(rules: Any) -> Iterator[tuple[str, str]]:

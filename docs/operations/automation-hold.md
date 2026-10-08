@@ -21,7 +21,9 @@ out: a missed emergency, a provider behaving oddly, a pack version you are unsur
 Holds are rows in the deployment's database, read by each decision (and reused on a server for
 at most five seconds), so a hold set anywhere reaches every instance within seconds. Setting and
 lifting each append a chained event (`automation.held`, `automation.lifted`) with who and when;
-`mendari audit verify` covers them. `/api/health` shows how many holds are in force.
+`mendari audit verify` covers them. `/api/health` shows how many holds are in force. In
+memberships mode an organization sees a hold set for every organization as what it covers and
+since when; its reason and who set it are the operator's.
 
 ## From the dashboard or the API
 

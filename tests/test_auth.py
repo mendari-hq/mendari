@@ -411,6 +411,8 @@ def test_every_route_has_the_permission_it_should(tmp_path: Path) -> None:
     assert permission_for("GET", "/api/auth/clients/c1") == "keys"
     assert permission_for("GET", "/api/audit/verify") == "admin"
     assert permission_for("GET", "/api/audit/export/fhir") == "admin"
+    assert permission_for("GET", "/api/audit/administrative") == "admin"
+    assert permission_for("GET", "/api/audit/administrative/export/fhir") == "admin"
     assert permission_for("GET", "/api/audit/d1") == "read"
     # A person's accountability: no machine role has these (ROLE_PERMISSIONS below).
     assert permission_for("POST", "/api/review/d1") == "review"
@@ -586,6 +588,8 @@ def test_every_route_principal_role_and_scope_gets_what_it_should(
         ("GET", "/api/auth/clients"),
         ("POST", "/api/auth/clients"),
         ("DELETE", "/api/auth/clients/{client_id}"),
+        ("GET", "/api/auth/clients/{client_id}/history"),
+        ("POST", "/api/auth/clients/{client_id}/keys"),
     }
     assert set(ROUTE_SCOPE) <= set(routes)
     assert {r: needed(*r) for r in routes if needed(*r)} == ROUTE_SCOPE
@@ -1101,8 +1105,11 @@ def test_keys_are_managed_by_people_only(app: TestClient, idp: FakeIdp, tmp_path
         ("GET", "/api/auth/keys"),
         ("POST", "/api/auth/keys"),
         ("DELETE", "/api/auth/keys/abc"),
+        ("GET", "/api/auth/keys/abc/history"),
         ("GET", "/api/auth/clients"),
         ("POST", "/api/auth/clients"),
+        ("GET", "/api/auth/clients/abc/history"),
+        ("POST", "/api/auth/clients/abc/keys"),
     ):
         refused = app.request(method, path, json={"name": "x", "role": "viewer"}, headers=admin_key)
         assert refused.status_code == 403, (method, path)
@@ -1116,6 +1123,37 @@ def test_keys_are_managed_by_people_only(app: TestClient, idp: FakeIdp, tmp_path
     assert app.get("/api/auth/keys").status_code == 200
     sign_in(app, idp, roles=["governance"])
     assert app.get("/api/auth/keys").status_code == 403
+
+
+def test_claims_mode_reads_its_own_organizations_credential_history(
+    idp: FakeIdp, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A key's history (LP-12h) in claims mode with an organization claim: an administrator
+    reads their own organization's keys' only; another organization's key is a `404` that says
+    no more than an unknown one, and neither a viewer nor a key may read one."""
+    monkeypatch.setenv("MENDARI_OIDC_ORG_CLAIM", "org")
+    client = signing_in_with(idp, tmp_path, monkeypatch)
+    sign_in(client, idp, roles=["admin"], org="clinic-a", email="lead@example.org")
+    made = client.post("/api/auth/keys", json={"name": "ehr", "role": "service"}).json()
+    rotated = client.post(f"/api/auth/keys/{made['id']}/rotate", json={"overlap_hours": 1})
+    assert rotated.status_code == 201
+    history = client.get(f"/api/auth/keys/{made['id']}/history")
+    assert history.status_code == 200
+    assert [e["event"] for e in history.json()["events"]] == ["key.created", "key.rotated"]
+    assert history.json()["org"] == "clinic-a"
+    assert made["key"] not in history.text and rotated.json()["key"] not in history.text
+    as_key = {"authorization": f"Bearer {rotated.json()['key']}"}
+    sign_in(client, idp, roles=["admin"], org="clinic-b")
+    for key_id in (made["id"], "0" * 12):  # another organization's, and none at all
+        refused = client.get(f"/api/auth/keys/{key_id}/history")
+        assert refused.status_code == 404
+        assert refused.json()["detail"] == "no such key" and key_id not in refused.text
+    sign_in(client, idp, roles=["viewer"], org="clinic-a")
+    assert client.get(f"/api/auth/keys/{made['id']}/history").status_code == 403
+    client.cookies.clear()
+    refused = client.get(f"/api/auth/keys/{made['id']}/history", headers=as_key)
+    assert refused.status_code == 403
+    assert client.get(f"/api/auth/keys/{made['id']}/history").status_code == 401
 
 
 def test_verifying_and_exporting_the_chain_need_admin(app: TestClient, idp: FakeIdp) -> None:

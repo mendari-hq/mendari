@@ -17,6 +17,7 @@ from typing import Any, cast
 
 from pydantic import Field
 
+from mendari.core.spec import Question
 from mendari.errors import ProviderError, ProviderErrorCode
 from mendari.providers.base import ProviderOutput
 from mendari.providers.composite import CompositeConfig, CompositeProvider, all_failed
@@ -34,13 +35,17 @@ class AnyOfProvider(CompositeProvider):
     def escalate(self) -> dict[str, str]:
         return cast(AnyOfConfig, self.settings).escalate
 
-    def check(self) -> list[str]:
+    @classmethod
+    def check(
+        cls, where: str, settings: CompositeConfig, questions: Mapping[str, Question]
+    ) -> list[str]:
+        escalate = cast(AnyOfConfig, settings).escalate
         problems = []
-        if set(self.escalate) != set(self.questions):
-            problems.append(f"{self.info.slot}: escalate must name exactly the slot's questions")
-        for question, label in self.escalate.items():
-            if question in self.questions and label not in self.questions[question].criteria:
-                problems.append(f"{self.info.slot}: {label!r} is not a label of {question!r}")
+        if set(escalate) != set(questions):
+            problems.append(f"{where}: escalate must name exactly the slot's questions")
+        for question, label in escalate.items():
+            if question in questions and label not in questions[question].criteria:
+                problems.append(f"{where}: {label!r} is not a label of {question!r}")
         return problems
 
     def answer(self, inputs: Mapping[str, Any]) -> ProviderOutput:

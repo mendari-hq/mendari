@@ -20,10 +20,21 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from mendari.core.origin import MAX_COMMUNITY_TEXT_CHARS
+from mendari.core.pack import Pack
 from mendari.core.patterns import RULES_FLAGS, Matcher, OutOfTime, check_time
 from mendari.core.patterns import compile as compile_pattern
+from mendari.core.spec import Question
 from mendari.errors import PackValidationError, ProviderError
-from mendari.providers.base import Provider, ProviderOutput, fingerprint, softmax, text_from
+from mendari.providers.base import (
+    FileConfig,
+    Provider,
+    ProviderOutput,
+    closed_problems,
+    fingerprint,
+    read_problems,
+    softmax,
+    text_from,
+)
 
 _SCOPE_BREAK = re.compile(r"[.!?;\n]|\b(?:but|however|pero)\b", re.IGNORECASE)
 _WORD = re.compile(r"[^\W\d_]+")
@@ -68,41 +79,23 @@ class RulesProvider(Provider):
 
     def __init__(self, *args: Any, **kwargs: Any):
         super().__init__(*args, **kwargs)
-        relative = self.config.get("config")
-        if not isinstance(relative, str):
-            raise PackValidationError(self.pack.id, [f"{self.info.slot}: rules need `config`"])
-        try:
-            self.rules = RulesConfig.model_validate(self.pack.read_yaml(relative))
-        except ValidationError as error:
-            raise PackValidationError(self.pack.id, [f"{relative}: {error}"]) from None
+        rules, problems = self._read(self.pack, self.info.slot, self.config)
+        if rules is None:
+            raise PackValidationError(self.pack.id, problems)
+        self.rules = rules
+        relative = self.config["config"]
         self.info = replace(self.info, model=f"rules@{fingerprint(self.pack, relative)}")
-
-        # A community pack's caps (`core/caps.py`; `load_pack` checks them too, as written),
-        # imported only for one.
-        problems: list[str] = []
-        if self.pack.community:
-            from mendari.core.caps import rules_problems
-
-            problems = rules_problems(relative, self.rules.model_dump())
-        for question in self.questions:
-            spec = self.rules.questions.get(question)
-            if spec is None:
-                problems.append(f"{relative}: no rules for question {question!r}")
-                continue
-            labels = set(self.questions[question].criteria)
-            unknown = ({spec.default} | set(spec.labels)) - labels
-            if unknown:
-                problems.append(f"{relative}: unknown labels {sorted(unknown)} for {question!r}")
+        problems = self._rules_problems(relative, rules, self.questions, bounded=self.pack.bounded)
         if problems:
             raise PackValidationError(self.pack.id, problems)
 
         # The pack's own patterns, on its engine (`core/patterns.py`); the negation pattern
         # below is Mendari's, built from escaped cues, and stays on `re`.
-        community = self.pack.community
+        bounded = self.pack.bounded
         self._compiled = {
             question: {
                 label: [
-                    (p, compile_pattern(p.pattern, RULES_FLAGS, community=community))
+                    (p, compile_pattern(p.pattern, RULES_FLAGS, community=bounded))
                     for p in patterns
                 ]
                 for label, patterns in self.rules.questions[question].labels.items()
@@ -114,6 +107,65 @@ class RulesProvider(Provider):
         tolerance = self.rules.typo_tolerance
         self._typo_min = tolerance.min_length if tolerance else 0
         self._keywords = self._keyword_index(self._typo_min) if tolerance else {}
+
+    @classmethod
+    def config_problems(
+        cls,
+        pack: Pack,
+        where: str,
+        config: Mapping[str, Any],
+        questions: Mapping[str, Question],
+        *,
+        bounded: bool,
+        trained: bool,
+    ) -> list[str]:
+        closed = closed_problems(FileConfig, where, config)
+        if closed:
+            return closed
+        rules, problems = cls._read(pack, where, config)
+        if rules is None:
+            return problems
+        return cls._rules_problems(config["config"], rules, questions, bounded=bounded)
+
+    @staticmethod
+    def _read(
+        pack: Pack, where: str, config: Mapping[str, Any]
+    ) -> tuple[RulesConfig | None, list[str]]:
+        """The rules file `config` names, read and checked against `RulesConfig`, or None and
+        why not."""
+        relative = config.get("config")
+        if not isinstance(relative, str):
+            return None, [f"{where}: rules need `config`"]
+        data, problems = read_problems(lambda: pack.read_yaml(relative))
+        if problems:
+            return None, problems
+        try:
+            return RulesConfig.model_validate(data), []
+        except ValidationError as error:
+            return None, [f"{relative}: {error}"]
+
+    @staticmethod
+    def _rules_problems(
+        relative: str, rules: RulesConfig, questions: Mapping[str, Question], *, bounded: bool
+    ) -> list[str]:
+        """The caps of a pack on the community engine (`bounded`; `core/caps.py`, imported only
+        for one; `load_pack` checks them too, as written), and a rule for each question of the
+        slot, with its labels."""
+        problems: list[str] = []
+        if bounded:
+            from mendari.core.caps import rules_problems
+
+            problems = rules_problems(relative, rules.model_dump())
+        for question in questions:
+            spec = rules.questions.get(question)
+            if spec is None:
+                problems.append(f"{relative}: no rules for question {question!r}")
+                continue
+            labels = set(questions[question].criteria)
+            unknown = ({spec.default} | set(spec.labels)) - labels
+            if unknown:
+                problems.append(f"{relative}: unknown labels {sorted(unknown)} for {question!r}")
+        return problems
 
     def _keyword_index(self, minimum: int) -> dict[str, tuple[str, ...]]:
         """Literal words used in this provider's patterns, indexed by first letter."""
@@ -131,7 +183,7 @@ class RulesProvider(Provider):
     def answer(self, inputs: Mapping[str, Any]) -> ProviderOutput:
         try:
             return self._answer(inputs)
-        except OutOfTime as error:  # a community pack's patterns used this decision's budget
+        except OutOfTime as error:  # a bounded pack's patterns used this decision's budget
             raise ProviderError("time_budget", str(error)) from None
 
     def _answer(self, inputs: Mapping[str, Any]) -> ProviderOutput:
@@ -161,11 +213,12 @@ class RulesProvider(Provider):
         if not self._keywords:
             return text, []
         corrections: list[str] = []
-        # A community pack's patterns run on texts of at most this length (`core/origin.py`;
-        # the caps on their work are measured on it): a correction that would make the text
-        # longer is not made.
-        room = [MAX_COMMUNITY_TEXT_CHARS - len(text)] if self.pack.community else None
-        timed = self.pack.community  # each word is compared with many keywords
+        # The patterns of a pack on the community engine (`Pack.bounded`) run on texts of at
+        # most this length (`core/origin.py`; the caps on their work are measured on it): a
+        # correction that would make the text longer is not made.
+        bounded = self.pack.bounded
+        room = [MAX_COMMUNITY_TEXT_CHARS - len(text)] if bounded else None
+        timed = bounded  # each word is compared with many keywords
 
         def fix(match: re.Match[str]) -> str:
             if timed:

@@ -1,6 +1,6 @@
 spec_version: "0.2"
 id: mendari/ai-guard
-version: 0.1.3
+version: 0.1.4
 name: AI Guard
 summary: >-
   Checks a language model's draft reply to a patient before anyone reads it: blocks drafts that

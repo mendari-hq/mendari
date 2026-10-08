@@ -566,9 +566,13 @@ def test_a_stale_scope_is_refused_and_nothing_changes(
 def test_every_post_that_mints_a_credential_waits_for_the_notice(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from tests.test_backend_services import RSA_KEY
+
     monkeypatch.setenv("MENDARI_NOTICE_ACKNOWLEDGEMENT", "required")
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
+    monkeypatch.setenv("MENDARI_PUBLIC_URL", "https://mendari.test")
+    monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "on")  # clients' routes too
     app = create_app(db_path=tmp_path / "a.db")
     minting = sorted(
         path
@@ -576,14 +580,21 @@ def test_every_post_that_mints_a_credential_waits_for_the_notice(
         if method == "POST" and permission_for(method, path) == "keys"
     )
     assert "/api/auth/keys/{key_id}/rotate" in minting and "/api/auth/keys" in minting
+    assert "/api/auth/clients" in minting and "/api/auth/clients/{client_id}/keys" in minting
     client = TestClient(app, base_url="https://mendari.test")
     store = AuditStore(tmp_path / "a.db")
     admin = signed_in(store, role="admin")
     key = store.create_api_key(name="k", role="viewer", org="default", created_by="a")
+    registered = store.register_client(
+        name="c", role="viewer", org="default", created_by="a", scopes="system/*.rs",
+        jwks=[RSA_KEY.jwk],
+    )  # fmt: skip
     for path in minting:
         concrete = path.replace("{key_id}", key["id"])
+        concrete = concrete.replace("{client_id}", registered["client_id"])
         refused = client.post(concrete, json={}, headers=admin)
         assert refused.status_code == 403 and "mendari-notice-required" in refused.headers, path
+    assert store.client(registered["client_id"])["keys_version"] == 0  # type: ignore[index]
 
 
 # -- what reads stays a read ------------------------------------------------------------------

@@ -40,7 +40,7 @@ views.audit = async (main, params) => {
       <label for="outcome-filter">Outcome</label>
       <select id="outcome-filter"><option value="">All</option>${OUTCOMES.map((o) => `<option value="${o}" ${o === outcome ? "selected" : ""}>${esc(outcomeText(o))}</option>`).join("")}</select>
       <span class="grow"></span>
-      ${may("admin") ? `<button id="verify">Verify chain</button>
+      ${may("admin") && state.accounts !== "memberships" ? `<button id="verify">Verify chain</button>
       <span id="verify-result"></span>` : ""}
     </div>
     <div class="panel" id="audit-table"></div>`;

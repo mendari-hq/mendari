@@ -97,6 +97,15 @@ NAMING_SYSTEMS = (
         "the plain SHA-256 of the input's canonical JSON.",
     ),
     (
+        "audit-subject",
+        audit_fhir.SUBJECT_SYSTEM,
+        "Mendari audit subject",
+        "What an administrative AuditEvent is about, by its chain id: a kind of record and "
+        "its id, joined by a colon (`key:`, `client:`, `governance:`, `hold:`, `eval:`, "
+        "`org:`, `membership:`, `invitation:` or `access:`, then the id), or one of the "
+        "deployment's own chain ids.",
+    ),
+    (
         "decision-pack",
         PACK_ID_SYSTEM,
         "Mendari Decision Pack version",
@@ -169,6 +178,7 @@ def resources(packs: Iterable[Pack]) -> list[dict[str, Any]]:
     found = [
         _outcomes(),
         _audit_events(),
+        _administrative_events(),
         _decision_packs(served),
         *_performers(served),
         *(system for pack in served for system in _questions(pack)),
@@ -248,6 +258,28 @@ def _audit_events() -> dict[str, Any]:
         "audit-event",
         "Mendari audit event",
         "The events of a decision's hash-chained audit trail, as AuditEvent.subtype.",
+        __version__,
+        concepts,
+    )
+
+
+def _administrative_events() -> dict[str, Any]:
+    concepts = [
+        _concept(
+            event,
+            shown,
+            f"{shown}: chained in Mendari's audit trail on no decision, exported as an "
+            f"AuditEvent with action {action} ({_ACTIONS[action]}).",
+        )
+        for event, (action, shown, _) in audit_fhir._ADMINISTRATIVE.items()
+    ]
+    return _code_system(
+        audit_fhir.ADMINISTRATIVE_SYSTEM,
+        "audit-administrative-event",
+        "Mendari administrative audit event",
+        "The events of Mendari's audit trail that are on no decision (an organization's keys, "
+        "clients, people, approvals, holds and reports, and the deployment's own), as "
+        "AuditEvent.subtype.",
         __version__,
         concepts,
     )

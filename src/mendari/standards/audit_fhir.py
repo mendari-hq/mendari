@@ -50,6 +50,10 @@ from mendari.core.audit import RESULT_EVENTS, SYSTEM_ID
 from mendari.standards.fhir import DECISION_ID_SYSTEM, PACK_ID_SYSTEM, narrative
 
 EVENT_SYSTEM = "https://mendari.co/fhir/CodeSystem/audit-event"
+# The events on no decision (an organization's keys, clients, people, approvals, holds and
+# reports; the deployment's own), as AuditEvent.subtype, and the chain id each is about.
+ADMINISTRATIVE_SYSTEM = "https://mendari.co/fhir/CodeSystem/audit-administrative-event"
+SUBJECT_SYSTEM = "https://mendari.co/fhir/NamingSystem/audit-subject"
 INPUT_HASH_SYSTEM = "https://mendari.co/fhir/NamingSystem/input-hash"
 TERMINOLOGY = "http://terminology.hl7.org/CodeSystem"
 _REST = {
@@ -303,3 +307,168 @@ def full_url(resource: Mapping[str, Any]) -> str:
     twice gives the same Bundle."""
     key = f"{resource['resourceType']}/{resource['id']}".encode()
     return f"urn:uuid:{uuid.UUID(hashlib.sha256(key).hexdigest()[:32])}"
+
+
+# -- administrative events (LP-12g, ADR-0008) -----------------------------------------------------
+# An event on no decision as an AuditEvent of its own: ids and codes, never a key's or client's
+# name, a hold's reason or an approval's reference. Its id is its chain hash, which names no
+# place in the chain; it has no Provenance and is never served under /fhir (an organization
+# reads it at /api/audit/administrative, the operator from the command line).
+
+_DCM = "http://dicom.nema.org/resources/ontology/DCM"
+# Credentials, people and keys are security administration (DICOM's Security Alert, with its
+# subtype where one fits); approvals, holds, reports and the deployment's records are not.
+_SECURITY_ALERT = {"system": _DCM, "code": "110113", "display": "Security Alert"}
+_CREDENTIALS = {"system": _DCM, "code": "110137", "display": "User Security Attributes Changed"}
+_ROLES = {"system": _DCM, "code": "110136", "display": "Security Roles Changed"}
+_CONFIGURATION = {"system": _DCM, "code": "110129", "display": "Security Configuration"}
+# kind: (action, display, DICOM subtype or None when not security administration, else {}).
+_ADMINISTRATIVE: dict[str, tuple[str, str, dict[str, str] | None]] = {
+    "key.created": ("C", "API key created", _CREDENTIALS),
+    "key.rotated": ("U", "API key rotated", _CREDENTIALS),
+    "key.revoked": ("U", "API key revoked", _CREDENTIALS),
+    "client.registered": ("C", "Backend Services client registered", _CREDENTIALS),
+    "client.revoked": ("U", "Backend Services client revoked", _CREDENTIALS),
+    "client.keys_replaced": ("U", "Backend Services client's key set replaced", _CREDENTIALS),
+    "governance.approved": ("C", "Automation approved", None),
+    "governance.revoked": ("U", "Automation approval revoked", None),
+    "automation.held": ("C", "Automation held", None),
+    "automation.lifted": ("U", "Automation hold lifted", None),
+    "eval.recorded": ("C", "Evaluation report recorded", None),
+    "organization.created": ("C", "Organization created", {}),
+    "membership.created": ("C", "Membership created", _ROLES),
+    "membership.roles_changed": ("U", "Membership roles changed", _ROLES),
+    "membership.removed": ("D", "Membership removed", _ROLES),
+    "membership.bound": ("U", "Membership bound to a person", _ROLES),
+    "invitation.created": ("C", "Invitation created", {}),
+    "invitation.accepted": ("U", "Invitation accepted", _ROLES),
+    "invitation.revoked": ("U", "Invitation revoked", {}),
+    "access.requested": ("C", "Access requested", {}),
+    # Closing a request changes no role: a grant's role is its own `membership.created`.
+    "access.handled": ("U", "Access request handled", {}),
+    "notice.acknowledged": ("C", "Notice acknowledged", None),
+    "user.recorded": ("C", "Person recorded", {}),
+    "deployment.recorded": ("C", "Deployment recorded", None),
+    "retention.purged": ("D", "Retention purge", None),
+    "phi.rotated": ("U", "PHI key rotation batch", _CONFIGURATION),
+    "input_hash.epoch": ("C", "Input hash key epoch", _CONFIGURATION),
+}
+# Who acted, by the first of these a payload has (ids: a principal's chain name or an id).
+_ACTORS = (
+    "created_by",
+    "rotated_by",
+    "revoked_by",
+    "set_by",
+    "lifted_by",
+    "approver",
+    "changed_by",
+    "removed_by",
+    "handled_by",
+    "actor",
+    "user",
+)
+# A kind whose actor is under a key that means something else elsewhere (`replaced_by` is the
+# replacement key's id on `key.rotated`): its agent, never one of its details.
+_ACTOR_KEY = {"client.keys_replaced": "replaced_by"}
+# What a payload says, as ids and codes (never `name`, `reason`, `reference` or `providers`).
+_ADMINISTRATIVE_DETAILS = (
+    "id",
+    "client_id",
+    "org",
+    "role",
+    "roles",
+    "previous",
+    "scope",
+    "preset",
+    "expires_at",
+    "expires_at_before",
+    "overlap_hours",
+    "replaces",
+    "replaced_by",
+    "outcome",
+    "pack_id",
+    "pack_version",
+    "pack_digest",
+    "risk_level",
+    "report",
+    "result_sha256",
+    "dataset_sha256",
+    "ledger",
+    "version",
+    "user",
+    "email_digest",
+    "name_digest",
+    "key_id",
+    "to",
+    "from",
+    "environment",
+    "release",
+    "retention_days",
+    "inputs",
+    "details",
+    "notes",
+    "source",
+)
+
+
+def administrative_resources(events: Iterable[Mapping[str, Any]]) -> Iterator[dict[str, Any]]:
+    """An AuditEvent for each administrative event (`AuditStore.administrative_events` items)."""
+    for event in events:
+        yield administrative_event(event)
+
+
+def administrative_event(event: Mapping[str, Any]) -> dict[str, Any]:
+    kind, payload = event["event"], event["payload"]
+    action, display, dicom = _ADMINISTRATIVE.get(kind, ("E", kind, None))
+    actor_key = _ACTOR_KEY.get(kind)
+    if actor_key is not None:
+        actor = payload.get(actor_key) or None
+    else:
+        actor = next((payload[key] for key in _ACTORS if payload.get(key)), None)
+    details = [{"type": "hash", "valueString": event["hash"]}]
+    for key in _ADMINISTRATIVE_DETAILS:
+        value = payload.get(key)
+        if value is None or key == actor_key:
+            continue
+        if isinstance(value, Mapping):  # a PHI key rotation's `from`: each key id, how many
+            if kind != "phi.rotated":
+                continue
+            value = ",".join(f"{name}={count}" for name, count in value.items())
+        elif isinstance(value, list | tuple):
+            value = ",".join(str(item) for item in value)
+        elif isinstance(value, bool):
+            value = str(value).lower()
+        if str(value):  # an R4 string is never empty (the "" organization, an empty list)
+            details.append({"type": key, "valueString": str(value)})
+    subtype = [{"system": ADMINISTRATIVE_SYSTEM, "code": kind, "display": display}]
+    summary = (
+        f"{display} ({kind}, action {action}) on {event['subject']}, recorded "
+        f"{event['created_at']}."
+    )
+    return {
+        "resourceType": "AuditEvent",
+        "id": event["hash"],
+        "meta": _immutable(event),
+        "text": narrative(summary),
+        "type": _REST if dicom is None else _SECURITY_ALERT,
+        "subtype": subtype + ([dicom] if dicom else []),
+        "action": action,
+        "recorded": event["created_at"],
+        "outcome": "0",
+        "agent": [
+            {"who": {"display": str(actor)}, "requestor": True}
+            if actor is not None
+            else {"who": {"display": NOT_RECORDED}, "requestor": False}
+        ],
+        "source": {"observer": {"display": "Mendari"}, "type": [_SERVER]},
+        "entity": [
+            {
+                "what": {
+                    "identifier": {"system": SUBJECT_SYSTEM, "value": event["subject"]},
+                    "display": event["subject"],
+                },
+                "type": _OBJECT,
+                "detail": details,
+            }
+        ],
+    }

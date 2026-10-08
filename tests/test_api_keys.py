@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from mendari.core import audit as audit_module
 from mendari.core.audit import KEY_MAX_DAYS, AuditStore
 
 
@@ -128,11 +129,111 @@ def test_a_listing_shows_scope_and_expiry_never_the_key(store: AuditStore) -> No
         "revoked_at",
         "revoked_by",
         "replaced_by",
+        "preset",  # the integration path it was made for (LP-12i), if any
+        "status",  # active, replaced, expired or revoked, worked out now (LP-12h)
     }
     assert (listed["scope"], listed["revoked_by"]) == ("system/Task.rs", "Grace")
+    assert listed["status"] == "revoked"
+    assert listed["preset"] is None
     assert listed["expires_at"] == made["expires_at"]
     assert made["key"] not in json.dumps(store.api_keys())
     assert len(store.api_keys()) == 2
+
+
+def test_a_listing_says_each_keys_status(
+    store: AuditStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Worked out by the server as a key is refused: revoked, expired, replaced (rotated, in its
+    overlap), else active (LP-12h)."""
+    made = {
+        name: store.create_api_key(name=name, role="viewer", org="clinic-a", created_by="Ada")
+        for name in ("active", "rotated", "expired", "revoked")
+    }
+    new = store.rotate_api_key(made["rotated"]["id"], rotated_by="Ada", overlap_hours=2)
+    past = (datetime.now(UTC) - timedelta(seconds=1)).isoformat(timespec="milliseconds")
+    set_column(store, made["expired"]["id"], "expires_at", past)
+    store.revoke_api_key(made["revoked"]["id"], revoked_by="Ada")
+    statuses = {k["id"]: k["status"] for k in store.api_keys("clinic-a")}
+    assert statuses == {
+        made["active"]["id"]: "active",
+        made["rotated"]["id"]: "replaced",
+        new["id"]: "active",
+        made["expired"]["id"]: "expired",
+        made["revoked"]["id"]: "revoked",
+    }
+    later = (datetime.now(UTC) + timedelta(hours=3)).isoformat(timespec="milliseconds")
+    monkeypatch.setattr(audit_module, "_now", lambda: later)  # its overlap has passed
+    assert {k["id"]: k["status"] for k in store.api_keys()}[made["rotated"]["id"]] == "expired"
+    set_column(store, made["active"]["id"], "expires_at", None)  # refused until the next start
+    assert {k["id"]: k["status"] for k in store.api_keys()}[made["active"]["id"]] == "expired"
+
+
+def test_a_keys_history_is_its_chain_in_order(store: AuditStore) -> None:
+    old = store.create_api_key(
+        name="ehr", role="service", org="clinic-a", created_by="Ada", preset="fhir",
+        scopes="https://mendari.co/fhir/scope/decide",
+    )  # fmt: skip
+    new = store.rotate_api_key(old["id"], "clinic-a", rotated_by="Bo", overlap_hours=2)
+    assert store.revoke_api_key(old["id"], "clinic-a", revoked_by="Grace") is True
+    history = store.subject_history("key", old["id"], "clinic-a")
+    assert history is not None
+    assert (history["subject"], history["org"], history["truncated"]) == (
+        f"key:{old['id']}",
+        "clinic-a",
+        False,
+    )
+    events = history["events"]
+    assert [e["event"] for e in events] == ["key.created", "key.rotated", "key.revoked"]
+    assert all(set(e) == {"event", "at", "payload"} for e in events)
+    assert events[0]["payload"]["preset"] == "fhir"
+    assert (events[1]["payload"]["replaced_by"], events[1]["payload"]["rotated_by"]) == (
+        new["id"],
+        "Bo",
+    )
+    assert events[1]["payload"]["overlap_hours"] == 2
+    assert events[2]["payload"]["revoked_by"] == "Grace"
+    successor = store.subject_history("key", new["id"], "clinic-a")
+    assert successor is not None
+    assert [e["event"] for e in successor["events"]] == ["key.created"]
+    assert successor["events"][0]["payload"]["replaces"] == old["id"]
+    shown = json.dumps([history, successor])
+    for secret in (old["key"], new["key"]):
+        assert secret not in shown and secret[4:] not in shown
+        assert hashlib.sha256(secret.encode()).hexdigest() not in shown
+    assert "ohk_" not in shown and '"seq"' not in shown and '"hash"' not in shown
+    assert "prev_hash" not in shown
+    assert store.verify()["ok"] is True
+
+
+def test_history_is_read_through_its_rows_organization(store: AuditStore) -> None:
+    made = store.create_api_key(name="k", role="viewer", org="clinic-a", created_by="Ada")
+    assert store.subject_history("key", made["id"], "clinic-b") is None
+    assert store.subject_history("key", made["id"], "") is None  # "" is an organization
+    assert store.subject_history("key", made["id"], None) is not None  # open mode: every one
+    assert store.subject_history("key", made["id"], "clinic-a") is not None
+    assert store.subject_history("key", "nope", "clinic-a") is None
+    assert store.subject_history("key", "nope", None) is None
+    # An event whose payload names another organization than its row is never shown (fail
+    # closed): a chain written wrongly, which LP-12g's verify reports.
+    with store._db.session(exclusive=True) as db:
+        store._append(db, f"key:{made['id']}", "key.revoked", {"id": made["id"], "org": "x"})
+    shown = store.subject_history("key", made["id"], "clinic-a")
+    assert shown is not None and [e["event"] for e in shown["events"]] == ["key.created"]
+
+
+def test_history_keeps_the_newest_events(
+    store: AuditStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    made = store.create_api_key(name="k", role="viewer", org="clinic-a", created_by="Ada")
+    store.rotate_api_key(made["id"], rotated_by="Ada", overlap_hours=2)
+    store.revoke_api_key(made["id"], revoked_by="Ada")
+    monkeypatch.setattr(audit_module, "HISTORY_LIMIT", 2)
+    history = store.subject_history("key", made["id"], "clinic-a")
+    assert history is not None and history["truncated"] is True
+    assert [e["event"] for e in history["events"]] == ["key.rotated", "key.revoked"]
+    monkeypatch.setattr(audit_module, "HISTORY_LIMIT", 3)
+    whole = store.subject_history("key", made["id"], "clinic-a")
+    assert whole is not None and whole["truncated"] is False and len(whole["events"]) == 3
 
 
 def test_keys_from_before_expiry_get_30_days_once(db_target: str) -> None:

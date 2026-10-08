@@ -143,6 +143,19 @@ Validation rules (all MUST hold):
   only; it holds no `$dynamicAnchor` and no `format: "regex"`. These keys are looked for in the
   whole document, since a `$ref` can make any object in it a schema. Inputs are checked with a
   validator that retrieves nothing, so checking an input never fetches a URL or reads a file.
+- The input schema of a pack the deployment owns (a reference pack, or an operator's local pack;
+  one it does not own has the caps and the time budget of §5 instead) is bounded in shape: its
+  document nests objects and lists at most 32 deep; no path through it, following its
+  applicators, holds more than 16 `$ref`s; and it applies at most 1,000 schema objects to one
+  value of an input, a schema reached twice (two `$ref`s to it, an `allOf` listing two that
+  reach it) counted twice. A schema MAY refer back to itself only as a recursive list or tree
+  does: each schema of the loop leads back into it exactly once, the loop passes through a
+  keyword that applies to a property or an item (`properties`, `items` and the like), and it
+  leads to no other loop. A schema that applies itself to the same value, a node that applies
+  its child twice and a binary tree (`left` and `right` both the node) are invalid. A schema
+  holding `unevaluatedProperties` or `unevaluatedItems` MUST NOT lead, through any applicator, to
+  another schema holding one, nor back to itself: to find what is unevaluated, a validator checks
+  again every schema below it, so each one more below another multiplies the work.
 
 ## 4. Questions
 
@@ -302,6 +315,12 @@ a provider error with one of these stable, audit-safe codes: `budget_exhausted`,
 failed is recorded as `derived_input_unavailable`. No other code is recorded. Error codes MUST
 NOT carry credentials or remote error bodies.
 
+A decision's remote calls share a wall-clock deadline the deployment sets
+(`MENDARI_DECISION_DEADLINE_S`, default 120 s): a call that would start after it is not made,
+and one under way is cut at it (each wait it makes, a retry included, is bounded by what
+remains); either is the provider error `timeout`. Local providers always answer. A pack cannot
+set it.
+
 Variants of a slot are interchangeable implementations of the same contract. Selecting a
 variant (`providers={"router": "jev"}`) MUST NOT change the pack's questions, policy or
 tests.
@@ -337,11 +356,13 @@ run as `re` runs them (rules patterns with case ignored). Each MUST compile and 
 characters, and a pack MUST hold at most 500 of them; the runtime compiles every one at load, so
 a pack with an invalid one is invalid, named by file and rule. `re` has no time limit: a pattern that backtracks (`(a+)+$`)
 can take seconds or longer on a crafted input: a pack's patterns are code its author wrote, and
-installing a pack means trusting its author. A community pack's patterns (id `community/...`)
-are written the same way but run on RE2, which never backtracks, rewritten to mean what they
-mean in `re` (what still differs is listed in `core/re2_syntax.py`); a community pack holding a
-pattern RE2 cannot run (a lookahead or lookbehind, a back reference, a conditional or atomic
-group, a possessive quantifier, or one too large once compiled) is invalid, and so is an input
+installing a pack means trusting its author. The patterns of a pack the deployment does not own
+(a community pack, id `community/...`, or one pulled from a registry whose digest is not that of
+a reference pack in the installed release) are written the same way but run on RE2, which never
+backtracks, rewritten to mean what they mean in `re` (what still differs is listed in
+`core/re2_syntax.py`); such a pack holding a pattern RE2 cannot run (a lookahead or lookbehind,
+a back reference, a conditional or atomic group, a possessive quantifier, or one too large once
+compiled) is invalid, and so is an input
 schema that uses a keyword outside those whose work Mendari bounds (the contributor's guide
 lists them: `unevaluatedProperties` or `unevaluatedItems`, which jsonschema works out on its own
 and with `re`, `contains`, `uniqueItems` and the like are refused; `$ref` names one of the
@@ -357,9 +378,15 @@ refers back to itself where patterns run, more than 500 patterns run by its rule
 one value together, or those same runs coming to a size of more than 3,000 together, a pattern's
 size being the characters, classes and `.`s it holds, each as often as a count repeats it
 (`a{1,50}` is 50, `\w+` is 1, alternatives added together): RE2's time on each character grows
-with it. At run time a community pack's patterns and schema checks share a time budget of one
-second of CPU per decision: past it the decision abstains with the error `time_budget`, for a
-person (an input the schema had already found wrong is refused).
+with it. At run time such a pack refuses an input whose texts are longer than 10,000 characters,
+alone or together, or that holds more than 10,000 values or is nested more than 32 deep, before
+any pattern runs, and its patterns and schema checks share a time budget of one second of CPU
+per decision: past it the decision abstains with the error `time_budget`, for a person (an input
+the schema had already found wrong is refused). Which engine a pack runs on is never read from
+its manifest; the pack format is the same for every pack. A pack from a registry whose id is that
+of a reference pack in the installed release, and whose version is equal to that pack's as
+versions are ordered (by their numbers: `0.4.1-x` and `0.04.1` equal `0.4.1`), MUST be that
+pack (its digest): any other is invalid, since it would be served in the reference pack's place.
 
 A remote provider's endpoint, model and credentials belong to the deployment, which supplies
 them in fixed environment variables (`jev`: `JEV_API_URL`, `JEV_MODEL`, `JEV_API_KEY`,
@@ -369,6 +396,21 @@ them in fixed environment variables (`jev`: `JEV_API_URL`, `JEV_MODEL`, `JEV_API
 `local_key_env` or `model_env` is invalid, whatever the pack's `spec_version`. A variant MAY pin
 `model`, and `llm` variants MAY tune their own requests (`timeout_ms`, `max_tokens`,
 `temperature`, `reasoning_effort`).
+
+Each provider type's config is closed: a variant or composite member MUST set only the keys its
+type reads, with values it accepts, and its pack files MUST be ones it can run with (a rules,
+criteria or dosing file of that shape, answering the slot's questions with their labels; a
+trained naive_bayes model or LLM calibration file; a CQL library declared first). The keys of
+every type are published as a JSON Schema,
+[`provider-configs.schema.json`](provider-configs.schema.json), generated from the code.
+Every variant is checked at load, the ones a pack does not use by default too: a pack the
+deployment does not own (a community pack, or one pulled from a registry that is not a
+reference pack) with any problem is invalid; any other loads, with the problems as warnings,
+and `mendari validate` refuses it. For a pack the deployment does not own, every `jev` and `llm`
+variant and member MUST name its `state_fields` (at least one), and the deployment chooses
+what the pack may only suggest: its `model` is ignored, its `max_tokens` and `timeout_ms` are
+held to the provider defaults (`llm` 4,096 tokens and 30,000 ms, `jev` 5,000 ms; a lower value
+stands), and a `reasoning_effort` above `low` is ignored.
 
 ## 6. Policy and outcomes
 
@@ -661,6 +703,8 @@ of these.
 | Every behaviour test is a mapping with an `input` mapping, an optional text `name` and an optional `expect` mapping, and is JSON: no date, binary, set, lone surrogate or non-finite number (every spec version) | §10 |
 | No lone surrogate, `!!binary`, `!!set`, `!!omap` or `!!pairs` in a pack's YAML, no lone surrogate or non-finite number in its JSON; a file is used only with the content its digest hashed (every spec version) | §3 |
 | No symbolic link out of a directory pack; a self-contained input schema (local references only, no nested `$schema` or `$id`, no `$dynamicAnchor`, no `format: regex`; every spec version) | §3 |
+| Provider configs are closed (the published JSON Schema) and checked at load for every variant: a community or registry pack with a problem is invalid, any other is warned; such a pack's model variants name their `state_fields`, and its model, `max_tokens`, `timeout_ms` and `reasoning_effort` are the deployment's to choose or cap (every spec version) | §5 |
+| An owned pack's input schema nests at most 32 deep, chains at most 16 `$ref`s and applies at most 1,000 schema objects to one value, referring back to itself only as a recursive list or tree, with no `unevaluatedProperties` or `unevaluatedItems` below another; a pack from a registry with a reference pack's id and an equal version is that pack (every spec version) | §3, §5 |
 
 To migrate a pack:
 

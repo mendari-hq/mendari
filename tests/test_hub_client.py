@@ -19,18 +19,22 @@ from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption,
 
 from mendari.cli import main
 from mendari.core.decision import Decision
-from mendari.core.pack import Pack, load_pack
+from mendari.core.pack import Pack, PatternsRefused, load_pack
 from mendari.core.registry import resolve_pack
-from mendari.errors import HubError, PackNotFoundError
+from mendari.errors import HubError, PackNotFoundError, PackValidationError
 from mendari.evals.share import SiteReport
 from mendari.hub import archive, client
 from mendari.hub.client import RegistryClient, pull
 from mendari.hub.registry import create_registry_app
 from mendari.sandbox import example_datasets_dir
+from tests.conftest import INBOX_DIR
 
 ADMIN = "admin-token-for-tests"
 REFERRAL_DIR = resolve_pack("mendari/referral-router").root
-SHIPPED = load_pack(REFERRAL_DIR).version  # the referral pack as it ships
+# The packs these tests publish under other ids are copies of the inbox pack, whose patterns
+# all run on RE2: a pulled pack that is not a reference pack of this release runs on the engine
+# for packs from a registry (ADR-0009), which the referral pack's lookahead cannot run on.
+SHIPPED = load_pack(INBOX_DIR).version  # the inbox pack as it ships
 
 
 def free_port() -> int:
@@ -84,11 +88,11 @@ def hub(tmp_path: Path) -> Iterator[Hub]:
 
 
 def copy_pack(tmp_path: Path, pack_id: str, version: str = SHIPPED) -> Pack:
-    """The referral pack under another id (and version): a pack no search path has."""
+    """The inbox pack under another id (and version): a pack no search path has."""
     target = tmp_path / "packs" / pack_id.replace("/", "-") / version
-    shutil.copytree(REFERRAL_DIR, target)
+    shutil.copytree(INBOX_DIR, target)
     manifest = (target / "pack.yaml").read_text()
-    manifest = manifest.replace("id: mendari/referral-router", f"id: {pack_id}", 1)
+    manifest = manifest.replace("id: mendari/patient-inbox-router", f"id: {pack_id}", 1)
     manifest = manifest.replace(f"version: {SHIPPED}", f"version: {version}", 1)
     (target / "pack.yaml").write_text(manifest)
     return load_pack(target)
@@ -96,43 +100,43 @@ def copy_pack(tmp_path: Path, pack_id: str, version: str = SHIPPED) -> Pack:
 
 def test_push_then_pull_verifies_and_caches(hub: Hub, tmp_path: Path) -> None:
     token, key = hub.namespace("site-a")
-    pack = copy_pack(tmp_path, "site-a/referrals")
+    pack = copy_pack(tmp_path, "site-a/inbox")
     published = hub.client(token).push(pack, key)
     assert published["digest"] == pack.digest
-    pulled = pull("site-a/referrals", hub.client())
+    pulled = pull("site-a/inbox", hub.client())
     assert (pulled.id, pulled.version, pulled.digest) == (pack.id, pack.version, pack.digest)
-    assert pulled.root == client.packs_cache() / "site-a" / "referrals" / SHIPPED
-    assert resolve_pack("site-a/referrals").digest == pack.digest  # the cache is on the search path
+    assert pulled.root == client.packs_cache() / "site-a" / "inbox" / SHIPPED
+    assert resolve_pack("site-a/inbox").digest == pack.digest  # the cache is on the search path
 
 
 def test_a_cached_pack_is_not_downloaded_again(
     hub: Hub, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     token, key = hub.namespace("site-a")
-    hub.client(token).push(copy_pack(tmp_path, "site-a/referrals"), key)
-    pull("site-a/referrals", hub.client())
+    hub.client(token).push(copy_pack(tmp_path, "site-a/inbox"), key)
+    pull("site-a/inbox", hub.client())
     monkeypatch.setattr(RegistryClient, "archive", lambda *a: pytest.fail("downloaded again"))
-    assert pull(f"site-a/referrals@{SHIPPED}", hub.client()).version == SHIPPED
+    assert pull(f"site-a/inbox@{SHIPPED}", hub.client()).version == SHIPPED
 
 
 def test_an_archive_that_is_not_the_recorded_one_is_refused(
     hub: Hub, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     token, key = hub.namespace("site-a")
-    hub.client(token).push(copy_pack(tmp_path, "site-a/referrals"), key)
+    hub.client(token).push(copy_pack(tmp_path, "site-a/inbox"), key)
     original = RegistryClient.archive
     monkeypatch.setattr(RegistryClient, "archive", lambda self, *a: original(self, *a) + b"\0")
     with pytest.raises(HubError, match="not the one the registry recorded"):
-        pull("site-a/referrals", hub.client())
-    assert not (client.packs_cache() / "site-a" / "referrals").exists()
+        pull("site-a/inbox", hub.client())
+    assert not (client.packs_cache() / "site-a" / "inbox").exists()
 
 
 class HostileRegistry:
     """A registry (compromised, or a wrong MENDARI_REGISTRY_URL) that serves a genuinely signed
-    archive of the referral pack under whatever version it is told to name."""
+    archive of the referral pack (or `root`) under whatever version it is told to name."""
 
-    def __init__(self, tmp_path: Path) -> None:
-        self.pack = load_pack(REFERRAL_DIR)
+    def __init__(self, tmp_path: Path, root: Path = REFERRAL_DIR) -> None:
+        self.pack = load_pack(root)
         private, self.public = archive.generate_key()
         key = archive.load_private_key(private)
         self.data = archive.build(self.pack, key)
@@ -189,33 +193,121 @@ def test_a_registry_cannot_serve_one_version_as_another(tmp_path: Path) -> None:
         pull("../x", hostile)
 
 
+def changed_referral(tmp_path: Path, version: str | None = None) -> Path:
+    """A copy of the referral pack with one more line in its rules, at `version` (its own unless
+    given)."""
+    changed = tmp_path / "changed"
+    shutil.copytree(REFERRAL_DIR, changed)
+    rules = changed / "logic" / "triage_rules.yaml"
+    rules.write_text(rules.read_text() + "# one more line\n")
+    if version is not None:
+        manifest = changed / "pack.yaml"
+        shipped = load_pack(REFERRAL_DIR).version
+        manifest.write_text(
+            manifest.read_text().replace(f"version: {shipped}", f"version: {version}", 1)
+        )
+    return changed
+
+
+def test_a_pull_the_engine_refuses_leaves_nothing_in_the_cache(tmp_path: Path) -> None:
+    """H3: a signed copy of the referral pack with one changed byte (at a new version: at its own
+    it is a shadow, below) is not the reference pack, so it runs on the engine for packs from a
+    registry, which cannot run its lookahead. The pull refuses it before the rename: no version
+    directory, no verified marker, nothing on the search path."""
+    registry = HostileRegistry(tmp_path, changed_referral(tmp_path, "9.9.9"))
+    assert registry.version == "9.9.9"
+    with registry.client() as signed, pytest.raises(PatternsRefused) as refused:
+        pull("mendari/referral-router", signed)
+    assert any("lookahead" in problem for problem in refused.value.problems)
+    assert any("not the copy of it in this release" in p for p in refused.value.problems)
+    cache = client.packs_cache()
+    assert not (cache / "mendari" / "referral-router" / registry.version).exists()
+    assert list(cache.rglob(".mendari-verified")) == []
+    assert resolve_pack("mendari/referral-router").origin == "maintained"
+
+
+def test_a_pull_of_a_shadow_is_refused_and_nothing_is_cached(tmp_path: Path) -> None:
+    """F: a signed copy of the referral pack with one changed byte at the reference pack's own
+    version would be served in its place. The pull refuses it before the rename, and the
+    reference pack is still the one served."""
+    registry = HostileRegistry(tmp_path, changed_referral(tmp_path))
+    reference = load_pack(REFERRAL_DIR)
+    assert registry.version == reference.version
+    with registry.client() as signed, pytest.raises(PackValidationError) as refused:
+        pull("mendari/referral-router", signed)
+    assert not isinstance(refused.value, PatternsRefused)
+    (problem,) = refused.value.problems
+    assert "never takes a reference pack's place" in problem and "remove" not in problem
+    cache = client.packs_cache()
+    assert not (cache / "mendari" / "referral-router" / reference.version).exists()
+    assert list(cache.rglob(".mendari-verified")) == []
+    served = resolve_pack("mendari/referral-router")
+    assert (served.origin, served.digest) == ("maintained", reference.digest)
+
+
+def test_a_shadow_cached_before_this_release_is_refused_on_the_cache_hit_path(
+    tmp_path: Path,
+) -> None:
+    """One pulled before this release refused it is in the cache, marked verified: the pull's
+    cache hit loads it and refuses it, naming the directory to remove, and the reference pack is
+    served."""
+    registry = HostileRegistry(tmp_path, changed_referral(tmp_path))
+    reference = load_pack(REFERRAL_DIR)
+    cached = client.packs_cache() / "mendari" / "referral-router" / reference.version
+    shutil.copytree(registry.pack.root, cached)
+    (cached / ".mendari-verified").write_text(hashlib.sha256(registry.data).hexdigest() + "\n")
+    with registry.client() as signed, pytest.raises(PackValidationError) as refused:
+        pull("mendari/referral-router", signed)
+    (problem,) = refused.value.problems
+    assert problem.endswith(f"; remove {cached.resolve()} from the cache")
+    served = resolve_pack("mendari/referral-router")
+    assert (served.origin, served.digest) == ("maintained", reference.digest)
+
+
+def test_pulling_a_reference_pack_keeps_the_maintained_engine(
+    hub: Hub, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The reference pack, published unchanged (`scripts/hub_seed.py`, `hub-e2e`), is a copy
+    of the one this release bundles: pulled, it keeps the maintained engine."""
+    token, key = hub.namespace("mendari")
+    reference = load_pack(REFERRAL_DIR)
+    hub.client(token).push(reference, key)
+    assert main(["login", "--registry", hub.url, "--token", token]) == 0
+    capsys.readouterr()
+    assert main(["pull", "mendari/referral-router"]) == 0
+    out = capsys.readouterr().out
+    assert "runs on the maintained engine: a copy of the reference pack in this release" in out
+    cached = client.packs_cache() / "mendari" / "referral-router" / reference.version
+    pack = Decision.from_path(cached).pack
+    assert (pack.origin, pack.bounded, pack.digest) == ("hub", False, reference.digest)
+
+
 def test_a_rotated_key_needs_consent(hub: Hub, tmp_path: Path) -> None:
     token, key = hub.namespace("site-a")
     publisher = hub.client(token)
-    publisher.push(copy_pack(tmp_path, "site-a/referrals"), key)
-    pull("site-a/referrals", hub.client())  # pins the first key
+    publisher.push(copy_pack(tmp_path, "site-a/inbox"), key)
+    pull("site-a/inbox", hub.client())  # pins the first key
     private, public = archive.generate_key()
     publisher.add_key("site-a", public)
-    publisher.push(
-        copy_pack(tmp_path, "site-a/referrals", "0.2.0"), archive.load_private_key(private)
-    )
+    publisher.push(copy_pack(tmp_path, "site-a/inbox", "0.2.0"), archive.load_private_key(private))
     with pytest.raises(HubError, match="has not seen before"):
-        pull("site-a/referrals@0.2.0", hub.client())
-    assert pull("site-a/referrals@0.2.0", hub.client(), accept_new_key=True).version == "0.2.0"
+        pull("site-a/inbox@0.2.0", hub.client())
+    assert pull("site-a/inbox@0.2.0", hub.client(), accept_new_key=True).version == "0.2.0"
 
 
 def test_from_hub_pulls_a_pack_that_is_not_local(
     hub: Hub, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     token, key = hub.namespace("site-a")
-    hub.client(token).push(copy_pack(tmp_path, "site-a/referrals"), key)
+    hub.client(token).push(copy_pack(tmp_path, "site-a/inbox"), key)
     with pytest.raises(PackNotFoundError, match="no registry"):
-        Decision.from_hub("site-a/referrals")
+        Decision.from_hub("site-a/inbox")
     monkeypatch.setenv("MENDARI_REGISTRY_URL", hub.url)
-    decision = Decision.from_hub("site-a/referrals")
-    dataset = (example_datasets_dir() or Path("datasets")) / "referral-local-site-example.jsonl"
+    decision = Decision.from_hub("site-a/inbox")
+    dataset = (example_datasets_dir() or Path("datasets")) / "local-site-example.jsonl"
     case = json.loads(dataset.read_text().splitlines()[0])
     assert decision(case["input"]).recommendation
+    assert decision.pack.origin == "hub" and decision.pack.bounded  # not a reference pack
 
 
 def test_the_cli_logs_in_pushes_searches_and_pulls(
@@ -228,12 +320,14 @@ def test_the_cli_logs_in_pushes_searches_and_pulls(
     assert main(["login", "--registry", hub.url, "--token", token]) == 0
     credentials = client.config_dir() / "credentials.json"
     assert credentials.stat().st_mode & 0o777 == 0o600
-    pack = copy_pack(tmp_path, "site-a/referrals")
+    pack = copy_pack(tmp_path, "site-a/inbox")
     assert main(["push", str(pack.root), "--key", str(key_file)]) == 0
-    assert main(["search", "specialty"]) == 0
-    assert f"site-a/referrals@{SHIPPED}" in capsys.readouterr().out
-    assert main(["pull", "site-a/referrals"]) == 0
-    assert "verified and cached" in capsys.readouterr().out
+    assert main(["search", "inbox"]) == 0
+    assert f"site-a/inbox@{SHIPPED}" in capsys.readouterr().out
+    assert main(["pull", "site-a/inbox"]) == 0
+    out = capsys.readouterr().out
+    assert "verified and cached" in out
+    assert "runs on the engine for packs from a registry (RE2, a 1 s CPU budget" in out
     assert main(["search", "--json", "--risk", "4"]) == 0
     assert json.loads(capsys.readouterr().out) == []
 

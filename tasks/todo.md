@@ -456,6 +456,187 @@ clinical-trial-prescreener, referral-router) are rewritten, with a decision-iden
 rebuild, before a reference version that differs from the installed one is published to a
 registry or copied into the store.
 
+- [ ] **LP-16 build** (ADR-0009), in the PRs below:
+  - [x] **16a** (#185, merged 2026-10-08) The engine for packs the deployment does not own:
+    `Pack.bounded` (a community pack, or a pulled one whose digest, the one `load_pack` hashed, is
+    not a reference pack's of the installed release, `core/reference.py`);
+    `archive.extract(..., origin=)` required, with `hub` from the registry's publish,
+    `mendari pull` (before the rename, so a refused pack is never cached) and
+    `mendari pack verify`; `Decision.from_path` takes its path's origin; `mendari pull` says which
+    engine; ADR-0009, the spec amended in place, the docs, threat model D8 and S15; the a3 probe's
+    pending line replaced by its tests. No pack artifact changes.
+  - [x] **16b** (#184, merged 2026-10-08) A wall-clock deadline across one decision's remote
+    calls, every pack (`MENDARI_DECISION_DEADLINE_S`, 120 s unless set), recorded as `timeout`;
+    an answer still arriving stops at it, the CQL engine's included; threat model D9.
+  - [x] **16c-1** (#187, merged 2026-10-08) ai-guard's `claim-about-the-record` without its
+    lookahead, spelled out a letter at a time and exact on every input on both engines
+    (`test_lookaround_rewrites`: every shipped input, the ledger, a seeded fuzz on `re` and RE2),
+    ai-guard 0.1.4 and its rebuild; the parity test now skips only the three lookarounds 16c-2
+    holds.
+  - [ ] **16c-2** (held for the owner) pregnant, pancreatitis and new-lung-mass: the owner
+    chooses between S (a structural `not_followed_by` rules key, a format change) and D (the
+    data-identical rewrites, with their fuzz differences and the slowdown on `re` accepted in
+    writing). Until then the trial and referral packs cannot publish a version that differs from
+    the installed one: a puller refuses it, with the reason.
+  - [ ] **F** (PR open, with 16f; found in the 16a review) A pack from a registry with a reference
+    pack's id and a version that ties its (`version_key`, now in `core/spec.py`) but another
+    digest took the reference pack's place, since the cache wins a version tie: it ran bounded,
+    under the reference pack's name. Refused at load for origins the deployment does not own
+    (`_shadow_problem`, from `core/reference.py` `reference_packs`), so at publish (422), pull
+    (before the rename), the pull's cache hit, `mendari pack verify` and `Decision.from_path`;
+    one cached before is listed under `invalid` with the directory to remove, and the reference
+    pack is served. Threat model S16; S15's and a3's tests moved to 9.9.9 with their names kept.
+  - [ ] **16d** (#188, PR open) Health does no pack work in the request: every served pack is built at
+    startup and health reads that snapshot; `deployment.recorded` stays on first use, and a pack
+    that fails to build is never rebuilt (conflicts 15, 16, 23).
+  - [ ] **16e-1** (PR open; PR C, after A and B) Closed provider configs checked at load
+    (`providers.config_problems`, each provider's `config_problems`, new `FileConfig` and
+    `NaiveBayesConfig`): refused for packs the deployment does not own, `Pack.warnings` for owned
+    ones (`mendari list` on stderr, the start-up log, health `pack_warnings` past the `read`
+    check), `mendari validate` refuses both. An owned pack's constructors raise only on what they
+    raised on before, so an unread key warns and the pack still serves (conflict 17). The
+    deployment's model, caps on `max_tokens`, `timeout_ms` and effort
+    (`core/origin.py` `deployment_config`, keyed on `Pack.bounded`), `state_fields` on llm and
+    jev variants and members, the parity test (and an exhaustive one-change sweep beneath it),
+    the hypothesis egress test, the generated JSON Schema
+    (`docs/spec/provider-configs.schema.json`, `scripts/provider_config_schema.py --check`);
+    the CQL declaration search made linear, since load now runs it on registry packs
+    (conflicts 17–19, 24, 25).
+  - [ ] **16e-2** (PR D, after C) The provider egress allow-list
+    (`MENDARI_PROVIDER_ALLOWED_ORIGINS`), relative prefetch templates and bare placeholders
+    (conflicts 20, 21).
+  - [ ] **16f** (PR open, with F) Depth and `$ref` bounds for the input schemas of packs the
+    deployment owns (`core/input_schema.py` `expansion_problems`, over `core/schema_graph.py`,
+    the graph moved out of `core/caps.py` with each `$ref` edge marked; the caps count as
+    before): nested at most 32 deep, chains of at most 16 `$ref`s, at most 1,000 schema objects
+    on one value, loops only as a recursive list or tree, and no `unevaluatedProperties` or
+    `unevaluatedItems` below another (conflict 22). The shipped packs, scaffolds and fixtures:
+    6, 1 and 2. Packs it does not own keep B11's caps and budget, unchanged. Threat model D10.
+  - [ ] **16g** (PR E, last) The threat model's "Pack content" part. LP-16 counts as merged for
+    LP-18 and LP-20 when it lands; 16c-2 still waits for the owner.
+
+  **LP-16 rest, in order:** A (F and 16f, this PR); B (16d, beside A); C (16e-1, after A and B);
+  D (16e-2, after C); E (16g, after A to D).
+
+  **Conflicts written before building LP-16, and the default each PR follows** (the owner may
+  choose otherwise; each default is named by the PR that depends on it):
+  1. (16a) Requirement 1 and its first test are narrowed to packs the deployment does not own
+     (owner, #175). Test 1 at 100,000 characters: a pulled pack refuses text over 10,000
+     characters before any pattern runs (BLOCK "input rejected"), so the test asserts the
+     refusal at the decision and linear scaling at the pattern level. Reference and local packs
+     stay on `re`, with no budget.
+  2. (16a) The engine follows the bytes. A pulled pack runs on `re` only when the digest
+     `load_pack` hashed equals one of the installed release's bundled packs'. Metadata, the
+     manifest's `publisher.type` and the registry's recorded digest never choose the engine. A
+     local copy of a pulled pack is owned (`re`), and there is no setting to put a pulled pack
+     on `re`.
+  3. (16a, 16b) Error codes: `time_budget` stays the CPU budget's (requirement 2's
+     `budget_exhausted` is the daily call limit: HTTP 429, FHIR "throttled"). The deadline uses
+     `timeout`. No code is added.
+  4. (16a) The whole B11 engine comes along for a pulled pack, not only the five items the
+     owner named: the input-shape limits (10,000 values, depth 32), the 100-error stop and the
+     short schema reasons, because they share the gate. Run-time reasons stored in the audit
+     keep "a community pack" for community packs and say "a pack from a registry" for pulled
+     ones. Load-time messages become origin-neutral ("a community or registry pack").
+  5. (16a) No policy change. "Then a person decides" is held as: a pulled pack's `time_budget`
+     never leaves AUTO, and a failed primary abstains. A pulled pack's own BLOCK rule that
+     matches on answers from other slots still decides, as for every failure code today. A
+     BLOCK can be the safe direction: ai-guard's `possible-block` means "do not send".
+  6. (16a) ADR-0007, the threat model's residual risks and `SECURITY.md` promised an isolated
+     process; the owner chose no worker process. ADR-0009 records Option A scoped and amends
+     them; ADR-0007 has an "Amended by ADR-0009" status line.
+  7. (16c) Only the ai-guard rewrite is decision-identical on every input. pregnant and
+     pancreatitis lose matches (the unsafe direction) and are 26 times slower on `re`;
+     new-lung-mass differs both ways. Default: 16c-1 (ai-guard) lands; 16c-2 waits for the
+     owner's choice between S and D. Until then the trial and referral packs cannot publish a
+     version that differs from the installed one: a puller refuses it, with the reason.
+  8. (16c-2 if S) A new rules key is a format change (Definition of shipped §8,
+     `notes/vision-audit.md`). Default: not in LP-16.
+  9. (16a) "Pin the dialect in the spec": 0.2 §5 is amended in place, as B11 did. The pack
+     format is unchanged and every pack loads as before.
+  10. (16a, 16b) Gate G3-4: the a3 `pending` probe is replaced by 16a's tests and 16b's
+     (`test_a_deadline_never_automates`); its narrowed `what` holds no pending line. "Fuzzing"
+     in the `what` line keeps no probe of its own.
+  11. (all) Requirements 4–7 and the hypothesis, health, parity and nested-`$ref` tests are not
+     narrowed by the owner and are not in 16a–16c. Default: they ship as 16d–16g: 16d, health
+     does no pack work in the request; 16e, closed provider configs (for packs the deployment
+     does not own, the deployment chooses model, `max_tokens`, `timeout_ms` and effort;
+     `state_fields` is required on remote variants; an egress allow-list); 16f, a depth and
+     `$ref` bound for owned schemas, only if every shipped pack passes, else a new conflict;
+     16g, the threat model's "Pack content" part. LP-16 counts as merged for LP-18 and LP-20
+     only when 16d–16g land too.
+  12. (16a) The sandbox registry seeds from the host checkout into an image built earlier.
+     Default: document `docker compose up --build` (README, `docker-compose.yml`).
+     `hub_seed.py` is unchanged and stops at the first refusal.
+  13. (F) A pack from a registry with a reference pack's id and a tying version but another
+     digest is refused at load, pull and publish. A deployment that already cached one switches to
+     the bundled pack and lists the cache copy under `invalid`; the registry refuses such a publish
+     with 422. Default: refuse, for origins the deployment does not own only. A copy in
+     `MENDARI_PACKS_PATH` (local) can still shadow, by the operator's choice (conflict 2).
+  14. (F) No rule says a changed reference pack bumps its version (referral 0.1.4, inbox 0.4.0
+     and prior-auth 0.2.0 each changed content without a bump). Default: no new CI check in
+     LP-16. The registry's refusal (conflict 13) forces the bump at publish, and conflict 12
+     already says the sandbox registry must be rebuilt (`--build`).
+  15. (16d) "While a decision on it is running" cannot hold in-process for an owned pack on `re`:
+     `re` holds the GIL (`(a+)+$` on 25 characters stalled a 1 ms ticker for 1,080 ms). Default:
+     the running-decision half is narrowed to packs the deployment does not own; the loaded-pack
+     half holds for every pack.
+  16. (16d) The deployment record. Default A2: build every served pack at startup and record
+     `deployment.recorded` on first use; health never writes. A pack that fails to build is
+     never rebuilt, and its reason is re-raised. Startup costs about 21 ms of CPU, and about 5 to
+     10 s more on the suite (240 `create_app` calls).
+  17. (16e) Requirement 5 validates every variant at load. For owned packs that would refuse packs
+     that load and serve today (an unused broken variant, extra keys nothing reads). Default:
+     refuse packs the deployment does not own; owned packs load with `Pack.warnings` (health
+     `pack_warnings`, the startup log, `mendari list`), and `mendari validate` refuses both. The
+     parity test is strict for packs the deployment does not own and "refused or warned" for
+     owned ones; making owned packs refuse later is a one-line change, for the owner. "Parity"
+     covers provider configs and, for packs the deployment does not own, the FHIR mapping; test
+     inputs and datasets stay validate-only, since they are attestations.
+  18. (16e) The prompt says "caps"; conflict 11 says "chooses". Default: `model` is the
+     deployment's; `max_tokens` and `timeout_ms` are capped at the provider defaults (4096; LLM
+     30 s, Jev 5 s), and a lower pack value is kept; `reasoning_effort` is kept at `none` or `low`
+     and removed if higher. No new settings. Community packs are now capped on timeout and effort
+     too (visit-sorter sets neither). A hub pack's pinned LLM model no longer applies, so its
+     remote answers can change; no shipped or deployed pack pins one.
+  19. (16e) "Remote variants" means llm and jev (`MODEL_TYPES`). CQL is `remote = True` but sends
+     a fixed bundle (`record_fhir.py`) and has no `state_fields`. Default: `state_fields` (at
+     least 1 entry) is required only on llm and jev variants and members of packs the deployment
+     does not own. Fixture changes: visit-sorter and `test_decision_deadline.py`.
+  20. (16e) Egress allow-list. Default: when unset, no new check (endpoints come only from fixed
+     environment names). When set, it is checked at startup for the endpoint variables that are
+     set, and on every outbound provider request, the gateway default and Vercel Connect
+     included (`invalid_endpoint`). CQL stays on the FHIR allow-list.
+  21. (16e) Requirement-5 items not in conflict 11's list: the generated JSON Schema (PR C),
+     relative prefetch and bare placeholders (PR D). Default: refuse packs the deployment does
+     not own, warn owned ones. Their Task-text templates are now checked at load; `fill` is
+     unchanged.
+  22. (16f) Default: the bound applies to owned packs only; packs the deployment does not own keep
+     the caps and the CPU budget ("killed within the budget"), so B11's budget tests are
+     unchanged. Every shipped pack, template and fixture passes, with margins of at least 5x on
+     depth, 16x on the chain and 500x on applications. An operator's local pack beyond the bound
+     stops being served and is listed under `invalid`, as conflict 11's default says. Recursive
+     schemas are allowed only as simple cycles through properties or items; a binary-tree
+     recursion is refused, and so (PR A) is a loop that leads to another loop, since one value
+     would meet the inner one once for each level of the outer. The PR A review found that
+     `unevaluatedProperties` and `unevaluatedItems` validate again every schema below them
+     (jsonschema's `find_evaluated_*_by_schema`), so nested ones multiply the work within every
+     count above (on `{"a": 1}`, one `$defs` of 13 took 7 ms, two 3.5 s, three over 60 s).
+     Default: refuse a schema holding one that leads, through any applicator (a property's or an item's too, which also
+     multiplies), to another holding one, or back to itself; one per path still loads. No shipped
+     pack, scaffold or fixture uses either keyword.
+  23. (16d, recorded only) Health and `admit` share AnyIO's 40-thread pool with the decide
+     routes, which can wait up to `MENDARI_DECISION_DEADLINE_S` (120 s). Default: a residual
+     risk, written in 16g; not in LP-16.
+  24. (16e, recorded only) These still run as packs set them, for packs the deployment does not
+     own: Jev `cost_per_1k_input_tokens_usd` (which sets the recorded `cost_usd`), `batch: false`,
+     `temperature`, `JEV_DEFAULTS` and unscoped `MENDARI_PROVIDERS` settings applying to hub packs
+     by id, and the eval route letting a caller choose any variant of a pack that is not a
+     community pack. Default: a residual risk (16g), for LP-20; changing them would change hub
+     packs' decisions.
+  25. (16e) `hypothesis` is added as a development dependency (`pyproject.toml`, `uv.lock`) and
+     runs with `derandomize=True`, so CI stays deterministic.
+
 **B38, the pilot EHR (owner, 2026-10-07):** Epic, with Oracle Health as the backup, chosen by
 vendor fit while no design partner is on record; the first pilot site's own EHR overrides it.
 LP-23 builds to Epic's published CDS Hooks token (RS384 or ES384, a `jku` equal to an allow-listed
@@ -463,6 +644,80 @@ URL, `iss` the FHIR base, `aud`, `sub`, `jti` replay) with a test key pair. The 
 Epic's free sandbox when LP-23 starts, from a checklist Claude sends (the APIs the packs read,
 ServiceRequest and Communication included). An Epic shared by several organizations (Community
 Connect) is not supported yet.
+
+**Container images wait until they comply (owner, 2026-10-07):** after a licensing analysis the
+owner received in October 2026, no image goes to GHCR until it carries what the licences of
+everything in it ask, and `release.yml` refuses to push one that fails the checks. Images are
+pushed only by `release.yml`'s `publish-images`, on a release to PyPI (the TestPyPI rehearsal
+pushes none), so the first published images wait on the item below; the PyPI release does not.
+
+- [ ] **Image licence compliance** (#180, draft, branch `claude/image-licence-compliance`; the
+  images wait on it). Every image carries `/licenses`: Mendari's `LICENSE` and `NOTICE`,
+  `SOURCE.md` (where the corresponding source is), `THIRD_PARTY_NOTICES.md` and `inventory.json`
+  written by the build from what the image holds (`scripts/image_notices.py`, run inside the
+  image on its own Python), `third-party.cdx.json` (what an SBOM scanner cannot see by itself)
+  and `third-party/` (texts). `licenses/image/` keeps what the image would otherwise lack:
+  `components.toml` (41 components, each with its version, licence, source, and texts fetched
+  from its upstream at that version: what psycopg-binary 3.3.6 bundles on each architecture, from
+  its wheels' auditwheel SBOMs and its build (libpq 18.6, OpenSSL 3.5.8, OpenLDAP 2.6.14; on
+  amd64 CentOS 7's Cyrus SASL, MIT Kerberos, com_err, keyutils, libselinux and PCRE and
+  manylinux2014's libxcrypt 4.5.2; on arm64 AlmaLinux 8's, with PCRE2, libxcrypt 4.1.1 and
+  OpenSSL 1.1.1k), what cryptography, cffi, PyYAML and google-re2 link statically, the Rust
+  standard library, CPython 3.12.15's incorporated software and pip 25.0.1's 17 vendored
+  packages), `crates.toml` (the 143 crates the Rust packages' own SBOMs list, 75 distinct texts
+  from crates.io, each crate checked against its SBOM's SHA-256), 130 texts with `SHA256SUMS`
+  (`scripts/image_licence_texts.py`). GPL and LGPL components name their exact source pinned by
+  SHA-256 (keyutils' and libxcrypt's SRPMs, libxcrypt 4.5.2 with manylinux's build scripts,
+  psycopg's tag and sdists, certifi, pip, CPython). Debian's `/usr/share/doc/*/copyright` (the
+  base image's slim configuration keeps them; nothing removes them) and
+  `/usr/share/common-licenses` are checked present. The label keeps `licenses=Apache-2.0` with a
+  description naming it Mendari's only and pointing at `/licenses`.
+  `scripts/check_image_licences.py` fails an image with anything uncovered (a package without
+  its copyright file, a bundled library, crate or native package at a version nobody reviewed, a
+  text missing or changed, stale notices, the wrong LICENSE or NOTICE, the label), and scans an
+  SBOM: permissive, or copyleft with its source published, or a reviewed exception (GCC's
+  runtime, libcrypt1 and debian-archive-keyring by their copyright text's hash, xz's notice on
+  the GNU licence documents, distlib's launchers in pip); unknown fails. `release.yml`: BuildKit
+  attaches an SBOM of each finished image (`docker/buildkit-syft-scanner` 1.12.0 by digest), each
+  architecture of each image is checked and its SBOM scanned, the run keeps the SBOMs with each
+  package's source location (90 days), a new `image-sources` job collects every Debian source
+  package at its installed version (deb.debian.org, then the security archive, then
+  snapshot.debian.org; each file checked against its `.dsc`) and the components' sources into a
+  files-only image, and `publish-images` (now after it) pushes it as `<tag>-sources` before
+  each image. CI's `docker` job runs the image check. Measured on the engine image built locally
+  (arm64 native, amd64 under QEMU): both pass, the SBOMs' 330 and 327 packages allowed; the
+  sources are 61 Debian source packages and 13 other files, 345 MB (one 339 MB layer), collected
+  in 12 s. Size (compressed, on disk): arm64 71.8 and 335 MB before, 72.0 and 338 MB after;
+  amd64 69.6 and 303 MB before, 69.8 and 307 MB after (`/licenses` is 3.3 MB).
+  **Not done, for the owner:** attaching the sources to a GitHub release (no release is created
+  today, and it needs `contents: write` on a publishing job, which the workflow safety rules do
+  not allow; the `-sources` tag in the same GHCR repository is the source's place instead);
+  `SOURCE.md`'s fallback ("open an issue in the Mendari repository and the maintainers will send
+  it") commits the maintainers: confirm or name a contact; counsel to confirm the approach
+  (equivalent access from the same place, no separate written offer). Keep each `-sources` tag
+  as long as its image, and make it public with the image's package.
+  **Review (2026-10-08), six findings, all fixed:** `THIRD_PARTY_NOTICES.md` now gives a source
+  for every Python package (PyPI at its version, the component's for psycopg, certifi and pip,
+  the repository for Mendari) and every crate (crates.io), and Debian's section says where each
+  source package is (`inventory.json` gives each one's snapshot.debian.org address); the SBOM's
+  source locations are now read from that inventory, so the two always agree, and a package the
+  SBOM lists that the inventory does not fails the release (`no source location`). The SBOM with
+  source locations is the one in `<tag>-sources` (`/sources/sbom/`): README and SOURCE.md say
+  so, and that BuildKit's attestation has none (pushing the enriched copy as an OCI referrer
+  would add a tool to the publishing job that nothing can exercise before a release). CI's new
+  `image-sbom` job runs the release's SBOM scan on every change, with the release's generator
+  and builder (a test keeps them the same), so a base image bump that renames a Debian licence
+  or changes a reviewed copyright text fails in its own pull request. pip's vendored Requests
+  carries Requests' NOTICE file (Apache-2.0 4(d); none of the other Apache-2.0 components has
+  one upstream). CPython's corresponding source adds the official image's Dockerfile that
+  compiled it (docker-library/python 2a3b794c, 3.12/slim-trixie, pinned by SHA-256; its readline
+  and _gdbm modules link GPL-3.0 libraries), and `base_image` ties that recipe to the
+  `Dockerfile`'s base, so a new base image is reviewed again. The `Dockerfile` writes the
+  notices in a stage of its own instead of `RUN --mount`, so `docker build .` works again with
+  Docker's classic builder (a test keeps BuildKit-only syntax out). Not done: CI does not
+  collect the sources (`image_sources.py`): every run would fetch about 345 MB from Debian's
+  archive, and snapshot.debian.org as pinned versions leave the pool; a scheduled job is the
+  owner's call.
 
 - [ ] **LP-10** Statistics and a per-case ledger behind every number. Split in three PRs:
   - [x] **LP-10a** The statistics, the ledger, the report format and `mendari compare`
@@ -555,7 +810,7 @@ Connect) is not supported yet.
     resolves its organization through `tenancy.current()` is refused (`NoOrganization`, 403),
     never widened to all of them (None) or to `default`; an empty organization is one, never
     "any", in the key and client store.
-  - [ ] **12c** Decide-scoped credentials list packs and read CDS discovery (ADR-0004).
+  - [x] **12c** (#172, merged 2026-10-07) Decide-scoped credentials list packs and read CDS discovery (ADR-0004).
     **Owner decision (2026-10-07): approved, narrow.** The decide scope implies a read-only
     `discover` permission that reaches only `GET /api/packs` and `GET /cds-services`, each listing
     only the packs the credential may decide with (today every served pack; after LP-20 never
@@ -582,13 +837,13 @@ Connect) is not supported yet.
       (`X-Mendari-Org`, 409); keys, clients and launches of an organization with no record
       refused; `mendari smart check` in memberships mode. Claims mode unchanged (acceptance
       test, and a matrix: a member is let through exactly as a claims person of the role).
-    - [ ] **12e-ii** (PR open) The dashboard: the access page (`access.js`: the request form,
+    - [x] **12e-ii** (#167, merged 2026-10-07) The dashboard: the access page (`access.js`: the request form,
       the chooser whenever a person holds a membership and none is chosen, roles that grant
       nothing), the switcher, every request naming the window's organization, the
       access-ended and window-moved banners, "Use another account"; browser tests.
   - [ ] **12f** Invitations and member management (no e-mail sent), in two PRs, so the server
     does not wait on 12e-ii's dashboard files:
-    - [ ] **12f-i** (PR open) The server, memberships mode only: an administrator's routes
+    - [x] **12f-i** (#169, merged 2026-10-07) The server, memberships mode only: an administrator's routes
       (people with `keys`, never a key) to invite (`POST /api/auth/invitations`, the link
       `/invite#<token>` shown once, relative, never built from `Host`), list and revoke
       invitations (each with its `status`), list members, replace a member's roles
@@ -604,14 +859,79 @@ Connect) is not supported yet.
       Found in review: removing a member revokes the organization's open invitations made out
       to their address (one refused as `member` stayed open, and let them straight back in);
       the administrators' security-log lines are pinned by a test.
-    - [ ] **12f-ii** The dashboard: the members and invitations views, the `/invite` page;
-      the browser test of the whole flow (an expired link and a wrong address included).
+    - [x] **12f-ii** (#177, merged 2026-10-08) The dashboard and the invitation page. `/invite` (memberships
+      mode only, 404 otherwise) is public and static, never a redirect: a hashed inline script
+      takes the token from the fragment and clears the address before anything else loads; the
+      token waits in this tab's `sessionStorage` through sign-in (a button, `next=/invite`
+      literally) and is sent only when the person presses Accept, then forgotten; every answer
+      says what to do (expired, used or revoked; another address, with "Use another account";
+      unverified; already a member; joined, with Switch when the browser acts for another
+      organization). The administrators' Access view (`#admin/members|invitations|requests`,
+      people with `keys` in memberships mode, absent otherwise: `views.admin.available()`):
+      members with their roles, change and remove with a confirmation, the last-admin refusal
+      in words; invite with the link shown once in a dialog (copy, never shown again); the
+      invitations with their status and revoke; grant (with roles) or refuse a request. 32
+      browser tests as `pytest --collect-only` counts them (25 on a real memberships server, one
+      a real sign-in through another origin that never sees the token, and 7 mocked over the
+      open server; axe in both themes; a phone's width) and 9 for the page's serving.
+      Fixed in 12f-i: a refusal's body names its `reason` (the page read the
+      wording), and removing a pending membership revokes the invitations to its address too.
   - [ ] **12g** The organization bound into each chained event (memberships mode), checked by
     `verify`; per-organization administrative reader and export; the generated two-organization
     isolation test with its reviewed allow-list.
-  - [ ] **12h** The Access screen; a client's key set replaced; credential history.
+    - [x] **12g-i** (#182, merged 2026-10-08) The binding and its check. A memberships-mode server marks the
+      database (`org_bound`, a settings row); every store that opens a marked one, the command
+      line's included, names in each event the organization of the row it is about, read in
+      the same transaction (`_bound`; the 14 kinds of before only when marked, every other kind
+      but the deployment's always, which `_append_many` enforces). `verify` checks it by kind
+      (`DECISION_KINDS`, `ADMINISTRATIVE_KINDS` with `SUBJECT_TABLES`; a person's, the
+      deployment's and unknown kinds unchecked, so a rollback never fails on a later release's)
+      and answers `"reason": "organization"` at the first event whose row was moved or deleted.
+      The answers of a review and a rating are unchanged (only the chained copy is bound); the
+      previous release's `verify` passes a bound chain.
+    - [x] **12g-ii** (#183, merged 2026-10-08) An organization's administrative events: `GET
+      /api/audit/administrative` (paged by `(subject, hash)`, never `seq`; `kind`, `subject`,
+      `since` / `until` as instants) and its FHIR export (AuditEvents of ids and codes, a new
+      CodeSystem and the `audit-subject` NamingSystem), administrators only, attributed through
+      each row the organization owns (`SUBJECT_TABLES`), fail closed on a payload naming another;
+      `mendari audit export --administrative [--org]`. Memberships mode leaves the deployment's
+      views to the operator (decision 5): verify and deployments `404`, health without totals,
+      a deployment hold without its reason and setter; the dashboard follows.
+    - [ ] **12g-iii** (PR open) The isolation test (`tests/test_isolation.py`): two organizations,
+      each with people of every role, API keys, Backend Services clients signed with its own key
+      and an EHR launch from its own tenant, seed through the API with a marker in every free
+      text; then every mounted route is called with the other's live ids (refused as an unknown
+      id is, nothing written) and with its own (served). Every answer is scanned for the other's
+      markers, ids, secrets and event hashes (echoes and the reviewed `FIELDS` taken out); reads
+      answer the same before and after the other works; every event chained is the caller's;
+      no signed-in call reads as every organization (probes on tenancy and on the store); a
+      route nothing calls and the allow-list (`DEPLOYMENT_WIDE`) does not name fails it. From
+      phase 2 every call also names the other organization in its query and body; a person of
+      both acts as the membership chosen; an automated decision runs on beside the other's hold;
+      every page is read. Both account modes, SQLite and Postgres; each of nineteen isolation
+      mutants fails it.
+  - [x] **12h** (#181, merged 2026-10-08) The Access view's API keys and Clients tabs, for people holding
+    `keys`, in claims mode too (the people tabs stay memberships-only): a key made from a preset
+    (the table drives role, scope and days, what it reaches and its guide) or by hand, its secret
+    shown once (the invitation link's dialog), rotate with an overlap, revoke, history; a SMART
+    Backend Services client registered from a JWK Set or a PEM public key (made a JWK in the
+    browser, its `kid` the RFC 7638 thumbprint; a private key refused before anything is sent),
+    its key set replaced (`POST /api/auth/clients/{id}/keys`: same id, its tokens dropped, and a
+    `keys_version` stamped on each token refuses one whose assertion was checked against the old
+    set, the race a DELETE alone leaves), revoked, its history. Credential history
+    (`GET …/keys/{id}/history`, `…/clients/{id}/history`) reads one subject's chain through its
+    row's organization (`SUBJECT_TABLES`, `subject_history`, agreed with the LP-12g session as
+    the one registry its verify and organization reader extend); another organization's is a
+    404 naming no id. Key status worked out by the server; the clients' `keys_replaced_at`; the
+    signed-in health's `backend_services`.
   - [ ] **12i** Key presets in one table (API, screen, docs, doc-snippet checks).
-  - [ ] **12j** (PR open) A daily cap per principal (`MENDARI_PRINCIPAL_DAILY_LIMIT`, off
+    - [x] **12i-i** (#176, merged 2026-10-08) The table (`server/presets.py`: rest, fhir, ai-guard, cds-hooks,
+      da-vinci, outcomes, fhir-reader; the FHIR ones name their types, never `system/*`),
+      `preset` on `POST /api/auth/keys` (with the preset's role and no scope; a label stored
+      and chained, never read when the key is used), `GET /api/auth/keys/presets` (each one's
+      reach computed from the guard's rules), the guide's table, the doc-snippet pass per
+      preset. The screen is 12h's.
+  - [x] **12j** (#168, merged 2026-10-07) A daily cap per principal (`MENDARI_PRINCIPAL_DAILY_LIMIT`, off
     unless set, sign-in only) on the decisions it asks for (one per request that decides, one
     per CDS order hook draft order), per local day, after the rate limits admit them; past it
     `429` with `Retry-After` until midnight, before any work; `/api/health` shows a principal
@@ -657,6 +977,81 @@ Connect) is not supported yet.
      static page, or drops the fragment before sending a signed-out browser to sign in: a
      redirect keeps the fragment (RFC 9110 §10.2.2) and would carry the token to the identity
      provider.
+  16. (12f-ii) `/invite` is mounted in memberships mode only; claims and open mode answer 404
+     (deny by default, as 10; claims mode as before). The other choice: a page in every mode
+     saying invitations are not used there.
+  17. (12f-ii) The token waits in `sessionStorage` (this tab, this origin), never in
+     `localStorage`, a cookie, a query or `next`. A link opened on another host name than
+     `MENDARI_PUBLIC_URL` loses it at sign-in, and the page says to open the link again. The
+     other choice, carrying it in the pending sign-in row, puts the token in server state.
+  18. (12f-ii) Accepting happens on a press, never on load: there is no preview route, and a
+     link scanner or prefetcher would otherwise use the link up.
+  19. (12f-ii) A signed-out invitee signs in by pressing a button, never automatically, so a
+     failed sign-in never loops.
+  20. (12f-ii) A refusal of an invitation carries its `reason` in the body (additive to 12f-i's
+     API), which the page reads instead of its wording.
+  21. (12f-ii) The administrators' view is `#admin/<tab>`, labelled "Access", as `#access` is
+     the no-access page; 12h adds its keys and clients tabs to it.
+  22. (12f-ii) A view a person may not use is absent, not an empty state: `#admin` in claims or
+     open mode, or for a non-administrator, lands on the overview and asks nothing.
+  23. (12f-ii) The dashboard's role list is written in `ui.js` (no route serves it); a test
+     keeps it equal to the server's.
+  24. (12f-ii) Refusals in the dashboard carry their status and code, and a `422` reads as its
+     messages (it read "[object Object]").
+  25. (12f-ii) The one-time link is shown in a dialog and removed with it; there is no "show
+     again": a lost link is revoked and made anew.
+  26. (12f-ii) "Made by" names come from the members list; a removed member's reads "Former
+     member" (their id as a tooltip).
+  27. (12f-ii) Demoting or removing oneself is allowed while another administrator who signed in
+     remains (the server's rule): the dialog warns, and the page reloads after.
+  28. (12f-ii) Expired invitations can be revoked, as the server allows.
+  29. (12f-ii) Pending memberships (an address waiting for its first sign-in) read "Not signed
+     in yet" and can be changed or removed; they never count as an administrator.
+  30. (12f-ii) The browser tests run on SQLite; tests/test_memberships.py keeps both databases
+     covered.
+  31. (12h) Credential history reads one subject's chain (`key:<id>`, `client:<id>`), oldest
+     first: the 200 newest events, with `truncated`; attributed through the row's organization
+     (ADR-0008), so another organization's is a 404. No `seq` or hashes until the owner decides.
+  32. (12h) A rotated key's history is its own; the old and the new name each other (`replaces`,
+     `replaced_by`). The other choice: one lineage view.
+  33. (12h) Replacing a client's key set is a POST (the notice gate counts it as minting): same
+     client id, role and scopes, its tokens dropped at once, no overlap (a gapless switch is two
+     replacements, the old and new keys and then the new alone); sending the same set only drops
+     the tokens; its daily cap and rate buckets carry across; changing scopes is a new client.
+  34. (12h) `client.keys_replaced` always carries the organization, both key summaries (ids and
+     thumbprints), the count of tokens dropped and `replaced_by` as the actor, as the client's
+     other events name it (conflict 9 covers the LP-12 records, not the credential events). The
+     other choice: a `user:` id.
+  35. (12h) "Last used" is not shown: nothing records it, and recording it is a write on every
+     request. The other choice: a day column written at most once a day per key.
+  36. (12h) Key status (`active`, `replaced`, `expired`, `revoked`) is worked out by the server;
+     the client list gains `keys_replaced_at`. Both additive.
+  37. (12h) In claims mode an administrator who signed in sees the Access view with its API keys
+     and Clients tabs only (ADR-0008); this amends 21 and 22. Open mode has no view.
+  38. (12h) The Clients tab is absent when Backend Services is off: the dashboard reads the
+     signed-in health's `backend_services` (null or `{token_endpoint}`), never a 404 probe.
+  39. (12h) Scoped presets pre-fill a client's role and scope; a client stores no preset label.
+     `rest` (no scope) is for keys only.
+  40. (12h) A preset's guide links to the docs site (`DOCS_SITE`, kept equal to mkdocs.yml's
+     `site_url` by a test); the links work once the site is published (owner step 9).
+  41. (12h) "Made by" for keys and clients is the recorded actor: "You", a member's name where it
+     matches (memberships mode), else the text as recorded, escaped.
+  42. (12h) Revoke is offered on any key not revoked (expired ones too); rotate on an active key,
+     and on a replaced one whose replacement was revoked.
+  43. (12h) A pasted private key is refused in the browser before anything is sent; a PEM public
+     key becomes a JWK there. The server's `check_jwks` stays the only check of what is stored.
+  44. (12h) History is a dialog on a row, not a tab, and not LP-12g's organization reader (which
+     extends the same store method).
+  45. (12h) A new or rotated key's secret is shown once, as the invitation link is (25): only in
+     the input's value, cleared when the dialog closes or the view is left.
+  46. (12g-ii) A notice acknowledgement is a person's, across organizations (notices.py), so an
+     organization's administrative list leaves it out; the operator's export has it.
+  47. (12g-ii) In memberships mode the deployment's records (`/api/deployments`, the Decision
+     Card's Deployments section) are the operator's, as accounts.md promised before 12g, and a
+     hold set for every organization shows what it covers and since when, not the operator's
+     reason or name. The owner may serve either to organizations instead.
+  48. (12g-ii) Open mode (a local sandbox, no one signed in) reads every event on no decision,
+     the deployment's own included: there the operator is the only reader.
 
   **Owner decisions** (none blocks a PR; each PR follows the recommended default): switching
   the hosted site to memberships mode, and when; the owner's identity for bootstrap (the
@@ -990,7 +1385,9 @@ build session. A1–A8 come before A9 (making the repository public); A10 and A1
    runs the tests and builds and tests the packages and the six images (amd64 and arm64). When it
    is green, run it again from the same tag with publish **on** and target **`pypi`**, and in the
    run approve the `pypi` deployment and the six `ghcr`
-   deployments. Check after: pypi.org/project/mendari shows 0.1.0
+   deployments (the images wait on the image licence compliance PR, owner's decision
+   2026-10-07; once it is in, each `ghcr` deployment pushes `<tag>-sources`, then the image).
+   Check after: pypi.org/project/mendari shows 0.1.0
    with a wheel and an sdist; in a fresh venv, `pip install mendari` then `mendari test
    mendari/patient-inbox-router` passes; the release job's "The sdist holds only what a source
    build needs" step passed; GitHub → your profile → Packages lists the six `mendari-*`

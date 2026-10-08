@@ -34,14 +34,17 @@ from urllib.parse import urlparse
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from mendari.core.pack import Pack
 from mendari.core.spec import Question, deployment_env_problem
 from mendari.errors import MendariError, PackValidationError, ProviderError
+from mendari.providers import deadline
 from mendari.providers.base import (
     Answer,
     Provider,
     ProviderOutput,
     batch_state,
     refuse_if_over_quota,
+    state_fields_problem,
 )
 from mendari.providers.batch import batched_answer, unwrap
 from mendari.providers.credentials import key_source, resolve_key
@@ -85,27 +88,12 @@ class JevProvider(Provider):
 
     def __init__(self, *args: Any, client: httpx.Client | None = None, **kwargs: Any):
         super().__init__(*args, **kwargs)
-        settings = {k: v for k, v in self.config.items() if k != "type"}
-        problem = deployment_env_problem(self.config)  # also checked at load (core/spec.py)
-        if problem is not None:
-            raise PackValidationError(self.pack.id, [f"{self.info.slot}: {problem}"])
-        try:
-            self.settings = JevConfig.model_validate(settings)
-        except ValidationError as error:
-            raise PackValidationError(self.pack.id, [f"{self.info.slot}: {error}"]) from None
-        if not 1 <= len(self.questions) <= MAX_QUESTIONS:
-            raise PackValidationError(
-                self.pack.id,
-                [f"{self.info.slot}: 1-{MAX_QUESTIONS} questions per Jev variant"],
-            )
-        too_many = [
-            key
-            for key, question in self.questions.items()
-            if question.type == "score" and len(question.labels) > MAX_SCORE_LEVELS
-        ]
-        if too_many:
-            problem = f"{self.info.slot}: Jev scores have at most {MAX_SCORE_LEVELS} levels"
-            raise PackValidationError(self.pack.id, [f"{problem}: {too_many}"])
+        settings, problems = self._settings(
+            self.info.slot, self.config, self.questions, bounded=self.pack.bounded
+        )
+        if settings is None:
+            raise PackValidationError(self.pack.id, problems)
+        self.settings = settings
         self._client = client
         # The deployment's JEV_MODEL wins over a model pinned in the pack.
         model = os.environ.get(MODEL_ENV, "").strip() or self.settings.model
@@ -113,6 +101,48 @@ class JevProvider(Provider):
             raise PackValidationError(self.pack.id, [f"{MODEL_ENV}: invalid model id"])
         self.model = model
         self.info = replace(self.info, model=model)
+
+    @classmethod
+    def config_problems(
+        cls,
+        pack: Pack,
+        where: str,
+        config: Mapping[str, Any],
+        questions: Mapping[str, Question],
+        *,
+        bounded: bool,
+        trained: bool,
+    ) -> list[str]:
+        return cls._settings(where, config, questions, bounded=bounded)[1]
+
+    @staticmethod
+    def _settings(
+        where: str, config: Mapping[str, Any], questions: Mapping[str, Question], *, bounded: bool
+    ) -> tuple[JevConfig | None, list[str]]:
+        """The variant's settings (its closed config, `JevConfig`), or None and why not: it names
+        no environment variable (also checked at load, `core/spec.py`), asks 1 to
+        `MAX_QUESTIONS` questions with scores of at most `MAX_SCORE_LEVELS` levels, and, in a
+        pack the deployment does not own, names its `state_fields`."""
+        problem = deployment_env_problem(dict(config))
+        if problem is not None:
+            return None, [f"{where}: {problem}"]
+        try:
+            settings = JevConfig.model_validate({k: v for k, v in config.items() if k != "type"})
+        except ValidationError as error:
+            return None, [f"{where}: {error}"]
+        if not 1 <= len(questions) <= MAX_QUESTIONS:
+            return None, [f"{where}: 1-{MAX_QUESTIONS} questions per Jev variant"]
+        too_many = [
+            key
+            for key, question in questions.items()
+            if question.type == "score" and len(question.labels) > MAX_SCORE_LEVELS
+        ]
+        if too_many:
+            problem = f"{where}: Jev scores have at most {MAX_SCORE_LEVELS} levels"
+            return None, [f"{problem}: {too_many}"]
+        if bounded and not settings.state_fields:
+            return None, [f"{where}: {state_fields_problem(JevProvider.type)}"]
+        return settings, []
 
     def preflight(self) -> None:
         self._configured()
@@ -153,7 +183,9 @@ class JevProvider(Provider):
             raise TypeError("a Jev batch holds only Jev providers")
         model, endpoint = self._configured()
         refuse_if_over_quota()  # over quota: no credential fetched, no call
+        deadline.refuse_if_past()  # past the decision's deadline: likewise
         token = resolve_key(key_env=API_KEY_ENV, connector_env=CONNECTOR_ENV)
+        deadline.refuse_if_past()  # a credential fetch can take the rest of it
         self.charge()  # after the credential: a call that cannot be made uses no budget
 
         questions = {key: q for provider in batch for key, q in provider.questions.items()}

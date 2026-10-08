@@ -21,7 +21,7 @@ The public sandbox and the project's own Vercel deployment are **synthetic only*
 **Health checks and request size.** Probes and load balancers call `/api/health` without a
 credential and get `status`, `version` and `sign_in` only. The settings (PHI mode, packs,
 providers, the FHIR servers Mendari calls, today's remote calls) are shown to someone signed in,
-or a key, that may read. A request body is 4 MiB at most: raise `MENDARI_MAX_BODY_BYTES` (in
+or a key, that may read; in memberships mode today's calls are the operator's (`mendari usage`). A request body is 4 MiB at most: raise `MENDARI_MAX_BODY_BYTES` (in
 bytes, 64 KiB or more) if your FHIR Bundles are larger, and give your proxy the same limit
 (nginx's `client_max_body_size`, say). A larger body gets a `413`.
 
@@ -158,13 +158,39 @@ Give each key the least it needs:
   `system/NamingSystem.r`, or `system/*.rs`); deciding, at every entry point (`$decide`, CDS
   Hooks, DTR, PAS and the REST routes), needs `https://mendari.co/fhir/scope/decide`, and
   recording an outcome `https://mendari.co/fhir/scope/outcome`. An EHR that only calls CDS
-  Hooks services needs `{"role": "service", "scope": "https://mendari.co/fhir/scope/decide"}`.
+  Hooks services needs `{"role": "service", "preset": "cds-hooks"}` (below).
   Deciding implies finding what to decide with: a decide-scoped key also reads the two lists of
   the packs it may decide with, `GET /api/packs` and the CDS Hooks discovery list
   (`GET /cds-services`), and nothing else under `/api` (ADR-0004 as amended). For any other
   read, sign in, or use an unscoped key.
 - **Expiry**: `days`, 90 unless asked, 365 at most. Rotate a key before it expires
   (`POST /api/auth/keys/{id}/rotate`, section 3): `GET /api/auth/keys` shows when each does.
+- **Presets**: one per documented integration path, so a key gets what its path needs and no
+  more. Send `preset` with the preset's `role`, and no `scope`: the key gets the preset's scope
+  and, unless you send `days`, its expiry. `GET /api/auth/keys/presets` lists them with every
+  route a key made from each reaches on your deployment (several reach the same routes: every
+  decision entry point needs the one decide scope, so the name says what the key is for, not a
+  boundary; `rest` is the whole `service` role, as no scope reaches Mendari's own audit reads).
+  The preset is a label on the key: what the key may do is its role and scope as created, so a
+  later release that changes a preset never changes a key you hold.
+
+<!-- presets:start (generated from src/mendari/server/presets.py; a test keeps it equal) -->
+| Preset | For | Role | Scope | Calls |
+|---|---|---|---|---|
+| `rest` | REST API | `service` | none: the role's own | `GET /api/packs`<br>`POST /api/packs/{namespace}/{name}/decide`<br>`GET /api/audit/{decision_id}` |
+| `fhir` | FHIR in, FHIR out | `service` | `https://mendari.co/fhir/scope/decide system/AuditEvent.rs system/Provenance.rs system/Task.rs` | `POST /fhir/$decide`<br>`GET /fhir/Task`<br>`GET /fhir/Task/{resource_id}`<br>`GET /fhir/Task/{resource_id}/_history/{version_id}`<br>`GET /fhir/AuditEvent`<br>`GET /fhir/Provenance` |
+| `ai-guard` | AI Guard | `service` | `https://mendari.co/fhir/scope/decide` | `POST /api/packs/{namespace}/{name}/guard` |
+| `cds-hooks` | CDS Hooks | `service` | `https://mendari.co/fhir/scope/decide` | `GET /cds-services`<br>`POST /cds-services/{service_id}` |
+| `da-vinci` | Da Vinci CRD, DTR and PAS | `service` | `https://mendari.co/fhir/scope/decide` | `POST /cds-services/{service_id}`<br>`POST /fhir/Questionnaire/$questionnaire-package`<br>`POST /api/packs/{namespace}/{name}/pas` |
+| `outcomes` | Outcomes | `service` | `https://mendari.co/fhir/scope/outcome` | `POST /api/audit/{decision_id}/outcome` |
+| `fhir-reader` | FHIR reader | `viewer` | `system/AuditEvent.rs system/Provenance.rs system/Task.rs` | `GET /fhir/Task`<br>`GET /fhir/Task/{resource_id}`<br>`GET /fhir/AuditEvent`<br>`GET /fhir/Provenance` |
+<!-- presets:end -->
+
+```bash
+curl -sS -X POST "$MENDARI/api/auth/keys" -H "Cookie: <your session>" \
+  -H 'content-type: application/json' \
+  -d '{"name": "EHR CDS Hooks", "role": "service", "preset": "cds-hooks"}'
+```
 
 Creating, rotating and revoking a key are recorded in the audit chain (who, when, the role,
 scope and expiry; never the key).
@@ -263,10 +289,23 @@ five-minute token (`Authorization: Bearer mat_…`) for what it asked within wha
 registered for, in the organization of the admin who registered it. There is no refresh token,
 no authorization endpoint (no user or patient launch) and no `patient/` or `user/` scope.
 
-- `GET /api/auth/clients` lists clients with their keys' ids and thumbprints; `DELETE
-  /api/auth/clients/{client_id}` revokes one, and its tokens stop working on the next request.
-  Registering and revoking are recorded in the audit chain.
-- To change a client's keys or scopes, register a new client and revoke the old one.
+- `GET /api/auth/clients` lists clients with their keys' ids and thumbprints and when their
+  keys were last replaced; `DELETE /api/auth/clients/{client_id}` revokes one, and its tokens
+  stop working on the next request. Registering, replacing keys and revoking are recorded in the
+  audit chain (keys by id, type and thumbprint, never their material).
+- `POST /api/auth/clients/{client_id}/keys` with `{"jwks": {"keys": [...]}}` replaces a client's
+  public keys whole, checked as at registration: same client id, role and scopes. The tokens it
+  holds stop at once, and a token issued against the old keys while the replacement ran is
+  refused too. There is no overlap: to switch without a gap, replace with the old and new keys,
+  move the client to the new one, then replace with the new one alone. A revoked client is a
+  `409`; another organization's, a `404`. Its daily cap and rate limits carry across.
+- `GET /api/auth/clients/{client_id}/history` (and `GET /api/auth/keys/{key_id}/history` for an
+  API key) reads its audit chain: registered, each replacement, revoked, with who did each.
+- The dashboard's Access view does all of this for an administrator who signed in (the
+  **Clients** tab, beside **API keys**), in claims mode too; it turns a pasted PEM public key
+  into a JWK and refuses the private keys it recognises (a PEM `PRIVATE KEY` block, a JWK with
+  private members, a private key's DER) before anything is sent.
+- To change a client's scopes, register a new client and revoke the old one.
 - The token endpoint takes 60 requests a minute per client address. After 10 failed
   assertions in 10 minutes from one address for one client, that pair gets a `429` until the
   oldest failure has aged out; another client, or the same client from another address, is not
@@ -470,7 +509,17 @@ Move the machine to the new key within the overlap: the security log's `auth.key
 `{"overlap_hours": 0}`, or revoke it (`DELETE /api/auth/keys/{id}`). The chain has both
 (`key.created` with `replaces`, `key.rotated`). If the answer carrying the new key is lost,
 revoke the replacement (`GET /api/auth/keys` lists it as the old key's `replaced_by`) and rotate
-the old key again. Backend Services clients are not rotated this way: register a client with the new JWKS, move the integration, then revoke the old client.
+the old key again. The dashboard's Access view (API keys tab) rotates, revokes and shows a key's
+history too.
+
+*Backend Services clients.* A client keeps its id and replaces its keys
+(`POST /api/auth/clients/{client_id}/keys`, or **Replace keys…** in the Access view's Clients
+tab). There is no overlap, so switch in two replacements: first the old and the new public keys
+(both sign), then move the client to its new private key, then the new public key alone (the old
+one is refused from then). Each replacement drops the client's tokens, so the client asks for a
+new one; the chain has each step (`client.keys_replaced`, with the keys before and after by
+thumbprint and how many tokens were dropped). A leaked private key: replace with the new key
+alone at once, or revoke the client.
 
 **Notes.** A reviewer's or a rater's note, and a payer's answer to a prior authorization (its
 authorization number and disposition), are free text. They are kept in a `notes` table, never in
@@ -565,6 +614,15 @@ principals). `/api/health` shows a principal that may read its own cap and what 
 and each instance logs the first refusal of the day per principal (`quota.reached`, reason
 `principal_decisions`).
 
+**A deadline per decision.** A decision's remote calls (Jev, an LLM, the CQL engine) share one
+wall-clock deadline, `MENDARI_DECISION_DEADLINE_S` (whole seconds, 10 to 270; 120 unless set):
+a call that would start after it is not made (no key fetched, no budget used), and one under
+way, its retry included, waits only for what remains. Either is recorded as `timeout`, so the
+decision goes to a person; the local providers still answer, so a keyword safety screen still
+flags a possible emergency. Keep it below your platform's limit on a request, with room for the
+audit write: on Vercel, `maxDuration` is 300 s (`vercel.json`). A request that makes several
+decisions (a CDS Hooks order hook's draft orders) gives each its own deadline.
+
 **At the edge.** A per-address limit in front of Mendari takes floods before they reach it, on
 `/auth/` and `/smart/` only: your proxy (§1), or on Vercel one firewall rule, 120 requests a
 minute per address
@@ -578,8 +636,8 @@ By default, nothing. Each of these is off until you configure it:
 
 | What | Setting | Leaves with it |
 |---|---|---|
-| Jev | Jev's settings (`JEV_API_URL`, `JEV_MODEL` and `JEV_API_KEY`; `JEV_CONNECTOR` works on Vercel only): the inbox, referral and prior-auth packs then run Mendari + Jev in every slot `MENDARI_PROVIDERS` chooses nothing for | The pack's declared `state_fields` only |
-| Other remote models (LLMs through Vercel AI Gateway) | `MENDARI_PROVIDERS` | The pack's declared `state_fields` only |
+| Jev | Jev's settings (`JEV_API_URL`, `JEV_MODEL` and `JEV_API_KEY`; `JEV_CONNECTOR` works on Vercel only): the inbox, referral and prior-auth packs then run Mendari + Jev in every slot `MENDARI_PROVIDERS` chooses nothing for | The pack's declared `state_fields` only (a pack you own that declares none sends the whole input; a community or registry pack must declare them) |
+| Other remote models (LLMs through Vercel AI Gateway) | `MENDARI_PROVIDERS` | The pack's declared `state_fields` only (as for Jev) |
 | Reading your FHIR server (CDS Hooks fetch, SMART, Bulk) | `MENDARI_FHIR_ALLOWED_SERVERS` | Nothing leaves; Mendari reads from servers you list |
 | Alerts | `MENDARI_ALERT_WEBHOOK` | Pack ids and alert messages; an organization's id when it reaches a daily quota (no case data) |
 | Shared evaluation reports | `mendari eval --share` (manual) | Metrics only (`mendari.site-report/1`, checked by the registry): no cases, ids, dataset name, approver or subgroups; `--share-out FILE` writes it to read first |
@@ -598,7 +656,8 @@ Unless the screen (or the notes) is the keyword rules plus a model (`rules_and_j
 releases nothing: every case goes to a person, and each decision's reasons say what is missing.
 Signed in, `/api/health` shows which variant each slot runs (`providers`), whether the Jev
 defaults are on (`jev.defaults`) and the slots that run no model at all (`without_model`); that
-Jev actually answers shows in `jev.calls_today` and in the decisions' errors. The server also
+Jev actually answers shows in `jev.calls_today` (in memberships mode, `mendari usage`) and in
+the decisions' errors. The server also
 logs, at startup, each slot the Jev defaults turn on.
 
 ## 6. Monitoring and governance
@@ -689,6 +748,7 @@ startup, so a typo never runs with a weaker setting.
 | `MENDARI_RETENTION_DAYS` | 30 (1 to 36500) | How long kept inputs and notes are kept, by `mendari phi purge` and the scheduled purge | 3 |
 | `CRON_SECRET` | unset: no scheduled purge | At least 16 random characters, no spaces around them: Vercel Cron's bearer token for `/api/internal/retention` (otherwise unused, with a warning: the purge stays off) | 3 |
 | `MENDARI_MAX_BODY_BYTES` | 4 MiB (64 KiB at least) | The largest request body; a `413` above it | 1 |
+| `MENDARI_DECISION_DEADLINE_S` | 120 (10 to 270, whole seconds) | How long one decision's remote calls may take together; past it they fail with `timeout` and a person decides, while local providers still answer | 4 |
 | `MENDARI_RATE_LIMITS` | `on` with sign-in, `off` without | `on`, `log` or `off`, then overrides (`decide=1200/min:200`) | 4 |
 | `MENDARI_NOTICE_ACKNOWLEDGEMENT` | `required` | `required`: a signed-in person who may decide or review acknowledges the notice (research preview, synthetic data only) once per version when the dashboard opens, chained as `notice.acknowledged`; until then deciding, reviewing, feedback and minting an API key or client are refused (`403`, header `Mendari-Notice-Required`); `off`: a site whose own agreements replace it. Keys, clients, EHR launches and open mode are never asked | 4 |
 | `MENDARI_ORG_DAILY_LIMITS` | unset: none | Per-organization daily quotas: `decisions=…,jev=…,llm=…` | 4 |

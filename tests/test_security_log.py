@@ -287,6 +287,12 @@ def test_changes_exports_evaluations_and_input_reads_are_logged_with_ids(
     run = {"dataset": "test", "limit": 3}
     assert client.post(f"/api/packs/{INBOX}/evals", json=run, headers=admin).status_code == 200
     client.get("/api/audit/export/fhir", params={"pack_id": QUERY_VALUE}, headers=admin)
+    administrative = client.get(
+        "/api/audit/administrative/export/fhir",
+        params={"since": "2026-01-01T00:00:00Z"},
+        headers=admin,
+    )
+    assert administrative.status_code == 200, administrative.text
     client.get(f"/api/packs/{INBOX}/feedback/export", headers=admin)
     for url in (f"/api/audit/{decided['id']}", "/api/review", "/api/feedback"):
         assert CASE_TEXT in client.get(url, headers=admin).text
@@ -301,6 +307,7 @@ def test_changes_exports_evaluations_and_input_reads_are_logged_with_ids(
         ("governance.revoked", [approval["id"]], None),
         ("eval.run", [INBOX], 3),
         ("export.audit", None, None),
+        ("export.audit.administrative", None, None),
         ("export.feedback", [INBOX], 1),
         ("phi.inputs.read", one, 1),
         ("phi.inputs.read", one, 1),

@@ -14,15 +14,17 @@ import pytest
 import yaml
 
 from mendari.core.pack import Pack, load_pack, pack_digest
+from mendari.core.reference import bundled_dir
 from mendari.core.registry import resolve_pack
 from mendari.evals.share import shareable
 from mendari.hub import archive
 from mendari.hub import registry as registry_module
 from mendari.hub.registry import RegistryStore
-from tests.conftest import REGISTRY_ADMIN, Registry
+from tests.conftest import INBOX_DIR, REGISTRY_ADMIN, Registry
 
 REFERRAL = resolve_pack("mendari/referral-router")
 GUARD = resolve_pack("mendari/ai-guard")
+INBOX = load_pack(INBOX_DIR)
 
 
 def test_a_signed_pack_is_published_once_and_read_back(registry: Registry) -> None:
@@ -360,29 +362,93 @@ def test_metadata_that_cannot_be_served_is_refused_before_it_is_stored(
     assert registry.publish().status_code == 201
 
 
-def test_a_composite_whose_members_cannot_run_publishes_without_them(
+def test_a_composite_whose_members_cannot_run_is_refused_at_publish(
     registry: Registry, tmp_path: Path
 ) -> None:
-    """Members are checked when a provider is built, not when a pack loads: a composite whose
-    members are a list, or keyed by what YAML reads as a date, still publishes (it was a 500),
-    and no report can name it."""
+    """Every variant and member is checked when a pack loads (LP-16e): a composite whose
+    members are a list, or keyed by what YAML reads as a date (once a 500, then published
+    without them), is refused naming the variants, before anything is stored; the owned copy
+    it was made from loads, with them as warnings, and without them it publishes, its
+    composites' members named. On the inbox pack, whose patterns all run on RE2: a changed copy
+    (at a new version: at its own it is refused, F) is checked on the engine for packs from a
+    registry (ADR-0009)."""
     root = tmp_path / "pack"
-    shutil.copytree(REFERRAL.root, root)
+    shutil.copytree(INBOX.root, root)
     manifest = yaml.safe_load((root / "pack.yaml").read_text())
-    variants = manifest["providers"]["triage_screen"]["variants"]
-    rules = variants["rules"]
-    escalate = {"urgency": "urgent", "clear_question": "yes"}
+    manifest["version"] = "9.9.9"
+    variants = manifest["providers"]["safety_screen"]["variants"]
+    rules, jev = variants["rules"], variants["jev"]
+    escalate = {"urgency": "urgent"}
     variants["dated"] = {
         "type": "any_of",
         "escalate": escalate,
-        "members": {datetime.date(2024, 1, 1): rules, "rules": rules},
+        "members": {datetime.date(2024, 1, 1): rules, "jev": jev},
     }
     variants["listed"] = {"type": "any_of", "escalate": escalate, "members": [rules, rules]}
     (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    owned = load_pack(root)
+    assert [warning.partition(":")[0] for warning in owned.warnings] == [
+        "providers.safety_screen.variants.dated",
+        "providers.safety_screen.variants.listed",
+    ]
+    refused = registry.publish(owned)
+    assert refused.status_code == 422, refused.text
+    reason = refused.json()["detail"]
+    assert reason.startswith("the pack does not load: ")
+    assert "providers.safety_screen.variants.dated: " in reason
+    assert "providers.safety_screen.variants.listed: " in reason
+    assert registry.client.get("/v1/search").json() == []
+
+    del variants["dated"], variants["listed"]
+    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     published = registry.publish(load_pack(root))
     assert published.status_code == 201, published.text
-    members = published.json()["names"]["members"]["triage_screen"]
-    assert set(members) == {"rules_and_jev", "rules_and_llm"}
+    members = published.json()["names"]["members"]["safety_screen"]
+    composites = {
+        name
+        for name, variant in INBOX.manifest.providers["safety_screen"].variants.items()
+        if isinstance((variant.model_extra or {}).get("members"), dict)
+    }
+    assert composites and set(members) == composites
+
+
+def _at_version(tmp_path: Path, source: Pack, version: str) -> Pack:
+    """A copy of a reference pack at another version: not the copy in this release."""
+    root = tmp_path / source.id.replace("/", "-")
+    shutil.copytree(source.root, root)
+    manifest = (root / "pack.yaml").read_text()
+    (root / "pack.yaml").write_text(
+        manifest.replace(f"version: {source.version}", f"version: {version}", 1)
+    )
+    return load_pack(root)
+
+
+def test_a_publish_is_checked_on_the_engine_its_pullers_run(
+    registry: Registry, tmp_path: Path
+) -> None:
+    """A pack that is not a reference pack of the registry's release is checked as its pullers
+    will load it, on RE2: a referral pack at a new version, whose lookahead RE2 cannot run, is
+    refused before anything is stored; an inbox pack at a new version publishes."""
+    refused = registry.publish(_at_version(tmp_path, REFERRAL, "9.9.9"))
+    assert refused.status_code == 422, refused.text
+    assert "lookahead" in refused.text and "not the copy of it in this release" in refused.text
+    assert registry.client.get("/v1/search").json() == []
+    published = registry.publish(_at_version(tmp_path, INBOX, "9.9.9"))
+    assert published.status_code == 201, published.text
+
+
+def test_the_registry_publishes_the_reference_packs_of_its_own_release(
+    registry: Registry,
+) -> None:
+    """`scripts/hub_seed.py` and CI's `hub-e2e` publish the five bundled packs unchanged: each is
+    a reference pack of the registry's release, checked on the maintained engine."""
+    root = bundled_dir()
+    assert root is not None
+    packs = [load_pack(d) for d in sorted(root.iterdir()) if (d / "pack.yaml").is_file()]
+    assert len(packs) == 5
+    for pack in packs:
+        published = registry.publish(pack)
+        assert published.status_code == 201, (pack.id, published.text)
 
 
 def test_a_pack_version_is_served_with_its_figures(registry: Registry) -> None:
@@ -457,3 +523,25 @@ def test_a_shipped_benchmark_and_leaderboard_are_shown_as_they_are(registry: Reg
     }
     leaderboard = REFERRAL.attestation("evals/leaderboard.json")
     assert shown["leaderboard"] == json.loads(leaderboard.read_text())
+
+
+def test_a_publish_that_shadows_a_reference_pack_is_refused(
+    registry: Registry, tmp_path: Path
+) -> None:
+    """F: a pack with a reference pack's id and version but other files would take its place
+    wherever it is pulled. The registry refuses it before anything is stored, saying why; the
+    same files at a new version publish."""
+    root = tmp_path / "shadow"
+    shutil.copytree(INBOX.root, root)
+    rules = root / "logic" / "routing_rules.yaml"
+    rules.write_text(rules.read_text() + "# one more line\n")
+    refused = registry.publish(load_pack(root))
+    assert refused.status_code == 422, refused.text
+    reason = refused.json()["detail"]
+    assert reason.startswith("the pack does not load: ")
+    assert f"{INBOX.id}@{INBOX.version} has the id and version of a reference pack" in reason
+    assert "never takes a reference pack's place" in reason and "remove" not in reason
+    assert registry.client.get("/v1/search").json() == []
+    assert (
+        registry.publish(_at_version(tmp_path / "new", load_pack(root), "9.9.9")).status_code == 201
+    )

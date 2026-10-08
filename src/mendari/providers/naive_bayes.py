@@ -18,12 +18,36 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import replace
 from typing import Any
 
+from pydantic import BaseModel, ConfigDict
+
+from mendari.core.pack import Pack
+from mendari.core.spec import Question
 from mendari.errors import PackValidationError
-from mendari.providers.base import Provider, ProviderOutput, fingerprint, softmax, text_from
+from mendari.providers.base import (
+    Provider,
+    ProviderOutput,
+    closed_problems,
+    fingerprint,
+    once,
+    read_problems,
+    softmax,
+    text_from,
+)
 from mendari.providers.calibration import fit_temperature
 
 FORMAT = "mendari.naive_bayes/1"
 _TOKEN = re.compile(r"[^\W_]+(?:'[^\W_]+)?")
+
+
+class NaiveBayesConfig(BaseModel):
+    """A `naive_bayes` variant: the trained model file, and the text fields it reads, which must
+    be those it was trained on (by default, the model's own)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    type: str
+    model_file: str
+    text_fields: list[str] | None = None
 
 
 def tokenize(text: str) -> list[str]:
@@ -36,31 +60,13 @@ class NaiveBayesProvider(Provider):
 
     def __init__(self, *args: Any, **kwargs: Any):
         super().__init__(*args, **kwargs)
-        relative = self.config.get("model_file")
-        if not isinstance(relative, str) or len(self.questions) != 1:
-            raise PackValidationError(
-                self.pack.id,
-                [f"{self.info.slot}: naive_bayes needs `model_file` and exactly one question"],
-            )
-
-        model = self.pack.read_json(relative)
-        (self.question,) = self.questions
-        problems = []
-        if not isinstance(model, dict):
-            problems.append(f"{relative}: not a naive_bayes model (expected a mapping)")
-        elif model.get("format") != FORMAT:
-            problems.append(f"{relative}: expected format {FORMAT}")
-        elif (shape := _shape_problem(model)) is not None:
-            problems.append(f"{relative}: not a naive_bayes model ({shape})")
-        elif model["question"] != self.question:
-            problems.append(f"{relative}: trained for {model['question']!r}, not {self.question!r}")
-        elif set(model["labels"]) != set(self.questions[self.question].criteria):
-            problems.append(f"{relative}: labels do not match the question's labels")
-        elif self.config.get("text_fields", model["text_fields"]) != model["text_fields"]:
-            problems.append(f"{relative}: trained on different text_fields; retrain the model")
-        if problems:
+        model, problems = self._checked(
+            self.pack, self.info.slot, self.config, self.questions, trained=True
+        )
+        if model is None:
             raise PackValidationError(self.pack.id, problems)
-
+        (self.question,) = self.questions
+        relative = self.config["model_file"]
         self.info = replace(self.info, model=f"naive_bayes@{fingerprint(self.pack, relative)}")
         self.model = model
         self.labels: list[str] = model["labels"]
@@ -69,6 +75,52 @@ class NaiveBayesProvider(Provider):
         self._log_prior: list[float] = model["log_prior"]
         self._tokens: dict[str, list[float]] = model["tokens"]
 
+    @classmethod
+    def config_problems(
+        cls,
+        pack: Pack,
+        where: str,
+        config: Mapping[str, Any],
+        questions: Mapping[str, Question],
+        *,
+        bounded: bool,
+        trained: bool,
+    ) -> list[str]:
+        return (
+            closed_problems(NaiveBayesConfig, where, config)
+            or cls._checked(pack, where, config, questions, trained=trained)[1]
+        )
+
+    @staticmethod
+    def _checked(
+        pack: Pack,
+        where: str,
+        config: Mapping[str, Any],
+        questions: Mapping[str, Question],
+        *,
+        trained: bool,
+    ) -> tuple[dict[str, Any] | None, list[str]]:
+        """The model `model_file` names, read and checked against the slot's one question, or
+        None and why not (unless `trained`, it is not read: None and no problem)."""
+        relative = config.get("model_file")
+        if not isinstance(relative, str) or len(questions) != 1:
+            return None, [f"{where}: naive_bayes needs `model_file` and exactly one question"]
+        if not trained:
+            return None, []
+        # Read and checked for its shape once per `providers.config_problems` call (`once`).
+        model, unreadable = once((NaiveBayesProvider.type, relative), lambda: _read(pack, relative))
+        if unreadable:
+            return None, list(unreadable)
+        (question,) = questions
+        problems = []
+        if model["question"] != question:
+            problems.append(f"{relative}: trained for {model['question']!r}, not {question!r}")
+        elif set(model["labels"]) != set(questions[question].criteria):
+            problems.append(f"{relative}: labels do not match the question's labels")
+        elif config.get("text_fields", model["text_fields"]) != model["text_fields"]:
+            problems.append(f"{relative}: trained on different text_fields; retrain the model")
+        return (None, problems) if problems else (model, [])
+
     def answer(self, inputs: Mapping[str, Any]) -> ProviderOutput:
         text = text_from(inputs, self.text_fields)
         logits = log_posterior(self.labels, self._log_prior, self._tokens, tokenize(text))
@@ -76,6 +128,21 @@ class NaiveBayesProvider(Provider):
         return ProviderOutput(
             answers={self.question: self.make_answer(self.question, probabilities)}
         )
+
+
+def _read(pack: Pack, relative: str) -> tuple[Any, list[str]]:
+    """The naive_bayes model at `relative`, and nothing wrong with it; or why it is not one (it
+    cannot be read, is not JSON, or is not of the format and shape `answer` reads)."""
+    model, problems = read_problems(lambda: pack.read_json(relative))
+    if problems:
+        return None, problems
+    if not isinstance(model, dict):
+        return None, [f"{relative}: not a naive_bayes model (expected a mapping)"]
+    if model.get("format") != FORMAT:
+        return None, [f"{relative}: expected format {FORMAT}"]
+    if (shape := _shape_problem(model)) is not None:
+        return None, [f"{relative}: not a naive_bayes model ({shape})"]
+    return model, []
 
 
 def _shape_problem(model: dict[str, Any]) -> str | None:
