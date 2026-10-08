@@ -21,7 +21,8 @@ views.access = async (main, [reason = "none"]) => {
     main.innerHTML = `<h1>Nothing to do here yet</h1>${who}${emptyState({
       icon: "shield-x",
       title: `Your roles in ${held?.name ?? state.me?.org ?? ""} grant nothing yet`,
-      text: "Ask one of its administrators for a role that reads or reviews.",
+      text: "Ask one of its administrators for a role that reads or reviews."
+        + (state.memberships.length > 1 ? " Your other organizations are in the top bar." : ""),
     })}${accountButtons()}`;
     wireAccount(main);
     return;
@@ -29,8 +30,7 @@ views.access = async (main, [reason = "none"]) => {
   main.innerHTML = `<h1>You don't have access yet</h1>${who}${emptyState({
     icon: "shield-x",
     title: "You are not a member of any organization here",
-    text: "An administrator can invite you, or let you in when you ask. Invitations are matched by the e-mail address your identity provider verified"
-      + (unverified() ? ": yours did not give one, so use another account to accept one." : "."),
+    text: "An organization's administrators decide who joins it. Ask with its id below.",
   })}
     <form class="panel" id="ask-form">
       <h2>Ask to join</h2>
@@ -49,7 +49,7 @@ views.access = async (main, [reason = "none"]) => {
     await whileBusy(form.querySelector("button[type=submit]"), "Asking…", async () => {
       try {
         await api("/api/auth/access-requests", { method: "POST", body: JSON.stringify({ org }) });
-        toast("If that organization exists, its administrators will see your request.");
+        toast("If that organization exists, your request is recorded.");
         form.reset();
       } catch (error) {
         toastError(error.message);
@@ -83,6 +83,9 @@ function choose(main, who) {
 
 // Act for `org` from now on in this browser, then start over in it (the address keeps its view).
 export async function chooseOrganization(org) {
+  // What the view holds (a review override in its undo window) goes to the organization it was
+  // made in, before the session acts for another.
+  await views[state.view]?.leave?.();
   try {
     await api("/api/auth/organization", { method: "POST", body: JSON.stringify({ org }) });
     storageSet(LAST_CHOSEN, org);
@@ -91,9 +94,6 @@ export async function chooseOrganization(org) {
     toastError(error.message);
   }
 }
-
-// A person the chain names by `<issuer>|<subject>` has no verified address: no invitation finds them.
-const unverified = () => Boolean(state.me?.actor?.includes("|"));
 
 const accountButtons = () => `<div class="row mt-4">
     <button type="button" id="access-sign-out">Sign out</button>

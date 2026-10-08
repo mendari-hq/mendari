@@ -108,8 +108,9 @@ Then:
   their address, verified by the identity provider, when they hold one, or when they were
   recorded before. Anyone else who signs in leaves no record.
 - With exactly one membership, it is selected at sign-in. With several, or with one given since
-  they signed in, the person chooses one: the dashboard shows only that choice until they do,
-  and a switcher in the top bar afterwards (the choice is the browser's; a window left on the
+  they signed in, the person chooses one: the dashboard shows only that choice until they do
+  (beside an EHR launch's patient, if the browser holds one), and a switcher in the top bar
+  afterwards, with a Switch button (the choice is the browser's; a window left on the
   organization before says so instead of acting). With none, they act for **no organization**:
   never `default`. The dashboard then shows who they are signed in as, a form to ask to join an
   organization by its id, and a way to use another account. They are refused (`403`,

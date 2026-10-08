@@ -37,33 +37,33 @@ async function boot() {
   // A SMART launch from the EHR leaves a session: the patient's view joins the sections. With
   // sign-in on and no one signed in, the launch is all this browser has: the patient view alone,
   // with the packs the launch names (the rest of the API would refuse it).
-  const [session, me] = await Promise.all([
-    api("/api/smart/session").catch(() => null), api("/api/auth/me").catch(() => null),
-  ]);
+  // Who is signed in decides what this window may show and which organization it acts for: if
+  // that cannot be read, nothing is shown (the error below), never a guess.
+  const [session, me] = await Promise.all([api("/api/smart/session").catch(() => null), api("/api/auth/me")]);
   showSignedIn(me);
   // Memberships mode (ADR-0008): a person acting for no organization (none chosen yet, or theirs
   // ended) chooses one or asks to join one; one whose roles grant nothing is told so. Neither
   // has sections or packs, nor a notice to acknowledge (the server would refuse them all).
   const person = state.accounts === "memberships" && me?.signed_in && me.principal.kind === "user";
-  const noOrganization = Boolean(person && me.principal.org === null);
   if (person) {
-    if (noOrganization) state.noAccess = state.memberships.length ? "choose" : "none";
+    if (me.principal.org === null) state.noAccess = state.memberships.length ? "choose" : "none";
     else if (!me.principal.permissions.length) state.noAccess = "nothing";
   }
   if (me?.signed_in && !state.noAccess) await acknowledgeNotice();
   state.smart = session?.active ? session : null;
-  // An EHR launch in a browser whose person has no organization here: the launch's view alone.
-  state.launchOnly = Boolean(state.smart && me?.mode === "sign-in" && (!me.signed_in || noOrganization));
-  if (state.launchOnly) state.noAccess = null;
+  // An EHR launch in a browser whose person may do nothing here (no organization, or roles that
+  // grant nothing): the launch's view, and, holding memberships, choosing one of them.
+  state.launchOnly = Boolean(state.smart && me?.mode === "sign-in" && (!me.signed_in || state.noAccess));
+  if (state.launchOnly && state.noAccess !== "choose") state.noAccess = null;
   showLaunch();
-  if (state.noAccess) {
+  showOrganization();
+  if (state.noAccess && !state.launchOnly) {
     $(".pack-picker").hidden = true;
     document.querySelectorAll(".nav a[data-view]").forEach((a) => (a.hidden = true)); // the docs stay
     window.addEventListener("hashchange", onHashChange);
     render();
     return;
   }
-  showOrganization();
   state.packs = state.launchOnly ? state.smart.packs ?? [] : await api("/api/packs");
   const select = $("#pack-select");
   if (!state.packs.length) {
@@ -114,7 +114,8 @@ function showLaunch() {
   const { view, params } = route();
   const pinned = (view === "patient" && params[0]) || state.smart?.launch_id;
   if (pinned) link.setAttribute("href", `#patient/${encodeURIComponent(pinned)}`);
-  if (state.launchOnly) document.querySelectorAll(".nav a").forEach((a) => (a.hidden = a !== link));
+  const choose = $('.nav a[data-view="access"]'); // memberships mode: a launch, and none chosen
+  if (state.launchOnly) document.querySelectorAll(".nav a").forEach((a) => (a.hidden = a !== link && !(a === choose && state.noAccess)));
 }
 
 // With sign-in on, the bar names who is signed in (and their role) and offers signing out. In
@@ -130,7 +131,9 @@ function showSignedIn(me) {
   const held = state.memberships.find((m) => m.org === org);
   let shown = `${name} · ${roles.join(", ")}`;
   if (state.accounts === "memberships" && me.principal.kind === "user") {
-    shown = org === null ? `${name} · no organization` : `${name} · ${held?.name ?? org} · ${roles.join(", ")}`;
+    // The organization, unless the switcher shows it (several): the bar stays on one line.
+    const named = state.memberships.length > 1 ? null : held?.name ?? org;
+    shown = org === null ? `${name} · no organization` : [name, named, roles.join(", ")].filter(Boolean).join(" · ");
   }
   $("#signed-in-name").textContent = shown;
   $("#signed-in-name").title = `The audit trail records you as ${me.principal.actor}`;
@@ -140,8 +143,9 @@ function showSignedIn(me) {
   });
 }
 
-// Memberships mode, a person in one of several organizations: switch between them. The choice is
-// this browser's; other windows still showing the one before are refused until reloaded.
+// Memberships mode, a person in one of several organizations: switch between them, with the
+// Switch button (choosing in the list alone changes nothing). The choice is this browser's;
+// other windows still showing the one before are refused until reloaded.
 function showOrganization() {
   if (state.accounts !== "memberships" || !state.me?.org || state.memberships.length < 2) return;
   const select = $("#org-select");
@@ -152,11 +156,14 @@ function showOrganization() {
     return option;
   }));
   select.value = state.me.org;
-  $(".org-picker").hidden = false;
-  select.addEventListener("change", async () => {
+  const form = $("#org-form");
+  form.hidden = false;
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
     const wanted = select.value;
-    select.value = state.me.org; // until the server agrees
+    if (wanted === state.me.org) return;
     await chooseOrganization(wanted);
+    select.value = state.me.org; // refused: the one still chosen
   });
 }
 

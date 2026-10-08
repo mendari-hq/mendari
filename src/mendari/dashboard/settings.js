@@ -23,5 +23,5 @@ export function setupSettings() {
     if (isOpen() && !bar.contains(event.target)) setOpen(false);
   });
   $("#pack-select").addEventListener("change", () => setOpen(false));
-  $("#org-select").addEventListener("change", () => setOpen(false));
+  $("#org-form").addEventListener("submit", () => setOpen(false));
 }

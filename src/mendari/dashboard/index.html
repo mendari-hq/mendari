@@ -76,10 +76,11 @@
         <button type="button" id="sign-out">Sign out</button>
       </span>
       <!-- Memberships mode, a person in several organizations: which one this browser acts for. -->
-      <label class="org-picker" hidden>
-        <span class="setting-name">Organization</span>
+      <form class="org-picker" id="org-form" hidden>
+        <label class="setting-name" for="org-select">Organization</label>
         <select id="org-select"></select>
-      </label>
+        <button type="submit">Switch</button>
+      </form>
       <label class="pack-picker">
         <span class="setting-name">Decision Pack</span>
         <select id="pack-select"></select>
@@ -106,6 +107,8 @@
     <nav class="nav" aria-label="Sections">
       <!-- Shown after a SMART launch from the EHR (patient.js). -->
       <a href="#patient" data-view="patient" hidden>This patient</a>
+      <!-- Memberships mode: a launch in a browser whose person has chosen no organization yet. -->
+      <a href="#access" data-view="access" hidden>Choose an organization</a>
       <a href="#overview" data-view="overview">Overview</a>
       <a href="#review" data-view="review">Review queue <span class="count" id="review-count"></span></a>
       <a href="#audit" data-view="audit">Audit trail</a>

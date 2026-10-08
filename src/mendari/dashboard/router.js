@@ -16,12 +16,12 @@ export const views = {};
 export function route() {
   const [name = "overview", ...params] = (location.hash || "#overview").slice(1).split("/");
   const named = params.filter(Boolean).map(decodeURIComponent);
+  // Memberships mode, a person acting for no organization: the access page (access.js) and
+  // nothing else, beside a launch's patient if the browser holds one; reached no other way.
+  if (state.noAccess && (!state.launchOnly || name === "access")) return { view: "access", params: [state.noAccess] };
   if (state.launchOnly && (name !== "patient" || !named.length)) {
     return { view: "patient", params: state.launchPin ? [state.launchPin] : [] };
   }
-  // Memberships mode, a person acting for no organization: the access page (access.js) and
-  // nothing else; reached no other way.
-  if (state.noAccess) return { view: "access", params: [state.noAccess] };
   return { view: views[name] && name !== "access" ? name : "overview", params: named };
 }
 

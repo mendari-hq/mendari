@@ -130,10 +130,12 @@ export const priorityBadge = (p) => `<span class="badge p-${esc(p)}" title="prio
 // Icons come from the sprite in index.html; they are decorative, so the text beside them names them.
 export const icon = (name) => `<svg class="icon" aria-hidden="true"><use href="#i-${name}"/></svg>`;
 
+// Memberships mode: the organization this window shows goes with each request, so one meant for
+// it never lands in another chosen since in a second window (the server answers 409).
+export const orgPin = () => (state.accounts === "memberships" && state.me?.org ? { "x-mendari-org": state.me.org } : {});
+
 export async function api(path, options = {}, asked = false) {
-  // Memberships mode: the organization this window shows goes with each request, so one meant for
-  // it never lands in another chosen since in a second window (the server answers 409).
-  const pin = state.accounts === "memberships" && state.me?.org ? { "x-mendari-org": state.me.org } : {};
+  const pin = orgPin();
   const headers = options.headers ? { ...pin, ...options.headers } : { "content-type": "application/json", ...pin };
   const response = await fetch(path, { ...options, headers });
   const body = await response.json().catch(() => null);
@@ -144,13 +146,38 @@ export async function api(path, options = {}, asked = false) {
     await acknowledgeNotice();
     return api(path, options, true);
   }
+  refusal(path, response, body);
+  return body;
+}
+
+// Throws what a refused answer means here (an ended session, launch or access; another
+// organization chosen since; else its own detail).
+function refusal(path, response, body) {
   if (response.status === 403 && body?.error === "NoOrganization" && state.accounts === "memberships") throw accessEnded();
   if (response.status === 409 && body?.error === "OrganizationChanged") throw organizationChanged();
   if (response.status === 401 && path.startsWith("/api/smart/")) throw launchEnded();
   if (response.status === 409 && path.startsWith("/api/smart/")) throw launchReplaced();
   if (response.status === 401 && signedIn()) throw sessionEnded();
   if (!response.ok) throw new Error((body && (body.detail || body.error)) || response.statusText);
-  return body;
+}
+
+// Memberships mode: a file to save, fetched so it carries the window's organization as every other
+// request does (a link cannot send a header), and refused, saying so, once that organization is
+// not the chosen one any more. Saved under the name the server gives it.
+export async function download(path) {
+  try {
+    const response = await fetch(path, { headers: orgPin() });
+    if (!response.ok) refusal(path, response, await response.json().catch(() => null));
+    const named = /filename="([^"]+)"/.exec(response.headers.get("content-disposition") ?? "");
+    const url = URL.createObjectURL(await response.blob());
+    const link = Object.assign(document.createElement("a"), { href: url, download: named?.[1] ?? "download" });
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  } catch (error) {
+    toastError(error.message);
+  }
 }
 
 // A 401 for someone who was signed in: the session ended (30 minutes idle or its 8 hours, or
