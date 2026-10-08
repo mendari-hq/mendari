@@ -30,7 +30,14 @@ This creates a folder with everything a pack needs:
 A pack is self-contained. Every file it names stays inside its folder (a symbolic link out of
 it is refused), and the input schema refers only to its own parts: a `$ref` starts with `#`,
 `$schema` (2020-12) and `$id` appear only at the top, and `$dynamicAnchor` and `format: regex`
-are not allowed. Checking an input never fetches a URL or reads another file. The version is a
+are not allowed. Checking an input never fetches a URL or reads another file. The schema's shape
+is bounded too: it nests at most 32 levels deep, a chain of `$ref`s runs at most 16 long, one
+value is checked against at most 1,000 schema objects (two `$ref`s to a schema that holds two
+more double it at each step), and a schema refers back to itself only as a recursive list or
+tree does, once, through `properties` or `items` (a node that lists its children is fine; one
+whose `left` and `right` are both the node is not). At most one schema on any path holds
+`unevaluatedProperties` or `unevaluatedItems`: each validates again everything below it, so one
+inside another multiplies the work. The version is a
 semantic version of at most 64 characters, and YAML anchors are fine within reason: a file that
 uses them may expand to at most 1,000,000 nodes and 32,000,000 characters of text (as JSON
 writes it: a control character counts six) once its aliases are counted where they are used. A
@@ -178,7 +185,9 @@ same engine, with the same limits (the caps, 10,000 characters of input and a on
 per decision), unless it is a copy of a reference pack of the puller's release
 ([ADR-0009](../decisions/ADR-0009-bounded-evaluation-for-packs-the-deployment-does-not-own.md)).
 Check yours before you publish: `mendari pack verify` loads an archive as a puller will, and the
-registry refuses a publish whose patterns RE2 cannot run.
+registry refuses a publish whose patterns RE2 cannot run. A changed copy of a reference pack
+needs a version of its own: under the reference pack's id and version it would take that pack's
+place, so the registry, `mendari pull` and `mendari pack verify` refuse it.
 
 Rules are the floor, not the ceiling. The same pack can switch to a language model, to Jev, to a
 CQL library your organization already has, or to computed criteria for dates and lab values.

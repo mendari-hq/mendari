@@ -210,6 +210,8 @@ gates:
               - tests/test_registry_engine.py::test_the_engine_follows_the_bytes_not_the_manifest
               - tests/test_registry.py::test_a_publish_is_checked_on_the_engine_its_pullers_run
               - tests/test_hub_client.py::test_a_pull_the_engine_refuses_leaves_nothing_in_the_cache
+              - tests/test_registry_engine.py::test_a_pulled_pack_never_takes_a_reference_packs_name_and_version
+              - tests/test_input_schema.py::test_a_nested_ref_schema_is_refused_at_load
       - id: a7-pack-store
         what: "A7: a versioned pack store per organization, with upload checks and promotion signed off by someone other than the author"
         owner: build

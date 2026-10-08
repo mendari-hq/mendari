@@ -256,10 +256,10 @@ def test_the_rewritten_ai_guard_pattern_matches_where_the_lookahead_did_on_both_
 
 
 def test_ai_guard_runs_on_the_community_engine(tmp_path: Path, rewritten_guard: Pack) -> None:
-    """A copy of ai-guard that is not this release's (one more line in its rules) loads from a
-    registry on RE2, which the lookahead kept it from, and decides every shipped input as the
-    reference pack does on `re`."""
-    root = copied(tmp_path, "ai-guard", edit=one_more_line(GUARD[1]))
+    """A copy of ai-guard that is not this release's (one more line in its rules, at a new
+    version) loads from a registry on RE2, which the lookahead kept it from, and decides every
+    shipped input as the reference pack does on `re`."""
+    root = copied(tmp_path, "ai-guard", version="9.9.9", edit=one_more_line(GUARD[1]))
     hub = Decision(load_pack(root, origin="hub"))
     assert hub.pack.bounded and hub.pack.digest != rewritten_guard.digest
     rules: Any = hub.providers["screen"]
@@ -272,10 +272,16 @@ def test_ai_guard_runs_on_the_community_engine(tmp_path: Path, rewritten_guard: 
     assert compiled and all(isinstance(regex, patterns._Re2Pattern) for regex in compiled)
     reference = Decision(rewritten_guard)
     inputs = shipped_inputs(rewritten_guard)
+
+    def unversioned(result: Any) -> dict[str, Any]:  # the copy's version is its own
+        found = decided(result)
+        found["pack"].pop("version")
+        return found
+
     differ = [
         n
         for n, given in enumerate(inputs)
-        if decided(hub.decide(given)) != decided(reference.decide(given))
+        if unversioned(hub.decide(given)) != unversioned(reference.decide(given))
     ]
     assert differ == []
 
