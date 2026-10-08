@@ -12,6 +12,8 @@ here, in the order they landed:
   the hosted schedule);
 - 21l, the break-glass (`mendari access revoke` and `mendari access end-sessions`, each chained
   with who and why);
+- 21j, audit checkpoints (`mendari audit checkpoint`, `mendari audit verify
+  --since-checkpoint`; the templates run it daily);
 - 21g, the usage ledger (`usage_ledger`, written with each decision and evaluation report).
 
 The defaults below hold unless the owner chooses otherwise; the steps that change the hosted
