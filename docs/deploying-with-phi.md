@@ -45,7 +45,10 @@ The public sandbox and the project's own Vercel deployment are **synthetic only*
   `/api/health`. A check that calls it more often than your database's idle suspend (Neon's
   default is 5 minutes) keeps the database awake. On Vercel, an instance that starts while the
   database is down fails before any route runs (the app opens its database at import), so a
-  status page sees an error there, not a `503`.
+  status page sees an error there, not a `503`. `/status` shows readiness to people, and
+  [status checks](operations/status-checks.md) lists what an external status page should check
+  (readiness, sign-in, a decision, the registry, the Hub) and how to give its decide check a key
+  of its own.
 
 A request body is 4 MiB at most: raise `MENDARI_MAX_BODY_BYTES` (in
 bytes, 64 KiB or more) if your FHIR Bundles are larger, and give your proxy the same limit
@@ -712,12 +715,25 @@ logs, at startup, each slot the Jev defaults turn on.
   governance (an approval in force or not), over the decisions made since that configuration
   started, and stratum by stratum (reviewed decisions, automated ones); otherwise it says why
   (`benchmark.reason` in `/api/monitoring`: `no_benchmark`, `another_build`,
-  `other_providers`, `providers_unknown` or `other_policy`), and only the two checks that need
-  no benchmark run: automated decisions rated wrong, and overrides that doubled against the
-  week before. A deployment that runs other providers than the benchmark did (Jev where it
-  measured `naive_bayes`, say), or automates a risk level 2 or 3 pack under an approval the
-  benchmark was measured without, gets only those two: the benchmark says nothing about how
-  that configuration should do. Schedule `mendari monitor --db "$DATABASE_URL"` with
+  `other_providers`, `providers_unknown` or `other_policy`), and only the checks that need no
+  benchmark run: automated decisions rated wrong, overrides that doubled against the week
+  before, and operational health. A deployment that runs other providers than the benchmark
+  did (Jev where it measured `naive_bayes`, say), or automates a risk level 2 or 3 pack under an
+  approval the benchmark was measured without, gets only those: the benchmark says nothing about
+  how that configuration should do. Operational health, from what each decision stored, alerts
+  week over week (50 decisions or more this week):
+
+  | Alert | Fires when |
+  |---|---|
+  | `provider_errors` | 5% or more of decisions had a provider error recorded (the bottom of its 95% interval), and that share doubled against the week before; on that level alone when the week before had fewer than 50 counted (just after upgrading, or a new configuration) |
+  | `abstention` | with 50 or more the week before too: the abstention share doubled and rose 5 points or more (the bottom of its interval) |
+  | `latency` | with 50 or more the week before too: 5% or more of decisions (the bottom of the interval) took twice the week before's p95, and 2 s or more |
+
+  A provider error never makes a decision more automatic (policy only lowers automation): it
+  goes to a person, or a rule blocks it. These alerts say the service got worse, not less safe.
+  A provider error is recorded when a provider failed, or a composite's member did (the
+  survivor may still have answered). Decisions recorded before this count existed are left out
+  of the provider error share. Schedule `mendari monitor --db "$DATABASE_URL"` with
   `MENDARI_ALERT_WEBHOOK` (and `--org` for an organization's governance) to be told when a
   pack degrades; it reads which providers ran from the deployment records the server keeps.
 - **Governance:** packs at risk level 2 or 3 automate only after someone with the `governance`

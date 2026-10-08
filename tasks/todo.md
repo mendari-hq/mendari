@@ -1108,16 +1108,18 @@ pushes none), so the first published images wait on the item below; the PyPI rel
 - [ ] **LP-21** Operations for a public service (ADR-0010, Proposed). Planned by a mapping
   workflow (2026-10-08) as fifteen PRs, each safe alone; none changes what a valid pack
   decides, and anonymous `/api/health` stays three fields with no database work:
-  - [ ] **21a** (#194) Readiness, `GET`/`HEAD /api/health/ready`: one read of the chain's
+  - [x] **21a** (#194, merged 2026-10-08) Readiness, `GET`/`HEAD /api/health/ready`: one read of the chain's
     table (`AuditStore.ping`, creating nothing) per instance every 5 s, whoever asks, in a
     thread of its own waited for about 3.5 s, a failure kept too; a read never answered holds
     that one thread and none starts again until it returns; a caller during a check gets the
     last answer at once; the packs as start-up found them (`ok`, `degraded`, `none`); `503`
     when unready; fixed codes only. Kubernetes' readinessProbe uses it; ADR-0010; this entry.
-  - [ ] **21b** The status checks file (readiness, the sign-in redirect, a synthetic decide by a
-    status organization's decide-only key, the registry, the Hub), `scripts/status_checks.py`
-    and a public in-app status view.
-  - [ ] **21c** (#195) The monitor compares like with like: the served version (others
+  - [ ] **21b** (#197) The status checks file (`deploy/status/checks.yaml`: readiness, the
+    sign-in redirect, a synthetic decide on AI Guard (local rules, even with Jev set up) by a
+    decide-only key in a status organization of its own, the registry, the Hub),
+    `scripts/status_checks.py`, `docs/operations/status-checks.md` and `/status`, a public
+    static page that reads readiness in the browser.
+  - [x] **21c** (#195, merged 2026-10-08) The monitor compares like with like: the served version (others
     counted apart) since its current configuration started; the benchmark only for this build,
     these providers and models, and this governance (`benchmark.reason` otherwise:
     `no_benchmark`, `another_build`, `providers_unknown`, `other_providers`, `other_policy`);
@@ -1125,9 +1127,12 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     apart; drift over 50 confidences; whole weeks, 14 to 180 days; awaiting review counted; an
     unknown cost unknown. The CLI checks each pack's newest version. The view, README, guide and
     spec say so.
-  - [ ] **21d** Operational health in the monitor: provider error share (an additive
-    `decisions.provider_errors` count), abstention share, latency.
-  - [ ] **21e** (#196) Alert delivery (`mendari.alerts`): `MENDARI_ALERT_FORMAT` (`mendari`
+  - [ ] **21d** (#198) Operational health in the monitor: provider error share (an additive
+    `decisions.provider_errors` count, written beside the record; NULL on older rows, left
+    out), abstention share and latency (p50, p95, mean), with week-over-week alerts
+    (`provider_errors`, `abstention`, `latency`) over 50 decisions or more, needing no
+    benchmark; the view's weekly table shows them.
+  - [x] **21e** (#196, merged 2026-10-08) Alert delivery (`mendari.alerts`): `MENDARI_ALERT_FORMAT` (`mendari`
     JSON or `slack`), an HMAC signature (`MENDARI_ALERT_SECRET`: `Mendari-Signature`, with the
     receiver's recipe in the guide, run by the tests), retries (no answer, `408`, `429`, `5xx`)
     and an `alert_deliveries` record (never the URL or the secret); the quota alert one try on
