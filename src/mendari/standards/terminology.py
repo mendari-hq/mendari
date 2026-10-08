@@ -38,8 +38,15 @@ from mendari.core.origin import COMMUNITY_LABEL
 from mendari.core.pack import Pack
 from mendari.core.spec import Outcome
 from mendari.errors import MendariError
-from mendari.sandbox.fhir_records import CHANNEL_SYSTEM, CHANNELS, SANDBOX_TAG
+from mendari.sandbox.fhir_records import (
+    CHANNEL_SYSTEM,
+    CHANNELS,
+    REFERRAL_SYSTEM,
+    REFERRALS,
+    SANDBOX_TAG,
+)
 from mendari.sandbox.synthetic_prior_auth import PROCEDURE_SYSTEM, PROCEDURES
+from mendari.sandbox.synthetic_trial import CONDITION_SYSTEM, CONDITIONS
 from mendari.standards import audit_fhir, davinci
 from mendari.standards.fhir import (
     DECISION_ID_SYSTEM,
@@ -190,8 +197,10 @@ def resources(packs: Iterable[Pack]) -> list[dict[str, Any]]:
 
 def sandbox_resources() -> list[dict[str, Any]]:
     """The sandbox's own systems, experimental and never served: its synthetic-data tag, its
-    Communications' message channel and the Prior Authorization Preflight's fictional procedure
-    codes. CI loads them so the sandbox and Da Vinci samples validate."""
+    Communications' message channel, and the fictional codes of the reference packs' synthetic
+    data (the Prior Authorization Preflight's procedures, the Clinical Trial Prescreener's
+    local-site conditions, the Referral Router's referral). CI loads them so the sandbox and
+    Da Vinci samples validate."""
     return [
         _code_system(
             SANDBOX_TAG["system"],
@@ -219,6 +228,26 @@ def sandbox_resources() -> list[dict[str, Any]]:
             "CPT or any real code system; never for billing. A site maps its own codes.",
             __version__,
             [_concept(code, shown) for code, shown in PROCEDURES.items()],
+            experimental=True,
+        ),
+        _code_system(
+            CONDITION_SYSTEM,
+            "fictional-conditions",
+            "Mendari fictional condition codes",
+            "Condition codes invented for the Clinical Trial Prescreener's synthetic local-site "
+            "data. Not SNOMED CT or any real code system. A site maps its own codes.",
+            __version__,
+            [_concept(code, shown) for code, shown in CONDITIONS.items()],
+            experimental=True,
+        ),
+        _code_system(
+            REFERRAL_SYSTEM,
+            "fictional-referrals",
+            "Mendari fictional referral codes",
+            "The code that marks a synthetic specialty referral for the Referral Router. Not "
+            "SNOMED CT or any real code system. A site maps its own referral code.",
+            __version__,
+            [_concept(code, shown) for code, shown in REFERRALS.items()],
             experimental=True,
         ),
     ]

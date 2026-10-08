@@ -4,7 +4,7 @@
 
 *Research preview. Not a medical device. Not for emergencies: patients should call 911.*
 
-`mendari/clinical-trial-prescreener` · version **0.1.5** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
+`mendari/clinical-trial-prescreener` · version **0.2.0** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
 
 > Checks a patient's record against the eligibility criteria of a synthetic type 2 diabetes study (GLYCEMIA-2): structured criteria are computed from coded data, and exclusions are looked for in the clinic notes. Every result goes to a research coordinator for review.
 
@@ -13,8 +13,8 @@
 | Source | Maintained by Mendari |
 | Risk level | **2**, clinical support |
 | Automation | Human review required by default; AUTO only with a recorded governance override. |
-| Pack digest | `sha256:6d7f48eec32a6f84dedfbb5e249dd4c133cd50e9ca9b488f72f86de1ccaa6b49` |
-| Last validation | 2026-10-07 on `test` (n=300, sha256 `12d2fb4b741a…`) |
+| Pack digest | `sha256:aeb3d0dcd0977fdac2b236c32c800f84b68777386d816b456a77f6cdf2544aac` |
+| Last validation | 2026-10-08 on `test` (n=300, sha256 `12d2fb4b741a…`) |
 
 ## Intended use
 
@@ -56,8 +56,9 @@ FHIR R4 mapping: `fhir/mapping.yaml`.
 Code systems:
 
 - ICD-10-CM (U.S. National Center for Health Statistics: free to use; adapted from the World Health Organization's copyrighted ICD-10, with WHO's authorization, for U.S. government purposes) (`http://hl7.org/fhir/sid/icd-10-cm`).
-- SNOMED CT (SNOMED International) (`http://snomed.info/sct`). Licence: Using SNOMED CT needs an Affiliate Licence from SNOMED International: free of charge in its member territories (in the United States through the National Library of Medicine's UMLS licence), in low-income countries and for qualifying research; fees apply elsewhere. Whether the reference packs may carry its codes is a question recorded for counsel (tasks/todo.md, LP-14).
+- Mendari fictional condition codes: invented for the synthetic local-site example; not SNOMED CT. A site maps its own codes to these. (`https://mendari.co/fhir/CodeSystem/fictional-conditions`).
 - LOINC (Regenstrief Institute; the LOINC License, whose notice is in NOTICE) (`http://loinc.org`).
+- RxNorm (U.S. National Library of Medicine: its codes and normalized names are in the public domain; NLM's acknowledgement is in NOTICE) (`http://www.nlm.nih.gov/research/umls/rxnorm`).
 
 ## Outputs
 
@@ -73,7 +74,7 @@ Code systems:
 
 | Label | Criteria |
 |---|---|
-| `yes` | Type 2 diabetes is coded (ICD-10 E11 or SNOMED CT 44054006). |
+| `yes` | Type 2 diabetes is coded (ICD-10-CM E11, or the local-site example's fictional FC101). |
 | `no` | Type 1 diabetes is coded and type 2 diabetes is not. |
 | `unknown` | No diabetes diagnosis is coded. |
 
@@ -195,7 +196,7 @@ Benchmark `test` (n=300) with structured=`criteria`, notes=`rules`. Each proport
 | AUTO decisions correct | no cases |
 | False automation (of labelled cases) | 0 of 300 [0.0-1.2%] |
 | Expected human override (of reviewed) | 2 of 300 [0.1-2.4%] |
-| Latency p50 / p95 | 0.40 / 0.51 ms |
+| Latency p50 / p95 | 0.47 / 1.36 ms |
 | Cost per decision | $0.00000 |
 | Critical `note_pregnancy=yes` | 12 of 13 [64.0-99.8%] detected, 0 automated (insufficient evidence: under 100 positives) |
 | Critical `note_pancreatitis=yes` | 6 of 6 [54.1-100.0%] detected, 0 automated (insufficient evidence: under 100 positives) |
@@ -370,7 +371,7 @@ Other questions (accuracy / ECE):
 
 ## Known failure modes
 
-- Criteria are computed only from the codes, units and names listed in logic/criteria.yaml. A lab result under another LOINC code, a unit without a declared conversion, or a condition under an unlisted code is `unknown` or not found. A metformin brand name (such as Glucophage) is not matched, so the patient is wrongly `not_eligible`. On the bundled local-site example (datasets/trial-local-site-example.jsonl), which has both, plus Spanish notes, eligibility is answered wrong far more often than on the benchmark (`mendari eval mendari/clinical-trial-prescreener --dataset datasets/trial-local-site-example.jsonl` compares it with the benchmark, by label and by subgroup). Add a site's codes, units and names before use, and validate locally.
+- Criteria are computed only from the codes, units and names listed in logic/criteria.yaml. A lab result under another LOINC code, a unit without a declared conversion, or a condition under an unlisted code is `unknown` or not found. Conditions are listed in ICD-10-CM only (plus the local-site example's fictional codes), and through FHIR only a Condition's first coding is read. So until the site adds its codes, a diagnosis coded only in SNOMED CT is not found, nor is one whose first coding is SNOMED CT even with an ICD-10-CM coding after it (type 2 diabetes is `unknown`, a heart attack or stroke is missed). A metformin brand name (such as Glucophage) is not matched, so the patient is wrongly `not_eligible`. On the bundled local-site example (datasets/trial-local-site-example.jsonl), which has both, plus Spanish notes, eligibility is answered wrong far more often than on the benchmark (`mendari eval mendari/clinical-trial-prescreener --dataset datasets/trial-local-site-example.jsonl` compares it with the benchmark, by label and by subgroup). Add a site's codes, units and names before use, and validate locally.
 - An incomplete medication list reads as "not on metformin", which fails a criterion.
 - Old data is not used. An HbA1c older than 90 days or an eGFR older than 365 days gives `unknown`, so the patient needs review rather than being guessed.
 - The default note rules are English keyword patterns with a fixed-window negation and family-member heuristic. On hand-written notes they found 15/15 exclusions in the set they were written on but 8/12 in the held-out set (all 4 pregnancies; 1 of 2 pancreatitis, 1 of 3 cancer treatments, 2 of 3 recent cardiovascular events). They miss most notes in other languages and misread Spanish negation ("Sin antecedentes de pancreatitis"), and cannot compare dates written in the text, so any mention of a heart attack or stroke without a recency cue is flagged for review. That flag also tips the overall result to `not_eligible` at about 50 % confidence, which keeps the patient-view card silent for a patient who may be a candidate (2 of 24 held-out patients). The rules are an offline fallback, not a deployment choice.
@@ -389,7 +390,34 @@ Renamed on 2026-09-30, when the project became Mendari: this pack was `openhealt
 Its id, its publisher's name and its `https://mendari.co/...` identifiers changed; its criteria,
 rules, models, data and results did not.
 
-#### 0.1.5
+#### 0.2.0
+
+- No SNOMED CT: the five SNOMED CT codes the pack's criteria, CQL library and criterion text
+  listed beside ICD-10-CM are replaced one for one by invented codes (`FC101` type 2 diabetes,
+  `FC102` type 1 diabetes, `FC201` myocardial infarction, `FC202` stroke, `FC203` cerebral
+  infarction) in a code system named as fictional,
+  `https://mendari.co/fhir/CodeSystem/fictional-conditions`, and so are the codes of the bundled
+  local-site example (`datasets/trial-local-site-example.jsonl`), which plays a site that codes
+  conditions in its own system. Its strokes, whose text says cerebral infarction, carry `FC203`,
+  so each code's display in the published CodeSystem is what the record says. SNOMED CT's
+  licence terms are a question for counsel (LP-14), and no package carries its codes any more.
+  The study's condition (`fhir/research-study.json`) is ICD-10-CM E11.
+  **The pack now reads real diagnoses only through ICD-10-CM, and through FHIR only from a
+  Condition's first coding** (`code.coding[0]`, as before). Until a site code map exists
+  (LP-23), a diagnosis coded only in SNOMED CT is not found, and neither is one whose first
+  coding is SNOMED CT even when an ICD-10-CM coding follows it, which 0.1.5 found through the
+  SNOMED CT code: type 2 diabetes is `unknown`, a heart attack or stroke is missed. A site that
+  codes in SNOMED CT adds its codes to `logic/criteria.yaml` and `logic/criteria.cql`, as it
+  already adds any code the pack does not list. The known failure modes say so.
+- `code_systems` drops SNOMED CT and declares the fictional conditions and RxNorm (the
+  medication codes the pack's data uses; public domain, NLM's acknowledgement in NOTICE).
+- The CQL library is `GlycemiaTwoCriteria` 0.2.0 (its codes changed).
+- Every decision is the same as in 0.1.5 with the codes swapped: each answer, probability,
+  rule and outcome of the 728 data, dataset and behaviour-test cases, compared case by case.
+  The data and the local-site example were rebuilt from the generator: only the example's codes
+  changed. The digest changes.
+
+### 0.1.5
 
 - Two known failure modes (the local site, and rules added to a model) state their findings,
   and the command that measures the first, instead of percentages typed in by hand (LP-10: a

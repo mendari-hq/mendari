@@ -1,6 +1,6 @@
 spec_version: "0.2"
 id: mendari/referral-router
-version: 0.1.4
+version: 0.2.0
 name: Referral Router
 summary: >-
   Reads a specialty referral as it is signed: suggests the specialty, spots referrals that
@@ -12,14 +12,10 @@ publisher:
 license: Apache-2.0
 # The code systems the pack's inputs, rules and data use (spec §3). A licensed one says the terms.
 code_systems:
-  - url: http://snomed.info/sct
-    name: SNOMED CT (SNOMED International)
-    licence_note: >-
-      Using SNOMED CT needs an Affiliate Licence from SNOMED International: free of charge in
-      its member territories (in the United States through the National Library of Medicine's
-      UMLS licence), in low-income countries and for qualifying research; fees apply elsewhere.
-      Whether the reference packs may carry its codes is a question recorded for counsel
-      (tasks/todo.md, LP-14).
+  - url: https://mendari.co/fhir/CodeSystem/fictional-referrals
+    name: >-
+      Mendari fictional referral codes: invented for the synthetic examples; not SNOMED CT. A
+      site maps the code its EHR marks a referral with to these.
   - url: http://loinc.org
     name: LOINC (Regenstrief Institute; the LOINC License, whose notice is in NOTICE)
 
@@ -57,6 +53,11 @@ card:
     - Any real clinic's intake requirements. The required documents and urgency criteria are
       synthetic and were not written or reviewed by a clinician; a site sets its own.
   known_failure_modes:
+    - Through FHIR (CDS Hooks, the SMART launch, `$decide`), the pack decides only a
+      ServiceRequest whose first category is the fictional referral code of its synthetic
+      examples (fhir/mapping.yaml, `focus_where`). No real EHR referral carries it, so until a
+      site lists the code its EHR marks a referral with (often a SNOMED CT code), no real
+      referral is decided. Pack inputs sent directly are not affected.
     - The checklist looks only for the document codes listed in logic/checklist.yaml. A visit
       note filed under another code (e.g. a history and physical, LOINC 34117-2) reads as
       missing, so a complete referral goes back to the referrer; the bundled local-site example

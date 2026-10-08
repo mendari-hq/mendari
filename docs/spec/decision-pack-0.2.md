@@ -588,10 +588,11 @@ the pack is about, e.g. referrals among ServiceRequests (lab orders are ServiceR
 
 ```yaml
 focus: ServiceRequest
-focus_where: {path: category[0].coding[0].code, in: ["3457005"]}  # SNOMED CT patient referral
+focus_where: {path: category[0].coding[0].code, in: ["FR101"]}  # the code a site marks referrals with
 ```
 
-Other resources of the focus type are ignored.
+Other resources of the focus type are ignored. (`FR101` is the Referral Router's fictional
+referral code; a site lists the code its own EHR uses.)
 
 A pack with `cds_hooks` is exposed as a CDS Hooks 2.0 service (id `namespace.name`). Each
 `prefetch` template is a read or a search relative to the EHR's FHIR server: `Type/<id>`,

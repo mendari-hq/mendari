@@ -32,10 +32,12 @@ LOINC
   Committee and is available at no cost under the license at http://loinc.org/license. LOINC® is a
   registered United States trademark of Regenstrief Institute, Inc.
 
-SNOMED CT
-  SNOMED CT codes in synthetic examples (packs/clinical-trial-prescreener, packs/referral-router, datasets/trial-local-site-example.jsonl, src/mendari/sandbox), each pack declaring it with its terms
-  Licence: SNOMED International's licence terms.
-  SNOMED and SNOMED CT are registered trademarks of SNOMED International.
+RxNorm
+  RxNorm codes in the Clinical Trial Prescreener's synthetic data and tests (packs/clinical-trial-prescreener)
+  Licence: public domain (U.S. National Library of Medicine: RxNorm's normalized names and codes).
+  This product uses publicly available data courtesy of the U.S. National Library of Medicine
+  (NLM), National Institutes of Health, Department of Health and Human Services; NLM is not
+  responsible for the product and does not endorse or recommend this or any other product.
 
 ICD-10-CM
   ICD-10-CM codes in the synthetic reference packs and datasets
@@ -51,6 +53,11 @@ X12 code values
   X12 is a registered trademark of X12.
 
 The source repository also carries, in no package:
+
+SNOMED CT
+  SNOMED CT codes in test inputs and tests (tests/: the US Core fixtures code procedures and referrals in SNOMED CT), the scan that keeps them out of the packages (scripts/check_snomed.py), and the project's notes and history
+  Licence: SNOMED International's licence terms.
+  SNOMED and SNOMED CT are registered trademarks of SNOMED International.
 
 axe-core 4.14.0
   tests/browser/vendor/axe-core/4.14.0/: the browser tests' accessibility checks

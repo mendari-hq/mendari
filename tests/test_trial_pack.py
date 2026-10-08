@@ -74,7 +74,7 @@ def test_notes_never_contradict_their_own_labels() -> None:
 def test_the_local_site_differs_the_way_the_card_says() -> None:
     local = synthetic_trial.local_site()
     text = json.dumps([r["input"] for r in local], ensure_ascii=False)
-    for marker in ("mmol/mol", "44054006", "17856-6", "Glucophage"):
+    for marker in ("mmol/mol", "FC101", "17856-6", "Glucophage"):
         assert marker in text
     spanish = sum(r["attributes"]["language"] == "es" for r in local) / len(local)
     assert 0.2 < spanish < 0.4
@@ -170,6 +170,29 @@ def test_a_fhir_record_is_prescreened(trial: Decision) -> None:
     assert result.answers["no_insulin"].label == "yes"  # insulin ended 400 days ago
     assert task["for"] == {"reference": "Patient/p1"}
     assert task["description"].startswith("GLYCEMIA-2 prescreen: candidate.")
+
+
+def test_through_fhir_a_condition_is_read_by_its_first_coding_only(trial: Decision) -> None:
+    """The FHIR mapping reads a Condition's first coding (`code.coding[0].code`). One whose first
+    coding the pack does not list (a SNOMED CT coding, say) is not found even when an ICD-10-CM
+    coding follows it: type 2 diabetes is `unknown` and a heart attack 40 days ago is missed. The
+    known failure modes say so; a site code map (LP-23) is to change it, and this test with it."""
+    site = "https://site.example/fhir/CodeSystem/conditions"
+    icd = "http://hl7.org/fhir/sid/icd-10-cm"
+
+    def decide(*, icd_first: bool) -> dict[str, str]:
+        record = _record()
+        for resource, local, code in ((record[1], "T2D", "E11.9"), (record[3], "MI", "I21.4")):
+            codings = [{"system": site, "code": local}, {"system": icd, "code": code}]
+            resource["code"] = {"coding": codings[::-1] if icd_first else codings}
+        record[3]["onsetDateTime"] = _ago(40)
+        bundle = {"resourceType": "Bundle", "type": "collection"}
+        result, _ = trial.decide_fhir({**bundle, "entry": [{"resource": r} for r in record]})
+        assert result.outcome is Outcome.HUMAN_REVIEW
+        return {q: result.answers[q].label for q in ("t2d_diagnosis", "no_recent_cv_event")}
+
+    assert decide(icd_first=True) == {"t2d_diagnosis": "yes", "no_recent_cv_event": "no"}
+    assert decide(icd_first=False) == {"t2d_diagnosis": "unknown", "no_recent_cv_event": "yes"}
 
 
 def test_patient_view_card(trial: Decision) -> None:

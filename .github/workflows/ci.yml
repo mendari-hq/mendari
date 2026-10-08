@@ -319,11 +319,13 @@ jobs:
       - name: Build the sdist, then the wheel from it; the sdist holds only the build inputs
         # PyPI files can never be replaced: notes, agent and CI configuration, deploy templates
         # and the websites must not reach a release (scripts/check_sdist.py), nor notes, plans,
-        # agent or CI files at any depth in either package (scripts/check_excluded.py).
+        # agent or CI files at any depth in either package (scripts/check_excluded.py), nor
+        # SNOMED CT content (scripts/check_snomed.py, LP-14).
         run: |
           uv build --out-dir /tmp/dist
           uv run python scripts/check_sdist.py /tmp/dist/mendari-*.tar.gz
           python3 scripts/check_excluded.py /tmp/dist/mendari-*.tar.gz /tmp/dist/*.whl
+          uv run python scripts/check_snomed.py /tmp/dist/mendari-*.tar.gz /tmp/dist/*.whl
       - name: A clean virtual environment installs mendari, pulls a pack and tests it
         env:
           HOME: /tmp/clean-home

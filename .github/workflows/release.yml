@@ -66,10 +66,11 @@ jobs:
         run: sh scripts/secret_scan.sh
       - run: uv sync --locked && uv run pytest -q
       - run: uv build
-      - name: The sdist holds only what a source build needs; no package holds notes, plans, agent or CI files
+      - name: The sdist holds only what a source build needs; no package holds notes, plans, agent or CI files, or SNOMED CT
         run: |
           uv run python scripts/check_sdist.py dist/mendari-*.tar.gz
           python3 scripts/check_excluded.py dist/mendari-*.tar.gz dist/*.whl
+          uv run python scripts/check_snomed.py dist/mendari-*.tar.gz dist/*.whl
       - name: The wheel installs and works in a clean environment
         run: |
           python3 -m venv /tmp/clean
