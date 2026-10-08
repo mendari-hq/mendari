@@ -201,3 +201,19 @@ def test_a_registration_to_an_organization_nobody_signs_in_to_fails(
     if status != "ok":
         assert "MENDARI_OIDC_ORG_CLAIM" in found["registration"][1]
         assert "default" in found["registration"][1]
+
+
+def test_memberships_mode_warns_a_launch_needs_a_record_and_fails_an_id_none_can_have(
+    ehr: FakeEhr, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """People reach an organization by membership there, so no organization claim is needed;
+    the check cannot read the organization's record, so it says to (`mendari access check`)."""
+    monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
+    code, checks = report(capsys)
+    assert (code, checks["registration"], checks["sign-in"]) == (0, "warn", "warn")
+    monkeypatch.delenv("MENDARI_OIDC_ORG_CLAIM")
+    code, checks = report(capsys)
+    assert (code, checks["registration"], "sign-in" in checks) == (0, "warn", False)
+    monkeypatch.setenv("MENDARI_SMART_EHRS", f"{ISS}=Clinic_A:decide")
+    code, checks = report(capsys)
+    assert (code, checks["registration"]) == (1, "fail")

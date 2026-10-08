@@ -30,7 +30,9 @@ Configuration comes from the environment:
 - `MENDARI_OIDC_ISSUER`, `MENDARI_OIDC_CLIENT_ID` (switch on sign-in; unset: open, behind
   Vercel Authentication), `MENDARI_OIDC_CLIENT_SECRET`, `MENDARI_OIDC_ROLE_CLAIM`,
   `MENDARI_OIDC_ROLE_MAP`, `MENDARI_OIDC_ORG_CLAIM`, `MENDARI_OIDC_ENDPOINT_ORIGINS` (the
-  provider's endpoints on other hosts, e.g. Google's).
+  provider's endpoints on other hosts, e.g. Google's). `MENDARI_ACCOUNTS`: `claims` (default)
+  or `memberships` (organizations and roles from records, ADR-0008; the owner switches it,
+  after `mendari access check` and the bootstrap: docs/operations/accounts.md).
 - `MENDARI_PHI_KEY` and `MENDARI_INPUT_HASH_KEY`, for Production and Preview: the PHI mode
   here is `encrypt` unless `MENDARI_PHI_MODE=hash` (which needs only the hash key); `off` is
   refused.

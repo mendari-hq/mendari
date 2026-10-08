@@ -88,7 +88,7 @@ from mendari.server.auth import (
     challenge,
     credential_in_url_or_form,
     names_a_credential,
-    permission_for,
+    org_of,
     read_body,
 )
 from mendari.server.backend_services import (
@@ -629,7 +629,7 @@ def create_app(
     app.state.provider_settings_not_taken = not_taken  # `mendari serve --provider`
 
     def limit_class(method: str, path: str) -> str | None:
-        return limiter.classify(method, path, permission_for(method, path))
+        return limiter.classify(method, path, auth.permission(method, path))
 
     def openapi() -> dict[str, Any]:
         if app.openapi_schema is None:
@@ -645,7 +645,7 @@ def create_app(
                 generated,
                 packs=packs,
                 default_pack=default_pack,
-                permission_for=permission_for if auth.enabled else None,
+                permission_for=auth.permission if auth.enabled else None,
                 token_url=None if backend is None else backend.token_url,
                 limit_for=limit_class if limiter.mode == "on" else None,
                 session_cookie=session_cookie_name(),
@@ -728,8 +728,8 @@ def create_app(
         """
         public = {"status": "ok", "version": __version__, "sign_in": auth.enabled}
         principal = auth.principal(request)  # no credential: no lookup
-        if principal is None or not principal.may("read"):
-            return public
+        if principal is None or principal.org is None or not principal.may("read"):
+            return public  # a person of no organization (memberships mode) too
         # A served pack whose providers cannot be built is listed with the packs that did not
         # load; it never turns this answer into an error for every other pack.
         providers: dict[str, dict[str, str]] = {}
@@ -1075,7 +1075,7 @@ def create_app(
     def list_holds(request: Request) -> list[dict[str, Any]]:
         """The automation holds in force for your organization: its own and the deployment's
         (set from the command line). While one covers a decision, AUTO becomes HUMAN_REVIEW."""
-        return store.holds(principal_of(request).org)
+        return store.holds(org_of(auth.acting(request)))
 
     @app.post(
         "/api/holds",
@@ -1094,10 +1094,10 @@ def create_app(
                 raise HTTPException(422, "pack_digest is not the digest this deployment serves")
         elif body.pack_digest is not None:
             raise HTTPException(422, "a hold on a digest names its pack")
-        principal = principal_of(request)
+        principal = auth.acting(request)
         try:
             hold = store.hold_automation(
-                org=principal.org,
+                org=org_of(principal),
                 pack_id=body.pack_id,
                 pack_digest=body.pack_digest,
                 reason=body.reason,
@@ -1118,8 +1118,8 @@ def create_app(
     def lift_hold(request: Request, hold_id: str) -> Response:
         """Lift your organization's hold. A deployment's hold (set from the command line, for
         every organization) is lifted there too: `mendari automation lift`."""
-        principal = principal_of(request)
-        if not store.lift_hold(hold_id, lifted_by=principal.actor, org=principal.org):
+        principal = auth.acting(request)
+        if not store.lift_hold(hold_id, lifted_by=principal.actor, org=org_of(principal)):
             raise HTTPException(404, "no such hold in force for your organization")
         forget_holds()
         log_event(request, "automation.lifted", ids=[hold_id])
@@ -1807,7 +1807,7 @@ def create_app(
         if acknowledgement == "off" or principal.kind != "user":
             return None
         route = (request.method, request.url.path)
-        permission = permission_for(*route)
+        permission = auth.permission(*route)
         minting = request.method == "POST" and permission == notices.MINTING_PERMISSION
         if permission not in notices.GATED and not minting:
             return None
@@ -1832,7 +1832,7 @@ def create_app(
         refused = auth.check(request) or notice_refusal(request)
         if refused is not None or not limiter.on:
             return refused
-        permission = permission_for(request.method, request.url.path)
+        permission = auth.permission(request.method, request.url.path)
         over = limiter.check(request, permission, principal_of(request).id)
         return None if over is None else limited_response(request.url.path, over)
 
@@ -1856,8 +1856,15 @@ def create_app(
             return refused
         principal = getattr(request.state, "principal", None)
         # Who asked, as the chain names them, rides along with the organization (open mode: none).
+        # A person of no organization (memberships mode) acts for nobody: any organization data
+        # a route reaches through tenancy is refused, never read for all of them or `default`.
         who = principal if principal is not None and principal.kind != "open" else None
-        with tenancy.acting_for(who.org if who else None, who.actor if who else None):
+        acting = (
+            tenancy.acting_for_nobody(who.actor)
+            if who is not None and who.org is None
+            else tenancy.acting_for(who.org if who else None, who.actor if who else None)
+        )
+        with acting:
             response: Response = await call_next(request)
         return response
 
@@ -1955,7 +1962,7 @@ def create_app(
         smart_launch=smart_options is not None,
         token_url=None if backend is None else backend.token_url,
         routes=mounted_routes(app),
-        permission_for=permission_for,
+        permission_for=auth.permission,
         cards=None
         if auth.enabled
         else {

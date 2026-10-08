@@ -486,7 +486,7 @@ operations, LP-22 site network, LP-23 EHR pilot.
     production included (the pack list and CDS discovery, read-only and deployment-wide), and
     `/api/auth/me` lists a new `discover` permission. The LP-12 prompt asks for it; the owner
     approves the ADR-0004 extension before it is built.
-  - [ ] **12d** (PR open) User, organization, membership, invitation and request records, each
+  - [x] **12d** (#162) User, organization, membership, invitation and request records, each
     write chaining ids and digests only; the operator's `mendari access` commands
     (organizations, bootstrap, invite, members, requests, and the read-only preflight
     `check`); runbook `docs/operations/accounts.md`. No route reads them yet. Settled in its
@@ -495,14 +495,20 @@ operations, LP-22 site network, LP-23 EHR pilot.
     administrator who has signed in keeps an organization administered; the commands that
     write refuse a protected database without its input-hash key; the preflight counts
     evaluation reports and names an id no record can have (`"recordable": false`).
-  - [ ] **12e** `MENDARI_ACCOUNTS=memberships`: sign-in by records, the no-access page and a
-    request-access path, organization selection. A principal of no organization must be
-    refused before every path that does not resolve its organization through
-    `tenancy.current()` (found by the 12a-b review): the routes that pass `principal.org` to
-    the store (holds GET/POST/DELETE; health's holds, quota and EHR registrations; key and
-    client create, list, rotate, revoke), the whole-chain `/api/audit/verify`, and the
-    streamed FHIR audit export (it reaches tenancy only once streaming, so it would answer
-    200 and then abort). Its principal carries no default organization.
+  - [ ] **12e** `MENDARI_ACCOUNTS=memberships`, in two PRs.
+    - [ ] **12e-i** (PR open) The server: sign-in by records (the person recorded only when a
+      membership waits for their verified address, they hold one, or were recorded before;
+      what waits bound; one membership selected), a sealed `member` session holding the
+      chosen organization and membership, never roles (read each request); one check in the
+      guard refusing a principal of no organization (`NoOrganization`, 403) before every
+      route but public ones, pages and a person's own two (`POST /api/auth/organization`,
+      `POST /api/auth/access-requests`), and the guard acting for nobody; the window pin
+      (`X-Mendari-Org`, 409); keys, clients and launches of an organization with no record
+      refused; `mendari smart check` in memberships mode. Claims mode unchanged (acceptance
+      test, and a matrix: a member is let through exactly as a claims person of the role).
+    - [ ] **12e-ii** The dashboard: the no-access view with the request form, the chooser
+      (whenever a person holds a membership and none is chosen), the switcher, the
+      access-ended and window-moved banners, "Use another account"; browser tests.
   - [ ] **12f** Invitations and member management (no e-mail sent).
   - [ ] **12g** The organization bound into each chained event (memberships mode), checked by
     `verify`; per-organization administrative reader and export; the generated two-organization
@@ -538,7 +544,12 @@ operations, LP-22 site network, LP-23 EHR pilot.
   value; invitation lifetime (7 days, at most 30) and whether `default`'s admins may invite;
   the reserved role spellings; notice acknowledgement per person (recommended); what the local
   datasets folder may hold in memberships mode; what becomes of an organization in use whose
-  id no record can have (the preflight names it; until then, stay in claims mode).
+  id no record can have (the preflight names it; until then, stay in claims mode); switching
+  the hosted site after 12g rather than 12f (recommended: until 12g an organization's
+  administrators still see the whole-chain verify, deployment records and some health
+  fields); whether asking to join an unknown organization should say so (default: the same
+  answer, so it names no organization); recording only people a membership or a request
+  concerns (default, as 12e-i does) or everyone who signs in.
 
 ## Plan: community packs through pull requests (2026-10-04)
 Make the repository public so outside developers can contribute packs by pull request. Plan from

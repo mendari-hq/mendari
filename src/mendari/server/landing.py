@@ -76,6 +76,7 @@ _SETUP = (
 _ORDER = (
     "public",
     "page",
+    "person",
     "launch",
     "launch_decide",
     "read",
@@ -90,6 +91,8 @@ _ORDER = (
 _WHO = {
     "public": "anyone, with no credential",
     "page": "anyone signed in (a browser that is not is sent to sign in)",
+    "person": "a person who signed in, with an organization or none (memberships mode): never a "
+    "key, a token or an EHR launch",
     "launch": "an EHR launch from an EHR registered here: never a person's session, a key or a "
     "token",
     "launch_decide": "an EHR launch from an EHR registered here to decide",
@@ -326,7 +329,7 @@ def _rank(permission: str) -> tuple[int, str]:
 
 def _scope(method: str, path: str, permission: str) -> str:
     """What a scoped key or token needs for the call (`server/scopes.py`)."""
-    if permission in ("public", "page") or permission in PEOPLE_ONLY | EHR_ONLY:
+    if permission in ("public", "page", "person") or permission in PEOPLE_ONLY | EHR_ONLY:
         return ""
     needed = scopes.needed(method, path)
     if needed is None:

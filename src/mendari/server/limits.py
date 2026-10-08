@@ -10,7 +10,7 @@ costs: no body is read, no provider is called and nothing is chained for a refus
 
 | Class | Routes | Key | Default |
 |---|---|---|---|
-| `signin` | `GET /auth/login`, `GET /smart/launch` | IP | 300/min, burst 120 |
+| `signin` | `GET /auth/login`, `GET /smart/launch`, a person's own (below) | IP | 300/min, 120 |
 | `token` | `POST /auth/token`, before its body is read | IP | 60/min |
 | `token_failures` | a refused assertion at `/auth/token` | IP and client | 10/10min |
 | `decide` | every decision entry point; a CDS draft order is one | principal | 600/min, burst 100 |
@@ -20,7 +20,9 @@ costs: no body is read, no provider is called and nothing is chained for a refus
 
 Reads are not limited here (the edge covers floods, and a read writes nothing permanent). An EHR
 launch's decisions count against its `ehr` principal, like anyone's.
-Per-IP keys are used only where no one has signed in yet: a hospital sits behind one address,
+Per-IP keys are used only where no one has signed in yet, and on a person's own two routes in
+memberships mode (`POST /api/auth/organization`, `POST /api/auth/access-requests`), which any
+account that signs in reaches: a hospital sits behind one address,
 so sign-in allows at least what the edge does (120 a minute per address) and a site behind one
 egress address raises it (`signin=600/min:240`). A CDS Hooks order hook decides each draft
 order (at most 50, or the `decide` burst if smaller): the guard counts the request as one
@@ -240,6 +242,10 @@ class Limiter:
     def classify(self, method: str, path: str, permission: str) -> str | None:
         """The class a request counts against, or None (not limited here)."""
         if method == "GET" and path in ("/auth/login", "/smart/launch"):
+            return "signin"
+        if method == "POST" and permission == "person":
+            # Memberships mode: choosing an organization, asking to join; open to any account
+            # that signs in, so counted per address as signing in is.
             return "signin"
         if method == "POST" and path == "/auth/token":
             return "token"

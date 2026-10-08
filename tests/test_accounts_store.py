@@ -276,3 +276,54 @@ def test_an_older_database_reads_as_having_no_records_every_row_defaults(
     assert older.organizations_in_use() == [
         {"org": "default", "decisions": 1, "recorded": False, "recordable": True}
     ]
+
+
+def test_a_persons_memberships_are_read_as_they_are_now(store: AuditStore) -> None:
+    store.create_organization(org="clinic-a", name="Clinic A", created_by="cli")
+    ada = person(store, "ada", "ada@example.org")
+    assert store.membership_in_force(ada["id"], "clinic-a") is None
+    made = store.add_membership(
+        org="clinic-a", roles=["viewer"], created_by="cli", user_id=ada["id"]
+    )
+    found = store.membership_in_force(ada["id"], "clinic-a")
+    assert found is not None and (found["id"], found["roles"]) == (made["id"], ["viewer"])
+    assert store.member_of(ada["id"]) == [
+        {"org": "clinic-a", "name": "Clinic A", "roles": ["viewer"]}
+    ]
+    assert store.member_of(person(store, "bo", None)["id"]) == []
+    assert not store.pending_for("cy@example.org")
+    store.add_membership(org="clinic-a", roles=["viewer"], created_by="cli", email="Cy@example.org")
+    assert store.pending_for("cy@example.org")
+
+
+def test_asking_to_join_needs_a_record_no_membership_and_few_open_requests(
+    store: AuditStore,
+) -> None:
+    ada = person(store, "ada", "ada@example.org")
+    before = store.verify()["events"]
+    with pytest.raises(accounts.AccessRefused) as unknown:
+        store.request_access(user_id=ada["id"], org="clinic-z")
+    assert unknown.value.reason == "unknown_organization"
+    store.create_organization(org="clinic-a", name="Clinic A", created_by="cli")
+    store.add_membership(org="clinic-a", roles=["viewer"], created_by="cli", user_id=ada["id"])
+    with pytest.raises(accounts.AccessRefused) as joined:
+        store.request_access(user_id=ada["id"], org="clinic-a")
+    assert joined.value.reason == "member"
+    assert store.verify()["events"] == before + 2  # the organization and the membership only
+    for n in range(accounts.OPEN_REQUESTS_MAX):
+        store.create_organization(org=f"clinic-{n}", name=str(n), created_by="cli")
+        store.request_access(user_id=ada["id"], org=f"clinic-{n}")
+    store.create_organization(org="clinic-x", name="X", created_by="cli")
+    with pytest.raises(accounts.AccessRefused) as many:
+        store.request_access(user_id=ada["id"], org="clinic-x")
+    assert many.value.reason == "open_requests"
+    asked_again = store.request_access(user_id=ada["id"], org="clinic-0")  # an open one: as is
+    assert asked_again["org"] == "clinic-0"
+
+
+def test_keeping_a_person_current_chains_nothing(store: AuditStore) -> None:
+    first = person(store, "ada", "ada@example.org")
+    events = store.verify()["events"]
+    again = store.record_user(issuer=IDP, subject="ada", email="ADA@example.org", name="Ada L.")
+    assert again["id"] == first["id"] and again["name"] == "Ada L."
+    assert store.verify()["events"] == events

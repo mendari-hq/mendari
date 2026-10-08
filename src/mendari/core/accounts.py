@@ -36,9 +36,21 @@ MEMBERSHIP_ROLES = (*PERSON_ROLES, *(r for r in RESERVED_ROLES if r not in NEVER
 ADMIN = "admin"
 INVITE_DAYS = 7
 INVITE_MAX_DAYS = 30
+# Open requests to join one person may have at once (`AuditStore.request_access`): a bound on
+# what any account that signs in can add to the chain.
+OPEN_REQUESTS_MAX = 5
 TOKEN_PREFIX = "ohi_"
 _EMAIL_DIGEST_PREFIX = b"mendari-email\x00"
 _EMAIL = re.compile(r"[^@\s]+@[^@\s]+")
+
+
+class AccessRefused(ValueError):
+    """A request to join that is not made (`AuditStore.request_access`), with the fixed `reason`
+    the security log gives it: `unknown_organization`, `member` or `open_requests`."""
+
+    def __init__(self, message: str, reason: str):
+        self.reason = reason
+        super().__init__(message)
 
 
 def person_id(issuer: str, subject: str) -> str:

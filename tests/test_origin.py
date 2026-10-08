@@ -125,11 +125,13 @@ def passes(check: OriginCheck, method: str, path: str, headers: dict[str, str]) 
 
 @pytest.fixture
 def routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
-    """Every route, with sign-in and SMART Backend Services on (the most routes mounted)."""
+    """Every route, with sign-in, SMART Backend Services and memberships mode on (the most
+    routes mounted)."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
     monkeypatch.setenv("MENDARI_PUBLIC_URL", SITE)
     monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "on")
+    monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
     return sorted(mounted_routes(create_app(db_path=tmp_path / "routes.db")))
 
 

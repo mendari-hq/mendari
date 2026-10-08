@@ -370,7 +370,9 @@ SESSION_PURGE_BATCH = 100
 # Session-table kinds sealed under the secret that names the row (core/session_seal.py,
 # ADR-0006): an EHR launch's session (its cookie) and its pending launch (its binding cookie,
 # never its `state`, which travels in URLs, so `pending` must be given its secret).
-SEALED_KINDS = frozenset({"session", "pending"})
+# A person's session in memberships mode (`member`, server/auth.py) is sealed too: its organization
+# and membership are what it may act for.
+SEALED_KINDS = frozenset({"session", "pending", "member"})
 
 _PRIORITY_ORDER = (
     "CASE priority WHEN 'stat' THEN 0 WHEN 'asap' THEN 1 WHEN 'urgent' THEN 2 ELSE 3 END"
@@ -2587,22 +2589,34 @@ class AuditStore:
         self, *, issuer: str, subject: str, email: str | None, name: str | None
     ) -> dict[str, Any]:
         """The person signing in, recorded the first time (`user.recorded`) and kept current:
-        `email` only when the identity provider verified it."""
+        `email` only when the identity provider verified it. Only a first record takes the
+        chain's lock; keeping one current does not."""
         user_id = accounts.person_id(issuer, subject)
         try:  # one no invitation can name (not ASCII) is kept as none: they still sign in
             address = accounts.normalise_email(email) if email else None
         except ValueError:
             address = None
         now = _now()
+        with self._db.session(exclusive=False) as db:
+            kept = db.all(
+                "UPDATE users SET email = ?, name = ?, last_sign_in_at = ? WHERE id = ? "
+                "RETURNING *",
+                (address, name, now, user_id),
+            )
+        if kept:
+            return dict(kept[0])
         with self._db.session(exclusive=True) as db:
             row = db.one("SELECT id FROM users WHERE id = ?", (user_id,))
             if row is None:
-                db.all(
-                    "INSERT INTO users (id, issuer, subject, email, name, created_at, "
-                    "last_sign_in_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (user_id, issuer, subject, address, name, now, now),
+                self._insert_user(
+                    db,
+                    user_id=user_id,
+                    issuer=issuer,
+                    subject=subject,
+                    email=address,
+                    name=name,
+                    signed_in=now,
                 )
-                self._append(db, user_id, "user.recorded", {"user": user_id})
             else:
                 db.all(
                     "UPDATE users SET email = ?, name = ?, last_sign_in_at = ? WHERE id = ?",
@@ -2610,6 +2624,29 @@ class AuditStore:
                 )
             user = db.one("SELECT * FROM users WHERE id = ?", (user_id,))
         return dict(user) if user is not None else {}
+
+    def _insert_user(
+        self,
+        db: _Session,
+        *,
+        user_id: str,
+        issuer: str,
+        subject: str,
+        email: str | None,
+        name: str | None,
+        signed_in: str | None,
+    ) -> None:
+        """A person's first record (`user.recorded`), in the caller's exclusive transaction."""
+        try:
+            address = accounts.normalise_email(email) if email else None
+        except ValueError:
+            address = None
+        db.all(
+            "INSERT INTO users (id, issuer, subject, email, name, created_at, last_sign_in_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (user_id, issuer, subject, address, name, _now(), signed_in),
+        )
+        self._append(db, user_id, "user.recorded", {"user": user_id})
 
     def user(self, user_id: str) -> dict[str, Any] | None:
         with self._db.session(exclusive=False) as db:
@@ -2688,6 +2725,44 @@ class AuditStore:
     def active_membership(self, user_id: str, org: str) -> dict[str, Any] | None:
         found = self.memberships(org=org, user_id=user_id)
         return found[0] if found else None
+
+    def membership_in_force(self, user_id: str, org: str) -> dict[str, Any] | None:
+        """`user_id`'s membership of `org` in force, as it is now (one indexed read, nothing
+        cached): what a memberships-mode request acts with (server/auth.py)."""
+        with self._db.session(exclusive=False) as db:
+            row = db.one(
+                "SELECT * FROM memberships WHERE org = ? AND user_id = ? AND removed_at IS NULL",
+                (org, user_id),
+            )
+        return None if row is None else _membership(row)
+
+    def member_of(self, user_id: str) -> list[dict[str, Any]]:
+        """The organizations `user_id` holds a membership of in force, each with its name and
+        the roles held: theirs only, never anyone else's or every organization's."""
+        with self._db.session(exclusive=False) as db:
+            rows = db.all(
+                "SELECT m.org, o.name, m.roles FROM memberships m "
+                "LEFT JOIN organizations o ON o.id = m.org "
+                "WHERE m.user_id = ? AND m.removed_at IS NULL ORDER BY m.org",
+                (user_id,),
+            )
+        return [
+            {"org": r["org"], "name": r["name"] or r["org"], "roles": json.loads(r["roles"])}
+            for r in rows
+        ]
+
+    def pending_for(self, email: str) -> bool:
+        """Whether a membership waits for whoever signs in with `email` verified."""
+        address = accounts.normalise_email(email)
+        with self._db.session(exclusive=False) as db:
+            return (
+                db.one(
+                    "SELECT id FROM memberships WHERE pending_email = ? AND user_id IS NULL "
+                    "AND removed_at IS NULL",
+                    (address,),
+                )
+                is not None
+            )
 
     def add_membership(
         self,
@@ -2846,7 +2921,9 @@ class AuditStore:
         sign-in) made `user_id`'s (`membership.bound`); one where they are already a member
         stays pending."""
         address = accounts.normalise_email(email)
-        bound = []
+        bound: list[dict[str, Any]] = []
+        if not self.pending_for(address):  # most sign-ins: no lock taken
+            return bound
         with self._db.session(exclusive=True) as db:
             pending = db.all(
                 "SELECT * FROM memberships WHERE pending_email = ? AND user_id IS NULL "
@@ -3006,18 +3083,41 @@ class AuditStore:
                 user_id=user_id,
             )
 
-    def request_access(self, *, user_id: str, org: str) -> dict[str, Any]:
+    def request_access(
+        self, *, user_id: str, org: str, asker: Mapping[str, Any] | None = None
+    ) -> dict[str, Any]:
         """A person asking to join `org` (`access.requested`); their open request again if they
-        asked before."""
+        asked before. `accounts.AccessRefused` (a `ValueError`) for an organization with no
+        record, one they are a member of, or a request past `accounts.OPEN_REQUESTS_MAX` open
+        ones. What is refused is refused before the chain's lock is taken: asking costs
+        everyone else nothing. `asker` (`issuer`, `subject`, `email`, `name`: who signed in)
+        records the person, in the same transaction as the request, when they have no record
+        yet (`user.recorded`); a record they have is left as it is (signing in keeps it
+        current), so a request never stands without its person."""
         accounts.check_org_id(org)
+        if asker is not None and accounts.person_id(asker["issuer"], asker["subject"]) != user_id:
+            raise ValueError("the asker is not the person asking")
+        with self._db.session(exclusive=False) as db:
+            found = self._open_request(db, user_id, org)
+        if found is not None:
+            return found
         with self._db.session(exclusive=True) as db:
-            open_one = db.one(
-                "SELECT * FROM access_requests WHERE user_id = ? AND org = ? "
-                "AND handled_at IS NULL",
-                (user_id, org),
-            )
-            if open_one is not None:
-                return dict(open_one)
+            found = self._open_request(db, user_id, org)  # again, under the lock
+            if found is not None:
+                return found
+            if (
+                asker is not None
+                and db.one("SELECT id FROM users WHERE id = ?", (user_id,)) is None
+            ):
+                self._insert_user(
+                    db,
+                    user_id=user_id,
+                    issuer=str(asker["issuer"]),
+                    subject=str(asker["subject"]),
+                    email=asker.get("email"),
+                    name=asker.get("name"),
+                    signed_in=None,  # a sign-in keeps this current, not a request
+                )
             request = {
                 "id": secrets.token_hex(8),
                 "user_id": user_id,
@@ -3035,6 +3135,31 @@ class AuditStore:
                 {"id": request["id"], "user": user_id, "org": org},
             )
         return request
+
+    def _open_request(self, db: _Session, user_id: str, org: str) -> dict[str, Any] | None:
+        """`user_id`'s open request to `org`, if any; a `ValueError` when one may not be made."""
+        open_one = db.one(
+            "SELECT * FROM access_requests WHERE user_id = ? AND org = ? AND handled_at IS NULL",
+            (user_id, org),
+        )
+        if open_one is not None:
+            return dict(open_one)
+        if db.one("SELECT id FROM organizations WHERE id = ?", (org,)) is None:
+            raise accounts.AccessRefused(f"no organization {org!r}", "unknown_organization")
+        if db.one(
+            "SELECT id FROM memberships WHERE org = ? AND user_id = ? AND removed_at IS NULL",
+            (org, user_id),
+        ):
+            raise accounts.AccessRefused(f"already a member of {org!r}", "member")
+        counted = db.one(
+            "SELECT COUNT(*) AS n FROM access_requests WHERE user_id = ? AND handled_at IS NULL",
+            (user_id,),
+        )
+        if counted is not None and int(counted["n"]) >= accounts.OPEN_REQUESTS_MAX:
+            raise accounts.AccessRefused(
+                f"at most {accounts.OPEN_REQUESTS_MAX} open requests at once", "open_requests"
+            )
+        return None
 
     def access_requests(self, org: str | None = None) -> list[dict[str, Any]]:
         """The open requests (to `org`, if given), oldest first."""

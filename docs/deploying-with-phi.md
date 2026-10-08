@@ -79,6 +79,12 @@ In Google Cloud Console, create an OAuth client of type *Web application* with t
 `https://mendari.example.org/auth/callback`. While its consent screen is in *Testing*, only the
 test users listed there can sign in at all, which is a second gate.
 
+**Organizations as records instead of claims.** `MENDARI_ACCOUNTS=memberships` (the default
+is `claims`, everything above) gives each person the organization and roles of their
+membership, managed with `mendari access`; the role and organization claims are then ignored,
+and someone with no membership acts for no organization. Switch only after `mendari access
+check` passes and the owner is bootstrapped: [the runbook](operations/accounts.md).
+
 **Sessions.** A person's session ends after 30 minutes without a request and 8 hours after
 signing in, whichever comes first, and when the browser closes (the cookie has no expiry of its
 own; the server decides). Set your own policy within bounds; a value outside them stops the
@@ -181,15 +187,18 @@ MENDARI_SMART_EHRS=https://ehr.example.org/fhir/r4=default:decide   # <FHIR base
   HUMAN_REVIEW ones included, are that organization's, and only its reviewers read them. With
   `MENDARI_OIDC_ORG_CLAIM` unset (one organization), everyone who signs in is in `default`, so
   register `default`, as above; with it set, register the claim's value for the organization
-  the EHR serves. An organization nobody signs in to fails closed: the decisions are recorded,
+  the EHR serves. In memberships mode, register an organization with a record: a launch of one
+  without is refused. An organization nobody signs in to fails closed: the decisions are recorded,
   but no reviewer ever sees them. With sign-in on, `mendari smart check` fails such a
-  registration.
+  registration (in memberships mode it warns instead, since a launch needs the organization's
+  record, which it does not read, and fails only an id no record can have).
 - **Register the base exactly as the EHR sends it** in the launch's `iss` (scheme and host in
   any case, a trailing slash ignored, the path as it is), then check it with the deployment's
   settings: `mendari smart check https://ehr.example.org/fhir/r4` prints the registration key,
   whether its origin is allowed and how it is registered (with sign-in on, `fail` when it is
   registered to an organization other than `default` and `MENDARI_OIDC_ORG_CLAIM` is unset;
-  `warn` in open mode), the SMART client
+  `warn` in open mode; in memberships mode `warn`, and `fail` for an id no record can have),
+  the SMART client
   and scopes, and the EHR's discovery, PKCE S256 and keys, each `ok`, `warn` or `fail` (exit 1
   on any `fail`). It
   reads only the EHR's public configuration and keys. Two tenants on one EHR host are two
@@ -641,6 +650,7 @@ startup, so a typo never runs with a weaker setting.
 | Setting | Default | What it does | § |
 |---|---|---|---|
 | `MENDARI_OIDC_ISSUER`, `MENDARI_OIDC_CLIENT_ID` | unset: open mode | Sign-in; every route then needs a role | 2 |
+| `MENDARI_ACCOUNTS` | `claims` | `memberships`: organizations and roles from records, not claims (needs sign-in; [runbook](operations/accounts.md)) | 2 |
 | `MENDARI_PACKS_PATH` | none | Folders of your own packs (`:`-separated), searched first; when one id is found in several places the newest version is served; a relative folder is read from the working directory, and one that does not exist is skipped | 1 |
 | `MENDARI_PACKS` | every pack found | Only these pack ids are served (comma-separated; each must be found on the path): one pack per image | 1 |
 | `MENDARI_PUBLIC_URL` | unset | The address people use; required for Backend Services | 2 |
