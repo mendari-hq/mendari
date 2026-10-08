@@ -104,8 +104,10 @@ services:
         condition: service_healthy
     command: mendari sandbox payer --host 0.0.0.0 --port 8200
     environment:
-      # Its X12 review action code, this sandbox's (unset: it answers with none, as PAS allows).
-      MENDARI_SANDBOX_PAYER_REVIEW_ACTION: ${MENDARI_SANDBOX_PAYER_REVIEW_ACTION:-A1}
+      # Its X12 review action code, this sandbox's. Set it empty in your shell
+      # (`MENDARI_SANDBOX_PAYER_REVIEW_ACTION= docker compose up`) and it answers with none, as
+      # PAS allows: `-` and not `:-`, so only an unset variable takes this default.
+      MENDARI_SANDBOX_PAYER_REVIEW_ACTION: ${MENDARI_SANDBOX_PAYER_REVIEW_ACTION-A1}
     ports:
       - "127.0.0.1:8200:8200"
     healthcheck:

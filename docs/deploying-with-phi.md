@@ -650,8 +650,9 @@ setting:
 
 Each is 1 to 3 capital letters or digits; anything else is refused naming the setting. The
 sandbox's mock payer answers with `MENDARI_SANDBOX_PAYER_REVIEW_ACTION` (an X12 306 code), or
-with no review action code when it is unset; the compose sandbox sets all of these for its
-synthetic requests.
+with no review action code when it is unset or empty. The compose sandbox sets all of these for
+its synthetic requests except the service type: its synthetic orders carry none, and they are not
+all one kind of service, so each request there gives its own (`service_type`).
 
 For PHI, prefer local providers (rules, naive Bayes, criteria, dosing), or a local model server
 (an OpenAI-compatible `base_url` on your network). Use a remote model only under an agreement

@@ -584,7 +584,8 @@ goes to the payer's `Claim/$submit` (`MENDARI_PAS_PAYER_URL`, allow-listed),
 and the payer's decision is chained on the decision as codes: its outcome and review actions
 (text in their place is dropped). Its authorization number and disposition are kept as a note. The sandbox has a mock payer (`mendari sandbox payer`, compose service `payer`). It
 answers with the review action code `MENDARI_SANDBOX_PAYER_REVIEW_ACTION` gives, or with none,
-which PAS allows; the compose sandbox sets its own codes.
+which PAS allows; the compose sandbox sets its own codes, all but the service type, which each
+request there gives (`service_type`).
 The request and the payer's answer validate against PAS 2.2.1 in CI, with every X12 code a site
 may set and with only those PAS requires.
 

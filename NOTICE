@@ -59,6 +59,6 @@ axe-core 4.14.0
   Its third-party notices: LICENSE-3RD-PARTY.txt beside it.
 
 X12 code values
-  a few X12 code values as test and sandbox configuration, the settings a site would give: tests/test_pas.py, tests/test_notes.py and tests/test_x12_values.py, scripts/davinci_sample.py (the samples the HL7 validator checks) and docker-compose.yml (the sandbox's settings); and quoted in an earlier review in notes/
+  a few X12 code values as test and sandbox configuration, the settings a site would give: tests/test_pas.py, tests/test_notes.py and tests/test_x12_values.py, scripts/davinci_sample.py (the samples the HL7 validator checks) and docker-compose.yml (the sandbox's settings); listed, for X12's answer, in tasks/todo.md (LP-14); and quoted in an earlier review in notes/
   Licence: X12's terms; X12's written answer on this use is asked for (tasks/todo.md, LP-14).
   X12 is a registered trademark of X12.
