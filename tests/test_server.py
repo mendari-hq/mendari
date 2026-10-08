@@ -328,7 +328,8 @@ def test_the_api_reference_describes_every_operation(client: TestClient) -> None
 
 # -- health does no pack work in the request (LP-16d) ----------------------------------------
 # Every served pack is built at start-up and health reads what start-up found: it builds no
-# Decision, writes nothing and waits on no lock, whatever a pack holds or a decision is doing.
+# Decision, records no deployment and waits on no lock, whatever a pack holds or a decision is
+# doing (a signed-in caller's session may be refreshed, as on any route).
 # A pack's deployment is recorded on its first use instead (tests/test_governance.py).
 HEALTH_BOUND_S = 0.1  # health alone takes milliseconds
 BUSY_HEALTH_BOUND_S = 0.5  # beside a decision spending its whole CPU budget in another thread
@@ -383,7 +384,7 @@ def test_health_builds_no_pack_in_the_request(
         assert built == []
 
 
-def test_health_writes_nothing(db_target: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_health_records_no_deployment(db_target: str, monkeypatch: pytest.MonkeyPatch) -> None:
     client = TestClient(create_app(db_path=db_target))
     writes = exclusive_sessions(monkeypatch)
     for _ in range(3):

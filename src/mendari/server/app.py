@@ -795,7 +795,8 @@ def create_app(
         Backend Services is on (`backend_services`: its token endpoint, or null).
 
         The packs' state (which provider each runs, the settings skipped, a pack that could not
-        be built) is computed at start-up: health builds no pack and writes nothing.
+        be built) is computed at start-up: health builds no pack and records no deployment
+        (a signed-in caller's session may still be refreshed, as on any route).
         """
         public = {"status": "ok", "version": __version__, "sign_in": auth.enabled}
         principal = auth.principal(request)  # no credential: no lookup
