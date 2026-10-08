@@ -19,7 +19,7 @@ from playwright.sync_api import Browser, BrowserContext, Locator, Page, expect
 from mendari.core.audit import AuditStore
 from mendari.server.app import create_app
 from tests.browser.conftest import serving
-from tests.conftest import member
+from tests.conftest import encrypt_mode, member
 from tests.test_auth import CLIENT, IDP
 
 
@@ -71,6 +71,7 @@ def memberships(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)  # reached only by the real sign-in's test
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", CLIENT)
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
 
 
 def lead(site: Site) -> dict[str, str]:

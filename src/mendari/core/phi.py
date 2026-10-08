@@ -237,14 +237,14 @@ def _key(name: str) -> bytes:
     return key if len(key) == 32 else b""
 
 
-def require_protection(policy: PhiPolicy, *, shared: bool) -> None:
+def require_protection(policy: PhiPolicy, *, sign_in: bool, launch: bool) -> None:
     """Refuse, at startup, a deployment that would keep inputs in plaintext where it must not.
     The hosted site (`VERCEL` set: Production and Preview; its entrypoint, the root `app.py`,
-    sets it too) runs `encrypt` (its default, `phi_policy`) or `hash`, never `off`. Elsewhere a
-    `shared` deployment, with sign-in or the EHR
-    launch on, takes other people's cases (a launch fetches the patient's record), so its mode
-    is chosen, never defaulted: `off` written out is for a local sandbox on synthetic data only
-    (the server logs a warning)."""
+    sets it too) runs `encrypt` (its default, `phi_policy`) or `hash`, never `off`. Elsewhere,
+    with `sign_in` on, people bring other people's cases, so the mode is `encrypt` or `hash`,
+    never `off`, written out or defaulted, whatever the database. With only the EHR `launch`
+    on (a launch fetches the patient's record), the mode is chosen, never defaulted: `off`
+    written out is for a local sandbox on synthetic data only (the server logs a warning)."""
     hosted = bool(os.environ.get("VERCEL"))
     if hosted and policy.mode == "off":
         raise MendariError(
@@ -252,12 +252,20 @@ def require_protection(policy: PhiPolicy, *, shared: bool) -> None:
             "(with MENDARI_PHI_KEY and MENDARI_INPUT_HASH_KEY) or hash (with "
             "MENDARI_INPUT_HASH_KEY) for Production and Preview, then redeploy."
         )
-    if shared and not hosted and not os.environ.get("MENDARI_PHI_MODE", "").strip():
+    if hosted:
+        return
+    if sign_in and policy.mode == "off":
         raise MendariError(
-            "Sign-in or the EHR launch is on, so choose how inputs are kept: "
-            "MENDARI_PHI_MODE=encrypt (with "
+            "Sign-in is on, so inputs must be protected: set MENDARI_PHI_MODE=encrypt (with "
+            "MENDARI_PHI_KEY and MENDARI_INPUT_HASH_KEY) or hash (with MENDARI_INPUT_HASH_KEY); "
+            "off is for a local sandbox without sign-in (docs/deploying-with-phi.md)."
+        )
+    if launch and not os.environ.get("MENDARI_PHI_MODE", "").strip():
+        raise MendariError(
+            "The EHR launch is on, so choose how inputs are kept: MENDARI_PHI_MODE=encrypt (with "
             "MENDARI_PHI_KEY and MENDARI_INPUT_HASH_KEY), hash (with MENDARI_INPUT_HASH_KEY), or "
-            "off for a local sandbox on synthetic data only (docs/deploying-with-phi.md)."
+            "off for a local sandbox without sign-in on synthetic data only "
+            "(docs/deploying-with-phi.md)."
         )
 
 

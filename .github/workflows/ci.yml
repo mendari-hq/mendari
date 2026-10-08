@@ -202,6 +202,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+      - name: Throwaway PHI keys for the signed-in engine (sign-in never runs `off`)
+        # Masked, and in $GITHUB_ENV so every later compose call interpolates the same keys.
+        run: |
+          for name in MENDARI_PHI_KEY MENDARI_INPUT_HASH_KEY; do
+            key=$(python3 -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())")
+            echo "::add-mask::$key"
+            echo "$name=$key" >> "$GITHUB_ENV"
+          done
       - run: docker compose --profile signin up -d --build --wait engine launcher engine-signin
       - name: Wait until the workflow has seeded both packs
         run: |

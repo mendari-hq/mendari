@@ -21,7 +21,7 @@ from mendari.core import accounts
 from mendari.core.audit import AuditStore
 from mendari.server.app import DASHBOARD_DIR, create_app
 from mendari.server.auth import permission_for
-from tests.conftest import ROOT, member, security_lines
+from tests.conftest import ROOT, encrypt_mode, member, security_lines
 
 HTTPS = "https://mendari.test"
 TOKEN = re.compile(r"ohi_[A-Za-z0-9_-]{43}")
@@ -31,6 +31,7 @@ INLINE = re.compile(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", re.S)
 def signing_in(monkeypatch: pytest.MonkeyPatch, *, accounts_mode: str | None) -> None:
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari-org")
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     if accounts_mode is not None:
         monkeypatch.setenv("MENDARI_ACCOUNTS", accounts_mode)
 

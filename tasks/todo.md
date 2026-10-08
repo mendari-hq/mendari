@@ -180,6 +180,36 @@ behaviour.
   CI's `sandbox-e2e` move to `encrypt` with generated keys (locally, once, in the gitignored `.env`).
   An EHR launch with sign-in off keeps its warning (a separate decision). The build PR replaces gate
   a5's pending probe with its tests.
+  **Built** (#173, branch
+  `claude/lp08-refuse-off-with-signin`): outside Vercel too, sign-in on (OIDC issuer and client id) with `MENDARI_PHI_MODE` `off`,
+  written out or unset, refuses to start in one line, on SQLite and Postgres alike, before the
+  database is opened (`require_protection`). An EHR launch with sign-in off keeps its
+  chosen-mode check and warning (not refused yet: a separate decision). The compose sandbox's
+  `engine-signin` runs `encrypt`, its two keys read from the shell or the gitignored `.env`
+  (`${VAR:-}`, never committed; generated once, README; to start over, remove that engine and
+  its volume alone), checked by
+  hand on Docker (keyless it stops naming the key it lacks; with keys `smart check` and both
+  `--expect-org pilot` launches pass). CI's `sandbox-e2e` writes masked throwaway keys to
+  `$GITHUB_ENV`; `check_doc_snippets.py` runs its signed-in pass under `encrypt`. Every signed-in
+  test runs `encrypt_mode` (the refusal alone failed 239 SQLite cases): 22 test files, 17
+  fixtures and helpers and 11 tests gained the call, 6 tests changed their assertions or setup
+  (a reviewer's read now chains `input.read` after an outcome; a decision recorded beside a
+  signed-in server goes through `encrypted_store`; health says `encrypt`), 1 test was replaced by
+  2 refusal tests. Gate a5's pending probe is replaced by
+  `test_sign_in_refuses_plaintext_whatever_the_database` (SQLite and Postgres),
+  `test_the_cli_refuses_sign_in_without_protection` and
+  `test_the_signed_in_templates_choose_a_mode`: a5 now counts as met. Review (2 low, both
+  fixed): the README's `.env` step now ends a last line left without its newline and adds each
+  key only if missing (it had glued the first key onto that line and, on rerun, added a second
+  hash key, a new epoch); the reset no longer says `down -v`, which also removed
+  `mendari-data` (the open engine's database and the registry's packs). Rebased on #177, whose
+  invitation tests sign in: their helpers in `test_invite_page.py`, `test_notice.py` and
+  `browser/test_invitations.py` (since moved to `browser/access_site.py`) gained `encrypt_mode`
+  too. Rebased again on main after LP-12g, 12h, 12i, LP-16 and #180: the signed-in tests they
+  added gained `encrypt_mode` (`test_administrative_audit.py`'s server, `test_key_presets.py`'s,
+  `test_chain_orgs.py`'s memberships-mark test, `browser/test_credentials.py`'s claims-mode
+  site), no assertion changed, and `check_doc_snippets.py`'s key-preset pass (LP-12i) signs in
+  under `encrypt` as its signed-in pass does.
 - [x] **LP-09** Key rotation (#142, merged 2026-10-07). The PHI key: a ring, `MENDARI_PHI_KEY` seals and
   `MENDARI_PHI_READ_KEYS` (up to 4, checked at startup, never shown) only opens; from the first
   rotation on each token names its key (`v2:<key id>:`; before it, the old format, so a release
@@ -406,9 +436,10 @@ behaviour.
   G2-3 1 of 8, G3-4 0 of 7, G4-5 0 of 6, G5-6 0 of 6. Read against the audited `e55ed48c`,
   every prerequisite is unmet, the audit's 0 of each (each has a pending probe, an empty
   attestation, a missing NOTICE or runbook, or tests that did not exist yet); worked out by
-  hand, as the script itself stops there with exit 2, naming the test files it lacks. A5 waits
+  hand, as the script itself stops there with exit 2, naming the test files it lacks. A5 waited
   on LP-08's open owner question (an explicit `MENDARI_PHI_MODE=off` with sign-in starts with a
-  warning outside Vercel, where A5 step 1 asks for a refusal). New evidence tests: the notice's
+  warning outside Vercel, where A5 step 1 asks for a refusal; since closed: the refusal, LP-08
+  above). New evidence tests: the notice's
   three clauses, the acknowledgement required by default (the notice tests now run on the
   default), axe on the acknowledgement dialog, the label on every dashboard view of every
   reference pack and its words, CONTRIBUTING's sign-off and the Contributor Covenant 2.1. `tests/test_shipped.py`: the Definition of
