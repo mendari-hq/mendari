@@ -20,10 +20,11 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from mendari import Decision, Pack
+from mendari import AuditStore, CallBudget, Decision, Pack
 from mendari.core.spec import Outcome
 from mendari.errors import MendariError, ProviderError
-from mendari.providers import http, jev, llm
+from mendari.providers import credentials, http, jev, llm
+from mendari.providers.base import Provider
 from mendari.providers.credentials import ConnectorToken
 from mendari.server.app import create_app
 from mendari.settings import default_providers
@@ -94,6 +95,20 @@ def sent(monkeypatch: pytest.MonkeyPatch) -> list[httpx.Request]:
     return requests
 
 
+@pytest.fixture
+def charged(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """The provider types `charge()` is called for; each call still reaches the budget."""
+    calls: list[str] = []
+    charge = Provider.charge
+
+    def spy(self: Provider) -> None:
+        calls.append(self.info.type)
+        charge(self)
+
+    monkeypatch.setattr(Provider, "charge", spy)
+    return calls
+
+
 def origins(requests: list[httpx.Request]) -> list[str]:
     return [f"{r.url.scheme}://{r.url.netloc.decode()}" for r in requests]
 
@@ -160,6 +175,87 @@ def test_a_call_outside_the_allow_list_is_refused_before_it_leaves(
         http.post_json(None, "https://elsewhere.test/v1", {}, headers={}, timeout_s=1)
     assert refused.value.code == "invalid_endpoint"
     assert len(sent) == 2
+
+
+def test_jev_off_the_allow_list_reads_no_connector_key_and_spends_no_budget(
+    sent: list[httpx.Request],
+    charged: list[str],
+    inbox_pack: Pack,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Jev's key from Vercel Connect, whose origin is listed, and Jev's endpoint, not listed:
+    Jev's own check refuses the call before the connector is asked for a key (no identity token
+    read, nothing sent to Vercel) and before the day's Jev budget is charged. `post_json`'s
+    last guard would refuse the request too, but only after all of that. Listed, the same
+    decision reads the token, fetches the key, charges one call and asks Jev."""
+    identities: list[str] = []
+
+    def identity() -> str:
+        identities.append("read")
+        return "oidc-token"
+
+    monkeypatch.setattr(credentials, "vercel_oidc_token", identity)
+    monkeypatch.delenv(jev.API_KEY_ENV)
+    monkeypatch.setenv(jev.CONNECTOR_ENV, f"jev/egress-{next(_connectors)}")
+    monkeypatch.setenv(ALLOW, f"{GATEWAY},{CONNECT}")
+    with AuditStore(":memory:") as store:
+        router = Decision(
+            inbox_pack, providers={"router": "jev"}, budget=CallBudget(store, {"jev": None})
+        )
+        result = router.decide(message(TEXT))
+        assert result.errors == {"destination": "invalid_endpoint"}
+        assert result.outcome is not Outcome.AUTO
+        assert sent == [] and identities == [] and charged == []
+        assert store.usage("jev") == 0
+
+        monkeypatch.setenv(ALLOW, f"{GATEWAY},{CONNECT},{JEV}")
+        assert router.decide(message(TEXT)).errors == {}
+        assert origins(sent) == [CONNECT, JEV]
+        assert identities == ["read"] and charged == ["jev"]
+        assert store.usage("jev") == 1
+
+
+def test_an_llm_off_the_allow_list_reads_no_key_and_spends_no_budget(
+    sent: list[httpx.Request],
+    charged: list[str],
+    inbox_pack: Pack,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The list names nothing for the LLM, at the AI Gateway's default or at an `LLM_BASE_URL`
+    a command finds set: its own check refuses the call before its key is read (the gateway
+    key, or `LLM_API_KEY`) and before the day's LLM budget is charged. Listed, the same
+    decision reads the key, charges one call and asks the gateway."""
+    keys: list[str] = []
+    token = llm.LlmProvider._token
+
+    def key(self: llm.LlmProvider) -> str | None:
+        keys.append(self.base_url)
+        return token(self)
+
+    monkeypatch.setattr(llm.LlmProvider, "_token", key)
+    monkeypatch.setenv(llm.LOCAL_KEY_ENV, "k-models")
+    monkeypatch.setenv(ALLOW, f"{JEV},{CONNECT}")
+    with AuditStore(":memory:") as store:
+        screen = Decision(
+            inbox_pack,
+            providers={"safety_screen": "llm"},
+            budget=CallBudget(store, {"llm": None}),
+        )
+        for base_url in (None, "https://models.test/v1"):
+            if base_url is not None:
+                monkeypatch.setenv(llm.BASE_URL_ENV, base_url)
+            result = screen.decide(message(TEXT))
+            assert result.errors == {"urgency": "invalid_endpoint"}
+            assert result.outcome is not Outcome.AUTO
+            assert sent == [] and keys == [] and charged == []
+            assert store.usage("llm") == 0
+
+        monkeypatch.delenv(llm.BASE_URL_ENV)
+        monkeypatch.setenv(ALLOW, GATEWAY)
+        assert screen.decide(message(TEXT)).errors == {}
+        assert origins(sent) == [GATEWAY]
+        assert keys == [llm.GATEWAY_URL] and charged == ["llm"]
+        assert store.usage("llm") == 1
 
 
 def test_jev_models_and_vercel_connect_follow_the_allow_list(
