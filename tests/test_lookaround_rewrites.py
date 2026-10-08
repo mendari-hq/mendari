@@ -278,3 +278,17 @@ def test_ai_guard_runs_on_the_community_engine(tmp_path: Path, rewritten_guard: 
         if decided(hub.decide(given)) != decided(reference.decide(given))
     ]
     assert differ == []
+
+
+def test_ai_guard_corrects_no_typos_so_the_rewrite_changes_no_keyword() -> None:
+    """The rewrite spells "medicines", "medications" and "pills" out letter by letter, so they
+    are no longer whole words in the rules' text, and typo correction (which corrects towards
+    the rules' words) would no longer know them: "keep taking your medicnes" would be corrected
+    to "medicines" by the lookahead's rules (no match) and left alone by the rewrite's (a
+    match). ai-guard corrects no typos, so its decisions are the same; turning typo tolerance on
+    for these rules needs those words added back as keywords first."""
+    rules = yaml.safe_load((GUARD_DIR / GUARD[1]).read_text(encoding="utf-8"))
+    assert "typo_tolerance" not in rules, (
+        "typo tolerance on ai-guard's screen rules: add medicines, medications and pills back "
+        "as keywords before enabling it (tests/test_lookaround_rewrites.py)"
+    )
