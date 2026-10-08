@@ -224,11 +224,27 @@ code { font-family: var(--font-mono); font-size: max(0.92em, 12px); }  /* never 
 .org-choices { display: grid; gap: var(--space-2); margin: 0; padding: 0; border: 0; }
 .org-choices legend { margin-bottom: var(--space-2); font-weight: var(--weight-medium); }
 .org-choice { display: flex; gap: var(--space-2); align-items: baseline; }
-/* Memberships mode: the roles an invitation, a membership or a request granted gives (admin.js). */
+/* The Access view (admin.js): the roles an invitation, a membership or a request granted gives,
+   or a key's or client's one; the forms that invite, create a key and register a client (a
+   preset's detail under its choice); a long scope, key id or client id wraps where it must; a
+   key's or client's history, in a dialog. */
 .role-choices { display: grid; gap: var(--space-2); border: 0; padding: 0; margin: var(--space-3) 0; }
 .role-choices legend { margin-bottom: var(--space-2); font-weight: var(--weight-medium); }
 .role-choices label { display: flex; gap: var(--space-2); align-items: baseline; }
-.invite-form > label { display: block; font-weight: var(--weight-medium); }
+:is(.invite-form, .admin-form) > label { display: block; font-weight: var(--weight-medium); }
+.preset-detail { margin: 0 0 var(--space-3); }
+.preset-detail > p { margin: var(--space-1) 0; }
+.preset-detail .reaches { margin: var(--space-1) 0 0; padding-left: var(--space-5); }
+code.wrap { overflow-wrap: anywhere; }
+/* Keys' and clients' lists: a scope or a key set keeps a readable width; a row's buttons stack
+   when the table is wide; a client's id sits under its name, with its copy button. */
+.admin-body td:is(.scope, .keys) { min-width: 10rem; }
+.admin-body td.actions .row { gap: var(--space-2); }
+.admin-body td.actions button { white-space: nowrap; }
+.client-id { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); }
+.history { margin: var(--space-3) 0 0; }
+.history li { overflow-wrap: anywhere; }
+.history li > .muted:first-child { display: block; font-size: var(--text-sm); }
 .admin-body > .table-scroll { margin-top: var(--space-4); }
 .admin-body td.nowrap .row { flex-wrap: nowrap; }  /* a row's buttons side by side */
 .settings-button { display: none; }

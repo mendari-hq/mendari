@@ -10,8 +10,8 @@ The records are being built in steps (LP-12). This page covers the command line,
 records (`MENDARI_ACCOUNTS=memberships`) with the dashboard's access page and organization
 switcher, how an organization's administrators invite and manage their people in the
 dashboard's Access view or through the API, and the invitation page (`/invite`) a link opens.
-Keys and clients join the Access view later (LP-12h). Claims mode never reads or writes the
-records.
+The same Access view holds an organization's API keys and Backend Services clients, in claims
+mode too (for an administrator who signed in). Claims mode never reads or writes the records.
 
 ## The rules
 
@@ -130,8 +130,8 @@ Then:
   leaves a request its administrators see.
 - A membership removed, or its roles changed, applies at the person's next request. Keys and
   clients a removed person created belong to the organization and keep working: revoke them
-  too if they should not (`mendari access members` lists who is in it; the Access screen will
-  list who created each key). So do the open invitations a removed or demoted administrator
+  too if they should not (`mendari access members` lists who is in it; the Access view's API
+  keys and Clients tabs list who created each). So do the open invitations a removed or demoted administrator
   made: they stay valid until they are accepted, expire or are revoked (the list of
   invitations names who made each). Removing someone does revoke that organization's open
   invitations made out to their address, or to a pending membership's (each chained as
@@ -153,7 +153,9 @@ organization's invitation, member or request is a `404`.
 
 The Access view has a tab for each list: **Members** (change roles, remove), **Invitations**
 (invite someone, revoke a link) and **Requests to join** (grant with the roles chosen, or
-refuse). Changing roles, removing a member, revoking a link, and granting or refusing a request
+refuse), then **API keys** and, with SMART Backend Services on, **Clients**. The last two are
+also an administrator's in claims mode, where they are the only tabs; open mode has no Access
+view (the command line and the API remain). Changing roles, removing a member, revoking a link, and granting or refusing a request
 ask first, in a dialog that says what it does, and a refusal of one is said in that dialog, in
 words (removing or demoting the last administrator who signed in, say). Inviting makes a link at
 once, without asking; a refusal to make one (an address that is not one, say) shows as a message.
@@ -161,6 +163,19 @@ The link is shown once, whole (with the deployment's address), in a dialog with 
 closing the dialog or leaving the view takes it off the page, and it is never shown again: a lost
 link is revoked and made anew. Who made each invitation and membership is named by their name, "You", or
 "Former member" for someone removed since.
+
+**API keys** are made from a preset (what the key is for: its role, scope and expiry, the routes
+it reaches and a link to the guide that uses it) or by hand (a role and an optional scope). A
+new key is shown once, as an invitation link is; rotating one (with the hours the old key keeps
+working) shows the new one once and says when the old one stops. Revoking asks first. **Clients**
+are registered with a preset's scope or one chosen by hand, and their public keys: a JWK Set, a
+JWK, or a PEM public key, which the page turns into a JWK (its `kid` the key's RFC 7638
+thumbprint). A private key pasted there is refused before anything is sent, and cleared from the
+page: treat it as exposed. **Replace keys…** replaces a client's key set (its tokens stop at
+once); revoking asks first. Each key and client has a **History**: its audit chain events, oldest
+first, with who did each (a rotated key's history links to its replacement's). Who made a key or
+client is "You", a member's name, or what the chain recorded (an e-mail address or
+`issuer|subject`).
 
 | Route | Does |
 |---|---|

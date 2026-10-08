@@ -13,7 +13,7 @@ import pytest
 
 from mendari import AuditStore, Decision, Pack
 from mendari.core import tenancy
-from mendari.errors import MendariError, NoOrganization
+from mendari.errors import AuthError, MendariError, NoOrganization
 from tests.conftest import message
 from tests.test_backend_services import RSA_KEY
 
@@ -89,3 +89,13 @@ def test_an_empty_organization_is_one_not_every(store: AuditStore) -> None:
     assert store.clients("") == [] and len(store.clients(None)) == 1
     assert store.revoke_client(client["client_id"], "", revoked_by="Mallory") is False
     assert store.client(client["client_id"]) is not None  # still in force
+    # A credential's history (LP-12h): another organization's, "" included, is none.
+    assert store.subject_history("key", key["id"], "") is None
+    assert store.subject_history("client", client["client_id"], "") is None
+    assert store.subject_history("key", key["id"], "clinic-a") is not None
+    with pytest.raises(AuthError) as refused:
+        store.replace_client_keys(
+            client["client_id"], "", replaced_by="Mallory", jwks=[RSA_KEY.jwk]
+        )
+    assert refused.value.status == 404
+    assert store.client(client["client_id"])["keys_version"] == 0  # type: ignore[index]

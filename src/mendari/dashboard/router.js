@@ -22,8 +22,9 @@ export function route() {
   if (state.launchOnly && (name !== "patient" || !named.length)) {
     return { view: "patient", params: state.launchPin ? [state.launchPin] : [] };
   }
-  // A view someone may not use (`available()` says no: the administrators' Access view in claims or
-  // open mode, or for anyone but an administrator) is not there: the overview, with no request.
+  // A view someone may not use (`available()` says no: the administrators' Access view in open
+  // mode, or for anyone but an administrator who signed in) is not there: the overview, with no
+  // request.
   const shown = views[name] && name !== "access" && (views[name].available?.() ?? true);
   return { view: shown ? name : "overview", params: named };
 }

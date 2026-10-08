@@ -13,7 +13,8 @@ rules the guard applies, server/auth.py) may be more, and the docs show both. Se
 reach the same routes (every decision entry point needs the one decide scope, ADR-0004): their
 names say what the key is for, not a boundary.
 
-No preset for Backend Services clients here: 12h may offer the scoped ones to clients; a preset
+No preset for Backend Services clients here: the dashboard's Access view (LP-12h) offers the
+scoped ones to fill in a client's role and scope, and a client stores no preset label; a preset
 with no scope is for keys only.
 """
 

@@ -728,13 +728,17 @@ or `system/*.rs` for FHIR reads, and `https://mendari.co/fhir/scope/decide` and
 `.../outcome` for deciding and recording outcomes; deciding also lists the packs to decide with
 (`GET /api/packs`, `GET /cds-services`). A scope only narrows a role. Each documented integration
 path has a key preset with the role and scope it needs (`"preset": "cds-hooks"`, …;
-`GET /api/auth/keys/presets`).
+`GET /api/auth/keys/presets`). The dashboard's **Access** view does the same for an admin who
+signed in: it makes a key from a preset and shows it once, rotates and revokes keys, and shows
+each one's history (`GET /api/auth/keys/{id}/history`).
 
 Machines that speak **SMART Backend Services** (EHRs, integration engines, Da Vinci clients) can
 get five-minute tokens instead, when a deployment turns it on (`MENDARI_BACKEND_SERVICES=on`;
 it needs sign-in and `MENDARI_PUBLIC_URL`). An admin registers the client's public keys
 (`POST /api/auth/clients`); the client signs an assertion (RS384 or ES384) and exchanges it at
-`POST /auth/token`; `/fhir/.well-known/smart-configuration` describes it. See
+`POST /auth/token`; `/fhir/.well-known/smart-configuration` describes it. A client's public keys
+are replaced in place (`POST /api/auth/clients/{id}/keys`: same id, its tokens dropped), also
+from the Access view's Clients tab, which takes a PEM public key and refuses a private one. See
 [ADR-0004](https://github.com/Junebugg1214/mendari/blob/main/docs/decisions/ADR-0004-machine-access-tokens-and-scopes.md) and
 [deploying with real patient data](https://github.com/Junebugg1214/mendari/blob/main/docs/deploying-with-phi.md).
 
@@ -766,8 +770,8 @@ The role and organization claims are ignored. A person with no membership acts f
 organization, never `default`: they may ask to join one or accept an invitation made for their
 verified address, and nothing else. The operator manages organizations with `mendari access`,
 and each organization's administrators invite and manage their own people in the dashboard's
-Access view or through the API; an invitation's link opens `/invite`, where the person signs in
-and accepts it
+Access view (beside its keys and clients) or through the API; an invitation's link opens
+`/invite`, where the person signs in and accepts it
 ([the runbook](https://github.com/Junebugg1214/mendari/blob/main/docs/operations/accounts.md),
 which also says how to switch a deployment).
 

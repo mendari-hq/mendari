@@ -183,6 +183,7 @@ CHAINED: dict[Route, tuple[str, ...]] = {
     (ENGINE, "POST", "/api/auth/keys/{key_id}/rotate"): ("key.created", "key.rotated"),
     (ENGINE, "DELETE", "/api/auth/keys/{key_id}"): ("key.revoked",),
     (ENGINE, "POST", "/api/auth/clients"): ("client.registered",),
+    (ENGINE, "POST", "/api/auth/clients/{client_id}/keys"): ("client.keys_replaced",),
     (ENGINE, "DELETE", "/api/auth/clients/{client_id}"): ("client.revoked",),
     # Memberships mode: the request, and the person who asked the first time.
     (ENGINE, "POST", "/api/auth/access-requests"): ("access.requested", "user.recorded"),

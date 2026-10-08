@@ -488,7 +488,7 @@ def as_nobody(db_target: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestC
         yield client
 
 
-ORG_ROUTES = [
+ORG_ROUTES: list[tuple[str, str, dict[str, Any] | None]] = [
     ("GET", "/api/holds", None),
     ("POST", "/api/holds", {"reason": "drill"}),
     ("DELETE", "/api/holds/h1", None),
@@ -496,9 +496,12 @@ ORG_ROUTES = [
     ("GET", "/api/auth/keys", None),
     ("POST", "/api/auth/keys/k1/rotate", None),
     ("DELETE", "/api/auth/keys/k1", None),
+    ("GET", "/api/auth/keys/k1/history", None),
     ("POST", "/api/auth/clients", {"name": "c", "role": "viewer", "jwks": {"keys": []}}),
     ("GET", "/api/auth/clients", None),
     ("DELETE", "/api/auth/clients/c1", None),
+    ("GET", "/api/auth/clients/c1/history", None),
+    ("POST", "/api/auth/clients/c1/keys", {"jwks": {"keys": []}}),
     ("GET", "/api/audit/verify", None),
     ("GET", "/api/audit/export/fhir", None),
     ("POST", "/api/auth/invitations", {"email": "a@example.org", "roles": ["viewer"]}),
@@ -527,7 +530,8 @@ def test_a_principal_of_no_organization_is_refused_before_every_route_that_takes
         "rotate_api_key", "revoke_api_key", "register_client", "clients", "revoke_client",
         "verify", "iter_events", "org_usage", "create_invitation", "invitations",
         "revoke_invitation", "members", "set_membership_roles", "remove_membership",
-        "open_access_requests", "handle_access_request",
+        "open_access_requests", "handle_access_request", "subject_history",
+        "replace_client_keys",
     ):  # fmt: skip
         monkeypatch.setattr(AuditStore, name, reached)
     capsys.readouterr()
