@@ -89,6 +89,7 @@ def sent(monkeypatch: pytest.MonkeyPatch) -> list[httpx.Request]:
     monkeypatch.setattr(httpx.HTTPTransport, "handle_request", handle)
     monkeypatch.setattr(socket.socket, "connect", no_socket)
     monkeypatch.setenv("AI_GATEWAY_API_KEY", "k-gateway")
+    monkeypatch.setenv(llm.MODEL_ENV, "provider/model-1")  # the deployment's (no built-in default)
     monkeypatch.setenv(jev.ENDPOINT_ENV, f"{JEV}/v1/decide")
     monkeypatch.setenv(jev.MODEL_ENV, "jev-1")
     monkeypatch.setenv(jev.API_KEY_ENV, "k-jev")
