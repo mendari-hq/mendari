@@ -1176,7 +1176,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     different first organization each day; `mendari monitor --each-org` (0 when every alert
     was posted, 1 on an error, 3 when one was not); the templates run it, the Kubernetes job
     never re-run; gate `hosted-monitoring` names its tests and waits for 21n.
-  - [ ] **21g** (#201) The usage ledger (`usage_ledger`: local day, organization, provider type,
+  - [x] **21g** (#201, merged 2026-10-08) The usage ledger (`usage_ledger`: local day, organization, provider type,
     purpose `decision` or `evaluation`; calls, priced calls, tokens, the priced calls' cost),
     written with the decision (or the evaluation's report) in its transaction from each
     decision's meter (`providers.base.Meter`: `sending` counts a call as it is sent, `metered`
