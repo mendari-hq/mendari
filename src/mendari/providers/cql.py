@@ -48,15 +48,22 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from mendari.core import clock
+from mendari.core.pack import Pack
+from mendari.core.spec import Question
 from mendari.errors import FhirError, PackValidationError, ProviderError, ProviderErrorCode
 from mendari.providers import deadline
-from mendari.providers.base import Provider, ProviderOutput, fingerprint, get_path
+from mendari.providers.base import Provider, ProviderOutput, fingerprint, get_path, read_problems
 from mendari.providers.criteria import DECIDED, _date
 from mendari.standards import record_fhir
 from mendari.standards.fhir_client import TIMEOUT, GuardedHttp
 
 URL_ENV = "MENDARI_CQL_URL"
-_HEADER = re.compile(r"^\s*library\s+([A-Za-z][A-Za-z0-9_]*)\s+version\s+'([^']+)'", re.MULTILINE)
+# A declaration at the start of a line. The spaces before it never cross a line end (`^\s*`
+# did: on a library of blank lines each line's search ran to the end, quadratic in its size), and
+# it finds the same declaration, since a line of spaces only leads to the next line's start.
+_HEADER = re.compile(
+    r"^[^\S\n]*library\s+([A-Za-z][A-Za-z0-9_]*)\s+version\s+'([^']+)'", re.MULTILINE
+)
 # Reading the first statement: spaces, a `//` comment to the end of its line, a declaration.
 _SPACES = re.compile(r"\s*")
 _LINE_COMMENT = re.compile(r"//[^\r\n]*")
@@ -97,6 +104,10 @@ class CqlConfig(BaseModel):
     expressions: dict[str, str] = Field(min_length=1)
 
 
+# A variant's checked settings, its library's text, and its declaration found both ways.
+_Library = tuple[CqlConfig, str, re.Match[str], re.Match[str]]
+
+
 def cql_url() -> str:
     url = os.environ.get(URL_ENV, "").strip().rstrip("/")
     if not url:
@@ -110,34 +121,63 @@ class CqlProvider(Provider):
 
     def __init__(self, *args: Any, **kwargs: Any):
         super().__init__(*args, **kwargs)
-        try:
-            self.settings = CqlConfig.model_validate(self.config)
-        except ValidationError as error:
-            raise PackValidationError(self.pack.id, [f"{self.info.slot}: {error}"]) from None
+        checked, problems = self._checked(self.pack, self.info.slot, self.config, self.questions)
+        if checked is None:
+            raise PackValidationError(self.pack.id, problems)
+        self.settings, self.source, header, declaration = checked
         library = self.settings.library
-        if not self.pack.path(library).is_file():
-            raise PackValidationError(self.pack.id, [f"{self.info.slot}: no file {library}"])
-        self.source = self.pack.read_text(library)
-        header = _HEADER.search(self.source)
-        if header is None:
-            problem = f"{library}: needs a `library Name version '...'` declaration"
-            raise PackValidationError(self.pack.id, [problem])
         self.name, self.version = header.group(1), header.group(2)
-        declaration = library_declaration(self.source)
-        if declaration is None or declaration.span(1) != header.span(1):
-            problem = (
-                f"{library}: the `library Name version '...'` declaration must be the library's "
-                "first statement (only comments before it)"
-            )
-            raise PackValidationError(self.pack.id, [problem])
-        if set(self.settings.expressions) != set(self.questions):
-            problem = f"{self.info.slot}: `expressions` must map exactly the slot's questions"
-            raise PackValidationError(self.pack.id, [problem])
         self.info = replace(self.info, model=f"cql:{self.name}@{fingerprint(self.pack, library)}")
         self.resource_id, self.engine_name = engine_names(self.pack.id, self.name, self.source)
         start, end = declaration.span(1)
         self.engine_source = self.source[:start] + self.engine_name + self.source[end:]
         self._uploaded_to: str | None = None
+
+    @classmethod
+    def config_problems(
+        cls,
+        pack: Pack,
+        where: str,
+        config: Mapping[str, Any],
+        questions: Mapping[str, Question],
+        *,
+        bounded: bool,
+        trained: bool,
+    ) -> list[str]:
+        return cls._checked(pack, where, config, questions)[1]
+
+    @staticmethod
+    def _checked(
+        pack: Pack, where: str, config: Mapping[str, Any], questions: Mapping[str, Question]
+    ) -> tuple[_Library | None, list[str]]:
+        """The variant's settings (its closed config, `CqlConfig`) and its library, read and
+        checked (declared first, its expressions exactly the slot's questions), or None and why
+        not."""
+        try:
+            settings = CqlConfig.model_validate(config)
+        except ValidationError as error:
+            return None, [f"{where}: {error}"]
+        library = settings.library
+        found, problems = read_problems(lambda: pack.path(library).is_file())
+        if problems:
+            return None, problems
+        if not found:
+            return None, [f"{where}: no file {library}"]
+        source, problems = read_problems(lambda: pack.read_text(library))
+        if problems:
+            return None, problems
+        header = _HEADER.search(source)
+        if header is None:
+            return None, [f"{library}: needs a `library Name version '...'` declaration"]
+        declaration = library_declaration(source)
+        if declaration is None or declaration.span(1) != header.span(1):
+            return None, [
+                f"{library}: the `library Name version '...'` declaration must be the library's "
+                "first statement (only comments before it)"
+            ]
+        if set(settings.expressions) != set(questions):
+            return None, [f"{where}: `expressions` must map exactly the slot's questions"]
+        return (settings, source, header, declaration), []
 
     def preflight(self) -> None:
         cql_url()

@@ -115,6 +115,11 @@ def cmd_list(args: argparse.Namespace) -> int:
         print(f"{m.id:<40} {m.version:<8} risk {int(m.risk.level)}  {m.name}")
     for root, problem in found.problems.items():
         print(f"invalid pack at {root}:\n{problem}", file=sys.stderr)
+    # An owned pack whose provider configs `mendari validate` refuses still loads: said here.
+    for pack in sorted(found.packs, key=lambda p: (p.id, p.root)):
+        if pack.warnings:
+            listed = "\n".join(f"  - {warning}" for warning in pack.warnings)
+            print(f"warnings for {pack.ref} at {pack.root}:\n{listed}", file=sys.stderr)
     if not found.packs:
         print("No packs found. Set MENDARI_PACKS_PATH or run from a checkout.", file=sys.stderr)
     return 0

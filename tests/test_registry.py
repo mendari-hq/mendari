@@ -362,12 +362,14 @@ def test_metadata_that_cannot_be_served_is_refused_before_it_is_stored(
     assert registry.publish().status_code == 201
 
 
-def test_a_composite_whose_members_cannot_run_publishes_without_them(
+def test_a_composite_whose_members_cannot_run_is_refused_at_publish(
     registry: Registry, tmp_path: Path
 ) -> None:
-    """Members are checked when a provider is built, not when a pack loads: a composite whose
-    members are a list, or keyed by what YAML reads as a date, still publishes (it was a 500),
-    and no report can name it. On the inbox pack, whose patterns all run on RE2: a changed copy
+    """Every variant and member is checked when a pack loads (LP-16e): a composite whose
+    members are a list, or keyed by what YAML reads as a date (once a 500, then published
+    without them), is refused naming the variants, before anything is stored; the owned copy
+    it was made from loads, with them as warnings, and without them it publishes, its
+    composites' members named. On the inbox pack, whose patterns all run on RE2: a changed copy
     (at a new version: at its own it is refused, F) is checked on the engine for packs from a
     registry (ADR-0009)."""
     root = tmp_path / "pack"
@@ -383,6 +385,21 @@ def test_a_composite_whose_members_cannot_run_publishes_without_them(
         "members": {datetime.date(2024, 1, 1): rules, "jev": jev},
     }
     variants["listed"] = {"type": "any_of", "escalate": escalate, "members": [rules, rules]}
+    (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    owned = load_pack(root)
+    assert [warning.partition(":")[0] for warning in owned.warnings] == [
+        "providers.safety_screen.variants.dated",
+        "providers.safety_screen.variants.listed",
+    ]
+    refused = registry.publish(owned)
+    assert refused.status_code == 422, refused.text
+    reason = refused.json()["detail"]
+    assert reason.startswith("the pack does not load: ")
+    assert "providers.safety_screen.variants.dated: " in reason
+    assert "providers.safety_screen.variants.listed: " in reason
+    assert registry.client.get("/v1/search").json() == []
+
+    del variants["dated"], variants["listed"]
     (root / "pack.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
     published = registry.publish(load_pack(root))
     assert published.status_code == 201, published.text

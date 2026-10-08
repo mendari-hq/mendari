@@ -242,7 +242,7 @@ def test_the_cpu_budget_is_not_the_deadline(
             "type": "any_of",
             "escalate": {"topic": "billing"},
             "members": {
-                "llm": {"type": "llm"},
+                "llm": {"type": "llm", "state_fields": ["message"]},
                 "rules": {"type": "rules", "config": "logic/rules.yaml"},
             },
         }

@@ -1,0 +1,456 @@
+{
+  "$defs": {
+    "any_of": {
+      "additionalProperties": false,
+      "properties": {
+        "escalate": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "minProperties": 1,
+          "title": "Escalate",
+          "type": "object"
+        },
+        "members": {
+          "additionalProperties": {
+            "$ref": "#/$defs/member"
+          },
+          "minProperties": 2,
+          "title": "Members",
+          "type": "object"
+        },
+        "type": {
+          "const": "any_of"
+        }
+      },
+      "required": [
+        "escalate",
+        "members",
+        "type"
+      ],
+      "title": "any_of provider config",
+      "type": "object"
+    },
+    "cascade": {
+      "additionalProperties": false,
+      "properties": {
+        "accept_at": {
+          "exclusiveMinimum": 0.0,
+          "maximum": 1.0,
+          "title": "Accept At",
+          "type": "number"
+        },
+        "members": {
+          "additionalProperties": {
+            "$ref": "#/$defs/member"
+          },
+          "minProperties": 2,
+          "title": "Members",
+          "type": "object"
+        },
+        "type": {
+          "const": "cascade"
+        }
+      },
+      "required": [
+        "accept_at",
+        "members",
+        "type"
+      ],
+      "title": "cascade provider config",
+      "type": "object"
+    },
+    "cql": {
+      "additionalProperties": false,
+      "properties": {
+        "as_of": {
+          "default": "as_of",
+          "title": "As Of",
+          "type": "string"
+        },
+        "expressions": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "minProperties": 1,
+          "title": "Expressions",
+          "type": "object"
+        },
+        "library": {
+          "title": "Library",
+          "type": "string"
+        },
+        "type": {
+          "const": "cql"
+        }
+      },
+      "required": [
+        "expressions",
+        "library",
+        "type"
+      ],
+      "title": "cql provider config",
+      "type": "object"
+    },
+    "criteria": {
+      "additionalProperties": false,
+      "description": "A `rules`, `criteria` or `dosing` variant: its type and the pack file its config is in,\nand nothing else (`Provider.config_problems`).",
+      "properties": {
+        "config": {
+          "title": "Config",
+          "type": "string"
+        },
+        "type": {
+          "const": "criteria"
+        }
+      },
+      "required": [
+        "config",
+        "type"
+      ],
+      "title": "criteria provider config",
+      "type": "object"
+    },
+    "dosing": {
+      "additionalProperties": false,
+      "description": "A `rules`, `criteria` or `dosing` variant: its type and the pack file its config is in,\nand nothing else (`Provider.config_problems`).",
+      "properties": {
+        "config": {
+          "title": "Config",
+          "type": "string"
+        },
+        "type": {
+          "const": "dosing"
+        }
+      },
+      "required": [
+        "config",
+        "type"
+      ],
+      "title": "dosing provider config",
+      "type": "object"
+    },
+    "jev": {
+      "additionalProperties": false,
+      "properties": {
+        "batch": {
+          "default": true,
+          "title": "Batch",
+          "type": "boolean"
+        },
+        "cost_per_1k_input_tokens_usd": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 4.2e-05,
+          "title": "Cost Per 1K Input Tokens Usd"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model"
+        },
+        "state_fields": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "State Fields"
+        },
+        "timeout_ms": {
+          "default": 5000,
+          "maximum": 10000,
+          "minimum": 100,
+          "title": "Timeout Ms",
+          "type": "integer"
+        },
+        "type": {
+          "const": "jev"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "jev provider config",
+      "type": "object"
+    },
+    "llm": {
+      "additionalProperties": false,
+      "properties": {
+        "batch": {
+          "default": true,
+          "title": "Batch",
+          "type": "boolean"
+        },
+        "calibration": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Calibration"
+        },
+        "max_tokens": {
+          "default": 4096,
+          "maximum": 32000,
+          "minimum": 64,
+          "title": "Max Tokens",
+          "type": "integer"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model"
+        },
+        "reasoning_effort": {
+          "anyOf": [
+            {
+              "enum": [
+                "none",
+                "low",
+                "medium",
+                "high"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reasoning Effort"
+        },
+        "state_fields": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "State Fields"
+        },
+        "temperature": {
+          "anyOf": [
+            {
+              "maximum": 2.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Temperature"
+        },
+        "timeout_ms": {
+          "default": 30000,
+          "maximum": 120000,
+          "minimum": 1000,
+          "title": "Timeout Ms",
+          "type": "integer"
+        },
+        "type": {
+          "const": "llm"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "llm provider config",
+      "type": "object"
+    },
+    "member": {
+      "description": "A composite's member: a provider config of a type that is not a composite.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/cql"
+        },
+        {
+          "$ref": "#/$defs/criteria"
+        },
+        {
+          "$ref": "#/$defs/dosing"
+        },
+        {
+          "$ref": "#/$defs/jev"
+        },
+        {
+          "$ref": "#/$defs/llm"
+        },
+        {
+          "$ref": "#/$defs/naive_bayes"
+        },
+        {
+          "$ref": "#/$defs/rules"
+        }
+      ]
+    },
+    "naive_bayes": {
+      "additionalProperties": false,
+      "description": "A `naive_bayes` variant: the trained model file, and the text fields it reads, which must\nbe those it was trained on (by default, the model's own).",
+      "properties": {
+        "model_file": {
+          "title": "Model File",
+          "type": "string"
+        },
+        "text_fields": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text Fields"
+        },
+        "type": {
+          "const": "naive_bayes"
+        }
+      },
+      "required": [
+        "model_file",
+        "type"
+      ],
+      "title": "naive_bayes provider config",
+      "type": "object"
+    },
+    "rules": {
+      "additionalProperties": false,
+      "description": "A `rules`, `criteria` or `dosing` variant: its type and the pack file its config is in,\nand nothing else (`Provider.config_problems`).",
+      "properties": {
+        "config": {
+          "title": "Config",
+          "type": "string"
+        },
+        "type": {
+          "const": "rules"
+        }
+      },
+      "required": [
+        "config",
+        "type"
+      ],
+      "title": "rules provider config",
+      "type": "object"
+    },
+    "vote": {
+      "additionalProperties": false,
+      "properties": {
+        "members": {
+          "additionalProperties": {
+            "$ref": "#/$defs/member"
+          },
+          "minProperties": 2,
+          "title": "Members",
+          "type": "object"
+        },
+        "type": {
+          "const": "vote"
+        },
+        "weights": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "number"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Weights"
+        }
+      },
+      "required": [
+        "members",
+        "type"
+      ],
+      "title": "vote provider config",
+      "type": "object"
+    }
+  },
+  "$id": "https://mendari.co/spec/provider-configs.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "A provider variant's config in a Decision Pack (`providers.<slot>.variants.<name>`), one per provider type, each closed: a key it does not name is refused for a pack the deployment does not own and a warning for an owned one. Generated from the provider config models by scripts/provider_config_schema.py; do not edit.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/any_of"
+    },
+    {
+      "$ref": "#/$defs/cascade"
+    },
+    {
+      "$ref": "#/$defs/cql"
+    },
+    {
+      "$ref": "#/$defs/criteria"
+    },
+    {
+      "$ref": "#/$defs/dosing"
+    },
+    {
+      "$ref": "#/$defs/jev"
+    },
+    {
+      "$ref": "#/$defs/llm"
+    },
+    {
+      "$ref": "#/$defs/naive_bayes"
+    },
+    {
+      "$ref": "#/$defs/rules"
+    },
+    {
+      "$ref": "#/$defs/vote"
+    }
+  ],
+  "title": "Mendari provider configs"
+}

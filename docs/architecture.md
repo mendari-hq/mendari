@@ -92,7 +92,12 @@
   deployment's OIDC token. LLM prompts carry the input as JSON data under a system prompt that
   forbids following it, and the response schema is fixed by the pack. Their responses are validated strictly and bounded in size. A batched
   call sends the union of its variants' `state_fields`; a variant that must not share its
-  state sets `batch: false`.
+  state sets `batch: false`. An owned pack's variant without `state_fields` sends the whole
+  input; a pack the deployment does not own (community, registry) must name them, and runs on
+  the deployment's model with its `max_tokens`, `timeout_ms` and `reasoning_effort` capped.
+  Every variant's config is checked at load against its provider's closed config
+  (`providers.config_problems`, published as `docs/spec/provider-configs.schema.json`): such a
+  pack is refused for a problem, an owned one warned.
 - **The server** is open by default and binds to localhost. Production sits behind Vercel
   Authentication, and the docker sandbox publishes ports on 127.0.0.1 only.
   - With an OIDC issuer set (`server/auth.py`), every request passes one guard: a signed-in

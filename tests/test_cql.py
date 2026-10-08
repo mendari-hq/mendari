@@ -368,3 +368,36 @@ def test_finding_the_declaration_is_linear() -> None:
         started = time.perf_counter()
         assert cql_module.library_declaration(source) is None
         assert time.perf_counter() - started < 0.05
+
+
+# Libraries of blank lines: `^\s*library` (MULTILINE) ran from each line's start to the end of the
+# text, so the search was quadratic (160,000 blank lines took 21 s). Load runs it on every pack
+# now (LP-16e), a registry's at publish and pull too.
+BLANK_LIBRARIES = ["\n" * 100_000, "library\n" + "\n" * 100_000]
+
+
+def test_finding_the_header_is_linear() -> None:
+    for source in BLANK_LIBRARIES:
+        started = time.perf_counter()
+        assert cql_module._HEADER.search(source) is None
+        assert time.perf_counter() - started < 0.05
+
+
+def test_a_library_of_blank_lines_is_checked_at_load_in_linear_time(tmp_path: Path) -> None:
+    """The load-time check (`CqlProvider.config_problems`, as for a pack from a registry) on a
+    library of blank lines: refused for having no declaration, at once."""
+    for number, source in enumerate(BLANK_LIBRARIES):
+        root = tmp_path / str(number)
+        shutil.copytree(resolve_pack(TRIAL).root, root)
+        (root / "logic" / "criteria.cql").write_text(source)
+        pack = load_pack(root)  # owned: loads, and warns
+        assert any("needs a `library Name version" in w for w in pack.warnings)
+        slot = pack.manifest.providers["structured"]
+        config = {"type": "cql", **(slot.variants["cql"].model_extra or {})}
+        questions = {key: pack.manifest.questions[key] for key in slot.answers}
+        started = time.perf_counter()
+        problems = cql_module.CqlProvider.config_problems(
+            pack, "structured", config, questions, bounded=True, trained=True
+        )
+        assert time.perf_counter() - started < 0.05
+        assert problems == ["logic/criteria.cql: needs a `library Name version '...'` declaration"]

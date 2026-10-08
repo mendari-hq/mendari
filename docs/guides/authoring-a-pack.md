@@ -265,12 +265,27 @@ and you read every misclassified case:
 mendari eval refill-router --dataset my-site.jsonl
 ```
 
-To compare providers, add a variant to the slot in `pack.yaml` (for example `llm: {type: llm}`
-under `reader.variants`). Then run
+To compare providers, add a variant to the slot in `pack.yaml` (for example
+`llm: {type: llm, state_fields: [message.subject, message.body]}` under `reader.variants`). Then
+run
 `mendari leaderboard refill-router --run reader=rules --run reader=llm --dataset my-site.jsonl`.
 A remote variant's endpoint and key come from the deployment, never from the pack: a variant
 may pin `model`, but one that names environment variables (`api_key_env`, `endpoint_env` and
 the like) is refused.
+
+`state_fields` lists the input fields a model variant sends (dotted, `message.body`): the
+minimum necessary. Without it the whole input is sent. Name them on every `llm` and `jev`
+variant and composite member: a pack you publish to a registry or contribute as a community
+pack is refused without them, and there its pinned `model` gives way to the deployment's, its
+`max_tokens` and `timeout_ms` are held to the provider defaults and a `reasoning_effort` above
+`low` is dropped.
+
+Each provider type takes only its own keys, listed in the
+[provider config schema](../spec/provider-configs.schema.json). `mendari validate` refuses a
+variant with any other key, or one that cannot run (a label the question does not have, a model
+trained for another question), even a variant the pack does not use by default; a server still
+loads your own pack with it and lists it under `pack_warnings` in `/api/health`, but a registry
+refuses it.
 
 ## 9. Publish the card
 

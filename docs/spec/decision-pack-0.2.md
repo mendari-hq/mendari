@@ -397,6 +397,21 @@ them in fixed environment variables (`jev`: `JEV_API_URL`, `JEV_MODEL`, `JEV_API
 `model`, and `llm` variants MAY tune their own requests (`timeout_ms`, `max_tokens`,
 `temperature`, `reasoning_effort`).
 
+Each provider type's config is closed: a variant or composite member MUST set only the keys its
+type reads, with values it accepts, and its pack files MUST be ones it can run with (a rules,
+criteria or dosing file of that shape, answering the slot's questions with their labels; a
+trained naive_bayes model or LLM calibration file; a CQL library declared first). The keys of
+every type are published as a JSON Schema,
+[`provider-configs.schema.json`](provider-configs.schema.json), generated from the code.
+Every variant is checked at load, the ones a pack does not use by default too: a pack the
+deployment does not own (a community pack, or one pulled from a registry that is not a
+reference pack) with any problem is invalid; any other loads, with the problems as warnings,
+and `mendari validate` refuses it. For a pack the deployment does not own, every `jev` and `llm`
+variant and member MUST name its `state_fields` (at least one), and the deployment chooses
+what the pack may only suggest: its `model` is ignored, its `max_tokens` and `timeout_ms` are
+held to the provider defaults (`llm` 4,096 tokens and 30,000 ms, `jev` 5,000 ms; a lower value
+stands), and a `reasoning_effort` above `low` is ignored.
+
 ## 6. Policy and outcomes
 
 Every decision has exactly one outcome:
@@ -688,6 +703,7 @@ of these.
 | Every behaviour test is a mapping with an `input` mapping, an optional text `name` and an optional `expect` mapping, and is JSON: no date, binary, set, lone surrogate or non-finite number (every spec version) | §10 |
 | No lone surrogate, `!!binary`, `!!set`, `!!omap` or `!!pairs` in a pack's YAML, no lone surrogate or non-finite number in its JSON; a file is used only with the content its digest hashed (every spec version) | §3 |
 | No symbolic link out of a directory pack; a self-contained input schema (local references only, no nested `$schema` or `$id`, no `$dynamicAnchor`, no `format: regex`; every spec version) | §3 |
+| Provider configs are closed (the published JSON Schema) and checked at load for every variant: a community or registry pack with a problem is invalid, any other is warned; such a pack's model variants name their `state_fields`, and its model, `max_tokens`, `timeout_ms` and `reasoning_effort` are the deployment's to choose or cap (every spec version) | §5 |
 | An owned pack's input schema nests at most 32 deep, chains at most 16 `$ref`s and applies at most 1,000 schema objects to one value, referring back to itself only as a recursive list or tree, with no `unevaluatedProperties` or `unevaluatedItems` below another; a pack from a registry with a reference pack's id and an equal version is that pack (every spec version) | §3, §5 |
 
 To migrate a pack:

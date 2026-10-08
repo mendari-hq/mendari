@@ -528,13 +528,14 @@ def test_a_registry_packs_caps_are_checked_at_load(tmp_path: Path) -> None:
 def test_a_registry_pack_is_never_a_community_pack(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """It runs on the community engine and nothing more: it automates under its own policy,
-    its pinned model stands and its own BLOCK rule blocks; it is labelled as from a registry."""
+    """It runs on the community engine and nothing more: it automates under its own policy and
+    its own BLOCK rule blocks; it is labelled as from a registry. Like every pack the deployment
+    does not own (LP-16e), its pinned model gives way to the deployment's."""
     monkeypatch.setenv("LLM_MODEL", "example/deployment-model")
     pack = outside_sorter(tmp_path / "plain")
     assert pack.bounded and not pack.community and pack.shown_origin == "hub"
     assert Decision(pack).decide(BILL).outcome is Outcome.AUTO
-    assert build_provider(pack, "reader", "llm").info.model == "example/pinned-model"
+    assert build_provider(pack, "reader", "llm").info.model == "example/deployment-model"
 
     def blocks(manifest: dict[str, Any]) -> None:
         manifest["policy"]["rules"] = [BLOCK_RULE]

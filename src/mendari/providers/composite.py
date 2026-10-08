@@ -19,8 +19,10 @@ from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from mendari.core.pack import Pack
+from mendari.core.spec import Question
 from mendari.errors import PackValidationError, ProviderError, ProviderErrorCode
-from mendari.providers.base import Answer, Provider, ProviderInfo, ProviderOutput
+from mendari.providers.base import Answer, Provider, ProviderInfo, ProviderOutput, prefixed
 
 
 class CompositeConfig(BaseModel):
@@ -38,19 +40,11 @@ class CompositeProvider(Provider):
         super().__init__(*args, **kwargs)
         from mendari.providers import PROVIDER_TYPES  # the registry imports this module
 
-        try:
-            self.settings = self.settings_model.model_validate(self.config)
-        except ValidationError as error:
-            raise PackValidationError(self.pack.id, [f"{self.info.slot}: {error}"]) from None
-        problems = self.check()
-        for name, member in self.settings.members.items():
-            member_type = PROVIDER_TYPES.get(str(member.get("type")))
-            if member_type is None or issubclass(member_type, CompositeProvider):
-                problems.append(
-                    f"{self.info.slot}.{name}: unknown member type {member.get('type')!r}"
-                )
-        if problems:
+        # Its own settings here; each member's are checked as it is built, below.
+        settings, problems = self._settings(self.info.slot, self.config, self.questions)
+        if settings is None or problems:
             raise PackValidationError(self.pack.id, problems)
+        self.settings = settings
 
         self.members: dict[str, Provider] = {}
         for name, member in self.settings.members.items():
@@ -72,8 +66,57 @@ class CompositeProvider(Provider):
             ),
         )
 
-    def check(self) -> list[str]:
-        """Type-specific validation of `self.settings`; returns problems."""
+    @classmethod
+    def config_problems(
+        cls,
+        pack: Pack,
+        where: str,
+        config: Mapping[str, Any],
+        questions: Mapping[str, Question],
+        *,
+        bounded: bool,
+        trained: bool,
+    ) -> list[str]:
+        """Its own settings, then each member's (`where.members.<name>`), as each member's
+        provider checks them."""
+        from mendari.providers import PROVIDER_TYPES  # the registry imports this module
+
+        settings, problems = cls._settings(where, config, questions)
+        if settings is None or problems:
+            return problems
+        for name, member in settings.members.items():
+            at = f"{where}.members.{name}"
+            found = PROVIDER_TYPES[str(member["type"])].config_problems(
+                pack, at, member, questions, bounded=bounded, trained=trained
+            )
+            problems += prefixed(at, found)
+        return problems
+
+    @classmethod
+    def _settings(
+        cls, where: str, config: Mapping[str, Any], questions: Mapping[str, Question]
+    ) -> tuple[CompositeConfig | None, list[str]]:
+        """The composite's own settings (its closed config, `settings_model`), checked (`check`),
+        with a known type that is not a composite for each member; or None and why not."""
+        from mendari.providers import PROVIDER_TYPES  # the registry imports this module
+
+        try:
+            settings = cls.settings_model.model_validate(config)
+        except ValidationError as error:
+            return None, [f"{where}: {error}"]
+        problems = cls.check(where, settings, questions)
+        for name, member in settings.members.items():
+            member_type = PROVIDER_TYPES.get(str(member.get("type")))
+            if member_type is None or issubclass(member_type, CompositeProvider):
+                problems.append(f"{where}.{name}: unknown member type {member.get('type')!r}")
+        return settings, problems
+
+    @classmethod
+    def check(
+        cls, where: str, settings: CompositeConfig, questions: Mapping[str, Question]
+    ) -> list[str]:
+        """Type-specific validation of `settings` (`where`: the variant, or the slot, a problem
+        names); returns problems."""
         return []
 
     def use_budget(self, acquire: Callable[[str], None]) -> None:

@@ -9,7 +9,7 @@ import math
 import os
 import stat
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import cached_property
 from pathlib import Path
 from typing import Any, NoReturn
@@ -82,6 +82,11 @@ class Pack:
     digested: Digested | None = field(default=None, compare=False, repr=False)
     # Where the pack was found (`core/origin.py`), never what its manifest says.
     origin: Origin = field(default="local", compare=False)
+    # What `load_pack` found wrong with an owned pack's provider configs
+    # (`providers.config_problems`): it loads, and says so (`mendari list`, the startup log,
+    # /api/health's `pack_warnings`); `mendari validate` refuses it. A pack the deployment does
+    # not own is refused at load instead, so it has none.
+    warnings: tuple[str, ...] = field(default=(), compare=False)
 
     @property
     def id(self) -> str:
@@ -239,7 +244,12 @@ def load_pack(
     checked as it will run: its patterns on RE2, its schema's keywords and its caps; and one
     from a registry never has a reference pack's id and version with other files
     (`_shadow_problem`). Every other pack's input schema is held to the expansion bounds
-    (`core/input_schema.py` `expansion_problems`)."""
+    (`core/input_schema.py` `expansion_problems`).
+
+    Every provider variant and composite member is checked against its provider's closed config
+    and its pack files (`providers.config_problems`, without the environment or the network):
+    a pack the deployment does not own is refused for any problem; an owned one loads, with the
+    problems as its `warnings`, and a variant with one fails when it is built, as before."""
     root = Path(path).resolve()
     links = _outside_links(root)
     if links:
@@ -341,7 +351,7 @@ def load_pack(
     elif problems := schema_rules.expansion_problems(input_schema):
         raise PackValidationError(manifest.id, problems)
 
-    return Pack(
+    pack = Pack(
         manifest=manifest,
         root=root,
         digest=digest,
@@ -350,6 +360,15 @@ def load_pack(
         digested=digested,
         origin=origin,
     )
+    # Every variant against its provider's closed config, as `mendari validate` checks it.
+    from mendari.providers import config_problems  # `providers/base.py` imports this module
+
+    problems = config_problems(pack, trained=not missing_models_ok)
+    if not problems:
+        return pack
+    if bounded:
+        raise PackValidationError(manifest.id, problems)
+    return replace(pack, warnings=tuple(problems))
 
 
 def _shadow_problem(manifest: PackManifest, origin: Origin, digest: str, root: Path) -> str | None:
