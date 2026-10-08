@@ -314,7 +314,8 @@ behaviour.
     `/licenses` is written from since #180 (NOTICE, licenses/image). **Accepted with it:** until a site code map exists (LP-23), the
     referral router matches no real SNOMED-coded referral through FHIR and the trial pack reads
     real diagnoses only through ICD-10-CM; both cards say so. **Wider than the owner's wording
-    (review, 2026-10-08; owner to confirm):** through FHIR the trial pack reads only a
+    (review, 2026-10-08; the owner confirmed it the same day, in chat: merge as is, LP-23's
+    system-aware code selector fixes it):** through FHIR the trial pack reads only a
     Condition's first coding (`code.coding[0]`, unchanged), so a Condition coded first in SNOMED
     CT and second in ICD-10-CM, which 0.1.5 found through its SNOMED CT code, is not found
     either: type 2 diabetes `unknown`, a recent heart attack or stroke missed (still
