@@ -4070,6 +4070,18 @@ class AuditStore:
                 (*scoped, pack_id, since, *versions[1]),
             )
 
+    def organizations_since(self, since: str) -> list[str]:
+        """Every organization that made a decision since a time (ISO), `default` for rows with
+        none: the monitor's schedule runs once for each (LP-21f). Deployment-wide: an
+        operator's read, never an organization's route's."""
+        with self._db.session(exclusive=False) as db:
+            rows = db.all(
+                "SELECT DISTINCT COALESCE(org, ?) AS org FROM decisions WHERE created_at >= ? "
+                "ORDER BY 1",
+                (tenancy.DEFAULT_ORG, since),
+            )
+        return [str(row["org"]) for row in rows]
+
     def decision_versions(self, pack_id: str, since: str) -> dict[str, int]:
         """How many decisions each version of a pack made since a time (ISO), for monitoring,
         which compares one version's with its benchmark and counts the others apart."""

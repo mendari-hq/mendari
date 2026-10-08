@@ -880,9 +880,12 @@ automated accuracy. Alerts fire only on enough evidence:
 For a scheduler (cron, a Kubernetes CronJob), `mendari monitor` checks the newest version of
 each pack (or `--pack`), against its benchmark only for the build and providers a server
 recorded running there (a model a setting chose is not recorded, so a benchmark of an LLM or
-Jev model is compared by the server's view only) and the governance of `--org`. It exits 1 on
-any alert (or on an
-error, such as a `--db` it cannot read: the line on stderr says which) and
+Jev model is compared by the server's view only) and the governance of `--org`. With
+`--each-org` it checks each organization with decisions on its own, but the status checks'
+(`MENDARI_STATUS_ORG`), and posts one alert per organization; a server does the same at
+`GET /api/internal/monitor` with its `CRON_SECRET`. It exits 1 on any alert (or on an
+error, such as a `--db` it cannot read: the line on stderr says which; with `--each-org`, 0
+when every alert was posted, and 1 on an error or on alerts with nowhere to post them) and
 posts them to `--webhook` / `MENDARI_ALERT_WEBHOOK` (https only; keep the URL as a secret,
 since most carry their token in the path), as JSON or a Slack message
 (`MENDARI_ALERT_FORMAT`), signed with `MENDARI_ALERT_SECRET`, tried up to three times (no
@@ -891,7 +894,7 @@ answer, `408`, `429` and `5xx` are tried again); it exits 3 when they could not 
 
 <!-- check: skip placeholder: posts alerts to a webhook you supply -->
 ```bash
-mendari monitor --db "$DATABASE_URL" --org clinic-a --webhook https://alerts.example.org/hook
+mendari monitor --db "$DATABASE_URL" --each-org --webhook https://alerts.example.org/hook
 ```
 
 **PHI mode.** `MENDARI_PHI_MODE=hash` keeps no input at all, only its hash.

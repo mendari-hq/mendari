@@ -52,7 +52,8 @@ case to a person until an approval says otherwise). So give the key:
 - **its own organization**, so its decisions never reach anyone else's review queue, quotas or
   monitoring view. Something like `status`, and nothing else in it. Two things still count it
   with everyone: `mendari monitor` without `--org` (all organizations together; the scheduled
-  monitor, LP-21f, leaves the status organization out), and the deployment's daily call budgets;
+  monitor and `--each-org` leave it out once `MENDARI_STATUS_ORG` names it), and the
+  deployment's daily call budgets;
 - **the decide scope only**: `role` `service` with `scope`
   `https://mendari.co/fhir/scope/decide`. It can then decide and list the packs, and nothing
   else.
