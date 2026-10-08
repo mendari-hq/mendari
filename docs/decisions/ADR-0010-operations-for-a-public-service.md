@@ -79,11 +79,17 @@ Anonymous `/api/health` stays three fields with no database work.
      - refused decisions apart from every rate and the cost; drift over 50 confidences;
      - whole weekly buckets, 14 to 180 days;
      - an unknown cost shown as unknown.
-   - Operational health comes from stored columns:
+   - Operational health comes from stored columns (21d), and needs no benchmark:
+     - provider error share, from an additive `decisions.provider_errors` count (the questions a
+       failed provider left unanswered, written beside the record, never in it). Older rows are
+       null and left out;
      - abstention share;
-     - latency (p50, p95, mean);
-     - provider error share, from an additive `decisions.provider_errors` count. Older rows are
-       null and left out.
+     - latency (p50, p95, mean of each decide).
+
+     Each alerts week over week over 50 decisions or more in each week: provider errors on 5%
+     or more of decisions beyond doubt (the bottom of the interval) and doubled; abstentions
+     doubled and up 5 points beyond doubt; a p95 latency doubled to 2 s or more. The thresholds
+     are module constants (`evals/monitoring.py`), the same everywhere.
 4. **Alerts (21e).**
    - `MENDARI_ALERT_FORMAT` chooses `mendari` (the default) or `slack`.
    - An optional `MENDARI_ALERT_SECRET` (at least 32 characters) signs every post:

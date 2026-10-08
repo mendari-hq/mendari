@@ -1125,8 +1125,11 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     apart; drift over 50 confidences; whole weeks, 14 to 180 days; awaiting review counted; an
     unknown cost unknown. The CLI checks each pack's newest version. The view, README, guide and
     spec say so.
-  - [ ] **21d** Operational health in the monitor: provider error share (an additive
-    `decisions.provider_errors` count), abstention share, latency.
+  - [ ] **21d** (PR open) Operational health in the monitor: provider error share (an additive
+    `decisions.provider_errors` count, written beside the record; NULL on older rows, left
+    out), abstention share and latency (p50, p95, mean), with week-over-week alerts
+    (`provider_errors`, `abstention`, `latency`) over 50 decisions or more, needing no
+    benchmark; the view's weekly table shows them.
   - [ ] **21e** Alert delivery: `MENDARI_ALERT_FORMAT`, an HMAC signature
     (`MENDARI_ALERT_SECRET`), retries and an `alert_deliveries` record.
   - [ ] **21f** `GET /api/internal/monitor`, guarded by `CRON_SECRET`, per organization.

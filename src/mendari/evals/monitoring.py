@@ -24,20 +24,26 @@ every decision of the version.
   was measured). Otherwise there is none: `benchmark.comparable` is false and `benchmark.reason`
   says why (`no_benchmark`, `another_build`, `providers_unknown`, `other_providers`,
   `other_policy`), and only the checks that need no benchmark run: automated decisions rated
-  wrong, and an override rate that doubled. Accuracy is compared stratum by stratum, as the
-  benchmark measured it:
+  wrong, an override rate that doubled, and operational health. Accuracy is compared stratum by
+  stratum, as the benchmark measured it:
   - reviewed decisions (sent to a person, who kept or changed the recommendation) against the
     benchmark's reviewed accuracy, one minus its expected override rate;
   - automated decisions with an outcome recorded downstream against its automated accuracy.
 - **Confidence drift:** the population stability index (PSI) between the last 7 days' primary
   confidences and the reference's (its calibration bins), in tenths from 0 to 1. It needs a
   comparable reference.
+- **Operational health** (LP-21d), from stored columns: the share of decisions whose providers
+  failed (`decisions.provider_errors`, counted from LP-21d on; older rows are left out), the
+  abstention share, and latency (p50, p95, mean of each decide).
 - **Alerts**, each with a minimum amount of evidence:
   - a stratum's accuracy below the reference's by more than the pack's degradation tolerance,
     beyond doubt: even the top of its exact 95% interval is below (20 decisions or more);
   - drift at or above 0.25 (a common threshold for a real shift), over 50 confidences or more;
   - automated decisions that someone rated wrong (a thumbs-down);
-  - an override rate that doubled against the week before (20 reviews or more in each).
+  - an override rate that doubled against the week before (20 reviews or more in each);
+  - week over week, over 50 decisions or more: a provider error share of 5% or more beyond
+    doubt that doubled; an abstention share that doubled and rose 5 points beyond doubt; a p95
+    latency that doubled to 2 s or more. These need no benchmark.
 """
 
 from __future__ import annotations
@@ -60,6 +66,13 @@ MIN_LABELLED = 20
 MIN_FOR_DRIFT = 50
 MIN_REVIEWED = 20
 DRIFT_ALERT = 0.25
+# Operational health (LP-21d), week over week, each over 50 decisions or more in both weeks: a
+# provider error share at least ERROR_SHARE beyond doubt and doubled; an abstention share doubled
+# and up ABSTAIN_RISE beyond doubt; a p95 latency doubled and at least SLOW_MS.
+MIN_FOR_OPERATIONS = 50
+ERROR_SHARE = 0.05
+ABSTAIN_RISE = 0.05
+SLOW_MS = 2000.0
 # The days a report may cover: two whole weeks at least, so the week before always exists.
 MIN_DAYS = 14
 MAX_DAYS = 180
@@ -266,6 +279,7 @@ def _alerts(
     if wrong_auto:
         message = f"{wrong_auto} automated decision(s) rated wrong in the last 7 days"
         alerts.append(_alert("automated_wrong", "high", message))
+    alerts.extend(_operations(recent, before))
     now_rate, then_rate = recent["override_rate"], before["override_rate"]
     compared = recent["reviewed"] >= MIN_REVIEWED and before["reviewed"] >= MIN_REVIEWED
     if compared and then_rate and now_rate is not None and now_rate >= 2 * then_rate:
@@ -274,6 +288,33 @@ def _alerts(
             f"{shown(before['figures']['overrides'])} the week before"
         )
         alerts.append(_alert("overrides", "medium", message))
+    return alerts
+
+
+def _operations(recent: Row, before: Row) -> list[dict[str, str]]:
+    """Operational health, week over week: provider errors, abstentions, latency."""
+    alerts = []
+    now, then = recent["figures"]["provider_errors"], before["figures"]["provider_errors"]
+    if now["n"] >= MIN_FOR_OPERATIONS and now["low"] >= ERROR_SHARE:
+        compared = then["n"] >= MIN_FOR_OPERATIONS
+        if not compared or now["k"] / now["n"] >= 2 * then["k"] / then["n"]:
+            since = f", {shown(then)} the week before" if compared else ""
+            message = f"decisions with a provider error: {shown(now)} this week{since}"
+            alerts.append(_alert("provider_errors", "medium", message))
+    now, then = recent["figures"]["abstained"], before["figures"]["abstained"]
+    if min(now["n"], then["n"]) >= MIN_FOR_OPERATIONS:
+        share = then["k"] / then["n"]
+        if now["low"] >= max(2 * share, share + ABSTAIN_RISE):
+            message = f"abstained {shown(now)} this week, {shown(then)} the week before"
+            alerts.append(_alert("abstention", "medium", message))
+    now_ms, then_ms = recent["latency_ms"], before["latency_ms"]
+    timed = min(now_ms["n"], then_ms["n"]) >= MIN_FOR_OPERATIONS
+    if timed and now_ms["p95"] >= max(2 * then_ms["p95"], SLOW_MS):
+        message = (
+            f"95% of decisions within {now_ms['p95'] / 1000:.1f} s this week, "
+            f"{then_ms['p95'] / 1000:.1f} s the week before"
+        )
+        alerts.append(_alert("latency", "medium", message))
     return alerts
 
 
@@ -304,6 +345,12 @@ def _summary(rows: Sequence[Row]) -> dict[str, Any]:
     auto_right = sum(r["final_label"] == r["recommendation"] for r in auto_labelled)
     costs = [r["cost_usd"] for r in made]
     unknown = sum(cost is None for cost in costs)
+    # Operational health: decisions whose providers failed (rows from before the count, NULL,
+    # are left out), abstentions, and how long a decision took (its whole decide).
+    counted = [r for r in made if r["provider_errors"] is not None]
+    failed = sum(r["provider_errors"] > 0 for r in counted)
+    abstained = sum(r["outcome"] == "ABSTAIN" for r in made)
+    took = sorted(float(r["latency_ms"]) for r in made if r["latency_ms"] is not None)
     return {
         "decisions": len(rows),
         "refused": len(rows) - len(made),
@@ -317,6 +364,12 @@ def _summary(rows: Sequence[Row]) -> dict[str, Any]:
         # Unknown, never an average of the known ones, when any decision's cost is unknown.
         "cost_per_decision": sum(costs) / len(costs) if costs and not unknown else None,
         "cost_unknown": unknown,
+        "latency_ms": {
+            "n": len(took),
+            "p50": _percentile(took, 0.5),
+            "p95": _percentile(took, 0.95),
+            "mean": sum(took) / len(took) if took else None,
+        },
         # The same shares as k of n with their intervals (mendari.evals.figures), as shown.
         "figures": {
             "automated": figures.of(automated, len(made)),
@@ -324,8 +377,17 @@ def _summary(rows: Sequence[Row]) -> dict[str, Any]:
             "accuracy": figures.of(agreed, len(labelled)),
             "reviewed_accuracy": figures.of(kept, len(sent)),
             "automated_accuracy": figures.of(auto_right, len(auto_labelled)),
+            "provider_errors": figures.of(failed, len(counted)),
+            "abstained": figures.of(abstained, len(made)),
         },
     }
+
+
+def _percentile(ordered: Sequence[float], share: float) -> float | None:
+    """The nearest-rank percentile of values in order (None without any)."""
+    if not ordered:
+        return None
+    return ordered[min(len(ordered) - 1, max(0, math.ceil(share * len(ordered)) - 1))]
 
 
 def _weekly(rows: Sequence[Row], now: datetime, weeks: int) -> list[dict[str, Any]]:

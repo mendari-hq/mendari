@@ -2,7 +2,8 @@
 // Monitoring: the served version of the pack over time, against its benchmark only where that
 // measured this build with the providers that run here: alerts first, then the last 7 days
 // (reviewed accuracy, overrides, confidence drift, automated decisions rated wrong), then week
-// by week. Computed by the server (evals/monitoring.py) for this organization.
+// by week, operational health included (provider errors, abstentions, how long 95% of decisions
+// took). Computed by the server (evals/monitoring.py) for this organization.
 
 import { chartHtml, wireCharts } from "./charts.js";
 import { communityNotice } from "./pack.js";
@@ -26,7 +27,12 @@ const ALERT_TITLES = {
   drift: "Confidence drift",
   automated_wrong: "Automated and rated wrong",
   overrides: "Overrides doubled",
+  provider_errors: "Provider errors rose",
+  abstention: "Abstentions rose",
+  latency: "Decisions slowed down",
 };
+// A decision's time in seconds, one decimal ("1.2 s"); "n/a" without any.
+const seconds = (ms) => (ms === null || ms === undefined ? "n/a" : `${(ms / 1000).toFixed(1)} s`);
 
 views.monitoring = async (main) => {
   const days = Number(storageGet("oh.monitoring.days", "30"));
@@ -84,7 +90,7 @@ function comparedNote(report) {
   const others = othersOf(report);
   const parts = [];
   if (!bench.comparable) {
-    parts.push(`Not compared with the benchmark: ${esc(NOT_COMPARED[bench.reason] ?? bench.reason)}. Only the checks that need no benchmark run: automated decisions rated wrong, and overrides that doubled against the week before.`);
+    parts.push(`Not compared with the benchmark: ${esc(NOT_COMPARED[bench.reason] ?? bench.reason)}. Only the checks that need no benchmark run: automated decisions rated wrong, overrides that doubled, and provider errors, abstentions and latency against the week before.`);
   }
   if (others) {
     parts.push(others === 1
@@ -140,6 +146,9 @@ function weeksTable(weeks) {
       { key: "accuracy", label: "Observed accuracy", numeric: true, sort: (w) => share(w.figures.accuracy), cell: (w) => figureHtml(w.figures.accuracy) },
       { key: "awaiting", label: "Awaiting review", numeric: true, sort: (w) => w.awaiting_review, cell: (w) => String(w.awaiting_review) },
       { key: "refused", label: "Refused inputs", numeric: true, sort: (w) => w.refused, cell: (w) => String(w.refused) },
+      { key: "errors", label: "Provider errors", numeric: true, sort: (w) => share(w.figures.provider_errors), cell: (w) => figureHtml(w.figures.provider_errors) },
+      { key: "abstained", label: "Abstained", numeric: true, sort: (w) => share(w.figures.abstained), cell: (w) => figureHtml(w.figures.abstained) },
+      { key: "p95", label: "Time (p95)", numeric: true, sort: (w) => w.latency_ms.p95, cell: (w) => seconds(w.latency_ms.p95) },
       // Unknown when any decision's cost is: never an average of the known ones.
       { key: "cost", label: "Cost / decision", numeric: true, sort: (w) => w.cost_per_decision, cell: (w) => (w.cost_unknown ? "unknown" : money(w.cost_per_decision)) },
     ],

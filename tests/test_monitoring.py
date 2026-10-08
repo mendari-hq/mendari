@@ -9,6 +9,8 @@ from __future__ import annotations
 import copy
 import math
 import shutil
+import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -44,6 +46,17 @@ NOW = datetime.now(UTC)
 # What the inbox's benchmark ran (its defaults), and what `screened` runs.
 MEASURED = {"safety_screen": "rules", "router": "naive_bayes"}
 JEV_SCREEN = {"safety_screen": "rules_and_jev", "router": "naive_bayes"}
+
+
+# A week's summary with nothing in it, for the unit tests of `_alerts` to fill in.
+QUIET: dict[str, Any] = {
+    "decisions": 0,
+    "confidences": 0,
+    "reviewed": 0,
+    "override_rate": None,
+    "latency_ms": {"n": 0, "p50": None, "p95": None, "mean": None},
+    "figures": {"provider_errors": figures.of(0, 0), "abstained": figures.of(0, 0)},
+}
 
 
 def backdate(store: AuditStore, decision_id: str, days_ago: float, minute: int = 0) -> None:
@@ -402,13 +415,7 @@ def test_refusals_count_apart_and_leave_every_rate_and_the_cost(
 
 def test_drift_needs_fifty_confidences_not_fifty_decisions() -> None:
     def summary(decisions: int, confidences: int) -> dict[str, Any]:
-        return {
-            "decisions": decisions,
-            "confidences": confidences,
-            "reviewed": 0,
-            "override_rate": None,
-            "figures": {},
-        }
+        return {**QUIET, "decisions": decisions, "confidences": confidences}
 
     bench = {"comparable": False, "tolerance": 0.03}  # drift is null unless comparable
     assert _alerts(summary(100, 10), summary(0, 0), 0.9, 0, bench) == []
@@ -480,12 +487,13 @@ def test_drift_is_near_zero_for_the_same_distribution_and_large_for_a_shift() ->
 
 def test_overrides_that_double_raise_an_alert() -> None:
     def summary(reviewed: int, rate: float) -> dict[str, Any]:
+        overrides = figures.of(round(rate * reviewed), reviewed)
         return {
+            **QUIET,
             "decisions": reviewed,
-            "confidences": 0,
             "reviewed": reviewed,
             "override_rate": rate,
-            "figures": {"overrides": figures.of(round(rate * reviewed), reviewed)},
+            "figures": {**QUIET["figures"], "overrides": overrides},
         }
 
     bench = {"comparable": False, "tolerance": 0.03}
@@ -659,3 +667,111 @@ def test_the_cli_watches_one_organization(
     assert main([*args, "--org", "clinic-b"]) == 0
     assert main([*args, "--org", "clinic-a"]) == 1
     assert "reviewed decisions: accuracy 0 of 25 [" in capsys.readouterr().out
+
+
+# -- operational health (LP-21d) -----------------------------------------------------------------
+
+
+def set_rows(store: AuditStore, ids: list[str], **columns: Any) -> None:
+    """Stored columns of decisions, as a decide would have left them."""
+    marks = ", ".join("?" for _ in ids)
+    sets = ", ".join(f"{column} = ?" for column in columns)
+    with store._db.session(exclusive=True) as db:
+        db.all(f"UPDATE decisions SET {sets} WHERE id IN ({marks})", (*columns.values(), *ids))
+
+
+def test_a_decision_stores_how_many_questions_its_providers_left_unanswered(
+    store: AuditStore, inbox_pack: Pack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The count beside the record, never in it: the chained record is what it was."""
+    from mendari.errors import ProviderError
+    from mendari.providers import jev
+
+    def down(*args: Any, **kwargs: Any) -> Any:
+        raise ProviderError("provider_unavailable", "down")
+
+    decided = Decision(inbox_pack, providers=SCREENED, store=store)(message(ROUTINE))
+    assert decided.errors == {}
+    monkeypatch.setattr(jev.JevProvider, "answer", down)
+    failed = Decision(inbox_pack, providers=SCREENED, store=store)(message(ROUTINE))
+    assert failed.errors and failed.outcome.value != "AUTO"  # a person decides
+    with store._db.session(exclusive=False) as db:
+        rows = {
+            row["id"]: row for row in db.all("SELECT id, provider_errors, record FROM decisions")
+        }
+    assert rows[decided.id]["provider_errors"] == 0
+    assert rows[failed.id]["provider_errors"] == len(failed.errors)
+    assert "provider_errors" not in rows[failed.id]["record"]
+
+
+def test_operational_health_comes_from_stored_columns(store: AuditStore, inbox_pack: Pack) -> None:
+    ids = reviewed(store, inbox_pack, 10, days_ago=1, final=None)
+    set_rows(store, ids[:3], provider_errors=1)
+    set_rows(store, ids[3:5], outcome="ABSTAIN")
+    set_rows(store, ids[5:6], provider_errors=None)  # recorded before the count existed
+    for n, decision_id in enumerate(ids):
+        set_rows(store, [decision_id], latency_ms=100.0 * (n + 1))
+    recent = monitor(store, inbox_pack, now=NOW, providers=MEASURED)["last_7_days"]
+    assert recent["figures"]["provider_errors"] == figures.of(3, 9)  # the NULL row left out
+    assert recent["figures"]["abstained"] == figures.of(2, 10)
+    assert recent["latency_ms"] == {"n": 10, "p50": 500.0, "p95": 1000.0, "mean": 550.0}
+
+
+def health(failed: int, abstained: int, p95: float, n: int = 60) -> dict[str, Any]:
+    return {
+        "decisions": n,
+        "confidences": 0,
+        "reviewed": 0,
+        "override_rate": None,
+        "latency_ms": {"n": n, "p50": p95 / 2, "p95": p95, "mean": p95 / 2},
+        "figures": {
+            "provider_errors": figures.of(failed, n),
+            "abstained": figures.of(abstained, n),
+        },
+    }
+
+
+def test_provider_errors_alert_once_they_are_frequent_beyond_doubt_and_doubled() -> None:
+    bench = {"comparable": False, "tolerance": 0.03}
+    kinds = lambda now, then: [a["kind"] for a in _alerts(now, then, None, 0, bench)]  # noqa: E731
+    assert kinds(health(12, 0, 500), health(0, 0, 500)) == ["provider_errors"]
+    assert kinds(health(4, 0, 500), health(0, 0, 500)) == []  # 4 of 60: not beyond doubt
+    assert kinds(health(12, 0, 500), health(9, 0, 500)) == []  # high, but not doubled
+    assert kinds(health(12, 0, 500, n=40), health(0, 0, 500)) == []  # too few to say
+    alone = kinds(health(12, 0, 500), health(0, 0, 500, n=10))  # no week before to compare
+    assert alone == ["provider_errors"]
+
+
+def test_abstentions_and_latency_alert_against_the_week_before() -> None:
+    bench = {"comparable": False, "tolerance": 0.03}
+    kinds = lambda now, then: [a["kind"] for a in _alerts(now, then, None, 0, bench)]  # noqa: E731
+    assert kinds(health(0, 20, 500), health(0, 3, 500)) == ["abstention"]
+    assert kinds(health(0, 6, 500), health(0, 3, 500)) == []  # doubled, but within doubt
+    assert kinds(health(0, 0, 3000), health(0, 0, 1200)) == ["latency"]
+    assert kinds(health(0, 0, 1800), health(0, 0, 600)) == []  # tripled, still under 2 s
+    assert kinds(health(0, 0, 3000), health(0, 0, 2000)) == []  # slower, not doubled
+    assert kinds(health(0, 0, 3000, n=40), health(0, 0, 1000)) == []
+
+
+def test_a_rise_in_provider_errors_alerts_from_what_decisions_stored(
+    store: AuditStore, inbox_pack: Pack
+) -> None:
+    reviewed(store, inbox_pack, 60, days_ago=9, final=None)
+    now = reviewed(store, inbox_pack, 60, days_ago=2, final=None)
+    assert monitor(store, inbox_pack, now=NOW, providers=MEASURED)["alerts"] == []
+    set_rows(store, now[:15], provider_errors=1)
+    alerts = monitor(store, inbox_pack, now=NOW, providers=None)["alerts"]  # no benchmark needed
+    assert [a["kind"] for a in alerts] == ["provider_errors"]
+    assert alerts[0]["message"].startswith("decisions with a provider error: 15 of 60 [")
+
+
+def test_a_command_reading_a_database_without_the_count_is_refused_in_one_line(
+    tmp_path: Path, inbox_pack: Pack, capsys: pytest.CaptureFixture[str]
+) -> None:
+    db = tmp_path / "a.db"
+    AuditStore(db).close()
+    with closing(sqlite3.connect(db)) as connection:
+        connection.execute("ALTER TABLE decisions DROP COLUMN provider_errors")
+        connection.commit()
+    assert main(["monitor", "--db", str(db), "--pack", inbox_pack.id]) == 1
+    assert "decisions.provider_errors" in capsys.readouterr().err
