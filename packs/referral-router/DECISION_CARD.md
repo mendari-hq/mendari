@@ -4,7 +4,7 @@
 
 *Research preview. Not a medical device. Not for emergencies: patients should call 911.*
 
-`mendari/referral-router` · version **0.1.4** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
+`mendari/referral-router` · version **0.2.0** · Apache-2.0 · published by Mendari reference packs (community, self-declared)
 
 > Reads a specialty referral as it is signed: suggests the specialty, spots referrals that should be seen within two weeks, checks that the referral has what that specialty needs, and sends complete routine referrals straight to the specialty's scheduling queue.
 
@@ -13,7 +13,7 @@
 | Source | Maintained by Mendari |
 | Risk level | **1**, clinical information processing (clinical information) |
 | Automation | AUTO permitted by policy thresholds; every decision is audited. Only while `triage_screen` is `rules_and_jev` or `rules_and_llm`; otherwise a person reviews. |
-| Pack digest | `sha256:5aafc3ce636a6e059063e23b465e7951a9380e12fd53a0c9c6d65e665e583e4e` |
+| Pack digest | `sha256:6d5285971648637aa2c454a6514388d0360ee01934d1e5e2c6839d7ff4a3ab70` |
 | Last validation | 2026-10-07 on `test` (n=600, sha256 `f085362d6bc2…`) |
 
 ## Intended use
@@ -58,7 +58,7 @@ FHIR R4 mapping: `fhir/mapping.yaml`.
 
 Code systems:
 
-- SNOMED CT (SNOMED International) (`http://snomed.info/sct`). Licence: Using SNOMED CT needs an Affiliate Licence from SNOMED International: free of charge in its member territories (in the United States through the National Library of Medicine's UMLS licence), in low-income countries and for qualifying research; fees apply elsewhere. Whether the reference packs may carry its codes is a question recorded for counsel (tasks/todo.md, LP-14).
+- Mendari fictional referral codes: invented for the synthetic examples; not SNOMED CT. A site maps the code its EHR marks a referral with to these. (`https://mendari.co/fhir/CodeSystem/fictional-referrals`).
 - LOINC (Regenstrief Institute; the LOINC License, whose notice is in NOTICE) (`http://loinc.org`).
 
 ## Outputs
@@ -184,7 +184,7 @@ Benchmark `test` (n=600) with specialty_reader=`naive_bayes`, triage_screen=`rul
 | AUTO decisions correct | no cases |
 | False automation (of labelled cases) | 0 of 600 [0.0-0.6%] |
 | Expected human override (of reviewed) | 3 of 600 [0.1-1.5%] |
-| Latency p50 / p95 | 1.84 / 2.03 ms |
+| Latency p50 / p95 | 2.14 / 5.13 ms |
 | Cost per decision | $0.00000 |
 | Critical `urgency=urgent` | 113 of 113 [96.8-100.0%] detected, 0 automated |
 | Critical `next_step=urgent_review` | 124 of 124 [97.1-100.0%] detected, 0 automated |
@@ -371,6 +371,7 @@ Other questions (accuracy / ECE):
 
 ## Known failure modes
 
+- Through FHIR (CDS Hooks, the SMART launch, `$decide`), the pack decides only a ServiceRequest whose first category is the fictional referral code of its synthetic examples (fhir/mapping.yaml, `focus_where`). No real EHR referral carries it, so until a site lists the code its EHR marks a referral with (often a SNOMED CT code), no real referral is decided. Pack inputs sent directly are not affected.
 - The checklist looks only for the document codes listed in logic/checklist.yaml. A visit note filed under another code (e.g. a history and physical, LOINC 34117-2) reads as missing, so a complete referral goes back to the referrer; the bundled local-site example shows this. Add a site's codes before use.
 - The keyword urgency screen misses phrasings it does not list. On hand-written referrals it caught 16/16 urgent ones in the set it was written on but 7/12 in the held-out set. So the policy allows AUTO only while the screen includes a model (`automation_requires` with `triage_screen=rules_and_jev` or `rules_and_llm`, where either one flagging a referral as possibly urgent sends it to review). With the rules alone, every referral goes to a person.
 - The naive Bayes specialty reader was trained on synthetic referrals only. Shorthand and a site's own case mix lower its accuracy; with a less confident specialty, fewer referrals are automated.
@@ -389,7 +390,26 @@ Renamed on 2026-09-30, when the project became Mendari: this pack was `openhealt
 Its id, its publisher's name and its `https://mendari.co/...` identifiers changed; its criteria,
 rules, models, data and results did not.
 
-#### 0.1.4
+#### 0.2.0
+
+- No SNOMED CT: the FHIR mapping's `focus_where`, which tells a referral from the other
+  ServiceRequests (lab and imaging orders), matched the SNOMED CT code for a patient referral.
+  It now matches `FR101`, an invented code in a code system named as fictional,
+  `https://mendari.co/fhir/CodeSystem/fictional-referrals`, which the sandbox's synthetic
+  referrals carry. SNOMED CT's licence terms are a question for counsel (LP-14), and no package
+  carries its codes any more.
+  **Through FHIR, the pack now matches no real referral.** Until a site code map exists
+  (LP-23), a referral from a real EHR (CDS Hooks, the SMART launch, `$decide`) is not found
+  and nothing is decided: a site lists the code its EHR marks a referral with in
+  `fhir/mapping.yaml`. Pack inputs sent directly are not affected. The known failure modes say
+  so.
+- `code_systems` drops SNOMED CT and declares the fictional referral codes.
+- Criteria, rules, providers, policy, models and data are unchanged. Every decision is the same
+  as in 0.1.4: the 2,768 data, dataset and behaviour-test cases, and the 300 local-site
+  referrals sent as FHIR (with the fictional code in place of SNOMED CT's), compared case by
+  case. The digest changes.
+
+### 0.1.4
 
 - `code_systems` declares the systems the pack uses: SNOMED CT, with its licence terms (a pack
   naming a licensed code system now has to say them), and LOINC.

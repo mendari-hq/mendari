@@ -9,7 +9,7 @@ as the clinical record that record packs take, one per person:
 |---|---|
 | `person`: birth date, `gender_concept_id` | `patient.age` at the screening date, `patient.sex` |
 | `observation_period`: the last end date | `as_of`, the screening date (unless one is given) |
-| `condition_occurrence` | `conditions`: ICD-10-CM source or SNOMED code, name, status, start |
+| `condition_occurrence` | `conditions`: ICD-10-CM source or other code, name, status, start |
 | `measurement` | `observations`: the concept's code (LOINC) and name, value, unit, date |
 | `drug_exposure` | `medications`: source name, concept (RxNorm) code, start, end, active or not |
 | `note` | `notes`, in date order |
@@ -33,12 +33,20 @@ from typing import Any
 from mendari.core.db import Backend, Session, connect
 from mendari.errors import MendariError
 from mendari.providers.criteria import _date, _items
-from mendari.standards.record_fhir import _ICD10_CODE, born
+from mendari.sandbox.synthetic_trial import CONDITION_SYSTEM
+from mendari.standards import record_fhir
+from mendari.standards.record_fhir import born
 
 LOCK_KEY = 0x0E0D_0001
 GENDER = {8507: "male", 8532: "female", 8521: "other", 8551: "unknown"}
 GENDER_ID = {sex: concept for concept, sex in GENDER.items()}
 LOCAL_CONCEPTS = 2_000_000_000
+# The vocabulary a written condition's concept is in, by the system its code is read as.
+CONDITION_VOCABULARY = {
+    record_fhir.ICD10: "ICD10CM",
+    CONDITION_SYSTEM: "Mendari fictional",
+    record_fhir.SNOMED: "SNOMED",
+}
 
 # The CDM 5.4 tables (and columns) this module uses; a real instance has many more.
 SCHEMA = """
@@ -249,8 +257,8 @@ def write(
             )
             for item in _items(record.get("conditions")):
                 code = str(item.get("code") or "")
-                icd = bool(_ICD10_CODE.match(code))
-                vocabulary = "ICD10CM" if icd else "SNOMED"
+                vocabulary = CONDITION_VOCABULARY[record_fhir.condition_system(code)]
+                icd = vocabulary == "ICD10CM"
                 source = concept("Condition", vocabulary, code, str(item.get("text") or ""))
                 onset = _date(item.get("onset"))
                 s.all(

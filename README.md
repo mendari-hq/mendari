@@ -212,6 +212,20 @@ Then, in the folder the server ran in, verify the audit chain of the database it
 mendari audit verify --db var/mendari.db
 ```
 
+A long chain is quicker to check from a checkpoint. `mendari audit checkpoint` verifies the chain
+from its last checkpoint (from the start, the first time) and, when it holds, records its head as
+the next one, in a row outside the chain. `--since-checkpoint` then reads only the events after
+it. A full `mendari audit verify` also checks that every checkpoint still names its event, so a
+chain rewritten from before one, or cut short of it, fails there (`reason: checkpoint`). A
+checkpoint lives in the same database, so someone who can rewrite the chain can rewrite it too:
+keep a copy of the head somewhere else as well. Run it daily, beside retention:
+
+<!-- check: run server-db -->
+```bash
+mendari audit checkpoint --db var/mendari.db
+mendari audit verify --db var/mendari.db --since-checkpoint
+```
+
 **Errors and exit codes.** A command that cannot do what was asked prints one line per problem
 (`error: ...`, naming the file, the field or the flag, and what to do) and exits 1, never a
 traceback; `--debug` on any command (or `MENDARI_DEBUG=1`; `0` or `off` keeps it off) shows the
@@ -229,8 +243,8 @@ no tests; `mendari validate` also reads every dataset the pack declares. A `--pr
 reported in `/api/health` as `provider_settings_unused`).
 
 **Read-only commands.** `audit verify`, `audit export`, `feedback export`, `monitor` and
-`access check` (with `access org list`, `members` and `requests`) open the server's database
-read-only: they never create, migrate or write it, and a `--db` that does not
+`access check` (with `access org list`, `members`, `requests`, `keys` and `clients`) open the
+server's database read-only: they never create, migrate or write it, and a `--db` that does not
 exist is an error, never a new empty database that "verifies".
 
 ### REST API
@@ -335,7 +349,7 @@ pinned by digest. `--build-arg PACK=mendari/referral-router` builds one that ser
 and linux/arm64 (workflow `release`, which only a maintainer starts, never a tag push), exactly
 as tested; nothing is published before that. [`deploy/`](https://github.com/Junebugg1214/mendari/tree/main/deploy) has
 templates for a site's own infrastructure: docker compose on one server and Kubernetes. Both come
-with Postgres, your identity provider, PHI mode and the daily retention and monitoring jobs.
+with Postgres, your identity provider, PHI mode and the daily retention, checkpoint and monitoring jobs.
 
 Mendari's own code is Apache-2.0; an image also holds third-party software under other licences
 (Debian's packages, and the libraries the PostgreSQL driver bundles, some under the GPL or LGPL).
@@ -410,6 +424,14 @@ mendari bulk dataset --pack mendari/referral-router --ndjson export/ \
   --labels chart-review.jsonl --key-system https://site.example/mrn --out local.jsonl
 mendari eval mendari/referral-router --dataset local.jsonl
 ```
+
+The Referral Router tells a referral from other ServiceRequests by the code its FHIR mapping
+lists (`focus_where` in `fhir/mapping.yaml`): `FR101`, the fictional code of its synthetic data,
+since no package carries SNOMED CT. List the code your EHR marks referrals with first (often a
+SNOMED CT code), or no referral is found. The same goes for the Clinical Trial Prescreener's
+condition codes beyond ICD-10-CM (`logic/criteria.yaml`). Its mapping reads a Condition's first
+coding only, so a Condition coded first in SNOMED CT is not found even when an ICD-10-CM coding
+follows.
 
 The CI job `sandbox-e2e` runs the scripted launch for the inbox and referral packs on every
 change. It also runs `mendari sandbox bulk-check`: an export of the sandbox must evaluate
@@ -1229,8 +1251,10 @@ is enabled, so preview traffic appears in the production audit trail. With previ
 each preview gets a `preview/<git branch>` database branch. The Vercel-managed integration only
 deletes it when Vercel deletes the deployment (months later), and a full branch limit makes
 previews fail with "Resource provisioning failed". The `neon-preview-cleanup` workflow deletes
-the branch when its pull request closes; it needs a project-scoped Neon API key as the
-`NEON_API_KEY` repository secret and the Neon project id as the `NEON_PROJECT_ID` variable.
+every preview branch whose Git branch has no open pull request and is gone or had one, when a
+pull request closes and every six hours (or by hand, with a dry run); it needs a project-scoped
+Neon API key as the `NEON_API_KEY` repository secret and the Neon project id as the
+`NEON_PROJECT_ID` variable.
 
 ## Project layout
 

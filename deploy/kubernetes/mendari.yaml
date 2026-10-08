@@ -124,10 +124,11 @@ spec:
               command:
                 - sh
                 - -c
-                # Both run; either failing fails the job. `monitor --each-org` exits 0 when every
-                # alert was posted, 1 on an error (or alerts with no webhook), 3 when one could
-                # not be posted.
-                - mendari phi purge --db "$DATABASE_URL"; purged=$?; mendari monitor --db "$DATABASE_URL" --each-org; monitored=$?; [ "$purged" -eq 0 ] && [ "$monitored" -eq 0 ]
+                # All three run; any failing fails the job. `audit checkpoint` exits 1 when the
+                # chain does not verify from its last checkpoint. `monitor --each-org` exits 0
+                # when every alert was posted, 1 on an error (or alerts with no webhook), 3 when
+                # one could not be posted.
+                - mendari phi purge --db "$DATABASE_URL"; purged=$?; mendari audit checkpoint --db "$DATABASE_URL"; checked=$?; mendari monitor --db "$DATABASE_URL" --each-org; monitored=$?; [ "$purged" -eq 0 ] && [ "$checked" -eq 0 ] && [ "$monitored" -eq 0 ]
               envFrom:
                 - configMapRef: {name: mendari-config}
                 - secretRef: {name: mendari-secrets}

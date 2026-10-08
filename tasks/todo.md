@@ -292,17 +292,48 @@ behaviour.
   trial pack reads real diagnoses through ICD-10-CM only. Counsel is asked in parallel (the owner
   sends the memo) about what stays: the repository's tests, fixtures, docs and history; ICD-10-CM;
   the images (the Debian base and psycopg-binary); the X12 values in `standards/pas.py`.
-  **For counsel (background):** whether SNOMED CT codes may stay in two reference packs,
-  four US Core test fixtures, `datasets/trial-local-site-example.jsonl` (bare codes, shipped in
-  the wheel), the sandbox generators (`src/mendari/sandbox`) and the docs' examples; SNOMED CT
-  needs an Affiliate Licence, free in member territories, low-income countries and qualifying
-  research, paid elsewhere; replacing them means changing two packs' codes, and the US Core
-  fixtures code procedures and referrals in SNOMED CT. What ICD-10-CM's terms need (free to use
-  from NCHS, adapted from WHO's copyrighted ICD-10 for U.S. government purposes). What
-  distributing the LGPL-3.0 PostgreSQL driver inside the published container images requires:
-  psycopg-binary bundles libpq, OpenSSL 3 and 1.1.1, libxcrypt and keyutils (LGPL-2.1+), Cyrus
-  SASL and MIT Kerberos (attribution clauses), OpenLDAP, PCRE2 and libselinux, whose licence
-  texts the image does not carry beside psycopg's own, and the image label says only Apache-2.0.
+  - [x] **SNOMED CT swapped out of every package** (owner's choice 2026-10-07, #174, open): the
+    six SNOMED CT codes in the wheel, the sdist and the images are replaced one for one by
+    fictional codes, as CPT was: the trial prescreener's conditions (`FC101` to `FC203`,
+    `https://mendari.co/fhir/CodeSystem/fictional-conditions`) in its criteria, CQL, criterion
+    text, the generator and `datasets/trial-local-site-example.jsonl` (its ResearchStudy is
+    ICD-10-CM E11; the example's strokes, written as cerebral infarction, carry `FC203`, so each
+    coding's display is the published CodeSystem's), and the referral router's FHIR focus
+    (`FR101`, `.../fictional-referrals`, in the sandbox's referrals and the US Core referral
+    fixtures' category; their SNOMED CT `code` stays for US Core's binding); each system named "not
+    SNOMED CT", a sandbox CodeSystem for the validator; the converters (record to FHIR, OMOP)
+    label the fictional codes with their own system. Trial 0.2.0, referral router 0.2.0, both
+    rebuilt: every decision identical with the codes swapped (3,796 decisions and 150 record
+    Bundles, case by case). NOTICE moves SNOMED CT to "the source repository also carries" and
+    adds NLM's RxNorm acknowledgement. `tests/test_code_systems.py` and `scripts/check_snomed.py`
+    (CI `hub-e2e` and the release build, on the built wheel and sdist): no SNOMED CT concept id
+    in src/, packs/ or datasets/ (the nine the repository has used, and any other number
+    written as one: a concept's partition and SNOMED CT's Verhoeff check digit; in the vendored
+    swagger-ui only the nine), no concept URI, and the url or OID only in the three modules that
+    must name the system; the test also scans the sdist's other files and what the images'
+    `/licenses` is written from since #180 (NOTICE, licenses/image). **Accepted with it:** until a site code map exists (LP-23), the
+    referral router matches no real SNOMED-coded referral through FHIR and the trial pack reads
+    real diagnoses only through ICD-10-CM; both cards say so. **Wider than the owner's wording
+    (review, 2026-10-08; the owner confirmed it the same day, in chat: merge as is, LP-23's
+    system-aware code selector fixes it):** through FHIR the trial pack reads only a
+    Condition's first coding (`code.coding[0]`, unchanged), so a Condition coded first in SNOMED
+    CT and second in ICD-10-CM, which 0.1.5 found through its SNOMED CT code, is not found
+    either: type 2 diabetes `unknown`, a recent heart attack or stroke missed (still
+    HUMAN_REVIEW at risk level 2). The card, both changelogs and README say so, and
+    `tests/test_trial_pack.py` pins the ordering for LP-23.
+  **For counsel (not decided here; the owner sends the memo):** whether SNOMED CT codes may stay
+  in the repository's tests and fixtures (the US Core fixtures code procedures and referrals in
+  it), the scan's own list (`scripts/check_snomed.py`), the notes and the history (earlier
+  commits carry the old packs and dataset); SNOMED CT needs an Affiliate Licence, free in member
+  territories, low-income countries and qualifying research, paid elsewhere. What ICD-10-CM's
+  terms need (free to use from NCHS, adapted from WHO's copyrighted ICD-10 for U.S. government
+  purposes). What the published container images must carry: the Debian base image's GPL and
+  LGPL packages, and the LGPL-3.0 PostgreSQL driver: psycopg-binary bundles libpq, OpenSSL 3 and
+  1.1.1, libxcrypt and keyutils (LGPL-2.1+), Cyrus SASL and MIT Kerberos (attribution clauses),
+  OpenLDAP, PCRE2 and libselinux; since #180 every image carries their licence texts and notices
+  in `/licenses`, with its source pushed beside it, the approach counsel is asked to confirm
+  ("Image licence compliance" below). Whether the X12 code values in
+  `src/mendari/standards/pas.py` (shipped) may stay under X12's terms.
   **For the owner (conflict with the build prompt):** LP-14 asks to move a copyleft driver to an optional extra; psycopg is a hard
   dependency because the hosted deployment installs from the lock without extras, so moving it
   would change how production installs. Kept as is, with a named exception; say if you want the
@@ -413,7 +444,7 @@ behaviour.
     `docs` job). `site_url`: `https://junebugg1214.github.io/mendari/`. Nothing published or
     deployed. **Owner, open:** the docs URL (GitHub Pages by default; a custom domain is a
     `site_url` change), Pages needs the repository public on the Free plan; the first TestPyPI
-    upload waits for the SNOMED CT swap (LP-14, owner's choice 2026-10-07) and a public
+    upload no longer waits on SNOMED CT (swapped out of the packages, LP-14) but needs a public
     repository (`release.yml` publishes to TestPyPI only from one); the `testpypi` environment and
     TestPyPI's pending publisher (owner steps 7 and 8). **Review** (two lenses, each finding
     checked by a skeptic): 2 medium, fixed: the rehearsal at `0.1.0rc1` failed the release's
@@ -1145,7 +1176,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     different first organization each day; `mendari monitor --each-org` (0 when every alert
     was posted, 1 on an error, 3 when one was not); the templates run it, the Kubernetes job
     never re-run; gate `hosted-monitoring` names its tests and waits for 21n.
-  - [ ] **21g** (#201) The usage ledger (`usage_ledger`: local day, organization, provider type,
+  - [x] **21g** (#201, merged 2026-10-08) The usage ledger (`usage_ledger`: local day, organization, provider type,
     purpose `decision` or `evaluation`; calls, priced calls, tokens, the priced calls' cost),
     written with the decision (or the evaluation's report) in its transaction from each
     decision's meter (`providers.base.Meter`: `sending` counts a call as it is sent, `metered`
@@ -1155,9 +1186,17 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   - [ ] **21i** `GET /api/usage` (administrators: their organization's ledger over `days`, 1 to
     366, with totals by provider and purpose, a cost only where every call was priced), the
     Access view's Usage tab, and `mendari usage --days --org` for the operator.
-  - [ ] **21j** Audit checkpoints and incremental verify.
+  - [x] **21j** (#202, merged 2026-10-08) Audit checkpoints and incremental verify: `audit_checkpoints` (seq, hash, when;
+    outside the chain), `mendari audit checkpoint` (verify from the last, record the head),
+    `mendari audit verify --since-checkpoint`; a full verification checks every checkpoint
+    (`reason: checkpoint` for a chain rewritten from before one or cut short of it).
   - [ ] **21k** The signed daily checkpoint (`MENDARI_CHECKPOINT_KEY`).
-  - [ ] **21l** Break-glass revocation commands (keys, clients, sessions).
+  - [x] **21l** (#200, merged 2026-10-08) Break-glass revocation commands: `mendari access keys|clients` (read-only),
+    `mendari access revoke key|client <id>` and `revoke all --org` (each still in force), and
+    `mendari access end-sessions --kind people|launches|all` (never the assertion claims),
+    straight to the database for any organization, each with a reason chained
+    (`key.revoked`, `client.revoked`, the deployment's `sessions.ended`);
+    `docs/operations/revoking-access.md`; the hold page's table names the command line.
   - [ ] **21m** `docs/operations/incident-runbook.md`, backup and restore with a tested verify.
   - [ ] **21n** The hosted schedule (`vercel.json` crons): **owner's go-ahead before merging**.
   - [ ] **21o** Firewall enforcement: **owner only**, after the log-only week.
@@ -1293,7 +1332,8 @@ B6/B7 → B8 → B9 → B10).
   Built: `packs.yml` job `pack-check`; `scripts/changed_packs.py` covers `community-packs/`;
   `scripts/community_check.py` (scope, each changed pack, a removed pack's tombstone).
   "Owner" is the pull request's author (`pull_request.user.login`, never `github.actor`) equal to
-  `github.repository_owner`, from a branch of this repository. Review fixes: only the owner
+  `github.repository_owner` (since the move to mendari-hq, the person the base's CODEOWNERS
+  names: see that section), from a branch of this repository. Review fixes: only the owner
   removes a pack; a git submodule under `community-packs/` fails; an update is gated on the
   base's benchmark dataset too; composite members' models are retrained; no BLOCK rule, no
   Mendari name, FHIR systems under the pack's own url.
@@ -1492,8 +1532,10 @@ build session. A1–A8 come before A9 (making the repository public); A10 and A1
      `release.yml`, environment `pypi`. Check after: it is listed as a pending publisher, and
      the name `mendari` is still free on PyPI. The same on **test.pypi.org** with environment
      `testpypi`.
-8. **Release 0.1.0.** First a rehearsal on TestPyPI, after the SNOMED CT swap merges (LP-14: the
-   wheel carries those codes until then; owner's choice 2026-10-07): a build PR sets the version to `0.1.0rc1` everywhere it is
+8. **Release 0.1.0.** First a rehearsal on TestPyPI, once the repository is public (`release.yml`
+   publishes to TestPyPI only from a public one; going public publishes the tests' SNOMED CT
+   codes and the history, LP-13 and LP-14's counsel item; the packages carry none since the
+   SNOMED CT swap): a build PR sets the version to `0.1.0rc1` everywhere it is
    written (`tests/test_release_gate.py` lists them; `CHANGELOG.md`'s `## 0.1.0` section serves
    it) and pins the rc's fixed FHIR resources, which carry the version (`PINNED` in
    `tests/test_terminology.py`; its failure prints the entry), then tag it
@@ -1956,6 +1998,17 @@ Sign-in: Google, the owner as the only admin.
 - [x] Docs: `deploying-with-phi.md` (Google), the audit's Phase 1 status
 - [x] Production: the owner's Google OAuth client; settings for Production only; preview's
   effective configuration equal to production's before merge; sign-in verified after deploy
+
+## Done: the move to the mendari-hq organization (2026-10-08)
+The repository moved from `Junebugg1214/mendari` to `mendari-hq/mendari` (still private).
+- [x] Follow-up PR (#212): packs.yml passes `github.repository_owner` as the owner. Since the move
+  that is the organization, which no pull request's author is, so the owner's pull requests could
+  no longer remove a community pack or change `community-packs/` with other files (failing closed).
+  `scripts/community_check.py` now takes the owner from the `*` rule of `.github/CODEOWNERS`, read
+  from the base (a pull request's own copy could name its author), one person only (a team, an
+  email, several people or a symbolic link name no owner), and only for a pull request into the
+  default branch (another branch's CODEOWNERS is anyone's who may push); `--owner` is gone, and the
+  fork rule stays.
 
 ## Done: the rename to Mendari (2026-09-30)
 `openhealth` was taken on PyPI by another project, so OpenHealth Hub became **Mendari**

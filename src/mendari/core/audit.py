@@ -84,6 +84,8 @@ PURGE_BATCH = 500
 RETENTION_CHAIN = "retention"
 # What the usage ledger counts remote calls for (LP-21g): live decisions, and evaluations.
 USAGE_PURPOSES = ("decision", "evaluation")
+# The chain id the break-glass ending of sessions is chained under (`sessions.ended`, LP-21l).
+SESSIONS_CHAIN = "sessions"
 # The `settings` row a database is marked with once a store opens it under PHI mode `hash` or
 # `encrypt` (the first such mode): from then on no store under `off` keeps input text in it.
 PROTECTED = "phi_protected"
@@ -165,7 +167,14 @@ ADMINISTRATIVE_KINDS: dict[str, str] = {  # kind -> its subject's prefix (`SUBJE
 PERSON_KINDS = frozenset({NOTICE_EVENT})
 # The deployment's own, no organization's: never bound.
 DEPLOYMENT_KINDS = frozenset(
-    {"deployment.recorded", "input_hash.epoch", "phi.rotated", "retention.purged", "user.recorded"}
+    {
+        "deployment.recorded",
+        "input_hash.epoch",
+        "phi.rotated",
+        "retention.purged",
+        "sessions.ended",
+        "user.recorded",
+    }
 )
 # The kinds chained before LP-12g without their organization. They name it only on a marked
 # database, so an unmarked one's payloads are as they were; every other kind but the deployment's
@@ -451,7 +460,12 @@ CREATE TABLE IF NOT EXISTS alert_deliveries (
     last_status      INTEGER,
     last_error       TEXT
 );
-CREATE INDEX IF NOT EXISTS alert_deliveries_due ON alert_deliveries (status, next_attempt_at)
+CREATE INDEX IF NOT EXISTS alert_deliveries_due ON alert_deliveries (status, next_attempt_at);
+CREATE TABLE IF NOT EXISTS audit_checkpoints (
+    seq         BIGINT PRIMARY KEY,
+    hash        TEXT NOT NULL,
+    created_at  TEXT NOT NULL
+)
 """
 
 # The tables a read-only store reads (`_read_only_check`); the first two must be there.
@@ -510,6 +524,15 @@ SESSION_PURGE_BATCH = 100
 # A person's session in memberships mode (`member`, server/auth.py) is sealed too: its organization
 # and membership are what it may act for.
 SEALED_KINDS = frozenset({"session", "pending", "member"})
+# The session-table kinds the break-glass ends (`end_sessions`), by group: people's sessions
+# (claims mode's `user`, memberships mode's `member`) with the sign-ins under way
+# (`oidc-pending`), and EHR launches' sessions (`session`) with the launches under way
+# (`pending`). Never a claim (`jti`): ending one would let the assertion it refused be replayed.
+SESSION_GROUPS: dict[str, tuple[str, ...]] = {
+    "people": ("member", "oidc-pending", "user"),
+    "launches": ("pending", "session"),
+}
+BREAK_GLASS_REASON = 200  # characters, as a hold's
 
 _PRIORITY_ORDER = (
     "CASE priority WHEN 'stat' THEN 0 WHEN 'asap' THEN 1 WHEN 'urgent' THEN 2 ELSE 3 END"
@@ -576,6 +599,15 @@ def _add_usage(db: _Session, org: str, purpose: str, usage: Mapping[str, Metered
                 metered.cost_usd,
             ),
         )
+
+
+def break_glass_reason(reason: str) -> str:
+    """Why an operator acted from the command line, on one line (`BREAK_GLASS_REASON` at most);
+    a `ValueError` for none or a longer one."""
+    reason = " ".join(reason.split())
+    if not reason or len(reason) > BREAK_GLASS_REASON:
+        raise ValueError(f"give a reason of at most {BREAK_GLASS_REASON} characters")
+    return reason
 
 
 def _org_of(value: Any) -> str:
@@ -2458,6 +2490,35 @@ class AuditStore:
         with self._db.session(exclusive=False) as db:
             db.all("DELETE FROM smart_sessions WHERE key_sha256 = ? AND kind = ?", (row_key, kind))
 
+    def end_sessions(self, group: str, *, ended_by: str, reason: str) -> dict[str, Any]:
+        """The break-glass (`mendari access end-sessions`): delete every row of a group's kinds
+        (`SESSION_GROUPS`, or `all` of them), so the next request with one of their cookies, on
+        any instance, finds none and is signed out (nothing is cached in memory). Chained in the
+        same transaction as `sessions.ended` (the kinds, how many live ones ended, who and why)
+        under `SESSIONS_CHAIN`. Claims (`jti`) are never touched. A member's and a launch's rows
+        are sealed under their cookie, so whose they are cannot be read here: a whole kind."""
+        if group != "all" and group not in SESSION_GROUPS:
+            raise ValueError(f"end the sessions of one of {sorted(SESSION_GROUPS)} or all")
+        why = break_glass_reason(reason)
+        chosen = SESSION_GROUPS.values() if group == "all" else [SESSION_GROUPS[group]]
+        kinds = sorted({kind for kinds in chosen for kind in kinds})
+        marks = ", ".join("?" for _ in kinds)
+        with self._db.session(exclusive=True) as db:
+            gone = db.all(
+                f"DELETE FROM smart_sessions WHERE kind IN ({marks}) RETURNING expires_at",
+                tuple(kinds),
+            )
+            now = int(time.time())
+            ended = {
+                "kinds": kinds,
+                "ended": sum(1 for row in gone if int(row["expires_at"]) > now),
+                "ended_by": ended_by,
+                "ended_at": _now(),
+                "reason": why,
+            }
+            self._append(db, SESSIONS_CHAIN, "sessions.ended", ended)
+        return ended
+
     def smart_claim(self, kind: str, value: str, expires_at: int) -> bool:
         """Claim `value` once until `expires_at` (e.g. an assertion's `jti`): True for the first
         claim, False while that claim lasts; an expired claim can be made again. One statement,
@@ -2945,11 +3006,19 @@ class AuditStore:
         # None is every organization (open mode, the command line); "" is an organization.
         where, params = ("WHERE org = ?", (org,)) if org is not None else ("", ())
         with self._db.session(exclusive=False) as db:
-            # A database from before presets (read as it is): none has one.
-            preset = "preset" if "preset" in db.columns("api_keys") else "NULL AS preset"
+            # An older database, read as it is (`mendari access keys`): what it lacks is NULL
+            # (no scope, no expiry: refused, as `api_key` refuses it), and no table is no key.
+            present = db.columns("api_keys")
+            if not present:
+                return []
+            later = {"scopes": "scope", "expires_at": "expires_at", "revoked_by": "revoked_by",
+                     "replaced_by": "replaced_by", "preset": "preset"}  # fmt: skip
+            columns = ", ".join(
+                f"{name} AS {alias}" if name in present else f"NULL AS {alias}"
+                for name, alias in later.items()
+            )
             rows = db.all(
-                "SELECT id, name, role, org, scopes AS scope, created_by, created_at, "
-                f"expires_at, revoked_at, revoked_by, replaced_by, {preset} "
+                f"SELECT id, name, role, org, created_by, created_at, revoked_at, {columns} "
                 f"FROM api_keys {where} ORDER BY created_at",
                 params,
             )
@@ -2966,13 +3035,19 @@ class AuditStore:
                 (_key(secret), _now()),
             )
 
-    def revoke_api_key(self, key_id: str, org: str | None = None, *, revoked_by: str) -> bool:
-        """Revoke a key of `org` (any, if None); False for an unknown or already revoked one."""
+    def revoke_api_key(
+        self, key_id: str, org: str | None = None, *, revoked_by: str, reason: str | None = None
+    ) -> bool:
+        """Revoke a key of `org` (any, if None); False for an unknown or already revoked one.
+        The break-glass (`mendari access revoke`) chains why too (`reason`)."""
+        why = None if reason is None else break_glass_reason(reason)
         with self._db.session(exclusive=True) as db:
             row = db.one("SELECT org FROM api_keys WHERE id = ? AND revoked_at IS NULL", (key_id,))
             if row is None or (org is not None and row["org"] != org):
                 return False
             revoked = {"id": key_id, "revoked_by": revoked_by, "revoked_at": _now()}
+            if why is not None:
+                revoked["reason"] = why
             db.all(
                 "UPDATE api_keys SET revoked_at = ?, revoked_by = ? WHERE id = ?",
                 (revoked["revoked_at"], revoked_by, key_id),
@@ -3040,6 +3115,8 @@ class AuditStore:
         # None is every organization (open mode, the command line); "" is an organization.
         where, params = ("WHERE org = ?", (org,)) if org is not None else ("", ())
         with self._db.session(exclusive=False) as db:
+            if not db.columns("oauth_clients"):  # an older database, read as it is: none
+                return []
             # A database from before key-set replacement (read as it is): none was replaced.
             replaced = (
                 "keys_replaced_at"
@@ -3070,9 +3147,18 @@ class AuditStore:
             )
         return None if row is None else {**row, "jwks": _jwks(row)}
 
-    def revoke_client(self, client_id: str, org: str | None = None, *, revoked_by: str) -> bool:
+    def revoke_client(
+        self,
+        client_id: str,
+        org: str | None = None,
+        *,
+        revoked_by: str,
+        reason: str | None = None,
+    ) -> bool:
         """Revoke a client of `org` (any, if None) and drop its tokens; False for an unknown or
-        already revoked one. Its tokens stop working at once either way (`access_token`)."""
+        already revoked one. Its tokens stop working at once either way (`access_token`). The
+        break-glass (`mendari access revoke`) chains why too (`reason`)."""
+        why = None if reason is None else break_glass_reason(reason)
         with self._db.session(exclusive=True) as db:
             row = db.one(
                 "SELECT org FROM oauth_clients WHERE client_id = ? AND revoked_at IS NULL",
@@ -3081,6 +3167,8 @@ class AuditStore:
             if row is None or (org is not None and row["org"] != org):
                 return False
             revoked = {"client_id": client_id, "revoked_by": revoked_by, "revoked_at": _now()}
+            if why is not None:
+                revoked["reason"] = why
             db.all(
                 "UPDATE oauth_clients SET revoked_at = ?, revoked_by = ? WHERE client_id = ?",
                 (revoked["revoked_at"], revoked_by, client_id),
@@ -4330,20 +4418,76 @@ class AuditStore:
             )
         return [json.loads(row["report"]) for row in rows]
 
-    def verify(self, *, notes: bool = False) -> dict[str, Any]:
+    def verify(self, *, notes: bool = False, since_checkpoint: bool = False) -> dict[str, Any]:
         """Recompute the hash chain and each decision record's digest, and check that an event
         naming an organization names its row's (`_attributed`): a row moved to another
         organization, or gone, breaks verification at the first such event, with
-        `reason: "organization"`. With `notes` (`mendari audit verify --notes`), also each kept
-        note against the commitment its event chained: a note changed, moved to another
-        decision, or missing without a chained `note.erased` breaks verification at that event
-        (`_check_notes`)."""
+        `reason: "organization"`. Each recorded checkpoint (`audit_checkpoints`, LP-21j) must
+        still name its event: a chain rewritten from before one, or cut short of it, breaks
+        verification there, with `reason: "checkpoint"`. With `notes` (`mendari audit verify
+        --notes`), also each kept note against the commitment its event chained: a note
+        changed, moved to another decision, or missing without a chained `note.erased` breaks
+        verification at that event (`_check_notes`).
+
+        With `since_checkpoint`, only what came after the last checkpoint: its event must still
+        be the one it recorded, and each later event is checked as above (`events` counts
+        those; `checkpoint` says when it was recorded). What came before is not read again: a
+        full verification covers it. Without a checkpoint it is a full one."""
+        if notes and since_checkpoint:
+            raise ValueError("notes are checked by a full verification only")
+        return self._verify(notes=notes, since_checkpoint=since_checkpoint)[0]
+
+    def record_checkpoint(self) -> dict[str, Any]:
+        """Verify from the last checkpoint (from the start without one) and, when the chain
+        holds, record its head as the next checkpoint (LP-21j): a row outside the chain, which
+        later verifications start from, and every full one checks. The verification, with the
+        checkpoint recorded (`recorded`: None when the chain is broken or has nothing new)."""
+        status, last = self._verify(notes=False, since_checkpoint=True)
+        previous = status.get("checkpoint")
+        recorded = None
+        if status["ok"] and last is not None and (previous is None or last != _at(previous)):
+            recorded = {"seq": last["seq"], "hash": last["hash"], "created_at": _now()}
+            with self._db.session(exclusive=False) as db:
+                db.all(
+                    "INSERT INTO audit_checkpoints (seq, hash, created_at) VALUES (?, ?, ?) "
+                    "ON CONFLICT (seq) DO NOTHING",
+                    (recorded["seq"], recorded["hash"], recorded["created_at"]),
+                )
+        return {**status, "recorded": recorded}
+
+    def checkpoints(self) -> list[dict[str, Any]]:
+        """Every recorded checkpoint, oldest first (none in a database from before them)."""
         with self._db.session(exclusive=False) as db:
+            return _checkpoints(db)
+
+    def _verify(
+        self, *, notes: bool, since_checkpoint: bool
+    ) -> tuple[dict[str, Any], dict[str, Any] | None]:
+        """`verify`, and the last event checked (`seq`, `hash`; None for none)."""
+        with self._db.session(exclusive=False) as db:
+            recorded = _checkpoints(db)
+            start = recorded[-1] if since_checkpoint and recorded else None
             # Events first, then rows: a row is written with its first event and never deleted
             # or moved, so every row an event read here names is in what is read after.
-            events = db.all("SELECT * FROM audit_events ORDER BY seq")
+            if start is None:
+                events = db.all("SELECT * FROM audit_events ORDER BY seq")
+            else:
+                events = db.all(
+                    "SELECT * FROM audit_events WHERE seq >= ? ORDER BY seq", (start["seq"],)
+                )
             with_org = "decisions.org" not in self.unmigrated
-            decided = db.all(f"SELECT id, record{', org' if with_org else ''} FROM decisions")
+            columns = f"id, record{', org' if with_org else ''}"
+            if start is None:
+                decided = db.all(f"SELECT {columns} FROM decisions")
+            else:  # the decisions the events read name, and no others
+                named = sorted({str(event["decision_id"]) for event in events})
+                decided = []
+                for at in range(0, len(named), _VERIFY_BATCH):
+                    batch = named[at : at + _VERIFY_BATCH]
+                    marks = ", ".join("?" for _ in batch)
+                    decided += db.all(
+                        f"SELECT {columns} FROM decisions WHERE id IN ({marks})", tuple(batch)
+                    )
             records = {row["id"]: json.loads(row["record"]) for row in decided}
             owners = {row["id"]: _org_of(row["org"]) for row in decided} if with_org else None
             subjects = _subject_orgs(db)
@@ -4351,32 +4495,52 @@ class AuditStore:
             has_notes = notes and "notes" not in self.unmigrated
             kept = db.all("SELECT id, decision_id, event, sealed FROM notes") if has_notes else []
         prev = GENESIS
+        if start is not None:
+            first = events[0] if events else None
+            if first is None or first["seq"] != start["seq"] or first["hash"] != start["hash"]:
+                cut = {"ok": False, "events": 0, "broken_at": start["seq"]}
+                return {**cut, "reason": "checkpoint"}, None
+            prev, events = start["hash"], events[1:]
+        expected = {row["seq"]: row["hash"] for row in recorded} if start is None else {}
         for event in events:
-            expected = _chain_hash(
+            chained = _chain_hash(
                 prev, event["decision_id"], event["event"], event["payload"], event["created_at"]
             )
-            if event["prev_hash"] != prev or event["hash"] != expected:
-                return {"ok": False, "events": len(events), "broken_at": event["seq"]}
+            if event["prev_hash"] != prev or event["hash"] != chained:
+                return {"ok": False, "events": len(events), "broken_at": event["seq"]}, None
+            if expected.pop(event["seq"], event["hash"]) != event["hash"]:
+                moved = {"ok": False, "events": len(events), "broken_at": event["seq"]}
+                return {**moved, "reason": "checkpoint"}, None
             if event["event"] == "decision.created":
                 record = records.get(event["decision_id"])
                 if record is None or json.loads(event["payload"])["record_sha256"] != _sha(record):
-                    return {"ok": False, "events": len(events), "broken_at": event["seq"]}
+                    return {"ok": False, "events": len(events), "broken_at": event["seq"]}, None
             if '"org":' in event["payload"] and not _attributed(event, owners, subjects):
                 return {
                     "ok": False,
                     "events": len(events),
                     "broken_at": event["seq"],
                     "reason": "organization",
-                }
+                }, None
             prev = event["hash"]
+        if expected:  # a checkpoint's event is gone: the chain was cut short of it
+            cut = {"ok": False, "events": len(events), "broken_at": min(expected)}
+            return {**cut, "reason": "checkpoint"}, None
+        last = (
+            {"seq": events[-1]["seq"], "hash": events[-1]["hash"]}
+            if events
+            else (None if start is None else {"seq": start["seq"], "hash": start["hash"]})
+        )
+        since = {} if start is None else {"checkpoint": start}
         if not notes:
-            return {"ok": True, "events": len(events), "head": prev}
+            return {"ok": True, "events": len(events), "head": prev, **since}, last
         broken, counts, unopenable = self._check_notes(events, {row["id"]: row for row in kept})
         if broken is not None:
-            return {"ok": False, "events": len(events), "broken_at": broken, "notes": counts}
+            return {"ok": False, "events": len(events), "broken_at": broken, "notes": counts}, None
         if unopenable:  # the chain holds; these notes cannot be checked with this ring
-            return {"ok": False, "events": len(events), "notes": counts, "unopenable": unopenable}
-        return {"ok": True, "events": len(events), "head": prev, "notes": counts}
+            status = {"ok": False, "events": len(events), "notes": counts}
+            return {**status, "unopenable": unopenable}, None
+        return {"ok": True, "events": len(events), "head": prev, "notes": counts}, last
 
     def _check_notes(
         self, events: list[dict[str, Any]], kept: Mapping[str, Mapping[str, Any]]
@@ -4844,6 +5008,22 @@ def _show_own_note(
         item["note"] = item["note"] if reader else None
         return
     item["note_status"], item["note"] = views.get(str(item["id"]), (None, None))
+
+
+# Decisions a verification from a checkpoint reads per query (`_verify`).
+_VERIFY_BATCH = 500
+
+
+def _at(checkpoint: Mapping[str, Any]) -> dict[str, Any]:
+    """A checkpoint's place in the chain: its event's `seq` and `hash`."""
+    return {"seq": checkpoint["seq"], "hash": checkpoint["hash"]}
+
+
+def _checkpoints(db: _Session) -> list[dict[str, Any]]:
+    """The recorded checkpoints, oldest first (none in a database from before them)."""
+    if not db.columns("audit_checkpoints"):
+        return []
+    return db.all("SELECT seq, hash, created_at FROM audit_checkpoints ORDER BY seq")
 
 
 def _chain_hash(prev: str, decision_id: str, event: str, payload: str, created_at: str) -> str:

@@ -4,6 +4,33 @@ Renamed on 2026-09-30, when the project became Mendari: this pack was `openhealt
 Its id, its publisher's name and its `https://mendari.co/...` identifiers changed; its criteria,
 rules, models, data and results did not.
 
+## 0.2.0
+
+- No SNOMED CT: the five SNOMED CT codes the pack's criteria, CQL library and criterion text
+  listed beside ICD-10-CM are replaced one for one by invented codes (`FC101` type 2 diabetes,
+  `FC102` type 1 diabetes, `FC201` myocardial infarction, `FC202` stroke, `FC203` cerebral
+  infarction) in a code system named as fictional,
+  `https://mendari.co/fhir/CodeSystem/fictional-conditions`, and so are the codes of the bundled
+  local-site example (`datasets/trial-local-site-example.jsonl`), which plays a site that codes
+  conditions in its own system. Its strokes, whose text says cerebral infarction, carry `FC203`,
+  so each code's display in the published CodeSystem is what the record says. SNOMED CT's
+  licence terms are a question for counsel (LP-14), and no package carries its codes any more.
+  The study's condition (`fhir/research-study.json`) is ICD-10-CM E11.
+  **The pack now reads real diagnoses only through ICD-10-CM, and through FHIR only from a
+  Condition's first coding** (`code.coding[0]`, as before). Until a site code map exists
+  (LP-23), a diagnosis coded only in SNOMED CT is not found, and neither is one whose first
+  coding is SNOMED CT even when an ICD-10-CM coding follows it, which 0.1.5 found through the
+  SNOMED CT code: type 2 diabetes is `unknown`, a heart attack or stroke is missed. A site that
+  codes in SNOMED CT adds its codes to `logic/criteria.yaml` and `logic/criteria.cql`, as it
+  already adds any code the pack does not list. The known failure modes say so.
+- `code_systems` drops SNOMED CT and declares the fictional conditions and RxNorm (the
+  medication codes the pack's data uses; public domain, NLM's acknowledgement in NOTICE).
+- The CQL library is `GlycemiaTwoCriteria` 0.2.0 (its codes changed).
+- Every decision is the same as in 0.1.5 with the codes swapped: each answer, probability,
+  rule and outcome of the 728 data, dataset and behaviour-test cases, compared case by case.
+  The data and the local-site example were rebuilt from the generator: only the example's codes
+  changed. The digest changes.
+
 ## 0.1.5
 
 - Two known failure modes (the local site, and rules added to a model) state their findings,
