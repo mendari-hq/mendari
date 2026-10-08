@@ -154,7 +154,9 @@ gates:
         probes:
           - tests:
               - tests/test_hosted_data.py::test_the_hosted_site_refuses_plaintext_and_runs_encrypt_by_default
-              - tests/test_hosted_data.py::test_sign_in_needs_a_chosen_mode
+              - tests/test_hosted_data.py::test_sign_in_refuses_plaintext_whatever_the_database
+              - tests/test_hosted_data.py::test_the_cli_refuses_sign_in_without_protection
+              - tests/test_hosted_data.py::test_the_signed_in_templates_choose_a_mode
               - tests/test_hosted_data.py::test_no_route_shows_a_stored_case_but_to_a_reader_and_every_read_is_chained
               - tests/test_hosted_data.py::test_erasing_a_kept_input_and_its_notes_keeps_the_chain
               - tests/test_hosted_data.py::test_admins_erase_through_the_api
@@ -169,7 +171,6 @@ gates:
               - tests/test_rotation.py::test_a_new_input_hash_key_starts_an_epoch
               - tests/test_rotation.py::test_a_rotated_key_overlaps_then_expires
               - tests/test_rotation.py::test_admins_rotate_keys_through_the_api
-          - pending: "LP-08's refusal (the owner chose refuse, 2026-10-07, tasks/todo.md): outside Vercel, an explicit MENDARI_PHI_MODE=off with sign-in on refuses to start; the build PR's tests replace this line. The hosted keys and CRON_SECRET are the owner's"
       - id: a6-accounts
         what: "A6: accounts, organizations as records, memberships, invitations, self-service keys without a redeploy"
         owner: build

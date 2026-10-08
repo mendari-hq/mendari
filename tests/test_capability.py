@@ -14,6 +14,7 @@ from mendari.core.registry import SearchPath
 from mendari.server.app import create_app, mounted_routes
 from mendari.server.backend_services import DISCOVERY_PATH
 from mendari.standards import capability, search
+from tests.conftest import encrypt_mode
 
 
 @pytest.fixture
@@ -42,6 +43,7 @@ def test_every_fhir_route_is_advertised_and_everything_advertised_is_mounted(
     if backend_services:
         monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
         monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari-org")
+        encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
         monkeypatch.setenv("MENDARI_PUBLIC_URL", "https://mendari.test")
         monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "on")
     app = create_app(db_path=tmp_path / "routes.db")
@@ -177,6 +179,7 @@ def test_security_says_what_this_deployment_does(
     assert "sign-in is off" in statement(client)["rest"][0]["security"]["description"]
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     monkeypatch.setenv("MENDARI_PUBLIC_URL", "https://mendari.example.org")
     signed = TestClient(create_app(db_path=tmp_path / "in.db"))
     body = statement(signed)  # public: no sign-in needed to discover the server
@@ -192,6 +195,7 @@ def test_with_sign_in_on_the_statement_names_no_pack(
     the same operations give the same statement, apart from when its version went live here."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     every = statement(TestClient(create_app(db_path=tmp_path / "a.db")))
     monkeypatch.setenv("MENDARI_PACKS", "mendari/patient-inbox-router,mendari/prior-auth-preflight")
     fewer = statement(TestClient(create_app(db_path=tmp_path / "b.db")))

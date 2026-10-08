@@ -31,6 +31,7 @@ from mendari.standards.fhir_client import FhirClient, GuardedHttp
 from tests.conftest import (
     HASH_KEY_B64,
     INPUT_HASH_KEY,
+    encrypt_mode,
     message,
     security_lines,
     signed_in,
@@ -130,6 +131,7 @@ def routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, s
     routes mounted)."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     monkeypatch.setenv("MENDARI_PUBLIC_URL", SITE)
     monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "on")
     monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
@@ -200,6 +202,7 @@ def test_a_refused_request_never_reaches_the_store_a_body_or_a_handler(
     if mode == "sign-in":
         monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
         monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
+        encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
         monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "on")
     monkeypatch.setattr(app_module, "AuditStore", SpyStore)
     monkeypatch.setattr(SpyStore, "calls", [])
@@ -446,6 +449,7 @@ def test_scripts_with_a_cookie_and_no_browser_headers_keep_working(
     """curl, ZAP and pilot-check send neither `Origin` nor Fetch Metadata."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     client = TestClient(create_app(db_path=tmp_path / "a.db"), base_url=SITE)
     cookie = signed_in(AuditStore(tmp_path / "a.db"), role="admin")
     made = client.post("/api/auth/keys", json={"name": "ci", "role": "viewer"}, headers=cookie)

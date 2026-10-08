@@ -81,9 +81,16 @@ services:
       MENDARI_PUBLIC_URL: http://engine-signin:8000
       MENDARI_OIDC_ISSUER: https://idp.example.org
       MENDARI_OIDC_CLIENT_ID: mendari-sandbox
-      # Sign-in on needs a chosen PHI mode: `off` keeps inputs in plaintext, for this sandbox's
-      # synthetic data only (docs/deploying-with-phi.md).
-      MENDARI_PHI_MODE: "off"
+      # Sign-in never runs PHI mode `off` (docs/deploying-with-phi.md): `encrypt`, with two keys
+      # of your own, read from your shell or from `.env` (gitignored), never committed here.
+      # Generate each once (README, "The profile `signin`"); without them this engine stops,
+      # naming the key it lacks:
+      #   python3 -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())"
+      # Its database, once protected, never takes `off` again: to start over, `docker compose
+      # --profile signin down -v`.
+      MENDARI_PHI_MODE: encrypt
+      MENDARI_PHI_KEY: ${MENDARI_PHI_KEY:-}
+      MENDARI_INPUT_HASH_KEY: ${MENDARI_INPUT_HASH_KEY:-}
       MENDARI_OIDC_ORG_CLAIM: org
       MENDARI_SMART_EHRS: http://launcher/v/r4/fhir=pilot:decide
     volumes:

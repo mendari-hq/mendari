@@ -34,7 +34,7 @@ from mendari.server.backend_services import (
 from mendari.server.scopes import DECIDE, OUTCOME
 from mendari.standards import bulk
 from mendari.standards.fhir_client import GuardedHttp
-from tests.conftest import message, security_lines, signed_in
+from tests.conftest import encrypt_mode, message, security_lines, signed_in
 
 PUBLIC_URL = "https://mendari.test"
 TOKEN_URL = f"{PUBLIC_URL}/auth/token"
@@ -74,6 +74,7 @@ STRANGER = Signer("RS384", "rsa-1", rsa.generate_private_key(public_exponent=655
 def on(monkeypatch: pytest.MonkeyPatch, *, public_url: str | None = PUBLIC_URL) -> None:
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari-org")
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     monkeypatch.setenv("MENDARI_BACKEND_SERVICES", "on")
     if public_url is None:
         monkeypatch.delenv("MENDARI_PUBLIC_URL", raising=False)

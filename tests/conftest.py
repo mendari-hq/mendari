@@ -23,6 +23,7 @@ import yaml
 from fastapi.testclient import TestClient
 
 from mendari import AuditStore, Decision, Pack, load_pack
+from mendari.core.phi import PhiPolicy
 from mendari.core.registry import resolve_pack
 from mendari.errors import ProviderError
 from mendari.hub import archive
@@ -130,9 +131,10 @@ def _no_notice_acknowledgement(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture(autouse=True)
 def _phi_mode_chosen(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Sign-in needs a chosen PHI mode (core/phi.py `require_protection`): tests on synthetic
-    data choose `off` unless they set another (tests/test_phi.py), and never run as the hosted
-    site, whatever the developer's shell says."""
+    """Open-mode tests on synthetic data run PHI mode `off` unless they set another
+    (tests/test_phi.py); a test that turns sign-in on runs `encrypt_mode`, since sign-in never
+    runs `off` (core/phi.py `require_protection`). None runs as the hosted site, whatever the
+    developer's shell says."""
     monkeypatch.setenv("MENDARI_PHI_MODE", "off")
     monkeypatch.delenv("VERCEL", raising=False)
     monkeypatch.delenv("CRON_SECRET", raising=False)
@@ -370,10 +372,17 @@ def without_request_id(body: dict[str, Any], response: Any) -> dict[str, Any]:
 
 def encrypt_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     """PHI mode `encrypt` with the test keys (`PHI_KEY`, `INPUT_HASH_KEY`): how a signed-in
-    deployment with real cases runs."""
+    deployment runs (sign-in never runs `off`, core/phi.py `require_protection`), synthetic
+    cases included."""
     monkeypatch.setenv("MENDARI_PHI_MODE", "encrypt")
     monkeypatch.setenv("MENDARI_PHI_KEY", PHI_KEY_B64)
     monkeypatch.setenv("MENDARI_INPUT_HASH_KEY", HASH_KEY_B64)
+
+
+def encrypted_store(target: str | Path) -> AuditStore:
+    """A store under `encrypt_mode`'s policy, as a signed-in server opens its database: what a
+    test records beside such a server, it records through this (a store under `off` may not)."""
+    return AuditStore(target, phi=PhiPolicy(mode="encrypt", key=PHI_KEY, hash_key=INPUT_HASH_KEY))
 
 
 def hosted(monkeypatch: pytest.MonkeyPatch) -> None:

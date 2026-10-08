@@ -365,10 +365,18 @@ MENDARI_RETENTION_DAYS=90
 server under `off` refuses to start on it, and a command under `off` (`mendari decide --db`, a
 note) refuses to keep input text in it: run it with the deployment's mode and keys.
 
-**Choosing is required.** With sign-in or the EHR launch on (`MENDARI_SMART_CLIENT_ID`: a launch
-fetches the patient's record), the engine refuses to start until `MENDARI_PHI_MODE` is set:
-`encrypt` or `hash` for anything real, `off` written out only for a local sandbox on synthetic
-data (the engine logs a warning). On Vercel (Production and Preview alike; Vercel's entrypoint,
+**Sign-in means `hash` or `encrypt`.** With sign-in on (`MENDARI_OIDC_ISSUER` and
+`MENDARI_OIDC_CLIENT_ID`), the engine refuses to start under `off`, whether written out or left
+unset, on SQLite and Postgres alike: people bring other people's cases, and an input kept in
+plaintext can never be erased without retiring the database (below). `off` is for a local sandbox
+without sign-in. A signed-in sandbox on synthetic data runs `encrypt` with two keys generated for
+it (the compose sandbox's `signin` profile, in the README, reads them from your shell or `.env`).
+
+**Choosing is required for the EHR launch.** With the EHR launch on and sign-in off
+(`MENDARI_SMART_CLIENT_ID`: a launch fetches the patient's record), the engine refuses to start
+until `MENDARI_PHI_MODE` is set: `encrypt` or `hash` for anything real, `off` written out only for
+a local sandbox on synthetic data (the engine logs a warning; this case is not refused yet). On
+Vercel (Production and Preview alike; Vercel's entrypoint,
 the root `app.py`, says so even when the project hides Vercel's system variables) it refuses
 `off` itself: its mode is `encrypt` unless set to `hash`, so set the keys for both environments
 before deploying (an unset key stops it, naming both).
@@ -741,7 +749,7 @@ startup, so a typo never runs with a weaker setting.
 | `MENDARI_SMART_CLIENT_ID` | unset: no EHR launch | The SMART app's client id at the EHR; turns the launch on | 2 |
 | `MENDARI_SMART_EHRS` | none: with sign-in on, every launch refused | The EHRs that may launch: `<FHIR base>=<org>:view` or `:decide`, comma-separated; `<org>` is one your people sign in to (`default` without `MENDARI_OIDC_ORG_CLAIM`); read at startup | 2 |
 | `MENDARI_SMART_SCOPES` | `launch openid fhirUser patient/*.rs` | What a launch asks the EHR for; with sign-in on it must keep `openid fhirUser`, and `offline_access` refuses every launch | 2 |
-| `MENDARI_PHI_MODE` | `encrypt` on Vercel; elsewhere `off` without sign-in or the EHR launch, and with either none (required) | `hash` or `encrypt` for real patient data; Vercel refuses `off`, and so does a database once kept under `hash` or `encrypt` | 3 |
+| `MENDARI_PHI_MODE` | `encrypt` on Vercel; elsewhere `off` without sign-in or the EHR launch, and with either none (required) | `hash` or `encrypt` for real patient data; Vercel refuses `off`, so does sign-in anywhere, and so does a database once kept under `hash` or `encrypt` | 3 |
 | `MENDARI_PHI_KEY` | none | 32 bytes, base64; seals inputs, evidence and notes under `encrypt` | 3 |
 | `MENDARI_INPUT_HASH_KEY` | none | 32 bytes, base64, not the PHI key; required under `hash` and `encrypt` | 3 |
 | `MENDARI_PHI_READ_KEYS` | none | Under `encrypt`, up to 4 keys (base64, comma-separated) the deployment opens with but never seals: the previous key during a rotation, or the next one before it becomes current | 3 |

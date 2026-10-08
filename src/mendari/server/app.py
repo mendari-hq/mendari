@@ -382,8 +382,9 @@ def create_app(
     sign_in = auth_settings()  # an invalid sign-in setting fails here, at startup
     backend = backend_settings(sign_in)  # likewise: on, it needs sign-in and a public URL
     phi = phi_policy()  # a bad PHI setting (or a missing key) fails here, at startup
-    shared = sign_in is not None or smart_options is not None  # other people's cases come in
-    require_protection(phi, shared=shared)  # and plaintext where it must not be
+    launch = smart_options is not None  # a launch fetches the patient's record
+    # and plaintext where it must not be: never with sign-in, never on the hosted site
+    require_protection(phi, sign_in=sign_in is not None, launch=launch)
     retention_days = settings.retention_days()  # likewise
     cron_secret = os.environ.get("CRON_SECRET", "")  # the scheduled purge's credential
     if cron_secret and (len(cron_secret) < MIN_CRON_SECRET or cron_secret != cron_secret.strip()):
@@ -401,9 +402,9 @@ def create_app(
     principal_limit = settings.principal_daily_limit()  # likewise
     session_lifetime = sessions.lifetime()  # likewise
     security_log.configure()
-    if shared and phi.mode == "off":
+    if launch and phi.mode == "off":  # sign-in is off: with it on, `off` never starts
         phi_logger.warning(
-            "sign-in or the EHR launch is on and PHI mode is off: inputs are kept in plaintext, "
+            "the EHR launch is on and PHI mode is off: inputs are kept in plaintext, "
             "so use synthetic data only (docs/deploying-with-phi.md)"
         )
     webhook = os.environ.get("MENDARI_ALERT_WEBHOOK", "").strip()

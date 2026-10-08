@@ -46,7 +46,11 @@ The first release (not yet published).
   record, `$decide`, the ledger and the report's `models`. Earlier `llm` and `vote` runs name
   the configured model there.
 - **Dashboard** and REST API; sign-in through an organization's OpenID Connect provider; API
-  keys by role.
+  keys by role. With sign-in on, the engine refuses to start under PHI mode `off`, set or left
+  unset, everywhere (it warned outside Vercel): `off` is for a local sandbox without sign-in.
+  The compose sandbox's signed-in engine (profile `signin`) runs `encrypt` with two keys you
+  generate once into `.env` (README); an EHR launch without sign-in still starts under `off`
+  written out, with a warning.
 - **Hub:** a pack registry and its client (`mendari pull`, `mendari search`), and community
   packs. A site can share an evaluation of a composite provider (`any_of`, `cascade`, `vote`):
   its model lists each member's and a failed member's error names the member, as the

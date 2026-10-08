@@ -13,7 +13,7 @@ from playwright.sync_api import Browser
 from mendari.core.audit import AuditStore
 from mendari.server.app import create_app
 from tests.browser.conftest import serving
-from tests.conftest import security_lines, signed_in
+from tests.conftest import encrypt_mode, security_lines, signed_in
 
 pytestmark = pytest.mark.browser
 
@@ -28,6 +28,7 @@ def signed_in_site(
     and a reviewer's session: the base URL, the cookie's name and its value."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")  # never reached
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     db = tmp_path / "a.db"
     app = create_app(db_path=db)
     with AuditStore(db) as store:
