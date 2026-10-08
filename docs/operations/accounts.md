@@ -149,9 +149,34 @@ Then:
   chain id names (`SELECT decision_id, event, payload FROM audit_events WHERE seq = N`), and
   restore it from a backup. Keep every row an event names: delete no expired invitation, handled
   request or organization.
-- The whole-chain verify, deployment-wide deployment records and some health fields are still
-  shown to every organization's administrators until LP-12g scopes them: switch the hosted
-  site after LP-12g.
+- What is the whole deployment's is the operator's, from the command line (owner decision 5):
+  `GET /api/audit/verify` and `GET /api/deployments` answer `404`; `/api/health` leaves out
+  today's Jev and LLM calls and the last purge's counts (it keeps when and by what); and a
+  hold set from the command line for every organization shows in `/api/holds` as what it
+  covers and since when, without the operator's reason or name. Claims mode shows them as
+  before.
+
+## An organization's audit
+
+Its administrators read the chained events of what it owns, its keys, clients, record,
+memberships, invitations, requests to join, automation approvals and holds, and evaluation
+reports, at `GET /api/audit/administrative` (paged, oldest first; `kind`, `subject`, `since`,
+`until`), and export them as FHIR AuditEvents of ids and codes at
+`GET /api/audit/administrative/export/fhir` (a key's or client's name, a hold's reason and an
+approval's reference stay out). Each event is attributed through the row it is about, never
+by its chain id alone; neither shows its place in the deployment's chain (`seq`), another
+organization's events or the deployment's own. A person's acknowledgement of the notice is
+theirs, across organizations, not one organization's, so it is not listed.
+
+The operator exports the same, for one organization or for the whole deployment (its own
+events included: key rotations, purges, deployments, sign-in records), from the command line:
+
+```bash
+mendari audit export --administrative --org clinic-a --db "$DATABASE_URL" --out clinic-a.ndjson
+mendari audit export --administrative --db "$DATABASE_URL" --out deployment.ndjson
+```
+
+`--org` alone exports that organization's decisions' trail.
 
 ## Managing an organization's people
 

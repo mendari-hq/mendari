@@ -627,6 +627,14 @@ Connect) is not supported yet.
       and answers `"reason": "organization"` at the first event whose row was moved or deleted.
       The answers of a review and a rating are unchanged (only the chained copy is bound); the
       previous release's `verify` passes a bound chain.
+    - [ ] **12g-ii** (PR open) An organization's administrative events: `GET
+      /api/audit/administrative` (paged by `(subject, hash)`, never `seq`; `kind`, `subject`,
+      `since` / `until` as instants) and its FHIR export (AuditEvents of ids and codes, a new
+      CodeSystem and the `audit-subject` NamingSystem), administrators only, attributed through
+      each row the organization owns (`SUBJECT_TABLES`), fail closed on a payload naming another;
+      `mendari audit export --administrative [--org]`. Memberships mode leaves the deployment's
+      views to the operator (decision 5): verify and deployments `404`, health without totals,
+      a deployment hold without its reason and setter; the dashboard follows.
   - [ ] **12h** (PR open) The Access view's API keys and Clients tabs, for people holding
     `keys`, in claims mode too (the people tabs stay memberships-only): a key made from a preset
     (the table drives role, scope and days, what it reaches and its guide) or by hand, its secret
@@ -761,6 +769,14 @@ Connect) is not supported yet.
      extends the same store method).
   45. (12h) A new or rotated key's secret is shown once, as the invitation link is (25): only in
      the input's value, cleared when the dialog closes or the view is left.
+  46. (12g-ii) A notice acknowledgement is a person's, across organizations (notices.py), so an
+     organization's administrative list leaves it out; the operator's export has it.
+  47. (12g-ii) In memberships mode the deployment's records (`/api/deployments`, the Decision
+     Card's Deployments section) are the operator's, as accounts.md promised before 12g, and a
+     hold set for every organization shows what it covers and since when, not the operator's
+     reason or name. The owner may serve either to organizations instead.
+  48. (12g-ii) Open mode (a local sandbox, no one signed in) reads every event on no decision,
+     the deployment's own included: there the operator is the only reader.
 
   **Owner decisions** (none blocks a PR; each PR follows the recommended default): switching
   the hosted site to memberships mode, and when; the owner's identity for bootstrap (the
