@@ -1295,7 +1295,8 @@ B6/B7 → B8 → B9 → B10).
   Built: `packs.yml` job `pack-check`; `scripts/changed_packs.py` covers `community-packs/`;
   `scripts/community_check.py` (scope, each changed pack, a removed pack's tombstone).
   "Owner" is the pull request's author (`pull_request.user.login`, never `github.actor`) equal to
-  `github.repository_owner`, from a branch of this repository. Review fixes: only the owner
+  `github.repository_owner` (since the move to mendari-hq, the person the base's CODEOWNERS
+  names: see that section), from a branch of this repository. Review fixes: only the owner
   removes a pack; a git submodule under `community-packs/` fails; an update is gated on the
   base's benchmark dataset too; composite members' models are retrained; no BLOCK rule, no
   Mendari name, FHIR systems under the pack's own url.
@@ -1958,6 +1959,17 @@ Sign-in: Google, the owner as the only admin.
 - [x] Docs: `deploying-with-phi.md` (Google), the audit's Phase 1 status
 - [x] Production: the owner's Google OAuth client; settings for Production only; preview's
   effective configuration equal to production's before merge; sign-in verified after deploy
+
+## Done: the move to the mendari-hq organization (2026-10-08)
+The repository moved from `Junebugg1214/mendari` to `mendari-hq/mendari` (still private).
+- [x] Follow-up PR (#212): packs.yml passes `github.repository_owner` as the owner. Since the move
+  that is the organization, which no pull request's author is, so the owner's pull requests could
+  no longer remove a community pack or change `community-packs/` with other files (failing closed).
+  `scripts/community_check.py` now takes the owner from the `*` rule of `.github/CODEOWNERS`, read
+  from the base (a pull request's own copy could name its author), one person only (a team, an
+  email, several people or a symbolic link name no owner), and only for a pull request into the
+  default branch (another branch's CODEOWNERS is anyone's who may push); `--owner` is gone, and the
+  fork rule stays.
 
 ## Done: the rename to Mendari (2026-09-30)
 `openhealth` was taken on PyPI by another project, so OpenHealth Hub became **Mendari**
