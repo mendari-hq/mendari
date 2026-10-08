@@ -1153,7 +1153,12 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   - [ ] **21i** `GET /api/usage`, the admins' usage screen and the operator's CLI.
   - [ ] **21j** Audit checkpoints and incremental verify.
   - [ ] **21k** The signed daily checkpoint (`MENDARI_CHECKPOINT_KEY`).
-  - [ ] **21l** Break-glass revocation commands (keys, clients, sessions).
+  - [ ] **21l** (#200) Break-glass revocation commands: `mendari access keys|clients` (read-only),
+    `mendari access revoke key|client <id>` and `revoke all --org` (each still in force), and
+    `mendari access end-sessions --kind people|launches|all` (never the assertion claims),
+    straight to the database for any organization, each with a reason chained
+    (`key.revoked`, `client.revoked`, the deployment's `sessions.ended`);
+    `docs/operations/revoking-access.md`; the hold page's table names the command line.
   - [ ] **21m** `docs/operations/incident-runbook.md`, backup and restore with a tested verify.
   - [ ] **21n** The hosted schedule (`vercel.json` crons): **owner's go-ahead before merging**.
   - [ ] **21o** Firewall enforcement: **owner only**, after the log-only week.
