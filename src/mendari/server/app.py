@@ -60,6 +60,7 @@ from mendari.errors import (
     ClientError,
     FhirError,
     FhirStructureError,
+    InvitationRefused,
     MendariError,
     NoteError,
     NoticeNotAcknowledged,
@@ -1952,6 +1953,19 @@ def create_app(
         headers = {"cache-control": "no-cache", "content-security-policy": reference_csp}
         return HTMLResponse(reference, headers=headers)
 
+    # The invitation page, memberships mode only (open and claims mode: 404): public and static,
+    # never a redirect (auth.py `_RULES`). Its own policy allows its own inline scripts (the one
+    # that takes the token out of the address before anything loads, the theme, the import map)
+    # and no inline style; never stored, as it holds a token for a moment.
+    if auth.memberships:
+        invite_page = versioned_page("invite.html")
+        invite_csp = content_security_policy(invite_page, inline_styles=False)
+
+        @app.get("/invite", include_in_schema=False)
+        def invitation_page() -> HTMLResponse:
+            headers = {"cache-control": "no-store", "content-security-policy": invite_csp}
+            return HTMLResponse(invite_page, headers=headers)
+
     # Bookmarks and links to FastAPI's ReDoc page, which is gone.
     @app.get("/redoc", include_in_schema=False)
     def to_api_reference() -> RedirectResponse:
@@ -2021,14 +2035,17 @@ def identified(body: dict[str, Any]) -> dict[str, Any]:
 
 
 def error_response(path: str, status: int, error: MendariError) -> JSONResponse:
-    """`{"error", "detail"}` on Mendari's own API; an OperationOutcome on FHIR routes. A
+    """`{"error", "detail"}` on Mendari's own API (and an invitation refusal's `reason`); an
+    OperationOutcome on FHIR routes. A
     sign-in refusal carries its `WWW-Authenticate` challenge, a `429` its `Retry-After`."""
     asked = error.challenge if isinstance(error, AuthError) else None
     headers = {"WWW-Authenticate": asked} if asked else {}
     headers.update(retry_headers(error))
     if not _FHIR_ROUTE.match(path):
-        body = identified({"error": type(error).__name__, "detail": str(error)})
-        return JSONResponse(body, status, headers=headers)
+        said: dict[str, Any] = {"error": type(error).__name__, "detail": str(error)}
+        if isinstance(error, InvitationRefused):  # which refusal, for the /invite page
+            said["reason"] = error.reason
+        return JSONResponse(identified(said), status, headers=headers)
     if isinstance(error, FhirStructureError):
         return operation_outcome(status, [{"code": "structure", **i} for i in error.issues])
     code = _ISSUE_TYPE.get(status, "processing")

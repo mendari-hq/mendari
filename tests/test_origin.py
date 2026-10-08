@@ -53,6 +53,7 @@ NAVIGABLE = {
     "/docs",
     "/docs/reference",
     "/redoc",
+    "/invite",  # memberships mode: the page an invitation's link opens
     "/favicon.ico",
     "/auth/login",
     "/auth/callback",

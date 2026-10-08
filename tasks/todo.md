@@ -581,7 +581,7 @@ Connect) is not supported yet.
       access-ended and window-moved banners, "Use another account"; browser tests.
   - [ ] **12f** Invitations and member management (no e-mail sent), in two PRs, so the server
     does not wait on 12e-ii's dashboard files:
-    - [ ] **12f-i** (PR open) The server, memberships mode only: an administrator's routes
+    - [x] **12f-i** (#169, merged 2026-10-07) The server, memberships mode only: an administrator's routes
       (people with `keys`, never a key) to invite (`POST /api/auth/invitations`, the link
       `/invite#<token>` shown once, relative, never built from `Host`), list and revoke
       invitations (each with its `status`), list members, replace a member's roles
@@ -597,8 +597,23 @@ Connect) is not supported yet.
       Found in review: removing a member revokes the organization's open invitations made out
       to their address (one refused as `member` stayed open, and let them straight back in);
       the administrators' security-log lines are pinned by a test.
-    - [ ] **12f-ii** The dashboard: the members and invitations views, the `/invite` page;
-      the browser test of the whole flow (an expired link and a wrong address included).
+    - [ ] **12f-ii** (PR open) The dashboard and the invitation page. `/invite` (memberships
+      mode only, 404 otherwise) is public and static, never a redirect: a hashed inline script
+      takes the token from the fragment and clears the address before anything else loads; the
+      token waits in this tab's `sessionStorage` through sign-in (a button, `next=/invite`
+      literally) and is sent only when the person presses Accept, then forgotten; every answer
+      says what to do (expired, used or revoked; another address, with "Use another account";
+      unverified; already a member; joined, with Switch when the browser acts for another
+      organization). The administrators' Access view (`#admin/members|invitations|requests`,
+      people with `keys` in memberships mode, absent otherwise: `views.admin.available()`):
+      members with their roles, change and remove with a confirmation, the last-admin refusal
+      in words; invite with the link shown once in a dialog (copy, never shown again); the
+      invitations with their status and revoke; grant (with roles) or refuse a request. 32
+      browser tests as `pytest --collect-only` counts them (25 on a real memberships server, one
+      a real sign-in through another origin that never sees the token, and 7 mocked over the
+      open server; axe in both themes; a phone's width) and 9 for the page's serving.
+      Fixed in 12f-i: a refusal's body names its `reason` (the page read the
+      wording), and removing a pending membership revokes the invitations to its address too.
   - [ ] **12g** The organization bound into each chained event (memberships mode), checked by
     `verify`; per-organization administrative reader and export; the generated two-organization
     isolation test with its reviewed allow-list.
@@ -650,6 +665,38 @@ Connect) is not supported yet.
      static page, or drops the fragment before sending a signed-out browser to sign in: a
      redirect keeps the fragment (RFC 9110 §10.2.2) and would carry the token to the identity
      provider.
+  16. (12f-ii) `/invite` is mounted in memberships mode only; claims and open mode answer 404
+     (deny by default, as 10; claims mode as before). The other choice: a page in every mode
+     saying invitations are not used there.
+  17. (12f-ii) The token waits in `sessionStorage` (this tab, this origin), never in
+     `localStorage`, a cookie, a query or `next`. A link opened on another host name than
+     `MENDARI_PUBLIC_URL` loses it at sign-in, and the page says to open the link again. The
+     other choice, carrying it in the pending sign-in row, puts the token in server state.
+  18. (12f-ii) Accepting happens on a press, never on load: there is no preview route, and a
+     link scanner or prefetcher would otherwise use the link up.
+  19. (12f-ii) A signed-out invitee signs in by pressing a button, never automatically, so a
+     failed sign-in never loops.
+  20. (12f-ii) A refusal of an invitation carries its `reason` in the body (additive to 12f-i's
+     API), which the page reads instead of its wording.
+  21. (12f-ii) The administrators' view is `#admin/<tab>`, labelled "Access", as `#access` is
+     the no-access page; 12h adds its keys and clients tabs to it.
+  22. (12f-ii) A view a person may not use is absent, not an empty state: `#admin` in claims or
+     open mode, or for a non-administrator, lands on the overview and asks nothing.
+  23. (12f-ii) The dashboard's role list is written in `ui.js` (no route serves it); a test
+     keeps it equal to the server's.
+  24. (12f-ii) Refusals in the dashboard carry their status and code, and a `422` reads as its
+     messages (it read "[object Object]").
+  25. (12f-ii) The one-time link is shown in a dialog and removed with it; there is no "show
+     again": a lost link is revoked and made anew.
+  26. (12f-ii) "Made by" names come from the members list; a removed member's reads "Former
+     member" (their id as a tooltip).
+  27. (12f-ii) Demoting or removing oneself is allowed while another administrator who signed in
+     remains (the server's rule): the dialog warns, and the page reloads after.
+  28. (12f-ii) Expired invitations can be revoked, as the server allows.
+  29. (12f-ii) Pending memberships (an address waiting for its first sign-in) read "Not signed
+     in yet" and can be changed or removed; they never count as an administrator.
+  30. (12f-ii) The browser tests run on SQLite; tests/test_memberships.py keeps both databases
+     covered.
 
   **Owner decisions** (none blocks a PR; each PR follows the recommended default): switching
   the hosted site to memberships mode, and when; the owner's identity for bootstrap (the

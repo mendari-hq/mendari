@@ -199,6 +199,10 @@ _RULES: list[tuple[str, re.Pattern[str], str]] = [
         # The developer landing (static, the same for every deployment of a release) and a
         # redirect from ReDoc's old address to the reference.
         ("GET", r"^/(docs|redoc)$", "public"),
+        # The invitation page (memberships mode; not mounted otherwise): public and static,
+        # never a redirect, so a signed-out browser never carries the token in the link's
+        # fragment on to the identity provider (a redirect keeps it, RFC 9110 §10.2.2).
+        ("GET", r"^/invite$", "public"),
         ("GET", r"^/docs/reference$", "page"),  # a signed-out browser is sent to sign in
         ("GET", r"^/openapi\.json$", "read"),
         # The scheduled purge (Vercel Cron): its own bearer secret, CRON_SECRET, checked there.

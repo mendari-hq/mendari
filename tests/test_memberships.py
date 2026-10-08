@@ -945,6 +945,7 @@ def test_a_bogus_or_used_link_records_no_one(
         refused = accept(members, token)
         assert refused.status_code == 404 and refused.json()["error"] == "InvitationRefused"
         assert refused.json()["detail"] == "this invitation is not valid: ask for a new one"
+        assert refused.json()["reason"] == "invalid"
     assert store.user(person_id(IDP, "ada")) is None
     assert store.verify()["events"] == before
     assert store.verify()["ok"]
@@ -1009,6 +1010,7 @@ def test_another_address_keeps_the_invitation_open(
     refused = accept(members, token_of(made))
     assert refused.status_code == 403 and refused.json()["error"] == "InvitationRefused"
     assert refused.json()["detail"] == "this invitation is for another e-mail address"
+    assert refused.json()["reason"] == "other_address"  # what the /invite page reads
     [line] = [line for line in logged(capsys) if line["event"] == "auth.invitation.accepted"]
     assert (line["outcome"], line["reason"], line.get("org")) == ("refused", "other_address", None)
     assert store.user(person_id(IDP, "bo")) is None and store.verify()["events"] == before
@@ -1026,6 +1028,7 @@ def test_an_unverified_address_cannot_accept(
     before = store.verify()["events"]
     refused = accept(members, token_of(made))
     assert refused.status_code == 403 and "verified" in refused.json()["detail"]
+    assert refused.json()["reason"] == "unverified"
     assert store.user(person_id(IDP, "ada")) is None and store.verify()["events"] == before
     [row] = members.get("/api/auth/invitations", headers=lead).json()
     assert row["status"] == "open"

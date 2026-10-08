@@ -46,7 +46,7 @@ Clinical/EHR data (FHIR R4, CDS Hooks, REST)
 | Evaluation harness | [`src/mendari/evals/`](https://github.com/Junebugg1214/mendari/tree/main/src/mendari/evals) |
 | Audit trail | SQLite or Postgres, append-only hash-chained events, `mendari audit verify` |
 | Synthetic healthcare dataset | [`src/mendari/sandbox/synthetic_inbox.py`](https://github.com/Junebugg1214/mendari/blob/main/src/mendari/sandbox/synthetic_inbox.py), [`synthetic_trial.py`](https://github.com/Junebugg1214/mendari/blob/main/src/mendari/sandbox/synthetic_trial.py), [`synthetic_referral.py`](https://github.com/Junebugg1214/mendari/blob/main/src/mendari/sandbox/synthetic_referral.py), [`synthetic_prior_auth.py`](https://github.com/Junebugg1214/mendari/blob/main/src/mendari/sandbox/synthetic_prior_auth.py), [`synthetic_guard.py`](https://github.com/Junebugg1214/mendari/blob/main/src/mendari/sandbox/synthetic_guard.py) |
-| Dashboard | `mendari serve` → http://127.0.0.1:8000: every pack on the search path. Overview, a review queue by priority, the audit trail with each record in a drawer, evaluations (provider leaderboard, benchmark report with charts, runs on your datasets), feedback with the right answer, the Decision Card, and Try it (a form for every pack, generated from its input schema for record packs, starting from the pack's behaviour tests, with the JSON one click away). Light and dark themes; times in the deployment's time zone (US Eastern by default). |
+| Dashboard | `mendari serve` → http://127.0.0.1:8000: every pack on the search path. Overview, a review queue by priority, the audit trail with each record in a drawer, evaluations (provider leaderboard, benchmark report with charts, runs on your datasets), feedback with the right answer, the Decision Card, and Try it (a form for every pack, generated from its input schema for record packs, starting from the pack's behaviour tests, with the JSON one click away). In memberships mode, an organization's administrators also get Access (members, invitations, requests to join), and an invitation link opens its own page (`/invite`). Light and dark themes; times in the deployment's time zone (US Eastern by default). |
 
 The five reference packs are examples built on synthetic data, and each says so on every surface
 (its Decision Card, the dashboard, CDS Hooks cards, the registry):
@@ -763,7 +763,9 @@ every request ([ADR-0008](https://github.com/Junebugg1214/mendari/blob/main/docs
 The role and organization claims are ignored. A person with no membership acts for no
 organization, never `default`: they may ask to join one or accept an invitation made for their
 verified address, and nothing else. The operator manages organizations with `mendari access`,
-and each organization's administrators invite and manage their own people through the API
+and each organization's administrators invite and manage their own people in the dashboard's
+Access view or through the API; an invitation's link opens `/invite`, where the person signs in
+and accepts it
 ([the runbook](https://github.com/Junebugg1214/mendari/blob/main/docs/operations/accounts.md),
 which also says how to switch a deployment).
 

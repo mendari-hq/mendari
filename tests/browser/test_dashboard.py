@@ -2082,7 +2082,17 @@ def test_the_launch_alone_fits_a_phone_in_both_themes(page: Page, scheme: str) -
 PERMISSIONS = {  # server/auth.py
     "viewer": ["read"],
     "reviewer": ["decide", "outcome", "read", "read_input", "review"],
-    "admin": ["admin", "approve", "decide", "evaluate", "outcome", "read", "read_input", "review"],
+    "admin": [
+        "admin",
+        "approve",
+        "decide",
+        "evaluate",
+        "keys",
+        "outcome",
+        "read",
+        "read_input",
+        "review",
+    ],
 }
 
 

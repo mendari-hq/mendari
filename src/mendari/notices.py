@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """What Mendari is, said once and shown everywhere (the launch plan's notice).
 
-`NOTICE` is stamped into the pages the server serves (the dashboard, the launch view, `/docs` and
-`/docs/reference`: `<!-- mendari:notice -->`, `server/app.py` `versioned_page`; the sign-in and
+`NOTICE` is stamped into the pages the server serves (the dashboard, the launch view, `/docs`,
+`/docs/reference` and, in memberships mode, the invitation page `/invite`:
+`<!-- mendari:notice -->`, `server/app.py` `versioned_page`; the sign-in and
 launch error pages), the OpenAPI description, the Decision Card, CDS Hooks cards and discovery,
 and the JSON decide answers (`notice`; a FHIR `$decide` answer is a FHIR resource and does not
 carry it). The Hub's layout carries the same words (a test holds them equal).

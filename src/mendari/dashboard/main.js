@@ -12,8 +12,9 @@ import "./feedback.js";
 import "./card.js";
 import "./try.js";
 import "./patient.js";
+import "./admin.js";
 import { defaultPack, packOptions } from "./pack.js";
-import { onHashChange, render, route } from "./router.js";
+import { onHashChange, render, route, views } from "./router.js";
 import { setupSettings } from "./settings.js";
 import { skeleton } from "./skeleton.js";
 import { setupTheme } from "./theme.js";
@@ -57,6 +58,7 @@ async function boot() {
   if (state.launchOnly && state.noAccess !== "choose") state.noAccess = null;
   showLaunch();
   showOrganization();
+  showAdministration();
   if (state.noAccess && !state.launchOnly) {
     $(".pack-picker").hidden = true;
     document.querySelectorAll(".nav a[data-view]").forEach((a) => (a.hidden = true)); // the docs stay
@@ -165,6 +167,11 @@ function showOrganization() {
     await chooseOrganization(wanted);
     select.value = state.me.org; // refused: the one still chosen
   });
+}
+
+// An organization's administrators: who may use it, and how (admin.js). Memberships mode only.
+function showAdministration() {
+  $('.nav a[data-view="admin"]').hidden = state.launchOnly || Boolean(state.noAccess) || !views.admin.available();
 }
 
 boot().catch((error) => {
