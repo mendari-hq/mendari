@@ -18,7 +18,7 @@ import pytest
 
 from mendari import AuditStore, Decision, Pack
 from mendari.cli import main
-from mendari.core.audit import SESSION_GROUPS
+from mendari.core.audit import SESSION_GROUPS, break_glass_reason
 from mendari.server import auth as auth_module
 from mendari.standards import audit_fhir, fhir_structure
 from tests.conftest import ROOT
@@ -55,8 +55,8 @@ def test_the_operator_revokes_any_organization_s_key_and_client_with_a_reason(
     assert code == 0 and out == {"keys": [key["id"]], "clients": []} and "revoked in" in err
     assert store.api_key(key["key"]) is None  # refused from the next request on
     code, out, _ = run(
-        capsys, "access", "revoke", "client", client["client_id"], "--reason", f"  {REASON}\n",
-        "--db", db_target,
+        capsys, "access", "revoke", "client", client["client_id"],
+        "--reason", " leaked in\na  support\tticket ", "--db", db_target,
     )  # fmt: skip
     assert code == 0 and out == {"keys": [], "clients": [client["client_id"]]}
     assert store.client(client["client_id"]) is None and store.access_token(token) is None
@@ -86,28 +86,70 @@ def test_the_operator_revokes_any_organization_s_key_and_client_with_a_reason(
 def test_revoking_all_of_an_organization_leaves_every_other_s(
     db_target: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """Every key and client of clinic-a still in force, a rotated key in its overlap too (it
+    still works); not one already revoked or expired; nothing of clinic-b's."""
     store = AuditStore(db_target)
     mine = [
         store.create_api_key(name=f"k{n}", role="service", org="clinic-a", created_by="Ada")
-        for n in range(2)
+        for n in range(4)
     ]
+    rotated = store.rotate_api_key(mine[2]["id"], rotated_by="Ada", overlap_hours=24)
+    assert store.api_key(mine[2]["key"]) is not None  # replaced, in its overlap: it works
+    with store._db.session(exclusive=True) as db:  # expired: works no more
+        db.all("UPDATE api_keys SET expires_at = '2020-01-01' WHERE id = ?", (mine[3]["id"],))
     theirs = store.create_api_key(name="k", role="service", org="clinic-b", created_by="Ada")
     client = store.register_client(
         name="c", role="service", org="clinic-a", created_by="Ada", scopes=SCOPE, jwks=jwks()
     )
+    other = store.register_client(
+        name="c", role="service", org="clinic-b", created_by="Ada", scopes=SCOPE, jwks=jwks()
+    )
+    token, _ = store.issue_token(other["client_id"], SCOPE, 300)
     store.revoke_api_key(mine[1]["id"], revoked_by="Ada")  # already revoked: left as it was
     code, out, _ = run(
         capsys, "access", "revoke", "all", "--org", "clinic-a", "--reason", REASON,
         "--db", db_target,
     )  # fmt: skip
-    assert code == 0 and out == {"keys": [mine[0]["id"]], "clients": [client["client_id"]]}
+    assert code == 0 and out["clients"] == [client["client_id"]]
+    assert sorted(out["keys"]) == sorted([mine[0]["id"], mine[2]["id"], rotated["id"]])
+    for key in (mine[0], mine[2], rotated):
+        assert store.api_key(key["key"]) is None
     assert store.api_key(theirs["key"]) is not None
-    assert [e["id"] for e in events(store, "key.revoked")] == [mine[1]["id"], mine[0]["id"]]
+    assert store.client(other["client_id"]) is not None and store.access_token(token) is not None
+    revoked = events(store, "key.revoked")
+    assert revoked[0]["id"] == mine[1]["id"] and "reason" not in revoked[0]  # not the break-glass
+    assert mine[3]["id"] not in {e["id"] for e in revoked}  # expired: no event
+    for event in (*revoked[1:], *events(store, "client.revoked")):
+        assert event["reason"] == REASON and event["revoked_by"].startswith("command line (")
     code, _, err = run(
         capsys, "access", "revoke", "all", "--org", "clinic-a", "--reason", REASON,
         "--db", db_target,
     )  # fmt: skip
     assert code == 1 and "no key or client of clinic-a in force" in err
+
+
+def test_the_listings_read_an_older_database_as_it_is(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """From before Phase 4 (keys without scopes, expiry or rotation) and before Backend Services
+    (no clients): keys listed as they are, none of them usable; no client."""
+    db = tmp_path / "old.db"
+    with AuditStore(db) as store:
+        key = store.create_api_key(name="k", role="service", org="clinic-a", created_by="Ada")
+    with closing(sqlite3.connect(db)) as connection, connection:
+        connection.execute("DROP TABLE oauth_tokens")
+        connection.execute("DROP TABLE oauth_clients")
+        for column in ("scopes", "expires_at", "revoked_by", "replaced_by", "preset"):
+            connection.execute(f"ALTER TABLE api_keys DROP COLUMN {column}")
+        connection.execute("PRAGMA journal_mode=DELETE")
+    before = db.read_bytes()
+    code, listed, _ = run(capsys, "access", "keys", "--db", str(db))
+    assert code == 0 and [(k["id"], k["status"], k["scope"]) for k in listed] == [
+        (key["id"], "expired", None)  # no expiry is refused, as the server refuses it
+    ]
+    code, listed, _ = run(capsys, "access", "clients", "--db", str(db))
+    assert code == 0 and listed == []
+    assert db.read_bytes() == before
 
 
 def put_every_kind(store: AuditStore) -> int:
@@ -182,6 +224,11 @@ def test_the_break_glass_refuses_a_database_that_is_not_the_server_s_and_a_missi
             capsys, "access", "revoke", "key", "k", "--reason", reason, "--db", str(fresh)
         )
         assert code == 1 and "give a reason of at most 200 characters" in err
+    assert break_glass_reason(" x" * 100) == ("x " * 100).strip()  # 199 characters: one line
+    assert break_glass_reason("x" * 200) == "x" * 200
+    code, _, err = run(capsys, "access", "revoke", "key", "k", "--reason", "y" * 200,
+                       "--db", str(fresh))  # fmt: skip
+    assert code == 1 and "no key k in force" in err  # the reason was accepted
     assert main(["access", "revoke", "key", "k", "--db", str(fresh)]) == 1  # a reason is required
     assert "required: --reason" in capsys.readouterr().err
 

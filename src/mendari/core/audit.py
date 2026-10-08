@@ -2888,11 +2888,19 @@ class AuditStore:
         # None is every organization (open mode, the command line); "" is an organization.
         where, params = ("WHERE org = ?", (org,)) if org is not None else ("", ())
         with self._db.session(exclusive=False) as db:
-            # A database from before presets (read as it is): none has one.
-            preset = "preset" if "preset" in db.columns("api_keys") else "NULL AS preset"
+            # An older database, read as it is (`mendari access keys`): what it lacks is NULL
+            # (no scope, no expiry: refused, as `api_key` refuses it), and no table is no key.
+            present = db.columns("api_keys")
+            if not present:
+                return []
+            later = {"scopes": "scope", "expires_at": "expires_at", "revoked_by": "revoked_by",
+                     "replaced_by": "replaced_by", "preset": "preset"}  # fmt: skip
+            columns = ", ".join(
+                f"{name} AS {alias}" if name in present else f"NULL AS {alias}"
+                for name, alias in later.items()
+            )
             rows = db.all(
-                "SELECT id, name, role, org, scopes AS scope, created_by, created_at, "
-                f"expires_at, revoked_at, revoked_by, replaced_by, {preset} "
+                f"SELECT id, name, role, org, created_by, created_at, revoked_at, {columns} "
                 f"FROM api_keys {where} ORDER BY created_at",
                 params,
             )
@@ -2989,6 +2997,8 @@ class AuditStore:
         # None is every organization (open mode, the command line); "" is an organization.
         where, params = ("WHERE org = ?", (org,)) if org is not None else ("", ())
         with self._db.session(exclusive=False) as db:
+            if not db.columns("oauth_clients"):  # an older database, read as it is: none
+                return []
             # A database from before key-set replacement (read as it is): none was replaced.
             replaced = (
                 "keys_replaced_at"

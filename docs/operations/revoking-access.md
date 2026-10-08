@@ -8,7 +8,8 @@ line, which writes to the database directly, so it works with the server down or
 
 Every server reads each key, client, membership and session from the database on every request,
 with nothing cached in memory, so a revocation takes effect on the next request, on every
-instance, without a restart.
+instance, without a restart. Settings are different: a server reads them when it starts, so a
+change to one (`MENDARI_OIDC_ROLE_MAP`, say) needs a redeploy.
 
 ## What takes access away
 
@@ -17,14 +18,22 @@ instance, without a restart.
 | One API key | the Access view, `DELETE /api/auth/keys/{id}`, or `mendari access revoke key <id>` | the key, at once, during a rotation's overlap too |
 | One Backend Services client | the Access view, `DELETE /api/auth/clients/{id}`, or `mendari access revoke client <id>` | the client and every access token it holds |
 | Every key and client of an organization | `mendari access revoke all --org <org>` | each one still in force (an expired key is left as it is) |
-| One person, in memberships mode | remove their membership in the Access view (`DELETE /api/auth/members/{id}`) | their access to that organization, at their next request |
-| One person, in claims mode | remove them at the identity provider, or take their group out of `MENDARI_OIDC_ROLE_MAP`, then end people's sessions | a session keeps the claims it signed in with: their roles are re-read under the settings in force on every request, but the claims change only at the next sign-in |
+| One person, in memberships mode | remove their membership in the Access view (`DELETE /api/auth/members/{id}`), then revoke what they made (below) | their own access to that organization, at their next request; not the keys and clients they made |
+| One person, in claims mode | remove them at the identity provider, or take their group out of `MENDARI_OIDC_ROLE_MAP` and redeploy, then end people's sessions and revoke what they made (below) | a session keeps the claims it signed in with: their roles are re-read under the settings in force on every request, but the claims change only at the next sign-in. The role map only stops a value it translates: a claim that is already a role's name (`admin`) passes through it |
 | Everyone signed in | `mendari access end-sessions --kind people` | every person's session and every sign-in under way |
 | Every EHR launch | `mendari access end-sessions --kind launches` | every launch's session and every launch under way |
 
 Ending sessions signs people out; it does not stop them signing in again. Take away what lets
 them in first (a membership, a group at the identity provider, an EHR registration), then end
 the sessions.
+
+**What a person made outlives them.** An API key or a Backend Services client is a machine's,
+and keeps working when the person who made it loses their access, as do the invitations they
+sent and nobody has accepted. List them (`mendari access keys --org <org>` and
+`mendari access clients --org <org>`: `created_by` names who made each, or the Access view's
+keys and clients), revoke each one the person may hold the secret or private key of (or
+`revoke all --org` when in doubt), and revoke their open invitations in the Access view
+([Organizations and memberships](accounts.md)).
 
 A person's session in memberships mode and an EHR launch's are sealed under their cookie, so
 the database cannot tell whose they are: `end-sessions` ends a whole kind, never one person's or
