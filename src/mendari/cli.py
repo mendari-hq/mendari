@@ -1315,21 +1315,20 @@ def cmd_keys_register(args: argparse.Namespace) -> int:
 def cmd_monitor(args: argparse.Namespace) -> int:
     """For a scheduler: every pack's alerts (the served, newest, version of each; for one
     organization with --org, otherwise all of them together), posted to a webhook when one is
-    set; exit 1 on any. A benchmark counts only for the build and providers a server recorded
-    running (`deployments`; a model a setting chose is not recorded, so a benchmark of one is not
+    set (`mendari.alerts`: in its format, signed with its secret, tried up to three times); exit
+    1 on any alert, 3 when they could not be posted. Nothing is recorded: the database is opened
+    read-only. A benchmark counts only for the build and providers a server recorded running
+    (`deployments`; a model a setting chose is not recorded, so a benchmark of one is not
     compared), under the organization's governance (`--org`); otherwise the line says why, and
     only the checks that need no benchmark run (automated decisions rated wrong, overrides that
     doubled, provider errors, abstentions and latency)."""
-    import os
-
-    import httpx
-
+    from mendari.alerts import alert_settings, check_webhook, deliver
     from mendari.core import tenancy
-    from mendari.evals.monitoring import check_webhook, monitor, recorded_providers
+    from mendari.evals.monitoring import monitor, recorded_providers
 
-    webhook = args.webhook or os.environ.get("MENDARI_ALERT_WEBHOOK", "").strip()
-    if webhook:
-        check_webhook(webhook)  # before any work, so a typo fails at once
+    alerts = alert_settings(args.webhook)  # before any work, so a typo fails at once
+    if alerts is not None:
+        check_webhook(alerts.webhook)
     if args.pack:
         packs = [resolve_pack(args.pack)]
     else:  # the version a server serves of each pack: the newest
@@ -1354,16 +1353,24 @@ def cmd_monitor(args: argparse.Namespace) -> int:
         print(f"{report['pack']['id']}: {status}{compared}")
         for alert in report["alerts"]:
             print(f"  [{alert['severity']}] {alert['kind']}: {alert['message']}")
-    if webhook and alerting:
-        body = {
-            "source": "mendari",
-            "organization": args.org,
-            "alerts": [{"pack": r["pack"], "alerts": r["alerts"]} for r in alerting],
-        }
-        try:
-            httpx.post(webhook, json=body, timeout=10, follow_redirects=False).raise_for_status()
-        except httpx.HTTPError as error:
-            raise MendariError(f"the alert webhook failed ({type(error).__name__})") from None
+    if alerts is not None and alerting:
+        lines = [
+            f"{report['pack']['id']}: [{alert['severity']}] {alert['kind']}: {alert['message']}"
+            for report in alerting
+            for alert in report["alerts"]
+        ]
+        posted = deliver(
+            alerts,
+            event="monitor.alerts",
+            org=args.org,
+            alerts=[{"pack": r["pack"], "alerts": r["alerts"]} for r in alerting],
+            lines=lines,
+            attempts=3,
+            timeout=10,
+        )
+        if not posted:  # the warning above says why (its code), never the URL
+            print("error: the alerts could not be posted to the webhook", file=sys.stderr)
+            return 3
     return 1 if alerting else 0
 
 
