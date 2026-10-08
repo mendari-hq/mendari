@@ -1117,7 +1117,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   - [ ] **21b** The status checks file (readiness, the sign-in redirect, a synthetic decide by a
     status organization's decide-only key, the registry, the Hub), `scripts/status_checks.py`
     and a public in-app status view.
-  - [ ] **21c** (PR open) The monitor compares like with like: the served version (others
+  - [ ] **21c** (#195) The monitor compares like with like: the served version (others
     counted apart) since its current configuration started; the benchmark only for this build,
     these providers and models, and this governance (`benchmark.reason` otherwise:
     `no_benchmark`, `another_build`, `providers_unknown`, `other_providers`, `other_policy`);
