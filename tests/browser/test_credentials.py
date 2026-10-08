@@ -12,6 +12,7 @@ is generated for the test. Run with `uv run pytest -m browser`."""
 
 from __future__ import annotations
 
+import base64
 import json
 import re
 import urllib.parse
@@ -137,6 +138,19 @@ def public_pem(signer: Signer) -> str:
 
 def private_pem(signer: Signer) -> str:
     return signer.pem()
+
+
+def private_der(signer: Signer, layout: serialization.PrivateFormat) -> str:
+    """A private key's DER in base64, as a tool that prints it bare would."""
+    der = signer.private.private_bytes(
+        serialization.Encoding.DER, layout, serialization.NoEncryption()
+    )
+    return base64.b64encode(der).decode()
+
+
+def private_jwk(signer: Signer) -> dict[str, Any]:
+    family = jwt.algorithms.RSAAlgorithm if signer.alg == "RS384" else jwt.algorithms.ECAlgorithm
+    return {**json.loads(family.to_jwk(signer.private)), "kid": signer.kid}
 
 
 def jwk_without_kid(signer: Signer) -> dict[str, Any]:
@@ -352,6 +366,80 @@ def test_a_keys_history_follows_its_rotation(site: Site) -> None:
     expect(page.locator("dialog")).to_have_count(0)
 
 
+def held(page: Page, path: str) -> list[Route]:
+    """POSTs to `path` held until the test lets them go (`route.continue_()`)."""
+    waiting: list[Route] = []
+
+    def hold(route: Route) -> None:
+        if route.request.method == "POST":
+            waiting.append(route)
+        else:
+            route.fallback()
+
+    page.route(f"**{path}", hold)
+    return waiting
+
+
+def released(page: Page, waiting: list[Route]) -> None:
+    for _ in range(100):
+        if waiting:
+            break
+        page.wait_for_timeout(50)
+    assert waiting, "the POST was never sent"
+    waiting[0].continue_()
+
+
+@pytest.mark.parametrize("where", ["the clients tab", "another view"])
+def test_a_key_made_while_leaving_its_tab_is_still_shown_once(site: Site, where: str) -> None:
+    """The administrator moves on before the key's answer comes: the key exists, so it is shown
+    once all the same (a key made and never shown is lost), and nothing fails unseen."""
+    page = admin(site)
+    failures: list[str] = []
+    page.on("pageerror", lambda error: failures.append(str(error)))
+    access(page, "keys")
+    waiting = held(page, "/api/auth/keys")
+    page.fill("#key-name", "ehr")
+    page.get_by_role("button", name="Create key").click()
+    if where == "the clients tab":
+        page.locator('.tabs a[data-tab="clients"]').click()
+        expect(page.locator("#client-form")).to_be_visible()
+    else:
+        page.locator('.nav a[data-view="overview"]').click()
+        expect(page.locator('.nav a[data-view="overview"]')).to_have_class(re.compile("active"))
+    released(page, waiting)
+    expect(dialog(page).locator("#key-title")).to_have_text("API key ehr")
+    secret = dialog(page).locator("#key-secret").input_value()
+    assert KEY.fullmatch(secret), secret
+    found = site.store.api_key(secret)
+    assert found is not None and found["name"] == "ehr"
+    dialog(page).get_by_role("button", name="Done").click()
+    expect(page.locator("dialog")).to_have_count(0)
+    assert "ohk_" not in page.content()
+    if where == "the clients tab":
+        expect(page.locator('.tabs a[data-tab="clients"]')).to_have_attribute(
+            "aria-current", "page"
+        )
+    assert failures == []
+
+
+def test_a_client_registered_while_leaving_its_tab_is_said(site: Site) -> None:
+    page = admin(site)
+    failures: list[str] = []
+    page.on("pageerror", lambda error: failures.append(str(error)))
+    access(page, "clients")
+    waiting = held(page, "/api/auth/clients")
+    page.fill("#client-name", "bulk")
+    page.fill("#client-keys", json.dumps({"keys": [RSA_KEY.jwk]}))
+    page.get_by_role("button", name="Register client").click()
+    page.locator('.tabs a[data-tab="keys"]').click()
+    expect(page.locator("#key-form")).to_be_visible()
+    released(page, waiting)
+    expect(page.locator("#toast")).to_have_text("Client bulk registered.")
+    assert [c["name"] for c in site.store.clients("clinic-a")] == ["bulk"]
+    expect(page.locator('.tabs a[data-tab="keys"]')).to_have_attribute("aria-current", "page")
+    assert failures == []
+
+
 # -- the notice, mocked: memberships mode over the open-mode test server -------------------------
 
 CLINIC_A = [{"org": "clinic-a", "name": "Clinic A", "roles": ["admin"]}]
@@ -533,17 +621,29 @@ def test_a_client_is_registered_its_keys_replaced_and_revoked(site: Site) -> Non
     assert site.store.client(client["client_id"]) is None
 
 
-@pytest.mark.parametrize("pasted", ["a PEM private key", "a JWK with d", "a set with one private"])
+PRIVATE_PASTES = {
+    "a PEM private key": lambda: private_pem(EC_KEY),
+    "a JWK with d": lambda: json.dumps(private_jwk(EC_KEY)),
+    "a set with one private": lambda: json.dumps(
+        {"keys": [RSA_KEY.jwk, {"kty": "oct", "kid": "h", "k": "c2VjcmV0"}]}
+    ),
+    "a JSON array holding a private JWK": lambda: json.dumps([RSA_KEY.jwk, private_jwk(RSA_KEY)]),
+    "a JWK with d and no kty": lambda: json.dumps(
+        {k: v for k, v in private_jwk(EC_KEY).items() if k != "kty"}
+    ),
+    "a bare PKCS#8 DER": lambda: private_der(RSA_KEY, serialization.PrivateFormat.PKCS8),
+    "a bare SEC 1 DER": lambda: private_der(EC_KEY, serialization.PrivateFormat.TraditionalOpenSSL),
+    "a private DER under a PUBLIC KEY header": lambda: (
+        "-----BEGIN PUBLIC KEY-----\n"
+        f"{private_der(RSA_KEY, serialization.PrivateFormat.TraditionalOpenSSL)}\n"
+        "-----END PUBLIC KEY-----"
+    ),
+}
+
+
+@pytest.mark.parametrize("pasted", list(PRIVATE_PASTES))
 def test_a_private_key_is_refused_before_it_leaves_the_browser(site: Site, pasted: str) -> None:
-    text = {
-        "a PEM private key": private_pem(EC_KEY),
-        "a JWK with d": json.dumps(
-            json.loads(jwt.algorithms.ECAlgorithm.to_jwk(EC_KEY.private)) | {"kid": "ec-1"}
-        ),
-        "a set with one private": json.dumps(
-            {"keys": [RSA_KEY.jwk, {"kty": "oct", "kid": "h", "k": "c2VjcmV0"}]}
-        ),
-    }[pasted]
+    text = PRIVATE_PASTES[pasted]()
     said = "That is a private key: paste the public key only, and treat this one as exposed."
     client_id = make_client(site)
     page = admin(site)

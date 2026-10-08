@@ -738,7 +738,8 @@ it needs sign-in and `MENDARI_PUBLIC_URL`). An admin registers the client's publ
 (`POST /api/auth/clients`); the client signs an assertion (RS384 or ES384) and exchanges it at
 `POST /auth/token`; `/fhir/.well-known/smart-configuration` describes it. A client's public keys
 are replaced in place (`POST /api/auth/clients/{id}/keys`: same id, its tokens dropped), also
-from the Access view's Clients tab, which takes a PEM public key and refuses a private one. See
+from the Access view's Clients tab, which takes a PEM public key and refuses the private keys it
+recognises before sending anything. See
 [ADR-0004](https://github.com/Junebugg1214/mendari/blob/main/docs/decisions/ADR-0004-machine-access-tokens-and-scopes.md) and
 [deploying with real patient data](https://github.com/Junebugg1214/mendari/blob/main/docs/deploying-with-phi.md).
 

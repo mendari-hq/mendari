@@ -303,7 +303,8 @@ no authorization endpoint (no user or patient launch) and no `patient/` or `user
   API key) reads its audit chain: registered, each replacement, revoked, with who did each.
 - The dashboard's Access view does all of this for an administrator who signed in (the
   **Clients** tab, beside **API keys**), in claims mode too; it turns a pasted PEM public key
-  into a JWK and refuses a private key before anything is sent.
+  into a JWK and refuses the private keys it recognises (a PEM `PRIVATE KEY` block, a JWK with
+  private members, a private key's DER) before anything is sent.
 - To change a client's scopes, register a new client and revoke the old one.
 - The token endpoint takes 60 requests a minute per client address. After 10 failed
   assertions in 10 minutes from one address for one client, that pair gets a `429` until the

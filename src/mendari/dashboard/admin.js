@@ -234,24 +234,31 @@ function act(event) {
     "client-history": ["clients", clientHistory],
   }[button.dataset.action] ?? [];
   const item = list && adminState[list].find((row) => idOf(row) === button.dataset.id);
-  if (item) handle(item, button);
+  if (item) said(handle(item, button));
 }
+
+// A handler's failure, said (never an unhandled rejection the person never sees).
+const said = (task) => Promise.resolve(task).catch((error) => toastError(error.message));
 
 // One submit handler for the tab's form.
 function submitted(event) {
   const handle = { "invite-form": invite, "key-form": createKey, "client-form": registerClient }[event.target.id];
-  if (handle) handle(event);
+  if (handle) said(handle(event));
 }
 
 // Choosing a preset redraws what it says (and, for a key, its days), keeping what was typed.
 function changed(event) {
   const prefix = { "key-preset": "key", "client-preset": "client" }[event.target.id];
-  if (prefix) showPreset(prefix, presetById(event.target.value));
+  if (prefix) showPreset(event.target.form, prefix, presetById(event.target.value));
 }
 
-function showPreset(prefix, chosen) {
-  $(`#${prefix}-preset-detail`).innerHTML = presetDetail(prefix, chosen);
-  const days = $("#key-days");
+// Within its own form, which may have left the page meanwhile (another tab chosen while a request
+// ran): then there is nothing to draw.
+function showPreset(form, prefix, chosen) {
+  const detail = form?.querySelector(`#${prefix}-preset-detail`);
+  if (!detail) return;
+  detail.innerHTML = presetDetail(prefix, chosen);
+  const days = form.querySelector("#key-days");
   if (prefix === "key" && days) {
     days.min = String(chosen?.min_days ?? 1);
     days.max = String(chosen?.max_days ?? 365);
@@ -259,10 +266,12 @@ function showPreset(prefix, chosen) {
   }
 }
 
-// A form sent: emptied, and its preset's detail drawn again for the first preset it now shows.
+// A form sent: emptied, and its preset's detail drawn again for the first preset it now shows;
+// nothing to do for a form no longer on the page.
 function cleared(form, prefix) {
+  if (!form.isConnected) return;
   form.reset();
-  showPreset(prefix, presetById(form.querySelector(`#${prefix}-preset`).value));
+  showPreset(form, prefix, presetById(form.querySelector(`#${prefix}-preset`)?.value));
 }
 
 // -- members ------------------------------------------------------------------------------------
@@ -399,7 +408,6 @@ async function invite(event) {
     toastError(error.message);
     return;
   }
-  form.reset();
   const roleWords = made.roles.map(roleText).join(", ");
   showOnce({
     id: "link",
@@ -411,6 +419,7 @@ async function invite(event) {
     details: `Works once, for ${esc(made.email)} signed in with that address verified, until ${esc(time(made.expires_at))}. Roles: ${esc(roleWords)}.`,
     copy: "Copy link",
   });
+  if (form.isConnected) form.reset(); // after the link is shown, whatever became of the form
   await reload("invitations");
 }
 
@@ -683,8 +692,10 @@ async function createKey(event) {
     toastError(error.message);
     return;
   }
-  cleared(form, "key");
+  // The key first, whatever became of the form meanwhile (another tab, another view): it is
+  // shown once, and a key made and never shown is lost.
   showKey(made, `${keyFacts(made)}; expires ${esc(time(made.expires_at))}.`);
+  cleared(form, "key");
   await reload("keys");
 }
 
@@ -810,7 +821,7 @@ async function pastedKeys(field) {
   try {
     return await publicKeySet(field.value);
   } catch (error) {
-    if (error.privateKey) field.value = "";
+    if (error.privateKey || looksPrivate(field.value)) field.value = "";
     throw error;
   }
 }
@@ -832,8 +843,8 @@ async function registerClient(event) {
     toastError(error.message);
     return;
   }
-  cleared(form, "client");
   toast(`Client ${made.name} registered.`);
+  cleared(form, "client");
   await reload("clients");
 }
 
@@ -893,16 +904,69 @@ const PRIVATE_KEY = "That is a private key: paste the public key only, and treat
 const NOT_A_KEY = "Paste a JWK Set, a JWK or a PEM public key.";
 
 const privateKey = () => Object.assign(new Error(PRIVATE_KEY), { privateKey: true });
-const isPrivate = (jwk) => Boolean(jwk) && typeof jwk === "object"
+const isPrivate = (jwk) => Boolean(jwk) && typeof jwk === "object" && !Array.isArray(jwk)
   && (PRIVATE_MEMBERS.some((member) => Object.hasOwn(jwk, member)) || jwk.kty === "oct");
 
+// Parsed JSON holding a private or symmetric JWK anywhere: a set, an array, a JWK with no `kty`.
+// Walked with a stack, never recursion (what is walked is at most MAX_PASTED long).
+function holdsPrivate(parsed) {
+  const stack = [parsed];
+  while (stack.length) {
+    const value = stack.pop();
+    if (isPrivate(value)) return true;
+    for (const member of Object.values(value)) if (member && typeof member === "object") stack.push(member);
+  }
+  return false;
+}
+
+// Far more than a JWK Set of 10 keys takes; anything longer is refused unread.
+const MAX_PASTED = 64 * 1024;
+
+const PEM = /^-----BEGIN PUBLIC KEY-----([A-Za-z0-9+/=\s]+)-----END PUBLIC KEY-----$/;
+const BARE_BASE64 = /^[A-Za-z0-9+/=\s]{64,}$/;
+
+const derOf = (base64) => Uint8Array.from(atob(base64.replace(/\s+/g, "")), (c) => c.charCodeAt(0));
+
+// A DER private key (PKCS#1, PKCS#8 or SEC 1) is a SEQUENCE whose first member is an INTEGER, its
+// version; a public key (SPKI) or a certificate starts with a SEQUENCE.
+function derIsPrivate(base64) {
+  let der;
+  try {
+    der = derOf(base64);
+  } catch {
+    return false;
+  }
+  if (der.length < 4 || der[0] !== 0x30) return false;
+  const first = 2 + (der[1] & 0x80 ? der[1] & 0x7f : 0);
+  return der[first] === 0x02;
+}
+
+// Whether pasted text is, or holds, a private key this page recognises: any PEM `PRIVATE KEY`
+// block (PKCS#1, PKCS#8, SEC 1, OpenSSH, encrypted), JSON with a private or symmetric JWK
+// anywhere in it, or a private key's DER in base64, bare or under a PUBLIC KEY header.
+function looksPrivate(text) {
+  const pasted = String(text ?? "").trim();
+  if (/PRIVATE KEY/.test(pasted)) return true;
+  if (pasted.length > MAX_PASTED) return false;
+  if (/^[[{]/.test(pasted)) {
+    try {
+      return holdsPrivate(JSON.parse(pasted));
+    } catch {
+      return false;
+    }
+  }
+  const body = PEM.exec(pasted)?.[1] ?? (BARE_BASE64.test(pasted) ? pasted : null);
+  return body !== null && derIsPrivate(body);
+}
+
 // What was pasted, as a JWK Set to send: refused in the browser, before anything is sent, if it
-// is or holds a private key. A PEM public key (SPKI) becomes a JWK here, its `kid` its RFC 7638
-// thumbprint. The server's check of what is stored (backend_services.check_jwks) stays the only
-// one that counts.
+// is or holds a private key (`looksPrivate`). A PEM public key (SPKI) becomes a JWK here, its
+// `kid` its RFC 7638 thumbprint. The server's check of what is stored
+// (backend_services.check_jwks) stays the only one that counts.
 export async function publicKeySet(text) {
   const pasted = String(text ?? "").trim();
-  if (/PRIVATE KEY/.test(pasted)) throw privateKey();
+  if (looksPrivate(pasted)) throw privateKey();
+  if (pasted.length > MAX_PASTED) throw new Error("That is too long for a JWK Set: paste the public keys only.");
   if (pasted.startsWith("{")) {
     let parsed;
     try {
@@ -912,10 +976,9 @@ export async function publicKeySet(text) {
     }
     const keys = Array.isArray(parsed?.keys) ? parsed.keys : parsed && typeof parsed === "object" && "kty" in parsed ? [parsed] : null;
     if (!keys) throw new Error(NOT_A_KEY);
-    if (isPrivate(parsed) || keys.some(isPrivate)) throw privateKey();
     return { keys };
   }
-  const pem = /^-----BEGIN PUBLIC KEY-----([A-Za-z0-9+/=\s]+)-----END PUBLIC KEY-----$/.exec(pasted);
+  const pem = PEM.exec(pasted);
   if (pem) return { keys: [await jwkFromSpki(pem[1])] };
   throw new Error(NOT_A_KEY);
 }
@@ -929,7 +992,7 @@ async function jwkFromSpki(base64) {
   if (!globalThis.crypto?.subtle) throw new Error("This page can't read a PEM key here: paste it as a JWK.");
   let der;
   try {
-    der = Uint8Array.from(atob(base64.replace(/\s+/g, "")), (c) => c.charCodeAt(0));
+    der = derOf(base64);
   } catch {
     throw new Error(NOT_A_KEY);
   }

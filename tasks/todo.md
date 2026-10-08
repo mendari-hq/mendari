@@ -597,7 +597,7 @@ Connect) is not supported yet.
       Found in review: removing a member revokes the organization's open invitations made out
       to their address (one refused as `member` stayed open, and let them straight back in);
       the administrators' security-log lines are pinned by a test.
-    - [ ] **12f-ii** (PR open) The dashboard and the invitation page. `/invite` (memberships
+    - [x] **12f-ii** (#177, merged 2026-10-08) The dashboard and the invitation page. `/invite` (memberships
       mode only, 404 otherwise) is public and static, never a redirect: a hashed inline script
       takes the token from the fragment and clears the address before anything else loads; the
       token waits in this tab's `sessionStorage` through sign-in (a button, `next=/invite`
@@ -617,7 +617,20 @@ Connect) is not supported yet.
   - [ ] **12g** The organization bound into each chained event (memberships mode), checked by
     `verify`; per-organization administrative reader and export; the generated two-organization
     isolation test with its reviewed allow-list.
-  - [ ] **12h** The Access screen; a client's key set replaced; credential history.
+  - [ ] **12h** (PR open) The Access view's API keys and Clients tabs, for people holding
+    `keys`, in claims mode too (the people tabs stay memberships-only): a key made from a preset
+    (the table drives role, scope and days, what it reaches and its guide) or by hand, its secret
+    shown once (the invitation link's dialog), rotate with an overlap, revoke, history; a SMART
+    Backend Services client registered from a JWK Set or a PEM public key (made a JWK in the
+    browser, its `kid` the RFC 7638 thumbprint; a private key refused before anything is sent),
+    its key set replaced (`POST /api/auth/clients/{id}/keys`: same id, its tokens dropped, and a
+    `keys_version` stamped on each token refuses one whose assertion was checked against the old
+    set, the race a DELETE alone leaves), revoked, its history. Credential history
+    (`GET …/keys/{id}/history`, `…/clients/{id}/history`) reads one subject's chain through its
+    row's organization (`SUBJECT_TABLES`, `subject_history`, agreed with the LP-12g session as
+    the one registry its verify and organization reader extend); another organization's is a
+    404 naming no id. Key status worked out by the server; the clients' `keys_replaced_at`; the
+    signed-in health's `backend_services`.
   - [ ] **12i** Key presets in one table (API, screen, docs, doc-snippet checks).
     - [ ] **12i-i** (PR open) The table (`server/presets.py`: rest, fhir, ai-guard, cds-hooks,
       da-vinci, outcomes, fhir-reader; the FHIR ones name their types, never `system/*`),
@@ -703,6 +716,41 @@ Connect) is not supported yet.
      in yet" and can be changed or removed; they never count as an administrator.
   30. (12f-ii) The browser tests run on SQLite; tests/test_memberships.py keeps both databases
      covered.
+  31. (12h) Credential history reads one subject's chain (`key:<id>`, `client:<id>`), oldest
+     first: the 200 newest events, with `truncated`; attributed through the row's organization
+     (ADR-0008), so another organization's is a 404. No `seq` or hashes until the owner decides.
+  32. (12h) A rotated key's history is its own; the old and the new name each other (`replaces`,
+     `replaced_by`). The other choice: one lineage view.
+  33. (12h) Replacing a client's key set is a POST (the notice gate counts it as minting): same
+     client id, role and scopes, its tokens dropped at once, no overlap (a gapless switch is two
+     replacements, the old and new keys and then the new alone); sending the same set only drops
+     the tokens; its daily cap and rate buckets carry across; changing scopes is a new client.
+  34. (12h) `client.keys_replaced` always carries the organization, both key summaries (ids and
+     thumbprints), the count of tokens dropped and `replaced_by` as the actor, as the client's
+     other events name it (conflict 9 covers the LP-12 records, not the credential events). The
+     other choice: a `user:` id.
+  35. (12h) "Last used" is not shown: nothing records it, and recording it is a write on every
+     request. The other choice: a day column written at most once a day per key.
+  36. (12h) Key status (`active`, `replaced`, `expired`, `revoked`) is worked out by the server;
+     the client list gains `keys_replaced_at`. Both additive.
+  37. (12h) In claims mode an administrator who signed in sees the Access view with its API keys
+     and Clients tabs only (ADR-0008); this amends 21 and 22. Open mode has no view.
+  38. (12h) The Clients tab is absent when Backend Services is off: the dashboard reads the
+     signed-in health's `backend_services` (null or `{token_endpoint}`), never a 404 probe.
+  39. (12h) Scoped presets pre-fill a client's role and scope; a client stores no preset label.
+     `rest` (no scope) is for keys only.
+  40. (12h) A preset's guide links to the docs site (`DOCS_SITE`, kept equal to mkdocs.yml's
+     `site_url` by a test); the links work once the site is published (owner step 9).
+  41. (12h) "Made by" for keys and clients is the recorded actor: "You", a member's name where it
+     matches (memberships mode), else the text as recorded, escaped.
+  42. (12h) Revoke is offered on any key not revoked (expired ones too); rotate on an active key,
+     and on a replaced one whose replacement was revoked.
+  43. (12h) A pasted private key is refused in the browser before anything is sent; a PEM public
+     key becomes a JWK there. The server's `check_jwks` stays the only check of what is stored.
+  44. (12h) History is a dialog on a row, not a tab, and not LP-12g's organization reader (which
+     extends the same store method).
+  45. (12h) A new or rotated key's secret is shown once, as the invitation link is (25): only in
+     the input's value, cleared when the dialog closes or the view is left.
 
   **Owner decisions** (none blocks a PR; each PR follows the recommended default): switching
   the hosted site to memberships mode, and when; the owner's identity for bootstrap (the

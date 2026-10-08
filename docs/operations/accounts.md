@@ -170,8 +170,12 @@ new key is shown once, as an invitation link is; rotating one (with the hours th
 working) shows the new one once and says when the old one stops. Revoking asks first. **Clients**
 are registered with a preset's scope or one chosen by hand, and their public keys: a JWK Set, a
 JWK, or a PEM public key, which the page turns into a JWK (its `kid` the key's RFC 7638
-thumbprint). A private key pasted there is refused before anything is sent, and cleared from the
-page: treat it as exposed. **Replace keys…** replaces a client's key set (its tokens stop at
+thumbprint). The page refuses the private keys it recognises before anything is sent, and clears
+them from the page: a PEM `PRIVATE KEY` block, JSON holding a JWK with private or symmetric
+members (as a set, an array or a lone JWK), and a private key's DER in base64, bare or under a
+`PUBLIC KEY` header. Treat a key refused that way as exposed. Text it cannot read as a public key
+is not sent either; what it sends, the server checks again, and it refuses any private or
+symmetric member by name. **Replace keys…** replaces a client's key set (its tokens stop at
 once); revoking asks first. Each key and client has a **History**: its audit chain events, oldest
 first, with who did each (a rotated key's history links to its replacement's). Who made a key or
 client is "You", a member's name, or what the chain recorded (an e-mail address or
