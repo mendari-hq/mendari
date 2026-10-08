@@ -452,13 +452,21 @@ def submit_prior_authorization(
     `payer_says` may change); its decision id."""
     from mendari.sandbox import payer
     from tests.test_davinci import COMPLETE, PA, request
-    from tests.test_pas import COVERAGE, INSURER, PATIENT, REQUESTER
+    from tests.test_pas import (
+        COVERAGE,
+        INSURER,
+        PATIENT,
+        REQUESTER,
+        REVIEW_ACTION,
+        site_settings,
+    )
     from tests.test_prior_auth_pack import _order
 
     monkeypatch.setenv("MENDARI_PAS_PAYER_URL", "https://payer.example/fhir")
+    site_settings(monkeypatch)  # the X12 codes: a site's settings (Mendari ships none)
 
     def payer_endpoint(http_request: httpx.Request) -> httpx.Response:
-        answer = payer.respond(json.loads(http_request.content))
+        answer = payer.respond(json.loads(http_request.content), review_action=REVIEW_ACTION)
         for entry in answer["entry"]:
             if entry["resource"]["resourceType"] == "ClaimResponse":
                 entry["resource"]["preAuthRef"] = "AUTH-4821937"

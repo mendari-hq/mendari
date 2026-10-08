@@ -16,6 +16,20 @@ The first release (not yet published).
   Clinical Trial Prescreener, Referral Router, Prior Authorization Preflight and AI Guard. None
   is clinically reviewed or for patient care.
 - **Standards:** a FHIR R4 adapter and CDS Hooks service.
+- **Da Vinci PAS: X12 codes are the site's (breaking).** Mendari ships no X12 code value (X12's
+  code lists are under X12's terms; the owner's decision of 2026-10-07, LP-14). A PAS request no
+  longer fills in its request type and certification type, nor the Coverage's code for self and
+  the organizations' entity codes: the request gives them (`request_type` and
+  `certification_type` on `POST /api/packs/{pack}/pas`, `--request-type` and
+  `--certification-type` on `mendari pas build`), else the settings `MENDARI_PAS_REQUEST_TYPE`,
+  `MENDARI_PAS_CERTIFICATION_TYPE` and, for a service type neither the request nor the order
+  gives, `MENDARI_PAS_SERVICE_TYPE`. Without one of those three the request is refused (`422`,
+  or exit 1) naming its setting. `MENDARI_PAS_SELF_RELATIONSHIP`, `MENDARI_PAS_PAYER_ENTITY`
+  and `MENDARI_PAS_REQUESTER_ENTITY` are optional, as in PAS: unset, those codes are left out
+  (the Coverage then names the patient as its subscriber). With the values Mendari used to fill
+  in set as settings, a request is byte for byte what it was. The sandbox payer answers with
+  `MENDARI_SANDBOX_PAYER_REVIEW_ACTION`, or with no review action code when it is unset, and
+  its disposition says "Approved". Anyone who relied on the old values sets them.
 - **Governance:** a review queue, an append-only hash-chained audit trail on SQLite or Postgres,
   PHI modes (off, hash, encrypt) with key rotation, retention, and an evaluation harness with
   Decision Cards.

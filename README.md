@@ -570,13 +570,23 @@ missing. It is validated against DTR 2.2.0 in CI, and a pack declares it with
 
 **Da Vinci PAS.** For a complete request (`submit_ready`), `POST /api/packs/{pack}/pas` (or
 `mendari pas build`) builds the PAS request Bundle. It holds a `preauthorization` Claim, the
-patient, Coverage, payer, requesting organization and order from the EHR, and the X12 service
-type and place of service. Nothing is filled in: a missing element is an error that names it.
+patient, Coverage, payer, requesting organization and order from the EHR, the place of service,
+and the X12 codes PAS asks for. Nothing is filled in: a missing element is an error that names it.
+Mendari ships no X12 code value (X12's code lists are under X12's terms): each comes from the
+request (`request_type`, `certification_type`, `service_type`; flags `--request-type` and so on),
+else the order (the service type), else the site's settings `MENDARI_PAS_REQUEST_TYPE`,
+`MENDARI_PAS_CERTIFICATION_TYPE` and `MENDARI_PAS_SERVICE_TYPE`. Those three are required, and
+the error names the setting. The codes PAS makes optional are sent only when set:
+`MENDARI_PAS_SELF_RELATIONSHIP` (the Coverage's code for self), `MENDARI_PAS_PAYER_ENTITY` and
+`MENDARI_PAS_REQUESTER_ENTITY` (the organizations' entity codes).
 With `submit`, a decision that was automated, or that a reviewer resolved as `submit_ready`,
 goes to the payer's `Claim/$submit` (`MENDARI_PAS_PAYER_URL`, allow-listed),
 and the payer's decision is chained on the decision as codes: its outcome and review actions
-(text in their place is dropped). Its authorization number and disposition are kept as a note. The sandbox has a mock payer (`mendari sandbox payer`, compose service `payer`).
-The request and the payer's answer validate against PAS 2.2.1 in CI.
+(text in their place is dropped). Its authorization number and disposition are kept as a note. The sandbox has a mock payer (`mendari sandbox payer`, compose service `payer`). It
+answers with the review action code `MENDARI_SANDBOX_PAYER_REVIEW_ACTION` gives, or with none,
+which PAS allows; the compose sandbox sets its own codes.
+The request and the payer's answer validate against PAS 2.2.1 in CI, with every X12 code a site
+may set and with only those PAS requires.
 
 **OMOP CDM.** Research data in OMOP (SQLite or Postgres, with an optional schema such as `cdm`)
 becomes record-pack inputs, one per person, for population-level evaluation:

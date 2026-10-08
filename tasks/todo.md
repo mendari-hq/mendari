@@ -294,6 +294,36 @@ behaviour.
   coming back; a licence of nested parentheses crashing the loader; `WITH OR` accepted; any
   `urn:` system refused; the SNOMED CT, ICD-10-CM and psycopg wording; the trial dataset's
   SNOMED CT codes left out of the record), all fixed.
+  **X12 (owner, 2026-10-07): code values out of the packages; a site supplies them as settings.**
+  After a licensing analysis the owner received in October 2026 (not a legal opinion). Built on
+  `claude/lp14-x12-settings` (draft PR): nothing in src/, packs/, datasets/, README or NOTICE
+  carries an X12 code value; the code-system urls (names, from HL7's CC0 PAS guide) stay.
+  Inventory of what shipped: the request type and certification type `request_bundle` filled in,
+  the Coverage's code for self and the payer's and requester's entity codes `pas.py` filled in,
+  the sandbox payer's review action, the service type in `mendari pas build --help`, and two
+  docstrings naming review actions (none in packs, datasets, the dashboard, the snippets or the
+  OpenAPI examples). Now: `MENDARI_PAS_REQUEST_TYPE`, `MENDARI_PAS_CERTIFICATION_TYPE` and
+  `MENDARI_PAS_SERVICE_TYPE` (the request, then the order, then the setting; flags
+  `--request-type`, `--certification-type`; API fields `request_type`, `certification_type`),
+  required by PAS, so one nothing gives is a `PasError` naming its setting; the optional
+  `MENDARI_PAS_SELF_RELATIONSHIP`, `MENDARI_PAS_PAYER_ENTITY`, `MENDARI_PAS_REQUESTER_ENTITY`,
+  left out when unset (PAS 2.2.1: the X12 relationship slice is 0..1 and Organization.type
+  0..*; its `self-beneficiary` rule then needs the subscriber, so the Coverage names the patient,
+  checked with the pinned HL7 validator, which fails the request without it). The sandbox payer's
+  review action is `MENDARI_SANDBOX_PAYER_REVIEW_ACTION`; unset, it omits the code (optional in
+  PAS's `extension-reviewAction`; validated), and its disposition no longer quotes X12's words.
+  With the old values as settings the sample request is byte for byte what it was (a digest
+  test); the prior-auth pack is unchanged (no pack file touched). `tests/test_x12_values.py`
+  scans every shipped file (data as data, Python as code, every line that speaks of X12).
+  **Conflict with the build prompt (for the owner):** it asked to list the X12 values left in
+  repository-only files in NOTICE's repository section, but NOTICE ships in the sdist, the wheel
+  and the image, so NOTICE names the files and not the values. **Open, for X12's written
+  answer:** the values the repository still carries as test and sandbox configuration
+  (`tests/test_pas.py`, `tests/test_notes.py`, `tests/test_x12_values.py`,
+  `scripts/davinci_sample.py`, `docker-compose.yml`) and quoted in `notes/vision-audit-evidence.md`:
+  request type HS (1525), certification type I (1322), service type 62 (1365), relationship 18
+  (1069), entity codes PR and 1P (98), review actions A1 and A3 (306), all without their
+  descriptions, plus A4 in the scan's list of former values.
 
 - [x] **LP-15** What the docs promise, and the local loop. Split in three PRs (recommended):
   - [x] **LP-15a** The local loop (#147, merged 2026-10-07). One top-level error handler for every `mendari`
