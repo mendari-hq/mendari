@@ -635,6 +635,16 @@ Connect) is not supported yet.
       `mendari audit export --administrative [--org]`. Memberships mode leaves the deployment's
       views to the operator (decision 5): verify and deployments `404`, health without totals,
       a deployment hold without its reason and setter; the dashboard follows.
+    - [ ] **12g-iii** (PR open) The isolation test (`tests/test_isolation.py`): two organizations,
+      each with people of every role, API keys, Backend Services clients signed with its own key
+      and an EHR launch from its own tenant, seed through the API with a marker in every free
+      text; then every mounted route is called with the other's live ids (refused as an unknown
+      id is, nothing written) and with its own (served). Every answer is scanned for the other's
+      markers, ids, secrets and event hashes (echoes and the reviewed `FIELDS` taken out); reads
+      answer the same before and after the other works; every event chained is the caller's;
+      no signed-in call reads as every organization (probes on tenancy and on the store); a
+      route nothing calls and the allow-list (`DEPLOYMENT_WIDE`) does not name fails it. Both
+      account modes, SQLite and Postgres; each of eleven isolation mutants fails it.
   - [ ] **12h** (PR open) The Access view's API keys and Clients tabs, for people holding
     `keys`, in claims mode too (the people tabs stay memberships-only): a key made from a preset
     (the table drives role, scope and days, what it reaches and its guide) or by hand, its secret
