@@ -75,6 +75,11 @@
         <span class="signed-in-name" id="signed-in-name"></span>
         <button type="button" id="sign-out">Sign out</button>
       </span>
+      <!-- Memberships mode, a person in several organizations: which one this browser acts for. -->
+      <label class="org-picker" hidden>
+        <span class="setting-name">Organization</span>
+        <select id="org-select"></select>
+      </label>
       <label class="pack-picker">
         <span class="setting-name">Decision Pack</span>
         <select id="pack-select"></select>
@@ -86,6 +91,14 @@
   <!-- After a 401 for someone who was signed in (ui.js): the session ended, idle or at its limit. -->
   <div class="session-ended" id="session-ended" hidden>
     Your session ended. <a id="sign-in-again" href="/auth/login">Sign in again.</a>
+  </div>
+  <!-- Memberships mode (ui.js): the membership this window acts with ended; or another
+       organization was chosen in another window since this one opened. -->
+  <div class="session-ended" id="access-ended" hidden>
+    Your access to this organization ended. <button type="button" data-reload>Reload</button> to see what you can do now.
+  </div>
+  <div class="session-ended" id="org-changed" hidden>
+    This window shows another organization than the one you chose since. <button type="button" data-reload>Reload it</button>
   </div>
   <!-- After a 401 from the launch's own routes (ui.js): only the EHR can launch again. -->
   <div class="session-ended" id="launch-ended" hidden>This EHR launch ended. Open Mendari again from the EHR.</div>

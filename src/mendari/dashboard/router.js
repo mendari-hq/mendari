@@ -19,7 +19,10 @@ export function route() {
   if (state.launchOnly && (name !== "patient" || !named.length)) {
     return { view: "patient", params: state.launchPin ? [state.launchPin] : [] };
   }
-  return { view: views[name] ? name : "overview", params: named };
+  // Memberships mode, a person acting for no organization: the access page (access.js) and
+  // nothing else; reached no other way.
+  if (state.noAccess) return { view: "access", params: [state.noAccess] };
+  return { view: views[name] && name !== "access" ? name : "overview", params: named };
 }
 
 // A route change inside the current view (opening a record, switching a tab) updates that view in
@@ -97,7 +100,7 @@ export const wire = (root) => {
 };
 
 export async function refreshReviewCount() {
-  if (state.launchOnly) return; // no review queue for a launch
+  if (state.launchOnly || state.noAccess) return; // no review queue for a launch, or no access
   try {
     const pending = await api(`/api/review?pack_id=${encodeURIComponent(state.packId)}&limit=500`);
     $("#review-count").textContent = pending.length || "";

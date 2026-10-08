@@ -131,7 +131,11 @@ export const priorityBadge = (p) => `<span class="badge p-${esc(p)}" title="prio
 export const icon = (name) => `<svg class="icon" aria-hidden="true"><use href="#i-${name}"/></svg>`;
 
 export async function api(path, options = {}, asked = false) {
-  const response = await fetch(path, { headers: { "content-type": "application/json" }, ...options });
+  // Memberships mode: the organization this window shows goes with each request, so one meant for
+  // it never lands in another chosen since in a second window (the server answers 409).
+  const pin = state.accounts === "memberships" && state.me?.org ? { "x-mendari-org": state.me.org } : {};
+  const headers = options.headers ? { ...pin, ...options.headers } : { "content-type": "application/json", ...pin };
+  const response = await fetch(path, { ...options, headers });
   const body = await response.json().catch(() => null);
   // Refused for want of the notice's acknowledgement (a new version since the dashboard opened):
   // ask, then try once more (notice.js).
@@ -140,6 +144,8 @@ export async function api(path, options = {}, asked = false) {
     await acknowledgeNotice();
     return api(path, options, true);
   }
+  if (response.status === 403 && body?.error === "NoOrganization" && state.accounts === "memberships") throw accessEnded();
+  if (response.status === 409 && body?.error === "OrganizationChanged") throw organizationChanged();
   if (response.status === 401 && path.startsWith("/api/smart/")) throw launchEnded();
   if (response.status === 409 && path.startsWith("/api/smart/")) throw launchReplaced();
   if (response.status === 401 && signedIn()) throw sessionEnded();
@@ -161,6 +167,32 @@ function sessionEnded() {
     announce(SESSION_ENDED, { error: true });
   }
   return new Error(SESSION_ENDED);
+}
+
+// Memberships mode: the membership this window acts with ended (removed, or given again and not
+// chosen since). Said where it stays, for a window that had an organization; reloading shows what
+// the person may do now.
+export const ACCESS_ENDED = "Your access to this organization ended.";
+
+function accessEnded() {
+  return banner("#access-ended", ACCESS_ENDED, Boolean(state.me?.org));
+}
+
+// Memberships mode: another organization was chosen in another window since this one opened.
+export const ORGANIZATION_CHANGED = "This window shows another organization than the one you chose since.";
+
+function organizationChanged() {
+  return banner("#org-changed", ORGANIZATION_CHANGED, true);
+}
+
+function banner(selector, message, shown) {
+  const box = $(selector);
+  if (shown && box.hidden) {
+    box.querySelector("[data-reload]").onclick = () => location.reload();
+    box.hidden = false;
+    announce(message, { error: true });
+  }
+  return new Error(message);
 }
 
 // A 401 from the launch's own routes: the EHR launch ended (idle, its limit, the EHR's token, or
@@ -215,8 +247,11 @@ export function storageSet(key, value) {
 // `launchOnly`: an EHR launch and no one signed in (sign-in on): the patient view is all there is,
 // the packs come from the launch's session, and nothing else is asked of the API. `launchPin`: the
 // launch this window is pinned to (dashboard/patient.js), kept when the address loses it.
+// `accounts`: "claims" or "memberships" (`/api/auth/me`); `memberships`: the person's own, in
+// memberships mode; `noAccess`: why they see the access page instead of the sections (access.js).
 export const state = {
   packs: [], packId: null, detail: null, view: null, smart: null, me: null, launchOnly: false, launchPin: null, phiMode: "off",
+  accounts: "claims", memberships: [], noAccess: null,
   timezone: DEFAULT_TIMEZONE, timeFormat: timeFormatFor(DEFAULT_TIMEZONE), shortFormat: shortFormatFor(DEFAULT_TIMEZONE),
 };
 

@@ -17,6 +17,7 @@ const SHAPES = {
   card: () => `${repeat(3, `${bar("heading")}${repeat(3, bar("line"))}`)}`,
   try: () => `${bar("toolbar")}${bar("form")}`,
   patient: () => `${bar("toolbar")}${repeat(3, bar("card"))}`,
+  access: () => `${bar("form")}`,
 };
 
 export function skeleton(view) {

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Boot: theme, time zone, packs, then the first view. Imports every view so it registers.
 
+import { chooseOrganization } from "./access.js";
 import { acknowledgeNotice } from "./notice.js";
 import "./overview.js";
 import "./review.js";
@@ -40,10 +41,29 @@ async function boot() {
     api("/api/smart/session").catch(() => null), api("/api/auth/me").catch(() => null),
   ]);
   showSignedIn(me);
-  if (me?.signed_in) await acknowledgeNotice();
+  // Memberships mode (ADR-0008): a person acting for no organization (none chosen yet, or theirs
+  // ended) chooses one or asks to join one; one whose roles grant nothing is told so. Neither
+  // has sections or packs, nor a notice to acknowledge (the server would refuse them all).
+  const person = state.accounts === "memberships" && me?.signed_in && me.principal.kind === "user";
+  const noOrganization = Boolean(person && me.principal.org === null);
+  if (person) {
+    if (noOrganization) state.noAccess = state.memberships.length ? "choose" : "none";
+    else if (!me.principal.permissions.length) state.noAccess = "nothing";
+  }
+  if (me?.signed_in && !state.noAccess) await acknowledgeNotice();
   state.smart = session?.active ? session : null;
-  state.launchOnly = Boolean(state.smart && me?.mode === "sign-in" && !me.signed_in);
+  // An EHR launch in a browser whose person has no organization here: the launch's view alone.
+  state.launchOnly = Boolean(state.smart && me?.mode === "sign-in" && (!me.signed_in || noOrganization));
+  if (state.launchOnly) state.noAccess = null;
   showLaunch();
+  if (state.noAccess) {
+    $(".pack-picker").hidden = true;
+    document.querySelectorAll(".nav a[data-view]").forEach((a) => (a.hidden = true)); // the docs stay
+    window.addEventListener("hashchange", onHashChange);
+    render();
+    return;
+  }
+  showOrganization();
   state.packs = state.launchOnly ? state.smart.packs ?? [] : await api("/api/packs");
   const select = $("#pack-select");
   if (!state.packs.length) {
@@ -97,17 +117,46 @@ function showLaunch() {
   if (state.launchOnly) document.querySelectorAll(".nav a").forEach((a) => (a.hidden = a !== link));
 }
 
-// With sign-in on, the bar names who is signed in (and their role) and offers signing out.
+// With sign-in on, the bar names who is signed in (and their role) and offers signing out. In
+// memberships mode, also the organization they act for (or that they act for none).
 function showSignedIn(me) {
   state.me = me?.principal ?? null;
+  state.accounts = me?.accounts ?? "claims";
+  state.memberships = me?.memberships ?? [];
   const box = $("#signed-in");
   box.hidden = !me?.signed_in;
   if (!me?.signed_in) return;
-  $("#signed-in-name").textContent = `${me.principal.name} · ${me.principal.roles.join(", ")}`;
+  const { name, roles, org } = me.principal;
+  const held = state.memberships.find((m) => m.org === org);
+  let shown = `${name} · ${roles.join(", ")}`;
+  if (state.accounts === "memberships" && me.principal.kind === "user") {
+    shown = org === null ? `${name} · no organization` : `${name} · ${held?.name ?? org} · ${roles.join(", ")}`;
+  }
+  $("#signed-in-name").textContent = shown;
   $("#signed-in-name").title = `The audit trail records you as ${me.principal.actor}`;
   $("#sign-out").addEventListener("click", async () => {
     await api("/auth/logout", { method: "POST" }).catch(() => null);
     location.assign("/auth/login");
+  });
+}
+
+// Memberships mode, a person in one of several organizations: switch between them. The choice is
+// this browser's; other windows still showing the one before are refused until reloaded.
+function showOrganization() {
+  if (state.accounts !== "memberships" || !state.me?.org || state.memberships.length < 2) return;
+  const select = $("#org-select");
+  select.replaceChildren(...state.memberships.map((m) => {
+    const option = document.createElement("option");
+    option.value = m.org;
+    option.textContent = m.name; // text, never markup: a name is what an administrator typed
+    return option;
+  }));
+  select.value = state.me.org;
+  $(".org-picker").hidden = false;
+  select.addEventListener("change", async () => {
+    const wanted = select.value;
+    select.value = state.me.org; // until the server agrees
+    await chooseOrganization(wanted);
   });
 }
 
