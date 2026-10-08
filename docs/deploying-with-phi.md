@@ -159,8 +159,10 @@ Give each key the least it needs:
   Hooks, DTR, PAS and the REST routes), needs `https://mendari.co/fhir/scope/decide`, and
   recording an outcome `https://mendari.co/fhir/scope/outcome`. An EHR that only calls CDS
   Hooks services needs `{"role": "service", "scope": "https://mendari.co/fhir/scope/decide"}`.
-  No scope reaches Mendari's own reads under `/api` or the CDS Hooks discovery list
-  (`GET /cds-services`): read those signed in, or with an unscoped key.
+  Deciding implies finding what to decide with: a decide-scoped key also reads the two lists of
+  the packs it may decide with, `GET /api/packs` and the CDS Hooks discovery list
+  (`GET /cds-services`), and nothing else under `/api` (ADR-0004 as amended). For any other
+  read, sign in, or use an unscoped key.
 - **Expiry**: `days`, 90 unless asked, 365 at most. Rotate a key before it expires
   (`POST /api/auth/keys/{id}/rotate`, section 3): `GET /api/auth/keys` shows when each does.
 

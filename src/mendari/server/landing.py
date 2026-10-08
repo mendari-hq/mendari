@@ -80,6 +80,7 @@ _ORDER = (
     "launch",
     "launch_decide",
     "read",
+    "discover",
     "decide",
     "outcome",
     "review",
@@ -96,6 +97,8 @@ _WHO = {
     "launch": "an EHR launch from an EHR registered here: never a person's session, a key or a "
     "token",
     "launch_decide": "an EHR launch from an EHR registered here to decide",
+    "discover": "every role, and a key or token scoped to decide (the lists of the packs it may "
+    "decide with): never an EHR launch",
 }
 _LISTED = 8  # a row with more calls than this folds them away
 

@@ -8,6 +8,11 @@
 - **Mendari's own actions** use URI scopes on mendari.co: `DECIDE` for every decision entry point
   (`$decide` included) and `OUTCOME` for recording what happened downstream. `system/Task.c` and
   `.u` would tell a SMART client that `POST /fhir/Task` works; it does not (ADR-0003).
+- **Deciding implies discovering** (ADR-0004 as amended, LP-12c): `DECIDE` also grants
+  `DISCOVER`, the read-only lists of the packs a credential may decide with (`GET /api/packs`,
+  `GET /cds-services`), so one decide-scoped credential finds what it decides with. No other
+  read: a pack's detail, examples, datasets, `/openapi.json` and the audit stay closed to a
+  scoped credential. No scope URI of its own.
 
 A `Grant` only narrows: a principal's effective permissions are its role's intersected with its
 grant's, and a principal with no grant keeps its role's. A scoped principal reaches only the
@@ -32,6 +37,7 @@ OUTCOME = "https://mendari.co/fhir/scope/outcome"
 # Mendari's URI scopes and the permission each grants.
 ACTIONS: dict[str, str] = {DECIDE: "decide", OUTCOME: "outcome"}
 READ = "read"  # the permission every FHIR read scope grants
+DISCOVER = "discover"  # the permission DECIDE implies: the lists of packs to decide with
 # The FHIR types `/fhir` serves to read (`r`, read and vread) and search (`s`). No NamingSystem
 # search is served, so `system/NamingSystem.rs` is not granted.
 SERVED: dict[str, str] = {
@@ -59,9 +65,11 @@ class Grant:
 
     @property
     def permissions(self) -> frozenset[str]:
-        """The Mendari permissions the scopes stand for (intersected with a role's)."""
+        """The Mendari permissions the scopes stand for (intersected with a role's); `DECIDE`
+        brings `DISCOVER` with it."""
         read = {READ} if self.fhir else set()
-        return frozenset(read | {ACTIONS[uri] for uri in self.actions})
+        discover = {DISCOVER} if DECIDE in self.actions else set()
+        return frozenset(read | discover | {ACTIONS[uri] for uri in self.actions})
 
     def covers(self, needed: str) -> bool:
         """Whether this grant includes the scope a route needs (from `needed()`)."""
@@ -175,6 +183,9 @@ _ROUTE_SCOPES: list[tuple[str, re.Pattern[str], str]] = [
         ("POST", r"^/fhir/\$decide$", DECIDE),
         ("POST", r"^/fhir/Questionnaire/\$questionnaire-package$", DECIDE),  # Da Vinci DTR
         ("POST", r"^/api/audit/[^/]+/outcome$", OUTCOME),
+        # The lists of packs a credential may decide with, which deciding needs (`DISCOVER`).
+        ("GET", r"^/api/packs$", DECIDE),
+        ("GET", r"^/cds-services$", DECIDE),
     ]
 ]
 
