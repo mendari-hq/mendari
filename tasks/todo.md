@@ -617,6 +617,16 @@ Connect) is not supported yet.
   - [ ] **12g** The organization bound into each chained event (memberships mode), checked by
     `verify`; per-organization administrative reader and export; the generated two-organization
     isolation test with its reviewed allow-list.
+    - [ ] **12g-i** (PR open) The binding and its check. A memberships-mode server marks the
+      database (`org_bound`, a settings row); every store that opens a marked one, the command
+      line's included, names in each event the organization of the row it is about, read in
+      the same transaction (`_bound`; the 14 kinds of before only when marked, every other kind
+      but the deployment's always, which `_append_many` enforces). `verify` checks it by kind
+      (`DECISION_KINDS`, `ADMINISTRATIVE_KINDS` with `SUBJECT_TABLES`; a person's, the
+      deployment's and unknown kinds unchecked, so a rollback never fails on a later release's)
+      and answers `"reason": "organization"` at the first event whose row was moved or deleted.
+      The answers of a review and a rating are unchanged (only the chained copy is bound); the
+      previous release's `verify` passes a bound chain.
   - [ ] **12h** (PR open) The Access view's API keys and Clients tabs, for people holding
     `keys`, in claims mode too (the people tabs stay memberships-only): a key made from a preset
     (the table drives role, scope and days, what it reaches and its guide) or by hand, its secret

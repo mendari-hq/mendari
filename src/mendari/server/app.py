@@ -398,7 +398,10 @@ def create_app(
     webhook = os.environ.get("MENDARI_ALERT_WEBHOOK", "").strip()
     if org_limits and webhook:
         check_webhook(webhook)  # likewise: a quota's alert must be able to leave
-    store = AuditStore(db_path, migrate_url=migrate_url, phi=phi)
+    # Memberships mode marks the database: from then on each event names its organization,
+    # whichever mode or command opens it (LP-12g, ADR-0008).
+    bind_org = sign_in is not None and sign_in.accounts == "memberships"
+    store = AuditStore(db_path, migrate_url=migrate_url, phi=phi, bind_org=bind_org)
     store.ready_to_keep()  # never `off` on a protected database, nor a retired PHI key
     acknowledgement = notices.mode()  # read once; a bad value fails at startup
     acknowledged: set[str] = set()  # chain ids found acknowledged: an acknowledgement stays
