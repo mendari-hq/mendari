@@ -38,7 +38,7 @@ from mendari.errors import (
     ProviderError,
 )
 from mendari.providers import Answer, Provider, ProviderInfo, build_provider
-from mendari.providers.base import OVER_QUOTA
+from mendari.providers.base import METER, OVER_QUOTA, Meter, Metered
 from mendari.providers.batch import batching
 from mendari.providers.deadline import decision_deadline
 from mendari.settings import FhirValidation, decision_deadline_s
@@ -82,6 +82,9 @@ class DecisionResult:
     # How the stored record names each resource an input issue names (`us_core.record_labels`):
     # "Patient (entry 2)" for "Patient/MRN4821937". In memory only, like `rejected`.
     labels: Mapping[str, str] = field(default_factory=dict, compare=False)
+    # Its remote calls by provider type (`providers.base.Meter`), for the usage ledger
+    # (`AuditStore.record`). In memory only, like `rejected`.
+    usage: Mapping[str, Metered] = field(default_factory=dict, compare=False)
 
     @property
     def confidence(self) -> float | None:
@@ -354,6 +357,7 @@ class Decision:
         failures: dict[str, str] = {}
         tokens_in = tokens_out = 0
         cost: float | None = 0.0
+        meter = Meter()  # its remote calls, as they are made
 
         governance = self.governance
         if governance is None and self.governance_source is not None:
@@ -404,6 +408,7 @@ class Decision:
                 )
             else:
                 over = OVER_QUOTA.set(over_quota)  # remote calls fail with it; local ones run
+                metering = METER.set(meter)
                 try:
                     # The deadline's clock starts here, for this decision's remote calls only:
                     # past it they fail with `timeout`, and local providers still answer.
@@ -425,6 +430,7 @@ class Decision:
                             if cost is not None:
                                 cost = None if output.cost_usd is None else cost + output.cost_usd
                 finally:
+                    METER.reset(metering)
                     OVER_QUOTA.reset(over)
                 complete_answers(manifest, answers, failures)
                 variants = {slot: info.variant for slot, info in self.provider_info.items()}
@@ -473,6 +479,7 @@ class Decision:
             rejected=bool(problems),
             schema_problems=tuple(schema_problems),
             labels=dict(labels or {}),
+            usage=meter.totals(),
         )
         if self.store is not None:
             self.store.record(result, inputs, store_input=manifest.audit.store_input)

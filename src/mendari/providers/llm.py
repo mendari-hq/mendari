@@ -250,6 +250,7 @@ class LlmProvider(Provider):
             retries=1,
         )
         distributions, usage, problems = parse_response(raw, questions)
+        self.metered(usage["input_tokens"], usage["output_tokens"], usage["cost_usd"])
         failed = {p for p in batch if any(key in problems for key in p.questions)}
         # The call's usage and cost are reported once, by the first provider that answered.
         lead = next((p for p in batch if p not in failed), None)

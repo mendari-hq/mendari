@@ -207,6 +207,11 @@ class JevProvider(Provider):
         failed = {p for p in batch if any(key in problems for key in p.questions)}
         first = next((p for p in batch if p not in failed), None)
         price = self.settings.cost_per_1k_input_tokens_usd  # output tokens are free
+        self.metered(
+            usage["input_tokens"],
+            usage["output_tokens"],
+            None if price is None else usage["input_tokens"] / 1000 * price,
+        )
         extra: dict[str, Any] = {"requested_model": model, "effective_model": effective}
         if len(batch) > 1:
             extra["batch"] = [f"{p.info.slot}/{p.info.variant}" for p in batch]

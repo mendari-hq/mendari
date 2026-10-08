@@ -1341,7 +1341,7 @@ def create_app(
             report["comparison"] = compare(
                 report, baseline, pack.manifest.evaluation.degradation_tolerance
             )
-        store.save_report(report, ledger=run.ledger.dumps())
+        store.save_report(report, ledger=run.ledger.dumps(), usage=run.usage)
         return _with_figures(report)
 
     @app.get(
