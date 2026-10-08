@@ -147,7 +147,7 @@ Auto-merge only waits for *required* checks. With none configured it merges at o
 confirm the PR shows auto-merge *pending*, not merged.
 
 ### Verification
-`gh api repos/Junebugg1214/mendari/branches/main/protection` lists the five checks,
+`gh api repos/mendari-hq/mendari/branches/main/protection` lists the five checks,
 and `gh pr view <n> --json autoMergeRequest` is non-null while checks run.
 
 ## 2026-09-28 - testing

@@ -169,4 +169,4 @@ gap. The packet for the external review is [`review-packet.md`](review-packet.md
 
 ## Reporting a vulnerability
 
-See [`SECURITY.md`](https://github.com/Junebugg1214/mendari/blob/main/SECURITY.md).
+See [`SECURITY.md`](https://github.com/mendari-hq/mendari/blob/main/SECURITY.md).

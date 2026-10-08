@@ -50,7 +50,7 @@ def test_the_template_is_yaml_only_and_says_where_the_guide_is() -> None:
 
 
 def test_the_guide_url_names_the_guide_in_this_repository() -> None:
-    prefix = "https://github.com/Junebugg1214/mendari/blob/main/"
+    prefix = "https://github.com/mendari-hq/mendari/blob/main/"
     assert AUTHORING_GUIDE.startswith(prefix)
     assert (ROOT / AUTHORING_GUIDE.removeprefix(prefix)).is_file()
 

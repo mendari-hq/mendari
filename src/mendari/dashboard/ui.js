@@ -318,7 +318,7 @@ export const roleName = (key) => MEMBERSHIP_ROLES.find((r) => r.key === key)?.la
 export const MACHINE_ROLES = MEMBERSHIP_ROLES.filter((r) => ["viewer", "service"].includes(r.key));
 
 // The documentation site (mkdocs.yml `site_url`; a test keeps them equal).
-export const DOCS_SITE = "https://junebugg1214.github.io/mendari/";
+export const DOCS_SITE = "https://mendari-hq.github.io/mendari/";
 
 // A page of the docs by its source path under docs/ ("guides/api.md#fhir-in-fhir-out", as the
 // key presets name it) as the site serves it ("…/guides/api/#fhir-in-fhir-out"); null for

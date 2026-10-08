@@ -12,7 +12,7 @@ from pathlib import Path
 from types import ModuleType
 
 ROOT = Path(__file__).resolve().parents[1]
-REPOSITORY = "https://github.com/Junebugg1214/mendari"
+REPOSITORY = "https://github.com/mendari-hq/mendari"
 
 
 def _check_sdist() -> ModuleType:

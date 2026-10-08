@@ -33,19 +33,19 @@ Clinical/EHR data (FHIR R4, CDS Hooks, REST)
 
 | Item | Where |
 |---|---|
-| Decision Pack specification | [`docs/spec/decision-pack-0.2.md`](https://github.com/Junebugg1214/mendari/blob/main/docs/spec/decision-pack-0.2.md) (0.1: [`decision-pack-0.1.md`](https://github.com/Junebugg1214/mendari/blob/main/docs/spec/decision-pack-0.1.md)), [`src/mendari/core/spec.py`](https://github.com/Junebugg1214/mendari/blob/main/src/mendari/core/spec.py) |
-| Mendari runtime | [`src/mendari/core/decision.py`](https://github.com/Junebugg1214/mendari/blob/main/src/mendari/core/decision.py), [`policy.py`](https://github.com/Junebugg1214/mendari/blob/main/src/mendari/core/policy.py) |
-| Providers: rules, naive Bayes, Jev, LLMs (Vercel AI Gateway, or OpenAI-compatible local models), criteria, CQL, dosing; combined with `any_of`, `cascade`, `vote` | [`src/mendari/providers/`](https://github.com/Junebugg1214/mendari/tree/main/src/mendari/providers) |
-| FHIR adapter + CDS Hooks | [`src/mendari/standards/`](https://github.com/Junebugg1214/mendari/tree/main/src/mendari/standards) |
-| Patient Inbox Router reference pack | [`packs/patient-inbox-router/`](https://github.com/Junebugg1214/mendari/tree/main/packs/patient-inbox-router) ([Decision Card](https://github.com/Junebugg1214/mendari/blob/main/packs/patient-inbox-router/DECISION_CARD.md)) |
-| Clinical Trial Prescreener reference pack (v0.3) | [`packs/clinical-trial-prescreener/`](https://github.com/Junebugg1214/mendari/tree/main/packs/clinical-trial-prescreener) ([Decision Card](https://github.com/Junebugg1214/mendari/blob/main/packs/clinical-trial-prescreener/DECISION_CARD.md)) |
-| Referral Router reference pack (v0.3) | [`packs/referral-router/`](https://github.com/Junebugg1214/mendari/tree/main/packs/referral-router) ([Decision Card](https://github.com/Junebugg1214/mendari/blob/main/packs/referral-router/DECISION_CARD.md)) |
-| Prior Authorization Preflight reference pack (v0.3) | [`packs/prior-auth-preflight/`](https://github.com/Junebugg1214/mendari/tree/main/packs/prior-auth-preflight) ([Decision Card](https://github.com/Junebugg1214/mendari/blob/main/packs/prior-auth-preflight/DECISION_CARD.md)) |
-| AI Guard reference pack (v0.3) | [`packs/ai-guard/`](https://github.com/Junebugg1214/mendari/tree/main/packs/ai-guard) ([Decision Card](https://github.com/Junebugg1214/mendari/blob/main/packs/ai-guard/DECISION_CARD.md)) |
-| Human review / abstention | policy outcomes + [`core/audit.py`](https://github.com/Junebugg1214/mendari/blob/main/src/mendari/core/audit.py) review queue |
-| Evaluation harness | [`src/mendari/evals/`](https://github.com/Junebugg1214/mendari/tree/main/src/mendari/evals) |
+| Decision Pack specification | [`docs/spec/decision-pack-0.2.md`](https://github.com/mendari-hq/mendari/blob/main/docs/spec/decision-pack-0.2.md) (0.1: [`decision-pack-0.1.md`](https://github.com/mendari-hq/mendari/blob/main/docs/spec/decision-pack-0.1.md)), [`src/mendari/core/spec.py`](https://github.com/mendari-hq/mendari/blob/main/src/mendari/core/spec.py) |
+| Mendari runtime | [`src/mendari/core/decision.py`](https://github.com/mendari-hq/mendari/blob/main/src/mendari/core/decision.py), [`policy.py`](https://github.com/mendari-hq/mendari/blob/main/src/mendari/core/policy.py) |
+| Providers: rules, naive Bayes, Jev, LLMs (Vercel AI Gateway, or OpenAI-compatible local models), criteria, CQL, dosing; combined with `any_of`, `cascade`, `vote` | [`src/mendari/providers/`](https://github.com/mendari-hq/mendari/tree/main/src/mendari/providers) |
+| FHIR adapter + CDS Hooks | [`src/mendari/standards/`](https://github.com/mendari-hq/mendari/tree/main/src/mendari/standards) |
+| Patient Inbox Router reference pack | [`packs/patient-inbox-router/`](https://github.com/mendari-hq/mendari/tree/main/packs/patient-inbox-router) ([Decision Card](https://github.com/mendari-hq/mendari/blob/main/packs/patient-inbox-router/DECISION_CARD.md)) |
+| Clinical Trial Prescreener reference pack (v0.3) | [`packs/clinical-trial-prescreener/`](https://github.com/mendari-hq/mendari/tree/main/packs/clinical-trial-prescreener) ([Decision Card](https://github.com/mendari-hq/mendari/blob/main/packs/clinical-trial-prescreener/DECISION_CARD.md)) |
+| Referral Router reference pack (v0.3) | [`packs/referral-router/`](https://github.com/mendari-hq/mendari/tree/main/packs/referral-router) ([Decision Card](https://github.com/mendari-hq/mendari/blob/main/packs/referral-router/DECISION_CARD.md)) |
+| Prior Authorization Preflight reference pack (v0.3) | [`packs/prior-auth-preflight/`](https://github.com/mendari-hq/mendari/tree/main/packs/prior-auth-preflight) ([Decision Card](https://github.com/mendari-hq/mendari/blob/main/packs/prior-auth-preflight/DECISION_CARD.md)) |
+| AI Guard reference pack (v0.3) | [`packs/ai-guard/`](https://github.com/mendari-hq/mendari/tree/main/packs/ai-guard) ([Decision Card](https://github.com/mendari-hq/mendari/blob/main/packs/ai-guard/DECISION_CARD.md)) |
+| Human review / abstention | policy outcomes + [`core/audit.py`](https://github.com/mendari-hq/mendari/blob/main/src/mendari/core/audit.py) review queue |
+| Evaluation harness | [`src/mendari/evals/`](https://github.com/mendari-hq/mendari/tree/main/src/mendari/evals) |
 | Audit trail | SQLite or Postgres, append-only hash-chained events, `mendari audit verify` |
-| Synthetic healthcare dataset | [`src/mendari/sandbox/synthetic_inbox.py`](https://github.com/Junebugg1214/mendari/blob/main/src/mendari/sandbox/synthetic_inbox.py), [`synthetic_trial.py`](https://github.com/Junebugg1214/mendari/blob/main/src/mendari/sandbox/synthetic_trial.py), [`synthetic_referral.py`](https://github.com/Junebugg1214/mendari/blob/main/src/mendari/sandbox/synthetic_referral.py), [`synthetic_prior_auth.py`](https://github.com/Junebugg1214/mendari/blob/main/src/mendari/sandbox/synthetic_prior_auth.py), [`synthetic_guard.py`](https://github.com/Junebugg1214/mendari/blob/main/src/mendari/sandbox/synthetic_guard.py) |
+| Synthetic healthcare dataset | [`src/mendari/sandbox/synthetic_inbox.py`](https://github.com/mendari-hq/mendari/blob/main/src/mendari/sandbox/synthetic_inbox.py), [`synthetic_trial.py`](https://github.com/mendari-hq/mendari/blob/main/src/mendari/sandbox/synthetic_trial.py), [`synthetic_referral.py`](https://github.com/mendari-hq/mendari/blob/main/src/mendari/sandbox/synthetic_referral.py), [`synthetic_prior_auth.py`](https://github.com/mendari-hq/mendari/blob/main/src/mendari/sandbox/synthetic_prior_auth.py), [`synthetic_guard.py`](https://github.com/mendari-hq/mendari/blob/main/src/mendari/sandbox/synthetic_guard.py) |
 | Dashboard | `mendari serve` → http://127.0.0.1:8000: every pack on the search path. Overview, a review queue by priority, the audit trail with each record in a drawer, evaluations (provider leaderboard, benchmark report with charts, runs on your datasets), feedback with the right answer, the Decision Card, and Try it (a form for every pack, generated from its input schema for record packs, starting from the pack's behaviour tests, with the JSON one click away). In memberships mode, an organization's administrators also get Access (members, invitations, requests to join), and an invitation link opens its own page (`/invite`). Light and dark themes; times in the deployment's time zone (US Eastern by default). |
 
 The five reference packs are examples built on synthetic data, and each says so on every surface
@@ -60,7 +60,7 @@ development [uv](https://docs.astral.sh/uv/):
 
 <!-- check: skip private-repo: CI's checkout is this clone, and the quickstart job runs uv sync in it -->
 ```bash
-git clone https://github.com/Junebugg1214/mendari.git
+git clone https://github.com/mendari-hq/mendari.git
 cd mendari
 uv sync                          # the package, the server, and the test and lint tools
 ```
@@ -94,9 +94,9 @@ Without it, `mendari serve` says so in one line.
    the `/docs` landing) it is labelled "Community · not clinically reviewed"; the reference
    packs say "Maintained by Mendari". How to contribute
    one is in the guide
-   [Contributing a community pack](https://github.com/Junebugg1214/mendari/blob/main/docs/guides/contributing-a-pack.md),
+   [Contributing a community pack](https://github.com/mendari-hq/mendari/blob/main/docs/guides/contributing-a-pack.md),
    and what CI checks (`mendari community-check`) in
-   [community-packs/README.md](https://github.com/Junebugg1214/mendari/blob/main/community-packs/README.md).
+   [community-packs/README.md](https://github.com/mendari-hq/mendari/blob/main/community-packs/README.md).
 
 When several packs on the path have one id, the newest version is served (a pack pulled from a
 registry can be newer than the one that came with Mendari). A community pack is the exception:
@@ -145,7 +145,7 @@ overstates real-world accuracy. It is a regression test, not a performance estim
 
 ### Write your own pack
 
-No programming needed: a pack is YAML. The [authoring guide](https://github.com/Junebugg1214/mendari/blob/main/docs/guides/authoring-a-pack.md)
+No programming needed: a pack is YAML. The [authoring guide](https://github.com/mendari-hq/mendari/blob/main/docs/guides/authoring-a-pack.md)
 walks a clinician through it:
 
 <!-- check: run quickstart -->
@@ -302,11 +302,11 @@ curl -sS --fail-with-body "$MENDARI/api/auth/me" -H "Authorization: Bearer $MEND
 
 On a running server, `/docs` is a developer landing with these examples (the server's address
 filled in, a copy button on each), FHIR in and out, and what every call needs; it is public, also
-with sign-in on. The full reference is `/docs/reference`, the [API guide](https://github.com/Junebugg1214/mendari/blob/main/docs/guides/api.md) has
+with sign-in on. The full reference is `/docs/reference`, the [API guide](https://github.com/mendari-hq/mendari/blob/main/docs/guides/api.md) has
 the same examples as whole scripts, and FHIR is under
 [Healthcare standards](#healthcare-standards). Every `curl` example in this README (but `vercel
 curl`, which goes through a deployment) is a step of the scripts in
-[`src/mendari/dashboard/snippets/`](https://github.com/Junebugg1214/mendari/tree/main/src/mendari/dashboard/snippets) (a test keeps them equal),
+[`src/mendari/dashboard/snippets/`](https://github.com/mendari-hq/mendari/tree/main/src/mendari/dashboard/snippets) (a test keeps them equal),
 and CI runs those scripts against a local server, in open mode and with a `service` key
 (`scripts/check_doc_snippets.py`), so an example that stops working fails the build.
 
@@ -347,7 +347,7 @@ curl -sS --fail-with-body -X POST "$MENDARI/api/packs/mendari/ai-guard/guard" \
 pinned by digest. `--build-arg PACK=mendari/referral-router` builds one that serves only that pack
 (`MENDARI_PACKS`). A release publishes both kinds to GitHub Container Registry, for linux/amd64
 and linux/arm64 (workflow `release`, which only a maintainer starts, never a tag push), exactly
-as tested; nothing is published before that. [`deploy/`](https://github.com/Junebugg1214/mendari/tree/main/deploy) has
+as tested; nothing is published before that. [`deploy/`](https://github.com/mendari-hq/mendari/tree/main/deploy) has
 templates for a site's own infrastructure: docker compose on one server and Kubernetes. Both come
 with Postgres, your identity provider, PHI mode and the daily retention, checkpoint and monitoring jobs.
 
@@ -493,7 +493,7 @@ id=$(jq -r '.entry[0].resource.identifier[0].value' <<<"$bundle")  # the decisio
 ```
 
 **Decisions as FHIR, read and searched** (read-only, your organization's only; see
-[ADR-0003](https://github.com/Junebugg1214/mendari/blob/main/docs/decisions/ADR-0003-a-served-task-is-a-decision.md)). Each decision is a
+[ADR-0003](https://github.com/mendari-hq/mendari/blob/main/docs/decisions/ADR-0003-a-served-task-is-a-decision.md)). Each decision is a
 **Task**: `requested` while it waits for a reviewer in Mendari's queue, `completed` once the
 answer is final, `failed` when the input was refused. Its versions follow the audit chain
 (created, reviewed, outcome recorded), so `GET /fhir/Task/{id}/_history/{n}` reads one. It
@@ -643,7 +643,7 @@ fail it.
 
 ## Documentation
 
-Every page in [`docs/`](https://github.com/Junebugg1214/mendari/tree/main/docs) builds into a documentation site with MkDocs Material:
+Every page in [`docs/`](https://github.com/mendari-hq/mendari/tree/main/docs) builds into a documentation site with MkDocs Material:
 
 <!-- check: skip long-running: mkdocs serve runs until stopped; CI job docs builds the same site strictly -->
 ```bash
@@ -654,16 +654,16 @@ uv run mkdocs serve    # http://127.0.0.1:8000
 CI builds it in strict mode, so a broken link fails. It will be hosted once the repository is
 public. Until then a running server documents itself: `/docs` is the developer landing (a
 quickstart in three calls, FHIR, authentication), and `/docs/reference` the full API reference.
-The [API guide](https://github.com/Junebugg1214/mendari/blob/main/docs/guides/api.md) covers the same ground in the site.
+The [API guide](https://github.com/mendari-hq/mendari/blob/main/docs/guides/api.md) covers the same ground in the site.
 To contribute a pack, read
-[Contributing a community pack](https://github.com/Junebugg1214/mendari/blob/main/docs/guides/contributing-a-pack.md);
+[Contributing a community pack](https://github.com/mendari-hq/mendari/blob/main/docs/guides/contributing-a-pack.md);
 why community packs work as they do is
-[ADR-0007](https://github.com/Junebugg1214/mendari/blob/main/docs/decisions/ADR-0007-community-packs-by-pull-request.md).
+[ADR-0007](https://github.com/mendari-hq/mendari/blob/main/docs/decisions/ADR-0007-community-packs-by-pull-request.md).
 
 ## Security
 
-[`SECURITY.md`](https://github.com/Junebugg1214/mendari/blob/main/SECURITY.md) says how to report a vulnerability and how to deploy safely. The
-threat model ([`docs/security/threat-model.md`](https://github.com/Junebugg1214/mendari/blob/main/docs/security/threat-model.md)) lists every
+[`SECURITY.md`](https://github.com/mendari-hq/mendari/blob/main/SECURITY.md) says how to report a vulnerability and how to deploy safely. The
+threat model ([`docs/security/threat-model.md`](https://github.com/mendari-hq/mendari/blob/main/docs/security/threat-model.md)) lists every
 threat with its mitigation and the test that checks it. On every change, the CI job `security`
 audits the Python and Hub-site dependencies and runs an OWASP ZAP scan of the API with sign-in
 on; GitHub Actions are pinned by commit and images by digest. Every response carries a strict
@@ -689,7 +689,7 @@ allow-list of fields that has no room for a credential, a query value, a body or
 Every response carries an `X-Request-Id`, which JSON errors on `/api` repeat as `request_id`.
 Under PHI mode the input hash is keyed and notes stay out of the audit chain (see PHI mode
 below). Every security setting, with its default, is in
-[deploying with real patient data](https://github.com/Junebugg1214/mendari/blob/main/docs/deploying-with-phi.md#8-settings-at-a-glance).
+[deploying with real patient data](https://github.com/mendari-hq/mendari/blob/main/docs/deploying-with-phi.md#8-settings-at-a-glance).
 
 ## The Hub
 
@@ -725,12 +725,12 @@ mendari eval mendari/referral-router --dataset local.jsonl --share "My site"
   input and a CPU budget per decision, after which a person decides. A copy of a reference pack
   of this release keeps the maintained engine (`mendari pull` says which), chosen by the digest
   of its files, never by its manifest or the registry
-  ([ADR-0009](https://github.com/Junebugg1214/mendari/blob/main/docs/decisions/ADR-0009-bounded-evaluation-for-packs-the-deployment-does-not-own.md)).
+  ([ADR-0009](https://github.com/mendari-hq/mendari/blob/main/docs/decisions/ADR-0009-bounded-evaluation-for-packs-the-deployment-does-not-own.md)).
   The packs you own (the reference packs, and your own in `MENDARI_PACKS_PATH`, where a copy of
   a pulled pack you trust goes) run on Python `re` with no time limit: installing one means
   trusting its author, as with any plugin. What a pack cannot do (choose secrets or endpoints,
   reach outside its folder, stop the server, reach another pack's CQL) is in
-  [SECURITY.md](https://github.com/Junebugg1214/mendari/blob/main/SECURITY.md#pack-supply-chain).
+  [SECURITY.md](https://github.com/mendari-hq/mendari/blob/main/SECURITY.md#pack-supply-chain).
 - **The registry** (`mendari registry serve`) has namespaces with a publisher type
   (community, verified, institutional) that its admins set after verification. `--share` sends
   a site's metrics, never its cases or their ids, in a closed format the registry checks
@@ -757,7 +757,7 @@ MENDARI_PUBLIC_URL=https://mendari.example.org
 ```
 
 With a provider that has no roles, such as Google, set `MENDARI_OIDC_ROLE_CLAIM=email` and map
-verified emails to roles ([the Google setup](https://github.com/Junebugg1214/mendari/blob/main/docs/deploying-with-phi.md#2-sign-in-and-roles)).
+verified emails to roles ([the Google setup](https://github.com/mendari-hq/mendari/blob/main/docs/deploying-with-phi.md#2-sign-in-and-roles)).
 
 People sign in with their organization's account, using PKCE and an `id_token` verified with the
 IdP's keys, in the browser that started the sign-in only (a callback link sent to someone else
@@ -795,8 +795,8 @@ it needs sign-in and `MENDARI_PUBLIC_URL`). An admin registers the client's publ
 are replaced in place (`POST /api/auth/clients/{id}/keys`: same id, its tokens dropped), also
 from the Access view's Clients tab, which takes a PEM public key and refuses the private keys it
 recognises before sending anything. See
-[ADR-0004](https://github.com/Junebugg1214/mendari/blob/main/docs/decisions/ADR-0004-machine-access-tokens-and-scopes.md) and
-[deploying with real patient data](https://github.com/Junebugg1214/mendari/blob/main/docs/deploying-with-phi.md).
+[ADR-0004](https://github.com/mendari-hq/mendari/blob/main/docs/decisions/ADR-0004-machine-access-tokens-and-scopes.md) and
+[deploying with real patient data](https://github.com/mendari-hq/mendari/blob/main/docs/deploying-with-phi.md).
 
 Every route has a permission, and anything unlisted needs admin:
 
@@ -821,14 +821,14 @@ its own decisions, reviews, feedback and reports.
 **Memberships mode** (`MENDARI_ACCOUNTS=memberships`; the default is `claims`, all of the
 above) takes each person's organization and roles from records instead of claims: an
 organization is a record, and a person holds a membership of it with a set of roles, read on
-every request ([ADR-0008](https://github.com/Junebugg1214/mendari/blob/main/docs/decisions/ADR-0008-accounts-and-memberships.md)).
+every request ([ADR-0008](https://github.com/mendari-hq/mendari/blob/main/docs/decisions/ADR-0008-accounts-and-memberships.md)).
 The role and organization claims are ignored. A person with no membership acts for no
 organization, never `default`: they may ask to join one or accept an invitation made for their
 verified address, and nothing else. The operator manages organizations with `mendari access`,
 and each organization's administrators invite and manage their own people in the dashboard's
 Access view (beside its keys and clients) or through the API; an invitation's link opens
 `/invite`, where the person signs in and accepts it
-([the runbook](https://github.com/Junebugg1214/mendari/blob/main/docs/operations/accounts.md),
+([the runbook](https://github.com/mendari-hq/mendari/blob/main/docs/operations/accounts.md),
 which also says how to switch a deployment). Once a deployment runs in memberships mode, every
 chained event of an organization names it (the deployment's own events name none), and
 `mendari audit verify` checks it against the row the event is about; each organization's administrators read and export their own administrative events
@@ -890,7 +890,7 @@ posts them to `--webhook` / `MENDARI_ALERT_WEBHOOK` (https only; keep the URL as
 since most carry their token in the path), as JSON or a Slack message
 (`MENDARI_ALERT_FORMAT`), signed with `MENDARI_ALERT_SECRET`, tried up to three times (no
 answer, `408`, `429` and `5xx` are tried again); it exits 3 when they could not be posted
-([deploying with PHI](https://github.com/Junebugg1214/mendari/blob/main/docs/deploying-with-phi.md), *Alerts*):
+([deploying with PHI](https://github.com/mendari-hq/mendari/blob/main/docs/deploying-with-phi.md), *Alerts*):
 
 <!-- check: skip placeholder: posts alerts to a webhook you supply -->
 ```bash
@@ -919,7 +919,7 @@ and rating notes, a payer's answer to a prior authorization) follow inputs: they
 from the chain, which holds only a salted commitment to each, sealed under `encrypt` and refused
 under `hash`. Retention erases them too, `mendari notes erase` erases one at once, and
 `mendari audit verify --notes` checks the kept ones. Read
-[`docs/deploying-with-phi.md`](https://github.com/Junebugg1214/mendari/blob/main/docs/deploying-with-phi.md) before any real patient data.
+[`docs/deploying-with-phi.md`](https://github.com/mendari-hq/mendari/blob/main/docs/deploying-with-phi.md) before any real patient data.
 
 **Deployments.** Each server records which pack version it runs, with which providers, in
 which environment (`MENDARI_ENVIRONMENT`) and release, whenever that changes. The Decision
@@ -990,7 +990,7 @@ interval, and each Brier score has a seeded bootstrap interval. A run keeps a pe
 beside its report (`--out`: `ledgers/<hash>.jsonl`), and the report's result is computed only
 from it, so a second run gives the same bytes and anyone holding the ledger can check it. Neither
 holds case text or case ids: a case is a keyed hash only the dataset's holder can match
-([the formats](https://github.com/Junebugg1214/mendari/blob/main/docs/spec/evaluation-reports.md)). What a site shares (`--share`) holds none of
+([the formats](https://github.com/mendari-hq/mendari/blob/main/docs/spec/evaluation-reports.md)). What a site shares (`--share`) holds none of
 it, nor subgroups: a closed format, `mendari.site-report/1`, of names and rounded numbers only
 (`--share-out FILE` writes it to read first).
 
@@ -1179,7 +1179,7 @@ FastAPI function: Vercel loads the root `app.py`, which serves `mendari.server.v
    your secret manager too. On Vercel the PHI mode is `encrypt` unless you set
    `MENDARI_PHI_MODE=hash`, and the app refuses to start without its keys or with `off`. Set
    `CRON_SECRET` (16 random characters or more) for Production: the daily retention purge in
-   `vercel.json` runs only with it ([`docs/deploying-with-phi.md`](https://github.com/Junebugg1214/mendari/blob/main/docs/deploying-with-phi.md), section 3).
+   `vercel.json` runs only with it ([`docs/deploying-with-phi.md`](https://github.com/mendari-hq/mendari/blob/main/docs/deploying-with-phi.md), section 3).
 3. Attach the Jev connector to the project and set `JEV_CONNECTOR`, `JEV_API_URL` and
    `JEV_MODEL`: the reference packs then run Mendari + Jev ([Jev](#jev)). The key is fetched at
    runtime with the deployment's OIDC identity; it is never stored in the project's environment
@@ -1196,10 +1196,10 @@ FastAPI function: Vercel loads the root `app.py`, which serves `mendari.server.v
    `vercel curl /api/health --deployment <url>`, then merge to `main` for production.
 
 **Limits and spending.** With sign-in on, the app's rate limits are on
-(`MENDARI_RATE_LIMITS`, see [`docs/deploying-with-phi.md`](https://github.com/Junebugg1214/mendari/blob/main/docs/deploying-with-phi.md)), and the
+(`MENDARI_RATE_LIMITS`, see [`docs/deploying-with-phi.md`](https://github.com/mendari-hq/mendari/blob/main/docs/deploying-with-phi.md)), and the
 client address is Vercel's `X-Forwarded-For`. The edge layer is one Vercel firewall rule per IP
 on `/auth/` and `/smart/`, kept as a file with its runbook in
-[`deploy/vercel/`](https://github.com/Junebugg1214/mendari/blob/main/deploy/vercel/README.md); it starts in log mode. The launch goes in this
+[`deploy/vercel/`](https://github.com/mendari-hq/mendari/blob/main/deploy/vercel/README.md); it starts in log mode. The launch goes in this
 order: the external security review and its fixes; finite daily ceilings and quotas
 (`MENDARI_JEV_DAILY_LIMIT=2000`, `MENDARI_LLM_DAILY_LIMIT=200` and
 `MENDARI_ORG_DAILY_LIMITS=decisions=5000`); the firewall rule enforced after 7 days in log
@@ -1219,7 +1219,7 @@ On a preview without sign-in `vercel curl` shows everything; with sign-in on, op
 about 3.5 seconds) and answers `503` while the database does not answer or no pack is served,
 where anonymous `/api/health` stays `ok` with sign-in on (without sign-in every caller gets the
 settings, which read the database, so it fails during an outage too)
-([deploying with PHI](https://github.com/Junebugg1214/mendari/blob/main/docs/deploying-with-phi.md), *Health checks*).
+([deploying with PHI](https://github.com/mendari-hq/mendari/blob/main/docs/deploying-with-phi.md), *Health checks*).
 
 One pack never stops the server. Its `invalid` lists the packs that failed to load (by path; an
 error that is not Mendari's by its type alone), which are not served; the packs whose providers
@@ -1278,7 +1278,7 @@ uv run python scripts/check_doc_snippets.py   # the API examples against a local
 
 ## Roadmap
 
-Full plan and status: [`docs/roadmap.md`](https://github.com/Junebugg1214/mendari/blob/main/docs/roadmap.md). Done:
+Full plan and status: [`docs/roadmap.md`](https://github.com/mendari-hq/mendari/blob/main/docs/roadmap.md). Done:
 - v0.1 runtime and inbox pack;
 - v0.2 model-agnostic core (LLMs, composition, leaderboards);
 - v0.3 the other four packs;
@@ -1299,6 +1299,6 @@ docs site go live. That is the owner's decision.
 
 ## License
 
-Apache-2.0. See [LICENSE](https://github.com/Junebugg1214/mendari/blob/main/LICENSE), and
-[NOTICE](https://github.com/Junebugg1214/mendari/blob/main/NOTICE) for the third-party material and
-terminology notices. Changes: [CHANGELOG.md](https://github.com/Junebugg1214/mendari/blob/main/CHANGELOG.md).
+Apache-2.0. See [LICENSE](https://github.com/mendari-hq/mendari/blob/main/LICENSE), and
+[NOTICE](https://github.com/mendari-hq/mendari/blob/main/NOTICE) for the third-party material and
+terminology notices. Changes: [CHANGELOG.md](https://github.com/mendari-hq/mendari/blob/main/CHANGELOG.md).
