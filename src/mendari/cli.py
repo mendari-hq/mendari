@@ -1326,7 +1326,7 @@ def cmd_monitor(args: argparse.Namespace) -> int:
     build and providers a server recorded running (`deployments`; a model a setting chose is
     not recorded, so a benchmark of one is not compared), under the organization's governance;
     otherwise the line says why, and only the checks that need no benchmark run (automated
-    decisions rated wrong, overrides that doubled)."""
+    decisions rated wrong, overrides that doubled, provider errors, abstentions and latency)."""
     from mendari.alerts import alert_settings, check_webhook
     from mendari.core import tenancy
     from mendari.evals.monitoring import monitor, organizations, post_alerts, recorded_providers
