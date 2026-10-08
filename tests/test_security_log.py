@@ -22,6 +22,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from mendari import AuditStore
+from mendari import alerts as alerts_module
+from mendari.alerts import AlertSettings
 from mendari.core.decision import Decision
 from mendari.server import app as app_module
 from mendari.server import security_log, smart_routes
@@ -358,7 +360,7 @@ def test_a_rate_limit_is_logged_once_per_bucket_and_a_quota_once_a_day(
     encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     monkeypatch.setenv("MENDARI_RATE_LIMITS", "on,decide=2/min")
     monkeypatch.setenv("MENDARI_ORG_DAILY_LIMITS", "decisions=1")
-    monkeypatch.setattr(app_module.httpx, "post", lambda *_, **__: None)
+    monkeypatch.setattr(alerts_module.httpx, "post", lambda *_, **__: None)
     db = tmp_path / "a.db"
     client = TestClient(create_app(db_path=db))
     key_id, machine = key(db)
@@ -496,9 +498,10 @@ def test_no_library_logs_a_url_when_the_host_logs_info(
         with httpx.Client(transport=answered) as client:
             return client.post(url, **options)
 
-    monkeypatch.setattr(app_module.httpx, "post", post)
+    monkeypatch.setattr(alerts_module.httpx, "post", post)
     webhook = "https://hooks.example.org/services/T000/B000/WebhookSecretToken"
-    quota_alert(webhook)("default", "decisions", 5)
+    with AuditStore(tmp_path / "b.db") as store:
+        quota_alert(AlertSettings(webhook), store)("default", "decisions", 5)
     with FhirClient(EHR, allowed={EHR}, transport=answered) as fhir:
         fhir.read("Patient/pt-secret")
     logging.getLogger("httpx").warning("a warning still shows")

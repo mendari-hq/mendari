@@ -1129,8 +1129,12 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     spec say so.
   - [ ] **21d** Operational health in the monitor: provider error share (an additive
     `decisions.provider_errors` count), abstention share, latency.
-  - [ ] **21e** Alert delivery: `MENDARI_ALERT_FORMAT`, an HMAC signature
-    (`MENDARI_ALERT_SECRET`), retries and an `alert_deliveries` record.
+  - [ ] **21e** (#196) Alert delivery (`mendari.alerts`): `MENDARI_ALERT_FORMAT` (`mendari`
+    JSON or `slack`), an HMAC signature (`MENDARI_ALERT_SECRET`: `Mendari-Signature`, with the
+    receiver's recipe in the guide, run by the tests), retries (no answer, `408`, `429`, `5xx`)
+    and an `alert_deliveries` record (never the URL or the secret); the quota alert one try on
+    the decision, recorded for `retry_due`; `mendari monitor` exits 3 when its alerts could not
+    be posted; threat model S17.
   - [ ] **21f** `GET /api/internal/monitor`, guarded by `CRON_SECRET`, per organization.
   - [ ] **21g** The usage ledger (day, organization, provider type, purpose: calls, tokens,
     cost, unknown as unknown).
