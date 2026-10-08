@@ -6,7 +6,6 @@ from __future__ import annotations
 import json
 import re
 import shutil
-import time
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +18,7 @@ from mendari.cli import main
 from mendari.core import patterns
 from mendari.errors import PackValidationError
 from mendari.server.app import create_app
-from tests.conftest import INBOX_DIR, message
+from tests.conftest import INBOX_DIR, cpu_time, message
 
 RED_FLAGS = "logic/red_flags.yaml"
 
@@ -178,12 +177,12 @@ def test_an_invalid_pattern_lists_the_pack_and_never_fails_health(
 
 
 def test_the_shipped_patterns_load_and_compile_cheaply() -> None:
-    started = time.process_time()
-    for root in sorted(INBOX_DIR.parent.iterdir()):
-        if (root / "pack.yaml").is_file():
-            re.purge()
-            load_pack(root)
-    assert time.process_time() - started < 1
+    with cpu_time() as spent:
+        for root in sorted(INBOX_DIR.parent.iterdir()):
+            if (root / "pack.yaml").is_file():
+                re.purge()
+                load_pack(root)
+    assert spent() < 1
 
 
 def test_patterns_in_an_aliased_rules_file_are_found_once_per_node() -> None:
