@@ -1313,22 +1313,25 @@ def cmd_keys_register(args: argparse.Namespace) -> int:
 
 
 def cmd_monitor(args: argparse.Namespace) -> int:
-    """For a scheduler: every pack's alerts (the served, newest, version of each; for one
-    organization with --org, otherwise all of them together), posted to a webhook when one is
-    set (`mendari.alerts`: in its format, signed with its secret, tried up to three times); exit
-    1 on any alert, 3 when they could not be posted. Nothing is recorded: the database is opened
-    read-only. A benchmark counts only for the build and providers a server recorded running
-    (`deployments`; a model a setting chose is not recorded, so a benchmark of one is not
-    compared), under the organization's governance (`--org`); otherwise the line says why, and
-    only the checks that need no benchmark run (automated decisions rated wrong, overrides that
-    doubled)."""
-    from mendari.alerts import alert_settings, check_webhook, deliver
+    """For a scheduler: every pack's alerts (the served, newest, version of each), for one
+    organization with --org, each organization on its own with --each-org (but the status
+    organization, MENDARI_STATUS_ORG), otherwise all of them together; posted to a webhook when
+    one is set (`mendari.alerts`: in its format, signed with its secret, tried up to three
+    times), one alert per organization; exit 1 on any alert, 3 when any could not be posted.
+    Nothing is recorded: the database is opened read-only. A benchmark counts only for the
+    build and providers a server recorded running (`deployments`; a model a setting chose is
+    not recorded, so a benchmark of one is not compared), under the organization's governance;
+    otherwise the line says why, and only the checks that need no benchmark run (automated
+    decisions rated wrong, overrides that doubled)."""
+    from mendari.alerts import alert_settings, check_webhook
     from mendari.core import tenancy
-    from mendari.evals.monitoring import monitor, recorded_providers
+    from mendari.evals.monitoring import monitor, organizations, post_alerts, recorded_providers
+    from mendari.settings import status_org
 
     alerts = alert_settings(args.webhook)  # before any work, so a typo fails at once
     if alerts is not None:
         check_webhook(alerts.webhook)
+    skip = status_org() if args.each_org else None  # likewise
     if args.pack:
         packs = [resolve_pack(args.pack)]
     else:  # the version a server serves of each pack: the newest
@@ -1339,39 +1342,33 @@ def cmd_monitor(args: argparse.Namespace) -> int:
             ):
                 newest[pack.id] = pack
         packs = [newest[pack_id] for pack_id in sorted(newest)]
-    with _read_store(args.db) as store, tenancy.acting_for(args.org):
+    found_alerts = undelivered = False
+    with _read_store(args.db) as store:
         store.require_current("monitor")
-        reports = [
-            monitor(store, pack, days=args.days, providers=recorded_providers(store, pack))
-            for pack in packs
-        ]
-    alerting = [r for r in reports if r["alerts"]]
-    for report in reports:
-        status = f"{len(report['alerts'])} alert(s)" if report["alerts"] else "ok"
-        reason = report["benchmark"]["reason"]
-        compared = "" if reason is None else f" (no comparable benchmark: {reason})"
-        print(f"{report['pack']['id']}: {status}{compared}")
-        for alert in report["alerts"]:
-            print(f"  [{alert['severity']}] {alert['kind']}: {alert['message']}")
-    if alerts is not None and alerting:
-        lines = [
-            f"{report['pack']['id']}: [{alert['severity']}] {alert['kind']}: {alert['message']}"
-            for report in alerting
-            for alert in report["alerts"]
-        ]
-        posted = deliver(
-            alerts,
-            event="monitor.alerts",
-            org=args.org,
-            alerts=[{"pack": r["pack"], "alerts": r["alerts"]} for r in alerting],
-            lines=lines,
-            attempts=3,
-            timeout=10,
-        )
-        if not posted:  # the warning above says why (its code), never the URL
-            print("error: the alerts could not be posted to the webhook", file=sys.stderr)
-            return 3
-    return 1 if alerting else 0
+        orgs = organizations(store, days=args.days, skip=skip) if args.each_org else [args.org]
+        for org in orgs:
+            with tenancy.acting_for(org):
+                reports = [
+                    monitor(store, pack, days=args.days, providers=recorded_providers(store, pack))
+                    for pack in packs
+                ]
+            where = f"{org}: " if args.each_org else ""
+            for report in reports:
+                status = f"{len(report['alerts'])} alert(s)" if report["alerts"] else "ok"
+                reason = report["benchmark"]["reason"]
+                compared = "" if reason is None else f" (no comparable benchmark: {reason})"
+                print(f"{where}{report['pack']['id']}: {status}{compared}")
+                for alert in report["alerts"]:
+                    print(f"  [{alert['severity']}] {alert['kind']}: {alert['message']}")
+            if not any(report["alerts"] for report in reports):
+                continue
+            found_alerts = True
+            if alerts is not None and not post_alerts(alerts, org, reports, attempts=3):
+                undelivered = True  # the warning above says why (its code), never the URL
+    if undelivered:
+        print("error: the alerts could not be posted to the webhook", file=sys.stderr)
+        return 3
+    return 1 if found_alerts else 0
 
 
 def cmd_phi_purge(args: argparse.Namespace) -> int:
@@ -2137,8 +2134,12 @@ def build_parser() -> argparse.ArgumentParser:
     monitor_cmd.add_argument(
         "--days", type=_monitored_days, default=30, help="14 to 180, in whole weeks (default 30)"
     )
-    monitor_cmd.add_argument(
-        "--org", help="one organization (default: every organization together)"
+    orgs = monitor_cmd.add_mutually_exclusive_group()
+    orgs.add_argument("--org", help="one organization (default: every organization together)")
+    orgs.add_argument(
+        "--each-org",
+        action="store_true",
+        help="each organization with decisions on its own, one alert each (but MENDARI_STATUS_ORG)",
     )
     monitor_cmd.add_argument("--webhook", help="post alerts here (default: $MENDARI_ALERT_WEBHOOK)")
     monitor_cmd.set_defaults(handler=cmd_monitor)

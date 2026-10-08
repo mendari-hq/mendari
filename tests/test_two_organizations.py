@@ -106,6 +106,8 @@ DEPLOYMENT_WIDE: dict[Route, str] = {
     ("GET", "/api/providers/jev/models"): "the deployment's Jev account. Not called (needs Jev)",
     ("GET", "/api/internal/retention"): "the operator's cron (CRON_SECRET), across every "
     "organization. Not called: tests/test_hosted_data.py",
+    ("GET", "/api/internal/monitor"): "the operator's cron (CRON_SECRET): each organization on "
+    "its own, one alert each, counts only. Not called: tests/test_monitor_cron.py",
     ("GET", "/auth/login"): "sign-in: a redirect. Not called: tests/test_auth.py",
     ("GET", "/auth/callback"): "sign-in: a redirect and a cookie. Not called: tests/test_auth.py",
     ("POST", "/auth/logout"): "signing out. Not called: tests/test_auth.py",

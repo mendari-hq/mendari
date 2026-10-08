@@ -70,6 +70,7 @@ NAVIGABLE = {
     # The scheduled purge: public to the guard, its own bearer secret to the route, which a
     # request another site starts cannot carry (it is answered 401, or 404 without the secret).
     "/api/internal/retention",
+    "/api/internal/monitor",  # the scheduled monitor: the same secret
 }
 
 # (name, headers): how a request can arrive, besides its credential.

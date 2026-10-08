@@ -717,9 +717,17 @@ logs, at startup, each slot the Jev defaults turn on.
   week before. A deployment that runs other providers than the benchmark did (Jev where it
   measured `naive_bayes`, say), or automates a risk level 2 or 3 pack under an approval the
   benchmark was measured without, gets only those two: the benchmark says nothing about how
-  that configuration should do. Schedule `mendari monitor --db "$DATABASE_URL"` with
-  `MENDARI_ALERT_WEBHOOK` (and `--org` for an organization's governance) to be told when a
-  pack degrades; it reads which providers ran from the deployment records the server keeps.
+  that configuration should do. Schedule it to be told when a pack degrades:
+  - on a server, `GET /api/internal/monitor` with `Authorization: Bearer $CRON_SECRET` (as the
+    scheduled purge) monitors each organization with decisions in the last 30 days on its own,
+    leaves out the status checks' organization (`MENDARI_STATUS_ORG`), and posts one alert per
+    organization to `MENDARI_ALERT_WEBHOOK`, recorded; it first sends again the alerts still
+    pending. It starts no organization after 240 seconds (a Vercel function stops at 300): the
+    rest are counted and an alert says so. Its answer holds counts only. On Vercel this is a
+    `crons` entry in `vercel.json` (the project's own schedule is the owner's to turn on);
+  - or `mendari monitor --db "$DATABASE_URL" --each-org` (the templates in `deploy/` run it
+    daily), which reads which providers ran from the deployment records the server keeps and
+    records nothing (it opens the database read-only).
 - **Governance:** packs at risk level 2 or 3 automate only after someone with the `governance`
   role approves that exact version on its Decision Card (a reference such as committee minutes,
   and an expiry). Level 4 never automates.
@@ -847,6 +855,7 @@ startup, so a typo never runs with a weaker setting.
 | `MENDARI_ALERT_WEBHOOK` | unset: no alerts posted | Where the monitor's and the quota alerts go (https; keep it as a secret) | 6 |
 | `MENDARI_ALERT_FORMAT` | `mendari` | `mendari` (JSON) or `slack` | 6 |
 | `MENDARI_ALERT_SECRET` | unset: unsigned, with a warning | Signs every alert (`Mendari-Signature`); 32 characters or more | 6 |
+| `MENDARI_STATUS_ORG` | unset | The organization the status checks decide in, which the scheduled monitor leaves out | 6 |
 
 ## 9. Before go-live
 

@@ -100,8 +100,15 @@ Anonymous `/api/health` stays three fields with no database work.
 5. **The monitor cron (21f).**
    - `GET /api/internal/monitor` is guarded by `CRON_SECRET` before any database work, as the
      retention route is.
-   - It monitors each organization with decisions in the window under its own tenancy, skipping
-     the status organization, and sends one signed post per organization that has alerts.
+   - It first sends again the alerts still pending (`retry_due`), then monitors each
+     organization with decisions in the last 30 days under its own tenancy, skipping the status
+     organization (`MENDARI_STATUS_ORG`), and sends one recorded alert per organization that
+     has alerts. It starts no organization after 240 s (the function stops at 300 s); the ones
+     left are counted and an alert says so. A webhook it cannot use is logged and nothing is
+     posted, never a failed start: the hosted site sets CRON_SECRET already.
+   - `mendari monitor --each-org` does the same from the command line (read-only, recording
+     nothing); the templates run it daily, and Kubernetes fails the job only when alerts could
+     not be posted (exit 3).
    - The hosted schedule (21n) changes the hosted site on deploy, so it merges only with the
      owner's go-ahead.
 6. **Usage (21g to 21i).**
