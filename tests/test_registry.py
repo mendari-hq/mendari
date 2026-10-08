@@ -368,10 +368,12 @@ def test_a_composite_whose_members_cannot_run_publishes_without_them(
     """Members are checked when a provider is built, not when a pack loads: a composite whose
     members are a list, or keyed by what YAML reads as a date, still publishes (it was a 500),
     and no report can name it. On the inbox pack, whose patterns all run on RE2: a changed copy
-    is checked on the engine for packs from a registry (ADR-0009)."""
+    (at a new version: at its own it is refused, F) is checked on the engine for packs from a
+    registry (ADR-0009)."""
     root = tmp_path / "pack"
     shutil.copytree(INBOX.root, root)
     manifest = yaml.safe_load((root / "pack.yaml").read_text())
+    manifest["version"] = "9.9.9"
     variants = manifest["providers"]["safety_screen"]["variants"]
     rules, jev = variants["rules"], variants["jev"]
     escalate = {"urgency": "urgent"}
@@ -504,3 +506,25 @@ def test_a_shipped_benchmark_and_leaderboard_are_shown_as_they_are(registry: Reg
     }
     leaderboard = REFERRAL.attestation("evals/leaderboard.json")
     assert shown["leaderboard"] == json.loads(leaderboard.read_text())
+
+
+def test_a_publish_that_shadows_a_reference_pack_is_refused(
+    registry: Registry, tmp_path: Path
+) -> None:
+    """F: a pack with a reference pack's id and version but other files would take its place
+    wherever it is pulled. The registry refuses it before anything is stored, saying why; the
+    same files at a new version publish."""
+    root = tmp_path / "shadow"
+    shutil.copytree(INBOX.root, root)
+    rules = root / "logic" / "routing_rules.yaml"
+    rules.write_text(rules.read_text() + "# one more line\n")
+    refused = registry.publish(load_pack(root))
+    assert refused.status_code == 422, refused.text
+    reason = refused.json()["detail"]
+    assert reason.startswith("the pack does not load: ")
+    assert f"{INBOX.id}@{INBOX.version} has the id and version of a reference pack" in reason
+    assert "never takes a reference pack's place" in reason and "remove" not in reason
+    assert registry.client.get("/v1/search").json() == []
+    assert (
+        registry.publish(_at_version(tmp_path / "new", load_pack(root), "9.9.9")).status_code == 201
+    )

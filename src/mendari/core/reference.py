@@ -9,14 +9,22 @@ hidden entries and `__pycache__` at any depth (`pack_digest`), and what a pack d
 read only from the files its digest covers (`Pack.read_bytes`): equal digests mean equal
 behaviour. So a copy of a reference pack keeps the maintained engine wherever it was pulled
 from, and one changed byte puts it on the other (ADR-0009).
+
+A pack from a registry never takes a reference pack's place: one with a reference pack's id and
+a version that ties its (`version_key`) but other files is refused at load (`core/pack.py`
+`_shadow_problem`), so at pull and at publish too; `reference_packs` is the index it reads.
 """
 
 from __future__ import annotations
 
 import functools
+from collections.abc import Mapping
 from pathlib import Path
+from types import MappingProxyType
+from typing import NamedTuple
 
-from mendari.core.pack import MANIFEST, pack_digest
+from mendari.core.pack import MANIFEST, pack_digest, parse_yaml
+from mendari.core.spec import is_pack_id, is_version
 from mendari.errors import PackValidationError
 
 _PACKAGE_DIR = Path(__file__).resolve().parents[1]
@@ -29,20 +37,42 @@ def bundled_dir() -> Path | None:
     return next((path for path in BUNDLED_DIRS if path.is_dir()), None)
 
 
+class ReferencePack(NamedTuple):
+    """A pack this release bundles: its manifest's version, and the digest of its files."""
+
+    version: str
+    digest: str
+
+
 @functools.cache
-def reference_digests() -> frozenset[str]:
-    """The digests of the packs of the installed release (each directory of `bundled_dir()`
-    holding a `pack.yaml`, one level deep); computed once per process (about 0.04 s for five).
-    A directory that cannot be hashed is left out, never raised: it is no reference."""
+def reference_packs() -> Mapping[str, tuple[ReferencePack, ...]]:
+    """The packs of the installed release by id (each directory of `bundled_dir()` holding a
+    `pack.yaml`, one level deep), with their versions and digests; computed once per process.
+    The id and version are read from the manifest alone, not by loading the pack. A directory
+    that cannot be hashed, or whose manifest names no id or version, is left out, never raised:
+    it is no reference."""
     root = bundled_dir()
     if root is None:
-        return frozenset()
-    digests = set()
+        return MappingProxyType({})
+    found: dict[str, list[ReferencePack]] = {}
     for directory in sorted(root.iterdir()):
-        if not (directory / MANIFEST).is_file():
+        manifest = directory / MANIFEST
+        if not manifest.is_file():
             continue
         try:
-            digests.add(pack_digest(directory))
-        except PackValidationError:
+            digest = pack_digest(directory)
+            raw = parse_yaml(manifest.read_bytes(), MANIFEST, str(directory))
+        except (OSError, PackValidationError):
             continue
-    return frozenset(digests)
+        pack_id = raw.get("id") if isinstance(raw, dict) else None
+        version = raw.get("version") if isinstance(raw, dict) else None
+        if is_pack_id(pack_id) and is_version(version):
+            found.setdefault(pack_id, []).append(ReferencePack(version, digest))
+    return MappingProxyType({pack_id: tuple(packs) for pack_id, packs in found.items()})
+
+
+@functools.cache
+def reference_digests() -> frozenset[str]:
+    """The digests of the packs of the installed release (`reference_packs`), computed once per
+    process (about 0.04 s for five)."""
+    return frozenset(pack.digest for packs in reference_packs().values() for pack in packs)

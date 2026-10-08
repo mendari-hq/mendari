@@ -456,30 +456,57 @@ clinical-trial-prescreener, referral-router) are rewritten, with a decision-iden
 rebuild, before a reference version that differs from the installed one is published to a
 registry or copied into the store.
 
-- [ ] **LP-16 build** (ADR-0009), in four PRs:
-  - [ ] **16a** (PR open) The engine for packs the deployment does not own: `Pack.bounded` (a
-    community pack, or a pulled one whose digest, the one `load_pack` hashed, is not a reference
-    pack's of the installed release, `core/reference.py`); `archive.extract(..., origin=)`
-    required, with `hub` from the registry's publish, `mendari pull` (before the rename, so a
-    refused pack is never cached) and `mendari pack verify`; `Decision.from_path` takes its
-    path's origin; `mendari pull` says which engine; ADR-0009, the spec amended in place, the
-    docs, threat model D8 and S15; the a3 probe's pending line replaced by its tests. No pack
-    artifact changes.
+- [ ] **LP-16 build** (ADR-0009), in the PRs below:
+  - [x] **16a** (#185, merged 2026-10-08) The engine for packs the deployment does not own:
+    `Pack.bounded` (a community pack, or a pulled one whose digest, the one `load_pack` hashed, is
+    not a reference pack's of the installed release, `core/reference.py`);
+    `archive.extract(..., origin=)` required, with `hub` from the registry's publish,
+    `mendari pull` (before the rename, so a refused pack is never cached) and
+    `mendari pack verify`; `Decision.from_path` takes its path's origin; `mendari pull` says which
+    engine; ADR-0009, the spec amended in place, the docs, threat model D8 and S15; the a3 probe's
+    pending line replaced by its tests. No pack artifact changes.
   - [x] **16b** (#184, merged 2026-10-08) A wall-clock deadline across one decision's remote
     calls, every pack (`MENDARI_DECISION_DEADLINE_S`, 120 s unless set), recorded as `timeout`;
     an answer still arriving stops at it, the CQL engine's included; threat model D9.
-  - [ ] **16c-1** (PR open) ai-guard's `claim-about-the-record` without its lookahead, spelled
-    out a letter at a time and exact on every input on both engines (`test_lookaround_rewrites`:
-    every shipped input, the ledger, a seeded fuzz on `re` and RE2), ai-guard 0.1.4 and its
-    rebuild; the parity test now skips only the three lookarounds 16c-2 holds.
+  - [x] **16c-1** (#187, merged 2026-10-08) ai-guard's `claim-about-the-record` without its
+    lookahead, spelled out a letter at a time and exact on every input on both engines
+    (`test_lookaround_rewrites`: every shipped input, the ledger, a seeded fuzz on `re` and RE2),
+    ai-guard 0.1.4 and its rebuild; the parity test now skips only the three lookarounds 16c-2
+    holds.
   - [ ] **16c-2** (held for the owner) pregnant, pancreatitis and new-lung-mass: the owner
     chooses between S (a structural `not_followed_by` rules key, a format change) and D (the
     data-identical rewrites, with their fuzz differences and the slowdown on `re` accepted in
     writing). Until then the trial and referral packs cannot publish a version that differs from
     the installed one: a puller refuses it, with the reason.
-  - [ ] Follow-up (16a review): a pulled pack with a bundled pack's id and version but another
-    digest shadows the bundled one, since the cache wins a version tie. It runs bounded, but
-    under the reference pack's name. Refuse it at pull and at load (pre-existing; not in 16a).
+  - [ ] **F** (PR open, with 16f; found in the 16a review) A pack from a registry with a reference
+    pack's id and a version that ties its (`version_key`, now in `core/spec.py`) but another
+    digest took the reference pack's place, since the cache wins a version tie: it ran bounded,
+    under the reference pack's name. Refused at load for origins the deployment does not own
+    (`_shadow_problem`, from `core/reference.py` `reference_packs`), so at publish (422), pull
+    (before the rename), the pull's cache hit, `mendari pack verify` and `Decision.from_path`;
+    one cached before is listed under `invalid` with the directory to remove, and the reference
+    pack is served. Threat model S16; S15's and a3's tests moved to 9.9.9 with their names kept.
+  - [ ] **16d** (#188, PR open) Health does no pack work in the request: every served pack is built at
+    startup and health reads that snapshot; `deployment.recorded` stays on first use, and a pack
+    that fails to build is never rebuilt (conflicts 15, 16, 23).
+  - [ ] **16e-1** (PR C, after A and B) Closed provider configs checked at load (refused for packs
+    the deployment does not own, warnings for owned ones), the deployment's model, caps on
+    `max_tokens`, `timeout_ms` and effort, `state_fields` on remote variants, the load and
+    validate parity test, the generated JSON Schema (conflicts 17–19, 24, 25).
+  - [ ] **16e-2** (PR D, after C) The provider egress allow-list
+    (`MENDARI_PROVIDER_ALLOWED_ORIGINS`), relative prefetch templates and bare placeholders
+    (conflicts 20, 21).
+  - [ ] **16f** (PR open, with F) Depth and `$ref` bounds for the input schemas of packs the deployment owns
+    (`core/input_schema.py` `expansion_problems`, over `core/schema_graph.py`, the graph moved
+    out of `core/caps.py` with each `$ref` edge marked; the caps count as before): nested at most
+    32 deep, chains of at most 16 `$ref`s, at most 1,000 schema objects on one value, and loops
+    only as a recursive list or tree (conflict 22). The shipped packs, scaffolds and fixtures: 6,
+    1 and 2. Packs it does not own keep B11's caps and budget, unchanged. Threat model D10.
+  - [ ] **16g** (PR E, last) The threat model's "Pack content" part. LP-16 counts as merged for
+    LP-18 and LP-20 when it lands; 16c-2 still waits for the owner.
+
+  **LP-16 rest, in order:** A (F and 16f, this PR); B (16d, beside A); C (16e-1, after A and B);
+  D (16e-2, after C); E (16g, after A to D).
 
   **Conflicts written before building LP-16, and the default each PR follows** (the owner may
   choose otherwise; each default is named by the PR that depends on it):
@@ -531,6 +558,68 @@ registry or copied into the store.
   12. (16a) The sandbox registry seeds from the host checkout into an image built earlier.
      Default: document `docker compose up --build` (README, `docker-compose.yml`).
      `hub_seed.py` is unchanged and stops at the first refusal.
+  13. (F) A pack from a registry with a reference pack's id and a tying version but another
+     digest is refused at load, pull and publish. A deployment that already cached one switches to
+     the bundled pack and lists the cache copy under `invalid`; the registry refuses such a publish
+     with 422. Default: refuse, for origins the deployment does not own only. A copy in
+     `MENDARI_PACKS_PATH` (local) can still shadow, by the operator's choice (conflict 2).
+  14. (F) No rule says a changed reference pack bumps its version (referral 0.1.4, inbox 0.4.0
+     and prior-auth 0.2.0 each changed content without a bump). Default: no new CI check in
+     LP-16. The registry's refusal (conflict 13) forces the bump at publish, and conflict 12
+     already says the sandbox registry must be rebuilt (`--build`).
+  15. (16d) "While a decision on it is running" cannot hold in-process for an owned pack on `re`:
+     `re` holds the GIL (`(a+)+$` on 25 characters stalled a 1 ms ticker for 1,080 ms). Default:
+     the running-decision half is narrowed to packs the deployment does not own; the loaded-pack
+     half holds for every pack.
+  16. (16d) The deployment record. Default A2: build every served pack at startup and record
+     `deployment.recorded` on first use; health never writes. A pack that fails to build is
+     never rebuilt, and its reason is re-raised. Startup costs about 21 ms of CPU, and about 5 to
+     10 s more on the suite (240 `create_app` calls).
+  17. (16e) Requirement 5 validates every variant at load. For owned packs that would refuse packs
+     that load and serve today (an unused broken variant, extra keys nothing reads). Default:
+     refuse packs the deployment does not own; owned packs load with `Pack.warnings` (health
+     `pack_warnings`, the startup log, `mendari list`), and `mendari validate` refuses both. The
+     parity test is strict for packs the deployment does not own and "refused or warned" for
+     owned ones; making owned packs refuse later is a one-line change, for the owner. "Parity"
+     covers provider configs and, for packs the deployment does not own, the FHIR mapping; test
+     inputs and datasets stay validate-only, since they are attestations.
+  18. (16e) The prompt says "caps"; conflict 11 says "chooses". Default: `model` is the
+     deployment's; `max_tokens` and `timeout_ms` are capped at the provider defaults (4096; LLM
+     30 s, Jev 5 s), and a lower pack value is kept; `reasoning_effort` is kept at `none` or `low`
+     and removed if higher. No new settings. Community packs are now capped on timeout and effort
+     too (visit-sorter sets neither). A hub pack's pinned LLM model no longer applies, so its
+     remote answers can change; no shipped or deployed pack pins one.
+  19. (16e) "Remote variants" means llm and jev (`MODEL_TYPES`). CQL is `remote = True` but sends
+     a fixed bundle (`record_fhir.py`) and has no `state_fields`. Default: `state_fields` (at
+     least 1 entry) is required only on llm and jev variants and members of packs the deployment
+     does not own. Fixture changes: visit-sorter and `test_decision_deadline.py`.
+  20. (16e) Egress allow-list. Default: when unset, no new check (endpoints come only from fixed
+     environment names). When set, it is checked at startup for the endpoint variables that are
+     set, and on every outbound provider request, the gateway default and Vercel Connect
+     included (`invalid_endpoint`). CQL stays on the FHIR allow-list.
+  21. (16e) Requirement-5 items not in conflict 11's list: the generated JSON Schema (PR C),
+     relative prefetch and bare placeholders (PR D). Default: refuse packs the deployment does
+     not own, warn owned ones. Their Task-text templates are now checked at load; `fill` is
+     unchanged.
+  22. (16f) Default: the bound applies to owned packs only; packs the deployment does not own keep
+     the caps and the CPU budget ("killed within the budget"), so B11's budget tests are
+     unchanged. Every shipped pack, template and fixture passes, with margins of at least 5x on
+     depth, 16x on the chain and 500x on applications. An operator's local pack beyond the bound
+     stops being served and is listed under `invalid`, as conflict 11's default says. Recursive
+     schemas are allowed only as simple cycles through properties or items; a binary-tree
+     recursion is refused, and so (PR A) is a loop that leads to another loop, since one value
+     would meet the inner one once for each level of the outer.
+  23. (16d, recorded only) Health and `admit` share AnyIO's 40-thread pool with the decide
+     routes, which can wait up to `MENDARI_DECISION_DEADLINE_S` (120 s). Default: a residual
+     risk, written in 16g; not in LP-16.
+  24. (16e, recorded only) These still run as packs set them, for packs the deployment does not
+     own: Jev `cost_per_1k_input_tokens_usd` (which sets the recorded `cost_usd`), `batch: false`,
+     `temperature`, `JEV_DEFAULTS` and unscoped `MENDARI_PROVIDERS` settings applying to hub packs
+     by id, and the eval route letting a caller choose any variant of a pack that is not a
+     community pack. Default: a residual risk (16g), for LP-20; changing them would change hub
+     packs' decisions.
+  25. (16e) `hypothesis` is added as a development dependency (`pyproject.toml`, `uv.lock`) and
+     runs with `derandomize=True`, so CI stays deterministic.
 
 **B38, the pilot EHR (owner, 2026-10-07):** Epic, with Oracle Health as the backup, chosen by
 vendor fit while no design partner is on record; the first pilot site's own EHR overrides it.

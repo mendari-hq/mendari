@@ -25,8 +25,8 @@ from fastapi.testclient import TestClient
 from mendari import Decision, load_pack
 from mendari.core import input_schema, patterns
 from mendari.core.pack import Pack, PatternsRefused, pack_digest
-from mendari.core.reference import bundled_dir, reference_digests
-from mendari.core.registry import SearchPath, discover, resolve_pack
+from mendari.core.reference import bundled_dir, reference_digests, reference_packs
+from mendari.core.registry import SearchPath, discover, resolve_pack, version_key
 from mendari.core.spec import Outcome
 from mendari.errors import PackValidationError
 from mendari.evals.pack_tests import _run, input_problems, load_cases
@@ -189,7 +189,11 @@ def test_a_pulled_copy_of_a_reference_pack_keeps_the_maintained_engine(tmp_path:
 
 
 def test_one_changed_byte_puts_a_reference_copy_on_the_community_engine(tmp_path: Path) -> None:
-    root = copied(tmp_path, "referral-router", edit=one_more_line("logic/triage_rules.yaml"))
+    """One changed byte makes a copy of a reference pack not the reference pack: at another
+    version it runs on the community engine (where the referral pack's lookahead cannot run), and
+    at the reference pack's own version it does not load at all (F: it would take its place)."""
+    edit = one_more_line("logic/triage_rules.yaml")
+    root = copied(tmp_path, "referral-router", version="9.9.9", edit=edit)
     with pytest.raises(PatternsRefused) as refused:
         load_pack(root, origin="hub")
     problems = refused.value.problems
@@ -198,21 +202,129 @@ def test_one_changed_byte_puts_a_reference_copy_on_the_community_engine(tmp_path
     assert not any("not the copy" in problem for problem in refused.value.patterns)
     local = load_pack(root, origin="local")  # an operator's own copy: owned, on `re`
     assert not local.bounded
+    same = copied(tmp_path / "same", "referral-router", edit=edit)
+    with pytest.raises(PackValidationError) as shadow:
+        load_pack(same, origin="hub")
+    assert not isinstance(shadow.value, PatternsRefused)
+    assert "never takes a reference pack's place" in shadow.value.problems[0]
+    assert not load_pack(same, origin="local").bounded
 
 
 def test_the_engine_follows_the_bytes_not_the_manifest(tmp_path: Path) -> None:
-    """A changed copy that keeps the reference pack's id, version and `publisher.type` is not the
-    reference pack: what chooses the engine is the digest `load_pack` hashed from its files."""
+    """A changed copy that keeps the reference pack's id and `publisher.type` is not the
+    reference pack: what chooses the engine is the digest `load_pack` hashed from its files. One
+    that keeps its version too does not load at all (F), whatever a marker beside it says."""
     reference = load_pack(INBOX_DIR)
-    root = copied(tmp_path, "patient-inbox-router", edit=one_more_line("logic/routing_rules.yaml"))
+    edit = one_more_line("logic/routing_rules.yaml")
+    root = copied(tmp_path, "patient-inbox-router", version="9.9.9", edit=edit)
     pack = load_pack(root, origin="hub")
-    assert (pack.id, pack.version) == (reference.id, reference.version)
+    assert pack.id == reference.id
     assert pack.manifest.publisher.type == reference.manifest.publisher.type
     assert pack.digest == pack_digest(root) != reference.digest
     assert pack.bounded
     # Nothing written beside the files (a marker naming the reference digest) changes it.
     (root / ".mendari-verified").write_text(reference.digest + "\n")
     assert load_pack(root, origin="hub").bounded
+    same = copied(tmp_path / "same", "patient-inbox-router", edit=edit)
+    (same / ".mendari-verified").write_text(reference.digest + "\n")
+    shadow = load_pack(same, origin="local")
+    assert (shadow.id, shadow.version) == (reference.id, reference.version)
+    assert shadow.manifest.publisher.type == reference.manifest.publisher.type
+    with pytest.raises(PackValidationError, match="never takes a reference pack's place"):
+        load_pack(same, origin="hub")
+
+
+# -- a pulled pack never takes a reference pack's place (F) ---------------------------------------
+
+
+def shadow(base: Path, version: str | None = None) -> Path:
+    """A copy of the inbox pack with one more line in its routing rules, at `version` (the
+    reference pack's own unless given), where `mendari pull` caches it."""
+    reference = load_pack(INBOX_DIR)
+    root = packs_cache() / "mendari" / "patient-inbox-router" / (version or reference.version)
+    root.parent.mkdir(parents=True, exist_ok=True)
+    edit = one_more_line("logic/routing_rules.yaml")
+    shutil.copytree(copied(base, "patient-inbox-router", version=version, edit=edit), root)
+    return root
+
+
+def test_a_pulled_pack_never_takes_a_reference_packs_name_and_version(tmp_path: Path) -> None:
+    """A pack from a registry with the id and version of a reference pack of this release but
+    other files would be served in its place (the cache wins a version tie): it is refused at
+    load, and the reason names it, the reference pack and the cached directory to remove."""
+    reference = load_pack(INBOX_DIR)
+    root = shadow(tmp_path)
+    with pytest.raises(PackValidationError) as refused:
+        load_pack(root, origin="hub")
+    (problem,) = refused.value.problems
+    assert problem.startswith(
+        f"{reference.id}@{reference.version} has the id and version of a reference pack this "
+        f"release bundles ({reference.id}@{reference.version}) but other files (digest "
+        f"{pack_digest(root)[:23]}): a pack from a registry never takes a reference pack's place"
+    )
+    assert problem.endswith(f"; remove {root.resolve()} from the cache")
+    # Checked where it is not cached (an archive being checked), it names no directory.
+    edit = one_more_line("logic/routing_rules.yaml")
+    elsewhere = copied(tmp_path / "unpacked", "patient-inbox-router", edit=edit)
+    with pytest.raises(PackValidationError) as unpacked:
+        load_pack(elsewhere, origin="hub")
+    assert "never takes a reference pack's place" in unpacked.value.problems[0]
+    assert "remove" not in unpacked.value.problems[0]
+
+
+@pytest.mark.parametrize("tie", ["pre-release", "leading zero"])
+def test_a_version_that_ties_a_reference_packs_is_refused_too(tmp_path: Path, tie: str) -> None:
+    """Versions are compared as the search path orders them (`version_key`), not as text:
+    `0.4.1-x` and `0.04.1` tie `0.4.1`, so either would take the reference pack's place."""
+    reference = load_pack(INBOX_DIR)
+    major, minor, patch = reference.version.split(".")
+    version = f"{reference.version}-x" if tie == "pre-release" else f"{major}.0{minor}.{patch}"
+    assert version != reference.version and version_key(version) == version_key(reference.version)
+    with pytest.raises(PackValidationError) as refused:
+        load_pack(shadow(tmp_path, version), origin="hub")
+    (problem,) = refused.value.problems
+    assert problem.startswith(f"{reference.id}@{version} has the id and version of a reference")
+
+
+def test_a_pulled_copy_of_a_reference_pack_and_a_newer_version_still_load(tmp_path: Path) -> None:
+    """What F leaves as it was: an identical copy is the reference pack (the maintained engine),
+    a changed copy at another version runs on the community engine, and an operator's local
+    copy at the reference pack's version is its own choice."""
+    reference = load_pack(INBOX_DIR)
+    identical = load_pack(copied(tmp_path / "same", "patient-inbox-router"), origin="hub")
+    assert (identical.bounded, identical.digest) == (False, reference.digest)
+    edit = one_more_line("logic/routing_rules.yaml")
+    newer = load_pack(
+        copied(tmp_path / "new", "patient-inbox-router", version="9.9.9", edit=edit), origin="hub"
+    )
+    assert newer.bounded and newer.version == "9.9.9"
+    local = load_pack(copied(tmp_path / "local", "patient-inbox-router", edit=edit))
+    assert (local.origin, local.bounded, local.version) == ("local", False, reference.version)
+    assert local.digest != reference.digest
+
+
+def test_a_shadow_in_the_cache_is_listed_and_the_reference_pack_is_served(tmp_path: Path) -> None:
+    """One cached before this release refused it is listed (`invalid`), and the reference pack
+    is served under its id, by version too, wherever packs are listed."""
+    reference = load_pack(INBOX_DIR)
+    root = shadow(tmp_path)
+    paths = [SearchPath(packs_cache(), "hub"), SearchPath(PACKS, "maintained")]
+    found = discover(paths)
+    assert "never takes a reference pack's place" in found.problems[str(root.resolve())]
+    for ref in (reference.id, f"{reference.id}@{reference.version}"):
+        served = resolve_pack(ref, paths)
+        assert (served.origin, served.digest) == ("maintained", reference.digest), ref
+    client = TestClient(create_app(db_path=tmp_path / "s.db", packs_paths=paths))
+    assert str(root.resolve()) in client.get("/api/health").json()["invalid"]
+    detail = client.get(f"/api/packs/{reference.id}").json()
+    assert (detail["digest"], detail["origin"]) == (reference.digest, "maintained")
+
+
+def test_decision_from_path_refuses_a_cached_shadow(tmp_path: Path) -> None:
+    root = shadow(tmp_path)
+    with pytest.raises(PackValidationError) as refused:
+        Decision.from_path(root)
+    assert f"remove {root.resolve()} from the cache" in refused.value.problems[0]
 
 
 # -- what the engine holds a registry pack to ------------------------------------------------------
@@ -391,7 +503,7 @@ def test_a_registry_packs_schema_uses_only_the_keywords_mendari_bounds(tmp_path:
         }
 
     edit = json_edit("schemas/input.schema.json", unique)
-    root = copied(tmp_path, "patient-inbox-router", edit=edit)
+    root = copied(tmp_path, "patient-inbox-router", version="9.9.9", edit=edit)
     with pytest.raises(PackValidationError) as refused:
         load_pack(root, origin="hub")
     assert any(
@@ -403,7 +515,7 @@ def test_a_registry_packs_schema_uses_only_the_keywords_mendari_bounds(tmp_path:
 
 def test_a_registry_packs_caps_are_checked_at_load(tmp_path: Path) -> None:
     edit = yaml_edit("logic/red_flags.yaml", lambda rules: rules.update(negation_window=300))
-    root = copied(tmp_path, "patient-inbox-router", edit=edit)
+    root = copied(tmp_path, "patient-inbox-router", version="9.9.9", edit=edit)
     with pytest.raises(PackValidationError) as refused:
         load_pack(root, origin="hub")
     assert refused.value.problems == [
@@ -468,6 +580,17 @@ def test_the_reference_digests_are_the_installed_releases() -> None:
     assert {resolve_pack(f"mendari/{d.name}").digest for d in bundled()} == expected
 
 
+def test_the_reference_index_is_each_bundled_packs_id_version_and_digest() -> None:
+    """`reference_packs`, read from each manifest and the files' digest without loading the
+    pack, says what loading it says."""
+    loaded = [load_pack(directory) for directory in bundled()]
+    assert {
+        pack_id: [(each.version, each.digest) for each in packs]
+        for pack_id, packs in reference_packs().items()
+    } == {pack.id: [(pack.version, pack.digest)] for pack in loaded}
+    assert len(reference_packs()) == 5
+
+
 def test_owned_packs_stay_on_re(tmp_path: Path) -> None:
     """Reference packs, and an operator's local packs (a changed copy included), run on `re` as
     before: no caps, no budget, and a pattern that backtracks still loads."""
@@ -507,7 +630,8 @@ def test_mendari_test_runs_a_registry_pack_on_its_engine(tmp_path: Path) -> None
             }
         )
 
-    root = copied(tmp_path, "patient-inbox-router", edit=yaml_edit("tests/cases.yaml", big_case))
+    edit = yaml_edit("tests/cases.yaml", big_case)
+    root = copied(tmp_path, "patient-inbox-router", version="9.9.9", edit=edit)
     hub = load_pack(root, origin="hub")
     assert any(
         "its input is too large: more than 10,000 values, the most a pack from a registry reads"

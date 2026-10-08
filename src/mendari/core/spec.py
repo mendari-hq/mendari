@@ -153,6 +153,13 @@ def is_version(text: object) -> TypeGuard[str]:
     return isinstance(text, str) and len(text) <= MAX_VERSION_CHARS and bool(_SEMVER.match(text))
 
 
+def version_key(version: str) -> tuple[tuple[int, str], ...]:
+    """Orders versions by their numbers, as integers would, without converting them: `int()`
+    refuses more than 4,300 digits, and a version string comes from a pack or a registry."""
+    parts = (part.lstrip("0") for part in re.findall(r"\d+", version.split("-")[0]))
+    return tuple((len(part), part) for part in parts)
+
+
 # Variant keys that once named the environment variables a remote provider reads its endpoint,
 # model or key from. Those variables are the deployment's (spec section 5), so a pack that sets
 # one is invalid, whatever its spec version: it could send any process secret anywhere.

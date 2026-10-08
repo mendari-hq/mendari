@@ -236,14 +236,18 @@ running it: installing a pack means trusting its author, as with any plugin. The
 packs a deployment owns (the reference packs, and its own local packs) run on Python `re` with
 no time limit, so such a pack can slow or stall a worker; on `re`, a crafted 10,000-character
 message to the inbox pack can hold the interpreter for about 0.55 s (the rate limits bound how
-often). Packs the deployment does not own run on the community engine instead
+often). Their input schemas are bounded in shape at load instead of in time: nested at most 32
+deep, at most 16 `$ref`s in a chain, at most 1,000 schema objects applied to one value, and no
+reference back to itself but a recursive list's or tree's. Packs the deployment does not own run
+on the community engine instead
 ([ADR-0009](docs/decisions/ADR-0009-bounded-evaluation-for-packs-the-deployment-does-not-own.md)):
 community packs, and packs pulled from a registry unless one is a copy of a reference pack of
 the installed release, chosen by the digest of its files, never by its manifest or the registry.
-Their patterns run on RE2, which never backtracks, within caps, input limits and a CPU budget
-per decision (below), in the server's process: there is no isolated worker process. To trust a
-pulled pack, copy it into `MENDARI_PACKS_PATH`, where it is a local pack. What a pack cannot do
-today is below.
+A pack from a registry never takes a reference pack's place: one with a reference pack's id and
+version but other files is refused at publish, pull and load. Their patterns run on RE2, which
+never backtracks, within caps, input limits and a CPU budget per decision (below), in the
+server's process: there is no isolated worker process. To trust a pulled pack, copy it into
+`MENDARI_PACKS_PATH`, where it is a local pack. What a pack cannot do today is below.
 
 - Registry packs are **signed archives** (Ed25519, deterministic). `mendari pull` verifies
   them and pins the publisher's key on first use, and versions are immutable.
@@ -288,7 +292,11 @@ today is below.
   memory. `mendari pull` (and `Decision.from_hub`) builds no cache path from what the registry
   answers until the version is a semantic version, the path stays inside the cache and the
   signed manifest names that pack and version, so a compromised registry cannot delete or write
-  outside the cache.
+  outside the cache. Nor can a pulled pack take a reference pack's place: one with the id of a
+  pack this release bundles and a version equal to its (`0.4.1-x` and `0.04.1` are `0.4.1`), but
+  other files, is refused at load, so the registry refuses its publish (`422`), `mendari pull`
+  refuses it before it is cached, and one cached before is listed under `/api/health`
+  `invalid`, with the directory to remove, while the reference pack is served.
 - A pack cannot reach another pack's CQL. The engine at `MENDARI_CQL_URL` is shared, so a pack's
   library is uploaded under a resource id and a declared name that end in a hash of the pack id
   and of the library's text: a library that declares another pack's library name and version
@@ -300,6 +308,12 @@ today is below.
   fails makes the pack invalid, named by file and rule (`mendari validate` prints no
   traceback; a server lists the pack under `/api/health` `invalid`). This does not bound how
   long a pattern takes on an input: see above.
+- An owned pack's input schema cannot multiply the work of checking an input. At load it nests
+  at most 32 deep, chains at most 16 `$ref`s and applies at most 1,000 schema objects to one
+  value (`$ref`s that fan out: 28 steps of two applied one schema 2**28 times), and refers back
+  to itself only as a recursive list or tree does (once, through `properties` or `items`); one
+  beyond these is invalid, named by path. A pack the deployment does not own has the caps and
+  the time budget instead (above).
 - A pack's content cannot keep the server from starting or from serving the other packs (a
   slow pattern can still stall a worker while it runs: see above). Any error while a pack is
   loaded or its terminology built

@@ -47,16 +47,14 @@ capped: its patterns run on `re`, and installing it means trusting its author (S
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Callable, Iterator, Mapping
-from dataclasses import dataclass, field
+from collections.abc import Iterator, Mapping
 from typing import Any
 
 from pydantic import TypeAdapter, ValidationError
-from referencing import Registry
-from referencing.jsonschema import DRAFT202012
 
 from mendari.core import re2_syntax
 from mendari.core.patterns import MAX_PACK_PATTERNS, RULES_FLAGS
+from mendari.core.schema_graph import Weight, _components, _graph, _once
 from mendari.core.spec import PackManifest
 
 MAX_NEGATION_WINDOW = 200  # characters; the shipped packs use 30 to 40
@@ -64,11 +62,6 @@ MAX_NEGATION_CUES = 50  # the shipped packs have 7 to 23
 MAX_SCHEMA_RUNS = 50  # patterns run on one value or key of an input
 MAX_PACK_PATTERN_SIZE = 3_000  # the shipped packs' come to about 1,200 to 2,600
 _INT = TypeAdapter(int)  # as the providers read a number (`"200"` is 200)
-Weight = Callable[[str], int]  # what one run of a pattern counts
-
-
-def _once(pattern: str) -> int:
-    return 1
 
 
 def rules_size(pattern: str) -> int:
@@ -279,39 +272,6 @@ def _nodes(schema: Any) -> Iterator[Any]:
         stack += node.values() if isinstance(node, dict) else node
 
 
-# The applicators of Draft 2020-12, by where the schemas they hold apply.
-_REFERENCES = ("$ref", "$dynamicRef", "$recursiveRef")  # here (no $dynamicAnchor is allowed)
-_HERE_ONE = ("not", "if", "then", "else")
-_HERE_MANY = ("allOf", "anyOf", "oneOf")
-# On one property's value: one of `properties` or `additionalProperties`, with every
-# `patternProperties` schema and `unevaluatedProperties`.
-# On one item: `prefixItems[i]` or `items`, with `contains` and `unevaluatedItems`.
-
-
-@dataclass
-class _Node:
-    """One schema object of the document, and where its applicators lead."""
-
-    where: str
-    runs: int  # its own patterns, run on the value here or on each of its keys
-    here: list[int] = field(default_factory=list)  # schemas applying to the same value
-    keys: list[int] = field(default_factory=list)  # `propertyNames`: applied to each key
-    one_property: list[int] = field(default_factory=list)  # `properties`, additionalProperties
-    every_property: list[int] = field(default_factory=list)
-    one_item: list[int] = field(default_factory=list)  # `prefixItems`, `items`
-    every_item: list[int] = field(default_factory=list)
-
-    def edges(self) -> list[int]:
-        return [
-            *self.here,
-            *self.keys,
-            *self.one_property,
-            *self.every_property,
-            *self.one_item,
-            *self.every_item,
-        ]
-
-
 def schema_runs(schema: Any, weight: Weight = _once) -> int:
     """The most patterns an input schema can run on one value or key of an input (with `weight`,
     `schema_size`: the most size, each run counting what `weight` gives its pattern): at each
@@ -358,108 +318,3 @@ def schema_runs(schema: Any, weight: Weight = _once) -> int:
         )
         below[i] = sum(below[j] for j in node.here) + max(on_property, on_item)
     return max(here[0], below[0])
-
-
-def _graph(schema: Any, weight: Weight = _once) -> list[_Node]:
-    """The schema objects reachable from the root through applicators, the root first, each
-    with its own patterns' runs (weighed by `weight`); a boolean schema (or anything that is
-    not an object) counts nothing and is left out."""
-    if not isinstance(schema, dict):
-        return []
-    resolver = Registry().resolver_with_root(DRAFT202012.create_resource(schema))
-    index: dict[int, int] = {}
-    nodes: list[_Node] = []
-    pending: list[tuple[dict[str, Any], str]] = []
-
-    def add(target: Any, where: str) -> list[int]:
-        if not isinstance(target, dict):
-            return []
-        if id(target) not in index:
-            index[id(target)] = len(nodes)
-            nodes.append(_Node(where=where, runs=0))
-            pending.append((target, where))
-        return [index[id(target)]]
-
-    def each(value: Any, where: str) -> list[int]:
-        if isinstance(value, list):
-            return [i for n, item in enumerate(value) for i in add(item, f"{where}/{n}")]
-        return []
-
-    def every(value: Any, where: str) -> list[int]:
-        if isinstance(value, dict):
-            return [i for key, item in value.items() for i in add(item, f"{where}/{key}")]
-        return []
-
-    add(schema, "#")
-    while pending:
-        node, where = pending.pop()
-        record = nodes[index[id(node)]]
-        properties = node.get("patternProperties")
-        keyed = sum(map(weight, properties)) if isinstance(properties, dict) else 0
-        searched = keyed if "additionalProperties" in node else 0
-        pattern = node.get("pattern")
-        own = weight(pattern) if isinstance(pattern, str) else 0
-        record.runs = own + keyed + 2 * searched
-        for keyword in _REFERENCES:
-            reference = node.get(keyword)
-            if isinstance(reference, str):
-                target = resolver.lookup(reference).contents
-                record.here += add(target, reference)
-        for keyword in _HERE_ONE:
-            record.here += add(node.get(keyword), f"{where}/{keyword}")
-        for keyword in _HERE_MANY:
-            record.here += each(node.get(keyword), f"{where}/{keyword}")
-        record.here += every(node.get("dependentSchemas"), f"{where}/dependentSchemas")
-        record.keys += add(node.get("propertyNames"), f"{where}/propertyNames")
-        record.one_property += every(node.get("properties"), f"{where}/properties")
-        record.one_property += add(
-            node.get("additionalProperties"), f"{where}/additionalProperties"
-        )
-        record.every_property += every(properties, f"{where}/patternProperties")
-        record.every_property += add(
-            node.get("unevaluatedProperties"), f"{where}/unevaluatedProperties"
-        )
-        record.one_item += each(node.get("prefixItems"), f"{where}/prefixItems")
-        record.one_item += add(node.get("items"), f"{where}/items")
-        record.every_item += add(node.get("contains"), f"{where}/contains")
-        record.every_item += add(node.get("unevaluatedItems"), f"{where}/unevaluatedItems")
-    return nodes
-
-
-def _components(nodes: list[_Node]) -> Iterator[list[int]]:
-    """The strongly connected components of the schema graph (Tarjan's, without recursion), each
-    after every component it leads to."""
-    order = [-1] * len(nodes)
-    low = [0] * len(nodes)
-    on_stack = [False] * len(nodes)
-    stack: list[int] = []
-    edges = [node.edges() for node in nodes]
-    counter = 0
-    work: list[tuple[int, int]] = [(0, 0)]
-    while work:
-        v, start = work.pop()
-        if start == 0:
-            order[v] = low[v] = counter
-            counter += 1
-            stack.append(v)
-            on_stack[v] = True
-        for n in range(start, len(edges[v])):
-            w = edges[v][n]
-            if order[w] == -1:
-                work += [(v, n + 1), (w, 0)]
-                break
-            if on_stack[w]:
-                low[v] = min(low[v], order[w])
-        else:
-            if low[v] == order[v]:
-                component = []
-                while True:
-                    w = stack.pop()
-                    on_stack[w] = False
-                    component.append(w)
-                    if w == v:
-                        break
-                yield component
-            if work:
-                parent = work[-1][0]
-                low[parent] = min(low[parent], low[v])

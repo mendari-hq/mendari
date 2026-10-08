@@ -67,7 +67,12 @@ As built:
   engine refuses is never cached nor marked verified) and `mendari pack verify` pass `hub`.
   `Decision.from_path` takes the origin of its path, so a cached pack loaded by its path is
   still a pack from a registry. The registry checks a publish against its own release's
-  reference packs.
+  reference packs. On every one of these paths, a pack from a registry with a reference pack's
+  id and a version that ties its (`version_key`) but other files is refused (`core/pack.py`
+  `_shadow_problem`, LP-16 F): the cache wins a version tie, so it would be served in the
+  reference pack's place. The registry refuses its publish (`422`), `mendari pull` refuses it
+  before it is cached, and one cached before is listed under `/api/health` `invalid`, with the
+  directory to remove, while the reference pack is served.
 - **Nothing else changes for a pulled pack.** It is labelled "From a registry", may automate
   under its own policy, keeps its pinned model and its own BLOCK rules: community policy stays
   the community packs' (`Pack.community`). Its rules failing on the budget (`time_budget`)

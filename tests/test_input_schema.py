@@ -17,6 +17,7 @@ from referencing.exceptions import Unresolvable
 
 from mendari import Decision, load_pack
 from mendari.core import input_schema
+from mendari.core.schema_graph import _graph
 from mendari.errors import PackValidationError
 from tests.conftest import INBOX_DIR, message
 
@@ -189,3 +190,193 @@ def test_every_shipped_input_schema_is_self_contained() -> None:
     for root in sorted(INBOX_DIR.parent.iterdir()):
         if (root / "pack.yaml").is_file():
             assert input_schema.problems(load_pack(root).input_schema) == [], root.name
+
+
+# -- the expansion bounds on a schema the deployment owns (LP-16f) --------------------------------
+
+ROOT = INBOX_DIR.parents[1]
+APPLICATIONS = (
+    "schemas (at most 1,000): a $ref, allOf, anyOf or oneOf that reaches the same schema more "
+    "than once multiplies it"
+)
+LEADS_BACK = (
+    "a $ref leads back to a schema holding it on the same value, or more than once; a schema may "
+    "refer back to itself only once, through properties or items"
+)
+
+
+def fanning(depth: int, width: int) -> Callable[[dict[str, Any]], None]:
+    """`note` is `$defs/t0`, and `t{i}` is allOf `width` `$ref`s to `t{i+1}`: the last applies
+    `width ** depth` times to one value."""
+
+    def edit(schema: dict[str, Any]) -> None:
+        schema["properties"]["note"] = {"$ref": "#/$defs/t0"}
+        schema["$defs"] = {
+            f"t{i}": {"allOf": [{"$ref": f"#/$defs/t{i + 1}"}] * width} for i in range(depth)
+        } | {f"t{depth}": {"type": "string"}}
+
+    return edit
+
+
+def refused(root: Path) -> list[str]:
+    with pytest.raises(PackValidationError) as raised:
+        load_pack(root)
+    return raised.value.problems
+
+
+def test_a_nested_ref_schema_is_refused_at_load(inbox: Path) -> None:
+    """LP-16's nested-`$ref` test, for a pack the deployment owns (one it does not own keeps the
+    caps and the time budget, `tests/test_community_budget.py`): 28 levels of allOf over two
+    `$ref`s apply the last schema 2**28 times to one value, and jsonschema would walk every one.
+    The pack is refused at load, saying why."""
+    assert refused(edit_schema(inbox, fanning(28, 2))) == [
+        "input schema: #/properties/note: a chain of 29 $refs (at most 16)",
+        f"input schema: one value can be checked against more than 1,000,000,000 {APPLICATIONS}",
+    ]
+
+
+def test_a_wide_fan_out_is_refused_at_load(inbox: Path) -> None:
+    """Twenty `$ref`s at each of 4 levels: 160,000 applications of the last, with no long chain."""
+    assert refused(edit_schema(inbox, fanning(4, 20))) == [
+        f"input schema: one value can be checked against 336,842 {APPLICATIONS}"
+    ]
+
+
+def test_a_ref_cycle_in_place_is_refused_at_load(inbox: Path, tmp_path: Path) -> None:
+    """A schema that applies itself to the same value never ends (jsonschema recurses until
+    Python stops it); a tree whose node applies its child twice doubles at each level."""
+
+    def in_place(schema: dict[str, Any]) -> None:
+        schema["$defs"] = {"a": {"allOf": [{"$ref": "#/$defs/a"}]}}
+        schema["properties"]["note"] = {"$ref": "#/$defs/a"}
+
+    assert refused(edit_schema(inbox, in_place)) == [f"input schema: #/$defs/a: {LEADS_BACK}"]
+
+    def doubling_tree(schema: dict[str, Any]) -> None:
+        schema["$defs"] = {
+            "n": {"allOf": [{"$ref": "#/$defs/m"}, {"$ref": "#/$defs/m"}]},
+            "m": {"properties": {"child": {"$ref": "#/$defs/n"}}},
+        }
+        schema["properties"]["tree"] = {"$ref": "#/$defs/n"}
+
+    other = tmp_path / "tree"
+    shutil.copytree(INBOX_DIR, other)
+    assert refused(edit_schema(other, doubling_tree)) == [f"input schema: #/$defs/n: {LEADS_BACK}"]
+
+
+def test_a_recursive_schema_that_reaches_another_is_refused_at_load(inbox: Path) -> None:
+    """A tree whose every node holds a recursive list: one value deep down meets the list's
+    schema once for each level above it, so the count grows with the input's depth."""
+
+    def nested_loops(schema: dict[str, Any]) -> None:
+        schema["$defs"] = {
+            "node": {
+                "properties": {
+                    "children": {"items": {"$ref": "#/$defs/node"}},
+                    "tags": {"$ref": "#/$defs/tags"},
+                }
+            },
+            "tags": {"items": {"$ref": "#/$defs/tags"}},
+        }
+        schema["properties"]["tree"] = {"$ref": "#/$defs/node"}
+
+    assert refused(edit_schema(inbox, nested_loops)) == [
+        "input schema: #/$defs/node: a schema that refers back to itself leads to another that "
+        "does: the deeper the input, the more schemas one value is checked against"
+    ]
+
+
+def test_a_schema_nested_past_32_levels_is_refused_at_load(tmp_path: Path) -> None:
+    """The inbox schema with a property nested to 33 levels in all (`not` in `not`...); 32
+    loads."""
+
+    def nested(levels: int) -> Callable[[dict[str, Any]], None]:
+        def edit(schema: dict[str, Any]) -> None:
+            deep: dict[str, Any] = {"type": "string"}
+            for _ in range(levels - 3):  # the root, `properties` and the property: 3 levels
+                deep = {"not": deep}
+            schema["properties"]["note"] = deep
+
+        return edit
+
+    for levels in (32, 33):
+        shutil.copytree(INBOX_DIR, tmp_path / str(levels))
+    assert refused(edit_schema(tmp_path / "33", nested(33))) == [
+        "input schema: nested 33 levels deep (at most 32)"
+    ]
+    assert load_pack(edit_schema(tmp_path / "32", nested(32))).input_schema
+
+
+def test_a_long_ref_chain_is_refused_at_load(tmp_path: Path) -> None:
+    def chain(refs: int) -> Callable[[dict[str, Any]], None]:
+        def edit(schema: dict[str, Any]) -> None:
+            schema["properties"]["note"] = {"$ref": "#/$defs/a0"}
+            schema["$defs"] = {f"a{i}": {"$ref": f"#/$defs/a{i + 1}"} for i in range(refs - 1)}
+            schema["$defs"][f"a{refs - 1}"] = {"type": "string"}
+
+        return edit
+
+    for refs in (16, 17):
+        shutil.copytree(INBOX_DIR, tmp_path / str(refs))
+    assert refused(edit_schema(tmp_path / "17", chain(17))) == [
+        "input schema: #/properties/note: a chain of 17 $refs (at most 16)"
+    ]
+    decision = Decision(load_pack(edit_schema(tmp_path / "16", chain(16))))
+    assert decision.validate({**message("hi"), "note": "x"}) == []
+    assert decision.validate({**message("hi"), "note": 1}) != []
+
+
+def test_a_recursive_list_schema_still_loads_and_decides(inbox: Path) -> None:
+    """A tree whose nodes list their children (a simple loop through `items`) meets each of its
+    schemas once on any value: it loads, checks a deep input, and decides as before."""
+
+    def tree(schema: dict[str, Any]) -> None:
+        node = {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "children": {"type": "array", "items": {"$ref": "#/$defs/node"}},
+            },
+        }
+        schema["$defs"] = {"node": node}
+        schema["properties"]["tree"] = {"$ref": "#/$defs/node"}
+
+    edited = Decision(load_pack(edit_schema(inbox, tree)))
+    deep: dict[str, Any] = {"name": "leaf"}
+    for level in range(50):
+        deep = {"name": f"level {level}", "children": [deep, {"name": "sibling"}]}
+    given = message("Can I get a refill of my blood pressure medicine?")
+    shipped = Decision(load_pack(INBOX_DIR)).decide(given)
+    result = edited.decide({**given, "tree": deep})
+    for field in ("outcome", "recommendation", "priority", "reasons", "labels"):
+        assert getattr(result, field) == getattr(shipped, field), field
+    leaf = deep
+    while leaf.get("children"):
+        leaf = leaf["children"][0]
+    leaf["name"] = 5
+    assert edited.validate({**given, "tree": deep}) != []
+
+
+def test_every_shipped_schema_is_within_the_expansion_bounds() -> None:
+    """The reference packs, the scaffolds (`mendari new`; `--community` lays its files over the
+    same schema) and the test fixtures, with their margins: at most 6 deep (32), 1 `$ref` in a
+    chain (16) and 2 schema objects on one value (1,000)."""
+    found = sorted(
+        [
+            *ROOT.glob("packs/*/schemas/*.json"),
+            *ROOT.glob("src/mendari/templates/*/schemas/*.json"),
+            *ROOT.glob("tests/fixtures/**/schemas/*.json"),
+        ]
+    )
+    assert len(found) >= 11
+    assert not (ROOT / "src" / "mendari" / "templates" / "community_pack" / "schemas").exists()
+    for path in found:
+        schema = json.loads(path.read_text())
+        assert input_schema.expansion_problems(schema) == [], path
+        counted = input_schema._expansion(_graph(schema))
+        assert not isinstance(counted, str), path
+        applications, chain, _ = counted
+        assert input_schema._nesting(schema) <= 6 and chain <= 1 and applications <= 2, path
+    for root in sorted(INBOX_DIR.parent.iterdir()):
+        if (root / "pack.yaml").is_file():
+            assert input_schema.expansion_problems(load_pack(root).input_schema) == [], root.name
