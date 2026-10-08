@@ -53,7 +53,7 @@ PINNED = {
         # Added in LP-12g, new urls (no earlier content): the administrative events' codes and
         # the chain id each is about.
         "CodeSystem/audit-administrative-event": "31d84d245735dd8b",
-        "NamingSystem/audit-subject": "01e67d1b2acc47a9",
+        "NamingSystem/audit-subject": "5804d858d1fb1240",
     }
 }
 
