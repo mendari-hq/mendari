@@ -10,6 +10,8 @@ here, in the order they landed:
 - 21d, operational health in the monitor;
 - 21f, the monitor cron (`GET /api/internal/monitor` and `mendari monitor --each-org`, without
   the hosted schedule);
+- 21l, the break-glass (`mendari access revoke` and `mendari access end-sessions`, each chained
+  with who and why);
 - 21j, audit checkpoints (`mendari audit checkpoint`, `mendari audit verify
   --since-checkpoint`; the templates run it daily).
 
