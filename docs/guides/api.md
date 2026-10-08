@@ -104,7 +104,9 @@ who can reach the server can call every operation, and the `Authorization` heade
   days unless asked, 365 at most), and may carry scopes that narrow it: SMART v2 reads such as `system/Task.rs`, and
   `https://mendari.co/fhir/scope/decide` or `https://mendari.co/fhir/scope/outcome`. The decide
   scope also lists the packs it may decide with (`GET /api/packs`, `GET /cds-services`); no
-  scope reaches Mendari's other reads under `/api`.
+  scope reaches Mendari's other reads under `/api`. For each documented integration path there
+  is a preset (`"preset": "fhir"`, `"cds-hooks"`, …) with the role and scope it needs:
+  [the list](../deploying-with-phi.md#2-sign-in-and-roles).
 - With SMART Backend Services on, a registered client exchanges a signed assertion (RS384 or
   ES384, never a client secret) for a five-minute access token, `Bearer mat_…`.
 - A credential never goes in a URL or a form. Refusals are a `401` or `403` with
