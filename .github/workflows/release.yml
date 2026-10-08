@@ -145,8 +145,9 @@ jobs:
           name: image-${{ matrix.name }}
           path: /tmp/${{ matrix.name }}.tar
           retention-days: 7
-      # The run's copy of each image's SBOM (both architectures, with source locations) and what
-      # its corresponding source is; the image-sources job reads the latter.
+      # Each image's SBOM with every package's source location (both architectures) and what its
+      # corresponding source is, for the image-sources job: it publishes the SBOMs in the
+      # `<tag>-sources` image (BuildKit's attestation in the image's index has no locations).
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: sbom-${{ matrix.name }}

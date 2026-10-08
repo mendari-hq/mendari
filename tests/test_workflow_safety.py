@@ -211,9 +211,23 @@ def test_images_are_pushed_only_when_they_comply_and_with_their_source_first() -
 
 
 def test_ci_checks_the_images_licences() -> None:
-    docker = _workflow(ROOT / ".github" / "workflows" / "ci.yml")["jobs"]["docker"]
-    runs = "\n".join(step.get("run", "") for step in docker["steps"])
+    jobs = _workflow(ROOT / ".github" / "workflows" / "ci.yml")["jobs"]
+    runs = "\n".join(step.get("run", "") for step in jobs["docker"]["steps"])
     assert "python3 scripts/check_image_licences.py --image mendari-engine:ci" in runs
+    # And the SBOM scan, as a release runs it: a base image bump that changes a licence fails in
+    # its own pull request (the generator and builder are release.yml's: test_supply_chain).
+    sbom = jobs["image-sbom"]
+    assert not sbom.get("if") and not _writes(sbom.get("permissions"))
+    assert not any("continue-on-error" in step or "if" in step for step in sbom["steps"])
+    scanned = "\n".join(step.get("run", "") for step in sbom["steps"])
+    for command in (
+        '--attest "type=sbom,generator=',
+        "check_image_licences.py --extract-sbom /tmp/mendari-engine.tar --arch amd64",
+        "check_image_licences.py --image mendari-engine:sbom",
+        "--sbom /tmp/sbom/mendari-engine-amd64.attestation.json",
+        "--sbom-out /tmp/sbom/mendari-engine-amd64.spdx.json",
+    ):
+        assert command in scanned, command
 
 
 def test_the_docs_deploy_by_hand_from_a_strict_checked_build() -> None:

@@ -24,7 +24,7 @@ COPY packs ./packs
 COPY datasets ./datasets
 RUN uv sync --frozen --no-dev --extra server --no-editable
 
-FROM python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016
+FROM python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016 AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -32,17 +32,25 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 COPY --from=build /opt/venv /opt/venv
 
-# Licences: Mendari's LICENSE and NOTICE, where the corresponding source is (SOURCE.md), and the
-# notices of every third-party component, written from what this image holds
+# The notices of every third-party component, written from what the runtime stage holds
 # (scripts/image_notices.py: THIRD_PARTY_NOTICES.md, inventory.json, a CycloneDX list of what an
-# SBOM scanner cannot see, and the texts licenses/image keeps for bundled libraries and crates).
-# Debian's own notices stay where the base image keeps them, /usr/share/doc/*/copyright and
-# /usr/share/common-licenses: nothing in this file removes files. scripts/check_image_licences.py
-# checks all of it (CI's docker job, and every image a release builds).
+# SBOM scanner cannot see, and the texts licenses/image keeps for bundled libraries and crates),
+# in a stage of their own: the image takes only /licenses from it, never the script or the
+# manifest, and builds with Docker's classic builder as with BuildKit.
+FROM runtime AS notices
+COPY scripts/image_notices.py /tmp/image_notices.py
+COPY licenses/image /tmp/licences
+RUN python3 /tmp/image_notices.py --manifest /tmp/licences --write /licenses
+
+FROM runtime
+
+# Licences: Mendari's LICENSE and NOTICE, where the corresponding source is (SOURCE.md), and the
+# notices written above. Debian's own notices stay where the base image keeps them,
+# /usr/share/doc/*/copyright and /usr/share/common-licenses: nothing in this file removes files.
+# scripts/check_image_licences.py checks all of it against the finished image (CI's docker job,
+# and every image a release builds).
 COPY LICENSE NOTICE licenses/image/SOURCE.md /licenses/
-RUN --mount=type=bind,source=scripts/image_notices.py,target=/tmp/image_notices.py \
-    --mount=type=bind,source=licenses/image,target=/tmp/licences \
-    python3 /tmp/image_notices.py --manifest /tmp/licences --write /licenses
+COPY --from=notices /licenses /licenses
 
 RUN useradd --create-home --uid 10001 mendari && mkdir /data && chown mendari /data
 USER mendari

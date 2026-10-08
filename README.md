@@ -342,10 +342,12 @@ Each image carries them in `/licenses`: Mendari's `LICENSE` and `NOTICE`, `THIRD
 (every component, its version, its licence, where its notices are and where its source is),
 `SOURCE.md` and the texts of what bundles no notice of its own; Debian's copyright files stay in
 `/usr/share/doc`. A release publishes each image's corresponding source beside it, as
-`<image>:<tag>-sources`, and its SBOM inside the image's index (BuildKit's attestation; the run
-keeps a copy with every package's source location). `scripts/check_image_licences.py` checks all
-of it (CI's `docker` job), and the release pushes no image that fails it or whose SBOM names a
-licence that is unknown or not allowed.
+`<image>:<tag>-sources`, with the image's SBOM (SPDX, every package with its source location) in
+its `/sources/sbom/`; the SBOM BuildKit attaches in the image's index lists the same packages and
+licences, without their source locations. `scripts/check_image_licences.py` checks all of it
+(CI's `docker` and `image-sbom` jobs), and the release pushes no image that fails it or whose
+SBOM names a licence that is unknown or not allowed. The image builds with BuildKit or Docker's
+classic builder alike.
 
 ### Docker sandbox
 

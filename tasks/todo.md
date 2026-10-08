@@ -515,6 +515,28 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   it") commits the maintainers: confirm or name a contact; counsel to confirm the approach
   (equivalent access from the same place, no separate written offer). Keep each `-sources` tag
   as long as its image, and make it public with the image's package.
+  **Review (2026-10-08), six findings, all fixed:** `THIRD_PARTY_NOTICES.md` now gives a source
+  for every Python package (PyPI at its version, the component's for psycopg, certifi and pip,
+  the repository for Mendari) and every crate (crates.io), and Debian's section says where each
+  source package is (`inventory.json` gives each one's snapshot.debian.org address); the SBOM's
+  source locations are now read from that inventory, so the two always agree, and a package the
+  SBOM lists that the inventory does not fails the release (`no source location`). The SBOM with
+  source locations is the one in `<tag>-sources` (`/sources/sbom/`): README and SOURCE.md say
+  so, and that BuildKit's attestation has none (pushing the enriched copy as an OCI referrer
+  would add a tool to the publishing job that nothing can exercise before a release). CI's new
+  `image-sbom` job runs the release's SBOM scan on every change, with the release's generator
+  and builder (a test keeps them the same), so a base image bump that renames a Debian licence
+  or changes a reviewed copyright text fails in its own pull request. pip's vendored Requests
+  carries Requests' NOTICE file (Apache-2.0 4(d); none of the other Apache-2.0 components has
+  one upstream). CPython's corresponding source adds the official image's Dockerfile that
+  compiled it (docker-library/python 2a3b794c, 3.12/slim-trixie, pinned by SHA-256; its readline
+  and _gdbm modules link GPL-3.0 libraries), and `base_image` ties that recipe to the
+  `Dockerfile`'s base, so a new base image is reviewed again. The `Dockerfile` writes the
+  notices in a stage of its own instead of `RUN --mount`, so `docker build .` works again with
+  Docker's classic builder (a test keeps BuildKit-only syntax out). Not done: CI does not
+  collect the sources (`image_sources.py`): every run would fetch about 345 MB from Debian's
+  archive, and snapshot.debian.org as pinned versions leave the pool; a scheduled job is the
+  owner's call.
 
 - [ ] **LP-10** Statistics and a per-case ledger behind every number. Split in three PRs:
   - [x] **LP-10a** The statistics, the ledger, the report format and `mendari compare`

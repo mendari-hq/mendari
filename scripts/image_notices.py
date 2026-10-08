@@ -34,6 +34,7 @@ import re
 import shutil
 import sys
 import tomllib
+import urllib.parse
 from email.parser import Parser
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -51,10 +52,29 @@ COMMON_TEXT = {
 LICENCE_FILE = re.compile(r"^(LICEN[CS]E|COPYING|COPYRIGHT|NOTICE|AUTHORS|UNLICENSE)", re.I)
 ARCHES = ("amd64", "arm64")
 MACHINE = {"x86_64": "amd64", "aarch64": "arm64", "amd64": "amd64", "arm64": "arm64"}
+# Where Mendari's own source is (licenses/image/SOURCE.md says the same).
+REPOSITORY = "https://github.com/Junebugg1214/mendari"
 
 
 def canonical(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def dist_source(name: str, version: str) -> str:
+    """Where a Python package's source is: its release on PyPI (its sdist, or the files of its
+    wheels), Mendari's repository for Mendari."""
+    return REPOSITORY if name == "mendari" else f"https://pypi.org/project/{name}/{version}/"
+
+
+def crate_source(name: str, version: str) -> str:
+    """Where a Rust crate's source is: its release on crates.io."""
+    return f"https://crates.io/crates/{name}/{version}"
+
+
+def debian_source(package: str, version: str) -> str:
+    """Where a Debian source package is at a version: snapshot.debian.org keeps every one."""
+    quote = urllib.parse.quote
+    return f"https://snapshot.debian.org/package/{quote(package)}/{quote(version)}/"
 
 
 def base_purl(purl: str) -> str:
@@ -255,8 +275,8 @@ def load_manifest(directory: Path) -> dict[str, Any]:
 
 
 def inventory(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
-    """Everything the image holds that has a licence, where each one's notices are in it, and
-    what is not covered."""
+    """Everything the image holds that has a licence, where each one's notices are in it and
+    where its source is, and what is not covered."""
     missing: list[str] = []
     packages = dpkg_packages(root)
     libc = next((p for p in packages if p["name"] == "libc6"), None)
@@ -272,7 +292,8 @@ def inventory(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
             licences: list[str] = []
         else:
             licences = copyright_licences(doc.read_text(encoding="utf-8", errors="replace"))
-        debian.append({**package, "licences": licences})
+        source_url = debian_source(package["source"], package["source_version"])
+        debian.append({**package, "licences": licences, "source_url": source_url})
     for name in COMMON_LICENCES:
         if not (root / "usr/share/common-licenses" / name).is_file():
             missing.append(f"/usr/share/common-licenses/{name} is gone")
@@ -403,7 +424,7 @@ def inventory(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
                 "version": key[1],
                 "licence": crate["licence"],
                 "in": sorted(used_crates[key]),
-                "source": f"https://crates.io/crates/{key[0]}/{key[1]}",
+                "source": crate_source(key[0], key[1]),
                 "texts": texts,
             }
         )
@@ -412,7 +433,10 @@ def inventory(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
     for dist in sorted(dists, key=lambda d: (d["env"], d["name"])):
         if not dist["licence_files"]:
             missing.append(f"{dist['name']} {dist['version']}: no licence file in its dist-info")
-        listed_dists.append({k: v for k, v in dist.items() if k != "info"})
+        # A package a component describes (psycopg, certifi, pip) has the component's source.
+        owner = purls.get(f"pkg:pypi/{dist['name']}@{dist['version']}")
+        source = owner["source"] if owner else dist_source(dist["name"], dist["version"])
+        listed_dists.append({**{k: v for k, v in dist.items() if k != "info"}, "source": source})
 
     sources: list[dict[str, str]] = [
         {"kind": "debian", "package": p["source"], "version": p["source_version"]} for p in packages
@@ -484,7 +508,11 @@ def notices(found: dict[str, Any]) -> str:
         f"Debian GNU/Linux {debian['release']}. Each package's licence and copyright notices are",
         "in /usr/share/doc/<package>/copyright, and the common licence texts they refer to in",
         "/usr/share/common-licenses/. The licences column lists the short names a",
-        "machine-readable copyright file uses (empty: read the file).",
+        "machine-readable copyright file uses (empty: read the file). Each package's source is",
+        "its source package at the version in the source package column: in the image's",
+        "`-sources` image under debian/<source package>/ (/licenses/SOURCE.md), and at",
+        "https://snapshot.debian.org/package/<source package>/<version>/, which keeps every",
+        "version (inventory.json gives each one's address).",
         "",
         "| Package | Version | Source package | Licences named in its copyright file |",
         "|---|---|---|---|",
@@ -514,13 +542,13 @@ def notices(found: dict[str, Any]) -> str:
             "",
             f"## Python packages: {title} ({len(dists)})",
             "",
-            "| Package | Version | Licence | Licence and notice files |",
-            "|---|---|---|---|",
+            "| Package | Version | Licence | Licence and notice files | Source |",
+            "|---|---|---|---|---|",
         ]
         for d in dists:
             lines.append(
                 f"| {d['name']} | {d['version']} | {_cell(d['licence'])} | "
-                f"{'<br>'.join(d['licence_files'])} |"
+                f"{'<br>'.join(d['licence_files'])} | {d['source']} |"
             )
     lines += [
         "",
@@ -545,17 +573,17 @@ def notices(found: dict[str, Any]) -> str:
         f"## Rust crates compiled into packages ({len(found['crates'])})",
         "",
         "As each package's own SBOM lists them (its dist-info's sboms/), with the licence files",
-        "each crate's package carries. A licence with OR is a choice; Mendari takes it under the",
-        "first one that is permissive.",
+        "each crate's package carries and its release on crates.io (its source). A licence with",
+        "OR is a choice; Mendari takes it under the first one that is permissive.",
         "",
-        "| Crate | Version | Licence | In | Notices |",
-        "|---|---|---|---|---|",
+        "| Crate | Version | Licence | In | Notices | Source |",
+        "|---|---|---|---|---|---|",
     ]
     for c in found["crates"]:
         texts = "<br>".join(t["path"] for t in c["texts"])
         lines.append(
             f"| {c['name']} | {c['version']} | {_cell(c['licence'])} | {', '.join(c['in'])} | "
-            f"{texts} |"
+            f"{texts} | {c['source']} |"
         )
     return "\n".join(lines) + "\n"
 

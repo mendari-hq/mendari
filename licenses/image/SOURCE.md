@@ -25,8 +25,10 @@ What it holds (its `/sources/README.md` lists every file with its SHA-256):
 - `components/`: the source of the other GPL and LGPL software, as released by its authors at
   the version in the image: psycopg (LGPL-3.0) with psycopg-binary's C implementation, the
   libraries psycopg-binary bundles under the LGPL (libxcrypt and keyutils, with the build
-  scripts that compiled libxcrypt), CPython, pip and certifi.
-- `sbom/`: the image's software bill of materials (SPDX), one per architecture.
+  scripts that compiled libxcrypt), CPython (with the official image's Dockerfile that compiled
+  it), pip and certifi.
+- `sbom/`: the image's software bill of materials (SPDX), one per architecture, with every
+  package's source location.
 
 /licenses/THIRD_PARTY_NOTICES.md lists every component in the image with its licence and where
 its source is; /licenses/inventory.json lists the same, and what the `-sources` image was made

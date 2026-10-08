@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """An image may be published only when it carries every licence and notice it must, and an SBOM
 of the finished image shows no licence that is unknown or not allowed (the owner's decision of
-2026-10-07: images wait until they comply). CI's docker job checks the image it builds; the
-release checks every image, for both architectures, before anything is pushed.
+2026-10-07: images wait until they comply). CI checks the image it builds and scans its SBOM
+(the `docker` and `image-sbom` jobs); the release checks every image, for both architectures,
+before anything is pushed.
 
     python3 scripts/check_image_licences.py --image mendari-engine:ci
     python3 scripts/check_image_licences.py --image IMG --sbom raw.spdx.json \
@@ -22,7 +23,9 @@ every Debian package, Python package, bundled component and crate the image hold
 package's licence is permissive, or copyleft with its corresponding source published beside the
 image (every Debian package; the components with `corresponding_source`), or a named exception
 below with its reason. Anything else, an unknown licence included, fails with the package named.
-`--sbom-out` writes the SBOM with each package's source location filled in.
+`--sbom-out` writes the SBOM with each package's source location filled in, as the image's
+inventory gives it (the SBOM BuildKit attaches has none; the release publishes this copy in the
+image's `-sources` image).
 
 **The SBOM attestation** (`--extract-sbom`): the SPDX document BuildKit attached to one
 architecture's image in an OCI archive (`docker buildx build --attest type=sbom`).
@@ -45,7 +48,6 @@ from typing import Any
 ROOT = Path(__file__).resolve().parent.parent
 LABEL_LICENCE = "Apache-2.0"
 LABEL_WORDS = ("Mendari application code: Apache-2.0", "/licenses", "THIRD_PARTY_NOTICES")
-REPOSITORY = "https://github.com/Junebugg1214/mendari"
 
 # Permissive: scripts/check_licences.py's allow-list (a test keeps this a superset of it), and the
 # notice-only licences an operating system's packages add.
@@ -418,23 +420,24 @@ def scan(sbom: dict[str, Any], found: dict[str, Any]) -> list[str]:
 
 
 def source_location(package: dict[str, Any], found: dict[str, Any]) -> str:
-    """Where a package's source is."""
+    """Where a package's source is, as the image's inventory says (THIRD_PARTY_NOTICES.md lists
+    the same), and for the two an SBOM names that have no entry of their own there: distlib's
+    launchers in pip, and the Swagger UI the dashboard vendors (in Mendari's package)."""
     name = _name(package)
     for component in found["components"]:
         if component["purl"] and key(component["purl"]) == name:
             return str(component["source"])
-    if name.startswith("pkg:cargo/"):
-        crate, version = name.removeprefix("pkg:cargo/").split("@", 1)
-        return f"https://crates.io/crates/{crate}/{version}"
+    for dist in found["dists"]:
+        if name == f"pkg:pypi/{dist['name']}@{dist['version']}":
+            return str(dist["source"])
+    for crate in found["crates"]:
+        if name == f"pkg:cargo/{crate['name']}@{crate['version']}":
+            return str(crate["source"])
     if name.startswith("pkg:deb/"):
         binary, version = name.split("/", 2)[2].split("@", 1)
         for p in found["debian"]["packages"]:
             if p["name"] == binary and p["version"] == version:
-                source = urllib.parse.quote(p["source"])
-                return f"https://snapshot.debian.org/package/{source}/{urllib.parse.quote(p['source_version'])}/"
-    if name.startswith("pkg:pypi/"):
-        dist, version = name.removeprefix("pkg:pypi/").split("@", 1)
-        return REPOSITORY if dist == "mendari" else f"https://pypi.org/project/{dist}/{version}/"
+                return str(p["source_url"])
     if name == "name:Simple Launcher":
         for component in found["components"]:
             if component["id"] == "pip-vendored-distlib":

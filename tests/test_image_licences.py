@@ -428,6 +428,36 @@ def test_written_notices_pass_the_check_until_something_changes(
     assert (target / "third-party/crates/ahash-0.8.12/LICENSE-MIT").read_text() == "MIT, ahash\n"
     written = (target / "THIRD_PARTY_NOTICES.md").read_text()
     assert "/licenses/third-party/zlib/LICENSE" in written and "| bash | 5.2.37-2+b10 |" in written
+    # Every component says where its source is: Debian's by its source package (and the
+    # inventory's address for it), the bundled ones, each Python package and each crate.
+    assert "| bash 5.2.37-2 |" in written and "https://snapshot.debian.org/package/<" in written
+    assert found["debian"]["packages"][0]["source_url"] == (
+        "https://snapshot.debian.org/package/bash/5.2.37-2/"
+    )
+    python = written[written.index("## Python packages") : written.index("## Bundled")]
+    site = "/opt/venv/lib/python3.12/site-packages"
+    assert "| Package | Version | Licence | Licence and notice files | Source |" in python
+    assert (
+        f"| pure | 1.0 | MIT | {site}/pure-1.0.dist-info/licenses/LICENSE | "
+        "https://pypi.org/project/pure/1.0/ |"
+    ) in python
+    # A package a component describes has the component's source (as the SBOM gets it).
+    assert (
+        f"| carrier | 2.0 | LGPL-3.0-only | {site}/carrier-2.0.dist-info/licenses/LICENSE | "
+        "https://example.org/carrier |"
+    ) in python
+    crates = written[written.index("## Rust crates") :]
+    assert "| Crate | Version | Licence | In | Notices | Source |" in crates
+    assert (
+        "| ahash | 0.8.12 | MIT OR Apache-2.0 | carrier | "
+        "/licenses/third-party/crates/ahash-0.8.12/LICENSE-MIT | "
+        "https://crates.io/crates/ahash/0.8.12 |"
+    ) in crates
+    assert {d["name"]: d["source"] for d in found["dists"]} == {
+        "carrier": "https://example.org/carrier",
+        "pure": "https://pypi.org/project/pure/1.0/",
+    }
+    assert notices.dist_source("mendari", "0.1.0") == notices.REPOSITORY
     cdx = json.loads((target / "third-party.cdx.json").read_text())
     assert {c["purl"] for c in cdx["components"]} >= {
         "pkg:rpm/almalinux/zlib@1.2-3.el8",
@@ -521,12 +551,23 @@ def _found() -> dict[str, Any]:
                     "version": "5.2-1+b1",
                     "source": "bash",
                     "source_version": "1:5.2-1",
+                    "source_url": notices.debian_source("bash", "1:5.2-1"),
                 }
             ]
         },
         "dists": [
-            {"name": "carrier", "version": "2.0", "licence": "LGPL-3.0-only"},
-            {"name": "re2like", "version": "1.0", "licence": "BSD License"},
+            {
+                "name": "carrier",
+                "version": "2.0",
+                "licence": "LGPL-3.0-only",
+                "source": "https://example.org/carrier",
+            },
+            {
+                "name": "re2like",
+                "version": "1.0",
+                "licence": "BSD License",
+                "source": notices.dist_source("re2like", "1.0"),
+            },
         ],
         "components": [
             {
@@ -537,7 +578,14 @@ def _found() -> dict[str, Any]:
                 "source": "https://example.org/carrier",
             },
         ],
-        "crates": [],
+        "crates": [
+            {
+                "name": "ahash",
+                "version": "0.8.12",
+                "licence": "MIT OR Apache-2.0",
+                "source": notices.crate_source("ahash", "0.8.12"),
+            }
+        ],
         "sources": [{"kind": "file", "component": "carrier-source", "file": "c.tgz"}],
     }
 
@@ -553,15 +601,18 @@ def test_a_scanned_sbom_passes_when_every_licence_is_allowed_and_everything_is_l
         _package("carrier", "pkg:pypi/carrier@2.0", "LGPL-3.0-only"),
         _package("carrier", "pkg:pypi/Carrier@2.0?file_name=x.whl"),  # merged: same package
         _package("re2like", "pkg:pypi/re2like@1.0"),  # read from its classifier: BSD
+        _package("ahash", "pkg:cargo/ahash@0.8.12", "MIT OR Apache-2.0"),
     )
     found = _found()
     assert check.scan(sbom, found) == []
     assert check.enrich(sbom, found) == []
+    # Each source location is the one the image's inventory (and THIRD_PARTY_NOTICES.md) gives.
     locations = {p["name"]: p["downloadLocation"] for p in sbom["packages"][1:]}
     assert locations == {
         "bash": "https://snapshot.debian.org/package/bash/1%3A5.2-1/",
         "carrier": "https://example.org/carrier",
         "re2like": "https://pypi.org/project/re2like/1.0/",
+        "ahash": "https://crates.io/crates/ahash/0.8.12",
     }
 
 
@@ -573,6 +624,7 @@ def test_a_scanned_sbom_names_each_package_it_refuses() -> None:
         _package("carrier", "pkg:pypi/carrier@2.0", "LGPL-3.0-only"),
         _package("mystery", "pkg:generic/mystery@1"),
         _package("Simple Launcher", "", sourceInfo="from /elsewhere/t32.exe"),
+        _package("stray", "pkg:pypi/stray@1.0", "MIT"),  # allowed, and not in the inventory
     )
     problems = check.scan(sbom, found)
     assert any(p.startswith("bash ") and "AGPL-3.0-only not allowed" in p for p in problems)
@@ -583,6 +635,7 @@ def test_a_scanned_sbom_names_each_package_it_refuses() -> None:
     assert check.enrich(sbom, found) == [
         "mystery (pkg:generic/mystery@1): no source location",
         "Simple Launcher (name:Simple Launcher): no source location",  # pip's distlib is not here
+        "stray (pkg:pypi/stray@1.0): no source location",  # what the image's notices do not list
     ]
 
 
@@ -704,6 +757,52 @@ def test_the_dockerfile_writes_licences_and_keeps_debians() -> None:
         "usr/share/doc/{package['name']}/copyright"
         in (ROOT / "scripts/image_notices.py").read_text()
     )
+
+
+def test_the_dockerfile_builds_without_buildkit() -> None:
+    """Sites build the image themselves with `docker build .` (README, deploy/README.md), and
+    Docker's classic builder is still the default where buildx is not installed: the notices are
+    written in a stage of their own, and nothing in the file needs BuildKit."""
+    dockerfile = (ROOT / "Dockerfile").read_text()
+    for line in dockerfile.splitlines():
+        if line.lstrip().startswith("#"):
+            continue
+        assert not re.search(
+            r"--(mount|link|chmod|parents|exclude|network|security|checksum)\b|<<", line
+        ), line
+    assert "FROM runtime AS notices" in dockerfile
+    final = dockerfile[dockerfile.rindex("\nFROM ") :]
+    assert final.startswith("\nFROM runtime\n")
+    assert "COPY --from=notices /licenses /licenses" in final
+    # The image takes /licenses from that stage, neither the script nor the manifest.
+    instructions = [s for s in final.splitlines() if s.strip() and not s.lstrip().startswith("#")]
+    assert not any("image_notices" in s or "licenses/image " in s for s in instructions)
+
+
+def test_cpythons_build_recipe_is_the_base_images() -> None:
+    """CPython's readline and _gdbm modules link GPL-3.0 libraries: its corresponding source is
+    the Python release and the official image's Dockerfile that compiled it, for the very base
+    image the Dockerfile pins (a new base image is reviewed again, CONTRIBUTING.md)."""
+    (cpython,) = [c for c in COMPONENTS["component"] if c["id"].startswith("cpython-")]
+    froms = re.findall(r"^FROM (python:\S+)", (ROOT / "Dockerfile").read_text(), re.M)
+    assert froms and set(froms) == {cpython["base_image"]}
+    files = {item["file"]: item["url"] for item in cpython["corresponding_source"]}
+    assert files[f"Python-{cpython['version']}.tar.xz"].startswith("https://www.python.org/ftp/")
+    (recipe,) = [url for name, url in files.items() if name.endswith(".Dockerfile")]
+    minor = ".".join(cpython["version"].split(".")[:2])
+    assert re.fullmatch(
+        rf"https://raw\.githubusercontent\.com/docker-library/python/[0-9a-f]{{40}}/{minor}/"
+        r"slim-[a-z]+/Dockerfile",
+        recipe,
+    )
+
+
+def test_requests_in_pip_carries_its_notice_file() -> None:
+    """Apache-2.0 asks for a NOTICE file's attributions to be carried; pip vendors Requests
+    without it, so the image carries Requests' own (the other Apache-2.0 components ship none)."""
+    (requests,) = [c for c in COMPONENTS["component"] if c["id"] == "pip-vendored-requests"]
+    assert {t["file"] for t in requests["texts"]} == {"LICENSE", "NOTICE"}
+    assert "Kenneth Reitz" in (MANIFEST / "texts/pip-vendored-requests/NOTICE").read_text()
 
 
 def test_source_md_says_where_the_release_publishes_the_source() -> None:

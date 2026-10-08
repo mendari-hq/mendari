@@ -19,9 +19,10 @@
 #                                a file at `url`, or `member` of the archive at `url`, or some
 #                                `lines` of it (a notice in a source file's header); fetched by
 #                                scripts/image_licence_texts.py fetch into texts/<id>/<file>
-#   corresponding_source         for GPL and LGPL software (and CPython, whose readline module
-#                                links GNU Readline): the exact source, pinned by sha256, that the
-#                                release publishes beside the image (scripts/image_sources.py)
+#   corresponding_source         for GPL and LGPL software (and CPython, whose readline and _gdbm
+#                                modules link GNU Readline and GDBM): the exact source, and the
+#                                scripts that built it, pinned by sha256, that the release
+#                                publishes beside the image (scripts/image_sources.py)
 #
 # How the versions were found (2026-10-08): psycopg-binary 3.3.6's wheels carry an auditwheel SBOM
 # of the system libraries grafted into them (the RPMs below); libpq, OpenSSL 3 and OpenLDAP are
@@ -484,13 +485,19 @@ version = "3.12.15"
 licence = "PSF-2.0"
 in = [{ dist = "cpython", version = "3.12.15" }]
 purl = "pkg:generic/python@3.12.15"
-how = "the base image's Python, built from source; its licence is /usr/local/lib/python3.12/LICENSE.txt, and the software it incorporates (expat, libmpdec, HACL* and others) is noticed in license.rst here"
+how = "the base image's Python, built from source by the official image's Dockerfile (docker-library/python at the commit the base image's index names in its org.opencontainers.image.revision annotation, 3.12/slim-trixie); its licence is /usr/local/lib/python3.12/LICENSE.txt, and the software it incorporates (expat, libmpdec, HACL* and others) is noticed in license.rst here"
 source = "https://www.python.org/ftp/python/3.12.15/Python-3.12.15.tar.xz"
+# The base image this recipe built (the Dockerfile's FROM; a test keeps them the same): a new
+# base image is reviewed again, its recipe pinned anew (CONTRIBUTING.md).
+base_image = "python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016"
 texts = [
   { file = "license.rst", url = "https://raw.githubusercontent.com/python/cpython/v3.12.15/Doc/license.rst" },
 ]
+# The readline and _gdbm modules link GNU Readline and GDBM (GPL-3.0): the source of the modules,
+# and the script that compiled them (configure's options), are published beside the image.
 corresponding_source = [
   { file = "Python-3.12.15.tar.xz", url = "https://www.python.org/ftp/python/3.12.15/Python-3.12.15.tar.xz", sha256 = "c2c4321961fab0fb999d66e0cecf521c2ab3994c7992873ea99e306c1094fd5a" },
+  { file = "docker-library-python-2a3b794c-3.12-slim-trixie.Dockerfile", url = "https://raw.githubusercontent.com/docker-library/python/2a3b794c223ab067d122719541cdd54a068732a5/3.12/slim-trixie/Dockerfile", sha256 = "db36efba269b9ace6b432e5d842549cd9f345c38bb4f9ae5617d26dde485047e" },
 ]
 
 # pip 25.0.1 (the base image's, and ensurepip's copy of it) vendors these packages without their
@@ -624,7 +631,11 @@ licence = "Apache-2.0"
 in = [{ dist = "pip", version = "25.0.1" }]
 purl = "pkg:pypi/requests@2.32.3"
 source = "https://pypi.org/project/requests/2.32.3/"
-texts = [{ file = "LICENSE", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/requests/LICENSE" }]
+how = "vendored in pip without its NOTICE file, which Apache-2.0 asks to carry: here from Requests' own v2.32.3 tag"
+texts = [
+  { file = "LICENSE", url = "https://raw.githubusercontent.com/pypa/pip/25.0.1/src/pip/_vendor/requests/LICENSE" },
+  { file = "NOTICE", url = "https://raw.githubusercontent.com/psf/requests/v2.32.3/NOTICE" },
+]
 
 [[component]]
 id = "pip-vendored-resolvelib"

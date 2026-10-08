@@ -241,6 +241,30 @@ def test_the_release_attaches_an_sbom_from_a_pinned_generator() -> None:
     )
 
 
+def _builders(path: Path, job: str) -> list[str]:
+    steps = _workflow(path)["jobs"][job]["steps"]
+    return [
+        s["with"]["driver-opts"]
+        for s in steps
+        if s.get("uses", "").startswith("docker/setup-buildx-action@")
+    ]
+
+
+def test_ci_scans_the_sbom_from_the_releases_generator_and_builder() -> None:
+    """CI's image-sbom job runs the release's SBOM scan on every change; it proves something
+    only while it runs the same generator on the same builder (a bump changes both files)."""
+    workflows = ROOT / ".github" / "workflows"
+    found = {}
+    for name in ("ci.yml", "release.yml"):
+        found[name] = {
+            g for s in _scripts(workflows / name) for g in re.findall(r"generator=([^\s\",]+)", s)
+        }
+    assert len(found["ci.yml"]) == 1 and found["ci.yml"] == found["release.yml"]
+    assert _builders(workflows / "ci.yml", "image-sbom") == _builders(
+        workflows / "release.yml", "images"
+    )
+
+
 @pytest.mark.parametrize("path", COMPOSE_FILES, ids=lambda p: str(p.relative_to(ROOT)))
 def test_every_compose_image_is_pinned_by_digest(path: Path) -> None:
     services = yaml.safe_load(path.read_text())["services"]

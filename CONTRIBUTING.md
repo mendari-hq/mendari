@@ -118,12 +118,18 @@ hand:
   GPL or LGPL software, its exact source pinned by SHA-256 (`corresponding_source`); then
   `uv run python scripts/image_licence_texts.py fetch`, and for a package built from Rust
   `docker build` one image per architecture and run `... crates <amd64 image> <arm64 image>`.
-  A new base image (CPython or pip) is reviewed the same way. Commit `licenses/image/` whole.
+  A new base image (CPython or pip) is reviewed the same way, and CPython's build recipe pinned
+  anew: the base image's index names the `docker-library/python` commit that built it
+  (`docker buildx imagetools inspect --raw python:3.12-slim@sha256:…`, annotation
+  `org.opencontainers.image.revision`); set the CPython component's `base_image` and its
+  Dockerfile's URL and SHA-256 (`tests/test_image_licences.py` fails until they match the
+  `Dockerfile`). Commit `licenses/image/` whole.
 - **The SBOM generator:** `release.yml` names BuildKit's SBOM generator
-  (`docker/buildkit-syft-scanner`) by digest, by hand like the emulator and builder. A new one
-  may name a licence differently: run its SBOM through `check_image_licences.py` on an image
-  built locally (`docker buildx build --attest type=sbom,generator=… --output type=oci,…`, then
-  `--extract-sbom`) before you bump it.
+  (`docker/buildkit-syft-scanner`) by digest, by hand like the emulator and builder, and CI's
+  `image-sbom` job runs the release's SBOM scan with the same generator and builder on every
+  change (a test keeps the two files the same). A base image bump that names a licence
+  differently fails there; so does a new generator, so bump it in both files in one pull
+  request.
 
 ## Commands in the docs
 
