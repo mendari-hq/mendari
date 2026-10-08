@@ -16,6 +16,8 @@ Deployment configuration (none of it lives in the pack):
 - `JEV_MODEL`: the model id (required unless the pack variant pins `model`).
 - `JEV_API_KEY` for local use, or `JEV_CONNECTOR` (e.g. `jev/my-project`) to obtain the key
   from a Vercel Connect connector. Keys never reach logs, errors or audit records.
+- `MENDARI_PROVIDER_ALLOWED_ORIGINS`, when set: `JEV_API_URL`'s origin (and Vercel Connect's,
+  with a connector) must be on it (`providers/http.py`).
 
 These variable names are fixed; a pack that tries to name other variables is refused at load.
 """
@@ -48,7 +50,14 @@ from mendari.providers.base import (
 )
 from mendari.providers.batch import batched_answer, unwrap
 from mendari.providers.credentials import key_source, resolve_key
-from mendari.providers.http import post_json, require_secure
+from mendari.providers.http import (
+    allowed_origins,
+    post_json,
+    require_allowed,
+    require_https,
+    require_listed,
+    require_secure,
+)
 
 MODEL_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}$"
 # Published limits (docs.typesafe.ai/api and /models): 2-255 options per Choice (as in the
@@ -246,7 +255,8 @@ class JevProvider(Provider):
 
 def deployment_configured() -> bool:
     """Whether this deployment has Jev set up: an endpoint, a model and a key or connector. Set
-    up with a model id or an endpoint Jev could never be called with is an error (at startup)."""
+    up with a model id or an endpoint Jev could never be called with (not https, or off the
+    provider allow-list when the deployment has one) is an error (at startup)."""
     endpoint = os.environ.get(ENDPOINT_ENV, "").strip()
     model = os.environ.get(MODEL_ENV, "").strip()
     if not (endpoint and model and key_source(key_env=API_KEY_ENV, connector_env=CONNECTOR_ENV)):
@@ -254,9 +264,12 @@ def deployment_configured() -> bool:
     if not re.match(MODEL_PATTERN, model):
         raise MendariError(f"{MODEL_ENV} is not a Jev model id")
     try:
-        _require_secure(endpoint)
+        require_https(endpoint, "Jev")
     except ProviderError:
         raise MendariError(f"{ENDPOINT_ENV} must use https (http only for localhost)") from None
+    allowed = allowed_origins()  # a malformed list is a MendariError naming it
+    if allowed is not None:
+        require_listed(ENDPOINT_ENV, allowed)
     return True
 
 
@@ -271,6 +284,7 @@ def list_models(*, timeout_s: float = 10.0) -> list[dict[str, Any]]:
     _require_secure(endpoint)
     parsed = urlparse(endpoint)
     url = f"{parsed.scheme}://{parsed.netloc}/v1/models"
+    require_allowed(url, "Jev")  # the endpoint's origin, as the request spells it
     token = resolve_key(key_env=API_KEY_ENV, connector_env=CONNECTOR_ENV)
     try:
         with httpx.Client(timeout=timeout_s, follow_redirects=False) as client:

@@ -19,7 +19,8 @@ Configuration, in order of precedence:
 - model: the variant's `model`, then `LLM_MODEL`. There is no default model: with neither, the
   variant is `not_configured` before any call (in `preflight` and wherever a request is built),
   so a decision that needs it goes to a person;
-- endpoint: `LLM_BASE_URL`, then the AI Gateway;
+- endpoint: `LLM_BASE_URL`, then the AI Gateway; whichever it is must be on
+  `MENDARI_PROVIDER_ALLOWED_ORIGINS` when the deployment sets it (`providers/http.py`);
 - credentials: `AI_GATEWAY_API_KEY`, then the deployment's Vercel OIDC token (gateway only);
   local servers use `LLM_API_KEY` when set and no key otherwise.
 

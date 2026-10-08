@@ -23,6 +23,7 @@ import yaml
 from fastapi.testclient import TestClient
 
 from mendari import AuditStore, Decision, Pack, load_pack
+from mendari.core.phi import PhiPolicy
 from mendari.core.registry import resolve_pack
 from mendari.errors import ProviderError
 from mendari.hub import archive
@@ -39,16 +40,16 @@ LOCAL_DATASET = ROOT / "datasets" / "local-site-example.jsonl"
 POSTGRES_URL = os.environ.get("MENDARI_TEST_DATABASE_URL", "").strip()
 # A developer's shell may hold a deployment's own systems: its database (Neon's integration
 # exports these), the AI Gateway's key or a Vercel OIDC token (`vercel env pull`), an LLM or Jev
-# endpoint and key, the alert webhook, the registry, the payer. No test may reach them, whatever
-# a module opens at import (the Vercel entrypoint builds its app on DATABASE_URL) or a
-# subprocess inherits: they are gone before anything is collected, and so are the old
-# OPENHEALTH_* names, which `mendari.legacy` would copy back in a subprocess. A test that needs
-# one sets its own.
+# endpoint and key (and the origins they may be at), the alert webhook, the registry, the payer.
+# No test may reach them, whatever a module opens at import (the Vercel entrypoint builds its
+# app on DATABASE_URL) or a subprocess inherits: they are gone before anything is collected, and
+# so are the old OPENHEALTH_* names, which `mendari.legacy` would copy back in a subprocess. A
+# test that needs one sets its own.
 LIVE_SETTINGS = (
     "DATABASE_URL", "DATABASE_URL_UNPOOLED", "AI_GATEWAY_API_KEY", "VERCEL_OIDC_TOKEN",
     "LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL", "JEV_API_URL", "JEV_API_KEY", "JEV_MODEL",
-    "JEV_CONNECTOR", "MENDARI_PROVIDERS", "MENDARI_ALERT_WEBHOOK", "MENDARI_REGISTRY_URL",
-    "MENDARI_ACCOUNTS",
+    "JEV_CONNECTOR", "MENDARI_PROVIDERS", "MENDARI_PROVIDER_ALLOWED_ORIGINS",
+    "MENDARI_ALERT_WEBHOOK", "MENDARI_REGISTRY_URL", "MENDARI_ACCOUNTS",
     "MENDARI_REGISTRY_TOKEN", "MENDARI_REGISTRY_ADMIN_TOKEN", "MENDARI_PAS_PAYER_URL",
     "CRON_SECRET",
 )  # fmt: skip
@@ -130,9 +131,10 @@ def _no_notice_acknowledgement(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture(autouse=True)
 def _phi_mode_chosen(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Sign-in needs a chosen PHI mode (core/phi.py `require_protection`): tests on synthetic
-    data choose `off` unless they set another (tests/test_phi.py), and never run as the hosted
-    site, whatever the developer's shell says."""
+    """Open-mode tests on synthetic data run PHI mode `off` unless they set another
+    (tests/test_phi.py); a test that turns sign-in on runs `encrypt_mode`, since sign-in never
+    runs `off` (core/phi.py `require_protection`). None runs as the hosted site, whatever the
+    developer's shell says."""
     monkeypatch.setenv("MENDARI_PHI_MODE", "off")
     monkeypatch.delenv("VERCEL", raising=False)
     monkeypatch.delenv("CRON_SECRET", raising=False)
@@ -370,10 +372,17 @@ def without_request_id(body: dict[str, Any], response: Any) -> dict[str, Any]:
 
 def encrypt_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     """PHI mode `encrypt` with the test keys (`PHI_KEY`, `INPUT_HASH_KEY`): how a signed-in
-    deployment with real cases runs."""
+    deployment runs (sign-in never runs `off`, core/phi.py `require_protection`), synthetic
+    cases included."""
     monkeypatch.setenv("MENDARI_PHI_MODE", "encrypt")
     monkeypatch.setenv("MENDARI_PHI_KEY", PHI_KEY_B64)
     monkeypatch.setenv("MENDARI_INPUT_HASH_KEY", HASH_KEY_B64)
+
+
+def encrypted_store(target: str | Path) -> AuditStore:
+    """A store under `encrypt_mode`'s policy, as a signed-in server opens its database: what a
+    test records beside such a server, it records through this (a store under `off` may not)."""
+    return AuditStore(target, phi=PhiPolicy(mode="encrypt", key=PHI_KEY, hash_key=INPUT_HASH_KEY))
 
 
 def hosted(monkeypatch: pytest.MonkeyPatch) -> None:

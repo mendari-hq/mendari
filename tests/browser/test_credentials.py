@@ -40,7 +40,7 @@ from tests.browser.access_site import (
 from tests.browser.test_access import member_of, pins
 from tests.browser.test_accessibility import violations
 from tests.browser.test_dashboard import INBOX, PHONE, SMALL_TARGETS, open_pack
-from tests.conftest import security_lines, signed_in
+from tests.conftest import encrypt_mode, security_lines, signed_in
 from tests.test_auth import CLIENT, IDP
 from tests.test_backend_services import EC_KEY, RSA_KEY, Signer
 
@@ -92,6 +92,7 @@ def claims_site(
     """Claims mode (sign-in, no records) with Backend Services on."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", CLIENT)
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     backend_services(monkeypatch)
     with running(browser, tmp_path / "a.db") as here:
         yield here

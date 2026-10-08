@@ -41,6 +41,7 @@ from mendari.server.limits import (
 from mendari.standards.fhir_client import GuardedHttp
 from tests.conftest import (
     ROOT,
+    encrypt_mode,
     hosted,
     launched,
     message,
@@ -68,6 +69,7 @@ NO_STORE = "no-store"
 def sign_in_on(monkeypatch: pytest.MonkeyPatch, limits: str) -> None:
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", IDP)
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari-org")
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     monkeypatch.setenv("MENDARI_RATE_LIMITS", limits)
 
 

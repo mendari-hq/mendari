@@ -46,7 +46,9 @@ Paths under `src/mendari/` are given without that prefix.
    `state_fields` leave; an owned pack that declares none sends the whole input, and a pack the
    deployment does not own must declare them (refused at load otherwise). For such a pack the
    model is the deployment's and its answer length, timeout and effort are capped
-   (`core/origin.py` `deployment_config`).
+   (`core/origin.py` `deployment_config`). With `MENDARI_PROVIDER_ALLOWED_ORIGINS` set, these
+   calls (and Vercel Connect's key exchange) reach only the origins it lists
+   (`providers/http.py`).
 5. **Registry ↔ clients:** signed pack archives.
 6. **Engine ↔ database.**
 

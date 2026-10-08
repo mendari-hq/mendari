@@ -375,10 +375,22 @@ docker compose exec engine mendari sandbox smart-launch --pack mendari/referral-
 
 The profile `signin` adds a second engine with sign-in on (port 8001) where the launcher is
 registered to decide for organization `pilot`; CI's `sandbox-e2e` checks that its launches
-decide there, chained as the launcher's `<issuer>|<subject>`:
+decide there, chained as the launcher's `<issuer>|<subject>`. Sign-in never runs PHI mode `off`,
+so this engine runs `encrypt` with two keys of your own, generated once into `.env` (gitignored;
+compose reads it, and a variable set in your shell wins); the first lines below add each key
+only if `.env` lacks it. Keep them: inputs sealed under one pair do not open under another. Its
+database, once protected, never takes `off` again, so to start over (new keys, or an older
+compose file) remove this engine and its volume alone with
+`docker compose --profile signin rm -sf engine-signin && docker volume rm mendari_mendari-signin-data`
+(`down -v` would also remove the open engine's database and the local registry's packs).
 
 <!-- check: skip docker: needs the Docker sandbox; CI job sandbox-e2e runs it -->
 ```bash
+[ -n "$(tail -c1 .env 2>/dev/null)" ] && echo >> .env  # give a last line its newline
+for name in MENDARI_PHI_KEY MENDARI_INPUT_HASH_KEY; do
+  grep -qs "^$name=" .env ||
+    echo "$name=$(python3 -c 'import os,base64;print(base64.b64encode(os.urandom(32)).decode())')" >> .env
+done
 docker compose --profile signin up -d --build --wait engine launcher engine-signin
 docker compose exec engine-signin mendari smart check http://launcher/v/r4/fhir
 docker compose exec engine-signin mendari sandbox smart-launch --pack mendari/referral-router \
@@ -517,7 +529,11 @@ CDS Hooks services fetch the prefetch data an EHR leaves out, using the pack's o
 templates, the request's `fhirServer` and its `fhirAuthorization` token. They do this only when
 that server's origin is listed in `MENDARI_FHIR_ALLOWED_SERVERS` (for example
 `https://ehr.example.org,http://fhir:8080`). The list is empty by default, and every other server
-is refused.
+is refused. A prefetch template is a read or search relative to that server (`Type/<id>`,
+`Type/{{context.patientId}}` or `Type?<query>`): a community or registry pack with any other
+(an absolute URL, `..`, an operation, a fragment) is refused at load, and your own pack is warned.
+Providers that call a model have an allow-list of their own: `MENDARI_PROVIDER_ALLOWED_ORIGINS`
+([LLMs and local models](#llms-and-local-models)).
 
 **SMART on FHIR EHR launch.** Register `https://<mendari>/smart/launch?pack=<pack id>` as
 the app's launch URL and `https://<mendari>/smart/callback` as its redirect URI in the EHR.
@@ -841,8 +857,10 @@ hash becomes an HMAC (`hmac-sha256:<key id>:<hex>`) that guessing cannot match, 
 refuses to start without it. In both, the chained record keeps no evidence values (sealed with
 the input under `encrypt`) and names a resource in an input issue by type and position
 (`Patient (entry 2)`), not by its id; the caller's own answer is unchanged.
-Off Vercel, with sign-in or the EHR launch on, the engine refuses to start until a mode is
-chosen; on Vercel the mode is `encrypt` unless set to `hash`, and `off` is refused. A database
+With sign-in on, the engine refuses to start under `off` (set or left unset), on SQLite and
+Postgres alike: `off` is for a local sandbox without sign-in. Off Vercel, with only the EHR launch
+on, it refuses to start until a mode is chosen (`off` written out starts, with a warning); on
+Vercel the mode is `encrypt` unless set to `hash`, and `off` is refused. A database
 once kept under `hash` or `encrypt` never takes plaintext again. `mendari phi purge` applies `MENDARI_RETENTION_DAYS` (default 30) without breaking the
 chain; on Vercel a daily cron runs it once `CRON_SECRET` is set, and `mendari phi erase` erases
 one decision's kept input on request. The PHI key rotates without losing anything
@@ -1096,6 +1114,15 @@ vercel env pull .env.local   # a fresh OIDC token for local calls through the ga
 vercel env run -- uv run mendari calibrate <pack> --slot router --variant llm --limit 100
 ```
 
+**Where provider calls may go.** `MENDARI_PROVIDER_ALLOWED_ORIGINS` (comma-separated origins,
+like `MENDARI_FHIR_ALLOWED_SERVERS`) names the only origins Jev, LLM and Vercel Connect requests
+may reach. Unset, nothing changes. Set, a request anywhere else is refused before it is sent
+(`invalid_endpoint`: the question fails, so the decision goes to a person), an `LLM_BASE_URL` or
+`JEV_API_URL` off the list stops the server at start-up, and signed-in `/api/health` shows the
+list (`provider_allowed_origins`). With the AI Gateway (no `LLM_BASE_URL`), list
+`https://ai-gateway.vercel.sh`; with `JEV_CONNECTOR`, list `https://api.vercel.com`. The CQL
+engine stays on `MENDARI_FHIR_ALLOWED_SERVERS`.
+
 ## Deploying to Vercel
 
 The whole engine (API, FHIR endpoints, CDS Hooks, review queue, audit, dashboard) deploys as one
@@ -1155,9 +1182,11 @@ error that is not Mendari's by its type alone), which are not served; the packs 
 could not be built (by id), which stay listed, counted in `packs` and offered in CDS Hooks
 discovery, but whose decision and detail requests answer `422`; and the packs whose terminology
 could not be built, which are served without it. Every other pack decides. `pack_warnings` lists,
-by id, the served packs of your own whose provider configs `mendari validate` refuses (a key no
-provider reads, a variant that cannot run): they load and serve what builds, and the start-up log
-says so too; a community or registry pack with such a problem is refused, under `invalid`.
+by id, the served packs of your own whose provider configs, CDS Hooks prefetch or card summaries
+`mendari validate` refuses (a key no provider reads, a variant that cannot run, a prefetch that
+is not a read or search on the EHR's server, a placeholder that is not a bare name): they load
+and serve what builds, and the start-up log says so too; a community or registry pack with such
+a problem is refused, under `invalid`.
 
 Days and times people see (the dashboard's times and daily volume, daily call counters, "today"
 for criteria and ages, card dates) use `MENDARI_TIMEZONE`, an IANA name defaulting to

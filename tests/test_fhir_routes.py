@@ -23,7 +23,7 @@ from mendari import AuditStore, Decision, Outcome
 from mendari.server.app import create_app
 from mendari.standards import audit_fhir, fhir_structure, task_fhir
 from mendari.standards.fhir import DECISION_ID_SYSTEM
-from tests.conftest import HASH_KEY_B64, signed_in
+from tests.conftest import HASH_KEY_B64, encrypt_mode, signed_in
 from tests.test_fhir_structure import load_script
 
 INBOX = "mendari/patient-inbox-router"
@@ -326,6 +326,7 @@ def two_orgs(db_target: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
     `POST /api/auth/keys` would) and a signed-in reviewer per organization."""
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     with TestClient(create_app(db_path=db_target), base_url=SERVER) as client:
         keys: dict[str, dict[str, str]] = {}
         with AuditStore(db_target) as store:

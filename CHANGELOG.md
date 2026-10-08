@@ -57,7 +57,11 @@ The first release (not yet published).
   members, cannot be called (the other member alone would have made two variants look equal).
   The inbox pack is 0.4.2: a manifest comment named the default, so its digest changes.
 - **Dashboard** and REST API; sign-in through an organization's OpenID Connect provider; API
-  keys by role.
+  keys by role. With sign-in on, the engine refuses to start under PHI mode `off`, set or left
+  unset, everywhere (it warned outside Vercel): `off` is for a local sandbox without sign-in.
+  The compose sandbox's signed-in engine (profile `signin`) runs `encrypt` with two keys you
+  generate once into `.env` (README); an EHR launch without sign-in still starts under `off`
+  written out, with a warning.
 - **Hub:** a pack registry and its client (`mendari pull`, `mendari search`), and community
   packs. A site can share an evaluation of a composite provider (`any_of`, `cascade`, `vote`):
   its model lists each member's and a failed member's error names the member, as the
@@ -84,6 +88,19 @@ The first release (not yet published).
   deployment's model is used, `max_tokens` and `timeout_ms` are held to the provider defaults
   (a lower value stands) and a `reasoning_effort` above `low` is dropped: a registry pack that
   pinned an LLM model now runs on the deployment's (no shipped pack pins one).
+- **Provider allow-list:** `MENDARI_PROVIDER_ALLOWED_ORIGINS` (comma-separated origins, off
+  unless set) names the only origins Jev, LLM and Vercel Connect requests may reach: any other,
+  the AI Gateway's default included, is refused before it is sent (`invalid_endpoint`, so the
+  decision goes to a person), an `LLM_BASE_URL` or `JEV_API_URL` off the list stops the server at
+  start-up, and signed-in `/api/health` shows it (`provider_allowed_origins`). Unset, nothing
+  changes.
+- **Prefetch and wording templates checked at load:** a CDS Hooks prefetch template is a read or
+  search relative to the EHR's FHIR server (`Type/<id>`, `Type/{{context.<name>}}`,
+  `Type?<query>`), and a card summary's or FHIR Task text's placeholders are bare names (no
+  conversion, format spec, attribute or index). A community or registry pack with one that is
+  not is refused at load, its Task text included; any other pack loads warned of its prefetch
+  and card summaries, its Task text renders as before, and `mendari validate` refuses both. Every
+  shipped template passes, and no pack renders different wording.
 - **Distribution:** a wheel and an sdist, container images (the engine with every pack, and one
   per pack), and deployment templates for docker compose and Kubernetes. Each image carries its
   licences in `/licenses`: Mendari's LICENSE and NOTICE, `THIRD_PARTY_NOTICES.md` written from

@@ -26,7 +26,13 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from mendari.core import clock
 from mendari.core.pack import Pack
 from mendari.core.spec import Outcome, Priority
-from mendari.core.templates import UNKNOWN, expansions, fill, unknown_placeholders
+from mendari.core.templates import (
+    UNKNOWN,
+    expansions,
+    fill,
+    template_problems,
+    unknown_placeholders,
+)
 from mendari.errors import FhirError, FhirStructureError, PackValidationError
 
 if TYPE_CHECKING:
@@ -97,7 +103,12 @@ class FhirAdapter:
         self.mapping = mapping
 
     @classmethod
-    def for_pack(cls, pack: Pack) -> FhirAdapter:
+    def for_pack(cls, pack: Pack, *, bare: bool | None = None) -> FhirAdapter:
+        """The pack's adapter: its mapping, checked, and its Task text's placeholders, which
+        must name built-ins or questions. With `bare` (by default for a pack the deployment
+        does not own, `Pack.bounded`, which `load_pack` checks so; `mendari validate` asks it
+        of every pack) they must also be bare names (`template_problems`). Otherwise an owned
+        pack's Task text renders as it always did."""
         relative = pack.manifest.inputs.fhir
         if relative is None:
             raise FhirError(f"pack {pack.id} does not declare a FHIR mapping")
@@ -106,11 +117,17 @@ class FhirAdapter:
         except ValidationError as error:
             raise PackValidationError(pack.id, [f"{relative}: {error}"]) from None
         templates = {"description": mapping.task.description, "performer": mapping.task.performer}
-        problems = [
-            f"{relative}: task.{name} uses unknown placeholders {unknown}"
-            for name, text in templates.items()
-            if text and (unknown := unknown_placeholders(text, pack.manifest.questions))
-        ]
+        questions = pack.manifest.questions
+        held = pack.bounded if bare is None else bare
+        problems = []
+        for name, text in templates.items():
+            if not text:
+                continue
+            if held:
+                found = template_problems(text, questions)
+                problems += [f"{relative}: task.{name} {problem}" for problem in found]
+            elif unknown := unknown_placeholders(text, questions):
+                problems.append(f"{relative}: task.{name} uses unknown placeholders {unknown}")
         if problems:
             raise PackValidationError(pack.id, problems)
         return cls(pack, mapping)

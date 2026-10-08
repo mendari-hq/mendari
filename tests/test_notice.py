@@ -19,7 +19,7 @@ from mendari.core.registry import discover
 from mendari.server.app import create_app
 from mendari.server.smart_routes import error_page
 from mendari.standards import cds_hooks
-from tests.conftest import ROOT, message, signed_in
+from tests.conftest import ROOT, encrypt_mode, message, signed_in
 from tests.test_fhir import COMMUNICATION, PATIENT
 
 INBOX = "mendari/patient-inbox-router"
@@ -42,6 +42,7 @@ def test_every_page_and_the_openapi_description_carry_the_notice(
     monkeypatch.setenv("MENDARI_ACCOUNTS", "memberships")
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     members = TestClient(create_app(db_path=tmp_path / "members.db"))
     assert stamped in members.get("/invite").text
     # The page a failed EHR launch or sign-in lands on.
@@ -101,6 +102,7 @@ def signed_in_app(
     monkeypatch.delenv("MENDARI_NOTICE_ACKNOWLEDGEMENT")  # the default: required
     monkeypatch.setenv("MENDARI_OIDC_ISSUER", "https://idp.example.org")
     monkeypatch.setenv("MENDARI_OIDC_CLIENT_ID", "mendari")
+    encrypt_mode(monkeypatch)  # sign-in never runs PHI mode off
     with TestClient(create_app(db_path=db_target), base_url="https://mendari.test") as client:
         yield client, AuditStore(db_target)
 

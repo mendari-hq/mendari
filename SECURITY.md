@@ -184,7 +184,8 @@ Each bullet is one control; the threat model names the row and the tests behind 
   stores inputs encrypted apart from the audit chain, readable only by signed-in reviewers and
   admins, and every read is chained (`input.read`) and logged. Without PHI mode, audit records
   keep full inputs by default (`audit.store_input: full`); use `hash` for any pack that might
-  see sensitive text. In both modes the chained record keeps no evidence values (sealed with
+  see sensitive text. With sign-in on, the engine refuses to start without one (`off`, set or
+  unset, is for a local sandbox without sign-in). In both modes the chained record keeps no evidence values (sealed with
   the input under `encrypt`) and no resource ids (an input issue names `Patient (entry 2)`), and
   the input hash is an HMAC-SHA256 under `MENDARI_INPUT_HASH_KEY` (`hmac-sha256:<key id>:<hex>`),
   without which the engine (and `mendari decide --db`) refuses to start: a plain SHA-256 of a short input can be found by
@@ -221,6 +222,9 @@ providers:
   `JEV_MODEL`, `JEV_API_KEY`, `JEV_CONNECTOR`; `LLM_BASE_URL`, `LLM_MODEL`, `AI_GATEWAY_API_KEY`,
   `LLM_API_KEY`), which a pack cannot change;
 - require HTTPS (plain HTTP only for localhost);
+- reach only the origins on `MENDARI_PROVIDER_ALLOWED_ORIGINS` when a deployment sets it (the AI
+  Gateway's default and Vercel Connect included): any other request is refused before it is
+  opened (`invalid_endpoint`), and an `LLM_BASE_URL` or `JEV_API_URL` off the list stops startup;
 - refuse redirects and cap response size;
 - share one wall-clock deadline per decision, the CQL engine included
   (`MENDARI_DECISION_DEADLINE_S`, 120 s unless set): past it a call is not made, one under way
