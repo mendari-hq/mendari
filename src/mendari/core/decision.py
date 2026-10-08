@@ -35,7 +35,8 @@ from mendari.errors import (
 from mendari.providers import Answer, Provider, ProviderInfo, build_provider
 from mendari.providers.base import OVER_QUOTA
 from mendari.providers.batch import batching
-from mendari.settings import FhirValidation
+from mendari.providers.deadline import decision_deadline
+from mendari.settings import FhirValidation, decision_deadline_s
 
 if TYPE_CHECKING:
     from mendari.core.audit import AuditStore
@@ -199,9 +200,13 @@ class Decision:
         store: AuditStore | None = None,
         budget: CallBudget | None = None,
         fhir_validation: FhirValidation = "warn",
+        deadline_s: float | None = None,
     ):
         """`governance` fixes an override for every decision; `governance_source` looks one up
-        for each decision instead (a deployment's recorded approvals, per organization)."""
+        for each decision instead (a deployment's recorded approvals, per organization).
+        `deadline_s` is how long each decision's remote calls may take together (default: the
+        deployment's `MENDARI_DECISION_DEADLINE_S`, `providers/deadline.py`); each decision
+        starts its own clock, which is never kept here (one Decision serves every thread)."""
         overrides = dict(providers or {})
         unknown = set(overrides) - set(pack.manifest.providers)
         if unknown:
@@ -214,6 +219,7 @@ class Decision:
         self.store = store
         self.budget = budget
         self.fhir_validation = fhir_validation
+        self.deadline_s = deadline_s if deadline_s is not None else decision_deadline_s()
         self.providers: dict[str, Provider] = {
             slot: build_provider(pack, slot, overrides.get(slot))
             for slot in pack.manifest.providers
@@ -387,7 +393,9 @@ class Decision:
             else:
                 over = OVER_QUOTA.set(over_quota)  # remote calls fail with it; local ones run
                 try:
-                    with batching(self.providers.values()):
+                    # The deadline's clock starts here, for this decision's remote calls only:
+                    # past it they fail with `timeout`, and local providers still answer.
+                    with decision_deadline(self.deadline_s), batching(self.providers.values()):
                         for slot, provider in self.providers.items():
                             try:
                                 if stopped is not None:

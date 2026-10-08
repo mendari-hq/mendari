@@ -614,6 +614,15 @@ principals). `/api/health` shows a principal that may read its own cap and what 
 and each instance logs the first refusal of the day per principal (`quota.reached`, reason
 `principal_decisions`).
 
+**A deadline per decision.** A decision's remote calls (Jev, an LLM, the CQL engine) share one
+wall-clock deadline, `MENDARI_DECISION_DEADLINE_S` (whole seconds, 10 to 270; 120 unless set):
+a call that would start after it is not made (no key fetched, no budget used), and one under
+way, its retry included, waits only for what remains. Either is recorded as `timeout`, so the
+decision goes to a person; the local providers still answer, so a keyword safety screen still
+flags a possible emergency. Keep it below your platform's limit on a request, with room for the
+audit write: on Vercel, `maxDuration` is 300 s (`vercel.json`). A request that makes several
+decisions (a CDS Hooks order hook's draft orders) gives each its own deadline.
+
 **At the edge.** A per-address limit in front of Mendari takes floods before they reach it, on
 `/auth/` and `/smart/` only: your proxy (§1), or on Vercel one firewall rule, 120 requests a
 minute per address
@@ -738,6 +747,7 @@ startup, so a typo never runs with a weaker setting.
 | `MENDARI_RETENTION_DAYS` | 30 (1 to 36500) | How long kept inputs and notes are kept, by `mendari phi purge` and the scheduled purge | 3 |
 | `CRON_SECRET` | unset: no scheduled purge | At least 16 random characters, no spaces around them: Vercel Cron's bearer token for `/api/internal/retention` (otherwise unused, with a warning: the purge stays off) | 3 |
 | `MENDARI_MAX_BODY_BYTES` | 4 MiB (64 KiB at least) | The largest request body; a `413` above it | 1 |
+| `MENDARI_DECISION_DEADLINE_S` | 120 (10 to 270, whole seconds) | How long one decision's remote calls may take together; past it they fail with `timeout` and a person decides, while local providers still answer | 4 |
 | `MENDARI_RATE_LIMITS` | `on` with sign-in, `off` without | `on`, `log` or `off`, then overrides (`decide=1200/min:200`) | 4 |
 | `MENDARI_NOTICE_ACKNOWLEDGEMENT` | `required` | `required`: a signed-in person who may decide or review acknowledges the notice (research preview, synthetic data only) once per version when the dashboard opens, chained as `notice.acknowledged`; until then deciding, reviewing, feedback and minting an API key or client are refused (`403`, header `Mendari-Notice-Required`); `off`: a site whose own agreements replace it. Keys, clients, EHR launches and open mode are never asked | 4 |
 | `MENDARI_ORG_DAILY_LIMITS` | unset: none | Per-organization daily quotas: `decisions=…,jev=…,llm=…` | 4 |

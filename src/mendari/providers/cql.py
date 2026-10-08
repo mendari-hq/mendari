@@ -48,11 +48,12 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from mendari.core import clock
-from mendari.errors import FhirError, PackValidationError, ProviderError
+from mendari.errors import FhirError, PackValidationError, ProviderError, ProviderErrorCode
+from mendari.providers import deadline
 from mendari.providers.base import Provider, ProviderOutput, fingerprint, get_path
 from mendari.providers.criteria import DECIDED, _date
 from mendari.standards import record_fhir
-from mendari.standards.fhir_client import GuardedHttp
+from mendari.standards.fhir_client import TIMEOUT, GuardedHttp
 
 URL_ENV = "MENDARI_CQL_URL"
 _HEADER = re.compile(r"^\s*library\s+([A-Za-z][A-Za-z0-9_]*)\s+version\s+'([^']+)'", re.MULTILINE)
@@ -167,6 +168,7 @@ class CqlProvider(Provider):
 
     def answer(self, inputs: Mapping[str, Any]) -> ProviderOutput:
         base = cql_url()
+        deadline.refuse_if_past()  # past the decision's deadline: no request at all
         as_of = _date(get_path(inputs, self.settings.as_of)) or clock.today()
         data = record_fhir.bundle(inputs, as_of)
         parameters = {
@@ -192,11 +194,24 @@ class CqlProvider(Provider):
             with GuardedHttp() as http:
                 library = f"{base}/Library/{self.resource_id}"
                 if self._uploaded_to != base:
-                    http.send_json("PUT", library, self.library_resource())
+                    resource = self.library_resource()
+                    http.send_json(
+                        "PUT",
+                        library,
+                        resource,
+                        timeout=deadline.clamp(TIMEOUT),
+                        stop=deadline.past,
+                    )
                     self._uploaded_to = base
-                result = http.send_json("POST", f"{library}/$evaluate", parameters)
+                timeout = deadline.clamp(TIMEOUT)  # each request waits at most what remains
+                result = http.send_json(
+                    "POST", f"{library}/$evaluate", parameters, timeout=timeout, stop=deadline.past
+                )
         except FhirError as failure:
-            raise ProviderError("unavailable", f"the CQL engine: {failure}") from None
+            # Past the deadline, the engine was cut off by it (the clamped timeout, or an
+            # answer still arriving).
+            code: ProviderErrorCode = "timeout" if deadline.past() else "unavailable"
+            raise ProviderError(code, f"the CQL engine: {failure}") from None
         values = _results(result)
         answers = {}
         for question, expression in self.settings.expressions.items():

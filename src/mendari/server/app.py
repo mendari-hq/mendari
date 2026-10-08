@@ -384,6 +384,7 @@ def create_app(
         )
         cron_secret = ""
     body_limit = settings.max_body_bytes()  # likewise
+    deadline_s = settings.decision_deadline_s()  # likewise
     rate_limits = limit_settings(sign_in=sign_in is not None)  # likewise
     org_limits = settings.org_daily_limits()  # likewise
     principal_limit = settings.principal_daily_limit()  # likewise
@@ -525,6 +526,7 @@ def create_app(
                     fhir_validation=validation,
                     governance_source=approved_override,
                     hold_source=held,
+                    deadline_s=deadline_s,
                 )
             except MendariError:
                 raise
@@ -1186,6 +1188,7 @@ def create_app(
             pack,
             providers={**chosen, **asked},
             budget=None if budget is None else budget.for_evaluation(),
+            deadline_s=deadline_s,  # each of its decisions has the deployment's deadline
         )
         dataset = dataset_for(pack, request.dataset)
         if decision.is_remote:

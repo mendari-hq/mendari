@@ -14,6 +14,8 @@ Configuration comes from the environment:
   limit). `MENDARI_ORG_DAILY_LIMITS`: per-organization daily quotas
   (`decisions=5000,jev=2000,llm=200`; unset: none). `MENDARI_PRINCIPAL_DAILY_LIMIT`: a daily
   cap on the decisions each principal asks for (unset: none).
+- `MENDARI_DECISION_DEADLINE_S`: how long one decision's remote calls may take together
+  (whole seconds, 10 to 270; default 120), within `maxDuration` (300 s, `vercel.json`).
 - `MENDARI_RATE_LIMITS`: `on` (the default with sign-in), `log` or `off`, then overrides
   (`server/limits.py`). The client address is Vercel's `X-Forwarded-For`.
 - `MENDARI_NOTICE_ACKNOWLEDGEMENT`: `required` (the default) or `off`: whether a signed-in
