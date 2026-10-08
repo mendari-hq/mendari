@@ -307,7 +307,9 @@ gates:
               - tests/test_readiness.py::test_readiness_tells_no_error_text
               - tests/test_readiness.py::test_a_flood_of_readiness_during_a_black_hole_never_starves_liveness
               - tests/test_readiness.py::test_a_frozen_postgres_is_unreachable_within_the_bound
-          - pending: "LP-21b (the status checks file and the status view)"
+              - tests/test_status_checks.py::test_every_check_passes_on_a_working_site_and_readiness_sign_in_and_decide_fail_in_an_outage
+              - tests/test_status_checks.py::test_the_status_page_is_public_static_and_does_no_database_work
+              - tests/browser/test_status.py::test_the_status_view_shows_a_database_outage
           - attested: {what: "the provider, its public URL and the checks configured", by: "", date: ""}
       - id: hosted-monitoring
         what: "The monitor scheduled on the hosted deployment, posting alerts to the alert webhook"

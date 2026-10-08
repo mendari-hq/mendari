@@ -62,6 +62,7 @@ NAVIGABLE = {
     "/smart/callback",
     "/api/health",
     "/api/health/ready",  # status pages and probes: two fixed codes, from a cached read
+    "/status",  # the status page, static
     "/api/auth/me",
     "/api/smart/session",
     "/fhir/metadata",

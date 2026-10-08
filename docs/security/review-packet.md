@@ -56,6 +56,7 @@ Who can call what: with sign-in on, every route has a permission (`auth._RULES`)
 unlisted needs `admin`, and a few routes are public: `/api/health` (three fields),
 `/api/health/ready` (a status and two fixed codes, from one bounded database read per instance
 every few seconds, whoever asks),
+`/status` (a static page that reads readiness in the browser),
 `/api/auth/me`, `/auth/*` (sign-in, callback, logout, the token endpoint), `/smart/*` (the
 SMART launch and its callback), `GET /api/smart/session` and `POST /api/smart/logout`, static files, `/docs` (the developer landing of Phase 5:
 built once at startup from settings and the example scripts, the same for every request, listing

@@ -3,7 +3,8 @@
 ## Status
 Proposed (2026-10-08). Built in steps (LP-21, `tasks/todo.md`): 21a, the readiness route, is
 the first; 21c, the monitor comparing like with like, the second; 21e, alert delivery, the
-third. Each later step amends this record with what it built. The defaults below hold
+third; 21b, the status checks and page, the fourth. Each later step amends this record with
+what it built. The defaults below hold
 unless the owner chooses otherwise; the steps that change the hosted site (the schedule, 21n)
 or its firewall (21o) wait for the owner.
 
@@ -49,16 +50,22 @@ Anonymous `/api/health` stays three fields with no database work.
      5 s, whatever the request rate. There is no per-address limit (below).
    - Kubernetes' readinessProbe uses it, and liveness stays on `/api/health`.
 2. **Status checks (21b).**
-   - A checks file covers:
+   - A checks file (`deploy/status/checks.yaml`, run by `scripts/status_checks.py` and
+     described in `docs/operations/status-checks.md`) covers:
      - readiness;
-     - the sign-in redirect, which must reach the identity provider;
-     - a synthetic decide on a reference pack with local providers, by a decide-only key in its
-       own status organization (`MENDARI_STATUS_ORG`);
+     - the sign-in redirect, which must reach the identity provider (another host);
+     - a synthetic decide on AI Guard, which runs local rules even where Jev is set up (the
+       inbox would spend a call of the deployment's shared Jev budget at every check), by a
+       decide-only key in an organization of its own, read from `STATUS_DECIDE_KEY`, never the
+       file; on a deployment with one organization (claims mode without an organization
+       claim) the check waits until there is a second;
      - the registry's health;
      - the Hub's page.
-   - A minimal public in-app status view reads readiness. The owner's external status page is
-     the one that survives a full outage.
-   - There is no dry-run decide mode.
+   - A minimal public in-app status view, `/status`: static, reading readiness in the browser
+     every 30 seconds, so serving it does no database work. The owner's external status page
+     is the one that survives a full outage.
+   - There is no dry-run decide mode: the status organization keeps its decisions apart. The
+     setting that will leave it out of monitoring comes with the monitor's schedule (21f).
 3. **The monitor (21c, 21d).**
    - It compares like with like (21c):
      - only the served pack version, other versions' decisions counted apart;

@@ -1108,16 +1108,18 @@ pushes none), so the first published images wait on the item below; the PyPI rel
 - [ ] **LP-21** Operations for a public service (ADR-0010, Proposed). Planned by a mapping
   workflow (2026-10-08) as fifteen PRs, each safe alone; none changes what a valid pack
   decides, and anonymous `/api/health` stays three fields with no database work:
-  - [ ] **21a** (#194) Readiness, `GET`/`HEAD /api/health/ready`: one read of the chain's
+  - [x] **21a** (#194, merged 2026-10-08) Readiness, `GET`/`HEAD /api/health/ready`: one read of the chain's
     table (`AuditStore.ping`, creating nothing) per instance every 5 s, whoever asks, in a
     thread of its own waited for about 3.5 s, a failure kept too; a read never answered holds
     that one thread and none starts again until it returns; a caller during a check gets the
     last answer at once; the packs as start-up found them (`ok`, `degraded`, `none`); `503`
     when unready; fixed codes only. Kubernetes' readinessProbe uses it; ADR-0010; this entry.
-  - [ ] **21b** The status checks file (readiness, the sign-in redirect, a synthetic decide by a
-    status organization's decide-only key, the registry, the Hub), `scripts/status_checks.py`
-    and a public in-app status view.
-  - [ ] **21c** (#195) The monitor compares like with like: the served version (others
+  - [ ] **21b** (#197) The status checks file (`deploy/status/checks.yaml`: readiness, the
+    sign-in redirect, a synthetic decide on AI Guard (local rules, even with Jev set up) by a
+    decide-only key in a status organization of its own, the registry, the Hub),
+    `scripts/status_checks.py`, `docs/operations/status-checks.md` and `/status`, a public
+    static page that reads readiness in the browser.
+  - [x] **21c** (#195, merged 2026-10-08) The monitor compares like with like: the served version (others
     counted apart) since its current configuration started; the benchmark only for this build,
     these providers and models, and this governance (`benchmark.reason` otherwise:
     `no_benchmark`, `another_build`, `providers_unknown`, `other_providers`, `other_policy`);

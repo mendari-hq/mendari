@@ -77,6 +77,7 @@ Route = tuple[str, str]
 DEPLOYMENT_WIDE: dict[Route, str] = {
     ("GET", "/"): "the dashboard page, the same for everyone",
     ("GET", "/docs"): "the API landing page, generated from code and settings",
+    ("GET", "/status"): "the status page, static: it reads readiness in the browser",
     ("GET", "/docs/reference"): "the API reference page",
     ("GET", "/redoc"): "the reference's other renderer",
     ("GET", "/favicon.ico"): "an icon",
@@ -1510,6 +1511,7 @@ def deployment_wide(world: World, x: Org) -> None:
     calls: list[tuple[TestClient, Route, str, dict[str, Any]]] = [
         (viewer, ("GET", "/"), "/", {}),
         (viewer, ("GET", "/docs"), "/docs", {}),
+        (viewer, ("GET", "/status"), "/status", {}),
         (viewer, ("GET", "/docs/reference"), "/docs/reference", {}),
         (viewer, ("GET", "/redoc"), "/redoc", {}),
         (viewer, ("GET", "/favicon.ico"), "/favicon.ico", {}),
