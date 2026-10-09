@@ -56,7 +56,7 @@ from tests.test_backend_services import Signer, assertion, bearer
 from tests.test_davinci import COMPLETE, PA, package_request, request
 from tests.test_hold import REFILL
 from tests.test_memberships import token_of
-from tests.test_pas import COVERAGE, INSURER, PATIENT, REQUIRED, REQUESTER
+from tests.test_pas import COVERAGE, INSURER, PATIENT, REQUESTER, REQUIRED
 from tests.test_prior_auth_pack import _order
 from tests.test_smart import CLIENT as SMART_CLIENT
 from tests.test_smart import DECIDE_BODY, REFERRAL, TENANTS, FakeEhr, routed, tenant
