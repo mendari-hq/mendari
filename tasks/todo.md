@@ -967,7 +967,16 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     export` (the rows as stored: ciphertext, ids and key ids, no key, nothing chained; 11g allows
     its case ids and sealed tokens, conflict 56); `SEALED_COLUMNS` and its pin; the runbook's
     "Rotating the evaluation-set key".
-  - [ ] **11g** The generated no-leak sweep, before any evaluation-set route (tests only).
+  - [ ] **11g** (PR open) The generated no-leak sweep, before any evaluation-set route (tests
+    only): `tests/test_evalset_leaks.py` plants a mark in every field of two organizations' draft
+    sets and calls every mounted route and method as every kind of principal, scanning answers,
+    headers, NDJSON, logs, every `mendari evalset` command, the audit and feedback exports, the
+    sealed export file and every table (a mark only where conflicts 38, 55 and 56 allow it);
+    each evaluation-set event's payload keys pinned; the route inventories (`test_auth`,
+    `test_hosted_data`, `test_two_organizations` with a set per organization, `test_memberships`,
+    `test_origin`, `test_shipped`, `test_limits`, and after review `test_landing`,
+    `test_key_presets`, `test_rotation`, `test_capability`) run with the feature on and assert
+    it; threat model I13.
   - [ ] **11h** Store II: sampling, assignment, blind labelling, adjudication, agreement.
   - [ ] **11i** Store III: freeze and its commitment, the grading read, the rotation rule,
     retirement.

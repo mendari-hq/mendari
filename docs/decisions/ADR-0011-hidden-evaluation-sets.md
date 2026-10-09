@@ -21,6 +21,11 @@ Proposed (2026-10-09). Built in steps (LP-11, `tasks/todo.md`, planned in
   it replaced refused from then on; the sealed export (the rows as stored: ciphertext, ids,
   states, times and case hashes; no key needed); every sealed column listed once
   (`SEALED_COLUMNS`) and pinned by a test.
+- 11g, the generated no-leak sweep (`tests/test_evalset_leaks.py`), tests only: every mounted
+  route and method as every kind of principal, the logs, every `mendari evalset` command, the
+  audit and feedback exports, the sealed export and every table hold no planted mark but where
+  the plan's conflicts 38, 55 and 56 allow it, and each event's payload keys are pinned; every
+  route inventory runs with the feature on; threat model I13.
 
 ## Context
 Every dataset Mendari has is a JSONL file tracked in git: 22 named in pack manifests and inside

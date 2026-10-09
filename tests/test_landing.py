@@ -17,7 +17,14 @@ from mendari.server import api_docs, landing, scopes, snippets
 from mendari.server.app import DASHBOARD_DIR, create_app, mounted_routes
 from mendari.server.auth import permission_for
 from mendari.settings import default_providers
-from tests.conftest import calm_jev, encrypt_mode
+from tests.conftest import (
+    calm_jev,
+    encrypt_mode,
+    encrypted_store,
+    evalset_on,
+    evalsets_are_on,
+    signed_in,
+)
 from tests.test_backend_services import PUBLIC_URL
 from tests.test_backend_services import on as backend_services_on
 
@@ -162,12 +169,21 @@ def _table(text: str) -> dict[tuple[str, str], str]:
 def test_the_table_of_what_each_call_needs_is_the_route_rules(
     mode: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """With sign-in on, hidden evaluation sets are on too, so the routes they mount are in the
+    table (LP-11g, conflict 37); open mode cannot have them."""
     if mode == "sign-in":
         _sign_in_on(monkeypatch)
     if mode == "backend services":
         backend_services_on(monkeypatch)
+    if mode != "open":
+        evalset_on(monkeypatch)
     app = create_app(db_path=tmp_path / "a.db")
-    text = TestClient(app, base_url=PUBLIC_URL).get("/docs").text
+    client = TestClient(app, base_url=PUBLIC_URL)
+    if mode != "open":
+        with encrypted_store(tmp_path / "a.db") as served:
+            reader = signed_in(served, role="viewer")
+        evalsets_are_on(client, reader)
+    text = client.get("/docs").text
     expected = {(m, p): permission_for(m, p) for m, p in mounted_routes(app)}
     assert _table(text) == expected
     decide = re.search(r"<li><code>POST /fhir/\$decide</code>(.*?)</li>", text)
