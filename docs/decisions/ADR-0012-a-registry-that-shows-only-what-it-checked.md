@@ -56,12 +56,16 @@ Nothing on a pack's page comes from the uploader unchecked.
 4. **The chain (18b).** Every write (a namespace created, its publisher type set, a token
    issued, a key added, a version published, a site report shared, a review) appends a
    hash-chained event in the same transaction (`hub_events`, hashed as the audit chain is). A
-   token is named by the start of its SHA-256, never itself. `RegistryStore.verify` (`mendari
-   registry verify`, read-only) checks each event's hash and order, and that every row of those
-   kinds is named by its event, a version with the digest and archive it was published with,
-   so a row written past the API (a planted token or a `verified` namespace, a swapped archive)
-   is found. A registry that held rows before it had a chain records them once in its first
-   event (`registry.chain_started`).
+   token is named by the start of its SHA-256, never itself. Each event holds the hash of the
+   row its write left. `RegistryStore.verify` (`mendari registry verify`, read-only) checks
+   each event's hash and order, and that every namespace, key, token, version, report and
+   review is exactly the row its newest event hashed (none planted, changed or removed), that
+   every archive hashes to its name and is there, and that every key is the key its id names.
+   A registry that held rows before it had a chain hashes them once in its first event
+   (`registry.chain_started`); it then marks itself (`hub_meta`), so a chain emptied later is
+   reported, never started again. The chain is unkeyed: whoever can write the whole database
+   can rewrite it whole. Its head (`GET /v1/chain/head`: the event count and the last hash),
+   kept elsewhere, is what shows that; a signed head is for later.
 5. **Versions published before.** They keep their stored metadata (versions are immutable),
    but their uploaded card, benchmark and leaderboard are not served: `checked.card` says
    `not_rendered`, and publishing a new version renders one. Re-rendering on read would load a

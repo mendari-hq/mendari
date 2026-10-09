@@ -1438,7 +1438,7 @@ def cmd_registry_verify(args: argparse.Namespace) -> int:
     with RegistryStore(args.db, read_only=True) as store:
         result = store.verify()
     if result["ok"]:
-        print(f"registry chain verified: {result['events']} events")
+        print(f"registry chain verified: {result['events']} events, head {result['head']}")
         return 0
     where = f" at event {result['seq']}" if result["seq"] is not None else ""
     print(f"registry chain broken{where}: {result['problem']}", file=sys.stderr)

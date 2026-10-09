@@ -19,7 +19,7 @@ export type Checked = {
   // The newest review of this version by the registry's reviewers, if any.
   review:
     | { status: "unreviewed" }
-    | { status: "reviewed"; risk_level: number; matches_declared: boolean; reviewer: string; reviewed_at: string; note: string };
+    | { status: "reviewed"; risk_level: number; matches_declared: boolean | null; reviewer: string; reviewed_at: string; note: string };
   publisher_type: string | null; // the namespace's, set by the registry after checking who publishes
 };
 
@@ -123,9 +123,12 @@ export const ENGINE_WORDS: Record<string, string> = {
 export function reviewWords(review: Checked["review"], declared: number): string {
   if (review.status !== "reviewed") return "Not reviewed by the registry: the risk level is the publisher's own";
   const day = review.reviewed_at.slice(0, 10);
-  const found = review.matches_declared
-    ? `risk level ${review.risk_level} confirmed`
-    : `risk level ${review.risk_level} found, where the publisher declared ${declared}`;
+  const found =
+    review.matches_declared === true
+      ? `risk level ${review.risk_level} confirmed`
+      : review.matches_declared === false
+        ? `risk level ${review.risk_level} found, where the publisher declared ${declared}`
+        : `risk level ${review.risk_level} found`;
   return `Reviewed by the registry on ${day}: ${found}${review.note ? `. ${review.note}` : ""}`;
 }
 
