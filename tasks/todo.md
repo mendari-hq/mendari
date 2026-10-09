@@ -534,37 +534,39 @@ registry or copied into the store.
     lookahead, spelled out a letter at a time and exact on every input on both engines
     (`test_lookaround_rewrites`: every shipped input, the ledger, a seeded fuzz on `re` and RE2),
     ai-guard 0.1.4 and its rebuild; the parity test now skips only the three lookarounds 16c-2
-    holds.
-  - [ ] **16c-2** (held for the owner) pregnant, pancreatitis and new-lung-mass: the owner
-    chooses between S (a structural `not_followed_by` rules key, a format change) and D (the
+    holds. 16c-1 confirmed by the owner (2026-10-08): ai-guard 0.1.4 stays.
+  - [ ] **16c-2** (not needed for LP-16) pregnant, pancreatitis and new-lung-mass. The owner's
+    decision (Option A scoped, above) requires these rewrites only before a reference version
+    that differs from the installed one is published to a registry or copied into the store, and
+    the choice between S (a structural `not_followed_by` rules key, a format change) and D (the
     data-identical rewrites, with their fuzz differences and the slowdown on `re` accepted in
-    writing). Until then the trial and referral packs cannot publish a version that differs from
-    the installed one: a puller refuses it, with the reason.
-  - [ ] **F** (PR open, with 16f; found in the 16a review) A pack from a registry with a reference
-    pack's id and a version that ties its (`version_key`, now in `core/spec.py`) but another
-    digest took the reference pack's place, since the cache wins a version tie: it ran bounded,
-    under the reference pack's name. Refused at load for origins the deployment does not own
-    (`_shadow_problem`, from `core/reference.py` `reference_packs`), so at publish (422), pull
-    (before the rename), the pull's cache hit, `mendari pack verify` and `Decision.from_path`;
-    one cached before is listed under `invalid` with the directory to remove, and the reference
-    pack is served. Threat model S16; S15's and a3's tests moved to 9.9.9 with their names kept.
-  - [ ] **16d** (#188, PR open) Health does no pack work in the request: every served pack is built at
-    startup and health reads that snapshot; `deployment.recorded` stays on first use, and a pack
-    that fails to build is never rebuilt (conflicts 15, 16, 23).
-  - [ ] **16e-1** (PR open; PR C, after A and B) Closed provider configs checked at load
-    (`providers.config_problems`, each provider's `config_problems`, new `FileConfig` and
-    `NaiveBayesConfig`): refused for packs the deployment does not own, `Pack.warnings` for owned
-    ones (`mendari list` on stderr, the start-up log, health `pack_warnings` past the `read`
-    check), `mendari validate` refuses both. An owned pack's constructors raise only on what they
-    raised on before, so an unread key warns and the pack still serves (conflict 17). The
-    deployment's model, caps on `max_tokens`, `timeout_ms` and effort
-    (`core/origin.py` `deployment_config`, keyed on `Pack.bounded`), `state_fields` on llm and
-    jev variants and members, the parity test (and an exhaustive one-change sweep beneath it),
-    the hypothesis egress test, the generated JSON Schema
-    (`docs/spec/provider-configs.schema.json`, `scripts/provider_config_schema.py --check`);
-    the CQL declaration search made linear, since load now runs it on registry packs
-    (conflicts 17–19, 24, 25).
-  - [ ] **16e-2** (PR open; PR D, after C) The provider egress allow-list
+    writing) is made then. Until then the trial and referral packs cannot publish a version that
+    differs from the installed one: a puller refuses it, with the reason.
+  - [x] **F** (#190, merged 2026-10-08, with 16f; found in the 16a review) A pack from a
+    registry with a reference pack's id and a version that ties its (`version_key`, now in
+    `core/spec.py`) but another digest took the reference pack's place, since the cache wins a
+    version tie: it ran bounded, under the reference pack's name. Refused at load for origins
+    the deployment does not own (`_shadow_problem`, from `core/reference.py` `reference_packs`),
+    so at publish (422), pull (before the rename), the pull's cache hit, `mendari pack verify`
+    and `Decision.from_path`; one cached before is listed under `invalid` with the directory to
+    remove, and the reference pack is served. Threat model S16; S15's and a3's tests moved to
+    9.9.9 with their names kept.
+  - [x] **16d** (#188, merged 2026-10-08) Health does no pack work in the request: every served
+    pack is built at startup and health reads that snapshot; `deployment.recorded` stays on first
+    use, and a pack that fails to build is never rebuilt (conflicts 15, 16, 23).
+  - [x] **16e-1** (#191, merged 2026-10-08; PR C, after A and B) Closed provider configs checked
+    at load (`providers.config_problems`, each provider's `config_problems`, new `FileConfig`
+    and `NaiveBayesConfig`): refused for packs the deployment does not own, `Pack.warnings` for
+    owned ones (`mendari list` on stderr, the start-up log, health `pack_warnings` past the
+    `read` check), `mendari validate` refuses both. An owned pack's constructors raise only on
+    what they raised on before, so an unread key warns and the pack still serves (conflict 17).
+    The deployment's model, caps on `max_tokens`, `timeout_ms` and effort (`core/origin.py`
+    `deployment_config`, keyed on `Pack.bounded`), `state_fields` on llm and jev variants and
+    members, the parity test (and an exhaustive one-change sweep beneath it), the hypothesis
+    egress test, the generated JSON Schema (`docs/spec/provider-configs.schema.json`,
+    `scripts/provider_config_schema.py --check`); the CQL declaration search made linear, since
+    load now runs it on registry packs (conflicts 17–19, 24, 25).
+  - [x] **16e-2** (#192, merged 2026-10-08; PR D, after C) The provider egress allow-list
     (`MENDARI_PROVIDER_ALLOWED_ORIGINS`, off unless set; `providers/http.py` `require_allowed`
     in `require_secure`, Jev's model list and Vercel Connect, the AI Gateway's default included;
     a set `LLM_BASE_URL` or `JEV_API_URL` off it stops startup, `providers.provider_allow_list`;
@@ -575,15 +577,23 @@ registry or copied into the store.
     ones' prefetch and card summaries; an owned pack's Task text keeps the name check where it
     serves, and `mendari validate` holds every pack's to bare placeholders; `fill` unchanged
     (conflicts 20, 21).
-  - [ ] **16f** (PR open, with F) Depth and `$ref` bounds for the input schemas of packs the
-    deployment owns (`core/input_schema.py` `expansion_problems`, over `core/schema_graph.py`,
-    the graph moved out of `core/caps.py` with each `$ref` edge marked; the caps count as
-    before): nested at most 32 deep, chains of at most 16 `$ref`s, at most 1,000 schema objects
-    on one value, loops only as a recursive list or tree, and no `unevaluatedProperties` or
-    `unevaluatedItems` below another (conflict 22). The shipped packs, scaffolds and fixtures:
-    6, 1 and 2. Packs it does not own keep B11's caps and budget, unchanged. Threat model D10.
-  - [ ] **16g** (PR E, last) The threat model's "Pack content" part. LP-16 counts as merged for
-    LP-18 and LP-20 when it lands; 16c-2 still waits for the owner.
+  - [x] **16f** (#190, merged 2026-10-08, with F) Depth and `$ref` bounds for the input schemas
+    of packs the deployment owns (`core/input_schema.py` `expansion_problems`, over
+    `core/schema_graph.py`, the graph moved out of `core/caps.py` with each `$ref` edge marked;
+    the caps count as before): nested at most 32 deep, chains of at most 16 `$ref`s, at most
+    1,000 schema objects on one value, loops only as a recursive list or tree, and no
+    `unevaluatedProperties` or `unevaluatedItems` below another (conflict 22). The shipped
+    packs, scaffolds and fixtures: 6, 1 and 2. Packs it does not own keep B11's caps and budget,
+    unchanged. Threat model D10.
+  - [ ] **16g** (PR open; PR E, last) The threat model's "Pack content" part
+    (`docs/security/threat-model.md`, between the STRIDE table and the residual risks): what a
+    pack can set (every manifest input, provider type and variant key, the wording templates,
+    `cds_hooks.prefetch`, the attestations), which packs the deployment owns (by origin and
+    digest), and what a pack can and cannot do, each with its row or residual (conflicts 23 and
+    24 are written there). `tests/test_threat_model.py` holds it to every input, to rows and
+    tests that exist, and to no line that reads as a row; gate a3's `what` says LP-16a–g. LP-16
+    counts as merged for LP-18 and LP-20 once 16g lands, 16e-2 with it (16c-2 is not part of
+    LP-16, above).
 
   **LP-16 rest, in order:** A (F and 16f, this PR); B (16d, beside A); C (16e-1, after A and B);
   D (16e-2, after C); E (16g, after A to D).
