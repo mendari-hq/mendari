@@ -935,7 +935,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     `verdict=block`, 30 distinct (recorded; `mendari.eval/2` unchanged).
   - [ ] **11b** Rater agreement statistics (pure): percent agreement with Clopper-Pearson,
     Cohen's kappa per rater pair, Krippendorff's nominal alpha, seeded percentile bootstrap.
-  - [ ] **11c** (PR open) Evaluation-set keys and sealing, nothing stored yet
+  - [ ] **11c** (#222) Evaluation-set keys and sealing, nothing stored yet
     (`core/evalset_keys.py`: `MENDARI_EVALSET_KEY`, `MENDARI_EVALSET_READ_KEYS`,
     `MENDARI_EVALSET_INDEX_KEY`; off unless both are set, malformed, half-set or reused keys
     stop the server, which then needs sign-in and, on Vercel, Production). Every token names its
