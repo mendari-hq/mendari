@@ -271,6 +271,12 @@ NOT_ON_A_DECISION = {
     # The evaluation-set keys' rotation batch and the index rebuilt (`KEYS_CHAIN`, LP-11f).
     "evalset.rotated",
     "evalset_index.rebuilt",
+    # A hidden set's blind labelling (`evalset:<set id>`, LP-11h).
+    "evalset.sampled",
+    "evalset.assigned",
+    "evalset.case_read",
+    "evalset.labelled",
+    "evalset.measured",
 }
 
 

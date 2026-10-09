@@ -174,6 +174,8 @@ WRITTEN = (
     "evalset_sets",  # hidden evaluation sets (LP-11e): no route writes them yet
     "evalset_cases",
     "evalset_index",
+    "evalset_assignments",  # their blind labelling (LP-11h): the store only, no route yet
+    "evalset_labels",
     "audit_events",
 )
 
@@ -320,6 +322,9 @@ EXPLICIT = (
     # Hidden evaluation sets (LP-11e): the key holder's command line only, no route.
     "EvalsetStore.create_set",
     "EvalsetStore.sets",
+    # A labeller's next case and label (LP-11h): their organization's only, no route yet.
+    "EvalsetStore.next_case",
+    "EvalsetStore.record_label",
 )
 DEPLOYMENT_READS = {
     "verify": ("claims", "the whole chain's verification: unchanged in claims mode"),
@@ -758,7 +763,9 @@ def seed_people(world: World, org: Org) -> None:
 def hidden_set(world: World, org: Org, keys: EvalsetKeys) -> None:
     """A draft hidden evaluation set of `org`'s, as the key holder makes one on the command line
     (LP-11e), its case's text and author carrying `org`'s marker: the set's id, the case's id
-    and its keyed hash are `org`'s, which the other never sees."""
+    and its keyed hash are `org`'s, which the other never sees. In memberships mode its case is
+    drawn and labelled blind by two of `org`'s labellers, at the store (LP-11h): their user
+    ids, the assignments' and the labels' ids are `org`'s too."""
     m = org.marker
     hidden = EvalsetStore(world.store, keys)
     made = hidden.create_set(org.name, resolve_pack(INBOX), f"set {m}", created_by="operator")
@@ -769,6 +776,24 @@ def hidden_set(world: World, org: Org, keys: EvalsetKeys) -> None:
     with world.store._db.session(exclusive=False) as db:
         for row in db.all("SELECT id FROM evalset_cases WHERE set_id = ?", (set_id,)):
             org.made("evalset case", row["id"])
+    if world.accounts != "memberships":  # a labeller labels in memberships mode only
+        return
+    hidden.sample(set_id, cases=1)
+    people = []
+    for n in range(2):
+        sub = f"labeller-{n}-{m}"
+        member(world.store, org=org.name, roles=["labeller"], sub=sub)
+        people.append(org.made("person", person_id(IDP, sub)))
+    for assigned in hidden.assign(set_id, people)["assignments"]:
+        org.made("evalset assignment", assigned["assignment"])
+    for user in people:
+        shown = hidden.next_case(user, org=org.name)
+        assert shown is not None
+        labels = {"destination": "nurse", "urgency": "routine"}
+        hidden.record_label(shown["assignment"], user, labels, org=org.name)
+    with world.store._db.session(exclusive=False) as db:
+        for row in db.all("SELECT id FROM evalset_labels WHERE set_id = ?", (set_id,)):
+            org.made("evalset label", row["id"])
 
 
 def token_form(signer: Signer, client_id: str, scope: str = "system/*.rs") -> dict[str, str]:

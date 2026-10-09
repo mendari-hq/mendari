@@ -77,6 +77,28 @@ The first release (not yet published).
   anything, and `mendari agreement` refuses when a variant it compares, or one of a composite's
   members, cannot be called (the other member alone would have made two variants look equal).
   The inbox pack is 0.4.2: a manifest comment named the default, so its digest changes.
+- **Hidden evaluation sets, labelled blind** (LP-11, the key holder's command line and the
+  store; no route yet, so no person labels until the labelling screen): `mendari evalset sample`
+  draws a draft set's cases, seeded, within each stratum (`--per-stratum N` or `--cases N`),
+  each drawn case's weight (N_h / n_h) sealed beside its attributes; `mendari evalset assign`
+  gives each drawn case two different labellers, balanced across labellers and pairs, and
+  `adjudicate` each disputed case a third who is neither of its first two, each refusing anyone
+  without the `labeller` role in the set's organization and any administrator there (separation
+  of duties), and moving an open assignment whose membership ended to another labeller;
+  `mendari evalset progress` counts cases by status and each labeller's assignments (no case
+  named, no key needed); `mendari evalset agreement [--seed] [--resamples] [--json]` and
+  `coverage [--json]` measure the set (`mendari.agreement/1` over the first-pass labels,
+  `mendari.coverage/1` over the settled ones) and store both sealed. In the store, a labeller is
+  shown a case's input and the set's questions only, and their label is sealed, bound to its own
+  id, one per assignment and never changed; two first-pass labels settle a case `agreed` or
+  `disputed`, an adjudicator's `resolved` (a majority on every question) or `unresolved` (a
+  three-way split). New tables `evalset_assignments` and `evalset_labels`; new events, each of
+  ids, keyed case hashes, user ids, counts and salted commitments, never a label
+  (`evalset.sampled`, `evalset.assigned`, `evalset.case_read`, `evalset.labelled`,
+  `evalset.measured`); `mendari audit verify --evalsets` now checks every assignment and
+  recomputes every label's commitment, and rotation, its check and the export cover labels.
+  Removing a case removes its assignments and labels. Runbook: `docs/operations/evalsets.md`,
+  Labelling a set.
 - **Hidden evaluation sets' keys rotate** (LP-11, the key holder's command line):
   `mendari evalset rotate --to <id>` re-seals every set's sealed values under the current
   evaluation-set key in batches, each chained (`evalset.rotated`: key ids and counts),

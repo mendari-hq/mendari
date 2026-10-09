@@ -5,8 +5,12 @@ One deployment as the hosted engine would run them: memberships mode, sign-in, S
 Services, PHI mode `encrypt` and the evaluation-set keys. Two organizations each hold a draft set
 of hand-written cases the key holder made on the command line, every content field planted with
 a mark of its own (`zq<field>mark<organization>`: the input, the author, the stratum, a language
-code, a custom attribute, the author's id and the set's name), and what the store makes of them
-is a mark too: each case's id, its salt, every sealed token (before and after a rotation), the
+code, a custom attribute, the author's id and the set's name). The key holder draws the cases,
+assigns them to two of the organization's labellers and has the disputed one adjudicated by a
+third; the labellers label at the store (LP-11h: no route lets a person label yet), one of them
+leaving an assignment open; and the set's agreement and coverage are measured and sealed. What
+the store makes of all this is a mark too: each case's id, its salt and each label's, every
+sealed token (before and after a rotation: inputs, attributes, headers, labels, aggregates), the
 hidden-case index's hashes (whole and their digests alone) and the keys themselves. A text seen
 before the last of those marks is made (the first start's answers, the key holder's commands) is
 kept and scanned again once every mark exists. Then, with the deployment started again on the
@@ -18,11 +22,12 @@ keys as they are by then and shown to have the feature on (health names their id
   invitation accepted, a request to join handled; then, on spare ids, what erases, rotates or
   deletes);
 - every mounted route and method (`mounted_routes`, and the OpenAPI document) is called by every
-  kind of principal: no one, a member of each role, a labeller, keys of each machine role, keys
-  from before Phase 4 of the other roles, the scoped keys of tests/test_auth.py, a key of every
-  preset, clients with every scope and with each scope, an EHR launch alone and with a person's
-  session, the grading key, and the scheduled jobs' secret; then, with the deployment started
-  again in claims mode, by no one, the scheduled jobs and a person of each claims role;
+  kind of principal: no one, a member of each role, a labeller with assignments (one still
+  open) and one without, keys of each machine role, keys from before Phase 4 of the other
+  roles, the scoped keys of tests/test_auth.py, a key of every preset, clients with every scope
+  and with each scope, an EHR launch alone and with a person's session, the grading key, and
+  the scheduled jobs' secret; then, with the deployment started again in claims mode, by no
+  one, the scheduled jobs and a person of each claims role;
 - each answer (its body with its NDJSON lines, and every header), each security-log line (the
   access line included) and every log record is scanned, and so is the output of every
   `mendari evalset` command, of `mendari audit verify --evalsets`, of `mendari audit export
@@ -32,17 +37,19 @@ keys as they are by then and shown to have the feature on (health names their id
 No mark appears anywhere but where conflicts 38, 55 and 56 of notes/lp11-plan.md allow, each as
 narrowly as it says (`allowed`): a set's name to its organization's curators and in the key
 holder's `evalset` commands, its stratum and language to those curators and in `evalset
-coverage` and `evalset show` (no curator route and neither command exists yet), and case ids
+coverage` and `evalset show` (no curator route and no `show` command exists yet), and case ids
 and sealed tokens in the sealed export file. No word of the pack's labels is in a log, in an
 `evalset` command's output or in `audit verify --evalsets` (conflict 36: the planted cases'
-intended label is one), and each evaluation-set event's payload holds the keys pinned for its
-kind and no other, each of its shape. The scanner is shown to see: each mark is found where it
-lives (the export file, the `evalset_` tables, what the key holder's own store opens), so a
-scanner that finds nothing fails. Every principal is the one it is meant to be (`/api/auth/me`),
-every URL answers someone with a 2xx or 3xx but the pins of `NOT_ANSWERED`, each with its
-reason, and every evaluation-set route is swept: until LP-11j mounts the first there is none,
-and one that appears without being listed here fails. SQLite and Postgres; keys are made per
-test, cases are synthetic."""
+intended label is one, and so is every label given), but in the two commands that count by
+label, `evalset agreement` and `evalset coverage` (`AGGREGATES`: the key holder's aggregates, as
+counts and coefficients, naming no case); each evaluation-set event's payload holds the keys
+pinned for its kind and no other, each of its shape, and no label word. The scanner is shown to
+see: each mark is found where it lives (the export file, the `evalset_` tables, what the key
+holder's own store opens), so a scanner that finds nothing fails. Every principal is the one it
+is meant to be (`/api/auth/me`), every URL answers someone with a 2xx or 3xx but the pins of
+`NOT_ANSWERED`, each with its reason, and every evaluation-set route is swept: until LP-11j
+mounts the first there is none, and one that appears without being listed here fails. SQLite
+and Postgres; keys are made per test, cases are synthetic."""
 
 from __future__ import annotations
 
@@ -75,7 +82,7 @@ from mendari.server import auth as auth_module
 from mendari.server import smart_routes
 from mendari.server.api_docs import FHIR_EXAMPLE, FHIR_EXAMPLE_PACK
 from mendari.server.app import create_app, mounted_routes
-from mendari.server.auth import PERMISSIONS, ROLES, permission_for
+from mendari.server.auth import PERMISSIONS, ROLES, permission_for, person_id
 from mendari.server.backend_services import ASSERTION_TYPE, check_jwks, default_scope
 from mendari.server.presets import PRESETS
 from mendari.server.scopes import DECIDE, OUTCOME, parse, supported
@@ -110,6 +117,11 @@ GUARD = "mendari/ai-guard"
 ORGS = {"clinic-a": "alpha", "clinic-b": "bravo"}
 CRON = "a-cron-secret-for-the-leak-sweep-0123456789"
 CASES = 4  # hand-written cases per set; the key holder removes one
+# Each set's blind labelling (LP-11h, `labelled`): the three cases drawn are given to two
+# labellers; one labels all three, the other two (one assignment left open); the one case they
+# disagree on is adjudicated by a third.
+ASSIGNED = 2 * (CASES - 1) + 1
+LABELS = (CASES - 1) + 2 + 1
 URGENT = "Crushing chest pain and my left arm is numb"
 ROUTINE = "Can you send a refill for metformin to my pharmacy on Main Street?"
 Route = tuple[str, str]
@@ -155,6 +167,10 @@ def allowed(mark: Mark, surface: Surface) -> bool:
             ("evalset_cases", "token"),
             ("evalset_index", "case_id"),
             ("evalset_index", "index_hash"),
+            # Blind labelling (LP-11h): who labels which case, and each label sealed.
+            ("evalset_assignments", "case_id"),
+            ("evalset_labels", "case_id"),
+            ("evalset_labels", "token"),
         }
     if surface.kind == "export file":  # 56: the rows as stored, the ciphertext bound to the ids
         return mark.kind in ("case_id", "token")
@@ -195,10 +211,18 @@ LABEL_WORDS = sorted(
 LABEL_WORD = re.compile(r"\b(?:" + "|".join(map(re.escape, LABEL_WORDS)) + r")\b", re.IGNORECASE)
 
 
+# The key holder's aggregates over a set's labels (LP-11h): they count by label, so they name
+# the pack's label words, as counts and coefficients beside no case. Every other `evalset`
+# command, `audit verify` and every log stay without one.
+AGGREGATES = ("evalset agreement", "evalset coverage")
+
+
 def wordless(surface: Surface) -> bool:
     """Whether `surface` may hold no label word."""
     return surface.kind == "log" or (
-        surface.kind == "cli" and surface.command.startswith(("evalset ", "audit verify"))
+        surface.kind == "cli"
+        and surface.command.startswith(("evalset ", "audit verify"))
+        and surface.command not in AGGREGATES
     )
 
 
@@ -208,6 +232,7 @@ UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9
 KEY_ID = re.compile(r"^[0-9a-f]{16}$")
 CASE_HASH = re.compile(r"^hmac-sha256:[0-9a-f]{16}:[0-9a-f]{64}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
+USER = re.compile(r"^user:[0-9a-f]{16}$")
 
 
 def counts_of(keys: Iterable[str], pattern: re.Pattern[str] | None) -> Any:
@@ -239,6 +264,19 @@ SHAPES: dict[str, Any] = {
     "from": counts_of((), KEY_ID),
     "counts": counts_of(SEALED_COLUMNS, None),
     "count": lambda value: isinstance(value, int) and not isinstance(value, bool),
+    # Blind labelling (LP-11h): counts and the seed, assignments, labellers by user id, rounds,
+    # and a label's commitment (its id and a SHA-256).
+    "n": lambda value: isinstance(value, int) and not isinstance(value, bool),
+    "seed": lambda value: isinstance(value, int) and not isinstance(value, bool),
+    "assignment": matches(UUID),
+    "labeller": matches(USER),
+    "round": lambda value: value in ("first", "adjudication"),
+    "label_ref": lambda value: (
+        isinstance(value, Mapping)
+        and set(value) == {"id", "sha256"}
+        and UUID.fullmatch(str(value["id"])) is not None
+        and SHA256.fullmatch(str(value["sha256"])) is not None
+    ),
 }
 # Every kind of evaluation-set event the code chains, with the payload keys it may hold: ids,
 # keyed case hashes, commitments, key ids and counts, never a label word or a case's content.
@@ -250,6 +288,11 @@ PAYLOAD_KEYS: dict[str, frozenset[str]] = {
     "evalset_index.epoch": frozenset({"key_id"}),
     "evalset.rotated": frozenset({"to", "from", "counts"}),
     "evalset_index.rebuilt": frozenset({"key_id", "count"}),
+    "evalset.sampled": frozenset({"set", "org", "n", "seed"}),
+    "evalset.assigned": frozenset({"set", "org", "case", "assignment", "labeller", "round"}),
+    "evalset.case_read": frozenset({"set", "org", "case", "assignment", "labeller"}),
+    "evalset.labelled": frozenset({"set", "org", "case", "label_ref", "labeller", "round"}),
+    "evalset.measured": frozenset({"set", "org", "n"}),
 }
 EVALSET_KINDS = ("evalset.", "evalset_index.")
 
@@ -300,6 +343,7 @@ class Org:
     principals: dict[str, dict[str, str]] = field(default_factory=dict)  # name: headers
     set_id: str = ""
     case_hashes: list[str] = field(default_factory=list)  # as `evalset add` printed them
+    labellers: list[str] = field(default_factory=list)  # user ids, of those given assignments
 
 
 @dataclass
@@ -479,7 +523,8 @@ def tables() -> list[str]:
 
 
 def people(world: World, org: Org) -> None:
-    """`org`'s members of each role (its record made with the first)."""
+    """`org`'s members of each role (its record made with the first), and the three labellers
+    its hidden set's cases are assigned to (LP-11h)."""
     for role in ROLES:
         org.people[role] = member(
             world.store,
@@ -488,6 +533,10 @@ def people(world: World, org: Org) -> None:
             sub=f"{role}-{org.name}",
             email=f"{role}@{org.name}.example.org",
         )
+    for number in range(3):
+        sub = f"labeller-{number}-{org.name}"
+        member(world.store, org=org.name, roles=["labeller"], sub=sub)
+        org.labellers.append(person_id(IDP, sub))
 
 
 def seed(world: World, org: Org) -> None:
@@ -561,8 +610,13 @@ def hidden_sets(world: World, monkeypatch: pytest.MonkeyPatch) -> Path:
         assert code == 0
         assert world.run("evalset", "list", "--org", org.name)[0] == 0
     assert world.run("evalset", "list")[0] == 0
+    for org in world.orgs.values():
+        labelled(world, org)
+    made(world, before_rotation=True)  # the labels, the re-sealed attributes, the aggregates
     code, out, _ = world.run("audit", "verify", "--evalsets")
-    assert code == 0 and json.loads(out)["evalsets"]["checked"] == 2 * (CASES - 1)
+    verified = json.loads(out)["evalsets"]
+    assert code == 0 and verified["checked"] == 2 * (CASES - 1)
+    assert (verified["assignments"], verified["labels"]) == (2 * ASSIGNED, 2 * LABELS)
     assert world.run("evalset", "rotate", "--check")[0] == 0
     # The next key: read first (a deployment starts with it), swapped in, the sets re-sealed.
     nxt = evalset_keys_for_test().key
@@ -594,10 +648,54 @@ def hidden_sets(world: World, monkeypatch: pytest.MonkeyPatch) -> Path:
     return exported
 
 
+def labelled(world: World, org: Org) -> None:
+    """`org`'s set labelled blind (LP-11h): its cases drawn and given to two labellers by the
+    key holder's commands; at the store (no route yet), the first labels every case and the
+    second all but one, which stays open, disagreeing on one; the key holder has that one
+    adjudicated by the third, who splits it three ways (it stays unresolved); then the set's
+    progress, agreement and coverage, as text and JSON. Every output is scanned; none names a
+    case."""
+    first, second, third = org.labellers
+    code, out, _ = world.run("evalset", "sample", org.set_id, "--per-stratum", str(CASES))
+    assert code == 0 and json.loads(out)["drawn"] == CASES - 1
+    pool = ("--labeller", first, "--labeller", second)
+    code, out, _ = world.run("evalset", "assign", org.set_id, *pool)
+    assert code == 0 and json.loads(out)["assigned"] == 2 * (CASES - 1)
+    hidden = EvalsetStore(world.store, world.keys)
+
+    def answer(user: str, destination: str) -> None:
+        shown = hidden.next_case(user, org=org.name)
+        assert shown is not None and set(shown) == {"assignment", "questions", "input"}
+        labels = {"destination": destination, "urgency": "routine"}
+        assert set(hidden.record_label(shown["assignment"], user, labels, org=org.name)) == {
+            "remaining"
+        }
+
+    for _ in range(CASES - 1):
+        answer(first, "nurse")
+    for destination in ("nurse", "physician"):
+        answer(second, destination)
+    assert hidden.next_case(second, org=org.name) is not None  # one assignment left open
+    code, out, _ = world.run("evalset", "adjudicate", org.set_id, "--labeller", third)
+    assert code == 0 and json.loads(out)["assigned"] == 1
+    answer(third, "billing")
+    for argv in (
+        ("progress",),
+        ("agreement", "--resamples", "50"),
+        ("agreement", "--json", "--resamples", "50"),
+        ("coverage",),
+        ("coverage", "--json"),
+    ):
+        code, out, _ = world.run("evalset", argv[0], org.set_id, *argv[1:])
+        assert code == 0 and not any(case in out for case in org.case_hashes), argv
+        if "--json" in argv:  # what `AGGREGATES` lets through: counts by label, words and all
+            assert LABEL_WORD.search(out), argv
+
+
 def made(world: World, *, before_rotation: bool) -> None:
     """What the store made of each organization's cases, as marks: case ids, sealed tokens and
-    index hashes as stored (before the rotation, the removed case's too), and each case's salt,
-    opened with the key holder's own keys."""
+    index hashes as stored (before the rotation, the removed case's too), and each case's and
+    each label's salt, opened with the key holder's own keys."""
     org_of = {org.set_id: org.name for org in world.orgs.values()}
     keys = world.keys
     for table, sealed in SEALED_COLUMNS.items():
@@ -614,6 +712,11 @@ def made(world: World, *, before_rotation: bool) -> None:
                     )
                     salt = base64.b64decode(body["salt"])
                     world.mark("salt", org, body["salt"], salt.hex())
+            if table == "evalset_labels" and before_rotation:
+                bound = (str(row["set_id"]), str(row["case_id"]), str(row["id"]))
+                body, _ = keys.open("label", str(row["body"]), *bound)
+                salt = base64.b64decode(body["salt"])
+                world.mark("salt", org, body["salt"], salt.hex())
     for row in rows(world.store, "evalset_index"):  # `hmac-sha256:<key id>:<digest>`, and alone
         hashed = str(row["hash"])
         world.mark("index_hash", org_of[str(row["set_id"])], hashed, hashed.rsplit(":", 1)[1])
@@ -633,6 +736,10 @@ def principals(world: World, org: Org) -> None:
     for role in ROLES:
         found[f"member {role}"] = org.people[role]
     found["member labeller"] = member(store, org=name, roles=["labeller"], sub=f"labeller-{name}")
+    # A labeller with assignments (LP-11h): some answered, one still open (`labelled`).
+    found["member labeller with assignments"] = member(
+        store, org=name, roles=["labeller"], sub=f"labeller-1-{name}"
+    )
 
     def key(label: str, role: str, scopes: str | None = None, preset: str | None = None) -> None:
         made = store.create_api_key(
@@ -1110,6 +1217,7 @@ def test_no_answer_log_export_or_command_shows_a_hidden_set(
     unanswered = every - set(NOT_ANSWERED) - world.answered
     assert unanswered == set(), "answer it in `served`, or pin it in NOT_ANSWERED with why"
     commands = {"create", "add", "remove-case", "list", "rotate", "reindex", "export"}
+    commands |= {"sample", "assign", "adjudicate", "progress", "agreement", "coverage"}
     assert {f"evalset {command}" for command in commands} <= world.commands
 
 
@@ -1127,26 +1235,34 @@ def payloads_hold_only_their_pinned_keys(chain: Sequence[Mapping[str, Any]]) -> 
         assert set(payload) <= PAYLOAD_KEYS[kind], (kind, sorted(payload))
         wrong = [key for key, value in payload.items() if not SHAPES[key](value)]
         assert wrong == [], (kind, wrong)
+        assert LABEL_WORD.search(event["payload"]) is None, kind  # conflict 36
     assert seen == set(PAYLOAD_KEYS)  # each kind is in this world
 
 
 def positive_controls(world: World, exported: Path) -> None:
     """The scanner sees: each mark is found where it lives. The export file holds every live
-    case's id and sealed token; the `evalset_` tables hold the ids, tokens and index hashes; and
-    what the key holder's own store opens holds every content mark and each salt."""
+    case's id and sealed token, labels' included; the `evalset_` tables hold the ids, tokens and
+    index hashes; and what the key holder's own store opens holds every content mark and each
+    salt."""
     cases, sets = rows(world.store, "evalset_cases"), rows(world.store, "evalset_sets")
-    index = rows(world.store, "evalset_index")
+    index, labels = rows(world.store, "evalset_index"), rows(world.store, "evalset_labels")
+    assigned = rows(world.store, "evalset_assignments")
     live = {str(row["id"]) for row in cases}
     assert len(live) == len(ORGS) * (CASES - 1)
+    assert (len(labels), len(assigned)) == (len(ORGS) * LABELS, len(ORGS) * ASSIGNED)
     live |= {
         str(row[column])
-        for table, stored in (("evalset_sets", sets), ("evalset_cases", cases))
+        for table, stored in (
+            ("evalset_sets", sets),
+            ("evalset_cases", cases),
+            ("evalset_labels", labels),
+        )
         for row in stored
         for column in SEALED_COLUMNS[table].columns
         if row[column] is not None
     }
     assert live <= {mark.value for mark in found(exported.read_text(), world.marks)}
-    stored = json.dumps([cases, sets, index], default=str)
+    stored = json.dumps([cases, sets, index, labels, assigned], default=str)
     assert {mark.kind for mark in found(stored, world.marks)} == {"case_id", "token", "index_hash"}
     hidden = EvalsetStore(world.store, world.keys)  # the key holder's own store
     assert {item["set"] for item in hidden.sets()} == {org.set_id for org in world.orgs.values()}
@@ -1159,6 +1275,10 @@ def positive_controls(world: World, exported: Path) -> None:
                     opened.append(value[0])
         header = next(row["header"] for row in sets if row["id"] == org.set_id)
         opened.append(world.keys.open("header", str(header), org.set_id)[0])
+        for label in labels:
+            if label["set_id"] == org.set_id:
+                bound = (org.set_id, str(label["case_id"]), str(label["id"]))
+                opened.append(world.keys.open("label", str(label["body"]), *bound)[0])
         kinds = {
             mark.kind for mark in found(json.dumps(opened), world.marks) if mark.org == org.name
         }
@@ -1217,12 +1337,17 @@ def test_each_exception_is_as_narrow_as_its_conflict() -> None:
     ):
         assert shown(surface) == set(), surface.label
     assert shown(Surface("table", "the cases", table="evalset_cases")) == {"case_id", "token"}
+    assert shown(Surface("table", "the labels", table="evalset_labels")) == {"case_id", "token"}
+    assert shown(Surface("table", "assignments", table="evalset_assignments")) == {"case_id"}
+    for name in ("evalset agreement", "evalset progress", "evalset assign", "evalset sample"):
+        assert shown(command(name)) == {"name"}, name  # no stratum or language but coverage's
 
 
 def test_no_label_word_is_in_a_log_or_an_evalset_command() -> None:
     """Conflict 36: every word of the pack's labels, as a word in any case, is found in a log
-    and in the output of an `evalset` command or `audit verify --evalsets`; answers and the
-    operator's exports of decisions show labels by design."""
+    and in the output of an `evalset` command or `audit verify --evalsets`, but the two that
+    count by label (`AGGREGATES`, LP-11h: the key holder's agreement and coverage, naming no
+    case); answers and the operator's exports of decisions show labels by design."""
     assert {"routine", "urgent", "nurse", "front_desk"} <= set(LABEL_WORDS)
     found_in = [
         "intended label {'urgency': 'routine'}",
@@ -1235,8 +1360,17 @@ def test_no_label_word_is_in_a_log_or_an_evalset_command() -> None:
         Surface("log", "a log line"),
         Surface("cli", "evalset add", command="evalset add"),
         Surface("cli", "audit verify", command="audit verify"),
+        # Blind labelling's commands (LP-11h) but the two that count by label.
+        *(
+            Surface("cli", name, command=name)
+            for name in ("evalset sample", "evalset assign", "evalset adjudicate")
+        ),
+        Surface("cli", "evalset progress", command="evalset progress"),
     ):
         assert wordless(surface), surface.label
+    for name in AGGREGATES:  # the key holder's aggregates: counts by label, beside no case
+        assert not wordless(Surface("cli", name, command=name)), name
+    assert set(AGGREGATES) == {"evalset agreement", "evalset coverage"}
     for surface in (
         Surface("http", "an answer"),
         Surface("cli", "audit export", command="audit export"),
