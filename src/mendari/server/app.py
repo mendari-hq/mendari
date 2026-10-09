@@ -127,7 +127,7 @@ from mendari.standards import (
     pas,
 )
 from mendari.standards.fhir_client import GuardedHttp, allowed_servers
-from mendari.standards.pas import PasError
+from mendari.standards.pas import X12_CODE, PasError
 from mendari.standards.search import SPECS, SearchError, encode_cursor, handling, searchset
 from mendari.standards.search import parse as parse_search
 from mendari.standards.search import stored as stored_instant
@@ -230,8 +230,10 @@ class OutcomeRequest(BaseModel):
 
 
 class PriorAuthorizationRequest(BaseModel):
-    """A PAS request for a decided order: the EHR's resources, and the X12 codes the payer needs
-    (unless the order carries them). `submit` sends it to $MENDARI_PAS_PAYER_URL."""
+    """A PAS request for a decided order: the EHR's resources, and the X12 codes the payer needs.
+    Mendari ships no X12 code value: a code this request does not give comes from the site's
+    settings (`MENDARI_PAS_REQUEST_TYPE` and the others; the service type first from the order),
+    else the request is refused naming the setting. `submit` sends it to $MENDARI_PAS_PAYER_URL."""
 
     decision_id: str = Field(min_length=1, max_length=100)
     patient: dict[str, Any]
@@ -239,7 +241,21 @@ class PriorAuthorizationRequest(BaseModel):
     insurer: dict[str, Any]
     requester: dict[str, Any]
     order: dict[str, Any]
-    service_type: str | None = Field(default=None, max_length=5, description="X12 1365")
+    service_type: str | None = Field(
+        default=None,
+        max_length=5,
+        description="X12 1365; else the order's category, else MENDARI_PAS_SERVICE_TYPE",
+    )
+    request_type: str | None = Field(
+        default=None,
+        pattern=rf"^{X12_CODE.pattern}$",
+        description="X12 1525; else MENDARI_PAS_REQUEST_TYPE",
+    )
+    certification_type: str | None = Field(
+        default=None,
+        pattern=rf"^{X12_CODE.pattern}$",
+        description="X12 1322; else MENDARI_PAS_CERTIFICATION_TYPE",
+    )
     place_of_service: str | None = Field(default=None, max_length=5, description="CMS POS code")
     diagnoses: list[str] = Field(default=[], max_length=12, description="ICD-10-CM codes")
     submit: bool = False
@@ -1971,7 +1987,10 @@ def create_app(
         `submit` (a decision that was automated, or that a reviewer resolved as `submit_ready`),
         the payer's answer, which is chained on the decision (`pas.submitted`): its
         outcome and review actions; the authorization number and disposition are kept as a
-        note (PHI mode `hash` keeps neither)."""
+        note (PHI mode `hash` keeps neither). The X12 codes come from the request, else the
+        order, else the site's settings (`MENDARI_PAS_REQUEST_TYPE`,
+        `MENDARI_PAS_CERTIFICATION_TYPE`, `MENDARI_PAS_SERVICE_TYPE`; optional ones too):
+        Mendari ships none, and a required one nothing gives is a `422` naming its setting."""
         pack = pack_or_404(f"{namespace}/{name}")
         record = store.get(body.decision_id)
         if record is None or record["pack_id"] != pack.id:
@@ -1986,6 +2005,9 @@ def create_app(
             service_type=body.service_type,
             place_of_service=body.place_of_service,
             diagnoses=body.diagnoses,
+            request_type=body.request_type,
+            certification_type=body.certification_type,
+            site_codes=settings.pas_codes(),
         )
         submitted = None
         if body.submit:

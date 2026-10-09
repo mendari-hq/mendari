@@ -187,7 +187,7 @@ def test_the_documented_calls_answer_with_the_presets_keys(served: tuple[TestCli
     assert recorded.status_code == 200, recorded.text
     # Da Vinci: coverage requirements by CDS Hooks, the DTR package, the PAS request built.
     from tests.test_davinci import COMPLETE, PA, package_request, request
-    from tests.test_pas import COVERAGE, INSURER, PATIENT, REQUESTER
+    from tests.test_pas import COVERAGE, INSURER, PATIENT, REQUESTER, REQUIRED
     from tests.test_prior_auth_pack import _order
 
     davinci = keys["da-vinci"]
@@ -212,6 +212,7 @@ def test_the_documented_calls_answer_with_the_presets_keys(served: tuple[TestCli
             "order": _order("mri", "FX101"),
             "service_type": "62",
             "place_of_service": "22",
+            **REQUIRED,  # the X12 codes PAS requires: a site's, Mendari ships none (LP-14)
         },
         headers=davinci,
     )
