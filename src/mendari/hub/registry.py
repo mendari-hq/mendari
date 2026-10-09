@@ -21,6 +21,14 @@
   the risk level it declares, the licence and summary). An uploaded card, benchmark or
   leaderboard is never shown: it stays in the signed archive, unread.
 - **Reads** (no token): packs, versions, archives, namespaces and their keys, and search.
+- **The chain.** Every write appends a hash-chained event in the same transaction
+  (`hub_events`: namespaces, publisher types, tokens, keys, publishes, site reports, reviews),
+  and `RegistryStore.verify` (`mendari registry verify`) checks the chain and that every row it
+  covers is named by its event. A registry created before the chain records what it held then
+  (`registry.chain_started`).
+- **Reviews.** A registry reviewer records the risk level a version's review found
+  (`POST …/review`, the admin token until reviewer accounts exist); until then the version's
+  risk level is shown as declared by the publisher.
 - **Tokens** are random, shown once, and stored as SHA-256. The admin token comes from
   `MENDARI_REGISTRY_ADMIN_TOKEN`; without it the admin routes are closed.
 
@@ -37,7 +45,8 @@ import os
 import re
 import secrets
 import tempfile
-from collections.abc import AsyncIterator, Mapping
+import unicodedata
+from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -46,10 +55,11 @@ from typing import Any, Literal
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 from pydantic_core import from_json, to_json
 
 from mendari import __version__
+from mendari.core.audit import GENESIS, _canonical, _chain_hash
 from mendari.core.db import Backend, Session, connect
 from mendari.core.pack import Pack
 from mendari.core.registry import version_key
@@ -118,6 +128,31 @@ CREATE TABLE IF NOT EXISTS hub_reports (
     submitted_by TEXT NOT NULL,
     created_at  TEXT NOT NULL,
     report      TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS hub_events (
+    seq         {serial},
+    subject     TEXT NOT NULL,
+    event       TEXT NOT NULL,
+    payload     TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    prev_hash   TEXT NOT NULL,
+    hash        TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS hub_reviews (
+    id          TEXT PRIMARY KEY,
+    namespace   TEXT NOT NULL,
+    name        TEXT NOT NULL,
+    version     TEXT NOT NULL,
+    digest      TEXT NOT NULL,
+    risk_level  INTEGER NOT NULL,
+    reviewer    TEXT NOT NULL,
+    note        TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    ordinal     INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS hub_meta (
+    key         TEXT PRIMARY KEY,
+    value       TEXT NOT NULL
 )
 """
 
@@ -130,14 +165,78 @@ def _sha(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+def token_id(token: str) -> str:
+    """How the chain names a token: the start of its SHA-256, never the token."""
+    return _sha(token)[:16]
+
+
+# The rows the chain covers, by kind: the table, and how a row is named in the chain.
+ROWS: dict[str, tuple[str, Callable[[Mapping[str, Any]], str]]] = {
+    "namespaces": ("hub_namespaces", lambda row: str(row["name"])),
+    "keys": ("hub_keys", lambda row: str(row["key_id"])),
+    "tokens": ("hub_tokens", lambda row: str(row["token_sha256"])[:16]),
+    "versions": (
+        "hub_versions",
+        lambda row: _pack_subject(row["namespace"], row["name"], row["version"]),
+    ),
+    "reports": ("hub_reports", lambda row: str(row["id"])),
+    "reviews": ("hub_reviews", lambda row: str(row["id"])),
+}
+
+
+def _row_sha(row: Mapping[str, Any]) -> str:
+    """A row as the chain holds it: the SHA-256 of its columns, canonical JSON."""
+    return hashlib.sha256(_canonical(dict(row)).encode()).hexdigest()
+
+
+def record_event(
+    db: Session,
+    event: str,
+    subject: str,
+    payload: Mapping[str, Any],
+    *,
+    row: tuple[str, str, tuple[Any, ...]] | None = None,
+) -> None:
+    """Append one chained event, in the caller's exclusive session (so with the write it
+    records, or not at all). Hashed as the audit chain is (`core/audit.py`). `row` is the row the
+    write left (its kind, and the clause and parameters that select it): the event holds its
+    hash, so `verify` finds any later change to it, its removal, or a row with no event."""
+    payload = dict(payload)
+    if row is not None:
+        kind, where, params = row
+        table, name = ROWS[kind]
+        written = db.one(f"SELECT * FROM {table} WHERE {where}", params)
+        assert written is not None, (kind, where)
+        payload["row"] = {"kind": kind, "key": name(written), "sha256": _row_sha(written)}
+    last = db.one("SELECT hash FROM hub_events ORDER BY seq DESC LIMIT 1")
+    prev = last["hash"] if last else GENESIS
+    body, created = _canonical(payload), _now_ms()
+    db.all(
+        "INSERT INTO hub_events (subject, event, payload, created_at, prev_hash, hash) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (subject, event, body, created, prev, _chain_hash(prev, subject, event, body, created)),
+    )
+
+
+def _now_ms() -> str:
+    return datetime.now(UTC).isoformat(timespec="milliseconds")
+
+
+def _pack_subject(namespace: str, name: str, version: str) -> str:
+    return f"{namespace}/{name}@{version}"
+
+
 class RegistryStore:
-    def __init__(self, target: str | Path, *, migrate_url: str | None = None):
+    def __init__(
+        self, target: str | Path, *, migrate_url: str | None = None, read_only: bool = False
+    ):
         self._db: Backend = connect(
             str(target),
             schema=SCHEMA,
-            migrate=_no_migration,
+            migrate=_migrate,
             lock_key=_LOCK,
             migrate_url=migrate_url,
+            read_only=read_only,
         )
 
     @property
@@ -155,7 +254,9 @@ class RegistryStore:
 
     # -- namespaces, keys, tokens -------------------------------------------------------------
 
-    def create_namespace(self, name: str, publisher_type: str, display_name: str) -> dict[str, Any]:
+    def create_namespace(
+        self, name: str, publisher_type: str, display_name: str, *, by: str = "admin"
+    ) -> dict[str, Any]:
         if not _NAME.match(name):
             raise HubError("a namespace is lowercase letters, digits and dashes")
         with self._db.session(exclusive=True) as db:
@@ -166,13 +267,30 @@ class RegistryStore:
                 "VALUES (?, ?, ?, ?)",
                 (name, publisher_type, display_name or name, _now()),
             )
+            record_event(
+                db,
+                "namespace.created",
+                f"namespace:{name}",
+                {"namespace": name, "publisher_type": publisher_type, "by": by},
+                row=("namespaces", "name = ?", (name,)),
+            )
         return self.namespace(name)
 
-    def set_publisher_type(self, name: str, publisher_type: str) -> dict[str, Any]:
+    def set_publisher_type(
+        self, name: str, publisher_type: str, *, by: str = "admin"
+    ) -> dict[str, Any]:
+        self.namespace(name)
         with self._db.session(exclusive=True) as db:
             db.all(
                 "UPDATE hub_namespaces SET publisher_type = ? WHERE name = ?",
                 (publisher_type, name),
+            )
+            record_event(
+                db,
+                "namespace.publisher_type_set",
+                f"namespace:{name}",
+                {"namespace": name, "publisher_type": publisher_type, "by": by},
+                row=("namespaces", "name = ?", (name,)),
             )
         return self.namespace(name)
 
@@ -188,7 +306,7 @@ class RegistryStore:
             )
         return {**row, "keys": keys}
 
-    def add_key(self, namespace: str, public_pem: str) -> str:
+    def add_key(self, namespace: str, public_pem: str, *, by: str = "admin") -> str:
         key = archive.load_public_key(public_pem.encode())
         key_id = archive.key_id(key)
         self.namespace(namespace)
@@ -202,15 +320,29 @@ class RegistryStore:
                     "VALUES (?, ?, ?, ?)",
                     (key_id, namespace, archive.public_pem(key).decode(), _now()),
                 )
+                record_event(
+                    db,
+                    "key.added",
+                    f"namespace:{namespace}",
+                    {"namespace": namespace, "key_id": key_id, "by": by},
+                    row=("keys", "key_id = ?", (key_id,)),
+                )
         return key_id
 
-    def issue_token(self, namespace: str) -> str:
+    def issue_token(self, namespace: str, *, by: str = "admin") -> str:
         self.namespace(namespace)
         token = "ohr_" + secrets.token_urlsafe(32)
         with self._db.session(exclusive=True) as db:
             db.all(
                 "INSERT INTO hub_tokens (token_sha256, namespace, created_at) VALUES (?, ?, ?)",
                 (_sha(token), namespace, _now()),
+            )
+            record_event(
+                db,
+                "token.issued",
+                f"namespace:{namespace}",
+                {"namespace": namespace, "token_id": token_id(token), "by": by},
+                row=("tokens", "token_sha256 = ?", (_sha(token),)),
             )
         return token
 
@@ -221,7 +353,9 @@ class RegistryStore:
 
     # -- packs ----------------------------------------------------------------------------------
 
-    def publish(self, namespace: str, name: str, version: str, data: bytes) -> dict[str, Any]:
+    def publish(
+        self, namespace: str, name: str, version: str, data: bytes, *, by: str = "admin"
+    ) -> dict[str, Any]:
         keys = {
             k["key_id"]: archive.load_public_key(k["public_pem"].encode())
             for k in self.namespace(namespace)["keys"]
@@ -282,6 +416,24 @@ class RegistryStore:
                     stored,
                 ),
             )
+            record_event(
+                db,
+                "pack.published",
+                _pack_subject(namespace, name, version),
+                {
+                    "pack": f"{namespace}/{name}",
+                    "version": version,
+                    "digest": metadata["digest"],
+                    "archive_sha256": verified.sha256,
+                    "key_id": verified.key_id,
+                    "by": by,
+                },
+                row=(
+                    "versions",
+                    "namespace = ? AND name = ? AND version = ?",
+                    (namespace, name, version),
+                ),
+            )
         return self.version(namespace, name, version)
 
     def versions(self, namespace: str, name: str) -> list[dict[str, Any]]:
@@ -289,7 +441,11 @@ class RegistryStore:
             rows = db.all(
                 "SELECT * FROM hub_versions WHERE namespace = ? AND name = ?", (namespace, name)
             )
-        return sorted((_version_row(r) for r in rows), key=lambda v: version_key(v["version"]))
+            reviews = _reviews(db, "WHERE namespace = ? AND name = ?", (namespace, name))
+        return sorted(
+            (_version_row(r, reviews.get(_key(r))) for r in rows),
+            key=lambda v: version_key(v["version"]),
+        )
 
     def version(self, namespace: str, name: str, version: str) -> dict[str, Any]:
         with self._db.session(exclusive=False) as db:
@@ -297,9 +453,14 @@ class RegistryStore:
                 "SELECT * FROM hub_versions WHERE namespace = ? AND name = ? AND version = ?",
                 (namespace, name, version),
             )
+            reviews = _reviews(
+                db,
+                "WHERE namespace = ? AND name = ? AND version = ?",
+                (namespace, name, version),
+            )
         if row is None:
             raise HubError(f"no pack {namespace}/{name}@{version}", 404)
-        return _version_row(row)
+        return _version_row(row, reviews.get(_key(row)))
 
     def archive(self, sha256: str) -> bytes:
         with self._db.session(exclusive=False) as db:
@@ -316,6 +477,8 @@ class RegistryStore:
         site: str,
         submitted_by: str,
         report: SiteReport,
+        *,
+        by: str = "admin",
     ) -> dict[str, Any]:
         """A site's evaluation of a published version (`mendari.site-report/1`, already
         validated: nothing in it but names and numbers)."""
@@ -358,6 +521,20 @@ class RegistryStore:
                     json.dumps(shared),
                 ),
             )
+            record_event(
+                db,
+                "report.shared",
+                _pack_subject(namespace, name, version),
+                {
+                    "report_id": report_id,
+                    "pack": f"{namespace}/{name}",
+                    "version": version,
+                    "site": site,
+                    "submitted_by": submitted_by,
+                    "by": by,
+                },
+                row=("reports", "id = ?", (report_id,)),
+            )
         return {"id": report_id, "site": site, "version": version, **summary(shared)}
 
     def reports(self, namespace: str, name: str) -> list[dict[str, Any]]:
@@ -382,17 +559,159 @@ class RegistryStore:
             listed.append({**{k: r[k] for k in shown}, "verified": False, **summary(shared)})
         return listed
 
+    def review(
+        self,
+        namespace: str,
+        name: str,
+        version: str,
+        *,
+        risk_level: int,
+        note: str,
+        reviewer: str,
+    ) -> dict[str, Any]:
+        """A registry reviewer's review of one version: the risk level the review found (which
+        may differ from the one the publisher declared) and a short note. The newest review of a
+        version is the one shown; each is chained."""
+        found = self.version(namespace, name, version)
+        review_id = secrets.token_hex(8)
+        with self._db.session(exclusive=True) as db:
+            ordinal = db.one("SELECT COALESCE(MAX(ordinal), 0) + 1 AS n FROM hub_reviews")
+            db.all(
+                "INSERT INTO hub_reviews (id, namespace, name, version, digest, risk_level, "
+                "reviewer, note, created_at, ordinal) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    review_id,
+                    namespace,
+                    name,
+                    version,
+                    found["digest"],
+                    risk_level,
+                    reviewer,
+                    note,
+                    _now_ms(),
+                    int(ordinal["n"]) if ordinal else 1,
+                ),
+            )
+            record_event(
+                db,
+                "pack.reviewed",
+                _pack_subject(namespace, name, version),
+                {
+                    "review_id": review_id,
+                    "pack": f"{namespace}/{name}",
+                    "version": version,
+                    "digest": found["digest"],
+                    "risk_level": risk_level,
+                    "declared_risk_level": found["claimed"]["risk"]["level"],
+                    "reviewer": reviewer,
+                    "note": note,
+                },
+                row=("reviews", "id = ?", (review_id,)),
+            )
+        return self.version(namespace, name, version)
+
+    def verify(self) -> dict[str, Any]:
+        """Check the chain and the rows it covers. Each event's hash and its order; then every
+        namespace, key, token, version, report and review must be the row its newest event
+        hashed (none changed, none removed, none without an event); every archive must hash to
+        its name and every version's archive be there; every key's id must be its key's. Rows a
+        registry held when its chain started (`registry.chain_started`) are hashed there. The
+        head (`head`, `events`) is what an outside copy compares, as the chain is unkeyed: a
+        writer of the database could rewrite it whole, and only a head kept elsewhere shows it."""
+        with self._db.session(exclusive=False) as db:
+            if not db.columns("hub_events"):
+                problem = "no chain yet: run `mendari registry serve` on this database once"
+                return _broken(None, problem, [], None)
+            events = db.all("SELECT * FROM hub_events ORDER BY seq")
+            rows = {kind: db.all(f"SELECT * FROM {table}") for kind, (table, _) in ROWS.items()}
+            archives = {
+                str(r["archive_sha256"]): hashlib.sha256(bytes(r["data"])).hexdigest()
+                for r in db.all("SELECT archive_sha256, data FROM hub_archives")
+            }
+            started = db.one("SELECT value FROM hub_meta WHERE key = 'chain'")
+        prev = GENESIS
+        chained: dict[tuple[str, str], str] = {}
+        for event in events:
+            seq = int(event["seq"])
+            if event["prev_hash"] != prev:
+                return _broken(seq, "an event is missing or out of order", events, prev)
+            digest = _chain_hash(
+                prev, event["subject"], event["event"], event["payload"], event["created_at"]
+            )
+            if digest != event["hash"]:
+                return _broken(seq, "an event was changed", events, prev)
+            prev = digest
+            payload = json.loads(event["payload"])
+            if event["event"] == "registry.chain_started":
+                if seq != int(events[0]["seq"]):
+                    return _broken(seq, "the chain was started again", events, prev)
+                for kind, held in payload["rows"].items():
+                    chained.update({(kind, key): sha for key, sha in held.items()})
+            elif isinstance(payload.get("row"), dict):
+                written = payload["row"]
+                chained[(written["kind"], written["key"])] = written["sha256"]
+        if started is not None and not events:
+            return _broken(None, "the chain was emptied", events, prev)
+        found = {
+            (kind, ROWS[kind][1](row)): _row_sha(row)
+            for kind, listed in rows.items()
+            for row in listed
+        }
+        for kind in ROWS:
+            mine = {key for (k, key) in found if k == kind}
+            named = {key for (k, key) in chained if k == kind}
+            if mine - named:
+                return _broken(
+                    None, f"{len(mine - named)} of the {kind} have no chained event", events, prev
+                )
+            if named - mine:
+                return _broken(
+                    None, f"{len(named - mine)} of the {kind} were removed", events, prev
+                )
+            changed = [key for key in mine if found[(kind, key)] != chained[(kind, key)]]
+            if changed:
+                return _broken(
+                    None,
+                    f"{len(changed)} of the {kind} changed since their chained event",
+                    events,
+                    prev,
+                )
+        if any(sha != data for sha, data in archives.items()):
+            return _broken(None, "an archive is not the bytes its name hashes", events, prev)
+        if any(str(v["archive_sha256"]) not in archives for v in rows["versions"]):
+            return _broken(None, "a version's archive is missing", events, prev)
+        for key in rows["keys"]:
+            try:
+                same = archive.key_id(archive.load_public_key(str(key["public_pem"]).encode()))
+            except HubError:
+                same = None
+            if same != key["key_id"]:
+                return _broken(None, "a key is not the key its id names", events, prev)
+        return {"ok": True, "seq": None, "problem": None, **_head(events, prev)}
+
+    def head(self) -> dict[str, Any]:
+        """The chain's head: how many events, and the last one's hash (published, so a copy kept
+        elsewhere can show the chain was not cut short or rewritten)."""
+        with self._db.session(exclusive=False) as db:
+            last = db.one("SELECT seq, hash FROM hub_events ORDER BY seq DESC LIMIT 1")
+            count = db.one("SELECT COUNT(*) AS n FROM hub_events")
+        return {
+            "events": int(count["n"]) if count else 0,
+            "head": last["hash"] if last else GENESIS,
+        }
+
     def latest(self) -> list[dict[str, Any]]:
         """The newest version of every pack, with its namespace's publisher type."""
         with self._db.session(exclusive=False) as db:
             rows = db.all("SELECT * FROM hub_versions")
+            reviews = _reviews(db, "", ())
             types = {
                 r["name"]: r["publisher_type"]
                 for r in db.all("SELECT name, publisher_type FROM hub_namespaces")
             }
         newest: dict[tuple[str, str], dict[str, Any]] = {}
         for row in rows:
-            item = _version_row(row)
+            item = _version_row(row, reviews.get(_key(row)))
             key = (row["namespace"], row["name"])
             if key not in newest or version_key(item["version"]) > version_key(
                 newest[key]["version"]
@@ -403,11 +722,49 @@ class RegistryStore:
         ]
 
 
-def _no_migration(_: Session) -> None:
-    """The registry's schema has had no change since its first release."""
+def _migrate(db: Session) -> None:
+    """New tables come from the schema (`CREATE TABLE IF NOT EXISTS`). The first time a registry
+    opens with a chain, it marks itself (`hub_meta`) and, if it held rows from before, hashes
+    them once in its first event (`registry.chain_started`). Marked, it never does again: a
+    chain emptied later is reported by `verify`, never started anew."""
+    if db.one("SELECT value FROM hub_meta WHERE key = 'chain'") is not None:
+        return
+    db.all("INSERT INTO hub_meta (key, value) VALUES ('chain', ?)", (_now_ms(),))
+    if db.one("SELECT seq FROM hub_events LIMIT 1") is not None:
+        return
+    held = {
+        kind: {name(row): _row_sha(row) for row in db.all(f"SELECT * FROM {table}")}
+        for kind, (table, name) in ROWS.items()
+    }
+    if any(held.values()):
+        record_event(db, "registry.chain_started", "registry", {"rows": held})
 
 
-def _version_row(row: Mapping[str, Any]) -> dict[str, Any]:
+def _broken(
+    seq: int | None, problem: str, events: list[dict[str, Any]], prev: str | None
+) -> dict[str, Any]:
+    return {"ok": False, "seq": seq, "problem": problem, **_head(events, prev)}
+
+
+def _head(events: list[dict[str, Any]], head: str | None) -> dict[str, Any]:
+    return {"events": len(events), "head": head}
+
+
+def _key(row: Mapping[str, Any]) -> tuple[str, str, str]:
+    return (row["namespace"], row["name"], row["version"])
+
+
+def _reviews(
+    db: Session, where: str, params: tuple[str, ...]
+) -> dict[tuple[str, str, str], dict[str, Any]]:
+    """The newest review of each version the clause selects."""
+    newest: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for row in db.all(f"SELECT * FROM hub_reviews {where} ORDER BY ordinal", params):
+        newest[_key(row)] = row
+    return newest
+
+
+def _version_row(row: Mapping[str, Any], review: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """A version as every read serves it: what was stored at publish, without anything the pack
     carried about itself (a version published before the registry rendered its own card stored
     the uploaded one, its benchmark and leaderboard), and the two groups (ADR-0012)."""
@@ -423,10 +780,34 @@ def _version_row(row: Mapping[str, Any]) -> dict[str, Any]:
         **{key: value for key, value in stored.items() if key not in UPLOADED},
         "card_markdown": stored.get("card_markdown") if rendered else None,
     }
-    return {**served, "checked": _checked(served, rendered), "claimed": _claimed(served)}
+    return {
+        **served,
+        "checked": _checked(served, rendered, review),
+        "claimed": _claimed(served, review),
+    }
 
 
-def _checked(version: Mapping[str, Any], rendered: bool) -> dict[str, Any]:
+def _review(version: Mapping[str, Any], review: Mapping[str, Any] | None) -> dict[str, Any]:
+    """A version's review status: `unreviewed`, or the newest review of exactly its digest."""
+    if review is None or review["digest"] != version.get("digest"):
+        return {"status": "unreviewed"}
+    declared = (version.get("risk") or {}).get("level")
+    return {
+        "status": "reviewed",
+        "risk_level": int(review["risk_level"]),
+        # None when the version records no declared level (one stored before it did).
+        "matches_declared": None
+        if not isinstance(declared, int)
+        else int(review["risk_level"]) == declared,
+        "reviewer": review["reviewer"],
+        "reviewed_at": review["created_at"],
+        "note": review["note"],
+    }
+
+
+def _checked(
+    version: Mapping[str, Any], rendered: bool, review: Mapping[str, Any] | None = None
+) -> dict[str, Any]:
     """What the registry verified or worked out itself, at publish."""
     return {
         # The archive's signature, by this key of the namespace's, over a manifest that lists
@@ -443,11 +824,11 @@ def _checked(version: Mapping[str, Any], rendered: bool) -> dict[str, Any]:
         "card": "rendered" if rendered else "not_rendered",
         # Derived by the code from the manifest's provenance: it only ever lowers a claim.
         "status_label": version.get("status_label"),
-        "review": {"status": "unreviewed"},
+        "review": _review(version, review),
     }
 
 
-def _claimed(version: Mapping[str, Any]) -> dict[str, Any]:
+def _claimed(version: Mapping[str, Any], review: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """What the publisher says about the pack, as its manifest says it: not checked."""
     risk = version.get("risk")
     risk = risk if isinstance(risk, dict) else {}
@@ -457,6 +838,8 @@ def _claimed(version: Mapping[str, Any]) -> dict[str, Any]:
             "level": risk.get("level"),
             "category": risk.get("category"),
             "declared_by": "publisher",
+            # Whether a registry review found the same level (None until one does).
+            "confirmed": _review(version, review).get("matches_declared"),
         },
         "license": version.get("license"),
         "summary": version.get("summary"),
@@ -583,6 +966,21 @@ class PublisherTypeRequest(BaseModel):
     publisher_type: PublisherType
 
 
+class ReviewRequest(BaseModel):
+    risk_level: int = Field(ge=0, le=4)
+    # Chained for good and shown on the Hub: a short line about the pack, never case text.
+    note: str = Field(default="", max_length=300)
+
+    @field_validator("note")
+    @classmethod
+    def _one_printable_line(cls, note: str) -> str:
+        """No control, format or separator character (C0, C1, bidirectional overrides, line and
+        paragraph separators): the note reads as the characters it holds."""
+        if any(unicodedata.category(c) in ("Cc", "Cf", "Zl", "Zp", "Co", "Cs") for c in note):
+            raise ValueError("a review note is one line of printable text")
+        return note
+
+
 class KeyRequest(BaseModel):
     public_pem: str = Field(min_length=40, max_length=2000)
 
@@ -634,6 +1032,20 @@ def create_registry_app(
         if not token or store.token_namespace(token) != namespace:
             raise HTTPException(403, f"a token for namespace {namespace!r} is required")
 
+    def actor(request: Request) -> str:
+        """Who a checked request acts as, as the chain names them: `admin`, or a token by its
+        id (`token:<id>`, never the token)."""
+        token = bearer(request)
+        if admin and token and hmac.compare_digest(token, admin):
+            return "admin"
+        return f"token:{token_id(token)}"
+
+    @app.get("/v1/chain/head")
+    def chain_head() -> dict[str, Any]:
+        """The chain's head (`events`, `head`): kept elsewhere, it shows a later chain was not cut
+        short or rewritten, which the unkeyed chain cannot show by itself."""
+        return store.head()
+
     @app.get("/v1/health")
     def health() -> dict[str, Any]:
         return {
@@ -646,25 +1058,27 @@ def create_registry_app(
     @app.post("/v1/namespaces", status_code=201)
     def create_namespace(request: Request, body: NamespaceRequest) -> dict[str, Any]:
         require_admin(request)
-        return store.create_namespace(body.name, body.publisher_type, body.display_name)
+        return store.create_namespace(
+            body.name, body.publisher_type, body.display_name, by=actor(request)
+        )
 
     @app.patch("/v1/namespaces/{namespace}")
     def verify_namespace(
         request: Request, namespace: str, body: PublisherTypeRequest
     ) -> dict[str, Any]:
         require_admin(request)
-        store.namespace(namespace)
-        return store.set_publisher_type(namespace, body.publisher_type)
+        return store.set_publisher_type(namespace, body.publisher_type, by=actor(request))
 
     @app.post("/v1/namespaces/{namespace}/tokens", status_code=201)
     def issue_token(request: Request, namespace: str) -> dict[str, str]:
         require_admin(request)
-        return {"namespace": namespace, "token": store.issue_token(namespace)}
+        return {"namespace": namespace, "token": store.issue_token(namespace, by=actor(request))}
 
     @app.post("/v1/namespaces/{namespace}/keys", status_code=201)
     def add_key(request: Request, namespace: str, body: KeyRequest) -> dict[str, str]:
         require_publisher(request, namespace)
-        return {"namespace": namespace, "key_id": store.add_key(namespace, body.public_pem)}
+        key_id = store.add_key(namespace, body.public_pem, by=actor(request))
+        return {"namespace": namespace, "key_id": key_id}
 
     @app.get("/v1/namespaces/{namespace}")
     def namespace(namespace: str) -> dict[str, Any]:
@@ -682,7 +1096,25 @@ def create_registry_app(
             body += chunk
             if len(body) > archive.MAX_ARCHIVE_BYTES:
                 raise HTTPException(413, "the archive is too large")
-        return store.publish(namespace, name, version, bytes(body))
+        return store.publish(namespace, name, version, bytes(body), by=actor(request))
+
+    @app.post("/v1/packs/{namespace}/{name}/{version}/review", status_code=201)
+    def review(
+        request: Request, namespace: str, name: str, version: str, body: ReviewRequest
+    ) -> dict[str, Any]:
+        """A registry reviewer records the risk level a version's review found, with a short
+        note (chained `pack.reviewed`). Until reviewer accounts exist (LP-19), the admin token
+        records it. The newest review of a version is the one shown."""
+        require_admin(request)
+        store.review(
+            namespace,
+            name,
+            version,
+            risk_level=body.risk_level,
+            note=body.note,
+            reviewer=actor(request),
+        )
+        return served(store.version(namespace, name, version))
 
     @app.get("/v1/packs/{namespace}/{name}")
     def pack(namespace: str, name: str) -> dict[str, Any]:
@@ -756,7 +1188,9 @@ def create_registry_app(
             shared = ReportRequest.model_validate(parsed)
         except ValidationError as error:
             raise RequestValidationError(error.errors()) from None
-        return store.add_report(namespace, name, version, shared.site, submitter, shared.report)
+        return store.add_report(
+            namespace, name, version, shared.site, submitter, shared.report, by=actor(request)
+        )
 
     @app.get("/v1/search")
     def search(

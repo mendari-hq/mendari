@@ -114,6 +114,14 @@ test("publisher text is shown as text: no script runs and no unsafe link is made
   await expect(card.locator("strong", { hasText: /^Clinically reviewed/ })).toHaveCount(0);
   await expect(card).toContainText("# Checked by the registry | Benchmark accuracy | 0.99 |");
   await expect(page.locator(".badge.community")).toHaveText("community publisher");
+  // The registry's review found a higher risk level than the publisher declared; its note is text.
+  const checked = page.getByRole("region", { name: "Checked by the registry" });
+  await expect(checked).toContainText(
+    /Reviewed by the registry on \d{4}-\d\d-\d\d: risk level 2 found, where the publisher declared 0\. Reads free text from patients <b>not<\/b> routing alone/,
+  );
+  await expect(page.getByRole("region", { name: "Claimed by the publisher" })).toContainText(
+    "declared by the publisher; the registry's review found level 2",
+  );
   expect(errors).toEqual([]);
 });
 

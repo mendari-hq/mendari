@@ -1266,7 +1266,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
 - [ ] **LP-18** A registry that shows only what it checked (ADR-0012, Proposed). Planned
   (2026-10-09) as eight PRs, each merged before the next; LP-16 is merged (16a to 16g). None
   changes what a pack decides on its own engine; 18d only lowers automation for pulled packs.
-  - [x] **18a** The card rendered by the registry and the two groups: `render_card(pack,
+  - [x] **18a** (#228, merged 2026-10-09) The card rendered by the registry and the two groups: `render_card(pack,
     report=, board=, rendered_by=)` takes its attestations as explicit inputs (default the
     pack's own, for `mendari card`); a publish stores `mendari.registry-version/2` metadata with
     the card rendered from the digested files (`rendered_by="registry"`: no validation figures,
@@ -1296,10 +1296,33 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     stands now; a changelog that is not UTF-8 is refused (422), tested. Left as is: the monitor
     still compares a pulled pack's live decisions with its uploaded benchmark (a reference for
     alerts, not a figure shown as checked).
-  - [ ] **18b** The registry's chain: every write appends a chained event (`hub_events`;
-    publish, report, namespace, publisher type, token, key), `mendari registry verify`; a
-    reviewer's review of a version (`POST …/review`, the admin token until LP-19's reviewers),
-    chained, shown in `checked.review`; `test_shipped.py`'s registry list emptied.
+  - [x] **18b** (PR open) The registry's chain: every write appends a chained event in its transaction
+    (`hub_events`, `record_event`, hashed as the audit chain is: `namespace.created`,
+    `namespace.publisher_type_set`, `token.issued` naming the token by its id, the start of its
+    SHA-256, `key.added`, `pack.published` with digest, archive and key, `report.shared`,
+    `pack.reviewed`), each naming who acted (`admin` or `token:<id>`); `mendari registry verify
+    --db` (read-only; exit 1 when broken) checks every hash and the order, and that every
+    namespace, key, token, version (with its published digest and archive), report and review
+    is named by its event, so a row written past the API is found; a registry with rows from
+    before the chain records them once (`registry.chain_started`). A review (`POST
+    …/{version}/review`, the admin token until LP-19's reviewers: the risk level found and a
+    one-line note) shows in `checked.review` (`reviewed`, the level, whether it matches) and
+    `claimed.risk.confirmed`; the newest is shown; the Hub says it in words, and `hub_seed.py
+    --hostile-example` records one that found a higher level. `test_shipped.py`: the registry's
+    seven writes chained, `NOT_CHAINED_YET` empty and its strict xfail gone. Adversarial
+    review (2 high, 3 medium, 6 low), all fixed but one low left as is: emptying the chain and
+    reopening the registry whitelisted planted rows (now `hub_meta` marks a registry once, and
+    an emptied chain is reported); `verify` checked only that rows were named, so a changed
+    publisher type, version metadata, review, report, token namespace or key, a removed row
+    and an archive's bytes went unseen (each event now holds its row's hash, rows must equal
+    their newest event's both ways, archives are re-hashed and keys' ids recomputed); the
+    unkeyed chain's limit is in ADR-0012, with its head published (`GET /v1/chain/head`,
+    printed by `verify`); the pre-chain record hashes reviews too; reviews ordered by a stored
+    ordinal; `matches_declared` null without a declared level; a note of printable characters
+    only (no C1, bidirectional or separator characters), 300 at most; `report.shared` names
+    who acted. Left: a review note is chained for good (an administrator's words about a pack;
+    the route says never case text). A signed head, as the audit chain has (LP-21k), is
+    for later.
   - [ ] **18c** Yank as a recall, and delete: a `mendari.yank/1` record with a reason and a
     severity, signed (by the namespace's key through `mendari yank`, or by the registry's
     `MENDARI_REGISTRY_SIGNING_KEY` for a recall the registry makes) and chained; a yanked

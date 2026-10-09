@@ -4,7 +4,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { ENGINE_WORDS, pack, REVIEW_WORDS, RISK_WORDS } from "@/lib/registry";
+import { ENGINE_WORDS, pack, reviewWords, RISK_WORDS, riskWords } from "@/lib/registry";
 
 export const dynamic = "force-dynamic";
 
@@ -64,7 +64,7 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
               ? "Rendered by the registry from the files the digest covers; the uploaded card is not shown"
               : "Not shown: published before the registry rendered cards"}
           </Item>
-          <Item term="Review">{REVIEW_WORDS[checked.review.status] ?? checked.review.status}</Item>
+          <Item term="Review">{reviewWords(checked.review, risk.level)}</Item>
           <Item term="Figures">None yet: the registry shows no figure it did not compute itself</Item>
         </dl>
       </section>
@@ -76,7 +76,7 @@ export default async function PackPage({ params }: { params: Promise<Params> }) 
           {claimed.publisher ? (
             <Item term="Publisher">{claimed.publisher.name} ({claimed.publisher.type}, self-declared)</Item>
           ) : null}
-          <Item term="Risk level">{risk.level}, {risk.category}: declared by the publisher, not confirmed by a review</Item>
+          <Item term="Risk level">{risk.level}, {risk.category}: {riskWords(risk, checked.review)}</Item>
           <Item term="Licence">{claimed.license}</Item>
           <Item term="Summary">{claimed.summary}</Item>
         </dl>

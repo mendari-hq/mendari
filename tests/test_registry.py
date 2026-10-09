@@ -500,6 +500,7 @@ def test_a_forged_card_benchmark_and_leaderboard_show_only_what_the_registry_ren
             "level": 2,
             "category": GUARD.manifest.risk.category,
             "declared_by": "publisher",
+            "confirmed": None,
         }
         assert version["checked"]["review"] == {"status": "unreviewed"}
         assert version["figures"]["benchmark"] is None
@@ -643,7 +644,12 @@ def test_every_version_answers_what_the_registry_checked_and_what_the_publisher_
                 "name": REFERRAL.manifest.publisher.name,
                 "type": REFERRAL.manifest.publisher.type,
             },
-            "risk": {"level": 1, "category": "clinical information", "declared_by": "publisher"},
+            "risk": {
+                "level": 1,
+                "category": "clinical information",
+                "declared_by": "publisher",
+                "confirmed": None,
+            },
             "license": REFERRAL.manifest.license,
             "summary": " ".join(REFERRAL.manifest.summary.split()),
         }

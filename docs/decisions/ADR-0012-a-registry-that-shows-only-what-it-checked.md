@@ -3,7 +3,8 @@
 ## Status
 Proposed (2026-10-09). Built in steps (LP-18, `tasks/todo.md`); each step adds what it built
 here, in the order they landed:
-- 18a, the card rendered by the registry and the two groups (checked, claimed).
+- 18a, the card rendered by the registry and the two groups (checked, claimed);
+- 18b, the registry's chain (`hub_events`, `mendari registry verify`) and reviews.
 
 The defaults below hold unless the owner chooses otherwise.
 
@@ -48,8 +49,24 @@ Nothing on a pack's page comes from the uploader unchecked.
      ever lowers what the pack claims, so it sits with the checks.
 3. **Review status (18a, 18b).** A version is `unreviewed` until a registry reviewer records a
    review (18b). Until then its risk level is shown as declared by the publisher, never as
-   recomputed or confirmed.
-4. **Versions published before.** They keep their stored metadata (versions are immutable),
+   recomputed or confirmed. A review records the risk level it found and a short note; the
+   publisher's declared level stays as declared, with `confirmed` true or false beside it, and
+   the newest review of a version is the one shown. Until LP-19's reviewer accounts the admin
+   token records reviews.
+4. **The chain (18b).** Every write (a namespace created, its publisher type set, a token
+   issued, a key added, a version published, a site report shared, a review) appends a
+   hash-chained event in the same transaction (`hub_events`, hashed as the audit chain is). A
+   token is named by the start of its SHA-256, never itself. Each event holds the hash of the
+   row its write left. `RegistryStore.verify` (`mendari registry verify`, read-only) checks
+   each event's hash and order, and that every namespace, key, token, version, report and
+   review is exactly the row its newest event hashed (none planted, changed or removed), that
+   every archive hashes to its name and is there, and that every key is the key its id names.
+   A registry that held rows before it had a chain hashes them once in its first event
+   (`registry.chain_started`); it then marks itself (`hub_meta`), so a chain emptied later is
+   reported, never started again. The chain is unkeyed: whoever can write the whole database
+   can rewrite it whole. Its head (`GET /v1/chain/head`: the event count and the last hash),
+   kept elsewhere, is what shows that; a signed head is for later.
+5. **Versions published before.** They keep their stored metadata (versions are immutable),
    but their uploaded card, benchmark and leaderboard are not served: `checked.card` says
    `not_rendered`, and publishing a new version renders one. Re-rendering on read would load a
    pack per request.

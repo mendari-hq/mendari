@@ -49,7 +49,7 @@ def namespace(http: httpx.Client, name: str, display_name: str, publisher_type: 
     return str(http.post(f"/v1/namespaces/{name}/tokens").raise_for_status().json()["token"])
 
 
-def hostile_example(registry: str, token: str) -> None:
+def hostile_example(registry: str, token: str, admin: str) -> None:
     """A copy of the inbox pack under another id whose summary, intended use and evidence carry
     a script tag, an image with an `onerror` handler, Markdown that would read as the registry's
     own words (a heading, a table, an image, a rule, a review claim) and a `javascript:` link."""
@@ -72,6 +72,14 @@ def hostile_example(registry: str, token: str) -> None:
             client.add_key(HOSTILE_ID.split("/")[0], public)
             published = client.push(load_pack(root), key)
     print(f"published {published['id']}@{published['version']}")
+    # A registry review that found a higher risk level than the pack declares (risk 0).
+    review = {"risk_level": 2, "note": "Reads free text from patients <b>not</b> routing alone"}
+    with httpx.Client(base_url=registry.rstrip("/"), timeout=60) as http:
+        http.post(
+            f"/v1/packs/{HOSTILE_ID}/1.0.0/review",
+            json=review,
+            headers={"authorization": f"Bearer {admin}"},
+        ).raise_for_status()
 
 
 def main() -> int:
@@ -113,7 +121,7 @@ def main() -> int:
             published = registry.push(pack, key)
             print(f"published {published['id']}@{published['version']}")
     if hostile is not None:
-        hostile_example(args.registry, hostile)
+        hostile_example(args.registry, hostile, admin)
     print(f"token {token}\nkey {key_id}")
     return 0
 
