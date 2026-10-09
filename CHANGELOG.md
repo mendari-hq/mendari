@@ -66,10 +66,22 @@ The first release (not yet published).
   endpoint reports, when well formed), as Jev's already did: on the decision, the audit
   record, `$decide`, the ledger and the report's `models`. Earlier `llm` and `vote` runs name
   the configured model there.
+- **Breaking, for the command line and self-hosted servers: no default LLM model.** An `llm`
+  variant asks the model it pins, else the deployment's `LLM_MODEL`; the built-in default (one
+  vendor's model) is gone, so `--provider x=llm` without `LLM_MODEL` no longer calls it. With
+  neither, the variant is `not_configured` before any call or budget use: a decision that needs
+  it goes to a person, never AUTO (HUMAN_REVIEW, or ABSTAIN to the manual fallback when the
+  variant answers the primary question), and inside `rules_and_llm` the keyword rules still
+  answer. An empty `LLM_MODEL` counts as unset, and `/api/health` reports
+  `llm.default_model` as null. `mendari calibrate` refuses in one line before it prints or asks
+  anything, and `mendari agreement` refuses when a variant it compares, or one of a composite's
+  members, cannot be called (the other member alone would have made two variants look equal).
+  The inbox pack is 0.4.2: a manifest comment named the default, so its digest changes.
 - **Coverage of a labelled set:** `mendari data coverage PACK --dataset X` (`mendari.coverage/1`)
-  counts a set's distinct cases (two inputs that differ only in case, spacing, punctuation or
-  Unicode form are one case, `norm/v1`), the distinct positives of each critical label, with a
-  warning under 100, duplicates whose labels disagree, and the language, source and stratum mix.
+  counts a set's distinct cases (two inputs that differ only in case, spacing, punctuation and
+  symbols, invisible characters, Unicode form or a whole number's spelling are one case,
+  `norm/v1`), the distinct positives of each critical label, with a warning under 100,
+  duplicates whose labels disagree, and the language, source and stratum mix.
   It prints counts, never a case's text. Its two canonical forms of an input are pinned, as the
   hidden evaluation sets (LP-11) and the pack store's upload check (LP-20) will use them.
 - **Rater agreement** (`mendari.agreement/1`, for LP-11's blind labelling): percent agreement as

@@ -270,6 +270,7 @@ def cmd_calibrate(args: argparse.Namespace) -> int:
     provider = build_provider(pack, args.slot, args.variant)
     if not isinstance(provider, LlmProvider):
         raise MendariError(f"{args.slot}/{args.variant} is not an llm variant")
+    provider.preflight()  # e.g. no model (there is no default): one line, before anything else
     dataset = resolve_dataset(pack, args.dataset)
     records = dataset.records[: args.limit] if args.limit else dataset.records
     print(f"asking {provider.model} about {len(records)} {dataset.name} records...")

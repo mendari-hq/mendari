@@ -197,9 +197,10 @@ def test_a_benchmark_of_the_same_version_is_never_called_an_earlier_one(tmp_path
     manifest = copy / "pack.yaml"
     changed = manifest.read_text().replace("summary: >-\n", "summary: >-\n  Changed.\n", 1)
     manifest.write_text(changed)
-    card = render_card(load_pack(copy))  # a new digest, the version unchanged
-    assert "This benchmark was measured on version 0.4.1 before its last change" in card
-    assert "earlier version 0.4.1" not in card
+    pack = load_pack(copy)
+    card = render_card(pack)  # a new digest, the version unchanged
+    assert f"This benchmark was measured on version {pack.version} before its last change" in card
+    assert f"earlier version {pack.version}" not in card
 
 
 def test_a_v1_subgroup_is_k_of_n_only_when_its_labelled_members_are_known() -> None:

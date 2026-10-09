@@ -4,6 +4,15 @@ Renamed on 2026-09-30, when the project became Mendari: this pack was `openhealt
 Its id, its publisher's name and its `https://mendari.co/...` identifiers changed; its criteria,
 rules, models, data and results did not.
 
+## 0.4.2
+
+- A comment in the manifest no longer names a default chat model: Mendari has none. The
+  `llm` and `rules_and_llm` variants ask the model `LLM_MODEL` names; without it the `llm`
+  member is `not_configured` and every decision goes to a person (the keyword rules still
+  answer inside `rules_and_llm`).
+- Criteria, rules, providers, policy, models and data are unchanged; every decision is identical.
+  The digest changes because the manifest does.
+
 ## 0.4.1
 
 - Every surface now says what the pack is: "Synthetic example. Not clinically reviewed. Not for

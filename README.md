@@ -1040,7 +1040,8 @@ uv run mendari data coverage mendari/ai-guard --dataset test
 `mendari leaderboard` compares provider configurations on the same records and publishes
 the result in `evals/leaderboard.json` and the Decision Card. Configurations whose credentials
 exist only on a deployment (such as Jev through Vercel Connect) run through the deployment's
-budgeted evaluation endpoint, and their reports are merged in with `--report`:
+budgeted evaluation endpoint, and their reports are merged in with `--report`. An `llm` run asks
+the model `LLM_MODEL` names (there is no default model):
 
 <!-- check: skip secrets: calls an LLM and a Vercel deployment with your credentials -->
 ```bash
@@ -1139,7 +1140,8 @@ Their policies automate only while the screen is the keyword rules plus a model
 routers ask Jev only when naive Bayes is unsure, and keep naive Bayes' answer when Jev cannot
 give one. The Clinical Trial Prescreener and AI Guard are not on the list: at risk
 level 2 automation rests on an approval of the configuration that runs, so name their readers
-yourself (`mendari/clinical-trial-prescreener:notes=jev`, `mendari/ai-guard:screen=rules_and_llm`).
+yourself (`mendari/clinical-trial-prescreener:notes=jev`, `mendari/ai-guard:screen=rules_and_llm`;
+an `llm` reader also needs `LLM_MODEL`, as there is no default model).
 
 - `MENDARI_PROVIDERS` decides every slot it applies to, e.g. `notes=rules` keeps the
   prior-auth notes on site (and its policy then automates nothing). `mendari serve --provider`
@@ -1180,7 +1182,7 @@ Ollama, vLLM or llama.cpp to run an open-source model on your own hardware inste
 
 | Variable | Purpose |
 |---|---|
-| `LLM_MODEL` | Default model for `llm` variants (default `anthropic/claude-sonnet-5`; a variant's `model` wins) |
+| `LLM_MODEL` | Model for `llm` variants that pin none (a variant's `model` wins). There is no default: without either, the variant is `not_configured` and its decisions go to a person |
 | `LLM_BASE_URL` | OpenAI-compatible endpoint instead of the AI Gateway, e.g. `http://localhost:11434/v1` |
 | `AI_GATEWAY_API_KEY` | Gateway key for local use (on Vercel, the OIDC token is used) |
 | `LLM_API_KEY` | Key for a non-gateway endpoint, if it needs one |
@@ -1188,6 +1190,11 @@ Ollama, vLLM or llama.cpp to run an open-source model on your own hardware inste
 
 As for Jev, these names are fixed, and an `llm` variant that names other variables
 (`base_url_env`, `api_key_env`, `local_key_env`, `model_env`) is refused at load.
+
+A calibration applies only to the model it was fitted on, so fit it on the model the
+deployment asks: the variant's `model`, else the project's `LLM_MODEL` (which `vercel env run`
+passes on). There is no default model; with neither, `mendari calibrate` refuses before it asks
+anything.
 
 <!-- check: skip secrets: needs your Vercel project and its credentials -->
 ```bash
@@ -1225,7 +1232,10 @@ FastAPI function: Vercel loads the root `app.py`, which serves `mendari.server.v
    variables. `MENDARI_PROVIDERS` changes any slot, for every pack or scoped to one
    (`mendari/ai-guard:screen=rules_and_llm`); a setting a pack cannot use is skipped and listed
    in `/api/health`. An unscoped setting, or a Jev default, never applies to a community pack:
-   only a setting that names it does.
+   only a setting that names it does. An `llm` setting also needs `LLM_MODEL`
+   ([LLMs](#llms-and-local-models)): there is no default model, and without it the `llm` member
+   fails as `not_configured`, so a `rules_and_llm` slot runs its rules alone and none of its
+   decisions is automated.
 4. Turn on sign-in for Production ([Sign-in for organizations](#sign-in-for-organizations);
    the project uses Google, set for Production only). Until the launch, also set Vercel
    Authentication to protect **all deployments**: previews run without sign-in, and the default
