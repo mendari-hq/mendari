@@ -3,7 +3,8 @@
 ## Status
 Proposed (2026-10-09). Built in steps (LP-11, `tasks/todo.md`, planned in
 `notes/lp11-plan.md`); each step adds what it built here, in the order they land:
-- 11a, one canonical form of a case's input and the coverage report over any JSONL file.
+- 11a, one canonical form of a case's input and the coverage report over any JSONL file;
+- 11c, the evaluation-set keys and sealing (`core/evalset_keys.py`), nothing stored yet.
 
 ## Context
 Every dataset Mendari has is a JSONL file tracked in git: 22 named in pack manifests and inside

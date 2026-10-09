@@ -935,8 +935,13 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     `verdict=block`, 30 distinct (recorded; `mendari.eval/2` unchanged).
   - [ ] **11b** Rater agreement statistics (pure): percent agreement with Clopper-Pearson,
     Cohen's kappa per rater pair, Krippendorff's nominal alpha, seeded percentile bootstrap.
-  - [ ] **11c** Evaluation-set keys and sealing, nothing stored yet (`MENDARI_EVALSET_KEY`,
-    `MENDARI_EVALSET_READ_KEYS`, `MENDARI_EVALSET_INDEX_KEY`; off unless both are set).
+  - [ ] **11c** (PR open) Evaluation-set keys and sealing, nothing stored yet
+    (`core/evalset_keys.py`: `MENDARI_EVALSET_KEY`, `MENDARI_EVALSET_READ_KEYS`,
+    `MENDARI_EVALSET_INDEX_KEY`; off unless both are set, malformed, half-set or reused keys
+    stop the server, which then needs sign-in and, on Vercel, Production). Every token names its
+    key and is bound to its kind, set, case and label; case and index hashes are keyed by the
+    index key. The PHI policy's sealing moved into `phi.seal_with` and `phi.open_with` with its
+    bytes unchanged (tokens sealed before still open). Health shows the key ids to readers.
   - [ ] **11d** Permissions: `label` (the `labeller` role, memberships mode), `curate`
     (people), and a machine-only grading key minted by `mendari access grader-key`.
   - [ ] **11e** Store I: sealed sets and cases, the hidden-case index, `audit verify --evalsets`

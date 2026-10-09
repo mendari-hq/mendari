@@ -57,6 +57,7 @@ from mendari.core.audit import (
 from mendari.core.card import benchmark, render_card
 from mendari.core.checkpoint import checkpoint_key, key_id, public_text
 from mendari.core.decision import CallBudget, Decision, QuotaReached
+from mendari.core.evalset_keys import evalset_keys, require_evalset_deployment
 from mendari.core.origin import is_local
 from mendari.core.pack import Pack
 from mendari.core.phi import phi_policy, require_protection
@@ -428,6 +429,11 @@ def create_app(
     launch = smart_options is not None  # a launch fetches the patient's record
     # and plaintext where it must not be: never with sign-in, never on the hosted site
     require_protection(phi, sign_in=sign_in is not None, launch=launch)
+    # Hidden evaluation sets (LP-11): off unless both keys are set; malformed, half-set or
+    # reused keys stop the server here, as does a set without sign-in or off Production.
+    evalsets = evalset_keys()
+    if evalsets is not None:
+        require_evalset_deployment(sign_in=sign_in is not None)
     retention_days = settings.retention_days()  # likewise
     status_org = settings.status_org()  # likewise
     cron_secret = os.environ.get("CRON_SECRET", "")  # the scheduled jobs' credential
@@ -926,6 +932,9 @@ def create_app(
             # Under `encrypt`, the ids of the PHI keys (never a key): the one that seals, and
             # those it only opens with (MENDARI_PHI_READ_KEYS, during a rotation).
             **({"phi_keys": phi.key_ids} if phi.mode == "encrypt" else {}),
+            # With hidden evaluation sets on (LP-11), the ids of their keys (never a key): the
+            # one that seals, those it only opens with, and the index key's.
+            **({"evalset_keys": evalsets.key_ids} if evalsets is not None else {}),
             # Kept inputs and notes are deleted after this many days (MENDARI_RETENTION_DAYS),
             # by `mendari phi purge` or, with CRON_SECRET set, the scheduled purge.
             "retention_days": retention_days,

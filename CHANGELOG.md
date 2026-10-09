@@ -77,6 +77,13 @@ The first release (not yet published).
   anything, and `mendari agreement` refuses when a variant it compares, or one of a composite's
   members, cannot be called (the other member alone would have made two variants look equal).
   The inbox pack is 0.4.2: a manifest comment named the default, so its digest changes.
+- **Hidden evaluation sets' keys** (LP-11, off unless set): `MENDARI_EVALSET_KEY` seals a set's
+  content (AES-256-GCM, each token naming its key and bound to its kind, set, case and label),
+  `MENDARI_EVALSET_INDEX_KEY` keys the hidden-case index and the chained case hashes, and
+  `MENDARI_EVALSET_READ_KEYS` opens during a rotation. A malformed, half-set or reused key, one
+  equal to any other key of the deployment, stops the server; with the keys, it needs sign-in
+  and, on Vercel, Production. Health shows their ids to those who may read. Nothing is stored
+  with them yet.
 - **Coverage of a labelled set:** `mendari data coverage PACK --dataset X` (`mendari.coverage/1`)
   counts a set's distinct cases (two inputs that differ only in case, spacing, punctuation and
   symbols, invisible characters, Unicode form or a whole number's spelling are one case,

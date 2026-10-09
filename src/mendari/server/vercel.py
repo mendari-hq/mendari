@@ -46,6 +46,10 @@ Configuration comes from the environment:
   leaves out (the status checks').
 - `MENDARI_CHECKPOINT_KEY` (32 bytes in base64): signs the daily checkpoint, published at
   `/api/audit/checkpoint` (LP-21k).
+- `MENDARI_EVALSET_KEY` and `MENDARI_EVALSET_INDEX_KEY` (32 bytes in base64 each, two different
+  keys; `MENDARI_EVALSET_READ_KEYS` during a rotation): turn on hidden evaluation sets (LP-11).
+  Production only, as Secret: the server refuses them on a Preview or Development deployment,
+  whose database copy then holds only ciphertext. Unset, the feature is off.
 - `MENDARI_ALERT_WEBHOOK` (where quota alerts go), `MENDARI_ALERT_FORMAT` (`mendari` or
   `slack`) and `MENDARI_ALERT_SECRET` (32 characters or more: signs every alert).
 - `LLM_MODEL`: the model for `llm` variants that pin none (an AI Gateway id,

@@ -943,7 +943,10 @@ API keys rotate with an overlap. Notes (review
 and rating notes, a payer's answer to a prior authorization) follow inputs: they are kept apart
 from the chain, which holds only a salted commitment to each, sealed under `encrypt` and refused
 under `hash`. Retention erases them too, `mendari notes erase` erases one at once, and
-`mendari audit verify --notes` checks the kept ones. Read
+`mendari audit verify --notes` checks the kept ones. Hidden evaluation sets (LP-11, being built)
+have keys of their own, unlike every other key: `MENDARI_EVALSET_KEY` and
+`MENDARI_EVALSET_INDEX_KEY`, set together for Production only, or not at all (the feature is then
+off). Read
 [`docs/deploying-with-phi.md`](https://github.com/mendari-hq/mendari/blob/main/docs/deploying-with-phi.md) before any real patient data.
 
 **Deployments.** Each server records which pack version it runs, with which providers, in
