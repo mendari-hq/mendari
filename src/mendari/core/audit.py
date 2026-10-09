@@ -3001,6 +3001,12 @@ class AuditStore:
                 raise AuthError("this key is revoked: create a new one", 409)
             if not row["expires_at"] or row["expires_at"] <= now:
                 raise AuthError("this key has expired: create a new one", 409)
+            if row["role"] == GRADING_ROLE:
+                raise AuthError(
+                    "a grading key is not rotated: the operator makes a new one (mendari access "
+                    "grader-key), then this one is revoked",
+                    409,
+                )
             if row["role"] not in MACHINE_ROLES:
                 raise AuthError(
                     f"this key's role, {row['role']}, is not one a key holds now: create a new one",

@@ -74,7 +74,11 @@ server is open, as before (production sits behind Vercel Authentication). When c
 | reviewer | read (inputs too, under PHI mode), decide, review, record outcomes, give feedback |
 | service (machines) | read, decide, record outcomes |
 | governance | read, approve automation |
-| admin | everything: evaluations, exports and (people only) API keys, members and invitations |
+| admin | the rest: evaluations, exports; people only: keys, members, invitations, `curate` |
+| labeller (people, memberships mode) | `label`: labelling hidden evaluation sets |
+| a grading key (the operator's, not a role a person holds) | `grade`, and nothing else |
+
+An administrator holds neither `label` nor `grade` (hidden evaluation sets, LP-11).
 | an EHR launch (`ehr`, not a role) | `launch`; registered to decide, also `launch_decide` |
 | any person, memberships mode | `person`: choose one, ask to join, accept an invitation |
 """
@@ -674,15 +678,16 @@ class OrganizationRequest(BaseModel):
 
 
 def _roles_field(**default: Any) -> Any:
-    """The roles a membership may be given: the server's, and `pack_author` and `labeller`
-    (which grant nothing yet), never `grading`. Each model checks them (`accounts.check_roles`:
-    sorted, each once, a 422 otherwise)."""
+    """The roles a membership may be given: the server's, `pack_author` (which grants nothing
+    yet) and `labeller` (`label` only, memberships mode), never `grading`. Each model checks them
+    (`accounts.check_roles`: sorted, each once, a 422 otherwise)."""
     return Field(
         **default,
         min_length=1,
         max_length=len(accounts.MEMBERSHIP_ROLES),
-        description="Roles: viewer, reviewer, service, governance, admin, and pack_author or "
-        "labeller (reserved: they grant nothing yet). Never grading.",
+        description="Roles: viewer, reviewer, service, governance, admin, pack_author (reserved: "
+        "grants nothing yet) and labeller (labels hidden evaluation sets: label only). Never "
+        "grading.",
     )
 
 
@@ -1663,8 +1668,8 @@ def add_membership_routes(app: FastAPI, auth: Auth) -> None:
         in with `email` verified, valid for `days` (7 unless asked, 30 at most). Mendari sends no
         e-mail: pass the `link` on yourself. Its token is in this response only (in `link`, a
         path on this site to put after its address), stored hashed. `grading` is never given,
-        and `pack_author` and `labeller` grant nothing yet. Recorded in the audit chain
-        (`invitation.created`, with a digest of the address)."""
+        `pack_author` grants nothing yet, and `labeller` grants `label` only. Recorded in the
+        audit chain (`invitation.created`, with a digest of the address)."""
         principal = auth.acting(request)
         made = store.create_invitation(
             org=org_of(principal),

@@ -183,7 +183,7 @@ def evalset_keys() -> EvalsetKeys | None:
 
 def require_evalset_deployment(*, sign_in: bool) -> None:
     """Refuse, at startup, a server with the evaluation-set keys where hidden sets must not be
-    served: without sign-in (open mode holds every permission), or on the hosted site outside
+    served: without sign-in (open mode's guard admits every route), or on the hosted site outside
     Production (`VERCEL` set, `VERCEL_ENV` not `production`: a Preview runs on a copy of the
     database, which must hold only ciphertext). A project that hides Vercel's system variables
     has no `VERCEL_ENV` (the root `app.py` sets `VERCEL` alone), so the keys are refused there

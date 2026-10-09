@@ -78,8 +78,8 @@ The first release (not yet published).
   members, cannot be called (the other member alone would have made two variants look equal).
   The inbox pack is 0.4.2: a manifest comment named the default, so its digest changes.
 - **Hidden evaluation sets' permissions** (LP-11; no route needs them yet): `label`, for a person
-  holding the `labeller` role on a membership (memberships mode only), who sees a page saying so
-  and nothing else; `curate`, for administrators who signed in, who no longer hold everything
+  holding the `labeller` role on a membership (memberships mode only; one holding no other role
+  sees a page saying so and nothing else); `curate`, for administrators who signed in, who no longer hold everything
   (neither labelling nor grading); and `grade`, held only by an organization's grading key,
   which only the operator makes (`mendari access grader-key`, at most 365 days, chained) and an
   administrator may revoke but not rotate. Open mode holds none of the three.

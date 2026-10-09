@@ -67,14 +67,14 @@ no pack, provider, count or record with sign-in on), the `/redoc` redirect, and
 it holds only `launch` (`GET /api/smart/patient`, `/focus`) and, registered to decide,
 `launch_decide` (`POST /api/smart/decide`), which nobody else holds (threat E7,
 [ADR-0006](../decisions/ADR-0006-an-ehr-launch-is-a-principal.md)); the dashboard page also
-opens for it, on the patient view alone. Machines are `viewer` or `service` only; managing keys and clients is for signed-in
+opens for it, on the patient view alone. Machines are `viewer` or `service` only (but an organization's grading key, which only the operator mints, LP-11); managing keys and clients is for signed-in
 people only. Without sign-in (open mode) every caller is an admin: that mode is for local use
 and the sandbox.
 
 ## What changed in Phases 4 and 4b
 
 **Phase 4, machine access** ([ADR-0004](../decisions/ADR-0004-machine-access-tokens-and-scopes.md)):
-- API keys (`ohk_`) are `viewer` or `service`, hashed, expire (90 days, 365 at most) and take
+- API keys (`ohk_`) are `viewer` or `service` (or an organization's grading key, `grading`, which only the operator mints), hashed, expire (90 days, 365 at most) and take
   scopes: SMART v2 `system/` reads and Mendari's decide and outcome URIs. An `Authorization`
   header decides alone, with no fallback to the cookie; no credential in a URL or a form.
 - SMART Backend Services, off by default: `POST /auth/token` takes an RS384 or ES384 client

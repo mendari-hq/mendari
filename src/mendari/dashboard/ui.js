@@ -306,14 +306,14 @@ export const MEMBERSHIP_ROLES = [
   { key: "reviewer", label: "Reviewer", text: "decides and reviews cases" },
   { key: "service", label: "Service", text: "decides and records outcomes, for a system" },
   { key: "governance", label: "Governance", text: "approves packs and holds automation" },
-  { key: "admin", label: "Administrator", text: "everything, and manages people" },
+  { key: "admin", label: "Administrator", text: "everything but labelling, and manages people" },
   { key: "pack_author", label: "Pack author", reserved: true },
   { key: "labeller", label: "Labeller", text: "labels the cases of hidden evaluation sets, blind" },
 ];
 
 export const roleName = (key) => MEMBERSHIP_ROLES.find((r) => r.key === key)?.label ?? key;
 
-// A machine's roles, the only ones an API key or a Backend Services client holds (core/audit.py
+// A machine's roles, the only ones an administrator gives an API key or a Backend Services client (core/audit.py
 // MACHINE_ROLES; a test keeps them equal), in the same words.
 export const MACHINE_ROLES = MEMBERSHIP_ROLES.filter((r) => ["viewer", "service"].includes(r.key));
 

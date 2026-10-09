@@ -68,7 +68,9 @@ def test_a_grading_key_needs_a_recorded_organization_where_there_are_some(
     with AuditStore(db) as store:
         store.create_organization(org="clinic-a", name="Clinic A", created_by="t")
     code, said = minted(capsys, db, "--org", "clinic-b")
-    assert code == 1 and "no organization clinic-b" in said
+    assert code == 1 and "create it first (mendari access org create)" in said
+    code, said = minted(capsys, db, "--org", "default")  # the owner's: made by the bootstrap
+    assert code == 1 and "create it first (mendari access bootstrap)" in said
     assert minted(capsys, db, "--org", "clinic-a")[0] == 0
 
 
@@ -113,7 +115,7 @@ def test_an_administrator_lists_and_revokes_it_but_never_rotates_or_mints_one(
     listed = {k["id"]: k for k in client.get("/api/auth/keys", headers=admin).json()}
     assert listed[key["id"]]["role"] == "grading" and "key" not in listed[key["id"]]
     rotated = client.post(f"/api/auth/keys/{key['id']}/rotate", json={}, headers=admin)
-    assert rotated.status_code == 409
+    assert rotated.status_code == 409 and "a grading key is not rotated" in rotated.json()["detail"]
     for body in ({"name": "g", "role": "grading"}, {"name": "l", "role": "labeller"}):
         assert client.post("/api/auth/keys", json=body, headers=admin).status_code == 422
     assert client.get("/api/audit", headers=bearer).status_code == 403  # it reads nothing

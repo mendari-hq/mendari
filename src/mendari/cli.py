@@ -882,12 +882,17 @@ def cmd_access_grader_key(args: argparse.Namespace) -> int:
     alone: no HTTP route mints one, and an administrator may list and revoke it, never rotate
     it. Chained (`key.created`, with the role, the organization and why); its secret is printed
     once, here, and kept nowhere."""
+    from mendari.core import accounts
+
     reason = _access_call(lambda: break_glass_reason(args.reason))
     store, shown = _access_store(args.db)
     if store.organizations() and store.organization(args.org) is None:
-        raise MendariError(
-            f"no organization {args.org} in {shown}: create it first (mendari access org create)"
+        how = (
+            "mendari access bootstrap"
+            if args.org == accounts.RESERVED_ORG
+            else "mendari access org create"
         )
+        raise MendariError(f"no organization {args.org} in {shown}: create it first ({how})")
     key = _access_call(
         lambda: store.create_grading_key(
             org=args.org, created_by=_command_line_actor(), reason=reason, days=args.days
