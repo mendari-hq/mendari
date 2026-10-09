@@ -10,7 +10,7 @@ import json
 import shutil
 import sqlite3
 from contextlib import closing
-from datetime import timedelta
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -30,7 +30,16 @@ from mendari.server.app import create_app
 from tests.conftest import INBOX_DIR, SCREENED, calm_jev, message
 from tests.test_llm import completion, install, pack_with_llm
 
-TODAY = clock.today().isoformat()
+# The day the tests run on, pinned (`pinned_day`): a run that crosses local midnight still
+# writes and reads one day.
+TODAY = "2026-10-08"
+
+
+@pytest.fixture(autouse=True)
+def pinned_day(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(clock, "today", lambda: date.fromisoformat(TODAY))
+
+
 JEV_CALL_USD = 100 / 1000 * PRICE_PER_1K_INPUT_TOKENS_USD  # calm_jev's 100 input tokens
 
 
@@ -63,7 +72,7 @@ def test_each_decision_s_remote_calls_are_counted_for_its_organization(
         assert rows(store, org="clinic-b")[0]["cost_usd"] == pytest.approx(JEV_CALL_USD)
         assert rows(store, since=TODAY, until=TODAY) == found
         assert rows(store, until="2000-01-01") == []
-        tomorrow = (clock.today() + timedelta(days=1)).isoformat()
+        tomorrow = (date.fromisoformat(TODAY) + timedelta(days=1)).isoformat()
         assert rows(store, since=tomorrow) == []
 
 

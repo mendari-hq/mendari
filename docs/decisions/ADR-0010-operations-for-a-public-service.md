@@ -19,6 +19,8 @@ here, in the order they landed:
   `mendari audit verify --against`; its hosted schedule waits for 21n);
 - 21h, evaluations' own quotas (`eval_jev`, `eval_llm` in `MENDARI_ORG_DAILY_LIMITS`, charged by
   `CallBudget.for_evaluation`, never the decisions' quotas);
+- 21i, the usage screen (the Access view's Usage tab, `GET /api/usage` for administrators,
+  `mendari usage` for the operator);
 - 21n, the hosted schedule (`vercel.json` runs the purge, the monitor and the checkpoint daily),
   merged with the owner's go-ahead.
 

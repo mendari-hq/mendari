@@ -10,8 +10,8 @@ The records are being built in steps (LP-12). This page covers the command line,
 records (`MENDARI_ACCOUNTS=memberships`) with the dashboard's access page and organization
 switcher, how an organization's administrators invite and manage their people in the
 dashboard's Access view or through the API, and the invitation page (`/invite`) a link opens.
-The same Access view holds an organization's API keys and Backend Services clients, in claims
-mode too (for an administrator who signed in). Claims mode never reads or writes the records.
+The same Access view holds an organization's API keys, Backend Services clients and usage, in
+claims mode too (for an administrator who signed in). Claims mode never reads or writes the records.
 
 ## The rules
 
@@ -192,8 +192,9 @@ organization's invitation, member or request is a `404`.
 
 The Access view has a tab for each list: **Members** (change roles, remove), **Invitations**
 (invite someone, revoke a link) and **Requests to join** (grant with the roles chosen, or
-refuse), then **API keys** and, with SMART Backend Services on, **Clients**. The last two are
-also an administrator's in claims mode, where they are the only tabs; open mode has no Access
+refuse), then **API keys**, with SMART Backend Services on **Clients**, and **Usage** (the
+organization's remote model calls and their cost over the last 30 days, LP-21i). The last three
+are also an administrator's in claims mode, where they are the only tabs; open mode has no Access
 view (the command line and the API remain). Changing roles, removing a member, revoking a link, and granting or refusing a request
 ask first, in a dialog that says what it does, and a refusal of one is said in that dialog, in
 words (removing or demoting the last administrator who signed in, say). Inviting makes a link at

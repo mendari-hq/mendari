@@ -550,6 +550,32 @@ def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="milliseconds")
 
 
+def usage_totals(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """The usage ledger's rows (`AuditStore.usage_ledger`) summed by provider type and purpose:
+    calls, priced calls, tokens, and the cost, None (unknown) unless every call was priced."""
+    totals: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in rows:
+        total = totals.setdefault(
+            (row["provider_type"], row["purpose"]),
+            {
+                "provider_type": row["provider_type"],
+                "purpose": row["purpose"],
+                "calls": 0,
+                "priced_calls": 0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "cost_usd": 0.0,
+            },
+        )
+        for count in ("calls", "priced_calls", "input_tokens", "output_tokens"):
+            total[count] += row[count]
+        cost = row["cost_usd"]
+        total["cost_usd"] = (
+            None if cost is None or total["cost_usd"] is None else (total["cost_usd"] + cost)
+        )
+    return [totals[key] for key in sorted(totals)]
+
+
 def _add_usage(db: _Session, org: str, purpose: str, usage: Mapping[str, Metered]) -> None:
     """Add remote calls (`providers.base.Metered` by provider type) to today's usage ledger
     rows of `org` and `purpose`, in the caller's transaction: providers never write."""

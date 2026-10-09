@@ -6,7 +6,9 @@
 // shown once, in a dialog, and never again; revoke) and its requests to join (grant with roles,
 // or refuse), in memberships mode only; its API keys (create from a preset or by hand, the key
 // shown once; rotate, revoke, history) and, with SMART Backend Services on, its clients
-// (register with a public key, replace its key set, revoke, history), in either accounts mode.
+// (register with a public key, replace its key set, revoke, history), in either accounts mode;
+// and its usage (the usage ledger, LP-21g): the remote model calls its decisions and evaluations
+// made over the last 30 days and what they cost, never a cost where a call was not priced.
 // Open mode has no view: its API acts for every organization. Someone who may use none of the
 // tabs never sees the view: the router asks `available()`, and no list is fetched. Every request
 // names the window's organization (`api`, ui.js). Names, addresses, organization names, scopes,
@@ -14,7 +16,7 @@
 
 import { views, wire } from "./router.js";
 import { tableHtml } from "./table.js";
-import { $, actionDialog, api, docsLink, emptyState, esc, icon, MACHINE_ROLES, may, MEMBERSHIP_ROLES, roleName, signedIn, state, time, toast, toastError, whileBusy } from "./ui.js";
+import { $, actionDialog, api, docsLink, emptyState, esc, icon, MACHINE_ROLES, may, MEMBERSHIP_ROLES, money, roleName, signedIn, state, time, toast, toastError, whileBusy } from "./ui.js";
 
 // An organization's people: memberships mode, an administrator who signed in. All three checks:
 // open mode's principal may do everything, `keys` included.
@@ -28,13 +30,15 @@ export const ADMIN_TABS = [
   { key: "requests", label: "Requests to join", shown: people, load: () => api("/api/auth/access-requests"), show: showRequests },
   { key: "keys", label: "API keys", shown: credentials, load: loadKeys, show: showKeys },
   { key: "clients", label: "Clients", shown: () => credentials() && Boolean(state.backendServices), load: loadClients, show: showClients },
+  { key: "usage", label: "Usage", shown: () => credentials() && may("admin"), load: () => api(`/api/usage?days=${USAGE_DAYS}`), show: showUsage },
 ];
+const USAGE_DAYS = 30;
 
 // What the tabs show; `names`: each member's name by their id (who made what), `you`: the
 // caller's own id (the members list marks it); `presets`: the key presets (the server's table).
 // Never a key's secret: it lives in its one-time dialog's input only.
 const adminState = {
-  members: [], invitations: [], requests: [], keys: [], clients: [], presets: [], names: new Map(), you: null,
+  members: [], invitations: [], requests: [], keys: [], clients: [], usage: null, presets: [], names: new Map(), you: null,
 };
 let wanted = null; // the tab the address names, kept while the lists load
 
@@ -1115,4 +1119,45 @@ async function showHistory(button, subject) {
   });
   document.body.append(dialog);
   dialog.showModal();
+}
+
+
+// -- usage (LP-21i) ------------------------------------------------------------------------------
+// The organization's remote model calls by provider and purpose over the days asked, then by
+// day, newest first: calls, how many were priced, tokens, and the cost, "unknown" unless every
+// call was priced (never a partial sum, never $0 for what was not priced).
+
+const PROVIDER_TEXT = { jev: "Jev", llm: "Language model" };
+const PURPOSE_TEXT = { decision: "Decisions", evaluation: "Evaluations" };
+const UNPRICED = "Some of these calls had no price: their provider gave none, or the call failed";
+const whole = (n) => esc(Number(n).toLocaleString("en-US"));
+const costHtml = (u) => (u.cost_usd === null ? `<span class="muted" title="${esc(UNPRICED)}">unknown</span>` : esc(money(u.cost_usd)));
+
+function usageColumns() {
+  return [
+    { key: "provider", label: "Provider", cell: (u) => esc(PROVIDER_TEXT[u.provider_type] ?? u.provider_type), sort: (u) => u.provider_type },
+    { key: "purpose", label: "For", cell: (u) => esc(PURPOSE_TEXT[u.purpose] ?? u.purpose), sort: (u) => u.purpose },
+    { key: "calls", label: "Calls", numeric: true, cell: (u) => whole(u.calls), sort: (u) => u.calls },
+    { key: "priced", label: "Priced", numeric: true, cell: (u) => whole(u.priced_calls), sort: (u) => u.priced_calls },
+    { key: "input", label: "Tokens in", numeric: true, cell: (u) => whole(u.input_tokens), sort: (u) => u.input_tokens },
+    { key: "output", label: "Tokens out", numeric: true, cell: (u) => whole(u.output_tokens), sort: (u) => u.output_tokens },
+    { key: "cost", label: "Cost", numeric: true, cell: costHtml, sort: (u) => u.cost_usd },
+  ];
+}
+
+function showUsage() {
+  const usage = adminState.usage ?? { rows: [], totals: [] };
+  const intro = `<p class="muted">The calls to Jev and language models${ofOrg()} from ${esc(usage.since ?? "")} to ${esc(usage.until ?? "")} (local days), for decisions and for evaluations. A cost shows only when every call was priced.</p>`;
+  if (!usage.rows.length) {
+    return intro + emptyState({ icon: "inbox", title: "No remote calls", text: "Decisions and evaluations that call Jev or a language model show here." });
+  }
+  const totals = tableHtml({ id: "usage-totals", caption: `Over the last ${USAGE_DAYS} days`, columns: usageColumns(), rows: usage.totals });
+  const days = tableHtml({
+    id: "usage-days",
+    caption: "By day, newest first",
+    columns: [{ key: "day", label: "Day", className: "nowrap", cell: (u) => esc(u.day), sort: (u) => u.day }, ...usageColumns()],
+    rows: usage.rows,
+    defaultCompare: (a, b) => b.day.localeCompare(a.day),
+  });
+  return intro + totals + days;
 }

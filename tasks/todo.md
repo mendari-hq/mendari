@@ -1185,7 +1185,9 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   - [x] **21h** (#203, merged 2026-10-08) Evaluations count against their organization: `eval_jev` and `eval_llm` in
     `MENDARI_ORG_DAILY_LIMITS` (unset: no limit), charged by `CallBudget.for_evaluation`, never
     the decisions' quotas; the quota alert says what an evaluation quota stops.
-  - [ ] **21i** `GET /api/usage`, the admins' usage screen and the operator's CLI.
+  - [x] **21i** (#216, merged 2026-10-08) `GET /api/usage` (administrators: their organization's ledger over `days`, 1 to
+    366, with totals by provider and purpose, a cost only where every call was priced), the
+    Access view's Usage tab, and `mendari usage --days --org` for the operator.
   - [x] **21j** (#202, merged 2026-10-08) Audit checkpoints and incremental verify: `audit_checkpoints` (seq, hash, when;
     outside the chain), `mendari audit checkpoint` (verify from the last, record the head),
     `mendari audit verify --since-checkpoint`; a full verification checks every checkpoint
