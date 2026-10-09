@@ -77,6 +77,13 @@ The first release (not yet published).
   anything, and `mendari agreement` refuses when a variant it compares, or one of a composite's
   members, cannot be called (the other member alone would have made two variants look equal).
   The inbox pack is 0.4.2: a manifest comment named the default, so its digest changes.
+- **Coverage of a labelled set:** `mendari data coverage PACK --dataset X` (`mendari.coverage/1`)
+  counts a set's distinct cases (two inputs that differ only in case, spacing, punctuation and
+  symbols, invisible characters, Unicode form or a whole number's spelling are one case,
+  `norm/v1`), the distinct positives of each critical label, with a warning under 100,
+  duplicates whose labels disagree, and the language, source and stratum mix.
+  It prints counts, never a case's text. Its two canonical forms of an input are pinned, as the
+  hidden evaluation sets (LP-11) and the pack store's upload check (LP-20) will use them.
 - **Dashboard** and REST API; sign-in through an organization's OpenID Connect provider; API
   keys by role. With sign-in on, the engine refuses to start under PHI mode `off`, set or left
   unset, everywhere (it warned outside Vercel): `off` is for a local sandbox without sign-in.

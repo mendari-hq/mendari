@@ -393,6 +393,22 @@ def cmd_leaderboard(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_data_coverage(args: argparse.Namespace) -> int:
+    """What a labelled set covers (`mendari.coverage/1`, LP-11): distinct cases and positives,
+    duplicates that disagree, and the language, source and stratum mix. Read-only."""
+    from mendari.evals import resolve_dataset
+    from mendari.evals.coverage import coverage, coverage_text
+
+    pack = resolve_pack(args.pack)
+    dataset = resolve_dataset(pack, args.dataset)
+    report = coverage(pack.manifest, dataset, pack=pack.ref, ids=args.ids)
+    if args.json:
+        _print_json(report)
+    else:
+        print(coverage_text(report))
+    return 0
+
+
 def cmd_card(args: argparse.Namespace) -> int:
     from mendari.core.card import render_card
 
@@ -1846,6 +1862,20 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="FILE",
         help="write the report --share sends to FILE, to read first (sends nothing)",
     )
+
+    data = sub.add_parser("data", help="labelled datasets").add_subparsers(
+        dest="data_command", required=True
+    )
+    data_coverage = data.add_parser(
+        "coverage", help="what a labelled set covers: distinct cases, positives and mix"
+    )
+    data_coverage.add_argument("pack", help="pack id (namespace/name[@version]) or directory")
+    data_coverage.add_argument("--dataset", required=True, help="pack dataset name or JSONL path")
+    data_coverage.add_argument("--json", action="store_true", help="print the JSON report")
+    data_coverage.add_argument(
+        "--ids", action="store_true", help="also list the ids of duplicate cases"
+    )
+    data_coverage.set_defaults(handler=cmd_data_coverage)
 
     train = pack_command("train", cmd_train, "train the pack's naive_bayes variants")
     train.add_argument("--slot", help="only this provider slot")

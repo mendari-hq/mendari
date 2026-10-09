@@ -50,8 +50,9 @@
 - **Audit** (`core/audit.py`): write-once decision records. Reviews and outcomes are appended
   as events, the hash chain is verifiable, and the store also serves the review queue and
   live statistics.
-- **Evals** (`evals/`): pure metrics, the harness, the local-vs-benchmark comparison, and the
-  pack behaviour tests.
+- **Evals** (`evals/`): pure metrics, the harness, the local-vs-benchmark comparison, the
+  pack behaviour tests, and what a labelled set covers (`coverage.py`, over one canonical form of
+  a case's input, `canonical.py`).
 - **Standards** (`standards/`): FHIR R4 mapping and `Task` output, CDS Hooks discovery and
   cards, the structural R4 check on FHIR inputs (`fhir_structure.py`, from HL7's R4 JSON
   Schema), US Core 6.1.0 checks on them (`us_core.py`, generated from the official packages),

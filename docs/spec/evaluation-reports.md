@@ -171,3 +171,40 @@ critical label with fewer than 100 positives, also says "insufficient evidence";
 Brier score is compared with a seeded paired bootstrap (2,000 resamples), outside the Holm family.
 The cases that changed are listed by ledger hash (and, on the command line, by id from the
 dataset X): critical detections first, then false automation, correctness and automation.
+
+## Coverage: `mendari.coverage/1`
+
+`mendari data coverage PACK --dataset NAME|FILE` says what a labelled set covers, for the pack
+whose questions it is labelled for, without running the pack (LP-11). It reads a pack's dataset
+or any JSONL file, and refuses one the pack cannot read as `mendari eval` does (by case id, never
+case text).
+
+Two cases are the same case when their inputs are, under one of two forms
+(`evals/canonical.py`, pinned byte for byte, and the forms the hidden-case index and the pack
+store's upload check use):
+
+- **exact**: the input's canonical JSON (sorted keys, no spaces, ASCII escapes);
+- **`norm/v1`**: the same, after every string value is folded (Unicode NFKC, case folded, NFKC
+  again; invisible format characters such as zero-width spaces removed; each run of characters
+  that are not letters, combining marks, digits or `_` made one space, trimmed) and every whole
+  number is written as an integer (57.0 is 57). Keys, booleans, null and the nesting are kept,
+  so "take 5 mg" and "take 50 mg" stay two cases. Punctuation and symbols are dropped, signs and
+  comparison symbols too: "eGFR < 30" and "eGFR > 30" are one case under it.
+
+The report counts duplicates under `norm/v1`, the stricter rule:
+
+| Field | What it holds |
+|---|---|
+| `cases` | The cases in the set. |
+| `distinct` | `{exact, normalised}`: how many distinct inputs under each form. |
+| `duplicate_groups`, `conflicting_groups` | Groups of two or more cases with one input, and how many of them give one question different labels. |
+| `questions` | Per question: how many cases are labelled, and per label `{cases, distinct}`. |
+| `critical` | Per critical label: `cases`, `distinct` (positives once duplicates are removed) and `insufficient`, true under 100 distinct positives. |
+| `mix` | The `language`, `source` and `stratum` of the cases, from their `attributes` (cut to 64 characters); a missing value is `unknown`, never inferred. |
+| `warnings` | A critical label under 100 distinct positives; duplicates that disagree. |
+| `duplicates` | Only with `--ids`: the case ids of each duplicate group, for a file a person holds. |
+
+It names labels, counts and attribute values, never a case's input. The evaluation report
+(`mendari.eval/2`) still counts every positive: AI Guard's test set has 164 `verdict=block`
+cases, 30 of them distinct.
+
