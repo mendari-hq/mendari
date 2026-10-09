@@ -1013,11 +1013,15 @@ pack) case by case from their ledgers: each figure in each run with its interval
 they differ, an exact McNemar test, Holm-adjusted, and the cases that changed.
 
 `mendari data coverage PACK --dataset X` says what a labelled set covers without running the
-pack: its distinct cases (duplicates are cases whose inputs differ only in case, spacing,
-punctuation or Unicode form), the distinct positives of each critical label, with a warning
-under 100, duplicates whose labels disagree, and the mix of languages, sources and strata. It
-prints counts, never a case's text (`--ids` lists duplicate ids):
+pack: its distinct cases, the distinct positives of each critical label, with a warning under
+100, duplicates whose labels disagree, and the mix of languages, sources and strata. Duplicates
+are cases whose inputs are equal once every string is NFKC-normalised and case folded,
+invisible characters are removed and each run of other characters than letters, marks, digits
+and `_` (punctuation, and symbols such as `<`, `>`, `+` and `%`) is one space (`norm/v1`), and
+whole numbers are written as integers. It prints counts, never a case's text (`--ids` lists
+duplicate ids):
 
+<!-- check: run cli -->
 ```bash
 uv run mendari data coverage mendari/ai-guard --dataset test
 ```

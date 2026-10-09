@@ -184,9 +184,12 @@ Two cases are the same case when their inputs are, under one of two forms
 store's upload check use):
 
 - **exact**: the input's canonical JSON (sorted keys, no spaces, ASCII escapes);
-- **`norm/v1`**: the same, after every string value is folded (Unicode NFKC, case folded, each
-  run of characters that are not letters, digits or `_` made one space, trimmed). Keys, numbers,
-  booleans, null and the nesting are kept, so "take 5 mg" and "take 50 mg" stay two cases.
+- **`norm/v1`**: the same, after every string value is folded (Unicode NFKC, case folded, NFKC
+  again; invisible format characters such as zero-width spaces removed; each run of characters
+  that are not letters, combining marks, digits or `_` made one space, trimmed) and every whole
+  number is written as an integer (57.0 is 57). Keys, booleans, null and the nesting are kept,
+  so "take 5 mg" and "take 50 mg" stay two cases. Punctuation and symbols are dropped, signs and
+  comparison symbols too: "eGFR < 30" and "eGFR > 30" are one case under it.
 
 The report counts duplicates under `norm/v1`, the stricter rule:
 

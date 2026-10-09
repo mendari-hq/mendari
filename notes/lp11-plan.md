@@ -617,6 +617,7 @@ Hidden data reaches the store only through the operator's command line, or throu
 52. (11l) Remote providers would send hidden case text off the server. Default: local providers only.
 53. (11m, 11n) The screens could be a tab in Access or a separate page. Default: two views inside the dashboard, `#labelling` and `#evalsets`. There is no standalone page, and no review screen is reused. The three tests that pin the Access tab lists stay unchanged.
 54. The prompt names `/api/audit/export`, which does not exist. Default: the sweep covers `/api/audit/export/fhir`, the administrative list and its export, and `mendari audit export [--administrative]`.
+55. (11a review; 11g, 11k) The set's coverage and agreement aggregates name stratum and language values, which planted marks would flag. Default: as for the set's name (conflict 38), the sweep allows stratum and language marks only in `curate` responses of the set's organization and in the key holder's command-line output (`evalset coverage`, `evalset show`); nowhere else, and never in a chain payload.
 
 ## Owner decisions still open
 

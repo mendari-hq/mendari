@@ -4,10 +4,11 @@ many of them are distinct, how many of each label and of each critical label onc
 removed, whether duplicates disagree, and the mix of languages, sources and strata.
 
 Duplicates are counted under the stricter rule, `norm/v1` (`evals.canonical.normalised_input`):
-two cases whose inputs differ only in case, spacing, punctuation or Unicode form are one case, as
-a model would see them. A critical label with fewer than `result.MIN_POSITIVES` distinct
-positives is `insufficient`, and a warning says so. The language, source and stratum are read
-from each case's `attributes`; one that is missing is counted as `unknown`, never inferred.
+two cases whose inputs differ only in case, spacing, punctuation and symbols, invisible
+characters, Unicode form or the spelling of a whole number are one case. A critical label with
+fewer than `result.MIN_POSITIVES` distinct positives is `insufficient`, and a warning says so.
+The language, source and stratum are read from each case's `attributes`; one that is missing is
+counted as `unknown`, never inferred.
 
 The report names labels, counts and attribute values, never a case's input. Duplicate case ids are
 listed only when asked (`ids=True`, for a public file a person holds)."""

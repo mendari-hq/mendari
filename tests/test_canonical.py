@@ -7,6 +7,9 @@ shows which one it is."""
 
 from __future__ import annotations
 
+import json
+import sys
+
 import pytest
 
 from mendari.errors import MendariError
@@ -89,8 +92,55 @@ def test_a_value_json_cannot_hold_is_refused_without_its_text() -> None:
             assert "secret" not in str(refused.value)
 
 
+def test_norm_v1_keeps_vowel_signs_and_accents_with_their_letters() -> None:
+    heart = chr(0x926) + chr(0x93F) + chr(0x932)  # Devanagari: one vowel sign apart
+    lentil = chr(0x926) + chr(0x93E) + chr(0x932)
+    assert fold(heart) != fold(lentil) and " " not in fold(heart)
+    no = chr(0xE44) + chr(0xE21) + chr(0xE48)  # Thai: one tone mark apart
+    wood = chr(0xE44) + chr(0xE21) + chr(0xE49)
+    assert fold(no) != fold(wood)
+    assert fold("I" + chr(0x307) + "stanbul") == fold(chr(0x130) + "stanbul")  # one word
+
+
+def test_norm_v1_drops_invisible_characters() -> None:
+    invisible = [chr(0x200B), chr(0xAD), chr(0x2060), chr(0x200D), chr(0x200E), chr(0xFEFF)]
+    for character in invisible:
+        assert fold("Ibu" + character + "profen") == "ibuprofen", hex(ord(character))
+    assert normalised_input({"t": chr(0xFEFF) + "take"}) == normalised_input({"t": "take"})
+
+
+def test_norm_v1_writes_whole_numbers_as_integers() -> None:
+    assert normalised_input({"age": 57.0}) == normalised_input({"age": 57}) == '{"age":57}'
+    assert normalised_input({"x": -0.0}) == normalised_input({"x": 0})
+    assert normalised_input({"x": 1e2}) == normalised_input({"x": 100})
+    assert normalised_input({"x": 57.5}) != normalised_input({"x": 57})
+    assert normalised_input({"flag": True}) != normalised_input({"flag": 1})
+    assert canonical_input({"age": 57.0}) != canonical_input({"age": 57})  # the strict form
+
+
+def test_norm_v1_drops_signs_and_comparison_symbols() -> None:
+    """Documented, not a slip: "ER+" and "ER-" are one case under norm/v1 (and "< 30" and
+    "> 30"), as every symbol and punctuation mark is a space."""
+    assert fold("ER+ breast") == fold("ER- breast") == "er breast"
+    assert fold("eGFR < 30") == fold("eGFR > 30") == "egfr 30"
+
+
+def test_fold_is_idempotent_on_every_character_of_the_basic_plane() -> None:
+    for code in range(0x10000):
+        if 0xD800 <= code <= 0xDFFF:
+            continue
+        once = fold("a" + chr(code) + "b")
+        assert fold(once) == once, hex(code)
+
+
 def test_a_deep_value_folds_without_recursion() -> None:
+    depth = sys.getrecursionlimit() + 100
     value: object = "Deep"
-    for _ in range(200):
+    for _ in range(depth):
         value = [value]
-    assert normalised_input({"t": value}) == '{"t":' + "[" * 200 + '"deep"' + "]" * 200 + "}"
+    try:
+        json.dumps({"t": value})
+    except RecursionError:
+        pytest.skip("this Python's JSON encoder recurses: such a value is refused as too deep")
+    expected = '{"t":' + "[" * depth + '"deep"' + "]" * depth + "}"
+    assert normalised_input({"t": value}) == expected

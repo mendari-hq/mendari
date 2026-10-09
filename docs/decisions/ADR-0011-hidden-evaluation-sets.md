@@ -6,9 +6,9 @@ Proposed (2026-10-09). Built in steps (LP-11, `tasks/todo.md`, planned in
 - 11a, one canonical form of a case's input and the coverage report over any JSONL file.
 
 ## Context
-Every dataset Mendari has is a JSONL file named in a pack's manifest, tracked in git and inside
-the pack's digest: all 27 are public, so none can measure a pack honestly once its author has
-seen it. LP-11 (vision audit, amending A8) asks for held-out sets that clinicians label blind,
+Every dataset Mendari has is a JSONL file tracked in git: 22 named in pack manifests and inside
+their digests, and 5 local-site examples under `datasets/`. All 27 are public, so none can
+measure a pack honestly once its author has seen it. LP-11 (vision audit, amending A8) asks for held-out sets that clinicians label blind,
 with measured agreement, that no route, export or log can leak, and that a later step (LP-17)
 grades packs against. Two things that look close are not it: `mendari agreement` compares two
 machine variants, and the review queue shows the model's answer and takes one resolution per
@@ -32,7 +32,8 @@ Without both, the feature is off: no evaluation-set route is mounted and no comm
 
 **One canonical form.** Two cases are the same case when their canonical inputs are equal:
 exactly (the ledger's canonical JSON) or under `norm/v1` (string values folded: NFKC, case
-folded, runs of non-word characters one space). The coverage report, the hidden-case index and
+folded, invisible characters removed, runs of characters other than letters, marks, digits and
+`_` one space; whole numbers written as integers). The coverage report, the hidden-case index and
 the pack store's upload check (LP-20) use the same functions (`evals/canonical.py`), pinned byte
 for byte; a change to `norm/v1` means a new version and reindexing from the sealed inputs.
 
@@ -46,14 +47,16 @@ the case's attributes, and labelling never reuses the review queue's screens.
 **Lifecycle.** A set is `draft` (mutable), `frozen` (immutable: a content hash over each case's
 id, canonical input and final labels, and the set's header, chained as a salted commitment at
 freeze), `active` (frozen and in use for grading) or `retired`. Only frozen or active sets
-grade. A set retires after a maximum number of grading runs or a maximum age, whichever comes
-first, both fixed at freeze. A signature on the commitment waits for LP-17's grading-key
+grade. A set stops grading after a maximum number of grading runs or a maximum age, whichever
+comes first, both fixed at freeze; the key holder then retires it. A signature on the commitment waits for LP-17's grading-key
 decision.
 
 **The chain.** Each label event chains a keyed hash of the case id and a salted commitment of
 the label values, with the labeller (by user id) and the time; the clear values stay sealed.
-Every opening of a case's input, attributes or labels is chained. `mendari audit verify
---evalsets` checks sealed rows against their chained commitments.
+Every opening of a case's input, attributes or labels by a labeller, or by sampling, measuring,
+freezing or grading, is chained. The key holder's `mendari audit verify --evalsets` (which
+checks sealed rows against their chained commitments) and rotation check open sealed rows and
+print counts only, chaining nothing; the sealed export copies ciphertext only.
 
 **Aggregates only.** No route returns frozen or active content to anyone: grading runs in the
 server and answers aggregates only (no per-case field, no missed ids), with local providers only

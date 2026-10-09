@@ -878,7 +878,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
   the hosted site while Vercel Authentication is on. Hand-written cases only until B20.
 
   Planned by a mapping workflow (2026-10-09) as fifteen PRs, each safe alone, the feature off
-  without both keys; the full plan, its 54 conflicts with the default each PR follows, and the
+  without both keys; the full plan, its 55 conflicts with the default each PR follows, and the
   risks are in `notes/lp11-plan.md`. Guards come first: keys, permissions and a generated
   no-leak sweep land before any evaluation-set route exists.
   - [ ] **11a** (PR open) One canonical form of a case's input (`evals/canonical.py`: the strict
