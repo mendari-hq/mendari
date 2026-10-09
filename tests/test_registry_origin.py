@@ -182,3 +182,59 @@ def test_the_command_line_decides_a_pulled_pack_capped_unless_its_trail_approved
     )
     assert main([*args, "--db", str(tmp_path / "engine.db")]) == 0
     assert json.loads(capsys.readouterr().out)["outcome"] == "AUTO"
+
+
+def test_an_unapproved_pulled_packs_own_block_goes_to_a_person(tmp_path: Path) -> None:
+    """The LP-18d review: its own rule's BLOCK is final and seen by nobody, so before approval
+    (or while recalled) a person decides instead; approved, its rule blocks as written."""
+    from tests.test_registry_engine import BLOCK_RULE
+
+    def blocks(manifest: dict[str, Any]) -> None:
+        manifest["policy"]["rules"] = [BLOCK_RULE]
+
+    pack = outside_sorter(tmp_path, manifest=blocks)
+    held = Decision(pack).decide(BILL)
+    assert held.outcome is Outcome.HUMAN_REVIEW
+    assert any("a person decides instead of its rule's BLOCK" in r for r in held.reasons)
+    approved = Decision(pack, origin_approval=lambda _: True).decide(BILL)
+    assert approved.outcome is Outcome.BLOCK
+
+
+def test_risk_level_4_never_automates_even_approved(tmp_path: Path) -> None:
+    pack = outside_sorter(tmp_path, manifest=_risk(4))
+    decided = Decision(pack, governance=GOVERNANCE, origin_approval=lambda _: True).decide(BILL)
+    assert decided.outcome is Outcome.HUMAN_REVIEW
+
+
+def test_an_approval_is_one_organizations_and_one_a_digest(tmp_path: Path) -> None:
+    from mendari.core import tenancy
+    from mendari.errors import ReviewError
+    from mendari.server.auth import permission_for
+
+    store = AuditStore(tmp_path / "a.db")
+    approval = {
+        "pack_id": "someone/visit-sorter",
+        "pack_digest": "sha256:" + "1" * 64,
+        "registry": "https://hub.example.org",
+        "approver": "a",
+        "reference": "r",
+    }
+    with tenancy.acting_for("org-a"):
+        made = store.approve_registry_pack(**approval)
+        with pytest.raises(ReviewError, match="approved already"):
+            store.approve_registry_pack(**approval)
+    with tenancy.acting_for("org-b"):
+        assert store.registry_approval(approval["pack_id"], approval["pack_digest"]) is None
+        assert store.revoke_registry_approval(made["id"], revoked_by="b") is False
+    with tenancy.acting_for("org-a"):
+        assert store.registry_approval(approval["pack_id"], approval["pack_digest"]) is not None
+    assert permission_for("POST", "/api/registry-approvals") == "approve"
+    assert permission_for("DELETE", "/api/registry-approvals/x") == "approve"
+
+
+def test_the_marker_never_records_a_registrys_credentials() -> None:
+    from mendari.hub.client import _shown_url
+
+    assert _shown_url("https://user:secret@hub.example.org:8443/base?token=t#x") == (
+        "https://hub.example.org:8443/base"
+    )

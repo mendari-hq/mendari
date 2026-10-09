@@ -296,7 +296,7 @@ def _write_origin(
     recall the registry served for it at this pull, if any. Written whole, then moved in."""
     record = {
         "format": ORIGIN_FORMAT,
-        "registry": client.url,
+        "registry": _shown_url(client.url),
         "namespace": namespace,
         "publisher_type": meta.get("publisher_type"),
         "key_id": meta.get("key_id"),
@@ -308,6 +308,17 @@ def _write_origin(
     staged = root / f"{MARKER}.new"
     staged.write_text(json.dumps(record, sort_keys=True) + "\n", encoding="utf-8")
     staged.replace(root / MARKER)
+
+
+def _shown_url(url: str) -> str:
+    """A registry's URL as the marker records it: scheme, host, port and path, never a user,
+    password, query or fragment."""
+    from urllib.parse import urlsplit, urlunsplit
+
+    parts = urlsplit(url)
+    host = parts.hostname or ""
+    netloc = f"{host}:{parts.port}" if parts.port else host
+    return urlunsplit((parts.scheme, netloc, parts.path, "", ""))
 
 
 def recall_of(meta: Mapping[str, Any], client: RegistryClient, pack: Pack) -> dict[str, Any] | None:

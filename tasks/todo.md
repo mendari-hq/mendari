@@ -1369,7 +1369,15 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     (administrative kinds, FHIR AuditEvent, security log). `mendari decide --db` honours the
     trail's approvals and is capped without one; `mendari test`, `eval` and `leaderboard --run`
     check the pack's own policy (`origin_cap=False`), and `mendari pull` says what serving it
-    needs.
+    needs. Adversarial review (3 medium, 7 low), fixed: an unapproved or recalled pack's own
+    rule's BLOCK still acted alone (now `apply_policy(blocks_to_person=…)` sends it to a person,
+    as for community packs); the server's evaluation route measured the capped pack, the CLI the
+    pack's own policy (now both the pack's own); a recall issued after the last pull reaches a
+    server only in 18e (the ADR says so); the recall's severity in reasons is one of the four
+    (else `unknown`); the marker keeps the registry's URL without user, password or query; the
+    memberships preflight counts registry approvals; one live approval a digest (409); the ADR
+    says approvals do not expire and library callers are capped; tests for cross-organization
+    approvals, risk 4 and the permission.
   - [ ] **18e** A running server honours a yank: the packs it serves from a registry are
     checked against their registry's yank records on a schedule, and a yanked one (or one no
     check reached for too long) stops automating.

@@ -1473,6 +1473,9 @@ def create_app(
             providers={**chosen, **asked},
             budget=None if budget is None else budget.for_evaluation(),
             deadline_s=deadline_s,  # each of its decisions has the deployment's deadline
+            # An evaluation measures the pack's own policy, as `mendari eval` does: a pack from
+            # a registry is capped only where it is served (LP-18d).
+            origin_cap=False,
         )
         dataset = dataset_for(pack, request.dataset)
         if decision.is_remote:

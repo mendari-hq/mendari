@@ -86,11 +86,16 @@ Nothing on a pack's page comes from the uploader unchecked.
    SHA-256 alone). Served, a pack from a registry never automates until its organization
    approves its exact digest (`registry_approvals`, `POST`/`DELETE /api/registry-approvals`,
    the `approve` permission, chained `registry_pack.approved` and `.revoked`), at any risk
-   level (2 and 3 need their governance approval too), and never while recalled: AUTO becomes
-   HUMAN_REVIEW, as under a hold. The cap follows the origin, not the bytes: a pulled copy of a
-   reference pack is capped too, and no field of the pack lifts it. `mendari test`, `mendari
-   eval` and `leaderboard --run` check the pack's own policy (`origin_cap=False`); a server and
-   `mendari decide` never do.
+   level (2 and 3 need their governance approval too), and never while a recall is known
+   (the one its last pull recorded; a running server checks its registry, 18e): AUTO becomes
+   HUMAN_REVIEW, as under a hold, and the pack's own rule's BLOCK goes to a person too (final at
+   once, it would act alone). The cap follows the origin, not the bytes: a pulled copy of a
+   reference pack is capped too, and no field of the pack lifts it. One live approval a digest
+   (a second is refused, so revoking stops automation at once); an approval lasts until
+   revoked, since it names one digest. `mendari test`, `mendari eval`, `leaderboard --run` and
+   the server's evaluation route check the pack's own policy (`origin_cap=False`); a server and
+   `mendari decide` never do. A library caller (`Decision.from_hub`) is capped unless it passes
+   `origin_approval`.
 7. **Versions published before.** They keep their stored metadata (versions are immutable),
    but their uploaded card, benchmark and leaderboard are not served: `checked.card` says
    `not_rendered`, and publishing a new version renders one. Re-rendering on read would load a

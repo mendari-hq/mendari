@@ -545,7 +545,7 @@ def test_a_registry_pack_is_never_a_community_pack(
         manifest["policy"]["rules"] = [BLOCK_RULE]
 
     blocking = outside_sorter(tmp_path / "blocking", manifest=blocks)
-    assert Decision(blocking).decide(BILL).outcome is Outcome.BLOCK
+    assert Decision(blocking, origin_approval=lambda _: True).decide(BILL).outcome is Outcome.BLOCK
 
 
 def test_discover_lists_a_refused_registry_pack_and_serves_the_others(tmp_path: Path) -> None:

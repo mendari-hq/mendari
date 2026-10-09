@@ -281,7 +281,9 @@ class Decision:
             held.append(UNAPPROVED)
         recall = self.pack.pulled.get("yank")
         if isinstance(recall, Mapping):
-            held.append(f"recalled by its registry ({recall.get('severity', 'unknown')})")
+            severity = recall.get("severity")
+            known = severity if severity in ("low", "medium", "high", "critical") else "unknown"
+            held.append(f"recalled by its registry ({known})")
         return held
 
     @classmethod
@@ -474,7 +476,8 @@ class Decision:
                 complete_answers(manifest, answers, failures)
                 variants = {slot: info.variant for slot, info in self.provider_info.items()}
                 hold = self.hold_source(self.pack) if self.hold_source is not None else None
-                hold = "; ".join(filter(None, [*self._origin_holds(), hold])) or None
+                origin_holds = self._origin_holds()
+                hold = "; ".join(filter(None, [*origin_holds, hold])) or None
                 if over_quota is not None:
                     hold = "; ".join(
                         filter(None, ["this organization's daily decisions quota is used up", hold])
@@ -487,6 +490,7 @@ class Decision:
                     variants,
                     community=self.pack.community,
                     hold=hold,
+                    blocks_to_person="; ".join(origin_holds) or None,
                 )
                 primary = manifest.questions[manifest.policy.primary]
                 if primary.derive is not None:

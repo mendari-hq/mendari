@@ -2959,6 +2959,13 @@ class AuditStore:
             "created_at": _now(),
         }
         with self._db.session(exclusive=True) as db:
+            if db.one(
+                "SELECT id FROM registry_approvals WHERE org = ? AND pack_id = ? "
+                "AND pack_digest = ? AND revoked_at IS NULL",
+                (approval["org"], pack_id, pack_digest),
+            ):
+                # One live approval a digest, so revoking it stops automation at once.
+                raise ReviewError("this digest is approved already: revoke that approval first")
             db.all(
                 "INSERT INTO registry_approvals (id, org, pack_id, pack_digest, registry, "
                 "approver, reference, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -4454,6 +4461,7 @@ class AuditStore:
             ("api_keys", "org", "revoked_at IS NULL"),
             ("oauth_clients", "org", "revoked_at IS NULL"),
             ("governance_approvals", "org", "revoked_at IS NULL"),
+            ("registry_approvals", "org", "revoked_at IS NULL"),
             ("automation_holds", "org", "lifted_at IS NULL"),
             ("decisions", default, "1 = 1"),
             ("eval_reports", default, "1 = 1"),
