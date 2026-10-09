@@ -1266,7 +1266,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
 - [ ] **LP-18** A registry that shows only what it checked (ADR-0012, Proposed). Planned
   (2026-10-09) as eight PRs, each merged before the next; LP-16 is merged (16a to 16g). None
   changes what a pack decides on its own engine; 18d only lowers automation for pulled packs.
-  - [x] **18a** The card rendered by the registry and the two groups: `render_card(pack,
+  - [x] **18a** (#228, merged 2026-10-09) The card rendered by the registry and the two groups: `render_card(pack,
     report=, board=, rendered_by=)` takes its attestations as explicit inputs (default the
     pack's own, for `mendari card`); a publish stores `mendari.registry-version/2` metadata with
     the card rendered from the digested files (`rendered_by="registry"`: no validation figures,
@@ -1296,7 +1296,7 @@ pushes none), so the first published images wait on the item below; the PyPI rel
     stands now; a changelog that is not UTF-8 is refused (422), tested. Left as is: the monitor
     still compares a pulled pack's live decisions with its uploaded benchmark (a reference for
     alerts, not a figure shown as checked).
-  - [x] **18b** The registry's chain: every write appends a chained event in its transaction
+  - [x] **18b** (PR open) The registry's chain: every write appends a chained event in its transaction
     (`hub_events`, `record_event`, hashed as the audit chain is: `namespace.created`,
     `namespace.publisher_type_set`, `token.issued` naming the token by its id, the start of its
     SHA-256, `key.added`, `pack.published` with digest, archive and key, `report.shared`,
